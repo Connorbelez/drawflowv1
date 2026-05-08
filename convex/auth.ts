@@ -1,8 +1,8 @@
-import { AuthKit } from '@convex-dev/workos-authkit'
-import { components } from './_generated/api'
-import type { DataModel } from './_generated/dataModel'
+import { AuthKit } from "@convex-dev/workos-authkit";
+import { components } from "./_generated/api";
+import type { DataModel } from "./_generated/dataModel";
 
-export const authKit = new AuthKit<DataModel>(components.workOSAuthKit)
+export const authKit = new AuthKit<DataModel>(components.workOSAuthKit);
 
 // // convex/auth.ts
 // import { AuthKit, type AuthFunctions } from "@convex-dev/workos-authkit";
@@ -50,7 +50,7 @@ export const { authKitEvent } = authKit.events({
   },
 
   // Handle any event type
-  "session.created": async (ctx, event) => {
+  "session.created": (_ctx, event) => {
     console.log("onCreateSession", event);
   },
 });

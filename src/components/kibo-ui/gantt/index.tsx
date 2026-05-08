@@ -449,7 +449,7 @@ export const GanttHeader: FC<GanttHeaderProps> = ({ className }) => {
   return (
     <div
       className={cn(
-        "-space-x-px flex h-full w-max divide-x divide-border/50",
+        "flex h-full w-max -space-x-px divide-x divide-border/50",
         className
       )}
     >
@@ -731,7 +731,7 @@ export const GanttCreateMarkerTrigger: FC<GanttCreateMarkerTriggerProps> = ({
       ref={mouseRef}
     >
       <div
-        className="-ml-2 pointer-events-auto sticky top-6 z-20 flex w-4 flex-col items-center justify-center gap-1 overflow-visible opacity-0 group-hover:opacity-100"
+        className="pointer-events-auto sticky top-6 z-20 -ml-2 flex w-4 flex-col items-center justify-center gap-1 overflow-visible opacity-0 group-hover:opacity-100"
         style={{ transform: `translateX(${x}px)` }}
       >
         <button
@@ -772,7 +772,7 @@ export const GanttFeatureDragHelper: FC<GanttFeatureDragHelperProps> = ({
   return (
     <div
       className={cn(
-        "group -translate-y-1/2 !cursor-col-resize absolute top-1/2 z-[3] h-full w-6 rounded-md outline-none",
+        "group !cursor-col-resize absolute top-1/2 z-[3] h-full w-6 -translate-y-1/2 rounded-md outline-none",
         direction === "left" ? "-left-2.5" : "-right-2.5"
       )}
       ref={setNodeRef}
@@ -781,7 +781,7 @@ export const GanttFeatureDragHelper: FC<GanttFeatureDragHelperProps> = ({
     >
       <div
         className={cn(
-          "-translate-y-1/2 absolute top-1/2 h-[80%] w-1 rounded-sm bg-muted-foreground opacity-0 transition-all",
+          "absolute top-1/2 h-[80%] w-1 -translate-y-1/2 rounded-sm bg-muted-foreground opacity-0 transition-all",
           direction === "left" ? "left-2.5" : "right-2.5",
           direction === "left" ? "group-hover:left-0" : "group-hover:right-0",
           isPressed && (direction === "left" ? "left-0" : "right-0"),
@@ -792,7 +792,7 @@ export const GanttFeatureDragHelper: FC<GanttFeatureDragHelperProps> = ({
       {date && (
         <div
           className={cn(
-            "-translate-x-1/2 absolute top-10 hidden whitespace-nowrap rounded-lg border border-border/50 bg-background/90 px-2 py-1 text-foreground text-xs backdrop-blur-lg group-hover:block",
+            "absolute top-10 hidden -translate-x-1/2 whitespace-nowrap rounded-lg border border-border/50 bg-background/90 px-2 py-1 text-foreground text-xs backdrop-blur-lg group-hover:block",
             isPressed && "block"
           )}
         >
@@ -1129,12 +1129,21 @@ export const GanttMarker: FC<
       }}
     >
       <ContextMenu>
-        <ContextMenuTrigger render={<div className={cn(
-                            "group pointer-events-auto sticky top-0 flex select-auto flex-col flex-nowrap items-center justify-center whitespace-nowrap rounded-b-md bg-card px-2 py-1 text-foreground text-xs",
-                            className
-                          )} />}>{label}<span className="max-h-[0] overflow-hidden opacity-80 transition-all group-hover:max-h-[2rem]">
-                            {formatDate(date, "MMM dd, yyyy")}
-                          </span></ContextMenuTrigger>
+        <ContextMenuTrigger
+          render={
+            <div
+              className={cn(
+                "group pointer-events-auto sticky top-0 flex select-auto flex-col flex-nowrap items-center justify-center whitespace-nowrap rounded-b-md bg-card px-2 py-1 text-foreground text-xs",
+                className
+              )}
+            />
+          }
+        >
+          {label}
+          <span className="max-h-[0] overflow-hidden opacity-80 transition-all group-hover:max-h-[2rem]">
+            {formatDate(date, "MMM dd, yyyy")}
+          </span>
+        </ContextMenuTrigger>
         <ContextMenuContent>
           {onRemove ? (
             <ContextMenuItem

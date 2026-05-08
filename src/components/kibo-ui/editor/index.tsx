@@ -1101,7 +1101,18 @@ export const EditorSelector = ({
 
   return (
     <Popover onOpenChange={onOpenChange} open={open}>
-      <PopoverTrigger render={<Button className="gap-2 rounded-none border-none" size="sm" variant="ghost" />}><span className="whitespace-nowrap text-xs">{title}</span><ChevronDownIcon size={12} /></PopoverTrigger>
+      <PopoverTrigger
+        render={
+          <Button
+            className="gap-2 rounded-none border-none"
+            size="sm"
+            variant="ghost"
+          />
+        }
+      >
+        <span className="whitespace-nowrap text-xs">{title}</span>
+        <ChevronDownIcon size={12} />
+      </PopoverTrigger>
       <PopoverContent
         align="start"
         className={cn("w-48 p-1", className)}
@@ -1328,16 +1339,27 @@ export const EditorLinkSelector = ({
 
   return (
     <Popover modal onOpenChange={onOpenChange} open={open}>
-      <PopoverTrigger render={<Button className="gap-2 rounded-none border-none" size="sm" variant="ghost" />}><ExternalLinkIcon size={12} /><p
-                      className={cn(
-                        "text-xs underline decoration-text-muted underline-offset-4",
-                        {
-                          "text-primary": editor.isActive("link"),
-                        }
-                      )}
-                    >
-                      Link
-                    </p></PopoverTrigger>
+      <PopoverTrigger
+        render={
+          <Button
+            className="gap-2 rounded-none border-none"
+            size="sm"
+            variant="ghost"
+          />
+        }
+      >
+        <ExternalLinkIcon size={12} />
+        <p
+          className={cn(
+            "text-xs underline decoration-text-muted underline-offset-4",
+            {
+              "text-primary": editor.isActive("link"),
+            }
+          )}
+        >
+          Link
+        </p>
+      </PopoverTrigger>
       <PopoverContent align="start" className="w-60 p-0" sideOffset={10}>
         <form className="flex p-1" onSubmit={handleSubmit}>
           <input
@@ -1448,7 +1470,7 @@ export const EditorTableGlobalMenu = ({
   return (
     <div
       className={cn(
-        "-translate-x-1/2 absolute flex translate-y-1/2 items-center rounded-full border bg-background shadow-xl",
+        "absolute flex -translate-x-1/2 translate-y-1/2 items-center rounded-full border bg-background shadow-xl",
         {
           hidden: !(left || top),
         }
@@ -1510,12 +1532,18 @@ export const EditorTableColumnMenu = ({
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className={cn(
-                    "-translate-x-1/2 -translate-y-1/2 absolute flex h-4 w-7 overflow-hidden rounded-md border bg-background shadow-xl",
-                    {
-                      hidden: !(left || top),
-                    }
-                  )} style={{ top, left }} render={<Button size="icon" variant="ghost" />}><EllipsisIcon className="text-muted-foreground" size={16} /></DropdownMenuTrigger>
+      <DropdownMenuTrigger
+        className={cn(
+          "absolute flex h-4 w-7 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-md border bg-background shadow-xl",
+          {
+            hidden: !(left || top),
+          }
+        )}
+        render={<Button size="icon" variant="ghost" />}
+        style={{ top, left }}
+      >
+        <EllipsisIcon className="text-muted-foreground" size={16} />
+      </DropdownMenuTrigger>
       <DropdownMenuContent>{children}</DropdownMenuContent>
     </DropdownMenu>
   );
@@ -1568,12 +1596,23 @@ export const EditorTableRowMenu = ({ children }: EditorTableRowMenuProps) => {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger render={<Button className={cn(
-                      "-translate-x-1/2 -translate-y-1/2 absolute flex h-7 w-4 overflow-hidden rounded-md border bg-background shadow-xl",
-                      {
-                        hidden: !(left || top),
-                      }
-                    )} size="icon" style={{ top, left }} variant="ghost" />}><EllipsisVerticalIcon className="text-muted-foreground" size={12} /></DropdownMenuTrigger>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            className={cn(
+              "absolute flex h-7 w-4 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-md border bg-background shadow-xl",
+              {
+                hidden: !(left || top),
+              }
+            )}
+            size="icon"
+            style={{ top, left }}
+            variant="ghost"
+          />
+        }
+      >
+        <EllipsisVerticalIcon className="text-muted-foreground" size={12} />
+      </DropdownMenuTrigger>
       <DropdownMenuContent>{children}</DropdownMenuContent>
     </DropdownMenu>
   );
@@ -1720,7 +1759,18 @@ export const EditorTableHeaderColumnToggle = () => {
 
   return (
     <Tooltip>
-      <TooltipTrigger render={<Button className="flex items-center gap-2 rounded-full" onClick={handleClick} size="icon" variant="ghost" />}><ColumnsIcon className="text-muted-foreground" size={16} /></TooltipTrigger>
+      <TooltipTrigger
+        render={
+          <Button
+            className="flex items-center gap-2 rounded-full"
+            onClick={handleClick}
+            size="icon"
+            variant="ghost"
+          />
+        }
+      >
+        <ColumnsIcon className="text-muted-foreground" size={16} />
+      </TooltipTrigger>
       <TooltipContent>
         <span>Toggle header column</span>
       </TooltipContent>
@@ -1743,7 +1793,18 @@ export const EditorTableHeaderRowToggle = () => {
 
   return (
     <Tooltip>
-      <TooltipTrigger render={<Button className="flex items-center gap-2 rounded-full" onClick={handleClick} size="icon" variant="ghost" />}><RowsIcon className="text-muted-foreground" size={16} /></TooltipTrigger>
+      <TooltipTrigger
+        render={
+          <Button
+            className="flex items-center gap-2 rounded-full"
+            onClick={handleClick}
+            size="icon"
+            variant="ghost"
+          />
+        }
+      >
+        <RowsIcon className="text-muted-foreground" size={16} />
+      </TooltipTrigger>
       <TooltipContent>
         <span>Toggle header row</span>
       </TooltipContent>
@@ -1766,7 +1827,18 @@ export const EditorTableDelete = () => {
 
   return (
     <Tooltip>
-      <TooltipTrigger render={<Button className="flex items-center gap-2 rounded-full" onClick={handleClick} size="icon" variant="ghost" />}><TrashIcon className="text-destructive" size={16} /></TooltipTrigger>
+      <TooltipTrigger
+        render={
+          <Button
+            className="flex items-center gap-2 rounded-full"
+            onClick={handleClick}
+            size="icon"
+            variant="ghost"
+          />
+        }
+      >
+        <TrashIcon className="text-destructive" size={16} />
+      </TooltipTrigger>
       <TooltipContent>
         <span>Delete table</span>
       </TooltipContent>
@@ -1789,7 +1861,18 @@ export const EditorTableMergeCells = () => {
 
   return (
     <Tooltip>
-      <TooltipTrigger render={<Button className="flex items-center gap-2 rounded-full" onClick={handleClick} size="icon" variant="ghost" />}><TableCellsMergeIcon className="text-muted-foreground" size={16} /></TooltipTrigger>
+      <TooltipTrigger
+        render={
+          <Button
+            className="flex items-center gap-2 rounded-full"
+            onClick={handleClick}
+            size="icon"
+            variant="ghost"
+          />
+        }
+      >
+        <TableCellsMergeIcon className="text-muted-foreground" size={16} />
+      </TooltipTrigger>
       <TooltipContent>
         <span>Merge cells</span>
       </TooltipContent>
@@ -1812,7 +1895,18 @@ export const EditorTableSplitCell = () => {
 
   return (
     <Tooltip>
-      <TooltipTrigger render={<Button className="flex items-center gap-2 rounded-full" onClick={handleClick} size="icon" variant="ghost" />}><TableColumnsSplitIcon className="text-muted-foreground" size={16} /></TooltipTrigger>
+      <TooltipTrigger
+        render={
+          <Button
+            className="flex items-center gap-2 rounded-full"
+            onClick={handleClick}
+            size="icon"
+            variant="ghost"
+          />
+        }
+      >
+        <TableColumnsSplitIcon className="text-muted-foreground" size={16} />
+      </TooltipTrigger>
       <TooltipContent>
         <span>Split cell</span>
       </TooltipContent>
@@ -1835,7 +1929,18 @@ export const EditorTableFix = () => {
 
   return (
     <Tooltip>
-      <TooltipTrigger render={<Button className="flex items-center gap-2 rounded-full" onClick={handleClick} size="icon" variant="ghost" />}><BoltIcon className="text-muted-foreground" size={16} /></TooltipTrigger>
+      <TooltipTrigger
+        render={
+          <Button
+            className="flex items-center gap-2 rounded-full"
+            onClick={handleClick}
+            size="icon"
+            variant="ghost"
+          />
+        }
+      >
+        <BoltIcon className="text-muted-foreground" size={16} />
+      </TooltipTrigger>
       <TooltipContent>
         <span>Fix table</span>
       </TooltipContent>
