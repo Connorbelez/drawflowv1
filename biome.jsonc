@@ -1,0 +1,32 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "extends": ["ultracite/biome/core", "ultracite/biome/react"],
+  "files": {
+    "includes": [
+      "!convex/_generated",
+      "!convex/auth.ts",
+      "!src/routeTree.gen.ts",
+      "!src/routes/__root.tsx",
+      "!src/integrations/tanstack-query/root-provider.tsx",
+      "!src/components/ui",
+      "!src/components/kibo-ui",
+      "!**/*.css"
+    ]
+  },
+  "linter": {
+    "rules": {
+      "performance": {
+        "noNamespaceImport": "off"
+      },
+      "security": {
+        "noDangerouslySetInnerHtml": "off"
+      },
+      "style": {
+        "noNestedTernary": "off",
+        "useConsistentTypeDefinitions": "warn",
+        "useDefaultSwitchClause": "off",
+        "useFilenamingConvention": "off"
+      }
+    }
+  }
+}

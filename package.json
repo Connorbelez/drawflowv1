@@ -1,16 +1,4 @@
 {
-  "name": "drawflowv1",
-  "private": true,
-  "type": "module",
-  "imports": {
-    "#/*": "./src/*"
-  },
-  "scripts": {
-    "dev": "vite dev --port 3000",
-    "build": "vite build",
-    "preview": "vite preview",
-    "test": "vitest run"
-  },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
     "@convex-dev/react-query": "^0.1.0",
@@ -79,6 +67,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.4.14",
     "@tailwindcss/typography": "^0.5.16",
     "@tanstack/devtools-vite": "latest",
     "@testing-library/dom": "^10.4.1",
@@ -90,8 +79,23 @@
     "@vitejs/plugin-react": "^6.0.1",
     "jsdom": "^28.1.0",
     "typescript": "^5.7.2",
+    "ultracite": "7.6.3",
     "vite": "^8.0.0",
     "vitest": "^3.0.5"
+  },
+  "name": "drawflowv1",
+  "scripts": {
+    "dev": "vite dev --port 3000",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "check": "biome check --write .",
+    "fix": "ultracite fix"
+  },
+  "type": "module",
+  "private": true,
+  "imports": {
+    "#/*": "./src/*"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

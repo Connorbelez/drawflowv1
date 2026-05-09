@@ -1,7 +1,7 @@
-import workOSAuthKit from '@convex-dev/workos-authkit/convex.config'
-import { defineApp } from 'convex/server'
+import workOSAuthKit from "@convex-dev/workos-authkit/convex.config";
+import { defineApp } from "convex/server";
 
-const app = defineApp()
-app.use(workOSAuthKit)
+const app = defineApp();
+app.use(workOSAuthKit);
 
-export default app
+export default app;
