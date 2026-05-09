@@ -50,7 +50,7 @@ export const { authKitEvent } = authKit.events({
   },
 
   // Handle any event type
-  "session.created": (_ctx, event) => {
+  "session.created": async (_ctx, event) => {
     console.log("onCreateSession", event);
   },
 });

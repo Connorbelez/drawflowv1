@@ -1,0 +1,404 @@
+{
+  "nonNegotiables": {
+    "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+    "startLine": 19,
+    "endLine": 91,
+    "label": "Non-Negotiable Implementation Rules"
+  },
+  "components": [
+    {
+      "name": "DrawFlowDemoLayout",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 109,
+      "endLine": 140,
+      "label": "DrawFlowDemoLayout"
+    },
+    {
+      "name": "DrawFlowTopBar",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 141,
+      "endLine": 177,
+      "label": "DrawFlowTopBar"
+    },
+    {
+      "name": "DemoScenarioLinks",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 178,
+      "endLine": 201,
+      "label": "DemoScenarioLinks"
+    },
+    {
+      "name": "PersonaSelector",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 202,
+      "endLine": 234,
+      "label": "PersonaSelector"
+    },
+    {
+      "name": "DemoResetControls",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 235,
+      "endLine": 269,
+      "label": "DemoResetControls"
+    },
+    {
+      "name": "GanttWorkspaceFrame",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 272,
+      "endLine": 303,
+      "label": "GanttWorkspaceFrame"
+    },
+    {
+      "name": "MilestoneRailPane",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 304,
+      "endLine": 325,
+      "label": "MilestoneRailPane"
+    },
+    {
+      "name": "MilestoneCard",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 326,
+      "endLine": 354,
+      "label": "MilestoneCard"
+    },
+    {
+      "name": "GanttToolbar",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 355,
+      "endLine": 382,
+      "label": "GanttToolbar"
+    },
+    {
+      "name": "RailCardLayer",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 383,
+      "endLine": 404,
+      "label": "RailCardLayer"
+    },
+    {
+      "name": "RailCard",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 405,
+      "endLine": 445,
+      "label": "RailCard"
+    },
+    {
+      "name": "DateRunners",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 446,
+      "endLine": 465,
+      "label": "DateRunners"
+    },
+    {
+      "name": "DrawGroupBoxLayer",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 466,
+      "endLine": 496,
+      "label": "DrawGroupBoxLayer"
+    },
+    {
+      "name": "BlockingReasonChips",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 497,
+      "endLine": 516,
+      "label": "BlockingReasonChips"
+    },
+    {
+      "name": "ValidationPanel",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 517,
+      "endLine": 542,
+      "label": "ValidationPanel"
+    },
+    {
+      "name": "ProposalWorkspacePage",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 545,
+      "endLine": 571,
+      "label": "ProposalWorkspacePage"
+    },
+    {
+      "name": "ProposalSetupDrawer",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 572,
+      "endLine": 603,
+      "label": "ProposalSetupDrawer"
+    },
+    {
+      "name": "ProposalMilestoneDetailSheet",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 604,
+      "endLine": 644,
+      "label": "ProposalMilestoneDetailSheet"
+    },
+    {
+      "name": "ProposalDependencyEditor",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 645,
+      "endLine": 668,
+      "label": "ProposalDependencyEditor"
+    },
+    {
+      "name": "PlanningComparisonPanel",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 669,
+      "endLine": 692,
+      "label": "PlanningComparisonPanel"
+    },
+    {
+      "name": "ApplyRecommendationDialog",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 693,
+      "endLine": 712,
+      "label": "ApplyRecommendationDialog"
+    },
+    {
+      "name": "ProposalFooterStatusRegion",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 713,
+      "endLine": 738,
+      "label": "ProposalFooterStatusRegion"
+    },
+    {
+      "name": "ActiveWorkspacePage",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 741,
+      "endLine": 759,
+      "label": "ActiveWorkspacePage"
+    },
+    {
+      "name": "ActiveMilestoneDetailSheet",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 760,
+      "endLine": 804,
+      "label": "ActiveMilestoneDetailSheet"
+    },
+    {
+      "name": "ForecastReasonDialog",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 805,
+      "endLine": 826,
+      "label": "ForecastReasonDialog"
+    },
+    {
+      "name": "EvidencePanel",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 827,
+      "endLine": 851,
+      "label": "EvidencePanel"
+    },
+    {
+      "name": "RolloverBufferPanel",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 852,
+      "endLine": 871,
+      "label": "RolloverBufferPanel"
+    },
+    {
+      "name": "AssignedSiteVisitsPanel",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 872,
+      "endLine": 891,
+      "label": "AssignedSiteVisitsPanel"
+    },
+    {
+      "name": "SiteVisitDrawer",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 892,
+      "endLine": 921,
+      "label": "SiteVisitDrawer"
+    },
+    {
+      "name": "AuditDrawer",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 922,
+      "endLine": 943,
+      "label": "AuditDrawer"
+    },
+    {
+      "name": "EventOutboxDrawer",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 944,
+      "endLine": 964,
+      "label": "EventOutboxDrawer"
+    }
+  ],
+  "routeFiles": [
+    {
+      "file": "src/routes/demo/drawflow/index.tsx",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 1004,
+      "endLine": 1007,
+      "label": "src/routes/demo/drawflow/index.tsx"
+    },
+    {
+      "file": "src/routes/demo/drawflow/active.tsx",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 1008,
+      "endLine": 1013,
+      "label": "src/routes/demo/drawflow/active.tsx"
+    },
+    {
+      "file": "src/routes/demo/drawflow/proposal.tsx",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 1014,
+      "endLine": 1021,
+      "label": "src/routes/demo/drawflow/proposal.tsx"
+    }
+  ],
+  "convexFiles": [
+    {
+      "file": "convex/demo_drawflow/domain.ts",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 1127,
+      "endLine": 1133,
+      "label": "domain.ts"
+    },
+    {
+      "file": "convex/demo_drawflow/seedData.ts",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 1134,
+      "endLine": 1141,
+      "label": "seedData.ts"
+    },
+    {
+      "file": "convex/demo_drawflow/seed.ts",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 1142,
+      "endLine": 1147,
+      "label": "seed.ts"
+    },
+    {
+      "file": "convex/demo_drawflow/queries.ts",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 1148,
+      "endLine": 1151,
+      "label": "queries.ts"
+    },
+    {
+      "file": "convex/demo_drawflow/mutations.ts",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 1152,
+      "endLine": 1155,
+      "label": "mutations.ts"
+    },
+    {
+      "file": "convex/demo_drawflow/engine.ts",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 1156,
+      "endLine": 1159,
+      "label": "engine.ts"
+    },
+    {
+      "file": "convex/demo_drawflow/projections.ts",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 1160,
+      "endLine": 1163,
+      "label": "projections.ts"
+    },
+    {
+      "file": "convex/demo_drawflow/audit.ts",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 1164,
+      "endLine": 1168,
+      "label": "audit.ts"
+    },
+    {
+      "file": "convex/demo_drawflow/outbox.ts",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 1169,
+      "endLine": 1173,
+      "label": "outbox.ts"
+    },
+    {
+      "file": "convex/demo_drawflow/money.ts",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 1174,
+      "endLine": 1179,
+      "label": "money.ts"
+    },
+    {
+      "file": "convex/demo_drawflow/dateMath.ts",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 1180,
+      "endLine": 1188,
+      "label": "dateMath.ts"
+    }
+  ],
+  "testFiles": [
+    {
+      "file": "tests/e2e/drawflow/active.workspace.spec.ts",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 1207,
+      "endLine": 1217,
+      "label": "active.workspace.spec.ts"
+    },
+    {
+      "file": "tests/e2e/drawflow/active.workflow.spec.ts",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 1218,
+      "endLine": 1228,
+      "label": "active.workflow.spec.ts"
+    },
+    {
+      "file": "tests/e2e/drawflow/active.audit-outbox.spec.ts",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 1229,
+      "endLine": 1234,
+      "label": "active.audit-outbox.spec.ts"
+    },
+    {
+      "file": "tests/e2e/drawflow/proposal.workspace.spec.ts",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 1235,
+      "endLine": 1242,
+      "label": "proposal.workspace.spec.ts"
+    },
+    {
+      "file": "tests/e2e/drawflow/proposal.gantt.spec.ts",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 1243,
+      "endLine": 1250,
+      "label": "proposal.gantt.spec.ts"
+    },
+    {
+      "file": "tests/e2e/drawflow/proposal.planning.spec.ts",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 1251,
+      "endLine": 1258,
+      "label": "proposal.planning.spec.ts"
+    },
+    {
+      "file": "tests/e2e/drawflow/proposal.submit.spec.ts",
+      "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+      "startLine": 1259,
+      "endLine": 1265,
+      "label": "proposal.submit.spec.ts"
+    }
+  ],
+  "fixtureStrategy": {
+    "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+    "startLine": 1266,
+    "endLine": 1519,
+    "label": "Playwright Fixture Strategy"
+  },
+  "coverageMatrixFormat": {
+    "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+    "startLine": 1520,
+    "endLine": 1619,
+    "label": "Final Coverage Matrix Format"
+  },
+  "antiPuntingChecklist": {
+    "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+    "startLine": 1690,
+    "endLine": 1795,
+    "label": "Anti-Punting Checklist"
+  },
+  "definitionOfDone": {
+    "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+    "startLine": 1796,
+    "endLine": 1843,
+    "label": "Definition of Done"
+  }
+}

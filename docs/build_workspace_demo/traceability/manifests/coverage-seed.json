@@ -1,0 +1,903 @@
+{
+  "interactiveControlCoverage": [
+    {
+      "controlId": "IC-ACT-SHELL-SCENARIO-LINK",
+      "mode": "active",
+      "primaryChunkId": "CH-04",
+      "primaryTest": "IC-ACT-SHELL-SCENARIO-LINK navigates between isolated active and proposal routes",
+      "convexFunctions": [],
+      "tablesMutated": [],
+      "auditEvents": [],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-SHELL-PERSONA-SELECT",
+      "mode": "active",
+      "primaryChunkId": "CH-04",
+      "primaryTest": "IC-ACT-SHELL-PERSONA-SELECT changes available controls without mutating build state",
+      "convexFunctions": [],
+      "tablesMutated": [],
+      "auditEvents": [],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-MILESTONE-CARD-SELECT",
+      "mode": "active",
+      "primaryChunkId": "CH-04",
+      "primaryTest": "IC-ACT-MILESTONE-CARD-SELECT opens detail sheet and highlights dependency neighborhood",
+      "convexFunctions": [],
+      "tablesMutated": [],
+      "auditEvents": [],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-RAIL-CARD-SELECT-DATE-RUNNERS",
+      "mode": "active",
+      "primaryChunkId": "CH-04",
+      "primaryTest": "IC-ACT-RAIL-CARD-SELECT-DATE-RUNNERS shows start and end date runners for selected milestone",
+      "convexFunctions": [],
+      "tablesMutated": [],
+      "auditEvents": [],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-GANTT-RESOLUTION-CHANGE",
+      "mode": "active",
+      "primaryChunkId": "CH-04",
+      "primaryTest": "IC-ACT-GANTT-RESOLUTION-CHANGE changes timeline granularity without changing domain dates",
+      "convexFunctions": [],
+      "tablesMutated": [],
+      "auditEvents": [],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-GANTT-COLUMN-SIZE-SLIDER",
+      "mode": "active",
+      "primaryChunkId": "CH-04",
+      "primaryTest": "IC-ACT-GANTT-COLUMN-SIZE-SLIDER widens time columns without changing active resolution or persisted dates",
+      "convexFunctions": [],
+      "tablesMutated": [],
+      "auditEvents": [],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-MILESTONE-RAIL-COLLAPSE",
+      "mode": "active",
+      "primaryChunkId": "CH-04",
+      "primaryTest": "IC-ACT-MILESTONE-RAIL-COLLAPSE expands gantt width and preserves selected milestone",
+      "convexFunctions": [],
+      "tablesMutated": [],
+      "auditEvents": [],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-DRAW-GROUP-BOX-GEOMETRY",
+      "mode": "active",
+      "primaryChunkId": "CH-04",
+      "primaryTest": "IC-ACT-DRAW-GROUP-BOX-GEOMETRY encloses all milestones in the draw group and keeps label clear of cards",
+      "convexFunctions": [],
+      "tablesMutated": [],
+      "auditEvents": [],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-GANTT-FORECAST-RESIZE-END",
+      "mode": "active",
+      "primaryChunkId": "CH-04",
+      "primaryTest": "IC-ACT-GANTT-FORECAST-RESIZE-END extends Foundation forecast and pushes Draw 3 start via capital clamp",
+      "convexFunctions": [
+        "demo_updateForecastDatesWithReason"
+      ],
+      "tablesMutated": [
+        "demo_milestones",
+        "demo_forecastUpdates",
+        "demo_auditEvents"
+      ],
+      "auditEvents": [
+        "ActiveMilestoneForecastChanged"
+      ],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-GANTT-FORECAST-INVALID-BLOCKS-SUBMIT",
+      "mode": "active",
+      "primaryChunkId": "CH-04",
+      "primaryTest": "IC-ACT-GANTT-FORECAST-INVALID-BLOCKS-SUBMIT prevents completion claim while forecast violates hard sequencing",
+      "convexFunctions": [
+        "demo_submitCompletionClaim"
+      ],
+      "tablesMutated": [
+        "demo_milestones",
+        "demo_evidencePackages",
+        "demo_rolloverBuffers",
+        "demo_auditEvents",
+        "demo_eventOutbox"
+      ],
+      "auditEvents": [
+        "CompletionClaimSubmitRejected"
+      ],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-MILESTONE-MARK-COMPLETE",
+      "mode": "active",
+      "primaryChunkId": "CH-05",
+      "primaryTest": "IC-ACT-MILESTONE-MARK-COMPLETE marks Foundation complete but keeps claim blocked until evidence exists",
+      "convexFunctions": [
+        "demo_updateMilestoneProgress"
+      ],
+      "tablesMutated": [
+        "demo_milestones",
+        "demo_auditEvents"
+      ],
+      "auditEvents": [
+        "MilestoneMarkedComplete"
+      ],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-EVIDENCE-ADD-SAMPLE",
+      "mode": "active",
+      "primaryChunkId": "CH-05",
+      "primaryTest": "IC-ACT-EVIDENCE-ADD-SAMPLE adds deterministic Foundation evidence and updates readiness",
+      "convexFunctions": [
+        "demo_addSampleEvidence"
+      ],
+      "tablesMutated": [
+        "demo_evidencePackages",
+        "demo_evidenceFiles",
+        "demo_auditEvents"
+      ],
+      "auditEvents": [
+        "SampleEvidenceAdded"
+      ],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-EVIDENCE-UPLOAD-METADATA",
+      "mode": "active",
+      "primaryChunkId": "CH-05",
+      "primaryTest": "IC-ACT-EVIDENCE-UPLOAD-METADATA stores file metadata only and updates evidence count",
+      "convexFunctions": [
+        "demo_registerUploadedEvidenceMetadata"
+      ],
+      "tablesMutated": [
+        "demo_evidencePackages",
+        "demo_evidenceFiles",
+        "demo_auditEvents"
+      ],
+      "auditEvents": [
+        "EvidenceMetadataRegistered"
+      ],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-EVIDENCE-REMOVE-DRAFT",
+      "mode": "active",
+      "primaryChunkId": "CH-05",
+      "primaryTest": "IC-ACT-EVIDENCE-REMOVE-DRAFT removes draft evidence and re-blocks submission when no evidence remains",
+      "convexFunctions": [
+        "demo_removeEvidenceFile"
+      ],
+      "tablesMutated": [
+        "demo_evidenceFiles",
+        "demo_auditEvents"
+      ],
+      "auditEvents": [
+        "EvidenceRemoved"
+      ],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-SUBMIT-COMPLETION-CLAIM",
+      "mode": "active",
+      "primaryChunkId": "CH-05",
+      "primaryTest": "IC-ACT-SUBMIT-COMPLETION-CLAIM submits Foundation claim, freezes evidence, creates rollover when requested amount is lower, and writes audit/outbox",
+      "convexFunctions": [
+        "demo_submitCompletionClaim"
+      ],
+      "tablesMutated": [
+        "demo_milestones",
+        "demo_evidencePackages",
+        "demo_rolloverBuffers",
+        "demo_auditEvents",
+        "demo_eventOutbox"
+      ],
+      "auditEvents": [
+        "CompletionClaimSubmitted"
+      ],
+      "outboxEvents": [
+        "demo.milestone.completionClaimSubmitted"
+      ],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-LENDER-APPROVE-EVIDENCE",
+      "mode": "active",
+      "primaryChunkId": "CH-05",
+      "primaryTest": "IC-ACT-LENDER-APPROVE-EVIDENCE accepts Foundation evidence without approving completion",
+      "convexFunctions": [
+        "demo_reviewEvidence"
+      ],
+      "tablesMutated": [
+        "demo_reviewReports",
+        "demo_auditEvents",
+        "demo_eventOutbox"
+      ],
+      "auditEvents": [
+        "EvidenceApproved"
+      ],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-LENDER-REQUEST-SITE-VISIT",
+      "mode": "active",
+      "primaryChunkId": "CH-05",
+      "primaryTest": "IC-ACT-LENDER-REQUEST-SITE-VISIT creates Foundation site visit and exposes it to Site Visitor persona",
+      "convexFunctions": [
+        "demo_requestSiteVisit"
+      ],
+      "tablesMutated": [
+        "demo_milestones",
+        "demo_siteVisits",
+        "demo_auditEvents",
+        "demo_eventOutbox"
+      ],
+      "auditEvents": [
+        "SiteVisitRequested"
+      ],
+      "outboxEvents": [
+        "demo.siteVisit.requested"
+      ],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-SITE-VISITOR-CLAIM-VISIT",
+      "mode": "active",
+      "primaryChunkId": "CH-05",
+      "primaryTest": "IC-ACT-SITE-VISITOR-CLAIM-VISIT claims assigned Foundation site visit and opens report form",
+      "convexFunctions": [
+        "demo_claimSiteVisit"
+      ],
+      "tablesMutated": [
+        "demo_siteVisits",
+        "demo_auditEvents"
+      ],
+      "auditEvents": [
+        "SiteVisitClaimed"
+      ],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-SITE-VISITOR-SUBMIT-REPORT",
+      "mode": "active",
+      "primaryChunkId": "CH-05",
+      "primaryTest": "IC-ACT-SITE-VISITOR-SUBMIT-REPORT completes Foundation site visit and unlocks Lender Admin completion approval",
+      "convexFunctions": [
+        "demo_submitSiteVisitReport"
+      ],
+      "tablesMutated": [
+        "demo_siteVisits",
+        "demo_milestones",
+        "demo_auditEvents",
+        "demo_eventOutbox"
+      ],
+      "auditEvents": [
+        "SiteVisitReportSubmitted"
+      ],
+      "outboxEvents": [
+        "demo.siteVisit.reportSubmitted"
+      ],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-LENDER-APPROVE-COMPLETION",
+      "mode": "active",
+      "primaryChunkId": "CH-05",
+      "primaryTest": "IC-ACT-LENDER-APPROVE-COMPLETION approves Foundation and removes hard dependency blocker from Underground Plumbing",
+      "convexFunctions": [
+        "demo_approveMilestoneCompletion"
+      ],
+      "tablesMutated": [
+        "demo_milestones",
+        "demo_drawGroups",
+        "demo_auditEvents",
+        "demo_eventOutbox"
+      ],
+      "auditEvents": [
+        "MilestoneCompletionApproved"
+      ],
+      "outboxEvents": [
+        "demo.milestone.completionApproved"
+      ],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-LENDER-APPROVE-COMPLETION-WITH-SITE-VISIT-OVERRIDE",
+      "mode": "active",
+      "primaryChunkId": "CH-05",
+      "primaryTest": "IC-ACT-LENDER-APPROVE-COMPLETION-WITH-SITE-VISIT-OVERRIDE requires override reason and records it in audit trail",
+      "convexFunctions": [
+        "demo_approveMilestoneCompletion"
+      ],
+      "tablesMutated": [
+        "demo_milestones",
+        "demo_drawGroups",
+        "demo_auditEvents",
+        "demo_eventOutbox"
+      ],
+      "auditEvents": [
+        "MilestoneCompletionApproved"
+      ],
+      "outboxEvents": [
+        "demo.milestone.completionApproved"
+      ],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-LENDER-REJECT-COMPLETION",
+      "mode": "active",
+      "primaryChunkId": "CH-05",
+      "primaryTest": "IC-ACT-LENDER-REJECT-COMPLETION rejects a submitted claim only when reason is provided",
+      "convexFunctions": [
+        "demo_rejectMilestoneCompletion"
+      ],
+      "tablesMutated": [
+        "demo_milestones",
+        "demo_auditEvents",
+        "demo_eventOutbox"
+      ],
+      "auditEvents": [
+        "MilestoneCompletionRejected"
+      ],
+      "outboxEvents": [
+        "demo.milestone.completionRejected"
+      ],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-DRAW-GROUP-AUTO-RELEASE",
+      "mode": "active",
+      "primaryChunkId": "CH-05",
+      "primaryTest": "IC-ACT-DRAW-GROUP-AUTO-RELEASE release-approves Draw 2 and unblocks Draw 3 capital after final milestone approval",
+      "convexFunctions": [
+        "demo_approveMilestoneCompletion",
+        "demo_recomputeDrawGroupStatuses"
+      ],
+      "tablesMutated": [
+        "demo_milestones",
+        "demo_drawGroups",
+        "demo_auditEvents",
+        "demo_eventOutbox"
+      ],
+      "auditEvents": [
+        "DrawGroupReleaseApproved"
+      ],
+      "outboxEvents": [
+        "demo.drawGroup.releaseApproved"
+      ],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-AUDIT-DRAWER-FILTER",
+      "mode": "active",
+      "primaryChunkId": "CH-05",
+      "primaryTest": "IC-ACT-AUDIT-DRAWER-FILTER filters append-only audit events by Foundation milestone",
+      "convexFunctions": [
+        "demo_getAuditEvents"
+      ],
+      "tablesMutated": [],
+      "auditEvents": [],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-EVENT-OUTBOX-VIEW",
+      "mode": "active",
+      "primaryChunkId": "CH-05",
+      "primaryTest": "IC-ACT-EVENT-OUTBOX-VIEW shows mock-delivered completion and draw release events after active happy path",
+      "convexFunctions": [
+        "demo_getEventOutbox"
+      ],
+      "tablesMutated": [],
+      "auditEvents": [],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-ACT-DEMO-RESET",
+      "mode": "active",
+      "primaryChunkId": "CH-05",
+      "primaryTest": "IC-ACT-DEMO-RESET reseeds active and proposal scenarios after confirmation",
+      "convexFunctions": [
+        "demo_resetDrawFlowDemo"
+      ],
+      "tablesMutated": [
+        "demo_builds",
+        "demo_milestones",
+        "demo_milestoneDependencies",
+        "demo_drawGroups",
+        "demo_evidencePackages",
+        "demo_evidenceFiles",
+        "demo_reviewReports",
+        "demo_siteVisits",
+        "demo_rolloverBuffers",
+        "demo_forecastUpdates",
+        "demo_planningRuns",
+        "demo_auditEvents",
+        "demo_eventOutbox",
+        "demo_policySnapshots"
+      ],
+      "auditEvents": [
+        "DemoReset"
+      ],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-PROP-MILESTONE-CARD-SELECT",
+      "mode": "proposal",
+      "primaryChunkId": "CH-06",
+      "primaryTest": "IC-PROP-MILESTONE-CARD-SELECT selects milestone, scrolls rail-card into view, and opens detail sheet",
+      "convexFunctions": [],
+      "tablesMutated": [],
+      "auditEvents": [],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-PROP-MILESTONE-REORDER",
+      "mode": "proposal",
+      "primaryChunkId": "CH-06",
+      "primaryTest": "IC-PROP-MILESTONE-REORDER changes proposal order and writes audit event",
+      "convexFunctions": [
+        "demo_reorderProposalMilestones"
+      ],
+      "tablesMutated": [
+        "demo_milestones",
+        "demo_auditEvents",
+        "demo_planningRuns"
+      ],
+      "auditEvents": [
+        "ProposalMilestonesReordered"
+      ],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-PROP-GANTT-MOVE",
+      "mode": "proposal",
+      "primaryChunkId": "CH-06",
+      "primaryTest": "IC-PROP-GANTT-MOVE shifts proposal milestone dates and updates cost summary",
+      "convexFunctions": [
+        "demo_updateProposalMilestonePlannedDates"
+      ],
+      "tablesMutated": [
+        "demo_milestones",
+        "demo_drawGroups",
+        "demo_auditEvents",
+        "demo_planningRuns"
+      ],
+      "auditEvents": [
+        "ProposalMilestoneDatesMoved"
+      ],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-PROP-GANTT-RESIZE-START",
+      "mode": "proposal",
+      "primaryChunkId": "CH-06",
+      "primaryTest": "IC-PROP-GANTT-RESIZE-START changes start date and duration",
+      "convexFunctions": [
+        "demo_updateProposalMilestonePlannedDates"
+      ],
+      "tablesMutated": [
+        "demo_milestones",
+        "demo_drawGroups",
+        "demo_auditEvents",
+        "demo_planningRuns"
+      ],
+      "auditEvents": [
+        "ProposalMilestoneStartDateChanged"
+      ],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-PROP-GANTT-RESIZE-END",
+      "mode": "proposal",
+      "primaryChunkId": "CH-06",
+      "primaryTest": "IC-PROP-GANTT-RESIZE-END changes end date, duration, draw box, and audit log",
+      "convexFunctions": [
+        "demo_updateProposalMilestonePlannedDates"
+      ],
+      "tablesMutated": [
+        "demo_milestones",
+        "demo_drawGroups",
+        "demo_auditEvents",
+        "demo_planningRuns"
+      ],
+      "auditEvents": [
+        "ProposalMilestoneDurationChanged"
+      ],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-PROP-ADD-MILESTONE",
+      "mode": "proposal",
+      "primaryChunkId": "CH-06",
+      "primaryTest": "IC-PROP-ADD-MILESTONE creates selected custom milestone with zero-value validation error",
+      "convexFunctions": [
+        "demo_addProposalMilestone"
+      ],
+      "tablesMutated": [
+        "demo_milestones",
+        "demo_auditEvents",
+        "demo_planningRuns"
+      ],
+      "auditEvents": [
+        "ProposalMilestoneAdded"
+      ],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-PROP-EDIT-VALUE",
+      "mode": "proposal",
+      "primaryChunkId": "CH-06",
+      "primaryTest": "IC-PROP-EDIT-VALUE updates draw group total and blocks when over cap",
+      "convexFunctions": [
+        "demo_updateProposalMilestoneValue"
+      ],
+      "tablesMutated": [
+        "demo_milestones",
+        "demo_auditEvents",
+        "demo_planningRuns"
+      ],
+      "auditEvents": [
+        "ProposalMilestoneValueChanged"
+      ],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-PROP-EDIT-DURATION",
+      "mode": "proposal",
+      "primaryChunkId": "CH-06",
+      "primaryTest": "IC-PROP-EDIT-DURATION updates end date and bottom summary",
+      "convexFunctions": [
+        "demo_updateProposalMilestoneDuration"
+      ],
+      "tablesMutated": [
+        "demo_milestones",
+        "demo_auditEvents",
+        "demo_planningRuns"
+      ],
+      "auditEvents": [
+        "ProposalMilestoneDurationChanged"
+      ],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-PROP-DEPENDENCY-ADD",
+      "mode": "proposal",
+      "primaryChunkId": "CH-06",
+      "primaryTest": "IC-PROP-DEPENDENCY-ADD creates hard blocker edge and highlights dependency neighborhood",
+      "convexFunctions": [
+        "demo_addProposalDependency"
+      ],
+      "tablesMutated": [
+        "demo_milestoneDependencies",
+        "demo_auditEvents",
+        "demo_planningRuns"
+      ],
+      "auditEvents": [
+        "ProposalDependencyAdded"
+      ],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-PROP-DEPENDENCY-CYCLE",
+      "mode": "proposal",
+      "primaryChunkId": "CH-06",
+      "primaryTest": "IC-PROP-DEPENDENCY-CYCLE prevents cyclic dependency mutation",
+      "convexFunctions": [
+        "demo_addProposalDependency"
+      ],
+      "tablesMutated": [
+        "demo_milestoneDependencies",
+        "demo_auditEvents",
+        "demo_planningRuns"
+      ],
+      "auditEvents": [
+        "ProposalDependencyCycleRejected"
+      ],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-PROP-SYSTEM-DEPENDENCY-REMOVE-BLOCKED",
+      "mode": "proposal",
+      "primaryChunkId": "CH-06",
+      "primaryTest": "IC-PROP-SYSTEM-DEPENDENCY-REMOVE-BLOCKED prevents removal of seeded hard dependency",
+      "convexFunctions": [
+        "demo_removeProposalDependency"
+      ],
+      "tablesMutated": [
+        "demo_milestoneDependencies",
+        "demo_auditEvents",
+        "demo_planningRuns"
+      ],
+      "auditEvents": [],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-PROP-ANALYZE-PLAN",
+      "mode": "proposal",
+      "primaryChunkId": "CH-07",
+      "primaryTest": "IC-PROP-ANALYZE-PLAN creates deterministic planning run without mutating proposal",
+      "convexFunctions": [
+        "demo_recomputeProposalPlan",
+        "demo_recomputePlanningRun"
+      ],
+      "tablesMutated": [
+        "demo_planningRuns",
+        "demo_auditEvents"
+      ],
+      "auditEvents": [
+        "ProposalPlanAnalyzed"
+      ],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-PROP-APPLY-RECOMMENDED-PLAN",
+      "mode": "proposal",
+      "primaryChunkId": "CH-07",
+      "primaryTest": "IC-PROP-APPLY-RECOMMENDED-PLAN reorders milestones, redraws draw groups, and clears hard ordering errors",
+      "convexFunctions": [
+        "demo_applyProposalPlanRecommendation"
+      ],
+      "tablesMutated": [
+        "demo_planningRuns",
+        "demo_milestones",
+        "demo_drawGroups",
+        "demo_auditEvents"
+      ],
+      "auditEvents": [
+        "ProposalRecommendationApplied"
+      ],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-PROP-SPLIT-DRAW-GROUP",
+      "mode": "proposal",
+      "primaryChunkId": "CH-07",
+      "primaryTest": "IC-PROP-SPLIT-DRAW-GROUP increases fee count and recomputes financing cost",
+      "convexFunctions": [
+        "demo_splitProposalDrawGroup"
+      ],
+      "tablesMutated": [
+        "demo_drawGroups",
+        "demo_milestones",
+        "demo_auditEvents",
+        "demo_planningRuns"
+      ],
+      "auditEvents": [
+        "ProposalDrawGroupSplit"
+      ],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-PROP-MERGE-DRAW-GROUP",
+      "mode": "proposal",
+      "primaryChunkId": "CH-07",
+      "primaryTest": "IC-PROP-MERGE-DRAW-GROUP decreases fee count and recomputes financing cost",
+      "convexFunctions": [
+        "demo_mergeProposalDrawGroups"
+      ],
+      "tablesMutated": [
+        "demo_drawGroups",
+        "demo_milestones",
+        "demo_auditEvents",
+        "demo_planningRuns"
+      ],
+      "auditEvents": [
+        "ProposalDrawGroupsMerged"
+      ],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-PROP-CAPITAL-CASCADE",
+      "mode": "proposal",
+      "primaryChunkId": "CH-07",
+      "primaryTest": "IC-PROP-CAPITAL-CASCADE pushes later draw groups after extending an earlier draw",
+      "convexFunctions": [
+        "demo_updateProposalMilestonePlannedDates"
+      ],
+      "tablesMutated": [
+        "demo_milestones",
+        "demo_drawGroups",
+        "demo_auditEvents",
+        "demo_planningRuns"
+      ],
+      "auditEvents": [],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-PROP-SUBMIT-BLOCKED",
+      "mode": "proposal",
+      "primaryChunkId": "CH-07",
+      "primaryTest": "IC-PROP-SUBMIT-BLOCKED prevents submission while hard errors remain",
+      "convexFunctions": [
+        "demo_submitProposal"
+      ],
+      "tablesMutated": [
+        "demo_builds",
+        "demo_auditEvents",
+        "demo_eventOutbox"
+      ],
+      "auditEvents": [
+        "ProposalSubmitRejected"
+      ],
+      "outboxEvents": [],
+      "status": "planned"
+    },
+    {
+      "controlId": "IC-PROP-SUBMIT-SUCCESS",
+      "mode": "proposal",
+      "primaryChunkId": "CH-07",
+      "primaryTest": "IC-PROP-SUBMIT-SUCCESS freezes proposal and writes audit/outbox",
+      "convexFunctions": [
+        "demo_submitProposal"
+      ],
+      "tablesMutated": [
+        "demo_builds",
+        "demo_auditEvents",
+        "demo_eventOutbox"
+      ],
+      "auditEvents": [
+        "ProposalSubmitted"
+      ],
+      "outboxEvents": [
+        "demo.proposal.submitted"
+      ],
+      "status": "planned"
+    }
+  ],
+  "projectionCoverage": [
+    {
+      "projectionElement": "Active draw group box geometry",
+      "sourceTables": [
+        "demo_drawGroups",
+        "demo_milestones"
+      ],
+      "engineHelper": "computeWorkspaceProjection / Gantt geometry",
+      "renderedBy": "DrawGroupBoxLayer",
+      "businessRule": "Box spans earliest/latest date and first/last row.",
+      "test": "IC-ACT-DRAW-GROUP-BOX-GEOMETRY encloses all milestones in the draw group and keeps label clear of cards",
+      "status": "planned"
+    },
+    {
+      "projectionElement": "Proposal draw group cap error",
+      "sourceTables": [
+        "demo_drawGroups",
+        "demo_milestones"
+      ],
+      "engineHelper": "validateConstructionInvariants",
+      "renderedBy": "ValidationPanel",
+      "businessRule": "Draw group over CAD $260k blocks submit.",
+      "test": "IC-PROP-EDIT-VALUE updates draw group total and blocks when over cap",
+      "status": "planned"
+    },
+    {
+      "projectionElement": "Active Framing capital blocker",
+      "sourceTables": [
+        "demo_drawGroups",
+        "demo_milestones"
+      ],
+      "engineHelper": "computeBlockingReasons",
+      "renderedBy": "BlockingReasonChips",
+      "businessRule": "Future draw blocked until previous draw release-approved.",
+      "test": "IC-ACT-DRAW-GROUP-AUTO-RELEASE release-approves Draw 2 and unblocks Draw 3 capital after final milestone approval",
+      "status": "planned"
+    },
+    {
+      "projectionElement": "Cost summary",
+      "sourceTables": [
+        "demo_drawGroups",
+        "demo_milestones",
+        "demo_rolloverBuffers",
+        "demo_policySnapshots"
+      ],
+      "engineHelper": "computeFinancingCostEstimate",
+      "renderedBy": "FooterStatusRegion / ProposalFooterStatusRegion",
+      "businessRule": "Interest and fees derive from requested amounts and dates.",
+      "test": "IC-PROP-SPLIT-DRAW-GROUP increases fee count and recomputes financing cost",
+      "status": "planned"
+    }
+  ],
+  "testCoverageSummary": [
+    {
+      "area": "Active shell/navigation/persona",
+      "requiredTests": 3,
+      "implementedTests": 0,
+      "passing": "not run",
+      "notes": "Planned in CH-04."
+    },
+    {
+      "area": "Active Gantt/layout",
+      "requiredTests": 7,
+      "implementedTests": 0,
+      "passing": "not run",
+      "notes": "Planned in CH-04 and CH-09."
+    },
+    {
+      "area": "Active claim/review/site visit/approval",
+      "requiredTests": 12,
+      "implementedTests": 0,
+      "passing": "not run",
+      "notes": "Planned in CH-05."
+    },
+    {
+      "area": "Active audit/outbox/reset",
+      "requiredTests": 3,
+      "implementedTests": 0,
+      "passing": "not run",
+      "notes": "Planned in CH-05 and CH-08."
+    },
+    {
+      "area": "Proposal shell/detail/editing",
+      "requiredTests": 6,
+      "implementedTests": 0,
+      "passing": "not run",
+      "notes": "Planned in CH-06."
+    },
+    {
+      "area": "Proposal Gantt/cascade",
+      "requiredTests": 5,
+      "implementedTests": 0,
+      "passing": "not run",
+      "notes": "Planned in CH-06 and CH-07."
+    },
+    {
+      "area": "Proposal planning/dependencies",
+      "requiredTests": 5,
+      "implementedTests": 0,
+      "passing": "not run",
+      "notes": "Planned in CH-06 and CH-07."
+    },
+    {
+      "area": "Proposal submit",
+      "requiredTests": 2,
+      "implementedTests": 0,
+      "passing": "not run",
+      "notes": "Planned in CH-07."
+    }
+  ]
+}

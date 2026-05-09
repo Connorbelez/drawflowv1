@@ -1,0 +1,2677 @@
+[
+  {
+    "sourceId": "interactionSpec",
+    "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+    "sha256": "adfda238b1b1577f31877fc9733cd248410ee2ea2221027c5772f73a852006ab",
+    "lineCount": 4806,
+    "headings": [
+      {
+        "level": 1,
+        "title": "DrawFlow Demo Interaction Specification",
+        "startLine": 1,
+        "endLine": 4806
+      },
+      {
+        "level": 2,
+        "title": "0. Purpose",
+        "startLine": 3,
+        "endLine": 15
+      },
+      {
+        "level": 2,
+        "title": "1. Round 1 Locked Decisions",
+        "startLine": 16,
+        "endLine": 254
+      },
+      {
+        "level": 3,
+        "title": "1.1 Demo Objective",
+        "startLine": 18,
+        "endLine": 28
+      },
+      {
+        "level": 3,
+        "title": "1.2 Product Shape",
+        "startLine": 29,
+        "endLine": 34
+      },
+      {
+        "level": 3,
+        "title": "1.3 Persistence and Runtime Architecture",
+        "startLine": 35,
+        "endLine": 53
+      },
+      {
+        "level": 3,
+        "title": "1.4 Demo Modes",
+        "startLine": 54,
+        "endLine": 80
+      },
+      {
+        "level": 3,
+        "title": "1.5 Proposal Mode Scope",
+        "startLine": 81,
+        "endLine": 101
+      },
+      {
+        "level": 3,
+        "title": "1.6 Active Build Scope",
+        "startLine": 102,
+        "endLine": 142
+      },
+      {
+        "level": 3,
+        "title": "1.7 Roles",
+        "startLine": 143,
+        "endLine": 161
+      },
+      {
+        "level": 3,
+        "title": "1.8 Site Visitor Experience",
+        "startLine": 162,
+        "endLine": 167
+      },
+      {
+        "level": 3,
+        "title": "1.9 Release Workflow Scope",
+        "startLine": 168,
+        "endLine": 177
+      },
+      {
+        "level": 3,
+        "title": "1.10 Evidence and Upload Scope",
+        "startLine": 178,
+        "endLine": 188
+      },
+      {
+        "level": 3,
+        "title": "1.11 Planning Engine and Cost Calculations",
+        "startLine": 189,
+        "endLine": 217
+      },
+      {
+        "level": 3,
+        "title": "1.12 Audit and Event Outbox",
+        "startLine": 218,
+        "endLine": 223
+      },
+      {
+        "level": 3,
+        "title": "1.13 Explicitly Cut From Demo",
+        "startLine": 224,
+        "endLine": 241
+      },
+      {
+        "level": 3,
+        "title": "1.14 Forbidden Implementation Shortcuts",
+        "startLine": 242,
+        "endLine": 254
+      },
+      {
+        "level": 2,
+        "title": "2. Canonical Seed Build",
+        "startLine": 255,
+        "endLine": 543
+      },
+      {
+        "level": 3,
+        "title": "2.1 Project Type",
+        "startLine": 257,
+        "endLine": 260
+      },
+      {
+        "level": 3,
+        "title": "2.2 Working Capital Constraint",
+        "startLine": 261,
+        "endLine": 268
+      },
+      {
+        "level": 3,
+        "title": "2.3 Milestone Modeling Rule",
+        "startLine": 269,
+        "endLine": 283
+      },
+      {
+        "level": 3,
+        "title": "2.4 Cleaned Canonical Milestone Budget Input",
+        "startLine": 284,
+        "endLine": 336
+      },
+      {
+        "level": 3,
+        "title": "2.5 Milestone Type Classification",
+        "startLine": 337,
+        "endLine": 358
+      },
+      {
+        "level": 3,
+        "title": "2.6 Builder-Created Order vs Correct Dependency Order",
+        "startLine": 359,
+        "endLine": 368
+      },
+      {
+        "level": 3,
+        "title": "2.7 Correct Dependency Ordering Reference",
+        "startLine": 369,
+        "endLine": 418
+      },
+      {
+        "level": 3,
+        "title": "2.8 Draft Draw Grouping Under $260k Constraint",
+        "startLine": 419,
+        "endLine": 440
+      },
+      {
+        "level": 3,
+        "title": "2.9 Active Build Seed State",
+        "startLine": 441,
+        "endLine": 543
+      },
+      {
+        "level": 4,
+        "title": "Draw 1 — Historically Release-Approved",
+        "startLine": 447,
+        "endLine": 467
+      },
+      {
+        "level": 4,
+        "title": "Draw 2 — Active Draw Group",
+        "startLine": 468,
+        "endLine": 492
+      },
+      {
+        "level": 4,
+        "title": "Draw 3 — Future Preview",
+        "startLine": 493,
+        "endLine": 512
+      },
+      {
+        "level": 4,
+        "title": "Main Active Build Happy Path",
+        "startLine": 513,
+        "endLine": 531
+      },
+      {
+        "level": 4,
+        "title": "Demo Helper Shortcut",
+        "startLine": 532,
+        "endLine": 543
+      },
+      {
+        "level": 2,
+        "title": "3. Round 2 Locked Decisions: Domain Logic",
+        "startLine": 544,
+        "endLine": 650
+      },
+      {
+        "level": 3,
+        "title": "3.1 Dependency Storage",
+        "startLine": 546,
+        "endLine": 549
+      },
+      {
+        "level": 3,
+        "title": "3.2 Dependency Types",
+        "startLine": 550,
+        "endLine": 557
+      },
+      {
+        "level": 3,
+        "title": "3.3 Hard Blocker Semantics",
+        "startLine": 558,
+        "endLine": 567
+      },
+      {
+        "level": 3,
+        "title": "3.4 Soft Dependency Semantics",
+        "startLine": 568,
+        "endLine": 575
+      },
+      {
+        "level": 3,
+        "title": "3.5 Procurement Dependency Semantics",
+        "startLine": 576,
+        "endLine": 583
+      },
+      {
+        "level": 3,
+        "title": "3.6 Approved Hard Dependency Baseline",
+        "startLine": 584,
+        "endLine": 612
+      },
+      {
+        "level": 3,
+        "title": "3.7 Example Invariant: Roofing Before Framing",
+        "startLine": 613,
+        "endLine": 622
+      },
+      {
+        "level": 3,
+        "title": "3.8 Working Capital Semantics",
+        "startLine": 623,
+        "endLine": 636
+      },
+      {
+        "level": 3,
+        "title": "3.9 Draw Group Recompute Semantics",
+        "startLine": 637,
+        "endLine": 650
+      },
+      {
+        "level": 2,
+        "title": "4. Cost, Fee, and Interest Model",
+        "startLine": 651,
+        "endLine": 741
+      },
+      {
+        "level": 3,
+        "title": "4.1 Cost Model Goal",
+        "startLine": 653,
+        "endLine": 667
+      },
+      {
+        "level": 3,
+        "title": "4.2 Interest Rate",
+        "startLine": 668,
+        "endLine": 675
+      },
+      {
+        "level": 3,
+        "title": "4.3 Draw Fee",
+        "startLine": 676,
+        "endLine": 693
+      },
+      {
+        "level": 3,
+        "title": "4.4 Interest Start Date",
+        "startLine": 694,
+        "endLine": 697
+      },
+      {
+        "level": 3,
+        "title": "4.5 Payoff / Takeout Date",
+        "startLine": 698,
+        "endLine": 705
+      },
+      {
+        "level": 3,
+        "title": "4.6 Bottom Cost Summary",
+        "startLine": 706,
+        "endLine": 729
+      },
+      {
+        "level": 3,
+        "title": "4.7 Recalculation Rules",
+        "startLine": 730,
+        "endLine": 741
+      },
+      {
+        "level": 2,
+        "title": "5. Rollover Buffer Model",
+        "startLine": 742,
+        "endLine": 804
+      },
+      {
+        "level": 3,
+        "title": "5.1 Scope",
+        "startLine": 744,
+        "endLine": 749
+      },
+      {
+        "level": 3,
+        "title": "5.2 Creation",
+        "startLine": 750,
+        "endLine": 759
+      },
+      {
+        "level": 3,
+        "title": "5.3 Allowed Use",
+        "startLine": 760,
+        "endLine": 767
+      },
+      {
+        "level": 3,
+        "title": "5.4 Cost Impact",
+        "startLine": 768,
+        "endLine": 775
+      },
+      {
+        "level": 3,
+        "title": "5.5 Zero-Dollar Draw Requests",
+        "startLine": 776,
+        "endLine": 781
+      },
+      {
+        "level": 3,
+        "title": "5.6 Max-Cash-On-Hand / Capital Shock Guardrail",
+        "startLine": 782,
+        "endLine": 804
+      },
+      {
+        "level": 2,
+        "title": "6. Required Demo Tables",
+        "startLine": 805,
+        "endLine": 826
+      },
+      {
+        "level": 2,
+        "title": "7. Required Demo Functions",
+        "startLine": 827,
+        "endLine": 893
+      },
+      {
+        "level": 3,
+        "title": "7.1 Seed and Reset",
+        "startLine": 833,
+        "endLine": 838
+      },
+      {
+        "level": 3,
+        "title": "7.2 Queries",
+        "startLine": 839,
+        "endLine": 849
+      },
+      {
+        "level": 3,
+        "title": "7.3 Proposal Mutations",
+        "startLine": 850,
+        "endLine": 866
+      },
+      {
+        "level": 3,
+        "title": "7.4 Active-Build Mutations",
+        "startLine": 867,
+        "endLine": 883
+      },
+      {
+        "level": 3,
+        "title": "7.5 Deterministic Engine / Recompute Functions",
+        "startLine": 884,
+        "endLine": 893
+      },
+      {
+        "level": 2,
+        "title": "8. Core Invariants",
+        "startLine": 894,
+        "endLine": 920
+      },
+      {
+        "level": 2,
+        "title": "9. Status Lifecycle",
+        "startLine": 921,
+        "endLine": 986
+      },
+      {
+        "level": 3,
+        "title": "9.1 Milestone Status Enum",
+        "startLine": 923,
+        "endLine": 947
+      },
+      {
+        "level": 3,
+        "title": "9.2 Blocking Reasons",
+        "startLine": 948,
+        "endLine": 963
+      },
+      {
+        "level": 3,
+        "title": "9.3 Draw Group Status Enum",
+        "startLine": 964,
+        "endLine": 980
+      },
+      {
+        "level": 3,
+        "title": "9.4 Evidence Review and Site Visits",
+        "startLine": 981,
+        "endLine": 986
+      },
+      {
+        "level": 2,
+        "title": "10. Screens and Panels",
+        "startLine": 987,
+        "endLine": 1007
+      },
+      {
+        "level": 2,
+        "title": "11. Executable Interaction Contract Shape",
+        "startLine": 1008,
+        "endLine": 1014
+      },
+      {
+        "level": 2,
+        "title": "12. Playwright Behavioral Test Requirements",
+        "startLine": 1015,
+        "endLine": 1024
+      },
+      {
+        "level": 2,
+        "title": "13. Round 3 Locked Decisions Summary",
+        "startLine": 1025,
+        "endLine": 1055
+      },
+      {
+        "level": 2,
+        "title": "14. Round 4 Locked Decisions: Active Workspace Interaction Model",
+        "startLine": 1056,
+        "endLine": 1508
+      },
+      {
+        "level": 3,
+        "title": "14.1 Route and Shell",
+        "startLine": 1058,
+        "endLine": 1084
+      },
+      {
+        "level": 3,
+        "title": "14.2 Naming Convention: Milestone-Cards vs Rail-Cards",
+        "startLine": 1085,
+        "endLine": 1093
+      },
+      {
+        "level": 3,
+        "title": "14.3 Active Workspace Selection Behavior",
+        "startLine": 1094,
+        "endLine": 1114
+      },
+      {
+        "level": 3,
+        "title": "14.4 Active Gantt Controls",
+        "startLine": 1115,
+        "endLine": 1136
+      },
+      {
+        "level": 3,
+        "title": "14.5 Active Gantt Layout and Responsiveness",
+        "startLine": 1137,
+        "endLine": 1157
+      },
+      {
+        "level": 3,
+        "title": "14.6 Draw Group Box Geometry",
+        "startLine": 1158,
+        "endLine": 1172
+      },
+      {
+        "level": 3,
+        "title": "14.7 Draw Group Cascading / Capital-Constrained Sequencing",
+        "startLine": 1173,
+        "endLine": 1196
+      },
+      {
+        "level": 3,
+        "title": "14.8 Active Gantt Dragging",
+        "startLine": 1197,
+        "endLine": 1228
+      },
+      {
+        "level": 3,
+        "title": "14.9 Foundation Happy Path Controls",
+        "startLine": 1229,
+        "endLine": 1266
+      },
+      {
+        "level": 3,
+        "title": "14.10 Evidence Upload",
+        "startLine": 1267,
+        "endLine": 1302
+      },
+      {
+        "level": 3,
+        "title": "14.11 Requested Draw Amount and Rollover Creation",
+        "startLine": 1303,
+        "endLine": 1327
+      },
+      {
+        "level": 3,
+        "title": "14.12 Lender Admin Evidence Review",
+        "startLine": 1328,
+        "endLine": 1357
+      },
+      {
+        "level": 3,
+        "title": "14.13 Site Visitor Flow",
+        "startLine": 1358,
+        "endLine": 1382
+      },
+      {
+        "level": 3,
+        "title": "14.14 Lender Admin Completion Approval",
+        "startLine": 1383,
+        "endLine": 1418
+      },
+      {
+        "level": 3,
+        "title": "14.15 Underground Plumbing and Water / Sewer Fast Path",
+        "startLine": 1419,
+        "endLine": 1426
+      },
+      {
+        "level": 3,
+        "title": "14.16 Automatic Draw Release Approval",
+        "startLine": 1427,
+        "endLine": 1452
+      },
+      {
+        "level": 3,
+        "title": "14.17 Audit Drawer",
+        "startLine": 1453,
+        "endLine": 1476
+      },
+      {
+        "level": 3,
+        "title": "14.18 Event Outbox",
+        "startLine": 1477,
+        "endLine": 1494
+      },
+      {
+        "level": 3,
+        "title": "14.19 Demo Reset Controls",
+        "startLine": 1495,
+        "endLine": 1508
+      },
+      {
+        "level": 2,
+        "title": "15. Active Workspace Interaction Contracts",
+        "startLine": 1509,
+        "endLine": 2453
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-SHELL-SCENARIO-LINK",
+        "startLine": 1511,
+        "endLine": 1541
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-SHELL-PERSONA-SELECT",
+        "startLine": 1542,
+        "endLine": 1574
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-MILESTONE-CARD-SELECT",
+        "startLine": 1575,
+        "endLine": 1610
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-RAIL-CARD-SELECT-DATE-RUNNERS",
+        "startLine": 1611,
+        "endLine": 1642
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-GANTT-RESOLUTION-CHANGE",
+        "startLine": 1643,
+        "endLine": 1675
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-GANTT-COLUMN-SIZE-SLIDER",
+        "startLine": 1676,
+        "endLine": 1709
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-MILESTONE-RAIL-COLLAPSE",
+        "startLine": 1710,
+        "endLine": 1741
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-DRAW-GROUP-BOX-GEOMETRY",
+        "startLine": 1742,
+        "endLine": 1776
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-GANTT-FORECAST-RESIZE-END",
+        "startLine": 1777,
+        "endLine": 1825
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-GANTT-FORECAST-INVALID-BLOCKS-SUBMIT",
+        "startLine": 1826,
+        "endLine": 1856
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-MILESTONE-MARK-COMPLETE",
+        "startLine": 1857,
+        "endLine": 1897
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-EVIDENCE-ADD-SAMPLE",
+        "startLine": 1898,
+        "endLine": 1934
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-EVIDENCE-UPLOAD-METADATA",
+        "startLine": 1935,
+        "endLine": 1970
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-EVIDENCE-REMOVE-DRAFT",
+        "startLine": 1971,
+        "endLine": 2003
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-SUBMIT-COMPLETION-CLAIM",
+        "startLine": 2004,
+        "endLine": 2054
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-LENDER-APPROVE-EVIDENCE",
+        "startLine": 2055,
+        "endLine": 2091
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-LENDER-REQUEST-SITE-VISIT",
+        "startLine": 2092,
+        "endLine": 2129
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-SITE-VISITOR-CLAIM-VISIT",
+        "startLine": 2130,
+        "endLine": 2165
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-SITE-VISITOR-SUBMIT-REPORT",
+        "startLine": 2166,
+        "endLine": 2205
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-LENDER-APPROVE-COMPLETION",
+        "startLine": 2206,
+        "endLine": 2251
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-LENDER-APPROVE-COMPLETION-WITH-SITE-VISIT-OVERRIDE",
+        "startLine": 2252,
+        "endLine": 2288
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-LENDER-REJECT-COMPLETION",
+        "startLine": 2289,
+        "endLine": 2323
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-DRAW-GROUP-AUTO-RELEASE",
+        "startLine": 2324,
+        "endLine": 2362
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-AUDIT-DRAWER-FILTER",
+        "startLine": 2363,
+        "endLine": 2392
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-EVENT-OUTBOX-VIEW",
+        "startLine": 2393,
+        "endLine": 2422
+      },
+      {
+        "level": 3,
+        "title": "IC-ACT-DEMO-RESET",
+        "startLine": 2423,
+        "endLine": 2453
+      },
+      {
+        "level": 2,
+        "title": "16. Active Workspace Playwright Test Matrix",
+        "startLine": 2454,
+        "endLine": 2486
+      },
+      {
+        "level": 2,
+        "title": "17. Round 5 Locked Decisions: Proposal Builder Interaction Model",
+        "startLine": 2487,
+        "endLine": 2818
+      },
+      {
+        "level": 3,
+        "title": "17.1 Route and Shell",
+        "startLine": 2489,
+        "endLine": 2511
+      },
+      {
+        "level": 3,
+        "title": "17.2 Proposal Setup Drawer",
+        "startLine": 2512,
+        "endLine": 2526
+      },
+      {
+        "level": 3,
+        "title": "17.3 Just-In-Time Proposal Analysis",
+        "startLine": 2527,
+        "endLine": 2544
+      },
+      {
+        "level": 3,
+        "title": "17.4 Proposal Seed State",
+        "startLine": 2545,
+        "endLine": 2562
+      },
+      {
+        "level": 3,
+        "title": "17.5 Proposal Milestone-Cards",
+        "startLine": 2563,
+        "endLine": 2587
+      },
+      {
+        "level": 3,
+        "title": "17.6 Proposal Rail-Cards",
+        "startLine": 2588,
+        "endLine": 2614
+      },
+      {
+        "level": 3,
+        "title": "17.7 Proposal Detail Sheet",
+        "startLine": 2615,
+        "endLine": 2644
+      },
+      {
+        "level": 3,
+        "title": "17.8 Add Milestone",
+        "startLine": 2645,
+        "endLine": 2669
+      },
+      {
+        "level": 3,
+        "title": "17.9 Dependency Editor",
+        "startLine": 2670,
+        "endLine": 2696
+      },
+      {
+        "level": 3,
+        "title": "17.10 Analyze Plan",
+        "startLine": 2697,
+        "endLine": 2721
+      },
+      {
+        "level": 3,
+        "title": "17.11 Apply Recommended Plan",
+        "startLine": 2722,
+        "endLine": 2743
+      },
+      {
+        "level": 3,
+        "title": "17.12 Submit Proposal",
+        "startLine": 2744,
+        "endLine": 2777
+      },
+      {
+        "level": 3,
+        "title": "17.13 Proposal Draw Group Behavior",
+        "startLine": 2778,
+        "endLine": 2802
+      },
+      {
+        "level": 3,
+        "title": "17.14 Proposal Capital-Constrained Cascading",
+        "startLine": 2803,
+        "endLine": 2818
+      },
+      {
+        "level": 2,
+        "title": "18. Proposal Builder Interaction Contracts",
+        "startLine": 2819,
+        "endLine": 3541
+      },
+      {
+        "level": 3,
+        "title": "IC-PROP-MILESTONE-CARD-SELECT",
+        "startLine": 2821,
+        "endLine": 2857
+      },
+      {
+        "level": 3,
+        "title": "IC-PROP-MILESTONE-REORDER",
+        "startLine": 2858,
+        "endLine": 2898
+      },
+      {
+        "level": 3,
+        "title": "IC-PROP-GANTT-MOVE",
+        "startLine": 2899,
+        "endLine": 2942
+      },
+      {
+        "level": 3,
+        "title": "IC-PROP-GANTT-RESIZE-START",
+        "startLine": 2943,
+        "endLine": 2985
+      },
+      {
+        "level": 3,
+        "title": "IC-PROP-GANTT-RESIZE-END",
+        "startLine": 2986,
+        "endLine": 3033
+      },
+      {
+        "level": 3,
+        "title": "IC-PROP-ADD-MILESTONE",
+        "startLine": 3034,
+        "endLine": 3073
+      },
+      {
+        "level": 3,
+        "title": "IC-PROP-EDIT-VALUE",
+        "startLine": 3074,
+        "endLine": 3114
+      },
+      {
+        "level": 3,
+        "title": "IC-PROP-EDIT-DURATION",
+        "startLine": 3115,
+        "endLine": 3155
+      },
+      {
+        "level": 3,
+        "title": "IC-PROP-DEPENDENCY-ADD",
+        "startLine": 3156,
+        "endLine": 3195
+      },
+      {
+        "level": 3,
+        "title": "IC-PROP-DEPENDENCY-CYCLE",
+        "startLine": 3196,
+        "endLine": 3227
+      },
+      {
+        "level": 3,
+        "title": "IC-PROP-SYSTEM-DEPENDENCY-REMOVE-BLOCKED",
+        "startLine": 3228,
+        "endLine": 3257
+      },
+      {
+        "level": 3,
+        "title": "IC-PROP-ANALYZE-PLAN",
+        "startLine": 3258,
+        "endLine": 3295
+      },
+      {
+        "level": 3,
+        "title": "IC-PROP-APPLY-RECOMMENDED-PLAN",
+        "startLine": 3296,
+        "endLine": 3342
+      },
+      {
+        "level": 3,
+        "title": "IC-PROP-SPLIT-DRAW-GROUP",
+        "startLine": 3343,
+        "endLine": 3384
+      },
+      {
+        "level": 3,
+        "title": "IC-PROP-MERGE-DRAW-GROUP",
+        "startLine": 3385,
+        "endLine": 3425
+      },
+      {
+        "level": 3,
+        "title": "IC-PROP-CAPITAL-CASCADE",
+        "startLine": 3426,
+        "endLine": 3461
+      },
+      {
+        "level": 3,
+        "title": "IC-PROP-SUBMIT-BLOCKED",
+        "startLine": 3462,
+        "endLine": 3498
+      },
+      {
+        "level": 3,
+        "title": "IC-PROP-SUBMIT-SUCCESS",
+        "startLine": 3499,
+        "endLine": 3541
+      },
+      {
+        "level": 2,
+        "title": "19. Proposal Builder Playwright Test Matrix",
+        "startLine": 3542,
+        "endLine": 3566
+      },
+      {
+        "level": 2,
+        "title": "20. Round 6 Locked Decisions: Convex Schema, Functions, and Seed Contract",
+        "startLine": 3567,
+        "endLine": 4796
+      },
+      {
+        "level": 3,
+        "title": "20.1 Convex Naming Rules",
+        "startLine": 3571,
+        "endLine": 3592
+      },
+      {
+        "level": 3,
+        "title": "20.2 Canonical Demo IDs",
+        "startLine": 3593,
+        "endLine": 3618
+      },
+      {
+        "level": 3,
+        "title": "20.3 Seed Dates",
+        "startLine": 3619,
+        "endLine": 3630
+      },
+      {
+        "level": 3,
+        "title": "20.4 Money and Date Representation",
+        "startLine": 3631,
+        "endLine": 3651
+      },
+      {
+        "level": 3,
+        "title": "20.5 Shared Enums",
+        "startLine": 3652,
+        "endLine": 3756
+      },
+      {
+        "level": 3,
+        "title": "20.6 Convex Table Manifest",
+        "startLine": 3757,
+        "endLine": 4206
+      },
+      {
+        "level": 4,
+        "title": "`demo_builds`",
+        "startLine": 3761,
+        "endLine": 3793
+      },
+      {
+        "level": 4,
+        "title": "`demo_milestones`",
+        "startLine": 3794,
+        "endLine": 3844
+      },
+      {
+        "level": 4,
+        "title": "`demo_milestoneDependencies`",
+        "startLine": 3845,
+        "endLine": 3873
+      },
+      {
+        "level": 4,
+        "title": "`demo_drawGroups`",
+        "startLine": 3874,
+        "endLine": 3912
+      },
+      {
+        "level": 4,
+        "title": "`demo_evidencePackages`",
+        "startLine": 3913,
+        "endLine": 3938
+      },
+      {
+        "level": 4,
+        "title": "`demo_evidenceFiles`",
+        "startLine": 3939,
+        "endLine": 3968
+      },
+      {
+        "level": 4,
+        "title": "`demo_reviewReports`",
+        "startLine": 3969,
+        "endLine": 3995
+      },
+      {
+        "level": 4,
+        "title": "`demo_siteVisits`",
+        "startLine": 3996,
+        "endLine": 4029
+      },
+      {
+        "level": 4,
+        "title": "`demo_rolloverBuffers`",
+        "startLine": 4030,
+        "endLine": 4059
+      },
+      {
+        "level": 4,
+        "title": "`demo_forecastUpdates`",
+        "startLine": 4060,
+        "endLine": 4086
+      },
+      {
+        "level": 4,
+        "title": "`demo_planningRuns`",
+        "startLine": 4087,
+        "endLine": 4120
+      },
+      {
+        "level": 4,
+        "title": "`demo_auditEvents`",
+        "startLine": 4121,
+        "endLine": 4152
+      },
+      {
+        "level": 4,
+        "title": "`demo_eventOutbox`",
+        "startLine": 4153,
+        "endLine": 4181
+      },
+      {
+        "level": 4,
+        "title": "`demo_policySnapshots`",
+        "startLine": 4182,
+        "endLine": 4206
+      },
+      {
+        "level": 3,
+        "title": "20.7 Public Convex Function Contract",
+        "startLine": 4207,
+        "endLine": 4480
+      },
+      {
+        "level": 4,
+        "title": "Seed / Reset",
+        "startLine": 4221,
+        "endLine": 4247
+      },
+      {
+        "level": 4,
+        "title": "Workspace Queries",
+        "startLine": 4248,
+        "endLine": 4293
+      },
+      {
+        "level": 4,
+        "title": "Proposal Mutations",
+        "startLine": 4294,
+        "endLine": 4391
+      },
+      {
+        "level": 4,
+        "title": "Active Mutations",
+        "startLine": 4392,
+        "endLine": 4480
+      },
+      {
+        "level": 3,
+        "title": "20.8 Workspace Projection Shape",
+        "startLine": 4481,
+        "endLine": 4533
+      },
+      {
+        "level": 3,
+        "title": "20.9 Deterministic Engine Contracts",
+        "startLine": 4534,
+        "endLine": 4556
+      },
+      {
+        "level": 3,
+        "title": "20.10 Cost Formula Contract",
+        "startLine": 4557,
+        "endLine": 4590
+      },
+      {
+        "level": 3,
+        "title": "20.11 Seed Script Contract",
+        "startLine": 4591,
+        "endLine": 4667
+      },
+      {
+        "level": 4,
+        "title": "Proposal Seed",
+        "startLine": 4602,
+        "endLine": 4627
+      },
+      {
+        "level": 4,
+        "title": "Active Seed",
+        "startLine": 4628,
+        "endLine": 4667
+      },
+      {
+        "level": 3,
+        "title": "20.12 Seed Data Milestone Catalog",
+        "startLine": 4668,
+        "endLine": 4718
+      },
+      {
+        "level": 3,
+        "title": "20.13 Seed Dependency Edges",
+        "startLine": 4719,
+        "endLine": 4756
+      },
+      {
+        "level": 3,
+        "title": "20.14 Cleanup Script Contract",
+        "startLine": 4757,
+        "endLine": 4779
+      },
+      {
+        "level": 3,
+        "title": "20.15 Required Implementation Guardrails",
+        "startLine": 4780,
+        "endLine": 4796
+      },
+      {
+        "level": 2,
+        "title": "21. Final Round 6 Open Items",
+        "startLine": 4797,
+        "endLine": 4806
+      }
+    ]
+  },
+  {
+    "sourceId": "implementationCompanion",
+    "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+    "sha256": "a7e24fd283b6289aba9959a3df42aeadfefab9a11ddb56aa93317f490155b701",
+    "lineCount": 1843,
+    "headings": [
+      {
+        "level": 1,
+        "title": "DrawFlow Demo Implementation Companion",
+        "startLine": 1,
+        "endLine": 91
+      },
+      {
+        "level": 2,
+        "title": "0. Purpose",
+        "startLine": 3,
+        "endLine": 18
+      },
+      {
+        "level": 2,
+        "title": "1. Non-Negotiable Implementation Rules",
+        "startLine": 19,
+        "endLine": 91
+      },
+      {
+        "level": 3,
+        "title": "1.1 Persistence",
+        "startLine": 21,
+        "endLine": 38
+      },
+      {
+        "level": 3,
+        "title": "1.2 Naming",
+        "startLine": 39,
+        "endLine": 52
+      },
+      {
+        "level": 3,
+        "title": "1.3 No Fake Affordances",
+        "startLine": 53,
+        "endLine": 66
+      },
+      {
+        "level": 3,
+        "title": "1.4 Required Test Selectors",
+        "startLine": 67,
+        "endLine": 91
+      },
+      {
+        "level": 1,
+        "title": "2. UI Component Manifest",
+        "startLine": 92,
+        "endLine": 964
+      },
+      {
+        "level": 2,
+        "title": "2.1 Component Layering",
+        "startLine": 94,
+        "endLine": 106
+      },
+      {
+        "level": 2,
+        "title": "2.2 Shared Layout Components",
+        "startLine": 107,
+        "endLine": 269
+      },
+      {
+        "level": 3,
+        "title": "`DrawFlowDemoLayout`",
+        "startLine": 109,
+        "endLine": 140
+      },
+      {
+        "level": 3,
+        "title": "`DrawFlowTopBar`",
+        "startLine": 141,
+        "endLine": 177
+      },
+      {
+        "level": 3,
+        "title": "`DemoScenarioLinks`",
+        "startLine": 178,
+        "endLine": 201
+      },
+      {
+        "level": 3,
+        "title": "`PersonaSelector`",
+        "startLine": 202,
+        "endLine": 234
+      },
+      {
+        "level": 3,
+        "title": "`DemoResetControls`",
+        "startLine": 235,
+        "endLine": 269
+      },
+      {
+        "level": 2,
+        "title": "2.3 Shared Gantt Components",
+        "startLine": 270,
+        "endLine": 542
+      },
+      {
+        "level": 3,
+        "title": "`GanttWorkspaceFrame`",
+        "startLine": 272,
+        "endLine": 303
+      },
+      {
+        "level": 3,
+        "title": "`MilestoneRailPane`",
+        "startLine": 304,
+        "endLine": 325
+      },
+      {
+        "level": 3,
+        "title": "`MilestoneCard`",
+        "startLine": 326,
+        "endLine": 354
+      },
+      {
+        "level": 3,
+        "title": "`GanttToolbar`",
+        "startLine": 355,
+        "endLine": 382
+      },
+      {
+        "level": 3,
+        "title": "`RailCardLayer`",
+        "startLine": 383,
+        "endLine": 404
+      },
+      {
+        "level": 3,
+        "title": "`RailCard`",
+        "startLine": 405,
+        "endLine": 445
+      },
+      {
+        "level": 3,
+        "title": "`DateRunners`",
+        "startLine": 446,
+        "endLine": 465
+      },
+      {
+        "level": 3,
+        "title": "`DrawGroupBoxLayer`",
+        "startLine": 466,
+        "endLine": 496
+      },
+      {
+        "level": 3,
+        "title": "`BlockingReasonChips`",
+        "startLine": 497,
+        "endLine": 516
+      },
+      {
+        "level": 3,
+        "title": "`ValidationPanel`",
+        "startLine": 517,
+        "endLine": 542
+      },
+      {
+        "level": 2,
+        "title": "2.4 Proposal Builder Components",
+        "startLine": 543,
+        "endLine": 738
+      },
+      {
+        "level": 3,
+        "title": "`ProposalWorkspacePage`",
+        "startLine": 545,
+        "endLine": 571
+      },
+      {
+        "level": 3,
+        "title": "`ProposalSetupDrawer`",
+        "startLine": 572,
+        "endLine": 603
+      },
+      {
+        "level": 3,
+        "title": "`ProposalMilestoneDetailSheet`",
+        "startLine": 604,
+        "endLine": 644
+      },
+      {
+        "level": 3,
+        "title": "`ProposalDependencyEditor`",
+        "startLine": 645,
+        "endLine": 668
+      },
+      {
+        "level": 3,
+        "title": "`PlanningComparisonPanel`",
+        "startLine": 669,
+        "endLine": 692
+      },
+      {
+        "level": 3,
+        "title": "`ApplyRecommendationDialog`",
+        "startLine": 693,
+        "endLine": 712
+      },
+      {
+        "level": 3,
+        "title": "`ProposalFooterStatusRegion`",
+        "startLine": 713,
+        "endLine": 738
+      },
+      {
+        "level": 2,
+        "title": "2.5 Active Workspace Components",
+        "startLine": 739,
+        "endLine": 964
+      },
+      {
+        "level": 3,
+        "title": "`ActiveWorkspacePage`",
+        "startLine": 741,
+        "endLine": 759
+      },
+      {
+        "level": 3,
+        "title": "`ActiveMilestoneDetailSheet`",
+        "startLine": 760,
+        "endLine": 804
+      },
+      {
+        "level": 3,
+        "title": "`ForecastReasonDialog`",
+        "startLine": 805,
+        "endLine": 826
+      },
+      {
+        "level": 3,
+        "title": "`EvidencePanel`",
+        "startLine": 827,
+        "endLine": 851
+      },
+      {
+        "level": 3,
+        "title": "`RolloverBufferPanel`",
+        "startLine": 852,
+        "endLine": 871
+      },
+      {
+        "level": 3,
+        "title": "`AssignedSiteVisitsPanel`",
+        "startLine": 872,
+        "endLine": 891
+      },
+      {
+        "level": 3,
+        "title": "`SiteVisitDrawer`",
+        "startLine": 892,
+        "endLine": 921
+      },
+      {
+        "level": 3,
+        "title": "`AuditDrawer`",
+        "startLine": 922,
+        "endLine": 943
+      },
+      {
+        "level": 3,
+        "title": "`EventOutboxDrawer`",
+        "startLine": 944,
+        "endLine": 964
+      },
+      {
+        "level": 1,
+        "title": "3. Route and File Manifest",
+        "startLine": 965,
+        "endLine": 1265
+      },
+      {
+        "level": 2,
+        "title": "3.1 Route Manifest",
+        "startLine": 967,
+        "endLine": 991
+      },
+      {
+        "level": 2,
+        "title": "3.2 Suggested Route Files",
+        "startLine": 992,
+        "endLine": 1021
+      },
+      {
+        "level": 3,
+        "title": "`src/routes/demo/drawflow/index.tsx`",
+        "startLine": 1004,
+        "endLine": 1007
+      },
+      {
+        "level": 3,
+        "title": "`src/routes/demo/drawflow/active.tsx`",
+        "startLine": 1008,
+        "endLine": 1013
+      },
+      {
+        "level": 3,
+        "title": "`src/routes/demo/drawflow/proposal.tsx`",
+        "startLine": 1014,
+        "endLine": 1021
+      },
+      {
+        "level": 2,
+        "title": "3.3 Suggested Feature Directory",
+        "startLine": 1022,
+        "endLine": 1109
+      },
+      {
+        "level": 2,
+        "title": "3.4 Convex File Manifest",
+        "startLine": 1110,
+        "endLine": 1188
+      },
+      {
+        "level": 3,
+        "title": "`domain.ts`",
+        "startLine": 1127,
+        "endLine": 1133
+      },
+      {
+        "level": 3,
+        "title": "`seedData.ts`",
+        "startLine": 1134,
+        "endLine": 1141
+      },
+      {
+        "level": 3,
+        "title": "`seed.ts`",
+        "startLine": 1142,
+        "endLine": 1147
+      },
+      {
+        "level": 3,
+        "title": "`queries.ts`",
+        "startLine": 1148,
+        "endLine": 1151
+      },
+      {
+        "level": 3,
+        "title": "`mutations.ts`",
+        "startLine": 1152,
+        "endLine": 1155
+      },
+      {
+        "level": 3,
+        "title": "`engine.ts`",
+        "startLine": 1156,
+        "endLine": 1159
+      },
+      {
+        "level": 3,
+        "title": "`projections.ts`",
+        "startLine": 1160,
+        "endLine": 1163
+      },
+      {
+        "level": 3,
+        "title": "`audit.ts`",
+        "startLine": 1164,
+        "endLine": 1168
+      },
+      {
+        "level": 3,
+        "title": "`outbox.ts`",
+        "startLine": 1169,
+        "endLine": 1173
+      },
+      {
+        "level": 3,
+        "title": "`money.ts`",
+        "startLine": 1174,
+        "endLine": 1179
+      },
+      {
+        "level": 3,
+        "title": "`dateMath.ts`",
+        "startLine": 1180,
+        "endLine": 1188
+      },
+      {
+        "level": 2,
+        "title": "3.5 Test File Manifest",
+        "startLine": 1189,
+        "endLine": 1265
+      },
+      {
+        "level": 3,
+        "title": "`active.workspace.spec.ts`",
+        "startLine": 1207,
+        "endLine": 1217
+      },
+      {
+        "level": 3,
+        "title": "`active.workflow.spec.ts`",
+        "startLine": 1218,
+        "endLine": 1228
+      },
+      {
+        "level": 3,
+        "title": "`active.audit-outbox.spec.ts`",
+        "startLine": 1229,
+        "endLine": 1234
+      },
+      {
+        "level": 3,
+        "title": "`proposal.workspace.spec.ts`",
+        "startLine": 1235,
+        "endLine": 1242
+      },
+      {
+        "level": 3,
+        "title": "`proposal.gantt.spec.ts`",
+        "startLine": 1243,
+        "endLine": 1250
+      },
+      {
+        "level": 3,
+        "title": "`proposal.planning.spec.ts`",
+        "startLine": 1251,
+        "endLine": 1258
+      },
+      {
+        "level": 3,
+        "title": "`proposal.submit.spec.ts`",
+        "startLine": 1259,
+        "endLine": 1265
+      },
+      {
+        "level": 1,
+        "title": "4. Playwright Fixture Strategy",
+        "startLine": 1266,
+        "endLine": 1519
+      },
+      {
+        "level": 2,
+        "title": "4.1 Core Principle",
+        "startLine": 1268,
+        "endLine": 1279
+      },
+      {
+        "level": 2,
+        "title": "4.2 Serial Execution",
+        "startLine": 1280,
+        "endLine": 1298
+      },
+      {
+        "level": 2,
+        "title": "4.3 Convex Reset Fixture",
+        "startLine": 1299,
+        "endLine": 1351
+      },
+      {
+        "level": 2,
+        "title": "4.4 Test Data Clock",
+        "startLine": 1352,
+        "endLine": 1367
+      },
+      {
+        "level": 2,
+        "title": "4.5 JIT Analysis Waiting Strategy",
+        "startLine": 1368,
+        "endLine": 1401
+      },
+      {
+        "level": 2,
+        "title": "4.6 Drag Helpers",
+        "startLine": 1402,
+        "endLine": 1432
+      },
+      {
+        "level": 2,
+        "title": "4.7 Selector Strategy",
+        "startLine": 1433,
+        "endLine": 1458
+      },
+      {
+        "level": 2,
+        "title": "4.8 Assertion Levels",
+        "startLine": 1459,
+        "endLine": 1478
+      },
+      {
+        "level": 2,
+        "title": "4.9 Smoke Tests Are Not Coverage",
+        "startLine": 1479,
+        "endLine": 1504
+      },
+      {
+        "level": 2,
+        "title": "4.10 Required Test Naming Rule",
+        "startLine": 1505,
+        "endLine": 1519
+      },
+      {
+        "level": 1,
+        "title": "5. Final Coverage Matrix Format",
+        "startLine": 1520,
+        "endLine": 1619
+      },
+      {
+        "level": 2,
+        "title": "5.1 Interactive Control Coverage Matrix",
+        "startLine": 1530,
+        "endLine": 1572
+      },
+      {
+        "level": 2,
+        "title": "5.2 Projection Coverage Matrix",
+        "startLine": 1573,
+        "endLine": 1600
+      },
+      {
+        "level": 2,
+        "title": "5.3 Test Coverage Summary",
+        "startLine": 1601,
+        "endLine": 1619
+      },
+      {
+        "level": 1,
+        "title": "6. Agent Instruction Block",
+        "startLine": 1620,
+        "endLine": 1689
+      },
+      {
+        "level": 1,
+        "title": "7. Anti-Punting Checklist",
+        "startLine": 1690,
+        "endLine": 1795
+      },
+      {
+        "level": 2,
+        "title": "7.1 Static Control Audit",
+        "startLine": 1694,
+        "endLine": 1706
+      },
+      {
+        "level": 2,
+        "title": "7.2 Convex Audit",
+        "startLine": 1707,
+        "endLine": 1719
+      },
+      {
+        "level": 2,
+        "title": "7.3 Proposal Behavior Audit",
+        "startLine": 1720,
+        "endLine": 1741
+      },
+      {
+        "level": 2,
+        "title": "7.4 Active Behavior Audit",
+        "startLine": 1742,
+        "endLine": 1765
+      },
+      {
+        "level": 2,
+        "title": "7.5 Layout Audit",
+        "startLine": 1766,
+        "endLine": 1778
+      },
+      {
+        "level": 2,
+        "title": "7.6 Playwright Audit",
+        "startLine": 1779,
+        "endLine": 1795
+      },
+      {
+        "level": 1,
+        "title": "8. Definition of Done",
+        "startLine": 1796,
+        "endLine": 1843
+      }
+    ]
+  },
+  {
+    "sourceId": "prd",
+    "path": "docs/draw_flow_prd.md",
+    "sha256": "6e8109b917f7a368e6d496cf52b637f116b0eb82500354260de92afc4ddb7046",
+    "lineCount": 2381,
+    "headings": [
+      {
+        "level": 1,
+        "title": "DrawFlow PRD",
+        "startLine": 1,
+        "endLine": 2381
+      },
+      {
+        "level": 2,
+        "title": "1. Executive Summary",
+        "startLine": 12,
+        "endLine": 25
+      },
+      {
+        "level": 2,
+        "title": "2. Product Positioning",
+        "startLine": 26,
+        "endLine": 77
+      },
+      {
+        "level": 3,
+        "title": "2.1 FairLend Module First",
+        "startLine": 28,
+        "endLine": 44
+      },
+      {
+        "level": 3,
+        "title": "2.2 Standalone Software Later",
+        "startLine": 45,
+        "endLine": 59
+      },
+      {
+        "level": 3,
+        "title": "2.3 Product Category",
+        "startLine": 60,
+        "endLine": 77
+      },
+      {
+        "level": 2,
+        "title": "3. Problem Statement",
+        "startLine": 78,
+        "endLine": 109
+      },
+      {
+        "level": 2,
+        "title": "4. Product Goals",
+        "startLine": 110,
+        "endLine": 135
+      },
+      {
+        "level": 3,
+        "title": "4.1 Primary Goals",
+        "startLine": 112,
+        "endLine": 124
+      },
+      {
+        "level": 3,
+        "title": "4.2 Secondary Goals",
+        "startLine": 125,
+        "endLine": 135
+      },
+      {
+        "level": 2,
+        "title": "5. Non-Goals",
+        "startLine": 136,
+        "endLine": 157
+      },
+      {
+        "level": 2,
+        "title": "6. Target Users and Personas",
+        "startLine": 158,
+        "endLine": 159
+      },
+      {
+        "level": 2,
+        "title": "6.1 Builder / Developer Principal",
+        "startLine": 160,
+        "endLine": 185
+      },
+      {
+        "level": 2,
+        "title": "6.2 Builder Staff",
+        "startLine": 186,
+        "endLine": 207
+      },
+      {
+        "level": 2,
+        "title": "6.3 Lender Admin",
+        "startLine": 208,
+        "endLine": 231
+      },
+      {
+        "level": 2,
+        "title": "6.4 Lender Staff / Operations Analyst",
+        "startLine": 232,
+        "endLine": 257
+      },
+      {
+        "level": 2,
+        "title": "6.5 Site Visit Staff / Inspector",
+        "startLine": 258,
+        "endLine": 279
+      },
+      {
+        "level": 2,
+        "title": "7. Core Product Concepts",
+        "startLine": 280,
+        "endLine": 281
+      },
+      {
+        "level": 2,
+        "title": "7.1 Build",
+        "startLine": 282,
+        "endLine": 305
+      },
+      {
+        "level": 2,
+        "title": "7.2 Loan",
+        "startLine": 306,
+        "endLine": 323
+      },
+      {
+        "level": 2,
+        "title": "7.3 Build Proposal",
+        "startLine": 324,
+        "endLine": 345
+      },
+      {
+        "level": 2,
+        "title": "7.4 Budget",
+        "startLine": 346,
+        "endLine": 362
+      },
+      {
+        "level": 2,
+        "title": "7.5 Construction Roadmap",
+        "startLine": 363,
+        "endLine": 381
+      },
+      {
+        "level": 2,
+        "title": "7.6 Milestone",
+        "startLine": 382,
+        "endLine": 407
+      },
+      {
+        "level": 2,
+        "title": "7.7 Subtask",
+        "startLine": 408,
+        "endLine": 420
+      },
+      {
+        "level": 2,
+        "title": "7.8 Draw",
+        "startLine": 421,
+        "endLine": 443
+      },
+      {
+        "level": 2,
+        "title": "7.9 Draw Group",
+        "startLine": 444,
+        "endLine": 461
+      },
+      {
+        "level": 2,
+        "title": "7.10 Borrower Working Capital Limit",
+        "startLine": 462,
+        "endLine": 478
+      },
+      {
+        "level": 2,
+        "title": "7.11 Lender Draw Policy Limit",
+        "startLine": 479,
+        "endLine": 494
+      },
+      {
+        "level": 2,
+        "title": "7.12 Evidence Package",
+        "startLine": 495,
+        "endLine": 514
+      },
+      {
+        "level": 2,
+        "title": "7.13 Site Visit",
+        "startLine": 515,
+        "endLine": 534
+      },
+      {
+        "level": 2,
+        "title": "8. Core Business Rules",
+        "startLine": 535,
+        "endLine": 536
+      },
+      {
+        "level": 2,
+        "title": "8.1 Reimbursement-Only Draw Model",
+        "startLine": 537,
+        "endLine": 554
+      },
+      {
+        "level": 2,
+        "title": "8.2 Interest Accrual",
+        "startLine": 555,
+        "endLine": 572
+      },
+      {
+        "level": 2,
+        "title": "8.3 Draw Fee",
+        "startLine": 573,
+        "endLine": 586
+      },
+      {
+        "level": 2,
+        "title": "8.4 Lender Draw Policy",
+        "startLine": 587,
+        "endLine": 600
+      },
+      {
+        "level": 2,
+        "title": "8.5 Borrower Working Capital Constraint",
+        "startLine": 601,
+        "endLine": 615
+      },
+      {
+        "level": 2,
+        "title": "8.6 Milestone Dependencies",
+        "startLine": 616,
+        "endLine": 633
+      },
+      {
+        "level": 2,
+        "title": "8.7 Site Visit Control",
+        "startLine": 634,
+        "endLine": 645
+      },
+      {
+        "level": 2,
+        "title": "8.8 Geofenced Proof-of-Completion",
+        "startLine": 646,
+        "endLine": 659
+      },
+      {
+        "level": 2,
+        "title": "8.9 Budget Overrun and Revision",
+        "startLine": 660,
+        "endLine": 676
+      },
+      {
+        "level": 2,
+        "title": "9. Optimization Requirements",
+        "startLine": 677,
+        "endLine": 678
+      },
+      {
+        "level": 2,
+        "title": "9.1 Optimization Purpose",
+        "startLine": 679,
+        "endLine": 684
+      },
+      {
+        "level": 2,
+        "title": "9.2 Optimization Inputs",
+        "startLine": 685,
+        "endLine": 703
+      },
+      {
+        "level": 2,
+        "title": "9.3 Optimization Outputs",
+        "startLine": 704,
+        "endLine": 721
+      },
+      {
+        "level": 2,
+        "title": "9.4 Default Recommendation: Cheapest Feasible Plan",
+        "startLine": 722,
+        "endLine": 737
+      },
+      {
+        "level": 2,
+        "title": "9.5 Fastest Plan",
+        "startLine": 738,
+        "endLine": 751
+      },
+      {
+        "level": 2,
+        "title": "9.6 Capital-Constrained Plan",
+        "startLine": 752,
+        "endLine": 763
+      },
+      {
+        "level": 2,
+        "title": "9.7 Plan Comparison",
+        "startLine": 764,
+        "endLine": 777
+      },
+      {
+        "level": 2,
+        "title": "10. Core Build Workspace",
+        "startLine": 778,
+        "endLine": 779
+      },
+      {
+        "level": 2,
+        "title": "10.1 Product Role",
+        "startLine": 780,
+        "endLine": 799
+      },
+      {
+        "level": 2,
+        "title": "10.2 Layout",
+        "startLine": 800,
+        "endLine": 864
+      },
+      {
+        "level": 3,
+        "title": "Left Column: Milestone Rail",
+        "startLine": 804,
+        "endLine": 825
+      },
+      {
+        "level": 3,
+        "title": "Right Column: Schedule / Gantt Roadmap",
+        "startLine": 826,
+        "endLine": 843
+      },
+      {
+        "level": 3,
+        "title": "Top Bar",
+        "startLine": 844,
+        "endLine": 854
+      },
+      {
+        "level": 3,
+        "title": "Bottom Status Region",
+        "startLine": 855,
+        "endLine": 864
+      },
+      {
+        "level": 2,
+        "title": "10.3 Draw Group Visualization",
+        "startLine": 865,
+        "endLine": 885
+      },
+      {
+        "level": 2,
+        "title": "10.4 Core Workspace Interactions",
+        "startLine": 886,
+        "endLine": 911
+      },
+      {
+        "level": 2,
+        "title": "10.5 Builder Lead Usage",
+        "startLine": 912,
+        "endLine": 925
+      },
+      {
+        "level": 2,
+        "title": "10.6 Lender Admin Usage",
+        "startLine": 926,
+        "endLine": 940
+      },
+      {
+        "level": 2,
+        "title": "10.7 Relationship to Other Interfaces",
+        "startLine": 941,
+        "endLine": 957
+      },
+      {
+        "level": 2,
+        "title": "11. User Flows",
+        "startLine": 958,
+        "endLine": 959
+      },
+      {
+        "level": 2,
+        "title": "11.1 Builder Application / Build Proposal Flow",
+        "startLine": 960,
+        "endLine": 981
+      },
+      {
+        "level": 2,
+        "title": "11.2 Lender Admin Proposal Review Flow",
+        "startLine": 982,
+        "endLine": 995
+      },
+      {
+        "level": 2,
+        "title": "11.3 Active Build Update Flow",
+        "startLine": 996,
+        "endLine": 1008
+      },
+      {
+        "level": 2,
+        "title": "11.4 Evidence Review Flow",
+        "startLine": 1009,
+        "endLine": 1021
+      },
+      {
+        "level": 2,
+        "title": "11.5 Site Visit Flow",
+        "startLine": 1022,
+        "endLine": 1034
+      },
+      {
+        "level": 2,
+        "title": "11.6 Milestone Approval and Draw Release Flow",
+        "startLine": 1035,
+        "endLine": 1049
+      },
+      {
+        "level": 2,
+        "title": "11.7 Budget Revision Flow",
+        "startLine": 1050,
+        "endLine": 1062
+      },
+      {
+        "level": 2,
+        "title": "12. Screens and Interfaces",
+        "startLine": 1063,
+        "endLine": 1064
+      },
+      {
+        "level": 2,
+        "title": "12.1 Core Shared Interface",
+        "startLine": 1065,
+        "endLine": 1082
+      },
+      {
+        "level": 3,
+        "title": "Build Workspace",
+        "startLine": 1067,
+        "endLine": 1082
+      },
+      {
+        "level": 2,
+        "title": "12.2 Builder Interfaces",
+        "startLine": 1083,
+        "endLine": 1095
+      },
+      {
+        "level": 2,
+        "title": "12.3 Lender Admin Interfaces",
+        "startLine": 1096,
+        "endLine": 1106
+      },
+      {
+        "level": 2,
+        "title": "12.4 Lender Staff Interfaces",
+        "startLine": 1107,
+        "endLine": 1114
+      },
+      {
+        "level": 2,
+        "title": "12.5 Site Visit Interfaces",
+        "startLine": 1115,
+        "endLine": 1124
+      },
+      {
+        "level": 2,
+        "title": "13. Functional Requirements",
+        "startLine": 1125,
+        "endLine": 1126
+      },
+      {
+        "level": 2,
+        "title": "13.1 Multi-Tenancy and Organization Scoping",
+        "startLine": 1127,
+        "endLine": 1134
+      },
+      {
+        "level": 2,
+        "title": "13.2 Proposal Intake",
+        "startLine": 1135,
+        "endLine": 1146
+      },
+      {
+        "level": 2,
+        "title": "13.3 Milestone Templates",
+        "startLine": 1147,
+        "endLine": 1156
+      },
+      {
+        "level": 2,
+        "title": "13.4 Dependency Management",
+        "startLine": 1157,
+        "endLine": 1165
+      },
+      {
+        "level": 2,
+        "title": "13.5 Draw Planning",
+        "startLine": 1166,
+        "endLine": 1175
+      },
+      {
+        "level": 2,
+        "title": "13.6 Milestone Progress",
+        "startLine": 1176,
+        "endLine": 1185
+      },
+      {
+        "level": 2,
+        "title": "13.7 Evidence Upload",
+        "startLine": 1186,
+        "endLine": 1194
+      },
+      {
+        "level": 2,
+        "title": "13.8 Site Visits",
+        "startLine": 1195,
+        "endLine": 1204
+      },
+      {
+        "level": 2,
+        "title": "13.9 Milestone Approval",
+        "startLine": 1205,
+        "endLine": 1212
+      },
+      {
+        "level": 2,
+        "title": "13.10 Draw Release",
+        "startLine": 1213,
+        "endLine": 1221
+      },
+      {
+        "level": 2,
+        "title": "13.11 Offline Sync",
+        "startLine": 1222,
+        "endLine": 1240
+      },
+      {
+        "level": 2,
+        "title": "14. RBAC and Permissions",
+        "startLine": 1241,
+        "endLine": 1242
+      },
+      {
+        "level": 2,
+        "title": "14.1 Roles",
+        "startLine": 1243,
+        "endLine": 1253
+      },
+      {
+        "level": 2,
+        "title": "14.2 Permission Principles",
+        "startLine": 1254,
+        "endLine": 1262
+      },
+      {
+        "level": 2,
+        "title": "14.3 Permissions Matrix",
+        "startLine": 1263,
+        "endLine": 1286
+      },
+      {
+        "level": 2,
+        "title": "15. Status Models",
+        "startLine": 1287,
+        "endLine": 1288
+      },
+      {
+        "level": 2,
+        "title": "15.1 Milestone Statuses",
+        "startLine": 1289,
+        "endLine": 1310
+      },
+      {
+        "level": 2,
+        "title": "15.2 Draw Statuses",
+        "startLine": 1311,
+        "endLine": 1325
+      },
+      {
+        "level": 2,
+        "title": "15.3 Site Visit Statuses",
+        "startLine": 1326,
+        "endLine": 1339
+      },
+      {
+        "level": 2,
+        "title": "15.4 Budget Revision Statuses",
+        "startLine": 1340,
+        "endLine": 1355
+      },
+      {
+        "level": 2,
+        "title": "16. API and Webhook Requirements",
+        "startLine": 1356,
+        "endLine": 1357
+      },
+      {
+        "level": 2,
+        "title": "16.1 API-First Requirement",
+        "startLine": 1358,
+        "endLine": 1379
+      },
+      {
+        "level": 2,
+        "title": "16.2 External ID Mapping",
+        "startLine": 1380,
+        "endLine": 1390
+      },
+      {
+        "level": 2,
+        "title": "16.3 Webhook Registry",
+        "startLine": 1391,
+        "endLine": 1433
+      },
+      {
+        "level": 2,
+        "title": "17. Audit and Compliance Requirements",
+        "startLine": 1434,
+        "endLine": 1475
+      },
+      {
+        "level": 2,
+        "title": "18. Notifications and Work Queues",
+        "startLine": 1476,
+        "endLine": 1477
+      },
+      {
+        "level": 2,
+        "title": "18.1 Notifications",
+        "startLine": 1478,
+        "endLine": 1495
+      },
+      {
+        "level": 2,
+        "title": "18.2 Lender Operations Kanban",
+        "startLine": 1496,
+        "endLine": 1512
+      },
+      {
+        "level": 2,
+        "title": "18.3 Kanban-Based Operational Workflows",
+        "startLine": 1513,
+        "endLine": 2138
+      },
+      {
+        "level": 3,
+        "title": "18.3.1 Purpose",
+        "startLine": 1515,
+        "endLine": 1535
+      },
+      {
+        "level": 3,
+        "title": "18.3.2 Operational Objects",
+        "startLine": 1536,
+        "endLine": 1629
+      },
+      {
+        "level": 4,
+        "title": "Milestone Completion Package",
+        "startLine": 1538,
+        "endLine": 1555
+      },
+      {
+        "level": 4,
+        "title": "Evidence Review Work Order",
+        "startLine": 1556,
+        "endLine": 1570
+      },
+      {
+        "level": 4,
+        "title": "Site Visit Work Order",
+        "startLine": 1571,
+        "endLine": 1584
+      },
+      {
+        "level": 4,
+        "title": "Admin Approval Package",
+        "startLine": 1585,
+        "endLine": 1600
+      },
+      {
+        "level": 4,
+        "title": "Draw Release Work Order",
+        "startLine": 1601,
+        "endLine": 1615
+      },
+      {
+        "level": 4,
+        "title": "Draw Receipt Confirmation",
+        "startLine": 1616,
+        "endLine": 1629
+      },
+      {
+        "level": 3,
+        "title": "18.3.3 Kanban Board Types",
+        "startLine": 1630,
+        "endLine": 1753
+      },
+      {
+        "level": 4,
+        "title": "Lender Evidence Review Board",
+        "startLine": 1632,
+        "endLine": 1662
+      },
+      {
+        "level": 4,
+        "title": "Site Visit Board",
+        "startLine": 1663,
+        "endLine": 1692
+      },
+      {
+        "level": 4,
+        "title": "Admin Approval Board",
+        "startLine": 1693,
+        "endLine": 1720
+      },
+      {
+        "level": 4,
+        "title": "Draw Release Board",
+        "startLine": 1721,
+        "endLine": 1753
+      },
+      {
+        "level": 3,
+        "title": "18.3.4 Flow 1 — Builder Marks Milestone Complete",
+        "startLine": 1754,
+        "endLine": 1786
+      },
+      {
+        "level": 3,
+        "title": "18.3.5 Flow 2 — Staff Picks Up Evidence Review Work Order",
+        "startLine": 1787,
+        "endLine": 1838
+      },
+      {
+        "level": 3,
+        "title": "18.3.6 Flow 3 — Builder Responds to More Information Request",
+        "startLine": 1839,
+        "endLine": 1864
+      },
+      {
+        "level": 3,
+        "title": "18.3.7 Flow 4 — Site Visit Work Order Fulfillment",
+        "startLine": 1865,
+        "endLine": 1912
+      },
+      {
+        "level": 3,
+        "title": "18.3.8 Flow 5 — Admin Reviews Proof and Recommendation",
+        "startLine": 1913,
+        "endLine": 1967
+      },
+      {
+        "level": 3,
+        "title": "18.3.9 Flow 6 — Draw Becomes Ready for Release",
+        "startLine": 1968,
+        "endLine": 1989
+      },
+      {
+        "level": 3,
+        "title": "18.3.10 Flow 7 — Admin Approves and Releases Draw",
+        "startLine": 1990,
+        "endLine": 2026
+      },
+      {
+        "level": 3,
+        "title": "18.3.11 Flow 8 — Builder Confirms Receipt of Draw",
+        "startLine": 2027,
+        "endLine": 2068
+      },
+      {
+        "level": 3,
+        "title": "18.3.12 Exception Paths",
+        "startLine": 2069,
+        "endLine": 2091
+      },
+      {
+        "level": 3,
+        "title": "18.3.13 Kanban Card Requirements",
+        "startLine": 2092,
+        "endLine": 2112
+      },
+      {
+        "level": 3,
+        "title": "18.3.14 Audit Events for Kanban Flow",
+        "startLine": 2113,
+        "endLine": 2138
+      },
+      {
+        "level": 2,
+        "title": "19. Analytics and Reporting",
+        "startLine": 2139,
+        "endLine": 2140
+      },
+      {
+        "level": 2,
+        "title": "19.1 Builder-Facing Metrics",
+        "startLine": 2141,
+        "endLine": 2154
+      },
+      {
+        "level": 2,
+        "title": "19.2 Lender-Facing Metrics",
+        "startLine": 2155,
+        "endLine": 2168
+      },
+      {
+        "level": 2,
+        "title": "19.3 Operational Metrics",
+        "startLine": 2169,
+        "endLine": 2182
+      },
+      {
+        "level": 2,
+        "title": "20. MVP Scope",
+        "startLine": 2183,
+        "endLine": 2184
+      },
+      {
+        "level": 2,
+        "title": "20.1 In Scope",
+        "startLine": 2185,
+        "endLine": 2215
+      },
+      {
+        "level": 2,
+        "title": "20.2 Out of Scope for MVP",
+        "startLine": 2216,
+        "endLine": 2230
+      },
+      {
+        "level": 2,
+        "title": "20.3 Stretch Goals",
+        "startLine": 2231,
+        "endLine": 2243
+      },
+      {
+        "level": 2,
+        "title": "21. MVP Definition of Done",
+        "startLine": 2244,
+        "endLine": 2269
+      },
+      {
+        "level": 2,
+        "title": "22. Success Metrics",
+        "startLine": 2270,
+        "endLine": 2271
+      },
+      {
+        "level": 2,
+        "title": "22.1 Adoption Metrics",
+        "startLine": 2272,
+        "endLine": 2278
+      },
+      {
+        "level": 2,
+        "title": "22.2 Efficiency Metrics",
+        "startLine": 2279,
+        "endLine": 2286
+      },
+      {
+        "level": 2,
+        "title": "22.3 Financial Planning Metrics",
+        "startLine": 2287,
+        "endLine": 2295
+      },
+      {
+        "level": 2,
+        "title": "22.4 Control Metrics",
+        "startLine": 2296,
+        "endLine": 2306
+      },
+      {
+        "level": 2,
+        "title": "23. Open Decisions Before Technical Spec",
+        "startLine": 2307,
+        "endLine": 2310
+      },
+      {
+        "level": 2,
+        "title": "23.1 Partial Draws",
+        "startLine": 2311,
+        "endLine": 2319
+      },
+      {
+        "level": 2,
+        "title": "23.2 Geofence Strictness",
+        "startLine": 2320,
+        "endLine": 2330
+      },
+      {
+        "level": 2,
+        "title": "23.3 Borrower Working Capital UX",
+        "startLine": 2331,
+        "endLine": 2339
+      },
+      {
+        "level": 2,
+        "title": "23.4 Post-Approval Builder Edit Rules",
+        "startLine": 2340,
+        "endLine": 2350
+      },
+      {
+        "level": 2,
+        "title": "23.5 API/Webhook MVP Depth",
+        "startLine": 2351,
+        "endLine": 2361
+      },
+      {
+        "level": 2,
+        "title": "24. Recommended Next Document",
+        "startLine": 2362,
+        "endLine": 2381
+      }
+    ]
+  },
+  {
+    "sourceId": "mockup",
+    "path": "docs/build_workspace_demo/build_workspace_mockup.png",
+    "sha256": "df8e118c1a33ceb4c20adca9c54ef8d080fc8024804f78a971db78a9c67653b8",
+    "imageDimensions": "1995x1106"
+  },
+  {
+    "sourceId": "repo",
+    "path": ".",
+    "headings": []
+  }
+]
