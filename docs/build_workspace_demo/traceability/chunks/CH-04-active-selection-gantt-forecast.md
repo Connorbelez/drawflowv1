@@ -90,6 +90,16 @@ Active Selection Gantt Forecast is a bounded work packet for the DrawFlow Build 
 - Active forecast drag persists forecast only after required reason.
 - Invalid forecast blocks claim submission with explicit reason.
 - Shared Gantt controls leave domain dates unchanged.
+
+## Multi-Select, Batch Shift, Draw Drag, And Locks
+
+- Dragging on empty Gantt timeline space creates a marquee selection. Shift, Meta, or Ctrl-click toggles milestones into the same selection without opening the detail sheet; Escape clears the selection.
+- Batch horizontal drags shift selected unlocked milestones by one shared day delta. Locked selected milestones stay visible in the selected set but are excluded from preview and persistence.
+- Draw group label handles shift every unlocked milestone in that draw group by the same day delta. The live draw box and milestone bars stay fixed while dragging; the UI renders a cyan drop-location ghost for the target draw box, child milestone bars, and eligible-date marker.
+- Milestone drag locks are persisted on `demo_milestones.isDragLocked`, exposed through the Gantt sidebar lock buttons, and enforced by Convex mutations. Locked milestones cannot move through single milestone drag, selected batch drag, or draw group drag.
+- Active batch shifts require one forecast reason for the whole batch, write per-milestone `demo_forecastUpdates`, and append a primary `demo_batchMoveMilestoneDates` audit event.
+- Proposal batch shifts do not prompt for a reason, update planned dates only, recalculate draw group dates/eligible markers from child milestones, and trigger JIT proposal compilation.
+
 ## Known Risks
 
 - Active forecast edits must not mutate baseline dates.
