@@ -1,0 +1,2541 @@
+[
+  {
+    "contractId": "IC-ACT-SHELL-SCENARIO-LINK",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 1511,
+      "endLine": 1541
+    },
+    "primaryChunkId": "CH-04",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 141,
+        "endLine": 177,
+        "label": "DrawFlowTopBar"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 178,
+        "endLine": 201,
+        "label": "DemoScenarioLinks"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-SHELL-SCENARIO-LINK navigates between isolated active and proposal routes",
+    "convexFunctions": [],
+    "tablesMutated": [],
+    "auditEvents": [],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-SHELL-PERSONA-SELECT",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 1542,
+      "endLine": 1574
+    },
+    "primaryChunkId": "CH-04",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 141,
+        "endLine": 177,
+        "label": "DrawFlowTopBar"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 202,
+        "endLine": 234,
+        "label": "PersonaSelector"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-SHELL-PERSONA-SELECT changes available controls without mutating build state",
+    "convexFunctions": [],
+    "tablesMutated": [],
+    "auditEvents": [],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-MILESTONE-CARD-SELECT",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 1575,
+      "endLine": 1610
+    },
+    "primaryChunkId": "CH-04",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 304,
+        "endLine": 325,
+        "label": "MilestoneRailPane"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 326,
+        "endLine": 354,
+        "label": "MilestoneCard"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 760,
+        "endLine": 804,
+        "label": "ActiveMilestoneDetailSheet"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 497,
+        "endLine": 516,
+        "label": "BlockingReasonChips"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-MILESTONE-CARD-SELECT opens detail sheet and highlights dependency neighborhood",
+    "convexFunctions": [],
+    "tablesMutated": [],
+    "auditEvents": [],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-RAIL-CARD-SELECT-DATE-RUNNERS",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 1611,
+      "endLine": 1642
+    },
+    "primaryChunkId": "CH-04",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 383,
+        "endLine": 404,
+        "label": "RailCardLayer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 405,
+        "endLine": 445,
+        "label": "RailCard"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 446,
+        "endLine": 465,
+        "label": "DateRunners"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 760,
+        "endLine": 804,
+        "label": "ActiveMilestoneDetailSheet"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-RAIL-CARD-SELECT-DATE-RUNNERS shows start and end date runners for selected milestone",
+    "convexFunctions": [],
+    "tablesMutated": [],
+    "auditEvents": [],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-GANTT-RESOLUTION-CHANGE",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 1643,
+      "endLine": 1675
+    },
+    "primaryChunkId": "CH-04",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 355,
+        "endLine": 382,
+        "label": "GanttToolbar"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 383,
+        "endLine": 404,
+        "label": "RailCardLayer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 466,
+        "endLine": 496,
+        "label": "DrawGroupBoxLayer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-GANTT-RESOLUTION-CHANGE changes timeline granularity without changing domain dates",
+    "convexFunctions": [],
+    "tablesMutated": [],
+    "auditEvents": [],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-GANTT-COLUMN-SIZE-SLIDER",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 1676,
+      "endLine": 1709
+    },
+    "primaryChunkId": "CH-04",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 355,
+        "endLine": 382,
+        "label": "GanttToolbar"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 383,
+        "endLine": 404,
+        "label": "RailCardLayer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 466,
+        "endLine": 496,
+        "label": "DrawGroupBoxLayer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-GANTT-COLUMN-SIZE-SLIDER widens time columns without changing active resolution or persisted dates",
+    "convexFunctions": [],
+    "tablesMutated": [],
+    "auditEvents": [],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-MILESTONE-RAIL-COLLAPSE",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 1710,
+      "endLine": 1741
+    },
+    "primaryChunkId": "CH-04",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 272,
+        "endLine": 303,
+        "label": "GanttWorkspaceFrame"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 304,
+        "endLine": 325,
+        "label": "MilestoneRailPane"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-MILESTONE-RAIL-COLLAPSE expands gantt width and preserves selected milestone",
+    "convexFunctions": [],
+    "tablesMutated": [],
+    "auditEvents": [],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-DRAW-GROUP-BOX-GEOMETRY",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 1742,
+      "endLine": 1776
+    },
+    "primaryChunkId": "CH-04",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 466,
+        "endLine": 496,
+        "label": "DrawGroupBoxLayer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 383,
+        "endLine": 404,
+        "label": "RailCardLayer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-DRAW-GROUP-BOX-GEOMETRY encloses all milestones in the draw group and keeps label clear of cards",
+    "convexFunctions": [],
+    "tablesMutated": [],
+    "auditEvents": [],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-GANTT-FORECAST-RESIZE-END",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 1777,
+      "endLine": 1825
+    },
+    "primaryChunkId": "CH-04",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 405,
+        "endLine": 445,
+        "label": "RailCard"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 805,
+        "endLine": 826,
+        "label": "ForecastReasonDialog"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 466,
+        "endLine": 496,
+        "label": "DrawGroupBoxLayer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-GANTT-FORECAST-RESIZE-END extends Foundation forecast and pushes Draw 3 start via capital clamp",
+    "convexFunctions": [
+      "demo_updateForecastDatesWithReason"
+    ],
+    "tablesMutated": [
+      "demo_milestones",
+      "demo_forecastUpdates",
+      "demo_auditEvents"
+    ],
+    "auditEvents": [
+      "ActiveMilestoneForecastChanged"
+    ],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-GANTT-FORECAST-INVALID-BLOCKS-SUBMIT",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 1826,
+      "endLine": 1856
+    },
+    "primaryChunkId": "CH-04",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 405,
+        "endLine": 445,
+        "label": "RailCard"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 805,
+        "endLine": 826,
+        "label": "ForecastReasonDialog"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 517,
+        "endLine": 542,
+        "label": "ValidationPanel"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 760,
+        "endLine": 804,
+        "label": "ActiveMilestoneDetailSheet"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-GANTT-FORECAST-INVALID-BLOCKS-SUBMIT prevents completion claim while forecast violates hard sequencing",
+    "convexFunctions": [
+      "demo_submitCompletionClaim"
+    ],
+    "tablesMutated": [
+      "demo_milestones",
+      "demo_evidencePackages",
+      "demo_rolloverBuffers",
+      "demo_auditEvents",
+      "demo_eventOutbox"
+    ],
+    "auditEvents": [
+      "CompletionClaimSubmitRejected"
+    ],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-MILESTONE-MARK-COMPLETE",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 1857,
+      "endLine": 1897
+    },
+    "primaryChunkId": "CH-05",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 760,
+        "endLine": 804,
+        "label": "ActiveMilestoneDetailSheet"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 517,
+        "endLine": 542,
+        "label": "ValidationPanel"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-MILESTONE-MARK-COMPLETE marks Foundation complete but keeps claim blocked until evidence exists",
+    "convexFunctions": [
+      "demo_updateMilestoneProgress"
+    ],
+    "tablesMutated": [
+      "demo_milestones",
+      "demo_auditEvents"
+    ],
+    "auditEvents": [
+      "MilestoneMarkedComplete"
+    ],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-EVIDENCE-ADD-SAMPLE",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 1898,
+      "endLine": 1934
+    },
+    "primaryChunkId": "CH-05",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 760,
+        "endLine": 804,
+        "label": "ActiveMilestoneDetailSheet"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 827,
+        "endLine": 851,
+        "label": "EvidencePanel"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-EVIDENCE-ADD-SAMPLE adds deterministic Foundation evidence and updates readiness",
+    "convexFunctions": [
+      "demo_addSampleEvidence"
+    ],
+    "tablesMutated": [
+      "demo_evidencePackages",
+      "demo_evidenceFiles",
+      "demo_auditEvents"
+    ],
+    "auditEvents": [
+      "SampleEvidenceAdded"
+    ],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-EVIDENCE-UPLOAD-METADATA",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 1935,
+      "endLine": 1970
+    },
+    "primaryChunkId": "CH-05",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 760,
+        "endLine": 804,
+        "label": "ActiveMilestoneDetailSheet"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 827,
+        "endLine": 851,
+        "label": "EvidencePanel"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-EVIDENCE-UPLOAD-METADATA stores file metadata only and updates evidence count",
+    "convexFunctions": [
+      "demo_registerUploadedEvidenceMetadata"
+    ],
+    "tablesMutated": [
+      "demo_evidencePackages",
+      "demo_evidenceFiles",
+      "demo_auditEvents"
+    ],
+    "auditEvents": [
+      "EvidenceMetadataRegistered"
+    ],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-EVIDENCE-REMOVE-DRAFT",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 1971,
+      "endLine": 2003
+    },
+    "primaryChunkId": "CH-05",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 760,
+        "endLine": 804,
+        "label": "ActiveMilestoneDetailSheet"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 827,
+        "endLine": 851,
+        "label": "EvidencePanel"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-EVIDENCE-REMOVE-DRAFT removes draft evidence and re-blocks submission when no evidence remains",
+    "convexFunctions": [
+      "demo_removeEvidenceFile"
+    ],
+    "tablesMutated": [
+      "demo_evidenceFiles",
+      "demo_auditEvents"
+    ],
+    "auditEvents": [
+      "EvidenceRemoved"
+    ],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-SUBMIT-COMPLETION-CLAIM",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 2004,
+      "endLine": 2054
+    },
+    "primaryChunkId": "CH-05",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 760,
+        "endLine": 804,
+        "label": "ActiveMilestoneDetailSheet"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 827,
+        "endLine": 851,
+        "label": "EvidencePanel"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 852,
+        "endLine": 871,
+        "label": "RolloverBufferPanel"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-SUBMIT-COMPLETION-CLAIM submits Foundation claim, freezes evidence, creates rollover when requested amount is lower, and writes audit/outbox",
+    "convexFunctions": [
+      "demo_submitCompletionClaim"
+    ],
+    "tablesMutated": [
+      "demo_milestones",
+      "demo_evidencePackages",
+      "demo_rolloverBuffers",
+      "demo_auditEvents",
+      "demo_eventOutbox"
+    ],
+    "auditEvents": [
+      "CompletionClaimSubmitted"
+    ],
+    "outboxEvents": [
+      "demo.milestone.completionClaimSubmitted"
+    ],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-LENDER-APPROVE-EVIDENCE",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 2055,
+      "endLine": 2091
+    },
+    "primaryChunkId": "CH-05",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 760,
+        "endLine": 804,
+        "label": "ActiveMilestoneDetailSheet"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 827,
+        "endLine": 851,
+        "label": "EvidencePanel"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-LENDER-APPROVE-EVIDENCE accepts Foundation evidence without approving completion",
+    "convexFunctions": [
+      "demo_reviewEvidence"
+    ],
+    "tablesMutated": [
+      "demo_reviewReports",
+      "demo_auditEvents",
+      "demo_eventOutbox"
+    ],
+    "auditEvents": [
+      "EvidenceApproved"
+    ],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-LENDER-REQUEST-SITE-VISIT",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 2092,
+      "endLine": 2129
+    },
+    "primaryChunkId": "CH-05",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 760,
+        "endLine": 804,
+        "label": "ActiveMilestoneDetailSheet"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 872,
+        "endLine": 891,
+        "label": "AssignedSiteVisitsPanel"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-LENDER-REQUEST-SITE-VISIT creates Foundation site visit and exposes it to Site Visitor persona",
+    "convexFunctions": [
+      "demo_requestSiteVisit"
+    ],
+    "tablesMutated": [
+      "demo_milestones",
+      "demo_siteVisits",
+      "demo_auditEvents",
+      "demo_eventOutbox"
+    ],
+    "auditEvents": [
+      "SiteVisitRequested"
+    ],
+    "outboxEvents": [
+      "demo.siteVisit.requested"
+    ],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-SITE-VISITOR-CLAIM-VISIT",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 2130,
+      "endLine": 2165
+    },
+    "primaryChunkId": "CH-05",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 872,
+        "endLine": 891,
+        "label": "AssignedSiteVisitsPanel"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 892,
+        "endLine": 921,
+        "label": "SiteVisitDrawer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-SITE-VISITOR-CLAIM-VISIT claims assigned Foundation site visit and opens report form",
+    "convexFunctions": [
+      "demo_claimSiteVisit"
+    ],
+    "tablesMutated": [
+      "demo_siteVisits",
+      "demo_auditEvents"
+    ],
+    "auditEvents": [
+      "SiteVisitClaimed"
+    ],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-SITE-VISITOR-SUBMIT-REPORT",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 2166,
+      "endLine": 2205
+    },
+    "primaryChunkId": "CH-05",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 872,
+        "endLine": 891,
+        "label": "AssignedSiteVisitsPanel"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 892,
+        "endLine": 921,
+        "label": "SiteVisitDrawer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 760,
+        "endLine": 804,
+        "label": "ActiveMilestoneDetailSheet"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-SITE-VISITOR-SUBMIT-REPORT completes Foundation site visit and unlocks Lender Admin completion approval",
+    "convexFunctions": [
+      "demo_submitSiteVisitReport"
+    ],
+    "tablesMutated": [
+      "demo_siteVisits",
+      "demo_milestones",
+      "demo_auditEvents",
+      "demo_eventOutbox"
+    ],
+    "auditEvents": [
+      "SiteVisitReportSubmitted"
+    ],
+    "outboxEvents": [
+      "demo.siteVisit.reportSubmitted"
+    ],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-LENDER-APPROVE-COMPLETION",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 2206,
+      "endLine": 2251
+    },
+    "primaryChunkId": "CH-05",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 760,
+        "endLine": 804,
+        "label": "ActiveMilestoneDetailSheet"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 497,
+        "endLine": 516,
+        "label": "BlockingReasonChips"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-LENDER-APPROVE-COMPLETION approves Foundation and removes hard dependency blocker from Underground Plumbing",
+    "convexFunctions": [
+      "demo_approveMilestoneCompletion"
+    ],
+    "tablesMutated": [
+      "demo_milestones",
+      "demo_drawGroups",
+      "demo_auditEvents",
+      "demo_eventOutbox"
+    ],
+    "auditEvents": [
+      "MilestoneCompletionApproved"
+    ],
+    "outboxEvents": [
+      "demo.milestone.completionApproved"
+    ],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-LENDER-APPROVE-COMPLETION-WITH-SITE-VISIT-OVERRIDE",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 2252,
+      "endLine": 2288
+    },
+    "primaryChunkId": "CH-05",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 760,
+        "endLine": 804,
+        "label": "ActiveMilestoneDetailSheet"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 922,
+        "endLine": 943,
+        "label": "AuditDrawer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-LENDER-APPROVE-COMPLETION-WITH-SITE-VISIT-OVERRIDE requires override reason and records it in audit trail",
+    "convexFunctions": [
+      "demo_approveMilestoneCompletion"
+    ],
+    "tablesMutated": [
+      "demo_milestones",
+      "demo_drawGroups",
+      "demo_auditEvents",
+      "demo_eventOutbox"
+    ],
+    "auditEvents": [
+      "MilestoneCompletionApproved"
+    ],
+    "outboxEvents": [
+      "demo.milestone.completionApproved"
+    ],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-LENDER-REJECT-COMPLETION",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 2289,
+      "endLine": 2323
+    },
+    "primaryChunkId": "CH-05",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 760,
+        "endLine": 804,
+        "label": "ActiveMilestoneDetailSheet"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-LENDER-REJECT-COMPLETION rejects a submitted claim only when reason is provided",
+    "convexFunctions": [
+      "demo_rejectMilestoneCompletion"
+    ],
+    "tablesMutated": [
+      "demo_milestones",
+      "demo_auditEvents",
+      "demo_eventOutbox"
+    ],
+    "auditEvents": [
+      "MilestoneCompletionRejected"
+    ],
+    "outboxEvents": [
+      "demo.milestone.completionRejected"
+    ],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-DRAW-GROUP-AUTO-RELEASE",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 2324,
+      "endLine": 2362
+    },
+    "primaryChunkId": "CH-05",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 466,
+        "endLine": 496,
+        "label": "DrawGroupBoxLayer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 760,
+        "endLine": 804,
+        "label": "ActiveMilestoneDetailSheet"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 944,
+        "endLine": 964,
+        "label": "EventOutboxDrawer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-DRAW-GROUP-AUTO-RELEASE release-approves Draw 2 and unblocks Draw 3 capital after final milestone approval",
+    "convexFunctions": [
+      "demo_approveMilestoneCompletion",
+      "demo_recomputeDrawGroupStatuses"
+    ],
+    "tablesMutated": [
+      "demo_milestones",
+      "demo_drawGroups",
+      "demo_auditEvents",
+      "demo_eventOutbox"
+    ],
+    "auditEvents": [
+      "DrawGroupReleaseApproved"
+    ],
+    "outboxEvents": [
+      "demo.drawGroup.releaseApproved"
+    ],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-AUDIT-DRAWER-FILTER",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 2363,
+      "endLine": 2392
+    },
+    "primaryChunkId": "CH-05",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 922,
+        "endLine": 943,
+        "label": "AuditDrawer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-AUDIT-DRAWER-FILTER filters append-only audit events by Foundation milestone",
+    "convexFunctions": [
+      "demo_getAuditEvents"
+    ],
+    "tablesMutated": [],
+    "auditEvents": [],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-EVENT-OUTBOX-VIEW",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 2393,
+      "endLine": 2422
+    },
+    "primaryChunkId": "CH-05",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 944,
+        "endLine": 964,
+        "label": "EventOutboxDrawer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-EVENT-OUTBOX-VIEW shows mock-delivered completion and draw release events after active happy path",
+    "convexFunctions": [
+      "demo_getEventOutbox"
+    ],
+    "tablesMutated": [],
+    "auditEvents": [],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-ACT-DEMO-RESET",
+    "mode": "active",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 2423,
+      "endLine": 2453
+    },
+    "primaryChunkId": "CH-05",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 235,
+        "endLine": 269,
+        "label": "DemoResetControls"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 741,
+        "endLine": 759,
+        "label": "ActiveWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-ACT-DEMO-RESET reseeds active and proposal scenarios after confirmation",
+    "convexFunctions": [
+      "demo_resetDrawFlowDemo"
+    ],
+    "tablesMutated": [
+      "demo_builds",
+      "demo_milestones",
+      "demo_milestoneDependencies",
+      "demo_drawGroups",
+      "demo_evidencePackages",
+      "demo_evidenceFiles",
+      "demo_reviewReports",
+      "demo_siteVisits",
+      "demo_rolloverBuffers",
+      "demo_forecastUpdates",
+      "demo_planningRuns",
+      "demo_auditEvents",
+      "demo_eventOutbox",
+      "demo_policySnapshots"
+    ],
+    "auditEvents": [
+      "DemoReset"
+    ],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-PROP-MILESTONE-CARD-SELECT",
+    "mode": "proposal",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 2821,
+      "endLine": 2857
+    },
+    "primaryChunkId": "CH-06",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 304,
+        "endLine": 325,
+        "label": "MilestoneRailPane"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 326,
+        "endLine": 354,
+        "label": "MilestoneCard"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 604,
+        "endLine": 644,
+        "label": "ProposalMilestoneDetailSheet"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 497,
+        "endLine": 516,
+        "label": "BlockingReasonChips"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 545,
+        "endLine": 571,
+        "label": "ProposalWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-PROP-MILESTONE-CARD-SELECT selects milestone, scrolls rail-card into view, and opens detail sheet",
+    "convexFunctions": [],
+    "tablesMutated": [],
+    "auditEvents": [],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-PROP-MILESTONE-REORDER",
+    "mode": "proposal",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 2858,
+      "endLine": 2898
+    },
+    "primaryChunkId": "CH-06",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 304,
+        "endLine": 325,
+        "label": "MilestoneRailPane"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 326,
+        "endLine": 354,
+        "label": "MilestoneCard"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 545,
+        "endLine": 571,
+        "label": "ProposalWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-PROP-MILESTONE-REORDER changes proposal order and writes audit event",
+    "convexFunctions": [
+      "demo_reorderProposalMilestones"
+    ],
+    "tablesMutated": [
+      "demo_milestones",
+      "demo_auditEvents",
+      "demo_planningRuns"
+    ],
+    "auditEvents": [
+      "ProposalMilestonesReordered"
+    ],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-PROP-GANTT-MOVE",
+    "mode": "proposal",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 2899,
+      "endLine": 2942
+    },
+    "primaryChunkId": "CH-06",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 405,
+        "endLine": 445,
+        "label": "RailCard"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 383,
+        "endLine": 404,
+        "label": "RailCardLayer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 713,
+        "endLine": 738,
+        "label": "ProposalFooterStatusRegion"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 545,
+        "endLine": 571,
+        "label": "ProposalWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-PROP-GANTT-MOVE shifts proposal milestone dates and updates cost summary",
+    "convexFunctions": [
+      "demo_updateProposalMilestonePlannedDates"
+    ],
+    "tablesMutated": [
+      "demo_milestones",
+      "demo_drawGroups",
+      "demo_auditEvents",
+      "demo_planningRuns"
+    ],
+    "auditEvents": [
+      "ProposalMilestoneDatesMoved"
+    ],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-PROP-GANTT-RESIZE-START",
+    "mode": "proposal",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 2943,
+      "endLine": 2985
+    },
+    "primaryChunkId": "CH-06",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 405,
+        "endLine": 445,
+        "label": "RailCard"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 383,
+        "endLine": 404,
+        "label": "RailCardLayer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 604,
+        "endLine": 644,
+        "label": "ProposalMilestoneDetailSheet"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 545,
+        "endLine": 571,
+        "label": "ProposalWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-PROP-GANTT-RESIZE-START changes start date and duration",
+    "convexFunctions": [
+      "demo_updateProposalMilestonePlannedDates"
+    ],
+    "tablesMutated": [
+      "demo_milestones",
+      "demo_drawGroups",
+      "demo_auditEvents",
+      "demo_planningRuns"
+    ],
+    "auditEvents": [
+      "ProposalMilestoneStartDateChanged"
+    ],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-PROP-GANTT-RESIZE-END",
+    "mode": "proposal",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 2986,
+      "endLine": 3033
+    },
+    "primaryChunkId": "CH-06",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 405,
+        "endLine": 445,
+        "label": "RailCard"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 383,
+        "endLine": 404,
+        "label": "RailCardLayer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 466,
+        "endLine": 496,
+        "label": "DrawGroupBoxLayer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 545,
+        "endLine": 571,
+        "label": "ProposalWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-PROP-GANTT-RESIZE-END changes end date, duration, draw box, and audit log",
+    "convexFunctions": [
+      "demo_updateProposalMilestonePlannedDates"
+    ],
+    "tablesMutated": [
+      "demo_milestones",
+      "demo_drawGroups",
+      "demo_auditEvents",
+      "demo_planningRuns"
+    ],
+    "auditEvents": [
+      "ProposalMilestoneDurationChanged"
+    ],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-PROP-ADD-MILESTONE",
+    "mode": "proposal",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 3034,
+      "endLine": 3073
+    },
+    "primaryChunkId": "CH-06",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 304,
+        "endLine": 325,
+        "label": "MilestoneRailPane"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 604,
+        "endLine": 644,
+        "label": "ProposalMilestoneDetailSheet"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 517,
+        "endLine": 542,
+        "label": "ValidationPanel"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 545,
+        "endLine": 571,
+        "label": "ProposalWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-PROP-ADD-MILESTONE creates selected custom milestone with zero-value validation error",
+    "convexFunctions": [
+      "demo_addProposalMilestone"
+    ],
+    "tablesMutated": [
+      "demo_milestones",
+      "demo_auditEvents",
+      "demo_planningRuns"
+    ],
+    "auditEvents": [
+      "ProposalMilestoneAdded"
+    ],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-PROP-EDIT-VALUE",
+    "mode": "proposal",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 3074,
+      "endLine": 3114
+    },
+    "primaryChunkId": "CH-06",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 604,
+        "endLine": 644,
+        "label": "ProposalMilestoneDetailSheet"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 517,
+        "endLine": 542,
+        "label": "ValidationPanel"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 713,
+        "endLine": 738,
+        "label": "ProposalFooterStatusRegion"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 545,
+        "endLine": 571,
+        "label": "ProposalWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-PROP-EDIT-VALUE updates draw group total and blocks when over cap",
+    "convexFunctions": [
+      "demo_updateProposalMilestoneValue"
+    ],
+    "tablesMutated": [
+      "demo_milestones",
+      "demo_auditEvents",
+      "demo_planningRuns"
+    ],
+    "auditEvents": [
+      "ProposalMilestoneValueChanged"
+    ],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-PROP-EDIT-DURATION",
+    "mode": "proposal",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 3115,
+      "endLine": 3155
+    },
+    "primaryChunkId": "CH-06",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 604,
+        "endLine": 644,
+        "label": "ProposalMilestoneDetailSheet"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 405,
+        "endLine": 445,
+        "label": "RailCard"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 713,
+        "endLine": 738,
+        "label": "ProposalFooterStatusRegion"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 545,
+        "endLine": 571,
+        "label": "ProposalWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-PROP-EDIT-DURATION updates end date and bottom summary",
+    "convexFunctions": [
+      "demo_updateProposalMilestoneDuration"
+    ],
+    "tablesMutated": [
+      "demo_milestones",
+      "demo_auditEvents",
+      "demo_planningRuns"
+    ],
+    "auditEvents": [
+      "ProposalMilestoneDurationChanged"
+    ],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-PROP-DEPENDENCY-ADD",
+    "mode": "proposal",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 3156,
+      "endLine": 3195
+    },
+    "primaryChunkId": "CH-06",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 604,
+        "endLine": 644,
+        "label": "ProposalMilestoneDetailSheet"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 645,
+        "endLine": 668,
+        "label": "ProposalDependencyEditor"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 497,
+        "endLine": 516,
+        "label": "BlockingReasonChips"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 545,
+        "endLine": 571,
+        "label": "ProposalWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-PROP-DEPENDENCY-ADD creates hard blocker edge and highlights dependency neighborhood",
+    "convexFunctions": [
+      "demo_addProposalDependency"
+    ],
+    "tablesMutated": [
+      "demo_milestoneDependencies",
+      "demo_auditEvents",
+      "demo_planningRuns"
+    ],
+    "auditEvents": [
+      "ProposalDependencyAdded"
+    ],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-PROP-DEPENDENCY-CYCLE",
+    "mode": "proposal",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 3196,
+      "endLine": 3227
+    },
+    "primaryChunkId": "CH-06",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 645,
+        "endLine": 668,
+        "label": "ProposalDependencyEditor"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 517,
+        "endLine": 542,
+        "label": "ValidationPanel"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 545,
+        "endLine": 571,
+        "label": "ProposalWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-PROP-DEPENDENCY-CYCLE prevents cyclic dependency mutation",
+    "convexFunctions": [
+      "demo_addProposalDependency"
+    ],
+    "tablesMutated": [
+      "demo_milestoneDependencies",
+      "demo_auditEvents",
+      "demo_planningRuns"
+    ],
+    "auditEvents": [
+      "ProposalDependencyCycleRejected"
+    ],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-PROP-SYSTEM-DEPENDENCY-REMOVE-BLOCKED",
+    "mode": "proposal",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 3228,
+      "endLine": 3257
+    },
+    "primaryChunkId": "CH-06",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 645,
+        "endLine": 668,
+        "label": "ProposalDependencyEditor"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 517,
+        "endLine": 542,
+        "label": "ValidationPanel"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 545,
+        "endLine": 571,
+        "label": "ProposalWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-PROP-SYSTEM-DEPENDENCY-REMOVE-BLOCKED prevents removal of seeded hard dependency",
+    "convexFunctions": [
+      "demo_removeProposalDependency"
+    ],
+    "tablesMutated": [
+      "demo_milestoneDependencies",
+      "demo_auditEvents",
+      "demo_planningRuns"
+    ],
+    "auditEvents": [],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-PROP-ANALYZE-PLAN",
+    "mode": "proposal",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 3258,
+      "endLine": 3295
+    },
+    "primaryChunkId": "CH-07",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 141,
+        "endLine": 177,
+        "label": "DrawFlowTopBar"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 669,
+        "endLine": 692,
+        "label": "PlanningComparisonPanel"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 545,
+        "endLine": 571,
+        "label": "ProposalWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-PROP-ANALYZE-PLAN creates deterministic planning run without mutating proposal",
+    "convexFunctions": [
+      "demo_recomputeProposalPlan",
+      "demo_recomputePlanningRun"
+    ],
+    "tablesMutated": [
+      "demo_planningRuns",
+      "demo_auditEvents"
+    ],
+    "auditEvents": [
+      "ProposalPlanAnalyzed"
+    ],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-PROP-APPLY-RECOMMENDED-PLAN",
+    "mode": "proposal",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 3296,
+      "endLine": 3342
+    },
+    "primaryChunkId": "CH-07",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 141,
+        "endLine": 177,
+        "label": "DrawFlowTopBar"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 669,
+        "endLine": 692,
+        "label": "PlanningComparisonPanel"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 693,
+        "endLine": 712,
+        "label": "ApplyRecommendationDialog"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 545,
+        "endLine": 571,
+        "label": "ProposalWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-PROP-APPLY-RECOMMENDED-PLAN reorders milestones, redraws draw groups, and clears hard ordering errors",
+    "convexFunctions": [
+      "demo_applyProposalPlanRecommendation"
+    ],
+    "tablesMutated": [
+      "demo_planningRuns",
+      "demo_milestones",
+      "demo_drawGroups",
+      "demo_auditEvents"
+    ],
+    "auditEvents": [
+      "ProposalRecommendationApplied"
+    ],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-PROP-SPLIT-DRAW-GROUP",
+    "mode": "proposal",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 3343,
+      "endLine": 3384
+    },
+    "primaryChunkId": "CH-07",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 604,
+        "endLine": 644,
+        "label": "ProposalMilestoneDetailSheet"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 466,
+        "endLine": 496,
+        "label": "DrawGroupBoxLayer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 713,
+        "endLine": 738,
+        "label": "ProposalFooterStatusRegion"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 545,
+        "endLine": 571,
+        "label": "ProposalWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-PROP-SPLIT-DRAW-GROUP increases fee count and recomputes financing cost",
+    "convexFunctions": [
+      "demo_splitProposalDrawGroup"
+    ],
+    "tablesMutated": [
+      "demo_drawGroups",
+      "demo_milestones",
+      "demo_auditEvents",
+      "demo_planningRuns"
+    ],
+    "auditEvents": [
+      "ProposalDrawGroupSplit"
+    ],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-PROP-MERGE-DRAW-GROUP",
+    "mode": "proposal",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 3385,
+      "endLine": 3425
+    },
+    "primaryChunkId": "CH-07",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 604,
+        "endLine": 644,
+        "label": "ProposalMilestoneDetailSheet"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 466,
+        "endLine": 496,
+        "label": "DrawGroupBoxLayer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 713,
+        "endLine": 738,
+        "label": "ProposalFooterStatusRegion"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 545,
+        "endLine": 571,
+        "label": "ProposalWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-PROP-MERGE-DRAW-GROUP decreases fee count and recomputes financing cost",
+    "convexFunctions": [
+      "demo_mergeProposalDrawGroups"
+    ],
+    "tablesMutated": [
+      "demo_drawGroups",
+      "demo_milestones",
+      "demo_auditEvents",
+      "demo_planningRuns"
+    ],
+    "auditEvents": [
+      "ProposalDrawGroupsMerged"
+    ],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-PROP-CAPITAL-CASCADE",
+    "mode": "proposal",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 3426,
+      "endLine": 3461
+    },
+    "primaryChunkId": "CH-07",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 405,
+        "endLine": 445,
+        "label": "RailCard"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 466,
+        "endLine": 496,
+        "label": "DrawGroupBoxLayer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 713,
+        "endLine": 738,
+        "label": "ProposalFooterStatusRegion"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 545,
+        "endLine": 571,
+        "label": "ProposalWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-PROP-CAPITAL-CASCADE pushes later draw groups after extending an earlier draw",
+    "convexFunctions": [
+      "demo_updateProposalMilestonePlannedDates"
+    ],
+    "tablesMutated": [
+      "demo_milestones",
+      "demo_drawGroups",
+      "demo_auditEvents",
+      "demo_planningRuns"
+    ],
+    "auditEvents": [],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-PROP-SUBMIT-BLOCKED",
+    "mode": "proposal",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 3462,
+      "endLine": 3498
+    },
+    "primaryChunkId": "CH-07",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 141,
+        "endLine": 177,
+        "label": "DrawFlowTopBar"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 517,
+        "endLine": 542,
+        "label": "ValidationPanel"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 713,
+        "endLine": 738,
+        "label": "ProposalFooterStatusRegion"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 545,
+        "endLine": 571,
+        "label": "ProposalWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-PROP-SUBMIT-BLOCKED prevents submission while hard errors remain",
+    "convexFunctions": [
+      "demo_submitProposal"
+    ],
+    "tablesMutated": [
+      "demo_builds",
+      "demo_auditEvents",
+      "demo_eventOutbox"
+    ],
+    "auditEvents": [
+      "ProposalSubmitRejected"
+    ],
+    "outboxEvents": [],
+    "status": "planned"
+  },
+  {
+    "contractId": "IC-PROP-SUBMIT-SUCCESS",
+    "mode": "proposal",
+    "interactionSpecRange": {
+      "path": "docs/build_workspace_demo/Drawflow Demo Interaction Spec.md",
+      "startLine": 3499,
+      "endLine": 3541
+    },
+    "primaryChunkId": "CH-07",
+    "secondaryChunkIds": [
+      "CH-03",
+      "CH-01",
+      "CH-02",
+      "CH-08"
+    ],
+    "companionRefs": [
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 141,
+        "endLine": 177,
+        "label": "DrawFlowTopBar"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 713,
+        "endLine": 738,
+        "label": "ProposalFooterStatusRegion"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 922,
+        "endLine": 943,
+        "label": "AuditDrawer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 944,
+        "endLine": 964,
+        "label": "EventOutboxDrawer"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 545,
+        "endLine": 571,
+        "label": "ProposalWorkspacePage"
+      },
+      {
+        "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
+        "startLine": 1505,
+        "endLine": 1519,
+        "label": "Required Test Naming Rule"
+      }
+    ],
+    "primaryTestTitle": "IC-PROP-SUBMIT-SUCCESS freezes proposal and writes audit/outbox",
+    "convexFunctions": [
+      "demo_submitProposal"
+    ],
+    "tablesMutated": [
+      "demo_builds",
+      "demo_auditEvents",
+      "demo_eventOutbox"
+    ],
+    "auditEvents": [
+      "ProposalSubmitted"
+    ],
+    "outboxEvents": [
+      "demo.proposal.submitted"
+    ],
+    "status": "planned"
+  }
+]

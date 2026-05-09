@@ -1,0 +1,684 @@
+[
+  {
+    "chunkId": "CH-00",
+    "title": "Preflight Repo Context",
+    "file": "docs/build_workspace_demo/traceability/chunks/CH-00-preflight-repo-context.md",
+    "dependsOn": [],
+    "sourceRefs": [
+      {
+        "sourceId": "prd",
+        "startLine": 12,
+        "endLine": 25,
+        "reason": "Product truth: DrawFlow is construction draw-management, not generic project management."
+      },
+      {
+        "sourceId": "implementationCompanion",
+        "startLine": 19,
+        "endLine": 91,
+        "reason": "Non-negotiable persistence, naming, selector, and no-fake-affordance rules."
+      },
+      {
+        "sourceId": "mockup",
+        "reason": "Mockup metadata and visual target."
+      },
+      {
+        "sourceId": "repo",
+        "reason": "Current starter-shell, Convex, generated-file, and test infrastructure facts."
+      }
+    ],
+    "interactionContracts": [],
+    "companionComponents": [],
+    "convexFiles": [],
+    "routeFiles": [],
+    "testFiles": [],
+    "acceptanceGates": [
+      "Record Bun as package manager/runtime.",
+      "Record missing convex/_generated/ai/guidelines.md as a later implementation preflight finding.",
+      "Record absence of Playwright config and current starter shell routes.",
+      "Record mockup dimensions 1995x1106."
+    ]
+  },
+  {
+    "chunkId": "CH-01",
+    "title": "Domain Seed Schema",
+    "file": "docs/build_workspace_demo/traceability/chunks/CH-01-domain-seed-schema.md",
+    "dependsOn": [
+      "CH-00"
+    ],
+    "sourceRefs": [
+      {
+        "sourceId": "interactionSpec",
+        "startLine": 16,
+        "endLine": 254,
+        "reason": "Runtime, mode, role, evidence, audit, and forbidden-shortcut decisions."
+      },
+      {
+        "sourceId": "interactionSpec",
+        "startLine": 255,
+        "endLine": 543,
+        "reason": "Canonical milestone catalog, active/proposal seed state, draw grouping, and happy path."
+      },
+      {
+        "sourceId": "interactionSpec",
+        "startLine": 3567,
+        "endLine": 4796,
+        "reason": "Final Convex schema, function, seed, and guardrail contract."
+      },
+      {
+        "sourceId": "implementationCompanion",
+        "startLine": 1110,
+        "endLine": 1188,
+        "reason": "Companion Convex file split."
+      }
+    ],
+    "interactionContracts": [],
+    "companionComponents": [],
+    "convexFiles": [
+      "convex/schema.ts",
+      "convex/demo_drawflow/domain.ts",
+      "convex/demo_drawflow/seedData.ts",
+      "convex/demo_drawflow/seed.ts"
+    ],
+    "routeFiles": [],
+    "testFiles": [],
+    "acceptanceGates": [
+      "All final Round 6 demo tables are represented; do not include superseded demo_buildScenarios as a required table.",
+      "All public demo Convex functions use demo_ prefix.",
+      "Seed/reset is idempotent and deterministic with DEMO_TODAY = 2026-05-08.",
+      "All monetary persistence uses integer cents."
+    ]
+  },
+  {
+    "chunkId": "CH-02",
+    "title": "Engine Projections Costs",
+    "file": "docs/build_workspace_demo/traceability/chunks/CH-02-engine-projections-costs.md",
+    "dependsOn": [
+      "CH-01"
+    ],
+    "sourceRefs": [
+      {
+        "sourceId": "interactionSpec",
+        "startLine": 544,
+        "endLine": 650,
+        "reason": "Dependency, blocker, and recompute semantics."
+      },
+      {
+        "sourceId": "interactionSpec",
+        "startLine": 651,
+        "endLine": 741,
+        "reason": "Interest, fee, payoff, and bottom summary formulas."
+      },
+      {
+        "sourceId": "interactionSpec",
+        "startLine": 742,
+        "endLine": 804,
+        "reason": "Active-only rollover and capital shock guardrail."
+      },
+      {
+        "sourceId": "interactionSpec",
+        "startLine": 4481,
+        "endLine": 4533,
+        "reason": "Required query projection shape and derived fields."
+      },
+      {
+        "sourceId": "implementationCompanion",
+        "startLine": 1573,
+        "endLine": 1600,
+        "reason": "Projection coverage expectations."
+      }
+    ],
+    "interactionContracts": [],
+    "companionComponents": [],
+    "convexFiles": [
+      "convex/demo_drawflow/engine.ts",
+      "convex/demo_drawflow/projections.ts",
+      "convex/demo_drawflow/money.ts",
+      "convex/demo_drawflow/dateMath.ts"
+    ],
+    "routeFiles": [],
+    "testFiles": [],
+    "acceptanceGates": [
+      "Engine helpers are deterministic and do not use the real current date.",
+      "Projection contains derived blockers/capabilities; UI does not reconstruct raw domain rules.",
+      "Cost formula uses daily compounding and rounded cents at persistence/display boundary.",
+      "Rollover buffer cannot overfund project or violate max-cash-on-hand guardrail."
+    ]
+  },
+  {
+    "chunkId": "CH-03",
+    "title": "Routes Layout Gantt Foundation",
+    "file": "docs/build_workspace_demo/traceability/chunks/CH-03-routes-layout-gantt-foundation.md",
+    "dependsOn": [
+      "CH-01",
+      "CH-02"
+    ],
+    "sourceRefs": [
+      {
+        "sourceId": "interactionSpec",
+        "startLine": 987,
+        "endLine": 1007,
+        "reason": "Route/screen inventory."
+      },
+      {
+        "sourceId": "interactionSpec",
+        "startLine": 1056,
+        "endLine": 1508,
+        "reason": "Active workspace shell, selection, Gantt, draw-group geometry, and controls."
+      },
+      {
+        "sourceId": "implementationCompanion",
+        "startLine": 92,
+        "endLine": 964,
+        "reason": "Component layering and shared layout/Gantt component responsibilities."
+      },
+      {
+        "sourceId": "implementationCompanion",
+        "startLine": 965,
+        "endLine": 1265,
+        "reason": "Route and feature directory manifest."
+      }
+    ],
+    "interactionContracts": [],
+    "companionComponents": [
+      "DrawFlowDemoLayout",
+      "DrawFlowTopBar",
+      "DemoScenarioLinks",
+      "PersonaSelector",
+      "DemoResetControls",
+      "GanttWorkspaceFrame",
+      "MilestoneRailPane",
+      "MilestoneCard",
+      "GanttToolbar",
+      "RailCardLayer",
+      "RailCard",
+      "DateRunners",
+      "DrawGroupBoxLayer",
+      "BlockingReasonChips",
+      "ValidationPanel"
+    ],
+    "convexFiles": [],
+    "routeFiles": [
+      "src/routes/demo/drawflow/index.tsx",
+      "src/routes/demo/drawflow/active.tsx",
+      "src/routes/demo/drawflow/proposal.tsx"
+    ],
+    "testFiles": [],
+    "acceptanceGates": [
+      "Shared route shell is real navigation, not tab-only state.",
+      "Gantt is full-width, horizontally and vertically scrollable, and rail-collapsible.",
+      "Rail-cards and draw-group boxes use one coordinate model.",
+      "View-state controls never mutate Convex domain state."
+    ]
+  },
+  {
+    "chunkId": "CH-04",
+    "title": "Active Selection Gantt Forecast",
+    "file": "docs/build_workspace_demo/traceability/chunks/CH-04-active-selection-gantt-forecast.md",
+    "dependsOn": [
+      "CH-01",
+      "CH-02",
+      "CH-03"
+    ],
+    "sourceRefs": [
+      {
+        "sourceId": "interactionSpec",
+        "startLine": 1056,
+        "endLine": 1508,
+        "reason": "Active workspace interaction model."
+      },
+      {
+        "sourceId": "interactionSpec",
+        "startLine": 1509,
+        "endLine": 2453,
+        "reason": "Active shell, selection, Gantt, and forecast contracts."
+      },
+      {
+        "sourceId": "interactionSpec",
+        "startLine": 2454,
+        "endLine": 2486,
+        "reason": "Required active shell/Gantt tests."
+      }
+    ],
+    "interactionContracts": [
+      "IC-ACT-SHELL-SCENARIO-LINK",
+      "IC-ACT-SHELL-PERSONA-SELECT",
+      "IC-ACT-MILESTONE-CARD-SELECT",
+      "IC-ACT-RAIL-CARD-SELECT-DATE-RUNNERS",
+      "IC-ACT-GANTT-RESOLUTION-CHANGE",
+      "IC-ACT-GANTT-COLUMN-SIZE-SLIDER",
+      "IC-ACT-MILESTONE-RAIL-COLLAPSE",
+      "IC-ACT-DRAW-GROUP-BOX-GEOMETRY",
+      "IC-ACT-GANTT-FORECAST-RESIZE-END",
+      "IC-ACT-GANTT-FORECAST-INVALID-BLOCKS-SUBMIT"
+    ],
+    "companionComponents": [
+      "ActiveWorkspacePage",
+      "ActiveMilestoneDetailSheet",
+      "ForecastReasonDialog",
+      "GanttWorkspaceFrame",
+      "MilestoneRailPane",
+      "MilestoneCard",
+      "RailCard",
+      "DateRunners",
+      "DrawGroupBoxLayer",
+      "ValidationPanel"
+    ],
+    "convexFiles": [
+      "convex/demo_drawflow/queries.ts",
+      "convex/demo_drawflow/mutations.ts",
+      "convex/demo_drawflow/audit.ts",
+      "convex/demo_drawflow/outbox.ts"
+    ],
+    "routeFiles": [
+      "src/routes/demo/drawflow/active.tsx"
+    ],
+    "testFiles": [
+      "active.workspace.spec.ts"
+    ],
+    "acceptanceGates": [
+      "Selection opens non-modal detail sheet and highlights dependency neighborhood.",
+      "Active forecast drag persists forecast only after required reason.",
+      "Invalid forecast blocks claim submission with explicit reason.",
+      "Shared Gantt controls leave domain dates unchanged."
+    ]
+  },
+  {
+    "chunkId": "CH-05",
+    "title": "Active Evidence Review Release",
+    "file": "docs/build_workspace_demo/traceability/chunks/CH-05-active-evidence-review-release.md",
+    "dependsOn": [
+      "CH-01",
+      "CH-02",
+      "CH-03",
+      "CH-04"
+    ],
+    "sourceRefs": [
+      {
+        "sourceId": "interactionSpec",
+        "startLine": 1509,
+        "endLine": 2453,
+        "reason": "Active evidence, review, site visit, approval, release, audit, outbox, and reset contracts."
+      },
+      {
+        "sourceId": "interactionSpec",
+        "startLine": 2454,
+        "endLine": 2486,
+        "reason": "Required active workflow/audit/outbox/reset tests."
+      },
+      {
+        "sourceId": "implementationCompanion",
+        "startLine": 739,
+        "endLine": 964,
+        "reason": "Active component responsibilities and selectors."
+      }
+    ],
+    "interactionContracts": [
+      "IC-ACT-MILESTONE-MARK-COMPLETE",
+      "IC-ACT-EVIDENCE-ADD-SAMPLE",
+      "IC-ACT-EVIDENCE-UPLOAD-METADATA",
+      "IC-ACT-EVIDENCE-REMOVE-DRAFT",
+      "IC-ACT-SUBMIT-COMPLETION-CLAIM",
+      "IC-ACT-LENDER-APPROVE-EVIDENCE",
+      "IC-ACT-LENDER-REQUEST-SITE-VISIT",
+      "IC-ACT-SITE-VISITOR-CLAIM-VISIT",
+      "IC-ACT-SITE-VISITOR-SUBMIT-REPORT",
+      "IC-ACT-LENDER-APPROVE-COMPLETION",
+      "IC-ACT-LENDER-APPROVE-COMPLETION-WITH-SITE-VISIT-OVERRIDE",
+      "IC-ACT-LENDER-REJECT-COMPLETION",
+      "IC-ACT-DRAW-GROUP-AUTO-RELEASE",
+      "IC-ACT-AUDIT-DRAWER-FILTER",
+      "IC-ACT-EVENT-OUTBOX-VIEW",
+      "IC-ACT-DEMO-RESET"
+    ],
+    "companionComponents": [
+      "ActiveMilestoneDetailSheet",
+      "EvidencePanel",
+      "RolloverBufferPanel",
+      "AssignedSiteVisitsPanel",
+      "SiteVisitDrawer",
+      "AuditDrawer",
+      "EventOutboxDrawer",
+      "DemoResetControls"
+    ],
+    "convexFiles": [
+      "convex/demo_drawflow/mutations.ts",
+      "convex/demo_drawflow/audit.ts",
+      "convex/demo_drawflow/outbox.ts",
+      "convex/demo_drawflow/projections.ts"
+    ],
+    "routeFiles": [
+      "src/routes/demo/drawflow/active.tsx"
+    ],
+    "testFiles": [
+      "active.workflow.spec.ts",
+      "active.audit-outbox.spec.ts"
+    ],
+    "acceptanceGates": [
+      "All persona permissions are enforced as demo validation rules.",
+      "Evidence submission freezes package and lower requests create rollover buffers.",
+      "Foundation requires accepted evidence and site visit or override before approval.",
+      "Draw 2 auto release-approves and removes Framing capital blocker after final milestone approval."
+    ]
+  },
+  {
+    "chunkId": "CH-06",
+    "title": "Proposal Editing Dependencies",
+    "file": "docs/build_workspace_demo/traceability/chunks/CH-06-proposal-editing-dependencies.md",
+    "dependsOn": [
+      "CH-01",
+      "CH-02",
+      "CH-03"
+    ],
+    "sourceRefs": [
+      {
+        "sourceId": "interactionSpec",
+        "startLine": 2487,
+        "endLine": 2818,
+        "reason": "Proposal builder interaction model."
+      },
+      {
+        "sourceId": "interactionSpec",
+        "startLine": 2819,
+        "endLine": 3541,
+        "reason": "Proposal selection, editing, Gantt, add, value/duration, and dependency contracts."
+      },
+      {
+        "sourceId": "implementationCompanion",
+        "startLine": 543,
+        "endLine": 738,
+        "reason": "Proposal component responsibilities and selectors."
+      }
+    ],
+    "interactionContracts": [
+      "IC-PROP-MILESTONE-CARD-SELECT",
+      "IC-PROP-MILESTONE-REORDER",
+      "IC-PROP-GANTT-MOVE",
+      "IC-PROP-GANTT-RESIZE-START",
+      "IC-PROP-GANTT-RESIZE-END",
+      "IC-PROP-ADD-MILESTONE",
+      "IC-PROP-EDIT-VALUE",
+      "IC-PROP-EDIT-DURATION",
+      "IC-PROP-DEPENDENCY-ADD",
+      "IC-PROP-DEPENDENCY-CYCLE",
+      "IC-PROP-SYSTEM-DEPENDENCY-REMOVE-BLOCKED"
+    ],
+    "companionComponents": [
+      "ProposalWorkspacePage",
+      "ProposalMilestoneDetailSheet",
+      "ProposalDependencyEditor",
+      "MilestoneRailPane",
+      "MilestoneCard",
+      "RailCard",
+      "DrawGroupBoxLayer",
+      "ValidationPanel",
+      "ProposalFooterStatusRegion"
+    ],
+    "convexFiles": [
+      "convex/demo_drawflow/mutations.ts",
+      "convex/demo_drawflow/engine.ts",
+      "convex/demo_drawflow/audit.ts"
+    ],
+    "routeFiles": [
+      "src/routes/demo/drawflow/proposal.tsx"
+    ],
+    "testFiles": [
+      "proposal.workspace.spec.ts",
+      "proposal.gantt.spec.ts"
+    ],
+    "acceptanceGates": [
+      "Proposal starts messy and persists invalid-but-draft states except cycles.",
+      "System hard dependencies cannot be removed.",
+      "Every edit marks analysis stale/pending and writes audit.",
+      "Draw group cap and zero-value errors block submit but do not block draft persistence."
+    ]
+  },
+  {
+    "chunkId": "CH-07",
+    "title": "Proposal Planning Submit",
+    "file": "docs/build_workspace_demo/traceability/chunks/CH-07-proposal-planning-submit.md",
+    "dependsOn": [
+      "CH-01",
+      "CH-02",
+      "CH-03",
+      "CH-06"
+    ],
+    "sourceRefs": [
+      {
+        "sourceId": "interactionSpec",
+        "startLine": 2819,
+        "endLine": 3541,
+        "reason": "Proposal planning, recommendation, split/merge, cascade, and submit contracts."
+      },
+      {
+        "sourceId": "interactionSpec",
+        "startLine": 3542,
+        "endLine": 3566,
+        "reason": "Required proposal planning/submit tests."
+      },
+      {
+        "sourceId": "implementationCompanion",
+        "startLine": 543,
+        "endLine": 738,
+        "reason": "Planning panel, recommendation dialog, footer, and submit UI responsibilities."
+      }
+    ],
+    "interactionContracts": [
+      "IC-PROP-ANALYZE-PLAN",
+      "IC-PROP-APPLY-RECOMMENDED-PLAN",
+      "IC-PROP-SPLIT-DRAW-GROUP",
+      "IC-PROP-MERGE-DRAW-GROUP",
+      "IC-PROP-CAPITAL-CASCADE",
+      "IC-PROP-SUBMIT-BLOCKED",
+      "IC-PROP-SUBMIT-SUCCESS"
+    ],
+    "companionComponents": [
+      "PlanningComparisonPanel",
+      "ApplyRecommendationDialog",
+      "ProposalFooterStatusRegion",
+      "DrawFlowTopBar",
+      "ValidationPanel",
+      "DrawGroupBoxLayer"
+    ],
+    "convexFiles": [
+      "convex/demo_drawflow/mutations.ts",
+      "convex/demo_drawflow/engine.ts",
+      "convex/demo_drawflow/projections.ts",
+      "convex/demo_drawflow/audit.ts",
+      "convex/demo_drawflow/outbox.ts"
+    ],
+    "routeFiles": [
+      "src/routes/demo/drawflow/proposal.tsx"
+    ],
+    "testFiles": [
+      "proposal.planning.spec.ts",
+      "proposal.submit.spec.ts"
+    ],
+    "acceptanceGates": [
+      "Analyze Plan creates deterministic planning run without mutating current proposal.",
+      "Apply recommendation mutates order/dates/groups only after confirmation.",
+      "Split/merge recomputes fee count and financing cost.",
+      "Submit blocks stale/error states and freezes proposal on success with audit/outbox."
+    ]
+  },
+  {
+    "chunkId": "CH-08",
+    "title": "Playwright Coverage Definition Of Done",
+    "file": "docs/build_workspace_demo/traceability/chunks/CH-08-playwright-coverage-dod.md",
+    "dependsOn": [
+      "CH-01",
+      "CH-02",
+      "CH-03",
+      "CH-04",
+      "CH-05",
+      "CH-06",
+      "CH-07"
+    ],
+    "sourceRefs": [
+      {
+        "sourceId": "interactionSpec",
+        "startLine": 1015,
+        "endLine": 1024,
+        "reason": "Global behavioral test expectations."
+      },
+      {
+        "sourceId": "interactionSpec",
+        "startLine": 2454,
+        "endLine": 2486,
+        "reason": "Active test matrix."
+      },
+      {
+        "sourceId": "interactionSpec",
+        "startLine": 3542,
+        "endLine": 3566,
+        "reason": "Proposal test matrix."
+      },
+      {
+        "sourceId": "implementationCompanion",
+        "startLine": 1266,
+        "endLine": 1519,
+        "reason": "Fixture, reset, clock, drag helper, selector, and assertion rules."
+      },
+      {
+        "sourceId": "implementationCompanion",
+        "startLine": 1520,
+        "endLine": 1619,
+        "reason": "Coverage matrix columns and projection rows."
+      },
+      {
+        "sourceId": "implementationCompanion",
+        "startLine": 1690,
+        "endLine": 1795,
+        "reason": "Completion audit checklist."
+      },
+      {
+        "sourceId": "implementationCompanion",
+        "startLine": 1796,
+        "endLine": 1843,
+        "reason": "Final DoD."
+      }
+    ],
+    "interactionContracts": [
+      "IC-ACT-SHELL-SCENARIO-LINK",
+      "IC-ACT-SHELL-PERSONA-SELECT",
+      "IC-ACT-MILESTONE-CARD-SELECT",
+      "IC-ACT-RAIL-CARD-SELECT-DATE-RUNNERS",
+      "IC-ACT-GANTT-RESOLUTION-CHANGE",
+      "IC-ACT-GANTT-COLUMN-SIZE-SLIDER",
+      "IC-ACT-MILESTONE-RAIL-COLLAPSE",
+      "IC-ACT-DRAW-GROUP-BOX-GEOMETRY",
+      "IC-ACT-GANTT-FORECAST-RESIZE-END",
+      "IC-ACT-GANTT-FORECAST-INVALID-BLOCKS-SUBMIT",
+      "IC-ACT-MILESTONE-MARK-COMPLETE",
+      "IC-ACT-EVIDENCE-ADD-SAMPLE",
+      "IC-ACT-EVIDENCE-UPLOAD-METADATA",
+      "IC-ACT-EVIDENCE-REMOVE-DRAFT",
+      "IC-ACT-SUBMIT-COMPLETION-CLAIM",
+      "IC-ACT-LENDER-APPROVE-EVIDENCE",
+      "IC-ACT-LENDER-REQUEST-SITE-VISIT",
+      "IC-ACT-SITE-VISITOR-CLAIM-VISIT",
+      "IC-ACT-SITE-VISITOR-SUBMIT-REPORT",
+      "IC-ACT-LENDER-APPROVE-COMPLETION",
+      "IC-ACT-LENDER-APPROVE-COMPLETION-WITH-SITE-VISIT-OVERRIDE",
+      "IC-ACT-LENDER-REJECT-COMPLETION",
+      "IC-ACT-DRAW-GROUP-AUTO-RELEASE",
+      "IC-ACT-AUDIT-DRAWER-FILTER",
+      "IC-ACT-EVENT-OUTBOX-VIEW",
+      "IC-ACT-DEMO-RESET",
+      "IC-PROP-MILESTONE-CARD-SELECT",
+      "IC-PROP-MILESTONE-REORDER",
+      "IC-PROP-GANTT-MOVE",
+      "IC-PROP-GANTT-RESIZE-START",
+      "IC-PROP-GANTT-RESIZE-END",
+      "IC-PROP-ADD-MILESTONE",
+      "IC-PROP-EDIT-VALUE",
+      "IC-PROP-EDIT-DURATION",
+      "IC-PROP-DEPENDENCY-ADD",
+      "IC-PROP-DEPENDENCY-CYCLE",
+      "IC-PROP-SYSTEM-DEPENDENCY-REMOVE-BLOCKED",
+      "IC-PROP-ANALYZE-PLAN",
+      "IC-PROP-APPLY-RECOMMENDED-PLAN",
+      "IC-PROP-SPLIT-DRAW-GROUP",
+      "IC-PROP-MERGE-DRAW-GROUP",
+      "IC-PROP-CAPITAL-CASCADE",
+      "IC-PROP-SUBMIT-BLOCKED",
+      "IC-PROP-SUBMIT-SUCCESS"
+    ],
+    "companionComponents": [],
+    "convexFiles": [],
+    "routeFiles": [],
+    "testFiles": [
+      "active.workspace.spec.ts",
+      "active.workflow.spec.ts",
+      "active.audit-outbox.spec.ts",
+      "proposal.workspace.spec.ts",
+      "proposal.gantt.spec.ts",
+      "proposal.planning.spec.ts",
+      "proposal.submit.spec.ts"
+    ],
+    "acceptanceGates": [
+      "All Playwright test titles start with an IC ID.",
+      "Tests reset Convex directly and run serially until isolated keys exist.",
+      "Coverage matrix has no TBD for enabled controls or primary tests.",
+      "Final audit proves no enabled controls or drag handles are no-ops."
+    ]
+  },
+  {
+    "chunkId": "CH-09",
+    "title": "Visual Parity Mockup",
+    "file": "docs/build_workspace_demo/traceability/chunks/CH-09-visual-parity-mockup.md",
+    "dependsOn": [
+      "CH-03",
+      "CH-04",
+      "CH-06"
+    ],
+    "sourceRefs": [
+      {
+        "sourceId": "mockup",
+        "reason": "Build Workspace mockup visual target."
+      },
+      {
+        "sourceId": "implementationCompanion",
+        "startLine": 1766,
+        "endLine": 1778,
+        "reason": "Layout audit requirements."
+      },
+      {
+        "sourceId": "implementationCompanion",
+        "startLine": 270,
+        "endLine": 542,
+        "reason": "Gantt visual structure and selectors."
+      }
+    ],
+    "interactionContracts": [
+      "IC-ACT-DRAW-GROUP-BOX-GEOMETRY",
+      "IC-ACT-MILESTONE-RAIL-COLLAPSE",
+      "IC-ACT-GANTT-COLUMN-SIZE-SLIDER",
+      "IC-PROP-GANTT-MOVE",
+      "IC-PROP-GANTT-RESIZE-END",
+      "IC-PROP-CAPITAL-CASCADE"
+    ],
+    "companionComponents": [
+      "DrawFlowDemoLayout",
+      "GanttWorkspaceFrame",
+      "MilestoneRailPane",
+      "RailCardLayer",
+      "DrawGroupBoxLayer",
+      "ProposalFooterStatusRegion"
+    ],
+    "convexFiles": [],
+    "routeFiles": [
+      "src/routes/demo/drawflow/index.tsx",
+      "src/routes/demo/drawflow/active.tsx",
+      "src/routes/demo/drawflow/proposal.tsx"
+    ],
+    "testFiles": [
+      "visual-regression verification artifact, if added by implementer"
+    ],
+    "acceptanceGates": [
+      "Desktop screenshot preserves dense dark operations workspace shape from mockup.",
+      "Left rail, compact top bar, full-width Gantt, draw boxes, and bottom summary are all visible.",
+      "Narrow viewport avoids incoherent overlap and preserves scroll behavior.",
+      "Referenced visual checks use browser screenshots, not eyeballing only."
+    ]
+  }
+]
