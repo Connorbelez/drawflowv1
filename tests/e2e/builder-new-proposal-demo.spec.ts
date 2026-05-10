@@ -1,5 +1,15 @@
 import { expect, test } from "@playwright/test";
 
+test("Builder new proposal route handles a stale draft id without a Convex query crash", async ({
+  page,
+}) => {
+  await page.goto(
+    "/demo/drawflow/new-proposal?draftId=rn7djn5t9m71njwpdhyk5dkeh986ckvm"
+  );
+  await expect(page.getByText("Builder proposal draft not found")).toBeVisible();
+  await expect(page.getByText("Start a fresh draft to continue")).toBeVisible();
+});
+
 test("Builder dashboard to new proposal demo reaches the workspace boundary without opening the workspace demo", async ({
   page,
 }) => {

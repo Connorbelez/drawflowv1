@@ -4,15 +4,14 @@ import {
   Ban,
   Building2,
   CheckCircle2,
-  ClipboardList,
-  LayoutDashboard,
+  Loader2,
   Plus,
   RefreshCw,
   WalletCards,
 } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { Id } from "../../../convex/_generated/dataModel";
 import { useBuilderProposalDemo } from "./convex-builder-proposal-adapter";
@@ -27,6 +26,9 @@ import type {
   BuilderProposalTemplate,
 } from "./types";
 
+import { CinematicRoadmap } from "./CinematicRoadmap";
+import "./proposal-builder.css";
+
 const DEFAULT_BUDGET_TEXT = "$1,850,000";
 const DEFAULT_START_DATE = "2026-06-01";
 
@@ -34,78 +36,270 @@ function cx(...classes: Array<false | null | string | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-function DemoFrame({
+/* ------------------------------------------------------------------ */
+/*  Step Indicator                                                      */
+/* ------------------------------------------------------------------ */
+
+const STEPS = [
+  { key: "template", label: "Build type & budget" },
+  { key: "milestones", label: "Milestones" },
+  { key: "boundary", label: "Boundary & submit" },
+];
+
+function StepIndicator({ currentStep }: { currentStep: string }) {
+  const currentIndex = STEPS.findIndex((s) => s.key === currentStep);
+
+  return (
+    <div className="pb-step-indicator">
+      {STEPS.map((step, index) => {
+        const isActive = index === currentIndex;
+        const isCompleted = index < currentIndex;
+        return (
+          <div key={step.key}>
+            <div
+              className={cx(
+                "pb-step",
+                isActive && "active",
+                isCompleted && "completed"
+              )}
+            >
+              <span className="pb-step-dot" />
+              {step.label}
+            </div>
+            {index < STEPS.length - 1 && (
+              <div
+                className={cx(
+                  "pb-step-line",
+                  isCompleted && "completed"
+                )}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Auto-save Indicator                                                 */
+/* ------------------------------------------------------------------ */
+
+function AutoSaveIndicator({
+  saving,
+}: {
+  saving?: boolean;
+}) {
+  return (
+    <div className={cx("pb-autosave", saving && "saving")}>
+      {saving && <span className="pb-autosave-dot" />}
+      {saving ? "Saving..." : "Saved"}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Resizable Split Panel                                               */
+/* ------------------------------------------------------------------ */
+
+function ResizableSplit({
+  left,
+  right,
+  defaultLeftPercent = 42,
+}: {
+  left: ReactNode;
+  right: ReactNode;
+  defaultLeftPercent?: number;
+}) {
+  const [leftWidth, setLeftWidth] = useState(defaultLeftPercent);
+  const [isDragging, setIsDragging] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleMouseMove(e: MouseEvent) {
+      if (!isDragging || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const pct = ((e.clientX - rect.left) / rect.width) * 100;
+      setLeftWidth(Math.max(30, Math.min(60, pct)));
+    }
+    function handleMouseUp() {
+      setIsDragging(false);
+    }
+    if (isDragging) {
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+      return () => {
+        window.removeEventListener("mousemove", handleMouseMove);
+        window.removeEventListener("mouseup", handleMouseUp);
+      };
+    }
+  }, [isDragging]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="pb-split"
+      style={{ ["--split-left" as string]: `${leftWidth}%` }}
+    >
+      <div
+        className="pb-scroll"
+        style={{
+          minWidth: 0,
+          overflow: "auto",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        {left}
+      </div>
+      <div
+        className="pb-split-handle"
+        onMouseDown={() => setIsDragging(true)}
+        role="separator"
+        aria-orientation="vertical"
+      />
+      <div
+        style={{
+          minWidth: 0,
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        {right}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Proposal Builder Shell                                              */
+/* ------------------------------------------------------------------ */
+
+function ProposalBuilderShell({
   action,
   children,
   eyebrow,
+  rightPanel,
   step,
   title,
 }: {
   action?: ReactNode;
   children: ReactNode;
   eyebrow: string;
-  step: "dashboard" | "template" | "milestones" | "boundary";
+  rightPanel: ReactNode;
+  step: "template" | "milestones" | "boundary";
   title: string;
 }) {
-  const navItems =
-    step === "dashboard"
-      ? ["Dashboard", "Proposals", "Builds", "Draws", "Evidence"]
-      : ["1. Template and budget", "2. Milestone editor", "3. Workspace boundary"];
   return (
-    <div className="dark min-h-screen bg-background p-3 text-foreground md:p-4">
-      <div className="grid min-h-[calc(100vh-1.5rem)] grid-cols-1 gap-3 md:min-h-[calc(100vh-2rem)] md:grid-cols-[244px_minmax(0,1fr)]">
-        <aside className="rounded-lg border border-border bg-card/90 p-4 text-sm text-muted-foreground shadow-2xl shadow-black/20">
-          <div className="mb-5 flex items-center gap-2 font-black text-primary uppercase tracking-[0.08em]">
-            {step === "dashboard" ? <LayoutDashboard size={18} /> : <ClipboardList size={18} />}
-            {step === "dashboard" ? "DrawFlow" : "New proposal"}
-          </div>
-          <nav className="grid gap-2" aria-label="Builder proposal demo steps">
-            {navItems.map((item) => {
-              const active =
-                (step === "dashboard" && item === "Dashboard") ||
-                (step === "template" && item.startsWith("1.")) ||
-                (step === "milestones" && item.startsWith("2.")) ||
-                (step === "boundary" && item.startsWith("3."));
-              return (
-                <span
-                  className={cx(
-                    "rounded-md px-3 py-2 font-semibold",
-                    active
-                      ? "bg-primary/10 text-foreground ring-1 ring-primary/35"
-                      : "text-muted-foreground"
-                  )}
-                  key={item}
-                >
-                  {item}
-                </span>
-              );
-            })}
-          </nav>
-          <div className="mt-6 rounded-lg border border-border bg-background/50 p-3 text-xs leading-5">
-            <strong className="text-foreground">Reimbursement only</strong>
-            <p className="mt-1">
-              Interest starts after funds are released. Borrower cash availability is separate from lender policy.
+    <div className="proposal-builder">
+      {/* Header */}
+      <header
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "16px 24px",
+          borderBottom: "1px solid var(--pb-border)",
+          gap: 16,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
+          <div>
+            <p
+              style={{
+                fontSize: 11,
+                fontWeight: 500,
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                color: "var(--pb-fg-tertiary)",
+              }}
+            >
+              {eyebrow}
             </p>
+            <h1
+              style={{
+                fontSize: "clamp(20px, 2.5vw, 28px)",
+                fontWeight: 700,
+                color: "var(--pb-fg)",
+                lineHeight: 1.2,
+                marginTop: 2,
+              }}
+            >
+              {title}
+            </h1>
           </div>
-        </aside>
-        <main className="min-w-0">
-          <header className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card/90 px-4 py-3">
-            <div>
-              <p className="text-xs font-semibold text-muted-foreground">{eyebrow}</p>
-              <h1 className="mt-1 text-2xl font-black tracking-normal md:text-4xl">
-                {title}
-              </h1>
+          <StepIndicator currentStep={step} />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <AutoSaveIndicator />
+          {action}
+        </div>
+      </header>
+
+      {/* Split panel */}
+      <div style={{ height: "calc(100vh - 73px)" }}>
+        <ResizableSplit
+          left={
+            <div style={{ padding: "20px 24px", flex: 1 }}>{children}</div>
+          }
+          right={
+            <div
+              style={{
+                padding: "20px 24px 20px 0",
+                height: "100%",
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 500,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                  color: "var(--pb-fg-tertiary)",
+                  marginBottom: 8,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <span>Live roadmap</span>
+                <span
+                  style={{
+                    fontSize: 10,
+                    color: "var(--pb-accent)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 5,
+                      height: 5,
+                      borderRadius: "50%",
+                      background: "var(--pb-accent)",
+                      boxShadow: "0 0 6px var(--pb-accent-glow)",
+                    }}
+                  />
+                  Real-time
+                </span>
+              </div>
+              <div style={{ flex: 1, minHeight: 0 }}>{rightPanel}</div>
             </div>
-            {action}
-          </header>
-          <section className="min-h-[calc(100vh-7.5rem)] overflow-hidden rounded-lg border border-border bg-[oklch(0.16_0.007_286)] p-4">
-            {children}
-          </section>
-        </main>
+          }
+        />
       </div>
     </div>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/*  Buttons                                                             */
+/* ------------------------------------------------------------------ */
 
 function PrimaryButton({
   children,
@@ -126,14 +320,11 @@ function PrimaryButton({
 }) {
   return (
     <button
-      className={cx(
-        "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 font-black text-primary-foreground transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50",
-        className
-      )}
+      className={cx("pb-btn pb-btn-primary", className)}
       data-testid={testId}
+      disabled={disabled}
       id={id}
       onClick={onClick}
-      disabled={disabled}
       type={type}
     >
       {children}
@@ -158,20 +349,21 @@ function SecondaryButton({
 }) {
   return (
     <button
-      className={cx(
-        "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-border bg-muted px-4 py-2 font-black text-foreground transition hover:bg-muted/80 disabled:cursor-not-allowed disabled:opacity-50",
-        className
-      )}
+      className={cx("pb-btn pb-btn-secondary", className)}
       data-testid={testId}
+      disabled={disabled}
       id={id}
       onClick={onClick}
-      disabled={disabled}
       type="button"
     >
       {children}
     </button>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/*  Metric Tile                                                         */
+/* ------------------------------------------------------------------ */
 
 function MetricTile({
   label,
@@ -181,16 +373,92 @@ function MetricTile({
   value: string;
 }) {
   return (
-    <div className="rounded-lg border border-border bg-card/80 p-4">
-      <strong className="text-2xl font-black">{value}</strong>
-      <p className="mt-1 text-sm text-muted-foreground">{label}</p>
+    <div className="pb-metric">
+      <div className="pb-metric-value">{value}</div>
+      <div className="pb-metric-label">{label}</div>
     </div>
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Readiness Line                                                      */
+/* ------------------------------------------------------------------ */
+
+function ReadinessLine({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="pb-readiness">
+      <span className="pb-readiness-label">{label}</span>
+      <span className="pb-readiness-value">{value}</span>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Empty State                                                         */
+/* ------------------------------------------------------------------ */
+
+function EmptyState({ body, title }: { body: string; title: string }) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        placeItems: "center",
+        minHeight: "50vh",
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 480,
+          textAlign: "center",
+          padding: "32px",
+          borderRadius: 8,
+          border: "1px solid var(--pb-border)",
+          background: "var(--pb-elevated)",
+        }}
+      >
+        <Ban
+          size={28}
+          style={{ color: "var(--pb-fg-tertiary)", margin: "0 auto" }}
+        />
+        <h2
+          style={{
+            fontSize: 18,
+            fontWeight: 700,
+            marginTop: 12,
+            color: "var(--pb-fg)",
+          }}
+        >
+          {title}
+        </h2>
+        <p
+          style={{
+            fontSize: 13,
+            marginTop: 8,
+            color: "var(--pb-fg-secondary)",
+            lineHeight: 1.5,
+          }}
+        >
+          {body}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Dashboard Route                                                     */
+/* ------------------------------------------------------------------ */
+
 export function BuilderDashboardRoute() {
   const navigate = useNavigate();
-  const { dashboard, isLoading, resetDemo, startDraft } = useBuilderProposalDemo();
+  const { dashboard, isLoading, resetDemo, startDraft } =
+    useBuilderProposalDemo();
   const [isStarting, setIsStarting] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const metrics = dashboard?.dashboard.metrics;
@@ -218,123 +486,352 @@ export function BuilderDashboardRoute() {
   }
 
   return (
-    <DemoFrame
-      action={
-        <div className="flex flex-wrap gap-2">
-          <SecondaryButton
-            disabled={isResetting}
-            onClick={handleReset}
-            testId="builder-dashboard-reset"
-          >
-            <RefreshCw size={16} />
-            Reset demo
-          </SecondaryButton>
-          <PrimaryButton
-            disabled={isStarting}
-            id="dashboard-new-proposal-button"
-            onClick={handleStart}
-            testId="builder-dashboard-new-proposal"
-          >
-            <Plus size={17} />
-            New proposal
-          </PrimaryButton>
-        </div>
-      }
-      eyebrow={`${dashboard?.orgKey ?? "org_fairlend_demo"} / Harbor & Pine Builders`}
-      step="dashboard"
-      title="Builder dashboard"
-    >
-      <div data-testid="builder-dashboard-shell" className="grid gap-4">
-        {dashboard?.needsSeed ? (
-          <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 p-4 text-amber-100">
-            Template seed is being prepared. Use reset if the demo does not populate.
-          </div>
-        ) : null}
-        <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-          <div className="rounded-lg border border-border bg-card/80 p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <Building2 className="text-primary" size={20} />
-              <h2 className="text-xl font-black">Proposal pipeline</h2>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <MetricTile
-                label="Draft proposals"
-                value={isLoading ? "..." : String(metrics?.draftCount ?? 0)}
-              />
-              <MetricTile
-                label="Ready for workspace"
-                value={isLoading ? "..." : String(metrics?.readyCount ?? 0)}
-              />
-              <MetricTile
-                label="Budget in planning"
-                value={
-                  isLoading
-                    ? "..."
-                    : formatCurrency(metrics?.planningBudgetCents ?? 0, {
-                        compact: true,
-                      })
-                }
-              />
-            </div>
-          </div>
-          <div className="rounded-lg border border-primary/30 bg-primary/10 p-4">
-            <div className="flex items-center gap-2">
-              <WalletCards className="text-primary" size={20} />
-              <h2 className="text-xl font-black">Start a reimbursable build</h2>
-            </div>
-            <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-              Choose a build type, enter a budget, tune milestones, and set borrower cash availability before workspace setup.
-            </p>
-            <div className="mt-4 inline-flex rounded-full border border-primary/30 bg-background/40 px-3 py-1 text-xs font-black text-primary">
-              Reimbursement only
-            </div>
-          </div>
-        </div>
-        <div className="grid gap-3 lg:grid-cols-3">
-          {(dashboard?.dashboard.workspaceCards ?? []).map((card) => (
-            <article
-              className="rounded-lg border border-border bg-card/80 p-4"
-              data-testid={`builder-dashboard-card-${card.title
-                .toLowerCase()
-                .replaceAll(" ", "-")}`}
-              key={card.title}
+    <div className="proposal-builder">
+      <div
+        style={{
+          padding: "24px 32px",
+          maxWidth: 1440,
+          margin: "0 auto",
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 24,
+            flexWrap: "wrap",
+            gap: 16,
+          }}
+        >
+          <div>
+            <p
+              style={{
+                fontSize: 11,
+                fontWeight: 500,
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                color: "var(--pb-fg-tertiary)",
+              }}
             >
-              <h3 className="text-lg font-black">{card.title}</h3>
-              <p className="mt-2 text-sm text-muted-foreground">{card.description}</p>
-              {card.href ? (
-                <a
-                  className="mt-3 inline-flex text-sm font-black text-primary"
-                  href={card.href}
-                >
-                  Separate workspace demo
-                </a>
-              ) : null}
-            </article>
-          ))}
+              {dashboard?.orgKey ?? "org_fairlend_demo"} / Harbor & Pine Builders
+            </p>
+            <h1
+              style={{
+                fontSize: 28,
+                fontWeight: 700,
+                color: "var(--pb-fg)",
+                marginTop: 4,
+              }}
+            >
+              Builder dashboard
+            </h1>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <SecondaryButton
+              disabled={isResetting}
+              onClick={handleReset}
+              testId="builder-dashboard-reset"
+            >
+              <RefreshCw size={14} />
+              Reset demo
+            </SecondaryButton>
+            <PrimaryButton
+              disabled={isStarting}
+              id="dashboard-new-proposal-button"
+              onClick={handleStart}
+              testId="builder-dashboard-new-proposal"
+            >
+              <Plus size={15} />
+              New proposal
+            </PrimaryButton>
+          </div>
         </div>
-        {dashboard?.drafts.length ? (
-          <div className="rounded-lg border border-border bg-card/80 p-4">
-            <h2 className="text-xl font-black">Recent builder proposal drafts</h2>
-            <div className="mt-3 grid gap-2">
-              {dashboard.drafts.slice(0, 5).map((draft) => (
-                <div
-                  className="grid gap-2 rounded-lg border border-border bg-background/45 p-3 text-sm md:grid-cols-[120px_1fr_160px_160px]"
-                  data-testid="builder-dashboard-draft-row"
-                  key={draft._id}
-                >
-                  <strong>{draft.proposalNumber}</strong>
-                  <span>{draft.templateTitle ?? "Template not selected"}</span>
-                  <span>{formatCurrency(draft.currentBudgetCents)}</span>
-                  <span className="font-black text-primary">{draft.status}</span>
-                </div>
-              ))}
-            </div>
+
+        {dashboard?.needsSeed ? (
+          <div className="pb-alert-warning" style={{ marginBottom: 16 }}>
+            Template seed is being prepared. Use reset if the demo does not
+            populate.
           </div>
         ) : null}
+
+        <div data-testid="builder-dashboard-shell" style={{ display: "grid", gap: 20 }}>
+          {/* Top row */}
+          <div
+            style={{
+              display: "grid",
+              gap: 16,
+              gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+            }}
+          >
+            <div
+              style={{
+                background: "var(--pb-elevated)",
+                border: "1px solid var(--pb-border)",
+                borderRadius: 8,
+                padding: 20,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 12,
+                }}
+              >
+                <Building2
+                  size={18}
+                  style={{ color: "var(--pb-accent)" }}
+                />
+                <h2
+                  style={{
+                    fontSize: 16,
+                    fontWeight: 700,
+                    color: "var(--pb-fg)",
+                  }}
+                >
+                  Proposal pipeline
+                </h2>
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gap: 12,
+                  gridTemplateColumns: "repeat(3, 1fr)",
+                }}
+              >
+                <MetricTile
+                  label="Draft proposals"
+                  value={
+                    isLoading ? "..." : String(metrics?.draftCount ?? 0)
+                  }
+                />
+                <MetricTile
+                  label="Ready for workspace"
+                  value={isLoading ? "..." : String(metrics?.readyCount ?? 0)}
+                />
+                <MetricTile
+                  label="Budget in planning"
+                  value={
+                    isLoading
+                      ? "..."
+                      : formatCurrency(metrics?.planningBudgetCents ?? 0, {
+                          compact: true,
+                        })
+                  }
+                />
+              </div>
+            </div>
+
+            <div
+              style={{
+                background: "var(--pb-accent-subdued)",
+                border: "1px solid var(--pb-accent)",
+                borderRadius: 8,
+                padding: 20,
+                position: "relative",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  top: -20,
+                  right: -20,
+                  width: 120,
+                  height: 120,
+                  borderRadius: "50%",
+                  background:
+                    "radial-gradient(circle, var(--pb-accent-glow) 0%, transparent 70%)",
+                  opacity: 0.3,
+                }}
+              />
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  position: "relative",
+                  zIndex: 1,
+                }}
+              >
+                <WalletCards
+                  size={18}
+                  style={{ color: "var(--pb-accent)" }}
+                />
+                <h2
+                  style={{
+                    fontSize: 16,
+                    fontWeight: 700,
+                    color: "var(--pb-fg)",
+                  }}
+                >
+                  Start a reimbursable build
+                </h2>
+              </div>
+              <p
+                style={{
+                  fontSize: 13,
+                  color: "var(--pb-fg-secondary)",
+                  marginTop: 8,
+                  maxWidth: 480,
+                  lineHeight: 1.5,
+                  position: "relative",
+                  zIndex: 1,
+                }}
+              >
+                Choose a build type, enter a budget, tune milestones, and set
+                borrower cash availability before workspace setup.
+              </p>
+              <div
+                style={{
+                  display: "inline-flex",
+                  marginTop: 12,
+                  padding: "4px 12px",
+                  borderRadius: 999,
+                  border: "1px solid var(--pb-accent)",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "var(--pb-accent)",
+                  position: "relative",
+                  zIndex: 1,
+                }}
+              >
+                Reimbursement only
+              </div>
+            </div>
+          </div>
+
+          {/* Workspace cards */}
+          <div
+            style={{
+              display: "grid",
+              gap: 12,
+              gridTemplateColumns:
+                "repeat(auto-fill, minmax(280px, 1fr))",
+            }}
+          >
+            {(dashboard?.dashboard.workspaceCards ?? []).map((card) => (
+              <article
+                key={card.title}
+                data-testid={`builder-dashboard-card-${card.title
+                  .toLowerCase()
+                  .replaceAll(" ", "-")}`}
+                style={{
+                  background: "var(--pb-elevated)",
+                  border: "1px solid var(--pb-border)",
+                  borderRadius: 8,
+                  padding: 16,
+                }}
+              >
+                <h3
+                  style={{
+                    fontSize: 15,
+                    fontWeight: 700,
+                    color: "var(--pb-fg)",
+                  }}
+                >
+                  {card.title}
+                </h3>
+                <p
+                  style={{
+                    fontSize: 13,
+                    color: "var(--pb-fg-secondary)",
+                    marginTop: 6,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {card.description}
+                </p>
+                {card.href ? (
+                  <a
+                    href={card.href}
+                    style={{
+                      display: "inline-flex",
+                      marginTop: 10,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: "var(--pb-accent)",
+                      textDecoration: "none",
+                    }}
+                  >
+                    Separate workspace demo
+                  </a>
+                ) : null}
+              </article>
+            ))}
+          </div>
+
+          {/* Recent drafts */}
+          {dashboard?.drafts.length ? (
+            <div
+              style={{
+                background: "var(--pb-elevated)",
+                border: "1px solid var(--pb-border)",
+                borderRadius: 8,
+                padding: 20,
+              }}
+            >
+              <h2
+                style={{
+                  fontSize: 16,
+                  fontWeight: 700,
+                  color: "var(--pb-fg)",
+                }}
+              >
+                Recent builder proposal drafts
+              </h2>
+              <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+                {dashboard.drafts.slice(0, 5).map((draft) => (
+                  <div
+                    key={draft._id}
+                    data-testid="builder-dashboard-draft-row"
+                    style={{
+                      display: "grid",
+                      gap: 8,
+                      padding: "10px 12px",
+                      borderRadius: 6,
+                      border: "1px solid var(--pb-border)",
+                      background: "var(--pb-sunken)",
+                      fontSize: 13,
+                      gridTemplateColumns:
+                        "100px 1fr 140px 100px",
+                      alignItems: "center",
+                    }}
+                  >
+                    <strong style={{ color: "var(--pb-fg)" }}>
+                      {draft.proposalNumber}
+                    </strong>
+                    <span style={{ color: "var(--pb-fg-secondary)" }}>
+                      {draft.templateTitle ?? "Template not selected"}
+                    </span>
+                    <span style={{ color: "var(--pb-fg-secondary)" }}>
+                      {formatCurrency(draft.currentBudgetCents)}
+                    </span>
+                    <span
+                      style={{
+                        fontWeight: 600,
+                        color: "var(--pb-accent)",
+                      }}
+                    >
+                      {draft.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
-    </DemoFrame>
+    </div>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/*  New Proposal Orchestrator                                           */
+/* ------------------------------------------------------------------ */
 
 export function BuilderNewProposalRoute({
   draftId,
@@ -361,58 +858,165 @@ export function BuilderNewProposalRoute({
 
   if (!draftId) {
     return (
-      <DemoFrame
-        action={
-          <PrimaryButton disabled={isStarting} onClick={handleCreateDraft}>
-            <Plus size={16} />
-            Create draft
-          </PrimaryButton>
-        }
-        eyebrow="No active draft"
-        step="template"
-        title="Start a proposal draft"
-      >
-        <EmptyState
-          body="The new proposal workflow needs a stable draft ID so edits can autosave and audit events can attach to the proposal."
-          title="Create a draft before selecting a template"
-        />
-      </DemoFrame>
+      <div className="proposal-builder">
+        <div style={{ padding: "24px 32px" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 24,
+            }}
+          >
+            <div>
+              <p
+                style={{
+                  fontSize: 11,
+                  fontWeight: 500,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                  color: "var(--pb-fg-tertiary)",
+                }}
+              >
+                No active draft
+              </p>
+              <h1
+                style={{
+                  fontSize: 24,
+                  fontWeight: 700,
+                  color: "var(--pb-fg)",
+                }}
+              >
+                Start a proposal draft
+              </h1>
+            </div>
+            <PrimaryButton
+              disabled={isStarting}
+              onClick={handleCreateDraft}
+            >
+              <Plus size={14} />
+              Create draft
+            </PrimaryButton>
+          </div>
+          <EmptyState
+            body="The new proposal workflow needs a stable draft ID so edits can autosave and audit events can attach to the proposal."
+            title="Create a draft before selecting a template"
+          />
+        </div>
+      </div>
     );
   }
 
   if (isLoading || !dashboard) {
     return (
-      <DemoFrame
-        eyebrow="Loading draft"
-        step="template"
-        title="New proposal"
-      >
-        <div className="grid gap-3" data-testid="builder-proposal-loading">
-          <div className="h-20 animate-pulse rounded-lg bg-muted/40" />
-          <div className="h-64 animate-pulse rounded-lg bg-muted/25" />
+      <div className="proposal-builder">
+        <div style={{ padding: "24px 32px" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 24,
+            }}
+          >
+            <div>
+              <p
+                style={{
+                  fontSize: 11,
+                  fontWeight: 500,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                  color: "var(--pb-fg-tertiary)",
+                }}
+              >
+                Loading draft
+              </p>
+              <h1
+                style={{
+                  fontSize: 24,
+                  fontWeight: 700,
+                  color: "var(--pb-fg)",
+                }}
+              >
+                New proposal
+              </h1>
+            </div>
+          </div>
+          <div
+            data-testid="builder-proposal-loading"
+            style={{ display: "grid", gap: 12 }}
+          >
+            <div
+              style={{
+                height: 80,
+                borderRadius: 8,
+                background: "var(--pb-elevated)",
+                animation: "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+              }}
+            />
+            <div
+              style={{
+                height: 256,
+                borderRadius: 8,
+                background: "var(--pb-elevated)",
+                animation: "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+                animationDelay: "0.2s",
+              }}
+            />
+          </div>
         </div>
-      </DemoFrame>
+      </div>
     );
   }
 
   if (!projection) {
     return (
-      <DemoFrame
-        action={
-          <PrimaryButton disabled={isStarting} onClick={handleCreateDraft}>
-            <Plus size={16} />
-            New stable draft
-          </PrimaryButton>
-        }
-        eyebrow="Draft not found"
-        step="template"
-        title="New proposal"
-      >
-        <EmptyState
-          body="This draft ID is not available in the demo org. Start a fresh draft to continue the isolated flow."
-          title="Builder proposal draft not found"
-        />
-      </DemoFrame>
+      <div className="proposal-builder">
+        <div style={{ padding: "24px 32px" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 24,
+            }}
+          >
+            <div>
+              <p
+                style={{
+                  fontSize: 11,
+                  fontWeight: 500,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                  color: "var(--pb-fg-tertiary)",
+                }}
+              >
+                Draft not found
+              </p>
+              <h1
+                style={{
+                  fontSize: 24,
+                  fontWeight: 700,
+                  color: "var(--pb-fg)",
+                }}
+              >
+                New proposal
+              </h1>
+            </div>
+            <PrimaryButton
+              disabled={isStarting}
+              onClick={handleCreateDraft}
+            >
+              <Plus size={14} />
+              New stable draft
+            </PrimaryButton>
+          </div>
+          <EmptyState
+            body="This draft ID is not available in the demo org. Start a fresh draft to continue the isolated flow."
+            title="Builder proposal draft not found"
+          />
+        </div>
+      </div>
     );
   }
 
@@ -432,17 +1036,9 @@ export function BuilderNewProposalRoute({
   return <MilestoneEditorScreen projection={projection} />;
 }
 
-function EmptyState({ body, title }: { body: string; title: string }) {
-  return (
-    <div className="grid min-h-[50vh] place-items-center">
-      <div className="max-w-xl rounded-lg border border-border bg-card/80 p-6 text-center">
-        <Ban className="mx-auto text-muted-foreground" size={28} />
-        <h2 className="mt-3 text-xl font-black">{title}</h2>
-        <p className="mt-2 text-sm text-muted-foreground">{body}</p>
-      </div>
-    </div>
-  );
-}
+/* ------------------------------------------------------------------ */
+/*  Template & Budget Screen                                           */
+/* ------------------------------------------------------------------ */
 
 function TemplateBudgetScreen({
   projection,
@@ -496,14 +1092,19 @@ function TemplateBudgetScreen({
         templateKey: selectedTemplateKey,
       });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Generation failed.");
+      setError(
+        caught instanceof Error ? caught.message : "Generation failed."
+      );
     } finally {
       setIsGenerating(false);
     }
   }
 
+  const visibleTemplates = templates.slice(0, 4);
+  const hiddenCount = templates.length - visibleTemplates.length;
+
   return (
-    <DemoFrame
+    <ProposalBuilderShell
       action={
         <PrimaryButton
           disabled={isGenerating}
@@ -511,56 +1112,123 @@ function TemplateBudgetScreen({
           onClick={handleGenerate}
           testId="builder-generate-milestones"
         >
-          <ArrowRight size={16} />
+          {isGenerating ? (
+            <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} />
+          ) : (
+            <ArrowRight size={14} />
+          )}
           Generate milestone list
         </PrimaryButton>
       }
       eyebrow={`Draft ${projection.draft.proposalNumber}`}
+      rightPanel={
+        <CinematicRoadmap milestones={[]} animated={false} />
+      }
       step="template"
       title="Select build type and total budget"
     >
-      <div className="grid gap-4" data-testid="builder-template-screen">
-        <div className="grid gap-3 lg:grid-cols-3">
-          {templates.map((template) => (
-            <button
-              aria-pressed={selectedTemplateKey === template.templateKey}
-              className={cx(
-                "min-h-44 rounded-lg border bg-card/80 p-4 text-left transition hover:border-primary/70",
-                selectedTemplateKey === template.templateKey
-                  ? "border-primary ring-2 ring-primary/30"
-                  : "border-border"
-              )}
-              data-ixc-ref={
-                template.templateKey === "single_family_full_build"
-                  ? "UI-BUILD-TYPE-TEMPLATE"
-                  : undefined
-              }
-              data-testid={`builder-template-card-${template.templateKey}`}
-              id={
-                template.templateKey === "single_family_full_build"
-                  ? "template-single-family-full-build-card"
-                  : undefined
-              }
-              key={template.templateKey}
-              onClick={() => setSelectedTemplateKey(template.templateKey)}
-              type="button"
+      <div
+        data-testid="builder-template-screen"
+        style={{ display: "grid", gap: 20 }}
+      >
+        {/* Template cards */}
+        <div>
+          <span className="pb-label">Construction template</span>
+          <div
+            style={{
+              display: "grid",
+              gap: 12,
+              gridTemplateColumns:
+                "repeat(auto-fill, minmax(220px, 1fr))",
+            }}
+          >
+            {visibleTemplates.map((template) => (
+              <button
+                key={template.templateKey}
+                aria-pressed={selectedTemplateKey === template.templateKey}
+                className={cx(
+                  "pb-template-card",
+                  selectedTemplateKey === template.templateKey && "selected"
+                )}
+                data-ixc-ref={
+                  template.templateKey === "single_family_full_build"
+                    ? "UI-BUILD-TYPE-TEMPLATE"
+                    : undefined
+                }
+                data-testid={`builder-template-card-${template.templateKey}`}
+                id={
+                  template.templateKey === "single_family_full_build"
+                    ? "template-single-family-full-build-card"
+                    : undefined
+                }
+                onClick={() => setSelectedTemplateKey(template.templateKey)}
+                type="button"
+              >
+                <h2
+                  style={{
+                    fontSize: 15,
+                    fontWeight: 700,
+                    color: "var(--pb-fg)",
+                  }}
+                >
+                  {template.title}
+                </h2>
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: "var(--pb-fg-secondary)",
+                    marginTop: 6,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {template.description}
+                </p>
+                <div
+                  style={{
+                    display: "inline-flex",
+                    marginTop: 12,
+                    padding: "3px 10px",
+                    borderRadius: 999,
+                    border: "1px solid var(--pb-accent)",
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: "var(--pb-accent)",
+                  }}
+                >
+                  {template.summary}
+                </div>
+              </button>
+            ))}
+          </div>
+          {hiddenCount > 0 && (
+            <p
+              style={{
+                fontSize: 12,
+                color: "var(--pb-fg-tertiary)",
+                marginTop: 8,
+              }}
             >
-              <h2 className="text-lg font-black">{template.title}</h2>
-              <p className="mt-2 text-sm text-muted-foreground">{template.description}</p>
-              <span className="mt-4 inline-flex rounded-full border border-border px-3 py-1 text-xs font-black text-primary">
-                {template.summary}
-              </span>
-            </button>
-          ))}
+              +{hiddenCount} more templates available
+            </p>
+          )}
         </div>
-        <div className="grid gap-3 lg:grid-cols-2">
-          <label className="grid gap-2 rounded-lg border border-border bg-card/80 p-4">
-            <span className="text-sm font-black text-muted-foreground">
+
+        {/* Budget + Date */}
+        <div
+          style={{
+            display: "grid",
+            gap: 16,
+            gridTemplateColumns:
+              "repeat(auto-fit, minmax(240px, 1fr))",
+          }}
+        >
+          <div>
+            <label className="pb-label" htmlFor="total-budget-input">
               Total project budget
-            </span>
+            </label>
             <input
               aria-label="Total project budget"
-              className="min-h-11 rounded-lg border border-input bg-background px-3 font-black outline-none ring-primary/40 focus:ring-2"
+              className="pb-input"
               data-ixc-ref="UI-TOTAL-BUDGET"
               data-testid="builder-total-budget"
               id="total-budget-input"
@@ -573,38 +1241,47 @@ function TemplateBudgetScreen({
               onChange={(event) => setBudgetText(event.target.value)}
               value={budgetText}
             />
-          </label>
-          <label className="grid gap-2 rounded-lg border border-border bg-card/80 p-4">
-            <span className="text-sm font-black text-muted-foreground">
+          </div>
+          <div>
+            <label className="pb-label" htmlFor="estimated-start-input">
               Estimated start
-            </span>
+            </label>
             <input
               aria-label="Estimated start"
-              className="min-h-11 rounded-lg border border-input bg-background px-3 font-black outline-none ring-primary/40 focus:ring-2"
+              className="pb-input"
               data-ixc-ref="UI-ESTIMATED-START"
               data-testid="builder-estimated-start"
               id="estimated-start-input"
-              onChange={(event) => setEstimatedStartDate(event.target.value)}
+              onChange={(event) =>
+                setEstimatedStartDate(event.target.value)
+              }
               type="date"
               value={estimatedStartDate}
             />
-          </label>
+          </div>
         </div>
+
+        {/* Error */}
         {error ? (
-          <div
-            className="rounded-lg border border-destructive/45 bg-destructive/15 p-4 text-sm font-black text-destructive-foreground"
-            data-testid="builder-template-error"
-          >
+          <div className="pb-alert-error" data-testid="builder-template-error">
             {error}
           </div>
         ) : null}
-        <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 p-4 text-sm text-amber-100">
-          Preset percentages create the first pass from the original budget. Later milestone edits change the running proposal budget and display a diff instead of forcing reconciliation.
+
+        {/* Info */}
+        <div className="pb-alert-warning">
+          Preset percentages create the first pass from the original budget.
+          Later milestone edits change the running proposal budget and display
+          a diff instead of forcing reconciliation.
         </div>
       </div>
-    </DemoFrame>
+    </ProposalBuilderShell>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/*  Milestone Editor Screen                                             */
+/* ------------------------------------------------------------------ */
 
 function MilestoneEditorScreen({
   projection,
@@ -621,6 +1298,7 @@ function MilestoneEditorScreen({
   } = useBuilderProposalDemo(projection.draft._id);
   const [actionError, setActionError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [isGeneratingAnim, setIsGeneratingAnim] = useState(true);
   const readiness = projection.readiness;
   const firstBlockingMilestoneKey = projection.milestones.find(
     (milestone) =>
@@ -628,7 +1306,16 @@ function MilestoneEditorScreen({
       (milestone.budgetCents <= 0 || milestone.durationDays <= 0)
   )?.key;
 
-  async function updateBudget(milestone: BuilderProposalMilestone, value: string) {
+  // Trigger cinematic animation on first mount with milestones
+  useEffect(() => {
+    const timer = setTimeout(() => setIsGeneratingAnim(false), 1200);
+    return () => clearTimeout(timer);
+  }, []);
+
+  async function updateBudget(
+    milestone: BuilderProposalMilestone,
+    value: string
+  ) {
     const budgetCents = parseCurrencyToCents(value);
     if (!Number.isFinite(budgetCents)) {
       setActionError("Enter a valid milestone budget.");
@@ -670,7 +1357,10 @@ function MilestoneEditorScreen({
   async function handleContinue() {
     setActionError("");
     if (!readiness.canFinalize) {
-      setActionError(readiness.blockingIssues[0] ?? "Resolve blockers before continuing.");
+      setActionError(
+        readiness.blockingIssues[0] ??
+          "Resolve blockers before continuing."
+      );
       const firstBlocking = document.querySelector<HTMLElement>(
         '[data-builder-blocking="true"]'
       );
@@ -681,22 +1371,24 @@ function MilestoneEditorScreen({
     try {
       await finalizeBoundary({ draftId: projection.draft._id });
     } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : "Finalization failed.");
+      setActionError(
+        caught instanceof Error ? caught.message : "Finalization failed."
+      );
     } finally {
       setIsSaving(false);
     }
   }
 
   return (
-    <DemoFrame
+    <ProposalBuilderShell
       action={
-        <div className="flex flex-wrap gap-2">
+        <div style={{ display: "flex", gap: 8 }}>
           <SecondaryButton
             id="add-bank-item-button"
             onClick={() => void addBankItem({ draftId: projection.draft._id })}
             testId="builder-add-bank-item"
           >
-            <Plus size={16} />
+            <Plus size={14} />
             Add from bank
           </SecondaryButton>
           <SecondaryButton
@@ -706,7 +1398,7 @@ function MilestoneEditorScreen({
             }
             testId="builder-add-custom-milestone"
           >
-            <Plus size={16} />
+            <Plus size={14} />
             Create custom item
           </SecondaryButton>
         </div>
@@ -714,16 +1406,43 @@ function MilestoneEditorScreen({
       eyebrow={`${projection.draft.templateTitle ?? "Template"} / original budget ${formatCurrency(
         projection.draft.originalBudgetCents
       )}`}
+      rightPanel={
+        <CinematicRoadmap
+          milestones={projection.milestones}
+          animated={isGeneratingAnim}
+        />
+      }
       step="milestones"
       title="Curate milestone scope"
     >
       <div
-        className="grid min-h-[calc(100vh-10rem)] gap-4 xl:grid-cols-[minmax(0,1fr)_360px]"
         data-testid="builder-milestone-editor"
+        style={{
+          display: "grid",
+          gap: 20,
+          gridTemplateColumns: "minmax(0, 1fr) 340px",
+        }}
       >
-        <div className="min-w-0 overflow-x-auto">
-          <div className="grid min-w-[980px] gap-2">
-            <div className="grid grid-cols-[62px_84px_minmax(220px,1.45fr)_150px_120px_90px] gap-2 px-2 text-xs font-black uppercase text-muted-foreground">
+        {/* Milestone table */}
+        <div className="pb-scroll" style={{ minWidth: 0, overflow: "auto" }}>
+          <div style={{ minWidth: 720 }}>
+            {/* Header */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns:
+                  "52px 70px minmax(180px, 1fr) 130px 100px 70px",
+                gap: 8,
+                padding: "8px 12px",
+                fontSize: 11,
+                fontWeight: 500,
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                color: "var(--pb-fg-tertiary)",
+                borderBottom: "1px solid var(--pb-border)",
+                marginBottom: 4,
+              }}
+            >
               <span>Use</span>
               <span>Day</span>
               <span>Milestone</span>
@@ -731,104 +1450,180 @@ function MilestoneEditorScreen({
               <span>Duration</span>
               <span>Preset</span>
             </div>
-            {projection.milestones.map((milestone) => {
-              const isBlocking = milestone.key === firstBlockingMilestoneKey;
-              return (
-                <article
-                  className={cx(
-                    "grid grid-cols-[62px_84px_minmax(220px,1.45fr)_150px_120px_90px] items-center gap-2 rounded-lg border bg-card/80 p-2",
-                    milestone.included ? "border-border" : "border-border/70 opacity-55",
-                    isBlocking && "border-destructive bg-destructive/10"
-                  )}
-                  data-ixc-ref={
-                    milestone.key === "permits_mobilization"
-                      ? "UI-MILESTONE-ROW"
-                      : undefined
-                  }
-                  data-testid={`builder-milestone-row-${milestone.key}`}
-                  id={
-                    milestone.key === "permits_mobilization"
-                      ? "milestone-sitework-row"
-                      : undefined
-                  }
-                  key={milestone._id}
-                >
-                  <button
-                    aria-label={milestone.included ? "Included" : "Excluded"}
+
+            {/* Rows */}
+            <div style={{ display: "grid", gap: 4 }}>
+              {projection.milestones.map((milestone) => {
+                const isBlocking = milestone.key === firstBlockingMilestoneKey;
+                return (
+                  <article
+                    key={milestone._id}
                     className={cx(
-                      "h-8 w-12 rounded-full border transition",
-                      milestone.included
-                        ? "border-primary bg-primary"
-                        : "border-border bg-muted"
+                      "pb-milestone-row",
+                      isBlocking && "blocking",
+                      !milestone.included && "excluded"
                     )}
-                    data-testid={`builder-milestone-toggle-${milestone.key}`}
-                    onClick={() =>
-                      void toggleMilestone({
-                        included: !milestone.included,
-                        milestoneId: milestone._id,
-                      })
+                    data-ixc-ref={
+                      milestone.key === "permits_mobilization"
+                        ? "UI-MILESTONE-ROW"
+                        : undefined
                     }
-                    type="button"
+                    data-testid={`builder-milestone-row-${milestone.key}`}
+                    id={
+                      milestone.key === "permits_mobilization"
+                        ? "milestone-sitework-row"
+                        : undefined
+                    }
                   >
-                    <span
+                    {/* Toggle */}
+                    <button
+                      aria-label={
+                        milestone.included ? "Included" : "Excluded"
+                      }
                       className={cx(
-                        "block h-5 w-5 rounded-full bg-foreground transition",
-                        milestone.included ? "ml-5" : "ml-1"
+                        "pb-toggle",
+                        milestone.included && "on"
                       )}
-                    />
-                  </button>
-                  <span className="rounded-full border border-primary/35 bg-background px-2 py-1 text-center text-xs font-black">
-                    {milestone.included ? `D${milestone.dayEnd}` : "Out"}
-                  </span>
-                  <div>
-                    <input
-                      className="w-full rounded-md border border-transparent bg-transparent px-2 py-2 font-black outline-none ring-primary/40 focus:border-input focus:bg-background focus:ring-2"
-                      defaultValue={milestone.name}
-                      key={`${milestone._id}:name:${milestone.name}`}
-                      onBlur={(event) =>
-                        void updateMilestone({
+                      data-testid={`builder-milestone-toggle-${milestone.key}`}
+                      onClick={() =>
+                        void toggleMilestone({
+                          included: !milestone.included,
                           milestoneId: milestone._id,
-                          name: event.target.value,
                         })
                       }
+                      type="button"
+                    >
+                      <span className="pb-toggle-thumb" />
+                    </button>
+
+                    {/* Day badge */}
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        padding: "2px 8px",
+                        borderRadius: 999,
+                        border: "1px solid var(--pb-accent)",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: milestone.included
+                          ? "var(--pb-accent)"
+                          : "var(--pb-fg-tertiary)",
+                        background: milestone.included
+                          ? "var(--pb-accent-subdued)"
+                          : "transparent",
+                      }}
+                    >
+                      {milestone.included
+                        ? `D${milestone.dayEnd}`
+                        : "Out"}
+                    </span>
+
+                    {/* Name + type */}
+                    <div style={{ minWidth: 0 }}>
+                      <input
+                        className="pb-input"
+                        defaultValue={milestone.name}
+                        key={`${milestone._id}:name:${milestone.name}`}
+                        onBlur={(event) =>
+                          void updateMilestone({
+                            milestoneId: milestone._id,
+                            name: event.target.value,
+                          })
+                        }
+                        style={{
+                          background: "transparent",
+                          border: "1px solid transparent",
+                          padding: "4px 8px",
+                          fontWeight: 600,
+                        }}
+                      />
+                      <p
+                        style={{
+                          fontSize: 11,
+                          color: "var(--pb-fg-tertiary)",
+                          marginTop: 2,
+                          paddingLeft: 8,
+                        }}
+                      >
+                        {milestone.source} · {milestone.type}
+                      </p>
+                    </div>
+
+                    {/* Budget */}
+                    <input
+                      className="pb-input"
+                      data-builder-blocking={isBlocking || undefined}
+                      data-testid={`builder-milestone-budget-${milestone.key}`}
+                      defaultValue={formatCurrency(milestone.budgetCents)}
+                      key={`${milestone._id}:budget:${milestone.budgetCents}`}
+                      onBlur={(event) =>
+                        void updateBudget(milestone, event.target.value)
+                      }
+                      style={{ fontWeight: 600, fontSize: 13 }}
                     />
-                    <p className="px-2 text-xs text-muted-foreground">
-                      {milestone.source} · {milestone.type}
-                    </p>
-                  </div>
-                  <input
-                    className="min-h-10 rounded-lg border border-input bg-background px-3 font-black outline-none ring-primary/40 focus:ring-2"
-                    data-builder-blocking={isBlocking || undefined}
-                    data-testid={`builder-milestone-budget-${milestone.key}`}
-                    defaultValue={formatCurrency(milestone.budgetCents)}
-                    key={`${milestone._id}:budget:${milestone.budgetCents}`}
-                    onBlur={(event) => void updateBudget(milestone, event.target.value)}
-                  />
-                  <input
-                    className="min-h-10 rounded-lg border border-input bg-background px-3 font-black outline-none ring-primary/40 focus:ring-2"
-                    data-builder-blocking={
-                      isBlocking && milestone.durationDays <= 0 ? true : undefined
-                    }
-                    data-testid={`builder-milestone-duration-${milestone.key}`}
-                    defaultValue={String(milestone.durationDays)}
-                    key={`${milestone._id}:duration:${milestone.durationDays}`}
-                    onBlur={(event) =>
-                      void updateDuration(milestone, event.target.value)
-                    }
-                    type="number"
-                  />
-                  <span className="text-sm font-black text-muted-foreground">
-                    {milestone.percentageBps
-                      ? `${(milestone.percentageBps / 100).toFixed(0)}%`
-                      : "custom"}
-                  </span>
-                </article>
-              );
-            })}
+
+                    {/* Duration */}
+                    <input
+                      className="pb-input"
+                      data-builder-blocking={
+                        isBlocking && milestone.durationDays <= 0
+                          ? true
+                          : undefined
+                      }
+                      data-testid={`builder-milestone-duration-${milestone.key}`}
+                      defaultValue={String(milestone.durationDays)}
+                      key={`${milestone._id}:duration:${milestone.durationDays}`}
+                      onBlur={(event) =>
+                        void updateDuration(milestone, event.target.value)
+                      }
+                      style={{ fontWeight: 600, fontSize: 13 }}
+                      type="number"
+                    />
+
+                    {/* Preset */}
+                    <span
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: "var(--pb-fg-tertiary)",
+                      }}
+                    >
+                      {milestone.percentageBps
+                        ? `${(milestone.percentageBps / 100).toFixed(0)}%`
+                        : "custom"}
+                    </span>
+                  </article>
+                );
+              })}
+            </div>
           </div>
         </div>
-        <aside className="grid content-start gap-3 rounded-lg border border-border bg-card/85 p-4">
-          <h2 className="text-xl font-black">Readiness</h2>
+
+        {/* Sidebar: Readiness */}
+        <aside
+          style={{
+            display: "grid",
+            alignContent: "start",
+            gap: 12,
+            padding: 16,
+            borderRadius: 8,
+            border: "1px solid var(--pb-border)",
+            background: "var(--pb-elevated)",
+            height: "fit-content",
+          }}
+        >
+          <h2
+            style={{
+              fontSize: 16,
+              fontWeight: 700,
+              color: "var(--pb-fg)",
+            }}
+          >
+            Readiness
+          </h2>
+
           <ReadinessLine
             label="Original budget"
             value={formatCurrency(readiness.originalBudgetCents)}
@@ -845,13 +1640,14 @@ function MilestoneEditorScreen({
             label="Included milestones"
             value={`${readiness.includedCount} / ${projection.milestones.length}`}
           />
-          <label className="grid gap-2">
-            <span className="text-sm font-black text-muted-foreground">
+
+          <div>
+            <label className="pb-label" htmlFor="cash-availability-input">
               Max cash availability
-            </span>
+            </label>
             <input
               aria-label="Max cash availability"
-              className="min-h-11 rounded-lg border border-input bg-background px-3 font-black outline-none ring-primary/40 focus:ring-2"
+              className="pb-input"
               data-builder-blocking={
                 readiness.blockingIssues.some((issue) =>
                   issue.includes("cash availability")
@@ -861,7 +1657,9 @@ function MilestoneEditorScreen({
               data-testid="builder-cash-availability"
               defaultValue={
                 projection.draft.borrowerCashAvailabilityCents
-                  ? formatCurrency(projection.draft.borrowerCashAvailabilityCents)
+                  ? formatCurrency(
+                      projection.draft.borrowerCashAvailabilityCents
+                    )
                   : ""
               }
               id="cash-availability-input"
@@ -869,24 +1667,41 @@ function MilestoneEditorScreen({
               onBlur={(event) => void updateCash(event.target.value)}
               placeholder="$260,000"
             />
-          </label>
+          </div>
+
           <div
             className={cx(
-              "rounded-lg border p-3",
+              "pb-peak-exposure",
               projection.draft.borrowerCashAvailabilityCents &&
                 readiness.peakExposureCents >
                   projection.draft.borrowerCashAvailabilityCents
-                ? "border-amber-400/40 bg-amber-500/10"
-                : "border-primary/35 bg-primary/10"
+                ? "warning"
+                : "clear"
             )}
             data-ixc-ref="UI-PEAK-EXPOSURE"
             data-testid="builder-peak-exposure"
             id="peak-exposure-indicator"
           >
-            <p className="text-xs font-black text-muted-foreground">
+            <p
+              style={{
+                fontSize: 11,
+                fontWeight: 500,
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                color: "var(--pb-fg-tertiary)",
+              }}
+            >
               Projected peak unreimbursed exposure
             </p>
-            <strong className="mt-1 block text-lg">
+            <strong
+              style={{
+                display: "block",
+                marginTop: 4,
+                fontSize: 18,
+                fontWeight: 700,
+                color: "var(--pb-fg)",
+              }}
+            >
               {formatCurrency(readiness.peakExposureCents)}
               {projection.draft.borrowerCashAvailabilityCents &&
               readiness.peakExposureCents >
@@ -895,69 +1710,68 @@ function MilestoneEditorScreen({
                 : ", clear"}
             </strong>
           </div>
+
           <div
-            className="grid gap-2 text-sm"
             data-testid="builder-readiness-blockers"
+            style={{ display: "grid", gap: 8 }}
           >
             {readiness.blockingIssues.length ? (
               readiness.blockingIssues.map((issue) => (
-                <div
-                  className="rounded-lg border border-destructive/45 bg-destructive/15 p-3 font-black text-destructive-foreground"
-                  key={issue}
-                >
+                <div className="pb-alert-error" key={issue}>
                   {issue}
                 </div>
               ))
             ) : (
-              <div className="rounded-lg border border-primary/35 bg-primary/10 p-3 font-black text-primary">
-                <CheckCircle2 className="mr-2 inline" size={16} />
+              <div className="pb-alert-success">
+                <CheckCircle2 size={14} style={{ display: "inline", marginRight: 6 }} />
                 Completeness checks passed
               </div>
             )}
             {readiness.warningIssues.map((issue) => (
-              <div
-                className="rounded-lg border border-amber-400/40 bg-amber-500/10 p-3 text-amber-100"
-                key={issue}
-              >
-                <AlertTriangle className="mr-2 inline" size={16} />
+              <div className="pb-alert-warning" key={issue}>
+                <AlertTriangle
+                  size={14}
+                  style={{ display: "inline", marginRight: 6 }}
+                />
                 {issue}
               </div>
             ))}
           </div>
+
           {actionError ? (
-            <div
-              className="rounded-lg border border-destructive/45 bg-destructive/15 p-3 text-sm font-black text-destructive-foreground"
-              data-testid="builder-action-error"
-            >
+            <div className="pb-alert-error" data-testid="builder-action-error">
               {actionError}
             </div>
           ) : null}
-          <SecondaryButton id="resolve-budget-button" testId="builder-review-blockers">
+
+          <SecondaryButton
+            id="resolve-budget-button"
+            testId="builder-review-blockers"
+          >
             Review blockers
           </SecondaryButton>
+
           <PrimaryButton
             disabled={isSaving}
             id="continue-workspace-button"
             onClick={handleContinue}
             testId="builder-continue-workspace"
           >
+            {isSaving ? (
+              <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} />
+            ) : null}
             Continue to workspace
-            <ArrowRight size={16} />
+            <ArrowRight size={14} />
           </PrimaryButton>
         </aside>
       </div>
-    </DemoFrame>
+    </ProposalBuilderShell>
   );
 }
 
-function ReadinessLine({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-background/40 px-3 py-2 text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <strong className="text-right">{value}</strong>
-    </div>
-  );
-}
+/* ------------------------------------------------------------------ */
+/*  Boundary Screen                                                     */
+/* ------------------------------------------------------------------ */
 
 function BoundaryScreen({
   projection,
@@ -966,8 +1780,9 @@ function BoundaryScreen({
 }) {
   const payload = projection.boundary?.payload;
   const milestoneCount = payload?.milestoneSequence.length ?? 0;
+
   return (
-    <DemoFrame
+    <ProposalBuilderShell
       action={
         <SecondaryButton
           className="disabled:opacity-70"
@@ -979,30 +1794,115 @@ function BoundaryScreen({
         </SecondaryButton>
       }
       eyebrow={`${projection.draft.proposalNumber} / workspace_ready`}
+      rightPanel={
+        <CinematicRoadmap
+          milestones={projection.milestones}
+          animated={false}
+        />
+      }
       step="boundary"
       title="Build Workspace starts here"
     >
       <div
-        className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]"
         data-testid="builder-boundary-screen"
+        style={{
+          display: "grid",
+          gap: 20,
+          gridTemplateColumns: "1.1fr 0.9fr",
+        }}
       >
-        <div className="rounded-lg border border-primary/35 bg-primary/10 p-5">
-          <CheckCircle2 className="text-primary" size={28} />
-          <h2 className="mt-3 text-2xl font-black">Boundary snapshot saved</h2>
-          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            The proposal has a workspace-compatible payload, but this demo intentionally stops before opening or mutating the Build Workspace demo.
+        <div
+          style={{
+            background: "var(--pb-accent-subdued)",
+            border: "1px solid var(--pb-accent)",
+            borderRadius: 8,
+            padding: 24,
+            position: "relative",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              top: -40,
+              right: -40,
+              width: 160,
+              height: 160,
+              borderRadius: "50%",
+              background:
+                "radial-gradient(circle, var(--pb-accent-glow) 0%, transparent 70%)",
+              opacity: 0.3,
+            }}
+          />
+          <CheckCircle2
+            size={28}
+            style={{ color: "var(--pb-accent)", position: "relative", zIndex: 1 }}
+          />
+          <h2
+            style={{
+              fontSize: 22,
+              fontWeight: 700,
+              color: "var(--pb-fg)",
+              marginTop: 12,
+              position: "relative",
+              zIndex: 1,
+            }}
+          >
+            Boundary snapshot saved
+          </h2>
+          <p
+            style={{
+              fontSize: 13,
+              color: "var(--pb-fg-secondary)",
+              marginTop: 8,
+              maxWidth: 480,
+              lineHeight: 1.5,
+              position: "relative",
+              zIndex: 1,
+            }}
+          >
+            The proposal has a workspace-compatible payload, but this demo
+            intentionally stops before opening or mutating the Build Workspace
+            demo.
           </p>
           <div
-            className="mt-4 rounded-lg border border-border bg-background/50 p-3 font-mono text-xs"
             data-testid="builder-boundary-payload-summary"
+            style={{
+              marginTop: 16,
+              padding: 12,
+              borderRadius: 6,
+              border: "1px solid var(--pb-border)",
+              background: "var(--pb-sunken)",
+              fontFamily: "monospace",
+              fontSize: 11,
+              color: "var(--pb-fg-secondary)",
+              position: "relative",
+              zIndex: 1,
+            }}
           >
-            demo_workspaceBoundaryPayload: buildSummary, budget, milestoneSequence,
-            dependencies, planningAssumptions
+            demo_workspaceBoundaryPayload: buildSummary, budget,
+            milestoneSequence, dependencies, planningAssumptions
           </div>
         </div>
-        <div className="rounded-lg border border-border bg-card/85 p-5">
-          <h2 className="text-xl font-black">Frozen payload</h2>
-          <div className="mt-4 grid gap-2 text-sm">
+
+        <div
+          style={{
+            background: "var(--pb-elevated)",
+            border: "1px solid var(--pb-border)",
+            borderRadius: 8,
+            padding: 20,
+          }}
+        >
+          <h2
+            style={{
+              fontSize: 16,
+              fontWeight: 700,
+              color: "var(--pb-fg)",
+            }}
+          >
+            Frozen payload
+          </h2>
+          <div style={{ marginTop: 16, display: "grid", gap: 8 }}>
             <ReadinessLine
               label="Milestones"
               value={String(milestoneCount)}
@@ -1022,11 +1922,24 @@ function BoundaryScreen({
               value={formatCurrency(projection.readiness.peakExposureCents)}
             />
           </div>
-          <pre className="mt-4 max-h-80 overflow-auto rounded-lg border border-border bg-background p-3 text-xs leading-5 text-muted-foreground">
+          <pre
+            style={{
+              marginTop: 16,
+              maxHeight: 320,
+              overflow: "auto",
+              borderRadius: 6,
+              border: "1px solid var(--pb-border)",
+              background: "var(--pb-sunken)",
+              padding: 12,
+              fontSize: 11,
+              lineHeight: 1.6,
+              color: "var(--pb-fg-tertiary)",
+            }}
+          >
             {JSON.stringify(payload, null, 2)}
           </pre>
         </div>
       </div>
-    </DemoFrame>
+    </ProposalBuilderShell>
   );
 }

@@ -292,6 +292,14 @@ async function getDraft(ctx: DemoCtx, draftId: string) {
   return draft;
 }
 
+async function getOptionalDraft(ctx: DemoCtx, draftId: string) {
+  const draft = await ctx.db.get(draftId);
+  if (!draft || draft.orgKey !== ORG_KEY) {
+    return null;
+  }
+  return draft;
+}
+
 async function getDraftMilestones(ctx: DemoCtx, draftId: string) {
   const rows = await ctx.db
     .query("demo_builderProposalMilestones")
@@ -495,8 +503,8 @@ function boundaryPayload(draft: any, milestones: any[], readiness: any) {
   };
 }
 
-async function draftProjection(ctx: DemoCtx, draftId: string) {
-  const draft = await getDraft(ctx, draftId);
+async function draftProjectionFromDraft(ctx: DemoCtx, draft: any) {
+  const draftId = draft._id;
   const milestones = await getDraftMilestones(ctx, draftId);
   const events = await ctx.db
     .query("demo_builderProposalEvents")
@@ -511,6 +519,11 @@ async function draftProjection(ctx: DemoCtx, draftId: string) {
     milestones,
     readiness,
   };
+}
+
+async function draftProjection(ctx: DemoCtx, draftId: string) {
+  const draft = await getDraft(ctx, draftId);
+  return await draftProjectionFromDraft(ctx, draft);
 }
 
 async function nextProposalNumber(ctx: DemoCtx) {
@@ -592,9 +605,12 @@ export const demo_getBuilderDashboard = publicQuery
         .withIndex("by_org", (q: any) => q.eq("orgKey", ORG_KEY))
         .collect()
     ).sort((a: any, b: any) => b.createdAt - a.createdAt);
+    const requestedDraft = args.draftId
+      ? await getOptionalDraft(ctx, args.draftId)
+      : null;
     return {
-      activeDraft: args.draftId
-        ? await draftProjection(ctx, args.draftId)
+      activeDraft: requestedDraft
+        ? await draftProjectionFromDraft(ctx, requestedDraft)
         : null,
       dashboard: dashboardCards(drafts),
       drafts,
