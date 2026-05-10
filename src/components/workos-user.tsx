@@ -35,18 +35,18 @@ export default function SignInButton({ large }: { large?: boolean }) {
   }
 
   return (
-    <Button
-      disabled={loading}
-      render={
-        <Link
-          reloadDocument
-          search={{ returnPathname: location.pathname }}
-          to="/api/auth/sign-in"
-        />
-      }
-      size={large ? "lg" : "sm"}
+    <Link
+      aria-disabled={loading}
+      className={[
+        "inline-flex shrink-0 select-none items-center justify-center whitespace-nowrap rounded-md border border-transparent bg-primary bg-clip-padding font-medium text-primary-foreground text-xs/relaxed outline-none transition-all hover:bg-primary/80 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30",
+        large ? "h-8 gap-1 px-2.5" : "h-6 gap-1 px-2",
+        loading ? "pointer-events-none opacity-50" : "",
+      ].join(" ")}
+      reloadDocument
+      search={{ returnPathname: location.pathname }}
+      to="/api/auth/sign-in"
     >
       Sign in {large && "with AuthKit"}
-    </Button>
+    </Link>
   );
 }

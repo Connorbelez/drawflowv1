@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router";
 import {
   AlertTriangle,
   ArrowRight,
@@ -5,15 +6,16 @@ import {
   Building2,
   CheckCircle2,
   Loader2,
+  Minus,
   Plus,
   RefreshCw,
   WalletCards,
 } from "lucide-react";
-import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 
 import type { Id } from "../../../convex/_generated/dataModel";
+import { CinematicRoadmap } from "./CinematicRoadmap";
 import { useBuilderProposalDemo } from "./convex-builder-proposal-adapter";
 import {
   formatCurrency,
@@ -25,8 +27,6 @@ import type {
   BuilderProposalMilestone,
   BuilderProposalTemplate,
 } from "./types";
-
-import { CinematicRoadmap } from "./CinematicRoadmap";
 import "./proposal-builder.css";
 
 const DEFAULT_BUDGET_TEXT = "$1,850,000";
@@ -67,12 +67,7 @@ function StepIndicator({ currentStep }: { currentStep: string }) {
               {step.label}
             </div>
             {index < STEPS.length - 1 && (
-              <div
-                className={cx(
-                  "pb-step-line",
-                  isCompleted && "completed"
-                )}
-              />
+              <div className={cx("pb-step-line", isCompleted && "completed")} />
             )}
           </div>
         );
@@ -85,11 +80,7 @@ function StepIndicator({ currentStep }: { currentStep: string }) {
 /*  Auto-save Indicator                                                 */
 /* ------------------------------------------------------------------ */
 
-function AutoSaveIndicator({
-  saving,
-}: {
-  saving?: boolean;
-}) {
+function AutoSaveIndicator({ saving }: { saving?: boolean }) {
   return (
     <div className={cx("pb-autosave", saving && "saving")}>
       {saving && <span className="pb-autosave-dot" />}
@@ -117,7 +108,9 @@ function ResizableSplit({
 
   useEffect(() => {
     function handleMouseMove(e: MouseEvent) {
-      if (!isDragging || !containerRef.current) return;
+      if (!(isDragging && containerRef.current)) {
+        return;
+      }
       const rect = containerRef.current.getBoundingClientRect();
       const pct = ((e.clientX - rect.left) / rect.width) * 100;
       setLeftWidth(Math.max(30, Math.min(60, pct)));
@@ -137,8 +130,8 @@ function ResizableSplit({
 
   return (
     <div
-      ref={containerRef}
       className="pb-split"
+      ref={containerRef}
       style={{ ["--split-left" as string]: `${leftWidth}%` }}
     >
       <div
@@ -153,12 +146,13 @@ function ResizableSplit({
         {left}
       </div>
       <div
+        aria-orientation="vertical"
         className="pb-split-handle"
         onMouseDown={() => setIsDragging(true)}
         role="separator"
-        aria-orientation="vertical"
       />
       <div
+        className="pb-roadmap-panel"
         style={{
           minWidth: 0,
           overflow: "hidden",
@@ -193,20 +187,9 @@ function ProposalBuilderShell({
 }) {
   return (
     <div className="proposal-builder">
-      {/* Header */}
-      <header
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "16px 24px",
-          borderBottom: "1px solid var(--pb-border)",
-          gap: 16,
-          flexWrap: "wrap",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
-          <div>
+      <header className="pb-shell-header">
+        <div className="pb-shell-titlebar">
+          <div className="pb-shell-titlecopy">
             <p
               style={{
                 fontSize: 11,
@@ -230,24 +213,23 @@ function ProposalBuilderShell({
               {title}
             </h1>
           </div>
-          <StepIndicator currentStep={step} />
+          <div className="pb-shell-steps">
+            <StepIndicator currentStep={step} />
+          </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div className="pb-shell-actions">
           <AutoSaveIndicator />
           {action}
         </div>
       </header>
 
-      {/* Split panel */}
       <div style={{ height: "calc(100vh - 73px)" }}>
         <ResizableSplit
-          left={
-            <div style={{ padding: "20px 24px", flex: 1 }}>{children}</div>
-          }
+          left={<div className="pb-left-panel">{children}</div>}
           right={
             <div
+              className="pb-right-panel"
               style={{
-                padding: "20px 24px 20px 0",
                 height: "100%",
                 display: "flex",
                 flexDirection: "column",
@@ -365,13 +347,7 @@ function SecondaryButton({
 /*  Metric Tile                                                         */
 /* ------------------------------------------------------------------ */
 
-function MetricTile({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function MetricTile({ label, value }: { label: string; value: string }) {
   return (
     <div className="pb-metric">
       <div className="pb-metric-value">{value}</div>
@@ -384,13 +360,7 @@ function MetricTile({
 /*  Readiness Line                                                      */
 /* ------------------------------------------------------------------ */
 
-function ReadinessLine({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function ReadinessLine({ label, value }: { label: string; value: string }) {
   return (
     <div className="pb-readiness">
       <span className="pb-readiness-label">{label}</span>
@@ -486,49 +456,17 @@ export function BuilderDashboardRoute() {
   }
 
   return (
-    <div className="proposal-builder">
-      <div
-        style={{
-          padding: "24px 32px",
-          maxWidth: 1440,
-          margin: "0 auto",
-        }}
-      >
-        {/* Header */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 24,
-            flexWrap: "wrap",
-            gap: 16,
-          }}
-        >
+    <div className="proposal-builder pb-dashboard-page">
+      <div className="pb-dashboard-wrap">
+        <div className="pb-dashboard-header">
           <div>
-            <p
-              style={{
-                fontSize: 11,
-                fontWeight: 500,
-                letterSpacing: "0.06em",
-                textTransform: "uppercase",
-                color: "var(--pb-fg-tertiary)",
-              }}
-            >
-              {dashboard?.orgKey ?? "org_fairlend_demo"} / Harbor & Pine Builders
+            <p className="pb-eyebrow">
+              {dashboard?.orgKey ?? "org_fairlend_demo"} / Harbor & Pine
+              Builders
             </p>
-            <h1
-              style={{
-                fontSize: 28,
-                fontWeight: 700,
-                color: "var(--pb-fg)",
-                marginTop: 4,
-              }}
-            >
-              Builder dashboard
-            </h1>
+            <h1 className="pb-dashboard-title">Builder dashboard</h1>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div className="pb-action-group">
             <SecondaryButton
               disabled={isResetting}
               onClick={handleReset}
@@ -556,35 +494,14 @@ export function BuilderDashboardRoute() {
           </div>
         ) : null}
 
-        <div data-testid="builder-dashboard-shell" style={{ display: "grid", gap: 20 }}>
-          {/* Top row */}
-          <div
-            style={{
-              display: "grid",
-              gap: 16,
-              gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
-            }}
-          >
-            <div
-              style={{
-                background: "var(--pb-elevated)",
-                border: "1px solid var(--pb-border)",
-                borderRadius: 8,
-                padding: 20,
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  marginBottom: 12,
-                }}
-              >
-                <Building2
-                  size={18}
-                  style={{ color: "var(--pb-accent)" }}
-                />
+        <div
+          className="pb-dashboard-shell"
+          data-testid="builder-dashboard-shell"
+        >
+          <section className="pb-dashboard-hero">
+            <div className="pb-dashboard-panel pb-dashboard-panel-primary">
+              <div className="pb-panel-heading">
+                <Building2 size={18} style={{ color: "var(--pb-accent)" }} />
                 <h2
                   style={{
                     fontSize: 16,
@@ -595,18 +512,10 @@ export function BuilderDashboardRoute() {
                   Proposal pipeline
                 </h2>
               </div>
-              <div
-                style={{
-                  display: "grid",
-                  gap: 12,
-                  gridTemplateColumns: "repeat(3, 1fr)",
-                }}
-              >
+              <div className="pb-metric-grid">
                 <MetricTile
                   label="Draft proposals"
-                  value={
-                    isLoading ? "..." : String(metrics?.draftCount ?? 0)
-                  }
+                  value={isLoading ? "..." : String(metrics?.draftCount ?? 0)}
                 />
                 <MetricTile
                   label="Ready for workspace"
@@ -625,42 +534,9 @@ export function BuilderDashboardRoute() {
               </div>
             </div>
 
-            <div
-              style={{
-                background: "var(--pb-accent-subdued)",
-                border: "1px solid var(--pb-accent)",
-                borderRadius: 8,
-                padding: 20,
-                position: "relative",
-                overflow: "hidden",
-              }}
-            >
-              <div
-                style={{
-                  position: "absolute",
-                  top: -20,
-                  right: -20,
-                  width: 120,
-                  height: 120,
-                  borderRadius: "50%",
-                  background:
-                    "radial-gradient(circle, var(--pb-accent-glow) 0%, transparent 70%)",
-                  opacity: 0.3,
-                }}
-              />
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  position: "relative",
-                  zIndex: 1,
-                }}
-              >
-                <WalletCards
-                  size={18}
-                  style={{ color: "var(--pb-accent)" }}
-                />
+            <div className="pb-dashboard-cta pb-dashboard-panel">
+              <div className="pb-panel-heading">
+                <WalletCards size={18} style={{ color: "var(--pb-accent)" }} />
                 <h2
                   style={{
                     fontSize: 16,
@@ -671,80 +547,25 @@ export function BuilderDashboardRoute() {
                   Start a reimbursable build
                 </h2>
               </div>
-              <p
-                style={{
-                  fontSize: 13,
-                  color: "var(--pb-fg-secondary)",
-                  marginTop: 8,
-                  maxWidth: 480,
-                  lineHeight: 1.5,
-                  position: "relative",
-                  zIndex: 1,
-                }}
-              >
+              <p className="pb-dashboard-copy">
                 Choose a build type, enter a budget, tune milestones, and set
                 borrower cash availability before workspace setup.
               </p>
-              <div
-                style={{
-                  display: "inline-flex",
-                  marginTop: 12,
-                  padding: "4px 12px",
-                  borderRadius: 999,
-                  border: "1px solid var(--pb-accent)",
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: "var(--pb-accent)",
-                  position: "relative",
-                  zIndex: 1,
-                }}
-              >
-                Reimbursement only
-              </div>
+              <div className="pb-status-pill">Reimbursement only</div>
             </div>
-          </div>
+          </section>
 
-          {/* Workspace cards */}
-          <div
-            style={{
-              display: "grid",
-              gap: 12,
-              gridTemplateColumns:
-                "repeat(auto-fill, minmax(280px, 1fr))",
-            }}
-          >
+          <section className="pb-workspace-card-grid">
             {(dashboard?.dashboard.workspaceCards ?? []).map((card) => (
               <article
-                key={card.title}
+                className="pb-workspace-card"
                 data-testid={`builder-dashboard-card-${card.title
                   .toLowerCase()
                   .replaceAll(" ", "-")}`}
-                style={{
-                  background: "var(--pb-elevated)",
-                  border: "1px solid var(--pb-border)",
-                  borderRadius: 8,
-                  padding: 16,
-                }}
+                key={card.title}
               >
-                <h3
-                  style={{
-                    fontSize: 15,
-                    fontWeight: 700,
-                    color: "var(--pb-fg)",
-                  }}
-                >
-                  {card.title}
-                </h3>
-                <p
-                  style={{
-                    fontSize: 13,
-                    color: "var(--pb-fg-secondary)",
-                    marginTop: 6,
-                    lineHeight: 1.5,
-                  }}
-                >
-                  {card.description}
-                </p>
+                <h3 className="pb-card-title">{card.title}</h3>
+                <p className="pb-card-copy">{card.description}</p>
                 {card.href ? (
                   <a
                     href={card.href}
@@ -762,44 +583,19 @@ export function BuilderDashboardRoute() {
                 ) : null}
               </article>
             ))}
-          </div>
+          </section>
 
-          {/* Recent drafts */}
           {dashboard?.drafts.length ? (
-            <div
-              style={{
-                background: "var(--pb-elevated)",
-                border: "1px solid var(--pb-border)",
-                borderRadius: 8,
-                padding: 20,
-              }}
-            >
-              <h2
-                style={{
-                  fontSize: 16,
-                  fontWeight: 700,
-                  color: "var(--pb-fg)",
-                }}
-              >
+            <section className="pb-dashboard-panel pb-draft-panel">
+              <h2 className="pb-section-title">
                 Recent builder proposal drafts
               </h2>
-              <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+              <div className="pb-draft-list">
                 {dashboard.drafts.slice(0, 5).map((draft) => (
                   <div
-                    key={draft._id}
+                    className="pb-draft-row"
                     data-testid="builder-dashboard-draft-row"
-                    style={{
-                      display: "grid",
-                      gap: 8,
-                      padding: "10px 12px",
-                      borderRadius: 6,
-                      border: "1px solid var(--pb-border)",
-                      background: "var(--pb-sunken)",
-                      fontSize: 13,
-                      gridTemplateColumns:
-                        "100px 1fr 140px 100px",
-                      alignItems: "center",
-                    }}
+                    key={draft._id}
                   >
                     <strong style={{ color: "var(--pb-fg)" }}>
                       {draft.proposalNumber}
@@ -821,7 +617,7 @@ export function BuilderDashboardRoute() {
                   </div>
                 ))}
               </div>
-            </div>
+            </section>
           ) : null}
         </div>
       </div>
@@ -890,10 +686,7 @@ export function BuilderNewProposalRoute({
                 Start a proposal draft
               </h1>
             </div>
-            <PrimaryButton
-              disabled={isStarting}
-              onClick={handleCreateDraft}
-            >
+            <PrimaryButton disabled={isStarting} onClick={handleCreateDraft}>
               <Plus size={14} />
               Create draft
             </PrimaryButton>
@@ -1003,10 +796,7 @@ export function BuilderNewProposalRoute({
                 New proposal
               </h1>
             </div>
-            <PrimaryButton
-              disabled={isStarting}
-              onClick={handleCreateDraft}
-            >
+            <PrimaryButton disabled={isStarting} onClick={handleCreateDraft}>
               <Plus size={14} />
               New stable draft
             </PrimaryButton>
@@ -1092,9 +882,7 @@ function TemplateBudgetScreen({
         templateKey: selectedTemplateKey,
       });
     } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : "Generation failed."
-      );
+      setError(caught instanceof Error ? caught.message : "Generation failed.");
     } finally {
       setIsGenerating(false);
     }
@@ -1113,7 +901,10 @@ function TemplateBudgetScreen({
           testId="builder-generate-milestones"
         >
           {isGenerating ? (
-            <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} />
+            <Loader2
+              size={14}
+              style={{ animation: "spin 1s linear infinite" }}
+            />
           ) : (
             <ArrowRight size={14} />
           )}
@@ -1121,9 +912,7 @@ function TemplateBudgetScreen({
         </PrimaryButton>
       }
       eyebrow={`Draft ${projection.draft.proposalNumber}`}
-      rightPanel={
-        <CinematicRoadmap milestones={[]} animated={false} />
-      }
+      rightPanel={<CinematicRoadmap animated={false} milestones={[]} />}
       step="template"
       title="Select build type and total budget"
     >
@@ -1138,13 +927,11 @@ function TemplateBudgetScreen({
             style={{
               display: "grid",
               gap: 12,
-              gridTemplateColumns:
-                "repeat(auto-fill, minmax(220px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
             }}
           >
             {visibleTemplates.map((template) => (
               <button
-                key={template.templateKey}
                 aria-pressed={selectedTemplateKey === template.templateKey}
                 className={cx(
                   "pb-template-card",
@@ -1161,6 +948,7 @@ function TemplateBudgetScreen({
                     ? "template-single-family-full-build-card"
                     : undefined
                 }
+                key={template.templateKey}
                 onClick={() => setSelectedTemplateKey(template.templateKey)}
                 type="button"
               >
@@ -1218,8 +1006,7 @@ function TemplateBudgetScreen({
           style={{
             display: "grid",
             gap: 16,
-            gridTemplateColumns:
-              "repeat(auto-fit, minmax(240px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
           }}
         >
           <div>
@@ -1252,9 +1039,7 @@ function TemplateBudgetScreen({
               data-ixc-ref="UI-ESTIMATED-START"
               data-testid="builder-estimated-start"
               id="estimated-start-input"
-              onChange={(event) =>
-                setEstimatedStartDate(event.target.value)
-              }
+              onChange={(event) => setEstimatedStartDate(event.target.value)}
               type="date"
               value={estimatedStartDate}
             />
@@ -1271,8 +1056,8 @@ function TemplateBudgetScreen({
         {/* Info */}
         <div className="pb-alert-warning">
           Preset percentages create the first pass from the original budget.
-          Later milestone edits change the running proposal budget and display
-          a diff instead of forcing reconciliation.
+          Later milestone edits change the running proposal budget and display a
+          diff instead of forcing reconciliation.
         </div>
       </div>
     </ProposalBuilderShell>
@@ -1325,6 +1110,21 @@ function MilestoneEditorScreen({
     await updateMilestone({ budgetCents, milestoneId: milestone._id });
   }
 
+  async function adjustBudget(
+    milestone: BuilderProposalMilestone,
+    deltaCents: number
+  ) {
+    const budgetCents = Math.max(0, milestone.budgetCents + deltaCents);
+    setActionError("");
+    try {
+      await updateMilestone({ budgetCents, milestoneId: milestone._id });
+    } catch (caught) {
+      setActionError(
+        caught instanceof Error ? caught.message : "Budget update failed."
+      );
+    }
+  }
+
   async function updateDuration(
     milestone: BuilderProposalMilestone,
     value: string
@@ -1358,8 +1158,7 @@ function MilestoneEditorScreen({
     setActionError("");
     if (!readiness.canFinalize) {
       setActionError(
-        readiness.blockingIssues[0] ??
-          "Resolve blockers before continuing."
+        readiness.blockingIssues[0] ?? "Resolve blockers before continuing."
       );
       const firstBlocking = document.querySelector<HTMLElement>(
         '[data-builder-blocking="true"]'
@@ -1382,7 +1181,7 @@ function MilestoneEditorScreen({
   return (
     <ProposalBuilderShell
       action={
-        <div style={{ display: "flex", gap: 8 }}>
+        <div className="pb-action-group">
           <SecondaryButton
             id="add-bank-item-button"
             onClick={() => void addBankItem({ draftId: projection.draft._id })}
@@ -1408,41 +1207,21 @@ function MilestoneEditorScreen({
       )}`}
       rightPanel={
         <CinematicRoadmap
-          milestones={projection.milestones}
           animated={isGeneratingAnim}
+          milestones={projection.milestones}
         />
       }
       step="milestones"
       title="Curate milestone scope"
     >
       <div
+        className="pb-milestone-editor-layout"
         data-testid="builder-milestone-editor"
-        style={{
-          display: "grid",
-          gap: 20,
-          gridTemplateColumns: "minmax(0, 1fr) 340px",
-        }}
       >
         {/* Milestone table */}
-        <div className="pb-scroll" style={{ minWidth: 0, overflow: "auto" }}>
-          <div style={{ minWidth: 720 }}>
-            {/* Header */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns:
-                  "52px 70px minmax(180px, 1fr) 130px 100px 70px",
-                gap: 8,
-                padding: "8px 12px",
-                fontSize: 11,
-                fontWeight: 500,
-                letterSpacing: "0.06em",
-                textTransform: "uppercase",
-                color: "var(--pb-fg-tertiary)",
-                borderBottom: "1px solid var(--pb-border)",
-                marginBottom: 4,
-              }}
-            >
+        <div className="pb-milestone-list pb-scroll">
+          <div className="pb-milestone-table-inner">
+            <div className="pb-milestone-header">
               <span>Use</span>
               <span>Day</span>
               <span>Milestone</span>
@@ -1451,13 +1230,11 @@ function MilestoneEditorScreen({
               <span>Preset</span>
             </div>
 
-            {/* Rows */}
-            <div style={{ display: "grid", gap: 4 }}>
+            <div className="pb-milestone-rows">
               {projection.milestones.map((milestone) => {
                 const isBlocking = milestone.key === firstBlockingMilestoneKey;
                 return (
                   <article
-                    key={milestone._id}
                     className={cx(
                       "pb-milestone-row",
                       isBlocking && "blocking",
@@ -1474,16 +1251,11 @@ function MilestoneEditorScreen({
                         ? "milestone-sitework-row"
                         : undefined
                     }
+                    key={milestone._id}
                   >
-                    {/* Toggle */}
                     <button
-                      aria-label={
-                        milestone.included ? "Included" : "Excluded"
-                      }
-                      className={cx(
-                        "pb-toggle",
-                        milestone.included && "on"
-                      )}
+                      aria-label={milestone.included ? "Included" : "Excluded"}
+                      className={cx("pb-toggle", milestone.included && "on")}
                       data-testid={`builder-milestone-toggle-${milestone.key}`}
                       onClick={() =>
                         void toggleMilestone({
@@ -1496,8 +1268,8 @@ function MilestoneEditorScreen({
                       <span className="pb-toggle-thumb" />
                     </button>
 
-                    {/* Day badge */}
                     <span
+                      className="pb-day-badge"
                       style={{
                         display: "inline-flex",
                         alignItems: "center",
@@ -1515,13 +1287,10 @@ function MilestoneEditorScreen({
                           : "transparent",
                       }}
                     >
-                      {milestone.included
-                        ? `D${milestone.dayEnd}`
-                        : "Out"}
+                      {milestone.included ? `D${milestone.dayEnd}` : "Out"}
                     </span>
 
-                    {/* Name + type */}
-                    <div style={{ minWidth: 0 }}>
+                    <div className="pb-milestone-name-cell">
                       <input
                         className="pb-input"
                         defaultValue={milestone.name}
@@ -1537,6 +1306,7 @@ function MilestoneEditorScreen({
                           border: "1px solid transparent",
                           padding: "4px 8px",
                           fontWeight: 600,
+                          minWidth: 0,
                         }}
                       />
                       <p
@@ -1551,20 +1321,42 @@ function MilestoneEditorScreen({
                       </p>
                     </div>
 
-                    {/* Budget */}
-                    <input
-                      className="pb-input"
-                      data-builder-blocking={isBlocking || undefined}
-                      data-testid={`builder-milestone-budget-${milestone.key}`}
-                      defaultValue={formatCurrency(milestone.budgetCents)}
-                      key={`${milestone._id}:budget:${milestone.budgetCents}`}
-                      onBlur={(event) =>
-                        void updateBudget(milestone, event.target.value)
-                      }
-                      style={{ fontWeight: 600, fontSize: 13 }}
-                    />
+                    <div className="pb-budget-stepper">
+                      <button
+                        aria-label={`Subtract $1,000 from ${milestone.name} budget`}
+                        className="pb-budget-stepper-button"
+                        data-testid={`builder-milestone-budget-decrement-${milestone.key}`}
+                        disabled={milestone.budgetCents <= 0}
+                        onClick={() => {
+                          adjustBudget(milestone, -100_000);
+                        }}
+                        type="button"
+                      >
+                        <Minus size={12} />
+                      </button>
+                      <input
+                        className="pb-input pb-budget-input"
+                        data-builder-blocking={isBlocking || undefined}
+                        data-testid={`builder-milestone-budget-${milestone.key}`}
+                        defaultValue={formatCurrency(milestone.budgetCents)}
+                        key={`${milestone._id}:budget:${milestone.budgetCents}`}
+                        onBlur={(event) =>
+                          void updateBudget(milestone, event.target.value)
+                        }
+                      />
+                      <button
+                        aria-label={`Add $1,000 to ${milestone.name} budget`}
+                        className="pb-budget-stepper-button"
+                        data-testid={`builder-milestone-budget-increment-${milestone.key}`}
+                        onClick={() => {
+                          adjustBudget(milestone, 100_000);
+                        }}
+                        type="button"
+                      >
+                        <Plus size={12} />
+                      </button>
+                    </div>
 
-                    {/* Duration */}
                     <input
                       className="pb-input"
                       data-builder-blocking={
@@ -1582,8 +1374,8 @@ function MilestoneEditorScreen({
                       type="number"
                     />
 
-                    {/* Preset */}
                     <span
+                      className="pb-preset-value"
                       style={{
                         fontSize: 12,
                         fontWeight: 600,
@@ -1601,19 +1393,7 @@ function MilestoneEditorScreen({
           </div>
         </div>
 
-        {/* Sidebar: Readiness */}
-        <aside
-          style={{
-            display: "grid",
-            alignContent: "start",
-            gap: 12,
-            padding: 16,
-            borderRadius: 8,
-            border: "1px solid var(--pb-border)",
-            background: "var(--pb-elevated)",
-            height: "fit-content",
-          }}
-        >
+        <aside className="pb-readiness-panel">
           <h2
             style={{
               fontSize: 16,
@@ -1723,7 +1503,10 @@ function MilestoneEditorScreen({
               ))
             ) : (
               <div className="pb-alert-success">
-                <CheckCircle2 size={14} style={{ display: "inline", marginRight: 6 }} />
+                <CheckCircle2
+                  size={14}
+                  style={{ display: "inline", marginRight: 6 }}
+                />
                 Completeness checks passed
               </div>
             )}
@@ -1758,7 +1541,10 @@ function MilestoneEditorScreen({
             testId="builder-continue-workspace"
           >
             {isSaving ? (
-              <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} />
+              <Loader2
+                size={14}
+                style={{ animation: "spin 1s linear infinite" }}
+              />
             ) : null}
             Continue to workspace
             <ArrowRight size={14} />
@@ -1795,10 +1581,7 @@ function BoundaryScreen({
       }
       eyebrow={`${projection.draft.proposalNumber} / workspace_ready`}
       rightPanel={
-        <CinematicRoadmap
-          milestones={projection.milestones}
-          animated={false}
-        />
+        <CinematicRoadmap animated={false} milestones={projection.milestones} />
       }
       step="boundary"
       title="Build Workspace starts here"
@@ -1836,7 +1619,11 @@ function BoundaryScreen({
           />
           <CheckCircle2
             size={28}
-            style={{ color: "var(--pb-accent)", position: "relative", zIndex: 1 }}
+            style={{
+              color: "var(--pb-accent)",
+              position: "relative",
+              zIndex: 1,
+            }}
           />
           <h2
             style={{
@@ -1903,10 +1690,7 @@ function BoundaryScreen({
             Frozen payload
           </h2>
           <div style={{ marginTop: 16, display: "grid", gap: 8 }}>
-            <ReadinessLine
-              label="Milestones"
-              value={String(milestoneCount)}
-            />
+            <ReadinessLine label="Milestones" value={String(milestoneCount)} />
             <ReadinessLine
               label="Budget"
               value={formatCurrency(projection.readiness.currentBudgetCents)}
