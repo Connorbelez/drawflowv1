@@ -234,6 +234,105 @@ export default defineSchema({
   })
     .index("by_milestone", ["scenario", "milestoneKey"])
     .index("by_scenario", ["scenario"]),
+  demo_builderProposalTemplates: defineTable({
+    createdAt: v.number(),
+    description: v.string(),
+    isDefault: v.boolean(),
+    milestonePresets: v.array(
+      v.object({
+        dependencyKeys: v.array(v.string()),
+        durationDays: v.number(),
+        key: v.string(),
+        name: v.string(),
+        percentageBps: v.number(),
+        type: v.string(),
+      })
+    ),
+    orgKey: v.string(),
+    seedVersion: v.number(),
+    summary: v.string(),
+    templateKey: v.string(),
+    title: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_org", ["orgKey"])
+    .index("by_template", ["orgKey", "templateKey"]),
+  demo_builderProposalDrafts: defineTable({
+    borrowerCashAvailabilityCents: v.optional(v.number()),
+    buildLocation: v.string(),
+    buildName: v.string(),
+    createdAt: v.number(),
+    currentBudgetCents: v.number(),
+    estimatedStartDate: v.optional(v.string()),
+    generatedMilestoneVersion: v.number(),
+    lenderDrawPolicyLimitCents: v.number(),
+    manuallyEdited: v.boolean(),
+    orgKey: v.string(),
+    originalBudgetCents: v.optional(v.number()),
+    proposalNumber: v.string(),
+    status: v.string(),
+    templateKey: v.optional(v.string()),
+    templateTitle: v.optional(v.string()),
+    updatedAt: v.number(),
+    workspaceReadyAt: v.optional(v.number()),
+  })
+    .index("by_org", ["orgKey"])
+    .index("by_org_status", ["orgKey", "status"])
+    .index("by_proposal_number", ["orgKey", "proposalNumber"]),
+  demo_builderProposalMilestones: defineTable({
+    bankItemKey: v.optional(v.string()),
+    budgetCents: v.number(),
+    createdAt: v.number(),
+    dayEnd: v.number(),
+    dayStart: v.number(),
+    dependencyKeys: v.array(v.string()),
+    draftId: v.id("demo_builderProposalDrafts"),
+    durationDays: v.number(),
+    included: v.boolean(),
+    key: v.string(),
+    name: v.string(),
+    order: v.number(),
+    orgKey: v.string(),
+    percentageBps: v.optional(v.number()),
+    source: v.string(),
+    templateKey: v.optional(v.string()),
+    type: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_draft_order", ["draftId", "order"])
+    .index("by_key", ["draftId", "key"])
+    .index("by_org", ["orgKey"]),
+  demo_builderProposalEvents: defineTable({
+    actorPersona: v.string(),
+    command: v.string(),
+    createdAt: v.number(),
+    draftId: v.optional(v.id("demo_builderProposalDrafts")),
+    entityKey: v.optional(v.string()),
+    entityType: v.string(),
+    eventType: v.string(),
+    newState: v.optional(v.string()),
+    orgKey: v.string(),
+    priorState: v.optional(v.string()),
+    reason: v.optional(v.string()),
+    requirementIds: v.array(v.string()),
+    validationIds: v.array(v.string()),
+    warnings: v.array(v.string()),
+  })
+    .index("by_draft", ["draftId"])
+    .index("by_org", ["orgKey"]),
+  demo_builderProposalBoundaryPayloads: defineTable({
+    buildName: v.string(),
+    createdAt: v.number(),
+    draftId: v.id("demo_builderProposalDrafts"),
+    orgKey: v.string(),
+    payload: v.any(),
+    payloadVersion: v.number(),
+    snapshotSummary: v.string(),
+    status: v.string(),
+    validationWarnings: v.array(v.string()),
+  })
+    .index("by_draft", ["draftId"])
+    .index("by_org", ["orgKey"]),
   products: defineTable({
     title: v.string(),
     imageId: v.string(),
