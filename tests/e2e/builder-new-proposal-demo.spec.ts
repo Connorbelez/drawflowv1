@@ -90,6 +90,11 @@ test("Builder dashboard to new proposal demo reaches the workspace boundary with
   await page.getByTestId("builder-dashboard-new-proposal").click();
   await expect(page).toHaveURL(/\/demo\/drawflow\/new-proposal\?draftId=/);
   await expect(page.getByTestId("builder-template-screen")).toBeVisible();
+  const roadmapStartRatio = await page.locator(".pb-roadmap-panel").evaluate(
+    (element) => element.getBoundingClientRect().left / window.innerWidth
+  );
+  expect(roadmapStartRatio).toBeGreaterThanOrEqual(0.29);
+  expect(roadmapStartRatio).toBeLessThanOrEqual(0.36);
 
   await page.getByTestId("builder-total-budget").fill("0");
   await page.getByTestId("builder-generate-milestones").click();
@@ -104,6 +109,12 @@ test("Builder dashboard to new proposal demo reaches the workspace boundary with
   await page.getByTestId("builder-generate-milestones").click();
   await expect(page.getByTestId("builder-milestone-editor")).toBeVisible();
   await expect(page.getByTestId(/^builder-milestone-row-/)).toHaveCount(10);
+  await expect(page.getByTestId("builder-roadmap-draw-date-1")).toContainText(
+    /D\d+/
+  );
+  await expect(page.getByTestId("builder-roadmap-draw-group-1")).toContainText(
+    /\$\d+(?:\.\d)?[KM]/
+  );
   await page
     .getByTestId("builder-milestone-budget-increment-permits_mobilization")
     .click();

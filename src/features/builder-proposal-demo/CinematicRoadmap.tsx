@@ -21,11 +21,20 @@ function formatMoney(cents: number) {
   }).format(cents / 100);
 }
 
+function formatCompactMoney(cents: number) {
+  const amount = cents / 100;
+  if (amount >= 1_000_000) {
+    return `$${(amount / 1_000_000).toFixed(amount >= 10_000_000 ? 0 : 1)}M`;
+  }
+  return `$${Math.round(amount / 1_000)}K`;
+}
+
 export function CinematicRoadmap({
   milestones,
   animated = true,
 }: CinematicRoadmapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [canvasWidth, setCanvasWidth] = useState(0);
   const [tooltip, setTooltip] = useState<TooltipState>({
     visible: false,
     x: 0,
@@ -54,6 +63,7 @@ export function CinematicRoadmap({
       startRow: number;
       endRow: number;
       milestones: BuilderProposalMilestone[];
+      totalBudgetCents: number;
     }[] = [];
     const targetGroups = Math.min(3, Math.ceil(included.length / 2));
     const groupSize = Math.max(2, Math.ceil(included.length / targetGroups));
@@ -67,10 +77,25 @@ export function CinematicRoadmap({
         startRow: i,
         endRow: i + groupMilestones.length - 1,
         milestones: groupMilestones,
+        totalBudgetCents: groupMilestones.reduce(
+          (sum, milestone) => sum + milestone.budgetCents,
+          0
+        ),
       });
     }
     return groups;
   }, [included]);
+
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) return;
+    setCanvasWidth(element.clientWidth);
+    const resizeObserver = new ResizeObserver(([entry]) => {
+      setCanvasWidth(entry.contentRect.width);
+    });
+    resizeObserver.observe(element);
+    return () => resizeObserver.disconnect();
+  }, []);
 
   // Cinematic animation sequence
   useEffect(() => {
@@ -129,7 +154,13 @@ export function CinematicRoadmap({
   const railWidth = 160;
   const headerHeight = 36;
   const rowHeight = 40;
-  const timelineLeft = railWidth + 16;
+  const timelineLeft = railWidth;
+  const timelineRightPadding = 16;
+  const timelineWidth = Math.max(
+    280,
+    (canvasWidth || 720) - timelineLeft - timelineRightPadding
+  );
+  const dayToX = (day: number) => timelineLeft + (day / maxDay) * timelineWidth;
 
   // Empty state
   if (milestones.length === 0) {
@@ -252,12 +283,7 @@ export function CinematicRoadmap({
               key={day}
               style={{
                 position: "absolute",
-                left:
-                  timelineLeft +
-                  (day / maxDay) *
-                    (containerRef.current?.clientWidth
-                      ? containerRef.current.clientWidth - timelineLeft - 24
-                      : 400),
+                left: `${(day / maxDay) * 100}%`,
                 top: "50%",
                 transform: "translate(-50%, -50%)",
                 fontSize: 10,
@@ -280,42 +306,107 @@ export function CinematicRoadmap({
           const height = (group.endRow - group.startRow + 1) * rowHeight;
           const phaseDelay = group.index * 0.2;
           const isVisible = animationPhase === "groups" || animationPhase === "done";
+          const groupLeft = dayToX(group.startDay);
+          const groupRight = dayToX(group.endDay);
+          const groupWidth = Math.max(36, groupRight - groupLeft);
+          const labelTransform =
+            group.endDay / maxDay > 0.84 ? "translateX(-100%)" : "translateX(-50%)";
 
           return (
-            <div
-              key={`group-${group.index}`}
-              style={{
-                position: "absolute",
-                top: top - 2,
-                left: timelineLeft - 4,
-                right: 12,
-                height: height + 4,
-                border: "1px dashed rgba(34, 197, 94, 0.4)",
-                borderRadius: 6,
-                background: "rgba(34, 197, 94, 0.03)",
-                opacity: isVisible ? 1 : 0,
-                transform: isVisible ? "scale(1)" : "scale(0.96)",
-                transition: `all 0.5s cubic-bezier(0.22, 1, 0.36, 1) ${phaseDelay}s`,
-                pointerEvents: "none",
-                zIndex: 5,
-              }}
-            >
-              <span
+            <div key={`group-${group.index}`}>
+              <div
+                data-testid={`builder-roadmap-draw-group-${group.index + 1}`}
                 style={{
                   position: "absolute",
-                  top: -9,
-                  left: 8,
-                  background: "#0a0a0a",
-                  padding: "0 6px",
-                  fontSize: 9,
-                  fontWeight: 700,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  color: "rgba(34, 197, 94, 0.7)",
+                  top: top - 2,
+                  left: groupLeft - 4,
+                  width: groupWidth + 8,
+                  height: height + 4,
+                  border: "1px dashed rgba(34, 197, 94, 0.46)",
+                  borderRadius: 6,
+                  background: "rgba(34, 197, 94, 0.035)",
+                  opacity: isVisible ? 1 : 0,
+                  transform: isVisible ? "scale(1)" : "scale(0.96)",
+                  transition: `opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1) ${phaseDelay}s, transform 0.5s cubic-bezier(0.22, 1, 0.36, 1) ${phaseDelay}s`,
+                  pointerEvents: "none",
+                  zIndex: 5,
                 }}
               >
-                Draw {group.index + 1}
-              </span>
+                <span
+                  style={{
+                    position: "absolute",
+                    top: -10,
+                    left: 8,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    background: "#0a0a0a",
+                    padding: "0 6px",
+                    fontSize: 9,
+                    fontWeight: 700,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    color: "rgba(34, 197, 94, 0.78)",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Draw {group.index + 1}
+                  <span
+                    style={{
+                      color: "rgba(229, 229, 229, 0.72)",
+                      letterSpacing: 0,
+                      textTransform: "none",
+                    }}
+                  >
+                    {formatCompactMoney(group.totalBudgetCents)}
+                  </span>
+                </span>
+              </div>
+              <div
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  top: top - 12,
+                  left: groupRight,
+                  height: height + 24,
+                  width: 1,
+                  background:
+                    "linear-gradient(to bottom, rgba(34, 197, 94, 0), rgba(34, 197, 94, 0.72) 18%, rgba(34, 197, 94, 0.72) 82%, rgba(34, 197, 94, 0))",
+                  opacity: isVisible ? 1 : 0,
+                  transition: `opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1) ${phaseDelay + 0.08}s`,
+                  zIndex: 7,
+                }}
+              />
+              <div
+                data-testid={`builder-roadmap-draw-date-${group.index + 1}`}
+                style={{
+                  position: "absolute",
+                  top: top - 22,
+                  left: groupRight,
+                  transform: labelTransform,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  border: "1px solid rgba(34, 197, 94, 0.44)",
+                  borderRadius: 999,
+                  background: "#0a0a0a",
+                  padding: "3px 7px",
+                  color: "rgba(222, 252, 232, 0.9)",
+                  fontSize: 10,
+                  fontWeight: 700,
+                  lineHeight: 1,
+                  opacity: isVisible ? 1 : 0,
+                  transition: `opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1) ${phaseDelay + 0.08}s`,
+                  whiteSpace: "nowrap",
+                  zIndex: 8,
+                  boxShadow: "0 0 18px rgba(34, 197, 94, 0.14)",
+                }}
+              >
+                D{group.endDay}
+                <span style={{ color: "rgba(34, 197, 94, 0.76)" }}>
+                  {formatCompactMoney(group.totalBudgetCents)}
+                </span>
+              </div>
             </div>
           );
         })}

@@ -157,7 +157,7 @@
 
 .pb-milestone-header {
   display: grid;
-  grid-template-columns: 46px 58px minmax(128px, 1fr) minmax(146px, 164px) minmax(70px, 82px) 48px;
+  grid-template-columns: 46px 58px minmax(144px, 1fr) minmax(122px, 136px) minmax(70px, 82px) 48px;
   gap: 8px;
   padding: 6px 10px 8px;
   font-size: 11px;
@@ -196,7 +196,7 @@
 /* Split Panel */
 .pb-split {
   display: grid;
-  grid-template-columns: minmax(520px, var(--split-left, 42%)) 6px minmax(0, 1fr);
+  grid-template-columns: minmax(420px, var(--split-left, 30%)) 6px minmax(0, 1fr);
   height: 100%;
   min-height: 0;
 }
@@ -465,7 +465,7 @@
 /* Milestone Row */
 .pb-milestone-row {
   display: grid;
-  grid-template-columns: 46px 58px minmax(128px, 1fr) minmax(146px, 164px) minmax(70px, 82px) 48px;
+  grid-template-columns: 46px 58px minmax(144px, 1fr) minmax(122px, 136px) minmax(70px, 82px) 48px;
   align-items: center;
   gap: 8px;
   padding: 7px 10px;
@@ -512,7 +512,7 @@
 
 .pb-budget-stepper {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 28px;
+  grid-template-columns: 24px minmax(0, 1fr) 24px;
   align-items: stretch;
   min-width: 0;
   border: 1px solid var(--pb-border);
@@ -531,7 +531,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 28px;
+  min-width: 24px;
   border: 0;
   border-radius: 0;
   background: oklch(1 0 0 / 0.025);
@@ -559,7 +559,7 @@
   font-size: 13px;
   font-weight: 600;
   min-width: 0;
-  padding-inline: 8px;
+  padding-inline: 6px;
 }
 
 .pb-budget-input:focus {

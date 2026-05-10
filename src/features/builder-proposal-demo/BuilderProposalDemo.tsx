@@ -96,7 +96,7 @@ function AutoSaveIndicator({ saving }: { saving?: boolean }) {
 function ResizableSplit({
   left,
   right,
-  defaultLeftPercent = 42,
+  defaultLeftPercent = 30,
 }: {
   left: ReactNode;
   right: ReactNode;
