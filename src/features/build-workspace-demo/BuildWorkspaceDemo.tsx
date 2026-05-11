@@ -8,10 +8,8 @@ import {
 } from "@dnd-kit/core";
 import {
   SortableContext,
-  useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import {
   addDays,
   differenceInDays,
@@ -20,21 +18,17 @@ import {
 } from "date-fns";
 import {
   AlertTriangle,
-  ArrowDown,
-  ArrowUp,
   Banknote,
   CalendarDays,
   Check,
   ChevronDown,
   ClipboardCheck,
   GitBranch,
-  GripVertical,
   Info,
   Lock,
   MapPinOff,
   PanelLeftClose,
   PanelLeftOpen,
-  PanelRightOpen,
   Plus,
   RotateCcw,
   Scissors,
@@ -96,6 +90,7 @@ import {
 } from "#/components/ui/sheet.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { cn } from "#/lib/utils.ts";
+import { SortableMilestoneRailRow } from "./SortableMilestoneRailRow";
 import type {
   DependencyHardness,
   DrawGroup,
@@ -325,8 +320,10 @@ export function BuildWorkspaceDemo() {
 
         <section className="grid min-h-0 min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-md border border-white/10 bg-[#121615] shadow-2xl shadow-black/40">
           <TimelineControlsStrip
+            onRailCollapsedChange={setMilestoneRailCollapsed}
             onResolutionChange={setTimelineResolution}
             onZoomChange={setTimelineZoom}
+            railCollapsed={milestoneRailCollapsed}
             resolution={timelineResolution}
             zoom={timelineZoom}
           />
@@ -341,7 +338,6 @@ export function BuildWorkspaceDemo() {
                 setDetailOpen(true);
               }}
               railCollapsed={milestoneRailCollapsed}
-              onRailCollapsedChange={setMilestoneRailCollapsed}
               resolution={timelineResolution}
               zoom={timelineZoom}
             />
@@ -611,19 +607,35 @@ function RolePrimaryAction({ milestone }: { milestone: Milestone }) {
 }
 
 function TimelineControlsStrip({
+  railCollapsed,
   resolution,
   zoom,
+  onRailCollapsedChange,
   onResolutionChange,
   onZoomChange,
 }: {
+  railCollapsed: boolean;
   resolution: GanttResolution;
   zoom: number;
+  onRailCollapsedChange: (collapsed: boolean) => void;
   onResolutionChange: (resolution: GanttResolution) => void;
   onZoomChange: (zoom: number) => void;
 }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 border-white/10 border-b bg-[#111715] p-3">
-      <div className="text-stone-400 text-xs">Roadmap scale</div>
+      <div className="flex items-center gap-2">
+        <Button
+          className="self-stretch border-cyan-300/30 bg-cyan-300/10 px-2.5 text-cyan-100 hover:border-cyan-300/50 hover:bg-cyan-300/15 hover:text-cyan-50"
+          data-testid="milestone-rail-collapse-toggle"
+          onClick={() => onRailCollapsedChange(!railCollapsed)}
+          title={railCollapsed ? "Show milestone rail" : "Hide milestone rail"}
+          variant="outline"
+        >
+          {railCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+          {railCollapsed ? "Show milestones" : "Hide milestones"}
+        </Button>
+        <div className="text-stone-400 text-xs">Roadmap scale</div>
+      </div>
       <div className="flex flex-wrap items-center gap-2 rounded-md border border-white/10 bg-black/20 p-2 text-xs">
         <div className="flex items-center gap-2">
           <CalendarDays className="size-4 text-stone-500" />
@@ -999,7 +1011,6 @@ function GanttRoadmap({
   onMilestoneFocus,
   onOpenDetail,
   railCollapsed,
-  onRailCollapsedChange,
   resolution,
   zoom,
 }: {
@@ -1009,7 +1020,6 @@ function GanttRoadmap({
   onMilestoneFocus: (milestoneId: string | null) => void;
   onOpenDetail: (milestoneId: string) => void;
   railCollapsed: boolean;
-  onRailCollapsedChange: (collapsed: boolean) => void;
   resolution: GanttResolution;
   zoom: number;
 }) {
@@ -1196,20 +1206,20 @@ function GanttRoadmap({
     <GanttProvider
       className="h-full min-w-0 rounded-none bg-[#151a18]"
       initialScrollDate={initialScrollDate}
-      leadingSidebarWidth={railCollapsed ? 72 : 420}
+      leadingSidebarWidth={railCollapsed ? 0 : 420}
       range={resolution}
-      rowGap={0}
+      rowGap={10}
       rowHeight={36}
       zoom={zoom}
     >
-      <MilestoneRail
-        collapsed={railCollapsed}
-        milestoneHighlightTones={milestoneHighlightTones}
-        onCollapsedChange={onRailCollapsedChange}
-        onHighlightMilestones={onHighlightMilestones}
-        onMilestoneFocus={onMilestoneFocus}
-        onOpenDetail={onOpenDetail}
-      />
+      {railCollapsed ? null : (
+        <MilestoneRail
+          milestoneHighlightTones={milestoneHighlightTones}
+          onHighlightMilestones={onHighlightMilestones}
+          onMilestoneFocus={onMilestoneFocus}
+          onOpenDetail={onOpenDetail}
+        />
+      )}
       <GanttMilestoneSidebar
         features={features}
         onLockToggle={(milestoneId, locked) => {
@@ -1231,7 +1241,7 @@ function GanttRoadmap({
       />
       <GanttTimeline
         style={{
-          minHeight: `calc(var(--gantt-header-height) + ${features.length} * var(--gantt-row-height))`,
+          minHeight: `calc(var(--gantt-header-height) + ${features.length} * (var(--gantt-row-height) + var(--gantt-row-gap)))`,
         }}
       >
         <GanttHeader className="text-stone-300 [&_p]:text-[0.82rem]" />
@@ -1507,16 +1517,12 @@ function GanttRoadmap({
 }
 
 function MilestoneRail({
-  collapsed,
   milestoneHighlightTones,
-  onCollapsedChange,
   onHighlightMilestones,
   onMilestoneFocus,
   onOpenDetail,
 }: {
-  collapsed: boolean;
   milestoneHighlightTones: MilestoneHighlightTones;
-  onCollapsedChange: (collapsed: boolean) => void;
   onHighlightMilestones: (milestoneTones: MilestoneHighlightTones) => void;
   onMilestoneFocus: (milestoneId: string | null) => void;
   onOpenDetail: (milestoneId: string) => void;
@@ -1585,22 +1591,11 @@ function MilestoneRail({
     <aside
       className="sticky left-0 z-30 h-full max-h-full min-h-0 overflow-hidden border-white/10 border-r bg-[#101412]/95 backdrop-blur-md"
       data-testid="milestone-rail"
-      style={{ width: collapsed ? 72 : 420 }}
+      style={{ width: 420 }}
     >
       <div className="sticky top-0 z-20 flex h-[60px] items-end justify-between border-white/10 border-b bg-[#101412]/95 px-3 py-2 text-stone-400 text-xs backdrop-blur-md">
-        <span>{collapsed ? "MS" : "Milestones"}</span>
-        {collapsed ? null : <span>Draw / Risk</span>}
-        <Button
-          data-testid="milestone-rail-collapse-toggle"
-          onClick={() => onCollapsedChange(!collapsed)}
-          size="icon-xs"
-          title={
-            collapsed ? "Expand milestone rail" : "Collapse milestone rail"
-          }
-          variant="ghost"
-        >
-          {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
-        </Button>
+        <span>Milestones</span>
+        <span>Draw / Risk</span>
       </div>
       <DndContext
         collisionDetection={closestCenter}
@@ -1651,7 +1646,7 @@ function MilestoneRail({
                   blockers={blockers}
                   blocking={blocking}
                   blockingChipActive={blockingChipActive}
-                  collapsed={collapsed}
+                  collapsed={false}
                   draw={draw}
                   highlightBlockers={highlightBlockers}
                   highlightBlocking={highlightBlocking}
@@ -1661,6 +1656,9 @@ function MilestoneRail({
                   milestone={milestone}
                   onFocusMilestone={focusMilestone}
                   onOpenDetail={onOpenDetail}
+                  renderIssueChip={(issues, testId) => (
+                    <IssueChip compact issues={issues} testId={testId} />
+                  )}
                 />
               );
             })}
@@ -1685,9 +1683,17 @@ function GanttMilestoneSidebar({
   selectedMilestoneIds: SelectedMilestoneIds;
 }) {
   const workspace = useBuildWorkspace();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
   return (
-    <GanttSidebar className="w-[220px] shrink-0 border-white/10 bg-[#111615]/95 text-stone-300">
+    <GanttSidebar
+      className={cn(
+        "shrink-0 border-white/10 bg-[#111615]/95 text-stone-300",
+        sidebarCollapsed ? "w-[64px]" : "w-[220px]",
+      )}
+      collapsed={sidebarCollapsed}
+      onCollapsedChange={setSidebarCollapsed}
+    >
       <div className="divide-y divide-white/5">
         {features.map((feature) => {
           const milestone = workspace.milestones.find(
@@ -1703,6 +1709,7 @@ function GanttMilestoneSidebar({
             <GanttSidebarItem
               className={cn(
                 "gap-2 px-3 py-0 hover:bg-white/[0.04]",
+                sidebarCollapsed && "justify-center gap-1.5 px-1.5",
                 milestone?.id === workspace.selectedMilestoneId &&
                   "bg-lime-300/10 text-lime-100",
                 milestone &&
@@ -1713,323 +1720,82 @@ function GanttMilestoneSidebar({
               key={feature.id}
               onSelectItem={onMilestoneFocus}
             >
-              <span
-                className="pointer-events-none h-2 w-2 shrink-0 rounded-full"
-                style={{ backgroundColor: feature.status.color }}
-              />
-              <span className="pointer-events-none min-w-0 flex-1">
-                <span className="block truncate text-[0.68rem] text-stone-500">
-                  {milestone?.code}
+              {sidebarCollapsed ? (
+                <span className="pointer-events-none flex min-w-0 items-center gap-1.5">
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: feature.status.color }}
+                  />
+                  <span className="truncate font-medium text-[0.7rem] text-stone-300">
+                    {milestone?.code.replace("M-", "")}
+                  </span>
                 </span>
-                <span className="block truncate font-medium text-[0.72rem] text-stone-200">
-                  {feature.name}
-                </span>
-              </span>
-              <span className="pointer-events-none shrink-0 text-[0.68rem] text-cyan-100">
-                {draw?.label}
-              </span>
-              {milestone ? (
-                <button
-                  aria-label={
-                    milestone.isDragLocked
-                      ? `Unlock timeline dragging for ${milestone.name}`
-                      : `Lock timeline dragging for ${milestone.name}`
-                  }
-                  aria-pressed={milestone.isDragLocked}
-                  className={cn(
-                    "grid size-6 shrink-0 place-items-center rounded-sm border border-white/10 text-stone-400 transition-colors hover:border-cyan-300/40 hover:bg-cyan-300/10 hover:text-cyan-100",
-                    milestone.isDragLocked &&
-                      "border-cyan-300/40 bg-cyan-300/15 text-cyan-100",
-                    proposalSubmitted && "cursor-not-allowed opacity-50",
-                  )}
-                  data-gantt-interactive="true"
-                  data-testid={`gantt-sidebar-lock-${milestone.id}`}
-                  disabled={proposalSubmitted}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onLockToggle(milestone.id, !milestone.isDragLocked);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.stopPropagation();
-                    }
-                  }}
-                  title={
-                    proposalSubmitted
-                      ? "Submitted proposals cannot change milestone drag locks."
-                      : milestone.isDragLocked
-                        ? "Unlock milestone timeline dragging"
-                        : "Lock milestone timeline dragging"
-                  }
-                  type="button"
-                >
-                  {milestone.isDragLocked ? (
-                    <Lock className="size-3.5" />
-                  ) : (
-                    <Unlock className="size-3.5" />
-                  )}
-                </button>
-              ) : null}
+              ) : (
+                <>
+                  <span
+                    className="pointer-events-none h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: feature.status.color }}
+                  />
+                  <span className="pointer-events-none min-w-0 flex-1">
+                    <span className="block truncate text-[0.68rem] text-stone-500">
+                      {milestone?.code}
+                    </span>
+                    <span className="block truncate font-medium text-[0.72rem] text-stone-200">
+                      {feature.name}
+                    </span>
+                  </span>
+                  <span className="pointer-events-none shrink-0 text-[0.68rem] text-cyan-100">
+                    {draw?.label}
+                  </span>
+                  {milestone ? (
+                    <button
+                      aria-label={
+                        milestone.isDragLocked
+                          ? `Unlock timeline dragging for ${milestone.name}`
+                          : `Lock timeline dragging for ${milestone.name}`
+                      }
+                      aria-pressed={milestone.isDragLocked}
+                      className={cn(
+                        "grid size-6 shrink-0 place-items-center rounded-sm border border-white/10 text-stone-400 transition-colors hover:border-cyan-300/40 hover:bg-cyan-300/10 hover:text-cyan-100",
+                        milestone.isDragLocked &&
+                          "border-cyan-300/40 bg-cyan-300/15 text-cyan-100",
+                        proposalSubmitted && "cursor-not-allowed opacity-50",
+                      )}
+                      data-gantt-interactive="true"
+                      data-testid={`gantt-sidebar-lock-${milestone.id}`}
+                      disabled={proposalSubmitted}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onLockToggle(milestone.id, !milestone.isDragLocked);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.stopPropagation();
+                        }
+                      }}
+                      title={
+                        proposalSubmitted
+                          ? "Submitted proposals cannot change milestone drag locks."
+                          : milestone.isDragLocked
+                            ? "Unlock milestone timeline dragging"
+                            : "Lock milestone timeline dragging"
+                      }
+                      type="button"
+                    >
+                      {milestone.isDragLocked ? (
+                        <Lock className="size-3.5" />
+                      ) : (
+                        <Unlock className="size-3.5" />
+                      )}
+                    </button>
+                  ) : null}
+                </>
+              )}
             </GanttSidebarItem>
           );
         })}
       </div>
     </GanttSidebar>
-  );
-}
-
-function SortableMilestoneRailRow({
-  blockedByChipActive,
-  blockers,
-  blocking,
-  blockingChipActive,
-  collapsed,
-  draw,
-  highlightBlockers,
-  highlightBlocking,
-  highlightTone,
-  index,
-  milestone,
-  onFocusMilestone,
-  onOpenDetail,
-}: {
-  blockedByChipActive: boolean;
-  blockers: number;
-  blocking: number;
-  blockingChipActive: boolean;
-  collapsed: boolean;
-  draw: DrawGroup | undefined;
-  highlightBlockers: (milestone: Milestone) => void;
-  highlightBlocking: (milestone: Milestone) => void;
-  highlightTone: MilestoneHighlightTone | undefined;
-  index: number;
-  milestone: Milestone;
-  onFocusMilestone: (milestone: Milestone) => void;
-  onOpenDetail: (milestoneId: string) => void;
-}) {
-  const workspace = useBuildWorkspace();
-  const sortableDisabled =
-    workspace.mode === "active" ||
-    workspace.build.proposalStatus === "submitted";
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({
-    id: milestone.id,
-    disabled: sortableDisabled || collapsed,
-  });
-
-  return (
-    <div
-      className={cn(
-        "relative grid w-full items-center overflow-hidden text-left transition-colors",
-        collapsed
-          ? "grid-cols-[1fr] gap-1 border-white/5 border-b px-1 hover:bg-white/[0.05]"
-          : "grid-cols-[1rem_1fr_auto] gap-2 border-white/5 border-b px-2 hover:bg-white/[0.05]",
-        highlightTone === "selected" &&
-          "bg-cyan-300/10 ring-1 ring-cyan-300/45 ring-inset",
-        highlightTone === "blocking" &&
-          "bg-amber-300/20 ring-1 ring-amber-300/70 ring-inset",
-        highlightTone === "blocked" &&
-          "bg-red-500/20 ring-1 ring-red-300/70 ring-inset",
-        isDragging && "z-40 opacity-70",
-      )}
-      data-highlight-tone={highlightTone ?? "none"}
-      data-highlighted={highlightTone ? "true" : "false"}
-      data-testid={`milestone-rail-row-${milestone.id}`}
-      onClick={() => onFocusMilestone(milestone)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onFocusMilestone(milestone);
-        }
-      }}
-      ref={setNodeRef}
-      role="button"
-      style={{
-        height: collapsed ? "var(--gantt-row-height)" : "72px",
-        transform: CSS.Transform.toString(transform),
-        transition,
-      }}
-      tabIndex={0}
-    >
-      {collapsed ? (
-        <div className="flex items-center justify-center gap-1">
-          <span
-            className="size-2 rounded-full"
-            style={{ backgroundColor: statusColors[milestone.status] }}
-          />
-          <span className="truncate text-[0.62rem] text-stone-300">
-            {milestone.code.replace("M-", "")}
-          </span>
-          {milestone.warningCount > 0 ? (
-            <IssueChip
-              compact
-              issues={milestone.issues}
-              testId={`milestone-issue-chip-${milestone.id}`}
-            />
-          ) : null}
-        </div>
-      ) : (
-        <>
-          <button
-            aria-label={
-              sortableDisabled
-                ? workspace.mode === "active"
-                  ? "Reordering is available only in proposal mode."
-                  : "Submitted proposals cannot be reordered."
-                : `Drag ${milestone.name} to reorder`
-            }
-            className={cn(
-              "grid size-5 place-items-center rounded-sm text-stone-600",
-              sortableDisabled
-                ? "cursor-not-allowed opacity-50"
-                : "cursor-grab hover:bg-white/10 hover:text-stone-200",
-            )}
-            data-testid={`milestone-drag-handle-${milestone.id}`}
-            disabled={sortableDisabled}
-            {...attributes}
-            {...listeners}
-            onClick={(event) => {
-              event.stopPropagation();
-              if (!sortableDisabled && index > 0) {
-                void workspace.reorderMilestone(milestone.id, "up");
-              }
-            }}
-            onDoubleClick={(event) => {
-              event.stopPropagation();
-              if (!sortableDisabled && index > 0) {
-                void workspace.reorderMilestone(milestone.id, "up");
-              }
-            }}
-            title={
-              sortableDisabled
-                ? workspace.mode === "active"
-                  ? "Reordering is disabled in active execution because the approved roadmap is locked."
-                  : "Reordering is disabled after proposal submission."
-                : "Drag to reorder proposal milestones"
-            }
-            type="button"
-          >
-            <GripVertical className="size-4" />
-          </button>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="truncate font-medium text-xs">
-                {milestone.name}
-              </span>
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-1 text-[0.65rem] text-stone-500">
-              <span>{milestone.code}</span>
-              <span>{statusLabels[milestone.status]}</span>
-              <span>{compactMoney(milestone.estimatedCost)}</span>
-              <span>{milestone.estimatedDurationDays}d</span>
-            </div>
-            <div className="mt-1 flex gap-1 text-[0.62rem]">
-              <button
-                aria-label={`Highlight milestones blocked by ${milestone.name}`}
-                className={cn(
-                  "inline-flex h-4 items-center rounded-sm border border-white/10 bg-white/[0.04] px-1 text-stone-300 transition-colors hover:border-red-300/50 hover:bg-red-400/15 hover:text-red-100",
-                  blockingChipActive &&
-                    "border-red-300/60 bg-red-500/20 text-red-100",
-                )}
-                data-testid={`milestone-blocking-chip-${milestone.id}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  highlightBlocking(milestone);
-                }}
-                type="button"
-              >
-                {blocking} blocking
-              </button>
-              <button
-                aria-label={`Highlight milestones blocking ${milestone.name}`}
-                className={cn(
-                  "inline-flex h-4 items-center rounded-sm border border-white/10 bg-white/[0.04] px-1 text-stone-300 transition-colors hover:border-amber-300/50 hover:bg-amber-300/15 hover:text-amber-100",
-                  blockedByChipActive &&
-                    "border-amber-300/60 bg-amber-300/20 text-amber-100",
-                )}
-                data-testid={`milestone-blocked-by-chip-${milestone.id}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  highlightBlockers(milestone);
-                }}
-                type="button"
-              >
-                {blockers} blocked-by
-              </button>
-              {milestone.warningCount > 0 ? (
-                <IssueChip
-                  compact
-                  issues={milestone.issues}
-                  testId={`milestone-issue-chip-${milestone.id}`}
-                />
-              ) : null}
-            </div>
-          </div>
-          <div className="flex flex-col items-end gap-1">
-            <Badge className="h-5 rounded-sm border-cyan-300/20 bg-cyan-300/10 px-1.5 text-cyan-100">
-              {draw?.label}
-            </Badge>
-            <div className="flex gap-1">
-              <Button
-                data-testid={`milestone-rail-detail-${milestone.id}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  workspace.selectMilestone(milestone.id);
-                  onOpenDetail(milestone.id);
-                }}
-                size="icon-xs"
-                title={`Open ${milestone.name} detail`}
-                variant="ghost"
-              >
-                <PanelRightOpen />
-              </Button>
-              <Button
-                data-testid={`milestone-move-up-${milestone.id}`}
-                disabled={index === 0 || sortableDisabled}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void workspace.reorderMilestone(milestone.id, "up");
-                }}
-                size="icon-xs"
-                title={
-                  sortableDisabled
-                    ? "Reorder controls are disabled outside editable proposal mode."
-                    : "Move milestone up"
-                }
-                variant="ghost"
-              >
-                <ArrowUp />
-              </Button>
-              <Button
-                data-testid={`milestone-move-down-${milestone.id}`}
-                disabled={
-                  index === workspace.milestones.length - 1 || sortableDisabled
-                }
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void workspace.reorderMilestone(milestone.id, "down");
-                }}
-                size="icon-xs"
-                title={
-                  sortableDisabled
-                    ? "Reorder controls are disabled outside editable proposal mode."
-                    : "Move milestone down"
-                }
-                variant="ghost"
-              >
-                <ArrowDown />
-              </Button>
-            </div>
-          </div>
-        </>
-      )}
-    </div>
   );
 }
 
