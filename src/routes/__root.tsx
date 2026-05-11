@@ -6,6 +6,7 @@ import {
   Scripts,
   createRootRouteWithContext,
   useRouter,
+  useRouterState,
 } from '@tanstack/react-router'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { createServerFn } from '@tanstack/react-start'
@@ -75,6 +76,11 @@ interface RootDocumentProps {
 
 function RootDocument({ children }: RootDocumentProps): ReactElement {
   const { queryClient } = useRouter().options.context
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  })
+  const isNewProposalDemo = pathname === '/demo/drawflow/new-proposal'
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -87,7 +93,7 @@ function RootDocument({ children }: RootDocumentProps): ReactElement {
             <QueryClientProvider client={queryClient}>
               <Header />
               {children}
-              <Footer />
+              {!isNewProposalDemo && <Footer />}
               <TanStackDevtools
                 config={{
                   position: 'bottom-right',
