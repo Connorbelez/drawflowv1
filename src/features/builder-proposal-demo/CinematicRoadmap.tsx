@@ -2,15 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { BuilderProposalMilestone } from "./types";
 
 interface CinematicRoadmapProps {
-  milestones: BuilderProposalMilestone[];
   animated?: boolean;
+  milestones: BuilderProposalMilestone[];
 }
 
 interface TooltipState {
+  milestone: BuilderProposalMilestone | null;
   visible: boolean;
   x: number;
   y: number;
-  milestone: BuilderProposalMilestone | null;
 }
 
 function formatMoney(cents: number) {
@@ -26,7 +26,7 @@ function formatCompactMoney(cents: number) {
   if (amount >= 1_000_000) {
     return `$${(amount / 1_000_000).toFixed(amount >= 10_000_000 ? 0 : 1)}M`;
   }
-  return `$${Math.round(amount / 1_000)}K`;
+  return `$${Math.round(amount / 1000)}K`;
 }
 
 export function CinematicRoadmap({
@@ -41,7 +41,9 @@ export function CinematicRoadmap({
     y: 0,
     milestone: null,
   });
-  const [animationPhase, setAnimationPhase] = useState<"idle" | "grid" | "bars" | "groups" | "done">("idle");
+  const [animationPhase, setAnimationPhase] = useState<
+    "idle" | "grid" | "bars" | "groups" | "done"
+  >("idle");
 
   const included = useMemo(
     () => milestones.filter((m) => m.included),
@@ -49,13 +51,17 @@ export function CinematicRoadmap({
   );
 
   const maxDay = useMemo(() => {
-    if (included.length === 0) return 100;
+    if (included.length === 0) {
+      return 100;
+    }
     return Math.max(...included.map((m) => m.dayEnd));
   }, [included]);
 
   // Compute draw groups: group consecutive milestones
   const drawGroups = useMemo(() => {
-    if (included.length === 0) return [];
+    if (included.length === 0) {
+      return [];
+    }
     const groups: {
       index: number;
       startDay: number;
@@ -88,7 +94,9 @@ export function CinematicRoadmap({
 
   useEffect(() => {
     const element = containerRef.current;
-    if (!element) return;
+    if (!element) {
+      return;
+    }
     setCanvasWidth(element.clientWidth);
     const resizeObserver = new ResizeObserver(([entry]) => {
       setCanvasWidth(entry.contentRect.width);
@@ -119,8 +127,12 @@ export function CinematicRoadmap({
   const dayMarkers = useMemo(() => {
     const markers: number[] = [];
     const step = maxDay <= 100 ? 30 : maxDay <= 300 ? 60 : 90;
-    for (let d = 0; d <= maxDay; d += step) markers.push(d);
-    if (markers[markers.length - 1] !== maxDay) markers.push(maxDay);
+    for (let d = 0; d <= maxDay; d += step) {
+      markers.push(d);
+    }
+    if (markers.at(-1) !== maxDay) {
+      markers.push(maxDay);
+    }
     return markers;
   }, [maxDay]);
 
@@ -129,7 +141,9 @@ export function CinematicRoadmap({
     e: React.MouseEvent
   ) => {
     const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
+    if (!rect) {
+      return;
+    }
     setTooltip({
       visible: true,
       x: e.clientX - rect.left + 12,
@@ -140,7 +154,9 @@ export function CinematicRoadmap({
 
   const handleBarMove = (e: React.MouseEvent) => {
     const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
+    if (!rect) {
+      return;
+    }
     setTooltip((prev) => ({
       ...prev,
       x: e.clientX - rect.left + 12,
@@ -169,8 +185,8 @@ export function CinematicRoadmap({
         style={{
           height: "100%",
           minHeight: 320,
-          background: "#0a0a0a",
-          border: "1px solid rgba(255,255,255,0.06)",
+          background: "var(--bg-sunken)",
+          border: "1px solid var(--border)",
           borderRadius: 8,
           position: "relative",
           overflow: "hidden",
@@ -182,7 +198,7 @@ export function CinematicRoadmap({
             position: "absolute",
             inset: 0,
             backgroundImage:
-              "linear-gradient(to right, rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.025) 1px, transparent 1px)",
+              "linear-gradient(to right, color-mix(in oklch, var(--foreground) 8%, transparent) 1px, transparent 1px), linear-gradient(to bottom, color-mix(in oklch, var(--foreground) 8%, transparent) 1px, transparent 1px)",
             backgroundSize: "48px 32px",
           }}
         />
@@ -196,21 +212,65 @@ export function CinematicRoadmap({
             justifyContent: "center",
             height: "100%",
             gap: 16,
-            color: "#666",
+            color: "var(--muted-foreground)",
             padding: 32,
             textAlign: "center",
           }}
         >
-          <svg width="64" height="64" viewBox="0 0 64 64" fill="none" style={{ opacity: 0.25 }}>
-            <rect x="4" y="12" width="56" height="8" rx="2" stroke="currentColor" strokeWidth="1.5" />
-            <rect x="4" y="28" width="40" height="8" rx="2" stroke="currentColor" strokeWidth="1.5" />
-            <rect x="4" y="44" width="48" height="8" rx="2" stroke="currentColor" strokeWidth="1.5" />
+          <svg
+            aria-hidden="true"
+            fill="none"
+            focusable="false"
+            height="64"
+            style={{ opacity: 0.25 }}
+            viewBox="0 0 64 64"
+            width="64"
+          >
+            <rect
+              height="8"
+              rx="2"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              width="56"
+              x="4"
+              y="12"
+            />
+            <rect
+              height="8"
+              rx="2"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              width="40"
+              x="4"
+              y="28"
+            />
+            <rect
+              height="8"
+              rx="2"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              width="48"
+              x="4"
+              y="44"
+            />
           </svg>
           <div>
-            <p style={{ fontSize: 14, fontWeight: 600, color: "#888" }}>
+            <p
+              style={{
+                fontSize: 14,
+                fontWeight: 600,
+                color: "var(--foreground)",
+              }}
+            >
               Select a template to see your construction roadmap
             </p>
-            <p style={{ fontSize: 12, marginTop: 4, color: "#555" }}>
+            <p
+              style={{
+                fontSize: 12,
+                marginTop: 4,
+                color: "var(--muted-foreground)",
+              }}
+            >
               Your milestone schedule and draw groups will appear here
             </p>
           </div>
@@ -225,8 +285,8 @@ export function CinematicRoadmap({
       style={{
         height: "100%",
         minHeight: 320,
-        background: "#0a0a0a",
-        border: "1px solid rgba(255,255,255,0.06)",
+        background: "var(--bg-sunken)",
+        border: "1px solid var(--border)",
         borderRadius: 8,
         position: "relative",
         overflow: "auto",
@@ -240,7 +300,7 @@ export function CinematicRoadmap({
           position: "absolute",
           inset: 0,
           backgroundImage:
-            "linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px)",
+            "linear-gradient(to right, color-mix(in oklch, var(--foreground) 8%, transparent) 1px, transparent 1px), linear-gradient(to bottom, color-mix(in oklch, var(--foreground) 8%, transparent) 1px, transparent 1px)",
           backgroundSize: "60px 40px",
           opacity: animationPhase === "idle" ? 0 : 1,
           transition: "opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1)",
@@ -256,8 +316,8 @@ export function CinematicRoadmap({
           height: headerHeight,
           display: "flex",
           alignItems: "center",
-          borderBottom: "1px solid rgba(255,255,255,0.06)",
-          background: "#0a0a0a",
+          borderBottom: "1px solid var(--border)",
+          background: "var(--bg-sunken)",
           flexShrink: 0,
         }}
       >
@@ -271,7 +331,7 @@ export function CinematicRoadmap({
             fontWeight: 600,
             letterSpacing: "0.06em",
             textTransform: "uppercase",
-            color: "#555",
+            color: "var(--muted-foreground)",
           }}
         >
           Milestones
@@ -288,7 +348,7 @@ export function CinematicRoadmap({
                 transform: "translate(-50%, -50%)",
                 fontSize: 10,
                 fontWeight: 500,
-                color: "#444",
+                color: "var(--muted-foreground)",
                 letterSpacing: "0.04em",
               }}
             >
@@ -305,12 +365,15 @@ export function CinematicRoadmap({
           const top = headerHeight + group.startRow * rowHeight;
           const height = (group.endRow - group.startRow + 1) * rowHeight;
           const phaseDelay = group.index * 0.2;
-          const isVisible = animationPhase === "groups" || animationPhase === "done";
+          const isVisible =
+            animationPhase === "groups" || animationPhase === "done";
           const groupLeft = dayToX(group.startDay);
           const groupRight = dayToX(group.endDay);
           const groupWidth = Math.max(36, groupRight - groupLeft);
           const labelTransform =
-            group.endDay / maxDay > 0.84 ? "translateX(-100%)" : "translateX(-50%)";
+            group.endDay / maxDay > 0.84
+              ? "translateX(-100%)"
+              : "translateX(-50%)";
 
           return (
             <div key={`group-${group.index}`}>
@@ -322,9 +385,11 @@ export function CinematicRoadmap({
                   left: groupLeft - 4,
                   width: groupWidth + 8,
                   height: height + 4,
-                  border: "1px dashed rgba(34, 197, 94, 0.46)",
+                  border:
+                    "1px dashed color-mix(in oklch, var(--primary) 55%, transparent)",
                   borderRadius: 6,
-                  background: "rgba(34, 197, 94, 0.035)",
+                  background:
+                    "color-mix(in oklch, var(--primary) 8%, transparent)",
                   opacity: isVisible ? 1 : 0,
                   transform: isVisible ? "scale(1)" : "scale(0.96)",
                   transition: `opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1) ${phaseDelay}s, transform 0.5s cubic-bezier(0.22, 1, 0.36, 1) ${phaseDelay}s`,
@@ -340,20 +405,20 @@ export function CinematicRoadmap({
                     display: "inline-flex",
                     alignItems: "center",
                     gap: 6,
-                    background: "#0a0a0a",
+                    background: "var(--bg-sunken)",
                     padding: "0 6px",
                     fontSize: 9,
                     fontWeight: 700,
                     letterSpacing: "0.08em",
                     textTransform: "uppercase",
-                    color: "rgba(34, 197, 94, 0.78)",
+                    color: "var(--primary)",
                     whiteSpace: "nowrap",
                   }}
                 >
                   Draw {group.index + 1}
                   <span
                     style={{
-                      color: "rgba(229, 229, 229, 0.72)",
+                      color: "var(--muted-foreground)",
                       letterSpacing: 0,
                       textTransform: "none",
                     }}
@@ -371,7 +436,7 @@ export function CinematicRoadmap({
                   height: height + 24,
                   width: 1,
                   background:
-                    "linear-gradient(to bottom, rgba(34, 197, 94, 0), rgba(34, 197, 94, 0.72) 18%, rgba(34, 197, 94, 0.72) 82%, rgba(34, 197, 94, 0))",
+                    "linear-gradient(to bottom, transparent, var(--primary) 18%, var(--primary) 82%, transparent)",
                   opacity: isVisible ? 1 : 0,
                   transition: `opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1) ${phaseDelay + 0.08}s`,
                   zIndex: 7,
@@ -387,11 +452,12 @@ export function CinematicRoadmap({
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 5,
-                  border: "1px solid rgba(34, 197, 94, 0.44)",
+                  border:
+                    "1px solid color-mix(in oklch, var(--primary) 52%, transparent)",
                   borderRadius: 999,
-                  background: "#0a0a0a",
+                  background: "var(--bg-sunken)",
                   padding: "3px 7px",
-                  color: "rgba(222, 252, 232, 0.9)",
+                  color: "var(--primary)",
                   fontSize: 10,
                   fontWeight: 700,
                   lineHeight: 1,
@@ -399,11 +465,12 @@ export function CinematicRoadmap({
                   transition: `opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1) ${phaseDelay + 0.08}s`,
                   whiteSpace: "nowrap",
                   zIndex: 8,
-                  boxShadow: "0 0 18px rgba(34, 197, 94, 0.14)",
+                  boxShadow:
+                    "0 0 18px color-mix(in oklch, var(--primary) 18%, transparent)",
                 }}
               >
                 D{group.endDay}
-                <span style={{ color: "rgba(34, 197, 94, 0.76)" }}>
+                <span style={{ color: "var(--primary)" }}>
                   {formatCompactMoney(group.totalBudgetCents)}
                 </span>
               </div>
@@ -415,7 +482,10 @@ export function CinematicRoadmap({
         {included.map((milestone, index) => {
           const top = headerHeight + index * rowHeight;
           const barDelay = 0.4 + index * 0.08;
-          const barVisible = animationPhase === "bars" || animationPhase === "groups" || animationPhase === "done";
+          const barVisible =
+            animationPhase === "bars" ||
+            animationPhase === "groups" ||
+            animationPhase === "done";
 
           return (
             <div
@@ -428,7 +498,7 @@ export function CinematicRoadmap({
                 height: rowHeight,
                 display: "flex",
                 alignItems: "center",
-                borderBottom: "1px solid rgba(255,255,255,0.03)",
+                borderBottom: "1px solid var(--border)",
               }}
             >
               {/* Rail: milestone name */}
@@ -440,7 +510,7 @@ export function CinematicRoadmap({
                   paddingRight: 8,
                   fontSize: 12,
                   fontWeight: 500,
-                  color: "#aaa",
+                  color: "var(--muted-foreground)",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                   whiteSpace: "nowrap",
@@ -463,10 +533,11 @@ export function CinematicRoadmap({
                 }}
               >
                 {/* Milestone bar */}
-                <div
+                <button
+                  aria-label={`${milestone.name}: day ${milestone.dayStart} to day ${milestone.dayEnd}`}
                   onMouseEnter={(e) => handleBarEnter(milestone, e)}
-                  onMouseMove={handleBarMove}
                   onMouseLeave={handleBarLeave}
+                  onMouseMove={handleBarMove}
                   style={{
                     position: "absolute",
                     left: `${(milestone.dayStart / maxDay) * 100}%`,
@@ -476,16 +547,19 @@ export function CinematicRoadmap({
                     )}%`,
                     top: 2,
                     height: 16,
+                    border: 0,
                     background:
-                      "linear-gradient(90deg, #16a34a 0%, #22c55e 100%)",
+                      "linear-gradient(90deg, var(--success) 0%, var(--primary) 100%)",
                     borderRadius: 4,
-                    boxShadow: "0 0 12px rgba(34, 197, 94, 0.25), 0 0 4px rgba(34, 197, 94, 0.4)",
+                    boxShadow:
+                      "0 0 12px color-mix(in oklch, var(--primary) 25%, transparent), 0 0 4px color-mix(in oklch, var(--primary) 40%, transparent)",
                     cursor: "pointer",
                     opacity: barVisible ? 1 : 0,
                     transform: barVisible ? "scaleX(1)" : "scaleX(0)",
                     transformOrigin: "left center",
                     transition: `all 0.5s cubic-bezier(0.22, 1, 0.36, 1) ${barDelay}s`,
                   }}
+                  type="button"
                 />
               </div>
             </div>
@@ -501,13 +575,14 @@ export function CinematicRoadmap({
             left: tooltip.x,
             top: tooltip.y,
             zIndex: 100,
-            background: "#111615",
-            border: "1px solid rgba(255,255,255,0.1)",
+            background: "var(--popover)",
+            border: "1px solid var(--border)",
             borderRadius: 6,
             padding: "10px 14px",
             fontSize: 12,
-            color: "#e5e5e5",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+            color: "var(--popover-foreground)",
+            boxShadow:
+              "0 8px 32px color-mix(in oklch, var(--foreground) 16%, transparent)",
             pointerEvents: "none",
             minWidth: 200,
           }}
@@ -520,20 +595,24 @@ export function CinematicRoadmap({
               display: "grid",
               gridTemplateColumns: "auto 1fr",
               gap: "4px 16px",
-              color: "#888",
+              color: "var(--muted-foreground)",
               fontSize: 11,
             }}
           >
             <span>Start</span>
-            <span style={{ color: "#aaa" }}>Day {tooltip.milestone.dayStart}</span>
+            <span style={{ color: "var(--foreground)" }}>
+              Day {tooltip.milestone.dayStart}
+            </span>
             <span>End</span>
-            <span style={{ color: "#aaa" }}>Day {tooltip.milestone.dayEnd}</span>
+            <span style={{ color: "var(--foreground)" }}>
+              Day {tooltip.milestone.dayEnd}
+            </span>
             <span>Budget</span>
-            <span style={{ color: "#aaa" }}>
+            <span style={{ color: "var(--foreground)" }}>
               {formatMoney(tooltip.milestone.budgetCents)}
             </span>
             <span>Duration</span>
-            <span style={{ color: "#aaa" }}>
+            <span style={{ color: "var(--foreground)" }}>
               {tooltip.milestone.durationDays} days
             </span>
           </div>

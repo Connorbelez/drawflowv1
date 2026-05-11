@@ -17,8 +17,8 @@ import type {
   OptimizationPlanId,
   OutboxEvent,
   SiteVisitReportDraft,
-  WorkspaceMode,
   WorkspaceIssue,
+  WorkspaceMode,
   WorkspaceRole,
 } from "./types";
 
@@ -60,7 +60,10 @@ const dollars = (cents = 0) => Math.round(cents / 100);
 const cents = (dollarsValue = 0) => Math.round(dollarsValue * 100);
 const isoDate = (date: Date) => date.toISOString().slice(0, 10);
 
-function mapMilestoneStatus(mode: WorkspaceMode, milestone: any): Milestone["status"] {
+function mapMilestoneStatus(
+  mode: WorkspaceMode,
+  milestone: any
+): Milestone["status"] {
   const status = milestone.displayStatus ?? milestone.status;
 
   if (mode === "proposal") {
@@ -85,7 +88,10 @@ function mapMilestoneStatus(mode: WorkspaceMode, milestone: any): Milestone["sta
   if (status === "evidence_submitted") {
     return "evidenceSubmitted";
   }
-  if (status === "in_progress_behind_schedule" || status === "in_progress_on_schedule") {
+  if (
+    status === "in_progress_behind_schedule" ||
+    status === "in_progress_on_schedule"
+  ) {
     return "inProgress";
   }
   if (status === "capital_blocked" || milestone.blockingReasons?.length) {
@@ -155,95 +161,118 @@ function mapWorkspace(
   selectedMilestoneId: string,
   locallyDismissedIssueKeys: Set<string>
 ) {
-  const issues: WorkspaceIssue[] = (workspace?.issues ?? []).map((issue: any) => ({
-    code: issue.code,
-    conditionHash: issue.conditionHash,
-    dependencyIds: issue.dependencyIds ?? [],
-    dismissible: Boolean(issue.dismissible),
-    dismissed: Boolean(issue.dismissed),
-    drawGroupIds: issue.drawGroupIds ?? [],
-    id: issue.id,
-    impact: issue.impact,
-    message: issue.message,
-    milestoneIds: issue.milestoneIds ?? [],
-    quickFix: issue.quickFix,
-    scope: issue.scope,
-    severity: issue.severity,
-    title: issue.title,
-  }));
-  const visibleIssues = issues.filter(
-    (issue) =>
-      !issue.dismissed &&
-      !locallyDismissedIssueKeys.has(`${issue.id}:${issue.conditionHash}`)
-  );
-  const milestones: Milestone[] = (workspace?.milestones ?? []).map((milestone: any) => {
-    const start = mode === "active" ? milestone.forecastStartDate : milestone.plannedStartDate;
-    const end = mode === "active" ? milestone.forecastEndDate : milestone.plannedEndDate;
-    return {
-      actualCost: dollars(milestone.requestedAmountCents ?? 0),
-      blockedByKeys: milestone.blockedByKeys ?? [],
-      blockingKeys: milestone.blockingKeys ?? [],
-      blockingReasons: milestone.blockingReasons ?? [],
-      code: milestone.code,
-      completionReport: milestone.latestReview?.notes ?? "",
-      drawGroupId: milestone.drawGroupKey,
-      endAt: new Date(`${end}T12:00:00`),
-      estimatedCost: dollars(milestone.approvedValueCents),
-      estimatedDurationDays: milestone.durationDays,
-      evidenceStatus: mapEvidenceStatus(milestone),
-      id: milestone.key,
-      isDragLocked: Boolean(milestone.isDragLocked),
-      issues: visibleIssues.filter((issue) => issue.milestoneIds.includes(milestone.key)),
-      lane: milestone.type ?? milestone.drawGroupKey,
-      name: milestone.name,
-      notes: (milestone.blockingReasons ?? []).join("; "),
-      progress: milestone.progressPercent,
-      requestedAmountCents: milestone.requestedAmountCents,
-      siteVisitRequested: Boolean(milestone.latestSiteVisit),
-      staffRecommendation: milestone.latestReview?.outcome ?? "",
-      startAt: new Date(`${start}T12:00:00`),
-      status: mapMilestoneStatus(mode, milestone),
-      warningCount:
-        visibleIssues.filter((issue) => issue.milestoneIds.includes(milestone.key)).length +
-        (milestone.blockingReasons?.length ?? 0),
-    };
-  });
-
-  const drawGroups: DrawGroup[] = (workspace?.drawGroups ?? []).map((group: any) => ({
-    amount: dollars(group.approvedValueCents),
-    endAt: new Date(`${group.endDate}T12:00:00`),
-    eligibleAt: new Date(`${group.eligibleDate ?? group.endDate}T12:00:00`),
-    id: group.key,
-    label: group.label,
-    order: group.order,
-    rowIndex: Math.max(0, (group.firstRow ?? group.order) - 1),
-    rowSpan: Math.max(1, (group.lastRow ?? group.order) - (group.firstRow ?? group.order) + 1),
-    startAt: new Date(`${group.startDate}T12:00:00`),
-    status: mapDrawStatus(mode, group),
-    totalExposure: dollars(group.requestedValueCents),
-    warningState:
-      visibleIssues.some(
-        (issue) =>
-          issue.drawGroupIds.includes(group.key) && issue.severity === "blocking"
-      )
-        ? "critical"
-        : visibleIssues.some((issue) => issue.drawGroupIds.includes(group.key)) ||
-            group.status === "active"
-          ? "warning"
-          : "clear",
-    issues: visibleIssues.filter((issue) => issue.drawGroupIds.includes(group.key)),
-  }));
-
-  const dependencies: MilestoneDependency[] = (workspace?.dependencies ?? []).map(
-    (dependency: any) => ({
-      fromMilestoneId: dependency.blockerKey,
-      hardness: dependency.type === "soft_dependency" ? "soft" : "hard",
-      id: dependency._id,
-      isSystem: dependency.isSystem,
-      toMilestoneId: dependency.blockedKey,
-      type: dependency.type,
+  const issues: WorkspaceIssue[] = (workspace?.issues ?? []).map(
+    (issue: any) => ({
+      code: issue.code,
+      conditionHash: issue.conditionHash,
+      dependencyIds: issue.dependencyIds ?? [],
+      dismissible: Boolean(issue.dismissible),
+      dismissed: Boolean(issue.dismissed),
+      drawGroupIds: issue.drawGroupIds ?? [],
+      id: issue.id,
+      impact: issue.impact,
+      message: issue.message,
+      milestoneIds: issue.milestoneIds ?? [],
+      quickFix: issue.quickFix,
+      scope: issue.scope,
+      severity: issue.severity,
+      title: issue.title,
     })
   );
+  const visibleIssues = issues.filter(
+    (issue) =>
+      !(
+        issue.dismissed ||
+        locallyDismissedIssueKeys.has(`${issue.id}:${issue.conditionHash}`)
+      )
+  );
+  const milestones: Milestone[] = (workspace?.milestones ?? []).map(
+    (milestone: any) => {
+      const start =
+        mode === "active"
+          ? milestone.forecastStartDate
+          : milestone.plannedStartDate;
+      const end =
+        mode === "active"
+          ? milestone.forecastEndDate
+          : milestone.plannedEndDate;
+      return {
+        actualCost: dollars(milestone.requestedAmountCents ?? 0),
+        blockedByKeys: milestone.blockedByKeys ?? [],
+        blockingKeys: milestone.blockingKeys ?? [],
+        blockingReasons: milestone.blockingReasons ?? [],
+        code: milestone.code,
+        completionReport: milestone.latestReview?.notes ?? "",
+        drawGroupId: milestone.drawGroupKey,
+        endAt: new Date(`${end}T12:00:00`),
+        estimatedCost: dollars(milestone.approvedValueCents),
+        estimatedDurationDays: milestone.durationDays,
+        evidenceStatus: mapEvidenceStatus(milestone),
+        id: milestone.key,
+        isDragLocked: Boolean(milestone.isDragLocked),
+        issues: visibleIssues.filter((issue) =>
+          issue.milestoneIds.includes(milestone.key)
+        ),
+        lane: milestone.type ?? milestone.drawGroupKey,
+        name: milestone.name,
+        notes: (milestone.blockingReasons ?? []).join("; "),
+        progress: milestone.progressPercent,
+        requestedAmountCents: milestone.requestedAmountCents,
+        siteVisitRequested: Boolean(milestone.latestSiteVisit),
+        staffRecommendation: milestone.latestReview?.outcome ?? "",
+        startAt: new Date(`${start}T12:00:00`),
+        status: mapMilestoneStatus(mode, milestone),
+        warningCount:
+          visibleIssues.filter((issue) =>
+            issue.milestoneIds.includes(milestone.key)
+          ).length + (milestone.blockingReasons?.length ?? 0),
+      };
+    }
+  );
+
+  const drawGroups: DrawGroup[] = (workspace?.drawGroups ?? []).map(
+    (group: any) => ({
+      amount: dollars(group.approvedValueCents),
+      endAt: new Date(`${group.endDate}T12:00:00`),
+      eligibleAt: new Date(`${group.eligibleDate ?? group.endDate}T12:00:00`),
+      id: group.key,
+      label: group.label,
+      order: group.order,
+      rowIndex: Math.max(0, (group.firstRow ?? group.order) - 1),
+      rowSpan: Math.max(
+        1,
+        (group.lastRow ?? group.order) - (group.firstRow ?? group.order) + 1
+      ),
+      startAt: new Date(`${group.startDate}T12:00:00`),
+      status: mapDrawStatus(mode, group),
+      totalExposure: dollars(group.requestedValueCents),
+      warningState: visibleIssues.some(
+        (issue) =>
+          issue.drawGroupIds.includes(group.key) &&
+          issue.severity === "blocking"
+      )
+        ? "critical"
+        : visibleIssues.some((issue) =>
+              issue.drawGroupIds.includes(group.key)
+            ) || group.status === "active"
+          ? "warning"
+          : "clear",
+      issues: visibleIssues.filter((issue) =>
+        issue.drawGroupIds.includes(group.key)
+      ),
+    })
+  );
+
+  const dependencies: MilestoneDependency[] = (
+    workspace?.dependencies ?? []
+  ).map((dependency: any) => ({
+    fromMilestoneId: dependency.blockerKey,
+    hardness: dependency.type === "soft_dependency" ? "soft" : "hard",
+    id: dependency._id,
+    isSystem: dependency.isSystem,
+    toMilestoneId: dependency.blockedKey,
+    type: dependency.type,
+  }));
 
   const summary = workspace?.summary ?? {};
   const latestRun = workspace?.latestPlanningRun;
@@ -269,11 +298,15 @@ function mapWorkspace(
       warning: "May increase borrower working-capital pressure.",
     },
     {
-      durationDays: latestRun?.recommendedDrawCount ? latestRun.recommendedDrawCount * 30 : 330,
+      durationDays: latestRun?.recommendedDrawCount
+        ? latestRun.recommendedDrawCount * 30
+        : 330,
       id: "capitalConstrained",
       label: "Capital-Constrained",
       peakWorkingCapital: dollars(summary.workingCapitalLimitCents),
-      projectedInterest: dollars(latestRun?.interestEstimateCents ?? summary.interestEstimateCents),
+      projectedInterest: dollars(
+        latestRun?.interestEstimateCents ?? summary.interestEstimateCents
+      ),
       summary: "Keeps draw groups inside the CAD $260k working-capital cap.",
       totalFees: dollars(summary.drawFeesCents),
       warning: summary.validationErrors?.length
@@ -313,14 +346,19 @@ function mapWorkspace(
         mode === "active"
           ? "Active reimbursement workspace"
           : "Build Proposal / Roadmap Draft",
-      proposalStatus: workspace?.build?.status === "submitted" ? "submitted" : "draft",
+      proposalStatus:
+        workspace?.build?.status === "submitted" ? "submitted" : "draft",
       siteAddress: "Hamilton, ON",
     },
     budget: {
-      borrowerWorkingCapitalLimit: dollars(workspace?.build?.workingCapitalLimitCents),
+      borrowerWorkingCapitalLimit: dollars(
+        workspace?.build?.workingCapitalLimitCents
+      ),
       drawFeeBps: 0,
       interestRatePct: (workspace?.build?.interestAnnualBps ?? 1200) / 100,
-      lenderDrawPolicyLimit: dollars(workspace?.build?.lenderDrawPolicyLimitCents),
+      lenderDrawPolicyLimit: dollars(
+        workspace?.build?.lenderDrawPolicyLimitCents
+      ),
       requestedLoanAmount: dollars(summary.approvedProjectValueCents),
       totalBuildBudget: dollars(summary.approvedProjectValueCents),
       version: workspace?.build?.seedVersion ?? 1,
@@ -355,39 +393,99 @@ function mapWorkspace(
   };
 }
 
-export function useConvexBuildWorkspace(mode: WorkspaceMode): BuildWorkspaceAdapter {
-  const workspace = useQuery(api.demo_drawflow.demo_getWorkspace, { scenario: mode });
+export function useConvexBuildWorkspace(
+  mode: WorkspaceMode
+): BuildWorkspaceAdapter {
+  const workspace = useQuery(api.demo_drawflow.demo_getWorkspace, {
+    scenario: mode,
+  });
   const seedDemo = useMutation(api.demo_drawflow.demo_seedDrawFlowDemo);
   const resetDemo = useMutation(api.demo_drawflow.demo_resetDrawFlowDemo);
-  const updateProgressMutation = useMutation(api.demo_drawflow.demo_updateMilestoneProgress);
-  const updateForecastMutation = useMutation(api.demo_drawflow.demo_updateForecastDatesWithReason);
-  const batchMoveDatesMutation = useMutation(api.demo_drawflow.demo_batchMoveMilestoneDates);
-  const setDragLockedMutation = useMutation(api.demo_drawflow.demo_setMilestoneDragLocked);
-  const addSampleMutation = useMutation(api.demo_drawflow.demo_addSampleEvidence);
-  const uploadMutation = useMutation(api.demo_drawflow.demo_registerUploadedEvidenceMetadata);
-  const submitClaimMutation = useMutation(api.demo_drawflow.demo_submitCompletionClaim);
-  const reviewEvidenceMutation = useMutation(api.demo_drawflow.demo_reviewEvidence);
-  const requestVisitMutation = useMutation(api.demo_drawflow.demo_requestSiteVisit);
+  const updateProgressMutation = useMutation(
+    api.demo_drawflow.demo_updateMilestoneProgress
+  );
+  const updateForecastMutation = useMutation(
+    api.demo_drawflow.demo_updateForecastDatesWithReason
+  );
+  const batchMoveDatesMutation = useMutation(
+    api.demo_drawflow.demo_batchMoveMilestoneDates
+  );
+  const setDragLockedMutation = useMutation(
+    api.demo_drawflow.demo_setMilestoneDragLocked
+  );
+  const addSampleMutation = useMutation(
+    api.demo_drawflow.demo_addSampleEvidence
+  );
+  const uploadMutation = useMutation(
+    api.demo_drawflow.demo_registerUploadedEvidenceMetadata
+  );
+  const submitClaimMutation = useMutation(
+    api.demo_drawflow.demo_submitCompletionClaim
+  );
+  const reviewEvidenceMutation = useMutation(
+    api.demo_drawflow.demo_reviewEvidence
+  );
+  const requestVisitMutation = useMutation(
+    api.demo_drawflow.demo_requestSiteVisit
+  );
   const claimVisitMutation = useMutation(api.demo_drawflow.demo_claimSiteVisit);
-  const submitVisitMutation = useMutation(api.demo_drawflow.demo_submitSiteVisitReport);
-  const approveMutation = useMutation(api.demo_drawflow.demo_approveMilestoneCompletion);
-  const rejectMutation = useMutation(api.demo_drawflow.demo_rejectMilestoneCompletion);
-  const updateValueMutation = useMutation(api.demo_drawflow.demo_updateProposalMilestoneValue);
-  const updateDurationMutation = useMutation(api.demo_drawflow.demo_updateProposalMilestoneDuration);
-  const updateDatesMutation = useMutation(api.demo_drawflow.demo_updateProposalMilestonePlannedDates);
-  const moveToDrawGroupMutation = useMutation(api.demo_drawflow.demo_moveProposalMilestoneToDrawGroup);
-  const reorderMutation = useMutation(api.demo_drawflow.demo_reorderProposalMilestones);
-  const reorderAbsoluteMutation = useMutation(api.demo_drawflow.demo_reorderProposalMilestoneAbsolute);
-  const addMilestoneMutation = useMutation(api.demo_drawflow.demo_addProposalMilestone);
-  const addDependencyMutation = useMutation(api.demo_drawflow.demo_addProposalDependency);
-  const removeDependencyMutation = useMutation(api.demo_drawflow.demo_removeProposalDependency);
-  const analyzeMutation = useMutation(api.demo_drawflow.demo_recomputeProposalPlan);
-  const applyPlanMutation = useMutation(api.demo_drawflow.demo_applyProposalPlanRecommendation);
-  const splitMutation = useMutation(api.demo_drawflow.demo_splitProposalDrawGroup);
-  const mergeMutation = useMutation(api.demo_drawflow.demo_mergeProposalDrawGroups);
-  const submitProposalMutation = useMutation(api.demo_drawflow.demo_submitProposal);
-  const dismissIssueMutation = useMutation(api.demo_drawflow.demo_dismissWorkspaceIssue);
-  const quickFixMutation = useMutation(api.demo_drawflow.demo_applyWorkspaceIssueQuickFix);
+  const submitVisitMutation = useMutation(
+    api.demo_drawflow.demo_submitSiteVisitReport
+  );
+  const approveMutation = useMutation(
+    api.demo_drawflow.demo_approveMilestoneCompletion
+  );
+  const rejectMutation = useMutation(
+    api.demo_drawflow.demo_rejectMilestoneCompletion
+  );
+  const updateValueMutation = useMutation(
+    api.demo_drawflow.demo_updateProposalMilestoneValue
+  );
+  const updateDurationMutation = useMutation(
+    api.demo_drawflow.demo_updateProposalMilestoneDuration
+  );
+  const updateDatesMutation = useMutation(
+    api.demo_drawflow.demo_updateProposalMilestonePlannedDates
+  );
+  const moveToDrawGroupMutation = useMutation(
+    api.demo_drawflow.demo_moveProposalMilestoneToDrawGroup
+  );
+  const reorderMutation = useMutation(
+    api.demo_drawflow.demo_reorderProposalMilestones
+  );
+  const reorderAbsoluteMutation = useMutation(
+    api.demo_drawflow.demo_reorderProposalMilestoneAbsolute
+  );
+  const addMilestoneMutation = useMutation(
+    api.demo_drawflow.demo_addProposalMilestone
+  );
+  const addDependencyMutation = useMutation(
+    api.demo_drawflow.demo_addProposalDependency
+  );
+  const removeDependencyMutation = useMutation(
+    api.demo_drawflow.demo_removeProposalDependency
+  );
+  const analyzeMutation = useMutation(
+    api.demo_drawflow.demo_recomputeProposalPlan
+  );
+  const applyPlanMutation = useMutation(
+    api.demo_drawflow.demo_applyProposalPlanRecommendation
+  );
+  const splitMutation = useMutation(
+    api.demo_drawflow.demo_splitProposalDrawGroup
+  );
+  const mergeMutation = useMutation(
+    api.demo_drawflow.demo_mergeProposalDrawGroups
+  );
+  const submitProposalMutation = useMutation(
+    api.demo_drawflow.demo_submitProposal
+  );
+  const dismissIssueMutation = useMutation(
+    api.demo_drawflow.demo_dismissWorkspaceIssue
+  );
+  const quickFixMutation = useMutation(
+    api.demo_drawflow.demo_applyWorkspaceIssueQuickFix
+  );
 
   const [role, setRole] = useState<WorkspaceRole>("builderLead");
   const [selectedMilestoneId, setSelectedMilestoneId] = useState("");
@@ -435,7 +533,8 @@ export function useConvexBuildWorkspace(mode: WorkspaceMode): BuildWorkspaceAdap
       await addDependencyMutation({
         blockedKey: toMilestoneId,
         blockerKey: fromMilestoneId,
-        dependencyType: hardness === "soft" ? "soft_dependency" : "hard_blocker",
+        dependencyType:
+          hardness === "soft" ? "soft_dependency" : "hard_blocker",
       });
     },
     addMilestone: async (input: AddMilestoneInput) => {
@@ -448,7 +547,10 @@ export function useConvexBuildWorkspace(mode: WorkspaceMode): BuildWorkspaceAdap
       });
     },
     addSampleEvidence: async (milestoneId) => {
-      await addSampleMutation({ milestoneKey: milestoneId, persona: roleToPersona(role) });
+      await addSampleMutation({
+        milestoneKey: milestoneId,
+        persona: roleToPersona(role),
+      });
     },
     applyRecommendedPlan: async () => {
       await applyPlanMutation({});
@@ -459,7 +561,9 @@ export function useConvexBuildWorkspace(mode: WorkspaceMode): BuildWorkspaceAdap
         return;
       }
       if (issue.quickFix.action === "openMilestoneEditor") {
-        setSelectedMilestoneId(issue.quickFix.targetId ?? issue.milestoneIds[0] ?? "");
+        setSelectedMilestoneId(
+          issue.quickFix.targetId ?? issue.milestoneIds[0] ?? ""
+        );
         return;
       }
       if (issue.quickFix.action === "applyRecommendedPlan") {
@@ -481,7 +585,10 @@ export function useConvexBuildWorkspace(mode: WorkspaceMode): BuildWorkspaceAdap
       });
     },
     claimSiteVisit: async (milestoneId) => {
-      await claimVisitMutation({ milestoneKey: milestoneId, persona: "site_visitor" });
+      await claimVisitMutation({
+        milestoneKey: milestoneId,
+        persona: "site_visitor",
+      });
     },
     mergeDrawGroups: async (sourceDrawGroupId) => {
       await mergeMutation({ drawGroupKey: sourceDrawGroupId });
@@ -604,7 +711,11 @@ export function useConvexBuildWorkspace(mode: WorkspaceMode): BuildWorkspaceAdap
       await reorderMutation({ direction, milestoneKey: milestoneId });
     },
     reorderMilestoneAbsolute: async (milestoneId, fromIndex, toIndex) => {
-      await reorderAbsoluteMutation({ fromIndex, milestoneKey: milestoneId, toIndex });
+      await reorderAbsoluteMutation({
+        fromIndex,
+        milestoneKey: milestoneId,
+        toIndex,
+      });
     },
     requestMoreInformation: async (milestoneId, reason) => {
       await reviewEvidenceMutation({
@@ -637,7 +748,10 @@ export function useConvexBuildWorkspace(mode: WorkspaceMode): BuildWorkspaceAdap
     },
     selectMilestone: setSelectedMilestoneId,
     setActivePlan: setActivePlanId,
-    setDependencyHardness: async (dependencyId, hardness: DependencyHardness) => {
+    setDependencyHardness: async (
+      dependencyId,
+      hardness: DependencyHardness
+    ) => {
       const dependency = findDependency(dependencyId);
       if (!dependency || dependency.isSystem) {
         throw new Error("System dependencies cannot be changed.");
@@ -649,12 +763,16 @@ export function useConvexBuildWorkspace(mode: WorkspaceMode): BuildWorkspaceAdap
       await addDependencyMutation({
         blockedKey: dependency.toMilestoneId,
         blockerKey: dependency.fromMilestoneId,
-        dependencyType: hardness === "soft" ? "soft_dependency" : "hard_blocker",
+        dependencyType:
+          hardness === "soft" ? "soft_dependency" : "hard_blocker",
       });
     },
     setRole,
     splitDrawGroup: async (drawGroupId, afterMilestoneId) => {
-      await splitMutation({ afterMilestoneKey: afterMilestoneId, drawGroupKey: drawGroupId });
+      await splitMutation({
+        afterMilestoneKey: afterMilestoneId,
+        drawGroupKey: drawGroupId,
+      });
     },
     submitCompletionClaim: async (milestoneId, requestedAmountCents) => {
       await submitClaimMutation({
@@ -666,7 +784,10 @@ export function useConvexBuildWorkspace(mode: WorkspaceMode): BuildWorkspaceAdap
     submitProposal: async () => {
       await submitProposalMutation({});
     },
-    submitSiteVisitReport: async (milestoneId, report: SiteVisitReportDraft) => {
+    submitSiteVisitReport: async (
+      milestoneId,
+      report: SiteVisitReportDraft
+    ) => {
       await submitVisitMutation({
         completionObserved: report.completionObserved,
         milestoneKey: milestoneId,

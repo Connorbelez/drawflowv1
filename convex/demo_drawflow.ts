@@ -735,9 +735,10 @@ function dateDiffDays(startDate: string, endDate: string) {
 }
 
 function groupAmount(milestones: { approvedValueCents: number }[]) {
-  return milestones.reduce((total, milestone) => {
-    return total + milestone.approvedValueCents;
-  }, 0);
+  return milestones.reduce(
+    (total, milestone) => total + milestone.approvedValueCents,
+    0
+  );
 }
 
 function latestDate(dates: string[]) {
@@ -925,7 +926,8 @@ async function seedActive(ctx: DemoMutationCtx) {
     scenario: "active",
     seedVersion: SEED_VERSION,
     status: "active",
-    subtitle: "Phase 1 reimbursement proposal · Hamilton, ON · reimbursement only",
+    subtitle:
+      "Phase 1 reimbursement proposal · Hamilton, ON · reimbursement only",
     todayDate: DEMO_TODAY,
     updatedAt: DEMO_NOW,
     workingCapitalLimitCents: WORKING_CAPITAL_CENTS,
@@ -938,7 +940,9 @@ async function seedActive(ctx: DemoMutationCtx) {
           ? milestone.forecastEndDate
           : undefined,
       approvedAt:
-        milestone.status === "completion_approved" ? DEMO_NOW - DAY_MS : undefined,
+        milestone.status === "completion_approved"
+          ? DEMO_NOW - DAY_MS
+          : undefined,
       approvedByPersona:
         milestone.status === "completion_approved" ? "lender_admin" : undefined,
       approvedValueCents: milestone.valueCents,
@@ -960,7 +964,9 @@ async function seedActive(ctx: DemoMutationCtx) {
       order: index + 1,
       progressPercent: milestone.progressPercent,
       requestedAmountCents:
-        milestone.status === "completion_approved" ? milestone.valueCents : undefined,
+        milestone.status === "completion_approved"
+          ? milestone.valueCents
+          : undefined,
       requiresSiteVisit: Boolean(milestone.requiresSiteVisit),
       scenario: "active",
       status: milestone.status,
@@ -978,7 +984,9 @@ async function seedActive(ctx: DemoMutationCtx) {
         (sum, milestone) => sum + milestone.valueCents,
         0
       ),
-      forecastEndDate: latestDate(milestones.map((item) => item.forecastEndDate)),
+      forecastEndDate: latestDate(
+        milestones.map((item) => item.forecastEndDate)
+      ),
       forecastStartDate: earliestDate(
         milestones.map((item) => item.forecastStartDate)
       ),
@@ -986,7 +994,12 @@ async function seedActive(ctx: DemoMutationCtx) {
       label: `Draw ${index + 1}`,
       order: index + 1,
       releaseApprovedAt: key === "d1" ? DEMO_NOW - DAY_MS * 30 : undefined,
-      status: key === "d1" ? "release_approved" : key === "d2" ? "partially_eligible" : "not_yet_eligible",
+      status:
+        key === "d1"
+          ? "release_approved"
+          : key === "d2"
+            ? "partially_eligible"
+            : "not_yet_eligible",
     };
   });
 
@@ -1033,7 +1046,8 @@ async function seedProposal(ctx: DemoMutationCtx) {
     scenario: "proposal",
     seedVersion: SEED_VERSION,
     status: "draft",
-    subtitle: "Phase 1 reimbursement proposal · Hamilton, ON · reimbursement only",
+    subtitle:
+      "Phase 1 reimbursement proposal · Hamilton, ON · reimbursement only",
     todayDate: DEMO_TODAY,
     updatedAt: DEMO_NOW,
     workingCapitalLimitCents: WORKING_CAPITAL_CENTS,
@@ -1083,7 +1097,9 @@ async function seedProposal(ctx: DemoMutationCtx) {
       key: group.key,
       label: `Draw ${index + 1}`,
       order: index + 1,
-      plannedEndDate: latestDate(groupMilestones.map((item: any) => item.plannedEndDate)),
+      plannedEndDate: latestDate(
+        groupMilestones.map((item: any) => item.plannedEndDate)
+      ),
       plannedStartDate: earliestDate(
         groupMilestones.map((item: any) => item.plannedStartDate)
       ),
@@ -1343,15 +1359,20 @@ async function buildProjection(ctx: DemoMutationCtx, scenario: Scenario) {
     const groupMilestones = decoratedMilestones.filter(
       (milestone) => milestone.drawGroupKey === group.key
     );
-    const startField = scenario === "active" ? "forecastStartDate" : "plannedStartDate";
-    const endField = scenario === "active" ? "forecastEndDate" : "plannedEndDate";
+    const startField =
+      scenario === "active" ? "forecastStartDate" : "plannedStartDate";
+    const endField =
+      scenario === "active" ? "forecastEndDate" : "plannedEndDate";
     const fallbackStartDate =
       group[startField] ??
       group.plannedStartDate ??
       group.forecastStartDate ??
       build.projectStartDate;
     const fallbackEndDate =
-      group[endField] ?? group.plannedEndDate ?? group.forecastEndDate ?? fallbackStartDate;
+      group[endField] ??
+      group.plannedEndDate ??
+      group.forecastEndDate ??
+      fallbackStartDate;
     const fallbackRow = Math.min(
       Math.max(1, group.order),
       Math.max(1, decoratedMilestones.length)
@@ -1361,7 +1382,10 @@ async function buildProjection(ctx: DemoMutationCtx, scenario: Scenario) {
       approvedValueCents: groupAmount(groupMilestones),
       eligibleDate:
         groupMilestones.length > 0
-          ? addDays(latestDate(groupMilestones.map((item) => item[endField])), 1)
+          ? addDays(
+              latestDate(groupMilestones.map((item) => item[endField])),
+              1
+            )
           : addDays(fallbackEndDate, 1),
       endDate:
         groupMilestones.length > 0
@@ -1376,7 +1400,8 @@ async function buildProjection(ctx: DemoMutationCtx, scenario: Scenario) {
           ? Math.max(...groupMilestones.map((item) => item.order))
           : fallbackRow,
       requestedValueCents: groupMilestones.reduce(
-        (sum, item) => sum + (item.requestedAmountCents ?? item.approvedValueCents),
+        (sum, item) =>
+          sum + (item.requestedAmountCents ?? item.approvedValueCents),
         0
       ),
       issues: typedIssues.filter((issue) =>
@@ -1399,8 +1424,8 @@ async function buildProjection(ctx: DemoMutationCtx, scenario: Scenario) {
     0
   );
   const drawFeesCents =
-    projectedGroups.filter((group: any) => group.requestedValueCents > 0).length *
-    build.flatDrawFeeCents;
+    projectedGroups.filter((group: any) => group.requestedValueCents > 0)
+      .length * build.flatDrawFeeCents;
   const interestEstimateCents = projectedGroups.reduce(
     (sum: number, group: any) =>
       sum +
@@ -1419,7 +1444,9 @@ async function buildProjection(ctx: DemoMutationCtx, scenario: Scenario) {
   );
 
   return {
-    auditEvents: auditEvents.sort((a: any, b: any) => b.createdAt - a.createdAt),
+    auditEvents: auditEvents.sort(
+      (a: any, b: any) => b.createdAt - a.createdAt
+    ),
     build,
     dependencies,
     drawGroups: projectedGroups,
@@ -1427,7 +1454,9 @@ async function buildProjection(ctx: DemoMutationCtx, scenario: Scenario) {
     issues: typedIssues,
     milestones: decoratedMilestones,
     needsSeed: false,
-    outboxEvents: outboxEvents.sort((a: any, b: any) => b.createdAt - a.createdAt),
+    outboxEvents: outboxEvents.sort(
+      (a: any, b: any) => b.createdAt - a.createdAt
+    ),
     rolloverBuffers,
     scenario,
     siteVisits,
@@ -1479,7 +1508,8 @@ function validateProposal(
         dismissed: false,
         drawGroupIds: [milestone.drawGroupKey],
         id: `milestone-value-${milestone.key}`,
-        impact: "Proposal submission is blocked until every budget line has a reimbursable value.",
+        impact:
+          "Proposal submission is blocked until every budget line has a reimbursable value.",
         message,
         milestoneIds: [milestone.key],
         quickFix: {
@@ -1495,8 +1525,9 @@ function validateProposal(
   }
 
   for (const group of drawGroups) {
-    const groupMilestones = milestones
-      .filter((milestone) => milestone.drawGroupKey === group.key)
+    const groupMilestones = milestones.filter(
+      (milestone) => milestone.drawGroupKey === group.key
+    );
     const amount = groupMilestones.reduce(
       (sum, milestone) => sum + milestone.approvedValueCents,
       0
@@ -1541,19 +1572,28 @@ function validateProposal(
     const currentEnd =
       current.plannedEndDate ??
       (currentMilestones.length
-        ? latestDate(currentMilestones.map((milestone) => milestone.plannedEndDate))
+        ? latestDate(
+            currentMilestones.map((milestone) => milestone.plannedEndDate)
+          )
         : undefined);
     const nextStart =
       next.plannedStartDate ??
       (nextMilestones.length
-        ? earliestDate(nextMilestones.map((milestone) => milestone.plannedStartDate))
+        ? earliestDate(
+            nextMilestones.map((milestone) => milestone.plannedStartDate)
+          )
         : undefined);
     if (currentEnd && nextStart && currentEnd >= nextStart) {
       const message = `${current.label} ends on or after ${next.label} starts.`;
       warnings.push(message);
       issues.push({
         code: "DRAW_GROUP_OVERLAP",
-        conditionHash: issueHash([current.key, currentEnd, next.key, nextStart]),
+        conditionHash: issueHash([
+          current.key,
+          currentEnd,
+          next.key,
+          nextStart,
+        ]),
         dependencyIds: [],
         dismissible: true,
         dismissed: false,
@@ -1581,7 +1621,7 @@ function validateProposal(
   for (const edge of dependencies) {
     const blocker = byKey.get(edge.blockerKey);
     const blocked = byKey.get(edge.blockedKey);
-    if (!blocker || !blocked) {
+    if (!(blocker && blocked)) {
       continue;
     }
     const violatesSchedule = blocker.plannedEndDate >= blocked.plannedStartDate;
@@ -1664,7 +1704,9 @@ function deriveBlockingReasons(input: {
     const priorGroups = input.drawGroups.filter(
       (candidate) => candidate.order < group.order
     );
-    if (priorGroups.some((candidate) => candidate.status !== "release_approved")) {
+    if (
+      priorGroups.some((candidate) => candidate.status !== "release_approved")
+    ) {
       reasons.add("capital_blocked");
     }
   }
@@ -1686,7 +1728,8 @@ function deriveBlockingReasons(input: {
       input.scenario === "active" &&
       edge.blockerKey === input.milestone.key &&
       input.milestone.forecastEndDate >=
-        (input.milestoneByKey.get(edge.blockedKey)?.forecastStartDate ?? "9999-01-01")
+        (input.milestoneByKey.get(edge.blockedKey)?.forecastStartDate ??
+          "9999-01-01")
     ) {
       reasons.add("forecast_invalid");
     }
@@ -1706,7 +1749,9 @@ function deriveBlockingReasons(input: {
   }
   if (
     input.milestone.requiresSiteVisit &&
-    ["submitted_for_review", "site_visit_requested"].includes(input.milestone.status) &&
+    ["submitted_for_review", "site_visit_requested"].includes(
+      input.milestone.status
+    ) &&
     input.siteVisit?.status !== "completed"
   ) {
     reasons.add("site_visit_required");
@@ -1741,7 +1786,9 @@ async function recomputeActiveDrawGroupStatuses(ctx: DemoMutationCtx) {
     if (group.status !== nextStatus) {
       await ctx.db.patch(group._id, {
         releaseApprovedAt:
-          nextStatus === "release_approved" ? Date.now() : group.releaseApprovedAt,
+          nextStatus === "release_approved"
+            ? Date.now()
+            : group.releaseApprovedAt,
         status: nextStatus,
         updatedAt: Date.now(),
       });
@@ -1773,7 +1820,8 @@ async function recomputeActiveDrawGroupStatuses(ctx: DemoMutationCtx) {
 async function recalcDrawGroupDates(ctx: DemoMutationCtx, scenario: Scenario) {
   const groups = await getDrawGroups(ctx, scenario);
   const milestones = await getMilestones(ctx, scenario);
-  const startField = scenario === "active" ? "forecastStartDate" : "plannedStartDate";
+  const startField =
+    scenario === "active" ? "forecastStartDate" : "plannedStartDate";
   const endField = scenario === "active" ? "forecastEndDate" : "plannedEndDate";
 
   for (const group of groups) {
@@ -1785,8 +1833,12 @@ async function recalcDrawGroupDates(ctx: DemoMutationCtx, scenario: Scenario) {
     }
     await ctx.db.patch(group._id, {
       approvedValueCents: groupAmount(groupMilestones),
-      [endField]: latestDate(groupMilestones.map((item: any) => item[endField])),
-      [startField]: earliestDate(groupMilestones.map((item: any) => item[startField])),
+      [endField]: latestDate(
+        groupMilestones.map((item: any) => item[endField])
+      ),
+      [startField]: earliestDate(
+        groupMilestones.map((item: any) => item[startField])
+      ),
       requestedValueCents: groupMilestones.reduce(
         (sum: number, item: any) =>
           sum + (item.requestedAmountCents ?? item.approvedValueCents),
@@ -1960,7 +2012,9 @@ export const demo_updateMilestoneProgress = publicMutation
     await appendAudit(ctx, {
       actorPersona: args.persona,
       afterSummary:
-        args.mode === "mark_complete" ? "Progress set to 100%" : "Progress updated",
+        args.mode === "mark_complete"
+          ? "Progress set to 100%"
+          : "Progress updated",
       beforeSummary: `${milestone.progressPercent}%`,
       buildId: milestone.buildId,
       command: "demo_updateMilestoneProgress",
@@ -2055,9 +2109,15 @@ export const demo_setMilestoneDragLocked = publicMutation
   .handler(async (ctx, args) => {
     const build = await getBuildOrThrow(ctx, args.scenario);
     if (args.scenario === "proposal" && build.status === "submitted") {
-      throw new Error("Submitted proposals cannot change milestone drag locks.");
+      throw new Error(
+        "Submitted proposals cannot change milestone drag locks."
+      );
     }
-    const milestone = await findMilestone(ctx, args.scenario, args.milestoneKey);
+    const milestone = await findMilestone(
+      ctx,
+      args.scenario,
+      args.milestoneKey
+    );
     if (!milestone) {
       throw new Error("Milestone not found");
     }
@@ -2068,8 +2128,12 @@ export const demo_setMilestoneDragLocked = publicMutation
     });
     await appendAudit(ctx, {
       actorPersona: args.persona,
-      afterSummary: args.locked ? "Timeline drag locked" : "Timeline drag unlocked",
-      beforeSummary: beforeLocked ? "Timeline drag locked" : "Timeline drag unlocked",
+      afterSummary: args.locked
+        ? "Timeline drag locked"
+        : "Timeline drag unlocked",
+      beforeSummary: beforeLocked
+        ? "Timeline drag locked"
+        : "Timeline drag unlocked",
       buildId: milestone.buildId,
       command: "demo_setMilestoneDragLocked",
       entityKey: milestone.key,
@@ -2191,7 +2255,8 @@ export const demo_batchMoveMilestoneDates = publicMutation
       command: "demo_batchMoveMilestoneDates",
       drawGroupKey: args.source === "drawGroup" ? args.sourceKey : undefined,
       entityKey: args.sourceKey,
-      entityLabel: args.source === "drawGroup" ? args.sourceKey : "Selected milestones",
+      entityLabel:
+        args.source === "drawGroup" ? args.sourceKey : "Selected milestones",
       entityType: "milestone_batch",
       eventType:
         args.scenario === "active"
@@ -2404,7 +2469,8 @@ export const demo_submitCompletionClaim = publicMutation
         requestedAmountCents: args.requestedAmountCents,
         scenario: "active",
         status: "available",
-        unusedAmountCents: milestone.approvedValueCents - args.requestedAmountCents,
+        unusedAmountCents:
+          milestone.approvedValueCents - args.requestedAmountCents,
       });
     }
     await appendAudit(ctx, {
@@ -2592,7 +2658,7 @@ export const demo_submitSiteVisitReport = publicMutation
   .handler(async (ctx, args) => {
     const visit = await latestSiteVisit(ctx, "active", args.milestoneKey);
     const milestone = await findMilestone(ctx, "active", args.milestoneKey);
-    if (!visit || !milestone) {
+    if (!(visit && milestone)) {
       throw new Error("Site visit or milestone not found.");
     }
     if (args.persona !== "site_visitor") {
@@ -2659,7 +2725,9 @@ export const demo_approveMilestoneCompletion = publicMutation
       visit?.status !== "completed" &&
       !args.overrideReason?.trim()
     ) {
-      throw new Error("Site visit must be complete or overridden with a reason.");
+      throw new Error(
+        "Site visit must be complete or overridden with a reason."
+      );
     }
     await ctx.db.patch(milestone._id, {
       approvedAt: Date.now(),
@@ -2775,7 +2843,10 @@ export const demo_updateProposalMilestoneDuration = publicMutation
       throw new Error("Milestone not found");
     }
     const durationDays = Math.max(1, Math.round(args.durationDays));
-    const plannedEndDate = addDays(milestone.plannedStartDate, durationDays - 1);
+    const plannedEndDate = addDays(
+      milestone.plannedStartDate,
+      durationDays - 1
+    );
     await ctx.db.patch(milestone._id, {
       durationDays,
       plannedEndDate,
@@ -2847,7 +2918,9 @@ export const demo_moveProposalMilestoneToDrawGroup = publicMutation
       throw new Error("Milestone not found.");
     }
     const groups = await getDrawGroups(ctx, "proposal");
-    const group = groups.find((candidate: any) => candidate.key === args.drawGroupKey);
+    const group = groups.find(
+      (candidate: any) => candidate.key === args.drawGroupKey
+    );
     if (!group) {
       throw new Error("Draw group not found.");
     }
@@ -2891,8 +2964,14 @@ export const demo_reorderProposalMilestones = publicMutation
     }
     const current = milestones[index];
     const target = milestones[targetIndex];
-    await ctx.db.patch(current._id, { order: target.order, updatedAt: Date.now() });
-    await ctx.db.patch(target._id, { order: current.order, updatedAt: Date.now() });
+    await ctx.db.patch(current._id, {
+      order: target.order,
+      updatedAt: Date.now(),
+    });
+    await ctx.db.patch(target._id, {
+      order: current.order,
+      updatedAt: Date.now(),
+    });
     await appendAudit(ctx, {
       actorPersona: "builder_lead",
       buildId: current.buildId,
@@ -3000,7 +3079,8 @@ export const demo_addProposalDependency = publicMutation
       buildId: build._id,
       isSystem: false,
       scenario: "proposal",
-      severity: args.dependencyType === "soft_dependency" ? "warning" : "blocking",
+      severity:
+        args.dependencyType === "soft_dependency" ? "warning" : "blocking",
       type: args.dependencyType,
     });
     await appendAudit(ctx, {
@@ -3026,7 +3106,8 @@ export const demo_removeProposalDependency = publicMutation
     const dependencies = await getDependencies(ctx, "proposal");
     const dependency = dependencies.find(
       (edge: any) =>
-        edge.blockedKey === args.blockedKey && edge.blockerKey === args.blockerKey
+        edge.blockedKey === args.blockedKey &&
+        edge.blockerKey === args.blockerKey
     );
     if (!dependency) {
       return { ok: false };
@@ -3105,9 +3186,10 @@ export const demo_applyProposalPlanRecommendation = publicMutation
   .handler(async (ctx) => {
     const build = await getBuildOrThrow(ctx, "proposal");
     const milestones = await getMilestones(ctx, "proposal");
-    const orderedMilestones = [...milestones].sort((a: any, b: any) => {
-      return RECOMMENDED_ORDER.indexOf(a.key) - RECOMMENDED_ORDER.indexOf(b.key);
-    });
+    const orderedMilestones = [...milestones].sort(
+      (a: any, b: any) =>
+        RECOMMENDED_ORDER.indexOf(a.key) - RECOMMENDED_ORDER.indexOf(b.key)
+    );
     const recommendedGroupByKey = new Map<string, string>();
     let currentGroupNumber = 1;
     let currentGroupTotal = 0;
@@ -3127,7 +3209,8 @@ export const demo_applyProposalPlanRecommendation = publicMutation
       if (newOrder > 0) {
         const start = addDays("2026-01-05", Math.floor((newOrder - 1) * 30));
         await ctx.db.patch(milestone._id, {
-          drawGroupKey: recommendedGroupByKey.get(milestone.key) ?? milestone.drawGroupKey,
+          drawGroupKey:
+            recommendedGroupByKey.get(milestone.key) ?? milestone.drawGroupKey,
           order: newOrder,
           plannedEndDate: addDays(start, milestone.durationDays - 1),
           plannedStartDate: start,
@@ -3151,12 +3234,17 @@ export const demo_applyProposalPlanRecommendation = publicMutation
 
 export const demo_splitProposalDrawGroup = publicMutation
   .use(withMutationTiming("demo_drawflow.splitProposalDrawGroup"))
-  .input({ afterMilestoneKey: v.optional(v.string()), drawGroupKey: v.string() })
+  .input({
+    afterMilestoneKey: v.optional(v.string()),
+    drawGroupKey: v.string(),
+  })
   .returns(v.any())
   .handler(async (ctx, args) => {
     const build = await getBuildOrThrow(ctx, "proposal");
     const groups = await getDrawGroups(ctx, "proposal");
-    const group = groups.find((candidate: any) => candidate.key === args.drawGroupKey);
+    const group = groups.find(
+      (candidate: any) => candidate.key === args.drawGroupKey
+    );
     if (!group) {
       throw new Error("Draw group not found.");
     }
@@ -3219,11 +3307,15 @@ export const demo_mergeProposalDrawGroups = publicMutation
   .returns(v.any())
   .handler(async (ctx, args) => {
     const groups = await getDrawGroups(ctx, "proposal");
-    const group = groups.find((candidate: any) => candidate.key === args.drawGroupKey);
+    const group = groups.find(
+      (candidate: any) => candidate.key === args.drawGroupKey
+    );
     if (!group || group.order === 1) {
       return { ok: false };
     }
-    const previous = groups.find((candidate: any) => candidate.order === group.order - 1);
+    const previous = groups.find(
+      (candidate: any) => candidate.order === group.order - 1
+    );
     const milestones = await getMilestones(ctx, "proposal");
     for (const milestone of milestones.filter(
       (candidate: any) => candidate.drawGroupKey === group.key
@@ -3263,7 +3355,11 @@ export const demo_mergeProposalDrawGroups = publicMutation
 
 export const demo_reorderProposalMilestoneAbsolute = publicMutation
   .use(withMutationTiming("demo_drawflow.reorderProposalMilestoneAbsolute"))
-  .input({ fromIndex: v.number(), milestoneKey: v.string(), toIndex: v.number() })
+  .input({
+    fromIndex: v.number(),
+    milestoneKey: v.string(),
+    toIndex: v.number(),
+  })
   .returns(v.any())
   .handler(async (ctx, args) => {
     const milestones = await getMilestones(ctx, "proposal");
@@ -3368,9 +3464,10 @@ export const demo_applyWorkspaceIssueQuickFix = publicMutation
     if (args.action === "applyRecommendedPlan") {
       const build = await getBuildOrThrow(ctx, "proposal");
       const milestones = await getMilestones(ctx, "proposal");
-      const orderedMilestones = [...milestones].sort((a: any, b: any) => {
-        return RECOMMENDED_ORDER.indexOf(a.key) - RECOMMENDED_ORDER.indexOf(b.key);
-      });
+      const orderedMilestones = [...milestones].sort(
+        (a: any, b: any) =>
+          RECOMMENDED_ORDER.indexOf(a.key) - RECOMMENDED_ORDER.indexOf(b.key)
+      );
       for (const [index, milestone] of orderedMilestones.entries()) {
         const start = addDays("2026-01-05", index * 30);
         await ctx.db.patch(milestone._id, {
@@ -3398,7 +3495,9 @@ export const demo_applyWorkspaceIssueQuickFix = publicMutation
     if (args.action === "splitDrawGroup" && args.targetId) {
       const build = await getBuildOrThrow(ctx, "proposal");
       const groups = await getDrawGroups(ctx, "proposal");
-      const group = groups.find((candidate: any) => candidate.key === args.targetId);
+      const group = groups.find(
+        (candidate: any) => candidate.key === args.targetId
+      );
       const milestones = await getMilestones(ctx, "proposal");
       const groupMilestones = milestones.filter(
         (milestone: any) => milestone.drawGroupKey === args.targetId
@@ -3446,13 +3545,23 @@ export const demo_applyWorkspaceIssueQuickFix = publicMutation
 
     if (args.action === "shiftDependentMilestone" && args.targetId) {
       const dependencies = await getDependencies(ctx, "proposal");
-      const dependency = dependencies.find((edge: any) => edge._id === args.targetId);
+      const dependency = dependencies.find(
+        (edge: any) => edge._id === args.targetId
+      );
       if (!dependency) {
         throw new Error("Dependency not found.");
       }
-      const blocker = await findMilestone(ctx, "proposal", dependency.blockerKey);
-      const blocked = await findMilestone(ctx, "proposal", dependency.blockedKey);
-      if (!blocker || !blocked) {
+      const blocker = await findMilestone(
+        ctx,
+        "proposal",
+        dependency.blockerKey
+      );
+      const blocked = await findMilestone(
+        ctx,
+        "proposal",
+        dependency.blockedKey
+      );
+      if (!(blocker && blocked)) {
         throw new Error("Dependency milestones not found.");
       }
       const start = addDays(blocker.plannedEndDate, 1);
@@ -3479,8 +3588,10 @@ export const demo_applyWorkspaceIssueQuickFix = publicMutation
     if (args.action === "shiftNextDrawGroup" && args.targetId) {
       const groups = await getDrawGroups(ctx, "proposal");
       const current = groups.find((group: any) => group.key === args.targetId);
-      const next = groups.find((group: any) => group.order === current?.order + 1);
-      if (!current || !next) {
+      const next = groups.find(
+        (group: any) => group.order === current?.order + 1
+      );
+      if (!(current && next)) {
         throw new Error("Draw group sequence not found.");
       }
       const milestones = await getMilestones(ctx, "proposal");
@@ -3519,7 +3630,9 @@ export const demo_applyWorkspaceIssueQuickFix = publicMutation
       return { ok: true };
     }
 
-    throw new Error("This issue opens the relevant editor instead of applying an automatic fix.");
+    throw new Error(
+      "This issue opens the relevant editor instead of applying an automatic fix."
+    );
   })
   .public();
 
@@ -3575,9 +3688,17 @@ export const demo_submitProposal = publicMutation
   })
   .public();
 
-function createsCycle(dependencies: any[], blockerKey: string, blockedKey: string) {
+function createsCycle(
+  dependencies: any[],
+  blockerKey: string,
+  blockedKey: string
+) {
   const edges = [...dependencies, { blockedKey, blockerKey }];
-  const visit = (current: string, target: string, seen: Set<string>): boolean => {
+  const visit = (
+    current: string,
+    target: string,
+    seen: Set<string>
+  ): boolean => {
     if (current === target) {
       return true;
     }

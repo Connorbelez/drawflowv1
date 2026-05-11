@@ -1,0 +1,7 @@
+interface:
+  display_name: "Goal Plan Interviewer"
+  short_description: "Mock, trace, and plan features"
+  default_prompt: "Use $goal-plan-interviewer to turn this feature or PRD into a repo-grounded HTML planning mockup with traceable flows, contracts, validation, and a /goal implementation plan."
+
+policy:
+  allow_implicit_invocation: true

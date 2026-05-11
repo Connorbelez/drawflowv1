@@ -1,17 +1,15 @@
 import {
-  DndContext,
-  PointerSensor,
   closestCenter,
+  DndContext,
+  type DragEndEvent,
+  PointerSensor,
   useSensor,
   useSensors,
-  type DragEndEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
-  useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import {
   addDays,
   differenceInDays,
@@ -20,23 +18,17 @@ import {
 } from "date-fns";
 import {
   AlertTriangle,
-  ArrowDown,
-  ArrowLeft,
-  ArrowRight,
-  ArrowUp,
   Banknote,
   CalendarDays,
   Check,
   ChevronDown,
   ClipboardCheck,
   GitBranch,
-  GripVertical,
   Info,
   Lock,
   MapPinOff,
   PanelLeftClose,
   PanelLeftOpen,
-  PanelRightOpen,
   Plus,
   RotateCcw,
   Scissors,
@@ -45,7 +37,7 @@ import {
   Unlock,
   Upload,
 } from "lucide-react";
-import type { ComponentType, ReactNode } from "react";
+import type { ComponentType, CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -57,11 +49,12 @@ import {
   GanttProvider,
   GanttRangeDragHandle,
   GanttRangeOverlay,
+  GanttSelectionLayer,
   GanttSidebar,
   GanttSidebarItem,
-  GanttSelectionLayer,
   GanttTimeline,
   GanttToday,
+  getGanttRangeWidth,
   type Range,
   useGanttContext,
 } from "#/components/kibo-ui/gantt/index.tsx";
@@ -74,6 +67,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog.tsx";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "#/components/ui/hover-card.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import {
   NativeSelect,
@@ -85,11 +83,6 @@ import {
   PopoverTrigger,
 } from "#/components/ui/popover.tsx";
 import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "#/components/ui/hover-card.tsx";
-import {
   Sheet,
   SheetContent,
   SheetHeader,
@@ -97,6 +90,7 @@ import {
 } from "#/components/ui/sheet.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { cn } from "#/lib/utils.ts";
+import { SortableMilestoneRailRow } from "./SortableMilestoneRailRow";
 import type {
   DependencyHardness,
   DrawGroup,
@@ -105,8 +99,8 @@ import type {
   Milestone,
   MilestoneStatus,
   OptimizationPlanId,
-  WorkspaceRole,
   WorkspaceIssue,
+  WorkspaceRole,
 } from "./types";
 import { useBuildWorkspace } from "./workspace-adapter";
 
@@ -180,11 +174,14 @@ const statusColors: Record<MilestoneStatus, string> = {
 };
 
 const drawClasses: Record<DrawStatus, string> = {
-  blocked: "border-red-400/70 bg-red-500/10 text-red-100",
-  evidencePending: "border-amber-300/70 bg-amber-400/10 text-amber-100",
-  planned: "border-sky-300/50 bg-sky-400/10 text-sky-100",
-  readyForRelease: "border-emerald-300/70 bg-emerald-400/10 text-emerald-100",
-  released: "border-lime-300/70 bg-lime-400/15 text-lime-100",
+  blocked: "border-red-400/70 bg-red-500/10 text-red-700 dark:text-red-100",
+  evidencePending:
+    "border-amber-300/70 bg-amber-400/10 text-amber-800 dark:text-amber-100",
+  planned: "border-sky-300/50 bg-sky-400/10 text-sky-700 dark:text-sky-100",
+  readyForRelease:
+    "border-emerald-300/70 bg-emerald-400/10 text-emerald-700 dark:text-emerald-100",
+  released:
+    "border-lime-300/70 bg-lime-400/15 text-lime-800 dark:text-lime-100",
 };
 
 const money = (value: number) =>
@@ -276,8 +273,9 @@ export function BuildWorkspaceDemo() {
       )
     : undefined;
   const detailMilestone =
-    workspace.milestones.find((milestone) => milestone.id === detailMilestoneId) ??
-    selectedMilestone;
+    workspace.milestones.find(
+      (milestone) => milestone.id === detailMilestoneId
+    ) ?? selectedMilestone;
   const detailDraw = detailMilestone
     ? workspace.drawGroups.find(
         (drawGroup) => drawGroup.id === detailMilestone.drawGroupId
@@ -293,9 +291,9 @@ export function BuildWorkspaceDemo() {
 
   if (workspace.isLoading || workspace.needsSeed || !selectedMilestone) {
     return (
-      <main className="grid min-h-screen place-items-center bg-[#0d100f] text-stone-100">
+      <main className="grid min-h-screen place-items-center bg-background text-foreground">
         <div
-          className="rounded-md border border-white/10 bg-[#151a18] px-4 py-3 text-sm"
+          className="rounded-md border border-border bg-card px-4 py-3 text-sm"
           data-testid="build-workspace-loading"
         >
           Loading DrawFlow workspace...
@@ -305,7 +303,7 @@ export function BuildWorkspaceDemo() {
   }
 
   return (
-    <main className="fixed inset-x-0 bottom-0 top-16 overflow-hidden bg-[#0d100f] text-stone-100">
+    <main className="fixed inset-x-0 top-16 bottom-0 overflow-hidden bg-background text-foreground">
       <div
         className="flex h-full min-h-0 w-full flex-col px-3 pt-3 sm:px-4"
         data-testid="build-workspace-shell"
@@ -318,15 +316,17 @@ export function BuildWorkspaceDemo() {
           totalDrawAmount={totalDrawAmount}
         />
         {workspace.terminalMessage ? (
-          <div className="mb-3 rounded-md border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-emerald-100 text-sm">
+          <div className="mb-3 rounded-md border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-emerald-700 text-sm dark:text-emerald-100">
             {workspace.terminalMessage}
           </div>
         ) : null}
 
-        <section className="grid min-h-0 min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-md border border-white/10 bg-[#121615] shadow-2xl shadow-black/40">
+        <section className="grid min-h-0 min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-md border border-border bg-card shadow-2xl shadow-foreground/10">
           <TimelineControlsStrip
+            onRailCollapsedChange={setMilestoneRailCollapsed}
             onResolutionChange={setTimelineResolution}
             onZoomChange={setTimelineZoom}
+            railCollapsed={milestoneRailCollapsed}
             resolution={timelineResolution}
             zoom={timelineZoom}
           />
@@ -341,7 +341,6 @@ export function BuildWorkspaceDemo() {
                 setDetailOpen(true);
               }}
               railCollapsed={milestoneRailCollapsed}
-              onRailCollapsedChange={setMilestoneRailCollapsed}
               resolution={timelineResolution}
               zoom={timelineZoom}
             />
@@ -399,33 +398,41 @@ function WorkspaceTopBar({
     ) ?? workspace.milestones[0];
 
   return (
-    <header className="mb-3 grid gap-3 rounded-md border border-white/10 bg-[#151a18] p-3 shadow-black/20 shadow-lg lg:grid-cols-[minmax(22rem,0.9fr)_minmax(0,1.6fr)]">
+    <header className="mb-3 grid gap-3 rounded-md border border-border bg-card p-3 shadow-foreground/10 shadow-lg lg:grid-cols-[minmax(22rem,0.9fr)_minmax(0,1.6fr)]">
       <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2 text-stone-400 text-xs">
-          <span className="font-semibold text-emerald-200 tracking-wide">
+        <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
+          <span className="font-semibold text-emerald-700 tracking-wide dark:text-emerald-200">
             DrawFlow
           </span>
           <span>/</span>
-          <a className="hover:text-emerald-100" href="/demo/drawflow/active">
+          <a
+            className="hover:text-emerald-700 dark:text-emerald-100"
+            href="/demo/drawflow/active"
+          >
             Active
           </a>
           <span>/</span>
-          <a className="hover:text-emerald-100" href="/demo/drawflow/proposal">
+          <a
+            className="hover:text-emerald-700 dark:text-emerald-100"
+            href="/demo/drawflow/proposal"
+          >
             Proposal
           </a>
-          <Badge className="border-cyan-300/30 bg-cyan-300/10 text-cyan-100">
-            {workspace.mode === "active" ? "active" : workspace.build.proposalStatus}
+          <Badge className="border-cyan-300/30 bg-cyan-300/10 text-cyan-700 dark:text-cyan-100">
+            {workspace.mode === "active"
+              ? "active"
+              : workspace.build.proposalStatus}
           </Badge>
         </div>
         <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-1">
           <h1 className="font-semibold text-2xl leading-tight tracking-normal">
             {workspace.build.buildName}
           </h1>
-          <span className="pb-1 text-stone-400 text-xs">
+          <span className="pb-1 text-muted-foreground text-xs">
             {workspace.build.phaseLabel}
           </span>
         </div>
-        <p className="mt-1 text-stone-500 text-xs">
+        <p className="mt-1 text-muted-foreground text-xs">
           {workspace.build.borrowerName} / {workspace.build.siteAddress}
         </p>
       </div>
@@ -466,7 +473,7 @@ function WorkspaceTopBar({
           Validation
           {validationCount > 0 ? (
             <span
-              className="-top-2 -right-2 absolute grid min-w-5 place-items-center rounded-full border border-red-200/70 bg-red-500 px-1 font-semibold text-[0.62rem] text-white shadow-lg shadow-red-950/40"
+              className="absolute -top-2 -right-2 grid min-w-5 place-items-center rounded-full border border-red-200/70 bg-red-500 px-1 font-semibold text-[0.62rem] text-white shadow-lg shadow-red-950/40"
               data-testid="workspace-validation-count"
             >
               {validationCount}
@@ -609,30 +616,44 @@ function RolePrimaryAction({ milestone }: { milestone: Milestone }) {
 }
 
 function TimelineControlsStrip({
+  railCollapsed,
   resolution,
   zoom,
+  onRailCollapsedChange,
   onResolutionChange,
   onZoomChange,
 }: {
+  railCollapsed: boolean;
   resolution: GanttResolution;
   zoom: number;
+  onRailCollapsedChange: (collapsed: boolean) => void;
   onResolutionChange: (resolution: GanttResolution) => void;
   onZoomChange: (zoom: number) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-white/10 border-b bg-[#111715] p-3">
-      <div className="text-stone-400 text-xs">
-        Roadmap scale
+    <div className="flex flex-wrap items-center justify-between gap-2 border-border border-b bg-card p-3">
+      <div className="flex items-center gap-2">
+        <Button
+          className="self-stretch border-cyan-300/30 bg-cyan-300/10 px-2.5 text-cyan-700 hover:border-cyan-300/50 hover:bg-cyan-300/15 hover:text-cyan-950 dark:text-cyan-100 dark:text-cyan-50"
+          data-testid="milestone-rail-collapse-toggle"
+          onClick={() => onRailCollapsedChange(!railCollapsed)}
+          title={railCollapsed ? "Show milestone rail" : "Hide milestone rail"}
+          variant="outline"
+        >
+          {railCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+          {railCollapsed ? "Show milestones" : "Hide milestones"}
+        </Button>
+        <div className="text-muted-foreground text-xs">Roadmap scale</div>
       </div>
-      <div className="flex flex-wrap items-center gap-2 rounded-md border border-white/10 bg-black/20 p-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/30 p-2 text-xs">
         <div className="flex items-center gap-2">
-          <CalendarDays className="size-4 text-stone-500" />
+          <CalendarDays className="size-4 text-muted-foreground" />
           <div className="grid grid-cols-3">
             {resolutionOptions.map((option) => (
               <button
                 aria-pressed={resolution === option.value}
                 className={cn(
-                  "h-7 rounded-sm px-2 font-medium text-stone-400 transition-colors hover:text-stone-100",
+                  "h-7 rounded-sm px-2 font-medium text-muted-foreground transition-colors hover:text-foreground",
                   resolution === option.value &&
                     "bg-emerald-300 text-emerald-950 hover:text-emerald-950"
                 )}
@@ -646,7 +667,7 @@ function TimelineControlsStrip({
             ))}
           </div>
         </div>
-        <div className="grid grid-cols-[auto_8rem_auto] items-center gap-2 text-stone-400">
+        <div className="grid grid-cols-[auto_8rem_auto] items-center gap-2 text-muted-foreground">
           <span>Size</span>
           <input
             aria-label="Timeline column size"
@@ -661,7 +682,7 @@ function TimelineControlsStrip({
             type="range"
             value={zoom}
           />
-          <span className="w-8 text-right text-stone-500">{zoom}%</span>
+          <span className="w-8 text-right text-muted-foreground">{zoom}%</span>
         </div>
       </div>
     </div>
@@ -682,7 +703,7 @@ function DrawPlanComparisonDialog({
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
-        className="max-h-[min(760px,calc(100vh-4rem))] max-w-4xl overflow-hidden border border-white/10 bg-[#111615] text-stone-100"
+        className="max-h-[min(760px,calc(100vh-4rem))] max-w-4xl overflow-hidden border border-border bg-popover text-foreground"
         data-testid="draw-plan-comparison-dialog"
       >
         <DialogHeader>
@@ -694,8 +715,8 @@ function DrawPlanComparisonDialog({
               className={cn(
                 "grid gap-3 rounded-md border p-4 text-left transition-colors",
                 plan.id === activePlanId
-                  ? "border-emerald-300/60 bg-emerald-300/10 text-emerald-50"
-                  : "border-white/10 bg-white/[0.03] text-stone-300 hover:bg-white/[0.06]"
+                  ? "border-emerald-300/60 bg-emerald-300/10 text-emerald-950 dark:text-emerald-50"
+                  : "border-border bg-muted/30 text-muted-foreground hover:bg-muted/60"
               )}
               key={plan.id}
               onClick={() => workspace.setActivePlan(plan.id)}
@@ -703,16 +724,22 @@ function DrawPlanComparisonDialog({
             >
               <div className="flex items-start justify-between gap-3">
                 <span className="font-semibold text-sm">{plan.label}</span>
-                <span className="rounded-sm border border-white/10 px-2 py-1 text-xs">
+                <span className="rounded-sm border border-border px-2 py-1 text-xs">
                   {plan.durationDays}d
                 </span>
               </div>
               <div className="grid gap-2 text-xs">
                 <span>{compactMoney(plan.totalFees)} draw fees</span>
-                <span>{compactMoney(plan.projectedInterest)} projected interest</span>
-                <span>{compactMoney(plan.peakWorkingCapital)} peak working capital</span>
+                <span>
+                  {compactMoney(plan.projectedInterest)} projected interest
+                </span>
+                <span>
+                  {compactMoney(plan.peakWorkingCapital)} peak working capital
+                </span>
               </div>
-              <p className="text-amber-200/80 text-xs">{plan.warning}</p>
+              <p className="text-amber-700/90 text-xs dark:text-amber-200/80">
+                {plan.warning}
+              </p>
             </button>
           ))}
         </div>
@@ -748,7 +775,7 @@ function ValidationDialog({
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
-        className="grid max-h-[min(820px,calc(100dvh-2rem))] grid-rows-[auto_minmax(0,1fr)] overflow-hidden border border-white/10 bg-[#111615] text-stone-100 sm:max-w-3xl"
+        className="grid max-h-[min(820px,calc(100dvh-2rem))] grid-rows-[auto_minmax(0,1fr)] overflow-hidden border border-border bg-popover text-foreground sm:max-w-3xl"
         data-testid="workspace-validation-dialog"
       >
         <DialogHeader>
@@ -759,7 +786,7 @@ function ValidationDialog({
           data-testid="workspace-validation-panel"
         >
           {validationItems.length === 0 && visibleIssues.length === 0 ? (
-            <Badge className="w-fit border-emerald-300/30 bg-emerald-300/10 text-emerald-100">
+            <Badge className="w-fit border-emerald-300/30 bg-emerald-300/10 text-emerald-700 dark:text-emerald-100">
               No blocking errors
             </Badge>
           ) : null}
@@ -792,9 +819,9 @@ function ValidationMessageItem({
   testId: string;
 }) {
   return (
-    <details className="group rounded-md border border-white/10 bg-black/20 p-0 text-left shadow-[0_16px_40px_rgba(0,0,0,0.24)] [&>summary::-webkit-details-marker]:hidden">
+    <details className="group rounded-md border border-border bg-muted/30 p-0 text-left shadow-[0_16px_40px_rgba(0,0,0,0.24)] [&>summary::-webkit-details-marker]:hidden">
       <summary
-        className="grid cursor-pointer grid-cols-[1fr_auto] items-start gap-3 rounded-md p-4 outline-none transition hover:bg-white/[0.04] focus-visible:ring-2 focus-visible:ring-cyan-300/50"
+        className="grid cursor-pointer grid-cols-[1fr_auto] items-start gap-3 rounded-md p-4 outline-none transition hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-cyan-300/50"
         data-testid={testId}
       >
         <span className="grid min-w-0 gap-1">
@@ -802,14 +829,16 @@ function ValidationMessageItem({
             <AlertTriangle
               className={cn(
                 "size-4 shrink-0",
-                item.severity === "blocking" ? "text-red-200" : "text-amber-200"
+                item.severity === "blocking"
+                  ? "text-red-700 dark:text-red-200"
+                  : "text-amber-800 dark:text-amber-200"
               )}
             />
-            <span className="font-semibold text-sm text-stone-100">
+            <span className="font-semibold text-foreground text-sm">
               {item.title}
             </span>
           </span>
-          <span className="line-clamp-2 text-stone-300 text-xs">
+          <span className="line-clamp-2 text-muted-foreground text-xs">
             {item.message}
           </span>
         </span>
@@ -817,11 +846,11 @@ function ValidationMessageItem({
           <Badge className={cn("rounded-sm", issueTone(item))}>
             {item.severity}
           </Badge>
-          <ChevronDown className="size-4 text-stone-500 transition group-open:rotate-180" />
+          <ChevronDown className="size-4 text-muted-foreground transition group-open:rotate-180" />
         </span>
       </summary>
       <div
-        className="border-white/10 border-t px-4 pt-3 pb-4"
+        className="border-border border-t px-4 pt-3 pb-4"
         data-testid={`${testId}-popover`}
       >
         <ValidationMessageBody item={item} />
@@ -843,27 +872,29 @@ function ValidationMessageBody({
     <div className="grid gap-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="font-semibold text-base text-stone-100">
+          <h3 className="font-semibold text-base text-foreground">
             {item.title}
           </h3>
-          <p className="mt-1 text-sm text-stone-300">{item.message}</p>
+          <p className="mt-1 text-muted-foreground text-sm">{item.message}</p>
         </div>
         <Badge className={cn("rounded-sm", issueTone(item))}>
           {item.severity}
         </Badge>
       </div>
-      <div className="grid gap-1 text-sm text-stone-400">
+      <div className="grid gap-1 text-muted-foreground text-sm">
         <div>
-          <span className="text-stone-500">Why it matters: </span>
+          <span className="text-muted-foreground">Why it matters: </span>
           Roadmap validation protects draw eligibility, dependency sequencing,
           and borrower/lender approval timing before the proposal is submitted.
         </div>
         <div>
-          <span className="text-stone-500">Blocks release/submission: </span>
+          <span className="text-muted-foreground">
+            Blocks release/submission:{" "}
+          </span>
           {item.severity === "blocking" ? "Yes" : "No"}
         </div>
         <div>
-          <span className="text-stone-500">Recommended fix: </span>
+          <span className="text-muted-foreground">Recommended fix: </span>
           Review the related milestone or draw group issue below, then apply a
           quick fix or adjust the roadmap dates.
         </div>
@@ -876,9 +907,9 @@ function ValidationWorkspaceIssueItem({ issue }: { issue: WorkspaceIssue }) {
   const testId = `validation-issue-${issue.id}`;
 
   return (
-    <details className="group rounded-md border border-white/10 bg-black/20 p-0 text-left shadow-[0_16px_40px_rgba(0,0,0,0.24)] [&>summary::-webkit-details-marker]:hidden">
+    <details className="group rounded-md border border-border bg-muted/30 p-0 text-left shadow-[0_16px_40px_rgba(0,0,0,0.24)] [&>summary::-webkit-details-marker]:hidden">
       <summary
-        className="grid cursor-pointer grid-cols-[1fr_auto] items-start gap-3 rounded-md p-4 outline-none transition hover:bg-white/[0.04] focus-visible:ring-2 focus-visible:ring-cyan-300/50"
+        className="grid cursor-pointer grid-cols-[1fr_auto] items-start gap-3 rounded-md p-4 outline-none transition hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-cyan-300/50"
         data-testid={testId}
       >
         <span className="grid min-w-0 gap-1">
@@ -886,14 +917,16 @@ function ValidationWorkspaceIssueItem({ issue }: { issue: WorkspaceIssue }) {
             <AlertTriangle
               className={cn(
                 "size-4 shrink-0",
-                issue.severity === "blocking" ? "text-red-200" : "text-amber-200"
+                issue.severity === "blocking"
+                  ? "text-red-700 dark:text-red-200"
+                  : "text-amber-800 dark:text-amber-200"
               )}
             />
-            <span className="font-semibold text-sm text-stone-100">
+            <span className="font-semibold text-foreground text-sm">
               {issue.title}
             </span>
           </span>
-          <span className="line-clamp-2 text-stone-300 text-xs">
+          <span className="line-clamp-2 text-muted-foreground text-xs">
             {issue.message}
           </span>
         </span>
@@ -901,16 +934,86 @@ function ValidationWorkspaceIssueItem({ issue }: { issue: WorkspaceIssue }) {
           <Badge className={cn("rounded-sm", issueTone(issue))}>
             {issue.severity}
           </Badge>
-          <ChevronDown className="size-4 text-stone-500 transition group-open:rotate-180" />
+          <ChevronDown className="size-4 text-muted-foreground transition group-open:rotate-180" />
         </span>
       </summary>
       <div
-        className="border-white/10 border-t px-4 pt-3 pb-4"
+        className="border-border border-t px-4 pt-3 pb-4"
         data-testid={`${testId}-popover`}
       >
         <IssuePopoverBody issue={issue} />
       </div>
     </details>
+  );
+}
+
+type DrawOverlay = ReturnType<typeof getDrawOverlays>[number];
+
+function DrawGroupRangeDragHandle({
+  children,
+  draw,
+  milestones,
+  onMoveDelta,
+  onPreviewDelta,
+  proposalSubmitted,
+}: {
+  children: ReactNode;
+  draw: DrawOverlay;
+  milestones: Milestone[];
+  onMoveDelta: (deltaDays: number) => void;
+  onPreviewDelta: (deltaDays: number | null) => void;
+  proposalSubmitted: boolean;
+}) {
+  const gantt = useGanttContext();
+  const hasUnlockedMilestones = milestones.some(
+    (milestone) => milestone.drawGroupId === draw.id && !milestone.isDragLocked
+  );
+  const firstMilestoneWidth = useMemo(() => {
+    const firstMilestone = milestones
+      .filter((milestone) => milestone.drawGroupId === draw.id)
+      .sort(
+        (leftMilestone, rightMilestone) =>
+          leftMilestone.startAt.getTime() - rightMilestone.startAt.getTime() ||
+          leftMilestone.endAt.getTime() - rightMilestone.endAt.getTime()
+      )
+      .at(0);
+
+    return firstMilestone
+      ? Math.round(
+          getGanttRangeWidth(
+            firstMilestone.startAt,
+            firstMilestone.endAt,
+            gantt
+          )
+        )
+      : 0;
+  }, [draw.id, gantt, milestones]);
+  const handleStyle = useMemo<CSSProperties>(
+    () => ({
+      left: firstMilestoneWidth,
+      // transform: "translateX(-100%)",
+    }),
+    [firstMilestoneWidth]
+  );
+
+  return (
+    <GanttRangeDragHandle
+      className="absolute -top-4 z-40 inline-flex min-w-max max-w-max items-center gap-2 rounded-sm bg-popover/95 px-2.5 py-1 font-medium text-[0.72rem] shadow-foreground/10 shadow-lg backdrop-blur"
+      contentTestId={`draw-label-${draw.id}`}
+      disabled={proposalSubmitted || !hasUnlockedMilestones}
+      onMoveDelta={onMoveDelta}
+      onPreviewDelta={onPreviewDelta}
+      startAt={draw.startAt}
+      style={handleStyle}
+      testId={`draw-drag-handle-${draw.id}`}
+      title={
+        hasUnlockedMilestones
+          ? `Drag to shift unlocked milestones in ${draw.label}`
+          : `${draw.label} has no unlocked milestones to shift.`
+      }
+    >
+      {children}
+    </GanttRangeDragHandle>
   );
 }
 
@@ -921,7 +1024,6 @@ function GanttRoadmap({
   onMilestoneFocus,
   onOpenDetail,
   railCollapsed,
-  onRailCollapsedChange,
   resolution,
   zoom,
 }: {
@@ -931,7 +1033,6 @@ function GanttRoadmap({
   onMilestoneFocus: (milestoneId: string | null) => void;
   onOpenDetail: (milestoneId: string) => void;
   railCollapsed: boolean;
-  onRailCollapsedChange: (collapsed: boolean) => void;
   resolution: GanttResolution;
   zoom: number;
 }) {
@@ -941,23 +1042,28 @@ function GanttRoadmap({
   const [batchShiftPreview, setBatchShiftPreview] =
     useState<BatchShiftPreview>(null);
   const proposalSubmitted =
-    workspace.mode === "proposal" && workspace.build.proposalStatus === "submitted";
+    workspace.mode === "proposal" &&
+    workspace.build.proposalStatus === "submitted";
   const selectionPreview =
     batchShiftPreview?.source === "selection" ? batchShiftPreview : null;
   const drawGroupPreview =
     batchShiftPreview?.source === "drawGroup" ? batchShiftPreview : null;
   const features: GanttFeature[] = workspace.milestones.map((milestone) => {
-    const featureMilestone =
-      selectionPreview?.movingMilestoneIds.includes(milestone.id)
-        ? {
-            ...milestone,
-            startAt: addDays(milestone.startAt, selectionPreview.deltaDays),
-            endAt: addDays(milestone.endAt, selectionPreview.deltaDays),
-          }
-        : milestone;
+    const featureMilestone = selectionPreview?.movingMilestoneIds.includes(
+      milestone.id
+    )
+      ? {
+          ...milestone,
+          startAt: addDays(milestone.startAt, selectionPreview.deltaDays),
+          endAt: addDays(milestone.endAt, selectionPreview.deltaDays),
+        }
+      : milestone;
     return milestoneToFeature(featureMilestone);
   });
-  const drawOverlays = getDrawOverlays(workspace.milestones, workspace.drawGroups);
+  const drawOverlays = getDrawOverlays(
+    workspace.milestones,
+    workspace.drawGroups
+  );
   const drawGroupGhostOverlays = drawGroupPreview
     ? getDrawOverlays(
         workspace.milestones.map((milestone) =>
@@ -1014,14 +1120,17 @@ function GanttRoadmap({
   const clearSelection = useCallback(() => {
     setSelectedMilestoneIds(new Set());
   }, []);
-  const selectFromMarquee = useCallback((milestoneIds: string[]) => {
-    setSelectedMilestoneIds(new Set(milestoneIds));
-    const first = milestoneIds[0];
-    if (first) {
-      workspace.selectMilestone(first);
-      onMilestoneFocus(first);
-    }
-  }, [onMilestoneFocus, workspace]);
+  const selectFromMarquee = useCallback(
+    (milestoneIds: string[]) => {
+      setSelectedMilestoneIds(new Set(milestoneIds));
+      const first = milestoneIds[0];
+      if (first) {
+        workspace.selectMilestone(first);
+        onMilestoneFocus(first);
+      }
+    },
+    [onMilestoneFocus, workspace]
+  );
   const handleTimelineMilestoneClick = useCallback(
     (
       milestoneId: string,
@@ -1045,10 +1154,16 @@ function GanttRoadmap({
     ]
   );
   const selectedUnlockedIds = workspace.milestones
-    .filter((milestone) => selectedMilestoneIds.has(milestone.id) && !milestone.isDragLocked)
+    .filter(
+      (milestone) =>
+        selectedMilestoneIds.has(milestone.id) && !milestone.isDragLocked
+    )
     .map((milestone) => milestone.id);
   const lockedSelectedIds = workspace.milestones
-    .filter((milestone) => selectedMilestoneIds.has(milestone.id) && milestone.isDragLocked)
+    .filter(
+      (milestone) =>
+        selectedMilestoneIds.has(milestone.id) && milestone.isDragLocked
+    )
     .map((milestone) => milestone.id);
   const disabledMilestoneIds = new Set(
     workspace.milestones
@@ -1067,7 +1182,10 @@ function GanttRoadmap({
         return;
       }
       const moves = workspace.milestones
-        .filter((milestone) => milestoneIds.includes(milestone.id) && !milestone.isDragLocked)
+        .filter(
+          (milestone) =>
+            milestoneIds.includes(milestone.id) && !milestone.isDragLocked
+        )
         .map((milestone) => ({
           milestoneId: milestone.id,
           startAt: addDays(milestone.startAt, deltaDays),
@@ -1077,7 +1195,12 @@ function GanttRoadmap({
       if (moves.length === 0) {
         return;
       }
-      await workspace.batchMoveMilestoneDates(moves, undefined, source, sourceId);
+      await workspace.batchMoveMilestoneDates(
+        moves,
+        undefined,
+        source,
+        sourceId
+      );
     },
     [proposalSubmitted, workspace]
   );
@@ -1094,22 +1217,22 @@ function GanttRoadmap({
 
   return (
     <GanttProvider
-      className="h-full min-w-0 rounded-none bg-[#151a18]"
+      className="h-full min-w-0 rounded-none bg-card"
       initialScrollDate={initialScrollDate}
-      leadingSidebarWidth={railCollapsed ? 72 : 420}
+      leadingSidebarWidth={railCollapsed ? 0 : 420}
       range={resolution}
-      rowGap={0}
+      rowGap={10}
       rowHeight={36}
       zoom={zoom}
     >
-      <MilestoneRail
-        collapsed={railCollapsed}
-        milestoneHighlightTones={milestoneHighlightTones}
-        onCollapsedChange={onRailCollapsedChange}
-        onHighlightMilestones={onHighlightMilestones}
-        onMilestoneFocus={onMilestoneFocus}
-        onOpenDetail={onOpenDetail}
-      />
+      {railCollapsed ? null : (
+        <MilestoneRail
+          milestoneHighlightTones={milestoneHighlightTones}
+          onHighlightMilestones={onHighlightMilestones}
+          onMilestoneFocus={onMilestoneFocus}
+          onOpenDetail={onOpenDetail}
+        />
+      )}
       <GanttMilestoneSidebar
         features={features}
         onLockToggle={(milestoneId, locked) => {
@@ -1131,10 +1254,10 @@ function GanttRoadmap({
       />
       <GanttTimeline
         style={{
-          minHeight: `calc(var(--gantt-header-height) + ${features.length} * var(--gantt-row-height))`,
+          minHeight: `calc(var(--gantt-header-height) + ${features.length} * (var(--gantt-row-height) + var(--gantt-row-gap)))`,
         }}
       >
-        <GanttHeader className="text-stone-300 [&_p]:text-[0.82rem]" />
+        <GanttHeader className="text-muted-foreground [&_p]:text-[0.82rem]" />
         <GanttSelectionLayer
           disabled={proposalSubmitted}
           features={features}
@@ -1185,16 +1308,9 @@ function GanttRoadmap({
             startAt={draw.startAt}
             testId={`draw-overlay-${draw.id}`}
           >
-            <GanttRangeDragHandle
-              className="absolute top-1 left-2 z-40 inline-flex min-w-max max-w-max items-center gap-2 rounded-sm bg-black/85 px-2.5 py-1 font-medium text-[0.72rem] shadow-black/30 shadow-lg backdrop-blur"
-              disabled={
-                proposalSubmitted ||
-                workspace.milestones.every(
-                  (milestone) =>
-                    milestone.drawGroupId !== draw.id || milestone.isDragLocked
-                )
-              }
-              contentTestId={`draw-label-${draw.id}`}
+            <DrawGroupRangeDragHandle
+              draw={draw}
+              milestones={workspace.milestones}
               onMoveDelta={(deltaDays) => {
                 const ids = workspace.milestones
                   .filter((milestone) => milestone.drawGroupId === draw.id)
@@ -1221,20 +1337,13 @@ function GanttRoadmap({
                   sourceId: draw.id,
                 });
               }}
-              startAt={draw.startAt}
-              testId={`draw-drag-handle-${draw.id}`}
-              title={
-                workspace.milestones.every(
-                  (milestone) =>
-                    milestone.drawGroupId !== draw.id || milestone.isDragLocked
-                )
-                  ? `${draw.label} has no unlocked milestones to shift.`
-                  : `Drag to shift unlocked milestones in ${draw.label}`
-              }
+              proposalSubmitted={proposalSubmitted}
             >
-              <span className="font-semibold text-stone-100">{draw.label}</span>
+              <span className="font-semibold text-foreground">
+                {draw.label}
+              </span>
               <span>{compactMoney(draw.amount)}</span>
-              <span className="text-stone-300">
+              <span className="text-muted-foreground">
                 {statusLabels[draw.status]}
               </span>
               <IssueChip
@@ -1242,7 +1351,7 @@ function GanttRoadmap({
                 issues={draw.issues}
                 testId={`draw-issue-chip-${draw.id}`}
               />
-            </GanttRangeDragHandle>
+            </DrawGroupRangeDragHandle>
           </GanttRangeOverlay>
         ))}
         {drawGroupGhostOverlays.map((draw) => (
@@ -1256,14 +1365,14 @@ function GanttRoadmap({
             startAt={draw.startAt}
             testId={`draw-ghost-overlay-${draw.id}`}
           >
-            <div className="pointer-events-none sticky left-[calc(var(--gantt-sidebar-width)+0.5rem)] inline-flex -translate-y-[calc(100%+0.25rem)] items-center rounded-sm border border-cyan-200/40 bg-cyan-950/85 px-2 py-1 font-medium text-[0.72rem] text-cyan-50 shadow-lg">
+            <div className="pointer-events-none sticky left-[calc(var(--gantt-sidebar-width)+0.5rem)] inline-flex -translate-y-[calc(100%+0.25rem)] items-center rounded-sm border border-cyan-200/40 bg-cyan-100/95 px-2 py-1 font-medium text-[0.72rem] text-cyan-950 shadow-lg dark:bg-cyan-950/85 dark:text-cyan-50">
               Drop {draw.label} here
             </div>
           </GanttRangeOverlay>
         ))}
         {batchShiftPreview ? (
           <div
-            className="pointer-events-none absolute top-16 left-[calc(var(--gantt-sidebar-width)+1rem)] z-40 inline-flex rounded-sm border border-cyan-200/40 bg-cyan-950/90 px-2.5 py-1 font-medium text-[0.72rem] text-cyan-50 shadow-lg"
+            className="pointer-events-none absolute top-16 left-[calc(var(--gantt-sidebar-width)+1rem)] z-40 inline-flex rounded-sm border border-cyan-200/40 bg-cyan-100/95 px-2.5 py-1 font-medium text-[0.72rem] text-cyan-950 shadow-lg dark:bg-cyan-950/90 dark:text-cyan-50"
             data-testid="gantt-batch-shift-preview"
           >
             {batchShiftPreview.source === "drawGroup"
@@ -1273,11 +1382,13 @@ function GanttRoadmap({
         ) : null}
         {selectedMilestoneIds.size > 1 ? (
           <div
-            className="pointer-events-none absolute top-8 left-[calc(var(--gantt-sidebar-width)+1rem)] z-40 inline-flex rounded-sm border border-cyan-200/35 bg-black/80 px-2 py-1 text-[0.7rem] text-cyan-100"
+            className="pointer-events-none absolute top-8 left-[calc(var(--gantt-sidebar-width)+1rem)] z-40 inline-flex rounded-sm border border-cyan-200/35 bg-popover/90 px-2 py-1 text-[0.7rem] text-cyan-700 dark:text-cyan-100"
             data-testid="gantt-selection-count"
           >
             {selectedMilestoneIds.size} selected
-            {lockedSelectedIds.length > 0 ? ` / ${lockedSelectedIds.length} locked` : ""}
+            {lockedSelectedIds.length > 0
+              ? ` / ${lockedSelectedIds.length} locked`
+              : ""}
           </div>
         ) : null}
         {drawOverlays.map((draw) => (
@@ -1300,7 +1411,7 @@ function GanttRoadmap({
             id={`draw-eligible-${draw.id}`}
             key={`draw-eligible-${draw.id}`}
             label={`${draw.label} eligible`}
-            labelClassName="ml-12 translate-x-full items-start text-left"
+            labelClassName="items-start text-left"
             testId={`draw-eligible-${draw.id}`}
           />
         ))}
@@ -1349,7 +1460,7 @@ function GanttRoadmap({
             return (
               <GanttFeatureRow
                 batchMoveIds={Array.from(selectedMilestoneIds)}
-                className="border-white/5 border-b"
+                className="border-border/60 border-b"
                 disabledIds={disabledMilestoneIds}
                 features={[feature]}
                 key={feature.id}
@@ -1421,23 +1532,21 @@ function GanttRoadmap({
 }
 
 function MilestoneRail({
-  collapsed,
   milestoneHighlightTones,
-  onCollapsedChange,
   onHighlightMilestones,
   onMilestoneFocus,
   onOpenDetail,
 }: {
-  collapsed: boolean;
   milestoneHighlightTones: MilestoneHighlightTones;
-  onCollapsedChange: (collapsed: boolean) => void;
   onHighlightMilestones: (milestoneTones: MilestoneHighlightTones) => void;
   onMilestoneFocus: (milestoneId: string | null) => void;
   onOpenDetail: (milestoneId: string) => void;
 }) {
   const workspace = useBuildWorkspace();
   const gantt = useGanttContext();
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+  );
 
   const focusMilestone = (milestone: Milestone) => {
     workspace.selectMilestone(milestone.id);
@@ -1486,27 +1595,22 @@ function MilestoneRail({
     if (fromIndex < 0 || toIndex < 0) {
       return;
     }
-    void workspace.reorderMilestoneAbsolute(String(active.id), fromIndex, toIndex);
+    void workspace.reorderMilestoneAbsolute(
+      String(active.id),
+      fromIndex,
+      toIndex
+    );
   };
 
   return (
     <aside
-      className="sticky left-0 z-30 h-full max-h-full min-h-0 overflow-hidden border-white/10 border-r bg-[#101412]/95 backdrop-blur-md"
+      className="sticky left-0 z-30 h-full max-h-full min-h-0 overflow-hidden border-border border-r bg-card/95 backdrop-blur-md"
       data-testid="milestone-rail"
-      style={{ width: collapsed ? 72 : 420 }}
+      style={{ width: 420 }}
     >
-      <div className="sticky top-0 z-20 flex h-[60px] items-end justify-between border-white/10 border-b bg-[#101412]/95 px-3 py-2 text-stone-400 text-xs backdrop-blur-md">
-        <span>{collapsed ? "MS" : "Milestones"}</span>
-        {collapsed ? null : <span>Draw / Risk</span>}
-        <Button
-          data-testid="milestone-rail-collapse-toggle"
-          onClick={() => onCollapsedChange(!collapsed)}
-          size="icon-xs"
-          title={collapsed ? "Expand milestone rail" : "Collapse milestone rail"}
-          variant="ghost"
-        >
-          {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
-        </Button>
+      <div className="sticky top-0 z-20 flex h-[60px] items-end justify-between border-border border-b bg-card/95 px-3 py-2 text-muted-foreground text-xs backdrop-blur-md">
+        <span>Milestones</span>
+        <span>Draw / Risk</span>
       </div>
       <DndContext
         collisionDetection={closestCenter}
@@ -1519,51 +1623,59 @@ function MilestoneRail({
         >
           <div className="h-[calc(100%-60px)] min-h-0 overflow-y-auto overscroll-contain">
             {workspace.milestones.map((milestone, index) => {
-          const blockers = workspace.dependencies.filter(
-            (dependency) => dependency.toMilestoneId === milestone.id
-          ).length;
-          const blocking = workspace.dependencies.filter(
-            (dependency) => dependency.fromMilestoneId === milestone.id
-          ).length;
-          const blockingChipActive = workspace.dependencies
-            .filter((dependency) => dependency.fromMilestoneId === milestone.id)
-            .some(
-              (dependency) =>
-                milestoneHighlightTones[dependency.toMilestoneId] === "blocked"
-            );
-          const blockedByChipActive = workspace.dependencies
-            .filter((dependency) => dependency.toMilestoneId === milestone.id)
-            .some(
-              (dependency) =>
-                milestoneHighlightTones[dependency.fromMilestoneId] ===
-                "blocking"
-            );
-          const draw = workspace.drawGroups.find(
-            (drawGroup) => drawGroup.id === milestone.drawGroupId
-          );
-          const selected = milestone.id === workspace.selectedMilestoneId;
-          const highlightTone: MilestoneHighlightTone | undefined = selected
-            ? "selected"
-            : milestoneHighlightTones[milestone.id];
+              const blockers = workspace.dependencies.filter(
+                (dependency) => dependency.toMilestoneId === milestone.id
+              ).length;
+              const blocking = workspace.dependencies.filter(
+                (dependency) => dependency.fromMilestoneId === milestone.id
+              ).length;
+              const blockingChipActive = workspace.dependencies
+                .filter(
+                  (dependency) => dependency.fromMilestoneId === milestone.id
+                )
+                .some(
+                  (dependency) =>
+                    milestoneHighlightTones[dependency.toMilestoneId] ===
+                    "blocked"
+                );
+              const blockedByChipActive = workspace.dependencies
+                .filter(
+                  (dependency) => dependency.toMilestoneId === milestone.id
+                )
+                .some(
+                  (dependency) =>
+                    milestoneHighlightTones[dependency.fromMilestoneId] ===
+                    "blocking"
+                );
+              const draw = workspace.drawGroups.find(
+                (drawGroup) => drawGroup.id === milestone.drawGroupId
+              );
+              const selected = milestone.id === workspace.selectedMilestoneId;
+              const highlightTone: MilestoneHighlightTone | undefined = selected
+                ? "selected"
+                : milestoneHighlightTones[milestone.id];
 
-          return (
-            <SortableMilestoneRailRow
-              blockedByChipActive={blockedByChipActive}
-              blockers={blockers}
-              blocking={blocking}
-              blockingChipActive={blockingChipActive}
-              collapsed={collapsed}
-              draw={draw}
-              highlightBlockers={highlightBlockers}
-              highlightBlocking={highlightBlocking}
-              highlightTone={highlightTone}
-              index={index}
-              key={milestone.id}
-              milestone={milestone}
-              onFocusMilestone={focusMilestone}
-              onOpenDetail={onOpenDetail}
-            />
-          );
+              return (
+                <SortableMilestoneRailRow
+                  blockedByChipActive={blockedByChipActive}
+                  blockers={blockers}
+                  blocking={blocking}
+                  blockingChipActive={blockingChipActive}
+                  collapsed={false}
+                  draw={draw}
+                  highlightBlockers={highlightBlockers}
+                  highlightBlocking={highlightBlocking}
+                  highlightTone={highlightTone}
+                  index={index}
+                  key={milestone.id}
+                  milestone={milestone}
+                  onFocusMilestone={focusMilestone}
+                  onOpenDetail={onOpenDetail}
+                  renderIssueChip={(issues, testId) => (
+                    <IssueChip compact issues={issues} testId={testId} />
+                  )}
+                />
+              );
             })}
           </div>
         </SortableContext>
@@ -1586,12 +1698,18 @@ function GanttMilestoneSidebar({
   selectedMilestoneIds: SelectedMilestoneIds;
 }) {
   const workspace = useBuildWorkspace();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
   return (
     <GanttSidebar
-      className="w-[220px] shrink-0 border-white/10 bg-[#111615]/95 text-stone-300"
+      className={cn(
+        "shrink-0 border-border bg-popover/95 text-muted-foreground",
+        sidebarCollapsed ? "w-[64px]" : "w-[220px]"
+      )}
+      collapsed={sidebarCollapsed}
+      onCollapsedChange={setSidebarCollapsed}
     >
-      <div className="divide-y divide-white/5">
+      <div className="divide-y divide-border/60">
         {features.map((feature) => {
           const milestone = workspace.milestones.find(
             (item) => item.id === feature.id
@@ -1605,9 +1723,10 @@ function GanttMilestoneSidebar({
           return (
             <GanttSidebarItem
               className={cn(
-                "gap-2 px-3 py-0 hover:bg-white/[0.04]",
+                "gap-2 px-3 py-0 hover:bg-muted/40",
+                sidebarCollapsed && "justify-center gap-1.5 px-1.5",
                 milestone?.id === workspace.selectedMilestoneId &&
-                  "bg-lime-300/10 text-lime-100",
+                  "bg-lime-300/10 text-lime-800 dark:text-lime-100",
                 milestone &&
                   selectedMilestoneIds.has(milestone.id) &&
                   "ring-1 ring-cyan-300/40 ring-inset"
@@ -1616,317 +1735,82 @@ function GanttMilestoneSidebar({
               key={feature.id}
               onSelectItem={onMilestoneFocus}
             >
-              <span
-                className="pointer-events-none h-2 w-2 shrink-0 rounded-full"
-                style={{ backgroundColor: feature.status.color }}
-              />
-              <span className="pointer-events-none min-w-0 flex-1">
-                <span className="block truncate text-[0.68rem] text-stone-500">
-                  {milestone?.code}
+              {sidebarCollapsed ? (
+                <span className="pointer-events-none flex min-w-0 items-center gap-1.5">
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: feature.status.color }}
+                  />
+                  <span className="truncate font-medium text-[0.7rem] text-muted-foreground">
+                    {milestone?.code.replace("M-", "")}
+                  </span>
                 </span>
-                <span className="block truncate font-medium text-[0.72rem] text-stone-200">
-                  {feature.name}
-                </span>
-              </span>
-              <span className="pointer-events-none shrink-0 text-[0.68rem] text-cyan-100">
-                {draw?.label}
-              </span>
-              {milestone ? (
-                <button
-                  aria-label={
-                    milestone.isDragLocked
-                      ? `Unlock timeline dragging for ${milestone.name}`
-                      : `Lock timeline dragging for ${milestone.name}`
-                  }
-                  aria-pressed={milestone.isDragLocked}
-                  className={cn(
-                    "grid size-6 shrink-0 place-items-center rounded-sm border border-white/10 text-stone-400 transition-colors hover:border-cyan-300/40 hover:bg-cyan-300/10 hover:text-cyan-100",
-                    milestone.isDragLocked &&
-                      "border-cyan-300/40 bg-cyan-300/15 text-cyan-100",
-                    proposalSubmitted && "cursor-not-allowed opacity-50"
-                  )}
-                  data-gantt-interactive="true"
-                  data-testid={`gantt-sidebar-lock-${milestone.id}`}
-                  disabled={proposalSubmitted}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onLockToggle(milestone.id, !milestone.isDragLocked);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.stopPropagation();
-                    }
-                  }}
-                  title={
-                    proposalSubmitted
-                      ? "Submitted proposals cannot change milestone drag locks."
-                      : milestone.isDragLocked
-                        ? "Unlock milestone timeline dragging"
-                        : "Lock milestone timeline dragging"
-                  }
-                  type="button"
-                >
-                  {milestone.isDragLocked ? (
-                    <Lock className="size-3.5" />
-                  ) : (
-                    <Unlock className="size-3.5" />
-                  )}
-                </button>
-              ) : null}
+              ) : (
+                <>
+                  <span
+                    className="pointer-events-none h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: feature.status.color }}
+                  />
+                  <span className="pointer-events-none min-w-0 flex-1">
+                    <span className="block truncate text-[0.68rem] text-muted-foreground">
+                      {milestone?.code}
+                    </span>
+                    <span className="block truncate font-medium text-[0.72rem] text-foreground">
+                      {feature.name}
+                    </span>
+                  </span>
+                  <span className="pointer-events-none shrink-0 text-[0.68rem] text-cyan-700 dark:text-cyan-100">
+                    {draw?.label}
+                  </span>
+                  {milestone ? (
+                    <button
+                      aria-label={
+                        milestone.isDragLocked
+                          ? `Unlock timeline dragging for ${milestone.name}`
+                          : `Lock timeline dragging for ${milestone.name}`
+                      }
+                      aria-pressed={milestone.isDragLocked}
+                      className={cn(
+                        "grid size-6 shrink-0 place-items-center rounded-sm border border-border text-muted-foreground transition-colors hover:border-cyan-300/40 hover:bg-cyan-300/10 hover:text-cyan-700 dark:text-cyan-100",
+                        milestone.isDragLocked &&
+                          "border-cyan-300/40 bg-cyan-300/15 text-cyan-700 dark:text-cyan-100",
+                        proposalSubmitted && "cursor-not-allowed opacity-50"
+                      )}
+                      data-gantt-interactive="true"
+                      data-testid={`gantt-sidebar-lock-${milestone.id}`}
+                      disabled={proposalSubmitted}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onLockToggle(milestone.id, !milestone.isDragLocked);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.stopPropagation();
+                        }
+                      }}
+                      title={
+                        proposalSubmitted
+                          ? "Submitted proposals cannot change milestone drag locks."
+                          : milestone.isDragLocked
+                            ? "Unlock milestone timeline dragging"
+                            : "Lock milestone timeline dragging"
+                      }
+                      type="button"
+                    >
+                      {milestone.isDragLocked ? (
+                        <Lock className="size-3.5" />
+                      ) : (
+                        <Unlock className="size-3.5" />
+                      )}
+                    </button>
+                  ) : null}
+                </>
+              )}
             </GanttSidebarItem>
           );
         })}
       </div>
     </GanttSidebar>
-  );
-}
-
-function SortableMilestoneRailRow({
-  blockedByChipActive,
-  blockers,
-  blocking,
-  blockingChipActive,
-  collapsed,
-  draw,
-  highlightBlockers,
-  highlightBlocking,
-  highlightTone,
-  index,
-  milestone,
-  onFocusMilestone,
-  onOpenDetail,
-}: {
-  blockedByChipActive: boolean;
-  blockers: number;
-  blocking: number;
-  blockingChipActive: boolean;
-  collapsed: boolean;
-  draw: DrawGroup | undefined;
-  highlightBlockers: (milestone: Milestone) => void;
-  highlightBlocking: (milestone: Milestone) => void;
-  highlightTone: MilestoneHighlightTone | undefined;
-  index: number;
-  milestone: Milestone;
-  onFocusMilestone: (milestone: Milestone) => void;
-  onOpenDetail: (milestoneId: string) => void;
-}) {
-  const workspace = useBuildWorkspace();
-  const sortableDisabled =
-    workspace.mode === "active" || workspace.build.proposalStatus === "submitted";
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: milestone.id, disabled: sortableDisabled || collapsed });
-
-  return (
-    <div
-      className={cn(
-        "relative grid w-full items-center overflow-hidden text-left transition-colors",
-        collapsed
-          ? "grid-cols-[1fr] gap-1 border-white/5 border-b px-1 hover:bg-white/[0.05]"
-          : "grid-cols-[1rem_1fr_auto] gap-2 border-white/5 border-b px-2 hover:bg-white/[0.05]",
-        highlightTone === "selected" &&
-          "bg-cyan-300/10 ring-1 ring-cyan-300/45 ring-inset",
-        highlightTone === "blocking" &&
-          "bg-amber-300/20 ring-1 ring-amber-300/70 ring-inset",
-        highlightTone === "blocked" &&
-          "bg-red-500/20 ring-1 ring-red-300/70 ring-inset",
-        isDragging && "z-40 opacity-70"
-      )}
-      data-highlight-tone={highlightTone ?? "none"}
-      data-highlighted={highlightTone ? "true" : "false"}
-      data-testid={`milestone-rail-row-${milestone.id}`}
-      onClick={() => onFocusMilestone(milestone)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onFocusMilestone(milestone);
-        }
-      }}
-      ref={setNodeRef}
-      role="button"
-      style={{
-        height: collapsed ? "var(--gantt-row-height)" : "72px",
-        transform: CSS.Transform.toString(transform),
-        transition,
-      }}
-      tabIndex={0}
-    >
-      {collapsed ? (
-        <div className="flex items-center justify-center gap-1">
-          <span
-            className="size-2 rounded-full"
-            style={{ backgroundColor: statusColors[milestone.status] }}
-          />
-          <span className="truncate text-[0.62rem] text-stone-300">
-            {milestone.code.replace("M-", "")}
-          </span>
-          {milestone.warningCount > 0 ? (
-            <IssueChip
-              compact
-              issues={milestone.issues}
-              testId={`milestone-issue-chip-${milestone.id}`}
-            />
-          ) : null}
-        </div>
-      ) : (
-        <>
-          <button
-            aria-label={
-              sortableDisabled
-                ? workspace.mode === "active"
-                  ? "Reordering is available only in proposal mode."
-                  : "Submitted proposals cannot be reordered."
-                : `Drag ${milestone.name} to reorder`
-            }
-            className={cn(
-              "grid size-5 place-items-center rounded-sm text-stone-600",
-              sortableDisabled
-                ? "cursor-not-allowed opacity-50"
-                : "cursor-grab hover:bg-white/10 hover:text-stone-200"
-            )}
-            data-testid={`milestone-drag-handle-${milestone.id}`}
-            disabled={sortableDisabled}
-            {...attributes}
-            {...listeners}
-            onClick={(event) => {
-              event.stopPropagation();
-              if (!sortableDisabled && index > 0) {
-                void workspace.reorderMilestone(milestone.id, "up");
-              }
-            }}
-            onDoubleClick={(event) => {
-              event.stopPropagation();
-              if (!sortableDisabled && index > 0) {
-                void workspace.reorderMilestone(milestone.id, "up");
-              }
-            }}
-            title={
-              sortableDisabled
-                ? workspace.mode === "active"
-                  ? "Reordering is disabled in active execution because the approved roadmap is locked."
-                  : "Reordering is disabled after proposal submission."
-                : "Drag to reorder proposal milestones"
-            }
-            type="button"
-          >
-            <GripVertical className="size-4" />
-          </button>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="truncate font-medium text-xs">
-                {milestone.name}
-              </span>
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-1 text-[0.65rem] text-stone-500">
-              <span>{milestone.code}</span>
-              <span>{statusLabels[milestone.status]}</span>
-              <span>{compactMoney(milestone.estimatedCost)}</span>
-              <span>{milestone.estimatedDurationDays}d</span>
-            </div>
-            <div className="mt-1 flex gap-1 text-[0.62rem]">
-              <button
-                aria-label={`Highlight milestones blocked by ${milestone.name}`}
-                className={cn(
-                  "inline-flex h-4 items-center rounded-sm border border-white/10 bg-white/[0.04] px-1 text-stone-300 transition-colors hover:border-red-300/50 hover:bg-red-400/15 hover:text-red-100",
-                  blockingChipActive &&
-                    "border-red-300/60 bg-red-500/20 text-red-100"
-                )}
-                data-testid={`milestone-blocking-chip-${milestone.id}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  highlightBlocking(milestone);
-                }}
-                type="button"
-              >
-                {blocking} blocking
-              </button>
-              <button
-                aria-label={`Highlight milestones blocking ${milestone.name}`}
-                className={cn(
-                  "inline-flex h-4 items-center rounded-sm border border-white/10 bg-white/[0.04] px-1 text-stone-300 transition-colors hover:border-amber-300/50 hover:bg-amber-300/15 hover:text-amber-100",
-                  blockedByChipActive &&
-                    "border-amber-300/60 bg-amber-300/20 text-amber-100"
-                )}
-                data-testid={`milestone-blocked-by-chip-${milestone.id}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  highlightBlockers(milestone);
-                }}
-                type="button"
-              >
-                {blockers} blocked-by
-              </button>
-              {milestone.warningCount > 0 ? (
-                <IssueChip
-                  compact
-                  issues={milestone.issues}
-                  testId={`milestone-issue-chip-${milestone.id}`}
-                />
-              ) : null}
-            </div>
-          </div>
-          <div className="flex flex-col items-end gap-1">
-            <Badge className="h-5 rounded-sm border-cyan-300/20 bg-cyan-300/10 px-1.5 text-cyan-100">
-              {draw?.label}
-            </Badge>
-            <div className="flex gap-1">
-              <Button
-                data-testid={`milestone-rail-detail-${milestone.id}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  workspace.selectMilestone(milestone.id);
-                  onOpenDetail(milestone.id);
-                }}
-                size="icon-xs"
-                title={`Open ${milestone.name} detail`}
-                variant="ghost"
-              >
-                <PanelRightOpen />
-              </Button>
-              <Button
-                data-testid={`milestone-move-up-${milestone.id}`}
-                disabled={index === 0 || sortableDisabled}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void workspace.reorderMilestone(milestone.id, "up");
-                }}
-                size="icon-xs"
-                title={
-                  sortableDisabled
-                    ? "Reorder controls are disabled outside editable proposal mode."
-                    : "Move milestone up"
-                }
-                variant="ghost"
-              >
-                <ArrowUp />
-              </Button>
-              <Button
-                data-testid={`milestone-move-down-${milestone.id}`}
-                disabled={index === workspace.milestones.length - 1 || sortableDisabled}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void workspace.reorderMilestone(milestone.id, "down");
-                }}
-                size="icon-xs"
-                title={
-                  sortableDisabled
-                    ? "Reorder controls are disabled outside editable proposal mode."
-                    : "Move milestone down"
-                }
-                variant="ghost"
-              >
-                <ArrowDown />
-              </Button>
-            </div>
-          </div>
-        </>
-      )}
-    </div>
   );
 }
 
@@ -1964,7 +1848,7 @@ function MilestoneBlock({
         render={
           <button
             className={cn(
-              "flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-sm border border-white/10 bg-[#1b211f] px-1.5 text-left transition-colors hover:border-cyan-200/40",
+              "flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-sm border border-border bg-muted/60 px-1.5 text-left transition-colors hover:border-cyan-200/40",
               effectiveHighlightTone === "selected" &&
                 "border-cyan-200/60 bg-cyan-300/20 ring-2 ring-cyan-300/70",
               effectiveHighlightTone === "blocking" &&
@@ -1972,7 +1856,7 @@ function MilestoneBlock({
               effectiveHighlightTone === "blocked" &&
                 "bg-red-500/20 ring-1 ring-red-300/70",
               milestone.isDragLocked &&
-                "cursor-not-allowed border-stone-500/40 bg-stone-800/70 text-stone-300"
+                "cursor-not-allowed border-stone-500/40 bg-muted text-muted-foreground"
             )}
             data-end-date={toDateInputValue(milestone.endAt)}
             data-gantt-interactive="true"
@@ -2018,8 +1902,12 @@ function MilestoneBlock({
               style={{ backgroundColor: feature.status.color }}
             />
             <span className="min-w-0 flex-1 truncate text-[0.68rem]">
-              <span className="mr-1 text-stone-400">{milestone.code}</span>
-              <span className="font-medium text-stone-100">{feature.name}</span>
+              <span className="mr-1 text-muted-foreground">
+                {milestone.code}
+              </span>
+              <span className="font-medium text-foreground">
+                {feature.name}
+              </span>
             </span>
             <IssueChip
               compact
@@ -2027,23 +1915,24 @@ function MilestoneBlock({
               testId={`gantt-issue-chip-${milestone.id}`}
             />
             {milestone.isDragLocked ? (
-              <Lock className="size-3 shrink-0 text-cyan-100" />
+              <Lock className="size-3 shrink-0 text-cyan-700 dark:text-cyan-100" />
             ) : null}
           </button>
         }
       />
       <HoverCardContent
-        className="border border-white/10 bg-[#111615] text-stone-100"
+        className="border border-border bg-popover text-foreground"
         data-testid={`gantt-preview-${milestone.id}`}
         side="top"
       >
         <div className="grid gap-1">
           <div className="font-medium">{milestone.name}</div>
-          <div className="text-stone-400">
+          <div className="text-muted-foreground">
             {milestone.code} / {draw?.label} / {statusLabels[milestone.status]}
           </div>
-          <div className="text-stone-400">
-            {format(milestone.startAt, "MMM d")} - {format(milestone.endAt, "MMM d")} /{" "}
+          <div className="text-muted-foreground">
+            {format(milestone.startAt, "MMM d")} -{" "}
+            {format(milestone.endAt, "MMM d")} /{" "}
             {compactMoney(milestone.estimatedCost)}
           </div>
           <IssueList
@@ -2073,8 +1962,10 @@ function MilestoneGhostBlock({
         className="h-2 w-2 shrink-0 rounded-full opacity-80"
         style={{ backgroundColor: feature.status.color }}
       />
-      <span className="min-w-0 flex-1 truncate text-[0.68rem] text-cyan-50">
-        <span className="mr-1 text-cyan-100/80">{milestone.code}</span>
+      <span className="min-w-0 flex-1 truncate text-[0.68rem] text-cyan-950 dark:text-cyan-50">
+        <span className="mr-1 text-cyan-700 dark:text-cyan-100/80">
+          {milestone.code}
+        </span>
         <span className="font-medium">{feature.name}</span>
       </span>
     </div>
@@ -2165,17 +2056,17 @@ function MilestoneDetailSheet({
   return (
     <Sheet onOpenChange={onOpenChange} open={open}>
       <SheetContent
-        className="w-full overflow-y-auto border-white/10 bg-[#111615] text-stone-100 sm:max-w-xl"
+        className="w-full overflow-y-auto border-border bg-popover text-foreground sm:max-w-xl"
         data-testid="milestone-detail-sheet"
       >
-        <SheetHeader className="border-white/10 border-b">
+        <SheetHeader className="border-border border-b">
           <div className="flex items-center justify-between gap-3 pr-8">
             <div>
-              <SheetTitle className="text-stone-100">
+              <SheetTitle className="text-foreground">
                 {milestone.code} / {milestone.name}
               </SheetTitle>
               <div className="mt-1 flex flex-wrap gap-1">
-                <Badge className="border-cyan-300/20 bg-cyan-300/10 text-cyan-100">
+                <Badge className="border-cyan-300/20 bg-cyan-300/10 text-cyan-700 dark:text-cyan-100">
                   {draw?.label}
                 </Badge>
                 <Badge variant="outline">
@@ -2246,14 +2137,6 @@ function MilestoneDetailSheet({
                   data-testid="milestone-estimated-cost-input"
                   disabled={workspace.mode === "active"}
                   inputMode="numeric"
-                  onChange={(event) => {
-                    const { value } = event.currentTarget;
-
-                    setDraft((current) => ({
-                      ...current,
-                      estimatedCost: value,
-                    }));
-                  }}
                   onBlur={(event) => {
                     if (
                       workspace.mode === "proposal" &&
@@ -2267,10 +2150,24 @@ function MilestoneDetailSheet({
                       });
                     }
                   }}
+                  onChange={(event) => {
+                    const { value } = event.currentTarget;
+
+                    setDraft((current) => ({
+                      ...current,
+                      estimatedCost: value,
+                    }));
+                  }}
                   value={draft.estimatedCost}
                 />
               </Field>
-              <Field label={workspace.mode === "active" ? "Requested draw amount" : "Actual cost"}>
+              <Field
+                label={
+                  workspace.mode === "active"
+                    ? "Requested draw amount"
+                    : "Actual cost"
+                }
+              >
                 <Input
                   data-testid="milestone-actual-cost-input"
                   disabled={workspace.mode === "proposal"}
@@ -2305,14 +2202,6 @@ function MilestoneDetailSheet({
                 <Input
                   data-testid="milestone-duration-input"
                   inputMode="numeric"
-                  onChange={(event) => {
-                    const { value } = event.currentTarget;
-
-                    setDraft((current) => ({
-                      ...current,
-                      estimatedDurationDays: value,
-                    }));
-                  }}
                   onBlur={(event) => {
                     if (
                       workspace.mode === "proposal" &&
@@ -2328,6 +2217,14 @@ function MilestoneDetailSheet({
                         ),
                       });
                     }
+                  }}
+                  onChange={(event) => {
+                    const { value } = event.currentTarget;
+
+                    setDraft((current) => ({
+                      ...current,
+                      estimatedDurationDays: value,
+                    }));
                   }}
                   value={draft.estimatedDurationDays}
                 />
@@ -2395,278 +2292,303 @@ function MilestoneDetailSheet({
           </Panel>
 
           {workspace.mode === "proposal" ? (
-          <Panel title="Draw Group Controls">
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Field label="Move to draw">
-                <NativeSelect
-                  className="w-full"
-                  data-testid="move-to-draw-select"
-                  disabled={workspace.build.proposalStatus === "submitted"}
-                  onChange={(event) =>
-                    void workspace.moveMilestoneToDrawGroup(
-                      milestone.id,
-                      event.currentTarget.value
-                    )
-                  }
-                  value={milestone.drawGroupId}
-                >
-                  {workspace.drawGroups.map((drawGroup) => (
-                    <NativeSelectOption key={drawGroup.id} value={drawGroup.id}>
-                      {drawGroup.label} / {statusLabels[drawGroup.status]}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
-              </Field>
-              <div className="grid grid-cols-3 gap-2 self-end">
-                <Button
-                  data-testid="split-draw"
-                  disabled={!draw || workspace.build.proposalStatus === "submitted"}
-                  onClick={() =>
-                    draw && void workspace.splitDrawGroup(draw.id, milestone.id)
-                  }
-                  variant="outline"
-                >
-                  <Scissors />
-                  Split
-                </Button>
-                <Button
-                  data-testid="merge-prev-draw"
-                  disabled={!previousDraw || workspace.build.proposalStatus === "submitted"}
-                  onClick={() =>
-                    previousDraw &&
-                    void workspace.mergeDrawGroups(draw?.id ?? "", previousDraw.id)
-                  }
-                  variant="outline"
-                >
-                  Merge prev
-                </Button>
-                <Button
-                  data-testid="merge-next-draw"
-                  disabled
-                  title={
-                    nextDraw
-                      ? "Merge next is disabled in this demo; use the next draw's Merge prev control."
-                      : "No next draw group."
-                  }
-                  variant="outline"
-                >
-                  Merge next
-                </Button>
+            <Panel title="Draw Group Controls">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Field label="Move to draw">
+                  <NativeSelect
+                    className="w-full"
+                    data-testid="move-to-draw-select"
+                    disabled={workspace.build.proposalStatus === "submitted"}
+                    onChange={(event) =>
+                      void workspace.moveMilestoneToDrawGroup(
+                        milestone.id,
+                        event.currentTarget.value
+                      )
+                    }
+                    value={milestone.drawGroupId}
+                  >
+                    {workspace.drawGroups.map((drawGroup) => (
+                      <NativeSelectOption
+                        key={drawGroup.id}
+                        value={drawGroup.id}
+                      >
+                        {drawGroup.label} / {statusLabels[drawGroup.status]}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                </Field>
+                <div className="grid grid-cols-3 gap-2 self-end">
+                  <Button
+                    data-testid="split-draw"
+                    disabled={
+                      !draw || workspace.build.proposalStatus === "submitted"
+                    }
+                    onClick={() =>
+                      draw &&
+                      void workspace.splitDrawGroup(draw.id, milestone.id)
+                    }
+                    variant="outline"
+                  >
+                    <Scissors />
+                    Split
+                  </Button>
+                  <Button
+                    data-testid="merge-prev-draw"
+                    disabled={
+                      !previousDraw ||
+                      workspace.build.proposalStatus === "submitted"
+                    }
+                    onClick={() =>
+                      previousDraw &&
+                      void workspace.mergeDrawGroups(
+                        draw?.id ?? "",
+                        previousDraw.id
+                      )
+                    }
+                    variant="outline"
+                  >
+                    Merge prev
+                  </Button>
+                  <Button
+                    data-testid="merge-next-draw"
+                    disabled
+                    title={
+                      nextDraw
+                        ? "Merge next is disabled in this demo; use the next draw's Merge prev control."
+                        : "No next draw group."
+                    }
+                    variant="outline"
+                  >
+                    Merge next
+                  </Button>
+                </div>
               </div>
-            </div>
-          </Panel>
+            </Panel>
           ) : null}
 
           {workspace.mode === "proposal" ? (
-          <Panel title="Dependencies">
-            <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
-              <NativeSelect
-                className="w-full"
-                data-testid="dependency-target-select"
-                onChange={(event) =>
-                  setDependencyTarget(event.currentTarget.value)
-                }
-                value={dependencyTarget}
-              >
-                {workspace.milestones
-                  .filter((item) => item.id !== milestone.id)
-                  .map((item) => (
-                    <NativeSelectOption key={item.id} value={item.id}>
-                      {item.code} / {item.name}
-                    </NativeSelectOption>
-                  ))}
-              </NativeSelect>
-              <NativeSelect
-                className="w-full"
-                data-testid="dependency-hardness-select"
-                onChange={(event) =>
-                  setDependencyHardnessDraft(
-                    event.currentTarget.value as DependencyHardness
-                  )
-                }
-                value={dependencyHardness}
-              >
-                <NativeSelectOption value="hard">Hard</NativeSelectOption>
-                <NativeSelectOption value="soft">Soft</NativeSelectOption>
-              </NativeSelect>
+            <Panel title="Dependencies">
+              <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+                <NativeSelect
+                  className="w-full"
+                  data-testid="dependency-target-select"
+                  onChange={(event) =>
+                    setDependencyTarget(event.currentTarget.value)
+                  }
+                  value={dependencyTarget}
+                >
+                  {workspace.milestones
+                    .filter((item) => item.id !== milestone.id)
+                    .map((item) => (
+                      <NativeSelectOption key={item.id} value={item.id}>
+                        {item.code} / {item.name}
+                      </NativeSelectOption>
+                    ))}
+                </NativeSelect>
+                <NativeSelect
+                  className="w-full"
+                  data-testid="dependency-hardness-select"
+                  onChange={(event) =>
+                    setDependencyHardnessDraft(
+                      event.currentTarget.value as DependencyHardness
+                    )
+                  }
+                  value={dependencyHardness}
+                >
+                  <NativeSelectOption value="hard">Hard</NativeSelectOption>
+                  <NativeSelectOption value="soft">Soft</NativeSelectOption>
+                </NativeSelect>
+                <Button
+                  data-testid="add-dependency"
+                  onClick={() =>
+                    void workspace.addDependency(
+                      dependencyTarget,
+                      milestone.id,
+                      dependencyHardness
+                    )
+                  }
+                  variant="secondary"
+                >
+                  Add dependency
+                </Button>
+              </div>
+              <DependencyList dependencies={[...incoming, ...outgoing]} />
+            </Panel>
+          ) : null}
+
+          {workspace.mode === "active" ? (
+            <Panel title="Evidence and Completion">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Button
+                  data-testid="add-sample-evidence"
+                  onClick={() => void workspace.addSampleEvidence(milestone.id)}
+                  variant="outline"
+                >
+                  <Plus />
+                  Add sample evidence
+                </Button>
+                <label className="inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-md border border-border bg-transparent px-3 text-sm hover:bg-muted/40">
+                  <Upload className="size-4" />
+                  Upload evidence
+                  <input
+                    className="sr-only"
+                    data-testid="upload-evidence"
+                    onChange={(event) => {
+                      const file = event.currentTarget.files?.[0];
+                      if (file) {
+                        void workspace.uploadEvidence(milestone.id, file, true);
+                      }
+                    }}
+                    type="file"
+                  />
+                </label>
+                <Button
+                  data-testid="upload-location-unverified"
+                  onClick={() => {
+                    const file = new File(
+                      ["location unverified"],
+                      "location-unverified.txt",
+                      {
+                        type: "text/plain",
+                      }
+                    );
+                    void workspace.uploadEvidence(milestone.id, file, false);
+                  }}
+                  variant="outline"
+                >
+                  <MapPinOff />
+                  Upload location-unverified
+                </Button>
+              </div>
+              <Field label="Completion report">
+                <Textarea
+                  data-testid="completion-report-input"
+                  onChange={(event) => {
+                    const { value } = event.currentTarget;
+
+                    setDraft((current) => ({
+                      ...current,
+                      completionReport: value,
+                    }));
+                  }}
+                  value={draft.completionReport}
+                />
+              </Field>
               <Button
-                data-testid="add-dependency"
+                data-testid="submit-completion-report"
                 onClick={() =>
-                  void workspace.addDependency(
-                    dependencyTarget,
+                  void workspace.submitCompletionClaim(
                     milestone.id,
-                    dependencyHardness
+                    Math.max(
+                      0,
+                      parseNumber(draft.actualCost, milestone.estimatedCost)
+                    ) * 100
                   )
                 }
                 variant="secondary"
               >
-                Add dependency
+                <ClipboardCheck />
+                Submit completion report
               </Button>
-            </div>
-            <DependencyList dependencies={[...incoming, ...outgoing]} />
-          </Panel>
+            </Panel>
           ) : null}
 
           {workspace.mode === "active" ? (
-          <Panel title="Evidence and Completion">
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Button
-                data-testid="add-sample-evidence"
-                onClick={() => void workspace.addSampleEvidence(milestone.id)}
-                variant="outline"
-              >
-                <Plus />
-                Add sample evidence
-              </Button>
-              <label className="inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-md border border-white/10 bg-transparent px-3 text-sm hover:bg-white/[0.04]">
-                <Upload className="size-4" />
-                Upload evidence
-                <input
-                  className="sr-only"
-                  data-testid="upload-evidence"
-                  onChange={(event) => {
-                    const file = event.currentTarget.files?.[0];
-                    if (file) {
-                      void workspace.uploadEvidence(milestone.id, file, true);
-                    }
-                  }}
-                  type="file"
+            <Panel title="Lender Review, Site Visit, and Admin Approval">
+              <Field label="Audit reason / review note">
+                <Textarea
+                  data-testid="audit-reason-input"
+                  onChange={(event) => setReason(event.currentTarget.value)}
+                  value={reason}
                 />
-              </label>
-              <Button
-                data-testid="upload-location-unverified"
-                onClick={() => {
-                  const file = new File(["location unverified"], "location-unverified.txt", {
-                    type: "text/plain",
-                  });
-                  void workspace.uploadEvidence(milestone.id, file, false);
-                }}
-                variant="outline"
-              >
-                <MapPinOff />
-                Upload location-unverified
-              </Button>
-            </div>
-            <Field label="Completion report">
-              <Textarea
-                data-testid="completion-report-input"
-                onChange={(event) => {
-                  const { value } = event.currentTarget;
-
-                  setDraft((current) => ({
-                    ...current,
-                    completionReport: value,
-                  }));
-                }}
-                value={draft.completionReport}
-              />
-            </Field>
-            <Button
-              data-testid="submit-completion-report"
-              onClick={() =>
-                void workspace.submitCompletionClaim(
-                  milestone.id,
-                  Math.max(0, parseNumber(draft.actualCost, milestone.estimatedCost)) * 100
-                )
-              }
-              variant="secondary"
-            >
-              <ClipboardCheck />
-              Submit completion report
-            </Button>
-          </Panel>
-          ) : null}
-
-          {workspace.mode === "active" ? (
-          <Panel title="Lender Review, Site Visit, and Admin Approval">
-            <Field label="Audit reason / review note">
-              <Textarea
-                data-testid="audit-reason-input"
-                onChange={(event) => setReason(event.currentTarget.value)}
-                value={reason}
-              />
-            </Field>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Button
-                data-testid="accept-evidence"
-                onClick={() =>
-                  void workspace.reviewEvidence(milestone.id, true, reason)
-                }
-                variant="outline"
-              >
-                Accept evidence
-              </Button>
-              <Button
-                data-testid="request-more-info"
-                onClick={() =>
-                  void workspace.requestMoreInformation(milestone.id, reason)
-                }
-                variant="outline"
-              >
-                Request more info
-              </Button>
-              <Button
-                data-testid="request-site-visit"
-                onClick={() => void workspace.requestSiteVisit(milestone.id, reason)}
-                variant="outline"
-              >
-                Request site visit
-              </Button>
-              <Button
-                data-testid="claim-site-visit"
-                onClick={() => void workspace.claimSiteVisit(milestone.id)}
-                variant="outline"
-              >
-                Claim site visit
-              </Button>
-              <Button
-                data-testid="submit-site-visit-report"
-                onClick={() =>
-                  void workspace.submitSiteVisitReport(milestone.id, {
-                    completionObserved: true,
-                    notes: reason,
-                    recommendedOutcome: "approve",
-                  })
-                }
-                variant="outline"
-              >
-                Submit site visit report
-              </Button>
-              <Button
-                data-testid="reject-milestone"
-                onClick={() => void workspace.rejectMilestone(milestone.id, reason)}
-                variant="outline"
-              >
-                Reject completion
-              </Button>
-              <Button
-                className="sm:col-span-2"
-                data-testid="approve-milestone"
-                onClick={() => void workspace.approveMilestone(milestone.id, reason)}
-              >
-                <ShieldCheck />
-                Approve milestone
-              </Button>
-            </div>
-          </Panel>
+              </Field>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Button
+                  data-testid="accept-evidence"
+                  onClick={() =>
+                    void workspace.reviewEvidence(milestone.id, true, reason)
+                  }
+                  variant="outline"
+                >
+                  Accept evidence
+                </Button>
+                <Button
+                  data-testid="request-more-info"
+                  onClick={() =>
+                    void workspace.requestMoreInformation(milestone.id, reason)
+                  }
+                  variant="outline"
+                >
+                  Request more info
+                </Button>
+                <Button
+                  data-testid="request-site-visit"
+                  onClick={() =>
+                    void workspace.requestSiteVisit(milestone.id, reason)
+                  }
+                  variant="outline"
+                >
+                  Request site visit
+                </Button>
+                <Button
+                  data-testid="claim-site-visit"
+                  onClick={() => void workspace.claimSiteVisit(milestone.id)}
+                  variant="outline"
+                >
+                  Claim site visit
+                </Button>
+                <Button
+                  data-testid="submit-site-visit-report"
+                  onClick={() =>
+                    void workspace.submitSiteVisitReport(milestone.id, {
+                      completionObserved: true,
+                      notes: reason,
+                      recommendedOutcome: "approve",
+                    })
+                  }
+                  variant="outline"
+                >
+                  Submit site visit report
+                </Button>
+                <Button
+                  data-testid="reject-milestone"
+                  onClick={() =>
+                    void workspace.rejectMilestone(milestone.id, reason)
+                  }
+                  variant="outline"
+                >
+                  Reject completion
+                </Button>
+                <Button
+                  className="sm:col-span-2"
+                  data-testid="approve-milestone"
+                  onClick={() =>
+                    void workspace.approveMilestone(milestone.id, reason)
+                  }
+                >
+                  <ShieldCheck />
+                  Approve milestone
+                </Button>
+              </div>
+            </Panel>
           ) : null}
 
           <Panel title="Audit History">
             <div className="grid max-h-52 gap-2 overflow-y-auto pr-1">
               {workspace.auditEvents.slice(0, 10).map((event) => (
                 <div
-                  className="rounded-md border border-white/10 bg-white/[0.03] p-2 text-xs"
+                  className="rounded-md border border-border bg-muted/30 p-2 text-xs"
                   key={event.id}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-stone-200">
+                    <span className="font-medium text-foreground">
                       {event.message}
                     </span>
-                    <span className="shrink-0 text-stone-500">
+                    <span className="shrink-0 text-muted-foreground">
                       {format(new Date(event.timestamp), "MMM d, HH:mm")}
                     </span>
                   </div>
-                  <div className="mt-1 text-stone-500">
+                  <div className="mt-1 text-muted-foreground">
                     {event.actor} / {roleLabels[event.role]}
                     {event.reason ? ` / ${event.reason}` : ""}
                   </div>
@@ -2689,14 +2611,16 @@ function DependencyList({
   const [error, setError] = useState("");
 
   if (dependencies.length === 0) {
-    return <p className="text-stone-500 text-xs">No dependencies attached.</p>;
+    return (
+      <p className="text-muted-foreground text-xs">No dependencies attached.</p>
+    );
   }
 
   return (
     <div className="grid gap-2">
       {error ? (
         <div
-          className="rounded-md border border-red-300/30 bg-red-500/10 p-2 text-red-100 text-xs"
+          className="rounded-md border border-red-300/30 bg-red-500/10 p-2 text-red-700 text-xs dark:text-red-100"
           data-testid="dependency-error"
         >
           {error}
@@ -2712,7 +2636,7 @@ function DependencyList({
 
         return (
           <div
-            className="grid gap-2 rounded-md border border-white/10 bg-white/[0.03] p-2 text-xs sm:grid-cols-[1fr_auto_auto]"
+            className="grid gap-2 rounded-md border border-border bg-muted/30 p-2 text-xs sm:grid-cols-[1fr_auto_auto]"
             key={dependency.id}
           >
             <div className="min-w-0 truncate">
@@ -2749,13 +2673,15 @@ function DependencyList({
               disabled={workspace.build.proposalStatus === "submitted"}
               onClick={() => {
                 setError("");
-                void workspace.removeDependency(dependency.id).catch((caught) =>
-                  setError(
-                    caught instanceof Error
-                      ? caught.message
-                      : "Dependency removal failed."
-                  )
-                );
+                void workspace
+                  .removeDependency(dependency.id)
+                  .catch((caught) =>
+                    setError(
+                      caught instanceof Error
+                        ? caught.message
+                        : "Dependency removal failed."
+                    )
+                  );
               }}
               variant="ghost"
             >
@@ -2776,14 +2702,15 @@ function InspectionDrawer({
   onClose: () => void;
 }) {
   const workspace = useBuildWorkspace();
-  const items = drawer === "audit" ? workspace.auditEvents : workspace.outboxEvents;
+  const items =
+    drawer === "audit" ? workspace.auditEvents : workspace.outboxEvents;
 
   return (
     <div
-      className="fixed right-4 bottom-4 z-50 max-h-[70vh] w-[min(560px,calc(100vw-2rem))] overflow-hidden rounded-md border border-white/10 bg-[#111615] shadow-2xl shadow-black/60"
+      className="fixed right-4 bottom-4 z-50 max-h-[70vh] w-[min(560px,calc(100vw-2rem))] overflow-hidden rounded-md border border-border bg-popover shadow-2xl shadow-foreground/15"
       data-testid={`workspace-${drawer}-drawer`}
     >
-      <div className="flex items-center justify-between border-white/10 border-b p-3">
+      <div className="flex items-center justify-between border-border border-b p-3">
         <h2 className="font-semibold text-sm">
           {drawer === "audit" ? "Audit Events" : "Event Outbox"}
         </h2>
@@ -2793,27 +2720,27 @@ function InspectionDrawer({
       </div>
       <div className="grid max-h-[58vh] gap-2 overflow-auto p-3">
         {items.length === 0 ? (
-          <p className="text-stone-500 text-xs">No records yet.</p>
+          <p className="text-muted-foreground text-xs">No records yet.</p>
         ) : (
           items.map((item: any) => (
             <div
-              className="rounded-md border border-white/10 bg-white/[0.03] p-2 text-xs"
+              className="rounded-md border border-border bg-muted/30 p-2 text-xs"
               key={item.id}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="font-medium text-stone-200">
+                <span className="font-medium text-foreground">
                   {drawer === "audit" ? item.message : item.eventType}
                 </span>
-                <span className="shrink-0 text-stone-500">
+                <span className="shrink-0 text-muted-foreground">
                   {format(new Date(item.timestamp), "MMM d, HH:mm")}
                 </span>
               </div>
-              <p className="mt-1 text-stone-400">
+              <p className="mt-1 text-muted-foreground">
                 {drawer === "audit"
                   ? `${item.actor} / ${item.command}`
                   : `${item.status} / ${item.relatedEntity}`}
               </p>
-              <p className="mt-1 text-stone-500">
+              <p className="mt-1 text-muted-foreground">
                 {drawer === "audit" ? item.reason : item.payloadPreview}
               </p>
             </div>
@@ -2852,7 +2779,7 @@ function AddMilestoneDialog({
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
-        className="border-white/10 bg-[#111615] text-stone-100 sm:max-w-md"
+        className="border-border bg-popover text-foreground sm:max-w-md"
         data-testid="add-milestone-dialog"
       >
         <DialogHeader>
@@ -2914,14 +2841,16 @@ function AddMilestoneDialog({
   );
 }
 
-function issueTone(issue: { severity?: WorkspaceIssue["severity"] } | undefined) {
+function issueTone(
+  issue: { severity?: WorkspaceIssue["severity"] } | undefined
+) {
   if (issue?.severity === "blocking") {
-    return "border-red-300/40 bg-red-500/15 text-red-100";
+    return "border-red-300/40 bg-red-500/15 text-red-700 dark:text-red-100";
   }
   if (issue?.severity === "info") {
-    return "border-cyan-300/30 bg-cyan-300/10 text-cyan-100";
+    return "border-cyan-300/30 bg-cyan-300/10 text-cyan-700 dark:text-cyan-100";
   }
-  return "border-amber-300/30 bg-amber-300/10 text-amber-100";
+  return "border-amber-300/30 bg-amber-300/10 text-amber-800 dark:text-amber-100";
 }
 
 function IssueChip({
@@ -2962,7 +2891,7 @@ function IssueChip({
         }
       />
       <PopoverContent
-        className="w-80 border border-white/10 bg-[#111615] text-stone-100"
+        className="w-80 border border-border bg-popover text-foreground"
         data-testid={`${testId}-popover`}
         side="right"
       >
@@ -3007,7 +2936,7 @@ function IssueList({
             }
           />
           <PopoverContent
-            className="w-80 border border-white/10 bg-[#111615] text-stone-100"
+            className="w-80 border border-border bg-popover text-foreground"
             data-testid={`${testIdPrefix}-${issue.id}-popover`}
             side="bottom"
           >
@@ -3041,7 +2970,7 @@ function IssuePopoverBody({ issue }: { issue: WorkspaceIssue }) {
       <button
         className={cn(
           "rounded-sm text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-cyan-300/50",
-          firstAffectedMilestoneId && "cursor-pointer hover:bg-white/[0.04]"
+          firstAffectedMilestoneId && "cursor-pointer hover:bg-muted/40"
         )}
         data-testid={`issue-focus-${issue.id}`}
         disabled={!firstAffectedMilestoneId}
@@ -3059,23 +2988,29 @@ function IssuePopoverBody({ issue }: { issue: WorkspaceIssue }) {
             {issue.severity}
           </Badge>
         </div>
-        <p className="mt-1 text-stone-300 text-xs">{issue.message}</p>
+        <p className="mt-1 text-muted-foreground text-xs">{issue.message}</p>
       </button>
-      <div className="grid gap-1 text-stone-400 text-xs">
+      <div className="grid gap-1 text-muted-foreground text-xs">
         <div>
-          <span className="text-stone-500">Affected: </span>
-          {[...issue.milestoneIds, ...issue.drawGroupIds, ...issue.dependencyIds].join(", ")}
+          <span className="text-muted-foreground">Affected: </span>
+          {[
+            ...issue.milestoneIds,
+            ...issue.drawGroupIds,
+            ...issue.dependencyIds,
+          ].join(", ")}
         </div>
         <div>
-          <span className="text-stone-500">Why it matters: </span>
+          <span className="text-muted-foreground">Why it matters: </span>
           {issue.impact}
         </div>
         <div>
-          <span className="text-stone-500">Blocks release/submission: </span>
+          <span className="text-muted-foreground">
+            Blocks release/submission:{" "}
+          </span>
           {issue.severity === "blocking" ? "Yes" : "No"}
         </div>
         <div>
-          <span className="text-stone-500">Recommended fix: </span>
+          <span className="text-muted-foreground">Recommended fix: </span>
           {issue.quickFix?.label ?? "Open the related editor section."}
         </div>
       </div>
@@ -3110,8 +3045,8 @@ function IssuePopoverBody({ issue }: { issue: WorkspaceIssue }) {
 
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="grid gap-3 rounded-md border border-white/10 bg-white/[0.03] p-3">
-      <h2 className="font-medium text-stone-200 text-xs">{title}</h2>
+    <section className="grid gap-3 rounded-md border border-border bg-muted/30 p-3">
+      <h2 className="font-medium text-foreground text-xs">{title}</h2>
       {children}
     </section>
   );
@@ -3119,7 +3054,7 @@ function Panel({ title, children }: { title: string; children: ReactNode }) {
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid gap-1 text-stone-400 text-xs">
+    <div className="grid gap-1 text-muted-foreground text-xs">
       <span>{label}</span>
       {children}
     </div>
@@ -3134,8 +3069,8 @@ function SummaryPill({
   label: string;
 }) {
   return (
-    <span className="inline-flex h-7 items-center gap-1 rounded-md border border-white/10 bg-white/[0.03] px-2 text-stone-300 text-xs">
-      <Icon className="size-3.5 text-stone-500" />
+    <span className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-muted/30 px-2 text-muted-foreground text-xs">
+      <Icon className="size-3.5 text-muted-foreground" />
       {label}
     </span>
   );
