@@ -322,6 +322,8 @@ const getWidth = (
   );
 };
 
+export const getGanttRangeWidth = getWidth;
+
 const calculateInnerOffset = (
   date: Date,
   range: Range,
@@ -1585,14 +1587,12 @@ export type GanttRangeOverlayProps = {
 };
 
 export const GanttRangeOverlay: FC<GanttRangeOverlayProps> = ({
-  id,
   startAt,
   endAt,
   rowIndex,
   rowSpan,
   children,
   className,
-  onMoveDelta,
   testId,
 }) => {
   const gantt = useContext(GanttContext);
@@ -1638,6 +1638,7 @@ export type GanttRangeDragHandleProps = {
   onMoveDelta?: (deltaDays: number) => void;
   onPreviewDelta?: (deltaDays: number | null) => void;
   startAt?: Date;
+  style?: CSSProperties;
   testId?: string;
   title?: string;
 };
@@ -1650,6 +1651,7 @@ export const GanttRangeDragHandle: FC<GanttRangeDragHandleProps> = ({
   onMoveDelta,
   onPreviewDelta,
   startAt,
+  style,
   testId,
   title,
 }) => {
@@ -1730,6 +1732,7 @@ export const GanttRangeDragHandle: FC<GanttRangeDragHandleProps> = ({
     <div
       className={cn(className, "pointer-events-none max-w-max whitespace-nowrap")}
       data-gantt-interactive="true"
+      style={style}
       title={title}
     >
       <button

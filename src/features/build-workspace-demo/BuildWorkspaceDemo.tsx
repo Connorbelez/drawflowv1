@@ -21,8 +21,6 @@ import {
 import {
   AlertTriangle,
   ArrowDown,
-  ArrowLeft,
-  ArrowRight,
   ArrowUp,
   Banknote,
   CalendarDays,
@@ -45,7 +43,7 @@ import {
   Unlock,
   Upload,
 } from "lucide-react";
-import type { ComponentType, ReactNode } from "react";
+import type { ComponentType, CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -62,6 +60,7 @@ import {
   GanttSelectionLayer,
   GanttTimeline,
   GanttToday,
+  getGanttRangeWidth,
   type Range,
   useGanttContext,
 } from "#/components/kibo-ui/gantt/index.tsx";
@@ -74,6 +73,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog.tsx";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "#/components/ui/hover-card.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import {
   NativeSelect,
@@ -84,11 +88,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "#/components/ui/popover.tsx";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "#/components/ui/hover-card.tsx";
 import {
   Sheet,
   SheetContent,
@@ -105,8 +104,8 @@ import type {
   Milestone,
   MilestoneStatus,
   OptimizationPlanId,
-  WorkspaceRole,
   WorkspaceIssue,
+  WorkspaceRole,
 } from "./types";
 import { useBuildWorkspace } from "./workspace-adapter";
 
@@ -242,12 +241,12 @@ export function BuildWorkspaceDemo() {
     useState<GanttResolution>("monthly");
   const [timelineZoom, setTimelineZoom] = useState(120);
   const [detailMilestoneId, setDetailMilestoneId] = useState<string | null>(
-    null
+    null,
   );
   const [milestoneHighlightTones, setMilestoneHighlightTones] =
     useState<MilestoneHighlightTones>({});
   const [focusedMilestoneId, setFocusedMilestoneId] = useState<string | null>(
-    null
+    null,
   );
   const [milestoneRailCollapsed, setMilestoneRailCollapsed] = useState(false);
   const [drawPlansOpen, setDrawPlansOpen] = useState(false);
@@ -268,27 +267,28 @@ export function BuildWorkspaceDemo() {
 
   const selectedMilestone =
     workspace.milestones.find(
-      (milestone) => milestone.id === workspace.selectedMilestoneId
+      (milestone) => milestone.id === workspace.selectedMilestoneId,
     ) ?? workspace.milestones[0];
   const selectedDraw = selectedMilestone
     ? workspace.drawGroups.find(
-        (drawGroup) => drawGroup.id === selectedMilestone.drawGroupId
+        (drawGroup) => drawGroup.id === selectedMilestone.drawGroupId,
       )
     : undefined;
   const detailMilestone =
-    workspace.milestones.find((milestone) => milestone.id === detailMilestoneId) ??
-    selectedMilestone;
+    workspace.milestones.find(
+      (milestone) => milestone.id === detailMilestoneId,
+    ) ?? selectedMilestone;
   const detailDraw = detailMilestone
     ? workspace.drawGroups.find(
-        (drawGroup) => drawGroup.id === detailMilestone.drawGroupId
+        (drawGroup) => drawGroup.id === detailMilestone.drawGroupId,
       )
     : selectedDraw;
   const totalDrawAmount = workspace.milestones.reduce(
     (sum, milestone) => sum + milestone.estimatedCost,
-    0
+    0,
   );
   const blockerCount = workspace.dependencies.filter(
-    (dependency) => dependency.hardness === "hard"
+    (dependency) => dependency.hardness === "hard",
   ).length;
 
   if (workspace.isLoading || workspace.needsSeed || !selectedMilestone) {
@@ -395,7 +395,7 @@ function WorkspaceTopBar({
     workspace.issues.filter((issue) => !issue.dismissed).length;
   const selectedMilestone =
     workspace.milestones.find(
-      (milestone) => milestone.id === workspace.selectedMilestoneId
+      (milestone) => milestone.id === workspace.selectedMilestoneId,
     ) ?? workspace.milestones[0];
 
   return (
@@ -414,7 +414,9 @@ function WorkspaceTopBar({
             Proposal
           </a>
           <Badge className="border-cyan-300/30 bg-cyan-300/10 text-cyan-100">
-            {workspace.mode === "active" ? "active" : workspace.build.proposalStatus}
+            {workspace.mode === "active"
+              ? "active"
+              : workspace.build.proposalStatus}
           </Badge>
         </div>
         <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-1">
@@ -569,7 +571,7 @@ function RolePrimaryAction({ milestone }: { milestone: Milestone }) {
         onClick={() =>
           void workspace.approveMilestone(
             milestone.id,
-            "Approved from role-aware primary action."
+            "Approved from role-aware primary action.",
           )
         }
       >
@@ -621,9 +623,7 @@ function TimelineControlsStrip({
 }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 border-white/10 border-b bg-[#111715] p-3">
-      <div className="text-stone-400 text-xs">
-        Roadmap scale
-      </div>
+      <div className="text-stone-400 text-xs">Roadmap scale</div>
       <div className="flex flex-wrap items-center gap-2 rounded-md border border-white/10 bg-black/20 p-2 text-xs">
         <div className="flex items-center gap-2">
           <CalendarDays className="size-4 text-stone-500" />
@@ -634,7 +634,7 @@ function TimelineControlsStrip({
                 className={cn(
                   "h-7 rounded-sm px-2 font-medium text-stone-400 transition-colors hover:text-stone-100",
                   resolution === option.value &&
-                    "bg-emerald-300 text-emerald-950 hover:text-emerald-950"
+                    "bg-emerald-300 text-emerald-950 hover:text-emerald-950",
                 )}
                 data-testid={`timeline-resolution-${option.value}`}
                 key={option.value}
@@ -695,7 +695,7 @@ function DrawPlanComparisonDialog({
                 "grid gap-3 rounded-md border p-4 text-left transition-colors",
                 plan.id === activePlanId
                   ? "border-emerald-300/60 bg-emerald-300/10 text-emerald-50"
-                  : "border-white/10 bg-white/[0.03] text-stone-300 hover:bg-white/[0.06]"
+                  : "border-white/10 bg-white/[0.03] text-stone-300 hover:bg-white/[0.06]",
               )}
               key={plan.id}
               onClick={() => workspace.setActivePlan(plan.id)}
@@ -709,8 +709,12 @@ function DrawPlanComparisonDialog({
               </div>
               <div className="grid gap-2 text-xs">
                 <span>{compactMoney(plan.totalFees)} draw fees</span>
-                <span>{compactMoney(plan.projectedInterest)} projected interest</span>
-                <span>{compactMoney(plan.peakWorkingCapital)} peak working capital</span>
+                <span>
+                  {compactMoney(plan.projectedInterest)} projected interest
+                </span>
+                <span>
+                  {compactMoney(plan.peakWorkingCapital)} peak working capital
+                </span>
               </div>
               <p className="text-amber-200/80 text-xs">{plan.warning}</p>
             </button>
@@ -802,7 +806,9 @@ function ValidationMessageItem({
             <AlertTriangle
               className={cn(
                 "size-4 shrink-0",
-                item.severity === "blocking" ? "text-red-200" : "text-amber-200"
+                item.severity === "blocking"
+                  ? "text-red-200"
+                  : "text-amber-200",
               )}
             />
             <span className="font-semibold text-sm text-stone-100">
@@ -886,7 +892,9 @@ function ValidationWorkspaceIssueItem({ issue }: { issue: WorkspaceIssue }) {
             <AlertTriangle
               className={cn(
                 "size-4 shrink-0",
-                issue.severity === "blocking" ? "text-red-200" : "text-amber-200"
+                issue.severity === "blocking"
+                  ? "text-red-200"
+                  : "text-amber-200",
               )}
             />
             <span className="font-semibold text-sm text-stone-100">
@@ -911,6 +919,76 @@ function ValidationWorkspaceIssueItem({ issue }: { issue: WorkspaceIssue }) {
         <IssuePopoverBody issue={issue} />
       </div>
     </details>
+  );
+}
+
+type DrawOverlay = ReturnType<typeof getDrawOverlays>[number];
+
+function DrawGroupRangeDragHandle({
+  children,
+  draw,
+  milestones,
+  onMoveDelta,
+  onPreviewDelta,
+  proposalSubmitted,
+}: {
+  children: ReactNode;
+  draw: DrawOverlay;
+  milestones: Milestone[];
+  onMoveDelta: (deltaDays: number) => void;
+  onPreviewDelta: (deltaDays: number | null) => void;
+  proposalSubmitted: boolean;
+}) {
+  const gantt = useGanttContext();
+  const hasUnlockedMilestones = milestones.some(
+    (milestone) => milestone.drawGroupId === draw.id && !milestone.isDragLocked,
+  );
+  const firstMilestoneWidth = useMemo(() => {
+    const firstMilestone = milestones
+      .filter((milestone) => milestone.drawGroupId === draw.id)
+      .sort(
+        (leftMilestone, rightMilestone) =>
+          leftMilestone.startAt.getTime() - rightMilestone.startAt.getTime() ||
+          leftMilestone.endAt.getTime() - rightMilestone.endAt.getTime(),
+      )
+      .at(0);
+
+    return firstMilestone
+      ? Math.round(
+          getGanttRangeWidth(
+            firstMilestone.startAt,
+            firstMilestone.endAt,
+            gantt,
+          ),
+        )
+      : 0;
+  }, [draw.id, gantt, milestones]);
+  const handleStyle = useMemo<CSSProperties>(
+    () => ({
+      left: firstMilestoneWidth,
+      // transform: "translateX(-100%)",
+    }),
+    [firstMilestoneWidth],
+  );
+
+  return (
+    <GanttRangeDragHandle
+      className="absolute -top-4 z-40 inline-flex min-w-max max-w-max items-center gap-2 rounded-sm bg-black/85 px-2.5 py-1 font-medium text-[0.72rem] shadow-black/30 shadow-lg backdrop-blur"
+      contentTestId={`draw-label-${draw.id}`}
+      disabled={proposalSubmitted || !hasUnlockedMilestones}
+      onMoveDelta={onMoveDelta}
+      onPreviewDelta={onPreviewDelta}
+      startAt={draw.startAt}
+      style={handleStyle}
+      testId={`draw-drag-handle-${draw.id}`}
+      title={
+        hasUnlockedMilestones
+          ? `Drag to shift unlocked milestones in ${draw.label}`
+          : `${draw.label} has no unlocked milestones to shift.`
+      }
+    >
+      {children}
+    </GanttRangeDragHandle>
   );
 }
 
@@ -941,23 +1019,28 @@ function GanttRoadmap({
   const [batchShiftPreview, setBatchShiftPreview] =
     useState<BatchShiftPreview>(null);
   const proposalSubmitted =
-    workspace.mode === "proposal" && workspace.build.proposalStatus === "submitted";
+    workspace.mode === "proposal" &&
+    workspace.build.proposalStatus === "submitted";
   const selectionPreview =
     batchShiftPreview?.source === "selection" ? batchShiftPreview : null;
   const drawGroupPreview =
     batchShiftPreview?.source === "drawGroup" ? batchShiftPreview : null;
   const features: GanttFeature[] = workspace.milestones.map((milestone) => {
-    const featureMilestone =
-      selectionPreview?.movingMilestoneIds.includes(milestone.id)
-        ? {
-            ...milestone,
-            startAt: addDays(milestone.startAt, selectionPreview.deltaDays),
-            endAt: addDays(milestone.endAt, selectionPreview.deltaDays),
-          }
-        : milestone;
+    const featureMilestone = selectionPreview?.movingMilestoneIds.includes(
+      milestone.id,
+    )
+      ? {
+          ...milestone,
+          startAt: addDays(milestone.startAt, selectionPreview.deltaDays),
+          endAt: addDays(milestone.endAt, selectionPreview.deltaDays),
+        }
+      : milestone;
     return milestoneToFeature(featureMilestone);
   });
-  const drawOverlays = getDrawOverlays(workspace.milestones, workspace.drawGroups);
+  const drawOverlays = getDrawOverlays(
+    workspace.milestones,
+    workspace.drawGroups,
+  );
   const drawGroupGhostOverlays = drawGroupPreview
     ? getDrawOverlays(
         workspace.milestones.map((milestone) =>
@@ -967,9 +1050,9 @@ function GanttRoadmap({
                 startAt: addDays(milestone.startAt, drawGroupPreview.deltaDays),
                 endAt: addDays(milestone.endAt, drawGroupPreview.deltaDays),
               }
-            : milestone
+            : milestone,
         ),
-        workspace.drawGroups
+        workspace.drawGroups,
       ).filter((draw) => draw.id === drawGroupPreview.sourceId)
     : [];
   const ghostFeatures: GanttFeature[] = workspace.milestones.map((milestone) =>
@@ -981,21 +1064,21 @@ function GanttRoadmap({
             endAt: addDays(milestone.endAt, drawGroupPreview.deltaDays),
           }),
         }
-      : milestoneToFeature(milestone)
+      : milestoneToFeature(milestone),
   );
   const focusedMilestone = workspace.milestones.find(
-    (milestone) => milestone.id === focusedMilestoneId
+    (milestone) => milestone.id === focusedMilestoneId,
   );
   const initialScrollDate = useMemo(
     () =>
       new Date(
         Math.min(
           ...workspace.milestones.map((milestone) =>
-            milestone.startAt.getTime()
-          )
-        )
+            milestone.startAt.getTime(),
+          ),
+        ),
       ),
-    [workspace.milestones]
+    [workspace.milestones],
   );
   const replaceSelection = useCallback((milestoneId: string) => {
     setSelectedMilestoneIds(new Set([milestoneId]));
@@ -1014,18 +1097,21 @@ function GanttRoadmap({
   const clearSelection = useCallback(() => {
     setSelectedMilestoneIds(new Set());
   }, []);
-  const selectFromMarquee = useCallback((milestoneIds: string[]) => {
-    setSelectedMilestoneIds(new Set(milestoneIds));
-    const first = milestoneIds[0];
-    if (first) {
-      workspace.selectMilestone(first);
-      onMilestoneFocus(first);
-    }
-  }, [onMilestoneFocus, workspace]);
+  const selectFromMarquee = useCallback(
+    (milestoneIds: string[]) => {
+      setSelectedMilestoneIds(new Set(milestoneIds));
+      const first = milestoneIds[0];
+      if (first) {
+        workspace.selectMilestone(first);
+        onMilestoneFocus(first);
+      }
+    },
+    [onMilestoneFocus, workspace],
+  );
   const handleTimelineMilestoneClick = useCallback(
     (
       milestoneId: string,
-      event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }
+      event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean },
     ) => {
       workspace.selectMilestone(milestoneId);
       onMilestoneFocus(milestoneId);
@@ -1042,32 +1128,41 @@ function GanttRoadmap({
       replaceSelection,
       toggleSelection,
       workspace,
-    ]
+    ],
   );
   const selectedUnlockedIds = workspace.milestones
-    .filter((milestone) => selectedMilestoneIds.has(milestone.id) && !milestone.isDragLocked)
+    .filter(
+      (milestone) =>
+        selectedMilestoneIds.has(milestone.id) && !milestone.isDragLocked,
+    )
     .map((milestone) => milestone.id);
   const lockedSelectedIds = workspace.milestones
-    .filter((milestone) => selectedMilestoneIds.has(milestone.id) && milestone.isDragLocked)
+    .filter(
+      (milestone) =>
+        selectedMilestoneIds.has(milestone.id) && milestone.isDragLocked,
+    )
     .map((milestone) => milestone.id);
   const disabledMilestoneIds = new Set(
     workspace.milestones
       .filter((milestone) => milestone.isDragLocked || proposalSubmitted)
-      .map((milestone) => milestone.id)
+      .map((milestone) => milestone.id),
   );
   const commitBatchShift = useCallback(
     async (
       milestoneIds: string[],
       deltaDays: number,
       source: "selection" | "drawGroup",
-      sourceId?: string
+      sourceId?: string,
     ) => {
       if (deltaDays === 0 || proposalSubmitted) {
         setBatchShiftPreview(null);
         return;
       }
       const moves = workspace.milestones
-        .filter((milestone) => milestoneIds.includes(milestone.id) && !milestone.isDragLocked)
+        .filter(
+          (milestone) =>
+            milestoneIds.includes(milestone.id) && !milestone.isDragLocked,
+        )
         .map((milestone) => ({
           milestoneId: milestone.id,
           startAt: addDays(milestone.startAt, deltaDays),
@@ -1077,9 +1172,14 @@ function GanttRoadmap({
       if (moves.length === 0) {
         return;
       }
-      await workspace.batchMoveMilestoneDates(moves, undefined, source, sourceId);
+      await workspace.batchMoveMilestoneDates(
+        moves,
+        undefined,
+        source,
+        sourceId,
+      );
     },
-    [proposalSubmitted, workspace]
+    [proposalSubmitted, workspace],
   );
 
   useEffect(() => {
@@ -1117,7 +1217,7 @@ function GanttRoadmap({
         }}
         onMilestoneFocus={(milestoneId) => {
           const milestone = workspace.milestones.find(
-            (item) => item.id === milestoneId
+            (item) => item.id === milestoneId,
           );
           if (!milestone) {
             return;
@@ -1148,7 +1248,7 @@ function GanttRoadmap({
               proposalSubmitted ||
               workspace.milestones.every(
                 (milestone) =>
-                  milestone.drawGroupId !== draw.id || milestone.isDragLocked
+                  milestone.drawGroupId !== draw.id || milestone.isDragLocked,
               )
             }
             endAt={draw.endAt}
@@ -1166,7 +1266,7 @@ function GanttRoadmap({
                 return;
               }
               const drawMilestones = workspace.milestones.filter(
-                (milestone) => milestone.drawGroupId === draw.id
+                (milestone) => milestone.drawGroupId === draw.id,
               );
               setBatchShiftPreview({
                 deltaDays,
@@ -1185,16 +1285,9 @@ function GanttRoadmap({
             startAt={draw.startAt}
             testId={`draw-overlay-${draw.id}`}
           >
-            <GanttRangeDragHandle
-              className="absolute top-1 left-2 z-40 inline-flex min-w-max max-w-max items-center gap-2 rounded-sm bg-black/85 px-2.5 py-1 font-medium text-[0.72rem] shadow-black/30 shadow-lg backdrop-blur"
-              disabled={
-                proposalSubmitted ||
-                workspace.milestones.every(
-                  (milestone) =>
-                    milestone.drawGroupId !== draw.id || milestone.isDragLocked
-                )
-              }
-              contentTestId={`draw-label-${draw.id}`}
+            <DrawGroupRangeDragHandle
+              draw={draw}
+              milestones={workspace.milestones}
               onMoveDelta={(deltaDays) => {
                 const ids = workspace.milestones
                   .filter((milestone) => milestone.drawGroupId === draw.id)
@@ -1207,7 +1300,7 @@ function GanttRoadmap({
                   return;
                 }
                 const drawMilestones = workspace.milestones.filter(
-                  (milestone) => milestone.drawGroupId === draw.id
+                  (milestone) => milestone.drawGroupId === draw.id,
                 );
                 setBatchShiftPreview({
                   deltaDays,
@@ -1221,16 +1314,7 @@ function GanttRoadmap({
                   sourceId: draw.id,
                 });
               }}
-              startAt={draw.startAt}
-              testId={`draw-drag-handle-${draw.id}`}
-              title={
-                workspace.milestones.every(
-                  (milestone) =>
-                    milestone.drawGroupId !== draw.id || milestone.isDragLocked
-                )
-                  ? `${draw.label} has no unlocked milestones to shift.`
-                  : `Drag to shift unlocked milestones in ${draw.label}`
-              }
+              proposalSubmitted={proposalSubmitted}
             >
               <span className="font-semibold text-stone-100">{draw.label}</span>
               <span>{compactMoney(draw.amount)}</span>
@@ -1242,7 +1326,7 @@ function GanttRoadmap({
                 issues={draw.issues}
                 testId={`draw-issue-chip-${draw.id}`}
               />
-            </GanttRangeDragHandle>
+            </DrawGroupRangeDragHandle>
           </GanttRangeOverlay>
         ))}
         {drawGroupGhostOverlays.map((draw) => (
@@ -1277,7 +1361,9 @@ function GanttRoadmap({
             data-testid="gantt-selection-count"
           >
             {selectedMilestoneIds.size} selected
-            {lockedSelectedIds.length > 0 ? ` / ${lockedSelectedIds.length} locked` : ""}
+            {lockedSelectedIds.length > 0
+              ? ` / ${lockedSelectedIds.length} locked`
+              : ""}
           </div>
         ) : null}
         {drawOverlays.map((draw) => (
@@ -1300,7 +1386,7 @@ function GanttRoadmap({
             id={`draw-eligible-${draw.id}`}
             key={`draw-eligible-${draw.id}`}
             label={`${draw.label} eligible`}
-            labelClassName="ml-12 translate-x-full items-start text-left"
+            labelClassName="items-start text-left"
             testId={`draw-eligible-${draw.id}`}
           />
         ))}
@@ -1343,7 +1429,7 @@ function GanttRoadmap({
         <GanttFeatureList>
           {features.map((feature) => {
             const milestone = workspace.milestones.find(
-              (item) => item.id === feature.id
+              (item) => item.id === feature.id,
             );
 
             return (
@@ -1357,7 +1443,7 @@ function GanttRoadmap({
                   void commitBatchShift(
                     Array.from(selectedMilestoneIds),
                     deltaDays,
-                    "selection"
+                    "selection",
                   );
                 }}
                 onBatchPreviewChange={(_featureId, preview) => {
@@ -1392,10 +1478,10 @@ function GanttRoadmap({
           <GanttFeatureList className="pointer-events-none z-[5]">
             {ghostFeatures.map((feature) => {
               const milestone = workspace.milestones.find(
-                (item) => item.id === feature.id
+                (item) => item.id === feature.id,
               );
               const isMoving = drawGroupPreview.movingMilestoneIds.includes(
-                feature.id
+                feature.id,
               );
 
               return (
@@ -1437,7 +1523,9 @@ function MilestoneRail({
 }) {
   const workspace = useBuildWorkspace();
   const gantt = useGanttContext();
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+  );
 
   const focusMilestone = (milestone: Milestone) => {
     workspace.selectMilestone(milestone.id);
@@ -1454,8 +1542,8 @@ function MilestoneRail({
     onMilestoneFocus(null);
     onHighlightMilestones(
       Object.fromEntries(
-        blockedIds.map((milestoneId) => [milestoneId, "blocked"])
-      )
+        blockedIds.map((milestoneId) => [milestoneId, "blocked"]),
+      ),
     );
   };
 
@@ -1467,8 +1555,8 @@ function MilestoneRail({
     onMilestoneFocus(null);
     onHighlightMilestones(
       Object.fromEntries(
-        blockerIds.map((milestoneId) => [milestoneId, "blocking"])
-      )
+        blockerIds.map((milestoneId) => [milestoneId, "blocking"]),
+      ),
     );
   };
 
@@ -1478,15 +1566,19 @@ function MilestoneRail({
       return;
     }
     const fromIndex = workspace.milestones.findIndex(
-      (milestone) => milestone.id === active.id
+      (milestone) => milestone.id === active.id,
     );
     const toIndex = workspace.milestones.findIndex(
-      (milestone) => milestone.id === over.id
+      (milestone) => milestone.id === over.id,
     );
     if (fromIndex < 0 || toIndex < 0) {
       return;
     }
-    void workspace.reorderMilestoneAbsolute(String(active.id), fromIndex, toIndex);
+    void workspace.reorderMilestoneAbsolute(
+      String(active.id),
+      fromIndex,
+      toIndex,
+    );
   };
 
   return (
@@ -1502,7 +1594,9 @@ function MilestoneRail({
           data-testid="milestone-rail-collapse-toggle"
           onClick={() => onCollapsedChange(!collapsed)}
           size="icon-xs"
-          title={collapsed ? "Expand milestone rail" : "Collapse milestone rail"}
+          title={
+            collapsed ? "Expand milestone rail" : "Collapse milestone rail"
+          }
           variant="ghost"
         >
           {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
@@ -1519,51 +1613,56 @@ function MilestoneRail({
         >
           <div className="h-[calc(100%-60px)] min-h-0 overflow-y-auto overscroll-contain">
             {workspace.milestones.map((milestone, index) => {
-          const blockers = workspace.dependencies.filter(
-            (dependency) => dependency.toMilestoneId === milestone.id
-          ).length;
-          const blocking = workspace.dependencies.filter(
-            (dependency) => dependency.fromMilestoneId === milestone.id
-          ).length;
-          const blockingChipActive = workspace.dependencies
-            .filter((dependency) => dependency.fromMilestoneId === milestone.id)
-            .some(
-              (dependency) =>
-                milestoneHighlightTones[dependency.toMilestoneId] === "blocked"
-            );
-          const blockedByChipActive = workspace.dependencies
-            .filter((dependency) => dependency.toMilestoneId === milestone.id)
-            .some(
-              (dependency) =>
-                milestoneHighlightTones[dependency.fromMilestoneId] ===
-                "blocking"
-            );
-          const draw = workspace.drawGroups.find(
-            (drawGroup) => drawGroup.id === milestone.drawGroupId
-          );
-          const selected = milestone.id === workspace.selectedMilestoneId;
-          const highlightTone: MilestoneHighlightTone | undefined = selected
-            ? "selected"
-            : milestoneHighlightTones[milestone.id];
+              const blockers = workspace.dependencies.filter(
+                (dependency) => dependency.toMilestoneId === milestone.id,
+              ).length;
+              const blocking = workspace.dependencies.filter(
+                (dependency) => dependency.fromMilestoneId === milestone.id,
+              ).length;
+              const blockingChipActive = workspace.dependencies
+                .filter(
+                  (dependency) => dependency.fromMilestoneId === milestone.id,
+                )
+                .some(
+                  (dependency) =>
+                    milestoneHighlightTones[dependency.toMilestoneId] ===
+                    "blocked",
+                );
+              const blockedByChipActive = workspace.dependencies
+                .filter(
+                  (dependency) => dependency.toMilestoneId === milestone.id,
+                )
+                .some(
+                  (dependency) =>
+                    milestoneHighlightTones[dependency.fromMilestoneId] ===
+                    "blocking",
+                );
+              const draw = workspace.drawGroups.find(
+                (drawGroup) => drawGroup.id === milestone.drawGroupId,
+              );
+              const selected = milestone.id === workspace.selectedMilestoneId;
+              const highlightTone: MilestoneHighlightTone | undefined = selected
+                ? "selected"
+                : milestoneHighlightTones[milestone.id];
 
-          return (
-            <SortableMilestoneRailRow
-              blockedByChipActive={blockedByChipActive}
-              blockers={blockers}
-              blocking={blocking}
-              blockingChipActive={blockingChipActive}
-              collapsed={collapsed}
-              draw={draw}
-              highlightBlockers={highlightBlockers}
-              highlightBlocking={highlightBlocking}
-              highlightTone={highlightTone}
-              index={index}
-              key={milestone.id}
-              milestone={milestone}
-              onFocusMilestone={focusMilestone}
-              onOpenDetail={onOpenDetail}
-            />
-          );
+              return (
+                <SortableMilestoneRailRow
+                  blockedByChipActive={blockedByChipActive}
+                  blockers={blockers}
+                  blocking={blocking}
+                  blockingChipActive={blockingChipActive}
+                  collapsed={collapsed}
+                  draw={draw}
+                  highlightBlockers={highlightBlockers}
+                  highlightBlocking={highlightBlocking}
+                  highlightTone={highlightTone}
+                  index={index}
+                  key={milestone.id}
+                  milestone={milestone}
+                  onFocusMilestone={focusMilestone}
+                  onOpenDetail={onOpenDetail}
+                />
+              );
             })}
           </div>
         </SortableContext>
@@ -1588,17 +1687,15 @@ function GanttMilestoneSidebar({
   const workspace = useBuildWorkspace();
 
   return (
-    <GanttSidebar
-      className="w-[220px] shrink-0 border-white/10 bg-[#111615]/95 text-stone-300"
-    >
+    <GanttSidebar className="w-[220px] shrink-0 border-white/10 bg-[#111615]/95 text-stone-300">
       <div className="divide-y divide-white/5">
         {features.map((feature) => {
           const milestone = workspace.milestones.find(
-            (item) => item.id === feature.id
+            (item) => item.id === feature.id,
           );
           const draw = milestone
             ? workspace.drawGroups.find(
-                (drawGroup) => drawGroup.id === milestone.drawGroupId
+                (drawGroup) => drawGroup.id === milestone.drawGroupId,
               )
             : undefined;
 
@@ -1610,7 +1707,7 @@ function GanttMilestoneSidebar({
                   "bg-lime-300/10 text-lime-100",
                 milestone &&
                   selectedMilestoneIds.has(milestone.id) &&
-                  "ring-1 ring-cyan-300/40 ring-inset"
+                  "ring-1 ring-cyan-300/40 ring-inset",
               )}
               feature={feature}
               key={feature.id}
@@ -1643,7 +1740,7 @@ function GanttMilestoneSidebar({
                     "grid size-6 shrink-0 place-items-center rounded-sm border border-white/10 text-stone-400 transition-colors hover:border-cyan-300/40 hover:bg-cyan-300/10 hover:text-cyan-100",
                     milestone.isDragLocked &&
                       "border-cyan-300/40 bg-cyan-300/15 text-cyan-100",
-                    proposalSubmitted && "cursor-not-allowed opacity-50"
+                    proposalSubmitted && "cursor-not-allowed opacity-50",
                   )}
                   data-gantt-interactive="true"
                   data-testid={`gantt-sidebar-lock-${milestone.id}`}
@@ -1712,7 +1809,8 @@ function SortableMilestoneRailRow({
 }) {
   const workspace = useBuildWorkspace();
   const sortableDisabled =
-    workspace.mode === "active" || workspace.build.proposalStatus === "submitted";
+    workspace.mode === "active" ||
+    workspace.build.proposalStatus === "submitted";
   const {
     attributes,
     listeners,
@@ -1720,7 +1818,10 @@ function SortableMilestoneRailRow({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: milestone.id, disabled: sortableDisabled || collapsed });
+  } = useSortable({
+    id: milestone.id,
+    disabled: sortableDisabled || collapsed,
+  });
 
   return (
     <div
@@ -1735,7 +1836,7 @@ function SortableMilestoneRailRow({
           "bg-amber-300/20 ring-1 ring-amber-300/70 ring-inset",
         highlightTone === "blocked" &&
           "bg-red-500/20 ring-1 ring-red-300/70 ring-inset",
-        isDragging && "z-40 opacity-70"
+        isDragging && "z-40 opacity-70",
       )}
       data-highlight-tone={highlightTone ?? "none"}
       data-highlighted={highlightTone ? "true" : "false"}
@@ -1787,7 +1888,7 @@ function SortableMilestoneRailRow({
               "grid size-5 place-items-center rounded-sm text-stone-600",
               sortableDisabled
                 ? "cursor-not-allowed opacity-50"
-                : "cursor-grab hover:bg-white/10 hover:text-stone-200"
+                : "cursor-grab hover:bg-white/10 hover:text-stone-200",
             )}
             data-testid={`milestone-drag-handle-${milestone.id}`}
             disabled={sortableDisabled}
@@ -1834,7 +1935,7 @@ function SortableMilestoneRailRow({
                 className={cn(
                   "inline-flex h-4 items-center rounded-sm border border-white/10 bg-white/[0.04] px-1 text-stone-300 transition-colors hover:border-red-300/50 hover:bg-red-400/15 hover:text-red-100",
                   blockingChipActive &&
-                    "border-red-300/60 bg-red-500/20 text-red-100"
+                    "border-red-300/60 bg-red-500/20 text-red-100",
                 )}
                 data-testid={`milestone-blocking-chip-${milestone.id}`}
                 onClick={(event) => {
@@ -1850,7 +1951,7 @@ function SortableMilestoneRailRow({
                 className={cn(
                   "inline-flex h-4 items-center rounded-sm border border-white/10 bg-white/[0.04] px-1 text-stone-300 transition-colors hover:border-amber-300/50 hover:bg-amber-300/15 hover:text-amber-100",
                   blockedByChipActive &&
-                    "border-amber-300/60 bg-amber-300/20 text-amber-100"
+                    "border-amber-300/60 bg-amber-300/20 text-amber-100",
                 )}
                 data-testid={`milestone-blocked-by-chip-${milestone.id}`}
                 onClick={(event) => {
@@ -1907,7 +2008,9 @@ function SortableMilestoneRailRow({
               </Button>
               <Button
                 data-testid={`milestone-move-down-${milestone.id}`}
-                disabled={index === workspace.milestones.length - 1 || sortableDisabled}
+                disabled={
+                  index === workspace.milestones.length - 1 || sortableDisabled
+                }
                 onClick={(event) => {
                   event.stopPropagation();
                   void workspace.reorderMilestone(milestone.id, "down");
@@ -1942,7 +2045,7 @@ function MilestoneBlock({
   milestone: Milestone;
   onTimelineClick: (
     milestoneId: string,
-    event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }
+    event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean },
   ) => void;
   selected: boolean;
 }) {
@@ -1950,7 +2053,7 @@ function MilestoneBlock({
   const [previewOpen, setPreviewOpen] = useState(false);
   const handledModifiedPointerRef = useRef(false);
   const draw = workspace.drawGroups.find(
-    (drawGroup) => drawGroup.id === milestone.drawGroupId
+    (drawGroup) => drawGroup.id === milestone.drawGroupId,
   );
   const effectiveHighlightTone =
     selected || milestone.id === workspace.selectedMilestoneId
@@ -1972,7 +2075,7 @@ function MilestoneBlock({
               effectiveHighlightTone === "blocked" &&
                 "bg-red-500/20 ring-1 ring-red-300/70",
               milestone.isDragLocked &&
-                "cursor-not-allowed border-stone-500/40 bg-stone-800/70 text-stone-300"
+                "cursor-not-allowed border-stone-500/40 bg-stone-800/70 text-stone-300",
             )}
             data-end-date={toDateInputValue(milestone.endAt)}
             data-gantt-interactive="true"
@@ -1994,7 +2097,7 @@ function MilestoneBlock({
               window.dispatchEvent(
                 new CustomEvent("drawflow-open-milestone-detail", {
                   detail: milestone.id,
-                })
+                }),
               );
             }}
             onMouseEnter={() => setPreviewOpen(true)}
@@ -2043,7 +2146,8 @@ function MilestoneBlock({
             {milestone.code} / {draw?.label} / {statusLabels[milestone.status]}
           </div>
           <div className="text-stone-400">
-            {format(milestone.startAt, "MMM d")} - {format(milestone.endAt, "MMM d")} /{" "}
+            {format(milestone.startAt, "MMM d")} -{" "}
+            {format(milestone.endAt, "MMM d")} /{" "}
             {compactMoney(milestone.estimatedCost)}
           </div>
           <IssueList
@@ -2107,7 +2211,7 @@ function MilestoneDetailSheet({
   });
   const [reason, setReason] = useState("Reviewed in demo workspace.");
   const [dependencyTarget, setDependencyTarget] = useState(
-    workspace.milestones.find((item) => item.id !== milestone.id)?.id ?? ""
+    workspace.milestones.find((item) => item.id !== milestone.id)?.id ?? "",
   );
   const [dependencyHardness, setDependencyHardnessDraft] =
     useState<DependencyHardness>("hard");
@@ -2126,18 +2230,18 @@ function MilestoneDetailSheet({
       status: milestone.status,
     });
     setDependencyTarget(
-      workspace.milestones.find((item) => item.id !== milestone.id)?.id ?? ""
+      workspace.milestones.find((item) => item.id !== milestone.id)?.id ?? "",
     );
   }, [milestone, workspace.milestones]);
 
   const incoming = workspace.dependencies.filter(
-    (dependency) => dependency.toMilestoneId === milestone.id
+    (dependency) => dependency.toMilestoneId === milestone.id,
   );
   const outgoing = workspace.dependencies.filter(
-    (dependency) => dependency.fromMilestoneId === milestone.id
+    (dependency) => dependency.fromMilestoneId === milestone.id,
   );
   const currentDrawIndex = workspace.drawGroups.findIndex(
-    (drawGroup) => drawGroup.id === milestone.drawGroupId
+    (drawGroup) => drawGroup.id === milestone.drawGroupId,
   );
   const previousDraw = workspace.drawGroups[currentDrawIndex - 1];
   const nextDraw = workspace.drawGroups[currentDrawIndex + 1];
@@ -2145,7 +2249,7 @@ function MilestoneDetailSheet({
   const saveMilestone = async () => {
     const duration = Math.max(
       1,
-      parseNumber(draft.estimatedDurationDays, milestone.estimatedDurationDays)
+      parseNumber(draft.estimatedDurationDays, milestone.estimatedDurationDays),
     );
     const startAt = fromDateInputValue(draft.startAt);
 
@@ -2158,7 +2262,7 @@ function MilestoneDetailSheet({
       milestone.id,
       startAt,
       addDays(startAt, duration - 1),
-      reason
+      reason,
     );
   };
 
@@ -2262,7 +2366,7 @@ function MilestoneDetailSheet({
                       void workspace.updateMilestone(milestone.id, {
                         estimatedCost: parseNumber(
                           event.currentTarget.value,
-                          milestone.estimatedCost
+                          milestone.estimatedCost,
                         ),
                       });
                     }
@@ -2270,7 +2374,13 @@ function MilestoneDetailSheet({
                   value={draft.estimatedCost}
                 />
               </Field>
-              <Field label={workspace.mode === "active" ? "Requested draw amount" : "Actual cost"}>
+              <Field
+                label={
+                  workspace.mode === "active"
+                    ? "Requested draw amount"
+                    : "Actual cost"
+                }
+              >
                 <Input
                   data-testid="milestone-actual-cost-input"
                   disabled={workspace.mode === "proposal"}
@@ -2323,8 +2433,8 @@ function MilestoneDetailSheet({
                           1,
                           parseNumber(
                             event.currentTarget.value,
-                            milestone.estimatedDurationDays
-                          )
+                            milestone.estimatedDurationDays,
+                          ),
                         ),
                       });
                     }
@@ -2395,260 +2505,285 @@ function MilestoneDetailSheet({
           </Panel>
 
           {workspace.mode === "proposal" ? (
-          <Panel title="Draw Group Controls">
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Field label="Move to draw">
-                <NativeSelect
-                  className="w-full"
-                  data-testid="move-to-draw-select"
-                  disabled={workspace.build.proposalStatus === "submitted"}
-                  onChange={(event) =>
-                    void workspace.moveMilestoneToDrawGroup(
-                      milestone.id,
-                      event.currentTarget.value
-                    )
-                  }
-                  value={milestone.drawGroupId}
-                >
-                  {workspace.drawGroups.map((drawGroup) => (
-                    <NativeSelectOption key={drawGroup.id} value={drawGroup.id}>
-                      {drawGroup.label} / {statusLabels[drawGroup.status]}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
-              </Field>
-              <div className="grid grid-cols-3 gap-2 self-end">
-                <Button
-                  data-testid="split-draw"
-                  disabled={!draw || workspace.build.proposalStatus === "submitted"}
-                  onClick={() =>
-                    draw && void workspace.splitDrawGroup(draw.id, milestone.id)
-                  }
-                  variant="outline"
-                >
-                  <Scissors />
-                  Split
-                </Button>
-                <Button
-                  data-testid="merge-prev-draw"
-                  disabled={!previousDraw || workspace.build.proposalStatus === "submitted"}
-                  onClick={() =>
-                    previousDraw &&
-                    void workspace.mergeDrawGroups(draw?.id ?? "", previousDraw.id)
-                  }
-                  variant="outline"
-                >
-                  Merge prev
-                </Button>
-                <Button
-                  data-testid="merge-next-draw"
-                  disabled
-                  title={
-                    nextDraw
-                      ? "Merge next is disabled in this demo; use the next draw's Merge prev control."
-                      : "No next draw group."
-                  }
-                  variant="outline"
-                >
-                  Merge next
-                </Button>
+            <Panel title="Draw Group Controls">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Field label="Move to draw">
+                  <NativeSelect
+                    className="w-full"
+                    data-testid="move-to-draw-select"
+                    disabled={workspace.build.proposalStatus === "submitted"}
+                    onChange={(event) =>
+                      void workspace.moveMilestoneToDrawGroup(
+                        milestone.id,
+                        event.currentTarget.value,
+                      )
+                    }
+                    value={milestone.drawGroupId}
+                  >
+                    {workspace.drawGroups.map((drawGroup) => (
+                      <NativeSelectOption
+                        key={drawGroup.id}
+                        value={drawGroup.id}
+                      >
+                        {drawGroup.label} / {statusLabels[drawGroup.status]}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                </Field>
+                <div className="grid grid-cols-3 gap-2 self-end">
+                  <Button
+                    data-testid="split-draw"
+                    disabled={
+                      !draw || workspace.build.proposalStatus === "submitted"
+                    }
+                    onClick={() =>
+                      draw &&
+                      void workspace.splitDrawGroup(draw.id, milestone.id)
+                    }
+                    variant="outline"
+                  >
+                    <Scissors />
+                    Split
+                  </Button>
+                  <Button
+                    data-testid="merge-prev-draw"
+                    disabled={
+                      !previousDraw ||
+                      workspace.build.proposalStatus === "submitted"
+                    }
+                    onClick={() =>
+                      previousDraw &&
+                      void workspace.mergeDrawGroups(
+                        draw?.id ?? "",
+                        previousDraw.id,
+                      )
+                    }
+                    variant="outline"
+                  >
+                    Merge prev
+                  </Button>
+                  <Button
+                    data-testid="merge-next-draw"
+                    disabled
+                    title={
+                      nextDraw
+                        ? "Merge next is disabled in this demo; use the next draw's Merge prev control."
+                        : "No next draw group."
+                    }
+                    variant="outline"
+                  >
+                    Merge next
+                  </Button>
+                </div>
               </div>
-            </div>
-          </Panel>
+            </Panel>
           ) : null}
 
           {workspace.mode === "proposal" ? (
-          <Panel title="Dependencies">
-            <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
-              <NativeSelect
-                className="w-full"
-                data-testid="dependency-target-select"
-                onChange={(event) =>
-                  setDependencyTarget(event.currentTarget.value)
-                }
-                value={dependencyTarget}
-              >
-                {workspace.milestones
-                  .filter((item) => item.id !== milestone.id)
-                  .map((item) => (
-                    <NativeSelectOption key={item.id} value={item.id}>
-                      {item.code} / {item.name}
-                    </NativeSelectOption>
-                  ))}
-              </NativeSelect>
-              <NativeSelect
-                className="w-full"
-                data-testid="dependency-hardness-select"
-                onChange={(event) =>
-                  setDependencyHardnessDraft(
-                    event.currentTarget.value as DependencyHardness
-                  )
-                }
-                value={dependencyHardness}
-              >
-                <NativeSelectOption value="hard">Hard</NativeSelectOption>
-                <NativeSelectOption value="soft">Soft</NativeSelectOption>
-              </NativeSelect>
+            <Panel title="Dependencies">
+              <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+                <NativeSelect
+                  className="w-full"
+                  data-testid="dependency-target-select"
+                  onChange={(event) =>
+                    setDependencyTarget(event.currentTarget.value)
+                  }
+                  value={dependencyTarget}
+                >
+                  {workspace.milestones
+                    .filter((item) => item.id !== milestone.id)
+                    .map((item) => (
+                      <NativeSelectOption key={item.id} value={item.id}>
+                        {item.code} / {item.name}
+                      </NativeSelectOption>
+                    ))}
+                </NativeSelect>
+                <NativeSelect
+                  className="w-full"
+                  data-testid="dependency-hardness-select"
+                  onChange={(event) =>
+                    setDependencyHardnessDraft(
+                      event.currentTarget.value as DependencyHardness,
+                    )
+                  }
+                  value={dependencyHardness}
+                >
+                  <NativeSelectOption value="hard">Hard</NativeSelectOption>
+                  <NativeSelectOption value="soft">Soft</NativeSelectOption>
+                </NativeSelect>
+                <Button
+                  data-testid="add-dependency"
+                  onClick={() =>
+                    void workspace.addDependency(
+                      dependencyTarget,
+                      milestone.id,
+                      dependencyHardness,
+                    )
+                  }
+                  variant="secondary"
+                >
+                  Add dependency
+                </Button>
+              </div>
+              <DependencyList dependencies={[...incoming, ...outgoing]} />
+            </Panel>
+          ) : null}
+
+          {workspace.mode === "active" ? (
+            <Panel title="Evidence and Completion">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Button
+                  data-testid="add-sample-evidence"
+                  onClick={() => void workspace.addSampleEvidence(milestone.id)}
+                  variant="outline"
+                >
+                  <Plus />
+                  Add sample evidence
+                </Button>
+                <label className="inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-md border border-white/10 bg-transparent px-3 text-sm hover:bg-white/[0.04]">
+                  <Upload className="size-4" />
+                  Upload evidence
+                  <input
+                    className="sr-only"
+                    data-testid="upload-evidence"
+                    onChange={(event) => {
+                      const file = event.currentTarget.files?.[0];
+                      if (file) {
+                        void workspace.uploadEvidence(milestone.id, file, true);
+                      }
+                    }}
+                    type="file"
+                  />
+                </label>
+                <Button
+                  data-testid="upload-location-unverified"
+                  onClick={() => {
+                    const file = new File(
+                      ["location unverified"],
+                      "location-unverified.txt",
+                      {
+                        type: "text/plain",
+                      },
+                    );
+                    void workspace.uploadEvidence(milestone.id, file, false);
+                  }}
+                  variant="outline"
+                >
+                  <MapPinOff />
+                  Upload location-unverified
+                </Button>
+              </div>
+              <Field label="Completion report">
+                <Textarea
+                  data-testid="completion-report-input"
+                  onChange={(event) => {
+                    const { value } = event.currentTarget;
+
+                    setDraft((current) => ({
+                      ...current,
+                      completionReport: value,
+                    }));
+                  }}
+                  value={draft.completionReport}
+                />
+              </Field>
               <Button
-                data-testid="add-dependency"
+                data-testid="submit-completion-report"
                 onClick={() =>
-                  void workspace.addDependency(
-                    dependencyTarget,
+                  void workspace.submitCompletionClaim(
                     milestone.id,
-                    dependencyHardness
+                    Math.max(
+                      0,
+                      parseNumber(draft.actualCost, milestone.estimatedCost),
+                    ) * 100,
                   )
                 }
                 variant="secondary"
               >
-                Add dependency
+                <ClipboardCheck />
+                Submit completion report
               </Button>
-            </div>
-            <DependencyList dependencies={[...incoming, ...outgoing]} />
-          </Panel>
+            </Panel>
           ) : null}
 
           {workspace.mode === "active" ? (
-          <Panel title="Evidence and Completion">
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Button
-                data-testid="add-sample-evidence"
-                onClick={() => void workspace.addSampleEvidence(milestone.id)}
-                variant="outline"
-              >
-                <Plus />
-                Add sample evidence
-              </Button>
-              <label className="inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-md border border-white/10 bg-transparent px-3 text-sm hover:bg-white/[0.04]">
-                <Upload className="size-4" />
-                Upload evidence
-                <input
-                  className="sr-only"
-                  data-testid="upload-evidence"
-                  onChange={(event) => {
-                    const file = event.currentTarget.files?.[0];
-                    if (file) {
-                      void workspace.uploadEvidence(milestone.id, file, true);
-                    }
-                  }}
-                  type="file"
+            <Panel title="Lender Review, Site Visit, and Admin Approval">
+              <Field label="Audit reason / review note">
+                <Textarea
+                  data-testid="audit-reason-input"
+                  onChange={(event) => setReason(event.currentTarget.value)}
+                  value={reason}
                 />
-              </label>
-              <Button
-                data-testid="upload-location-unverified"
-                onClick={() => {
-                  const file = new File(["location unverified"], "location-unverified.txt", {
-                    type: "text/plain",
-                  });
-                  void workspace.uploadEvidence(milestone.id, file, false);
-                }}
-                variant="outline"
-              >
-                <MapPinOff />
-                Upload location-unverified
-              </Button>
-            </div>
-            <Field label="Completion report">
-              <Textarea
-                data-testid="completion-report-input"
-                onChange={(event) => {
-                  const { value } = event.currentTarget;
-
-                  setDraft((current) => ({
-                    ...current,
-                    completionReport: value,
-                  }));
-                }}
-                value={draft.completionReport}
-              />
-            </Field>
-            <Button
-              data-testid="submit-completion-report"
-              onClick={() =>
-                void workspace.submitCompletionClaim(
-                  milestone.id,
-                  Math.max(0, parseNumber(draft.actualCost, milestone.estimatedCost)) * 100
-                )
-              }
-              variant="secondary"
-            >
-              <ClipboardCheck />
-              Submit completion report
-            </Button>
-          </Panel>
-          ) : null}
-
-          {workspace.mode === "active" ? (
-          <Panel title="Lender Review, Site Visit, and Admin Approval">
-            <Field label="Audit reason / review note">
-              <Textarea
-                data-testid="audit-reason-input"
-                onChange={(event) => setReason(event.currentTarget.value)}
-                value={reason}
-              />
-            </Field>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Button
-                data-testid="accept-evidence"
-                onClick={() =>
-                  void workspace.reviewEvidence(milestone.id, true, reason)
-                }
-                variant="outline"
-              >
-                Accept evidence
-              </Button>
-              <Button
-                data-testid="request-more-info"
-                onClick={() =>
-                  void workspace.requestMoreInformation(milestone.id, reason)
-                }
-                variant="outline"
-              >
-                Request more info
-              </Button>
-              <Button
-                data-testid="request-site-visit"
-                onClick={() => void workspace.requestSiteVisit(milestone.id, reason)}
-                variant="outline"
-              >
-                Request site visit
-              </Button>
-              <Button
-                data-testid="claim-site-visit"
-                onClick={() => void workspace.claimSiteVisit(milestone.id)}
-                variant="outline"
-              >
-                Claim site visit
-              </Button>
-              <Button
-                data-testid="submit-site-visit-report"
-                onClick={() =>
-                  void workspace.submitSiteVisitReport(milestone.id, {
-                    completionObserved: true,
-                    notes: reason,
-                    recommendedOutcome: "approve",
-                  })
-                }
-                variant="outline"
-              >
-                Submit site visit report
-              </Button>
-              <Button
-                data-testid="reject-milestone"
-                onClick={() => void workspace.rejectMilestone(milestone.id, reason)}
-                variant="outline"
-              >
-                Reject completion
-              </Button>
-              <Button
-                className="sm:col-span-2"
-                data-testid="approve-milestone"
-                onClick={() => void workspace.approveMilestone(milestone.id, reason)}
-              >
-                <ShieldCheck />
-                Approve milestone
-              </Button>
-            </div>
-          </Panel>
+              </Field>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Button
+                  data-testid="accept-evidence"
+                  onClick={() =>
+                    void workspace.reviewEvidence(milestone.id, true, reason)
+                  }
+                  variant="outline"
+                >
+                  Accept evidence
+                </Button>
+                <Button
+                  data-testid="request-more-info"
+                  onClick={() =>
+                    void workspace.requestMoreInformation(milestone.id, reason)
+                  }
+                  variant="outline"
+                >
+                  Request more info
+                </Button>
+                <Button
+                  data-testid="request-site-visit"
+                  onClick={() =>
+                    void workspace.requestSiteVisit(milestone.id, reason)
+                  }
+                  variant="outline"
+                >
+                  Request site visit
+                </Button>
+                <Button
+                  data-testid="claim-site-visit"
+                  onClick={() => void workspace.claimSiteVisit(milestone.id)}
+                  variant="outline"
+                >
+                  Claim site visit
+                </Button>
+                <Button
+                  data-testid="submit-site-visit-report"
+                  onClick={() =>
+                    void workspace.submitSiteVisitReport(milestone.id, {
+                      completionObserved: true,
+                      notes: reason,
+                      recommendedOutcome: "approve",
+                    })
+                  }
+                  variant="outline"
+                >
+                  Submit site visit report
+                </Button>
+                <Button
+                  data-testid="reject-milestone"
+                  onClick={() =>
+                    void workspace.rejectMilestone(milestone.id, reason)
+                  }
+                  variant="outline"
+                >
+                  Reject completion
+                </Button>
+                <Button
+                  className="sm:col-span-2"
+                  data-testid="approve-milestone"
+                  onClick={() =>
+                    void workspace.approveMilestone(milestone.id, reason)
+                  }
+                >
+                  <ShieldCheck />
+                  Approve milestone
+                </Button>
+              </div>
+            </Panel>
           ) : null}
 
           <Panel title="Audit History">
@@ -2704,10 +2839,10 @@ function DependencyList({
       ) : null}
       {dependencies.map((dependency) => {
         const from = workspace.milestones.find(
-          (milestone) => milestone.id === dependency.fromMilestoneId
+          (milestone) => milestone.id === dependency.fromMilestoneId,
         );
         const to = workspace.milestones.find(
-          (milestone) => milestone.id === dependency.toMilestoneId
+          (milestone) => milestone.id === dependency.toMilestoneId,
         );
 
         return (
@@ -2729,14 +2864,14 @@ function DependencyList({
                 void workspace
                   .setDependencyHardness(
                     dependency.id,
-                    event.currentTarget.value as DependencyHardness
+                    event.currentTarget.value as DependencyHardness,
                   )
                   .catch((caught) =>
                     setError(
                       caught instanceof Error
                         ? caught.message
-                        : "Dependency update failed."
-                    )
+                        : "Dependency update failed.",
+                    ),
                   );
               }}
               value={dependency.hardness}
@@ -2749,13 +2884,15 @@ function DependencyList({
               disabled={workspace.build.proposalStatus === "submitted"}
               onClick={() => {
                 setError("");
-                void workspace.removeDependency(dependency.id).catch((caught) =>
-                  setError(
-                    caught instanceof Error
-                      ? caught.message
-                      : "Dependency removal failed."
-                  )
-                );
+                void workspace
+                  .removeDependency(dependency.id)
+                  .catch((caught) =>
+                    setError(
+                      caught instanceof Error
+                        ? caught.message
+                        : "Dependency removal failed.",
+                    ),
+                  );
               }}
               variant="ghost"
             >
@@ -2776,7 +2913,8 @@ function InspectionDrawer({
   onClose: () => void;
 }) {
   const workspace = useBuildWorkspace();
-  const items = drawer === "audit" ? workspace.auditEvents : workspace.outboxEvents;
+  const items =
+    drawer === "audit" ? workspace.auditEvents : workspace.outboxEvents;
 
   return (
     <div
@@ -2836,7 +2974,7 @@ function AddMilestoneDialog({
   const [cost, setCost] = useState("188000");
   const [duration, setDuration] = useState("24");
   const [drawGroupId, setDrawGroupId] = useState(
-    workspace.drawGroups[0]?.id ?? ""
+    workspace.drawGroups[0]?.id ?? "",
   );
 
   const addMilestone = () => {
@@ -2914,7 +3052,9 @@ function AddMilestoneDialog({
   );
 }
 
-function issueTone(issue: { severity?: WorkspaceIssue["severity"] } | undefined) {
+function issueTone(
+  issue: { severity?: WorkspaceIssue["severity"] } | undefined,
+) {
   if (issue?.severity === "blocking") {
     return "border-red-300/40 bg-red-500/15 text-red-100";
   }
@@ -2949,7 +3089,7 @@ function IssueChip({
           <button
             className={cn(
               "inline-flex h-5 shrink-0 items-center gap-1 rounded-sm border px-1.5 font-medium text-[0.62rem]",
-              issueTone(primaryIssue)
+              issueTone(primaryIssue),
             )}
             data-gantt-interactive="true"
             data-testid={testId}
@@ -2995,7 +3135,7 @@ function IssueList({
               <button
                 className={cn(
                   "inline-flex h-6 items-center gap-1 rounded-sm border px-2 font-medium text-[0.68rem]",
-                  issueTone(issue)
+                  issueTone(issue),
                 )}
                 data-testid={`${testIdPrefix}-${issue.id}`}
                 onClick={(event) => event.stopPropagation()}
@@ -3022,7 +3162,7 @@ function IssueList({
 function IssuePopoverBody({ issue }: { issue: WorkspaceIssue }) {
   const workspace = useBuildWorkspace();
   const firstAffectedMilestoneId = issue.milestoneIds.find((milestoneId) =>
-    workspace.milestones.some((milestone) => milestone.id === milestoneId)
+    workspace.milestones.some((milestone) => milestone.id === milestoneId),
   );
   const openAffectedMilestone = () => {
     if (!firstAffectedMilestoneId) {
@@ -3032,7 +3172,7 @@ function IssuePopoverBody({ issue }: { issue: WorkspaceIssue }) {
     window.dispatchEvent(
       new CustomEvent("drawflow-open-milestone-detail", {
         detail: firstAffectedMilestoneId,
-      })
+      }),
     );
   };
 
@@ -3041,7 +3181,7 @@ function IssuePopoverBody({ issue }: { issue: WorkspaceIssue }) {
       <button
         className={cn(
           "rounded-sm text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-cyan-300/50",
-          firstAffectedMilestoneId && "cursor-pointer hover:bg-white/[0.04]"
+          firstAffectedMilestoneId && "cursor-pointer hover:bg-white/[0.04]",
         )}
         data-testid={`issue-focus-${issue.id}`}
         disabled={!firstAffectedMilestoneId}
@@ -3064,7 +3204,11 @@ function IssuePopoverBody({ issue }: { issue: WorkspaceIssue }) {
       <div className="grid gap-1 text-stone-400 text-xs">
         <div>
           <span className="text-stone-500">Affected: </span>
-          {[...issue.milestoneIds, ...issue.drawGroupIds, ...issue.dependencyIds].join(", ")}
+          {[
+            ...issue.milestoneIds,
+            ...issue.drawGroupIds,
+            ...issue.dependencyIds,
+          ].join(", ")}
         </div>
         <div>
           <span className="text-stone-500">Why it matters: </span>
@@ -3086,7 +3230,7 @@ function IssuePopoverBody({ issue }: { issue: WorkspaceIssue }) {
             onClick={() =>
               void workspace.dismissIssue(
                 issue,
-                "Dismissed after review in demo workspace."
+                "Dismissed after review in demo workspace.",
               )
             }
             size="sm"
@@ -3154,23 +3298,25 @@ function getDrawOverlays(milestones: Milestone[], drawGroups: DrawGroup[]) {
 
       const rowIndex = Math.min(...indexedMilestones.map((item) => item.index));
       const lastRowIndex = Math.max(
-        ...indexedMilestones.map((item) => item.index)
+        ...indexedMilestones.map((item) => item.index),
       );
       const startAt = new Date(
         Math.min(
           ...indexedMilestones.map(({ milestone }) =>
-            milestone.startAt.getTime()
-          )
-        )
+            milestone.startAt.getTime(),
+          ),
+        ),
       );
       const endAt = new Date(
         Math.max(
-          ...indexedMilestones.map(({ milestone }) => milestone.endAt.getTime())
-        )
+          ...indexedMilestones.map(({ milestone }) =>
+            milestone.endAt.getTime(),
+          ),
+        ),
       );
       const amount = indexedMilestones.reduce(
         (sum, { milestone }) => sum + milestone.estimatedCost,
-        0
+        0,
       );
       const incurredCost = milestones
         .filter((milestone) => milestone.endAt.getTime() <= endAt.getTime())
@@ -3192,16 +3338,16 @@ function getDrawOverlays(milestones: Milestone[], drawGroups: DrawGroup[]) {
 
   return baseDrawOverlays.map((drawGroup) => {
     const eligibleDraws = baseDrawOverlays.filter(
-      (candidate) => candidate.endAt.getTime() <= drawGroup.endAt.getTime()
+      (candidate) => candidate.endAt.getTime() <= drawGroup.endAt.getTime(),
     );
     const principalExposure = eligibleDraws.reduce(
       (sum, candidate) => sum + candidate.amount,
-      0
+      0,
     );
     const interestAccumulated = eligibleDraws.reduce((sum, candidate) => {
       const daysSinceDraw = Math.max(
         0,
-        differenceInDays(drawGroup.endAt, candidate.endAt)
+        differenceInDays(drawGroup.endAt, candidate.endAt),
       );
       const dailyRate = ANNUAL_DRAW_INTEREST_RATE / 365;
       const interest =
