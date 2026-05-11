@@ -1,10 +1,10 @@
 import {
-  DndContext,
-  PointerSensor,
   closestCenter,
+  DndContext,
+  type DragEndEvent,
+  PointerSensor,
   useSensor,
   useSensors,
-  type DragEndEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -49,9 +49,9 @@ import {
   GanttProvider,
   GanttRangeDragHandle,
   GanttRangeOverlay,
+  GanttSelectionLayer,
   GanttSidebar,
   GanttSidebarItem,
-  GanttSelectionLayer,
   GanttTimeline,
   GanttToday,
   getGanttRangeWidth,
@@ -174,11 +174,14 @@ const statusColors: Record<MilestoneStatus, string> = {
 };
 
 const drawClasses: Record<DrawStatus, string> = {
-  blocked: "border-red-400/70 bg-red-500/10 text-red-100",
-  evidencePending: "border-amber-300/70 bg-amber-400/10 text-amber-100",
-  planned: "border-sky-300/50 bg-sky-400/10 text-sky-100",
-  readyForRelease: "border-emerald-300/70 bg-emerald-400/10 text-emerald-100",
-  released: "border-lime-300/70 bg-lime-400/15 text-lime-100",
+  blocked: "border-red-400/70 bg-red-500/10 text-red-700 dark:text-red-100",
+  evidencePending:
+    "border-amber-300/70 bg-amber-400/10 text-amber-800 dark:text-amber-100",
+  planned: "border-sky-300/50 bg-sky-400/10 text-sky-700 dark:text-sky-100",
+  readyForRelease:
+    "border-emerald-300/70 bg-emerald-400/10 text-emerald-700 dark:text-emerald-100",
+  released:
+    "border-lime-300/70 bg-lime-400/15 text-lime-800 dark:text-lime-100",
 };
 
 const money = (value: number) =>
@@ -236,12 +239,12 @@ export function BuildWorkspaceDemo() {
     useState<GanttResolution>("monthly");
   const [timelineZoom, setTimelineZoom] = useState(120);
   const [detailMilestoneId, setDetailMilestoneId] = useState<string | null>(
-    null,
+    null
   );
   const [milestoneHighlightTones, setMilestoneHighlightTones] =
     useState<MilestoneHighlightTones>({});
   const [focusedMilestoneId, setFocusedMilestoneId] = useState<string | null>(
-    null,
+    null
   );
   const [milestoneRailCollapsed, setMilestoneRailCollapsed] = useState(false);
   const [drawPlansOpen, setDrawPlansOpen] = useState(false);
@@ -262,35 +265,35 @@ export function BuildWorkspaceDemo() {
 
   const selectedMilestone =
     workspace.milestones.find(
-      (milestone) => milestone.id === workspace.selectedMilestoneId,
+      (milestone) => milestone.id === workspace.selectedMilestoneId
     ) ?? workspace.milestones[0];
   const selectedDraw = selectedMilestone
     ? workspace.drawGroups.find(
-        (drawGroup) => drawGroup.id === selectedMilestone.drawGroupId,
+        (drawGroup) => drawGroup.id === selectedMilestone.drawGroupId
       )
     : undefined;
   const detailMilestone =
     workspace.milestones.find(
-      (milestone) => milestone.id === detailMilestoneId,
+      (milestone) => milestone.id === detailMilestoneId
     ) ?? selectedMilestone;
   const detailDraw = detailMilestone
     ? workspace.drawGroups.find(
-        (drawGroup) => drawGroup.id === detailMilestone.drawGroupId,
+        (drawGroup) => drawGroup.id === detailMilestone.drawGroupId
       )
     : selectedDraw;
   const totalDrawAmount = workspace.milestones.reduce(
     (sum, milestone) => sum + milestone.estimatedCost,
-    0,
+    0
   );
   const blockerCount = workspace.dependencies.filter(
-    (dependency) => dependency.hardness === "hard",
+    (dependency) => dependency.hardness === "hard"
   ).length;
 
   if (workspace.isLoading || workspace.needsSeed || !selectedMilestone) {
     return (
-      <main className="grid min-h-screen place-items-center bg-[#0d100f] text-stone-100">
+      <main className="grid min-h-screen place-items-center bg-background text-foreground">
         <div
-          className="rounded-md border border-white/10 bg-[#151a18] px-4 py-3 text-sm"
+          className="rounded-md border border-border bg-card px-4 py-3 text-sm"
           data-testid="build-workspace-loading"
         >
           Loading DrawFlow workspace...
@@ -300,7 +303,7 @@ export function BuildWorkspaceDemo() {
   }
 
   return (
-    <main className="fixed inset-x-0 bottom-0 top-16 overflow-hidden bg-[#0d100f] text-stone-100">
+    <main className="fixed inset-x-0 top-16 bottom-0 overflow-hidden bg-background text-foreground">
       <div
         className="flex h-full min-h-0 w-full flex-col px-3 pt-3 sm:px-4"
         data-testid="build-workspace-shell"
@@ -313,12 +316,12 @@ export function BuildWorkspaceDemo() {
           totalDrawAmount={totalDrawAmount}
         />
         {workspace.terminalMessage ? (
-          <div className="mb-3 rounded-md border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-emerald-100 text-sm">
+          <div className="mb-3 rounded-md border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-emerald-700 text-sm dark:text-emerald-100">
             {workspace.terminalMessage}
           </div>
         ) : null}
 
-        <section className="grid min-h-0 min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-md border border-white/10 bg-[#121615] shadow-2xl shadow-black/40">
+        <section className="grid min-h-0 min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-md border border-border bg-card shadow-2xl shadow-foreground/10">
           <TimelineControlsStrip
             onRailCollapsedChange={setMilestoneRailCollapsed}
             onResolutionChange={setTimelineResolution}
@@ -391,25 +394,31 @@ function WorkspaceTopBar({
     workspace.issues.filter((issue) => !issue.dismissed).length;
   const selectedMilestone =
     workspace.milestones.find(
-      (milestone) => milestone.id === workspace.selectedMilestoneId,
+      (milestone) => milestone.id === workspace.selectedMilestoneId
     ) ?? workspace.milestones[0];
 
   return (
-    <header className="mb-3 grid gap-3 rounded-md border border-white/10 bg-[#151a18] p-3 shadow-black/20 shadow-lg lg:grid-cols-[minmax(22rem,0.9fr)_minmax(0,1.6fr)]">
+    <header className="mb-3 grid gap-3 rounded-md border border-border bg-card p-3 shadow-foreground/10 shadow-lg lg:grid-cols-[minmax(22rem,0.9fr)_minmax(0,1.6fr)]">
       <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2 text-stone-400 text-xs">
-          <span className="font-semibold text-emerald-200 tracking-wide">
+        <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
+          <span className="font-semibold text-emerald-700 tracking-wide dark:text-emerald-200">
             DrawFlow
           </span>
           <span>/</span>
-          <a className="hover:text-emerald-100" href="/demo/drawflow/active">
+          <a
+            className="hover:text-emerald-700 dark:text-emerald-100"
+            href="/demo/drawflow/active"
+          >
             Active
           </a>
           <span>/</span>
-          <a className="hover:text-emerald-100" href="/demo/drawflow/proposal">
+          <a
+            className="hover:text-emerald-700 dark:text-emerald-100"
+            href="/demo/drawflow/proposal"
+          >
             Proposal
           </a>
-          <Badge className="border-cyan-300/30 bg-cyan-300/10 text-cyan-100">
+          <Badge className="border-cyan-300/30 bg-cyan-300/10 text-cyan-700 dark:text-cyan-100">
             {workspace.mode === "active"
               ? "active"
               : workspace.build.proposalStatus}
@@ -419,11 +428,11 @@ function WorkspaceTopBar({
           <h1 className="font-semibold text-2xl leading-tight tracking-normal">
             {workspace.build.buildName}
           </h1>
-          <span className="pb-1 text-stone-400 text-xs">
+          <span className="pb-1 text-muted-foreground text-xs">
             {workspace.build.phaseLabel}
           </span>
         </div>
-        <p className="mt-1 text-stone-500 text-xs">
+        <p className="mt-1 text-muted-foreground text-xs">
           {workspace.build.borrowerName} / {workspace.build.siteAddress}
         </p>
       </div>
@@ -464,7 +473,7 @@ function WorkspaceTopBar({
           Validation
           {validationCount > 0 ? (
             <span
-              className="-top-2 -right-2 absolute grid min-w-5 place-items-center rounded-full border border-red-200/70 bg-red-500 px-1 font-semibold text-[0.62rem] text-white shadow-lg shadow-red-950/40"
+              className="absolute -top-2 -right-2 grid min-w-5 place-items-center rounded-full border border-red-200/70 bg-red-500 px-1 font-semibold text-[0.62rem] text-white shadow-lg shadow-red-950/40"
               data-testid="workspace-validation-count"
             >
               {validationCount}
@@ -567,7 +576,7 @@ function RolePrimaryAction({ milestone }: { milestone: Milestone }) {
         onClick={() =>
           void workspace.approveMilestone(
             milestone.id,
-            "Approved from role-aware primary action.",
+            "Approved from role-aware primary action."
           )
         }
       >
@@ -622,10 +631,10 @@ function TimelineControlsStrip({
   onZoomChange: (zoom: number) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-white/10 border-b bg-[#111715] p-3">
+    <div className="flex flex-wrap items-center justify-between gap-2 border-border border-b bg-card p-3">
       <div className="flex items-center gap-2">
         <Button
-          className="self-stretch border-cyan-300/30 bg-cyan-300/10 px-2.5 text-cyan-100 hover:border-cyan-300/50 hover:bg-cyan-300/15 hover:text-cyan-50"
+          className="self-stretch border-cyan-300/30 bg-cyan-300/10 px-2.5 text-cyan-700 hover:border-cyan-300/50 hover:bg-cyan-300/15 hover:text-cyan-950 dark:text-cyan-100 dark:text-cyan-50"
           data-testid="milestone-rail-collapse-toggle"
           onClick={() => onRailCollapsedChange(!railCollapsed)}
           title={railCollapsed ? "Show milestone rail" : "Hide milestone rail"}
@@ -634,19 +643,19 @@ function TimelineControlsStrip({
           {railCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
           {railCollapsed ? "Show milestones" : "Hide milestones"}
         </Button>
-        <div className="text-stone-400 text-xs">Roadmap scale</div>
+        <div className="text-muted-foreground text-xs">Roadmap scale</div>
       </div>
-      <div className="flex flex-wrap items-center gap-2 rounded-md border border-white/10 bg-black/20 p-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/30 p-2 text-xs">
         <div className="flex items-center gap-2">
-          <CalendarDays className="size-4 text-stone-500" />
+          <CalendarDays className="size-4 text-muted-foreground" />
           <div className="grid grid-cols-3">
             {resolutionOptions.map((option) => (
               <button
                 aria-pressed={resolution === option.value}
                 className={cn(
-                  "h-7 rounded-sm px-2 font-medium text-stone-400 transition-colors hover:text-stone-100",
+                  "h-7 rounded-sm px-2 font-medium text-muted-foreground transition-colors hover:text-foreground",
                   resolution === option.value &&
-                    "bg-emerald-300 text-emerald-950 hover:text-emerald-950",
+                    "bg-emerald-300 text-emerald-950 hover:text-emerald-950"
                 )}
                 data-testid={`timeline-resolution-${option.value}`}
                 key={option.value}
@@ -658,7 +667,7 @@ function TimelineControlsStrip({
             ))}
           </div>
         </div>
-        <div className="grid grid-cols-[auto_8rem_auto] items-center gap-2 text-stone-400">
+        <div className="grid grid-cols-[auto_8rem_auto] items-center gap-2 text-muted-foreground">
           <span>Size</span>
           <input
             aria-label="Timeline column size"
@@ -673,7 +682,7 @@ function TimelineControlsStrip({
             type="range"
             value={zoom}
           />
-          <span className="w-8 text-right text-stone-500">{zoom}%</span>
+          <span className="w-8 text-right text-muted-foreground">{zoom}%</span>
         </div>
       </div>
     </div>
@@ -694,7 +703,7 @@ function DrawPlanComparisonDialog({
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
-        className="max-h-[min(760px,calc(100vh-4rem))] max-w-4xl overflow-hidden border border-white/10 bg-[#111615] text-stone-100"
+        className="max-h-[min(760px,calc(100vh-4rem))] max-w-4xl overflow-hidden border border-border bg-popover text-foreground"
         data-testid="draw-plan-comparison-dialog"
       >
         <DialogHeader>
@@ -706,8 +715,8 @@ function DrawPlanComparisonDialog({
               className={cn(
                 "grid gap-3 rounded-md border p-4 text-left transition-colors",
                 plan.id === activePlanId
-                  ? "border-emerald-300/60 bg-emerald-300/10 text-emerald-50"
-                  : "border-white/10 bg-white/[0.03] text-stone-300 hover:bg-white/[0.06]",
+                  ? "border-emerald-300/60 bg-emerald-300/10 text-emerald-950 dark:text-emerald-50"
+                  : "border-border bg-muted/30 text-muted-foreground hover:bg-muted/60"
               )}
               key={plan.id}
               onClick={() => workspace.setActivePlan(plan.id)}
@@ -715,7 +724,7 @@ function DrawPlanComparisonDialog({
             >
               <div className="flex items-start justify-between gap-3">
                 <span className="font-semibold text-sm">{plan.label}</span>
-                <span className="rounded-sm border border-white/10 px-2 py-1 text-xs">
+                <span className="rounded-sm border border-border px-2 py-1 text-xs">
                   {plan.durationDays}d
                 </span>
               </div>
@@ -728,7 +737,9 @@ function DrawPlanComparisonDialog({
                   {compactMoney(plan.peakWorkingCapital)} peak working capital
                 </span>
               </div>
-              <p className="text-amber-200/80 text-xs">{plan.warning}</p>
+              <p className="text-amber-700/90 text-xs dark:text-amber-200/80">
+                {plan.warning}
+              </p>
             </button>
           ))}
         </div>
@@ -764,7 +775,7 @@ function ValidationDialog({
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
-        className="grid max-h-[min(820px,calc(100dvh-2rem))] grid-rows-[auto_minmax(0,1fr)] overflow-hidden border border-white/10 bg-[#111615] text-stone-100 sm:max-w-3xl"
+        className="grid max-h-[min(820px,calc(100dvh-2rem))] grid-rows-[auto_minmax(0,1fr)] overflow-hidden border border-border bg-popover text-foreground sm:max-w-3xl"
         data-testid="workspace-validation-dialog"
       >
         <DialogHeader>
@@ -775,7 +786,7 @@ function ValidationDialog({
           data-testid="workspace-validation-panel"
         >
           {validationItems.length === 0 && visibleIssues.length === 0 ? (
-            <Badge className="w-fit border-emerald-300/30 bg-emerald-300/10 text-emerald-100">
+            <Badge className="w-fit border-emerald-300/30 bg-emerald-300/10 text-emerald-700 dark:text-emerald-100">
               No blocking errors
             </Badge>
           ) : null}
@@ -808,9 +819,9 @@ function ValidationMessageItem({
   testId: string;
 }) {
   return (
-    <details className="group rounded-md border border-white/10 bg-black/20 p-0 text-left shadow-[0_16px_40px_rgba(0,0,0,0.24)] [&>summary::-webkit-details-marker]:hidden">
+    <details className="group rounded-md border border-border bg-muted/30 p-0 text-left shadow-[0_16px_40px_rgba(0,0,0,0.24)] [&>summary::-webkit-details-marker]:hidden">
       <summary
-        className="grid cursor-pointer grid-cols-[1fr_auto] items-start gap-3 rounded-md p-4 outline-none transition hover:bg-white/[0.04] focus-visible:ring-2 focus-visible:ring-cyan-300/50"
+        className="grid cursor-pointer grid-cols-[1fr_auto] items-start gap-3 rounded-md p-4 outline-none transition hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-cyan-300/50"
         data-testid={testId}
       >
         <span className="grid min-w-0 gap-1">
@@ -819,15 +830,15 @@ function ValidationMessageItem({
               className={cn(
                 "size-4 shrink-0",
                 item.severity === "blocking"
-                  ? "text-red-200"
-                  : "text-amber-200",
+                  ? "text-red-700 dark:text-red-200"
+                  : "text-amber-800 dark:text-amber-200"
               )}
             />
-            <span className="font-semibold text-sm text-stone-100">
+            <span className="font-semibold text-foreground text-sm">
               {item.title}
             </span>
           </span>
-          <span className="line-clamp-2 text-stone-300 text-xs">
+          <span className="line-clamp-2 text-muted-foreground text-xs">
             {item.message}
           </span>
         </span>
@@ -835,11 +846,11 @@ function ValidationMessageItem({
           <Badge className={cn("rounded-sm", issueTone(item))}>
             {item.severity}
           </Badge>
-          <ChevronDown className="size-4 text-stone-500 transition group-open:rotate-180" />
+          <ChevronDown className="size-4 text-muted-foreground transition group-open:rotate-180" />
         </span>
       </summary>
       <div
-        className="border-white/10 border-t px-4 pt-3 pb-4"
+        className="border-border border-t px-4 pt-3 pb-4"
         data-testid={`${testId}-popover`}
       >
         <ValidationMessageBody item={item} />
@@ -861,27 +872,29 @@ function ValidationMessageBody({
     <div className="grid gap-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="font-semibold text-base text-stone-100">
+          <h3 className="font-semibold text-base text-foreground">
             {item.title}
           </h3>
-          <p className="mt-1 text-sm text-stone-300">{item.message}</p>
+          <p className="mt-1 text-muted-foreground text-sm">{item.message}</p>
         </div>
         <Badge className={cn("rounded-sm", issueTone(item))}>
           {item.severity}
         </Badge>
       </div>
-      <div className="grid gap-1 text-sm text-stone-400">
+      <div className="grid gap-1 text-muted-foreground text-sm">
         <div>
-          <span className="text-stone-500">Why it matters: </span>
+          <span className="text-muted-foreground">Why it matters: </span>
           Roadmap validation protects draw eligibility, dependency sequencing,
           and borrower/lender approval timing before the proposal is submitted.
         </div>
         <div>
-          <span className="text-stone-500">Blocks release/submission: </span>
+          <span className="text-muted-foreground">
+            Blocks release/submission:{" "}
+          </span>
           {item.severity === "blocking" ? "Yes" : "No"}
         </div>
         <div>
-          <span className="text-stone-500">Recommended fix: </span>
+          <span className="text-muted-foreground">Recommended fix: </span>
           Review the related milestone or draw group issue below, then apply a
           quick fix or adjust the roadmap dates.
         </div>
@@ -894,9 +907,9 @@ function ValidationWorkspaceIssueItem({ issue }: { issue: WorkspaceIssue }) {
   const testId = `validation-issue-${issue.id}`;
 
   return (
-    <details className="group rounded-md border border-white/10 bg-black/20 p-0 text-left shadow-[0_16px_40px_rgba(0,0,0,0.24)] [&>summary::-webkit-details-marker]:hidden">
+    <details className="group rounded-md border border-border bg-muted/30 p-0 text-left shadow-[0_16px_40px_rgba(0,0,0,0.24)] [&>summary::-webkit-details-marker]:hidden">
       <summary
-        className="grid cursor-pointer grid-cols-[1fr_auto] items-start gap-3 rounded-md p-4 outline-none transition hover:bg-white/[0.04] focus-visible:ring-2 focus-visible:ring-cyan-300/50"
+        className="grid cursor-pointer grid-cols-[1fr_auto] items-start gap-3 rounded-md p-4 outline-none transition hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-cyan-300/50"
         data-testid={testId}
       >
         <span className="grid min-w-0 gap-1">
@@ -905,15 +918,15 @@ function ValidationWorkspaceIssueItem({ issue }: { issue: WorkspaceIssue }) {
               className={cn(
                 "size-4 shrink-0",
                 issue.severity === "blocking"
-                  ? "text-red-200"
-                  : "text-amber-200",
+                  ? "text-red-700 dark:text-red-200"
+                  : "text-amber-800 dark:text-amber-200"
               )}
             />
-            <span className="font-semibold text-sm text-stone-100">
+            <span className="font-semibold text-foreground text-sm">
               {issue.title}
             </span>
           </span>
-          <span className="line-clamp-2 text-stone-300 text-xs">
+          <span className="line-clamp-2 text-muted-foreground text-xs">
             {issue.message}
           </span>
         </span>
@@ -921,11 +934,11 @@ function ValidationWorkspaceIssueItem({ issue }: { issue: WorkspaceIssue }) {
           <Badge className={cn("rounded-sm", issueTone(issue))}>
             {issue.severity}
           </Badge>
-          <ChevronDown className="size-4 text-stone-500 transition group-open:rotate-180" />
+          <ChevronDown className="size-4 text-muted-foreground transition group-open:rotate-180" />
         </span>
       </summary>
       <div
-        className="border-white/10 border-t px-4 pt-3 pb-4"
+        className="border-border border-t px-4 pt-3 pb-4"
         data-testid={`${testId}-popover`}
       >
         <IssuePopoverBody issue={issue} />
@@ -953,7 +966,7 @@ function DrawGroupRangeDragHandle({
 }) {
   const gantt = useGanttContext();
   const hasUnlockedMilestones = milestones.some(
-    (milestone) => milestone.drawGroupId === draw.id && !milestone.isDragLocked,
+    (milestone) => milestone.drawGroupId === draw.id && !milestone.isDragLocked
   );
   const firstMilestoneWidth = useMemo(() => {
     const firstMilestone = milestones
@@ -961,7 +974,7 @@ function DrawGroupRangeDragHandle({
       .sort(
         (leftMilestone, rightMilestone) =>
           leftMilestone.startAt.getTime() - rightMilestone.startAt.getTime() ||
-          leftMilestone.endAt.getTime() - rightMilestone.endAt.getTime(),
+          leftMilestone.endAt.getTime() - rightMilestone.endAt.getTime()
       )
       .at(0);
 
@@ -970,8 +983,8 @@ function DrawGroupRangeDragHandle({
           getGanttRangeWidth(
             firstMilestone.startAt,
             firstMilestone.endAt,
-            gantt,
-          ),
+            gantt
+          )
         )
       : 0;
   }, [draw.id, gantt, milestones]);
@@ -980,12 +993,12 @@ function DrawGroupRangeDragHandle({
       left: firstMilestoneWidth,
       // transform: "translateX(-100%)",
     }),
-    [firstMilestoneWidth],
+    [firstMilestoneWidth]
   );
 
   return (
     <GanttRangeDragHandle
-      className="absolute -top-4 z-40 inline-flex min-w-max max-w-max items-center gap-2 rounded-sm bg-black/85 px-2.5 py-1 font-medium text-[0.72rem] shadow-black/30 shadow-lg backdrop-blur"
+      className="absolute -top-4 z-40 inline-flex min-w-max max-w-max items-center gap-2 rounded-sm bg-popover/95 px-2.5 py-1 font-medium text-[0.72rem] shadow-foreground/10 shadow-lg backdrop-blur"
       contentTestId={`draw-label-${draw.id}`}
       disabled={proposalSubmitted || !hasUnlockedMilestones}
       onMoveDelta={onMoveDelta}
@@ -1037,7 +1050,7 @@ function GanttRoadmap({
     batchShiftPreview?.source === "drawGroup" ? batchShiftPreview : null;
   const features: GanttFeature[] = workspace.milestones.map((milestone) => {
     const featureMilestone = selectionPreview?.movingMilestoneIds.includes(
-      milestone.id,
+      milestone.id
     )
       ? {
           ...milestone,
@@ -1049,7 +1062,7 @@ function GanttRoadmap({
   });
   const drawOverlays = getDrawOverlays(
     workspace.milestones,
-    workspace.drawGroups,
+    workspace.drawGroups
   );
   const drawGroupGhostOverlays = drawGroupPreview
     ? getDrawOverlays(
@@ -1060,9 +1073,9 @@ function GanttRoadmap({
                 startAt: addDays(milestone.startAt, drawGroupPreview.deltaDays),
                 endAt: addDays(milestone.endAt, drawGroupPreview.deltaDays),
               }
-            : milestone,
+            : milestone
         ),
-        workspace.drawGroups,
+        workspace.drawGroups
       ).filter((draw) => draw.id === drawGroupPreview.sourceId)
     : [];
   const ghostFeatures: GanttFeature[] = workspace.milestones.map((milestone) =>
@@ -1074,21 +1087,21 @@ function GanttRoadmap({
             endAt: addDays(milestone.endAt, drawGroupPreview.deltaDays),
           }),
         }
-      : milestoneToFeature(milestone),
+      : milestoneToFeature(milestone)
   );
   const focusedMilestone = workspace.milestones.find(
-    (milestone) => milestone.id === focusedMilestoneId,
+    (milestone) => milestone.id === focusedMilestoneId
   );
   const initialScrollDate = useMemo(
     () =>
       new Date(
         Math.min(
           ...workspace.milestones.map((milestone) =>
-            milestone.startAt.getTime(),
-          ),
-        ),
+            milestone.startAt.getTime()
+          )
+        )
       ),
-    [workspace.milestones],
+    [workspace.milestones]
   );
   const replaceSelection = useCallback((milestoneId: string) => {
     setSelectedMilestoneIds(new Set([milestoneId]));
@@ -1116,12 +1129,12 @@ function GanttRoadmap({
         onMilestoneFocus(first);
       }
     },
-    [onMilestoneFocus, workspace],
+    [onMilestoneFocus, workspace]
   );
   const handleTimelineMilestoneClick = useCallback(
     (
       milestoneId: string,
-      event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean },
+      event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }
     ) => {
       workspace.selectMilestone(milestoneId);
       onMilestoneFocus(milestoneId);
@@ -1138,31 +1151,31 @@ function GanttRoadmap({
       replaceSelection,
       toggleSelection,
       workspace,
-    ],
+    ]
   );
   const selectedUnlockedIds = workspace.milestones
     .filter(
       (milestone) =>
-        selectedMilestoneIds.has(milestone.id) && !milestone.isDragLocked,
+        selectedMilestoneIds.has(milestone.id) && !milestone.isDragLocked
     )
     .map((milestone) => milestone.id);
   const lockedSelectedIds = workspace.milestones
     .filter(
       (milestone) =>
-        selectedMilestoneIds.has(milestone.id) && milestone.isDragLocked,
+        selectedMilestoneIds.has(milestone.id) && milestone.isDragLocked
     )
     .map((milestone) => milestone.id);
   const disabledMilestoneIds = new Set(
     workspace.milestones
       .filter((milestone) => milestone.isDragLocked || proposalSubmitted)
-      .map((milestone) => milestone.id),
+      .map((milestone) => milestone.id)
   );
   const commitBatchShift = useCallback(
     async (
       milestoneIds: string[],
       deltaDays: number,
       source: "selection" | "drawGroup",
-      sourceId?: string,
+      sourceId?: string
     ) => {
       if (deltaDays === 0 || proposalSubmitted) {
         setBatchShiftPreview(null);
@@ -1171,7 +1184,7 @@ function GanttRoadmap({
       const moves = workspace.milestones
         .filter(
           (milestone) =>
-            milestoneIds.includes(milestone.id) && !milestone.isDragLocked,
+            milestoneIds.includes(milestone.id) && !milestone.isDragLocked
         )
         .map((milestone) => ({
           milestoneId: milestone.id,
@@ -1186,10 +1199,10 @@ function GanttRoadmap({
         moves,
         undefined,
         source,
-        sourceId,
+        sourceId
       );
     },
-    [proposalSubmitted, workspace],
+    [proposalSubmitted, workspace]
   );
 
   useEffect(() => {
@@ -1204,7 +1217,7 @@ function GanttRoadmap({
 
   return (
     <GanttProvider
-      className="h-full min-w-0 rounded-none bg-[#151a18]"
+      className="h-full min-w-0 rounded-none bg-card"
       initialScrollDate={initialScrollDate}
       leadingSidebarWidth={railCollapsed ? 0 : 420}
       range={resolution}
@@ -1227,7 +1240,7 @@ function GanttRoadmap({
         }}
         onMilestoneFocus={(milestoneId) => {
           const milestone = workspace.milestones.find(
-            (item) => item.id === milestoneId,
+            (item) => item.id === milestoneId
           );
           if (!milestone) {
             return;
@@ -1244,7 +1257,7 @@ function GanttRoadmap({
           minHeight: `calc(var(--gantt-header-height) + ${features.length} * (var(--gantt-row-height) + var(--gantt-row-gap)))`,
         }}
       >
-        <GanttHeader className="text-stone-300 [&_p]:text-[0.82rem]" />
+        <GanttHeader className="text-muted-foreground [&_p]:text-[0.82rem]" />
         <GanttSelectionLayer
           disabled={proposalSubmitted}
           features={features}
@@ -1258,7 +1271,7 @@ function GanttRoadmap({
               proposalSubmitted ||
               workspace.milestones.every(
                 (milestone) =>
-                  milestone.drawGroupId !== draw.id || milestone.isDragLocked,
+                  milestone.drawGroupId !== draw.id || milestone.isDragLocked
               )
             }
             endAt={draw.endAt}
@@ -1276,7 +1289,7 @@ function GanttRoadmap({
                 return;
               }
               const drawMilestones = workspace.milestones.filter(
-                (milestone) => milestone.drawGroupId === draw.id,
+                (milestone) => milestone.drawGroupId === draw.id
               );
               setBatchShiftPreview({
                 deltaDays,
@@ -1310,7 +1323,7 @@ function GanttRoadmap({
                   return;
                 }
                 const drawMilestones = workspace.milestones.filter(
-                  (milestone) => milestone.drawGroupId === draw.id,
+                  (milestone) => milestone.drawGroupId === draw.id
                 );
                 setBatchShiftPreview({
                   deltaDays,
@@ -1326,9 +1339,11 @@ function GanttRoadmap({
               }}
               proposalSubmitted={proposalSubmitted}
             >
-              <span className="font-semibold text-stone-100">{draw.label}</span>
+              <span className="font-semibold text-foreground">
+                {draw.label}
+              </span>
               <span>{compactMoney(draw.amount)}</span>
-              <span className="text-stone-300">
+              <span className="text-muted-foreground">
                 {statusLabels[draw.status]}
               </span>
               <IssueChip
@@ -1350,14 +1365,14 @@ function GanttRoadmap({
             startAt={draw.startAt}
             testId={`draw-ghost-overlay-${draw.id}`}
           >
-            <div className="pointer-events-none sticky left-[calc(var(--gantt-sidebar-width)+0.5rem)] inline-flex -translate-y-[calc(100%+0.25rem)] items-center rounded-sm border border-cyan-200/40 bg-cyan-950/85 px-2 py-1 font-medium text-[0.72rem] text-cyan-50 shadow-lg">
+            <div className="pointer-events-none sticky left-[calc(var(--gantt-sidebar-width)+0.5rem)] inline-flex -translate-y-[calc(100%+0.25rem)] items-center rounded-sm border border-cyan-200/40 bg-cyan-100/95 px-2 py-1 font-medium text-[0.72rem] text-cyan-950 shadow-lg dark:bg-cyan-950/85 dark:text-cyan-50">
               Drop {draw.label} here
             </div>
           </GanttRangeOverlay>
         ))}
         {batchShiftPreview ? (
           <div
-            className="pointer-events-none absolute top-16 left-[calc(var(--gantt-sidebar-width)+1rem)] z-40 inline-flex rounded-sm border border-cyan-200/40 bg-cyan-950/90 px-2.5 py-1 font-medium text-[0.72rem] text-cyan-50 shadow-lg"
+            className="pointer-events-none absolute top-16 left-[calc(var(--gantt-sidebar-width)+1rem)] z-40 inline-flex rounded-sm border border-cyan-200/40 bg-cyan-100/95 px-2.5 py-1 font-medium text-[0.72rem] text-cyan-950 shadow-lg dark:bg-cyan-950/90 dark:text-cyan-50"
             data-testid="gantt-batch-shift-preview"
           >
             {batchShiftPreview.source === "drawGroup"
@@ -1367,7 +1382,7 @@ function GanttRoadmap({
         ) : null}
         {selectedMilestoneIds.size > 1 ? (
           <div
-            className="pointer-events-none absolute top-8 left-[calc(var(--gantt-sidebar-width)+1rem)] z-40 inline-flex rounded-sm border border-cyan-200/35 bg-black/80 px-2 py-1 text-[0.7rem] text-cyan-100"
+            className="pointer-events-none absolute top-8 left-[calc(var(--gantt-sidebar-width)+1rem)] z-40 inline-flex rounded-sm border border-cyan-200/35 bg-popover/90 px-2 py-1 text-[0.7rem] text-cyan-700 dark:text-cyan-100"
             data-testid="gantt-selection-count"
           >
             {selectedMilestoneIds.size} selected
@@ -1439,13 +1454,13 @@ function GanttRoadmap({
         <GanttFeatureList>
           {features.map((feature) => {
             const milestone = workspace.milestones.find(
-              (item) => item.id === feature.id,
+              (item) => item.id === feature.id
             );
 
             return (
               <GanttFeatureRow
                 batchMoveIds={Array.from(selectedMilestoneIds)}
-                className="border-white/5 border-b"
+                className="border-border/60 border-b"
                 disabledIds={disabledMilestoneIds}
                 features={[feature]}
                 key={feature.id}
@@ -1453,7 +1468,7 @@ function GanttRoadmap({
                   void commitBatchShift(
                     Array.from(selectedMilestoneIds),
                     deltaDays,
-                    "selection",
+                    "selection"
                   );
                 }}
                 onBatchPreviewChange={(_featureId, preview) => {
@@ -1488,10 +1503,10 @@ function GanttRoadmap({
           <GanttFeatureList className="pointer-events-none z-[5]">
             {ghostFeatures.map((feature) => {
               const milestone = workspace.milestones.find(
-                (item) => item.id === feature.id,
+                (item) => item.id === feature.id
               );
               const isMoving = drawGroupPreview.movingMilestoneIds.includes(
-                feature.id,
+                feature.id
               );
 
               return (
@@ -1530,7 +1545,7 @@ function MilestoneRail({
   const workspace = useBuildWorkspace();
   const gantt = useGanttContext();
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   );
 
   const focusMilestone = (milestone: Milestone) => {
@@ -1548,8 +1563,8 @@ function MilestoneRail({
     onMilestoneFocus(null);
     onHighlightMilestones(
       Object.fromEntries(
-        blockedIds.map((milestoneId) => [milestoneId, "blocked"]),
-      ),
+        blockedIds.map((milestoneId) => [milestoneId, "blocked"])
+      )
     );
   };
 
@@ -1561,8 +1576,8 @@ function MilestoneRail({
     onMilestoneFocus(null);
     onHighlightMilestones(
       Object.fromEntries(
-        blockerIds.map((milestoneId) => [milestoneId, "blocking"]),
-      ),
+        blockerIds.map((milestoneId) => [milestoneId, "blocking"])
+      )
     );
   };
 
@@ -1572,10 +1587,10 @@ function MilestoneRail({
       return;
     }
     const fromIndex = workspace.milestones.findIndex(
-      (milestone) => milestone.id === active.id,
+      (milestone) => milestone.id === active.id
     );
     const toIndex = workspace.milestones.findIndex(
-      (milestone) => milestone.id === over.id,
+      (milestone) => milestone.id === over.id
     );
     if (fromIndex < 0 || toIndex < 0) {
       return;
@@ -1583,17 +1598,17 @@ function MilestoneRail({
     void workspace.reorderMilestoneAbsolute(
       String(active.id),
       fromIndex,
-      toIndex,
+      toIndex
     );
   };
 
   return (
     <aside
-      className="sticky left-0 z-30 h-full max-h-full min-h-0 overflow-hidden border-white/10 border-r bg-[#101412]/95 backdrop-blur-md"
+      className="sticky left-0 z-30 h-full max-h-full min-h-0 overflow-hidden border-border border-r bg-card/95 backdrop-blur-md"
       data-testid="milestone-rail"
       style={{ width: 420 }}
     >
-      <div className="sticky top-0 z-20 flex h-[60px] items-end justify-between border-white/10 border-b bg-[#101412]/95 px-3 py-2 text-stone-400 text-xs backdrop-blur-md">
+      <div className="sticky top-0 z-20 flex h-[60px] items-end justify-between border-border border-b bg-card/95 px-3 py-2 text-muted-foreground text-xs backdrop-blur-md">
         <span>Milestones</span>
         <span>Draw / Risk</span>
       </div>
@@ -1609,31 +1624,31 @@ function MilestoneRail({
           <div className="h-[calc(100%-60px)] min-h-0 overflow-y-auto overscroll-contain">
             {workspace.milestones.map((milestone, index) => {
               const blockers = workspace.dependencies.filter(
-                (dependency) => dependency.toMilestoneId === milestone.id,
+                (dependency) => dependency.toMilestoneId === milestone.id
               ).length;
               const blocking = workspace.dependencies.filter(
-                (dependency) => dependency.fromMilestoneId === milestone.id,
+                (dependency) => dependency.fromMilestoneId === milestone.id
               ).length;
               const blockingChipActive = workspace.dependencies
                 .filter(
-                  (dependency) => dependency.fromMilestoneId === milestone.id,
+                  (dependency) => dependency.fromMilestoneId === milestone.id
                 )
                 .some(
                   (dependency) =>
                     milestoneHighlightTones[dependency.toMilestoneId] ===
-                    "blocked",
+                    "blocked"
                 );
               const blockedByChipActive = workspace.dependencies
                 .filter(
-                  (dependency) => dependency.toMilestoneId === milestone.id,
+                  (dependency) => dependency.toMilestoneId === milestone.id
                 )
                 .some(
                   (dependency) =>
                     milestoneHighlightTones[dependency.fromMilestoneId] ===
-                    "blocking",
+                    "blocking"
                 );
               const draw = workspace.drawGroups.find(
-                (drawGroup) => drawGroup.id === milestone.drawGroupId,
+                (drawGroup) => drawGroup.id === milestone.drawGroupId
               );
               const selected = milestone.id === workspace.selectedMilestoneId;
               const highlightTone: MilestoneHighlightTone | undefined = selected
@@ -1688,33 +1703,33 @@ function GanttMilestoneSidebar({
   return (
     <GanttSidebar
       className={cn(
-        "shrink-0 border-white/10 bg-[#111615]/95 text-stone-300",
-        sidebarCollapsed ? "w-[64px]" : "w-[220px]",
+        "shrink-0 border-border bg-popover/95 text-muted-foreground",
+        sidebarCollapsed ? "w-[64px]" : "w-[220px]"
       )}
       collapsed={sidebarCollapsed}
       onCollapsedChange={setSidebarCollapsed}
     >
-      <div className="divide-y divide-white/5">
+      <div className="divide-y divide-border/60">
         {features.map((feature) => {
           const milestone = workspace.milestones.find(
-            (item) => item.id === feature.id,
+            (item) => item.id === feature.id
           );
           const draw = milestone
             ? workspace.drawGroups.find(
-                (drawGroup) => drawGroup.id === milestone.drawGroupId,
+                (drawGroup) => drawGroup.id === milestone.drawGroupId
               )
             : undefined;
 
           return (
             <GanttSidebarItem
               className={cn(
-                "gap-2 px-3 py-0 hover:bg-white/[0.04]",
+                "gap-2 px-3 py-0 hover:bg-muted/40",
                 sidebarCollapsed && "justify-center gap-1.5 px-1.5",
                 milestone?.id === workspace.selectedMilestoneId &&
-                  "bg-lime-300/10 text-lime-100",
+                  "bg-lime-300/10 text-lime-800 dark:text-lime-100",
                 milestone &&
                   selectedMilestoneIds.has(milestone.id) &&
-                  "ring-1 ring-cyan-300/40 ring-inset",
+                  "ring-1 ring-cyan-300/40 ring-inset"
               )}
               feature={feature}
               key={feature.id}
@@ -1726,7 +1741,7 @@ function GanttMilestoneSidebar({
                     className="h-2.5 w-2.5 shrink-0 rounded-full"
                     style={{ backgroundColor: feature.status.color }}
                   />
-                  <span className="truncate font-medium text-[0.7rem] text-stone-300">
+                  <span className="truncate font-medium text-[0.7rem] text-muted-foreground">
                     {milestone?.code.replace("M-", "")}
                   </span>
                 </span>
@@ -1737,14 +1752,14 @@ function GanttMilestoneSidebar({
                     style={{ backgroundColor: feature.status.color }}
                   />
                   <span className="pointer-events-none min-w-0 flex-1">
-                    <span className="block truncate text-[0.68rem] text-stone-500">
+                    <span className="block truncate text-[0.68rem] text-muted-foreground">
                       {milestone?.code}
                     </span>
-                    <span className="block truncate font-medium text-[0.72rem] text-stone-200">
+                    <span className="block truncate font-medium text-[0.72rem] text-foreground">
                       {feature.name}
                     </span>
                   </span>
-                  <span className="pointer-events-none shrink-0 text-[0.68rem] text-cyan-100">
+                  <span className="pointer-events-none shrink-0 text-[0.68rem] text-cyan-700 dark:text-cyan-100">
                     {draw?.label}
                   </span>
                   {milestone ? (
@@ -1756,10 +1771,10 @@ function GanttMilestoneSidebar({
                       }
                       aria-pressed={milestone.isDragLocked}
                       className={cn(
-                        "grid size-6 shrink-0 place-items-center rounded-sm border border-white/10 text-stone-400 transition-colors hover:border-cyan-300/40 hover:bg-cyan-300/10 hover:text-cyan-100",
+                        "grid size-6 shrink-0 place-items-center rounded-sm border border-border text-muted-foreground transition-colors hover:border-cyan-300/40 hover:bg-cyan-300/10 hover:text-cyan-700 dark:text-cyan-100",
                         milestone.isDragLocked &&
-                          "border-cyan-300/40 bg-cyan-300/15 text-cyan-100",
-                        proposalSubmitted && "cursor-not-allowed opacity-50",
+                          "border-cyan-300/40 bg-cyan-300/15 text-cyan-700 dark:text-cyan-100",
+                        proposalSubmitted && "cursor-not-allowed opacity-50"
                       )}
                       data-gantt-interactive="true"
                       data-testid={`gantt-sidebar-lock-${milestone.id}`}
@@ -1811,7 +1826,7 @@ function MilestoneBlock({
   milestone: Milestone;
   onTimelineClick: (
     milestoneId: string,
-    event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean },
+    event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }
   ) => void;
   selected: boolean;
 }) {
@@ -1819,7 +1834,7 @@ function MilestoneBlock({
   const [previewOpen, setPreviewOpen] = useState(false);
   const handledModifiedPointerRef = useRef(false);
   const draw = workspace.drawGroups.find(
-    (drawGroup) => drawGroup.id === milestone.drawGroupId,
+    (drawGroup) => drawGroup.id === milestone.drawGroupId
   );
   const effectiveHighlightTone =
     selected || milestone.id === workspace.selectedMilestoneId
@@ -1833,7 +1848,7 @@ function MilestoneBlock({
         render={
           <button
             className={cn(
-              "flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-sm border border-white/10 bg-[#1b211f] px-1.5 text-left transition-colors hover:border-cyan-200/40",
+              "flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-sm border border-border bg-muted/60 px-1.5 text-left transition-colors hover:border-cyan-200/40",
               effectiveHighlightTone === "selected" &&
                 "border-cyan-200/60 bg-cyan-300/20 ring-2 ring-cyan-300/70",
               effectiveHighlightTone === "blocking" &&
@@ -1841,7 +1856,7 @@ function MilestoneBlock({
               effectiveHighlightTone === "blocked" &&
                 "bg-red-500/20 ring-1 ring-red-300/70",
               milestone.isDragLocked &&
-                "cursor-not-allowed border-stone-500/40 bg-stone-800/70 text-stone-300",
+                "cursor-not-allowed border-stone-500/40 bg-muted text-muted-foreground"
             )}
             data-end-date={toDateInputValue(milestone.endAt)}
             data-gantt-interactive="true"
@@ -1863,7 +1878,7 @@ function MilestoneBlock({
               window.dispatchEvent(
                 new CustomEvent("drawflow-open-milestone-detail", {
                   detail: milestone.id,
-                }),
+                })
               );
             }}
             onMouseEnter={() => setPreviewOpen(true)}
@@ -1887,8 +1902,12 @@ function MilestoneBlock({
               style={{ backgroundColor: feature.status.color }}
             />
             <span className="min-w-0 flex-1 truncate text-[0.68rem]">
-              <span className="mr-1 text-stone-400">{milestone.code}</span>
-              <span className="font-medium text-stone-100">{feature.name}</span>
+              <span className="mr-1 text-muted-foreground">
+                {milestone.code}
+              </span>
+              <span className="font-medium text-foreground">
+                {feature.name}
+              </span>
             </span>
             <IssueChip
               compact
@@ -1896,22 +1915,22 @@ function MilestoneBlock({
               testId={`gantt-issue-chip-${milestone.id}`}
             />
             {milestone.isDragLocked ? (
-              <Lock className="size-3 shrink-0 text-cyan-100" />
+              <Lock className="size-3 shrink-0 text-cyan-700 dark:text-cyan-100" />
             ) : null}
           </button>
         }
       />
       <HoverCardContent
-        className="border border-white/10 bg-[#111615] text-stone-100"
+        className="border border-border bg-popover text-foreground"
         data-testid={`gantt-preview-${milestone.id}`}
         side="top"
       >
         <div className="grid gap-1">
           <div className="font-medium">{milestone.name}</div>
-          <div className="text-stone-400">
+          <div className="text-muted-foreground">
             {milestone.code} / {draw?.label} / {statusLabels[milestone.status]}
           </div>
-          <div className="text-stone-400">
+          <div className="text-muted-foreground">
             {format(milestone.startAt, "MMM d")} -{" "}
             {format(milestone.endAt, "MMM d")} /{" "}
             {compactMoney(milestone.estimatedCost)}
@@ -1943,8 +1962,10 @@ function MilestoneGhostBlock({
         className="h-2 w-2 shrink-0 rounded-full opacity-80"
         style={{ backgroundColor: feature.status.color }}
       />
-      <span className="min-w-0 flex-1 truncate text-[0.68rem] text-cyan-50">
-        <span className="mr-1 text-cyan-100/80">{milestone.code}</span>
+      <span className="min-w-0 flex-1 truncate text-[0.68rem] text-cyan-950 dark:text-cyan-50">
+        <span className="mr-1 text-cyan-700 dark:text-cyan-100/80">
+          {milestone.code}
+        </span>
         <span className="font-medium">{feature.name}</span>
       </span>
     </div>
@@ -1977,7 +1998,7 @@ function MilestoneDetailSheet({
   });
   const [reason, setReason] = useState("Reviewed in demo workspace.");
   const [dependencyTarget, setDependencyTarget] = useState(
-    workspace.milestones.find((item) => item.id !== milestone.id)?.id ?? "",
+    workspace.milestones.find((item) => item.id !== milestone.id)?.id ?? ""
   );
   const [dependencyHardness, setDependencyHardnessDraft] =
     useState<DependencyHardness>("hard");
@@ -1996,18 +2017,18 @@ function MilestoneDetailSheet({
       status: milestone.status,
     });
     setDependencyTarget(
-      workspace.milestones.find((item) => item.id !== milestone.id)?.id ?? "",
+      workspace.milestones.find((item) => item.id !== milestone.id)?.id ?? ""
     );
   }, [milestone, workspace.milestones]);
 
   const incoming = workspace.dependencies.filter(
-    (dependency) => dependency.toMilestoneId === milestone.id,
+    (dependency) => dependency.toMilestoneId === milestone.id
   );
   const outgoing = workspace.dependencies.filter(
-    (dependency) => dependency.fromMilestoneId === milestone.id,
+    (dependency) => dependency.fromMilestoneId === milestone.id
   );
   const currentDrawIndex = workspace.drawGroups.findIndex(
-    (drawGroup) => drawGroup.id === milestone.drawGroupId,
+    (drawGroup) => drawGroup.id === milestone.drawGroupId
   );
   const previousDraw = workspace.drawGroups[currentDrawIndex - 1];
   const nextDraw = workspace.drawGroups[currentDrawIndex + 1];
@@ -2015,7 +2036,7 @@ function MilestoneDetailSheet({
   const saveMilestone = async () => {
     const duration = Math.max(
       1,
-      parseNumber(draft.estimatedDurationDays, milestone.estimatedDurationDays),
+      parseNumber(draft.estimatedDurationDays, milestone.estimatedDurationDays)
     );
     const startAt = fromDateInputValue(draft.startAt);
 
@@ -2028,24 +2049,24 @@ function MilestoneDetailSheet({
       milestone.id,
       startAt,
       addDays(startAt, duration - 1),
-      reason,
+      reason
     );
   };
 
   return (
     <Sheet onOpenChange={onOpenChange} open={open}>
       <SheetContent
-        className="w-full overflow-y-auto border-white/10 bg-[#111615] text-stone-100 sm:max-w-xl"
+        className="w-full overflow-y-auto border-border bg-popover text-foreground sm:max-w-xl"
         data-testid="milestone-detail-sheet"
       >
-        <SheetHeader className="border-white/10 border-b">
+        <SheetHeader className="border-border border-b">
           <div className="flex items-center justify-between gap-3 pr-8">
             <div>
-              <SheetTitle className="text-stone-100">
+              <SheetTitle className="text-foreground">
                 {milestone.code} / {milestone.name}
               </SheetTitle>
               <div className="mt-1 flex flex-wrap gap-1">
-                <Badge className="border-cyan-300/20 bg-cyan-300/10 text-cyan-100">
+                <Badge className="border-cyan-300/20 bg-cyan-300/10 text-cyan-700 dark:text-cyan-100">
                   {draw?.label}
                 </Badge>
                 <Badge variant="outline">
@@ -2116,14 +2137,6 @@ function MilestoneDetailSheet({
                   data-testid="milestone-estimated-cost-input"
                   disabled={workspace.mode === "active"}
                   inputMode="numeric"
-                  onChange={(event) => {
-                    const { value } = event.currentTarget;
-
-                    setDraft((current) => ({
-                      ...current,
-                      estimatedCost: value,
-                    }));
-                  }}
                   onBlur={(event) => {
                     if (
                       workspace.mode === "proposal" &&
@@ -2132,10 +2145,18 @@ function MilestoneDetailSheet({
                       void workspace.updateMilestone(milestone.id, {
                         estimatedCost: parseNumber(
                           event.currentTarget.value,
-                          milestone.estimatedCost,
+                          milestone.estimatedCost
                         ),
                       });
                     }
+                  }}
+                  onChange={(event) => {
+                    const { value } = event.currentTarget;
+
+                    setDraft((current) => ({
+                      ...current,
+                      estimatedCost: value,
+                    }));
                   }}
                   value={draft.estimatedCost}
                 />
@@ -2181,14 +2202,6 @@ function MilestoneDetailSheet({
                 <Input
                   data-testid="milestone-duration-input"
                   inputMode="numeric"
-                  onChange={(event) => {
-                    const { value } = event.currentTarget;
-
-                    setDraft((current) => ({
-                      ...current,
-                      estimatedDurationDays: value,
-                    }));
-                  }}
                   onBlur={(event) => {
                     if (
                       workspace.mode === "proposal" &&
@@ -2199,11 +2212,19 @@ function MilestoneDetailSheet({
                           1,
                           parseNumber(
                             event.currentTarget.value,
-                            milestone.estimatedDurationDays,
-                          ),
+                            milestone.estimatedDurationDays
+                          )
                         ),
                       });
                     }
+                  }}
+                  onChange={(event) => {
+                    const { value } = event.currentTarget;
+
+                    setDraft((current) => ({
+                      ...current,
+                      estimatedDurationDays: value,
+                    }));
                   }}
                   value={draft.estimatedDurationDays}
                 />
@@ -2281,7 +2302,7 @@ function MilestoneDetailSheet({
                     onChange={(event) =>
                       void workspace.moveMilestoneToDrawGroup(
                         milestone.id,
-                        event.currentTarget.value,
+                        event.currentTarget.value
                       )
                     }
                     value={milestone.drawGroupId}
@@ -2321,7 +2342,7 @@ function MilestoneDetailSheet({
                       previousDraw &&
                       void workspace.mergeDrawGroups(
                         draw?.id ?? "",
-                        previousDraw.id,
+                        previousDraw.id
                       )
                     }
                     variant="outline"
@@ -2369,7 +2390,7 @@ function MilestoneDetailSheet({
                   data-testid="dependency-hardness-select"
                   onChange={(event) =>
                     setDependencyHardnessDraft(
-                      event.currentTarget.value as DependencyHardness,
+                      event.currentTarget.value as DependencyHardness
                     )
                   }
                   value={dependencyHardness}
@@ -2383,7 +2404,7 @@ function MilestoneDetailSheet({
                     void workspace.addDependency(
                       dependencyTarget,
                       milestone.id,
-                      dependencyHardness,
+                      dependencyHardness
                     )
                   }
                   variant="secondary"
@@ -2406,7 +2427,7 @@ function MilestoneDetailSheet({
                   <Plus />
                   Add sample evidence
                 </Button>
-                <label className="inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-md border border-white/10 bg-transparent px-3 text-sm hover:bg-white/[0.04]">
+                <label className="inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-md border border-border bg-transparent px-3 text-sm hover:bg-muted/40">
                   <Upload className="size-4" />
                   Upload evidence
                   <input
@@ -2429,7 +2450,7 @@ function MilestoneDetailSheet({
                       "location-unverified.txt",
                       {
                         type: "text/plain",
-                      },
+                      }
                     );
                     void workspace.uploadEvidence(milestone.id, file, false);
                   }}
@@ -2460,8 +2481,8 @@ function MilestoneDetailSheet({
                     milestone.id,
                     Math.max(
                       0,
-                      parseNumber(draft.actualCost, milestone.estimatedCost),
-                    ) * 100,
+                      parseNumber(draft.actualCost, milestone.estimatedCost)
+                    ) * 100
                   )
                 }
                 variant="secondary"
@@ -2556,18 +2577,18 @@ function MilestoneDetailSheet({
             <div className="grid max-h-52 gap-2 overflow-y-auto pr-1">
               {workspace.auditEvents.slice(0, 10).map((event) => (
                 <div
-                  className="rounded-md border border-white/10 bg-white/[0.03] p-2 text-xs"
+                  className="rounded-md border border-border bg-muted/30 p-2 text-xs"
                   key={event.id}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-stone-200">
+                    <span className="font-medium text-foreground">
                       {event.message}
                     </span>
-                    <span className="shrink-0 text-stone-500">
+                    <span className="shrink-0 text-muted-foreground">
                       {format(new Date(event.timestamp), "MMM d, HH:mm")}
                     </span>
                   </div>
-                  <div className="mt-1 text-stone-500">
+                  <div className="mt-1 text-muted-foreground">
                     {event.actor} / {roleLabels[event.role]}
                     {event.reason ? ` / ${event.reason}` : ""}
                   </div>
@@ -2590,14 +2611,16 @@ function DependencyList({
   const [error, setError] = useState("");
 
   if (dependencies.length === 0) {
-    return <p className="text-stone-500 text-xs">No dependencies attached.</p>;
+    return (
+      <p className="text-muted-foreground text-xs">No dependencies attached.</p>
+    );
   }
 
   return (
     <div className="grid gap-2">
       {error ? (
         <div
-          className="rounded-md border border-red-300/30 bg-red-500/10 p-2 text-red-100 text-xs"
+          className="rounded-md border border-red-300/30 bg-red-500/10 p-2 text-red-700 text-xs dark:text-red-100"
           data-testid="dependency-error"
         >
           {error}
@@ -2605,15 +2628,15 @@ function DependencyList({
       ) : null}
       {dependencies.map((dependency) => {
         const from = workspace.milestones.find(
-          (milestone) => milestone.id === dependency.fromMilestoneId,
+          (milestone) => milestone.id === dependency.fromMilestoneId
         );
         const to = workspace.milestones.find(
-          (milestone) => milestone.id === dependency.toMilestoneId,
+          (milestone) => milestone.id === dependency.toMilestoneId
         );
 
         return (
           <div
-            className="grid gap-2 rounded-md border border-white/10 bg-white/[0.03] p-2 text-xs sm:grid-cols-[1fr_auto_auto]"
+            className="grid gap-2 rounded-md border border-border bg-muted/30 p-2 text-xs sm:grid-cols-[1fr_auto_auto]"
             key={dependency.id}
           >
             <div className="min-w-0 truncate">
@@ -2630,14 +2653,14 @@ function DependencyList({
                 void workspace
                   .setDependencyHardness(
                     dependency.id,
-                    event.currentTarget.value as DependencyHardness,
+                    event.currentTarget.value as DependencyHardness
                   )
                   .catch((caught) =>
                     setError(
                       caught instanceof Error
                         ? caught.message
-                        : "Dependency update failed.",
-                    ),
+                        : "Dependency update failed."
+                    )
                   );
               }}
               value={dependency.hardness}
@@ -2656,8 +2679,8 @@ function DependencyList({
                     setError(
                       caught instanceof Error
                         ? caught.message
-                        : "Dependency removal failed.",
-                    ),
+                        : "Dependency removal failed."
+                    )
                   );
               }}
               variant="ghost"
@@ -2684,10 +2707,10 @@ function InspectionDrawer({
 
   return (
     <div
-      className="fixed right-4 bottom-4 z-50 max-h-[70vh] w-[min(560px,calc(100vw-2rem))] overflow-hidden rounded-md border border-white/10 bg-[#111615] shadow-2xl shadow-black/60"
+      className="fixed right-4 bottom-4 z-50 max-h-[70vh] w-[min(560px,calc(100vw-2rem))] overflow-hidden rounded-md border border-border bg-popover shadow-2xl shadow-foreground/15"
       data-testid={`workspace-${drawer}-drawer`}
     >
-      <div className="flex items-center justify-between border-white/10 border-b p-3">
+      <div className="flex items-center justify-between border-border border-b p-3">
         <h2 className="font-semibold text-sm">
           {drawer === "audit" ? "Audit Events" : "Event Outbox"}
         </h2>
@@ -2697,27 +2720,27 @@ function InspectionDrawer({
       </div>
       <div className="grid max-h-[58vh] gap-2 overflow-auto p-3">
         {items.length === 0 ? (
-          <p className="text-stone-500 text-xs">No records yet.</p>
+          <p className="text-muted-foreground text-xs">No records yet.</p>
         ) : (
           items.map((item: any) => (
             <div
-              className="rounded-md border border-white/10 bg-white/[0.03] p-2 text-xs"
+              className="rounded-md border border-border bg-muted/30 p-2 text-xs"
               key={item.id}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="font-medium text-stone-200">
+                <span className="font-medium text-foreground">
                   {drawer === "audit" ? item.message : item.eventType}
                 </span>
-                <span className="shrink-0 text-stone-500">
+                <span className="shrink-0 text-muted-foreground">
                   {format(new Date(item.timestamp), "MMM d, HH:mm")}
                 </span>
               </div>
-              <p className="mt-1 text-stone-400">
+              <p className="mt-1 text-muted-foreground">
                 {drawer === "audit"
                   ? `${item.actor} / ${item.command}`
                   : `${item.status} / ${item.relatedEntity}`}
               </p>
-              <p className="mt-1 text-stone-500">
+              <p className="mt-1 text-muted-foreground">
                 {drawer === "audit" ? item.reason : item.payloadPreview}
               </p>
             </div>
@@ -2740,7 +2763,7 @@ function AddMilestoneDialog({
   const [cost, setCost] = useState("188000");
   const [duration, setDuration] = useState("24");
   const [drawGroupId, setDrawGroupId] = useState(
-    workspace.drawGroups[0]?.id ?? "",
+    workspace.drawGroups[0]?.id ?? ""
   );
 
   const addMilestone = () => {
@@ -2756,7 +2779,7 @@ function AddMilestoneDialog({
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
-        className="border-white/10 bg-[#111615] text-stone-100 sm:max-w-md"
+        className="border-border bg-popover text-foreground sm:max-w-md"
         data-testid="add-milestone-dialog"
       >
         <DialogHeader>
@@ -2819,15 +2842,15 @@ function AddMilestoneDialog({
 }
 
 function issueTone(
-  issue: { severity?: WorkspaceIssue["severity"] } | undefined,
+  issue: { severity?: WorkspaceIssue["severity"] } | undefined
 ) {
   if (issue?.severity === "blocking") {
-    return "border-red-300/40 bg-red-500/15 text-red-100";
+    return "border-red-300/40 bg-red-500/15 text-red-700 dark:text-red-100";
   }
   if (issue?.severity === "info") {
-    return "border-cyan-300/30 bg-cyan-300/10 text-cyan-100";
+    return "border-cyan-300/30 bg-cyan-300/10 text-cyan-700 dark:text-cyan-100";
   }
-  return "border-amber-300/30 bg-amber-300/10 text-amber-100";
+  return "border-amber-300/30 bg-amber-300/10 text-amber-800 dark:text-amber-100";
 }
 
 function IssueChip({
@@ -2855,7 +2878,7 @@ function IssueChip({
           <button
             className={cn(
               "inline-flex h-5 shrink-0 items-center gap-1 rounded-sm border px-1.5 font-medium text-[0.62rem]",
-              issueTone(primaryIssue),
+              issueTone(primaryIssue)
             )}
             data-gantt-interactive="true"
             data-testid={testId}
@@ -2868,7 +2891,7 @@ function IssueChip({
         }
       />
       <PopoverContent
-        className="w-80 border border-white/10 bg-[#111615] text-stone-100"
+        className="w-80 border border-border bg-popover text-foreground"
         data-testid={`${testId}-popover`}
         side="right"
       >
@@ -2901,7 +2924,7 @@ function IssueList({
               <button
                 className={cn(
                   "inline-flex h-6 items-center gap-1 rounded-sm border px-2 font-medium text-[0.68rem]",
-                  issueTone(issue),
+                  issueTone(issue)
                 )}
                 data-testid={`${testIdPrefix}-${issue.id}`}
                 onClick={(event) => event.stopPropagation()}
@@ -2913,7 +2936,7 @@ function IssueList({
             }
           />
           <PopoverContent
-            className="w-80 border border-white/10 bg-[#111615] text-stone-100"
+            className="w-80 border border-border bg-popover text-foreground"
             data-testid={`${testIdPrefix}-${issue.id}-popover`}
             side="bottom"
           >
@@ -2928,7 +2951,7 @@ function IssueList({
 function IssuePopoverBody({ issue }: { issue: WorkspaceIssue }) {
   const workspace = useBuildWorkspace();
   const firstAffectedMilestoneId = issue.milestoneIds.find((milestoneId) =>
-    workspace.milestones.some((milestone) => milestone.id === milestoneId),
+    workspace.milestones.some((milestone) => milestone.id === milestoneId)
   );
   const openAffectedMilestone = () => {
     if (!firstAffectedMilestoneId) {
@@ -2938,7 +2961,7 @@ function IssuePopoverBody({ issue }: { issue: WorkspaceIssue }) {
     window.dispatchEvent(
       new CustomEvent("drawflow-open-milestone-detail", {
         detail: firstAffectedMilestoneId,
-      }),
+      })
     );
   };
 
@@ -2947,7 +2970,7 @@ function IssuePopoverBody({ issue }: { issue: WorkspaceIssue }) {
       <button
         className={cn(
           "rounded-sm text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-cyan-300/50",
-          firstAffectedMilestoneId && "cursor-pointer hover:bg-white/[0.04]",
+          firstAffectedMilestoneId && "cursor-pointer hover:bg-muted/40"
         )}
         data-testid={`issue-focus-${issue.id}`}
         disabled={!firstAffectedMilestoneId}
@@ -2965,11 +2988,11 @@ function IssuePopoverBody({ issue }: { issue: WorkspaceIssue }) {
             {issue.severity}
           </Badge>
         </div>
-        <p className="mt-1 text-stone-300 text-xs">{issue.message}</p>
+        <p className="mt-1 text-muted-foreground text-xs">{issue.message}</p>
       </button>
-      <div className="grid gap-1 text-stone-400 text-xs">
+      <div className="grid gap-1 text-muted-foreground text-xs">
         <div>
-          <span className="text-stone-500">Affected: </span>
+          <span className="text-muted-foreground">Affected: </span>
           {[
             ...issue.milestoneIds,
             ...issue.drawGroupIds,
@@ -2977,15 +3000,17 @@ function IssuePopoverBody({ issue }: { issue: WorkspaceIssue }) {
           ].join(", ")}
         </div>
         <div>
-          <span className="text-stone-500">Why it matters: </span>
+          <span className="text-muted-foreground">Why it matters: </span>
           {issue.impact}
         </div>
         <div>
-          <span className="text-stone-500">Blocks release/submission: </span>
+          <span className="text-muted-foreground">
+            Blocks release/submission:{" "}
+          </span>
           {issue.severity === "blocking" ? "Yes" : "No"}
         </div>
         <div>
-          <span className="text-stone-500">Recommended fix: </span>
+          <span className="text-muted-foreground">Recommended fix: </span>
           {issue.quickFix?.label ?? "Open the related editor section."}
         </div>
       </div>
@@ -2996,7 +3021,7 @@ function IssuePopoverBody({ issue }: { issue: WorkspaceIssue }) {
             onClick={() =>
               void workspace.dismissIssue(
                 issue,
-                "Dismissed after review in demo workspace.",
+                "Dismissed after review in demo workspace."
               )
             }
             size="sm"
@@ -3020,8 +3045,8 @@ function IssuePopoverBody({ issue }: { issue: WorkspaceIssue }) {
 
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="grid gap-3 rounded-md border border-white/10 bg-white/[0.03] p-3">
-      <h2 className="font-medium text-stone-200 text-xs">{title}</h2>
+    <section className="grid gap-3 rounded-md border border-border bg-muted/30 p-3">
+      <h2 className="font-medium text-foreground text-xs">{title}</h2>
       {children}
     </section>
   );
@@ -3029,7 +3054,7 @@ function Panel({ title, children }: { title: string; children: ReactNode }) {
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid gap-1 text-stone-400 text-xs">
+    <div className="grid gap-1 text-muted-foreground text-xs">
       <span>{label}</span>
       {children}
     </div>
@@ -3044,8 +3069,8 @@ function SummaryPill({
   label: string;
 }) {
   return (
-    <span className="inline-flex h-7 items-center gap-1 rounded-md border border-white/10 bg-white/[0.03] px-2 text-stone-300 text-xs">
-      <Icon className="size-3.5 text-stone-500" />
+    <span className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-muted/30 px-2 text-muted-foreground text-xs">
+      <Icon className="size-3.5 text-muted-foreground" />
       {label}
     </span>
   );
@@ -3064,25 +3089,23 @@ function getDrawOverlays(milestones: Milestone[], drawGroups: DrawGroup[]) {
 
       const rowIndex = Math.min(...indexedMilestones.map((item) => item.index));
       const lastRowIndex = Math.max(
-        ...indexedMilestones.map((item) => item.index),
+        ...indexedMilestones.map((item) => item.index)
       );
       const startAt = new Date(
         Math.min(
           ...indexedMilestones.map(({ milestone }) =>
-            milestone.startAt.getTime(),
-          ),
-        ),
+            milestone.startAt.getTime()
+          )
+        )
       );
       const endAt = new Date(
         Math.max(
-          ...indexedMilestones.map(({ milestone }) =>
-            milestone.endAt.getTime(),
-          ),
-        ),
+          ...indexedMilestones.map(({ milestone }) => milestone.endAt.getTime())
+        )
       );
       const amount = indexedMilestones.reduce(
         (sum, { milestone }) => sum + milestone.estimatedCost,
-        0,
+        0
       );
       const incurredCost = milestones
         .filter((milestone) => milestone.endAt.getTime() <= endAt.getTime())
@@ -3104,16 +3127,16 @@ function getDrawOverlays(milestones: Milestone[], drawGroups: DrawGroup[]) {
 
   return baseDrawOverlays.map((drawGroup) => {
     const eligibleDraws = baseDrawOverlays.filter(
-      (candidate) => candidate.endAt.getTime() <= drawGroup.endAt.getTime(),
+      (candidate) => candidate.endAt.getTime() <= drawGroup.endAt.getTime()
     );
     const principalExposure = eligibleDraws.reduce(
       (sum, candidate) => sum + candidate.amount,
-      0,
+      0
     );
     const interestAccumulated = eligibleDraws.reduce((sum, candidate) => {
       const daysSinceDraw = Math.max(
         0,
-        differenceInDays(drawGroup.endAt, candidate.endAt),
+        differenceInDays(drawGroup.endAt, candidate.endAt)
       );
       const dailyRate = ANNUAL_DRAW_INTEREST_RATE / 365;
       const interest =

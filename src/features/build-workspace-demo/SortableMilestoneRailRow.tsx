@@ -2,15 +2,6 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { ArrowDown, ArrowUp, GripVertical, PanelRightOpen } from "lucide-react";
 import type { ReactNode } from "react";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardFooter,
-  CardContent,
-  CardDescription,
-  CardAction,
-} from "#/components/ui/card.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { cn } from "#/lib/utils.ts";
@@ -110,15 +101,15 @@ export function SortableMilestoneRailRow({
       className={cn(
         "relative grid w-full items-center overflow-hidden text-left transition-colors",
         collapsed
-          ? "grid-cols-[1fr] gap-1 border-white/5 border-b px-1 hover:bg-white/[0.05]"
-          : "grid-cols-[1rem_1fr_auto] gap-2 border-white/5 border-b px-2 hover:bg-white/[0.05]",
+          ? "grid-cols-[1fr] gap-1 border-border/60 border-b px-1 hover:bg-muted/50"
+          : "grid-cols-[1rem_1fr_auto] gap-2 border-border/60 border-b px-2 hover:bg-muted/50",
         highlightTone === "selected" &&
           "bg-cyan-300/10 ring-1 ring-cyan-300/45 ring-inset",
         highlightTone === "blocking" &&
           "bg-amber-300/20 ring-1 ring-amber-300/70 ring-inset",
         highlightTone === "blocked" &&
           "bg-red-500/20 ring-1 ring-red-300/70 ring-inset",
-        isDragging && "z-40 opacity-70",
+        isDragging && "z-40 opacity-70"
       )}
       data-highlight-tone={highlightTone ?? "none"}
       data-highlighted={highlightTone ? "true" : "false"}
@@ -145,13 +136,13 @@ export function SortableMilestoneRailRow({
             className="size-2 rounded-full"
             style={{ backgroundColor: statusColors[milestone.status] }}
           />
-          <span className="truncate text-[0.62rem] text-stone-300">
+          <span className="truncate text-[0.62rem] text-muted-foreground">
             {milestone.code.replace("M-", "")}
           </span>
           {milestone.warningCount > 0
             ? renderIssueChip(
                 milestone.issues,
-                `milestone-issue-chip-${milestone.id}`,
+                `milestone-issue-chip-${milestone.id}`
               )
             : null}
         </div>
@@ -166,10 +157,10 @@ export function SortableMilestoneRailRow({
                 : `Drag ${milestone.name} to reorder`
             }
             className={cn(
-              "grid size-5 place-items-center rounded-sm text-stone-600",
+              "grid size-5 place-items-center rounded-sm text-muted-foreground",
               sortableDisabled
                 ? "cursor-not-allowed opacity-50"
-                : "cursor-grab hover:bg-white/10 hover:text-stone-200",
+                : "cursor-grab hover:bg-muted/60 hover:text-foreground"
             )}
             data-testid={`milestone-drag-handle-${milestone.id}`}
             disabled={sortableDisabled}
@@ -204,7 +195,7 @@ export function SortableMilestoneRailRow({
                 {milestone.name}
               </span>
             </div>
-            <div className="mt-1 flex flex-wrap items-center gap-1 text-[0.65rem] text-stone-500">
+            <div className="mt-1 flex flex-wrap items-center gap-1 text-[0.65rem] text-muted-foreground">
               <span>{milestone.code}</span>
               <span>{statusLabels[milestone.status]}</span>
               <span>{compactMoney(milestone.estimatedCost)}</span>
@@ -214,9 +205,9 @@ export function SortableMilestoneRailRow({
               <button
                 aria-label={`Highlight milestones blocked by ${milestone.name}`}
                 className={cn(
-                  "inline-flex h-4 items-center rounded-sm border border-white/10 bg-white/[0.04] px-1 text-stone-300 transition-colors hover:border-red-300/50 hover:bg-red-400/15 hover:text-red-100",
+                  "inline-flex h-4 items-center rounded-sm border border-border bg-muted/40 px-1 text-muted-foreground transition-colors hover:border-red-300/50 hover:bg-red-400/15 hover:text-red-700 dark:text-red-100",
                   blockingChipActive &&
-                    "border-red-300/60 bg-red-500/20 text-red-100",
+                    "border-red-300/60 bg-red-500/20 text-red-700 dark:text-red-100"
                 )}
                 data-testid={`milestone-blocking-chip-${milestone.id}`}
                 onClick={(event) => {
@@ -230,9 +221,9 @@ export function SortableMilestoneRailRow({
               <button
                 aria-label={`Highlight milestones blocking ${milestone.name}`}
                 className={cn(
-                  "inline-flex h-4 items-center rounded-sm border border-white/10 bg-white/[0.04] px-1 text-stone-300 transition-colors hover:border-amber-300/50 hover:bg-amber-300/15 hover:text-amber-100",
+                  "inline-flex h-4 items-center rounded-sm border border-border bg-muted/40 px-1 text-muted-foreground transition-colors hover:border-amber-300/50 hover:bg-amber-300/15 hover:text-amber-800 dark:text-amber-100",
                   blockedByChipActive &&
-                    "border-amber-300/60 bg-amber-300/20 text-amber-100",
+                    "border-amber-300/60 bg-amber-300/20 text-amber-800 dark:text-amber-100"
                 )}
                 data-testid={`milestone-blocked-by-chip-${milestone.id}`}
                 onClick={(event) => {
@@ -246,13 +237,13 @@ export function SortableMilestoneRailRow({
               {milestone.warningCount > 0
                 ? renderIssueChip(
                     milestone.issues,
-                    `milestone-issue-chip-${milestone.id}`,
+                    `milestone-issue-chip-${milestone.id}`
                   )
                 : null}
             </div>
           </div>
           <div className="flex flex-col items-end gap-1">
-            <Badge className="h-5 rounded-sm border-cyan-300/20 bg-cyan-300/10 px-1.5 text-cyan-100">
+            <Badge className="h-5 rounded-sm border-cyan-300/20 bg-cyan-300/10 px-1.5 text-cyan-700 dark:text-cyan-100">
               {draw?.label}
             </Badge>
             <div className="flex gap-1">

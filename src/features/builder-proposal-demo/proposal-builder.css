@@ -1,21 +1,21 @@
 /* Proposal Builder Design System Overrides */
 .proposal-builder {
-  --pb-bg: oklch(0.05 0.008 260);
-  --pb-elevated: oklch(0.09 0.012 260);
-  --pb-sunken: oklch(0.03 0.005 260);
-  --pb-fg: oklch(0.94 0.005 285);
-  --pb-fg-secondary: oklch(0.62 0.01 285);
-  --pb-fg-tertiary: oklch(0.40 0.008 285);
-  --pb-accent: oklch(0.72 0.22 145);
-  --pb-accent-hover: oklch(0.78 0.24 145);
-  --pb-accent-subdued: oklch(0.72 0.22 145 / 0.12);
-  --pb-accent-glow: oklch(0.72 0.22 145 / 0.25);
-  --pb-success: oklch(0.70 0.18 145);
-  --pb-warning: oklch(0.78 0.16 85);
-  --pb-danger: oklch(0.60 0.22 25);
-  --pb-border: oklch(1 0 0 / 0.06);
-  --pb-border-strong: oklch(1 0 0 / 0.12);
-  --pb-grid: oklch(1 0 0 / 0.03);
+  --pb-bg: var(--background);
+  --pb-elevated: var(--card);
+  --pb-sunken: var(--muted);
+  --pb-fg: var(--foreground);
+  --pb-fg-secondary: var(--muted-foreground);
+  --pb-fg-tertiary: var(--fg-tertiary);
+  --pb-accent: var(--primary);
+  --pb-accent-hover: var(--accent-hover);
+  --pb-accent-subdued: var(--accent-subdued);
+  --pb-accent-glow: color-mix(in oklch, var(--primary) 28%, transparent);
+  --pb-success: var(--success);
+  --pb-warning: var(--warning);
+  --pb-danger: var(--danger);
+  --pb-border: var(--border);
+  --pb-border-strong: var(--border-strong);
+  --pb-grid: color-mix(in oklch, var(--foreground) 8%, transparent);
   --pb-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --pb-ease-fast: cubic-bezier(0.25, 1, 0.5, 1);
 
@@ -472,9 +472,9 @@
   border-radius: 6px;
   border: 1px solid var(--pb-border);
   background:
-    linear-gradient(90deg, oklch(0.72 0.22 145 / 0.035), transparent 38%),
+    linear-gradient(90deg, var(--pb-accent-subdued), transparent 38%),
     var(--pb-elevated);
-  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.025);
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--foreground) 6%, transparent);
   transition:
     border-color 0.16s var(--pb-ease),
     background 0.16s var(--pb-ease),
@@ -494,7 +494,7 @@
 
 .pb-milestone-row.blocking {
   border-color: var(--pb-danger);
-  background: oklch(0.60 0.22 25 / 0.08);
+  background: color-mix(in oklch, var(--pb-danger) 10%, transparent);
 }
 
 .pb-milestone-row.excluded {
@@ -534,7 +534,7 @@
   min-width: 24px;
   border: 0;
   border-radius: 0;
-  background: oklch(1 0 0 / 0.025);
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
   color: var(--pb-fg-secondary);
   cursor: pointer;
   transition: background 0.15s var(--pb-ease-fast), color 0.15s var(--pb-ease-fast);
@@ -652,7 +652,7 @@
 
 .pb-dashboard-page {
   background:
-    linear-gradient(180deg, oklch(0.11 0.035 245 / 0.72), var(--pb-bg) 46%),
+    linear-gradient(180deg, color-mix(in oklch, var(--primary) 8%, var(--pb-bg)), var(--pb-bg) 46%),
     var(--pb-bg);
 }
 
@@ -716,8 +716,8 @@
 
 .pb-dashboard-cta {
   background:
-    linear-gradient(120deg, var(--pb-accent-subdued), oklch(0.11 0.06 190 / 0.28) 64%, var(--pb-elevated));
-  border-color: oklch(0.72 0.22 145 / 0.58);
+    linear-gradient(120deg, var(--pb-accent-subdued), color-mix(in oklch, var(--info) 16%, transparent) 64%, var(--pb-elevated));
+  border-color: color-mix(in oklch, var(--pb-accent) 58%, transparent);
 }
 
 .pb-panel-heading {
@@ -905,9 +905,9 @@
 
 /* Alert boxes */
 .pb-alert-error {
-  background: oklch(0.60 0.22 25 / 0.08);
-  border: 1px solid oklch(0.60 0.22 25 / 0.3);
-  color: oklch(0.80 0.15 25);
+  background: color-mix(in oklch, var(--pb-danger) 10%, transparent);
+  border: 1px solid color-mix(in oklch, var(--pb-danger) 38%, transparent);
+  color: var(--pb-danger);
   padding: 12px 16px;
   border-radius: 6px;
   font-size: 13px;
@@ -915,9 +915,9 @@
 }
 
 .pb-alert-warning {
-  background: oklch(0.78 0.16 85 / 0.08);
-  border: 1px solid oklch(0.78 0.16 85 / 0.3);
-  color: oklch(0.85 0.12 85);
+  background: color-mix(in oklch, var(--pb-warning) 12%, transparent);
+  border: 1px solid color-mix(in oklch, var(--pb-warning) 38%, transparent);
+  color: var(--pb-warning);
   padding: 12px 16px;
   border-radius: 6px;
   font-size: 13px;
@@ -943,7 +943,7 @@
 
 .pb-peak-exposure.warning {
   border-color: var(--pb-warning);
-  background: oklch(0.78 0.16 85 / 0.06);
+  background: color-mix(in oklch, var(--pb-warning) 10%, transparent);
 }
 
 .pb-peak-exposure.clear {

@@ -1335,7 +1335,7 @@ function MilestoneEditorScreen({
                         <Minus size={12} />
                       </button>
                       <input
-                        className="pb-input pb-budget-input"
+                        className="pb-budget-input pb-input"
                         data-builder-blocking={isBlocking || undefined}
                         data-testid={`builder-milestone-budget-${milestone.key}`}
                         defaultValue={formatCurrency(milestone.budgetCents)}

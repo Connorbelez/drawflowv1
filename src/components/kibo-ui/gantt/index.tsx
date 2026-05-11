@@ -670,7 +670,7 @@ export const GanttSidebarHeader: FC<GanttSidebarHeaderProps> = ({
               collapsed ? "Expand Gantt sidebar" : "Collapse Gantt sidebar"
             }
             className={cn(
-              "grid shrink-0 place-items-center rounded-sm border border-white/10 text-stone-400 transition-colors hover:border-cyan-300/40 hover:bg-cyan-300/10 hover:text-cyan-100",
+              "grid shrink-0 place-items-center rounded-sm border border-border text-muted-foreground transition-colors hover:border-cyan-300/40 hover:bg-cyan-300/10 hover:text-cyan-700 dark:text-cyan-100",
               collapsed ? "h-full w-full" : "size-6",
             )}
             data-gantt-interactive="true"
@@ -1860,10 +1860,10 @@ export const GanttRangeDragHandle: FC<GanttRangeDragHandleProps> = ({
     >
       <button
         className={cn(
-          "mr-1 grid size-5 shrink-0 place-items-center rounded-sm border border-white/10 bg-white/[0.04] text-stone-300",
+          "mr-1 grid size-5 shrink-0 place-items-center rounded-sm border border-border bg-muted/40 text-muted-foreground",
           disabled
             ? "cursor-not-allowed opacity-60"
-            : "pointer-events-auto cursor-grab hover:border-cyan-300/40 hover:bg-cyan-300/10 hover:text-cyan-100 active:cursor-grabbing",
+            : "pointer-events-auto cursor-grab hover:border-cyan-300/40 hover:bg-cyan-300/10 hover:text-cyan-700 dark:text-cyan-100 active:cursor-grabbing",
         )}
         data-gantt-range-drag-handle="true"
         data-testid={testId}

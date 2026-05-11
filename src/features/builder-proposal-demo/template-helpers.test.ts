@@ -11,18 +11,21 @@ describe("builder proposal template helpers", () => {
   test("allocates template percentages to the original budget without losing cents", () => {
     const fullBuildPresets = [
       { percentageBps: 500 },
-      { percentageBps: 1_000 },
-      { percentageBps: 1_300 },
-      { percentageBps: 2_300 },
-      { percentageBps: 1_500 },
+      { percentageBps: 1000 },
+      { percentageBps: 1300 },
+      { percentageBps: 2300 },
+      { percentageBps: 1500 },
       { percentageBps: 900 },
-      { percentageBps: 1_400 },
+      { percentageBps: 1400 },
       { percentageBps: 400 },
       { percentageBps: 400 },
       { percentageBps: 300 },
     ];
     const originalBudgetCents = 185_000_001;
-    const allocations = allocateBudgetCents(originalBudgetCents, fullBuildPresets);
+    const allocations = allocateBudgetCents(
+      originalBudgetCents,
+      fullBuildPresets
+    );
 
     expect(allocations).toHaveLength(10);
     expect(allocations.reduce((sum, cents) => sum + cents, 0)).toBe(
@@ -32,12 +35,12 @@ describe("builder proposal template helpers", () => {
 
   test("tracks budget drift from included milestone edits", () => {
     const milestones = [
-      { budgetCents: 95_000_00, included: true },
-      { budgetCents: 185_000_00, included: true },
-      { budgetCents: 42_000_00, included: false },
+      { budgetCents: 9_500_000, included: true },
+      { budgetCents: 18_500_000, included: true },
+      { budgetCents: 4_200_000, included: false },
     ];
 
-    expect(currentBudgetCents(milestones)).toBe(280_000_00);
+    expect(currentBudgetCents(milestones)).toBe(28_000_000);
   });
 
   test("parses currency and projects unreimbursed exposure warnings", () => {
@@ -47,6 +50,6 @@ describe("builder proposal template helpers", () => {
       { budgetCents: parseCurrencyToCents("$285,000"), included: true },
     ];
 
-    expect(projectedPeakExposureCents(milestones)).toBe(519_750_00);
+    expect(projectedPeakExposureCents(milestones)).toBe(51_975_000);
   });
 });

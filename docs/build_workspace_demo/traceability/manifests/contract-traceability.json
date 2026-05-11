@@ -8,10 +8,7 @@
       "endLine": 1541
     },
     "primaryChunkId": "CH-04",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -54,10 +51,7 @@
       "endLine": 1574
     },
     "primaryChunkId": "CH-04",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -100,10 +94,7 @@
       "endLine": 1610
     },
     "primaryChunkId": "CH-04",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -158,10 +149,7 @@
       "endLine": 1642
     },
     "primaryChunkId": "CH-04",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -216,10 +204,7 @@
       "endLine": 1675
     },
     "primaryChunkId": "CH-04",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -268,10 +253,7 @@
       "endLine": 1709
     },
     "primaryChunkId": "CH-04",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -320,10 +302,7 @@
       "endLine": 1741
     },
     "primaryChunkId": "CH-04",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -366,10 +345,7 @@
       "endLine": 1776
     },
     "primaryChunkId": "CH-04",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -412,12 +388,7 @@
       "endLine": 1825
     },
     "primaryChunkId": "CH-04",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -451,17 +422,13 @@
       }
     ],
     "primaryTestTitle": "IC-ACT-GANTT-FORECAST-RESIZE-END extends Foundation forecast and pushes Draw 3 start via capital clamp",
-    "convexFunctions": [
-      "demo_updateForecastDatesWithReason"
-    ],
+    "convexFunctions": ["demo_updateForecastDatesWithReason"],
     "tablesMutated": [
       "demo_milestones",
       "demo_forecastUpdates",
       "demo_auditEvents"
     ],
-    "auditEvents": [
-      "ActiveMilestoneForecastChanged"
-    ],
+    "auditEvents": ["ActiveMilestoneForecastChanged"],
     "outboxEvents": [],
     "status": "planned"
   },
@@ -474,12 +441,7 @@
       "endLine": 1856
     },
     "primaryChunkId": "CH-04",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -519,9 +481,7 @@
       }
     ],
     "primaryTestTitle": "IC-ACT-GANTT-FORECAST-INVALID-BLOCKS-SUBMIT prevents completion claim while forecast violates hard sequencing",
-    "convexFunctions": [
-      "demo_submitCompletionClaim"
-    ],
+    "convexFunctions": ["demo_submitCompletionClaim"],
     "tablesMutated": [
       "demo_milestones",
       "demo_evidencePackages",
@@ -529,9 +489,7 @@
       "demo_auditEvents",
       "demo_eventOutbox"
     ],
-    "auditEvents": [
-      "CompletionClaimSubmitRejected"
-    ],
+    "auditEvents": ["CompletionClaimSubmitRejected"],
     "outboxEvents": [],
     "status": "planned"
   },
@@ -544,12 +502,7 @@
       "endLine": 1897
     },
     "primaryChunkId": "CH-05",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -577,16 +530,9 @@
       }
     ],
     "primaryTestTitle": "IC-ACT-MILESTONE-MARK-COMPLETE marks Foundation complete but keeps claim blocked until evidence exists",
-    "convexFunctions": [
-      "demo_updateMilestoneProgress"
-    ],
-    "tablesMutated": [
-      "demo_milestones",
-      "demo_auditEvents"
-    ],
-    "auditEvents": [
-      "MilestoneMarkedComplete"
-    ],
+    "convexFunctions": ["demo_updateMilestoneProgress"],
+    "tablesMutated": ["demo_milestones", "demo_auditEvents"],
+    "auditEvents": ["MilestoneMarkedComplete"],
     "outboxEvents": [],
     "status": "planned"
   },
@@ -599,12 +545,7 @@
       "endLine": 1934
     },
     "primaryChunkId": "CH-05",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -632,17 +573,13 @@
       }
     ],
     "primaryTestTitle": "IC-ACT-EVIDENCE-ADD-SAMPLE adds deterministic Foundation evidence and updates readiness",
-    "convexFunctions": [
-      "demo_addSampleEvidence"
-    ],
+    "convexFunctions": ["demo_addSampleEvidence"],
     "tablesMutated": [
       "demo_evidencePackages",
       "demo_evidenceFiles",
       "demo_auditEvents"
     ],
-    "auditEvents": [
-      "SampleEvidenceAdded"
-    ],
+    "auditEvents": ["SampleEvidenceAdded"],
     "outboxEvents": [],
     "status": "planned"
   },
@@ -655,12 +592,7 @@
       "endLine": 1970
     },
     "primaryChunkId": "CH-05",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -688,17 +620,13 @@
       }
     ],
     "primaryTestTitle": "IC-ACT-EVIDENCE-UPLOAD-METADATA stores file metadata only and updates evidence count",
-    "convexFunctions": [
-      "demo_registerUploadedEvidenceMetadata"
-    ],
+    "convexFunctions": ["demo_registerUploadedEvidenceMetadata"],
     "tablesMutated": [
       "demo_evidencePackages",
       "demo_evidenceFiles",
       "demo_auditEvents"
     ],
-    "auditEvents": [
-      "EvidenceMetadataRegistered"
-    ],
+    "auditEvents": ["EvidenceMetadataRegistered"],
     "outboxEvents": [],
     "status": "planned"
   },
@@ -711,12 +639,7 @@
       "endLine": 2003
     },
     "primaryChunkId": "CH-05",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -744,16 +667,9 @@
       }
     ],
     "primaryTestTitle": "IC-ACT-EVIDENCE-REMOVE-DRAFT removes draft evidence and re-blocks submission when no evidence remains",
-    "convexFunctions": [
-      "demo_removeEvidenceFile"
-    ],
-    "tablesMutated": [
-      "demo_evidenceFiles",
-      "demo_auditEvents"
-    ],
-    "auditEvents": [
-      "EvidenceRemoved"
-    ],
+    "convexFunctions": ["demo_removeEvidenceFile"],
+    "tablesMutated": ["demo_evidenceFiles", "demo_auditEvents"],
+    "auditEvents": ["EvidenceRemoved"],
     "outboxEvents": [],
     "status": "planned"
   },
@@ -766,12 +682,7 @@
       "endLine": 2054
     },
     "primaryChunkId": "CH-05",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -805,9 +716,7 @@
       }
     ],
     "primaryTestTitle": "IC-ACT-SUBMIT-COMPLETION-CLAIM submits Foundation claim, freezes evidence, creates rollover when requested amount is lower, and writes audit/outbox",
-    "convexFunctions": [
-      "demo_submitCompletionClaim"
-    ],
+    "convexFunctions": ["demo_submitCompletionClaim"],
     "tablesMutated": [
       "demo_milestones",
       "demo_evidencePackages",
@@ -815,12 +724,8 @@
       "demo_auditEvents",
       "demo_eventOutbox"
     ],
-    "auditEvents": [
-      "CompletionClaimSubmitted"
-    ],
-    "outboxEvents": [
-      "demo.milestone.completionClaimSubmitted"
-    ],
+    "auditEvents": ["CompletionClaimSubmitted"],
+    "outboxEvents": ["demo.milestone.completionClaimSubmitted"],
     "status": "planned"
   },
   {
@@ -832,12 +737,7 @@
       "endLine": 2091
     },
     "primaryChunkId": "CH-05",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -865,17 +765,13 @@
       }
     ],
     "primaryTestTitle": "IC-ACT-LENDER-APPROVE-EVIDENCE accepts Foundation evidence without approving completion",
-    "convexFunctions": [
-      "demo_reviewEvidence"
-    ],
+    "convexFunctions": ["demo_reviewEvidence"],
     "tablesMutated": [
       "demo_reviewReports",
       "demo_auditEvents",
       "demo_eventOutbox"
     ],
-    "auditEvents": [
-      "EvidenceApproved"
-    ],
+    "auditEvents": ["EvidenceApproved"],
     "outboxEvents": [],
     "status": "planned"
   },
@@ -888,12 +784,7 @@
       "endLine": 2129
     },
     "primaryChunkId": "CH-05",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -921,21 +812,15 @@
       }
     ],
     "primaryTestTitle": "IC-ACT-LENDER-REQUEST-SITE-VISIT creates Foundation site visit and exposes it to Site Visitor persona",
-    "convexFunctions": [
-      "demo_requestSiteVisit"
-    ],
+    "convexFunctions": ["demo_requestSiteVisit"],
     "tablesMutated": [
       "demo_milestones",
       "demo_siteVisits",
       "demo_auditEvents",
       "demo_eventOutbox"
     ],
-    "auditEvents": [
-      "SiteVisitRequested"
-    ],
-    "outboxEvents": [
-      "demo.siteVisit.requested"
-    ],
+    "auditEvents": ["SiteVisitRequested"],
+    "outboxEvents": ["demo.siteVisit.requested"],
     "status": "planned"
   },
   {
@@ -947,12 +832,7 @@
       "endLine": 2165
     },
     "primaryChunkId": "CH-05",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -980,16 +860,9 @@
       }
     ],
     "primaryTestTitle": "IC-ACT-SITE-VISITOR-CLAIM-VISIT claims assigned Foundation site visit and opens report form",
-    "convexFunctions": [
-      "demo_claimSiteVisit"
-    ],
-    "tablesMutated": [
-      "demo_siteVisits",
-      "demo_auditEvents"
-    ],
-    "auditEvents": [
-      "SiteVisitClaimed"
-    ],
+    "convexFunctions": ["demo_claimSiteVisit"],
+    "tablesMutated": ["demo_siteVisits", "demo_auditEvents"],
+    "auditEvents": ["SiteVisitClaimed"],
     "outboxEvents": [],
     "status": "planned"
   },
@@ -1002,12 +875,7 @@
       "endLine": 2205
     },
     "primaryChunkId": "CH-05",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -1041,21 +909,15 @@
       }
     ],
     "primaryTestTitle": "IC-ACT-SITE-VISITOR-SUBMIT-REPORT completes Foundation site visit and unlocks Lender Admin completion approval",
-    "convexFunctions": [
-      "demo_submitSiteVisitReport"
-    ],
+    "convexFunctions": ["demo_submitSiteVisitReport"],
     "tablesMutated": [
       "demo_siteVisits",
       "demo_milestones",
       "demo_auditEvents",
       "demo_eventOutbox"
     ],
-    "auditEvents": [
-      "SiteVisitReportSubmitted"
-    ],
-    "outboxEvents": [
-      "demo.siteVisit.reportSubmitted"
-    ],
+    "auditEvents": ["SiteVisitReportSubmitted"],
+    "outboxEvents": ["demo.siteVisit.reportSubmitted"],
     "status": "planned"
   },
   {
@@ -1067,12 +929,7 @@
       "endLine": 2251
     },
     "primaryChunkId": "CH-05",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -1100,21 +957,15 @@
       }
     ],
     "primaryTestTitle": "IC-ACT-LENDER-APPROVE-COMPLETION approves Foundation and removes hard dependency blocker from Underground Plumbing",
-    "convexFunctions": [
-      "demo_approveMilestoneCompletion"
-    ],
+    "convexFunctions": ["demo_approveMilestoneCompletion"],
     "tablesMutated": [
       "demo_milestones",
       "demo_drawGroups",
       "demo_auditEvents",
       "demo_eventOutbox"
     ],
-    "auditEvents": [
-      "MilestoneCompletionApproved"
-    ],
-    "outboxEvents": [
-      "demo.milestone.completionApproved"
-    ],
+    "auditEvents": ["MilestoneCompletionApproved"],
+    "outboxEvents": ["demo.milestone.completionApproved"],
     "status": "planned"
   },
   {
@@ -1126,12 +977,7 @@
       "endLine": 2288
     },
     "primaryChunkId": "CH-05",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -1159,21 +1005,15 @@
       }
     ],
     "primaryTestTitle": "IC-ACT-LENDER-APPROVE-COMPLETION-WITH-SITE-VISIT-OVERRIDE requires override reason and records it in audit trail",
-    "convexFunctions": [
-      "demo_approveMilestoneCompletion"
-    ],
+    "convexFunctions": ["demo_approveMilestoneCompletion"],
     "tablesMutated": [
       "demo_milestones",
       "demo_drawGroups",
       "demo_auditEvents",
       "demo_eventOutbox"
     ],
-    "auditEvents": [
-      "MilestoneCompletionApproved"
-    ],
-    "outboxEvents": [
-      "demo.milestone.completionApproved"
-    ],
+    "auditEvents": ["MilestoneCompletionApproved"],
+    "outboxEvents": ["demo.milestone.completionApproved"],
     "status": "planned"
   },
   {
@@ -1185,12 +1025,7 @@
       "endLine": 2323
     },
     "primaryChunkId": "CH-05",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -1212,20 +1047,14 @@
       }
     ],
     "primaryTestTitle": "IC-ACT-LENDER-REJECT-COMPLETION rejects a submitted claim only when reason is provided",
-    "convexFunctions": [
-      "demo_rejectMilestoneCompletion"
-    ],
+    "convexFunctions": ["demo_rejectMilestoneCompletion"],
     "tablesMutated": [
       "demo_milestones",
       "demo_auditEvents",
       "demo_eventOutbox"
     ],
-    "auditEvents": [
-      "MilestoneCompletionRejected"
-    ],
-    "outboxEvents": [
-      "demo.milestone.completionRejected"
-    ],
+    "auditEvents": ["MilestoneCompletionRejected"],
+    "outboxEvents": ["demo.milestone.completionRejected"],
     "status": "planned"
   },
   {
@@ -1237,12 +1066,7 @@
       "endLine": 2362
     },
     "primaryChunkId": "CH-05",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -1286,12 +1110,8 @@
       "demo_auditEvents",
       "demo_eventOutbox"
     ],
-    "auditEvents": [
-      "DrawGroupReleaseApproved"
-    ],
-    "outboxEvents": [
-      "demo.drawGroup.releaseApproved"
-    ],
+    "auditEvents": ["DrawGroupReleaseApproved"],
+    "outboxEvents": ["demo.drawGroup.releaseApproved"],
     "status": "planned"
   },
   {
@@ -1303,10 +1123,7 @@
       "endLine": 2392
     },
     "primaryChunkId": "CH-05",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -1328,9 +1145,7 @@
       }
     ],
     "primaryTestTitle": "IC-ACT-AUDIT-DRAWER-FILTER filters append-only audit events by Foundation milestone",
-    "convexFunctions": [
-      "demo_getAuditEvents"
-    ],
+    "convexFunctions": ["demo_getAuditEvents"],
     "tablesMutated": [],
     "auditEvents": [],
     "outboxEvents": [],
@@ -1345,10 +1160,7 @@
       "endLine": 2422
     },
     "primaryChunkId": "CH-05",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -1370,9 +1182,7 @@
       }
     ],
     "primaryTestTitle": "IC-ACT-EVENT-OUTBOX-VIEW shows mock-delivered completion and draw release events after active happy path",
-    "convexFunctions": [
-      "demo_getEventOutbox"
-    ],
+    "convexFunctions": ["demo_getEventOutbox"],
     "tablesMutated": [],
     "auditEvents": [],
     "outboxEvents": [],
@@ -1387,12 +1197,7 @@
       "endLine": 2453
     },
     "primaryChunkId": "CH-05",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -1414,9 +1219,7 @@
       }
     ],
     "primaryTestTitle": "IC-ACT-DEMO-RESET reseeds active and proposal scenarios after confirmation",
-    "convexFunctions": [
-      "demo_resetDrawFlowDemo"
-    ],
+    "convexFunctions": ["demo_resetDrawFlowDemo"],
     "tablesMutated": [
       "demo_builds",
       "demo_milestones",
@@ -1433,9 +1236,7 @@
       "demo_eventOutbox",
       "demo_policySnapshots"
     ],
-    "auditEvents": [
-      "DemoReset"
-    ],
+    "auditEvents": ["DemoReset"],
     "outboxEvents": [],
     "status": "planned"
   },
@@ -1448,10 +1249,7 @@
       "endLine": 2857
     },
     "primaryChunkId": "CH-06",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -1506,12 +1304,7 @@
       "endLine": 2898
     },
     "primaryChunkId": "CH-06",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -1539,17 +1332,13 @@
       }
     ],
     "primaryTestTitle": "IC-PROP-MILESTONE-REORDER changes proposal order and writes audit event",
-    "convexFunctions": [
-      "demo_reorderProposalMilestones"
-    ],
+    "convexFunctions": ["demo_reorderProposalMilestones"],
     "tablesMutated": [
       "demo_milestones",
       "demo_auditEvents",
       "demo_planningRuns"
     ],
-    "auditEvents": [
-      "ProposalMilestonesReordered"
-    ],
+    "auditEvents": ["ProposalMilestonesReordered"],
     "outboxEvents": [],
     "status": "planned"
   },
@@ -1562,12 +1351,7 @@
       "endLine": 2942
     },
     "primaryChunkId": "CH-06",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -1601,18 +1385,14 @@
       }
     ],
     "primaryTestTitle": "IC-PROP-GANTT-MOVE shifts proposal milestone dates and updates cost summary",
-    "convexFunctions": [
-      "demo_updateProposalMilestonePlannedDates"
-    ],
+    "convexFunctions": ["demo_updateProposalMilestonePlannedDates"],
     "tablesMutated": [
       "demo_milestones",
       "demo_drawGroups",
       "demo_auditEvents",
       "demo_planningRuns"
     ],
-    "auditEvents": [
-      "ProposalMilestoneDatesMoved"
-    ],
+    "auditEvents": ["ProposalMilestoneDatesMoved"],
     "outboxEvents": [],
     "status": "planned"
   },
@@ -1625,12 +1405,7 @@
       "endLine": 2985
     },
     "primaryChunkId": "CH-06",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -1664,18 +1439,14 @@
       }
     ],
     "primaryTestTitle": "IC-PROP-GANTT-RESIZE-START changes start date and duration",
-    "convexFunctions": [
-      "demo_updateProposalMilestonePlannedDates"
-    ],
+    "convexFunctions": ["demo_updateProposalMilestonePlannedDates"],
     "tablesMutated": [
       "demo_milestones",
       "demo_drawGroups",
       "demo_auditEvents",
       "demo_planningRuns"
     ],
-    "auditEvents": [
-      "ProposalMilestoneStartDateChanged"
-    ],
+    "auditEvents": ["ProposalMilestoneStartDateChanged"],
     "outboxEvents": [],
     "status": "planned"
   },
@@ -1688,12 +1459,7 @@
       "endLine": 3033
     },
     "primaryChunkId": "CH-06",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -1727,18 +1493,14 @@
       }
     ],
     "primaryTestTitle": "IC-PROP-GANTT-RESIZE-END changes end date, duration, draw box, and audit log",
-    "convexFunctions": [
-      "demo_updateProposalMilestonePlannedDates"
-    ],
+    "convexFunctions": ["demo_updateProposalMilestonePlannedDates"],
     "tablesMutated": [
       "demo_milestones",
       "demo_drawGroups",
       "demo_auditEvents",
       "demo_planningRuns"
     ],
-    "auditEvents": [
-      "ProposalMilestoneDurationChanged"
-    ],
+    "auditEvents": ["ProposalMilestoneDurationChanged"],
     "outboxEvents": [],
     "status": "planned"
   },
@@ -1751,12 +1513,7 @@
       "endLine": 3073
     },
     "primaryChunkId": "CH-06",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -1790,17 +1547,13 @@
       }
     ],
     "primaryTestTitle": "IC-PROP-ADD-MILESTONE creates selected custom milestone with zero-value validation error",
-    "convexFunctions": [
-      "demo_addProposalMilestone"
-    ],
+    "convexFunctions": ["demo_addProposalMilestone"],
     "tablesMutated": [
       "demo_milestones",
       "demo_auditEvents",
       "demo_planningRuns"
     ],
-    "auditEvents": [
-      "ProposalMilestoneAdded"
-    ],
+    "auditEvents": ["ProposalMilestoneAdded"],
     "outboxEvents": [],
     "status": "planned"
   },
@@ -1813,12 +1566,7 @@
       "endLine": 3114
     },
     "primaryChunkId": "CH-06",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -1852,17 +1600,13 @@
       }
     ],
     "primaryTestTitle": "IC-PROP-EDIT-VALUE updates draw group total and blocks when over cap",
-    "convexFunctions": [
-      "demo_updateProposalMilestoneValue"
-    ],
+    "convexFunctions": ["demo_updateProposalMilestoneValue"],
     "tablesMutated": [
       "demo_milestones",
       "demo_auditEvents",
       "demo_planningRuns"
     ],
-    "auditEvents": [
-      "ProposalMilestoneValueChanged"
-    ],
+    "auditEvents": ["ProposalMilestoneValueChanged"],
     "outboxEvents": [],
     "status": "planned"
   },
@@ -1875,12 +1619,7 @@
       "endLine": 3155
     },
     "primaryChunkId": "CH-06",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -1914,17 +1653,13 @@
       }
     ],
     "primaryTestTitle": "IC-PROP-EDIT-DURATION updates end date and bottom summary",
-    "convexFunctions": [
-      "demo_updateProposalMilestoneDuration"
-    ],
+    "convexFunctions": ["demo_updateProposalMilestoneDuration"],
     "tablesMutated": [
       "demo_milestones",
       "demo_auditEvents",
       "demo_planningRuns"
     ],
-    "auditEvents": [
-      "ProposalMilestoneDurationChanged"
-    ],
+    "auditEvents": ["ProposalMilestoneDurationChanged"],
     "outboxEvents": [],
     "status": "planned"
   },
@@ -1937,12 +1672,7 @@
       "endLine": 3195
     },
     "primaryChunkId": "CH-06",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -1976,17 +1706,13 @@
       }
     ],
     "primaryTestTitle": "IC-PROP-DEPENDENCY-ADD creates hard blocker edge and highlights dependency neighborhood",
-    "convexFunctions": [
-      "demo_addProposalDependency"
-    ],
+    "convexFunctions": ["demo_addProposalDependency"],
     "tablesMutated": [
       "demo_milestoneDependencies",
       "demo_auditEvents",
       "demo_planningRuns"
     ],
-    "auditEvents": [
-      "ProposalDependencyAdded"
-    ],
+    "auditEvents": ["ProposalDependencyAdded"],
     "outboxEvents": [],
     "status": "planned"
   },
@@ -1999,12 +1725,7 @@
       "endLine": 3227
     },
     "primaryChunkId": "CH-06",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -2032,17 +1753,13 @@
       }
     ],
     "primaryTestTitle": "IC-PROP-DEPENDENCY-CYCLE prevents cyclic dependency mutation",
-    "convexFunctions": [
-      "demo_addProposalDependency"
-    ],
+    "convexFunctions": ["demo_addProposalDependency"],
     "tablesMutated": [
       "demo_milestoneDependencies",
       "demo_auditEvents",
       "demo_planningRuns"
     ],
-    "auditEvents": [
-      "ProposalDependencyCycleRejected"
-    ],
+    "auditEvents": ["ProposalDependencyCycleRejected"],
     "outboxEvents": [],
     "status": "planned"
   },
@@ -2055,12 +1772,7 @@
       "endLine": 3257
     },
     "primaryChunkId": "CH-06",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -2088,9 +1800,7 @@
       }
     ],
     "primaryTestTitle": "IC-PROP-SYSTEM-DEPENDENCY-REMOVE-BLOCKED prevents removal of seeded hard dependency",
-    "convexFunctions": [
-      "demo_removeProposalDependency"
-    ],
+    "convexFunctions": ["demo_removeProposalDependency"],
     "tablesMutated": [
       "demo_milestoneDependencies",
       "demo_auditEvents",
@@ -2109,12 +1819,7 @@
       "endLine": 3295
     },
     "primaryChunkId": "CH-07",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -2146,13 +1851,8 @@
       "demo_recomputeProposalPlan",
       "demo_recomputePlanningRun"
     ],
-    "tablesMutated": [
-      "demo_planningRuns",
-      "demo_auditEvents"
-    ],
-    "auditEvents": [
-      "ProposalPlanAnalyzed"
-    ],
+    "tablesMutated": ["demo_planningRuns", "demo_auditEvents"],
+    "auditEvents": ["ProposalPlanAnalyzed"],
     "outboxEvents": [],
     "status": "planned"
   },
@@ -2165,12 +1865,7 @@
       "endLine": 3342
     },
     "primaryChunkId": "CH-07",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -2204,18 +1899,14 @@
       }
     ],
     "primaryTestTitle": "IC-PROP-APPLY-RECOMMENDED-PLAN reorders milestones, redraws draw groups, and clears hard ordering errors",
-    "convexFunctions": [
-      "demo_applyProposalPlanRecommendation"
-    ],
+    "convexFunctions": ["demo_applyProposalPlanRecommendation"],
     "tablesMutated": [
       "demo_planningRuns",
       "demo_milestones",
       "demo_drawGroups",
       "demo_auditEvents"
     ],
-    "auditEvents": [
-      "ProposalRecommendationApplied"
-    ],
+    "auditEvents": ["ProposalRecommendationApplied"],
     "outboxEvents": [],
     "status": "planned"
   },
@@ -2228,12 +1919,7 @@
       "endLine": 3384
     },
     "primaryChunkId": "CH-07",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -2267,18 +1953,14 @@
       }
     ],
     "primaryTestTitle": "IC-PROP-SPLIT-DRAW-GROUP increases fee count and recomputes financing cost",
-    "convexFunctions": [
-      "demo_splitProposalDrawGroup"
-    ],
+    "convexFunctions": ["demo_splitProposalDrawGroup"],
     "tablesMutated": [
       "demo_drawGroups",
       "demo_milestones",
       "demo_auditEvents",
       "demo_planningRuns"
     ],
-    "auditEvents": [
-      "ProposalDrawGroupSplit"
-    ],
+    "auditEvents": ["ProposalDrawGroupSplit"],
     "outboxEvents": [],
     "status": "planned"
   },
@@ -2291,12 +1973,7 @@
       "endLine": 3425
     },
     "primaryChunkId": "CH-07",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -2330,18 +2007,14 @@
       }
     ],
     "primaryTestTitle": "IC-PROP-MERGE-DRAW-GROUP decreases fee count and recomputes financing cost",
-    "convexFunctions": [
-      "demo_mergeProposalDrawGroups"
-    ],
+    "convexFunctions": ["demo_mergeProposalDrawGroups"],
     "tablesMutated": [
       "demo_drawGroups",
       "demo_milestones",
       "demo_auditEvents",
       "demo_planningRuns"
     ],
-    "auditEvents": [
-      "ProposalDrawGroupsMerged"
-    ],
+    "auditEvents": ["ProposalDrawGroupsMerged"],
     "outboxEvents": [],
     "status": "planned"
   },
@@ -2354,12 +2027,7 @@
       "endLine": 3461
     },
     "primaryChunkId": "CH-07",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -2393,9 +2061,7 @@
       }
     ],
     "primaryTestTitle": "IC-PROP-CAPITAL-CASCADE pushes later draw groups after extending an earlier draw",
-    "convexFunctions": [
-      "demo_updateProposalMilestonePlannedDates"
-    ],
+    "convexFunctions": ["demo_updateProposalMilestonePlannedDates"],
     "tablesMutated": [
       "demo_milestones",
       "demo_drawGroups",
@@ -2415,12 +2081,7 @@
       "endLine": 3498
     },
     "primaryChunkId": "CH-07",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -2454,17 +2115,9 @@
       }
     ],
     "primaryTestTitle": "IC-PROP-SUBMIT-BLOCKED prevents submission while hard errors remain",
-    "convexFunctions": [
-      "demo_submitProposal"
-    ],
-    "tablesMutated": [
-      "demo_builds",
-      "demo_auditEvents",
-      "demo_eventOutbox"
-    ],
-    "auditEvents": [
-      "ProposalSubmitRejected"
-    ],
+    "convexFunctions": ["demo_submitProposal"],
+    "tablesMutated": ["demo_builds", "demo_auditEvents", "demo_eventOutbox"],
+    "auditEvents": ["ProposalSubmitRejected"],
     "outboxEvents": [],
     "status": "planned"
   },
@@ -2477,12 +2130,7 @@
       "endLine": 3541
     },
     "primaryChunkId": "CH-07",
-    "secondaryChunkIds": [
-      "CH-03",
-      "CH-01",
-      "CH-02",
-      "CH-08"
-    ],
+    "secondaryChunkIds": ["CH-03", "CH-01", "CH-02", "CH-08"],
     "companionRefs": [
       {
         "path": "docs/build_workspace_demo/Drawflow Demo Implementation Companion.md",
@@ -2522,20 +2170,10 @@
       }
     ],
     "primaryTestTitle": "IC-PROP-SUBMIT-SUCCESS freezes proposal and writes audit/outbox",
-    "convexFunctions": [
-      "demo_submitProposal"
-    ],
-    "tablesMutated": [
-      "demo_builds",
-      "demo_auditEvents",
-      "demo_eventOutbox"
-    ],
-    "auditEvents": [
-      "ProposalSubmitted"
-    ],
-    "outboxEvents": [
-      "demo.proposal.submitted"
-    ],
+    "convexFunctions": ["demo_submitProposal"],
+    "tablesMutated": ["demo_builds", "demo_auditEvents", "demo_eventOutbox"],
+    "auditEvents": ["ProposalSubmitted"],
+    "outboxEvents": ["demo.proposal.submitted"],
     "status": "planned"
   }
 ]

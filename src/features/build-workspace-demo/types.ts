@@ -52,8 +52,8 @@ export interface WorkspaceIssue {
   code: string;
   conditionHash: string;
   dependencyIds: string[];
-  dismissible: boolean;
   dismissed: boolean;
+  dismissible: boolean;
   drawGroupIds: string[];
   id: string;
   impact: string;
@@ -109,6 +109,7 @@ export interface Milestone {
   id: string;
   isDragLocked: boolean;
   isSystem?: boolean;
+  issues: WorkspaceIssue[];
   lane: string;
   name: string;
   notes: string;
@@ -119,13 +120,14 @@ export interface Milestone {
   startAt: Date;
   status: MilestoneStatus;
   warningCount: number;
-  issues: WorkspaceIssue[];
 }
 
 export interface DrawGroup {
   amount: number;
+  eligibleAt: Date;
   endAt: Date;
   id: string;
+  issues: WorkspaceIssue[];
   label: string;
   order: number;
   rowIndex: number;
@@ -134,8 +136,6 @@ export interface DrawGroup {
   status: DrawStatus;
   totalExposure: number;
   warningState: "clear" | "warning" | "critical";
-  eligibleAt: Date;
-  issues: WorkspaceIssue[];
 }
 
 export interface MilestoneDependency {
@@ -217,19 +217,9 @@ export interface BuildWorkspaceActions {
   ) => Promise<void>;
   addMilestone: (input: AddMilestoneInput) => Promise<void>;
   addSampleEvidence: (milestoneId: string) => Promise<void>;
+  applyIssueQuickFix: (issue: WorkspaceIssue) => Promise<void>;
   applyRecommendedPlan: () => Promise<void>;
   approveMilestone: (milestoneId: string, reason: string) => Promise<void>;
-  claimSiteVisit: (milestoneId: string) => Promise<void>;
-  mergeDrawGroups: (
-    sourceDrawGroupId: string,
-    targetDrawGroupId: string
-  ) => Promise<void>;
-  moveMilestoneDates: (
-    milestoneId: string,
-    startAt: Date,
-    endAt: Date | null,
-    reason?: string
-  ) => Promise<void>;
   batchMoveMilestoneDates: (
     milestoneMoves: {
       milestoneId: string;
@@ -240,27 +230,33 @@ export interface BuildWorkspaceActions {
     source?: "selection" | "drawGroup",
     sourceId?: string
   ) => Promise<void>;
-  setMilestoneDragLocked: (
+  claimSiteVisit: (milestoneId: string) => Promise<void>;
+  dismissIssue: (issue: WorkspaceIssue, reason?: string) => Promise<void>;
+  mergeDrawGroups: (
+    sourceDrawGroupId: string,
+    targetDrawGroupId: string
+  ) => Promise<void>;
+  moveMilestoneDates: (
     milestoneId: string,
-    locked: boolean
+    startAt: Date,
+    endAt: Date | null,
+    reason?: string
   ) => Promise<void>;
   moveMilestoneToDrawGroup: (
     milestoneId: string,
     drawGroupId: string
   ) => Promise<void>;
   recomputeProposalPlan: () => Promise<void>;
-  dismissIssue: (issue: WorkspaceIssue, reason?: string) => Promise<void>;
-  applyIssueQuickFix: (issue: WorkspaceIssue) => Promise<void>;
-  reorderMilestoneAbsolute: (
-    milestoneId: string,
-    fromIndex: number,
-    toIndex: number
-  ) => Promise<void>;
   rejectMilestone: (milestoneId: string, reason: string) => Promise<void>;
   removeDependency: (dependencyId: string) => Promise<void>;
   reorderMilestone: (
     milestoneId: string,
     direction: "up" | "down"
+  ) => Promise<void>;
+  reorderMilestoneAbsolute: (
+    milestoneId: string,
+    fromIndex: number,
+    toIndex: number
   ) => Promise<void>;
   requestMoreInformation: (
     milestoneId: string,
@@ -278,6 +274,10 @@ export interface BuildWorkspaceActions {
   setDependencyHardness: (
     dependencyId: string,
     hardness: DependencyHardness
+  ) => Promise<void>;
+  setMilestoneDragLocked: (
+    milestoneId: string,
+    locked: boolean
   ) => Promise<void>;
   setRole: (role: WorkspaceRole) => void;
   splitDrawGroup: (
@@ -316,12 +316,12 @@ export interface BuildWorkspaceState {
   auditEvents: AuditEvent[];
   budget: BudgetSummary;
   build: BuildSummary;
+  compilationStatus: "upToDate" | "updating" | "blocked" | "failed";
   dependencies: MilestoneDependency[];
   drawGroups: DrawGroup[];
   isLoading: boolean;
-  latestPlanningRun?: unknown;
   issues: WorkspaceIssue[];
-  compilationStatus: "upToDate" | "updating" | "blocked" | "failed";
+  latestPlanningRun?: unknown;
   milestones: Milestone[];
   mode: WorkspaceMode;
   needsSeed: boolean;

@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-
-import type { Id } from "../../../../convex/_generated/dataModel";
 import { BuilderNewProposalRoute } from "#/features/builder-proposal-demo/BuilderProposalDemo.tsx";
+import type { Id } from "../../../../convex/_generated/dataModel";
 
 export const Route = createFileRoute("/demo/drawflow/new-proposal")({
   ssr: false,

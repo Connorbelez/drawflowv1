@@ -50,7 +50,10 @@ export function parseCurrencyToCents(input: string) {
   return Math.round(value * 100);
 }
 
-export function formatCurrency(cents?: number, options: { compact?: boolean } = {}) {
+export function formatCurrency(
+  cents?: number,
+  options: { compact?: boolean } = {}
+) {
   const value = (cents ?? 0) / 100;
   return new Intl.NumberFormat("en-US", {
     compactDisplay: "short",

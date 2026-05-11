@@ -50,13 +50,62 @@ const BUILDER_TEMPLATES: BuilderTemplate[] = [
       "Selective demo, rough-in upgrades, envelope repairs, interiors, inspection closeout.",
     isDefault: false,
     milestonePresets: [
-      preset("renovation_permits", "Permit updates and mobilization", 800, 10, "permitting", []),
-      preset("selective_demo", "Selective demolition", 1_400, 16, "demolition", []),
-      preset("structural_repairs", "Structural repairs", 1_800, 24, "foundation_structural", ["selective_demo"]),
-      preset("mep_rework", "MEP rework", 1_500, 21, "mechanical_electrical_plumbing", ["structural_repairs"]),
-      preset("envelope_repairs", "Envelope repairs", 1_300, 18, "exterior_envelope", ["structural_repairs"]),
-      preset("renovation_interiors", "Interior rebuild", 2_400, 36, "interior_finish", ["mep_rework"]),
-      preset("renovation_closeout", "Inspection closeout", 800, 10, "closeout", ["renovation_interiors"]),
+      preset(
+        "renovation_permits",
+        "Permit updates and mobilization",
+        800,
+        10,
+        "permitting",
+        []
+      ),
+      preset(
+        "selective_demo",
+        "Selective demolition",
+        1400,
+        16,
+        "demolition",
+        []
+      ),
+      preset(
+        "structural_repairs",
+        "Structural repairs",
+        1800,
+        24,
+        "foundation_structural",
+        ["selective_demo"]
+      ),
+      preset(
+        "mep_rework",
+        "MEP rework",
+        1500,
+        21,
+        "mechanical_electrical_plumbing",
+        ["structural_repairs"]
+      ),
+      preset(
+        "envelope_repairs",
+        "Envelope repairs",
+        1300,
+        18,
+        "exterior_envelope",
+        ["structural_repairs"]
+      ),
+      preset(
+        "renovation_interiors",
+        "Interior rebuild",
+        2400,
+        36,
+        "interior_finish",
+        ["mep_rework"]
+      ),
+      preset(
+        "renovation_closeout",
+        "Inspection closeout",
+        800,
+        10,
+        "closeout",
+        ["renovation_interiors"]
+      ),
     ],
     summary: "7 preset milestones",
     templateKey: "single_family_renovation",
@@ -67,21 +116,81 @@ const BUILDER_TEMPLATES: BuilderTemplate[] = [
       "Production-ready path with permits, sitework, foundation, framing, MEP, envelope, interiors, punch, and closeout.",
     isDefault: true,
     milestonePresets: [
-      preset("permits_mobilization", "Permits and mobilization", 500, 14, "permitting", []),
-      preset("sitework_excavation", "Sitework and excavation", 1_000, 24, "site_preparation", []),
-      preset("foundation_slab", "Foundation and slab", 1_300, 21, "foundation_structural", ["sitework_excavation"]),
-      preset("framing_dried_in", "Framing dried in", 2_300, 35, "foundation_structural", ["foundation_slab"]),
-      preset("mep_rough_ins", "MEP rough-ins", 1_500, 28, "mechanical_electrical_plumbing", ["framing_dried_in"]),
-      preset("envelope_weatherproofing", "Envelope weatherproofing", 900, 24, "exterior_envelope", ["framing_dried_in"]),
-      preset("interior_finishes", "Interior finishes", 1_400, 42, "interior_finish", [
+      preset(
+        "permits_mobilization",
+        "Permits and mobilization",
+        500,
+        14,
+        "permitting",
+        []
+      ),
+      preset(
+        "sitework_excavation",
+        "Sitework and excavation",
+        1000,
+        24,
+        "site_preparation",
+        []
+      ),
+      preset(
+        "foundation_slab",
+        "Foundation and slab",
+        1300,
+        21,
+        "foundation_structural",
+        ["sitework_excavation"]
+      ),
+      preset(
+        "framing_dried_in",
+        "Framing dried in",
+        2300,
+        35,
+        "foundation_structural",
+        ["foundation_slab"]
+      ),
+      preset(
         "mep_rough_ins",
+        "MEP rough-ins",
+        1500,
+        28,
+        "mechanical_electrical_plumbing",
+        ["framing_dried_in"]
+      ),
+      preset(
         "envelope_weatherproofing",
+        "Envelope weatherproofing",
+        900,
+        24,
+        "exterior_envelope",
+        ["framing_dried_in"]
+      ),
+      preset(
+        "interior_finishes",
+        "Interior finishes",
+        1400,
+        42,
+        "interior_finish",
+        ["mep_rough_ins", "envelope_weatherproofing"]
+      ),
+      preset(
+        "exterior_works",
+        "Exterior works",
+        400,
+        18,
+        "landscape_exterior",
+        ["envelope_weatherproofing"]
+      ),
+      preset("punch_corrections", "Punch corrections", 400, 14, "closeout", [
+        "interior_finishes",
       ]),
-      preset("exterior_works", "Exterior works", 400, 18, "landscape_exterior", ["envelope_weatherproofing"]),
-      preset("punch_corrections", "Punch corrections", 400, 14, "closeout", ["interior_finishes"]),
-      preset("final_inspection_closeout", "Final inspection and closeout", 300, 10, "closeout", [
-        "punch_corrections",
-      ]),
+      preset(
+        "final_inspection_closeout",
+        "Final inspection and closeout",
+        300,
+        10,
+        "closeout",
+        ["punch_corrections"]
+      ),
     ],
     summary: "10 preset milestones",
     templateKey: "single_family_full_build",
@@ -92,32 +201,89 @@ const BUILDER_TEMPLATES: BuilderTemplate[] = [
       "Multi-unit sitework, stacked framing, shared systems, unit finishes, exterior works, and closeout.",
     isDefault: false,
     milestonePresets: [
-      preset("multiplex_permits", "Permits and civil mobilization", 500, 16, "permitting", []),
-      preset("shared_sitework", "Shared sitework and utilities", 1_000, 28, "site_preparation", []),
-      preset("podium_foundation", "Foundation and podium slab", 1_250, 30, "foundation_structural", [
+      preset(
+        "multiplex_permits",
+        "Permits and civil mobilization",
+        500,
+        16,
+        "permitting",
+        []
+      ),
+      preset(
         "shared_sitework",
-      ]),
-      preset("stacked_framing", "Stacked framing and dry-in", 1_900, 42, "foundation_structural", [
+        "Shared sitework and utilities",
+        1000,
+        28,
+        "site_preparation",
+        []
+      ),
+      preset(
         "podium_foundation",
-      ]),
-      preset("shared_mep", "Shared MEP rough-ins", 1_250, 35, "mechanical_electrical_plumbing", [
+        "Foundation and podium slab",
+        1250,
+        30,
+        "foundation_structural",
+        ["shared_sitework"]
+      ),
+      preset(
         "stacked_framing",
-      ]),
-      preset("unit_rough_ins", "Unit-level rough-ins", 900, 24, "mechanical_electrical_plumbing", [
+        "Stacked framing and dry-in",
+        1900,
+        42,
+        "foundation_structural",
+        ["podium_foundation"]
+      ),
+      preset(
         "shared_mep",
-      ]),
-      preset("building_envelope", "Building envelope", 850, 28, "exterior_envelope", ["stacked_framing"]),
-      preset("unit_finishes", "Unit finishes", 1_350, 45, "interior_finish", ["unit_rough_ins"]),
-      preset("common_areas", "Common areas and life safety", 450, 20, "interior_finish", [
-        "unit_finishes",
-      ]),
-      preset("exterior_site_finish", "Exterior site finish", 350, 18, "landscape_exterior", [
+        "Shared MEP rough-ins",
+        1250,
+        35,
+        "mechanical_electrical_plumbing",
+        ["stacked_framing"]
+      ),
+      preset(
+        "unit_rough_ins",
+        "Unit-level rough-ins",
+        900,
+        24,
+        "mechanical_electrical_plumbing",
+        ["shared_mep"]
+      ),
+      preset(
         "building_envelope",
+        "Building envelope",
+        850,
+        28,
+        "exterior_envelope",
+        ["stacked_framing"]
+      ),
+      preset("unit_finishes", "Unit finishes", 1350, 45, "interior_finish", [
+        "unit_rough_ins",
       ]),
-      preset("multiplex_closeout", "Final inspections and occupancy", 250, 12, "closeout", [
+      preset(
         "common_areas",
+        "Common areas and life safety",
+        450,
+        20,
+        "interior_finish",
+        ["unit_finishes"]
+      ),
+      preset(
         "exterior_site_finish",
-      ]),
+        "Exterior site finish",
+        350,
+        18,
+        "landscape_exterior",
+        ["building_envelope"]
+      ),
+      preset(
+        "multiplex_closeout",
+        "Final inspections and occupancy",
+        250,
+        12,
+        "closeout",
+        ["common_areas", "exterior_site_finish"]
+      ),
     ],
     summary: "11 preset milestones",
     templateKey: "multiplex_build",
@@ -167,10 +333,7 @@ function now() {
   return Date.now();
 }
 
-function allocateByBps(
-  totalCents: number,
-  rows: { percentageBps: number }[]
-) {
+function allocateByBps(totalCents: number, rows: { percentageBps: number }[]) {
   const allocations = rows.map((row, order) => {
     const raw = totalCents * row.percentageBps;
     return {
@@ -180,7 +343,8 @@ function allocateByBps(
     };
   });
   let remainderCents =
-    totalCents - allocations.reduce((sum, allocation) => sum + allocation.cents, 0);
+    totalCents -
+    allocations.reduce((sum, allocation) => sum + allocation.cents, 0);
   const byRemainder = [...allocations].sort(
     (a, b) => b.remainder - a.remainder || a.order - b.order
   );
@@ -197,7 +361,9 @@ function allocateByBps(
 }
 
 function templateForKey(templateKey: string) {
-  return BUILDER_TEMPLATES.find((template) => template.templateKey === templateKey);
+  return BUILDER_TEMPLATES.find(
+    (template) => template.templateKey === templateKey
+  );
 }
 
 async function ensureTemplates(ctx: DemoCtx) {
@@ -276,7 +442,9 @@ async function appendEvent(
       input.newState === undefined ? undefined : JSON.stringify(input.newState),
     orgKey: ORG_KEY,
     priorState:
-      input.priorState === undefined ? undefined : JSON.stringify(input.priorState),
+      input.priorState === undefined
+        ? undefined
+        : JSON.stringify(input.priorState),
     reason: input.reason,
     requirementIds: input.requirementIds,
     validationIds: input.validationIds,
@@ -338,7 +506,9 @@ function readinessForDraft(draft: any, milestones: any[]) {
   const blockingIssues: string[] = [];
   const warnings: string[] = [];
   const included = milestones.filter((milestone) => milestone.included);
-  const includedByKey = new Map(included.map((milestone) => [milestone.key, milestone]));
+  const includedByKey = new Map(
+    included.map((milestone) => [milestone.key, milestone])
+  );
 
   if (!draft.templateKey) {
     blockingIssues.push("Select a build type template.");
@@ -349,7 +519,10 @@ function readinessForDraft(draft: any, milestones: any[]) {
   if (included.length === 0) {
     blockingIssues.push("Include at least one reimbursable milestone.");
   }
-  if (!draft.borrowerCashAvailabilityCents || draft.borrowerCashAvailabilityCents <= 0) {
+  if (
+    !draft.borrowerCashAvailabilityCents ||
+    draft.borrowerCashAvailabilityCents <= 0
+  ) {
     blockingIssues.push("Enter borrower max cash availability.");
   }
 
@@ -373,7 +546,9 @@ function readinessForDraft(draft: any, milestones: any[]) {
       if (!dependency) {
         warnings.push(`${milestone.name} depends on an excluded milestone.`);
       } else if (dependency.order >= milestone.order) {
-        blockingIssues.push(`${dependency.name} must be sequenced before ${milestone.name}.`);
+        blockingIssues.push(
+          `${dependency.name} must be sequenced before ${milestone.name}.`
+        );
       }
     }
   }
@@ -493,8 +668,7 @@ function boundaryPayload(draft: any, milestones: any[], readiness: any) {
       type: milestone.type,
     })),
     planningAssumptions: {
-      borrowerCashAvailabilityCents:
-        draft.borrowerCashAvailabilityCents ?? 0,
+      borrowerCashAvailabilityCents: draft.borrowerCashAvailabilityCents ?? 0,
       interestBeginsAfterFundsReleased: true,
       projectedPeakUnreimbursedExposureCents: readiness.peakExposureCents,
       reimbursementOnly: true,
@@ -535,8 +709,12 @@ async function nextProposalNumber(ctx: DemoCtx) {
 }
 
 function dashboardCards(drafts: any[]) {
-  const draftCount = drafts.filter((draft) => draft.status !== "workspace_ready").length;
-  const readyCount = drafts.filter((draft) => draft.status === "workspace_ready").length;
+  const draftCount = drafts.filter(
+    (draft) => draft.status !== "workspace_ready"
+  ).length;
+  const readyCount = drafts.filter(
+    (draft) => draft.status === "workspace_ready"
+  ).length;
   const planningBudgetCents = drafts.reduce(
     (sum, draft) => sum + draft.currentBudgetCents,
     0
@@ -558,7 +736,8 @@ function dashboardCards(drafts: any[]) {
         title: "Riverside Infill",
       },
       {
-        description: "Ready for lender review in production, boundary only in demo.",
+        description:
+          "Ready for lender review in production, boundary only in demo.",
         title: "West Lot Phase 2",
       },
     ],
@@ -672,11 +851,18 @@ export const demo_generateBuilderProposalMilestones = publicMutation
     if (!template) {
       throw new Error("Select a valid build type template.");
     }
-    if (!Number.isFinite(args.originalBudgetCents) || args.originalBudgetCents <= 0) {
+    if (
+      !Number.isFinite(args.originalBudgetCents) ||
+      args.originalBudgetCents <= 0
+    ) {
       throw new Error("Enter a positive total project budget.");
     }
     const existingMilestones = await getDraftMilestones(ctx, args.draftId);
-    if (existingMilestones.length > 0 && draft.manuallyEdited && !args.allowRegenerate) {
+    if (
+      existingMilestones.length > 0 &&
+      draft.manuallyEdited &&
+      !args.allowRegenerate
+    ) {
       throw new Error(
         "Regenerating after manual edits requires explicit confirmation."
       );
@@ -861,8 +1047,12 @@ export const demo_addBuilderProposalBankItem = publicMutation
       milestones.map((milestone: any) => milestone.bankItemKey).filter(Boolean)
     );
     const item =
-      BANK_ITEMS.find((candidate) => candidate.bankItemKey === args.bankItemKey) ??
-      BANK_ITEMS.find((candidate) => !existingBankKeys.has(candidate.bankItemKey));
+      BANK_ITEMS.find(
+        (candidate) => candidate.bankItemKey === args.bankItemKey
+      ) ??
+      BANK_ITEMS.find(
+        (candidate) => !existingBankKeys.has(candidate.bankItemKey)
+      );
     if (!item) {
       throw new Error("All bank milestones have already been added.");
     }
@@ -1046,18 +1236,25 @@ export const demo_finalizeBuilderProposalBoundary = publicMutation
     }
     const refreshedMilestones = await recomputeDraftDerived(ctx, args.draftId);
     const refreshedReadiness = readinessForDraft(draft, refreshedMilestones);
-    const payload = boundaryPayload(draft, refreshedMilestones, refreshedReadiness);
-    const payloadId = await ctx.db.insert("demo_builderProposalBoundaryPayloads", {
-      buildName: draft.buildName,
-      createdAt: now(),
-      draftId: args.draftId,
-      orgKey: ORG_KEY,
-      payload,
-      payloadVersion: 1,
-      snapshotSummary: `${payload.milestoneSequence.length} milestones · ${refreshedReadiness.currentBudgetCents} cents · reimbursement only`,
-      status: "workspace_ready",
-      validationWarnings: refreshedReadiness.warningIssues,
-    });
+    const payload = boundaryPayload(
+      draft,
+      refreshedMilestones,
+      refreshedReadiness
+    );
+    const payloadId = await ctx.db.insert(
+      "demo_builderProposalBoundaryPayloads",
+      {
+        buildName: draft.buildName,
+        createdAt: now(),
+        draftId: args.draftId,
+        orgKey: ORG_KEY,
+        payload,
+        payloadVersion: 1,
+        snapshotSummary: `${payload.milestoneSequence.length} milestones · ${refreshedReadiness.currentBudgetCents} cents · reimbursement only`,
+        status: "workspace_ready",
+        validationWarnings: refreshedReadiness.warningIssues,
+      }
+    );
     await ctx.db.patch(args.draftId, {
       status: "workspace_ready",
       updatedAt: now(),
