@@ -46,12 +46,8 @@ test("Milestone editor stays usable without horizontal overflow on mobile", asyn
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/demo/drawflow/builder-dashboard");
-  await expect(page.getByTestId("builder-dashboard-shell")).toBeVisible();
-  await page.getByTestId("builder-dashboard-reset").click();
-  await expect(page.getByTestId("builder-dashboard-reset")).toBeEnabled();
-
-  await page.getByTestId("builder-dashboard-new-proposal").click();
+  await page.goto("/demo/drawflow/new-proposal");
+  await page.getByRole("button", { name: "Create draft" }).click();
   await expect(page.getByTestId("builder-template-screen")).toBeVisible();
   await page.getByTestId("builder-total-budget").fill("$1,850,000");
   await page
@@ -64,6 +60,29 @@ test("Milestone editor stays usable without horizontal overflow on mobile", asyn
     page.getByTestId("builder-milestone-row-permits_mobilization")
   ).toBeVisible();
   await expect(page.getByTestId("builder-readiness-blockers")).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Milestones" })).toHaveAttribute(
+    "aria-selected",
+    "true"
+  );
+  await expect(page.locator(".pb-split > .pb-scroll")).toBeVisible();
+  await expect
+    .poll(() =>
+      page
+        .locator(".pb-split > .pb-scroll")
+        .evaluate((element) => element.scrollHeight > element.clientHeight)
+    )
+    .toBe(true);
+
+  await page.getByRole("tab", { name: "Gantt" }).click();
+  await expect(page.getByRole("tab", { name: "Gantt" })).toHaveAttribute(
+    "aria-selected",
+    "true"
+  );
+  await expect(page.getByTestId("builder-roadmap-draw-group-1")).toBeVisible();
+  await page.getByRole("tab", { name: "Milestones" }).click();
+  await expect(
+    page.getByTestId("builder-milestone-row-permits_mobilization")
+  ).toBeVisible();
 
   const overflow = await page.evaluate(() => {
     const editor = document.querySelector<HTMLElement>(
@@ -91,8 +110,6 @@ test("Builder dashboard to new proposal demo reaches the workspace boundary with
 }) => {
   await page.goto("/demo/drawflow/builder-dashboard");
   await expect(page.getByTestId("builder-dashboard-shell")).toBeVisible();
-  await page.getByTestId("builder-dashboard-reset").click();
-  await expect(page.getByTestId("builder-dashboard-reset")).toBeEnabled();
 
   await page.getByTestId("builder-dashboard-new-proposal").click();
   await expect(page).toHaveURL(NEW_PROPOSAL_URL);

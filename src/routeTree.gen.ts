@@ -15,6 +15,12 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as DemoWorkosRouteImport } from './routes/demo/workos'
 import { Route as DemoTanstackQueryRouteImport } from './routes/demo/tanstack-query'
 import { Route as DemoConvexRouteImport } from './routes/demo/convex'
+import { Route as DemoDrawflowIndexRouteImport } from './routes/demo/drawflow/index'
+import { Route as DemoDrawflowProposalRouteImport } from './routes/demo/drawflow/proposal'
+import { Route as DemoDrawflowNewProposalRouteImport } from './routes/demo/drawflow/new-proposal'
+import { Route as DemoDrawflowBuilderDashboardRouteImport } from './routes/demo/drawflow/builder-dashboard'
+import { Route as DemoDrawflowAdminBuildDashboardRouteImport } from './routes/demo/drawflow/admin-build-dashboard'
+import { Route as DemoDrawflowActiveRouteImport } from './routes/demo/drawflow/active'
 import { Route as ApiAuthSignUpRouteImport } from './routes/api/auth/sign-up'
 import { Route as ApiAuthSignInRouteImport } from './routes/api/auth/sign-in'
 
@@ -48,6 +54,38 @@ const DemoConvexRoute = DemoConvexRouteImport.update({
   path: '/demo/convex',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DemoDrawflowIndexRoute = DemoDrawflowIndexRouteImport.update({
+  id: '/demo/drawflow/',
+  path: '/demo/drawflow/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DemoDrawflowProposalRoute = DemoDrawflowProposalRouteImport.update({
+  id: '/demo/drawflow/proposal',
+  path: '/demo/drawflow/proposal',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DemoDrawflowNewProposalRoute = DemoDrawflowNewProposalRouteImport.update({
+  id: '/demo/drawflow/new-proposal',
+  path: '/demo/drawflow/new-proposal',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DemoDrawflowBuilderDashboardRoute =
+  DemoDrawflowBuilderDashboardRouteImport.update({
+    id: '/demo/drawflow/builder-dashboard',
+    path: '/demo/drawflow/builder-dashboard',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const DemoDrawflowAdminBuildDashboardRoute =
+  DemoDrawflowAdminBuildDashboardRouteImport.update({
+    id: '/demo/drawflow/admin-build-dashboard',
+    path: '/demo/drawflow/admin-build-dashboard',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const DemoDrawflowActiveRoute = DemoDrawflowActiveRouteImport.update({
+  id: '/demo/drawflow/active',
+  path: '/demo/drawflow/active',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSignUpRoute = ApiAuthSignUpRouteImport.update({
   id: '/api/auth/sign-up',
   path: '/api/auth/sign-up',
@@ -68,6 +106,12 @@ export interface FileRoutesByFullPath {
   '/demo/workos': typeof DemoWorkosRoute
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
   '/api/auth/sign-up': typeof ApiAuthSignUpRoute
+  '/demo/drawflow/active': typeof DemoDrawflowActiveRoute
+  '/demo/drawflow/admin-build-dashboard': typeof DemoDrawflowAdminBuildDashboardRoute
+  '/demo/drawflow/builder-dashboard': typeof DemoDrawflowBuilderDashboardRoute
+  '/demo/drawflow/new-proposal': typeof DemoDrawflowNewProposalRoute
+  '/demo/drawflow/proposal': typeof DemoDrawflowProposalRoute
+  '/demo/drawflow/': typeof DemoDrawflowIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -78,6 +122,12 @@ export interface FileRoutesByTo {
   '/demo/workos': typeof DemoWorkosRoute
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
   '/api/auth/sign-up': typeof ApiAuthSignUpRoute
+  '/demo/drawflow/active': typeof DemoDrawflowActiveRoute
+  '/demo/drawflow/admin-build-dashboard': typeof DemoDrawflowAdminBuildDashboardRoute
+  '/demo/drawflow/builder-dashboard': typeof DemoDrawflowBuilderDashboardRoute
+  '/demo/drawflow/new-proposal': typeof DemoDrawflowNewProposalRoute
+  '/demo/drawflow/proposal': typeof DemoDrawflowProposalRoute
+  '/demo/drawflow': typeof DemoDrawflowIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -89,6 +139,12 @@ export interface FileRoutesById {
   '/demo/workos': typeof DemoWorkosRoute
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
   '/api/auth/sign-up': typeof ApiAuthSignUpRoute
+  '/demo/drawflow/active': typeof DemoDrawflowActiveRoute
+  '/demo/drawflow/admin-build-dashboard': typeof DemoDrawflowAdminBuildDashboardRoute
+  '/demo/drawflow/builder-dashboard': typeof DemoDrawflowBuilderDashboardRoute
+  '/demo/drawflow/new-proposal': typeof DemoDrawflowNewProposalRoute
+  '/demo/drawflow/proposal': typeof DemoDrawflowProposalRoute
+  '/demo/drawflow/': typeof DemoDrawflowIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -101,6 +157,12 @@ export interface FileRouteTypes {
     | '/demo/workos'
     | '/api/auth/sign-in'
     | '/api/auth/sign-up'
+    | '/demo/drawflow/active'
+    | '/demo/drawflow/admin-build-dashboard'
+    | '/demo/drawflow/builder-dashboard'
+    | '/demo/drawflow/new-proposal'
+    | '/demo/drawflow/proposal'
+    | '/demo/drawflow/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -111,6 +173,12 @@ export interface FileRouteTypes {
     | '/demo/workos'
     | '/api/auth/sign-in'
     | '/api/auth/sign-up'
+    | '/demo/drawflow/active'
+    | '/demo/drawflow/admin-build-dashboard'
+    | '/demo/drawflow/builder-dashboard'
+    | '/demo/drawflow/new-proposal'
+    | '/demo/drawflow/proposal'
+    | '/demo/drawflow'
   id:
     | '__root__'
     | '/'
@@ -121,6 +189,12 @@ export interface FileRouteTypes {
     | '/demo/workos'
     | '/api/auth/sign-in'
     | '/api/auth/sign-up'
+    | '/demo/drawflow/active'
+    | '/demo/drawflow/admin-build-dashboard'
+    | '/demo/drawflow/builder-dashboard'
+    | '/demo/drawflow/new-proposal'
+    | '/demo/drawflow/proposal'
+    | '/demo/drawflow/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -132,6 +206,12 @@ export interface RootRouteChildren {
   DemoWorkosRoute: typeof DemoWorkosRoute
   ApiAuthSignInRoute: typeof ApiAuthSignInRoute
   ApiAuthSignUpRoute: typeof ApiAuthSignUpRoute
+  DemoDrawflowActiveRoute: typeof DemoDrawflowActiveRoute
+  DemoDrawflowAdminBuildDashboardRoute: typeof DemoDrawflowAdminBuildDashboardRoute
+  DemoDrawflowBuilderDashboardRoute: typeof DemoDrawflowBuilderDashboardRoute
+  DemoDrawflowNewProposalRoute: typeof DemoDrawflowNewProposalRoute
+  DemoDrawflowProposalRoute: typeof DemoDrawflowProposalRoute
+  DemoDrawflowIndexRoute: typeof DemoDrawflowIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -178,6 +258,48 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DemoConvexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/demo/drawflow/': {
+      id: '/demo/drawflow/'
+      path: '/demo/drawflow'
+      fullPath: '/demo/drawflow/'
+      preLoaderRoute: typeof DemoDrawflowIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/demo/drawflow/proposal': {
+      id: '/demo/drawflow/proposal'
+      path: '/demo/drawflow/proposal'
+      fullPath: '/demo/drawflow/proposal'
+      preLoaderRoute: typeof DemoDrawflowProposalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/demo/drawflow/new-proposal': {
+      id: '/demo/drawflow/new-proposal'
+      path: '/demo/drawflow/new-proposal'
+      fullPath: '/demo/drawflow/new-proposal'
+      preLoaderRoute: typeof DemoDrawflowNewProposalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/demo/drawflow/builder-dashboard': {
+      id: '/demo/drawflow/builder-dashboard'
+      path: '/demo/drawflow/builder-dashboard'
+      fullPath: '/demo/drawflow/builder-dashboard'
+      preLoaderRoute: typeof DemoDrawflowBuilderDashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/demo/drawflow/admin-build-dashboard': {
+      id: '/demo/drawflow/admin-build-dashboard'
+      path: '/demo/drawflow/admin-build-dashboard'
+      fullPath: '/demo/drawflow/admin-build-dashboard'
+      preLoaderRoute: typeof DemoDrawflowAdminBuildDashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/demo/drawflow/active': {
+      id: '/demo/drawflow/active'
+      path: '/demo/drawflow/active'
+      fullPath: '/demo/drawflow/active'
+      preLoaderRoute: typeof DemoDrawflowActiveRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/sign-up': {
       id: '/api/auth/sign-up'
       path: '/api/auth/sign-up'
@@ -204,6 +326,12 @@ const rootRouteChildren: RootRouteChildren = {
   DemoWorkosRoute: DemoWorkosRoute,
   ApiAuthSignInRoute: ApiAuthSignInRoute,
   ApiAuthSignUpRoute: ApiAuthSignUpRoute,
+  DemoDrawflowActiveRoute: DemoDrawflowActiveRoute,
+  DemoDrawflowAdminBuildDashboardRoute: DemoDrawflowAdminBuildDashboardRoute,
+  DemoDrawflowBuilderDashboardRoute: DemoDrawflowBuilderDashboardRoute,
+  DemoDrawflowNewProposalRoute: DemoDrawflowNewProposalRoute,
+  DemoDrawflowProposalRoute: DemoDrawflowProposalRoute,
+  DemoDrawflowIndexRoute: DemoDrawflowIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

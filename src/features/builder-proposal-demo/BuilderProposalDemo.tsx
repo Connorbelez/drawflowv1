@@ -13,13 +13,12 @@ import {
   Plus,
   RefreshCw,
   ShieldCheck,
-  UploadCloud,
   WalletCards,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-
 import { AppSidebar } from "#/components/app-sidebar.tsx";
+import { FileUploader } from "#/components/ui/file-uploader.tsx";
 import { Separator } from "#/components/ui/separator.tsx";
 import {
   SidebarInset,
@@ -155,10 +154,12 @@ function NewProposalTopbar() {
 /* ------------------------------------------------------------------ */
 
 function ResizableSplit({
+  activeMobilePanel,
   left,
   right,
   defaultLeftPercent = 30,
 }: {
+  activeMobilePanel?: "milestones" | "gantt";
   left: ReactNode;
   right: ReactNode;
   defaultLeftPercent?: number;
@@ -192,6 +193,7 @@ function ResizableSplit({
   return (
     <div
       className="pb-split"
+      data-mobile-panel={activeMobilePanel ?? "milestones"}
       ref={containerRef}
       style={{ ["--split-left" as string]: `${leftWidth}%` }}
     >
@@ -246,6 +248,10 @@ function ProposalBuilderShell({
   step: "template" | "milestones" | "boundary";
   title: string;
 }) {
+  const [activeMobilePanel, setActiveMobilePanel] = useState<
+    "milestones" | "gantt"
+  >("milestones");
+
   return (
     <NewProposalSidebarShell contentClassName="pb-shell-sidebar-inset">
       <header className="pb-shell-header">
@@ -288,8 +294,28 @@ function ProposalBuilderShell({
         </div>
       </header>
 
-      <div style={{ height: "calc(100vh - 73px)" }}>
+      <div className="pb-mobile-panel-tabs" role="tablist">
+        <button
+          aria-selected={activeMobilePanel === "milestones"}
+          onClick={() => setActiveMobilePanel("milestones")}
+          role="tab"
+          type="button"
+        >
+          Milestones
+        </button>
+        <button
+          aria-selected={activeMobilePanel === "gantt"}
+          onClick={() => setActiveMobilePanel("gantt")}
+          role="tab"
+          type="button"
+        >
+          Gantt
+        </button>
+      </div>
+
+      <div className="pb-shell-body">
         <ResizableSplit
+          activeMobilePanel={activeMobilePanel}
           left={<div className="pb-left-panel">{children}</div>}
           right={
             <div
@@ -306,7 +332,7 @@ function ProposalBuilderShell({
                   fontWeight: 500,
                   letterSpacing: "0.06em",
                   textTransform: "uppercase",
-                  color: "var(--pb-fg-tertiary)",
+                  color: "var(--pb-fg-secondary)",
                   marginBottom: 8,
                   display: "flex",
                   alignItems: "center",
@@ -1129,13 +1155,7 @@ function TemplateBudgetScreen({
                 <h2>4. Build Permits</h2>
                 <p>Upload building permits or other required approvals.</p>
               </div>
-              <div className="pb-permit-dropzone">
-                <UploadCloud size={28} />
-                <div>
-                  <strong>Drag and drop files here, or click to browse</strong>
-                  <span>PDF, PNG, JPG up to 25MB each</span>
-                </div>
-              </div>
+              <FileUploader />
               <div className="pb-permit-footer">
                 <span>
                   <FileText size={14} />
@@ -1391,6 +1411,9 @@ function MilestoneEditorScreen({
       rightPanel={
         <CinematicRoadmap
           animated={isGeneratingAnim}
+          borrowerCashAvailabilityCents={
+            projection.draft.borrowerCashAvailabilityCents
+          }
           milestones={projection.milestones}
         />
       }
@@ -1767,7 +1790,13 @@ function BoundaryScreen({
       }
       eyebrow={`${projection.draft.proposalNumber} / workspace_ready`}
       rightPanel={
-        <CinematicRoadmap animated={false} milestones={projection.milestones} />
+        <CinematicRoadmap
+          animated={false}
+          borrowerCashAvailabilityCents={
+            projection.draft.borrowerCashAvailabilityCents
+          }
+          milestones={projection.milestones}
+        />
       }
       step="boundary"
       title="Build Workspace starts here"
