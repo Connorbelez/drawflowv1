@@ -21,6 +21,7 @@ export type BuilderProposalTemplate = {
 export type BuilderProposalDraft = {
   _id: Id<"demo_builderProposalDrafts">;
   borrowerCashAvailabilityCents?: number;
+  borrowerCoPayCents?: number;
   buildLocation: string;
   buildName: string;
   currentBudgetCents: number;

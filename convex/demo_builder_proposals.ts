@@ -716,6 +716,7 @@ function boundaryPayload(draft: any, milestones: any[], readiness: any) {
       templateTitle: draft.templateTitle,
     },
     budget: {
+      borrowerCoPayCents: draft.borrowerCoPayCents ?? 0,
       borrowerWorkingCapitalLimitCents:
         draft.borrowerCashAvailabilityCents ?? 0,
       currentProposalBudgetCents: readiness.currentBudgetCents,
@@ -749,6 +750,7 @@ function boundaryPayload(draft: any, milestones: any[], readiness: any) {
     })),
     planningAssumptions: {
       borrowerCashAvailabilityCents: draft.borrowerCashAvailabilityCents ?? 0,
+      borrowerCoPayCents: draft.borrowerCoPayCents ?? 0,
       interestBeginsAfterFundsReleased: true,
       projectedPeakUnreimbursedExposureCents: readiness.peakExposureCents,
       reimbursementOnly: true,
@@ -1113,6 +1115,64 @@ export const demo_updateBuilderProposalMilestone = publicMutation
   })
   .public();
 
+export const demo_reorderBuilderProposalMilestone = publicMutation
+  .use(withMutationTiming("demo_builder_proposals.reorderMilestone"))
+  .input({
+    milestoneId: v.id("demo_builderProposalMilestones"),
+    targetIndex: v.number(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const milestone = await ctx.db.get(args.milestoneId);
+    if (!milestone || milestone.orgKey !== ORG_KEY) {
+      throw new Error("Milestone not found.");
+    }
+    const milestones = await getDraftMilestones(ctx, milestone.draftId);
+    const currentIndex = milestones.findIndex(
+      (candidate: any) => candidate._id === args.milestoneId
+    );
+    if (currentIndex < 0) {
+      throw new Error("Milestone not found in draft.");
+    }
+    const nextMilestones = [...milestones];
+    const [moved] = nextMilestones.splice(currentIndex, 1);
+    const targetIndex = Math.max(
+      0,
+      Math.min(nextMilestones.length, Math.round(args.targetIndex))
+    );
+    nextMilestones.splice(targetIndex, 0, moved);
+    for (const [index, row] of nextMilestones.entries()) {
+      await ctx.db.patch(row._id, {
+        order: index + 1,
+        updatedAt: now(),
+      });
+    }
+    const refreshedMilestones = await recomputeDraftDerived(
+      ctx,
+      milestone.draftId
+    );
+    await ctx.db.patch(milestone.draftId, {
+      manuallyEdited: true,
+      updatedAt: now(),
+    });
+    await appendEvent(ctx, {
+      command: "demo_reorderBuilderProposalMilestone",
+      draftId: milestone.draftId,
+      entityKey: milestone.key,
+      entityType: "builder_proposal_milestone",
+      eventType: "BuilderProposalMilestoneReordered",
+      newState: { targetIndex },
+      priorState: { order: milestone.order },
+      requirementIds: ["REQ-06", "REQ-08", "REQ-11"],
+      validationIds: ["VAL-04"],
+    });
+    return {
+      currentBudgetCents: currentBudgetCents(refreshedMilestones),
+      ok: true,
+    };
+  })
+  .public();
+
 export const demo_addBuilderProposalBankItem = publicMutation
   .use(withMutationTiming("demo_builder_proposals.addBankItem"))
   .input({
@@ -1250,21 +1310,36 @@ export const demo_updateBuilderProposalCashAvailability = publicMutation
   .use(withMutationTiming("demo_builder_proposals.updateCashAvailability"))
   .input({
     borrowerCashAvailabilityCents: v.number(),
+    borrowerCoPayCents: v.optional(v.number()),
     draftId: v.id("demo_builderProposalDrafts"),
   })
   .returns(v.any())
   .handler(async (ctx, args) => {
     const draft = await getDraft(ctx, args.draftId);
     const rounded = Math.round(args.borrowerCashAvailabilityCents);
-    await ctx.db.patch(args.draftId, {
+    const roundedCoPay =
+      args.borrowerCoPayCents === undefined
+        ? draft.borrowerCoPayCents
+        : Math.max(0, Math.round(args.borrowerCoPayCents));
+    const draftPatch =
+      roundedCoPay === undefined
+        ? {
+            borrowerCashAvailabilityCents: rounded,
+            updatedAt: now(),
+          }
+        : {
+            borrowerCashAvailabilityCents: rounded,
+            borrowerCoPayCents: roundedCoPay,
+            updatedAt: now(),
+          };
+    await ctx.db.patch(args.draftId, draftPatch);
+    const refreshedDraft = {
+      ...draft,
       borrowerCashAvailabilityCents: rounded,
-      updatedAt: now(),
-    });
+      borrowerCoPayCents: roundedCoPay,
+    };
     const milestones = await getDraftMilestones(ctx, args.draftId);
-    const readiness = readinessForDraft(
-      { ...draft, borrowerCashAvailabilityCents: rounded },
-      milestones
-    );
+    const readiness = readinessForDraft(refreshedDraft, milestones);
     await appendEvent(ctx, {
       command: "demo_updateBuilderProposalCashAvailability",
       draftId: args.draftId,
@@ -1272,10 +1347,12 @@ export const demo_updateBuilderProposalCashAvailability = publicMutation
       eventType: "BuilderProposalCashAvailabilityUpdated",
       newState: {
         borrowerCashAvailabilityCents: rounded,
+        borrowerCoPayCents: roundedCoPay,
         lenderDrawPolicyLimitCents: draft.lenderDrawPolicyLimitCents,
       },
       priorState: {
         borrowerCashAvailabilityCents: draft.borrowerCashAvailabilityCents,
+        borrowerCoPayCents: draft.borrowerCoPayCents,
         lenderDrawPolicyLimitCents: draft.lenderDrawPolicyLimitCents,
       },
       requirementIds: ["REQ-09", "REQ-11"],

@@ -16,6 +16,7 @@ import type { ReactElement, ReactNode } from 'react'
 
 import Footer from '../components/Footer'
 import Header from '../components/Header'
+import { TooltipProvider } from '../components/ui/tooltip'
 import ConvexProvider from '../integrations/convex/provider'
 import TanStackQueryDevtools from '../integrations/tanstack-query/devtools'
 import WorkOSProvider from '../integrations/workos/provider'
@@ -91,21 +92,23 @@ function RootDocument({ children }: RootDocumentProps): ReactElement {
         <WorkOSProvider>
           <ConvexProvider>
             <QueryClientProvider client={queryClient}>
-              <Header />
-              {children}
-              {!isNewProposalDemo && <Footer />}
-              <TanStackDevtools
-                config={{
-                  position: 'bottom-right',
-                }}
-                plugins={[
-                  {
-                    name: 'Tanstack Router',
-                    render: <TanStackRouterDevtoolsPanel />,
-                  },
-                  TanStackQueryDevtools,
-                ]}
-              />
+              <TooltipProvider>
+                <Header />
+                {children}
+                {!isNewProposalDemo && <Footer />}
+                <TanStackDevtools
+                  config={{
+                    position: 'bottom-right',
+                  }}
+                  plugins={[
+                    {
+                      name: 'Tanstack Router',
+                      render: <TanStackRouterDevtoolsPanel />,
+                    },
+                    TanStackQueryDevtools,
+                  ]}
+                />
+              </TooltipProvider>
             </QueryClientProvider>
           </ConvexProvider>
         </WorkOSProvider>

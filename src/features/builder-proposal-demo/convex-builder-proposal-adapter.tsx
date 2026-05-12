@@ -39,6 +39,9 @@ export function useBuilderProposalDemo(
   const updateMilestone = useMutation(
     api.demo_builder_proposals.demo_updateBuilderProposalMilestone
   );
+  const reorderMilestone = useMutation(
+    api.demo_builder_proposals.demo_reorderBuilderProposalMilestone
+  );
   const addBankItem = useMutation(
     api.demo_builder_proposals.demo_addBuilderProposalBankItem
   );
@@ -67,6 +70,7 @@ export function useBuilderProposalDemo(
       generateMilestones: (input: GenerateInput) => generateMilestones(input),
       isLoading: dashboard === undefined,
       resetDemo,
+      reorderMilestone,
       startDraft,
       toggleMilestone,
       updateCashAvailability,
@@ -79,6 +83,7 @@ export function useBuilderProposalDemo(
       finalizeBoundary,
       generateMilestones,
       resetDemo,
+      reorderMilestone,
       startDraft,
       toggleMilestone,
       updateCashAvailability,

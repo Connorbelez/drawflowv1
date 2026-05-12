@@ -19,6 +19,29 @@ test("Builder new proposal route handles a stale draft id without a Convex query
   await expect(page.getByText("Start a fresh draft to continue")).toBeVisible();
 });
 
+test("Builder new proposal route does not emit invalid hook errors in the sidebar tooltip path", async ({
+  page,
+}) => {
+  const clientErrors: string[] = [];
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) {
+      clientErrors.push(message.text());
+    }
+  });
+  page.on("pageerror", (error) => {
+    clientErrors.push(error.message);
+  });
+
+  await page.goto(
+    "/demo/drawflow/new-proposal?draftId=rn7079f761c12yt7h3j8x37ga986jzk8"
+  );
+  await expect(page.locator("body")).toBeVisible();
+
+  expect(clientErrors.join("\n")).not.toMatch(
+    /Invalid hook call|TooltipRoot|Cannot read properties of null \(reading 'useRef'\)/
+  );
+});
+
 test("Main demo dropdown includes every demo route", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Demos" }).click();
@@ -103,6 +126,71 @@ test("Milestone editor stays usable without horizontal overflow on mobile", asyn
   expect(overflow.documentOverflow).toBeLessThanOrEqual(1);
   expect(overflow.editorOverflow).toBeLessThanOrEqual(1);
   expect(Math.max(...overflow.rowOverflow)).toBeLessThanOrEqual(1);
+});
+
+test("Builder proposal setup and milestone editor expose co-pay, reorder, draw grouping, and clear actions", async ({
+  page,
+}) => {
+  await page.goto("/demo/drawflow/new-proposal");
+  await page.getByRole("button", { name: "Create draft" }).click();
+  await expect(page.getByTestId("builder-template-screen")).toBeVisible();
+
+  await page.getByTestId("builder-total-budget").fill("$1,850,000");
+  await page.getByTestId("builder-max-cash").fill("$260,000");
+  await page.getByTestId("builder-co-pay").fill("$50,000");
+  const summary = page.locator(".pb-template-aside");
+  await expect(summary.getByText("Co-pay")).toBeVisible();
+  await expect(summary.getByText("$50,000")).toBeVisible();
+  await expect(summary.getByText("Reimbursement Scope")).toBeVisible();
+  await expect(summary.getByText("$1,800,000")).toBeVisible();
+
+  await page
+    .getByTestId("builder-template-card-single_family_full_build")
+    .click();
+  await page.getByTestId("builder-generate-milestones").click();
+  await expect(page.getByTestId("builder-milestone-editor")).toBeVisible();
+  await expect(
+    page.getByTestId("builder-milestone-drag-handle-permits_mobilization")
+  ).toBeVisible();
+  await expect(
+    page.getByTestId("builder-milestone-draw-group-permits_mobilization")
+  ).toBeVisible();
+
+  const firstHandle = page.getByTestId(
+    "builder-milestone-drag-handle-permits_mobilization"
+  );
+  const targetRow = page.getByTestId("builder-milestone-row-foundation_slab");
+  const handleBox = await firstHandle.boundingBox();
+  const targetBox = await targetRow.boundingBox();
+  if (!(handleBox && targetBox)) {
+    throw new Error("Expected draggable milestone controls to be visible.");
+  }
+  await page.mouse.move(
+    handleBox.x + handleBox.width / 2,
+    handleBox.y + handleBox.height / 2
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    targetBox.x + targetBox.width / 2,
+    targetBox.y + targetBox.height / 2,
+    { steps: 8 }
+  );
+  await page.mouse.up();
+  await expect(page.locator(".pb-milestone-row").first()).not.toContainText(
+    "Permits and mobilization"
+  );
+
+  await page
+    .getByTestId("builder-milestone-draw-group-permits_mobilization")
+    .selectOption("1");
+  await expect(
+    page.getByTestId("builder-milestone-draw-group-permits_mobilization")
+  ).toHaveValue("1");
+
+  await page.getByTestId("builder-clear-recommendations").click();
+  await expect(
+    page.getByTestId("builder-milestone-budget-permits_mobilization")
+  ).toHaveValue("$0");
 });
 
 test("Builder dashboard to new proposal demo reaches the workspace boundary without opening the workspace demo", async ({

@@ -20,11 +20,20 @@ import { Button } from "#/components/ui/button.tsx";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog.tsx";
 import { Progress } from "#/components/ui/progress.tsx";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "#/components/ui/table.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { cn } from "#/lib/utils.ts";
 import type {
@@ -42,6 +51,7 @@ import {
   BuildWorkspaceProvider,
   useBuildWorkspace,
 } from "./workspace-adapter";
+import { BuildWorkspaceDemo } from "./BuildWorkspaceDemo";
 
 type AdminAction =
   | "approveEvidence"
@@ -50,6 +60,9 @@ type AdminAction =
   | "approveMilestone"
   | "approveWithOverride"
   | "rejectMilestone";
+
+type AdminDashboardTab = "overview" | "gantt" | "chat" | "documents";
+type ReviewScope = "drawGroup" | "milestone";
 
 type DecisionState = {
   approveMilestoneEnabled: boolean;
@@ -60,12 +73,16 @@ type DecisionState = {
 };
 
 type ReviewPackageRow = {
+  canApprove: boolean;
   countLabel: string;
   files: Milestone["evidenceFiles"];
+  hasEvidence: boolean;
   id: string;
   note: string;
+  packageStatus: string;
   primaryAt: string;
   reportLabel: string;
+  reviewStatus: string;
   status: EvidenceStatus;
   title: string;
 };
@@ -127,6 +144,16 @@ const percent = (value: number) =>
     maximumFractionDigits: 1,
     style: "percent",
   }).format(value);
+
+const formatBytes = (value: number) => {
+  if (value < 1024) {
+    return `${value} B`;
+  }
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)} KB`;
+  }
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+};
 
 const titleCase = (value: string) =>
   value
@@ -301,26 +328,32 @@ export function buildAdminReviewViewModel(
       )
     : workspace.drawGroups[0];
 
+  const primaryEvidencePackage = selectedMilestone?.evidencePackages[0];
+  const hasBuilderEvidence = (selectedMilestone?.evidenceFiles.length ?? 0) > 0;
   const evidencePackages: ReviewPackageRow[] = selectedMilestone
     ? [
         {
+          canApprove:
+            hasBuilderEvidence && selectedMilestone.evidenceStatus !== "accepted",
           countLabel:
             selectedMilestone.evidenceFiles.length > 3
               ? `+${selectedMilestone.evidenceFiles.length - 3}`
               : `${selectedMilestone.evidenceFiles.length}`,
           files: selectedMilestone.evidenceFiles,
-          id:
-            selectedMilestone.evidencePackages[0]?.id ??
-            `${selectedMilestone.id}:evidence`,
-          note:
-            selectedMilestone.evidenceStatus === "locationUnverified"
-              ? "Geofence failed; evidence preserved for review."
-              : selectedMilestone.completionReport || "Builder report attached.",
+          hasEvidence: hasBuilderEvidence,
+          id: primaryEvidencePackage?.id ?? `${selectedMilestone.id}:evidence`,
+          note: evidencePackageNote(selectedMilestone),
+          packageStatus: primaryEvidencePackage?.status ?? "notSubmitted",
           primaryAt:
-            selectedMilestone.evidencePackages[0]?.submittedAt ??
+            primaryEvidencePackage?.submittedAt ??
             selectedMilestone.evidenceFiles[0]?.uploadedAt ??
             selectedMilestone.startAt.toISOString(),
-          reportLabel: "Builder Report",
+          reportLabel: hasBuilderEvidence
+            ? "Builder Report"
+            : "No builder report",
+          reviewStatus:
+            primaryEvidencePackage?.reviewStatus ??
+            selectedMilestone.evidenceStatus,
           status: selectedMilestone.evidenceStatus,
           title: selectedMilestone.name,
         },
@@ -353,6 +386,21 @@ export function buildAdminReviewViewModel(
     selectedMilestone,
     siteVisitPackages,
   };
+}
+
+function evidencePackageNote(milestone: Milestone) {
+  if (milestone.evidenceFiles.length === 0) {
+    return "No builder report or supporting files have been submitted.";
+  }
+  if (milestone.evidenceStatus === "locationUnverified") {
+    return "Geofence failed; evidence preserved for review.";
+  }
+  if (milestone.completionReport.trim()) {
+    return milestone.completionReport;
+  }
+  return `${milestone.evidenceFiles.length} evidence file${
+    milestone.evidenceFiles.length === 1 ? "" : "s"
+  } attached.`;
 }
 
 export function isReviewNoteRequired(
@@ -426,6 +474,7 @@ export function ConvexAdminBuildDashboardRoute() {
 
 function AdminBuildDashboard() {
   const workspace = useBuildWorkspace();
+  const [activeTab, setActiveTab] = useState<AdminDashboardTab>("overview");
   const [expandedDrawGroupIds, setExpandedDrawGroupIds] = useState<Set<string>>(
     () => new Set()
   );
@@ -434,11 +483,25 @@ function AdminBuildDashboard() {
   const [reviewNote, setReviewNote] = useState("");
   const [mutationError, setMutationError] = useState("");
   const [isMutating, setIsMutating] = useState(false);
+  const [selectedEvidencePackageId, setSelectedEvidencePackageId] = useState<
+    string | null
+  >(null);
+  const [evidenceReviewNote, setEvidenceReviewNote] = useState("");
+  const [evidenceMutationError, setEvidenceMutationError] = useState("");
+  const [isEvidenceMutating, setIsEvidenceMutating] = useState(false);
+  const [reviewScope, setReviewScope] = useState<ReviewScope>("milestone");
+  const [isSiteVisitDialogOpen, setIsSiteVisitDialogOpen] = useState(false);
+  const [siteVisitNote, setSiteVisitNote] = useState("");
+  const [siteVisitError, setSiteVisitError] = useState("");
+  const [isSiteVisitMutating, setIsSiteVisitMutating] = useState(false);
 
   const viewModel = useMemo(
     () => buildAdminReviewViewModel(workspace),
     [workspace]
   );
+  const selectedEvidencePackage =
+    viewModel.evidencePackages.find((row) => row.id === selectedEvidencePackageId) ??
+    null;
 
   useEffect(() => {
     const selectedDrawGroupId = viewModel.selectedDrawGroup?.id;
@@ -494,6 +557,11 @@ function AdminBuildDashboard() {
     if (nextMilestone) {
       workspace.selectMilestone(nextMilestone.id);
     }
+    setReviewScope("drawGroup");
+  };
+  const handleMilestoneSelect = (milestoneId: string) => {
+    workspace.selectMilestone(milestoneId);
+    setReviewScope("milestone");
   };
 
   const executeAction = async () => {
@@ -521,39 +589,162 @@ function AdminBuildDashboard() {
     }
   };
 
+  const executeEvidencePackageAction = async (
+    action: "approveEvidence" | "requestMoreInformation"
+  ) => {
+    if (!selectedMilestone) {
+      return;
+    }
+    setEvidenceMutationError("");
+    setIsEvidenceMutating(true);
+    try {
+      await runAdminReviewAction({
+        action,
+        decisionState: viewModel.decisionState,
+        milestoneId: selectedMilestone.id,
+        note: evidenceReviewNote,
+        workspace,
+      });
+      setSelectedEvidencePackageId(null);
+      setEvidenceReviewNote("");
+    } catch (error) {
+      setEvidenceMutationError(
+        error instanceof Error
+          ? error.message
+          : "Unable to record evidence review."
+      );
+    } finally {
+      setIsEvidenceMutating(false);
+    }
+  };
+  const assignSiteVisit = async () => {
+    if (!selectedMilestone) {
+      return;
+    }
+    setSiteVisitError("");
+    setIsSiteVisitMutating(true);
+    try {
+      await workspace.requestSiteVisit(selectedMilestone.id, siteVisitNote);
+      setSiteVisitNote("");
+    } catch (error) {
+      setSiteVisitError(
+        error instanceof Error ? error.message : "Unable to assign site visit."
+      );
+    } finally {
+      setIsSiteVisitMutating(false);
+    }
+  };
+  const startSiteVisit = async () => {
+    if (!selectedMilestone) {
+      return;
+    }
+    setSiteVisitError("");
+    setIsSiteVisitDialogOpen(true);
+    if (selectedMilestone.siteVisits.length === 0) {
+      setIsSiteVisitMutating(true);
+      try {
+        await workspace.requestSiteVisit(selectedMilestone.id, "Started from admin review.");
+      } catch (error) {
+        setSiteVisitError(
+          error instanceof Error
+            ? error.message
+            : "Unable to start site visit."
+        );
+      } finally {
+        setIsSiteVisitMutating(false);
+      }
+    }
+  };
+  const submitSiteVisit = async () => {
+    if (!selectedMilestone) {
+      return;
+    }
+    setSiteVisitError("");
+    setIsSiteVisitMutating(true);
+    try {
+      await workspace.claimSiteVisit(selectedMilestone.id);
+      await workspace.submitSiteVisitReport(selectedMilestone.id, {
+        completionObserved: false,
+        notes: siteVisitNote,
+        recommendedOutcome: "needs_information",
+      });
+      setIsSiteVisitDialogOpen(false);
+      setSiteVisitNote("");
+    } catch (error) {
+      setSiteVisitError(
+        error instanceof Error
+          ? error.message
+          : "Unable to submit site visit report."
+      );
+    } finally {
+      setIsSiteVisitMutating(false);
+    }
+  };
+
   return (
     <main
-      className="min-h-screen bg-background text-foreground"
+      className="fixed inset-x-0 top-16 bottom-0 grid grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden bg-bg-base text-foreground"
       data-testid="admin-build-dashboard-shell"
       data-ixc-ref="SCREEN-ADMIN-COMMAND-CENTER"
     >
-      <div
-        className={cn(
-          "grid min-h-screen gap-3 overflow-x-hidden p-3",
-          isRailCollapsed
-            ? "xl:grid-cols-[4.5rem_minmax(0,1fr)_22rem]"
-            : "xl:grid-cols-[21rem_minmax(0,1fr)_22rem]"
-        )}
-      >
-        <DrawGroupRail
-          collapsed={isRailCollapsed}
-          expandedDrawGroupIds={expandedDrawGroupIds}
-          onDrawSelect={handleDrawSelect}
-          onMilestoneSelect={workspace.selectMilestone}
-          onToggleRail={() => setIsRailCollapsed((current) => !current)}
-          selectedMilestoneId={selectedMilestone?.id ?? ""}
-          viewModel={viewModel}
-        />
-        <ReviewCenterPane viewModel={viewModel} />
-        <DecisionPanel
-          mutationError={mutationError}
-          onAction={(action) => {
-            setPendingAction(action);
-            setReviewNote("");
-            setMutationError("");
-          }}
-          viewModel={viewModel}
-        />
+      <AdminDashboardTopbar />
+      <AdminDashboardTabs activeTab={activeTab} onTabChange={setActiveTab} />
+      <div className="min-h-0 overflow-y-auto">
+        {activeTab === "overview" ? (
+          <div
+            className={cn(
+              "grid min-h-full gap-3 overflow-x-hidden p-3",
+              isRailCollapsed
+                ? "xl:grid-cols-[4.5rem_minmax(0,1fr)_22rem]"
+                : "xl:grid-cols-[21rem_minmax(0,1fr)_22rem]"
+            )}
+            data-testid="admin-dashboard-overview"
+          >
+            <DrawGroupRail
+              collapsed={isRailCollapsed}
+              expandedDrawGroupIds={expandedDrawGroupIds}
+              onDrawSelect={handleDrawSelect}
+              onMilestoneSelect={handleMilestoneSelect}
+              onToggleRail={() => setIsRailCollapsed((current) => !current)}
+              selectedMilestoneId={selectedMilestone?.id ?? ""}
+              viewModel={viewModel}
+            />
+            <ReviewCenterPane
+              onAssignSiteVisit={assignSiteVisit}
+              onDrawGroupCrumbSelect={() => setReviewScope("drawGroup")}
+              onEvidencePackageSelect={(row) => {
+                setSelectedEvidencePackageId(row.id);
+                setEvidenceReviewNote("");
+                setEvidenceMutationError("");
+              }}
+              onMilestoneCrumbSelect={() => setReviewScope("milestone")}
+              onStartSiteVisit={() => void startSiteVisit()}
+              reviewScope={reviewScope}
+              viewModel={viewModel}
+            />
+            <DecisionPanel
+              mutationError={mutationError}
+              onAction={(action) => {
+                setPendingAction(action);
+                setReviewNote("");
+                setMutationError("");
+              }}
+              viewModel={viewModel}
+            />
+          </div>
+        ) : null}
+        {activeTab === "gantt" ? (
+          <div
+            className="h-full min-h-[calc(100vh-14rem)] overflow-auto p-2 sm:p-3"
+            data-testid="admin-dashboard-gantt"
+          >
+            <BuildWorkspaceDemo layout="embedded" />
+          </div>
+        ) : null}
+        {activeTab === "chat" ? <AdminPlaceholderTab label="Chat" /> : null}
+        {activeTab === "documents" ? (
+          <AdminPlaceholderTab label="Documents" />
+        ) : null}
       </div>
 
       <Dialog
@@ -615,7 +806,120 @@ function AdminBuildDashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <EvidencePackageReviewDialog
+        mutationError={evidenceMutationError}
+        note={evidenceReviewNote}
+        onApprove={() => executeEvidencePackageAction("approveEvidence")}
+        onNoteChange={setEvidenceReviewNote}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedEvidencePackageId(null);
+            setEvidenceReviewNote("");
+            setEvidenceMutationError("");
+          }
+        }}
+        onRequestMoreInformation={() =>
+          executeEvidencePackageAction("requestMoreInformation")
+        }
+        open={selectedEvidencePackage !== null}
+        packageRow={selectedEvidencePackage}
+        pending={isEvidenceMutating}
+        selectedMilestone={selectedMilestone}
+      />
+      <SiteVisitInterfaceDialog
+        mutationError={siteVisitError}
+        note={siteVisitNote}
+        onNoteChange={setSiteVisitNote}
+        onOpenChange={(open) => {
+          setIsSiteVisitDialogOpen(open);
+          if (!open) {
+            setSiteVisitNote("");
+            setSiteVisitError("");
+          }
+        }}
+        onSubmit={submitSiteVisit}
+        open={isSiteVisitDialogOpen}
+        pending={isSiteVisitMutating}
+        selectedMilestone={selectedMilestone}
+      />
     </main>
+  );
+}
+
+function AdminDashboardTopbar() {
+  const workspace = useBuildWorkspace();
+
+  return (
+    <header
+      className="flex min-h-12 items-center gap-3 border-border border-b bg-bg-base px-4 py-2"
+      data-testid="admin-dashboard-topbar"
+    >
+      <PanelLeftClose className="size-5 text-muted-foreground" />
+      <div className="min-w-0">
+        <h1 className="truncate font-semibold text-base tracking-normal sm:text-lg">
+          Day-to-Day Build Tracker
+        </h1>
+        <p className="truncate text-[0.68rem] text-muted-foreground sm:text-[0.7rem]">
+          {workspace.build.borrowerName} / {workspace.build.siteAddress} /
+          organization scoped as {workspace.build.organizationId}
+        </p>
+      </div>
+    </header>
+  );
+}
+
+function AdminDashboardTabs({
+  activeTab,
+  onTabChange,
+}: {
+  activeTab: AdminDashboardTab;
+  onTabChange: (tab: AdminDashboardTab) => void;
+}) {
+  const tabs: { label: string; value: AdminDashboardTab }[] = [
+    { label: "Overview", value: "overview" },
+    { label: "Gantt View", value: "gantt" },
+    { label: "Chat", value: "chat" },
+    { label: "Documents", value: "documents" },
+  ];
+
+  return (
+    <nav
+      aria-label="Admin build workspace tabs"
+      className="grid gap-1 border-border border-b bg-bg-sunken px-2 py-1 md:flex md:min-h-12 md:items-center md:gap-2 md:px-4 md:py-2"
+      data-testid="admin-dashboard-tabs"
+    >
+      <div className="grid grid-cols-4 gap-0.5 md:flex">
+        {tabs.map((tab) => (
+          <button
+            aria-pressed={activeTab === tab.value}
+            className={cn(
+              "h-7 min-h-0 min-w-0 rounded-sm px-1 py-0 font-medium text-[0.62rem] leading-none transition sm:h-8 sm:text-[0.68rem] md:h-11 md:min-w-fit md:rounded-md md:px-3 md:py-2 md:text-sm",
+              activeTab === tab.value
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            )}
+            data-testid={`admin-dashboard-tab-${tab.value}`}
+            key={tab.value}
+            onClick={() => onTabChange(tab.value)}
+            type="button"
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+    </nav>
+  );
+}
+
+function AdminPlaceholderTab({ label }: { label: string }) {
+  return (
+    <section className="m-3 rounded-lg border bg-card p-5 text-card-foreground">
+      <h2 className="font-semibold text-xl">{label}</h2>
+      <p className="mt-2 text-muted-foreground text-sm">
+        {label} workspace content is not part of this admin review slice.
+      </p>
+    </section>
   );
 }
 
@@ -774,9 +1078,29 @@ function DrawGroupRail({
   );
 }
 
-function ReviewCenterPane({ viewModel }: { viewModel: AdminViewModel }) {
+function ReviewCenterPane({
+  onAssignSiteVisit,
+  onDrawGroupCrumbSelect,
+  onEvidencePackageSelect,
+  onMilestoneCrumbSelect,
+  onStartSiteVisit,
+  reviewScope,
+  viewModel,
+}: {
+  onAssignSiteVisit: () => void;
+  onDrawGroupCrumbSelect: () => void;
+  onEvidencePackageSelect: (row: ReviewPackageRow) => void;
+  onMilestoneCrumbSelect: () => void;
+  onStartSiteVisit: () => void;
+  reviewScope: ReviewScope;
+  viewModel: AdminViewModel;
+}) {
   const milestone = viewModel.selectedMilestone;
   const drawGroup = viewModel.selectedDrawGroup;
+  const drawGroupMilestones = drawGroup
+    ? viewModel.milestonesByDrawGroup.get(drawGroup.id) ?? []
+    : [];
+  const isDrawGroupScope = reviewScope === "drawGroup";
 
   if (!milestone) {
     return (
@@ -794,89 +1118,260 @@ function ReviewCenterPane({ viewModel }: { viewModel: AdminViewModel }) {
     >
       <div className="border-b p-5">
         <div className="mb-5">
+          <nav
+            aria-label="Review breadcrumb"
+            className="mb-3 flex flex-wrap items-center gap-2 text-muted-foreground text-sm"
+            data-testid="admin-review-breadcrumb"
+          >
+            <button
+              className={cn(
+                "rounded-sm px-1 font-medium hover:bg-muted hover:text-foreground",
+                isDrawGroupScope && "text-foreground"
+              )}
+              data-testid="admin-breadcrumb-draw-group"
+              onClick={onDrawGroupCrumbSelect}
+              type="button"
+            >
+              {drawGroup?.label ?? "Draw group"}
+            </button>
+            <ChevronRight className="size-4" />
+            <button
+              className={cn(
+                "rounded-sm px-1 font-medium hover:bg-muted hover:text-foreground",
+                !isDrawGroupScope && "text-foreground"
+              )}
+              data-testid="admin-breadcrumb-milestone"
+              onClick={onMilestoneCrumbSelect}
+              type="button"
+            >
+              {milestone.name}
+            </button>
+          </nav>
           <h2
             className="font-semibold text-3xl"
             data-ixc-ref="UI-SELECTED-MILESTONE-TITLE"
           >
-            {milestone.name}
+            {isDrawGroupScope
+              ? `${drawGroup?.label ?? "Draw group"} review`
+              : milestone.name}
           </h2>
           <p className="text-muted-foreground text-sm">
-            {drawGroup?.label ?? "Draw group"} / Milestone Review
+            {isDrawGroupScope
+              ? `${drawGroupMilestones.length} milestone aggregate review`
+              : `${drawGroup?.label ?? "Draw group"} / Milestone Review`}
           </p>
         </div>
-        <div
-          className="grid gap-4 border-t pt-4 md:grid-cols-5"
-          data-ixc-ref="UI-MILESTONE-REVIEW-METRICS"
-        >
-          <Metric label="Milestone Status">
-            <StatusBadge status={milestone.status}>
-              {milestoneStatusLabel[milestone.status]}
-            </StatusBadge>
-          </Metric>
-          <Metric label="% Complete">
-            <strong>{milestone.progress}%</strong>
-            <Progress value={milestone.progress} />
-          </Metric>
-          <Metric label="Evidence Status">
-            <strong
-              className={cn(
-                milestone.evidenceStatus === "accepted"
-                  ? "text-success"
-                  : "text-warning"
-              )}
-            >
-              {evidenceStatusLabel[milestone.evidenceStatus]}
-            </strong>
-            <span className="text-muted-foreground text-xs">
-              {milestone.evidenceFiles.length === 0
-                ? "No files"
-                : `${milestone.evidenceFiles.length} file${
-                    milestone.evidenceFiles.length === 1 ? "" : "s"
-                  }`}
-            </span>
-          </Metric>
-          <Metric label="Draw Group">
-            <strong>{drawGroup?.label ?? "Unassigned"}</strong>
-          </Metric>
-          <Metric label="Blocking Approval">
-            <strong
-              className={cn(
-                "inline-flex items-center gap-1",
-                viewModel.decisionState.blockers.length
-                  ? "text-danger"
-                  : "text-success"
-              )}
-            >
-              {viewModel.decisionState.blockers.length ? (
-                <AlertTriangle className="size-4" />
-              ) : (
-                <Check className="size-4" />
-              )}
-              {viewModel.decisionState.blockers.length ? "Yes" : "No"}
-            </strong>
-          </Metric>
-        </div>
+        {isDrawGroupScope ? (
+          <DrawGroupAggregateSummary
+            drawGroup={drawGroup}
+            milestones={drawGroupMilestones}
+          />
+        ) : (
+          <MilestoneReviewMetrics
+            decisionState={viewModel.decisionState}
+            drawGroup={drawGroup}
+            milestone={milestone}
+          />
+        )}
       </div>
 
       <div className="max-h-[calc(100vh-13rem)] space-y-4 overflow-y-auto p-5">
-        <PackageSection
-          description="Evidence packages submitted by the builder for this milestone."
-          empty="No builder evidence package is available for this milestone."
-          rows={viewModel.evidencePackages}
-          title="Builder / Borrower Evidence"
+        {isDrawGroupScope ? (
+          <DrawGroupMilestoneAggregateTable milestones={drawGroupMilestones} />
+        ) : (
+          <PackageSection
+            description="Evidence packages submitted by the builder for this milestone."
+            empty="No builder evidence package is available for this milestone."
+            onPackageSelect={onEvidencePackageSelect}
+            rows={viewModel.evidencePackages}
+            title="Builder / Borrower Evidence"
+          />
+        )}
+        <SiteVisitSection
+          onAssignSiteVisit={onAssignSiteVisit}
+          onStartSiteVisit={onStartSiteVisit}
+          rows={viewModel.siteVisitPackages}
         />
-        <SiteVisitSection rows={viewModel.siteVisitPackages} />
         <ReviewReportSection rows={viewModel.reviewReportHistory} />
-        <div
-          className="flex gap-3 rounded-lg border bg-blue-50 p-4 text-blue-950 text-sm dark:bg-blue-500/10 dark:text-blue-100"
-          data-ixc-ref="UI-REVIEW-HELP-COPY"
+      </div>
+    </section>
+  );
+}
+
+function MilestoneReviewMetrics({
+  decisionState,
+  drawGroup,
+  milestone,
+}: {
+  decisionState: DecisionState;
+  drawGroup?: DrawGroup;
+  milestone: Milestone;
+}) {
+  return (
+    <div
+      className="grid gap-4 border-t pt-4 md:grid-cols-5"
+      data-ixc-ref="UI-MILESTONE-REVIEW-METRICS"
+    >
+      <Metric label="Milestone Status">
+        <StatusBadge status={milestone.status}>
+          {milestoneStatusLabel[milestone.status]}
+        </StatusBadge>
+      </Metric>
+      <Metric label="% Complete">
+        <strong>{milestone.progress}%</strong>
+        <Progress value={milestone.progress} />
+      </Metric>
+      <Metric label="Evidence Status">
+        <strong
+          className={cn(
+            milestone.evidenceStatus === "accepted"
+              ? "text-success"
+              : "text-warning"
+          )}
         >
-          <Info className="mt-0.5 size-4 shrink-0" />
-          <p>
-            Evidence packages group related photos and reports together. Review
-            each package to verify milestone completion.
-          </p>
-        </div>
+          {evidenceStatusLabel[milestone.evidenceStatus]}
+        </strong>
+        <span className="text-muted-foreground text-xs">
+          {milestone.evidenceFiles.length === 0
+            ? "No files"
+            : `${milestone.evidenceFiles.length} file${
+                milestone.evidenceFiles.length === 1 ? "" : "s"
+              }`}
+        </span>
+      </Metric>
+      <Metric label="Draw Group">
+        <strong>{drawGroup?.label ?? "Unassigned"}</strong>
+      </Metric>
+      <Metric label="Blocking Approval">
+        <strong
+          className={cn(
+            "inline-flex items-center gap-1",
+            decisionState.blockers.length ? "text-danger" : "text-success"
+          )}
+        >
+          {decisionState.blockers.length ? (
+            <AlertTriangle className="size-4" />
+          ) : (
+            <Check className="size-4" />
+          )}
+          {decisionState.blockers.length ? "Yes" : "No"}
+        </strong>
+      </Metric>
+    </div>
+  );
+}
+
+function DrawGroupAggregateSummary({
+  drawGroup,
+  milestones,
+}: {
+  drawGroup?: DrawGroup;
+  milestones: Milestone[];
+}) {
+  const completeCount = milestones.filter(
+    (milestone) => milestone.status === "approved"
+  ).length;
+  const acceptedEvidenceCount = milestones.filter(
+    (milestone) => milestone.evidenceStatus === "accepted"
+  ).length;
+  const blockingCount = milestones.filter(
+    (milestone) =>
+      milestone.evidenceFiles.length === 0 ||
+      milestone.evidenceStatus !== "accepted" ||
+      (milestone.requiresSiteVisit &&
+        milestone.siteVisits[0]?.status !== "completed")
+  ).length;
+  const averageProgress = milestones.length
+    ? Math.round(
+        milestones.reduce((total, milestone) => total + milestone.progress, 0) /
+          milestones.length
+      )
+    : 0;
+
+  return (
+    <div
+      className="grid gap-4 border-t pt-4 md:grid-cols-5"
+      data-testid="admin-draw-group-aggregate-summary"
+    >
+      <Metric label="Draw Group Status">
+        <StatusBadge status={drawGroup?.status ?? "planned"}>
+          {drawGroup ? drawStatusLabel[drawGroup.status] : "Unassigned"}
+        </StatusBadge>
+      </Metric>
+      <Metric label="Milestones Complete">
+        <strong>
+          {completeCount} / {milestones.length}
+        </strong>
+      </Metric>
+      <Metric label="Average Progress">
+        <strong>{averageProgress}%</strong>
+        <Progress value={averageProgress} />
+      </Metric>
+      <Metric label="Evidence Accepted">
+        <strong>
+          {acceptedEvidenceCount} / {milestones.length}
+        </strong>
+      </Metric>
+      <Metric label="Blocking Milestones">
+        <strong
+          className={cn(
+            "inline-flex items-center gap-1",
+            blockingCount ? "text-danger" : "text-success"
+          )}
+        >
+          {blockingCount ? (
+            <AlertTriangle className="size-4" />
+          ) : (
+            <Check className="size-4" />
+          )}
+          {blockingCount}
+        </strong>
+      </Metric>
+    </div>
+  );
+}
+
+function DrawGroupMilestoneAggregateTable({
+  milestones,
+}: {
+  milestones: Milestone[];
+}) {
+  return (
+    <section className="rounded-lg border p-4">
+      <h3 className="font-semibold text-2xl">Draw Group Milestones</h3>
+      <p className="mt-1 mb-4 text-muted-foreground text-sm">
+        Aggregate milestone, evidence, site visit, and budget status for this
+        draw group.
+      </p>
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Milestone</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Evidence</TableHead>
+              <TableHead>Site Visit</TableHead>
+              <TableHead>Budget</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {milestones.map((milestone) => (
+              <TableRow key={milestone.id}>
+                <TableCell>{milestone.name}</TableCell>
+                <TableCell>{milestoneStatusLabel[milestone.status]}</TableCell>
+                <TableCell>
+                  {evidenceStatusLabel[milestone.evidenceStatus]}
+                </TableCell>
+                <TableCell>
+                  {milestone.requiresSiteVisit
+                    ? titleCase(milestone.siteVisits[0]?.status ?? "required")
+                    : "Not required"}
+                </TableCell>
+                <TableCell>{money(milestone.estimatedCost)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </div>
     </section>
   );
@@ -1040,6 +1535,260 @@ function DecisionPanel({
   );
 }
 
+function EvidencePackageReviewDialog({
+  mutationError,
+  note,
+  onApprove,
+  onNoteChange,
+  onOpenChange,
+  onRequestMoreInformation,
+  open,
+  packageRow,
+  pending,
+  selectedMilestone,
+}: {
+  mutationError: string;
+  note: string;
+  onApprove: () => void;
+  onNoteChange: (value: string) => void;
+  onOpenChange: (open: boolean) => void;
+  onRequestMoreInformation: () => void;
+  open: boolean;
+  packageRow: ReviewPackageRow | null;
+  pending: boolean;
+  selectedMilestone?: Milestone;
+}) {
+  return (
+    <Dialog onOpenChange={onOpenChange} open={open}>
+      <DialogContent className="max-h-[min(46rem,calc(100vh-2rem))] overflow-hidden sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="text-lg">Evidence package review</DialogTitle>
+          <DialogDescription>
+            Inspect builder evidence, record lender review notes, and approve
+            or request more information from this package.
+          </DialogDescription>
+        </DialogHeader>
+        {packageRow ? (
+          <div className="min-h-0 overflow-y-auto pr-1">
+            <div className="grid gap-3 rounded-lg border bg-muted/20 p-4 md:grid-cols-4">
+              <DecisionMetric label="Milestone" value={packageRow.title} />
+              <DecisionMetric
+                label="Evidence status"
+                value={evidenceStatusLabel[packageRow.status]}
+              />
+              <DecisionMetric
+                label="Package status"
+                value={titleCase(packageRow.packageStatus)}
+              />
+              <DecisionMetric
+                label="Review status"
+                value={titleCase(packageRow.reviewStatus)}
+              />
+            </div>
+
+            <section className="mt-4 rounded-lg border p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-base">
+                    {packageRow.reportLabel}
+                  </h3>
+                  <p className="mt-1 text-muted-foreground text-sm">
+                    {packageRow.note}
+                  </p>
+                </div>
+                <StatusBadge status={packageRow.status}>
+                  {evidenceStatusLabel[packageRow.status]}
+                </StatusBadge>
+              </div>
+
+              {packageRow.files.length ? (
+                <div
+                  className="mt-4 grid gap-3"
+                  data-testid="admin-evidence-viewer-files"
+                >
+                  {packageRow.files.map((file) => (
+                    <div
+                      className="grid gap-3 rounded-md border bg-background p-3 sm:grid-cols-[2.5rem_minmax(0,1fr)]"
+                      key={file.id}
+                    >
+                      <div className="grid size-10 place-items-center rounded-md bg-muted">
+                        <FileText className="size-5 text-primary" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="truncate font-semibold">
+                          {file.fileName}
+                        </div>
+                        <div className="mt-1 text-muted-foreground text-xs">
+                          {file.mimeType} / {formatBytes(file.sizeBytes)} /
+                          uploaded by {titleCase(file.uploadedByPersona)} on{" "}
+                          {dateTime(file.uploadedAt)}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyRow>
+                  No builder report or supporting files have been submitted for
+                  this milestone yet.
+                </EmptyRow>
+              )}
+            </section>
+
+            <section className="mt-4 grid gap-2">
+              <label
+                className="font-semibold text-sm"
+                htmlFor="admin-evidence-review-note"
+              >
+                Lender review note
+              </label>
+              <Textarea
+                data-testid="admin-evidence-review-note"
+                id="admin-evidence-review-note"
+                onChange={(event) => onNoteChange(event.target.value)}
+                placeholder={
+                  packageRow.hasEvidence
+                    ? "Optional audit note for this evidence review."
+                    : "Describe what evidence is missing before requesting more information."
+                }
+                value={note}
+              />
+              {selectedMilestone?.requiresSiteVisit ? (
+                <p className="text-muted-foreground text-xs">
+                  This milestone still requires site visit handling before final
+                  milestone approval.
+                </p>
+              ) : null}
+            </section>
+
+            {mutationError ? (
+              <div
+                className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-destructive text-xs"
+                data-testid="admin-evidence-action-error"
+              >
+                {mutationError}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        <DialogFooter className="border-t pt-3">
+          <Button disabled={pending} onClick={() => onOpenChange(false)} variant="outline">
+            Close
+          </Button>
+          <Button
+            disabled={pending || !packageRow}
+            onClick={onRequestMoreInformation}
+            type="button"
+            variant="outline"
+          >
+            Request More Information
+          </Button>
+          <Button
+            disabled={pending || !packageRow?.canApprove}
+            onClick={onApprove}
+            type="button"
+          >
+            <ClipboardCheck />
+            {pending ? "Recording..." : "Approve Evidence"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SiteVisitInterfaceDialog({
+  mutationError,
+  note,
+  onNoteChange,
+  onOpenChange,
+  onSubmit,
+  open,
+  pending,
+  selectedMilestone,
+}: {
+  mutationError: string;
+  note: string;
+  onNoteChange: (value: string) => void;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: () => void;
+  open: boolean;
+  pending: boolean;
+  selectedMilestone?: Milestone;
+}) {
+  return (
+    <Dialog onOpenChange={onOpenChange} open={open}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Site visit interface</DialogTitle>
+          <DialogDescription>
+            Capture the staff site visit report for{" "}
+            {selectedMilestone?.name ?? "the selected milestone"}.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <div className="grid gap-3 rounded-lg border bg-muted/20 p-4 sm:grid-cols-3">
+            <DecisionMetric
+              label="Milestone"
+              value={selectedMilestone?.name ?? "Not selected"}
+            />
+            <DecisionMetric
+              label="Current visit"
+              value={titleCase(
+                selectedMilestone?.siteVisits[0]?.status ?? "not requested"
+              )}
+            />
+            <DecisionMetric
+              label="Evidence status"
+              value={
+                selectedMilestone
+                  ? evidenceStatusLabel[selectedMilestone.evidenceStatus]
+                  : "Unknown"
+              }
+            />
+          </div>
+          <label className="grid gap-2 font-semibold text-sm">
+            Site visit notes
+            <Textarea
+              data-testid="admin-site-visit-note"
+              onChange={(event) => onNoteChange(event.currentTarget.value)}
+              placeholder="Document observed completion, missing work, access constraints, photos captured, and recommendation."
+              value={note}
+            />
+          </label>
+          <div className="rounded-lg border border-dashed bg-muted/20 p-4 text-muted-foreground text-sm">
+            Camera capture, geofence attempt, and offline sync are represented
+            here as the site-visit report intake surface for this demo route.
+          </div>
+          {mutationError ? (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-destructive text-xs">
+              {mutationError}
+            </div>
+          ) : null}
+        </div>
+        <DialogFooter>
+          <Button
+            disabled={pending}
+            onClick={() => onOpenChange(false)}
+            type="button"
+            variant="outline"
+          >
+            Cancel
+          </Button>
+          <Button
+            data-testid="admin-submit-site-visit-report"
+            disabled={pending || !selectedMilestone}
+            onClick={onSubmit}
+            type="button"
+          >
+            {pending ? "Saving..." : "Submit Site Visit Report"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function MilestoneDetailCard({
   drawGroup,
   milestone,
@@ -1103,11 +1852,13 @@ function DecisionMetric({ label, value }: { label: string; value: string }) {
 function PackageSection({
   description,
   empty,
+  onPackageSelect,
   rows,
   title,
 }: {
   description: string;
   empty: string;
+  onPackageSelect: (row: ReviewPackageRow) => void;
   rows: ReviewPackageRow[];
   title: string;
 }) {
@@ -1123,6 +1874,7 @@ function PackageSection({
               data-ixc-ref="UI-BUILDER-EVIDENCE-PACKAGE"
               data-testid={`admin-evidence-package-${row.id}`}
               key={row.id}
+              onClick={() => onPackageSelect(row)}
               type="button"
             >
               <PackageDate date={row.primaryAt} status={row.status} />
@@ -1139,13 +1891,45 @@ function PackageSection({
   );
 }
 
-function SiteVisitSection({ rows }: { rows: SiteVisitRow[] }) {
+function SiteVisitSection({
+  onAssignSiteVisit,
+  onStartSiteVisit,
+  rows,
+}: {
+  onAssignSiteVisit: () => void;
+  onStartSiteVisit: () => void;
+  rows: SiteVisitRow[];
+}) {
   return (
     <section className="rounded-lg border p-4">
-      <h3 className="font-semibold text-2xl">Staff Site Visits</h3>
-      <p className="mt-1 mb-4 text-muted-foreground text-sm">
-        Site visit evidence packages and reports.
-      </p>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-2xl">Staff Site Visits</h3>
+          <p className="mt-1 text-muted-foreground text-sm">
+            Site visit evidence packages and reports.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            data-testid="admin-assign-site-visit-inline"
+            onClick={onAssignSiteVisit}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <MapPinned />
+            Assign Site Visit
+          </Button>
+          <Button
+            data-testid="admin-start-site-visit-inline"
+            onClick={onStartSiteVisit}
+            size="sm"
+            type="button"
+          >
+            Start Site Visit
+          </Button>
+        </div>
+      </div>
       {rows.length ? (
         <div className="grid gap-3">
           {rows.map((row, index) => (

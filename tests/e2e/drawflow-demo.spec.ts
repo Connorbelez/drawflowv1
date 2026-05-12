@@ -506,6 +506,45 @@ test("Builder borrower dashboard camera evidence capture opens device camera", a
     .toContain('"environment"');
 });
 
+test("Builder borrower dashboard can intake an expense from financial controls", async ({
+  page,
+}) => {
+  await page.goto("/demo/drawflow/active");
+  await waitForBorrowerDashboard(page);
+
+  await page.getByTestId("borrower-add-expense").click();
+  await expect(page.getByRole("heading", { name: "Add expense" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Expense details" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Receipt / invoice" })).toBeVisible();
+  await page.getByTestId("borrower-expense-vendor").fill("Harbor Concrete");
+  await page.getByTestId("borrower-expense-amount").fill("1250");
+  await page
+    .getByTestId("borrower-expense-description")
+    .fill("Permit revision fee");
+  await page.getByRole("tab", { name: "Receipt / invoice" }).click();
+  await page.getByTestId("borrower-expense-receipt-upload").setInputFiles({
+    buffer: Buffer.from("receipt"),
+    mimeType: "application/pdf",
+    name: "permit-receipt.pdf",
+  });
+  await expect(page.getByTestId("borrower-expense-receipt-files")).toContainText(
+    "permit-receipt.pdf"
+  );
+  await expect(page.getByTestId("borrower-expense-camera-input")).toHaveAttribute(
+    "capture",
+    "environment"
+  );
+  await page.getByTestId("borrower-expense-submit").click();
+
+  await expect(page.getByRole("heading", { name: "Add expense" })).toHaveCount(0);
+  await expect(page.getByTestId("borrower-financial-controls")).toContainText(
+    "Permit revision fee"
+  );
+  await expect(page.getByTestId("borrower-financial-controls")).toContainText(
+    "$1,250"
+  );
+});
+
 test("Builder borrower dashboard keeps the active workspace in Gantt View", async ({
   page,
 }) => {

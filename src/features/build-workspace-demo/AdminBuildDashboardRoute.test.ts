@@ -140,6 +140,37 @@ describe("admin build dashboard selectors", () => {
     }
   });
 
+  test("labels missing builder evidence without claiming a report is attached", () => {
+    const selected = milestone({
+      drawGroupId: "draw-1",
+      evidenceFiles: [],
+      evidencePackages: [
+        {
+          createdAt: baseDate.toISOString(),
+          id: "package-1",
+          reviewStatus: "pending",
+          status: "notSubmitted",
+        },
+      ],
+      evidenceStatus: "notStarted",
+      id: "foundation",
+    });
+
+    const viewModel = buildAdminReviewViewModel({
+      drawGroups: [drawGroup({ id: "draw-1" })],
+      milestones: [selected],
+      selectedMilestoneId: selected.id,
+    });
+
+    expect(viewModel.evidencePackages[0]).toMatchObject({
+      canApprove: false,
+      countLabel: "0",
+      hasEvidence: false,
+      note: "No builder report or supporting files have been submitted.",
+      reportLabel: "No builder report",
+    });
+  });
+
   test("preserves historical site visits and review reports from workspace data", () => {
     const selected = milestone({
       drawGroupId: "draw-1",

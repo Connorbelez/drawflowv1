@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   ClipboardCheck,
   FileText,
+  GripVertical,
   Info,
   Loader2,
   Minus,
@@ -29,6 +30,7 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import { CinematicRoadmap } from "./CinematicRoadmap";
 import { useBuilderProposalDemo } from "./convex-builder-proposal-adapter";
 import {
+  cashAwareDrawGroups,
   formatCurrency,
   formatSignedCurrency,
   parseCurrencyToCents,
@@ -947,6 +949,11 @@ function TemplateBudgetScreen({
       ? formatCurrency(projection.draft.borrowerCashAvailabilityCents)
       : "$260,000"
   );
+  const [coPayText, setCoPayText] = useState(
+    projection.draft.borrowerCoPayCents
+      ? formatCurrency(projection.draft.borrowerCoPayCents)
+      : "$0"
+  );
   const [projectAddress, setProjectAddress] = useState(
     projection.draft.buildLocation
   );
@@ -965,6 +972,11 @@ function TemplateBudgetScreen({
   const budgetIsValid = Number.isFinite(budgetCents) && budgetCents > 0;
   const maxCashCents = parseCurrencyToCents(maxCashText);
   const maxCashIsValid = Number.isFinite(maxCashCents) && maxCashCents > 0;
+  const coPayCents = parseCurrencyToCents(coPayText);
+  const coPayIsValid =
+    Number.isFinite(coPayCents) && coPayCents >= 0 && coPayCents <= budgetCents;
+  const lenderBudgetCents =
+    budgetIsValid && coPayIsValid ? Math.max(0, budgetCents - coPayCents) : 0;
   const selectedTemplate = templates.find(
     (template) => template.templateKey === selectedTemplateKey
   );
@@ -983,6 +995,10 @@ function TemplateBudgetScreen({
       setError("Enter a positive borrower working capital amount.");
       return;
     }
+    if (!coPayIsValid) {
+      setError("Enter a co-pay amount between $0 and the total budget.");
+      return;
+    }
     setIsGenerating(true);
     try {
       await generateMilestones({
@@ -993,6 +1009,7 @@ function TemplateBudgetScreen({
       });
       await updateCashAvailability({
         borrowerCashAvailabilityCents: maxCashCents,
+        borrowerCoPayCents: coPayCents,
         draftId: projection.draft._id,
       });
     } catch (caught) {
@@ -1134,6 +1151,31 @@ function TemplateBudgetScreen({
                   needing a draw.
                 </p>
               </div>
+              <div>
+                <label className="pb-inline-label" htmlFor="co-pay-input">
+                  Co-pay <Info size={14} />
+                </label>
+                <div className="pb-money-input">
+                  <span>$</span>
+                  <input
+                    aria-label="Borrower co-pay"
+                    data-testid="builder-co-pay"
+                    id="co-pay-input"
+                    onBlur={() => {
+                      const parsed = parseCurrencyToCents(coPayText);
+                      if (Number.isFinite(parsed) && parsed >= 0) {
+                        setCoPayText(formatCurrency(parsed));
+                      }
+                    }}
+                    onChange={(event) => setCoPayText(event.target.value)}
+                    value={coPayText.replace(STRIP_LEADING_DOLLAR, "")}
+                  />
+                </div>
+                <p className="pb-field-note">
+                  Co-pay is the portion of the project budget paid out of
+                  pocket before reimbursement planning.
+                </p>
+              </div>
             </div>
 
             <div className="pb-form-panel">
@@ -1192,6 +1234,18 @@ function TemplateBudgetScreen({
                   <dt>Max Cash on Hand</dt>
                   <dd>
                     {maxCashIsValid ? formatCurrency(maxCashCents) : "--"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Co-pay</dt>
+                  <dd>{coPayIsValid ? formatCurrency(coPayCents) : "--"}</dd>
+                </div>
+                <div>
+                  <dt>Reimbursement Scope</dt>
+                  <dd>
+                    {budgetIsValid && coPayIsValid
+                      ? formatCurrency(lenderBudgetCents)
+                      : "--"}
                   </dd>
                 </div>
                 <div>
@@ -1278,11 +1332,14 @@ function MilestoneEditorScreen({
     addBankItem,
     createCustomMilestone,
     finalizeBoundary,
+    reorderMilestone,
     toggleMilestone,
     updateCashAvailability,
     updateMilestone,
   } = useBuilderProposalDemo(projection.draft._id);
   const [actionError, setActionError] = useState("");
+  const [draggedMilestoneId, setDraggedMilestoneId] =
+    useState<Id<"demo_builderProposalMilestones"> | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isGeneratingAnim, setIsGeneratingAnim] = useState(true);
   const readiness = projection.readiness;
@@ -1291,6 +1348,16 @@ function MilestoneEditorScreen({
       milestone.included &&
       (milestone.budgetCents <= 0 || milestone.durationDays <= 0)
   )?.key;
+  const drawGroups = cashAwareDrawGroups(
+    projection.milestones,
+    projection.draft.borrowerCashAvailabilityCents
+  );
+  const milestoneDrawGroupIndexes = new Map<string, number>();
+  for (const group of drawGroups) {
+    for (const milestone of group.milestones) {
+      milestoneDrawGroupIndexes.set(String(milestone._id), group.index);
+    }
+  }
 
   // Trigger cinematic animation on first mount with milestones
   useEffect(() => {
@@ -1353,6 +1420,80 @@ function MilestoneEditorScreen({
       borrowerCashAvailabilityCents,
       draftId: projection.draft._id,
     });
+  }
+
+  async function clearRecommendations() {
+    setActionError("");
+    try {
+      for (const milestone of projection.milestones) {
+        await updateMilestone({ budgetCents: 0, milestoneId: milestone._id });
+      }
+    } catch (caught) {
+      setActionError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not clear recommendations."
+      );
+    }
+  }
+
+  async function reorderToIndex(
+    milestone: BuilderProposalMilestone,
+    targetIndex: number
+  ) {
+    const currentIndex = projection.milestones.findIndex(
+      (candidate) => candidate._id === milestone._id
+    );
+    if (currentIndex < 0 || currentIndex === targetIndex) {
+      return;
+    }
+    const finalIndex =
+      currentIndex < targetIndex ? Math.max(0, targetIndex - 1) : targetIndex;
+    setActionError("");
+    try {
+      await reorderMilestone({
+        milestoneId: milestone._id,
+        targetIndex: finalIndex,
+      });
+    } catch (caught) {
+      setActionError(
+        caught instanceof Error ? caught.message : "Milestone reorder failed."
+      );
+    }
+  }
+
+  async function moveToDrawGroup(
+    milestone: BuilderProposalMilestone,
+    nextGroupIndex: number
+  ) {
+    const targetGroup = drawGroups[nextGroupIndex];
+    if (!targetGroup) {
+      return;
+    }
+    const currentIndex = projection.milestones.findIndex(
+      (candidate) => candidate._id === milestone._id
+    );
+    const lastTargetMilestone =
+      targetGroup.milestones[targetGroup.milestones.length - 1];
+    const lastTargetIndex = projection.milestones.findIndex(
+      (candidate) => candidate._id === lastTargetMilestone?._id
+    );
+    if (currentIndex < 0 || lastTargetIndex < 0) {
+      return;
+    }
+    const finalIndex =
+      currentIndex < lastTargetIndex ? lastTargetIndex : lastTargetIndex + 1;
+    setActionError("");
+    try {
+      await reorderMilestone({
+        milestoneId: milestone._id,
+        targetIndex: finalIndex,
+      });
+    } catch (caught) {
+      setActionError(
+        caught instanceof Error ? caught.message : "Draw group switch failed."
+      );
+    }
   }
 
   async function handleContinue() {
@@ -1428,9 +1569,11 @@ function MilestoneEditorScreen({
         <div className="pb-milestone-list pb-scroll">
           <div className="pb-milestone-table-inner">
             <div className="pb-milestone-header">
+              <span>Move</span>
               <span>Use</span>
               <span>Day</span>
               <span>Milestone</span>
+              <span>Draw</span>
               <span>Budget</span>
               <span>Duration</span>
               <span>Preset</span>
@@ -1440,6 +1583,9 @@ function MilestoneEditorScreen({
               {/* biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Existing milestone row rendering is outside this setup-screen layout refactor. */}
               {projection.milestones.map((milestone) => {
                 const isBlocking = milestone.key === firstBlockingMilestoneKey;
+                const currentDrawGroupIndex = milestoneDrawGroupIndexes.get(
+                  String(milestone._id)
+                );
                 return (
                   <article
                     className={cx(
@@ -1459,7 +1605,42 @@ function MilestoneEditorScreen({
                         : undefined
                     }
                     key={milestone._id}
+                    draggable
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                    }}
+                    onDragStart={(event) => {
+                      setDraggedMilestoneId(milestone._id);
+                      event.dataTransfer.effectAllowed = "move";
+                    }}
+                    onDragEnd={() => {
+                      setDraggedMilestoneId(null);
+                    }}
+                    onDrop={async (event) => {
+                      event.preventDefault();
+                      const dragged = projection.milestones.find(
+                        (candidate) => candidate._id === draggedMilestoneId
+                      );
+                      if (!dragged || dragged._id === milestone._id) {
+                        return;
+                      }
+                      const targetIndex = projection.milestones.findIndex(
+                        (candidate) => candidate._id === milestone._id
+                      );
+                      await reorderToIndex(dragged, targetIndex);
+                      setDraggedMilestoneId(null);
+                    }}
                   >
+                    <button
+                      aria-label={`Drag ${milestone.name}`}
+                      className="pb-drag-handle"
+                      data-testid={`builder-milestone-drag-handle-${milestone.key}`}
+                      draggable
+                      type="button"
+                    >
+                      <GripVertical size={15} />
+                    </button>
+
                     <button
                       aria-label={milestone.included ? "Included" : "Excluded"}
                       className={cx("pb-toggle", milestone.included && "on")}
@@ -1527,6 +1708,35 @@ function MilestoneEditorScreen({
                         {milestone.source} · {milestone.type}
                       </p>
                     </div>
+
+                    <label className="pb-draw-group-picker">
+                      <span>Draw group</span>
+                      <select
+                        aria-label={`Draw group for ${milestone.name}`}
+                        data-testid={`builder-milestone-draw-group-${milestone.key}`}
+                        disabled={!milestone.included || drawGroups.length <= 1}
+                        onChange={async (event) => {
+                          await moveToDrawGroup(
+                            milestone,
+                            Number(event.currentTarget.value)
+                          );
+                        }}
+                        value={
+                          currentDrawGroupIndex === undefined
+                            ? ""
+                            : String(currentDrawGroupIndex)
+                        }
+                      >
+                        {currentDrawGroupIndex === undefined ? (
+                          <option value="">Out</option>
+                        ) : null}
+                        {drawGroups.map((group) => (
+                          <option key={group.index} value={String(group.index)}>
+                            Draw {group.index + 1}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
 
                     <div className="pb-budget-stepper">
                       <button
@@ -1601,15 +1811,25 @@ function MilestoneEditorScreen({
         </div>
 
         <aside className="pb-readiness-panel">
-          <h2
-            style={{
-              fontSize: 16,
-              fontWeight: 700,
-              color: "var(--pb-fg)",
-            }}
-          >
-            Readiness
-          </h2>
+          <div className="pb-readiness-header">
+            <h2
+              style={{
+                fontSize: 16,
+                fontWeight: 700,
+                color: "var(--pb-fg)",
+              }}
+            >
+              Readiness
+            </h2>
+            <button
+              className="pb-clear-recommendations"
+              data-testid="builder-clear-recommendations"
+              onClick={clearRecommendations}
+              type="button"
+            >
+              Clear recommendations
+            </button>
+          </div>
 
           <ReadinessLine
             label="Original budget"

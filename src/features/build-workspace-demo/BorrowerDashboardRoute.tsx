@@ -37,6 +37,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog.tsx";
+import { Input } from "#/components/ui/input.tsx";
 import { IntroDisclosure } from "#/components/ui/intro-disclosure.tsx";
 import { Progress } from "#/components/ui/progress.tsx";
 import {
@@ -47,6 +48,13 @@ import {
   TableHeader,
   TableRow,
 } from "#/components/ui/table.tsx";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "#/components/ui/tabs.tsx";
+import { Textarea } from "#/components/ui/textarea.tsx";
 import {
   Tooltip,
   TooltipContent,
@@ -68,6 +76,16 @@ import type {
 import { BuildWorkspaceProvider, useBuildWorkspace } from "./workspace-adapter";
 
 type BorrowerDashboardTab = "overview" | "gantt" | "chat" | "documents";
+
+type BorrowerExpenseRow = {
+  amount: number;
+  category: string;
+  description: string;
+  id: string;
+  milestoneId: string;
+  status: string;
+  vendor: string;
+};
 
 const money = (value: number) =>
   new Intl.NumberFormat("en-US", {
@@ -1556,25 +1574,87 @@ function FinancialControls({
   };
 }) {
   const workspace = useBuildWorkspace();
+  const [expenseRows, setExpenseRows] = useState<BorrowerExpenseRow[]>([]);
+  const [isExpenseDialogOpen, setIsExpenseDialogOpen] = useState(false);
+  const [expenseVendor, setExpenseVendor] = useState("");
+  const [expenseCategory, setExpenseCategory] = useState("Labor");
+  const [expenseAmount, setExpenseAmount] = useState("");
+  const [expenseDescription, setExpenseDescription] = useState("");
+  const [expenseError, setExpenseError] = useState("");
+  const [expenseReceiptFiles, setExpenseReceiptFiles] = useState<string[]>([]);
   const selectedMilestone =
     workspace.milestones.find(
       (milestone) => milestone.id === workspace.selectedMilestoneId
     ) ?? workspace.milestones[0];
-  const expenseRows =
+  const persistedExpenseRows =
     selectedMilestone && selectedMilestone.actualCost > 0
       ? [
           {
-            amount: money(selectedMilestone.actualCost),
+            amount: selectedMilestone.actualCost,
             context: selectedMilestone.name,
             status:
               selectedMilestone.evidenceStatus === "accepted"
                 ? "ok"
                 : evidenceStatusText[selectedMilestone.evidenceStatus],
+            vendor: "Active reimbursement workspace",
           },
         ]
       : [];
+  const milestoneExpenseRows = expenseRows
+    .filter((row) => row.milestoneId === selectedMilestone?.id)
+    .map((row) => ({
+      amount: row.amount,
+      context: row.description || selectedMilestone?.name || "Expense",
+      status: row.status,
+      vendor: row.vendor,
+    }));
+  const visibleExpenseRows = [...persistedExpenseRows, ...milestoneExpenseRows];
+  const submittedExpenseTotal = expenseRows.reduce(
+    (total, row) => total + row.amount,
+    0
+  );
+  const displayedSpent = dashboardStats.spent + submittedExpenseTotal;
+  const displayedRemaining = Math.max(
+    0,
+    dashboardStats.totalBudget - displayedSpent
+  );
   const selectedMilestoneName =
     selectedMilestone?.name ?? "the selected milestone";
+  const resetExpenseForm = () => {
+    setExpenseVendor("");
+    setExpenseCategory("Labor");
+    setExpenseAmount("");
+    setExpenseDescription("");
+    setExpenseError("");
+    setExpenseReceiptFiles([]);
+  };
+  const submitExpense = () => {
+    if (!selectedMilestone) {
+      return;
+    }
+    const normalizedAmount = Number(
+      expenseAmount.replace(/[$,\s]/g, "")
+    );
+    if (!(normalizedAmount > 0)) {
+      setExpenseError("Enter a positive expense amount.");
+      return;
+    }
+    setExpenseRows((current) => [
+      ...current,
+      {
+        amount: Math.round(normalizedAmount),
+        category: expenseCategory,
+        description:
+          expenseDescription.trim() || `${expenseCategory} expense`,
+        id: `expense-${Date.now()}`,
+        milestoneId: selectedMilestone.id,
+        status: "Pending evidence",
+        vendor: expenseVendor.trim() || "Unspecified vendor",
+      },
+    ]);
+    setIsExpenseDialogOpen(false);
+    resetExpenseForm();
+  };
 
   return (
     <section
@@ -1583,7 +1663,13 @@ function FinancialControls({
     >
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <h2 className="font-semibold text-base">Financial Controls</h2>
-        <Button className="min-h-11 md:min-h-0" size="sm" variant="outline">
+        <Button
+          className="min-h-11 md:min-h-0"
+          data-testid="borrower-add-expense"
+          onClick={() => setIsExpenseDialogOpen(true)}
+          size="sm"
+          variant="outline"
+        >
           <Plus />
           Add Expense
         </Button>
@@ -1605,7 +1691,7 @@ function FinancialControls({
                 Spent
               </div>
               <div className="mt-1 font-semibold text-sm">
-                {money(dashboardStats.spent)}
+                {money(displayedSpent)}
               </div>
             </div>
             <div>
@@ -1613,7 +1699,7 @@ function FinancialControls({
                 Remaining
               </div>
               <div className="mt-1 font-semibold text-sm">
-                {money(dashboardStats.remaining)}
+                {money(displayedRemaining)}
               </div>
             </div>
           </div>
@@ -1634,11 +1720,16 @@ function FinancialControls({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {expenseRows.map((row) => (
-                  <TableRow key={row.context}>
+                {visibleExpenseRows.map((row) => (
+                  <TableRow key={`${row.context}-${row.vendor}`}>
                     <TableCell>{workspace.build.phaseLabel}</TableCell>
-                    <TableCell>{row.context}</TableCell>
-                    <TableCell>{row.amount}</TableCell>
+                    <TableCell>
+                      <span className="block font-medium">{row.context}</span>
+                      <span className="block text-muted-foreground text-xs">
+                        {row.vendor}
+                      </span>
+                    </TableCell>
+                    <TableCell>{money(row.amount)}</TableCell>
                     <TableCell
                       className={
                         row.status === "ok" ? "text-success" : "text-warning"
@@ -1648,7 +1739,7 @@ function FinancialControls({
                     </TableCell>
                   </TableRow>
                 ))}
-                {expenseRows.length === 0 ? (
+                {visibleExpenseRows.length === 0 ? (
                   <TableRow>
                     <TableCell className="text-muted-foreground" colSpan={4}>
                       No reimbursable expenses have been submitted for{" "}
@@ -1661,6 +1752,153 @@ function FinancialControls({
           </div>
         </div>
       </div>
+      <Dialog
+        onOpenChange={(open) => {
+          setIsExpenseDialogOpen(open);
+          if (!open) {
+            resetExpenseForm();
+          }
+        }}
+        open={isExpenseDialogOpen}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Add expense</DialogTitle>
+            <DialogDescription>
+              Record a borrower reimbursement expense for {selectedMilestoneName}.
+            </DialogDescription>
+          </DialogHeader>
+          <Tabs defaultValue="details">
+            <TabsList className="w-full" variant="default">
+              <TabsTrigger data-testid="borrower-expense-details-tab" value="details">
+                Expense details
+              </TabsTrigger>
+              <TabsTrigger data-testid="borrower-expense-receipt-tab" value="receipt">
+                Receipt / invoice
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent className="grid gap-3 pt-2" value="details">
+              <label className="grid gap-1 font-medium text-xs">
+                Vendor
+                <Input
+                  data-testid="borrower-expense-vendor"
+                  onChange={(event) =>
+                    setExpenseVendor(event.currentTarget.value)
+                  }
+                  placeholder="Supplier or subcontractor"
+                  value={expenseVendor}
+                />
+              </label>
+              <label className="grid gap-1 font-medium text-xs">
+                Category
+                <Input
+                  data-testid="borrower-expense-category"
+                  onChange={(event) =>
+                    setExpenseCategory(event.currentTarget.value)
+                  }
+                  value={expenseCategory}
+                />
+              </label>
+              <label className="grid gap-1 font-medium text-xs">
+                Amount
+                <Input
+                  data-testid="borrower-expense-amount"
+                  inputMode="decimal"
+                  onChange={(event) =>
+                    setExpenseAmount(event.currentTarget.value)
+                  }
+                  placeholder="$0"
+                  value={expenseAmount}
+                />
+              </label>
+              <label className="grid gap-1 font-medium text-xs">
+                Description
+                <Textarea
+                  data-testid="borrower-expense-description"
+                  onChange={(event) =>
+                    setExpenseDescription(event.currentTarget.value)
+                  }
+                  placeholder="What was purchased or completed?"
+                  value={expenseDescription}
+                />
+              </label>
+            </TabsContent>
+            <TabsContent className="grid gap-3 pt-2" value="receipt">
+              <div className="grid gap-2 rounded-md border border-dashed border-border bg-bg-elevated p-3">
+                <label className="grid gap-2 font-medium text-xs">
+                  <span className="inline-flex items-center gap-2">
+                    <Upload className="size-4 text-primary" />
+                    Upload receipt or invoice
+                  </span>
+                  <Input
+                    accept="image/*,application/pdf"
+                    data-testid="borrower-expense-receipt-upload"
+                    multiple
+                    onChange={(event) => {
+                      setExpenseReceiptFiles(
+                        Array.from(event.currentTarget.files ?? []).map(
+                          (file) => file.name
+                        )
+                      );
+                    }}
+                    type="file"
+                  />
+                </label>
+                <label className="grid gap-2 font-medium text-xs">
+                  <span className="inline-flex items-center gap-2">
+                    <Camera className="size-4 text-primary" />
+                    Capture with camera
+                  </span>
+                  <Input
+                    accept="image/*"
+                    capture="environment"
+                    data-testid="borrower-expense-camera-input"
+                    onChange={(event) => {
+                      const fileName = event.currentTarget.files?.[0]?.name;
+                      if (fileName) {
+                        setExpenseReceiptFiles((current) => [
+                          ...current,
+                          fileName,
+                        ]);
+                      }
+                    }}
+                    type="file"
+                  />
+                </label>
+                <div
+                  className="rounded-md border border-border bg-card p-2 text-muted-foreground text-xs"
+                  data-testid="borrower-expense-receipt-files"
+                >
+                  {expenseReceiptFiles.length > 0
+                    ? expenseReceiptFiles.join(", ")
+                    : "No receipt or invoice attached yet."}
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
+          {expenseError ? (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-destructive text-xs">
+              {expenseError}
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button
+              onClick={() => setIsExpenseDialogOpen(false)}
+              type="button"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button
+              data-testid="borrower-expense-submit"
+              onClick={submitExpense}
+              type="button"
+            >
+              Add Expense
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
