@@ -46,6 +46,7 @@ type BankItem = {
 
 type DraftMilestoneLike = {
   budgetCents: number;
+  drawGroupIndex?: number;
   included: boolean;
 };
 
@@ -510,6 +511,32 @@ function cashAwareDrawGroups(
   if (included.length === 0) {
     return [];
   }
+  if (
+    included.every(
+      (milestone) =>
+        typeof milestone.drawGroupIndex === "number" &&
+        Number.isFinite(milestone.drawGroupIndex)
+    )
+  ) {
+    const explicitGroups = new Map<number, DraftMilestoneLike[]>();
+    for (const milestone of included) {
+      const groupIndex = Math.max(0, Math.round(milestone.drawGroupIndex ?? 0));
+      explicitGroups.set(groupIndex, [
+        ...(explicitGroups.get(groupIndex) ?? []),
+        milestone,
+      ]);
+    }
+
+    return [...explicitGroups.entries()]
+      .sort(([left], [right]) => left - right)
+      .map(([, groupMilestones]) => ({
+        milestones: groupMilestones,
+        totalBudgetCents: groupMilestones.reduce(
+          (sum, milestone) => sum + milestone.budgetCents,
+          0
+        ),
+      }));
+  }
   if (cashLimit <= 0) {
     const targetGroups = Math.min(3, Math.ceil(included.length / 2));
     const groupSize = Math.max(2, Math.ceil(included.length / targetGroups));
@@ -577,6 +604,17 @@ function projectedPeakExposureCents(
     (peak, group) => Math.max(peak, group.totalBudgetCents),
     0
   );
+}
+
+function nextExplicitDrawGroupIndex(milestones: DraftMilestoneLike[]) {
+  const included = milestones.filter((milestone) => milestone.included);
+  const indexes = included
+    .map((milestone) => milestone.drawGroupIndex)
+    .filter((index): index is number => typeof index === "number");
+  if (included.length === 0 || indexes.length !== included.length) {
+    return undefined;
+  }
+  return Math.max(...indexes) + 1;
 }
 
 function readinessForDraft(draft: any, milestones: any[]) {
@@ -741,6 +779,7 @@ function boundaryPayload(draft: any, milestones: any[], readiness: any) {
       dependencyKeys: milestone.dependencyKeys.filter((dependencyKey: string) =>
         included.some((candidate) => candidate.key === dependencyKey)
       ),
+      drawGroupIndex: milestone.drawGroupIndex,
       durationDays: milestone.durationDays,
       key: milestone.key,
       name: milestone.name,
@@ -1061,6 +1100,7 @@ export const demo_updateBuilderProposalMilestone = publicMutation
   .use(withMutationTiming("demo_builder_proposals.updateMilestone"))
   .input({
     budgetCents: v.optional(v.number()),
+    drawGroupIndex: v.optional(v.number()),
     durationDays: v.optional(v.number()),
     milestoneId: v.id("demo_builderProposalMilestones"),
     name: v.optional(v.string()),
@@ -1084,6 +1124,9 @@ export const demo_updateBuilderProposalMilestone = publicMutation
     if (args.durationDays !== undefined) {
       patch.durationDays = Math.round(args.durationDays);
     }
+    if (args.drawGroupIndex !== undefined) {
+      patch.drawGroupIndex = Math.max(0, Math.round(args.drawGroupIndex));
+    }
     await ctx.db.patch(milestone._id, {
       ...patch,
       updatedAt: now(),
@@ -1102,6 +1145,7 @@ export const demo_updateBuilderProposalMilestone = publicMutation
       newState: patch,
       priorState: {
         budgetCents: milestone.budgetCents,
+        drawGroupIndex: milestone.drawGroupIndex,
         durationDays: milestone.durationDays,
         name: milestone.name,
       },
@@ -1110,6 +1154,72 @@ export const demo_updateBuilderProposalMilestone = publicMutation
     });
     return {
       currentBudgetCents: currentBudgetCents(milestones),
+      ok: true,
+    };
+  })
+  .public();
+
+export const demo_updateBuilderProposalDrawGroups = publicMutation
+  .use(withMutationTiming("demo_builder_proposals.updateDrawGroups"))
+  .input({
+    assignments: v.array(
+      v.object({
+        drawGroupIndex: v.number(),
+        milestoneId: v.id("demo_builderProposalMilestones"),
+      })
+    ),
+    draftId: v.id("demo_builderProposalDrafts"),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    await getDraft(ctx, args.draftId);
+    const milestones = await getDraftMilestones(ctx, args.draftId);
+    const milestoneById = new Map<string, any>(
+      milestones.map((milestone: any) => [String(milestone._id), milestone])
+    );
+    const priorState = milestones.map((milestone: any) => ({
+      drawGroupIndex: milestone.drawGroupIndex,
+      key: milestone.key,
+    }));
+
+    for (const assignment of args.assignments) {
+      const milestone = milestoneById.get(String(assignment.milestoneId));
+      if (
+        !milestone ||
+        milestone.draftId !== args.draftId ||
+        milestone.orgKey !== ORG_KEY
+      ) {
+        throw new Error("Draw group milestone not found.");
+      }
+    }
+
+    for (const assignment of args.assignments) {
+      await ctx.db.patch(assignment.milestoneId, {
+        drawGroupIndex: Math.max(0, Math.round(assignment.drawGroupIndex)),
+        updatedAt: now(),
+      });
+    }
+
+    const refreshedMilestones = await recomputeDraftDerived(ctx, args.draftId);
+    await ctx.db.patch(args.draftId, {
+      manuallyEdited: true,
+      updatedAt: now(),
+    });
+    await appendEvent(ctx, {
+      command: "demo_updateBuilderProposalDrawGroups",
+      draftId: args.draftId,
+      entityType: "builder_proposal_draw_group_plan",
+      eventType: "BuilderProposalDrawGroupsUpdated",
+      newState: refreshedMilestones.map((milestone: any) => ({
+        drawGroupIndex: milestone.drawGroupIndex,
+        key: milestone.key,
+      })),
+      priorState,
+      requirementIds: ["REQ-06", "REQ-08", "REQ-11"],
+      validationIds: ["VAL-04"],
+    });
+    return {
+      currentBudgetCents: currentBudgetCents(refreshedMilestones),
       ok: true,
     };
   })
@@ -1210,6 +1320,7 @@ export const demo_addBuilderProposalBankItem = publicMutation
         ? Math.round((baseBudget * item.percentageBps) / 10_000)
         : 5_000_000;
     const createdAt = now();
+    const drawGroupIndex = nextExplicitDrawGroupIndex(milestones);
     const milestoneId = await ctx.db.insert("demo_builderProposalMilestones", {
       bankItemKey: item.bankItemKey,
       budgetCents,
@@ -1217,6 +1328,7 @@ export const demo_addBuilderProposalBankItem = publicMutation
       dayEnd: 0,
       dayStart: 0,
       dependencyKeys: item.dependencyKeys,
+      ...(drawGroupIndex === undefined ? {} : { drawGroupIndex }),
       draftId: args.draftId,
       durationDays: item.durationDays,
       included: true,
@@ -1270,12 +1382,14 @@ export const demo_createBuilderProposalCustomMilestone = publicMutation
     const name = args.name?.trim() || "Owner requested contingency";
     const budgetCents = Math.round(args.budgetCents ?? 2_500_000);
     const durationDays = Math.round(args.durationDays ?? 5);
+    const drawGroupIndex = nextExplicitDrawGroupIndex(milestones);
     const milestoneId = await ctx.db.insert("demo_builderProposalMilestones", {
       budgetCents,
       createdAt,
       dayEnd: 0,
       dayStart: 0,
       dependencyKeys: [],
+      ...(drawGroupIndex === undefined ? {} : { drawGroupIndex }),
       draftId: args.draftId,
       durationDays,
       included: true,

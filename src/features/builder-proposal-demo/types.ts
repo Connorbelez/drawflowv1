@@ -45,6 +45,7 @@ export type BuilderProposalMilestone = {
   dayEnd: number;
   dayStart: number;
   dependencyKeys: string[];
+  drawGroupIndex?: number;
   draftId: Id<"demo_builderProposalDrafts">;
   durationDays: number;
   included: boolean;

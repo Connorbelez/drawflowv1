@@ -185,7 +185,7 @@ test("Builder proposal setup and milestone editor expose co-pay, reorder, draw g
     .selectOption("1");
   await expect(
     page.getByTestId("builder-milestone-draw-group-permits_mobilization")
-  ).toHaveValue("1");
+  ).not.toHaveValue("");
 
   await page.getByTestId("builder-clear-recommendations").click();
   await expect(
@@ -223,6 +223,42 @@ test("Builder dashboard to new proposal demo reaches the workspace boundary with
   await page.getByTestId("builder-generate-milestones").click();
   await expect(page.getByTestId("builder-milestone-editor")).toBeVisible();
   await expect(page.getByTestId(MILESTONE_ROW_TEST_ID)).toHaveCount(10);
+  await expect(page.getByTestId("builder-cost-breakdown")).toContainText(
+    "Draw fees (8 x $500)"
+  );
+  await expect(page.getByTestId("builder-cost-breakdown")).toContainText(
+    "Daily compounding interest"
+  );
+  await expect(page.getByTestId("builder-cost-breakdown")).toContainText(
+    "Projected borrower cost"
+  );
+  await expect(page.getByTestId("builder-cost-breakdown")).toContainText(
+    "Total duration"
+  );
+  await page
+    .getByTestId("builder-milestone-draw-group-mep_rough_ins")
+    .selectOption("3");
+  await expect(
+    page.getByTestId("builder-milestone-draw-group-mep_rough_ins")
+  ).toHaveValue("3");
+  await expect(
+    page.getByTestId("builder-milestone-draw-group-framing_dried_in")
+  ).toHaveValue("3");
+  await expect(
+    page.getByTestId("builder-milestone-draw-group-envelope_weatherproofing")
+  ).toHaveValue("4");
+  await page
+    .getByTestId("builder-milestone-draw-group-mep_rough_ins")
+    .selectOption("__new_draw_group__");
+  await expect(
+    page.getByTestId("builder-milestone-draw-group-mep_rough_ins")
+  ).toHaveValue("4");
+  await expect(
+    page.getByTestId("builder-milestone-draw-group-framing_dried_in")
+  ).toHaveValue("3");
+  await expect(
+    page.getByTestId("builder-milestone-draw-group-envelope_weatherproofing")
+  ).toHaveValue("5");
   await expect(page.getByTestId("builder-roadmap-draw-date-1")).toContainText(
     ROADMAP_DAY_TEXT
   );
@@ -254,12 +290,26 @@ test("Builder dashboard to new proposal demo reaches the workspace boundary with
     .getByTestId("builder-milestone-toggle-permits_mobilization")
     .click();
 
-  await page.getByTestId("builder-add-bank-item").click();
+  await page.getByTestId("builder-insert-milestone-button").click();
+  await expect(page.getByRole("dialog")).toContainText("Insert milestone");
+  await page
+    .getByTestId("builder-bank-option-landscape_exterior_punch")
+    .click();
   await expect(
     page.getByTestId("builder-milestone-row-landscape_exterior_punch")
   ).toBeVisible();
-  await page.getByTestId("builder-add-custom-milestone").click();
+  await page.getByTestId("builder-insert-milestone-button").click();
+  await page.getByRole("tab", { name: "Custom" }).click();
+  await page
+    .getByTestId("builder-custom-milestone-name")
+    .fill("Temp weather enclosure");
+  await page.getByTestId("builder-custom-milestone-budget").fill("$18,000");
+  await page.getByTestId("builder-custom-milestone-duration").fill("6");
+  await page.getByTestId("builder-create-custom-from-dialog").click();
   await expect(page.getByTestId(CUSTOM_MILESTONE_ROW_TEST_ID)).toHaveCount(1);
+
+  await page.getByTestId("builder-add-custom-milestone").click();
+  await expect(page.getByTestId(CUSTOM_MILESTONE_ROW_TEST_ID)).toHaveCount(2);
 
   await page
     .getByTestId("builder-milestone-budget-permits_mobilization")
@@ -281,6 +331,18 @@ test("Builder dashboard to new proposal demo reaches the workspace boundary with
     .getByTestId("builder-milestone-duration-permits_mobilization")
     .fill("15");
   await page.keyboard.press("Tab");
+  await page
+    .getByTestId("builder-milestone-duration-increment-permits_mobilization")
+    .click();
+  await expect(
+    page.getByTestId("builder-milestone-duration-permits_mobilization")
+  ).toHaveValue("16");
+  await page
+    .getByTestId("builder-milestone-duration-decrement-permits_mobilization")
+    .click();
+  await expect(
+    page.getByTestId("builder-milestone-duration-permits_mobilization")
+  ).toHaveValue("15");
   await expect(page.getByTestId("builder-peak-exposure")).toContainText(
     "warning"
   );

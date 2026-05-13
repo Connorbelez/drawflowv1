@@ -1,3 +1,5 @@
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import { arrayMove } from "@dnd-kit/sortable";
 import { useNavigate } from "@tanstack/react-router";
 import {
   AlertTriangle,
@@ -19,6 +21,18 @@ import {
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { AppSidebar } from "#/components/app-sidebar.tsx";
+import {
+  Sortable,
+  SortableItem,
+  SortableItemHandle,
+} from "#/components/reui/sortable.tsx";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "#/components/ui/dialog.tsx";
 import { FileUploader } from "#/components/ui/file-uploader.tsx";
 import { Separator } from "#/components/ui/separator.tsx";
 import {
@@ -26,11 +40,18 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "#/components/ui/sidebar.tsx";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "#/components/ui/tabs.tsx";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { CinematicRoadmap } from "./CinematicRoadmap";
 import { useBuilderProposalDemo } from "./convex-builder-proposal-adapter";
 import {
   cashAwareDrawGroups,
+  currentBudgetCents,
   formatCurrency,
   formatSignedCurrency,
   parseCurrencyToCents,
@@ -44,7 +65,33 @@ import "./proposal-builder.css";
 
 const DEFAULT_BUDGET_TEXT = "$1,850,000";
 const DEFAULT_START_DATE = "2026-06-01";
+const DRAW_FEE_CENTS = 50_000;
+const INTEREST_RATE_BPS = 1200;
+const NEW_DRAW_GROUP_SELECT_VALUE = "__new_draw_group__";
 const STRIP_LEADING_DOLLAR = /^\$/;
+const BANK_ITEM_OPTIONS = [
+  {
+    bankItemKey: "landscape_exterior_punch",
+    durationDays: 14,
+    name: "Landscape and exterior punch",
+    percentageBps: 400,
+    type: "landscape_exterior",
+  },
+  {
+    bankItemKey: "solar_readiness_package",
+    durationDays: 10,
+    name: "Solar readiness package",
+    percentageBps: 250,
+    type: "utility",
+  },
+  {
+    bankItemKey: "accessibility_lift",
+    durationDays: 21,
+    name: "Accessibility lift",
+    percentageBps: 300,
+    type: "accessibility",
+  },
+];
 const TEMPLATE_THUMBNAILS: Record<string, string> = {
   multiplex_build:
     "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
@@ -459,6 +506,246 @@ function ReadinessLine({ label, value }: { label: string; value: string }) {
       <span className="pb-readiness-label">{label}</span>
       <span className="pb-readiness-value">{value}</span>
     </div>
+  );
+}
+
+function estimateDrawInterestCents({
+  daysOutstanding,
+  principalCents,
+}: {
+  daysOutstanding: number;
+  principalCents: number;
+}) {
+  if (principalCents <= 0 || daysOutstanding <= 0) {
+    return 0;
+  }
+  const annualRate = INTEREST_RATE_BPS / 10_000;
+  const interest =
+    principalCents * (Math.exp(daysOutstanding * Math.log1p(annualRate / 365)) - 1);
+  return Math.round(interest);
+}
+
+function proposalCostBreakdown(
+  milestones: BuilderProposalMilestone[],
+  borrowerCashAvailabilityCents?: number
+) {
+  const drawGroups = cashAwareDrawGroups(
+    milestones,
+    borrowerCashAvailabilityCents
+  );
+  const completionDay = milestones
+    .filter((milestone) => milestone.included)
+    .reduce((latest, milestone) => Math.max(latest, milestone.dayEnd), 0);
+  const feeEligibleGroups = drawGroups.filter(
+    (group) => group.totalBudgetCents > 0
+  );
+  const drawFeesCents = feeEligibleGroups.length * DRAW_FEE_CENTS;
+  const interestCents = feeEligibleGroups.reduce((sum, group) => {
+    const groupCompletionDay =
+      group.milestones.reduce(
+        (latest, milestone) =>
+          Math.max(latest, "dayEnd" in milestone ? milestone.dayEnd : 0),
+        0
+      ) || group.endDay || 0;
+    return (
+      sum +
+      estimateDrawInterestCents({
+        daysOutstanding: Math.max(0, completionDay - groupCompletionDay),
+        principalCents: group.totalBudgetCents,
+      })
+    );
+  }, 0);
+  const approvedProjectValueCents = currentBudgetCents(milestones);
+
+  return {
+    approvedProjectValueCents,
+    completionDay,
+    drawCount: feeEligibleGroups.length,
+    drawFeesCents,
+    interestCents,
+    projectedBorrowerCostCents:
+      approvedProjectValueCents + drawFeesCents + interestCents,
+    totalDurationDays: completionDay,
+  };
+}
+
+function InsertMilestoneDialog({
+  baseBudgetCents,
+  existingBankKeys,
+  onAddBank,
+  onCreateCustom,
+  onOpenChange,
+  open,
+}: {
+  baseBudgetCents: number;
+  existingBankKeys: Set<string>;
+  onAddBank: (bankItemKey: string) => Promise<unknown>;
+  onCreateCustom: (input: {
+    budgetCents: number;
+    durationDays: number;
+    name: string;
+  }) => Promise<unknown>;
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+}) {
+  const [customBudget, setCustomBudget] = useState("$25,000");
+  const [customDuration, setCustomDuration] = useState("5");
+  const [customName, setCustomName] = useState("Owner requested contingency");
+  const [error, setError] = useState("");
+  const [pendingKey, setPendingKey] = useState("");
+
+  async function handleAddBank(bankItemKey: string) {
+    setPendingKey(bankItemKey);
+    setError("");
+    try {
+      await onAddBank(bankItemKey);
+      onOpenChange(false);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Could not add bank item."
+      );
+    } finally {
+      setPendingKey("");
+    }
+  }
+
+  async function handleCreateCustom() {
+    const budgetCents = parseCurrencyToCents(customBudget);
+    const durationDays = Number(customDuration);
+    if (!customName.trim()) {
+      setError("Name the custom milestone.");
+      return;
+    }
+    if (!(Number.isFinite(budgetCents) && budgetCents >= 0)) {
+      setError("Enter a valid custom budget.");
+      return;
+    }
+    if (!(Number.isFinite(durationDays) && durationDays > 0)) {
+      setError("Enter a positive duration.");
+      return;
+    }
+    setPendingKey("custom");
+    setError("");
+    try {
+      await onCreateCustom({
+        budgetCents,
+        durationDays,
+        name: customName.trim(),
+      });
+      onOpenChange(false);
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not create custom milestone."
+      );
+    } finally {
+      setPendingKey("");
+    }
+  }
+
+  return (
+    <Dialog onOpenChange={onOpenChange} open={open}>
+      <DialogContent className="pb-insert-dialog">
+        <DialogHeader>
+          <DialogTitle>Insert milestone</DialogTitle>
+          <DialogDescription>
+            Add a scoped budget row without leaving the draw plan.
+          </DialogDescription>
+        </DialogHeader>
+
+        <Tabs className="pb-insert-tabs" defaultValue="bank">
+          <TabsList className="pb-insert-tabs-list">
+            <TabsTrigger value="bank">Add from bank</TabsTrigger>
+            <TabsTrigger value="custom">Custom</TabsTrigger>
+          </TabsList>
+
+          <TabsContent className="pb-insert-tab-panel" value="bank">
+            <div className="pb-bank-option-list">
+              {BANK_ITEM_OPTIONS.map((item) => {
+                const isAdded = existingBankKeys.has(item.bankItemKey);
+                const estimatedBudgetCents = Math.round(
+                  (baseBudgetCents * item.percentageBps) / 10_000
+                );
+                return (
+                  <button
+                    className="pb-bank-option"
+                    data-testid={`builder-bank-option-${item.bankItemKey}`}
+                    disabled={isAdded || pendingKey === item.bankItemKey}
+                    key={item.bankItemKey}
+                    onClick={() => void handleAddBank(item.bankItemKey)}
+                    type="button"
+                  >
+                    <span>
+                      <strong>{item.name}</strong>
+                      <small>
+                        {item.type} / {item.durationDays} days
+                      </small>
+                    </span>
+                    <span>
+                      {isAdded
+                        ? "Added"
+                        : pendingKey === item.bankItemKey
+                          ? "Adding"
+                          : formatCurrency(estimatedBudgetCents)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </TabsContent>
+
+          <TabsContent className="pb-insert-tab-panel" value="custom">
+            <div className="pb-custom-milestone-form">
+              <label>
+                <span>Name</span>
+                <input
+                  className="pb-input"
+                  data-testid="builder-custom-milestone-name"
+                  onChange={(event) => setCustomName(event.target.value)}
+                  value={customName}
+                />
+              </label>
+              <div className="pb-custom-milestone-grid">
+                <label>
+                  <span>Budget</span>
+                  <input
+                    className="pb-input"
+                    data-testid="builder-custom-milestone-budget"
+                    onChange={(event) => setCustomBudget(event.target.value)}
+                    value={customBudget}
+                  />
+                </label>
+                <label>
+                  <span>Duration</span>
+                  <input
+                    className="pb-input"
+                    data-testid="builder-custom-milestone-duration"
+                    onChange={(event) => setCustomDuration(event.target.value)}
+                    type="number"
+                    value={customDuration}
+                  />
+                </label>
+              </div>
+              <PrimaryButton
+                disabled={pendingKey === "custom"}
+                onClick={() => void handleCreateCustom()}
+                testId="builder-create-custom-from-dialog"
+              >
+                <Plus size={14} />
+                Insert custom milestone
+              </PrimaryButton>
+            </div>
+          </TabsContent>
+        </Tabs>
+
+        {error ? (
+          <div className="pb-alert-error" data-testid="builder-insert-error">
+            {error}
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -923,6 +1210,100 @@ export function BuilderNewProposalRoute({
 /*  Template & Budget Screen                                           */
 /* ------------------------------------------------------------------ */
 
+function getTemplateBudgetValidationError({
+  budgetIsValid,
+  coPayIsValid,
+  maxCashIsValid,
+  selectedTemplateKey,
+}: {
+  budgetIsValid: boolean;
+  coPayIsValid: boolean;
+  maxCashIsValid: boolean;
+  selectedTemplateKey: string;
+}) {
+  if (!selectedTemplateKey) {
+    return "Select a build type template.";
+  }
+  if (!budgetIsValid) {
+    return "Enter a positive total project budget.";
+  }
+  if (!maxCashIsValid) {
+    return "Enter a positive borrower working capital amount.";
+  }
+  if (!coPayIsValid) {
+    return "Enter a co-pay amount between $0 and the total budget.";
+  }
+  return "";
+}
+
+function initialCurrencyText(cents: number | undefined, fallback: string) {
+  return cents ? formatCurrency(cents) : fallback;
+}
+
+function TemplateCardButton({
+  isSelected,
+  onSelect,
+  template,
+}: {
+  isSelected: boolean;
+  onSelect: () => void;
+  template: BuilderProposalTemplate;
+}) {
+  const isPrimaryTemplate = template.templateKey === "single_family_full_build";
+
+  return (
+    <button
+      aria-pressed={isSelected}
+      className={cx(
+        "pb-template-card pb-template-card-media",
+        isSelected && "selected"
+      )}
+      data-ixc-ref={isPrimaryTemplate ? "UI-BUILD-TYPE-TEMPLATE" : undefined}
+      data-testid={`builder-template-card-${template.templateKey}`}
+      id={
+        isPrimaryTemplate ? "template-single-family-full-build-card" : undefined
+      }
+      key={template.templateKey}
+      onClick={onSelect}
+      type="button"
+    >
+      <img
+        alt={`${template.title} blueprint thumbnail`}
+        className={cx("pb-template-thumb", `template-${template.templateKey}`)}
+        height={88}
+        src={TEMPLATE_THUMBNAILS[template.templateKey]}
+        width={96}
+      />
+      <span className="pb-template-card-copy">
+        <strong>{template.title}</strong>
+        <small>{template.description}</small>
+      </span>
+      <span className="pb-template-radio" />
+    </button>
+  );
+}
+
+function ProposalProgressSection() {
+  return (
+    <section className="pb-proposal-progress-section">
+      <p className="pb-proposal-step-label">Step 1 of 4 - Project Setup</p>
+      <ol aria-label="Proposal steps" className="pb-proposal-progress">
+        {[
+          "Project Setup",
+          "Milestones & Budget",
+          "Schedule & Draw Groups",
+          "Review & Submit",
+        ].map((label, index) => (
+          <li className="pb-proposal-progress-step" key={label}>
+            <span className={cx(index === 0 && "active")}>{index + 1}</span>
+            <small>{label}</small>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 function TemplateBudgetScreen({
   projection,
   templates,
@@ -940,19 +1321,19 @@ function TemplateBudgetScreen({
     projection.draft.templateKey ?? defaultTemplate?.templateKey ?? ""
   );
   const [budgetText, setBudgetText] = useState(
-    projection.draft.originalBudgetCents
-      ? formatCurrency(projection.draft.originalBudgetCents)
-      : DEFAULT_BUDGET_TEXT
+    initialCurrencyText(
+      projection.draft.originalBudgetCents,
+      DEFAULT_BUDGET_TEXT
+    )
   );
   const [maxCashText, setMaxCashText] = useState(
-    projection.draft.borrowerCashAvailabilityCents
-      ? formatCurrency(projection.draft.borrowerCashAvailabilityCents)
-      : "$260,000"
+    initialCurrencyText(
+      projection.draft.borrowerCashAvailabilityCents,
+      "$260,000"
+    )
   );
   const [coPayText, setCoPayText] = useState(
-    projection.draft.borrowerCoPayCents
-      ? formatCurrency(projection.draft.borrowerCoPayCents)
-      : "$0"
+    initialCurrencyText(projection.draft.borrowerCoPayCents, "$0")
   );
   const [projectAddress, setProjectAddress] = useState(
     projection.draft.buildLocation
@@ -983,20 +1364,14 @@ function TemplateBudgetScreen({
 
   async function handleGenerate() {
     setError("");
-    if (!selectedTemplateKey) {
-      setError("Select a build type template.");
-      return;
-    }
-    if (!budgetIsValid) {
-      setError("Enter a positive total project budget.");
-      return;
-    }
-    if (!maxCashIsValid) {
-      setError("Enter a positive borrower working capital amount.");
-      return;
-    }
-    if (!coPayIsValid) {
-      setError("Enter a co-pay amount between $0 and the total budget.");
+    const validationError = getTemplateBudgetValidationError({
+      budgetIsValid,
+      coPayIsValid,
+      maxCashIsValid,
+      selectedTemplateKey,
+    });
+    if (validationError) {
+      setError(validationError);
       return;
     }
     setIsGenerating(true);
@@ -1031,22 +1406,7 @@ function TemplateBudgetScreen({
         data-testid="builder-template-screen"
         id="proposal-start"
       >
-        <section className="pb-proposal-progress-section">
-          <p className="pb-proposal-step-label">Step 1 of 4 - Project Setup</p>
-          <ol aria-label="Proposal steps" className="pb-proposal-progress">
-            {[
-              "Project Setup",
-              "Milestones & Budget",
-              "Schedule & Draw Groups",
-              "Review & Submit",
-            ].map((label, index) => (
-              <li className="pb-proposal-progress-step" key={label}>
-                <span className={cx(index === 0 && "active")}>{index + 1}</span>
-                <small>{label}</small>
-              </li>
-            ))}
-          </ol>
-        </section>
+        <ProposalProgressSection />
 
         <div className="pb-template-layout">
           <section className="pb-template-main">
@@ -1057,43 +1417,14 @@ function TemplateBudgetScreen({
               </div>
               <div className="pb-template-card-grid">
                 {visibleTemplates.map((template) => (
-                  <button
-                    aria-pressed={selectedTemplateKey === template.templateKey}
-                    className={cx(
-                      "pb-template-card pb-template-card-media",
-                      selectedTemplateKey === template.templateKey && "selected"
-                    )}
-                    data-ixc-ref={
-                      template.templateKey === "single_family_full_build"
-                        ? "UI-BUILD-TYPE-TEMPLATE"
-                        : undefined
-                    }
-                    data-testid={`builder-template-card-${template.templateKey}`}
-                    id={
-                      template.templateKey === "single_family_full_build"
-                        ? "template-single-family-full-build-card"
-                        : undefined
-                    }
+                  <TemplateCardButton
+                    isSelected={selectedTemplateKey === template.templateKey}
                     key={template.templateKey}
-                    onClick={() => setSelectedTemplateKey(template.templateKey)}
-                    type="button"
-                  >
-                    <img
-                      alt={`${template.title} blueprint thumbnail`}
-                      className={cx(
-                        "pb-template-thumb",
-                        `template-${template.templateKey}`
-                      )}
-                      height={88}
-                      src={TEMPLATE_THUMBNAILS[template.templateKey]}
-                      width={96}
-                    />
-                    <span className="pb-template-card-copy">
-                      <strong>{template.title}</strong>
-                      <small>{template.description}</small>
-                    </span>
-                    <span className="pb-template-radio" />
-                  </button>
+                    onSelect={() =>
+                      setSelectedTemplateKey(template.templateKey)
+                    }
+                    template={template}
+                  />
                 ))}
               </div>
               {hiddenCount > 0 && (
@@ -1172,8 +1503,8 @@ function TemplateBudgetScreen({
                   />
                 </div>
                 <p className="pb-field-note">
-                  Co-pay is the portion of the project budget paid out of
-                  pocket before reimbursement planning.
+                  Co-pay is the portion of the project budget paid out of pocket
+                  before reimbursement planning.
                 </p>
               </div>
             </div>
@@ -1338,19 +1669,39 @@ function MilestoneEditorScreen({
     updateMilestone,
   } = useBuilderProposalDemo(projection.draft._id);
   const [actionError, setActionError] = useState("");
-  const [draggedMilestoneId, setDraggedMilestoneId] =
-    useState<Id<"demo_builderProposalMilestones"> | null>(null);
+  const [drawGroupOverrides, setDrawGroupOverrides] = useState(
+    new Map<string, number>()
+  );
+  const [insertDialogOpen, setInsertDialogOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isGeneratingAnim, setIsGeneratingAnim] = useState(true);
+  const [optimisticMilestones, setOptimisticMilestones] = useState(
+    projection.milestones
+  );
+  const effectiveMilestones = projection.milestones.map((milestone) => {
+    const drawGroupIndex = drawGroupOverrides.get(String(milestone._id));
+    return drawGroupIndex === undefined
+      ? milestone
+      : { ...milestone, drawGroupIndex };
+  });
   const readiness = projection.readiness;
-  const firstBlockingMilestoneKey = projection.milestones.find(
+  const firstBlockingMilestoneKey = effectiveMilestones.find(
     (milestone) =>
       milestone.included &&
       (milestone.budgetCents <= 0 || milestone.durationDays <= 0)
   )?.key;
   const drawGroups = cashAwareDrawGroups(
-    projection.milestones,
+    effectiveMilestones,
     projection.draft.borrowerCashAvailabilityCents
+  );
+  const costBreakdown = proposalCostBreakdown(
+    effectiveMilestones,
+    projection.draft.borrowerCashAvailabilityCents
+  );
+  const existingBankKeys = new Set(
+    projection.milestones
+      .map((milestone) => milestone.bankItemKey)
+      .filter((bankItemKey): bankItemKey is string => Boolean(bankItemKey))
   );
   const milestoneDrawGroupIndexes = new Map<string, number>();
   for (const group of drawGroups) {
@@ -1358,6 +1709,10 @@ function MilestoneEditorScreen({
       milestoneDrawGroupIndexes.set(String(milestone._id), group.index);
     }
   }
+
+  useEffect(() => {
+    setOptimisticMilestones(effectiveMilestones);
+  }, [projection.milestones]);
 
   // Trigger cinematic animation on first mount with milestones
   useEffect(() => {
@@ -1409,6 +1764,27 @@ function MilestoneEditorScreen({
     });
   }
 
+  async function adjustDuration(
+    milestone: BuilderProposalMilestone,
+    deltaDays: number,
+    currentValue?: string
+  ) {
+    const baseDuration = Number(currentValue ?? milestone.durationDays);
+    const durationDays = Math.max(
+      1,
+      (Number.isFinite(baseDuration) ? baseDuration : milestone.durationDays) +
+        deltaDays
+    );
+    setActionError("");
+    try {
+      await updateMilestone({ durationDays, milestoneId: milestone._id });
+    } catch (caught) {
+      setActionError(
+        caught instanceof Error ? caught.message : "Duration update failed."
+      );
+    }
+  }
+
   async function updateCash(value: string) {
     const borrowerCashAvailabilityCents = parseCurrencyToCents(value);
     if (!Number.isFinite(borrowerCashAvailabilityCents)) {
@@ -1437,58 +1813,101 @@ function MilestoneEditorScreen({
     }
   }
 
-  async function reorderToIndex(
-    milestone: BuilderProposalMilestone,
-    targetIndex: number
-  ) {
-    const currentIndex = projection.milestones.findIndex(
-      (candidate) => candidate._id === milestone._id
-    );
-    if (currentIndex < 0 || currentIndex === targetIndex) {
+  function reorderFromSortable(activeIndex: number, overIndex: number) {
+    const milestone = optimisticMilestones[activeIndex];
+    if (!milestone || activeIndex === overIndex) {
       return;
     }
-    const finalIndex =
-      currentIndex < targetIndex ? Math.max(0, targetIndex - 1) : targetIndex;
     setActionError("");
-    try {
-      await reorderMilestone({
-        milestoneId: milestone._id,
-        targetIndex: finalIndex,
-      });
-    } catch (caught) {
+    setOptimisticMilestones((current) =>
+      arrayMove(current, activeIndex, overIndex)
+    );
+    reorderMilestone({
+      milestoneId: milestone._id,
+      targetIndex: overIndex,
+    }).catch((caught: unknown) => {
+      setOptimisticMilestones(projection.milestones);
       setActionError(
         caught instanceof Error ? caught.message : "Milestone reorder failed."
       );
+    });
+  }
+
+  function currentDrawGroupAssignments() {
+    const assignments = new Map<string, number>();
+    for (const group of drawGroups) {
+      for (const groupMilestone of group.milestones) {
+        assignments.set(String(groupMilestone._id), group.index);
+      }
     }
+    return assignments;
+  }
+
+  function compactDrawGroupAssignments(assignments: Map<string, number>) {
+    const usedGroupIndexes = [
+      ...new Set(
+        projection.milestones
+          .filter((candidate) => candidate.included)
+          .map((candidate) => assignments.get(String(candidate._id)))
+          .filter((index): index is number => index !== undefined)
+      ),
+    ].sort((left, right) => left - right);
+    const nextIndexByOldIndex = new Map(
+      usedGroupIndexes.map((groupIndex, index) => [groupIndex, index])
+    );
+    const compacted = new Map<string, number>();
+    for (const [milestoneId, groupIndex] of assignments) {
+      compacted.set(milestoneId, nextIndexByOldIndex.get(groupIndex) ?? 0);
+    }
+    return compacted;
+  }
+
+  function persistDrawGroupAssignments(assignments: Map<string, number>) {
+    setDrawGroupOverrides(new Map(assignments));
   }
 
   async function moveToDrawGroup(
     milestone: BuilderProposalMilestone,
-    nextGroupIndex: number
+    nextGroupIndex: number | typeof NEW_DRAW_GROUP_SELECT_VALUE
   ) {
-    const targetGroup = drawGroups[nextGroupIndex];
-    if (!targetGroup) {
+    const currentGroupIndex = milestoneDrawGroupIndexes.get(
+      String(milestone._id)
+    );
+    const currentGroup =
+      currentGroupIndex === undefined ? undefined : drawGroups[currentGroupIndex];
+    if (!currentGroup) {
       return;
     }
-    const currentIndex = projection.milestones.findIndex(
-      (candidate) => candidate._id === milestone._id
-    );
-    const lastTargetMilestone =
-      targetGroup.milestones[targetGroup.milestones.length - 1];
-    const lastTargetIndex = projection.milestones.findIndex(
-      (candidate) => candidate._id === lastTargetMilestone?._id
-    );
-    if (currentIndex < 0 || lastTargetIndex < 0) {
+    if (
+      nextGroupIndex === NEW_DRAW_GROUP_SELECT_VALUE &&
+      currentGroup.milestones.length <= 1
+    ) {
       return;
     }
-    const finalIndex =
-      currentIndex < lastTargetIndex ? lastTargetIndex : lastTargetIndex + 1;
+    if (
+      typeof nextGroupIndex === "number" &&
+      (nextGroupIndex === currentGroupIndex || !drawGroups[nextGroupIndex])
+    ) {
+      return;
+    }
+
+    const nextAssignments = currentDrawGroupAssignments();
+    if (nextGroupIndex === NEW_DRAW_GROUP_SELECT_VALUE) {
+      const insertedGroupIndex = currentGroupIndex + 1;
+      for (const [milestoneId, groupIndex] of nextAssignments) {
+        if (milestoneId === String(milestone._id)) {
+          nextAssignments.set(milestoneId, insertedGroupIndex);
+        } else if (groupIndex >= insertedGroupIndex) {
+          nextAssignments.set(milestoneId, groupIndex + 1);
+        }
+      }
+    } else {
+      nextAssignments.set(String(milestone._id), nextGroupIndex);
+    }
+
     setActionError("");
     try {
-      await reorderMilestone({
-        milestoneId: milestone._id,
-        targetIndex: finalIndex,
-      });
+      persistDrawGroupAssignments(compactDrawGroupAssignments(nextAssignments));
     } catch (caught) {
       setActionError(
         caught instanceof Error ? caught.message : "Draw group switch failed."
@@ -1555,7 +1974,7 @@ function MilestoneEditorScreen({
           borrowerCashAvailabilityCents={
             projection.draft.borrowerCashAvailabilityCents
           }
-          milestones={projection.milestones}
+          milestones={effectiveMilestones}
         />
       }
       step="milestones"
@@ -1579,234 +1998,298 @@ function MilestoneEditorScreen({
               <span>Preset</span>
             </div>
 
-            <div className="pb-milestone-rows">
+            <Sortable
+              aria-label="Milestone draw plan order"
+              className="pb-milestone-rows"
+              getItemValue={(milestone) => String(milestone._id)}
+              modifiers={[restrictToVerticalAxis]}
+              onMove={({ activeIndex, overIndex }) => {
+                reorderFromSortable(activeIndex, overIndex);
+              }}
+              strategy="vertical"
+              value={optimisticMilestones}
+            >
               {/* biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Existing milestone row rendering is outside this setup-screen layout refactor. */}
-              {projection.milestones.map((milestone) => {
+              {optimisticMilestones.map((milestone, index) => {
                 const isBlocking = milestone.key === firstBlockingMilestoneKey;
                 const currentDrawGroupIndex = milestoneDrawGroupIndexes.get(
                   String(milestone._id)
                 );
+                const currentDrawGroup =
+                  currentDrawGroupIndex === undefined
+                    ? undefined
+                    : drawGroups[currentDrawGroupIndex];
                 return (
-                  <article
-                    className={cx(
-                      "pb-milestone-row",
-                      isBlocking && "blocking",
-                      !milestone.included && "excluded"
-                    )}
-                    data-ixc-ref={
-                      milestone.key === "permits_mobilization"
-                        ? "UI-MILESTONE-ROW"
-                        : undefined
-                    }
-                    data-testid={`builder-milestone-row-${milestone.key}`}
-                    id={
-                      milestone.key === "permits_mobilization"
-                        ? "milestone-sitework-row"
-                        : undefined
-                    }
-                    key={milestone._id}
-                    draggable
-                    onDragOver={(event) => {
-                      event.preventDefault();
-                    }}
-                    onDragStart={(event) => {
-                      setDraggedMilestoneId(milestone._id);
-                      event.dataTransfer.effectAllowed = "move";
-                    }}
-                    onDragEnd={() => {
-                      setDraggedMilestoneId(null);
-                    }}
-                    onDrop={async (event) => {
-                      event.preventDefault();
-                      const dragged = projection.milestones.find(
-                        (candidate) => candidate._id === draggedMilestoneId
-                      );
-                      if (!dragged || dragged._id === milestone._id) {
-                        return;
-                      }
-                      const targetIndex = projection.milestones.findIndex(
-                        (candidate) => candidate._id === milestone._id
-                      );
-                      await reorderToIndex(dragged, targetIndex);
-                      setDraggedMilestoneId(null);
-                    }}
-                  >
-                    <button
-                      aria-label={`Drag ${milestone.name}`}
-                      className="pb-drag-handle"
-                      data-testid={`builder-milestone-drag-handle-${milestone.key}`}
-                      draggable
-                      type="button"
+                  <div className="pb-milestone-row-stack" key={milestone._id}>
+                    <SortableItem
+                      className="pb-milestone-sortable-item"
+                      value={String(milestone._id)}
                     >
-                      <GripVertical size={15} />
-                    </button>
-
-                    <button
-                      aria-label={milestone.included ? "Included" : "Excluded"}
-                      className={cx("pb-toggle", milestone.included && "on")}
-                      data-testid={`builder-milestone-toggle-${milestone.key}`}
-                      onClick={async () => {
-                        await toggleMilestone({
-                          included: !milestone.included,
-                          milestoneId: milestone._id,
-                        });
-                      }}
-                      type="button"
-                    >
-                      <span className="pb-toggle-thumb" />
-                    </button>
-
-                    <span
-                      className="pb-day-badge"
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        padding: "2px 8px",
-                        borderRadius: 999,
-                        border: "1px solid var(--pb-accent)",
-                        fontSize: 11,
-                        fontWeight: 600,
-                        color: milestone.included
-                          ? "var(--pb-accent)"
-                          : "var(--pb-fg-tertiary)",
-                        background: milestone.included
-                          ? "var(--pb-accent-subdued)"
-                          : "transparent",
-                      }}
-                    >
-                      {milestone.included ? `D${milestone.dayEnd}` : "Out"}
-                    </span>
-
-                    <div className="pb-milestone-name-cell">
-                      <input
-                        className="pb-input"
-                        defaultValue={milestone.name}
-                        key={`${milestone._id}:name:${milestone.name}`}
-                        onBlur={async (event) => {
-                          await updateMilestone({
-                            milestoneId: milestone._id,
-                            name: event.target.value,
-                          });
-                        }}
-                        style={{
-                          background: "transparent",
-                          border: "1px solid transparent",
-                          padding: "4px 8px",
-                          fontWeight: 600,
-                          minWidth: 0,
-                        }}
-                      />
-                      <p
-                        style={{
-                          fontSize: 11,
-                          color: "var(--pb-fg-tertiary)",
-                          marginTop: 2,
-                          paddingLeft: 8,
-                        }}
-                      >
-                        {milestone.source} · {milestone.type}
-                      </p>
-                    </div>
-
-                    <label className="pb-draw-group-picker">
-                      <span>Draw group</span>
-                      <select
-                        aria-label={`Draw group for ${milestone.name}`}
-                        data-testid={`builder-milestone-draw-group-${milestone.key}`}
-                        disabled={!milestone.included || drawGroups.length <= 1}
-                        onChange={async (event) => {
-                          await moveToDrawGroup(
-                            milestone,
-                            Number(event.currentTarget.value)
-                          );
-                        }}
-                        value={
-                          currentDrawGroupIndex === undefined
-                            ? ""
-                            : String(currentDrawGroupIndex)
+                      <article
+                        className={cx(
+                          "pb-milestone-row",
+                          isBlocking && "blocking",
+                          !milestone.included && "excluded"
+                        )}
+                        data-ixc-ref={
+                          milestone.key === "permits_mobilization"
+                            ? "UI-MILESTONE-ROW"
+                            : undefined
+                        }
+                        data-testid={`builder-milestone-row-${milestone.key}`}
+                        id={
+                          milestone.key === "permits_mobilization"
+                            ? "milestone-sitework-row"
+                            : undefined
                         }
                       >
-                        {currentDrawGroupIndex === undefined ? (
-                          <option value="">Out</option>
-                        ) : null}
-                        {drawGroups.map((group) => (
-                          <option key={group.index} value={String(group.index)}>
-                            Draw {group.index + 1}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                      <SortableItemHandle
+                        aria-label={`Drag ${milestone.name}`}
+                        className="pb-drag-handle"
+                        data-testid={`builder-milestone-drag-handle-${milestone.key}`}
+                        render={<button type="button" />}
+                      >
+                        <GripVertical size={15} />
+                      </SortableItemHandle>
 
-                    <div className="pb-budget-stepper">
                       <button
-                        aria-label={`Subtract $1,000 from ${milestone.name} budget`}
-                        className="pb-budget-stepper-button"
-                        data-testid={`builder-milestone-budget-decrement-${milestone.key}`}
-                        disabled={milestone.budgetCents <= 0}
-                        onClick={() => {
-                          adjustBudget(milestone, -100_000);
+                        aria-label={
+                          milestone.included ? "Included" : "Excluded"
+                        }
+                        className={cx("pb-toggle", milestone.included && "on")}
+                        data-testid={`builder-milestone-toggle-${milestone.key}`}
+                        onClick={async () => {
+                          await toggleMilestone({
+                            included: !milestone.included,
+                            milestoneId: milestone._id,
+                          });
                         }}
                         type="button"
                       >
-                        <Minus size={12} />
+                        <span className="pb-toggle-thumb" />
                       </button>
-                      <input
-                        className="pb-budget-input pb-input"
-                        data-builder-blocking={isBlocking || undefined}
-                        data-testid={`builder-milestone-budget-${milestone.key}`}
-                        defaultValue={formatCurrency(milestone.budgetCents)}
-                        key={`${milestone._id}:budget:${milestone.budgetCents}`}
-                        onBlur={async (event) => {
-                          await updateBudget(milestone, event.target.value);
+
+                      <span
+                        className="pb-day-badge"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          padding: "2px 8px",
+                          borderRadius: 999,
+                          border: "1px solid var(--pb-accent)",
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: milestone.included
+                            ? "var(--pb-accent)"
+                            : "var(--pb-fg-tertiary)",
+                          background: milestone.included
+                            ? "var(--pb-accent-subdued)"
+                            : "transparent",
                         }}
-                      />
-                      <button
-                        aria-label={`Add $1,000 to ${milestone.name} budget`}
-                        className="pb-budget-stepper-button"
-                        data-testid={`builder-milestone-budget-increment-${milestone.key}`}
-                        onClick={() => {
-                          adjustBudget(milestone, 100_000);
-                        }}
-                        type="button"
                       >
-                        <Plus size={12} />
-                      </button>
-                    </div>
+                        {milestone.included ? `D${milestone.dayEnd}` : "Out"}
+                      </span>
 
-                    <input
-                      className="pb-input"
-                      data-builder-blocking={
-                        isBlocking && milestone.durationDays <= 0
-                          ? true
-                          : undefined
-                      }
-                      data-testid={`builder-milestone-duration-${milestone.key}`}
-                      defaultValue={String(milestone.durationDays)}
-                      key={`${milestone._id}:duration:${milestone.durationDays}`}
-                      onBlur={async (event) => {
-                        await updateDuration(milestone, event.target.value);
-                      }}
-                      style={{ fontWeight: 600, fontSize: 13 }}
-                      type="number"
-                    />
+                      <div className="pb-milestone-name-cell">
+                        <input
+                          className="pb-input"
+                          defaultValue={milestone.name}
+                          key={`${milestone._id}:name:${milestone.name}`}
+                          onBlur={async (event) => {
+                            await updateMilestone({
+                              milestoneId: milestone._id,
+                              name: event.target.value,
+                            });
+                          }}
+                          style={{
+                            background: "transparent",
+                            border: "1px solid transparent",
+                            padding: "4px 8px",
+                            fontWeight: 600,
+                            minWidth: 0,
+                          }}
+                        />
+                        <p
+                          style={{
+                            fontSize: 11,
+                            color: "var(--pb-fg-tertiary)",
+                            marginTop: 2,
+                            paddingLeft: 8,
+                          }}
+                        >
+                          {milestone.source} · {milestone.type}
+                        </p>
+                      </div>
 
-                    <span
-                      className="pb-preset-value"
-                      style={{
-                        fontSize: 12,
-                        fontWeight: 600,
-                        color: "var(--pb-fg-tertiary)",
-                      }}
-                    >
-                      {milestone.percentageBps
-                        ? `${(milestone.percentageBps / 100).toFixed(0)}%`
-                        : "custom"}
-                    </span>
-                  </article>
+                      <label className="pb-draw-group-picker">
+                        <span>Draw group</span>
+                        <select
+                          aria-label={`Draw group for ${milestone.name}`}
+                          data-testid={`builder-milestone-draw-group-${milestone.key}`}
+                          disabled={!milestone.included}
+                          onChange={async (event) => {
+                            const nextValue = event.currentTarget.value;
+                            await moveToDrawGroup(
+                              milestone,
+                              nextValue === NEW_DRAW_GROUP_SELECT_VALUE
+                                ? NEW_DRAW_GROUP_SELECT_VALUE
+                                : Number(nextValue)
+                            );
+                          }}
+                          value={
+                            currentDrawGroupIndex === undefined
+                              ? ""
+                              : String(currentDrawGroupIndex)
+                          }
+                        >
+                          {currentDrawGroupIndex === undefined ? (
+                            <option value="">Out</option>
+                          ) : null}
+                          {drawGroups.map((group) => (
+                            <option
+                              key={group.index}
+                              value={String(group.index)}
+                            >
+                              Draw {group.index + 1}
+                            </option>
+                          ))}
+                          {currentDrawGroup &&
+                          currentDrawGroup.milestones.length > 1 ? (
+                            <option value={NEW_DRAW_GROUP_SELECT_VALUE}>
+                              Add to new draw group
+                            </option>
+                          ) : null}
+                        </select>
+                      </label>
+
+                      <label className="pb-row-field pb-row-field-amount">
+                        <span>Amount</span>
+                        <div className="pb-budget-stepper">
+                          <button
+                            aria-label={`Subtract $1,000 from ${milestone.name} budget`}
+                            className="pb-budget-stepper-button"
+                            data-testid={`builder-milestone-budget-decrement-${milestone.key}`}
+                            disabled={milestone.budgetCents <= 0}
+                            onClick={() => {
+                              adjustBudget(milestone, -100_000);
+                            }}
+                            type="button"
+                          >
+                            <Minus size={12} />
+                          </button>
+                          <input
+                            className="pb-budget-input pb-input"
+                            data-builder-blocking={isBlocking || undefined}
+                            data-testid={`builder-milestone-budget-${milestone.key}`}
+                            defaultValue={formatCurrency(milestone.budgetCents)}
+                            key={`${milestone._id}:budget:${milestone.budgetCents}`}
+                            onBlur={async (event) => {
+                              await updateBudget(milestone, event.target.value);
+                            }}
+                          />
+                          <button
+                            aria-label={`Add $1,000 to ${milestone.name} budget`}
+                            className="pb-budget-stepper-button"
+                            data-testid={`builder-milestone-budget-increment-${milestone.key}`}
+                            onClick={() => {
+                              adjustBudget(milestone, 100_000);
+                            }}
+                            type="button"
+                          >
+                            <Plus size={12} />
+                          </button>
+                        </div>
+                      </label>
+
+                      <label className="pb-row-field pb-row-field-days">
+                        <span>Days</span>
+                        <div className="pb-duration-stepper">
+                          <button
+                            aria-label={`Subtract 1 day from ${milestone.name} duration`}
+                            className="pb-budget-stepper-button"
+                            data-testid={`builder-milestone-duration-decrement-${milestone.key}`}
+                            disabled={milestone.durationDays <= 1}
+                            onClick={(event) => {
+                              const input =
+                                event.currentTarget.parentElement?.querySelector<HTMLInputElement>(
+                                  "input"
+                                );
+                              adjustDuration(milestone, -1, input?.value);
+                            }}
+                            type="button"
+                          >
+                            <Minus size={12} />
+                          </button>
+                          <input
+                            className="pb-duration-input pb-input"
+                            data-builder-blocking={
+                              isBlocking && milestone.durationDays <= 0
+                                ? true
+                                : undefined
+                            }
+                            data-testid={`builder-milestone-duration-${milestone.key}`}
+                            defaultValue={String(milestone.durationDays)}
+                            key={`${milestone._id}:duration:${milestone.durationDays}`}
+                            onBlur={async (event) => {
+                              await updateDuration(
+                                milestone,
+                                event.target.value
+                              );
+                            }}
+                            type="number"
+                          />
+                          <button
+                            aria-label={`Add 1 day to ${milestone.name} duration`}
+                            className="pb-budget-stepper-button"
+                            data-testid={`builder-milestone-duration-increment-${milestone.key}`}
+                            onClick={(event) => {
+                              const input =
+                                event.currentTarget.parentElement?.querySelector<HTMLInputElement>(
+                                  "input"
+                                );
+                              adjustDuration(milestone, 1, input?.value);
+                            }}
+                            type="button"
+                          >
+                            <Plus size={12} />
+                          </button>
+                        </div>
+                      </label>
+
+                      <span
+                        className="pb-preset-value"
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 600,
+                          color: "var(--pb-fg-tertiary)",
+                        }}
+                      >
+                        {milestone.percentageBps
+                          ? `${(milestone.percentageBps / 100).toFixed(0)}%`
+                          : "custom"}
+                      </span>
+                      </article>
+                    </SortableItem>
+                    {index < optimisticMilestones.length - 1 ? (
+                      <div className="pb-insert-between-row">
+                        <button
+                          aria-label={`Insert milestone after ${milestone.name}`}
+                          className="pb-insert-milestone-button"
+                          data-testid={
+                            index === 0
+                              ? "builder-insert-milestone-button"
+                              : `builder-insert-milestone-button-${milestone.key}`
+                          }
+                          onClick={() => setInsertDialogOpen(true)}
+                          type="button"
+                        />
+                      </div>
+                    ) : null}
+                  </div>
                 );
               })}
-            </div>
+            </Sortable>
           </div>
         </div>
 
@@ -1847,6 +2330,40 @@ function MilestoneEditorScreen({
             label="Included milestones"
             value={`${readiness.includedCount} / ${projection.milestones.length}`}
           />
+
+          <section
+            className="pb-cost-breakdown"
+            data-testid="builder-cost-breakdown"
+          >
+            <div className="pb-cost-breakdown-header">
+              <span>Total cost breakdown</span>
+              <strong>D{costBreakdown.completionDay}</strong>
+            </div>
+            <ReadinessLine
+              label="Approved project value"
+              value={formatCurrency(costBreakdown.approvedProjectValueCents)}
+            />
+            <ReadinessLine
+              label={`Draw fees (${costBreakdown.drawCount} x $500)`}
+              value={formatCurrency(costBreakdown.drawFeesCents)}
+            />
+            <ReadinessLine
+              label="Daily compounding interest"
+              value={formatCurrency(costBreakdown.interestCents)}
+            />
+            <ReadinessLine
+              label="Projected borrower cost"
+              value={formatCurrency(costBreakdown.projectedBorrowerCostCents)}
+            />
+            <ReadinessLine
+              label="Total duration"
+              value={`${costBreakdown.totalDurationDays} days`}
+            />
+            <p>
+              12.00% annual nominal, Actual/365, estimated through completion.
+              Fees are not capitalized.
+            </p>
+          </section>
 
           <div>
             <label className="pb-label" htmlFor="cash-availability-input">
@@ -1979,6 +2496,22 @@ function MilestoneEditorScreen({
             <ArrowRight size={14} />
           </PrimaryButton>
         </aside>
+
+        <InsertMilestoneDialog
+          baseBudgetCents={projection.draft.originalBudgetCents ?? 0}
+          existingBankKeys={existingBankKeys}
+          onAddBank={(bankItemKey) =>
+            addBankItem({ bankItemKey, draftId: projection.draft._id })
+          }
+          onCreateCustom={(input) =>
+            createCustomMilestone({
+              ...input,
+              draftId: projection.draft._id,
+            })
+          }
+          onOpenChange={setInsertDialogOpen}
+          open={insertDialogOpen}
+        />
       </div>
     </ProposalBuilderShell>
   );

@@ -4,6 +4,7 @@ export interface AllocationInput {
 
 export interface ExposureMilestone {
   budgetCents: number;
+  drawGroupIndex?: number;
   included: boolean;
 }
 
@@ -122,6 +123,44 @@ export function cashAwareDrawGroups<T extends ExposureMilestone>(
 
   if (included.length === 0) {
     return [];
+  }
+  if (
+    included.every(
+      (milestone) =>
+        typeof milestone.drawGroupIndex === "number" &&
+        Number.isFinite(milestone.drawGroupIndex)
+    )
+  ) {
+    const explicitGroups = new Map<number, T[]>();
+    for (const milestone of included) {
+      const groupIndex = Math.max(0, Math.round(milestone.drawGroupIndex ?? 0));
+      explicitGroups.set(groupIndex, [
+        ...(explicitGroups.get(groupIndex) ?? []),
+        milestone,
+      ]);
+    }
+
+    return [...explicitGroups.entries()]
+      .sort(([left], [right]) => left - right)
+      .map(([, groupMilestones], compactIndex) => {
+        const first = groupMilestones[0];
+        const last = groupMilestones.at(-1) ?? first;
+        const totalBudgetCents = groupMilestones.reduce(
+          (sum, milestone) => sum + milestone.budgetCents,
+          0
+        );
+        return {
+          endDay: last && "dayEnd" in last ? Number(last.dayEnd) : undefined,
+          endRow: included.indexOf(last),
+          index: compactIndex,
+          isOverCashLimit: cashLimit > 0 && totalBudgetCents > cashLimit,
+          milestones: groupMilestones,
+          startDay:
+            first && "dayStart" in first ? Number(first.dayStart) : undefined,
+          startRow: included.indexOf(first),
+          totalBudgetCents,
+        };
+      });
   }
   if (cashLimit <= 0) {
     return fallbackPreviewGroups(included);

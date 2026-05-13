@@ -287,6 +287,7 @@ export default defineSchema({
     dayEnd: v.number(),
     dayStart: v.number(),
     dependencyKeys: v.array(v.string()),
+    drawGroupIndex: v.optional(v.number()),
     draftId: v.id("demo_builderProposalDrafts"),
     durationDays: v.number(),
     included: v.boolean(),
