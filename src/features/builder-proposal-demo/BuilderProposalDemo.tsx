@@ -2283,7 +2283,9 @@ function MilestoneEditorScreen({
                           }
                           onClick={() => setInsertDialogOpen(true)}
                           type="button"
-                        />
+                        >
+                          <span aria-hidden="true">+</span>
+                        </button>
                       </div>
                     ) : null}
                   </div>

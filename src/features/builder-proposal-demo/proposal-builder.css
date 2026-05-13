@@ -217,8 +217,8 @@ body:has(.pb-new-proposal-app) > footer {
   border: 0;
   border-radius: 0;
   background: var(--pb-accent);
-  clip-path: polygon(0 50%, 9px 0, 100% 0, 100% 100%, 9px 100%);
-  color: transparent;
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 50%, calc(100% - 9px) 100%, 0 100%);
+  color: var(--pb-bg);
   box-shadow:
     0 0 0 3px var(--pb-elevated),
     0 6px 14px color-mix(in oklch, var(--pb-accent) 20%, transparent);
@@ -226,6 +226,14 @@ body:has(.pb-new-proposal-app) > footer {
   transition:
     background 0.16s var(--pb-ease-fast),
     transform 0.16s var(--pb-ease-fast);
+}
+
+.pb-insert-milestone-button span {
+  display: block;
+  margin-right: 4px;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1;
 }
 
 .pb-insert-milestone-button:hover,
@@ -240,8 +248,8 @@ body:has(.pb-new-proposal-app) > footer {
   z-index: 8;
   display: flex;
   justify-content: flex-start;
-  height: 14px;
-  margin: -3px 0;
+  height: 16px;
+  margin: -2px 0;
   pointer-events: none;
 }
 
@@ -253,12 +261,12 @@ body:has(.pb-new-proposal-app) > footer {
 
 .pb-insert-between-row .pb-insert-milestone-button {
   pointer-events: auto;
-  transform: translate(6px, -2px);
+  transform: translate(6px, -1px);
 }
 
 .pb-insert-between-row .pb-insert-milestone-button:hover,
 .pb-insert-between-row .pb-insert-milestone-button:focus-visible {
-  transform: translate(6px, -3px);
+  transform: translate(6px, -2px);
 }
 
 .pb-step-line.completed {
