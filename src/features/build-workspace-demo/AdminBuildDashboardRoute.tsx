@@ -36,6 +36,8 @@ import {
 } from "#/components/ui/table.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { cn } from "#/lib/utils.ts";
+import { BuildWorkspaceDemo } from "./BuildWorkspaceDemo";
+import { useConvexBuildWorkspace } from "./convex-workspace-adapter";
 import type {
   BuildWorkspaceAdapter,
   DrawGroup,
@@ -46,12 +48,7 @@ import type {
   ReviewReportSummary,
   SiteVisitSummary,
 } from "./types";
-import { useConvexBuildWorkspace } from "./convex-workspace-adapter";
-import {
-  BuildWorkspaceProvider,
-  useBuildWorkspace,
-} from "./workspace-adapter";
-import { BuildWorkspaceDemo } from "./BuildWorkspaceDemo";
+import { BuildWorkspaceProvider, useBuildWorkspace } from "./workspace-adapter";
 
 type AdminAction =
   | "approveEvidence"
@@ -315,7 +312,9 @@ export function buildAdminReviewViewModel(
   for (const group of workspace.drawGroups) {
     milestonesByDrawGroup.set(
       group.id,
-      workspace.milestones.filter((milestone) => milestone.drawGroupId === group.id)
+      workspace.milestones.filter(
+        (milestone) => milestone.drawGroupId === group.id
+      )
     );
   }
 
@@ -334,7 +333,8 @@ export function buildAdminReviewViewModel(
     ? [
         {
           canApprove:
-            hasBuilderEvidence && selectedMilestone.evidenceStatus !== "accepted",
+            hasBuilderEvidence &&
+            selectedMilestone.evidenceStatus !== "accepted",
           countLabel:
             selectedMilestone.evidenceFiles.length > 3
               ? `+${selectedMilestone.evidenceFiles.length - 3}`
@@ -500,8 +500,9 @@ function AdminBuildDashboard() {
     [workspace]
   );
   const selectedEvidencePackage =
-    viewModel.evidencePackages.find((row) => row.id === selectedEvidencePackageId) ??
-    null;
+    viewModel.evidencePackages.find(
+      (row) => row.id === selectedEvidencePackageId
+    ) ?? null;
 
   useEffect(() => {
     const selectedDrawGroupId = viewModel.selectedDrawGroup?.id;
@@ -519,7 +520,9 @@ function AdminBuildDashboard() {
   }, [viewModel.selectedDrawGroup?.id]);
 
   if (workspace.isLoading) {
-    return <AdminDashboardShell>Loading active workspace...</AdminDashboardShell>;
+    return (
+      <AdminDashboardShell>Loading active workspace...</AdminDashboardShell>
+    );
   }
 
   if (workspace.milestones.length === 0) {
@@ -643,12 +646,13 @@ function AdminBuildDashboard() {
     if (selectedMilestone.siteVisits.length === 0) {
       setIsSiteVisitMutating(true);
       try {
-        await workspace.requestSiteVisit(selectedMilestone.id, "Started from admin review.");
+        await workspace.requestSiteVisit(
+          selectedMilestone.id,
+          "Started from admin review."
+        );
       } catch (error) {
         setSiteVisitError(
-          error instanceof Error
-            ? error.message
-            : "Unable to start site visit."
+          error instanceof Error ? error.message : "Unable to start site visit."
         );
       } finally {
         setIsSiteVisitMutating(false);
@@ -684,8 +688,8 @@ function AdminBuildDashboard() {
   return (
     <main
       className="fixed inset-x-0 top-16 bottom-0 grid grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden bg-bg-base text-foreground"
-      data-testid="admin-build-dashboard-shell"
       data-ixc-ref="SCREEN-ADMIN-COMMAND-CENTER"
+      data-testid="admin-build-dashboard-shell"
     >
       <AdminDashboardTopbar />
       <AdminDashboardTabs activeTab={activeTab} onTabChange={setActiveTab} />
@@ -759,7 +763,9 @@ function AdminBuildDashboard() {
       >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{pendingAction ? actionLabel(pendingAction) : "Decision"}</DialogTitle>
+            <DialogTitle>
+              {pendingAction ? actionLabel(pendingAction) : "Decision"}
+            </DialogTitle>
           </DialogHeader>
           <div className="grid gap-3">
             <p className="text-muted-foreground text-xs">
@@ -964,7 +970,9 @@ function DrawGroupRail({
         )}
         <Button
           aria-expanded={!collapsed}
-          aria-label={collapsed ? "Expand draw group rail" : "Collapse draw group rail"}
+          aria-label={
+            collapsed ? "Expand draw group rail" : "Collapse draw group rail"
+          }
           data-testid="admin-draw-rail-toggle"
           onClick={onToggleRail}
           size="icon"
@@ -1000,7 +1008,10 @@ function DrawGroupRail({
                 onClick={() => onDrawSelect(drawGroup)}
                 type="button"
               >
-                <RailCircle active={isSelected} done={drawGroup.status === "released"}>
+                <RailCircle
+                  active={isSelected}
+                  done={drawGroup.status === "released"}
+                >
                   {drawGroup.status === "released" ? <Check /> : drawIndex + 1}
                 </RailCircle>
                 <span className="min-w-0">
@@ -1012,7 +1023,8 @@ function DrawGroupRail({
                         {drawGroup.label}
                       </span>
                       <span className="text-muted-foreground text-xs">
-                        {money(drawGroup.totalExposure)} of {money(drawGroup.amount)}
+                        {money(drawGroup.totalExposure)} of{" "}
+                        {money(drawGroup.amount)}
                       </span>
                     </>
                   )}
@@ -1022,12 +1034,17 @@ function DrawGroupRail({
                     {drawStatusLabel[drawGroup.status]}
                   </StatusBadge>
                 )}
-                {collapsed ? null : isExpanded ? <ChevronDown /> : <ChevronRight />}
+                {collapsed ? null : isExpanded ? (
+                  <ChevronDown />
+                ) : (
+                  <ChevronRight />
+                )}
               </button>
               {isExpanded && !collapsed ? (
                 <div>
                   <div className="border-b px-4 py-3 font-semibold text-sm">
-                    Milestones ({completedCount} of {milestones.length} complete)
+                    Milestones ({completedCount} of {milestones.length}{" "}
+                    complete)
                   </div>
                   {milestones.map((milestone, milestoneIndex) => (
                     <button
@@ -1065,14 +1082,16 @@ function DrawGroupRail({
             </section>
           );
         })}
-        {collapsed ? null : <button
-          className="grid w-full grid-cols-[2rem_minmax(0,1fr)_auto_1rem] items-center gap-3 px-4 py-5 text-left text-primary"
-          data-ixc-ref="UI-ADD-DRAW-GROUP"
-          type="button"
-        >
-          <Plus />
-          <span className="font-semibold">Add Draw Group</span>
-        </button>}
+        {collapsed ? null : (
+          <button
+            className="grid w-full grid-cols-[2rem_minmax(0,1fr)_auto_1rem] items-center gap-3 px-4 py-5 text-left text-primary"
+            data-ixc-ref="UI-ADD-DRAW-GROUP"
+            type="button"
+          >
+            <Plus />
+            <span className="font-semibold">Add Draw Group</span>
+          </button>
+        )}
       </div>
     </aside>
   );
@@ -1098,7 +1117,7 @@ function ReviewCenterPane({
   const milestone = viewModel.selectedMilestone;
   const drawGroup = viewModel.selectedDrawGroup;
   const drawGroupMilestones = drawGroup
-    ? viewModel.milestonesByDrawGroup.get(drawGroup.id) ?? []
+    ? (viewModel.milestonesByDrawGroup.get(drawGroup.id) ?? [])
     : [];
   const isDrawGroupScope = reviewScope === "drawGroup";
 
@@ -1564,8 +1583,8 @@ function EvidencePackageReviewDialog({
         <DialogHeader>
           <DialogTitle className="text-lg">Evidence package review</DialogTitle>
           <DialogDescription>
-            Inspect builder evidence, record lender review notes, and approve
-            or request more information from this package.
+            Inspect builder evidence, record lender review notes, and approve or
+            request more information from this package.
           </DialogDescription>
         </DialogHeader>
         {packageRow ? (
@@ -1672,7 +1691,11 @@ function EvidencePackageReviewDialog({
           </div>
         ) : null}
         <DialogFooter className="border-t pt-3">
-          <Button disabled={pending} onClick={() => onOpenChange(false)} variant="outline">
+          <Button
+            disabled={pending}
+            onClick={() => onOpenChange(false)}
+            variant="outline"
+          >
             Close
           </Button>
           <Button
@@ -1810,9 +1833,12 @@ function MilestoneDetailCard({
       ? "Behind schedule"
       : "On schedule";
   const costIncurred =
-    milestone.actualCost || Math.round((milestone.estimatedCost * milestone.progress) / 100);
+    milestone.actualCost ||
+    Math.round((milestone.estimatedCost * milestone.progress) / 100);
   const drawBudgetShare =
-    drawGroup && drawGroup.amount > 0 ? milestone.estimatedCost / drawGroup.amount : 0;
+    drawGroup && drawGroup.amount > 0
+      ? milestone.estimatedCost / drawGroup.amount
+      : 0;
 
   return (
     <section
@@ -1821,13 +1847,19 @@ function MilestoneDetailCard({
     >
       <h3 className="mb-3 font-semibold">Milestone Details</h3>
       <div className="grid grid-cols-2 gap-3 text-sm">
-        <DecisionMetric label="Date started" value={dateOnly(milestone.startAt)} />
+        <DecisionMetric
+          label="Date started"
+          value={dateOnly(milestone.startAt)}
+        />
         <DecisionMetric
           label="Date completed"
           value={completedAt ? dateOnly(completedAt) : "Not complete"}
         />
         <DecisionMetric label="Schedule" value={scheduleLabel} />
-        <DecisionMetric label="Milestone budget" value={money(milestone.estimatedCost)} />
+        <DecisionMetric
+          label="Milestone budget"
+          value={money(milestone.estimatedCost)}
+        />
         <DecisionMetric label="Cost incurred" value={money(costIncurred)} />
         <DecisionMetric
           label="% of draw budget"
@@ -1841,7 +1873,7 @@ function MilestoneDetailCard({
 function DecisionMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0 rounded-md border bg-background p-3">
-      <div className="text-muted-foreground text-[0.7rem] uppercase">
+      <div className="text-[0.7rem] text-muted-foreground uppercase">
         {label}
       </div>
       <div className="mt-1 break-words font-semibold leading-snug">{value}</div>
@@ -1961,7 +1993,9 @@ function SiteVisitSection({
           ))}
         </div>
       ) : (
-        <EmptyRow>No site visit has been requested for this milestone.</EmptyRow>
+        <EmptyRow>
+          No site visit has been requested for this milestone.
+        </EmptyRow>
       )}
     </section>
   );
@@ -1988,7 +2022,9 @@ function ReviewReportSection({ rows }: { rows: ReviewReportSummary[] }) {
               <span className="text-sm">
                 {row.notes || `${titleCase(row.outcome)} recorded.`}
               </span>
-              <StatusBadge status={row.outcome}>{titleCase(row.outcome)}</StatusBadge>
+              <StatusBadge status={row.outcome}>
+                {titleCase(row.outcome)}
+              </StatusBadge>
             </div>
           ))}
         </div>

@@ -15,6 +15,8 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as DemoWorkosRouteImport } from './routes/demo/workos'
 import { Route as DemoTanstackQueryRouteImport } from './routes/demo/tanstack-query'
 import { Route as DemoConvexRouteImport } from './routes/demo/convex'
+import { Route as DemoTimelineIndexRouteImport } from './routes/demo/timeline/index'
+import { Route as DemoEvilChartsIndexRouteImport } from './routes/demo/evil-charts/index'
 import { Route as DemoDrawflowIndexRouteImport } from './routes/demo/drawflow/index'
 import { Route as DemoDrawflowProposalRouteImport } from './routes/demo/drawflow/proposal'
 import { Route as DemoDrawflowNewProposalRouteImport } from './routes/demo/drawflow/new-proposal'
@@ -52,6 +54,16 @@ const DemoTanstackQueryRoute = DemoTanstackQueryRouteImport.update({
 const DemoConvexRoute = DemoConvexRouteImport.update({
   id: '/demo/convex',
   path: '/demo/convex',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DemoTimelineIndexRoute = DemoTimelineIndexRouteImport.update({
+  id: '/demo/timeline/',
+  path: '/demo/timeline/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DemoEvilChartsIndexRoute = DemoEvilChartsIndexRouteImport.update({
+  id: '/demo/evil-charts/',
+  path: '/demo/evil-charts/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DemoDrawflowIndexRoute = DemoDrawflowIndexRouteImport.update({
@@ -112,6 +124,8 @@ export interface FileRoutesByFullPath {
   '/demo/drawflow/new-proposal': typeof DemoDrawflowNewProposalRoute
   '/demo/drawflow/proposal': typeof DemoDrawflowProposalRoute
   '/demo/drawflow/': typeof DemoDrawflowIndexRoute
+  '/demo/evil-charts/': typeof DemoEvilChartsIndexRoute
+  '/demo/timeline/': typeof DemoTimelineIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -128,6 +142,8 @@ export interface FileRoutesByTo {
   '/demo/drawflow/new-proposal': typeof DemoDrawflowNewProposalRoute
   '/demo/drawflow/proposal': typeof DemoDrawflowProposalRoute
   '/demo/drawflow': typeof DemoDrawflowIndexRoute
+  '/demo/evil-charts': typeof DemoEvilChartsIndexRoute
+  '/demo/timeline': typeof DemoTimelineIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -145,6 +161,8 @@ export interface FileRoutesById {
   '/demo/drawflow/new-proposal': typeof DemoDrawflowNewProposalRoute
   '/demo/drawflow/proposal': typeof DemoDrawflowProposalRoute
   '/demo/drawflow/': typeof DemoDrawflowIndexRoute
+  '/demo/evil-charts/': typeof DemoEvilChartsIndexRoute
+  '/demo/timeline/': typeof DemoTimelineIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -163,6 +181,8 @@ export interface FileRouteTypes {
     | '/demo/drawflow/new-proposal'
     | '/demo/drawflow/proposal'
     | '/demo/drawflow/'
+    | '/demo/evil-charts/'
+    | '/demo/timeline/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -179,6 +199,8 @@ export interface FileRouteTypes {
     | '/demo/drawflow/new-proposal'
     | '/demo/drawflow/proposal'
     | '/demo/drawflow'
+    | '/demo/evil-charts'
+    | '/demo/timeline'
   id:
     | '__root__'
     | '/'
@@ -195,6 +217,8 @@ export interface FileRouteTypes {
     | '/demo/drawflow/new-proposal'
     | '/demo/drawflow/proposal'
     | '/demo/drawflow/'
+    | '/demo/evil-charts/'
+    | '/demo/timeline/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -212,6 +236,8 @@ export interface RootRouteChildren {
   DemoDrawflowNewProposalRoute: typeof DemoDrawflowNewProposalRoute
   DemoDrawflowProposalRoute: typeof DemoDrawflowProposalRoute
   DemoDrawflowIndexRoute: typeof DemoDrawflowIndexRoute
+  DemoEvilChartsIndexRoute: typeof DemoEvilChartsIndexRoute
+  DemoTimelineIndexRoute: typeof DemoTimelineIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -256,6 +282,20 @@ declare module '@tanstack/react-router' {
       path: '/demo/convex'
       fullPath: '/demo/convex'
       preLoaderRoute: typeof DemoConvexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/demo/timeline/': {
+      id: '/demo/timeline/'
+      path: '/demo/timeline'
+      fullPath: '/demo/timeline/'
+      preLoaderRoute: typeof DemoTimelineIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/demo/evil-charts/': {
+      id: '/demo/evil-charts/'
+      path: '/demo/evil-charts'
+      fullPath: '/demo/evil-charts/'
+      preLoaderRoute: typeof DemoEvilChartsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/demo/drawflow/': {
@@ -332,6 +372,8 @@ const rootRouteChildren: RootRouteChildren = {
   DemoDrawflowNewProposalRoute: DemoDrawflowNewProposalRoute,
   DemoDrawflowProposalRoute: DemoDrawflowProposalRoute,
   DemoDrawflowIndexRoute: DemoDrawflowIndexRoute,
+  DemoEvilChartsIndexRoute: DemoEvilChartsIndexRoute,
+  DemoTimelineIndexRoute: DemoTimelineIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -1632,9 +1632,7 @@ function FinancialControls({
     if (!selectedMilestone) {
       return;
     }
-    const normalizedAmount = Number(
-      expenseAmount.replace(/[$,\s]/g, "")
-    );
+    const normalizedAmount = Number(expenseAmount.replace(/[$,\s]/g, ""));
     if (!(normalizedAmount > 0)) {
       setExpenseError("Enter a positive expense amount.");
       return;
@@ -1644,8 +1642,7 @@ function FinancialControls({
       {
         amount: Math.round(normalizedAmount),
         category: expenseCategory,
-        description:
-          expenseDescription.trim() || `${expenseCategory} expense`,
+        description: expenseDescription.trim() || `${expenseCategory} expense`,
         id: `expense-${Date.now()}`,
         milestoneId: selectedMilestone.id,
         status: "Pending evidence",
@@ -1765,15 +1762,22 @@ function FinancialControls({
           <DialogHeader>
             <DialogTitle>Add expense</DialogTitle>
             <DialogDescription>
-              Record a borrower reimbursement expense for {selectedMilestoneName}.
+              Record a borrower reimbursement expense for{" "}
+              {selectedMilestoneName}.
             </DialogDescription>
           </DialogHeader>
           <Tabs defaultValue="details">
             <TabsList className="w-full" variant="default">
-              <TabsTrigger data-testid="borrower-expense-details-tab" value="details">
+              <TabsTrigger
+                data-testid="borrower-expense-details-tab"
+                value="details"
+              >
                 Expense details
               </TabsTrigger>
-              <TabsTrigger data-testid="borrower-expense-receipt-tab" value="receipt">
+              <TabsTrigger
+                data-testid="borrower-expense-receipt-tab"
+                value="receipt"
+              >
                 Receipt / invoice
               </TabsTrigger>
             </TabsList>
@@ -1824,7 +1828,7 @@ function FinancialControls({
               </label>
             </TabsContent>
             <TabsContent className="grid gap-3 pt-2" value="receipt">
-              <div className="grid gap-2 rounded-md border border-dashed border-border bg-bg-elevated p-3">
+              <div className="grid gap-2 rounded-md border border-border border-dashed bg-bg-elevated p-3">
                 <label className="grid gap-2 font-medium text-xs">
                   <span className="inline-flex items-center gap-2">
                     <Upload className="size-4 text-primary" />

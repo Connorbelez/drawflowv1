@@ -521,7 +521,8 @@ function estimateDrawInterestCents({
   }
   const annualRate = INTEREST_RATE_BPS / 10_000;
   const interest =
-    principalCents * (Math.exp(daysOutstanding * Math.log1p(annualRate / 365)) - 1);
+    principalCents *
+    (Math.exp(daysOutstanding * Math.log1p(annualRate / 365)) - 1);
   return Math.round(interest);
 }
 
@@ -546,7 +547,9 @@ function proposalCostBreakdown(
         (latest, milestone) =>
           Math.max(latest, "dayEnd" in milestone ? milestone.dayEnd : 0),
         0
-      ) || group.endDay || 0;
+      ) ||
+      group.endDay ||
+      0;
     return (
       sum +
       estimateDrawInterestCents({
@@ -1874,7 +1877,9 @@ function MilestoneEditorScreen({
       String(milestone._id)
     );
     const currentGroup =
-      currentGroupIndex === undefined ? undefined : drawGroups[currentGroupIndex];
+      currentGroupIndex === undefined
+        ? undefined
+        : drawGroups[currentGroupIndex];
     if (!currentGroup) {
       return;
     }
@@ -2043,232 +2048,240 @@ function MilestoneEditorScreen({
                             : undefined
                         }
                       >
-                      <SortableItemHandle
-                        aria-label={`Drag ${milestone.name}`}
-                        className="pb-drag-handle"
-                        data-testid={`builder-milestone-drag-handle-${milestone.key}`}
-                        render={<button type="button" />}
-                      >
-                        <GripVertical size={15} />
-                      </SortableItemHandle>
+                        <SortableItemHandle
+                          aria-label={`Drag ${milestone.name}`}
+                          className="pb-drag-handle"
+                          data-testid={`builder-milestone-drag-handle-${milestone.key}`}
+                          render={<button type="button" />}
+                        >
+                          <GripVertical size={15} />
+                        </SortableItemHandle>
 
-                      <button
-                        aria-label={
-                          milestone.included ? "Included" : "Excluded"
-                        }
-                        className={cx("pb-toggle", milestone.included && "on")}
-                        data-testid={`builder-milestone-toggle-${milestone.key}`}
-                        onClick={async () => {
-                          await toggleMilestone({
-                            included: !milestone.included,
-                            milestoneId: milestone._id,
-                          });
-                        }}
-                        type="button"
-                      >
-                        <span className="pb-toggle-thumb" />
-                      </button>
-
-                      <span
-                        className="pb-day-badge"
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          padding: "2px 8px",
-                          borderRadius: 999,
-                          border: "1px solid var(--pb-accent)",
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: milestone.included
-                            ? "var(--pb-accent)"
-                            : "var(--pb-fg-tertiary)",
-                          background: milestone.included
-                            ? "var(--pb-accent-subdued)"
-                            : "transparent",
-                        }}
-                      >
-                        {milestone.included ? `D${milestone.dayEnd}` : "Out"}
-                      </span>
-
-                      <div className="pb-milestone-name-cell">
-                        <input
-                          className="pb-input"
-                          defaultValue={milestone.name}
-                          key={`${milestone._id}:name:${milestone.name}`}
-                          onBlur={async (event) => {
-                            await updateMilestone({
+                        <button
+                          aria-label={
+                            milestone.included ? "Included" : "Excluded"
+                          }
+                          className={cx(
+                            "pb-toggle",
+                            milestone.included && "on"
+                          )}
+                          data-testid={`builder-milestone-toggle-${milestone.key}`}
+                          onClick={async () => {
+                            await toggleMilestone({
+                              included: !milestone.included,
                               milestoneId: milestone._id,
-                              name: event.target.value,
                             });
                           }}
+                          type="button"
+                        >
+                          <span className="pb-toggle-thumb" />
+                        </button>
+
+                        <span
+                          className="pb-day-badge"
                           style={{
-                            background: "transparent",
-                            border: "1px solid transparent",
-                            padding: "4px 8px",
-                            fontWeight: 600,
-                            minWidth: 0,
-                          }}
-                        />
-                        <p
-                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            padding: "2px 8px",
+                            borderRadius: 999,
+                            border: "1px solid var(--pb-accent)",
                             fontSize: 11,
-                            color: "var(--pb-fg-tertiary)",
-                            marginTop: 2,
-                            paddingLeft: 8,
+                            fontWeight: 600,
+                            color: milestone.included
+                              ? "var(--pb-accent)"
+                              : "var(--pb-fg-tertiary)",
+                            background: milestone.included
+                              ? "var(--pb-accent-subdued)"
+                              : "transparent",
                           }}
                         >
-                          {milestone.source} · {milestone.type}
-                        </p>
-                      </div>
+                          {milestone.included ? `D${milestone.dayEnd}` : "Out"}
+                        </span>
 
-                      <label className="pb-draw-group-picker">
-                        <span>Draw group</span>
-                        <select
-                          aria-label={`Draw group for ${milestone.name}`}
-                          data-testid={`builder-milestone-draw-group-${milestone.key}`}
-                          disabled={!milestone.included}
-                          onChange={async (event) => {
-                            const nextValue = event.currentTarget.value;
-                            await moveToDrawGroup(
-                              milestone,
-                              nextValue === NEW_DRAW_GROUP_SELECT_VALUE
-                                ? NEW_DRAW_GROUP_SELECT_VALUE
-                                : Number(nextValue)
-                            );
-                          }}
-                          value={
-                            currentDrawGroupIndex === undefined
-                              ? ""
-                              : String(currentDrawGroupIndex)
-                          }
-                        >
-                          {currentDrawGroupIndex === undefined ? (
-                            <option value="">Out</option>
-                          ) : null}
-                          {drawGroups.map((group) => (
-                            <option
-                              key={group.index}
-                              value={String(group.index)}
-                            >
-                              Draw {group.index + 1}
-                            </option>
-                          ))}
-                          {currentDrawGroup &&
-                          currentDrawGroup.milestones.length > 1 ? (
-                            <option value={NEW_DRAW_GROUP_SELECT_VALUE}>
-                              Add to new draw group
-                            </option>
-                          ) : null}
-                        </select>
-                      </label>
-
-                      <label className="pb-row-field pb-row-field-amount">
-                        <span>Amount</span>
-                        <div className="pb-budget-stepper">
-                          <button
-                            aria-label={`Subtract $1,000 from ${milestone.name} budget`}
-                            className="pb-budget-stepper-button"
-                            data-testid={`builder-milestone-budget-decrement-${milestone.key}`}
-                            disabled={milestone.budgetCents <= 0}
-                            onClick={() => {
-                              adjustBudget(milestone, -100_000);
-                            }}
-                            type="button"
-                          >
-                            <Minus size={12} />
-                          </button>
+                        <div className="pb-milestone-name-cell">
                           <input
-                            className="pb-budget-input pb-input"
-                            data-builder-blocking={isBlocking || undefined}
-                            data-testid={`builder-milestone-budget-${milestone.key}`}
-                            defaultValue={formatCurrency(milestone.budgetCents)}
-                            key={`${milestone._id}:budget:${milestone.budgetCents}`}
+                            className="pb-input"
+                            defaultValue={milestone.name}
+                            key={`${milestone._id}:name:${milestone.name}`}
                             onBlur={async (event) => {
-                              await updateBudget(milestone, event.target.value);
+                              await updateMilestone({
+                                milestoneId: milestone._id,
+                                name: event.target.value,
+                              });
+                            }}
+                            style={{
+                              background: "transparent",
+                              border: "1px solid transparent",
+                              padding: "4px 8px",
+                              fontWeight: 600,
+                              minWidth: 0,
                             }}
                           />
-                          <button
-                            aria-label={`Add $1,000 to ${milestone.name} budget`}
-                            className="pb-budget-stepper-button"
-                            data-testid={`builder-milestone-budget-increment-${milestone.key}`}
-                            onClick={() => {
-                              adjustBudget(milestone, 100_000);
+                          <p
+                            style={{
+                              fontSize: 11,
+                              color: "var(--pb-fg-tertiary)",
+                              marginTop: 2,
+                              paddingLeft: 8,
                             }}
-                            type="button"
                           >
-                            <Plus size={12} />
-                          </button>
+                            {milestone.source} · {milestone.type}
+                          </p>
                         </div>
-                      </label>
 
-                      <label className="pb-row-field pb-row-field-days">
-                        <span>Days</span>
-                        <div className="pb-duration-stepper">
-                          <button
-                            aria-label={`Subtract 1 day from ${milestone.name} duration`}
-                            className="pb-budget-stepper-button"
-                            data-testid={`builder-milestone-duration-decrement-${milestone.key}`}
-                            disabled={milestone.durationDays <= 1}
-                            onClick={(event) => {
-                              const input =
-                                event.currentTarget.parentElement?.querySelector<HTMLInputElement>(
-                                  "input"
-                                );
-                              adjustDuration(milestone, -1, input?.value);
-                            }}
-                            type="button"
-                          >
-                            <Minus size={12} />
-                          </button>
-                          <input
-                            className="pb-duration-input pb-input"
-                            data-builder-blocking={
-                              isBlocking && milestone.durationDays <= 0
-                                ? true
-                                : undefined
-                            }
-                            data-testid={`builder-milestone-duration-${milestone.key}`}
-                            defaultValue={String(milestone.durationDays)}
-                            key={`${milestone._id}:duration:${milestone.durationDays}`}
-                            onBlur={async (event) => {
-                              await updateDuration(
+                        <label className="pb-draw-group-picker">
+                          <span>Draw group</span>
+                          <select
+                            aria-label={`Draw group for ${milestone.name}`}
+                            data-testid={`builder-milestone-draw-group-${milestone.key}`}
+                            disabled={!milestone.included}
+                            onChange={async (event) => {
+                              const nextValue = event.currentTarget.value;
+                              await moveToDrawGroup(
                                 milestone,
-                                event.target.value
+                                nextValue === NEW_DRAW_GROUP_SELECT_VALUE
+                                  ? NEW_DRAW_GROUP_SELECT_VALUE
+                                  : Number(nextValue)
                               );
                             }}
-                            type="number"
-                          />
-                          <button
-                            aria-label={`Add 1 day to ${milestone.name} duration`}
-                            className="pb-budget-stepper-button"
-                            data-testid={`builder-milestone-duration-increment-${milestone.key}`}
-                            onClick={(event) => {
-                              const input =
-                                event.currentTarget.parentElement?.querySelector<HTMLInputElement>(
-                                  "input"
-                                );
-                              adjustDuration(milestone, 1, input?.value);
-                            }}
-                            type="button"
+                            value={
+                              currentDrawGroupIndex === undefined
+                                ? ""
+                                : String(currentDrawGroupIndex)
+                            }
                           >
-                            <Plus size={12} />
-                          </button>
-                        </div>
-                      </label>
+                            {currentDrawGroupIndex === undefined ? (
+                              <option value="">Out</option>
+                            ) : null}
+                            {drawGroups.map((group) => (
+                              <option
+                                key={group.index}
+                                value={String(group.index)}
+                              >
+                                Draw {group.index + 1}
+                              </option>
+                            ))}
+                            {currentDrawGroup &&
+                            currentDrawGroup.milestones.length > 1 ? (
+                              <option value={NEW_DRAW_GROUP_SELECT_VALUE}>
+                                Add to new draw group
+                              </option>
+                            ) : null}
+                          </select>
+                        </label>
 
-                      <span
-                        className="pb-preset-value"
-                        style={{
-                          fontSize: 12,
-                          fontWeight: 600,
-                          color: "var(--pb-fg-tertiary)",
-                        }}
-                      >
-                        {milestone.percentageBps
-                          ? `${(milestone.percentageBps / 100).toFixed(0)}%`
-                          : "custom"}
-                      </span>
+                        <label className="pb-row-field pb-row-field-amount">
+                          <span>Amount</span>
+                          <div className="pb-budget-stepper">
+                            <button
+                              aria-label={`Subtract $1,000 from ${milestone.name} budget`}
+                              className="pb-budget-stepper-button"
+                              data-testid={`builder-milestone-budget-decrement-${milestone.key}`}
+                              disabled={milestone.budgetCents <= 0}
+                              onClick={() => {
+                                adjustBudget(milestone, -100_000);
+                              }}
+                              type="button"
+                            >
+                              <Minus size={12} />
+                            </button>
+                            <input
+                              className="pb-budget-input pb-input"
+                              data-builder-blocking={isBlocking || undefined}
+                              data-testid={`builder-milestone-budget-${milestone.key}`}
+                              defaultValue={formatCurrency(
+                                milestone.budgetCents
+                              )}
+                              key={`${milestone._id}:budget:${milestone.budgetCents}`}
+                              onBlur={async (event) => {
+                                await updateBudget(
+                                  milestone,
+                                  event.target.value
+                                );
+                              }}
+                            />
+                            <button
+                              aria-label={`Add $1,000 to ${milestone.name} budget`}
+                              className="pb-budget-stepper-button"
+                              data-testid={`builder-milestone-budget-increment-${milestone.key}`}
+                              onClick={() => {
+                                adjustBudget(milestone, 100_000);
+                              }}
+                              type="button"
+                            >
+                              <Plus size={12} />
+                            </button>
+                          </div>
+                        </label>
+
+                        <label className="pb-row-field pb-row-field-days">
+                          <span>Days</span>
+                          <div className="pb-duration-stepper">
+                            <button
+                              aria-label={`Subtract 1 day from ${milestone.name} duration`}
+                              className="pb-budget-stepper-button"
+                              data-testid={`builder-milestone-duration-decrement-${milestone.key}`}
+                              disabled={milestone.durationDays <= 1}
+                              onClick={(event) => {
+                                const input =
+                                  event.currentTarget.parentElement?.querySelector<HTMLInputElement>(
+                                    "input"
+                                  );
+                                adjustDuration(milestone, -1, input?.value);
+                              }}
+                              type="button"
+                            >
+                              <Minus size={12} />
+                            </button>
+                            <input
+                              className="pb-duration-input pb-input"
+                              data-builder-blocking={
+                                isBlocking && milestone.durationDays <= 0
+                                  ? true
+                                  : undefined
+                              }
+                              data-testid={`builder-milestone-duration-${milestone.key}`}
+                              defaultValue={String(milestone.durationDays)}
+                              key={`${milestone._id}:duration:${milestone.durationDays}`}
+                              onBlur={async (event) => {
+                                await updateDuration(
+                                  milestone,
+                                  event.target.value
+                                );
+                              }}
+                              type="number"
+                            />
+                            <button
+                              aria-label={`Add 1 day to ${milestone.name} duration`}
+                              className="pb-budget-stepper-button"
+                              data-testid={`builder-milestone-duration-increment-${milestone.key}`}
+                              onClick={(event) => {
+                                const input =
+                                  event.currentTarget.parentElement?.querySelector<HTMLInputElement>(
+                                    "input"
+                                  );
+                                adjustDuration(milestone, 1, input?.value);
+                              }}
+                              type="button"
+                            >
+                              <Plus size={12} />
+                            </button>
+                          </div>
+                        </label>
+
+                        <span
+                          className="pb-preset-value"
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 600,
+                            color: "var(--pb-fg-tertiary)",
+                          }}
+                        >
+                          {milestone.percentageBps
+                            ? `${(milestone.percentageBps / 100).toFixed(0)}%`
+                            : "custom"}
+                        </span>
                       </article>
                     </SortableItem>
                     {index < optimisticMilestones.length - 1 ? (

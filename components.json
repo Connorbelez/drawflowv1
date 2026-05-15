@@ -24,6 +24,10 @@
   "registries": {
     "@kibo-ui": "https://www.kibo-ui.com/r/{name}.json",
     "@kokonutui": "https://kokonutui.com/r/{name}.json",
-    "@reui": "https://reui.io/r/{style}/{name}.json"
+    "@reui": "https://reui.io/r/{style}/{name}.json",
+    "@coss": "https://coss.com/ui/r/{name}.json",
+    "@magicui": "https://magicui.design/r/{name}",
+    "@evilcharts": "https://evilcharts.com/r/{name}.json",
+    "@eldoraui": "https://eldoraui.site/r/{name}.json"
   }
 }

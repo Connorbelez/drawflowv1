@@ -1,0 +1,161 @@
+import { describe, expect, test } from "vitest";
+import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
+import {
+  applyTimelineShareSnapshotV1,
+  buildTimelineShareSnapshotV1,
+  type DemoDraw,
+  type DemoMilestone,
+  initialTimelineShareState,
+} from "./-timeline-share-snapshot.ts";
+
+const initialItems: TimelineItem<DemoMilestone>[] = [
+  {
+    data: {
+      amount: 125_000,
+      draw: "Draw 1",
+      evidence: "Accepted package",
+      icon: "foundation",
+      name: "Site prep & foundation",
+      policy: "Released",
+      status: "complete",
+    },
+    eyebrow: "Milestone 1",
+    id: "site-prep",
+    label: "Site prep",
+    lane: 0,
+    markerLabel: "1",
+    tone: "complete",
+    x: 14,
+  },
+  {
+    data: {
+      amount: 160_000,
+      draw: "Draw 2",
+      evidence: "Accepted package",
+      icon: "framing",
+      name: "Framing & structure",
+      policy: "Released",
+      status: "complete",
+    },
+    eyebrow: "Milestone 2",
+    id: "framing",
+    label: "Framing",
+    lane: -1,
+    markerLabel: "2",
+    tone: "complete",
+    x: 58,
+  },
+];
+
+const initialDraws: DemoDraw[] = [
+  {
+    amount: 125_000,
+    id: "site-prep",
+    itemId: "site-prep",
+    label: "Draw 1",
+    x: 22,
+  },
+  {
+    amount: 160_000,
+    id: "framing",
+    itemId: "framing",
+    label: "Draw 2",
+    x: 66,
+  },
+];
+
+describe("timeline share snapshots", () => {
+  test("round-trips initial timeline state", () => {
+    const state = initialTimelineShareState(
+      initialItems,
+      initialDraws,
+      { max: 230, min: 0, unit: "days" },
+      "framing",
+      58,
+      true,
+      false
+    );
+    const snapshot = buildTimelineShareSnapshotV1(state);
+
+    expect(snapshot.payloadVersion).toBe(1);
+    expect(snapshot.snapshotSummary).toBe("2 milestones · 2 draws · 0-230 days");
+    expect(applyTimelineShareSnapshotV1(snapshot, state)).toEqual(state);
+  });
+
+  test("round-trips inserted milestones, manual draws, range, display state, and selection", () => {
+    const insertedItems: TimelineItem<DemoMilestone>[] = [
+      ...initialItems,
+      {
+        data: {
+          amount: 137_500,
+          draw: "Inserted 1",
+          evidence: "Draft package",
+          icon: "change",
+          name: "Field change 1",
+          policy: "Needs sequencing",
+          status: "ready",
+        },
+        eyebrow: "Inserted milestone",
+        id: "inserted-1",
+        label: "Field change 1",
+        lane: 1,
+        markerLabel: "+",
+        tone: "warning",
+        x: 245,
+      },
+    ];
+    const insertedDraws: DemoDraw[] = [
+      ...initialDraws,
+      {
+        amount: 150_000,
+        customDate: true,
+        id: "manual-draw-1",
+        label: "Draw 3",
+        x: 251,
+      },
+    ];
+    const state = initialTimelineShareState(
+      insertedItems,
+      insertedDraws,
+      { max: 260, min: 0, unit: "days" },
+      "inserted-1",
+      245,
+      false,
+      true
+    );
+
+    const snapshot = buildTimelineShareSnapshotV1(state);
+    const applied = applyTimelineShareSnapshotV1(snapshot, {
+      ...state,
+      activeItemId: "site-prep",
+    });
+
+    expect(applied).toEqual(state);
+    expect(snapshot.draws.at(-1)).toMatchObject({
+      amount: 150_000,
+      customDate: true,
+      id: "manual-draw-1",
+      x: 251,
+    });
+  });
+
+  test("does not serialize transient probe or editor state", () => {
+    const routeStateWithTransient = {
+      activeItemId: "framing",
+      activeDrawId: "framing",
+      drawEditDraft: { amount: "260000", x: "99" },
+      draws: initialDraws,
+      items: initialItems,
+      probeValue: 77,
+      progressValue: 58,
+      range: { max: 230, min: 0, unit: "days" },
+      selectedPanelOpen: true,
+      straightLine: false,
+    };
+    const snapshot = buildTimelineShareSnapshotV1(routeStateWithTransient);
+
+    expect(snapshot).not.toHaveProperty("activeDrawId");
+    expect(snapshot).not.toHaveProperty("drawEditDraft");
+    expect(snapshot).not.toHaveProperty("probeValue");
+  });
+});

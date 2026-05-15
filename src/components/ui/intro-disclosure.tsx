@@ -5,12 +5,15 @@ import { X } from "lucide-react";
 import { Button } from "#/components/ui/button.tsx";
 import {
   Drawer,
-  DrawerContent,
   DrawerDescription,
   DrawerHeader,
+  DrawerPanel,
+  DrawerPopup,
   DrawerTitle,
 } from "#/components/ui/drawer.tsx";
 import { cn } from "#/lib/utils.ts";
+
+const MOBILE_DISCLOSURE_SNAP_POINTS = [0.58, 0.9];
 
 export interface IntroDisclosureTab {
   badge?: ReactNode;
@@ -94,8 +97,14 @@ export function IntroDisclosure({
           </Button>
         </div>
       )}
-      <Drawer open={isOpen} onOpenChange={handleOpenChange}>
-        <DrawerContent className="max-h-[88dvh]">
+      <Drawer
+        defaultSnapPoint={MOBILE_DISCLOSURE_SNAP_POINTS[0]}
+        onOpenChange={handleOpenChange}
+        open={isOpen}
+        snapPoints={MOBILE_DISCLOSURE_SNAP_POINTS}
+        snapToSequentialPoints
+      >
+        <DrawerPopup className="max-h-[88dvh]" showBar>
           <DrawerHeader className="border-border border-b px-4 pb-3 text-left">
             <div className="flex items-center justify-between gap-3">
               <DrawerTitle className="text-base">{title}</DrawerTitle>
@@ -113,15 +122,16 @@ export function IntroDisclosure({
               </Button>
             </div>
           </DrawerHeader>
-          <div
+          <DrawerPanel
             aria-labelledby={`intro-disclosure-tab-${activeTab?.id}`}
             className="min-h-0 flex-1 overflow-y-auto p-3 pb-[calc(env(safe-area-inset-bottom)+7.5rem)]"
             data-testid={`intro-disclosure-panel-${activeTab?.id}`}
             id={`intro-disclosure-panel-${activeTab?.id}`}
             role="tabpanel"
+            scrollable={false}
           >
             {activeTab?.content}
-          </div>
+          </DrawerPanel>
           <div className="absolute inset-x-2 bottom-2 rounded-b-xl border-border border-t bg-popover px-3 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-3">
             <div
               aria-label={`${title} tabs`}
@@ -161,7 +171,7 @@ export function IntroDisclosure({
               </div>
             ) : null}
           </div>
-        </DrawerContent>
+        </DrawerPopup>
       </Drawer>
     </div>
   );

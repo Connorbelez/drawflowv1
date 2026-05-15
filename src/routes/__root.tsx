@@ -12,6 +12,7 @@ import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { createServerFn } from '@tanstack/react-start'
 import { getAuth } from '@workos/authkit-tanstack-react-start'
 import type { ConvexReactClient } from 'convex/react'
+import { NuqsAdapter } from 'nuqs/adapters/tanstack-router'
 import type { ReactElement, ReactNode } from 'react'
 
 import Footer from '../components/Footer'
@@ -88,14 +89,16 @@ function RootDocument({ children }: RootDocumentProps): ReactElement {
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <HeadContent />
       </head>
-      <body className="bg-background font-sans text-foreground antialiased [overflow-wrap:anywhere] selection:bg-primary/20">
+      <body className="isolate relative flex min-h-svh flex-col bg-background font-sans text-foreground antialiased [overflow-wrap:anywhere] selection:bg-primary/20">
         <WorkOSProvider>
           <ConvexProvider>
             <QueryClientProvider client={queryClient}>
               <TooltipProvider>
-                <Header />
-                {children}
-                {!isNewProposalDemo && <Footer />}
+                <NuqsAdapter>
+                  <Header />
+                  {children}
+                  {!isNewProposalDemo && <Footer />}
+                </NuqsAdapter>
                 <TanStackDevtools
                   config={{
                     position: 'bottom-right',

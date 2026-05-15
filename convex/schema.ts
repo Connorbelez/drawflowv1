@@ -1,6 +1,71 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+const demoTimelineStatusValidator = v.union(
+  v.literal("complete"),
+  v.literal("ready"),
+  v.literal("review"),
+  v.literal("upcoming")
+);
+
+const demoTimelineIconValidator = v.union(
+  v.literal("change"),
+  v.literal("closeout"),
+  v.literal("drywall"),
+  v.literal("exterior"),
+  v.literal("finishes"),
+  v.literal("foundation"),
+  v.literal("framing"),
+  v.literal("roughIn")
+);
+
+const demoTimelineToneValidator = v.optional(
+  v.union(
+    v.literal("active"),
+    v.literal("blocked"),
+    v.literal("complete"),
+    v.literal("upcoming"),
+    v.literal("warning")
+  )
+);
+
+const demoTimelineMilestoneDataValidator = v.object({
+  amount: v.number(),
+  draw: v.string(),
+  evidence: v.string(),
+  icon: demoTimelineIconValidator,
+  name: v.string(),
+  policy: v.string(),
+  status: demoTimelineStatusValidator,
+});
+
+const demoTimelineItemValidator = v.object({
+  data: demoTimelineMilestoneDataValidator,
+  disabled: v.optional(v.boolean()),
+  eyebrow: v.optional(v.string()),
+  id: v.string(),
+  label: v.optional(v.string()),
+  lane: v.optional(v.number()),
+  markerLabel: v.optional(v.string()),
+  tone: demoTimelineToneValidator,
+  x: v.number(),
+});
+
+const demoTimelineDrawValidator = v.object({
+  amount: v.number(),
+  customDate: v.optional(v.boolean()),
+  id: v.string(),
+  itemId: v.optional(v.string()),
+  label: v.string(),
+  x: v.number(),
+});
+
+const demoTimelineRangeValidator = v.object({
+  max: v.number(),
+  min: v.number(),
+  unit: v.optional(v.string()),
+});
+
 export default defineSchema({
   demo_auditEvents: defineTable({
     actorPersona: v.string(),
@@ -24,6 +89,7 @@ export default defineSchema({
     .index("by_milestone", ["scenario", "milestoneKey"])
     .index("by_draw_group", ["scenario", "drawGroupKey"]),
   demo_builds: defineTable({
+    borrowerCoPayCents: v.optional(v.number()),
     flatDrawFeeCents: v.number(),
     interestAnnualBps: v.number(),
     key: v.string(),
@@ -56,6 +122,7 @@ export default defineSchema({
     plannedStartDate: v.optional(v.string()),
     releaseApprovedAt: v.optional(v.number()),
     requestedValueCents: v.number(),
+    reviewLagDays: v.optional(v.number()),
     scenario: v.string(),
     status: v.string(),
     updatedAt: v.number(),
@@ -234,6 +301,20 @@ export default defineSchema({
   })
     .index("by_milestone", ["scenario", "milestoneKey"])
     .index("by_scenario", ["scenario"]),
+  demo_timelineSnapshots: defineTable({
+    activeItemId: v.string(),
+    createdAt: v.number(),
+    draws: v.array(demoTimelineDrawValidator),
+    items: v.array(demoTimelineItemValidator),
+    payloadVersion: v.number(),
+    progressValue: v.number(),
+    range: demoTimelineRangeValidator,
+    selectedPanelOpen: v.boolean(),
+    snapshotSummary: v.string(),
+    straightLine: v.boolean(),
+    title: v.string(),
+    updatedAt: v.number(),
+  }).index("by_created_at", ["createdAt"]),
   demo_builderProposalTemplates: defineTable({
     createdAt: v.number(),
     description: v.string(),

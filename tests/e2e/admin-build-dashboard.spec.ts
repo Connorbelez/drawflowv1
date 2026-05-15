@@ -6,9 +6,7 @@ test("admin evidence package opens a review modal and does not claim missing rep
   await page.goto("/demo/drawflow/admin-build-dashboard");
   await expect(page.getByTestId("admin-build-dashboard-shell")).toBeVisible();
 
-  const evidencePackage = page
-    .getByTestId(/^admin-evidence-package-/)
-    .first();
+  const evidencePackage = page.getByTestId(/^admin-evidence-package-/).first();
   await expect(evidencePackage).toBeVisible();
   await expect(evidencePackage).toContainText("No builder report");
   await expect(evidencePackage).toContainText(
@@ -48,20 +46,28 @@ test("admin review has site visit quick actions and draw group aggregate breadcr
     )
   ).toHaveCount(0);
 
-  await expect(page.getByTestId("admin-assign-site-visit-inline")).toBeVisible();
+  await expect(
+    page.getByTestId("admin-assign-site-visit-inline")
+  ).toBeVisible();
   await page.getByTestId("admin-start-site-visit-inline").click();
   await expect(
     page.getByRole("heading", { name: "Site visit interface" })
   ).toBeVisible();
-  await page.getByTestId("admin-site-visit-note").fill("Observed incomplete work.");
-  await expect(page.getByTestId("admin-submit-site-visit-report")).toBeEnabled();
+  await page
+    .getByTestId("admin-site-visit-note")
+    .fill("Observed incomplete work.");
+  await expect(
+    page.getByTestId("admin-submit-site-visit-report")
+  ).toBeEnabled();
   await page.getByRole("button", { name: "Cancel" }).click();
   await expect(
     page.getByRole("heading", { name: "Site visit interface" })
   ).toHaveCount(0);
 
   await page.getByTestId("admin-breadcrumb-draw-group").click();
-  await expect(page.getByTestId("admin-draw-group-aggregate-summary")).toBeVisible();
+  await expect(
+    page.getByTestId("admin-draw-group-aggregate-summary")
+  ).toBeVisible();
   await expect(page.getByText("Draw Group Milestones")).toBeVisible();
   await page.getByTestId("admin-breadcrumb-milestone").click();
   await expect(page.getByText("Milestone Status")).toBeVisible();

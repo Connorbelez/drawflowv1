@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dialog HTML Snippet</title>
+    <link rel="stylesheet" href="../../assets/ui.css" />
+    <script defer src="../../assets/ui.js"></script>
+  </head>
+  <body>
+    <main class="snippet-shell" data-component="dialog">
+      <header class="snippet-header">
+        <span class="snippet-eyebrow">DrawFlow UI HTML</span>
+        <h1>Dialog</h1>
+        <p>Standalone preview of the composable HTML component fragment.</p>
+      </header>
+      <section class="snippet-stage" aria-label="Dialog preview">
+        <div class="df-stack">
+          <button class="df-button df-button-default" data-dialog-open="dialog">Open dialog</button>
+          <div class="df-overlay" data-dialog="dialog" hidden>
+            <section class="df-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+              <button class="df-icon-button df-dialog-close" data-dialog-close="dialog" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+              <div class="df-dialog-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg></div>
+              <h2 id="dialog-title">Evidence package ready</h2>
+              <p>The borrower uploaded required invoices, photos, and lien waivers for this milestone.</p>
+              <footer class="df-dialog-actions">
+                <button class="df-button df-button-outline" data-dialog-close="dialog">Cancel</button>
+                <button class="df-button df-button-default">Approve package</button>
+              </footer>
+            </section>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

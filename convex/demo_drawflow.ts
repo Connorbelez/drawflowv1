@@ -1,11 +1,11 @@
 import { v } from "convex/values";
-
 import {
   publicMutation,
   publicQuery,
   withMutationTiming,
   withQueryTiming,
 } from "./fluent";
+import type { DatabaseReader, DatabaseWriter, Doc, Id } from "./types";
 
 const DEMO_TODAY = "2026-05-08";
 const DEMO_NOW = Date.parse("2026-05-08T16:00:00.000Z");
@@ -39,12 +39,12 @@ type DependencyType =
   | "procurement_dependency"
   | "soft_dependency";
 
-type SeedMilestone = {
+interface SeedMilestone {
   key: string;
   name: string;
-  valueCents: number;
   type: string;
-};
+  valueCents: number;
+}
 
 type ActiveSeedMilestone = SeedMilestone & {
   code: string;
@@ -58,13 +58,62 @@ type ActiveSeedMilestone = SeedMilestone & {
   status: string;
 };
 
-type ProposalGroup = {
+interface ProposalGroup {
   key: string;
   milestoneKeys: string[];
+}
+
+interface DemoReadCtx {
+  db: DatabaseReader;
+}
+
+interface DemoMutationCtx {
+  db: DatabaseWriter;
+}
+
+type DemoBuildId = Id<"demo_builds">;
+type DemoMilestone = Doc<"demo_milestones">;
+type DemoDrawGroup = Doc<"demo_drawGroups">;
+type DemoDependency = Doc<"demo_milestoneDependencies">;
+type DemoEvidenceFile = Doc<"demo_evidenceFiles">;
+type DemoEvidencePackage = Doc<"demo_evidencePackages">;
+type DemoSiteVisit = Doc<"demo_siteVisits">;
+type DemoReviewReport = Doc<"demo_reviewReports">;
+type DemoPlanningRun = Doc<"demo_planningRuns">;
+
+type DecoratedMilestone = DemoMilestone & {
+  blockedByKeys: string[];
+  blockingKeys: string[];
+  blockingReasons: string[];
+  displayStatus: string;
+  evidenceCount: number;
+  evidenceFiles: {
+    fileName: string;
+    id: DemoEvidenceFile["_id"];
+    isSample: boolean;
+    mimeType: string;
+    sizeBytes: number;
+    uploadedAt: number;
+    uploadedByPersona: string;
+  }[];
+  evidencePackages: DemoEvidencePackage[];
+  issues: WorkspaceIssue[];
+  latestEvidencePackage?: DemoEvidencePackage;
+  latestReview?: DemoReviewReport;
+  latestSiteVisit?: DemoSiteVisit;
+  reviewReports: DemoReviewReport[];
+  siteVisits: DemoSiteVisit[];
 };
 
-type DemoMutationCtx = {
-  db: any;
+type ProjectedDrawGroup = DemoDrawGroup & {
+  approvedValueCents: number;
+  eligibleDate: string;
+  endDate: string;
+  firstRow: number;
+  issues: WorkspaceIssue[];
+  lastRow: number;
+  requestedValueCents: number;
+  startDate: string;
 };
 
 type WorkspaceIssueSeverity = "blocking" | "warning" | "info";
@@ -74,18 +123,18 @@ type WorkspaceIssueScope =
   | "milestone"
   | "dependency";
 
-type WorkspaceIssueQuickFix = {
+interface WorkspaceIssueQuickFix {
   action: string;
   label: string;
   targetId?: string;
-};
+}
 
-type WorkspaceIssue = {
+interface WorkspaceIssue {
   code: string;
   conditionHash: string;
   dependencyIds: string[];
-  dismissible: boolean;
   dismissed: boolean;
+  dismissible: boolean;
   drawGroupIds: string[];
   id: string;
   impact: string;
@@ -95,13 +144,13 @@ type WorkspaceIssue = {
   scope: WorkspaceIssueScope;
   severity: WorkspaceIssueSeverity;
   title: string;
-};
+}
 
-type AuditInput = {
+interface AuditInput {
   actorPersona?: string;
   afterSummary?: string;
   beforeSummary?: string;
-  buildId?: string;
+  buildId?: DemoBuildId;
   command: string;
   drawGroupKey?: string;
   entityKey?: string;
@@ -112,7 +161,7 @@ type AuditInput = {
   reason?: string;
   scenario: Scenario;
   validation?: string;
-};
+}
 
 const MILESTONE_CATALOG: SeedMilestone[] = [
   {
@@ -741,12 +790,25 @@ function groupAmount(milestones: { approvedValueCents: number }[]) {
   );
 }
 
-function latestDate(dates: string[]) {
-  return dates.reduce((latest, date) => (date > latest ? date : latest));
+function normalizedDates(dates: (string | undefined)[]) {
+  const values = dates.filter((date): date is string => Boolean(date));
+  return values.length > 0 ? values : [DEMO_TODAY];
 }
 
-function earliestDate(dates: string[]) {
-  return dates.reduce((earliest, date) => (date < earliest ? date : earliest));
+function latestDate(dates: (string | undefined)[]) {
+  return normalizedDates(dates).reduce((latest, date) =>
+    date > latest ? date : latest
+  );
+}
+
+function earliestDate(dates: (string | undefined)[]) {
+  return normalizedDates(dates).reduce((earliest, date) =>
+    date < earliest ? date : earliest
+  );
+}
+
+function dateValue(date: string | undefined) {
+  return date ?? DEMO_TODAY;
 }
 
 async function cleanupAll(ctx: DemoMutationCtx) {
@@ -758,14 +820,14 @@ async function cleanupAll(ctx: DemoMutationCtx) {
   }
 }
 
-async function getBuild(ctx: DemoMutationCtx, scenario: Scenario) {
+async function getBuild(ctx: DemoReadCtx, scenario: Scenario) {
   return await ctx.db
     .query("demo_builds")
-    .withIndex("by_scenario", (q: any) => q.eq("scenario", scenario))
+    .withIndex("by_scenario", (q) => q.eq("scenario", scenario))
     .first();
 }
 
-async function getBuildOrThrow(ctx: DemoMutationCtx, scenario: Scenario) {
+async function getBuildOrThrow(ctx: DemoReadCtx, scenario: Scenario) {
   const build = await getBuild(ctx, scenario);
   if (!build) {
     throw new Error(`DrawFlow ${scenario} scenario is not seeded`);
@@ -773,82 +835,82 @@ async function getBuildOrThrow(ctx: DemoMutationCtx, scenario: Scenario) {
   return build;
 }
 
-async function getMilestones(ctx: DemoMutationCtx, scenario: Scenario) {
+async function getMilestones(ctx: DemoReadCtx, scenario: Scenario) {
   return (
     await ctx.db
       .query("demo_milestones")
-      .withIndex("by_scenario", (q: any) => q.eq("scenario", scenario))
+      .withIndex("by_scenario", (q) => q.eq("scenario", scenario))
       .collect()
-  ).sort((a: any, b: any) => a.order - b.order);
+  ).sort((a, b) => a.order - b.order);
 }
 
-async function getDrawGroups(ctx: DemoMutationCtx, scenario: Scenario) {
+async function getDrawGroups(ctx: DemoReadCtx, scenario: Scenario) {
   return (
     await ctx.db
       .query("demo_drawGroups")
-      .withIndex("by_scenario", (q: any) => q.eq("scenario", scenario))
+      .withIndex("by_scenario", (q) => q.eq("scenario", scenario))
       .collect()
-  ).sort((a: any, b: any) => a.order - b.order);
+  ).sort((a, b) => a.order - b.order);
 }
 
-async function getDependencies(ctx: DemoMutationCtx, scenario: Scenario) {
+async function getDependencies(ctx: DemoReadCtx, scenario: Scenario) {
   return await ctx.db
     .query("demo_milestoneDependencies")
-    .withIndex("by_scenario", (q: any) => q.eq("scenario", scenario))
+    .withIndex("by_scenario", (q) => q.eq("scenario", scenario))
     .collect();
 }
 
 async function findMilestone(
-  ctx: DemoMutationCtx,
+  ctx: DemoReadCtx,
   scenario: Scenario,
   key: string
 ) {
   return await ctx.db
     .query("demo_milestones")
-    .withIndex("by_key", (q: any) => q.eq("scenario", scenario).eq("key", key))
+    .withIndex("by_key", (q) => q.eq("scenario", scenario).eq("key", key))
     .first();
 }
 
 async function activeEvidenceFiles(
-  ctx: DemoMutationCtx,
+  ctx: DemoReadCtx,
   scenario: Scenario,
   milestoneKey: string
 ) {
   const files = await ctx.db
     .query("demo_evidenceFiles")
-    .withIndex("by_milestone", (q: any) =>
+    .withIndex("by_milestone", (q) =>
       q.eq("scenario", scenario).eq("milestoneKey", milestoneKey)
     )
     .collect();
-  return files.filter((file: any) => !file.removedAt);
+  return files.filter((file) => !file.removedAt);
 }
 
 async function latestEvidencePackage(
-  ctx: DemoMutationCtx,
+  ctx: DemoReadCtx,
   scenario: Scenario,
   milestoneKey: string
 ) {
   const packages = await ctx.db
     .query("demo_evidencePackages")
-    .withIndex("by_milestone", (q: any) =>
+    .withIndex("by_milestone", (q) =>
       q.eq("scenario", scenario).eq("milestoneKey", milestoneKey)
     )
     .collect();
-  return packages.sort((a: any, b: any) => b.createdAt - a.createdAt)[0];
+  return packages.sort((a, b) => b.createdAt - a.createdAt)[0];
 }
 
 async function latestSiteVisit(
-  ctx: DemoMutationCtx,
+  ctx: DemoReadCtx,
   scenario: Scenario,
   milestoneKey: string
 ) {
   const visits = await ctx.db
     .query("demo_siteVisits")
-    .withIndex("by_milestone", (q: any) =>
+    .withIndex("by_milestone", (q) =>
       q.eq("scenario", scenario).eq("milestoneKey", milestoneKey)
     )
     .collect();
-  return visits.sort((a: any, b: any) => b.createdAt - a.createdAt)[0];
+  return visits.sort((a, b) => b.createdAt - a.createdAt)[0];
 }
 
 async function appendAudit(ctx: DemoMutationCtx, input: AuditInput) {
@@ -876,7 +938,7 @@ async function appendAudit(ctx: DemoMutationCtx, input: AuditInput) {
 async function appendOutbox(
   ctx: DemoMutationCtx,
   input: {
-    buildId?: string;
+    buildId?: DemoBuildId;
     drawGroupKey?: string;
     eventType: string;
     milestoneKey?: string;
@@ -898,7 +960,10 @@ async function appendOutbox(
   });
 }
 
-async function seedCommonDependencies(ctx: DemoMutationCtx, buildId: string) {
+async function seedCommonDependencies(
+  ctx: DemoMutationCtx,
+  buildId: DemoBuildId
+) {
   for (const scenario of ["active", "proposal"] as Scenario[]) {
     for (const [blockerKey, blockedKey, type] of HARD_DEPENDENCIES) {
       await ctx.db.insert("demo_milestoneDependencies", {
@@ -1088,7 +1153,7 @@ async function seedProposal(ctx: DemoMutationCtx) {
 
   const proposalMilestones = await getMilestones(ctx, "proposal");
   for (const [index, group] of PROPOSAL_GROUPS.entries()) {
-    const groupMilestones = proposalMilestones.filter((milestone: any) =>
+    const groupMilestones = proposalMilestones.filter((milestone) =>
       group.milestoneKeys.includes(milestone.key)
     );
     await ctx.db.insert("demo_drawGroups", {
@@ -1098,10 +1163,10 @@ async function seedProposal(ctx: DemoMutationCtx) {
       label: `Draw ${index + 1}`,
       order: index + 1,
       plannedEndDate: latestDate(
-        groupMilestones.map((item: any) => item.plannedEndDate)
+        groupMilestones.map((item) => item.plannedEndDate)
       ),
       plannedStartDate: earliestDate(
-        groupMilestones.map((item: any) => item.plannedStartDate)
+        groupMilestones.map((item) => item.plannedStartDate)
       ),
       requestedValueCents: groupAmount(groupMilestones),
       scenario: "proposal",
@@ -1163,7 +1228,7 @@ function computeInterestCents(
   return Math.round(amountCents * ((1 + dailyRate) ** days - 1));
 }
 
-function latestPlanningRun(planningRuns: any[]) {
+function latestPlanningRun(planningRuns: DemoPlanningRun[]) {
   return planningRuns.sort((a, b) => b.createdAt - a.createdAt)[0] ?? null;
 }
 
@@ -1171,14 +1236,12 @@ function issueHash(parts: (number | string | undefined)[]) {
   return parts.map((part) => String(part ?? "none")).join("|");
 }
 
-async function getDismissedIssueKeys(ctx: DemoMutationCtx, scenario: Scenario) {
+async function getDismissedIssueKeys(ctx: DemoReadCtx, scenario: Scenario) {
   const dismissals = await ctx.db
     .query("demo_warningDismissals")
-    .withIndex("by_scenario", (q: any) => q.eq("scenario", scenario))
+    .withIndex("by_scenario", (q) => q.eq("scenario", scenario))
     .collect();
-  return new Set<string>(
-    dismissals.map((dismissal: any) => dismissal.warningId)
-  );
+  return new Set<string>(dismissals.map((dismissal) => dismissal.warningId));
 }
 
 function withDismissalState(
@@ -1196,7 +1259,7 @@ function withDismissalState(
 async function clearProposalDismissals(ctx: DemoMutationCtx) {
   const rows = await ctx.db
     .query("demo_warningDismissals")
-    .withIndex("by_scenario", (q: any) => q.eq("scenario", "proposal"))
+    .withIndex("by_scenario", (q) => q.eq("scenario", "proposal"))
     .collect();
   for (const row of rows) {
     await ctx.db.delete(row._id);
@@ -1240,7 +1303,7 @@ async function recordJitPlanningRun(ctx: DemoMutationCtx, command: string) {
   });
 }
 
-async function buildProjection(ctx: DemoMutationCtx, scenario: Scenario) {
+async function buildProjection(ctx: DemoReadCtx, scenario: Scenario) {
   const build = await getBuild(ctx, scenario);
   if (!build) {
     return { needsSeed: true, scenario };
@@ -1251,40 +1314,40 @@ async function buildProjection(ctx: DemoMutationCtx, scenario: Scenario) {
   const dependencies = await getDependencies(ctx, scenario);
   const rolloverBuffers = await ctx.db
     .query("demo_rolloverBuffers")
-    .withIndex("by_scenario", (q: any) => q.eq("scenario", scenario))
+    .withIndex("by_scenario", (q) => q.eq("scenario", scenario))
     .collect();
   const planningRuns = await ctx.db
     .query("demo_planningRuns")
-    .withIndex("by_scenario", (q: any) => q.eq("scenario", scenario))
+    .withIndex("by_scenario", (q) => q.eq("scenario", scenario))
     .collect();
   const auditEvents = await ctx.db
     .query("demo_auditEvents")
-    .withIndex("by_scenario", (q: any) => q.eq("scenario", scenario))
+    .withIndex("by_scenario", (q) => q.eq("scenario", scenario))
     .collect();
   const outboxEvents = await ctx.db
     .query("demo_eventOutbox")
-    .withIndex("by_scenario", (q: any) => q.eq("scenario", scenario))
+    .withIndex("by_scenario", (q) => q.eq("scenario", scenario))
     .collect();
   const siteVisits = await ctx.db
     .query("demo_siteVisits")
-    .withIndex("by_scenario", (q: any) => q.eq("scenario", scenario))
+    .withIndex("by_scenario", (q) => q.eq("scenario", scenario))
     .collect();
   const reviewReports = await ctx.db
     .query("demo_reviewReports")
-    .withIndex("by_milestone", (q: any) => q.eq("scenario", scenario))
+    .withIndex("by_milestone", (q) => q.eq("scenario", scenario))
     .collect()
     .catch(async () => []);
   const evidencePackages = await ctx.db
     .query("demo_evidencePackages")
-    .withIndex("by_scenario", (q: any) => q.eq("scenario", scenario))
+    .withIndex("by_scenario", (q) => q.eq("scenario", scenario))
     .collect();
 
-  const milestoneByKey = new Map<string, any>();
+  const milestoneByKey = new Map<string, DemoMilestone>();
   for (const milestone of milestones) {
     milestoneByKey.set(milestone.key, milestone);
   }
 
-  const groupByKey = new Map<string, any>();
+  const groupByKey = new Map<string, DemoDrawGroup>();
   for (const group of drawGroups) {
     groupByKey.set(group.key, group);
   }
@@ -1301,7 +1364,7 @@ async function buildProjection(ctx: DemoMutationCtx, scenario: Scenario) {
     dismissedIssueKeys
   );
 
-  const decoratedMilestones: any[] = [];
+  const decoratedMilestones: DecoratedMilestone[] = [];
   for (const milestone of milestones) {
     const evidenceFiles = await activeEvidenceFiles(
       ctx,
@@ -1309,14 +1372,14 @@ async function buildProjection(ctx: DemoMutationCtx, scenario: Scenario) {
       milestone.key
     );
     const milestoneEvidencePackages = evidencePackages
-      .filter((item: any) => item.milestoneKey === milestone.key)
-      .sort((a: any, b: any) => b.createdAt - a.createdAt);
+      .filter((item) => item.milestoneKey === milestone.key)
+      .sort((a, b) => b.createdAt - a.createdAt);
     const milestoneSiteVisits = siteVisits
-      .filter((visit: any) => visit.milestoneKey === milestone.key)
-      .sort((a: any, b: any) => b.createdAt - a.createdAt);
+      .filter((visit) => visit.milestoneKey === milestone.key)
+      .sort((a, b) => b.createdAt - a.createdAt);
     const milestoneReviewReports = reviewReports
-      .filter((report: any) => report.milestoneKey === milestone.key)
-      .sort((a: any, b: any) => b.createdAt - a.createdAt);
+      .filter((report) => report.milestoneKey === milestone.key)
+      .sort((a, b) => b.createdAt - a.createdAt);
     const evidencePackage = milestoneEvidencePackages[0];
     const siteVisit = milestoneSiteVisits[0];
     const blockers = deriveBlockingReasons({
@@ -1334,11 +1397,11 @@ async function buildProjection(ctx: DemoMutationCtx, scenario: Scenario) {
       issue.milestoneIds.includes(milestone.key)
     );
     const blocks = dependencies
-      .filter((edge: any) => edge.blockerKey === milestone.key)
-      .map((edge: any) => edge.blockedKey);
+      .filter((edge) => edge.blockerKey === milestone.key)
+      .map((edge) => edge.blockedKey);
     const blockedBy = dependencies
-      .filter((edge: any) => edge.blockedKey === milestone.key)
-      .map((edge: any) => edge.blockerKey);
+      .filter((edge) => edge.blockedKey === milestone.key)
+      .map((edge) => edge.blockerKey);
     const displayStatus =
       scenario === "active" &&
       milestone.status === "planned" &&
@@ -1355,8 +1418,8 @@ async function buildProjection(ctx: DemoMutationCtx, scenario: Scenario) {
       displayStatus,
       evidenceCount: evidenceFiles.length,
       evidenceFiles: evidenceFiles
-        .sort((a: any, b: any) => b.uploadedAt - a.uploadedAt)
-        .map((file: any) => ({
+        .sort((a, b) => b.uploadedAt - a.uploadedAt)
+        .map((file) => ({
           fileName: file.fileName,
           id: file._id,
           isSample: file.isSample,
@@ -1374,7 +1437,7 @@ async function buildProjection(ctx: DemoMutationCtx, scenario: Scenario) {
     });
   }
 
-  const projectedGroups = drawGroups.map((group: any) => {
+  const projectedGroups: ProjectedDrawGroup[] = drawGroups.map((group) => {
     const groupMilestones = decoratedMilestones.filter(
       (milestone) => milestone.drawGroupKey === group.key
     );
@@ -1434,19 +1497,19 @@ async function buildProjection(ctx: DemoMutationCtx, scenario: Scenario) {
   });
 
   const approvedProjectValueCents = milestones.reduce(
-    (sum: number, milestone: any) => sum + milestone.approvedValueCents,
+    (sum, milestone) => sum + milestone.approvedValueCents,
     0
   );
   const projectedCapitalDrawnCents = milestones.reduce(
-    (sum: number, milestone: any) =>
+    (sum, milestone) =>
       sum + (milestone.requestedAmountCents ?? milestone.approvedValueCents),
     0
   );
   const drawFeesCents =
-    projectedGroups.filter((group: any) => group.requestedValueCents > 0)
-      .length * build.flatDrawFeeCents;
+    projectedGroups.filter((group) => group.requestedValueCents > 0).length *
+    build.flatDrawFeeCents;
   const interestEstimateCents = projectedGroups.reduce(
-    (sum: number, group: any) =>
+    (sum, group) =>
       sum +
       computeInterestCents(
         group.requestedValueCents,
@@ -1457,15 +1520,13 @@ async function buildProjection(ctx: DemoMutationCtx, scenario: Scenario) {
     0
   );
   const rolloverBufferCents = rolloverBuffers.reduce(
-    (sum: number, buffer: any) =>
+    (sum, buffer) =>
       buffer.status === "available" ? sum + buffer.unusedAmountCents : sum,
     0
   );
 
   return {
-    auditEvents: auditEvents.sort(
-      (a: any, b: any) => b.createdAt - a.createdAt
-    ),
+    auditEvents: auditEvents.sort((a, b) => b.createdAt - a.createdAt),
     build,
     dependencies,
     drawGroups: projectedGroups,
@@ -1473,9 +1534,7 @@ async function buildProjection(ctx: DemoMutationCtx, scenario: Scenario) {
     issues: typedIssues,
     milestones: decoratedMilestones,
     needsSeed: false,
-    outboxEvents: outboxEvents.sort(
-      (a: any, b: any) => b.createdAt - a.createdAt
-    ),
+    outboxEvents: outboxEvents.sort((a, b) => b.createdAt - a.createdAt),
     rolloverBuffers,
     scenario,
     siteVisits,
@@ -1504,16 +1563,17 @@ async function buildProjection(ctx: DemoMutationCtx, scenario: Scenario) {
   };
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Proposal validation keeps rule emission colocated with issue metadata.
 function validateProposal(
-  milestones: any[],
-  drawGroups: any[],
-  dependencies: any[],
+  milestones: DemoMilestone[],
+  drawGroups: DemoDrawGroup[],
+  dependencies: DemoDependency[],
   workingCapitalLimitCents: number
 ) {
   const errors: string[] = [];
   const warnings: string[] = [];
   const issues: WorkspaceIssue[] = [];
-  const byKey = new Map<string, any>();
+  const byKey = new Map<string, DemoMilestone>();
   for (const milestone of milestones) {
     byKey.set(milestone.key, milestone);
     if (milestone.approvedValueCents <= 0) {
@@ -1643,17 +1703,18 @@ function validateProposal(
     if (!(blocker && blocked)) {
       continue;
     }
-    const violatesSchedule = blocker.plannedEndDate >= blocked.plannedStartDate;
+    const blockerEnd = blocker.plannedEndDate;
+    const blockedStart = blocked.plannedStartDate;
+    if (!(blockerEnd && blockedStart)) {
+      continue;
+    }
+    const violatesSchedule = blockerEnd >= blockedStart;
     if (violatesSchedule && edge.severity === "blocking") {
       const message = `${blocker.name} must finish before ${blocked.name}.`;
       errors.push(message);
       issues.push({
         code: "DEPENDENCY_ORDER_BLOCKED",
-        conditionHash: issueHash([
-          edge._id,
-          blocker.plannedEndDate,
-          blocked.plannedStartDate,
-        ]),
+        conditionHash: issueHash([edge._id, blockerEnd, blockedStart]),
         dependencyIds: [edge._id],
         dismissible: false,
         dismissed: false,
@@ -1677,11 +1738,7 @@ function validateProposal(
       warnings.push(message);
       issues.push({
         code: "DEPENDENCY_ORDER_WARNING",
-        conditionHash: issueHash([
-          edge._id,
-          blocker.plannedEndDate,
-          blocked.plannedStartDate,
-        ]),
+        conditionHash: issueHash([edge._id, blockerEnd, blockedStart]),
         dependencyIds: [edge._id],
         dismissible: true,
         dismissed: false,
@@ -1706,20 +1763,24 @@ function validateProposal(
   return { errors, issues, warnings };
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Blocking reason derivation mirrors workspace rule branches.
 function deriveBlockingReasons(input: {
-  dependencies: any[];
-  drawGroups: any[];
-  evidenceFiles: any[];
-  groupByKey: Map<string, any>;
-  milestone: any;
-  milestoneByKey: Map<string, any>;
+  dependencies: DemoDependency[];
+  drawGroups: DemoDrawGroup[];
+  evidenceFiles: DemoEvidenceFile[];
+  groupByKey: Map<string, DemoDrawGroup>;
+  milestone: DemoMilestone;
+  milestoneByKey: Map<string, DemoMilestone>;
   proposalValidation: { errors: string[]; warnings: string[] };
   scenario: Scenario;
-  siteVisit?: any;
+  siteVisit?: DemoSiteVisit;
 }) {
   const reasons = new Set<string>();
   if (input.scenario === "active") {
     const group = input.groupByKey.get(input.milestone.drawGroupKey);
+    if (!group) {
+      return [...reasons];
+    }
     const priorGroups = input.drawGroups.filter(
       (candidate) => candidate.order < group.order
     );
@@ -1746,7 +1807,7 @@ function deriveBlockingReasons(input: {
     if (
       input.scenario === "active" &&
       edge.blockerKey === input.milestone.key &&
-      input.milestone.forecastEndDate >=
+      dateValue(input.milestone.forecastEndDate) >=
         (input.milestoneByKey.get(edge.blockedKey)?.forecastStartDate ??
           "9999-01-01")
     ) {
@@ -1792,10 +1853,10 @@ async function recomputeActiveDrawGroupStatuses(ctx: DemoMutationCtx) {
   const milestones = await getMilestones(ctx, "active");
   for (const group of groups) {
     const groupMilestones = milestones.filter(
-      (milestone: any) => milestone.drawGroupKey === group.key
+      (milestone) => milestone.drawGroupKey === group.key
     );
     const allApproved = groupMilestones.every(
-      (milestone: any) => milestone.status === "completion_approved"
+      (milestone) => milestone.status === "completion_approved"
     );
     const nextStatus = allApproved
       ? "release_approved"
@@ -1845,21 +1906,19 @@ async function recalcDrawGroupDates(ctx: DemoMutationCtx, scenario: Scenario) {
 
   for (const group of groups) {
     const groupMilestones = milestones.filter(
-      (milestone: any) => milestone.drawGroupKey === group.key
+      (milestone) => milestone.drawGroupKey === group.key
     );
     if (groupMilestones.length === 0) {
       continue;
     }
     await ctx.db.patch(group._id, {
       approvedValueCents: groupAmount(groupMilestones),
-      [endField]: latestDate(
-        groupMilestones.map((item: any) => item[endField])
-      ),
+      [endField]: latestDate(groupMilestones.map((item) => item[endField])),
       [startField]: earliestDate(
-        groupMilestones.map((item: any) => item[startField])
+        groupMilestones.map((item) => item[startField])
       ),
       requestedValueCents: groupMilestones.reduce(
-        (sum: number, item: any) =>
+        (sum, item) =>
           sum + (item.requestedAmountCents ?? item.approvedValueCents),
         0
       ),
@@ -1870,7 +1929,7 @@ async function recalcDrawGroupDates(ctx: DemoMutationCtx, scenario: Scenario) {
 
 async function ensureDraftEvidencePackage(
   ctx: DemoMutationCtx,
-  milestone: any
+  milestone: DemoMilestone
 ) {
   const existing = await latestEvidencePackage(ctx, "active", milestone.key);
   if (existing && existing.status === "draft") {
@@ -2076,8 +2135,8 @@ export const demo_updateForecastDatesWithReason = publicMutation
     if (args.forecastEndDate < args.forecastStartDate) {
       throw new Error("Forecast end date must be after start date.");
     }
-    const priorEndDate = milestone.forecastEndDate;
-    const priorStartDate = milestone.forecastStartDate;
+    const priorEndDate = dateValue(milestone.forecastEndDate);
+    const priorStartDate = dateValue(milestone.forecastStartDate);
     await ctx.db.patch(milestone._id, {
       durationDays: dateDiffDays(args.forecastStartDate, args.forecastEndDate),
       forecastEndDate: args.forecastEndDate,
@@ -2197,8 +2256,8 @@ export const demo_batchMoveMilestoneDates = publicMutation
     }
 
     const milestones = await getMilestones(ctx, args.scenario);
-    const milestoneByKey = new Map<string, any>(
-      milestones.map((milestone: any) => [milestone.key, milestone])
+    const milestoneByKey = new Map<string, DemoMilestone>(
+      milestones.map((milestone) => [milestone.key, milestone])
     );
     const loadedMoves = args.moves.map((move) => {
       const milestone = milestoneByKey.get(move.milestoneKey);
@@ -2217,8 +2276,8 @@ export const demo_batchMoveMilestoneDates = publicMutation
     const first = loadedMoves[0];
     const priorFirstStart =
       args.scenario === "active"
-        ? first.milestone.forecastStartDate
-        : first.milestone.plannedStartDate;
+        ? dateValue(first.milestone.forecastStartDate)
+        : dateValue(first.milestone.plannedStartDate);
     const deltaDays = Math.round(
       (Date.parse(`${first.move.startDate}T00:00:00.000Z`) -
         Date.parse(`${priorFirstStart}T00:00:00.000Z`)) /
@@ -2228,12 +2287,12 @@ export const demo_batchMoveMilestoneDates = publicMutation
     for (const { milestone, move } of loadedMoves) {
       const priorEndDate =
         args.scenario === "active"
-          ? milestone.forecastEndDate
-          : milestone.plannedEndDate;
+          ? dateValue(milestone.forecastEndDate)
+          : dateValue(milestone.plannedEndDate);
       const priorStartDate =
         args.scenario === "active"
-          ? milestone.forecastStartDate
-          : milestone.plannedStartDate;
+          ? dateValue(milestone.forecastStartDate)
+          : dateValue(milestone.plannedStartDate);
       await ctx.db.patch(
         milestone._id,
         args.scenario === "active"
@@ -2848,7 +2907,7 @@ export const demo_updateProposalMilestoneDuration = publicMutation
     }
     const durationDays = Math.max(1, Math.round(args.durationDays));
     const plannedEndDate = addDays(
-      milestone.plannedStartDate,
+      dateValue(milestone.plannedStartDate),
       durationDays - 1
     );
     await ctx.db.patch(milestone._id, {
@@ -2923,7 +2982,7 @@ export const demo_moveProposalMilestoneToDrawGroup = publicMutation
     }
     const groups = await getDrawGroups(ctx, "proposal");
     const group = groups.find(
-      (candidate: any) => candidate.key === args.drawGroupKey
+      (candidate) => candidate.key === args.drawGroupKey
     );
     if (!group) {
       throw new Error("Draw group not found.");
@@ -2960,7 +3019,7 @@ export const demo_reorderProposalMilestones = publicMutation
   .handler(async (ctx, args) => {
     const milestones = await getMilestones(ctx, "proposal");
     const index = milestones.findIndex(
-      (milestone: any) => milestone.key === args.milestoneKey
+      (milestone) => milestone.key === args.milestoneKey
     );
     const targetIndex = args.direction === "up" ? index - 1 : index + 1;
     if (index < 0 || targetIndex < 0 || targetIndex >= milestones.length) {
@@ -3109,7 +3168,7 @@ export const demo_removeProposalDependency = publicMutation
   .handler(async (ctx, args) => {
     const dependencies = await getDependencies(ctx, "proposal");
     const dependency = dependencies.find(
-      (edge: any) =>
+      (edge) =>
         edge.blockedKey === args.blockedKey &&
         edge.blockerKey === args.blockerKey
     );
@@ -3191,7 +3250,7 @@ export const demo_applyProposalPlanRecommendation = publicMutation
     const build = await getBuildOrThrow(ctx, "proposal");
     const milestones = await getMilestones(ctx, "proposal");
     const orderedMilestones = [...milestones].sort(
-      (a: any, b: any) =>
+      (a, b) =>
         RECOMMENDED_ORDER.indexOf(a.key) - RECOMMENDED_ORDER.indexOf(b.key)
     );
     const recommendedGroupByKey = new Map<string, string>();
@@ -3247,18 +3306,18 @@ export const demo_splitProposalDrawGroup = publicMutation
     const build = await getBuildOrThrow(ctx, "proposal");
     const groups = await getDrawGroups(ctx, "proposal");
     const group = groups.find(
-      (candidate: any) => candidate.key === args.drawGroupKey
+      (candidate) => candidate.key === args.drawGroupKey
     );
     if (!group) {
       throw new Error("Draw group not found.");
     }
     const milestones = await getMilestones(ctx, "proposal");
     const groupMilestones = milestones.filter(
-      (milestone: any) => milestone.drawGroupKey === group.key
+      (milestone) => milestone.drawGroupKey === group.key
     );
     const splitIndex = args.afterMilestoneKey
       ? groupMilestones.findIndex(
-          (milestone: any) => milestone.key === args.afterMilestoneKey
+          (milestone) => milestone.key === args.afterMilestoneKey
         )
       : Math.floor(groupMilestones.length / 2) - 1;
     if (splitIndex < 0 || splitIndex >= groupMilestones.length - 1) {
@@ -3312,17 +3371,20 @@ export const demo_mergeProposalDrawGroups = publicMutation
   .handler(async (ctx, args) => {
     const groups = await getDrawGroups(ctx, "proposal");
     const group = groups.find(
-      (candidate: any) => candidate.key === args.drawGroupKey
+      (candidate) => candidate.key === args.drawGroupKey
     );
     if (!group || group.order === 1) {
       return { ok: false };
     }
     const previous = groups.find(
-      (candidate: any) => candidate.order === group.order - 1
+      (candidate) => candidate.order === group.order - 1
     );
+    if (!previous) {
+      return { ok: false };
+    }
     const milestones = await getMilestones(ctx, "proposal");
     for (const milestone of milestones.filter(
-      (candidate: any) => candidate.drawGroupKey === group.key
+      (candidate) => candidate.drawGroupKey === group.key
     )) {
       await ctx.db.patch(milestone._id, {
         drawGroupKey: previous.key,
@@ -3331,8 +3393,8 @@ export const demo_mergeProposalDrawGroups = publicMutation
     }
     await ctx.db.delete(group._id);
     const remainingGroups = groups
-      .filter((candidate: any) => candidate._id !== group._id)
-      .sort((a: any, b: any) => a.order - b.order);
+      .filter((candidate) => candidate._id !== group._id)
+      .sort((a, b) => a.order - b.order);
     for (const [index, remainingGroup] of remainingGroups.entries()) {
       const order = index + 1;
       await ctx.db.patch(remainingGroup._id, {
@@ -3368,7 +3430,7 @@ export const demo_reorderProposalMilestoneAbsolute = publicMutation
   .handler(async (ctx, args) => {
     const milestones = await getMilestones(ctx, "proposal");
     const fromIndex = milestones.findIndex(
-      (milestone: any) => milestone.key === args.milestoneKey
+      (milestone) => milestone.key === args.milestoneKey
     );
     if (fromIndex < 0) {
       return { ok: false };
@@ -3420,7 +3482,7 @@ export const demo_dismissWorkspaceIssue = publicMutation
   .handler(async (ctx, args) => {
     const existing = await ctx.db
       .query("demo_warningDismissals")
-      .withIndex("by_warning", (q: any) =>
+      .withIndex("by_warning", (q) =>
         q
           .eq("scenario", args.scenario)
           .eq("warningId", args.issueId)
@@ -3464,12 +3526,13 @@ export const demo_applyWorkspaceIssueQuickFix = publicMutation
     targetId: v.optional(v.string()),
   })
   .returns(v.any())
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Quick-fix command routing is intentionally kept in one mutation.
   .handler(async (ctx, args) => {
     if (args.action === "applyRecommendedPlan") {
       const build = await getBuildOrThrow(ctx, "proposal");
       const milestones = await getMilestones(ctx, "proposal");
       const orderedMilestones = [...milestones].sort(
-        (a: any, b: any) =>
+        (a, b) =>
           RECOMMENDED_ORDER.indexOf(a.key) - RECOMMENDED_ORDER.indexOf(b.key)
       );
       for (const [index, milestone] of orderedMilestones.entries()) {
@@ -3499,12 +3562,10 @@ export const demo_applyWorkspaceIssueQuickFix = publicMutation
     if (args.action === "splitDrawGroup" && args.targetId) {
       const build = await getBuildOrThrow(ctx, "proposal");
       const groups = await getDrawGroups(ctx, "proposal");
-      const group = groups.find(
-        (candidate: any) => candidate.key === args.targetId
-      );
+      const group = groups.find((candidate) => candidate.key === args.targetId);
       const milestones = await getMilestones(ctx, "proposal");
       const groupMilestones = milestones.filter(
-        (milestone: any) => milestone.drawGroupKey === args.targetId
+        (milestone) => milestone.drawGroupKey === args.targetId
       );
       if (group && groupMilestones.length > 1) {
         const splitIndex = Math.floor(groupMilestones.length / 2) - 1;
@@ -3550,7 +3611,7 @@ export const demo_applyWorkspaceIssueQuickFix = publicMutation
     if (args.action === "shiftDependentMilestone" && args.targetId) {
       const dependencies = await getDependencies(ctx, "proposal");
       const dependency = dependencies.find(
-        (edge: any) => edge._id === args.targetId
+        (edge) => edge._id === args.targetId
       );
       if (!dependency) {
         throw new Error("Dependency not found.");
@@ -3568,7 +3629,7 @@ export const demo_applyWorkspaceIssueQuickFix = publicMutation
       if (!(blocker && blocked)) {
         throw new Error("Dependency milestones not found.");
       }
-      const start = addDays(blocker.plannedEndDate, 1);
+      const start = addDays(dateValue(blocker.plannedEndDate), 1);
       await ctx.db.patch(blocked._id, {
         plannedEndDate: addDays(start, blocked.durationDays - 1),
         plannedStartDate: start,
@@ -3591,31 +3652,38 @@ export const demo_applyWorkspaceIssueQuickFix = publicMutation
 
     if (args.action === "shiftNextDrawGroup" && args.targetId) {
       const groups = await getDrawGroups(ctx, "proposal");
-      const current = groups.find((group: any) => group.key === args.targetId);
-      const next = groups.find(
-        (group: any) => group.order === current?.order + 1
-      );
-      if (!(current && next)) {
+      const current = groups.find((group) => group.key === args.targetId);
+      if (!current) {
+        throw new Error("Draw group sequence not found.");
+      }
+      const next = groups.find((group) => group.order === current.order + 1);
+      if (!next) {
         throw new Error("Draw group sequence not found.");
       }
       const milestones = await getMilestones(ctx, "proposal");
       const currentMilestones = milestones.filter(
-        (milestone: any) => milestone.drawGroupKey === current.key
+        (milestone) => milestone.drawGroupKey === current.key
       );
       const nextMilestones = milestones.filter(
-        (milestone: any) => milestone.drawGroupKey === next.key
+        (milestone) => milestone.drawGroupKey === next.key
       );
       const currentEnd = latestDate(
-        currentMilestones.map((milestone: any) => milestone.plannedEndDate)
+        currentMilestones.map((milestone) => milestone.plannedEndDate)
       );
       const nextStart = earliestDate(
-        nextMilestones.map((milestone: any) => milestone.plannedStartDate)
+        nextMilestones.map((milestone) => milestone.plannedStartDate)
       );
       const deltaDays = dateDiffDays(nextStart, currentEnd);
       for (const milestone of nextMilestones) {
         await ctx.db.patch(milestone._id, {
-          plannedEndDate: addDays(milestone.plannedEndDate, deltaDays),
-          plannedStartDate: addDays(milestone.plannedStartDate, deltaDays),
+          plannedEndDate: addDays(
+            dateValue(milestone.plannedEndDate),
+            deltaDays
+          ),
+          plannedStartDate: addDays(
+            dateValue(milestone.plannedStartDate),
+            deltaDays
+          ),
           updatedAt: Date.now(),
         });
       }
@@ -3693,7 +3761,7 @@ export const demo_submitProposal = publicMutation
   .public();
 
 function createsCycle(
-  dependencies: any[],
+  dependencies: DemoDependency[],
   blockerKey: string,
   blockedKey: string
 ) {

@@ -513,9 +513,15 @@ test("Builder borrower dashboard can intake an expense from financial controls",
   await waitForBorrowerDashboard(page);
 
   await page.getByTestId("borrower-add-expense").click();
-  await expect(page.getByRole("heading", { name: "Add expense" })).toBeVisible();
-  await expect(page.getByRole("tab", { name: "Expense details" })).toBeVisible();
-  await expect(page.getByRole("tab", { name: "Receipt / invoice" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Add expense" })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("tab", { name: "Expense details" })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("tab", { name: "Receipt / invoice" })
+  ).toBeVisible();
   await page.getByTestId("borrower-expense-vendor").fill("Harbor Concrete");
   await page.getByTestId("borrower-expense-amount").fill("1250");
   await page
@@ -527,16 +533,17 @@ test("Builder borrower dashboard can intake an expense from financial controls",
     mimeType: "application/pdf",
     name: "permit-receipt.pdf",
   });
-  await expect(page.getByTestId("borrower-expense-receipt-files")).toContainText(
-    "permit-receipt.pdf"
-  );
-  await expect(page.getByTestId("borrower-expense-camera-input")).toHaveAttribute(
-    "capture",
-    "environment"
-  );
+  await expect(
+    page.getByTestId("borrower-expense-receipt-files")
+  ).toContainText("permit-receipt.pdf");
+  await expect(
+    page.getByTestId("borrower-expense-camera-input")
+  ).toHaveAttribute("capture", "environment");
   await page.getByTestId("borrower-expense-submit").click();
 
-  await expect(page.getByRole("heading", { name: "Add expense" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Add expense" })).toHaveCount(
+    0
+  );
   await expect(page.getByTestId("borrower-financial-controls")).toContainText(
     "Permit revision fee"
   );

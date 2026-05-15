@@ -237,7 +237,10 @@ describe("admin build dashboard selectors", () => {
       ],
     });
 
-    const decisionState = deriveDecisionState(selected, drawGroup({ id: "draw-1" }));
+    const decisionState = deriveDecisionState(
+      selected,
+      drawGroup({ id: "draw-1" })
+    );
 
     expect(decisionState.approveMilestoneEnabled).toBe(false);
     expect(decisionState.canOverrideSiteVisit).toBe(true);
@@ -353,7 +356,9 @@ describe("admin review actions", () => {
       "utf8"
     );
 
-    expect(source).not.toMatch(/const\s+(drawGroups|milestones|siteVisits|reviewReports)\s*=\s*\[/);
+    expect(source).not.toMatch(
+      /const\s+(drawGroups|milestones|siteVisits|reviewReports)\s*=\s*\[/
+    );
     expect(source).not.toContain("May 19, 2025");
     expect(source).not.toContain("Lien waiver missing");
   });

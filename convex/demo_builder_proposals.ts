@@ -1,11 +1,11 @@
 import { v } from "convex/values";
-
 import {
   publicMutation,
   publicQuery,
   withMutationTiming,
   withQueryTiming,
 } from "./fluent";
+import type { DatabaseReader, DatabaseWriter, Doc, Id } from "./types";
 
 const ORG_KEY = "org_fairlend_demo";
 const BUILDER_PERSONA = "builder_lead";
@@ -13,47 +13,55 @@ const LENDER_DRAW_POLICY_LIMIT_CENTS = 48_000_000;
 const SEED_VERSION = 1;
 const DEMO_START_DATE = "2026-06-01";
 
-type DemoCtx = {
-  db: any;
-};
+interface DemoCtx {
+  db: DatabaseReader;
+}
 
-type TemplatePreset = {
+interface DemoWriteCtx {
+  db: DatabaseWriter;
+}
+
+type BuilderProposalDraft = Doc<"demo_builderProposalDrafts">;
+type BuilderProposalDraftId = Id<"demo_builderProposalDrafts">;
+type BuilderProposalMilestone = Doc<"demo_builderProposalMilestones">;
+
+interface TemplatePreset {
   dependencyKeys: string[];
   durationDays: number;
   key: string;
   name: string;
   percentageBps: number;
   type: string;
-};
+}
 
-type BuilderTemplate = {
+interface BuilderTemplate {
   description: string;
   isDefault: boolean;
   milestonePresets: TemplatePreset[];
   summary: string;
   templateKey: string;
   title: string;
-};
+}
 
-type BankItem = {
+interface BankItem {
   bankItemKey: string;
   dependencyKeys: string[];
   durationDays: number;
   name: string;
   percentageBps: number;
   type: string;
-};
+}
 
-type DraftMilestoneLike = {
+interface DraftMilestoneLike {
   budgetCents: number;
   drawGroupIndex?: number;
   included: boolean;
-};
+}
 
-type CashAwareDrawGroup = {
+interface CashAwareDrawGroup {
   milestones: DraftMilestoneLike[];
   totalBudgetCents: number;
-};
+}
 
 const BUILDER_TEMPLATES: BuilderTemplate[] = [
   {
@@ -377,10 +385,10 @@ function templateForKey(templateKey: string) {
   );
 }
 
-async function ensureTemplates(ctx: DemoCtx) {
+async function ensureTemplates(ctx: DemoWriteCtx) {
   const rows = await ctx.db
     .query("demo_builderProposalTemplates")
-    .withIndex("by_org", (q: any) => q.eq("orgKey", ORG_KEY))
+    .withIndex("by_org", (q) => q.eq("orgKey", ORG_KEY))
     .collect();
   if (rows.length === BUILDER_TEMPLATES.length) {
     return { seeded: false };
@@ -406,7 +414,7 @@ async function ensureTemplates(ctx: DemoCtx) {
   return { seeded: true };
 }
 
-async function cleanupBuilderProposalDemo(ctx: DemoCtx) {
+async function cleanupBuilderProposalDemo(ctx: DemoWriteCtx) {
   const tables = [
     "demo_builderProposalBoundaryPayloads",
     "demo_builderProposalMilestones",
@@ -417,7 +425,7 @@ async function cleanupBuilderProposalDemo(ctx: DemoCtx) {
   for (const table of tables) {
     const rows = await ctx.db
       .query(table)
-      .withIndex("by_org", (q: any) => q.eq("orgKey", ORG_KEY))
+      .withIndex("by_org", (q) => q.eq("orgKey", ORG_KEY))
       .collect();
     for (const row of rows) {
       await ctx.db.delete(row._id);
@@ -426,10 +434,10 @@ async function cleanupBuilderProposalDemo(ctx: DemoCtx) {
 }
 
 async function appendEvent(
-  ctx: DemoCtx,
+  ctx: DemoWriteCtx,
   input: {
     command: string;
-    draftId?: string;
+    draftId?: BuilderProposalDraftId;
     entityKey?: string;
     entityType: string;
     eventType: string;
@@ -463,7 +471,7 @@ async function appendEvent(
   });
 }
 
-async function getDraft(ctx: DemoCtx, draftId: string) {
+async function getDraft(ctx: DemoCtx, draftId: BuilderProposalDraftId) {
   const draft = await ctx.db.get(draftId);
   if (!draft || draft.orgKey !== ORG_KEY) {
     throw new Error("Builder proposal draft not found.");
@@ -471,7 +479,7 @@ async function getDraft(ctx: DemoCtx, draftId: string) {
   return draft;
 }
 
-async function getOptionalDraft(ctx: DemoCtx, draftId: string) {
+async function getOptionalDraft(ctx: DemoCtx, draftId: BuilderProposalDraftId) {
   const draft = await ctx.db.get(draftId);
   if (!draft || draft.orgKey !== ORG_KEY) {
     return null;
@@ -479,20 +487,23 @@ async function getOptionalDraft(ctx: DemoCtx, draftId: string) {
   return draft;
 }
 
-async function getDraftMilestones(ctx: DemoCtx, draftId: string) {
+async function getDraftMilestones(
+  ctx: DemoCtx,
+  draftId: BuilderProposalDraftId
+) {
   const rows = await ctx.db
     .query("demo_builderProposalMilestones")
-    .withIndex("by_draft_order", (q: any) => q.eq("draftId", draftId))
+    .withIndex("by_draft_order", (q) => q.eq("draftId", draftId))
     .collect();
-  return rows.sort((a: any, b: any) => a.order - b.order);
+  return rows.sort((a, b) => a.order - b.order);
 }
 
-async function getDraftBoundary(ctx: DemoCtx, draftId: string) {
+async function getDraftBoundary(ctx: DemoCtx, draftId: BuilderProposalDraftId) {
   const rows = await ctx.db
     .query("demo_builderProposalBoundaryPayloads")
-    .withIndex("by_draft", (q: any) => q.eq("draftId", draftId))
+    .withIndex("by_draft", (q) => q.eq("draftId", draftId))
     .collect();
-  return rows.sort((a: any, b: any) => b.createdAt - a.createdAt)[0] ?? null;
+  return rows.sort((a, b) => b.createdAt - a.createdAt)[0] ?? null;
 }
 
 function currentBudgetCents(milestones: DraftMilestoneLike[]) {
@@ -612,12 +623,16 @@ function nextExplicitDrawGroupIndex(milestones: DraftMilestoneLike[]) {
     .map((milestone) => milestone.drawGroupIndex)
     .filter((index): index is number => typeof index === "number");
   if (included.length === 0 || indexes.length !== included.length) {
-    return undefined;
+    return;
   }
   return Math.max(...indexes) + 1;
 }
 
-function readinessForDraft(draft: any, milestones: any[]) {
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Demo readiness rules intentionally stay together for auditability.
+function readinessForDraft(
+  draft: BuilderProposalDraft,
+  milestones: BuilderProposalMilestone[]
+) {
   const blockingIssues: string[] = [];
   const warnings: string[] = [];
   const included = milestones.filter((milestone) => milestone.included);
@@ -705,7 +720,10 @@ function readinessForDraft(draft: any, milestones: any[]) {
   };
 }
 
-async function recomputeDraftDerived(ctx: DemoCtx, draftId: string) {
+async function recomputeDraftDerived(
+  ctx: DemoWriteCtx,
+  draftId: BuilderProposalDraftId
+) {
   const milestones = await getDraftMilestones(ctx, draftId);
   let cursor = 0;
   for (const milestone of milestones) {
@@ -730,7 +748,11 @@ async function recomputeDraftDerived(ctx: DemoCtx, draftId: string) {
   return updatedMilestones;
 }
 
-function boundaryPayload(draft: any, milestones: any[], readiness: any) {
+function boundaryPayload(
+  draft: BuilderProposalDraft,
+  milestones: BuilderProposalMilestone[],
+  readiness: ReturnType<typeof readinessForDraft>
+) {
   const included = milestones.filter((milestone) => milestone.included);
   const dependencyKeySet = new Set<string>();
   for (const milestone of included) {
@@ -798,25 +820,28 @@ function boundaryPayload(draft: any, milestones: any[], readiness: any) {
   };
 }
 
-async function draftProjectionFromDraft(ctx: DemoCtx, draft: any) {
+async function draftProjectionFromDraft(
+  ctx: DemoCtx,
+  draft: BuilderProposalDraft
+) {
   const draftId = draft._id;
   const milestones = await getDraftMilestones(ctx, draftId);
   const events = await ctx.db
     .query("demo_builderProposalEvents")
-    .withIndex("by_draft", (q: any) => q.eq("draftId", draftId))
+    .withIndex("by_draft", (q) => q.eq("draftId", draftId))
     .collect();
   const boundary = await getDraftBoundary(ctx, draftId);
   const readiness = readinessForDraft(draft, milestones);
   return {
     boundary,
     draft,
-    events: events.sort((a: any, b: any) => b.createdAt - a.createdAt),
+    events: events.sort((a, b) => b.createdAt - a.createdAt),
     milestones,
     readiness,
   };
 }
 
-async function draftProjection(ctx: DemoCtx, draftId: string) {
+async function draftProjection(ctx: DemoCtx, draftId: BuilderProposalDraftId) {
   const draft = await getDraft(ctx, draftId);
   return await draftProjectionFromDraft(ctx, draft);
 }
@@ -824,12 +849,12 @@ async function draftProjection(ctx: DemoCtx, draftId: string) {
 async function nextProposalNumber(ctx: DemoCtx) {
   const drafts = await ctx.db
     .query("demo_builderProposalDrafts")
-    .withIndex("by_org", (q: any) => q.eq("orgKey", ORG_KEY))
+    .withIndex("by_org", (q) => q.eq("orgKey", ORG_KEY))
     .collect();
   return `PR-2026-${String(drafts.length + 42).padStart(3, "0")}`;
 }
 
-function dashboardCards(drafts: any[]) {
+function dashboardCards(drafts: BuilderProposalDraft[]) {
   const draftCount = drafts.filter(
     (draft) => draft.status !== "workspace_ready"
   ).length;
@@ -897,14 +922,14 @@ export const demo_getBuilderDashboard = publicQuery
   .handler(async (ctx, args) => {
     const templateRows = await ctx.db
       .query("demo_builderProposalTemplates")
-      .withIndex("by_org", (q: any) => q.eq("orgKey", ORG_KEY))
+      .withIndex("by_org", (q) => q.eq("orgKey", ORG_KEY))
       .collect();
     const drafts = (
       await ctx.db
         .query("demo_builderProposalDrafts")
-        .withIndex("by_org", (q: any) => q.eq("orgKey", ORG_KEY))
+        .withIndex("by_org", (q) => q.eq("orgKey", ORG_KEY))
         .collect()
-    ).sort((a: any, b: any) => b.createdAt - a.createdAt);
+    ).sort((a, b) => b.createdAt - a.createdAt);
     const requestedDraft = args.draftId
       ? await getOptionalDraft(ctx, args.draftId)
       : null;
@@ -1174,10 +1199,10 @@ export const demo_updateBuilderProposalDrawGroups = publicMutation
   .handler(async (ctx, args) => {
     await getDraft(ctx, args.draftId);
     const milestones = await getDraftMilestones(ctx, args.draftId);
-    const milestoneById = new Map<string, any>(
-      milestones.map((milestone: any) => [String(milestone._id), milestone])
+    const milestoneById = new Map<string, BuilderProposalMilestone>(
+      milestones.map((milestone) => [String(milestone._id), milestone])
     );
-    const priorState = milestones.map((milestone: any) => ({
+    const priorState = milestones.map((milestone) => ({
       drawGroupIndex: milestone.drawGroupIndex,
       key: milestone.key,
     }));
@@ -1210,7 +1235,7 @@ export const demo_updateBuilderProposalDrawGroups = publicMutation
       draftId: args.draftId,
       entityType: "builder_proposal_draw_group_plan",
       eventType: "BuilderProposalDrawGroupsUpdated",
-      newState: refreshedMilestones.map((milestone: any) => ({
+      newState: refreshedMilestones.map((milestone) => ({
         drawGroupIndex: milestone.drawGroupIndex,
         key: milestone.key,
       })),
@@ -1239,7 +1264,7 @@ export const demo_reorderBuilderProposalMilestone = publicMutation
     }
     const milestones = await getDraftMilestones(ctx, milestone.draftId);
     const currentIndex = milestones.findIndex(
-      (candidate: any) => candidate._id === args.milestoneId
+      (candidate) => candidate._id === args.milestoneId
     );
     if (currentIndex < 0) {
       throw new Error("Milestone not found in draft.");
@@ -1294,7 +1319,7 @@ export const demo_addBuilderProposalBankItem = publicMutation
     const draft = await getDraft(ctx, args.draftId);
     const milestones = await getDraftMilestones(ctx, args.draftId);
     const existingBankKeys = new Set(
-      milestones.map((milestone: any) => milestone.bankItemKey).filter(Boolean)
+      milestones.map((milestone) => milestone.bankItemKey).filter(Boolean)
     );
     const item =
       BANK_ITEMS.find(
@@ -1310,10 +1335,8 @@ export const demo_addBuilderProposalBankItem = publicMutation
       throw new Error(`${item.name} is already in this proposal.`);
     }
     const order =
-      milestones.reduce(
-        (max: number, milestone: any) => Math.max(max, milestone.order),
-        0
-      ) + 1;
+      milestones.reduce((max, milestone) => Math.max(max, milestone.order), 0) +
+      1;
     const baseBudget = draft.originalBudgetCents ?? 0;
     const budgetCents =
       baseBudget > 0
@@ -1373,10 +1396,8 @@ export const demo_createBuilderProposalCustomMilestone = publicMutation
     await getDraft(ctx, args.draftId);
     const milestones = await getDraftMilestones(ctx, args.draftId);
     const order =
-      milestones.reduce(
-        (max: number, milestone: any) => Math.max(max, milestone.order),
-        0
-      ) + 1;
+      milestones.reduce((max, milestone) => Math.max(max, milestone.order), 0) +
+      1;
     const createdAt = now();
     const key = `custom_${createdAt}`;
     const name = args.name?.trim() || "Owner requested contingency";
@@ -1500,7 +1521,7 @@ export const demo_finalizeBuilderProposalBoundary = publicMutation
     }
     const existingPayloads = await ctx.db
       .query("demo_builderProposalBoundaryPayloads")
-      .withIndex("by_draft", (q: any) => q.eq("draftId", args.draftId))
+      .withIndex("by_draft", (q) => q.eq("draftId", args.draftId))
       .collect();
     for (const payload of existingPayloads) {
       await ctx.db.delete(payload._id);

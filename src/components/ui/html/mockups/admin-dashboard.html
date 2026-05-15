@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DrawFlow Admin Dashboard Mockup</title>
+    <link rel="stylesheet" href="../assets/ui.css" />
+    <script defer src="../assets/ui.js"></script>
+  </head>
+  <body class="mockup-page">
+    <main class="mockup-admin" data-ui-scope>
+      <aside class="mockup-admin-sidebar">
+        <div class="mockup-admin-brand"><strong>DrawFlow</strong><span class="df-badge success">Admin</span></div>
+        <nav class="mockup-admin-nav" aria-label="Admin navigation">
+          <a class="active" href="#">Release queue <span>9</span></a>
+          <a href="#">Build proposals <span>14</span></a>
+          <a href="#">Site visit overrides <span>3</span></a>
+          <a href="#">Budget revisions <span>6</span></a>
+          <a href="#">Webhook events <span>42</span></a>
+        </nav>
+        <div class="df-separator-demo" style="margin: 8px 0;"><hr class="df-separator" /></div>
+        <label class="df-switch"><input type="checkbox" checked /><span></span>Auto-refresh queue</label>
+      </aside>
+      <section class="mockup-admin-main">
+        <header class="mockup-admin-topbar">
+          <div class="mockup-admin-title">
+            <h1>Lender admin control plane</h1>
+            <p>Final authority for proposal approvals, budget revisions, site-visit overrides, and draw releases.</p>
+          </div>
+          <div class="mockup-admin-actions">
+            <div class="df-popover-demo" data-ui-scope>
+              <button class="df-button df-button-outline" data-popover-trigger>Policy limit</button>
+              <div class="df-popover" data-popover hidden><h3>Lender draw policy limit</h3><p>Maximum reimbursable release this cycle is $95,000.</p></div>
+            </div>
+            <div class="df-menu-demo" data-ui-scope>
+              <button class="df-button df-button-default" data-menu-trigger="admin-actions">Admin actions <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+              <div class="df-menu" data-menu="admin-actions" hidden>
+                <button class="df-menu-item"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20 6-11 11-5-5"/></svg><span>Approve selected</span><kbd>A</kbd></button>
+                <button class="df-menu-item"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg><span>Export audit packet</span><kbd>E</kbd></button>
+                <div class="df-menu-separator"></div>
+                <button class="df-menu-item danger"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg><span>Escalate exception</span></button>
+              </div>
+            </div>
+          </div>
+        </header>
+        <section class="mockup-admin-metrics" aria-label="Admin queue metrics">
+          <article class="mockup-metric"><span>Ready releases</span><strong>9</strong><small>$684k pending funds</small></article>
+          <article class="mockup-metric"><span>Override requests</span><strong>3</strong><small>2 geofence failures</small></article>
+          <article class="mockup-metric"><span>Budget revisions</span><strong>6</strong><small>All versioned</small></article>
+          <article class="mockup-metric"><span>Webhook health</span><strong>99.8%</strong><small>42 events today</small></article>
+        </section>
+        <section class="mockup-admin-grid">
+          <div>
+            <section class="mockup-panel">
+              <header class="mockup-panel-header">
+                <div><h2>Admin release kanban</h2><p>Evidence review, site visit, and final release states.</p></div>
+                <div class="df-tabs-list" role="tablist"><button class="active">Draws</button><button>Visits</button><button>Budgets</button></div>
+              </header>
+              <div class="mockup-panel-body">
+                <div class="mockup-kanban">
+                  <section class="mockup-lane"><h3>Ready for admin <span>3</span></h3>
+                    <article class="mockup-task"><strong>Oak Ridge · Draw 03</strong><p>Framing evidence complete. Site visit report recommends release.</p><div class="mockup-task-footer"><span class="df-badge success">Ready</span><button class="df-button df-button-default">Release</button></div></article>
+                    <article class="mockup-task"><strong>Maple Court · Draw 02</strong><p>Foundation inspection approved with no policy warnings.</p><div class="mockup-task-footer"><span class="df-badge success">Ready</span><button class="df-button df-button-outline">Review</button></div></article>
+                  </section>
+                  <section class="mockup-lane"><h3>Needs override <span>3</span></h3>
+                    <article class="mockup-task"><strong>Hudson Row · Site visit</strong><p>Evidence retained; geofence failed and needs admin reason.</p><div class="mockup-task-footer"><span class="df-badge warning">Override</span><button class="df-button df-button-outline" data-sheet-open>Open</button></div></article>
+                    <article class="mockup-task"><strong>Cedar Works · Budget v4</strong><p>Material variance exceeds configured lender policy.</p><div class="mockup-task-footer"><span class="df-badge warning">Policy</span><button class="df-button df-button-outline">Compare</button></div></article>
+                  </section>
+                  <section class="mockup-lane"><h3>Blocked <span>2</span></h3>
+                    <article class="mockup-task"><strong>North Pier · Draw 04</strong><p>Missing lien waiver and borrower capital warning.</p><div class="mockup-task-footer"><span class="df-badge destructive">Blocked</span><button class="df-button df-button-destructive">Escalate</button></div></article>
+                  </section>
+                </div>
+              </div>
+            </section>
+            <section class="mockup-panel" style="margin-top:16px;">
+              <header class="mockup-panel-header"><div><h2>Release table</h2><p>Amounts remain reimbursement-only; interest starts after release.</p></div><button class="df-button df-button-outline">Export CSV</button></header>
+              <div class="df-table-wrap">
+      <table class="df-table">
+        <thead><tr><th>Milestone</th><th>Budget</th><th>Status</th><th class="text-right">Progress</th></tr></thead>
+        <tbody>
+          <tr><td>Foundation inspection</td><td>$42,000</td><td><span class="df-badge success">Approved</span></td><td class="text-right">100%</td></tr>
+          <tr><td>Framing package</td><td>$86,400</td><td><span class="df-badge warning">Review</span></td><td class="text-right">72%</td></tr>
+          <tr><td>MEP rough-in</td><td>$58,900</td><td><span class="df-badge secondary">Pending</span></td><td class="text-right">28%</td></tr>
+        </tbody>
+      </table>
+    </div>
+            </section>
+          </div>
+          <aside class="mockup-side-stack">
+            <section class="mockup-panel">
+              <header class="mockup-panel-header"><div><h2>Release readiness</h2><p>Draw 03 · Oak Ridge</p></div><span class="df-badge warning">Admin review</span></header>
+              <div class="mockup-panel-body mockup-release-card">
+                <div class="df-progress-block"><div><span>Evidence completeness</span><strong>92%</strong></div><div class="df-progress"><span style="width:92%"></span></div></div>
+                <label class="df-check"><input type="checkbox" checked /><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20 6-11 11-5-5"/></svg></span>Evidence package preserved</label>
+                <label class="df-check"><input type="checkbox" checked /><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20 6-11 11-5-5"/></svg></span>Audit reason required for override</label>
+                <button class="df-button df-button-default" data-dialog-open="release-confirm">Approve release</button>
+                <div class="df-overlay" data-dialog="release-confirm" hidden>
+                  <section class="df-dialog" role="dialog" aria-modal="true" aria-labelledby="release-confirm-title">
+                    <button class="df-icon-button df-dialog-close" data-dialog-close="release-confirm" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+                    <div class="df-dialog-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20 6-11 11-5-5"/></svg></div>
+                    <h2 id="release-confirm-title">Approve $86,400 release?</h2>
+                    <p>This records final lender admin authority and starts interest only after funds are released.</p>
+                    <footer class="df-dialog-actions"><button class="df-button df-button-outline" data-dialog-close="release-confirm">Cancel</button><button class="df-button df-button-default">Approve release</button></footer>
+                  </section>
+                </div>
+              </div>
+            </section>
+            <section class="mockup-panel">
+              <header class="mockup-panel-header"><div><h2>Audit stream</h2><p>Material decisions and webhook events.</p></div></header>
+              <div class="mockup-panel-body mockup-audit-list">
+                <article class="mockup-audit-item"><div><strong>Admin override requested · Hudson Row</strong><span>2 min ago · organization scoped</span></div><span class="df-badge secondary">Audit</span></article>
+                <article class="mockup-audit-item"><div><strong>Budget v4 created · Cedar Works</strong><span>3 min ago · organization scoped</span></div><span class="df-badge secondary">Audit</span></article>
+                <article class="mockup-audit-item"><div><strong>Webhook delivered · draw.release.ready</strong><span>4 min ago · organization scoped</span></div><span class="df-badge secondary">Audit</span></article>
+                <article class="mockup-audit-item"><div><strong>Site report signed · Oak Ridge</strong><span>5 min ago · organization scoped</span></div><span class="df-badge secondary">Audit</span></article>
+                <article class="mockup-audit-item"><div><strong>Evidence location-unverified · Hudson Row</strong><span>6 min ago · organization scoped</span></div><span class="df-badge secondary">Audit</span></article>
+              </div>
+            </section>
+          </aside>
+        </section>
+        <aside class="df-sheet" data-sheet>
+          <button class="df-icon-button" data-sheet-close><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+          <h2>Site visit override</h2>
+          <p>Evidence is retained and marked location-unverified. Add an admin reason before release.</p>
+          <textarea class="df-textarea">Reviewer confirmed physical progress through signed report and timestamped photos.</textarea>
+          <button class="df-button df-button-default" style="margin-top:12px;">Save override reason</button>
+        </aside>
+      </section>
+    </main>
+  </body>
+</html>

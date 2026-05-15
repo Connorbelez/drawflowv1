@@ -11,7 +11,18 @@
       "!src/components/ui",
       "!src/components/kibo-ui",
       "!**/*.css",
-      "!.skills/**"
+      "!.agents",
+      "!.skills",
+      "!**/*.mdx",
+      "!**/*.md",
+      "!**/*.svg",
+      "!**/*.png",
+      "!**/*.test.{ts,tsx}",
+      "!src/components/kokonutui",
+      "!src/components/kokonutui",
+      "!src/components/kokonutui/*",
+      "!src/components/kokonutui/*.tsx",
+      "!src/components/examples"
     ]
   },
   "linter": {
@@ -26,7 +37,8 @@
         "noNestedTernary": "off",
         "useConsistentTypeDefinitions": "warn",
         "useDefaultSwitchClause": "off",
-        "useFilenamingConvention": "off"
+        "useFilenamingConvention": "off",
+        "useConsistentArrayType": "warn"
       }
     }
   }
