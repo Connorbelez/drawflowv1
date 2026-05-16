@@ -13,11 +13,13 @@ const initialItems: TimelineItem<DemoMilestone>[] = [
     data: {
       amount: 125_000,
       draw: "Draw 1",
+      drawX: 22,
       evidence: "Accepted package",
       icon: "foundation",
       name: "Site prep & foundation",
       policy: "Released",
       status: "complete",
+      subMilestones: ["Permit mobilization", "Excavation"],
     },
     eyebrow: "Milestone 1",
     id: "site-prep",
@@ -31,11 +33,13 @@ const initialItems: TimelineItem<DemoMilestone>[] = [
     data: {
       amount: 160_000,
       draw: "Draw 2",
+      drawX: 66,
       evidence: "Accepted package",
       icon: "framing",
       name: "Framing & structure",
       policy: "Released",
       status: "complete",
+      subMilestones: ["Wall framing", "Roof trusses"],
     },
     eyebrow: "Milestone 2",
     id: "framing",
@@ -69,16 +73,20 @@ describe("timeline share snapshots", () => {
     const state = initialTimelineShareState(
       initialItems,
       initialDraws,
+      [],
       { max: 230, min: 0, unit: "days" },
       "framing",
       58,
       true,
+      400_000,
       false
     );
     const snapshot = buildTimelineShareSnapshotV1(state);
 
     expect(snapshot.payloadVersion).toBe(1);
-    expect(snapshot.snapshotSummary).toBe("2 milestones · 2 draws · 0-230 days");
+    expect(snapshot.snapshotSummary).toBe(
+      "2 milestones · 2 draws · 0 spikes · 0-230 days"
+    );
     expect(applyTimelineShareSnapshotV1(snapshot, state)).toEqual(state);
   });
 
@@ -89,11 +97,13 @@ describe("timeline share snapshots", () => {
         data: {
           amount: 137_500,
           draw: "Inserted 1",
+          drawX: 251,
           evidence: "Draft package",
           icon: "change",
           name: "Field change 1",
           policy: "Needs sequencing",
           status: "ready",
+          subMilestones: ["Scope estimate", "Schedule alignment"],
         },
         eyebrow: "Inserted milestone",
         id: "inserted-1",
@@ -117,10 +127,19 @@ describe("timeline share snapshots", () => {
     const state = initialTimelineShareState(
       insertedItems,
       insertedDraws,
+      [
+        {
+          amount: 35_000,
+          id: "capital-spike-1",
+          label: "Unexpected permit fee",
+          x: 248,
+        },
+      ],
       { max: 260, min: 0, unit: "days" },
       "inserted-1",
       245,
       false,
+      475_000,
       true
     );
 
@@ -137,6 +156,13 @@ describe("timeline share snapshots", () => {
       id: "manual-draw-1",
       x: 251,
     });
+    expect(snapshot.capitalSpikes.at(-1)).toMatchObject({
+      amount: 35_000,
+      id: "capital-spike-1",
+      x: 248,
+    });
+    expect(snapshot.startingCash).toBe(475_000);
+    expect(snapshot.snapshotSummary).toContain("1 spikes");
   });
 
   test("does not serialize transient probe or editor state", () => {
@@ -144,12 +170,14 @@ describe("timeline share snapshots", () => {
       activeItemId: "framing",
       activeDrawId: "framing",
       drawEditDraft: { amount: "260000", x: "99" },
+      capitalSpikes: [],
       draws: initialDraws,
       items: initialItems,
       probeValue: 77,
       progressValue: 58,
       range: { max: 230, min: 0, unit: "days" },
       selectedPanelOpen: true,
+      startingCash: 400_000,
       straightLine: false,
     };
     const snapshot = buildTimelineShareSnapshotV1(routeStateWithTransient);

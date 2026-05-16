@@ -13,11 +13,38 @@ import {
   type TooltipRoundness,
   type TooltipVariant,
 } from "#/components/evilcharts/ui/tooltip.tsx";
-import { ChartLegend, ChartLegendContent, type ChartLegendVariant } from "#/components/evilcharts/ui/legend.tsx";
-import { Area, Bar, ComposedChart, CartesianGrid, Line, ReferenceLine, XAxis, YAxis } from "recharts";
-import { useCallback, useId, useMemo, useRef, useState, type ComponentProps } from "react";
-import { EvilBrush, useEvilBrush, type EvilBrushRange } from "#/components/evilcharts/ui/evil-brush.tsx";
-import { ChartBackground, type BackgroundVariant } from "#/components/evilcharts/ui/background.tsx";
+import {
+  ChartLegend,
+  ChartLegendContent,
+  type ChartLegendVariant,
+} from "#/components/evilcharts/ui/legend.tsx";
+import {
+  Area,
+  Bar,
+  ComposedChart,
+  CartesianGrid,
+  Line,
+  ReferenceLine,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  useCallback,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+} from "react";
+import {
+  EvilBrush,
+  useEvilBrush,
+  type EvilBrushRange,
+} from "#/components/evilcharts/ui/evil-brush.tsx";
+import {
+  ChartBackground,
+  type BackgroundVariant,
+} from "#/components/evilcharts/ui/background.tsx";
 import { ChartDot, type DotVariant } from "#/components/evilcharts/ui/dot.tsx";
 import { motion } from "motion/react";
 
@@ -33,15 +60,74 @@ type YAxisProps = ComponentProps<typeof YAxis>;
 type LineType = ComponentProps<typeof Line>["type"];
 type AreaType = ComponentProps<typeof Area>["type"];
 type StrokeVariant = "solid" | "dashed" | "animated-dashed";
-type BarVariant = "default" | "hatched" | "duotone" | "duotone-reverse" | "gradient" | "stripped";
-type AreaVariant = "gradient" | "gradient-reverse" | "solid" | "dotted" | "lines" | "hatched";
+type BarVariant =
+  | "default"
+  | "hatched"
+  | "duotone"
+  | "duotone-reverse"
+  | "gradient"
+  | "stripped";
+type AreaVariant =
+  | "gradient"
+  | "gradient-reverse"
+  | "solid"
+  | "dotted"
+  | "lines"
+  | "hatched";
 type ReferenceLineMarker = {
-  label?: string;
+  label?: string | string[];
   opacity?: number;
   stroke?: string;
   strokeDasharray?: string;
   x: number | string;
 };
+
+interface ReferenceLineLabelProps {
+  fill?: string;
+  fontSize?: number | string;
+  fontWeight?: number | string;
+  value?: string | string[];
+  viewBox?: unknown;
+}
+
+function ReferenceLineLabel({
+  fill,
+  fontSize = 11,
+  fontWeight = 600,
+  value,
+  viewBox,
+}: ReferenceLineLabelProps) {
+  if (!(value && typeof viewBox === "object" && viewBox !== null)) {
+    return null;
+  }
+
+  const box = viewBox as Record<string, unknown>;
+  const x = Number(box.x);
+  const y = Number(box.y);
+
+  if (!(Number.isFinite(x) && Number.isFinite(y))) {
+    return null;
+  }
+
+  const lines = Array.isArray(value) ? value : [value];
+
+  return (
+    <text
+      fill={fill}
+      fontSize={fontSize}
+      fontWeight={fontWeight}
+      textAnchor="middle"
+      x={x}
+      y={y - 8 - (lines.length - 1) * 12}
+    >
+      {lines.map((line, index) => (
+        <tspan dy={index === 0 ? 0 : 12} key={`${line}-${index}`} x={x}>
+          {line}
+        </tspan>
+      ))}
+    </text>
+  );
+}
 
 // Validating Types to make sure user have provided valid data according to chartConfig
 type ValidateConfigKeys<TData, TConfig> = {
@@ -195,8 +281,15 @@ export function EvilComposedChart<
   onBrushChange,
   onSelectionChange,
   backgroundVariant,
-}: EvilComposedChartPropsWithCallback<TData, TBarConfig, TLineConfig, TAreaConfig>) {
-  const [selectedDataKey, setSelectedDataKey] = useState<string | null>(defaultSelectedDataKey);
+}: EvilComposedChartPropsWithCallback<
+  TData,
+  TBarConfig,
+  TLineConfig,
+  TAreaConfig
+>) {
+  const [selectedDataKey, setSelectedDataKey] = useState<string | null>(
+    defaultSelectedDataKey
+  );
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const { loadingData, onShimmerExit } = useLoadingData(isLoading, loadingBars);
   const chartId = useId().replace(/:/g, "");
@@ -213,7 +306,7 @@ export function EvilComposedChart<
         onSelectionChange(newSelectedDataKey);
       }
     },
-    [onSelectionChange, isClickable],
+    [onSelectionChange, isClickable]
   );
 
   // Combined config for legend and tooltip
@@ -306,7 +399,8 @@ export function EvilComposedChart<
                 ? false
                 : {
                     strokeDasharray:
-                      strokeVariant === "dashed" || strokeVariant === "animated-dashed"
+                      strokeVariant === "dashed" ||
+                      strokeVariant === "animated-dashed"
                         ? "3 3"
                         : undefined,
                     strokeWidth: STROKE_WIDTH,
@@ -330,11 +424,13 @@ export function EvilComposedChart<
               label={
                 marker.label
                   ? {
+                      content: (props) => (
+                        <ReferenceLineLabel {...props} value={marker.label} />
+                      ),
                       fill: marker.stroke ?? "oklch(0.78 0.16 85)",
                       fontSize: 11,
                       fontWeight: 600,
                       position: "top",
-                      value: marker.label,
                     }
                   : undefined
               }
@@ -375,7 +471,9 @@ export function EvilComposedChart<
                 activeDot={false}
                 stackId={areaStacked ? "evil-area-stack" : undefined}
               >
-                {strokeVariant === "animated-dashed" && !hasSelection && <AnimatedDashedStyle />}
+                {strokeVariant === "animated-dashed" && !hasSelection && (
+                  <AnimatedDashedStyle />
+                )}
               </Area>
             );
           })}
@@ -383,8 +481,11 @@ export function EvilComposedChart<
         {/* ======== BARS ======== */}
         {!isLoading &&
           Object.keys(barConfig).map((dataKey) => {
-            const isGlowing = glowingBars.includes(dataKey as NumericDataKeys<TData>);
-            const isSelectedDataKey = selectedDataKey === null || selectedDataKey === dataKey;
+            const isGlowing = glowingBars.includes(
+              dataKey as NumericDataKeys<TData>
+            );
+            const isSelectedDataKey =
+              selectedDataKey === null || selectedDataKey === dataKey;
 
             const getFilter = () => {
               if (isGlowing) return `url(#${chartId}-bar-glow-${dataKey})`;
@@ -398,14 +499,22 @@ export function EvilComposedChart<
                 fill={`url(#${chartId}-bar-colors-${dataKey})`}
                 radius={barRadius}
                 barSize={barSize}
-                style={isClickable || enableHoverHighlight ? { cursor: "pointer" } : undefined}
+                style={
+                  isClickable || enableHoverHighlight
+                    ? { cursor: "pointer" }
+                    : undefined
+                }
                 shape={(props: unknown) => {
                   const barProps = props as BarShapeProps;
                   const index = barProps.index as number;
 
                   const getBarOpacity = () => {
                     const clickOpacity =
-                      isClickable && selectedDataKey !== null ? (isSelectedDataKey ? 1 : 0.3) : 1;
+                      isClickable && selectedDataKey !== null
+                        ? isSelectedDataKey
+                          ? 1
+                          : 0.3
+                        : 1;
 
                     if (enableHoverHighlight && hoveredIndex !== null) {
                       const isHovered = hoveredIndex === index;
@@ -428,7 +537,9 @@ export function EvilComposedChart<
                       enableHoverHighlight={enableHoverHighlight}
                       onClick={() => {
                         if (!isClickable) return;
-                        handleSelectionChange(selectedDataKey === dataKey ? null : dataKey);
+                        handleSelectionChange(
+                          selectedDataKey === dataKey ? null : dataKey
+                        );
                       }}
                       onMouseEnter={() => {
                         if (enableHoverHighlight) setHoveredIndex(index);
@@ -445,7 +556,9 @@ export function EvilComposedChart<
           Object.keys(lineConfig).map((dataKey) => {
             const _opacity = getOpacity(isClickable, selectedDataKey, dataKey);
             const hasSelection = selectedDataKey !== null;
-            const isGlowing = glowingLines.includes(dataKey as NumericDataKeys<TData>);
+            const isGlowing = glowingLines.includes(
+              dataKey as NumericDataKeys<TData>
+            );
 
             const getFilter = () => {
               if (isGlowing) return `url(#${chartId}-line-glow-${dataKey})`;
@@ -515,9 +628,15 @@ export function EvilComposedChart<
                         ? "5 5"
                         : undefined
                   }
-                  style={isClickable ? { cursor: "pointer", pointerEvents: "none" } : undefined}
+                  style={
+                    isClickable
+                      ? { cursor: "pointer", pointerEvents: "none" }
+                      : undefined
+                  }
                 >
-                  {strokeVariant === "animated-dashed" && !hasSelection && <AnimatedDashedStyle />}
+                  {strokeVariant === "animated-dashed" && !hasSelection && (
+                    <AnimatedDashedStyle />
+                  )}
                 </Line>
               </g>
             );
@@ -538,10 +657,19 @@ export function EvilComposedChart<
 
         {/* ======== CHART STYLES ======== */}
         <defs>
-          {isLoading && <LoadingPatternStyle chartId={chartId} onShimmerExit={onShimmerExit} />}
+          {isLoading && (
+            <LoadingPatternStyle
+              chartId={chartId}
+              onShimmerExit={onShimmerExit}
+            />
+          )}
 
           {/* Bar color gradients (vertical) */}
-          <VerticalColorGradientStyle chartConfig={barConfig} chartId={chartId} prefix="bar" />
+          <VerticalColorGradientStyle
+            chartConfig={barConfig}
+            chartId={chartId}
+            prefix="bar"
+          />
 
           {/* Area color gradients */}
           {areaConfig && (
@@ -561,7 +689,11 @@ export function EvilComposedChart<
           )}
 
           {/* Line color gradients (horizontal) */}
-          <HorizontalColorGradientStyle chartConfig={lineConfig} chartId={chartId} prefix="line" />
+          <HorizontalColorGradientStyle
+            chartConfig={lineConfig}
+            chartId={chartId}
+            prefix="line"
+          />
 
           {/* Bar variant styles */}
           {barVariant === "hatched" && (
@@ -571,7 +703,10 @@ export function EvilComposedChart<
             <DuotonePatternStyle chartConfig={barConfig} chartId={chartId} />
           )}
           {barVariant === "duotone-reverse" && (
-            <DuotoneReversePatternStyle chartConfig={barConfig} chartId={chartId} />
+            <DuotoneReversePatternStyle
+              chartConfig={barConfig}
+              chartId={chartId}
+            />
           )}
           {barVariant === "gradient" && (
             <GradientPatternStyle chartConfig={barConfig} chartId={chartId} />
@@ -582,12 +717,18 @@ export function EvilComposedChart<
 
           {/* Bar glow filters */}
           {glowingBars.length > 0 && (
-            <BarGlowFilterStyle chartId={chartId} glowingBars={glowingBars as string[]} />
+            <BarGlowFilterStyle
+              chartId={chartId}
+              glowingBars={glowingBars as string[]}
+            />
           )}
 
           {/* Line glow filters */}
           {glowingLines.length > 0 && (
-            <LineGlowFilterStyle chartId={chartId} glowingLines={glowingLines as string[]} />
+            <LineGlowFilterStyle
+              chartId={chartId}
+              glowingLines={glowingLines as string[]}
+            />
           )}
         </defs>
       </ComposedChart>
@@ -596,11 +737,17 @@ export function EvilComposedChart<
 }
 
 // Calculate opacity values for stroke and dot based on selection state
-const getOpacity = (isClickable: boolean, selectedDataKey: string | null, dataKey: string) => {
+const getOpacity = (
+  isClickable: boolean,
+  selectedDataKey: string | null,
+  dataKey: string
+) => {
   if (!isClickable || selectedDataKey === null) {
     return { stroke: 1, dot: 1 };
   }
-  return selectedDataKey === dataKey ? { stroke: 1, dot: 1 } : { stroke: 0.3, dot: 0.3 };
+  return selectedDataKey === dataKey
+    ? { stroke: 1, dot: 1 }
+    : { stroke: 0.3, dot: 0.3 };
 };
 
 // Animated dashed-stroke style for lines
@@ -690,7 +837,8 @@ const CustomBar = ({
     }
   };
 
-  const cursorStyle = isClickable || enableHoverHighlight ? { cursor: "pointer" } : undefined;
+  const cursorStyle =
+    isClickable || enableHoverHighlight ? { cursor: "pointer" } : undefined;
   const hitAreaX = background?.x ?? x;
   const hitAreaY = background?.y ?? y;
   const hitAreaWidth = background?.width ?? width;
@@ -699,7 +847,11 @@ const CustomBar = ({
   if (barVariant === "stripped") {
     return (
       <g style={cursorStyle} onClick={onClick}>
-        <g filter={filter} opacity={fillOpacity} className="transition-opacity duration-200">
+        <g
+          filter={filter}
+          opacity={fillOpacity}
+          className="transition-opacity duration-200"
+        >
           <rect x={x} y={y} width={width} height={height} fill={getFill()} />
           <rect
             x={x}
@@ -852,7 +1004,11 @@ const AreaFillGradientStyle = ({
   opacity: number;
   variant: AreaVariant;
 }) => {
-  const renderStops = (dataKey: string, colorsCount: number, reverse = false) => (
+  const renderStops = (
+    dataKey: string,
+    colorsCount: number,
+    reverse = false
+  ) => (
     <>
       {Array.from({ length: colorsCount }, (_, index) => {
         const offset = (index / Math.max(colorsCount - 1, 1)) * 100;
@@ -861,7 +1017,11 @@ const AreaFillGradientStyle = ({
             key={index}
             offset={`${offset}%`}
             stopColor={`var(--color-${dataKey}-${index}, var(--color-${dataKey}-0))`}
-            stopOpacity={reverse ? opacity * (0.35 + offset / 160) : opacity * (1 - offset / 160)}
+            stopOpacity={
+              reverse
+                ? opacity * (0.35 + offset / 160)
+                : opacity * (1 - offset / 160)
+            }
           />
         );
       })}
@@ -918,7 +1078,11 @@ const AreaFillGradientStyle = ({
           );
         }
 
-        if (variant === "dotted" || variant === "lines" || variant === "hatched") {
+        if (
+          variant === "dotted" ||
+          variant === "lines" ||
+          variant === "hatched"
+        ) {
           const maskPattern =
             variant === "dotted"
               ? `${chartId}-area-dotted-mask-pattern`
@@ -995,7 +1159,11 @@ const HatchedPatternStyle = ({
       {Object.keys(chartConfig).map((dataKey) => (
         <g key={`${chartId}-hatched-group-${dataKey}`}>
           <mask id={`${chartId}-hatched-mask-${dataKey}`}>
-            <rect width="100%" height="100%" fill={`url(#${chartId}-hatched-mask-pattern)`} />
+            <rect
+              width="100%"
+              height="100%"
+              fill={`url(#${chartId}-hatched-mask-pattern)`}
+            />
           </mask>
           <pattern
             id={`${chartId}-hatched-${dataKey}`}
@@ -1066,7 +1234,10 @@ const DuotonePatternStyle = ({
               )}
             </linearGradient>
 
-            <mask id={`${chartId}-duotone-mask-${dataKey}`} maskContentUnits="objectBoundingBox">
+            <mask
+              id={`${chartId}-duotone-mask-${dataKey}`}
+              maskContentUnits="objectBoundingBox"
+            >
               <rect
                 x="0"
                 y="0"
@@ -1194,7 +1365,13 @@ const GradientPatternStyle = ({
 }) => {
   return (
     <>
-      <linearGradient id={`${chartId}-gradient-mask-gradient`} x1="0" y1="0" x2="0" y2="1">
+      <linearGradient
+        id={`${chartId}-gradient-mask-gradient`}
+        x1="0"
+        y1="0"
+        x2="0"
+        y2="1"
+      >
         <stop offset="20%" stopColor="white" stopOpacity={1} />
         <stop offset="90%" stopColor="white" stopOpacity={0} />
       </linearGradient>
@@ -1202,7 +1379,11 @@ const GradientPatternStyle = ({
       {Object.keys(chartConfig).map((dataKey) => (
         <g key={`${chartId}-gradient-group-${dataKey}`}>
           <mask id={`${chartId}-gradient-mask-${dataKey}`}>
-            <rect width="100%" height="100%" fill={`url(#${chartId}-gradient-mask-gradient)`} />
+            <rect
+              width="100%"
+              height="100%"
+              fill={`url(#${chartId}-gradient-mask-gradient)`}
+            />
           </mask>
           <pattern
             id={`${chartId}-gradient-${dataKey}`}
@@ -1232,7 +1413,13 @@ const StrippedPatternStyle = ({
 }) => {
   return (
     <>
-      <linearGradient id={`${chartId}-stripped-mask-gradient`} x1="0" y1="0" x2="0" y2="1">
+      <linearGradient
+        id={`${chartId}-stripped-mask-gradient`}
+        x1="0"
+        y1="0"
+        x2="0"
+        y2="1"
+      >
         <stop offset="0%" stopColor="white" stopOpacity={0.4} />
         <stop offset="100%" stopColor="white" stopOpacity={0.1} />
       </linearGradient>
@@ -1240,7 +1427,11 @@ const StrippedPatternStyle = ({
       {Object.keys(chartConfig).map((dataKey) => (
         <g key={`${chartId}-stripped-group-${dataKey}`}>
           <mask id={`${chartId}-stripped-mask-${dataKey}`}>
-            <rect width="100%" height="100%" fill={`url(#${chartId}-stripped-mask-gradient)`} />
+            <rect
+              width="100%"
+              height="100%"
+              fill={`url(#${chartId}-stripped-mask-gradient)`}
+            />
           </mask>
           <pattern
             id={`${chartId}-stripped-${dataKey}`}
@@ -1336,13 +1527,16 @@ const LineGlowFilterStyle = ({
 const generateEasedGradientStops = (
   steps: number = 17,
   minOpacity: number = 0.05,
-  maxOpacity: number = 0.9,
+  maxOpacity: number = 0.9
 ) => {
   return Array.from({ length: steps }, (_, i) => {
     const t = i / (steps - 1);
     const eased = Math.sin(t * Math.PI) ** 2;
     const opacity = minOpacity + eased * (maxOpacity - minOpacity);
-    return { offset: `${(t * 100).toFixed(0)}%`, opacity: Number(opacity.toFixed(3)) };
+    return {
+      offset: `${(t * 100).toFixed(0)}%`,
+      opacity: Number(opacity.toFixed(3)),
+    };
   });
 };
 
@@ -1358,7 +1552,7 @@ export function useLoadingData(isLoading: boolean, loadingBars: number = 12) {
   const loadingData = useMemo(
     () => getLoadingData(loadingBars, 20, 80),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [loadingBars, loadingDataKey],
+    [loadingBars, loadingDataKey]
   );
 
   return { loadingData, onShimmerExit };
@@ -1379,9 +1573,20 @@ const LoadingPatternStyle = ({
 
   return (
     <>
-      <linearGradient id={`${chartId}-loading-mask-gradient`} x1="0" y1="0" x2="1" y2="0">
+      <linearGradient
+        id={`${chartId}-loading-mask-gradient`}
+        x1="0"
+        y1="0"
+        x2="1"
+        y2="0"
+      >
         {gradientStops.map(({ offset, opacity }) => (
-          <stop key={offset} offset={offset} stopColor="white" stopOpacity={opacity} />
+          <stop
+            key={offset}
+            offset={offset}
+            stopColor="white"
+            stopOpacity={opacity}
+          />
         ))}
       </linearGradient>
       <pattern
@@ -1418,7 +1623,11 @@ const LoadingPatternStyle = ({
         />
       </pattern>
       <mask id={`${chartId}-loading-mask`} maskUnits="userSpaceOnUse">
-        <rect width="100%" height="100%" fill={`url(#${chartId}-loading-mask-pattern)`} />
+        <rect
+          width="100%"
+          height="100%"
+          fill={`url(#${chartId}-loading-mask-pattern)`}
+        />
       </mask>
     </>
   );

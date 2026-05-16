@@ -22,8 +22,10 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { createStandardSchemaV1, parseAsString, useQueryStates } from "nuqs";
 import { QRCodeSVG } from "qrcode.react";
 import {
+  type Dispatch,
   type FormEvent,
   type ReactNode,
+  type SetStateAction,
   useCallback,
   useEffect,
   useMemo,
@@ -47,6 +49,12 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "#/components/ui/context-menu.tsx";
+import {
+  Drawer,
+  DrawerPanel,
+  DrawerPopup,
+  DrawerTitle,
+} from "#/components/ui/drawer.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import {
@@ -61,9 +69,9 @@ import { api } from "../../../../convex/_generated/api";
 import {
   applyTimelineShareSnapshotV1,
   buildTimelineShareSnapshotV1,
+  type DemoCapitalSpike,
   type DemoDraw,
   type DemoMilestone,
-  type DemoStatus,
   type IsometricIconKey,
   initialTimelineShareState,
   type TimelineShareSnapshotV1,
@@ -87,18 +95,25 @@ interface DrawEditDraft {
   x: string;
 }
 
+interface CapitalSpikeEditDraft {
+  amount: string;
+  label: string;
+  x: string;
+}
+
 export interface CashflowDatum {
   budget: number;
+  capitalSpikeAmount: number;
   cashOnHand: number;
   day: number;
   drawAmount: number;
-  event: "draw" | "milestone" | "start";
+  event: "capitalSpike" | "draw" | "milestone" | "start";
   id: string;
   name: string;
   [key: string]: unknown;
 }
 
-interface DrawAvailabilityDatum {
+export interface DrawAvailabilityDatum {
   additionalAvailableDraw: number;
   day: number;
   interestBearingDraw: number;
@@ -128,11 +143,12 @@ const INITIAL_RANGE: TimelineRange = {
   min: 0,
   unit: "days",
 };
-const DRAW_REVIEW_LAG_DAYS = 8;
 const DRAW_FEE = 500;
 const INTEREST_APR = 0.0925;
+const CHART_PROBE_INTERVAL_DAYS = 5;
 const MINIMUM_POST_MILESTONE_CASH_RESERVE = 0;
 const STARTING_CASH = 400_000;
+const INITIAL_CAPITAL_SPIKES: DemoCapitalSpike[] = [];
 
 const cashflowChartConfig = {
   additionalAvailableDraw: {
@@ -156,6 +172,13 @@ const cashflowChartConfig = {
       light: ["oklch(0.67 0.18 275)", "oklch(0.76 0.17 235)"],
     },
   },
+  capitalSpikeAmount: {
+    label: "Capital spike",
+    colors: {
+      dark: ["oklch(0.68 0.2 35)", "oklch(0.78 0.18 55)"],
+      light: ["oklch(0.62 0.22 35)", "oklch(0.74 0.18 55)"],
+    },
+  },
   interestBearingDraw: {
     label: "Interest-bearing draw",
     colors: {
@@ -177,11 +200,13 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
     data: {
       amount: 125_000,
       draw: "Draw 1",
+      drawX: 22,
       evidence: "Accepted package",
       icon: "foundation",
       name: "Site prep & foundation",
       policy: "Released",
       status: "complete",
+      subMilestones: ["Permit mobilization", "Excavation", "Concrete forms"],
     },
     eyebrow: "Milestone 1",
     id: "site-prep",
@@ -195,11 +220,13 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
     data: {
       amount: 160_000,
       draw: "Draw 2",
+      drawX: 66,
       evidence: "Accepted package",
       icon: "framing",
       name: "Framing & structure",
       policy: "Released",
       status: "complete",
+      subMilestones: ["Wall framing", "Roof trusses", "Structural sheathing"],
     },
     eyebrow: "Milestone 2",
     id: "framing",
@@ -213,11 +240,13 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
     data: {
       amount: 245_000,
       draw: "Draw 3",
+      drawX: 100,
       evidence: "Site visit today",
       icon: "roughIn",
       name: "Rough-in mechanical",
       policy: "Admin review",
       status: "review",
+      subMilestones: ["Plumbing rough-in", "Electrical rough-in", "HVAC ducts"],
     },
     eyebrow: "Milestone 3",
     id: "rough-in",
@@ -231,11 +260,13 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
     data: {
       amount: 210_000,
       draw: "Draw 4",
+      drawX: 140,
       evidence: "Draft started",
       icon: "exterior",
       name: "Windows & exterior",
       policy: "Evidence required",
       status: "ready",
+      subMilestones: ["Window install", "Weather barrier", "Exterior doors"],
     },
     eyebrow: "Milestone 4",
     id: "exterior",
@@ -249,11 +280,13 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
     data: {
       amount: 190_000,
       draw: "Draw 5",
+      drawX: 176,
       evidence: "Not started",
       icon: "drywall",
       name: "Inspections & drywall",
       policy: "Upcoming",
       status: "upcoming",
+      subMilestones: ["Rough-in inspection", "Insulation", "Drywall hang"],
     },
     eyebrow: "Milestone 5",
     id: "drywall",
@@ -267,11 +300,13 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
     data: {
       amount: 160_000,
       draw: "Draw 6",
+      drawX: 212,
       evidence: "Not started",
       icon: "finishes",
       name: "Finishes & fixtures",
       policy: "Upcoming",
       status: "upcoming",
+      subMilestones: ["Cabinetry", "Flooring", "Fixture set"],
     },
     eyebrow: "Milestone 6",
     id: "finishes",
@@ -285,11 +320,13 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
     data: {
       amount: 160_000,
       draw: "Draw 7",
+      drawX: 230,
       evidence: "Not started",
       icon: "closeout",
       name: "Final inspection & closeout",
       policy: "Upcoming",
       status: "upcoming",
+      subMilestones: ["Punch list", "Final inspection", "Closeout package"],
     },
     eyebrow: "Milestone 7",
     id: "closeout",
@@ -300,13 +337,6 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
     x: 226,
   },
 ];
-
-const statusLabels: Record<DemoStatus, string> = {
-  complete: "Completed",
-  ready: "Evidence pending",
-  review: "In review",
-  upcoming: "Upcoming",
-};
 
 const money = (value: number) =>
   new Intl.NumberFormat("en-US", {
@@ -337,6 +367,7 @@ interface TimelineResponsiveSizing {
   cardWidth: number;
   endCardWidth: number;
   minNodeSpacingPx: number;
+  paddingX: number;
   pixelsPerUnit: number;
   yAxisWidth: number;
 }
@@ -351,6 +382,7 @@ function getTimelineResponsiveSizing(
       cardWidth: 224,
       endCardWidth: 244,
       minNodeSpacingPx: 184,
+      paddingX: 128,
       pixelsPerUnit: 5.35,
       yAxisWidth: 48,
     };
@@ -362,6 +394,7 @@ function getTimelineResponsiveSizing(
       cardWidth: 232,
       endCardWidth: 260,
       minNodeSpacingPx: 190,
+      paddingX: 136,
       pixelsPerUnit: 5.85,
       yAxisWidth: 58,
     };
@@ -372,6 +405,7 @@ function getTimelineResponsiveSizing(
     cardWidth: 232,
     endCardWidth: 276,
     minNodeSpacingPx: 198,
+    paddingX: 136,
     pixelsPerUnit: 6.4,
     yAxisWidth: 58,
   };
@@ -381,23 +415,38 @@ function getTimelineResponsiveSizing(
 function RouteComponent() {
   const prefersReducedMotion = useReducedMotion();
   const isCompactLayout = useMediaQuery("max-lg");
+  const isMobileDrawerLayout = useMediaQuery("max-md");
   const isPhoneLayout = useMediaQuery("max-sm");
   const insertionCount = useRef(0);
   const drawInsertionCount = useRef(0);
+  const capitalSpikeInsertionCount = useRef(0);
   const [items, setItems] =
     useState<TimelineItem<DemoMilestone>[]>(INITIAL_ITEMS);
   const [draws, setDraws] = useState<DemoDraw[]>(() =>
     buildDemoDraws(INITIAL_ITEMS, INITIAL_RANGE)
   );
+  const [capitalSpikes, setCapitalSpikes] = useState<DemoCapitalSpike[]>(
+    INITIAL_CAPITAL_SPIKES
+  );
+  const [startingCash, setStartingCash] = useState(STARTING_CASH);
   const [range, setRange] = useState<TimelineRange>(INITIAL_RANGE);
   const [activeItemId, setActiveItemId] = useState("rough-in");
   const [progressValue, setProgressValue] = useState(92);
   const [probeValue, setProbeValue] = useState<number | null>(null);
   const [activeDrawId, setActiveDrawId] = useState<string | null>(null);
+  const [activeCapitalSpikeId, setActiveCapitalSpikeId] = useState<
+    string | null
+  >(null);
   const [drawEditDraft, setDrawEditDraft] = useState<DrawEditDraft>({
     amount: "",
     x: "",
   });
+  const [capitalSpikeEditDraft, setCapitalSpikeEditDraft] =
+    useState<CapitalSpikeEditDraft>({
+      amount: "",
+      label: "",
+      x: "",
+    });
   const [selectedPanelOpen, setSelectedPanelOpen] = useState(true);
   const [straightLine, setStraightLine] = useState(false);
   const activeItem = items.find((item) => item.id === activeItemId) ?? items[0];
@@ -410,6 +459,8 @@ function RouteComponent() {
     share,
   } = useTimelineSnapshotSharing({
     activeItemId,
+    capitalSpikeInsertionCount,
+    capitalSpikes,
     drawInsertionCount,
     draws,
     insertionCount,
@@ -417,8 +468,11 @@ function RouteComponent() {
     progressValue,
     resolvedRange,
     selectedPanelOpen,
+    setActiveCapitalSpikeId,
     setActiveDrawId,
     setActiveItemId,
+    setCapitalSpikeEditDraft,
+    setCapitalSpikes,
     setDrawEditDraft,
     setDraws,
     setItems,
@@ -426,16 +480,33 @@ function RouteComponent() {
     setProgressValue,
     setRange,
     setSelectedPanelOpen,
+    setStartingCash,
     setStraightLine,
+    startingCash,
     straightLine,
   });
   const cashflowData = useMemo(
-    () => buildTimelineCashflowData(items, draws, resolvedRange),
-    [draws, items, resolvedRange]
+    () =>
+      buildTimelineCashflowData(
+        items,
+        draws,
+        capitalSpikes,
+        resolvedRange,
+        startingCash
+      ),
+    [capitalSpikes, draws, items, resolvedRange, startingCash]
+  );
+  const cashflowChartData = useMemo(
+    () => densifyCashflowData(cashflowData, resolvedRange),
+    [cashflowData, resolvedRange]
   );
   const drawAvailabilityData = useMemo(
     () => buildDrawAvailabilityData(cashflowData),
     [cashflowData]
+  );
+  const drawAvailabilityChartData = useMemo(
+    () => densifyDrawAvailabilityData(drawAvailabilityData, resolvedRange),
+    [drawAvailabilityData, resolvedRange]
   );
   const cashShortfalls = useMemo(
     () => buildCashShortfallPoints(cashflowData),
@@ -444,10 +515,6 @@ function RouteComponent() {
   const financialOverview = useMemo(
     () => buildFinancialOverview(cashflowData, draws, resolvedRange),
     [cashflowData, draws, resolvedRange]
-  );
-  const cashflowTicks = useMemo(
-    () => getCashflowTicks(resolvedRange),
-    [resolvedRange]
   );
   const cashflowExtent = useMemo(
     () => getCashflowChartExtent(cashflowData),
@@ -468,15 +535,21 @@ function RouteComponent() {
           drawAvailabilityData,
           Math.round(probeValue)
         );
-  const endingCashOnHand = cashflowData.at(-1)?.cashOnHand ?? STARTING_CASH;
+  const endingCashOnHand = cashflowData.at(-1)?.cashOnHand ?? startingCash;
   const endingAvailability = drawAvailabilityData.at(-1) ?? {
     additionalAvailableDraw: 0,
+    day: resolvedRange.min,
     interestBearingDraw: 0,
+    name: "No draw capacity",
     totalAvailableDraw: 0,
   };
   const timelineSizing = useMemo(
     () => getTimelineResponsiveSizing(isCompactLayout, isPhoneLayout),
     [isCompactLayout, isPhoneLayout]
+  );
+  const cashflowTicks = useMemo(
+    () => getTimelineAlignedTicks(resolvedRange, timelineSizing.pixelsPerUnit),
+    [resolvedRange, timelineSizing.pixelsPerUnit]
   );
   const cashflowReferenceLines = useMemo(
     () => [
@@ -495,7 +568,10 @@ function RouteComponent() {
         ? []
         : [
             {
-              label: `Day ${Math.round(probeValue)}`,
+              label: [
+                `Day ${Math.round(probeValue)}`,
+                `Cash on hand ${money(probeCashOnHand ?? startingCash)}`,
+              ],
               opacity: 0.78,
               stroke: "oklch(0.62 0.22 25)",
               strokeDasharray: "4 3",
@@ -503,7 +579,7 @@ function RouteComponent() {
             },
           ]),
     ],
-    [cashShortfalls, isPhoneLayout, probeValue]
+    [cashShortfalls, isPhoneLayout, probeCashOnHand, probeValue, startingCash]
   );
   const drawAvailabilityReferenceLines = useMemo(
     () =>
@@ -538,6 +614,13 @@ function RouteComponent() {
         tone: "accent" as const,
         x: draw.x,
       })),
+      ...capitalSpikes.map((spike) => ({
+        id: `capital-spike-${spike.id}`,
+        label: spike.label,
+        sublabel: `${money(spike.amount)} · ${formatTimelineDay(spike.x)}`,
+        tone: "warning" as const,
+        x: spike.x,
+      })),
       {
         id: "policy-limit",
         label: "Policy checkpoint",
@@ -545,22 +628,26 @@ function RouteComponent() {
         tone: "warning",
         x: 154,
       },
-      {
-        id: "closeout",
-        label: "Closeout",
-        sublabel: `${Math.round(range.max)} days`,
-        tone: "neutral",
-        x: range.max,
-      },
     ],
-    [draws, range.max]
+    [capitalSpikes, draws]
   );
 
   const openDrawEditor = (draw: DemoDraw) => {
+    setActiveCapitalSpikeId(null);
     setActiveDrawId(draw.id);
     setDrawEditDraft({
       amount: String(draw.amount),
       x: String(Math.round(draw.x)),
+    });
+  };
+
+  const openCapitalSpikeEditor = (spike: DemoCapitalSpike) => {
+    setActiveDrawId(null);
+    setActiveCapitalSpikeId(spike.id);
+    setCapitalSpikeEditDraft({
+      amount: String(spike.amount),
+      label: spike.label,
+      x: String(Math.round(spike.x)),
     });
   };
 
@@ -569,6 +656,7 @@ function RouteComponent() {
     const count = drawInsertionCount.current;
 
     setActiveDrawId(null);
+    setActiveCapitalSpikeId(null);
     setDraws((currentDraws) =>
       [
         ...currentDraws,
@@ -583,10 +671,36 @@ function RouteComponent() {
     );
   };
 
+  const addCapitalSpike = (requestedX: number) => {
+    capitalSpikeInsertionCount.current += 1;
+    const count = capitalSpikeInsertionCount.current;
+
+    setActiveDrawId(null);
+    setActiveCapitalSpikeId(null);
+    setCapitalSpikes((currentSpikes) =>
+      [
+        ...currentSpikes,
+        {
+          amount: 35_000,
+          id: `capital-spike-${Date.now()}-${count}`,
+          label: `Capital spike ${count}`,
+          x: requestedX,
+        },
+      ].sort((a, b) => a.x - b.x || a.id.localeCompare(b.id))
+    );
+  };
+
   const deleteDraw = (drawId: string) => {
     setActiveDrawId(null);
     setDraws((currentDraws) =>
       currentDraws.filter((draw) => draw.id !== drawId)
+    );
+  };
+
+  const deleteCapitalSpike = (spikeId: string) => {
+    setActiveCapitalSpikeId(null);
+    setCapitalSpikes((currentSpikes) =>
+      currentSpikes.filter((spike) => spike.id !== spikeId)
     );
   };
 
@@ -624,10 +738,14 @@ function RouteComponent() {
       return;
     }
 
-    const nextAmount = Math.max(0, Math.round(Number(drawEditDraft.amount)));
+    const formData = new FormData(event.currentTarget);
+    const nextAmount = Math.max(
+      0,
+      Math.round(Number(formData.get("drawAmount") ?? drawEditDraft.amount))
+    );
     const nextX = Math.max(
       resolvedRange.min,
-      Math.round(Number(drawEditDraft.x))
+      Math.round(Number(formData.get("drawDate") ?? drawEditDraft.x))
     );
 
     if (!(Number.isFinite(nextAmount) && Number.isFinite(nextX))) {
@@ -655,11 +773,64 @@ function RouteComponent() {
     setActiveDrawId(null);
   };
 
+  const applyCapitalSpikeEdit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!activeCapitalSpikeId) {
+      return;
+    }
+
+    const formData = new FormData(event.currentTarget);
+    const nextAmount = Math.max(
+      0,
+      Math.round(
+        Number(
+          formData.get("capitalSpikeAmount") ?? capitalSpikeEditDraft.amount
+        )
+      )
+    );
+    const nextX = Math.max(
+      resolvedRange.min,
+      Math.round(
+        Number(formData.get("capitalSpikeDate") ?? capitalSpikeEditDraft.x)
+      )
+    );
+    const nextLabel =
+      String(
+        formData.get("capitalSpikeLabel") ?? capitalSpikeEditDraft.label
+      ).trim() || "Capital spike";
+
+    if (!(Number.isFinite(nextAmount) && Number.isFinite(nextX))) {
+      return;
+    }
+
+    setCapitalSpikes((currentSpikes) =>
+      currentSpikes
+        .map((spike) =>
+          spike.id === activeCapitalSpikeId
+            ? {
+                ...spike,
+                amount: nextAmount,
+                label: nextLabel,
+                x: nextX,
+              }
+            : spike
+        )
+        .sort((a, b) => a.x - b.x || a.id.localeCompare(b.id))
+    );
+    if (nextX > resolvedRange.max) {
+      setRange((currentRange) => ({
+        ...currentRange,
+        max: nextX,
+      }));
+    }
+    setActiveCapitalSpikeId(null);
+  };
+
   return (
     <main className="min-h-svh overflow-x-clip bg-[radial-gradient(circle_at_top_left,color-mix(in_oklch,var(--primary)_14%,transparent),transparent_34%),linear-gradient(180deg,var(--background),var(--bg-base))] px-3 py-5 sm:px-6 sm:py-8 lg:px-8">
       <motion.div
         animate="show"
-        className="mx-auto flex max-w-7xl flex-col gap-6"
+        className="mx-auto flex max-w-full flex-col gap-6"
         initial={prefersReducedMotion ? false : "hidden"}
         variants={{
           hidden: {},
@@ -738,59 +909,90 @@ function RouteComponent() {
               </h2>
               <p className="mt-1 max-w-2xl text-muted-foreground text-sm">
                 Costs pull borrower cash down at milestone completion; draw
-                releases replenish it after lender review.
+                releases replenish it on their scheduled dates. Capital spikes
+                model unexpected planning costs.
               </p>
             </div>
-            <div className="grid w-full grid-cols-2 gap-2 text-sm sm:grid-cols-4 lg:w-auto lg:min-w-80">
-              <div className="min-w-0 rounded-md border border-border bg-muted/30 px-2.5 py-2 sm:px-3">
-                <p className="font-medium text-[10px] text-muted-foreground uppercase">
-                  Probe
-                </p>
-                <p
-                  className="mt-1 font-semibold text-foreground"
-                  data-testid="timeline-cashflow-probe-day"
+            <div className="grid w-full gap-3 lg:w-auto lg:min-w-[560px]">
+              <div className="grid gap-1.5 sm:ml-auto sm:w-56">
+                <Label className="text-xs" htmlFor="timeline-starting-cash">
+                  Initial cash on hand
+                </Label>
+                <Input
+                  data-testid="timeline-starting-cash-input"
+                  id="timeline-starting-cash"
+                  min={0}
+                  nativeInput
+                  onChange={(event) => {
+                    const nextValue = Math.max(
+                      0,
+                      Math.round(Number(event.currentTarget.value))
+                    );
+
+                    if (Number.isFinite(nextValue)) {
+                      setStartingCash(nextValue);
+                    }
+                  }}
+                  size="sm"
+                  step={5000}
+                  type="number"
+                  value={startingCash}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+                <div className="min-w-0 rounded-md border border-border bg-muted/30 px-2.5 py-2 sm:px-3">
+                  <p className="font-medium text-[10px] text-muted-foreground uppercase">
+                    Probe
+                  </p>
+                  <p
+                    className="mt-1 font-semibold text-foreground"
+                    data-testid="timeline-cashflow-probe-day"
+                  >
+                    {probeValue === null
+                      ? "Hover chart"
+                      : `Day ${Math.round(probeValue)}`}
+                  </p>
+                </div>
+                <div className="min-w-0 rounded-md border border-border bg-muted/30 px-2.5 py-2 sm:px-3">
+                  <p className="font-medium text-[10px] text-muted-foreground uppercase">
+                    Cash
+                  </p>
+                  <p
+                    className="mt-1 font-semibold text-foreground tabular-nums"
+                    data-testid="timeline-cashflow-probe-cash"
+                  >
+                    {probeCashOnHand === null ? "-" : money(probeCashOnHand)}
+                  </p>
+                </div>
+                <div className="min-w-0 rounded-md border border-border bg-muted/30 px-2.5 py-2 sm:px-3">
+                  <p className="font-medium text-[10px] text-muted-foreground uppercase">
+                    Ending cash
+                  </p>
+                  <p
+                    className="mt-1 font-semibold text-foreground tabular-nums"
+                    data-testid="timeline-cashflow-ending-cash"
+                  >
+                    {money(endingCashOnHand)}
+                  </p>
+                </div>
+                <div
+                  className={cn(
+                    "min-w-0 rounded-md border px-2.5 py-2 sm:px-3",
+                    cashShortfalls.length > 0
+                      ? "border-rose-500/30 bg-rose-500/10"
+                      : "border-border bg-muted/30"
+                  )}
+                  data-testid="timeline-cashflow-risk-summary"
                 >
-                  {probeValue === null
-                    ? "Hover chart"
-                    : `Day ${Math.round(probeValue)}`}
-                </p>
-              </div>
-              <div className="min-w-0 rounded-md border border-border bg-muted/30 px-2.5 py-2 sm:px-3">
-                <p className="font-medium text-[10px] text-muted-foreground uppercase">
-                  Cash
-                </p>
-                <p className="mt-1 font-semibold text-foreground tabular-nums">
-                  {probeCashOnHand === null ? "-" : money(probeCashOnHand)}
-                </p>
-              </div>
-              <div className="min-w-0 rounded-md border border-border bg-muted/30 px-2.5 py-2 sm:px-3">
-                <p className="font-medium text-[10px] text-muted-foreground uppercase">
-                  Ending cash
-                </p>
-                <p
-                  className="mt-1 font-semibold text-foreground tabular-nums"
-                  data-testid="timeline-cashflow-ending-cash"
-                >
-                  {money(endingCashOnHand)}
-                </p>
-              </div>
-              <div
-                className={cn(
-                  "min-w-0 rounded-md border px-2.5 py-2 sm:px-3",
-                  cashShortfalls.length > 0
-                    ? "border-rose-500/30 bg-rose-500/10"
-                    : "border-border bg-muted/30"
-                )}
-                data-testid="timeline-cashflow-risk-summary"
-              >
-                <p className="font-medium text-[10px] text-muted-foreground uppercase">
-                  Cash risk
-                </p>
-                <p className="mt-1 font-semibold text-foreground tabular-nums">
-                  {cashShortfalls.length > 0
-                    ? `${cashShortfalls.length} flagged`
-                    : "Clear"}
-                </p>
+                  <p className="font-medium text-[10px] text-muted-foreground uppercase">
+                    Cash risk
+                  </p>
+                  <p className="mt-1 font-semibold text-foreground tabular-nums">
+                    {cashShortfalls.length > 0
+                      ? `${cashShortfalls.length} flagged`
+                      : "Clear"}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -819,7 +1021,10 @@ function RouteComponent() {
             areaCurveType="stepAfter"
             areaOpacity={0.16}
             areaVariant="gradient"
-            barConfig={{ budget: cashflowChartConfig.budget }}
+            barConfig={{
+              budget: cashflowChartConfig.budget,
+              capitalSpikeAmount: cashflowChartConfig.capitalSpikeAmount,
+            }}
             barRadius={6}
             barSize={timelineSizing.barSize}
             barVariant="duotone"
@@ -836,7 +1041,7 @@ function RouteComponent() {
             }}
             className="mt-3 h-[220px] min-w-0 sm:h-[230px]"
             curveType="stepAfter"
-            data={cashflowData}
+            data={cashflowChartData}
             dotVariant="default"
             hideLegend
             lineConfig={{ cashOnHand: cashflowChartConfig.cashOnHand }}
@@ -896,6 +1101,12 @@ function RouteComponent() {
                   label: "Add draw",
                   onSelect: ({ requestedX }) => addManualDraw(requestedX),
                 },
+                {
+                  icon: <AlertTriangle className="size-4 text-amber-500" />,
+                  id: "add-capital-spike",
+                  label: "Add capital spike",
+                  onSelect: ({ requestedX }) => addCapitalSpike(requestedX),
+                },
               ],
               createItem: (requestedX) => {
                 insertionCount.current += 1;
@@ -911,6 +1122,11 @@ function RouteComponent() {
                     name: `Field change ${count}`,
                     policy: "Needs sequencing",
                     status: "ready",
+                    subMilestones: [
+                      "Scope estimate",
+                      "Schedule alignment",
+                      "Draw planning",
+                    ],
                   },
                   eyebrow: "Inserted milestone",
                   id: `inserted-${Date.now()}-${count}`,
@@ -938,6 +1154,7 @@ function RouteComponent() {
             }}
             onProgressValueChange={(value) => setProgressValue(value)}
             onRangeChange={(nextRange) => setRange(nextRange)}
+            paddingX={timelineSizing.paddingX}
             pixelsPerUnit={timelineSizing.pixelsPerUnit}
             progressValue={progressValue}
             range={range}
@@ -954,18 +1171,42 @@ function RouteComponent() {
                 />
               </TimelineDeleteContextMenu>
             )}
-            renderEndCard={() => (
-              <FinancialOverviewCard overview={financialOverview} />
-            )}
             renderMarker={(marker) => {
               const drawId = marker.id.startsWith("draw-")
                 ? marker.id.slice("draw-".length)
                 : null;
+              const capitalSpikeId = marker.id.startsWith("capital-spike-")
+                ? marker.id.slice("capital-spike-".length)
+                : null;
               const draw = drawId
                 ? draws.find((candidate) => candidate.id === drawId)
                 : null;
+              const capitalSpike = capitalSpikeId
+                ? capitalSpikes.find(
+                    (candidate) => candidate.id === capitalSpikeId
+                  )
+                : null;
 
               if (!draw) {
+                if (capitalSpike) {
+                  return (
+                    <TimelineDeleteContextMenu
+                      kind="capitalSpike"
+                      onDelete={() => deleteCapitalSpike(capitalSpike.id)}
+                    >
+                      <CapitalSpikeTimelineMarker
+                        active={capitalSpike.id === activeCapitalSpikeId}
+                        draft={capitalSpikeEditDraft}
+                        onApply={applyCapitalSpikeEdit}
+                        onCancel={() => setActiveCapitalSpikeId(null)}
+                        onDraftChange={setCapitalSpikeEditDraft}
+                        onOpen={() => openCapitalSpikeEditor(capitalSpike)}
+                        reducedMotion={Boolean(prefersReducedMotion)}
+                        spike={capitalSpike}
+                      />
+                    </TimelineDeleteContextMenu>
+                  );
+                }
                 return <TimelineMarkerBadge marker={marker} />;
               }
 
@@ -1009,7 +1250,7 @@ function RouteComponent() {
           />
 
           <AnimatePresence initial={false} mode="popLayout">
-            {selectedPanelOpen ? (
+            {selectedPanelOpen && !isMobileDrawerLayout ? (
               <motion.aside
                 animate={{
                   filter: "blur(0px)",
@@ -1042,150 +1283,51 @@ function RouteComponent() {
                   ease: [0.22, 1, 0.36, 1],
                 }}
               >
-                <div className="w-full lg:w-[248px]">
-                  <div className="flex items-start gap-3">
-                    <div className="-mt-4 -mr-4 grid size-24 shrink-0 place-items-center">
-                      <IsometricMilestoneIcon
-                        className="size-24"
-                        type={activeItem?.data?.icon ?? "roughIn"}
-                      />
-                    </div>
-                    <div>
-                      <p className="font-medium text-muted-foreground text-xs uppercase">
-                        Selected draw
-                      </p>
-                      <h2 className="mt-1 font-semibold text-lg">
-                        {activeItem?.data?.draw}
-                      </h2>
-                    </div>
-                  </div>
-                  <dl className="mt-5 grid gap-3 text-sm">
-                    <div className="flex items-center justify-between gap-3 border-border border-t pt-3">
-                      <dt className="text-muted-foreground">Milestone</dt>
-                      <dd className="text-right font-medium">
-                        {activeItem?.data?.name}
-                      </dd>
-                    </div>
-                    <div className="flex items-center justify-between gap-3 border-border border-t pt-3">
-                      <dt className="text-muted-foreground">Axis position</dt>
-                      <dd className="font-medium">
-                        Day {Math.round(activeItem?.x ?? 0)}
-                      </dd>
-                    </div>
-                    <div className="flex items-center justify-between gap-3 border-border border-t pt-3">
-                      <dt className="text-muted-foreground">Milestone cost</dt>
-                      <dd className="font-medium">
-                        {money(activeItem?.data?.amount ?? 0)}
-                      </dd>
-                    </div>
-                    <div className="flex items-center justify-between gap-3 border-border border-t pt-3">
-                      <dt className="text-muted-foreground">Evidence</dt>
-                      <dd className="font-medium">
-                        {activeItem?.data?.evidence}
-                      </dd>
-                    </div>
-                  </dl>
-                </div>
+                <SelectedDrawDetails
+                  activeItem={activeItem}
+                  overview={financialOverview}
+                />
               </motion.aside>
             ) : null}
           </AnimatePresence>
         </motion.section>
+
+        <SelectedDrawMobileDrawer
+          activeItem={activeItem}
+          onOpenChange={setSelectedPanelOpen}
+          open={selectedPanelOpen && isMobileDrawerLayout}
+          overview={financialOverview}
+        />
 
         <motion.section
           className="min-w-0 rounded-lg border border-border bg-background/92 p-3 shadow-sm backdrop-blur sm:p-4"
           data-testid="timeline-draw-availability-chart"
           variants={routeSectionVariants}
         >
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex flex-col gap-3">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <Badge variant="outline">Draw availability</Badge>
+              <span className="h-2 w-2 rounded-full bg-violet-500" />
+              <span
+                className="font-medium text-muted-foreground text-xs"
+                data-testid="timeline-draw-series-interest-bearing"
+              >
+                Interest-bearing draw
+              </span>
+              <span className="ml-2 h-2 w-2 rounded-full bg-sky-500" />
+              <span
+                className="font-medium text-muted-foreground text-xs"
+                data-testid="timeline-draw-series-additional-available"
+              >
+                Additional available draw
+              </span>
+            </div>
             <div>
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                <Badge variant="outline">Draw availability</Badge>
-                <span className="h-2 w-2 rounded-full bg-violet-500" />
-                <span
-                  className="font-medium text-muted-foreground text-xs"
-                  data-testid="timeline-draw-series-interest-bearing"
-                >
-                  Interest-bearing draw
-                </span>
-                <span className="ml-2 h-2 w-2 rounded-full bg-sky-500" />
-                <span
-                  className="font-medium text-muted-foreground text-xs"
-                  data-testid="timeline-draw-series-additional-available"
-                >
-                  Additional available draw
-                </span>
-              </div>
               <h2 className="font-semibold text-xl">Draw capacity envelope</h2>
               <p className="mt-1 max-w-2xl text-muted-foreground text-sm">
-                Completed milestones unlock draw capacity; released draws become
-                interest-bearing principal.
+                Top line is interest-bearing principal plus available draw;
+                lower line is interest-bearing principal.
               </p>
-            </div>
-            <div className="grid w-full grid-cols-2 gap-2 text-sm sm:grid-cols-4 lg:w-auto lg:min-w-80">
-              <div className="min-w-0 rounded-md border border-border bg-muted/30 px-2.5 py-2 sm:px-3">
-                <p className="font-medium text-[10px] text-muted-foreground uppercase">
-                  Top line
-                </p>
-                <p
-                  className="mt-1 font-semibold text-foreground tabular-nums"
-                  data-testid="timeline-draw-total-available"
-                >
-                  {money(endingAvailability.totalAvailableDraw)}
-                </p>
-              </div>
-              <div className="min-w-0 rounded-md border border-border bg-muted/30 px-2.5 py-2 sm:px-3">
-                <p className="font-medium text-[10px] text-muted-foreground uppercase">
-                  Interest-bearing
-                </p>
-                <p
-                  className="mt-1 font-semibold text-foreground tabular-nums"
-                  data-testid="timeline-draw-interest-bearing"
-                >
-                  {money(endingAvailability.interestBearingDraw)}
-                </p>
-              </div>
-              <div className="min-w-0 rounded-md border border-border bg-muted/30 px-2.5 py-2 sm:px-3">
-                <p className="font-medium text-[10px] text-muted-foreground uppercase">
-                  Additional
-                </p>
-                <p
-                  className="mt-1 font-semibold text-foreground tabular-nums"
-                  data-testid="timeline-draw-additional-available"
-                >
-                  {money(endingAvailability.additionalAvailableDraw)}
-                </p>
-              </div>
-              <div className="min-w-0 rounded-md border border-sky-500/25 bg-sky-500/10 px-2.5 py-2 sm:px-3">
-                <p className="font-medium text-[10px] text-muted-foreground uppercase">
-                  Probe delta
-                </p>
-                <p
-                  className="mt-1 font-semibold text-foreground tabular-nums"
-                  data-testid="timeline-draw-probe-delta"
-                >
-                  {probeDrawAvailability === null
-                    ? "Hover"
-                    : money(probeDrawAvailability.additionalAvailableDraw)}
-                </p>
-              </div>
-            </div>
-          </div>
-          <div className="mt-3 rounded-md border border-sky-500/20 bg-sky-500/10 px-3 py-2">
-            <div className="flex flex-wrap items-center gap-3 text-sm">
-              <span className="inline-flex items-center gap-2 font-medium text-sky-700 dark:text-sky-100">
-                <span className="size-2 rounded-full bg-sky-500" />
-                Delta between lines
-              </span>
-              <span
-                className="font-semibold text-foreground tabular-nums"
-                data-testid="timeline-draw-delta-readout"
-              >
-                {probeDrawAvailability === null
-                  ? "Hover the chart or roadmap"
-                  : `${formatTimelineDay(probeDrawAvailability.day)}: ${money(
-                      probeDrawAvailability.additionalAvailableDraw
-                    )} available for draw`}
-              </span>
             </div>
           </div>
           <EvilComposedChart
@@ -1213,7 +1355,7 @@ function RouteComponent() {
             }}
             className="mt-3 h-[220px] min-w-0 sm:h-[210px]"
             curveType="stepAfter"
-            data={drawAvailabilityData}
+            data={drawAvailabilityChartData}
             dotVariant="default"
             hideLegend
             lineConfig={{
@@ -1239,6 +1381,13 @@ function RouteComponent() {
             }}
             yDataKey="totalAvailableDraw"
           />
+          <DrawAvailabilityMetrics
+            endingAvailability={endingAvailability}
+            probeDrawAvailability={probeDrawAvailability}
+          />
+          <DrawAvailabilityDeltaReadout
+            probeDrawAvailability={probeDrawAvailability}
+          />
         </motion.section>
       </motion.div>
     </main>
@@ -1251,6 +1400,8 @@ interface CounterRef {
 
 interface UseTimelineSnapshotSharingArgs {
   activeItemId: string;
+  capitalSpikeInsertionCount: CounterRef;
+  capitalSpikes: DemoCapitalSpike[];
   drawInsertionCount: CounterRef;
   draws: DemoDraw[];
   insertionCount: CounterRef;
@@ -1258,8 +1409,11 @@ interface UseTimelineSnapshotSharingArgs {
   progressValue: number;
   resolvedRange: Required<TimelineRange>;
   selectedPanelOpen: boolean;
+  setActiveCapitalSpikeId: (value: string | null) => void;
   setActiveDrawId: (value: string | null) => void;
   setActiveItemId: (value: string) => void;
+  setCapitalSpikeEditDraft: (value: CapitalSpikeEditDraft) => void;
+  setCapitalSpikes: Dispatch<SetStateAction<DemoCapitalSpike[]>>;
   setDrawEditDraft: (value: DrawEditDraft) => void;
   setDraws: (value: DemoDraw[]) => void;
   setItems: (value: TimelineItem<DemoMilestone>[]) => void;
@@ -1267,7 +1421,9 @@ interface UseTimelineSnapshotSharingArgs {
   setProgressValue: (value: number) => void;
   setRange: (value: TimelineRange) => void;
   setSelectedPanelOpen: (value: boolean) => void;
+  setStartingCash: (value: number) => void;
   setStraightLine: (value: boolean) => void;
+  startingCash: number;
   straightLine: boolean;
 }
 
@@ -1308,6 +1464,8 @@ function ShareStatusBadges({
 
 function useTimelineSnapshotSharing({
   activeItemId,
+  capitalSpikeInsertionCount,
+  capitalSpikes,
   drawInsertionCount,
   draws,
   insertionCount,
@@ -1315,8 +1473,11 @@ function useTimelineSnapshotSharing({
   progressValue,
   resolvedRange,
   selectedPanelOpen,
+  setActiveCapitalSpikeId,
   setActiveDrawId,
   setActiveItemId,
+  setCapitalSpikeEditDraft,
+  setCapitalSpikes,
   setDrawEditDraft,
   setDraws,
   setItems,
@@ -1324,7 +1485,9 @@ function useTimelineSnapshotSharing({
   setProgressValue,
   setRange,
   setSelectedPanelOpen,
+  setStartingCash,
   setStraightLine,
+  startingCash,
   straightLine,
 }: UseTimelineSnapshotSharingArgs) {
   const [{ share }, setTimelineSearch] = useQueryStates(timelineSearchParsers);
@@ -1346,10 +1509,12 @@ function useTimelineSnapshotSharing({
       initialTimelineShareState(
         INITIAL_ITEMS,
         buildDemoDraws(INITIAL_ITEMS, INITIAL_RANGE),
+        INITIAL_CAPITAL_SPIKES,
         INITIAL_RANGE,
         "rough-in",
         92,
         true,
+        STARTING_CASH,
         false
       ),
     []
@@ -1359,22 +1524,31 @@ function useTimelineSnapshotSharing({
     (nextState: TimelineShareState) => {
       setItems(nextState.items);
       setDraws(nextState.draws);
+      setCapitalSpikes(nextState.capitalSpikes);
       setRange(nextState.range);
       setActiveItemId(nextState.activeItemId);
       setProgressValue(nextState.progressValue);
       setProbeValue(null);
       setActiveDrawId(null);
+      setActiveCapitalSpikeId(null);
       setDrawEditDraft({ amount: "", x: "" });
+      setCapitalSpikeEditDraft({ amount: "", label: "", x: "" });
       setSelectedPanelOpen(nextState.selectedPanelOpen);
+      setStartingCash(nextState.startingCash);
       setStraightLine(nextState.straightLine);
       insertionCount.current = countInsertedTimelineItems(nextState.items);
       drawInsertionCount.current = countManualDraws(nextState.draws);
+      capitalSpikeInsertionCount.current = nextState.capitalSpikes.length;
     },
     [
+      capitalSpikeInsertionCount,
       drawInsertionCount,
       insertionCount,
+      setActiveCapitalSpikeId,
       setActiveDrawId,
       setActiveItemId,
+      setCapitalSpikeEditDraft,
+      setCapitalSpikes,
       setDrawEditDraft,
       setDraws,
       setItems,
@@ -1382,6 +1556,7 @@ function useTimelineSnapshotSharing({
       setProgressValue,
       setRange,
       setSelectedPanelOpen,
+      setStartingCash,
       setStraightLine,
     ]
   );
@@ -1430,11 +1605,13 @@ function useTimelineSnapshotSharing({
     try {
       const snapshot = buildTimelineShareSnapshotV1({
         activeItemId,
+        capitalSpikes,
         draws,
         items,
         progressValue,
         range: resolvedRange,
         selectedPanelOpen,
+        startingCash,
         straightLine,
       });
       const snapshotId = await createTimelineSnapshot({ snapshot });
@@ -1453,6 +1630,7 @@ function useTimelineSnapshotSharing({
     }
   }, [
     activeItemId,
+    capitalSpikes,
     createTimelineSnapshot,
     draws,
     items,
@@ -1460,6 +1638,7 @@ function useTimelineSnapshotSharing({
     resolvedRange,
     selectedPanelOpen,
     setTimelineSearch,
+    startingCash,
     straightLine,
   ]);
 
@@ -1542,11 +1721,7 @@ function createDemoDraw(
   range: Required<TimelineRange>
 ): DemoDraw {
   const milestone = item.data;
-  const drawX = clampNumber(
-    item.x + DRAW_REVIEW_LAG_DAYS,
-    range.min,
-    range.max
-  );
+  const drawX = clampNumber(milestone?.drawX ?? item.x, range.min, range.max);
 
   return {
     amount: milestone?.amount ?? 0,
@@ -1565,10 +1740,12 @@ function getDrawDomId(draw: DemoDraw) {
   return draw.itemId ?? draw.id;
 }
 
-function buildTimelineCashflowData(
+export function buildTimelineCashflowData(
   items: TimelineItem<DemoMilestone>[],
   draws: DemoDraw[],
-  range: Required<TimelineRange>
+  capitalSpikes: DemoCapitalSpike[],
+  range: Required<TimelineRange>,
+  startingCash = STARTING_CASH
 ): CashflowDatum[] {
   const events = [
     ...items
@@ -1581,12 +1758,20 @@ function buildTimelineCashflowData(
         sortOrder: 0,
         type: "milestone" as const,
       })),
+    ...capitalSpikes.map((spike) => ({
+      amount: spike.amount,
+      day: clampNumber(spike.x, range.min, range.max),
+      id: spike.id,
+      label: spike.label,
+      sortOrder: 1,
+      type: "capitalSpike" as const,
+    })),
     ...draws.map((draw) => ({
       amount: draw.amount,
       day: clampNumber(draw.x, range.min, range.max),
       id: draw.id,
       label: draw.label,
-      sortOrder: 1,
+      sortOrder: 2,
       type: "draw" as const,
     })),
   ].sort(
@@ -1596,7 +1781,8 @@ function buildTimelineCashflowData(
   const data: CashflowDatum[] = [
     {
       budget: 0,
-      cashOnHand: STARTING_CASH,
+      capitalSpikeAmount: 0,
+      cashOnHand: startingCash,
       day: range.min,
       drawAmount: 0,
       event: "start",
@@ -1604,13 +1790,14 @@ function buildTimelineCashflowData(
       name: "Starting cash",
     },
   ];
-  let cashOnHand = STARTING_CASH;
+  let cashOnHand = startingCash;
 
   for (const event of events) {
     if (event.type === "milestone") {
       cashOnHand -= event.amount;
       data.push({
         budget: event.amount,
+        capitalSpikeAmount: 0,
         cashOnHand,
         day: event.day,
         drawAmount: 0,
@@ -1621,9 +1808,25 @@ function buildTimelineCashflowData(
       continue;
     }
 
+    if (event.type === "capitalSpike") {
+      cashOnHand -= event.amount;
+      data.push({
+        budget: 0,
+        capitalSpikeAmount: event.amount,
+        cashOnHand,
+        day: event.day,
+        drawAmount: 0,
+        event: "capitalSpike",
+        id: event.id,
+        name: event.label,
+      });
+      continue;
+    }
+
     cashOnHand += event.amount;
     data.push({
       budget: 0,
+      capitalSpikeAmount: 0,
       cashOnHand,
       day: event.day,
       drawAmount: event.amount,
@@ -1634,6 +1837,97 @@ function buildTimelineCashflowData(
   }
 
   return data;
+}
+
+export function densifyCashflowData(
+  data: CashflowDatum[],
+  range: Required<TimelineRange>
+): CashflowDatum[] {
+  const grouped = groupCashflowPointsByDay(data);
+  const eventDays = data.map((point) => point.day);
+
+  return buildChartProbeDays(range, eventDays).flatMap((day) => {
+    const existing = grouped.get(day);
+
+    if (existing) {
+      return existing;
+    }
+
+    return [
+      {
+        budget: 0,
+        capitalSpikeAmount: 0,
+        cashOnHand: interpolateCashOnHand(data, day),
+        day,
+        drawAmount: 0,
+        event: "start",
+        id: `cash-probe-${day}`,
+        name: formatTimelineDay(day),
+      } satisfies CashflowDatum,
+    ];
+  });
+}
+
+export function densifyDrawAvailabilityData(
+  data: DrawAvailabilityDatum[],
+  range: Required<TimelineRange>
+): DrawAvailabilityDatum[] {
+  const grouped = new Map<number, DrawAvailabilityDatum[]>();
+
+  for (const point of data) {
+    const day = Math.round(point.day);
+    grouped.set(day, [...(grouped.get(day) ?? []), point]);
+  }
+
+  return buildChartProbeDays(
+    range,
+    data.map((point) => point.day)
+  ).flatMap((day) => {
+    const existing = grouped.get(day);
+
+    if (existing) {
+      return existing;
+    }
+
+    return {
+      ...interpolateDrawAvailability(data, day),
+      day,
+      name: formatTimelineDay(day),
+    };
+  });
+}
+
+export function buildChartProbeDays(
+  range: Required<TimelineRange>,
+  eventDays: number[],
+  intervalDays = CHART_PROBE_INTERVAL_DAYS
+): number[] {
+  const min = Math.round(range.min);
+  const max = Math.round(range.max);
+  const days = new Set<number>([min, max]);
+
+  for (const eventDay of eventDays) {
+    if (Number.isFinite(eventDay)) {
+      days.add(Math.round(clampNumber(eventDay, min, max)));
+    }
+  }
+
+  for (let day = min; day <= max; day += intervalDays) {
+    days.add(day);
+  }
+
+  return [...days].sort((a, b) => a - b);
+}
+
+export function groupCashflowPointsByDay(data: CashflowDatum[]) {
+  const grouped = new Map<number, CashflowDatum[]>();
+
+  for (const point of data) {
+    const day = Math.round(point.day);
+    grouped.set(day, [...(grouped.get(day) ?? []), point]);
+  }
+
+  return grouped;
 }
 
 function buildDrawAvailabilityData(
@@ -1742,8 +2036,12 @@ function normalizeDemoRange(range: TimelineRange): Required<TimelineRange> {
   };
 }
 
-function getCashflowTicks(range: Required<TimelineRange>): number[] {
-  const tickCount = 6;
+export function getTimelineAlignedTicks(
+  range: Required<TimelineRange>,
+  pixelsPerUnit: number
+): number[] {
+  const axisWidth = Math.max(1, (range.max - range.min) * pixelsPerUnit);
+  const tickCount = Math.max(5, Math.ceil(axisWidth / 220));
 
   return Array.from({ length: tickCount }, (_, index) => {
     const ratio = tickCount === 1 ? 0 : index / (tickCount - 1);
@@ -1753,7 +2051,11 @@ function getCashflowTicks(range: Required<TimelineRange>): number[] {
 }
 
 function getCashflowChartExtent(data: CashflowDatum[]) {
-  const values = data.flatMap((item) => [item.cashOnHand, item.budget]);
+  const values = data.flatMap((item) => [
+    item.cashOnHand,
+    item.budget,
+    item.capitalSpikeAmount,
+  ]);
   const min = Math.min(0, ...values);
   const max = Math.max(1, ...values);
   const padding = (max - min) * 0.12;
@@ -2088,6 +2390,187 @@ function ShareTimelineMenu({
   );
 }
 
+function SelectedDrawMobileDrawer({
+  activeItem,
+  onOpenChange,
+  open,
+  overview,
+}: {
+  activeItem: TimelineItem<DemoMilestone>;
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+  overview: FinancialOverview;
+}) {
+  return (
+    <Drawer onOpenChange={onOpenChange} open={open} position="bottom">
+      <DrawerPopup
+        className="max-h-[86svh]"
+        data-testid="selected-draw-mobile-drawer"
+        showBar
+      >
+        <DrawerPanel className="px-4 pt-5 pb-6" scrollFade>
+          <DrawerTitle className="sr-only">Selected draw</DrawerTitle>
+          <SelectedDrawDetails activeItem={activeItem} overview={overview} />
+        </DrawerPanel>
+      </DrawerPopup>
+    </Drawer>
+  );
+}
+
+function SelectedDrawDetails({
+  activeItem,
+  overview,
+}: {
+  activeItem: TimelineItem<DemoMilestone>;
+  overview: FinancialOverview;
+}) {
+  const milestone = activeItem.data;
+
+  if (!milestone) {
+    return null;
+  }
+
+  return (
+    <div className="grid gap-4" data-testid="selected-draw-details">
+      <div>
+        <div className="mb-3 grid size-10 place-items-center rounded-md bg-rose-500/10 text-rose-600">
+          <CircleDollarSign className="size-5" />
+        </div>
+        <p className="font-semibold text-[10px] text-muted-foreground uppercase">
+          Selected draw
+        </p>
+        <h2 className="mt-1 font-semibold text-lg">{milestone.draw}</h2>
+        <p className="mt-1 text-muted-foreground text-sm">{milestone.name}</p>
+      </div>
+
+      <dl className="grid gap-2 border-border border-t pt-3 text-sm">
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-muted-foreground">Milestone date</dt>
+          <dd className="font-medium tabular-nums">
+            {formatTimelineDay(activeItem.x)}
+          </dd>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-muted-foreground">Draw date</dt>
+          <dd className="font-medium tabular-nums">
+            {formatTimelineDay(milestone.drawX ?? activeItem.x)}
+          </dd>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-muted-foreground">Milestone cost</dt>
+          <dd className="font-semibold tabular-nums">
+            {money(milestone.amount)}
+          </dd>
+        </div>
+      </dl>
+
+      <div className="border-border border-t pt-3">
+        <p className="font-medium text-[10px] text-muted-foreground uppercase">
+          Sub-milestones
+        </p>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {milestone.subMilestones.map((subMilestone) => (
+            <span
+              className="rounded-md border border-border bg-muted/35 px-2 py-1 text-xs"
+              key={subMilestone}
+            >
+              {subMilestone}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <FinancialOverviewCard overview={overview} />
+    </div>
+  );
+}
+
+function DrawAvailabilityMetrics({
+  endingAvailability,
+  probeDrawAvailability,
+}: {
+  endingAvailability: DrawAvailabilityDatum;
+  probeDrawAvailability: DrawAvailabilityDatum | null;
+}) {
+  return (
+    <div className="mt-3 grid w-full grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+      <div className="min-w-0 rounded-md border border-border bg-muted/30 px-2.5 py-2 sm:px-3">
+        <p className="font-medium text-[10px] text-muted-foreground uppercase">
+          Top line
+        </p>
+        <p
+          className="mt-1 font-semibold text-foreground tabular-nums"
+          data-testid="timeline-draw-total-available"
+        >
+          {money(endingAvailability.totalAvailableDraw)}
+        </p>
+      </div>
+      <div className="min-w-0 rounded-md border border-border bg-muted/30 px-2.5 py-2 sm:px-3">
+        <p className="font-medium text-[10px] text-muted-foreground uppercase">
+          Interest-bearing
+        </p>
+        <p
+          className="mt-1 font-semibold text-foreground tabular-nums"
+          data-testid="timeline-draw-interest-bearing"
+        >
+          {money(endingAvailability.interestBearingDraw)}
+        </p>
+      </div>
+      <div className="min-w-0 rounded-md border border-border bg-muted/30 px-2.5 py-2 sm:px-3">
+        <p className="font-medium text-[10px] text-muted-foreground uppercase">
+          Additional
+        </p>
+        <p
+          className="mt-1 font-semibold text-foreground tabular-nums"
+          data-testid="timeline-draw-additional-available"
+        >
+          {money(endingAvailability.additionalAvailableDraw)}
+        </p>
+      </div>
+      <div className="min-w-0 rounded-md border border-sky-500/25 bg-sky-500/10 px-2.5 py-2 sm:px-3">
+        <p className="font-medium text-[10px] text-muted-foreground uppercase">
+          Probe delta
+        </p>
+        <p
+          className="mt-1 font-semibold text-foreground tabular-nums"
+          data-testid="timeline-draw-probe-delta"
+        >
+          {probeDrawAvailability === null
+            ? "Hover"
+            : money(probeDrawAvailability.additionalAvailableDraw)}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function DrawAvailabilityDeltaReadout({
+  probeDrawAvailability,
+}: {
+  probeDrawAvailability: DrawAvailabilityDatum | null;
+}) {
+  return (
+    <div className="mt-3 rounded-md border border-sky-500/20 bg-sky-500/10 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <span className="inline-flex items-center gap-2 font-medium text-sky-700 dark:text-sky-100">
+          <span className="size-2 rounded-full bg-sky-500" />
+          Delta between lines
+        </span>
+        <span
+          className="font-semibold text-foreground tabular-nums"
+          data-testid="timeline-draw-delta-readout"
+        >
+          {probeDrawAvailability === null
+            ? "Hover the chart or roadmap"
+            : `${formatTimelineDay(probeDrawAvailability.day)}: ${money(
+                probeDrawAvailability.additionalAvailableDraw
+              )} available for draw`}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function TimelineMarkerBadge({ marker }: { marker: TimelineMarker }) {
   const toneClass = {
     accent:
@@ -2131,10 +2614,11 @@ function TimelineDeleteContextMenu({
   onDelete,
 }: {
   children: ReactNode;
-  kind: "draw" | "milestone";
+  kind: "capitalSpike" | "draw" | "milestone";
   onDelete: () => void;
 }) {
   const isDraw = kind === "draw";
+  const isCapitalSpike = kind === "capitalSpike";
   return (
     <ContextMenu>
       <ContextMenuTrigger render={<div className="block" />}>
@@ -2150,7 +2634,11 @@ function TimelineDeleteContextMenu({
           className="px-2 pb-2 font-medium text-[10px] text-muted-foreground uppercase"
           role="presentation"
         >
-          {isDraw ? "Draw actions" : "Milestone actions"}
+          {isDraw
+            ? "Draw actions"
+            : isCapitalSpike
+              ? "Capital spike actions"
+              : "Milestone actions"}
         </div>
         <ContextMenuItem
           className="flex min-h-12 items-start gap-3 px-2.5 py-2 text-sm"
@@ -2162,12 +2650,18 @@ function TimelineDeleteContextMenu({
           </span>
           <span className="min-w-0 flex-1">
             <span className="block font-medium">
-              {isDraw ? "Remove draw" : "Remove milestone"}
+              {isDraw
+                ? "Remove draw"
+                : isCapitalSpike
+                  ? "Remove capital spike"
+                  : "Remove milestone"}
             </span>
             <span className="mt-0.5 block truncate text-muted-foreground text-xs">
               {isDraw
                 ? "Delete this draw marker"
-                : "Delete this milestone and its linked draw"}
+                : isCapitalSpike
+                  ? "Delete this unexpected cost"
+                  : "Delete this milestone and its linked draw"}
             </span>
           </span>
         </ContextMenuItem>
@@ -2259,6 +2753,7 @@ function DrawTimelineMarker({
                 <Input
                   id={dayInputId}
                   min={0}
+                  name="drawDate"
                   nativeInput
                   onChange={(event) =>
                     onDraftChange({ ...draft, x: event.currentTarget.value })
@@ -2276,6 +2771,162 @@ function DrawTimelineMarker({
                 <Input
                   id={amountInputId}
                   min={0}
+                  name="drawAmount"
+                  nativeInput
+                  onChange={(event) =>
+                    onDraftChange({
+                      ...draft,
+                      amount: event.currentTarget.value,
+                    })
+                  }
+                  size="sm"
+                  step={1000}
+                  type="number"
+                  value={draft.amount}
+                />
+              </div>
+            </div>
+            <div className="mt-3 flex justify-end gap-2">
+              <Button
+                onClick={onCancel}
+                size="xs"
+                type="button"
+                variant="outline"
+              >
+                Cancel
+              </Button>
+              <Button size="xs" type="submit">
+                Apply
+              </Button>
+            </div>
+          </motion.form>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function CapitalSpikeTimelineMarker({
+  active,
+  draft,
+  onApply,
+  onCancel,
+  onDraftChange,
+  onOpen,
+  reducedMotion,
+  spike,
+}: {
+  active: boolean;
+  draft: CapitalSpikeEditDraft;
+  onApply: (event: FormEvent<HTMLFormElement>) => void;
+  onCancel: () => void;
+  onDraftChange: (draft: CapitalSpikeEditDraft) => void;
+  onOpen: () => void;
+  reducedMotion: boolean;
+  spike: DemoCapitalSpike;
+}) {
+  const titleInputId = `capital-spike-label-${spike.id}`;
+  const dayInputId = `capital-spike-date-${spike.id}`;
+  const amountInputId = `capital-spike-amount-${spike.id}`;
+
+  return (
+    <div className="relative flex flex-col items-center">
+      <motion.button
+        aria-expanded={active}
+        aria-haspopup="dialog"
+        aria-label={`Edit ${spike.label}`}
+        className={cn(
+          "group min-w-32 rounded-md border border-amber-300 bg-background/95 px-2.5 py-1.5 text-center text-foreground shadow-sm backdrop-blur transition-colors hover:border-amber-400 hover:bg-amber-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:border-amber-500/35 dark:bg-zinc-950/90 dark:hover:bg-amber-500/10",
+          active &&
+            "border-amber-500 bg-amber-50 shadow-amber-500/15 dark:bg-amber-500/10"
+        )}
+        data-testid={`timeline-capital-spike-marker-${spike.id}`}
+        onClick={onOpen}
+        transition={{ damping: 24, stiffness: 430, type: "spring" }}
+        type="button"
+        whileHover={reducedMotion ? undefined : { scale: 1.035, y: -2 }}
+        whileTap={reducedMotion ? undefined : { scale: 0.96, y: 1 }}
+      >
+        <span className="flex items-center justify-center gap-1 font-semibold text-[10px] text-amber-700 uppercase tracking-normal dark:text-amber-200">
+          <AlertTriangle className="size-3" />
+          {spike.label}
+        </span>
+        <span className="mt-0.5 block whitespace-nowrap font-semibold text-xs tabular-nums">
+          {money(spike.amount)}
+        </span>
+        <span className="mt-0.5 flex items-center justify-center gap-1 whitespace-nowrap text-[10px] text-muted-foreground">
+          <CalendarDays className="size-3" />
+          {formatTimelineDay(spike.x)}
+        </span>
+      </motion.button>
+
+      <AnimatePresence initial={false}>
+        {active && (
+          <motion.form
+            animate={{ filter: "blur(0px)", opacity: 1, scale: 1, y: 0 }}
+            aria-label={`Edit ${spike.label}`}
+            className="absolute top-full left-1/2 z-40 mt-2 w-64 -translate-x-1/2 rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-xl"
+            data-testid={`timeline-capital-spike-editor-${spike.id}`}
+            exit={{ filter: "blur(4px)", opacity: 0, scale: 0.96, y: -8 }}
+            initial={{ filter: "blur(6px)", opacity: 0, scale: 0.96, y: -10 }}
+            onSubmit={onApply}
+            role="dialog"
+            transition={{
+              duration: reducedMotion ? 0 : 0.2,
+              ease: [0.22, 1, 0.36, 1],
+            }}
+          >
+            <div className="mb-3">
+              <p className="font-semibold text-sm">Capital spike</p>
+              <p className="text-muted-foreground text-xs">
+                Update the unexpected cost label, date, and amount.
+              </p>
+            </div>
+            <div className="grid gap-3">
+              <div className="grid gap-1.5">
+                <Label className="text-xs" htmlFor={titleInputId}>
+                  Capital spike title
+                </Label>
+                <Input
+                  id={titleInputId}
+                  name="capitalSpikeLabel"
+                  nativeInput
+                  onChange={(event) =>
+                    onDraftChange({
+                      ...draft,
+                      label: event.currentTarget.value,
+                    })
+                  }
+                  size="sm"
+                  value={draft.label}
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label className="text-xs" htmlFor={dayInputId}>
+                  Capital spike date
+                </Label>
+                <Input
+                  id={dayInputId}
+                  min={0}
+                  name="capitalSpikeDate"
+                  nativeInput
+                  onChange={(event) =>
+                    onDraftChange({ ...draft, x: event.currentTarget.value })
+                  }
+                  size="sm"
+                  step={1}
+                  type="number"
+                  value={draft.x}
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label className="text-xs" htmlFor={amountInputId}>
+                  Capital spike amount
+                </Label>
+                <Input
+                  id={amountInputId}
+                  min={0}
+                  name="capitalSpikeAmount"
                   nativeInput
                   onChange={(event) =>
                     onDraftChange({
@@ -2326,18 +2977,10 @@ function MilestoneCard({
     return null;
   }
 
-  const statusTone = complete
-    ? "success"
-    : active
-      ? "info"
-      : milestone.status === "ready"
-        ? "warning"
-        : "outline";
-
   return (
     <motion.article
       className={cn(
-        "min-h-[214px] rounded-lg border bg-card p-3 text-card-foreground shadow-sm transition-colors sm:p-4",
+        "min-h-[258px] rounded-lg border bg-card p-3 text-card-foreground shadow-sm transition-colors sm:p-4",
         active && "border-rose-300 shadow-rose-500/10",
         complete && "border-emerald-200 bg-emerald-50/40 dark:bg-emerald-500/5"
       )}
@@ -2363,7 +3006,7 @@ function MilestoneCard({
             {milestone.name}
           </h3>
         </div>
-        <div className="-mt-3 -mr-5 grid size-28 shrink-0 place-items-center sm:-mt-4 sm:-mr-6 sm:size-32">
+        <div className="mt-1 -mr-5 grid size-28 shrink-0 place-items-center sm:-mr-6 sm:size-32">
           <IsometricMilestoneIcon
             className="size-28 sm:size-32"
             type={milestone.icon}
@@ -2372,27 +3015,39 @@ function MilestoneCard({
       </div>
 
       <div className="mt-5 space-y-3">
-        <div>
-          <p className="text-muted-foreground text-xs">Unlocks</p>
-          <p className="mt-1 font-semibold text-xl">
-            {money(milestone.amount)}
-          </p>
-        </div>
-        <div className="space-y-2 border-border border-t pt-3 text-xs">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted-foreground">Policy</span>
-            <span className="text-right font-medium">{milestone.policy}</span>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <p className="text-muted-foreground text-xs">Planned cost</p>
+            <p className="mt-1 font-semibold text-xl">
+              {money(milestone.amount)}
+            </p>
           </div>
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted-foreground">Evidence</span>
-            <span className="text-right font-medium">{milestone.evidence}</span>
+          <div>
+            <p className="text-muted-foreground text-xs">Milestone date</p>
+            <p
+              className="mt-1 font-semibold text-sm tabular-nums"
+              data-testid={`timeline-card-date-${item.id}`}
+            >
+              {formatTimelineDay(item.x)}
+            </p>
+          </div>
+        </div>
+        <div className="border-border border-t pt-3">
+          <p className="font-medium text-[10px] text-muted-foreground uppercase">
+            Sub-milestones
+          </p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {milestone.subMilestones.map((subMilestone) => (
+              <span
+                className="rounded-md border border-border bg-muted/35 px-2 py-1 text-[11px]"
+                key={subMilestone}
+              >
+                {subMilestone}
+              </span>
+            ))}
           </div>
         </div>
       </div>
-
-      <Badge className="mt-4 w-full" variant={statusTone}>
-        {statusLabels[milestone.status]}
-      </Badge>
     </motion.article>
   );
 }
@@ -2400,7 +3055,7 @@ function MilestoneCard({
 function FinancialOverviewCard({ overview }: { overview: FinancialOverview }) {
   return (
     <article
-      className="min-h-[214px] rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3 text-card-foreground shadow-sm sm:p-4"
+      className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3 text-card-foreground shadow-sm"
       data-testid="timeline-final-financial-card"
     >
       <div className="flex items-start justify-between gap-3">
@@ -2417,8 +3072,8 @@ function FinancialOverviewCard({ overview }: { overview: FinancialOverview }) {
         </div>
       </div>
 
-      <dl className="mt-5 grid gap-3 text-xs">
-        <div className="flex items-center justify-between gap-3 border-emerald-500/20 border-t pt-3">
+      <dl className="mt-4 grid grid-cols-2 gap-2 text-xs">
+        <div className="rounded-md border border-emerald-500/20 bg-background/65 px-2.5 py-2">
           <dt className="inline-flex items-center gap-1.5 text-muted-foreground">
             <Banknote className="size-3.5" />
             Released
@@ -2430,7 +3085,7 @@ function FinancialOverviewCard({ overview }: { overview: FinancialOverview }) {
             {money(overview.totalDrawReleased)}
           </dd>
         </div>
-        <div className="flex items-center justify-between gap-3 border-emerald-500/20 border-t pt-3">
+        <div className="rounded-md border border-emerald-500/20 bg-background/65 px-2.5 py-2">
           <dt className="inline-flex items-center gap-1.5 text-muted-foreground">
             <ReceiptText className="size-3.5" />
             Draw fees
@@ -2442,7 +3097,7 @@ function FinancialOverviewCard({ overview }: { overview: FinancialOverview }) {
             {money(overview.drawFeesPaid)}
           </dd>
         </div>
-        <div className="flex items-center justify-between gap-3 border-emerald-500/20 border-t pt-3">
+        <div className="rounded-md border border-emerald-500/20 bg-background/65 px-2.5 py-2">
           <dt className="text-muted-foreground">Interest paid</dt>
           <dd
             className="font-semibold tabular-nums"
@@ -2452,12 +3107,10 @@ function FinancialOverviewCard({ overview }: { overview: FinancialOverview }) {
           </dd>
         </div>
         <div className="rounded-md border border-emerald-500/20 bg-background/65 px-2.5 py-2">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted-foreground">Draw count</span>
-            <span className="font-medium tabular-nums">
-              {overview.drawCount} x {money(DRAW_FEE)}
-            </span>
-          </div>
+          <dt className="text-muted-foreground">Draw count</dt>
+          <dd className="font-medium tabular-nums">
+            {overview.drawCount} x {money(DRAW_FEE)}
+          </dd>
         </div>
       </dl>
     </article>

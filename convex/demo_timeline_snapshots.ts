@@ -38,11 +38,13 @@ const timelineToneValidator = v.optional(
 const timelineMilestoneDataValidator = v.object({
   amount: v.number(),
   draw: v.string(),
+  drawX: v.optional(v.number()),
   evidence: v.string(),
   icon: timelineIconValidator,
   name: v.string(),
   policy: v.string(),
   status: timelineStatusValidator,
+  subMilestones: v.optional(v.array(v.string())),
 });
 
 const timelineItemValidator = v.object({
@@ -66,6 +68,13 @@ const timelineDrawValidator = v.object({
   x: v.number(),
 });
 
+const timelineCapitalSpikeValidator = v.object({
+  amount: v.number(),
+  id: v.string(),
+  label: v.string(),
+  x: v.number(),
+});
+
 const timelineRangeValidator = v.object({
   max: v.number(),
   min: v.number(),
@@ -74,6 +83,7 @@ const timelineRangeValidator = v.object({
 
 const timelineSnapshotValidator = v.object({
   activeItemId: v.string(),
+  capitalSpikes: v.array(timelineCapitalSpikeValidator),
   draws: v.array(timelineDrawValidator),
   items: v.array(timelineItemValidator),
   payloadVersion: v.number(),
@@ -81,6 +91,7 @@ const timelineSnapshotValidator = v.object({
   range: timelineRangeValidator,
   selectedPanelOpen: v.boolean(),
   snapshotSummary: v.string(),
+  startingCash: v.number(),
   straightLine: v.boolean(),
   title: v.string(),
 });

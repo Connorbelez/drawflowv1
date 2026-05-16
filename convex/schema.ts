@@ -32,11 +32,13 @@ const demoTimelineToneValidator = v.optional(
 const demoTimelineMilestoneDataValidator = v.object({
   amount: v.number(),
   draw: v.string(),
+  drawX: v.optional(v.number()),
   evidence: v.string(),
   icon: demoTimelineIconValidator,
   name: v.string(),
   policy: v.string(),
   status: demoTimelineStatusValidator,
+  subMilestones: v.optional(v.array(v.string())),
 });
 
 const demoTimelineItemValidator = v.object({
@@ -56,6 +58,13 @@ const demoTimelineDrawValidator = v.object({
   customDate: v.optional(v.boolean()),
   id: v.string(),
   itemId: v.optional(v.string()),
+  label: v.string(),
+  x: v.number(),
+});
+
+const demoTimelineCapitalSpikeValidator = v.object({
+  amount: v.number(),
+  id: v.string(),
   label: v.string(),
   x: v.number(),
 });
@@ -303,6 +312,7 @@ export default defineSchema({
     .index("by_scenario", ["scenario"]),
   demo_timelineSnapshots: defineTable({
     activeItemId: v.string(),
+    capitalSpikes: v.optional(v.array(demoTimelineCapitalSpikeValidator)),
     createdAt: v.number(),
     draws: v.array(demoTimelineDrawValidator),
     items: v.array(demoTimelineItemValidator),
@@ -311,6 +321,7 @@ export default defineSchema({
     range: demoTimelineRangeValidator,
     selectedPanelOpen: v.boolean(),
     snapshotSummary: v.string(),
+    startingCash: v.optional(v.number()),
     straightLine: v.boolean(),
     title: v.string(),
     updatedAt: v.number(),

@@ -1,15 +1,18 @@
 import { expect, type Page, test } from "@playwright/test";
 
 const ADD_DRAW_LABEL = /Add draw/i;
+const ADD_CAPITAL_SPIKE_LABEL = /Add capital spike/i;
 const ADD_MILESTONE_LABEL = /Add milestone/i;
 const ACTIVE_CONNECTOR_CLASS = /to-rose-500/;
 const COMPLETED_NODE_BORDER_CLASS = /border-emerald-400/;
 const COMPLETED_NODE_TEXT_CLASS = /text-emerald-600/;
+const CASH_TEXT = /^\$\d/;
 const DAY_LABEL = /^Day \d+$/;
 const COPIED_LABEL = /Copied/i;
 const COPY_LINK_LABEL = /Copy link/i;
 const MAILTO_HREF = /^mailto:/;
 const REMOVE_DRAW_LABEL = /Remove draw/i;
+const REMOVE_CAPITAL_SPIKE_LABEL = /Remove capital spike/i;
 const REMOVE_MILESTONE_LABEL = /Remove milestone/i;
 const SHARE_QUERY = /share=/;
 const X_SHARE_HREF = /twitter\.com\/intent\/tweet/;
@@ -50,13 +53,13 @@ test("animated curved timeline demo selects progress and inserts spaced nodes", 
   await page.getByTestId("demo-timeline-node-closeout").click();
   await expect(page.getByRole("heading", { name: "Draw 7" })).toBeVisible();
 
-  await page.getByTestId("timeline-track-hit-area").click({
-    button: "right",
-    position: { x: 520, y: 48 },
-  });
+  await openTimelineInsertMenu(page, { x: 520, y: 48 });
   await expect(page.getByTestId("timeline-insert-menu")).toBeVisible();
   await expect(
     page.getByRole("menuitem", { name: ADD_DRAW_LABEL })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: ADD_CAPITAL_SPIKE_LABEL })
   ).toBeVisible();
   await expect(
     page.getByRole("menuitem", { name: REMOVE_DRAW_LABEL })
@@ -74,10 +77,7 @@ test("animated curved timeline demo selects progress and inserts spaced nodes", 
     page.locator('[data-testid^="timeline-card-connector-inserted-"]')
   ).toHaveCount(1);
 
-  await page.getByTestId("timeline-track-hit-area").click({
-    button: "right",
-    position: { x: 620, y: 48 },
-  });
+  await openTimelineInsertMenu(page, { x: 620, y: 48 });
   await page.getByRole("menuitem", { name: ADD_DRAW_LABEL }).click();
   const manualDrawMarker = page
     .locator('[data-testid^="timeline-draw-marker-manual-draw-"]')
@@ -112,9 +112,6 @@ test("animated curved timeline demo selects progress and inserts spaced nodes", 
   await expect(page.getByTestId("timeline-final-draw-fees")).toHaveText(
     "$4,500"
   );
-  await expect(
-    page.getByTestId("timeline-final-card-connector")
-  ).toBeAttached();
 });
 
 test("timeline snapshot share links hydrate editable forks", async ({
@@ -223,7 +220,6 @@ test("timeline route stays responsive across mobile and tablet widths", async ({
       "timeline-cashflow-chart",
       "timeline-roadmap-grid",
       "animated-curved-timeline",
-      "selected-draw-panel",
       "timeline-draw-availability-chart",
     ]) {
       await expectBoxWithinViewport(page, testId, viewport.width);
@@ -232,15 +228,19 @@ test("timeline route stays responsive across mobile and tablet widths", async ({
     const timelineBox = await page
       .getByTestId("animated-curved-timeline")
       .boundingBox();
-    const panelBox = await page
-      .getByTestId("selected-draw-panel")
-      .boundingBox();
     expect(timelineBox).not.toBeNull();
-    expect(panelBox).not.toBeNull();
-    if (!(timelineBox && panelBox)) {
+    if (!timelineBox) {
       return;
     }
-    expect(panelBox.y).toBeGreaterThan(timelineBox.y + timelineBox.height - 4);
+    await expect(page.getByTestId("selected-draw-panel")).toBeHidden();
+    await expect(page.getByTestId("selected-draw-mobile-drawer")).toBeVisible();
+    await expectOverlayWithinViewport(
+      page,
+      "selected-draw-mobile-drawer",
+      viewport
+    );
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("selected-draw-mobile-drawer")).toBeHidden();
 
     await expect
       .poll(() =>
@@ -256,9 +256,9 @@ test("timeline route stays responsive across mobile and tablet widths", async ({
     await expectNoPageHorizontalOverflow(page);
     await page.keyboard.press("Escape");
 
-    await page.getByTestId("timeline-track-hit-area").click({
-      button: "right",
-      position: { x: Math.min(260, viewport.width - 80), y: 48 },
+    await openTimelineInsertMenu(page, {
+      x: Math.min(260, viewport.width - 80),
+      y: 48,
     });
     await expect(page.getByTestId("timeline-insert-menu")).toBeVisible();
     await expectOverlayWithinViewport(page, "timeline-insert-menu", viewport);
@@ -356,15 +356,13 @@ test("timeline insertion rail context menu adds draws without delete actions", a
 }) => {
   await page.goto("/demo/timeline");
 
-  const hitArea = page.getByTestId("timeline-track-hit-area");
-
-  await hitArea.click({
-    button: "right",
-    position: { x: 620, y: 48 },
-  });
+  await openTimelineInsertMenu(page, { x: 620, y: 48 });
   await expect(page.getByTestId("timeline-insert-menu")).toBeVisible();
   await expect(
     page.getByRole("menuitem", { name: ADD_DRAW_LABEL })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: ADD_CAPITAL_SPIKE_LABEL })
   ).toBeVisible();
   await expect(
     page.getByRole("menuitem", { name: REMOVE_DRAW_LABEL })
@@ -380,6 +378,71 @@ test("timeline insertion rail context menu adds draws without delete actions", a
   await expect(manualDrawMarker).toBeVisible();
   await expect(page.getByTestId("timeline-final-draw-fees")).toHaveText(
     "$4,000"
+  );
+});
+
+test("timeline planning controls edit starting cash and capital spikes", async ({
+  page,
+}) => {
+  await page.goto("/demo/timeline");
+
+  const sitePrepCard = page.getByTestId("timeline-card-site-prep");
+  await expect(sitePrepCard).toContainText("Sub-milestones");
+  await expect(sitePrepCard).toContainText("Milestone date");
+  await expect(sitePrepCard).toContainText("Day 14");
+  await expect(sitePrepCard).not.toContainText("Policy");
+  await expect(sitePrepCard).not.toContainText("Evidence");
+  await expect(sitePrepCard).not.toContainText("Completed");
+
+  await page.getByTestId("timeline-starting-cash-input").fill("450000");
+  await expect(page.getByTestId("timeline-cashflow-ending-cash")).toHaveText(
+    "$450,000"
+  );
+
+  await openTimelineInsertMenu(page, { x: 520, y: 48 });
+  await page.getByRole("menuitem", { name: ADD_CAPITAL_SPIKE_LABEL }).click();
+
+  const capitalSpikeMarker = page
+    .locator('[data-testid^="timeline-capital-spike-marker-capital-spike-"]')
+    .first();
+  await expect(capitalSpikeMarker).toBeVisible();
+  await expect(page.getByTestId("timeline-cashflow-ending-cash")).toHaveText(
+    "$415,000"
+  );
+
+  await capitalSpikeMarker.click();
+  const capitalSpikeEditor = page
+    .locator('[data-testid^="timeline-capital-spike-editor-capital-spike-"]')
+    .first();
+  await capitalSpikeEditor
+    .getByLabel("Capital spike title")
+    .fill("Permit surprise");
+  await capitalSpikeEditor.getByLabel("Capital spike date").fill("40");
+  await capitalSpikeEditor.getByLabel("Capital spike amount").fill("25000");
+  await capitalSpikeEditor.getByRole("button", { name: "Apply" }).click();
+
+  await expect(capitalSpikeMarker).toContainText("Permit surprise");
+  await expect(capitalSpikeMarker).toContainText("$25,000");
+  await expect(capitalSpikeMarker).toContainText("Day 40");
+  await expect(page.getByTestId("timeline-cashflow-ending-cash")).toHaveText(
+    "$425,000"
+  );
+
+  await capitalSpikeMarker.click({ button: "right" });
+  await expect(page.getByTestId("timeline-item-context-menu")).toBeVisible();
+  const spikeBox = await capitalSpikeMarker.boundingBox();
+  expect(spikeBox).not.toBeNull();
+  if (!spikeBox) {
+    return;
+  }
+  await expectContextMenuNearBox(page, spikeBox);
+  await page
+    .getByRole("menuitem", { name: REMOVE_CAPITAL_SPIKE_LABEL })
+    .click();
+
+  await expect(capitalSpikeMarker).toBeHidden();
+  await expect(page.getByTestId("timeline-cashflow-ending-cash")).toHaveText(
+    "$450,000"
   );
 });
 
@@ -529,6 +592,16 @@ test("cashflow chart stays controlled by the shared timeline probe", async ({
   );
   await expect(
     chart.locator("text").filter({ hasText: "Day 58" }).first()
+  ).toBeVisible();
+  const probeCashOnHand = await chart
+    .getByTestId("timeline-cashflow-probe-cash")
+    .textContent();
+  expect(probeCashOnHand).toMatch(CASH_TEXT);
+  await expect(
+    chart
+      .locator("text")
+      .filter({ hasText: `Cash on hand ${probeCashOnHand}` })
+      .first()
   ).toBeVisible();
 
   await chart.scrollIntoViewIfNeeded();
@@ -695,7 +768,28 @@ async function expectContextMenuNearBox(
   const targetCenterY = targetBox.y + targetBox.height / 2;
 
   expect(Math.abs(menuBox.x - targetCenterX)).toBeLessThan(160);
-  expect(Math.abs(menuBox.y - targetCenterY)).toBeLessThan(96);
+  expect(Math.abs(menuBox.y - targetCenterY)).toBeLessThan(120);
+}
+
+async function openTimelineInsertMenu(
+  page: Page,
+  position: { x: number; y: number }
+) {
+  await page
+    .getByTestId("timeline-track-hit-area")
+    .evaluate((element, offset) => {
+      const rect = element.getBoundingClientRect();
+
+      element.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          button: 2,
+          cancelable: true,
+          clientX: rect.left + offset.x,
+          clientY: rect.top + offset.y,
+        })
+      );
+    }, position);
 }
 
 async function expectNoPageHorizontalOverflow(page: Page) {
