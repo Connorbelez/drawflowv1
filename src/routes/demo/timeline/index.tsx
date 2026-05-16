@@ -67,14 +67,23 @@ import { useMediaQuery } from "#/hooks/use-media-query.ts";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../../convex/_generated/api";
 import {
-  applyTimelineShareSnapshotV1,
-  buildTimelineShareSnapshotV1,
+  type ActiveMilestoneSelection,
+  buildMilestoneSpendEvents,
+  DEFAULT_DRAW_REVIEW_LAG_DAYS,
+  DEFAULT_MILESTONE_DURATION_DAYS,
+  getMilestoneEndX,
+  getMilestonePaymentSchedule,
+  normalizeMilestoneTimelineItems,
+  resolveDefaultDrawX,
+} from "./-timeline-milestone-schedule.ts";
+import {
+  applyTimelineShareSnapshotV2,
+  buildTimelineShareSnapshotV2,
   type DemoCapitalSpike,
   type DemoDraw,
   type DemoMilestone,
   type IsometricIconKey,
   initialTimelineShareState,
-  type TimelineShareSnapshotV1,
   type TimelineShareState,
 } from "./-timeline-share-snapshot.ts";
 
@@ -101,11 +110,17 @@ interface CapitalSpikeEditDraft {
   x: string;
 }
 
+interface PendingNormalizedInsertSelection {
+  itemId: string;
+  x: number;
+}
+
 export interface CashflowDatum {
   budget: number;
   capitalSpikeAmount: number;
   cashOnHand: number;
   day: number;
+  drawCapacityUnlocked: number;
   drawAmount: number;
   event: "capitalSpike" | "draw" | "milestone" | "start";
   id: string;
@@ -199,10 +214,13 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
   {
     data: {
       amount: 125_000,
+      completionPaymentAmount: 20_000,
       draw: "Draw 1",
-      drawX: 22,
+      drawX: 36,
+      durationDays: 14,
       evidence: "Accepted package",
       icon: "foundation",
+      initialPaymentAmount: 25_000,
       name: "Site prep & foundation",
       policy: "Released",
       status: "complete",
@@ -219,10 +237,13 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
   {
     data: {
       amount: 160_000,
+      completionPaymentAmount: 30_000,
       draw: "Draw 2",
-      drawX: 66,
+      drawX: 84,
+      durationDays: 18,
       evidence: "Accepted package",
       icon: "framing",
+      initialPaymentAmount: 35_000,
       name: "Framing & structure",
       policy: "Released",
       status: "complete",
@@ -239,10 +260,13 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
   {
     data: {
       amount: 245_000,
+      completionPaymentAmount: 50_000,
       draw: "Draw 3",
-      drawX: 100,
+      drawX: 120,
+      durationDays: 20,
       evidence: "Site visit today",
       icon: "roughIn",
+      initialPaymentAmount: 40_000,
       name: "Rough-in mechanical",
       policy: "Admin review",
       status: "review",
@@ -259,10 +283,13 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
   {
     data: {
       amount: 210_000,
+      completionPaymentAmount: 45_000,
       draw: "Draw 4",
-      drawX: 140,
+      drawX: 158,
+      durationDays: 18,
       evidence: "Draft started",
       icon: "exterior",
+      initialPaymentAmount: 35_000,
       name: "Windows & exterior",
       policy: "Evidence required",
       status: "ready",
@@ -279,10 +306,13 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
   {
     data: {
       amount: 190_000,
+      completionPaymentAmount: 35_000,
       draw: "Draw 5",
-      drawX: 176,
+      drawX: 192,
+      durationDays: 16,
       evidence: "Not started",
       icon: "drywall",
+      initialPaymentAmount: 25_000,
       name: "Inspections & drywall",
       policy: "Upcoming",
       status: "upcoming",
@@ -299,10 +329,13 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
   {
     data: {
       amount: 160_000,
+      completionPaymentAmount: 30_000,
       draw: "Draw 6",
-      drawX: 212,
+      drawX: 224,
+      durationDays: 12,
       evidence: "Not started",
       icon: "finishes",
+      initialPaymentAmount: 20_000,
       name: "Finishes & fixtures",
       policy: "Upcoming",
       status: "upcoming",
@@ -319,10 +352,13 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
   {
     data: {
       amount: 160_000,
+      completionPaymentAmount: 60_000,
       draw: "Draw 7",
       drawX: 230,
+      durationDays: 4,
       evidence: "Not started",
       icon: "closeout",
+      initialPaymentAmount: 0,
       name: "Final inspection & closeout",
       policy: "Upcoming",
       status: "upcoming",
@@ -337,6 +373,9 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
     x: 226,
   },
 ];
+
+const NORMALIZED_INITIAL_ITEMS =
+  normalizeMilestoneTimelineItems(INITIAL_ITEMS);
 
 const money = (value: number) =>
   new Intl.NumberFormat("en-US", {
@@ -420,17 +459,25 @@ function RouteComponent() {
   const insertionCount = useRef(0);
   const drawInsertionCount = useRef(0);
   const capitalSpikeInsertionCount = useRef(0);
-  const [items, setItems] =
-    useState<TimelineItem<DemoMilestone>[]>(INITIAL_ITEMS);
+  const pendingNormalizedInsertSelection =
+    useRef<PendingNormalizedInsertSelection | null>(null);
+  const pendingExpandedRange = useRef<Required<TimelineRange> | null>(null);
+  const [items, setItems] = useState<TimelineItem<DemoMilestone>[]>(
+    () => NORMALIZED_INITIAL_ITEMS
+  );
   const [draws, setDraws] = useState<DemoDraw[]>(() =>
-    buildDemoDraws(INITIAL_ITEMS, INITIAL_RANGE)
+    buildDemoDraws(NORMALIZED_INITIAL_ITEMS, INITIAL_RANGE)
   );
   const [capitalSpikes, setCapitalSpikes] = useState<DemoCapitalSpike[]>(
     INITIAL_CAPITAL_SPIKES
   );
   const [startingCash, setStartingCash] = useState(STARTING_CASH);
   const [range, setRange] = useState<TimelineRange>(INITIAL_RANGE);
-  const [activeItemId, setActiveItemId] = useState("rough-in");
+  const [activeSelection, setActiveSelection] =
+    useState<ActiveMilestoneSelection>({
+      itemId: "rough-in",
+      phase: "inProgress",
+    });
   const [progressValue, setProgressValue] = useState(92);
   const [probeValue, setProbeValue] = useState<number | null>(null);
   const [activeDrawId, setActiveDrawId] = useState<string | null>(null);
@@ -449,7 +496,12 @@ function RouteComponent() {
     });
   const [selectedPanelOpen, setSelectedPanelOpen] = useState(true);
   const [straightLine, setStraightLine] = useState(false);
-  const activeItem = items.find((item) => item.id === activeItemId) ?? items[0];
+  const activeItemId = activeSelection.itemId;
+  const activeItem =
+    items.find((item) => item.id === activeItemId) ?? items[0] ?? null;
+  const activeItemDraw = activeItem
+    ? (draws.find((draw) => draw.itemId === activeItem.id) ?? null)
+    : null;
   const resolvedRange = useMemo(() => normalizeDemoRange(range), [range]);
   const {
     resetTimeline,
@@ -458,7 +510,7 @@ function RouteComponent() {
     sharedSnapshotMissing,
     share,
   } = useTimelineSnapshotSharing({
-    activeItemId,
+    activeSelection,
     capitalSpikeInsertionCount,
     capitalSpikes,
     drawInsertionCount,
@@ -470,7 +522,7 @@ function RouteComponent() {
     selectedPanelOpen,
     setActiveCapitalSpikeId,
     setActiveDrawId,
-    setActiveItemId,
+    setActiveSelection,
     setCapitalSpikeEditDraft,
     setCapitalSpikes,
     setDrawEditDraft,
@@ -711,7 +763,9 @@ function RouteComponent() {
       return;
     }
 
-    const nextItems = items.filter((item) => item.id !== targetItem.id);
+    const nextItems = normalizeMilestoneTimelineItems(
+      items.filter((item) => item.id !== targetItem.id)
+    );
     setItems(nextItems);
     setDraws((currentDraws) =>
       currentDraws.filter((draw) => draw.itemId !== targetItem.id)
@@ -722,8 +776,12 @@ function RouteComponent() {
         nextItems.find((item) => item.x >= targetItem.x) ??
         nextItems.at(-1) ??
         null;
-      setActiveItemId(replacementItem?.id ?? "");
+      setActiveSelection({
+        itemId: replacementItem?.id ?? "",
+        phase: "inProgress",
+      });
       setProgressValue(replacementItem?.x ?? resolvedRange.min);
+      setSelectedPanelOpen(Boolean(replacementItem));
     }
   };
 
@@ -908,9 +966,10 @@ function RouteComponent() {
                 Cash requirement vs draw recovery
               </h2>
               <p className="mt-1 max-w-2xl text-muted-foreground text-sm">
-                Costs pull borrower cash down at milestone completion; draw
-                releases replenish it on their scheduled dates. Capital spikes
-                model unexpected planning costs.
+                Costs pull borrower cash down as milestone work progresses;
+                draw capacity unlocks at completion and releases replenish cash
+                on their scheduled dates. Capital spikes model unexpected
+                planning costs.
               </p>
             </div>
             <div className="grid w-full gap-3 lg:w-auto lg:min-w-[560px]">
@@ -1088,10 +1147,14 @@ function RouteComponent() {
         >
           <AnimatedCurvedTimeline<DemoMilestone>
             activeItemId={activeItemId}
+            activeItemPhase={
+              activeSelection.phase === "complete" ? "end" : "start"
+            }
             cardWidth={timelineSizing.cardWidth}
             className="min-w-0"
             endCardWidth={timelineSizing.endCardWidth}
             formatValue={(value) => `Day ${Math.round(value)}`}
+            getItemEndValue={getMilestoneEndX}
             hoverValue={probeValue}
             insertion={{
               actions: [
@@ -1116,9 +1179,12 @@ function RouteComponent() {
                 return {
                   data: {
                     amount: 95_000 + count * 12_500,
+                    completionPaymentAmount: 20_000,
                     draw: `Inserted ${count}`,
+                    durationDays: DEFAULT_MILESTONE_DURATION_DAYS,
                     evidence: "Draft package",
                     icon: "change",
+                    initialPaymentAmount: 15_000,
                     name: `Field change ${count}`,
                     policy: "Needs sequencing",
                     status: "ready",
@@ -1143,17 +1209,70 @@ function RouteComponent() {
             }}
             items={items}
             markers={markers}
+            minInlineNodeSpacingPx={72}
             minNodeSpacingPx={timelineSizing.minNodeSpacingPx}
-            onActiveItemChange={(item) => setActiveItemId(item.id)}
+            onActiveItemChange={(item) => {
+              setActiveSelection({ itemId: item.id, phase: "inProgress" });
+            }}
+            onEndNodeClick={(item) => {
+              setActiveSelection({ itemId: item.id, phase: "complete" });
+              setProgressValue(getMilestoneEndX(item));
+              setSelectedPanelOpen(true);
+            }}
             onHoverValueChange={setProbeValue}
             onItemsChange={(nextItems, details) => {
-              setItems(nextItems);
+              const normalizedItems =
+                normalizeMilestoneTimelineItems(nextItems);
+              const expandedRange = expandTimelineRangeForMilestones(
+                normalizedItems,
+                details.range
+              );
+              const normalizedInsertedItem =
+                details.type === "insert"
+                  ? normalizedItems.find(
+                      (item) => item.id === details.insertedItem.id
+                    )
+                  : null;
+
+              if (normalizedInsertedItem) {
+                pendingNormalizedInsertSelection.current = {
+                  itemId: normalizedInsertedItem.id,
+                  x: normalizedInsertedItem.x,
+                };
+                setSelectedPanelOpen(true);
+              }
+
+              pendingExpandedRange.current = expandedRange;
+              setItems(normalizedItems);
               setDraws((currentDraws) =>
-                syncDemoDrawsWithItems(currentDraws, nextItems, details.range)
+                syncDemoDrawsWithItems(
+                  currentDraws,
+                  normalizedItems,
+                  expandedRange
+                )
               );
             }}
-            onProgressValueChange={(value) => setProgressValue(value)}
-            onRangeChange={(nextRange) => setRange(nextRange)}
+            onProgressValueChange={(value, item) => {
+              const pendingSelection =
+                pendingNormalizedInsertSelection.current;
+
+              if (pendingSelection && item?.id === pendingSelection.itemId) {
+                setActiveSelection({
+                  itemId: pendingSelection.itemId,
+                  phase: "inProgress",
+                });
+                setProgressValue(pendingSelection.x);
+                pendingNormalizedInsertSelection.current = null;
+                return;
+              }
+
+              setProgressValue(value);
+            }}
+            onRangeChange={(nextRange) => {
+              const expandedRange = pendingExpandedRange.current;
+              pendingExpandedRange.current = null;
+              setRange(expandedRange ?? nextRange);
+            }}
             paddingX={timelineSizing.paddingX}
             pixelsPerUnit={timelineSizing.pixelsPerUnit}
             progressValue={progressValue}
@@ -1165,6 +1284,7 @@ function RouteComponent() {
               >
                 <MilestoneCard
                   active={context.active}
+                  activePhase={activeSelection.phase}
                   complete={context.complete}
                   item={item}
                   reducedMotion={Boolean(prefersReducedMotion)}
@@ -1228,6 +1348,18 @@ function RouteComponent() {
                 </TimelineDeleteContextMenu>
               );
             }}
+            renderEndNode={(item, context) => (
+              <TimelineEndNodeButton
+                active={context.active}
+                complete={context.complete}
+                item={item}
+                onClick={() => {
+                  context.activate();
+                  setSelectedPanelOpen(true);
+                }}
+                reducedMotion={Boolean(prefersReducedMotion)}
+              />
+            )}
             renderNode={(item, context) => (
               <TimelineDeleteContextMenu
                 kind="milestone"
@@ -1239,6 +1371,11 @@ function RouteComponent() {
                   item={item}
                   onClick={() => {
                     context.activate();
+                    setActiveSelection({
+                      itemId: item.id,
+                      phase: "inProgress",
+                    });
+                    setProgressValue(item.x);
                     setSelectedPanelOpen(true);
                   }}
                   onDoubleClick={() => setSelectedPanelOpen(false)}
@@ -1283,20 +1420,26 @@ function RouteComponent() {
                   ease: [0.22, 1, 0.36, 1],
                 }}
               >
-                <SelectedDrawDetails
-                  activeItem={activeItem}
-                  overview={financialOverview}
-                />
+                {activeItem ? (
+                  <SelectedDrawDetails
+                    activeDraw={activeItemDraw}
+                    activeItem={activeItem}
+                    overview={financialOverview}
+                    range={resolvedRange}
+                  />
+                ) : null}
               </motion.aside>
             ) : null}
           </AnimatePresence>
         </motion.section>
 
         <SelectedDrawMobileDrawer
+          activeDraw={activeItemDraw}
           activeItem={activeItem}
           onOpenChange={setSelectedPanelOpen}
-          open={selectedPanelOpen && isMobileDrawerLayout}
+          open={Boolean(activeItem) && selectedPanelOpen && isMobileDrawerLayout}
           overview={financialOverview}
+          range={resolvedRange}
         />
 
         <motion.section
@@ -1399,7 +1542,7 @@ interface CounterRef {
 }
 
 interface UseTimelineSnapshotSharingArgs {
-  activeItemId: string;
+  activeSelection: ActiveMilestoneSelection;
   capitalSpikeInsertionCount: CounterRef;
   capitalSpikes: DemoCapitalSpike[];
   drawInsertionCount: CounterRef;
@@ -1411,7 +1554,7 @@ interface UseTimelineSnapshotSharingArgs {
   selectedPanelOpen: boolean;
   setActiveCapitalSpikeId: (value: string | null) => void;
   setActiveDrawId: (value: string | null) => void;
-  setActiveItemId: (value: string) => void;
+  setActiveSelection: (value: ActiveMilestoneSelection) => void;
   setCapitalSpikeEditDraft: (value: CapitalSpikeEditDraft) => void;
   setCapitalSpikes: Dispatch<SetStateAction<DemoCapitalSpike[]>>;
   setDrawEditDraft: (value: DrawEditDraft) => void;
@@ -1463,7 +1606,7 @@ function ShareStatusBadges({
 }
 
 function useTimelineSnapshotSharing({
-  activeItemId,
+  activeSelection,
   capitalSpikeInsertionCount,
   capitalSpikes,
   drawInsertionCount,
@@ -1475,7 +1618,7 @@ function useTimelineSnapshotSharing({
   selectedPanelOpen,
   setActiveCapitalSpikeId,
   setActiveDrawId,
-  setActiveItemId,
+  setActiveSelection,
   setCapitalSpikeEditDraft,
   setCapitalSpikes,
   setDrawEditDraft,
@@ -1507,11 +1650,11 @@ function useTimelineSnapshotSharing({
   const initialShareState = useMemo(
     () =>
       initialTimelineShareState(
-        INITIAL_ITEMS,
-        buildDemoDraws(INITIAL_ITEMS, INITIAL_RANGE),
+        NORMALIZED_INITIAL_ITEMS,
+        buildDemoDraws(NORMALIZED_INITIAL_ITEMS, INITIAL_RANGE),
         INITIAL_CAPITAL_SPIKES,
         INITIAL_RANGE,
-        "rough-in",
+        { itemId: "rough-in", phase: "inProgress" },
         92,
         true,
         STARTING_CASH,
@@ -1522,23 +1665,25 @@ function useTimelineSnapshotSharing({
 
   const applyShareState = useCallback(
     (nextState: TimelineShareState) => {
-      setItems(nextState.items);
-      setDraws(nextState.draws);
-      setCapitalSpikes(nextState.capitalSpikes);
-      setRange(nextState.range);
-      setActiveItemId(nextState.activeItemId);
-      setProgressValue(nextState.progressValue);
+      const hydratedState = normalizeTimelineShareStateForRoute(nextState);
+
+      setItems(hydratedState.items);
+      setDraws(hydratedState.draws);
+      setCapitalSpikes(hydratedState.capitalSpikes);
+      setRange(hydratedState.range);
+      setActiveSelection(hydratedState.activeSelection);
+      setProgressValue(hydratedState.progressValue);
       setProbeValue(null);
       setActiveDrawId(null);
       setActiveCapitalSpikeId(null);
       setDrawEditDraft({ amount: "", x: "" });
       setCapitalSpikeEditDraft({ amount: "", label: "", x: "" });
-      setSelectedPanelOpen(nextState.selectedPanelOpen);
-      setStartingCash(nextState.startingCash);
-      setStraightLine(nextState.straightLine);
-      insertionCount.current = countInsertedTimelineItems(nextState.items);
-      drawInsertionCount.current = countManualDraws(nextState.draws);
-      capitalSpikeInsertionCount.current = nextState.capitalSpikes.length;
+      setSelectedPanelOpen(hydratedState.selectedPanelOpen);
+      setStartingCash(hydratedState.startingCash);
+      setStraightLine(hydratedState.straightLine);
+      insertionCount.current = countInsertedTimelineItems(hydratedState.items);
+      drawInsertionCount.current = countManualDraws(hydratedState.draws);
+      capitalSpikeInsertionCount.current = hydratedState.capitalSpikes.length;
     },
     [
       capitalSpikeInsertionCount,
@@ -1546,7 +1691,7 @@ function useTimelineSnapshotSharing({
       insertionCount,
       setActiveCapitalSpikeId,
       setActiveDrawId,
-      setActiveItemId,
+      setActiveSelection,
       setCapitalSpikeEditDraft,
       setCapitalSpikes,
       setDrawEditDraft,
@@ -1576,8 +1721,8 @@ function useTimelineSnapshotSharing({
     }
 
     applyShareState(
-      applyTimelineShareSnapshotV1(
-        sharedSnapshot as TimelineShareSnapshotV1,
+      applyTimelineShareSnapshotV2(
+        sharedSnapshot,
         initialShareState
       )
     );
@@ -1587,8 +1732,8 @@ function useTimelineSnapshotSharing({
   const resetTimeline = useCallback(() => {
     const nextState =
       share && sharedSnapshot
-        ? applyTimelineShareSnapshotV1(
-            sharedSnapshot as TimelineShareSnapshotV1,
+        ? applyTimelineShareSnapshotV2(
+            sharedSnapshot,
             initialShareState
           )
         : initialShareState;
@@ -1603,8 +1748,8 @@ function useTimelineSnapshotSharing({
     setShareError(null);
 
     try {
-      const snapshot = buildTimelineShareSnapshotV1({
-        activeItemId,
+      const snapshot = buildTimelineShareSnapshotV2({
+        activeSelection,
         capitalSpikes,
         draws,
         items,
@@ -1629,7 +1774,7 @@ function useTimelineSnapshotSharing({
       setShareCreating(false);
     }
   }, [
-    activeItemId,
+    activeSelection,
     capitalSpikes,
     createTimelineSnapshot,
     draws,
@@ -1675,7 +1820,7 @@ function useTimelineSnapshotSharing({
   };
 }
 
-function buildDemoDraws(
+export function buildDemoDraws(
   items: TimelineItem<DemoMilestone>[],
   range: TimelineRange
 ): DemoDraw[] {
@@ -1700,14 +1845,22 @@ function syncDemoDrawsWithItems(
       const existingDraw = draws.find((draw) => draw.itemId === item.id);
       const nextDraw = createDemoDraw(item, resolvedRange);
 
-      return existingDraw
+      if (!existingDraw) {
+        return nextDraw;
+      }
+
+      const syncedDraw = {
+        ...nextDraw,
+        amount: existingDraw.amount,
+        x: existingDraw.customDate ? existingDraw.x : nextDraw.x,
+      };
+
+      return typeof existingDraw.customDate === "boolean"
         ? {
-            ...nextDraw,
-            amount: existingDraw.amount,
+            ...syncedDraw,
             customDate: existingDraw.customDate,
-            x: existingDraw.customDate ? existingDraw.x : nextDraw.x,
           }
-        : nextDraw;
+        : syncedDraw;
     });
   const manualDraws = draws.filter((draw) => !draw.itemId);
 
@@ -1716,12 +1869,72 @@ function syncDemoDrawsWithItems(
   );
 }
 
+export function normalizeTimelineShareStateForRoute(
+  state: TimelineShareState
+): TimelineShareState {
+  const range = expandTimelineRangeForMilestones(state.items, state.range);
+
+  return {
+    ...state,
+    draws: syncDemoDrawsWithItems(state.draws, state.items, range),
+    range,
+  };
+}
+
+export function expandTimelineRangeForMilestones(
+  items: TimelineItem<DemoMilestone>[],
+  range: TimelineRange
+): Required<TimelineRange> {
+  const resolvedRange = normalizeDemoRange(range);
+  const max = items.reduce((nextMax, item) => {
+    const milestoneDrawX = item.data?.drawX;
+    const completionX = getMilestoneEndX(item);
+    const defaultDrawX = completionX + DEFAULT_DRAW_REVIEW_LAG_DAYS;
+    const explicitDrawX = Number.isFinite(milestoneDrawX)
+      ? Number(milestoneDrawX)
+      : defaultDrawX;
+
+    return Math.max(
+      nextMax,
+      item.x,
+      completionX,
+      defaultDrawX,
+      explicitDrawX
+    );
+  }, resolvedRange.max);
+
+  return {
+    ...resolvedRange,
+    max,
+  };
+}
+
+export function resolveSelectedDrawDate(
+  activeItem: TimelineItem<DemoMilestone>,
+  activeDraw: DemoDraw | null | undefined,
+  range: TimelineRange
+): number {
+  if (activeDraw) {
+    return activeDraw.x;
+  }
+
+  return createDemoDraw(
+    activeItem,
+    expandTimelineRangeForMilestones([activeItem], range)
+  ).x;
+}
+
 function createDemoDraw(
   item: TimelineItem<DemoMilestone>,
   range: Required<TimelineRange>
 ): DemoDraw {
   const milestone = item.data;
-  const drawX = clampNumber(milestone?.drawX ?? item.x, range.min, range.max);
+  const defaultDrawX = resolveDefaultDrawX(item, range);
+  const drawX = clampNumber(
+    Math.max(milestone?.drawX ?? defaultDrawX, defaultDrawX),
+    range.min,
+    range.max
+  );
 
   return {
     amount: milestone?.amount ?? 0,
@@ -1750,28 +1963,60 @@ export function buildTimelineCashflowData(
   const events = [
     ...items
       .filter((item) => item.data)
-      .map((item) => ({
-        amount: item.data?.amount ?? 0,
-        day: clampNumber(item.x, range.min, range.max),
-        id: `${item.id}-milestone`,
-        label: item.data?.name ?? item.label ?? "Milestone",
-        sortOrder: 0,
-        type: "milestone" as const,
-      })),
+      .flatMap((item) => {
+        const spendEvents = buildMilestoneSpendEvents(item);
+        const completionDay = getMilestoneEndX(item);
+        const completionSpendEvent = spendEvents.find(
+          (event) => event.kind === "completion" && event.day === completionDay
+        );
+        const insertedCapacityEvent = {
+          amount: 0,
+          day: completionDay,
+          id: `${item.id}-completion-capacity`,
+          kind: "completion" as const,
+          label: `${item.data?.name ?? item.label ?? "Milestone"} completion capacity`,
+          milestoneAmount: item.data?.amount ?? 0,
+          milestoneId: item.id,
+          milestoneName: item.data?.name ?? item.label ?? "Milestone",
+        };
+        const normalizedSpendEvents = completionSpendEvent
+          ? spendEvents
+          : [...spendEvents, insertedCapacityEvent];
+        const completionCapacityEventId =
+          completionSpendEvent?.id ?? insertedCapacityEvent.id;
+
+        return normalizedSpendEvents.map((event) => ({
+          amount: event.amount,
+          day: clampNumber(event.day, range.min, range.max),
+          drawCapacityUnlocked:
+            event.id === completionCapacityEventId ? event.milestoneAmount : 0,
+          id: event.id,
+          label: event.label,
+          sortOrder:
+            event.kind === "initial"
+              ? 0
+              : event.kind === "distributed"
+                ? 1
+                : 2,
+          type: "milestone" as const,
+        }));
+      }),
     ...capitalSpikes.map((spike) => ({
       amount: spike.amount,
       day: clampNumber(spike.x, range.min, range.max),
+      drawCapacityUnlocked: 0,
       id: spike.id,
       label: spike.label,
-      sortOrder: 1,
+      sortOrder: 3,
       type: "capitalSpike" as const,
     })),
     ...draws.map((draw) => ({
       amount: draw.amount,
       day: clampNumber(draw.x, range.min, range.max),
+      drawCapacityUnlocked: 0,
       id: draw.id,
       label: draw.label,
-      sortOrder: 2,
+      sortOrder: 4,
       type: "draw" as const,
     })),
   ].sort(
@@ -1784,6 +2029,7 @@ export function buildTimelineCashflowData(
       capitalSpikeAmount: 0,
       cashOnHand: startingCash,
       day: range.min,
+      drawCapacityUnlocked: 0,
       drawAmount: 0,
       event: "start",
       id: "start",
@@ -1800,6 +2046,7 @@ export function buildTimelineCashflowData(
         capitalSpikeAmount: 0,
         cashOnHand,
         day: event.day,
+        drawCapacityUnlocked: event.drawCapacityUnlocked,
         drawAmount: 0,
         event: "milestone",
         id: event.id,
@@ -1815,6 +2062,7 @@ export function buildTimelineCashflowData(
         capitalSpikeAmount: event.amount,
         cashOnHand,
         day: event.day,
+        drawCapacityUnlocked: 0,
         drawAmount: 0,
         event: "capitalSpike",
         id: event.id,
@@ -1829,6 +2077,7 @@ export function buildTimelineCashflowData(
       capitalSpikeAmount: 0,
       cashOnHand,
       day: event.day,
+      drawCapacityUnlocked: 0,
       drawAmount: event.amount,
       event: "draw",
       id: event.id,
@@ -1859,6 +2108,7 @@ export function densifyCashflowData(
         capitalSpikeAmount: 0,
         cashOnHand: interpolateCashOnHand(data, day),
         day,
+        drawCapacityUnlocked: 0,
         drawAmount: 0,
         event: "start",
         id: `cash-probe-${day}`,
@@ -1930,14 +2180,14 @@ export function groupCashflowPointsByDay(data: CashflowDatum[]) {
   return grouped;
 }
 
-function buildDrawAvailabilityData(
+export function buildDrawAvailabilityData(
   cashflowData: CashflowDatum[]
 ): DrawAvailabilityDatum[] {
   let unlockedDraw = 0;
   let releasedDraw = 0;
 
   return cashflowData.map((point) => {
-    unlockedDraw += point.budget;
+    unlockedDraw += point.drawCapacityUnlocked;
     releasedDraw += point.drawAmount;
 
     const interestBearingDraw = releasedDraw;
@@ -2391,15 +2641,19 @@ function ShareTimelineMenu({
 }
 
 function SelectedDrawMobileDrawer({
+  activeDraw,
   activeItem,
   onOpenChange,
   open,
   overview,
+  range,
 }: {
-  activeItem: TimelineItem<DemoMilestone>;
+  activeDraw: DemoDraw | null;
+  activeItem: TimelineItem<DemoMilestone> | null;
   onOpenChange: (open: boolean) => void;
   open: boolean;
   overview: FinancialOverview;
+  range: Required<TimelineRange>;
 }) {
   return (
     <Drawer onOpenChange={onOpenChange} open={open} position="bottom">
@@ -2410,7 +2664,14 @@ function SelectedDrawMobileDrawer({
       >
         <DrawerPanel className="px-4 pt-5 pb-6" scrollFade>
           <DrawerTitle className="sr-only">Selected draw</DrawerTitle>
-          <SelectedDrawDetails activeItem={activeItem} overview={overview} />
+          {activeItem ? (
+            <SelectedDrawDetails
+              activeDraw={activeDraw}
+              activeItem={activeItem}
+              overview={overview}
+              range={range}
+            />
+          ) : null}
         </DrawerPanel>
       </DrawerPopup>
     </Drawer>
@@ -2418,11 +2679,15 @@ function SelectedDrawMobileDrawer({
 }
 
 function SelectedDrawDetails({
+  activeDraw,
   activeItem,
   overview,
+  range,
 }: {
+  activeDraw: DemoDraw | null;
   activeItem: TimelineItem<DemoMilestone>;
   overview: FinancialOverview;
+  range: Required<TimelineRange>;
 }) {
   const milestone = activeItem.data;
 
@@ -2453,7 +2718,9 @@ function SelectedDrawDetails({
         <div className="flex items-center justify-between gap-3">
           <dt className="text-muted-foreground">Draw date</dt>
           <dd className="font-medium tabular-nums">
-            {formatTimelineDay(milestone.drawX ?? activeItem.x)}
+            {formatTimelineDay(
+              resolveSelectedDrawDate(activeItem, activeDraw, range)
+            )}
           </dd>
         </div>
         <div className="flex items-center justify-between gap-3">
@@ -2963,11 +3230,13 @@ function CapitalSpikeTimelineMarker({
 
 function MilestoneCard({
   active,
+  activePhase,
   complete,
   item,
   reducedMotion,
 }: {
   active: boolean;
+  activePhase: ActiveMilestoneSelection["phase"];
   complete: boolean;
   item: TimelineItem<DemoMilestone>;
   reducedMotion: boolean;
@@ -2976,6 +3245,18 @@ function MilestoneCard({
   if (!milestone) {
     return null;
   }
+  const schedule = getMilestonePaymentSchedule(item);
+  const statusLabel = active
+    ? activePhase === "complete"
+      ? "Complete"
+      : "In progress"
+    : milestone.status === "complete"
+      ? "Complete"
+      : milestone.status === "review"
+        ? "In review"
+        : milestone.status === "ready"
+          ? "Ready"
+          : "Upcoming";
 
   return (
     <motion.article
@@ -3005,6 +3286,13 @@ function MilestoneCard({
           <h3 className="mt-1 font-semibold text-sm leading-5">
             {milestone.name}
           </h3>
+          <Badge
+            className="mt-2"
+            data-testid={`timeline-card-status-${item.id}`}
+            variant={statusLabel === "Complete" ? "success" : "outline"}
+          >
+            {statusLabel}
+          </Badge>
         </div>
         <div className="mt-1 -mr-5 grid size-28 shrink-0 place-items-center sm:-mr-6 sm:size-32">
           <IsometricMilestoneIcon
@@ -3015,20 +3303,55 @@ function MilestoneCard({
       </div>
 
       <div className="mt-5 space-y-3">
+        <div>
+          <p className="text-muted-foreground text-xs">Planned cost</p>
+          <p className="mt-1 font-semibold text-xl">
+            {money(milestone.amount)}
+          </p>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <p className="text-muted-foreground text-xs">Planned cost</p>
-            <p className="mt-1 font-semibold text-xl">
-              {money(milestone.amount)}
+            <p className="text-muted-foreground text-xs">Start date</p>
+            <p
+              className="mt-1 font-semibold text-sm tabular-nums"
+              data-testid={`timeline-card-start-date-${item.id}`}
+            >
+              {formatTimelineDay(item.x)}
             </p>
           </div>
           <div>
-            <p className="text-muted-foreground text-xs">Milestone date</p>
+            <p className="text-muted-foreground text-xs">Completion date</p>
             <p
               className="mt-1 font-semibold text-sm tabular-nums"
-              data-testid={`timeline-card-date-${item.id}`}
+              data-testid={`timeline-card-end-date-${item.id}`}
             >
-              {formatTimelineDay(item.x)}
+              {formatTimelineDay(schedule.endX)}
+            </p>
+          </div>
+          <div>
+            <p className="text-muted-foreground text-xs">Duration</p>
+            <p className="mt-1 font-semibold text-sm tabular-nums">
+              {schedule.durationDays} days
+            </p>
+          </div>
+          <div>
+            <p className="text-muted-foreground text-xs">Daily spend</p>
+            <p className="mt-1 font-semibold text-sm tabular-nums">
+              {money(schedule.dailyDistributedAmount)}
+            </p>
+          </div>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+          <div className="rounded-md border border-border bg-muted/35 px-2 py-1.5">
+            <p className="text-muted-foreground">Initial</p>
+            <p className="font-semibold tabular-nums">
+              {money(schedule.initialPaymentAmount)}
+            </p>
+          </div>
+          <div className="rounded-md border border-border bg-muted/35 px-2 py-1.5">
+            <p className="text-muted-foreground">Completion</p>
+            <p className="font-semibold tabular-nums">
+              {money(schedule.completionPaymentAmount)}
             </p>
           </div>
         </div>
@@ -3181,6 +3504,42 @@ function TimelineNodeButton({
       ) : (
         <span className="font-semibold text-xs">{item.markerLabel}</span>
       )}
+    </motion.button>
+  );
+}
+
+function TimelineEndNodeButton({
+  active,
+  complete,
+  item,
+  onClick,
+  reducedMotion,
+}: {
+  active: boolean;
+  complete: boolean;
+  item: TimelineItem<DemoMilestone>;
+  onClick: () => void;
+  reducedMotion: boolean;
+}) {
+  return (
+    <motion.button
+      aria-label={`Complete ${item.data?.name ?? item.label ?? item.id}`}
+      className={cn(
+        "grid size-8 place-items-center rounded-full border-2 bg-background text-muted-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        complete &&
+          "border-emerald-400 bg-emerald-50 text-emerald-600 ring-4 ring-emerald-500/10 dark:bg-emerald-500/10",
+        active &&
+          "border-emerald-500 bg-emerald-500 text-white shadow-emerald-500/30 ring-4 ring-emerald-500/20",
+        !(active || complete) && "border-zinc-300 dark:border-zinc-700"
+      )}
+      data-testid={`demo-timeline-end-node-${item.id}`}
+      onClick={onClick}
+      transition={{ damping: 22, stiffness: 420, type: "spring" }}
+      type="button"
+      whileHover={reducedMotion ? undefined : { scale: 1.1, y: -2 }}
+      whileTap={reducedMotion ? undefined : { scale: 0.9, y: 1 }}
+    >
+      <Check className="size-4" />
     </motion.button>
   );
 }

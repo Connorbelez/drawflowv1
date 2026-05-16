@@ -31,10 +31,13 @@ const demoTimelineToneValidator = v.optional(
 
 const demoTimelineMilestoneDataValidator = v.object({
   amount: v.number(),
+  completionPaymentAmount: v.optional(v.number()),
   draw: v.string(),
   drawX: v.optional(v.number()),
+  durationDays: v.number(),
   evidence: v.string(),
   icon: demoTimelineIconValidator,
+  initialPaymentAmount: v.optional(v.number()),
   name: v.string(),
   policy: v.string(),
   status: demoTimelineStatusValidator,
@@ -73,6 +76,11 @@ const demoTimelineRangeValidator = v.object({
   max: v.number(),
   min: v.number(),
   unit: v.optional(v.string()),
+});
+
+const demoActiveMilestoneSelectionValidator = v.object({
+  itemId: v.string(),
+  phase: v.union(v.literal("inProgress"), v.literal("complete")),
 });
 
 export default defineSchema({
@@ -311,12 +319,12 @@ export default defineSchema({
     .index("by_milestone", ["scenario", "milestoneKey"])
     .index("by_scenario", ["scenario"]),
   demo_timelineSnapshots: defineTable({
-    activeItemId: v.string(),
+    activeSelection: demoActiveMilestoneSelectionValidator,
     capitalSpikes: v.optional(v.array(demoTimelineCapitalSpikeValidator)),
     createdAt: v.number(),
     draws: v.array(demoTimelineDrawValidator),
     items: v.array(demoTimelineItemValidator),
-    payloadVersion: v.number(),
+    payloadVersion: v.literal(2),
     progressValue: v.number(),
     range: demoTimelineRangeValidator,
     selectedPanelOpen: v.boolean(),

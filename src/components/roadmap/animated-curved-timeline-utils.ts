@@ -40,6 +40,9 @@ export interface TimelineRoutePoint {
 
 export interface TimelineLayoutItem<TData = unknown>
   extends TimelineItem<TData> {
+  endLayoutX?: number;
+  endRawX?: number;
+  endX?: number;
   layoutX: number;
   layoutY: number;
   normalized: number;
@@ -47,9 +50,11 @@ export interface TimelineLayoutItem<TData = unknown>
   rawX: number;
 }
 
-export interface TimelineLayoutOptions {
+export interface TimelineLayoutOptions<TData = unknown> {
   baselineY: number;
+  getItemEndValue?: (item: TimelineItem<TData>) => number | null | undefined;
   laneStepY: number;
+  minInlineNodeSpacingPx?: number;
   minNodeSpacingPx: number;
   paddingX: number;
   pixelsPerUnit: number;
@@ -136,18 +141,64 @@ export function roundTimelineValue(value: number, step = 1): number {
 
 export function buildTimelineLayout<TData>(
   items: TimelineItem<TData>[],
-  options: TimelineLayoutOptions
+  options: TimelineLayoutOptions<TData>
 ): TimelineLayout<TData> {
   const range = normalizeTimelineRange(options.range);
   const paddingX = Math.max(0, options.paddingX);
+  const minInlineNodeSpacingPx = Math.max(
+    0,
+    options.minInlineNodeSpacingPx ?? 48
+  );
   const minNodeSpacingPx = Math.max(0, options.minNodeSpacingPx);
+  const sortedItems = [...items]
+    .map((item, inputIndex) => ({ inputIndex, item }))
+    .sort((a, b) => a.item.x - b.item.x || a.inputIndex - b.inputIndex);
+  const itemEndValues = new Map<string, number>();
+
+  for (const { inputIndex, item } of sortedItems) {
+    const itemEndValue = options.getItemEndValue?.(item);
+
+    if (
+      itemEndValue == null ||
+      !Number.isFinite(itemEndValue) ||
+      itemEndValue <= item.x
+    ) {
+      continue;
+    }
+
+    itemEndValues.set(
+      getTimelineLayoutEntryKey(inputIndex, item),
+      clampTimelineValue(itemEndValue, range.min, range.max)
+    );
+  }
+
+  const minimumSpacingAxisWidth = getMinimumSpacingAxisWidth(
+    sortedItems.map(({ item }) => item.x),
+    range,
+    minNodeSpacingPx
+  );
+  const minimumInlineSpacingAxisWidth = getMinimumSpacingAxisWidth(
+    itemEndValues.size === 0
+      ? []
+      : [
+          ...sortedItems.map(({ item }) => item.x),
+          ...itemEndValues.values(),
+        ].sort((a, b) => a - b),
+    range,
+    minInlineNodeSpacingPx
+  );
   const requestedAxisWidth =
     (range.max - range.min) * Math.max(1, options.pixelsPerUnit);
   const viewportAxisWidth = Math.max(
     1,
     Math.max(0, options.viewportWidth) - paddingX * 2
   );
-  const axisWidth = Math.max(requestedAxisWidth, viewportAxisWidth);
+  const axisWidth = Math.max(
+    requestedAxisWidth,
+    viewportAxisWidth,
+    minimumSpacingAxisWidth,
+    minimumInlineSpacingAxisWidth
+  );
   const valueToX = (value: number) =>
     paddingX + normalizeTimelineValue(value, range) * axisWidth;
   const xToValue = (x: number) => {
@@ -155,9 +206,6 @@ export function buildTimelineLayout<TData>(
 
     return range.min + normalized * (range.max - range.min);
   };
-  const sortedItems = [...items]
-    .map((item, inputIndex) => ({ inputIndex, item }))
-    .sort((a, b) => a.item.x - b.item.x || a.inputIndex - b.inputIndex);
   let contentWidth = axisWidth + paddingX * 2;
   let previousLayoutX = Number.NEGATIVE_INFINITY;
 
@@ -165,13 +213,27 @@ export function buildTimelineLayout<TData>(
     const normalized = normalizeTimelineValue(item.x, range);
     const rawX = paddingX + normalized * axisWidth;
     const layoutX = Math.max(rawX, previousLayoutX + minNodeSpacingPx);
+    const endX = itemEndValues.get(getTimelineLayoutEntryKey(inputIndex, item));
+    const endRawX = endX == null ? undefined : valueToX(endX);
+    const startShiftX = layoutX - rawX;
+    const endLayoutX =
+      endRawX == null
+        ? undefined
+        : Math.max(endRawX + startShiftX, layoutX + minInlineNodeSpacingPx);
     const lane = item.lane ?? 0;
 
     previousLayoutX = layoutX;
-    contentWidth = Math.max(contentWidth, layoutX + paddingX);
+    contentWidth = Math.max(
+      contentWidth,
+      layoutX + paddingX,
+      endLayoutX == null ? 0 : endLayoutX + paddingX
+    );
 
     return {
       ...item,
+      endLayoutX,
+      endRawX,
+      endX,
       layoutX,
       layoutY: options.baselineY + lane * options.laneStepY,
       normalized,
@@ -201,6 +263,43 @@ export function buildTimelineLayout<TData>(
     valueToX,
     xToValue,
   };
+}
+
+function getTimelineLayoutEntryKey<TData>(
+  inputIndex: number,
+  item: TimelineItem<TData>
+): string {
+  return `${inputIndex}:${item.id}`;
+}
+
+function getMinimumSpacingAxisWidth(
+  sortedValues: number[],
+  range: Required<TimelineRange>,
+  minNodeSpacingPx: number
+): number {
+  if (sortedValues.length < 2 || minNodeSpacingPx <= 0) {
+    return 0;
+  }
+
+  const rangeSpan = range.max - range.min;
+  let requiredAxisWidth = 0;
+  let previousValue = clampTimelineValue(sortedValues[0], range.min, range.max);
+
+  for (const value of sortedValues.slice(1)) {
+    const nextValue = clampTimelineValue(value, range.min, range.max);
+    const delta = nextValue - previousValue;
+
+    if (delta > 0) {
+      requiredAxisWidth = Math.max(
+        requiredAxisWidth,
+        (minNodeSpacingPx * rangeSpan) / delta
+      );
+    }
+
+    previousValue = nextValue;
+  }
+
+  return requiredAxisWidth;
 }
 
 export function createCurvedTimelinePath(points: TimelineRoutePoint[]): string {

@@ -8,6 +8,7 @@ Reusable horizontal roadmap timeline for construction draw planning surfaces.
 type TimelineItem<TData = unknown> = {
   id: string;
   x: number;
+  // Optional completion/end x-value is supplied through getItemEndValue.
   label?: string;
   markerLabel?: string;
   lane?: number;
@@ -35,12 +36,17 @@ The component owns timeline geometry, SVG routing, progress animation, scroll ov
 - `activeItemId` / `onActiveItemChange` for controlled selected node state.
 - `progressValue` / `onProgressValueChange` for externally managed progress-fill position on the x-axis.
 - `hoverValue` / `onHoverValueChange` for externally managed hover probe state.
+- `minNodeSpacingPx` to set the rendered spacing floor. The layout expands the x-axis scale to preserve positive `x` deltas before falling back to shifting same-date or clamped nodes.
 - `hoverNodeCollisionPaddingPx` to control the distance-weighted fade zone around rendered nodes/icons. The dot hides quickly near icon centers while the label stays visible.
 - `renderNode` for progress nodes; call `context.activate()` from custom node controls.
+- `getItemEndValue` with `renderEndNode` for inline completion markers on the same lane as a start node. End nodes do not create path waypoints, connectors, or cards; they are rendered as collision-aware node wrappers with the id suffix `-end`.
+- `activeItemPhase` to distinguish selected start and completion markers for the same item. It can be controlled by the consumer; when omitted, the component manages start/end phase internally. `renderNode` receives `phase: "start"`, `renderEndNode` receives `phase: "end"`, and `renderCard` receives the active phase while remaining active for either selected phase of the item.
 - `renderCard` for cards that hang below the route.
 - `renderMarker` for markers above the route.
 - `formatValue` for x-axis labels.
 - `straightLine` to switch the rail between curved node-lane routing and a perfectly straight horizontal path.
+
+Inline completion nodes share the main range scale with start nodes. `minInlineNodeSpacingPx` sets the spacing floor between start and completion markers, while `minNodeSpacingPx` continues to protect card-bearing start nodes from overlap. When needed, the layout expands horizontally before shifting clamped or same-date coordinates.
 
 Right-click insertion is configured with `insertion.createItem`. When the insert menu is confirmed, `insertTimelineItemWithSpacing` inserts the node and shifts later nodes by `insertion.minGap` when needed. If spacing pushes nodes beyond the current range, the returned range expands so the x-axis remains scrollable.
 

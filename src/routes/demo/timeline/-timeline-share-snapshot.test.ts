@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
 import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
 import {
-  applyTimelineShareSnapshotV1,
-  buildTimelineShareSnapshotV1,
+  applyTimelineShareSnapshotV2,
+  buildTimelineShareSnapshotV2,
   type DemoDraw,
   type DemoMilestone,
   initialTimelineShareState,
@@ -12,10 +12,13 @@ const initialItems: TimelineItem<DemoMilestone>[] = [
   {
     data: {
       amount: 125_000,
+      completionPaymentAmount: 25_000,
       draw: "Draw 1",
       drawX: 22,
+      durationDays: 8,
       evidence: "Accepted package",
       icon: "foundation",
+      initialPaymentAmount: 10_000,
       name: "Site prep & foundation",
       policy: "Released",
       status: "complete",
@@ -34,6 +37,7 @@ const initialItems: TimelineItem<DemoMilestone>[] = [
       amount: 160_000,
       draw: "Draw 2",
       drawX: 66,
+      durationDays: 12,
       evidence: "Accepted package",
       icon: "framing",
       name: "Framing & structure",
@@ -75,31 +79,38 @@ describe("timeline share snapshots", () => {
       initialDraws,
       [],
       { max: 230, min: 0, unit: "days" },
-      "framing",
+      { itemId: "framing", phase: "complete" },
       58,
       true,
       400_000,
       false
     );
-    const snapshot = buildTimelineShareSnapshotV1(state);
+    const snapshot = buildTimelineShareSnapshotV2(state);
 
-    expect(snapshot.payloadVersion).toBe(1);
+    expect(snapshot.payloadVersion).toBe(2);
+    expect(snapshot.activeSelection).toEqual({
+      itemId: "framing",
+      phase: "complete",
+    });
     expect(snapshot.snapshotSummary).toBe(
       "2 milestones · 2 draws · 0 spikes · 0-230 days"
     );
-    expect(applyTimelineShareSnapshotV1(snapshot, state)).toEqual(state);
+    expect(applyTimelineShareSnapshotV2(snapshot, state)).toEqual(state);
   });
 
-  test("round-trips inserted milestones, manual draws, range, display state, and selection", () => {
+  test("round-trips inserted milestones, manual draws, range, display state, selection, and payment schedule", () => {
     const insertedItems: TimelineItem<DemoMilestone>[] = [
       ...initialItems,
       {
         data: {
           amount: 137_500,
+          completionPaymentAmount: 40_000,
           draw: "Inserted 1",
           drawX: 251,
+          durationDays: 10,
           evidence: "Draft package",
           icon: "change",
+          initialPaymentAmount: 12_500,
           name: "Field change 1",
           policy: "Needs sequencing",
           status: "ready",
@@ -136,20 +147,25 @@ describe("timeline share snapshots", () => {
         },
       ],
       { max: 260, min: 0, unit: "days" },
-      "inserted-1",
+      { itemId: "inserted-1", phase: "complete" },
       245,
       false,
       475_000,
       true
     );
 
-    const snapshot = buildTimelineShareSnapshotV1(state);
-    const applied = applyTimelineShareSnapshotV1(snapshot, {
+    const snapshot = buildTimelineShareSnapshotV2(state);
+    const applied = applyTimelineShareSnapshotV2(snapshot, {
       ...state,
-      activeItemId: "site-prep",
+      activeSelection: { itemId: "site-prep", phase: "inProgress" },
     });
 
     expect(applied).toEqual(state);
+    expect(snapshot.items.at(-1)?.data).toMatchObject({
+      completionPaymentAmount: 40_000,
+      durationDays: 10,
+      initialPaymentAmount: 12_500,
+    });
     expect(snapshot.draws.at(-1)).toMatchObject({
       amount: 150_000,
       customDate: true,
@@ -165,9 +181,110 @@ describe("timeline share snapshots", () => {
     expect(snapshot.snapshotSummary).toContain("1 spikes");
   });
 
+  test("normalizes invalid active selection and capped payment schedule fields", () => {
+    const baseItem = initialItems[0]!;
+    const baseData = baseItem.data!;
+    const state = initialTimelineShareState(
+      [
+        {
+          ...baseItem,
+          data: {
+            ...baseData,
+            amount: 100_000,
+            completionPaymentAmount: 90_000,
+            durationDays: -4,
+            initialPaymentAmount: 75_000,
+          },
+        },
+      ],
+      initialDraws,
+      [],
+      { max: 230, min: 0, unit: "days" },
+      { itemId: "missing", phase: "complete" },
+      58,
+      true,
+      400_000,
+      false
+    );
+
+    const snapshot = buildTimelineShareSnapshotV2(state);
+
+    expect(snapshot.activeSelection).toEqual({
+      itemId: "site-prep",
+      phase: "inProgress",
+    });
+    expect(snapshot.items[0].data).toMatchObject({
+      amount: 100_000,
+      completionPaymentAmount: 25_000,
+      durationDays: 14,
+      initialPaymentAmount: 75_000,
+    });
+  });
+
+  test("falls back to normalized fallback state for old payload versions", () => {
+    const fallback = initialTimelineShareState(
+      initialItems,
+      initialDraws,
+      [],
+      { max: 230, min: 0, unit: "days" },
+      { itemId: "framing", phase: "complete" },
+      58,
+      true,
+      400_000,
+      false
+    );
+    const oldPayload = {
+      activeItemId: "site-prep",
+      capitalSpikes: [],
+      draws: [],
+      items: [],
+      payloadVersion: 1,
+      progressValue: 0,
+      range: { max: 10, min: 0, unit: "days" },
+      selectedPanelOpen: false,
+      startingCash: 1,
+      straightLine: true,
+    };
+
+    expect(applyTimelineShareSnapshotV2(oldPayload, fallback)).toEqual(
+      fallback
+    );
+  });
+
+  test("falls back to normalized fallback state for empty v2 milestone sets", () => {
+    const fallback = initialTimelineShareState(
+      initialItems,
+      initialDraws,
+      [],
+      { max: 230, min: 0, unit: "days" },
+      { itemId: "framing", phase: "complete" },
+      58,
+      true,
+      400_000,
+      false
+    );
+    const emptyPayload = {
+      activeSelection: { itemId: "missing", phase: "complete" },
+      capitalSpikes: [],
+      draws: [],
+      items: [],
+      payloadVersion: 2,
+      progressValue: 0,
+      range: { max: 10, min: 0, unit: "days" },
+      selectedPanelOpen: true,
+      startingCash: 1,
+      straightLine: true,
+      title: "Empty",
+    };
+
+    expect(applyTimelineShareSnapshotV2(emptyPayload, fallback)).toEqual(
+      fallback
+    );
+  });
+
   test("does not serialize transient probe or editor state", () => {
     const routeStateWithTransient = {
-      activeItemId: "framing",
+      activeSelection: { itemId: "framing", phase: "inProgress" as const },
       activeDrawId: "framing",
       drawEditDraft: { amount: "260000", x: "99" },
       capitalSpikes: [],
@@ -180,8 +297,9 @@ describe("timeline share snapshots", () => {
       startingCash: 400_000,
       straightLine: false,
     };
-    const snapshot = buildTimelineShareSnapshotV1(routeStateWithTransient);
+    const snapshot = buildTimelineShareSnapshotV2(routeStateWithTransient);
 
+    expect(snapshot).not.toHaveProperty("activeItemId");
     expect(snapshot).not.toHaveProperty("activeDrawId");
     expect(snapshot).not.toHaveProperty("drawEditDraft");
     expect(snapshot).not.toHaveProperty("probeValue");

@@ -57,12 +57,15 @@ export type {
   TimelineRange,
 } from "./animated-curved-timeline-utils.ts";
 
+export type TimelineItemPhase = "end" | "start";
+
 export interface TimelineItemRenderContext<TData = unknown> {
   activate: () => void;
   active: boolean;
   complete: boolean;
   index: number;
   item: TimelineLayoutItem<TData>;
+  phase: TimelineItemPhase;
   range: Required<TimelineRange>;
 }
 
@@ -107,12 +110,14 @@ export interface TimelineInsertionConfig<TData = unknown> {
 
 export interface AnimatedCurvedTimelineProps<TData = unknown> {
   activeItemId?: string | null;
+  activeItemPhase?: TimelineItemPhase;
   cardTop?: number;
   cardWidth?: number;
   className?: string;
   defaultActiveItemId?: string;
   endCardWidth?: number;
   formatValue?: (value: number, range: Required<TimelineRange>) => string;
+  getItemEndValue?: (item: TimelineItem<TData>) => number | null | undefined;
   height?: number;
   hoverNodeCollisionPaddingPx?: number;
   hoverValue?: number | null;
@@ -120,8 +125,10 @@ export interface AnimatedCurvedTimelineProps<TData = unknown> {
   items: TimelineItem<TData>[];
   laneStepY?: number;
   markers?: TimelineMarker[];
+  minInlineNodeSpacingPx?: number;
   minNodeSpacingPx?: number;
   onActiveItemChange?: (item: TimelineItem<TData>) => void;
+  onEndNodeClick?: (item: TimelineLayoutItem<TData>) => void;
   onHoverValueChange?: (value: number | null) => void;
   onItemsChange?: (
     items: TimelineItem<TData>[],
@@ -144,6 +151,10 @@ export interface AnimatedCurvedTimelineProps<TData = unknown> {
     range: Required<TimelineRange>;
     x: number;
   }) => ReactNode;
+  renderEndNode?: (
+    item: TimelineLayoutItem<TData>,
+    context: TimelineItemRenderContext<TData>
+  ) => ReactNode;
   renderMarker?: (
     marker: TimelineMarker,
     context: TimelineMarkerRenderContext
@@ -250,19 +261,23 @@ function timelineDuration(
 
 export function AnimatedCurvedTimeline<TData = unknown>({
   activeItemId,
+  activeItemPhase,
   cardTop = DEFAULT_CARD_TOP,
   cardWidth = DEFAULT_CARD_WIDTH,
   className,
   defaultActiveItemId,
   formatValue = defaultFormatValue,
+  getItemEndValue,
   height = DEFAULT_HEIGHT,
   hoverValue,
   insertion,
   items,
   laneStepY = DEFAULT_LANE_STEP_Y,
   markers = [],
+  minInlineNodeSpacingPx = 56,
   minNodeSpacingPx = DEFAULT_MIN_NODE_SPACING_PX,
   onActiveItemChange,
+  onEndNodeClick,
   onHoverValueChange,
   onItemsChange,
   onProgressValueChange,
@@ -275,6 +290,7 @@ export function AnimatedCurvedTimeline<TData = unknown>({
   renderCard,
   renderEndCard,
   endCardWidth = 260,
+  renderEndNode,
   renderMarker,
   renderNode,
   straightLine = false,
@@ -297,6 +313,8 @@ export function AnimatedCurvedTimeline<TData = unknown>({
   const [uncontrolledActiveItemId, setUncontrolledActiveItemId] = useState<
     string | null
   >(defaultActiveItemId ?? items[0]?.id ?? null);
+  const [uncontrolledActiveItemPhase, setUncontrolledActiveItemPhase] =
+    useState<TimelineItemPhase>("start");
   const [uncontrolledProgressValue, setUncontrolledProgressValue] = useState<
     number | null
   >(null);
@@ -352,6 +370,10 @@ export function AnimatedCurvedTimeline<TData = unknown>({
   const resolvedRange = useMemo(() => normalizeTimelineRange(range), [range]);
   const resolvedActiveItemId =
     activeItemId === undefined ? uncontrolledActiveItemId : activeItemId;
+  const resolvedActiveItemPhase =
+    activeItemPhase === undefined
+      ? uncontrolledActiveItemPhase
+      : activeItemPhase;
   const effectiveMinNodeSpacingPx = renderCard
     ? Math.max(minNodeSpacingPx, cardWidth + 24)
     : minNodeSpacingPx;
@@ -359,7 +381,9 @@ export function AnimatedCurvedTimeline<TData = unknown>({
     () =>
       buildTimelineLayout(items, {
         baselineY: DEFAULT_BASELINE_Y,
+        getItemEndValue,
         laneStepY,
+        minInlineNodeSpacingPx,
         minNodeSpacingPx: effectiveMinNodeSpacingPx,
         paddingX,
         pixelsPerUnit,
@@ -368,8 +392,10 @@ export function AnimatedCurvedTimeline<TData = unknown>({
       }),
     [
       effectiveMinNodeSpacingPx,
+      getItemEndValue,
       items,
       laneStepY,
+      minInlineNodeSpacingPx,
       paddingX,
       pixelsPerUnit,
       resolvedRange,
@@ -398,10 +424,26 @@ export function AnimatedCurvedTimeline<TData = unknown>({
             item.id,
             item.layoutX,
             straightLine ? layout.baselineY : item.layoutY,
+            item.id === resolvedActiveItemId
+              ? resolvedActiveItemPhase
+              : "inactive",
+            renderEndNode ? (item.endLayoutX ?? "none") : "hidden",
+            renderEndNode
+              ? straightLine
+                ? layout.baselineY
+                : item.layoutY
+              : "hidden",
           ].join(":")
         )
         .join("|"),
-    [layout.baselineY, layout.items, straightLine]
+    [
+      layout.baselineY,
+      layout.items,
+      renderEndNode,
+      resolvedActiveItemPhase,
+      resolvedActiveItemId,
+      straightLine,
+    ]
   );
   const resolvedProgressValue =
     progressValue === undefined ? uncontrolledProgressValue : progressValue;
@@ -411,12 +453,24 @@ export function AnimatedCurvedTimeline<TData = unknown>({
     typeof resolvedProgressValue === "number" &&
     activeLayoutItem !== null &&
     Math.abs(resolvedProgressValue - activeLayoutItem.x) < 0.000_001;
+  const progressValueTargetsActiveItemEnd =
+    typeof resolvedProgressValue === "number" &&
+    activeLayoutItem !== null &&
+    activeLayoutItem.endX !== undefined &&
+    resolvedActiveItemPhase === "end" &&
+    Math.abs(resolvedProgressValue - activeLayoutItem.endX) < 0.000_001;
   const progressTargetX =
     typeof resolvedProgressValue === "number"
-      ? progressValueTargetsActiveItem
+      ? progressValueTargetsActiveItemEnd
+        ? (activeLayoutItem.endLayoutX ?? layout.valueToX(resolvedProgressValue))
+        : progressValueTargetsActiveItem
         ? activeLayoutItem.layoutX
         : layout.valueToX(resolvedProgressValue)
-      : (activeLayoutItem?.layoutX ?? layout.startX);
+      : activeLayoutItem
+        ? resolvedActiveItemPhase === "end"
+          ? (activeLayoutItem.endLayoutX ?? activeLayoutItem.layoutX)
+          : activeLayoutItem.layoutX
+        : layout.startX;
   const progressRatio = routeProgressForX(routePoints, progressTargetX);
   const activeOrder =
     layout.items.find((item) => item.id === resolvedActiveItemId)?.order ?? -1;
@@ -484,11 +538,26 @@ export function AnimatedCurvedTimeline<TData = unknown>({
       return;
     }
 
-    const nextActiveId = items[0]?.id ?? null;
     if (activeItemId === undefined) {
-      setUncontrolledActiveItemId(nextActiveId);
+      const nextActiveItem = items[0] ?? null;
+
+      setUncontrolledActiveItemId(nextActiveItem?.id ?? null);
+
+      if (activeItemPhase === undefined) {
+        setUncontrolledActiveItemPhase("start");
+      }
+
+      if (progressValue === undefined) {
+        setUncontrolledProgressValue(nextActiveItem?.x ?? null);
+      }
     }
-  }, [activeItemId, items, resolvedActiveItemId]);
+  }, [
+    activeItemId,
+    activeItemPhase,
+    items,
+    progressValue,
+    resolvedActiveItemId,
+  ]);
 
   const resolvePathPointAtX = useCallback(
     (x: number): PathPoint => {
@@ -614,13 +683,49 @@ export function AnimatedCurvedTimeline<TData = unknown>({
       if (activeItemId === undefined) {
         setUncontrolledActiveItemId(item.id);
       }
+      if (activeItemPhase === undefined) {
+        setUncontrolledActiveItemPhase("start");
+      }
       if (progressValue === undefined) {
         setUncontrolledProgressValue(item.x);
       }
       onActiveItemChange?.(item);
       onProgressValueChange?.(item.x, item);
     },
-    [activeItemId, onActiveItemChange, onProgressValueChange, progressValue]
+    [
+      activeItemId,
+      activeItemPhase,
+      onActiveItemChange,
+      onProgressValueChange,
+      progressValue,
+    ]
+  );
+
+  const setActiveEndItem = useCallback(
+    (item: TimelineLayoutItem<TData>) => {
+      const endValue = item.endX ?? item.x;
+
+      if (activeItemId === undefined) {
+        setUncontrolledActiveItemId(item.id);
+      }
+      if (activeItemPhase === undefined) {
+        setUncontrolledActiveItemPhase("end");
+      }
+      if (progressValue === undefined) {
+        setUncontrolledProgressValue(endValue);
+      }
+      onActiveItemChange?.(item);
+      onProgressValueChange?.(endValue, item);
+      onEndNodeClick?.(item);
+    },
+    [
+      activeItemId,
+      activeItemPhase,
+      onActiveItemChange,
+      onEndNodeClick,
+      onProgressValueChange,
+      progressValue,
+    ]
   );
 
   const hideHoverMarker = useCallback(() => {
@@ -912,15 +1017,39 @@ export function AnimatedCurvedTimeline<TData = unknown>({
 
           <AnimatePresence initial={false} mode="popLayout">
             {layout.items.map((item, index) => {
-              const active = item.id === resolvedActiveItemId;
-              const complete = activeOrder >= 0 && item.order < activeOrder;
+              const itemActive = item.id === resolvedActiveItemId;
+              const startActive =
+                itemActive && resolvedActiveItemPhase === "start";
+              const endActive =
+                itemActive && resolvedActiveItemPhase === "end";
+              const complete =
+                activeOrder >= 0 &&
+                (item.order < activeOrder ||
+                  (item.order === activeOrder &&
+                    resolvedActiveItemPhase === "end"));
               const itemNodeY = straightLine ? layout.baselineY : item.layoutY;
-              const context = {
+              const startContext: TimelineItemRenderContext<TData> = {
                 activate: () => setActiveItem(item),
-                active,
+                active: startActive,
                 complete,
                 index,
                 item,
+                phase: "start",
+                range: layout.range,
+              };
+              const cardContext: TimelineItemRenderContext<TData> = {
+                ...startContext,
+                active: itemActive,
+                phase: resolvedActiveItemPhase,
+              };
+              const endContext: TimelineItemRenderContext<TData> = {
+                activate: () => setActiveEndItem(item),
+                active: endActive,
+                complete:
+                  endActive || (activeOrder >= 0 && item.order < activeOrder),
+                index,
+                item,
+                phase: "end",
                 range: layout.range,
               };
 
@@ -940,7 +1069,7 @@ export function AnimatedCurvedTimeline<TData = unknown>({
                     aria-hidden="true"
                     className={cn(
                       "absolute z-[1] w-px origin-top bg-gradient-to-b from-rose-400/80 via-border to-transparent",
-                      active && "from-rose-500 via-rose-200"
+                      itemActive && "from-rose-500 via-rose-200"
                     )}
                     data-testid={`timeline-card-connector-${item.id}`}
                     exit={{ opacity: 0, scaleY: 0.25 }}
@@ -983,10 +1112,10 @@ export function AnimatedCurvedTimeline<TData = unknown>({
                       data-timeline-node-wrapper=""
                     >
                       {renderNode ? (
-                        renderNode(item, context)
+                        renderNode(item, startContext)
                       ) : (
                         <DefaultNode
-                          active={active}
+                          active={startActive}
                           complete={complete}
                           item={item}
                           onClick={() => setActiveItem(item)}
@@ -994,6 +1123,34 @@ export function AnimatedCurvedTimeline<TData = unknown>({
                       )}
                     </div>
                   </motion.div>
+                  {renderEndNode && item.endLayoutX !== undefined && (
+                    <motion.div
+                      className="absolute z-20"
+                      initial={false}
+                      layout="position"
+                      style={{
+                        left: item.endLayoutX,
+                        top: itemNodeY,
+                      }}
+                      transition={
+                        prefersReducedMotion
+                          ? { duration: 0 }
+                          : {
+                              damping: 28,
+                              stiffness: 180,
+                              type: "spring",
+                            }
+                      }
+                    >
+                      <div
+                        className="-translate-x-1/2 -translate-y-1/2"
+                        data-timeline-node-id={`${item.id}-end`}
+                        data-timeline-node-wrapper=""
+                      >
+                        {renderEndNode(item, endContext)}
+                      </div>
+                    </motion.div>
+                  )}
                   {renderCard && (
                     <motion.div
                       className="absolute z-10"
@@ -1014,7 +1171,7 @@ export function AnimatedCurvedTimeline<TData = unknown>({
                             }
                       }
                     >
-                      {renderCard(item, context)}
+                      {renderCard(item, cardContext)}
                     </motion.div>
                   )}
                 </motion.div>

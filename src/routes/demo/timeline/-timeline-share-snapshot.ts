@@ -2,6 +2,11 @@ import type {
   TimelineItem,
   TimelineRange,
 } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
+import {
+  type ActiveMilestoneSelection,
+  DEFAULT_MILESTONE_DURATION_DAYS,
+  normalizeMilestoneSchedule,
+} from "./-timeline-milestone-schedule.ts";
 
 export type DemoStatus = "complete" | "ready" | "review" | "upcoming";
 
@@ -17,10 +22,13 @@ export type IsometricIconKey =
 
 export interface DemoMilestone {
   amount: number;
+  completionPaymentAmount?: number;
   draw: string;
   drawX?: number;
+  durationDays: number;
   evidence: string;
   icon: IsometricIconKey;
+  initialPaymentAmount?: number;
   name: string;
   policy: string;
   status: DemoStatus;
@@ -50,12 +58,12 @@ export type DemoTimelineSnapshotItem = Omit<
   data: DemoMilestone;
 };
 
-export interface TimelineShareSnapshotV1 {
-  activeItemId: string;
+export interface TimelineShareSnapshotV2 {
+  activeSelection: ActiveMilestoneSelection;
   capitalSpikes: DemoCapitalSpike[];
   draws: DemoDraw[];
   items: DemoTimelineSnapshotItem[];
-  payloadVersion: 1;
+  payloadVersion: 2;
   progressValue: number;
   range: TimelineRange;
   selectedPanelOpen: boolean;
@@ -66,7 +74,7 @@ export interface TimelineShareSnapshotV1 {
 }
 
 export interface TimelineShareSnapshotInput {
-  activeItemId: string;
+  activeSelection: ActiveMilestoneSelection;
   capitalSpikes: DemoCapitalSpike[];
   draws: DemoDraw[];
   items: TimelineItem<DemoMilestone>[];
@@ -79,7 +87,7 @@ export interface TimelineShareSnapshotInput {
 }
 
 export interface TimelineShareState {
-  activeItemId: string;
+  activeSelection: ActiveMilestoneSelection;
   capitalSpikes: DemoCapitalSpike[];
   draws: DemoDraw[];
   items: TimelineItem<DemoMilestone>[];
@@ -97,14 +105,14 @@ const FALLBACK_RANGE: TimelineRange = {
   unit: "days",
 };
 
-export function buildTimelineShareSnapshotV1(
+export function buildTimelineShareSnapshotV2(
   input: TimelineShareSnapshotInput
-): TimelineShareSnapshotV1 {
+): TimelineShareSnapshotV2 {
   const range = normalizeShareRange(input.range);
   const items = normalizeShareItems(input.items);
   const draws = normalizeShareDraws(input.draws);
   const capitalSpikes = normalizeShareCapitalSpikes(input.capitalSpikes);
-  const activeItemId = resolveActiveItemId(input.activeItemId, items);
+  const activeSelection = resolveActiveSelection(input.activeSelection, items);
   const progressValue = normalizeNumber(input.progressValue, range.min);
   const startingCash = Math.max(
     0,
@@ -113,11 +121,11 @@ export function buildTimelineShareSnapshotV1(
   const title = (input.title ?? DEFAULT_TITLE).trim() || DEFAULT_TITLE;
 
   return {
-    activeItemId,
+    activeSelection,
     capitalSpikes,
     draws,
     items,
-    payloadVersion: 1,
+    payloadVersion: 2,
     progressValue,
     range,
     selectedPanelOpen: input.selectedPanelOpen,
@@ -133,39 +141,54 @@ export function buildTimelineShareSnapshotV1(
   };
 }
 
-export function applyTimelineShareSnapshotV1(
-  snapshot: TimelineShareSnapshotV1,
+export function applyTimelineShareSnapshotV2(
+  snapshot: unknown,
   fallback: TimelineShareState
 ): TimelineShareState {
-  const fallbackSnapshot = buildTimelineShareSnapshotV1(fallback);
+  const fallbackState = normalizeTimelineShareState(fallback);
+  const candidate =
+    snapshot && typeof snapshot === "object"
+      ? (snapshot as Partial<TimelineShareSnapshotV2> & {
+          payloadVersion?: unknown;
+        })
+      : {};
 
-  if (snapshot.payloadVersion !== 1) {
-    return fallbackSnapshot;
+  if (candidate.payloadVersion !== 2) {
+    return fallbackState;
   }
 
-  const range = normalizeShareRange(snapshot.range);
-  const items = normalizeShareItems(snapshot.items);
-  const draws = normalizeShareDraws(snapshot.draws);
+  const range = normalizeShareRange(candidate.range ?? fallbackState.range);
+  const items = normalizeShareItems(candidate.items ?? fallbackState.items);
+
+  if (items.length === 0) {
+    return fallbackState;
+  }
+
+  const draws = normalizeShareDraws(candidate.draws ?? fallbackState.draws);
   const capitalSpikes = normalizeShareCapitalSpikes(
-    snapshot.capitalSpikes ?? fallbackSnapshot.capitalSpikes
+    candidate.capitalSpikes ?? fallbackState.capitalSpikes
   );
-  const activeItemId = resolveActiveItemId(snapshot.activeItemId, items);
+  const activeSelection = resolveActiveSelection(
+    candidate.activeSelection,
+    items
+  );
 
   return {
-    activeItemId,
+    activeSelection,
     capitalSpikes,
     draws,
     items,
-    progressValue: normalizeNumber(snapshot.progressValue, range.min),
+    progressValue: normalizeNumber(candidate.progressValue, range.min),
     range,
-    selectedPanelOpen: snapshot.selectedPanelOpen,
+    selectedPanelOpen:
+      candidate.selectedPanelOpen ?? fallbackState.selectedPanelOpen,
     startingCash: Math.max(
       0,
       Math.round(
-        normalizeNumber(snapshot.startingCash, fallbackSnapshot.startingCash)
+        normalizeNumber(candidate.startingCash, fallbackState.startingCash)
       )
     ),
-    straightLine: snapshot.straightLine,
+    straightLine: candidate.straightLine ?? fallbackState.straightLine,
   };
 }
 
@@ -174,14 +197,14 @@ export function initialTimelineShareState(
   draws: DemoDraw[],
   capitalSpikes: DemoCapitalSpike[],
   range: TimelineRange,
-  activeItemId: string,
+  activeSelection: ActiveMilestoneSelection,
   progressValue: number,
   selectedPanelOpen: boolean,
   startingCash: number,
   straightLine: boolean
 ): TimelineShareState {
   return {
-    activeItemId,
+    activeSelection,
     capitalSpikes,
     draws,
     items,
@@ -193,6 +216,28 @@ export function initialTimelineShareState(
   };
 }
 
+function normalizeTimelineShareState(
+  state: TimelineShareState
+): TimelineShareState {
+  const range = normalizeShareRange(state.range);
+  const items = normalizeShareItems(state.items);
+
+  return {
+    activeSelection: resolveActiveSelection(state.activeSelection, items),
+    capitalSpikes: normalizeShareCapitalSpikes(state.capitalSpikes),
+    draws: normalizeShareDraws(state.draws),
+    items,
+    progressValue: normalizeNumber(state.progressValue, range.min),
+    range,
+    selectedPanelOpen: state.selectedPanelOpen,
+    startingCash: Math.max(
+      0,
+      Math.round(normalizeNumber(state.startingCash, 400_000))
+    ),
+    straightLine: state.straightLine,
+  };
+}
+
 function normalizeShareItems(
   items: TimelineItem<DemoMilestone>[]
 ): DemoTimelineSnapshotItem[] {
@@ -200,7 +245,7 @@ function normalizeShareItems(
     .filter((item) => item.id.trim().length > 0 && Number.isFinite(item.x))
     .map((item, index) => ({
       data: normalizeMilestoneData(item.data, index),
-      disabled: item.disabled,
+      ...(item.disabled === undefined ? {} : { disabled: item.disabled }),
       eyebrow: item.eyebrow,
       id: item.id,
       label: item.label,
@@ -216,19 +261,41 @@ function normalizeMilestoneData(
   data: DemoMilestone | undefined,
   index: number
 ): DemoMilestone {
-  return {
+  const normalized = normalizeMilestoneSchedule({
     amount: Math.max(0, Math.round(normalizeNumber(data?.amount, 0))),
+    completionPaymentAmount: data?.completionPaymentAmount,
     draw: data?.draw?.trim() || `Draw ${index + 1}`,
     drawX:
       data?.drawX === undefined
         ? undefined
         : Math.max(0, normalizeNumber(data.drawX, 0)),
+    durationDays: data?.durationDays ?? DEFAULT_MILESTONE_DURATION_DAYS,
     evidence: data?.evidence?.trim() || "Draft package",
     icon: data?.icon ?? "change",
+    initialPaymentAmount: data?.initialPaymentAmount,
     name: data?.name?.trim() || `Milestone ${index + 1}`,
     policy: data?.policy?.trim() || "Needs review",
     status: data?.status ?? "upcoming",
     subMilestones: normalizeShareSubMilestones(data?.subMilestones, index),
+  });
+
+  return {
+    amount: normalized.amount,
+    ...(data?.completionPaymentAmount === undefined
+      ? {}
+      : { completionPaymentAmount: normalized.completionPaymentAmount }),
+    draw: normalized.draw,
+    ...(normalized.drawX === undefined ? {} : { drawX: normalized.drawX }),
+    durationDays: normalized.durationDays,
+    evidence: normalized.evidence,
+    icon: normalized.icon,
+    ...(data?.initialPaymentAmount === undefined
+      ? {}
+      : { initialPaymentAmount: normalized.initialPaymentAmount }),
+    name: normalized.name,
+    policy: normalized.policy,
+    status: normalized.status,
+    subMilestones: normalized.subMilestones,
   };
 }
 
@@ -237,9 +304,9 @@ function normalizeShareDraws(draws: DemoDraw[]): DemoDraw[] {
     .filter((draw) => draw.id.trim().length > 0 && Number.isFinite(draw.x))
     .map((draw, index) => ({
       amount: Math.max(0, Math.round(normalizeNumber(draw.amount, 0))),
-      customDate: draw.customDate,
+      ...(draw.customDate === undefined ? {} : { customDate: draw.customDate }),
       id: draw.id,
-      itemId: draw.itemId,
+      ...(draw.itemId === undefined ? {} : { itemId: draw.itemId }),
       label: draw.label.trim() || `Draw ${index + 1}`,
       x: normalizeNumber(draw.x, 0),
     }))
@@ -289,13 +356,21 @@ function normalizeNumber(value: number | undefined, fallback: number): number {
   return Number.isFinite(value) ? Number(value) : fallback;
 }
 
-function resolveActiveItemId(
-  activeItemId: string,
+export function resolveActiveSelection(
+  activeSelection: ActiveMilestoneSelection | undefined,
   items: TimelineItem<DemoMilestone>[]
-): string {
-  return items.some((item) => item.id === activeItemId)
-    ? activeItemId
-    : (items[0]?.id ?? "");
+): ActiveMilestoneSelection {
+  const validSelection =
+    activeSelection && items.some((item) => item.id === activeSelection.itemId)
+      ? activeSelection
+      : undefined;
+  const itemId = validSelection?.itemId ?? items[0]?.id ?? "";
+  const phase =
+    validSelection?.phase === "complete"
+      ? "complete"
+      : "inProgress";
+
+  return { itemId, phase };
 }
 
 function summarizeTimelineSnapshot(

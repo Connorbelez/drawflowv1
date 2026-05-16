@@ -37,10 +37,13 @@ const timelineToneValidator = v.optional(
 
 const timelineMilestoneDataValidator = v.object({
   amount: v.number(),
+  completionPaymentAmount: v.optional(v.number()),
   draw: v.string(),
   drawX: v.optional(v.number()),
+  durationDays: v.number(),
   evidence: v.string(),
   icon: timelineIconValidator,
+  initialPaymentAmount: v.optional(v.number()),
   name: v.string(),
   policy: v.string(),
   status: timelineStatusValidator,
@@ -81,12 +84,17 @@ const timelineRangeValidator = v.object({
   unit: v.optional(v.string()),
 });
 
+const activeMilestoneSelectionValidator = v.object({
+  itemId: v.string(),
+  phase: v.union(v.literal("inProgress"), v.literal("complete")),
+});
+
 const timelineSnapshotValidator = v.object({
-  activeItemId: v.string(),
+  activeSelection: activeMilestoneSelectionValidator,
   capitalSpikes: v.array(timelineCapitalSpikeValidator),
   draws: v.array(timelineDrawValidator),
   items: v.array(timelineItemValidator),
-  payloadVersion: v.number(),
+  payloadVersion: v.literal(2),
   progressValue: v.number(),
   range: timelineRangeValidator,
   selectedPanelOpen: v.boolean(),

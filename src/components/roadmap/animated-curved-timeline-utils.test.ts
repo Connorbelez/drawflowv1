@@ -78,6 +78,193 @@ describe("animated curved timeline utilities", () => {
     expect(layout.contentWidth).toBeGreaterThan(360);
   });
 
+  test("expands scale before spacing nodes so positive day gaps stay proportional", () => {
+    const layout = buildTimelineLayout(
+      [
+        { id: "one", x: 10 },
+        { id: "two", x: 20 },
+        { id: "three", x: 40 },
+      ],
+      {
+        baselineY: 100,
+        laneStepY: 18,
+        minNodeSpacingPx: 120,
+        paddingX: 72,
+        pixelsPerUnit: 2,
+        range: { max: 80, min: 0, unit: "days" },
+        viewportWidth: 360,
+      }
+    );
+    const firstGap = layout.items[1].layoutX - layout.items[0].layoutX;
+    const secondGap = layout.items[2].layoutX - layout.items[1].layoutX;
+
+    expect(firstGap).toBeGreaterThanOrEqual(120);
+    expect(secondGap).toBeGreaterThan(firstGap);
+    expect(secondGap / firstGap).toBeCloseTo(2, 5);
+    expect(layout.items[0].layoutX).toBe(layout.items[0].rawX);
+    expect(layout.items[1].layoutX).toBe(layout.items[1].rawX);
+    expect(layout.items[2].layoutX).toBe(layout.items[2].rawX);
+  });
+
+  test("computes inline end node positions without adding path waypoints", () => {
+    const layout = buildTimelineLayout(
+      [
+        { id: "foundation", x: 10, data: { end: 20 } },
+        { id: "framing", lane: 1, x: 30, data: { end: 38 } },
+      ],
+      {
+        baselineY: 100,
+        getItemEndValue: (item) => item.data?.end,
+        laneStepY: 18,
+        minInlineNodeSpacingPx: 48,
+        minNodeSpacingPx: 120,
+        paddingX: 50,
+        pixelsPerUnit: 10,
+        range: { max: 50, min: 0, unit: "days" },
+        viewportWidth: 0,
+      }
+    );
+
+    expect(layout.points).toEqual([
+      { x: layout.startX, y: layout.baselineY },
+      { x: layout.items[0].layoutX, y: layout.items[0].layoutY },
+      { x: layout.items[1].layoutX, y: layout.items[1].layoutY },
+      { x: layout.endX, y: layout.baselineY },
+    ]);
+    expect(layout.items[0]).toMatchObject({
+      endLayoutX: layout.valueToX(20),
+      endRawX: layout.valueToX(20),
+      endX: 20,
+    });
+    expect(layout.items[1]).toMatchObject({
+      endLayoutX: layout.valueToX(38),
+      endRawX: layout.valueToX(38),
+      endX: 38,
+    });
+    expect(layout.items[0].endLayoutX).toBe(layout.items[0].endRawX);
+    expect(layout.items[1].endLayoutX).toBe(layout.items[1].endRawX);
+    expect(layout.points).not.toContainEqual({
+      x: layout.items[0].endLayoutX,
+      y: layout.items[0].layoutY,
+    });
+  });
+
+  test("scales for inline completion-to-next-start spacing separately from card spacing", () => {
+    const layout = buildTimelineLayout(
+      [
+        { id: "one", x: 10, data: { end: 20 } },
+        { id: "two", x: 21, data: { end: 28 } },
+      ],
+      {
+        baselineY: 100,
+        getItemEndValue: (item) => item.data?.end,
+        laneStepY: 18,
+        minInlineNodeSpacingPx: 96,
+        minNodeSpacingPx: 12,
+        paddingX: 0,
+        pixelsPerUnit: 1,
+        range: { max: 30, min: 0, unit: "days" },
+        viewportWidth: 0,
+      }
+    );
+
+    expect(layout.axisWidth).toBeCloseTo(2_880, 5);
+    expect(layout.items[1].layoutX - layout.items[0].endLayoutX!).toBeCloseTo(
+      96,
+      5
+    );
+    expect(layout.items[1].layoutX - layout.items[0].layoutX).toBeGreaterThan(
+      12
+    );
+    expect(layout.items[0].layoutX).toBe(layout.items[0].rawX);
+    expect(layout.items[1].layoutX).toBe(layout.items[1].rawX);
+  });
+
+  test("uses default inline spacing when inline spacing option is omitted", () => {
+    const layout = buildTimelineLayout(
+      [
+        { id: "one", x: 10, data: { end: 20 } },
+        { id: "two", x: 21, data: { end: 28 } },
+      ],
+      {
+        baselineY: 100,
+        getItemEndValue: (item) => item.data?.end,
+        laneStepY: 18,
+        minNodeSpacingPx: 12,
+        paddingX: 0,
+        pixelsPerUnit: 1,
+        range: { max: 30, min: 0, unit: "days" },
+        viewportWidth: 0,
+      }
+    );
+
+    expect(layout.axisWidth).toBeCloseTo(1_440, 5);
+    expect(layout.items[0].endLayoutX).toBe(layout.items[0].endRawX);
+    expect(layout.items[0].endLayoutX).toBe(layout.valueToX(20));
+    expect(layout.items[1].layoutX - layout.items[0].endLayoutX!).toBeCloseTo(
+      48,
+      5
+    );
+  });
+
+  test("preserves start-only layout when end value callback is omitted", () => {
+    const layout = buildTimelineLayout(
+      [
+        { id: "one", x: 10 },
+        { id: "two", x: 11 },
+      ],
+      {
+        baselineY: 100,
+        laneStepY: 18,
+        minNodeSpacingPx: 12,
+        paddingX: 0,
+        pixelsPerUnit: 1,
+        range: { max: 30, min: 0, unit: "days" },
+        viewportWidth: 0,
+      }
+    );
+
+    expect(layout.axisWidth).toBe(360);
+    expect(layout.items[0].endLayoutX).toBeUndefined();
+    expect(layout.items[0].endRawX).toBeUndefined();
+    expect(layout.items[0].endX).toBeUndefined();
+    expect(layout.items[1].layoutX - layout.items[0].layoutX).toBe(12);
+  });
+
+  test("keeps shifted inline end marker after its own shifted start", () => {
+    const layout = buildTimelineLayout(
+      [
+        { id: "one", x: 10, data: { end: 20 } },
+        { id: "two", x: 10, data: { end: 11 } },
+      ],
+      {
+        baselineY: 100,
+        getItemEndValue: (item) => item.data?.end,
+        laneStepY: 18,
+        minInlineNodeSpacingPx: 48,
+        minNodeSpacingPx: 120,
+        paddingX: 0,
+        pixelsPerUnit: 10,
+        range: { max: 30, min: 0, unit: "days" },
+        viewportWidth: 0,
+      }
+    );
+    const shiftedItem = layout.items[1];
+
+    expect(shiftedItem.layoutX).toBeGreaterThan(shiftedItem.rawX);
+    expect(shiftedItem.endRawX).toBe(layout.valueToX(11));
+    expect(shiftedItem.endRawX).toBeLessThan(shiftedItem.layoutX);
+    expect(shiftedItem.endLayoutX).toBe(
+      shiftedItem.layoutX + 48
+    );
+    expect(layout.points).toEqual([
+      { x: layout.startX, y: layout.baselineY },
+      { x: layout.items[0].layoutX, y: layout.items[0].layoutY },
+      { x: shiftedItem.layoutX, y: shiftedItem.layoutY },
+      { x: layout.endX, y: layout.baselineY },
+    ]);
+  });
+
   test("inserts a node and shifts later nodes to preserve unit spacing", () => {
     const result = insertTimelineItemWithSpacing(
       [

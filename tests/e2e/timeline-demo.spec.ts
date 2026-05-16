@@ -114,6 +114,60 @@ test("animated curved timeline demo selects progress and inserts spaced nodes", 
   );
 });
 
+test("timeline renders milestone completion nodes and phase-aware cards", async ({
+  page,
+}) => {
+  await page.goto("/demo/timeline");
+
+  await expect(page.getByTestId("animated-curved-timeline")).toBeVisible();
+  await expect(page.getByTestId("demo-timeline-node-rough-in")).toBeVisible();
+  await expect(
+    page.getByTestId("demo-timeline-end-node-rough-in")
+  ).toBeVisible();
+  await expect(page.getByTestId("timeline-card-connector-rough-in")).toHaveCount(
+    1
+  );
+  await expect(
+    page.getByTestId("timeline-card-connector-rough-in-end")
+  ).toHaveCount(0);
+
+  await page.getByTestId("demo-timeline-node-rough-in").click();
+  await expect(page.getByTestId("timeline-card-status-rough-in")).toHaveText(
+    "In progress"
+  );
+
+  await page.getByTestId("demo-timeline-end-node-rough-in").click();
+  await expect(page.getByTestId("timeline-card-status-rough-in")).toHaveText(
+    "Complete"
+  );
+  await expect(page.getByTestId("timeline-card-start-date-rough-in")).toHaveText(
+    "Day 92"
+  );
+  await expect(page.getByTestId("timeline-card-end-date-rough-in")).toHaveText(
+    "Day 112"
+  );
+});
+
+test("timeline keeps handoff spacing between completion and next milestone start", async ({
+  page,
+}) => {
+  await page.goto("/demo/timeline");
+
+  await expect(page.getByTestId("animated-curved-timeline")).toBeVisible();
+  await expect(
+    page.getByTestId("demo-timeline-end-node-rough-in")
+  ).toBeVisible();
+  await expect(page.getByTestId("demo-timeline-node-exterior")).toBeVisible();
+
+  const handoffGap = await getTimelineHandoffGap(page, {
+    endNodeId: "rough-in",
+    nextStartNodeId: "exterior",
+  });
+
+  expect(handoffGap).not.toBeNull();
+  expect(handoffGap).toBeGreaterThanOrEqual(24);
+});
+
 test("timeline snapshot share links hydrate editable forks", async ({
   context,
   page,
@@ -286,6 +340,7 @@ test("timeline item context menus delete draws and milestones", async ({
 
   const framingDraw = page.getByTestId("timeline-draw-marker-framing");
   await expect(framingDraw).toBeVisible();
+  await framingDraw.scrollIntoViewIfNeeded();
 
   const drawBox = await framingDraw.boundingBox();
   expect(drawBox).not.toBeNull();
@@ -388,8 +443,14 @@ test("timeline planning controls edit starting cash and capital spikes", async (
 
   const sitePrepCard = page.getByTestId("timeline-card-site-prep");
   await expect(sitePrepCard).toContainText("Sub-milestones");
-  await expect(sitePrepCard).toContainText("Milestone date");
-  await expect(sitePrepCard).toContainText("Day 14");
+  await expect(sitePrepCard).toContainText("Start date");
+  await expect(sitePrepCard).toContainText("Completion date");
+  await expect(page.getByTestId("timeline-card-start-date-site-prep")).toHaveText(
+    "Day 14"
+  );
+  await expect(page.getByTestId("timeline-card-end-date-site-prep")).toHaveText(
+    "Day 28"
+  );
   await expect(sitePrepCard).not.toContainText("Policy");
   await expect(sitePrepCard).not.toContainText("Evidence");
   await expect(sitePrepCard).not.toContainText("Completed");
@@ -506,25 +567,29 @@ test("timeline path affordances stay aligned with rendered geometry", async ({
   expect(maxConnectorDelta).toBeLessThan(2);
 
   const nodeBox = await getNodeBox(page, "framing");
+  const timelineBox = await page
+    .getByTestId("animated-curved-timeline")
+    .boundingBox();
   expect(nodeBox).not.toBeNull();
-  if (!nodeBox) {
+  expect(timelineBox).not.toBeNull();
+  if (!(nodeBox && timelineBox)) {
     return;
   }
 
-  await page.mouse.move(
-    nodeBox.x + nodeBox.width / 2,
-    nodeBox.y + nodeBox.height / 2
-  );
+  const nodeCenterX = nodeBox.x + nodeBox.width / 2;
+  const nodeCenterY = nodeBox.y + nodeBox.height / 2;
+
+  await page.mouse.move(nodeCenterX, nodeCenterY);
   await expect(page.getByTestId("timeline-hover-marker")).toBeVisible();
   await expect.poll(() => hoverDotOpacity(page)).toBeLessThan(0.05);
 
-  await page.mouse.move(
-    nodeBox.x + nodeBox.width / 2 + nodeBox.width * 0.55,
-    nodeBox.y + nodeBox.height / 2
-  );
+  await page.mouse.move(nodeCenterX + nodeBox.width * 0.55, nodeCenterY);
   await expect.poll(() => hoverDotOpacity(page)).toBeLessThan(0.35);
 
-  await page.mouse.move(nodeBox.x + nodeBox.width + 96, nodeBox.y);
+  await page.mouse.move(
+    Math.min(nodeCenterX + 96, timelineBox.x + timelineBox.width - 24),
+    nodeCenterY
+  );
   await expect.poll(() => hoverDotOpacity(page)).toBeGreaterThan(0.8);
 
   await expect(page.getByTestId("timeline-marker-connector-today")).toHaveClass(
@@ -533,6 +598,45 @@ test("timeline path affordances stay aligned with rendered geometry", async ({
   await expect(
     page.getByTestId("timeline-marker-connector-policy-limit")
   ).not.toHaveClass(ACTIVE_CONNECTOR_CLASS);
+});
+
+test("timeline milestone spacing follows day deltas without overlapping cards", async ({
+  page,
+}) => {
+  await page.goto("/demo/timeline");
+
+  await expect(page.getByTestId("animated-curved-timeline")).toBeVisible();
+  await expect(page.getByTestId("demo-timeline-node-closeout")).toBeAttached();
+
+  const spacing = await getTimelineSpacing(page, [
+    "drywall",
+    "finishes",
+    "closeout",
+  ]);
+
+  expect(spacing).not.toBeNull();
+  if (!spacing) {
+    return;
+  }
+
+  const drywall = spacing.drywall;
+  const finishes = spacing.finishes;
+  const closeout = spacing.closeout;
+
+  expect(drywall).toBeDefined();
+  expect(finishes).toBeDefined();
+  expect(closeout).toBeDefined();
+  if (!(drywall && finishes && closeout)) {
+    return;
+  }
+
+  const drywallToFinishes = finishes.nodeCenterX - drywall.nodeCenterX;
+  const finishesToCloseout = closeout.nodeCenterX - finishes.nodeCenterX;
+
+  expect(drywallToFinishes / finishesToCloseout).toBeGreaterThan(1.5);
+  expect(drywallToFinishes / finishesToCloseout).toBeLessThan(1.75);
+  expect(finishes.cardLeft).toBeGreaterThanOrEqual(drywall.cardRight - 1);
+  expect(closeout.cardLeft).toBeGreaterThanOrEqual(finishes.cardRight - 1);
 });
 
 test("cashflow chart stays controlled by the shared timeline probe", async ({
@@ -588,7 +692,7 @@ test("cashflow chart stays controlled by the shared timeline probe", async ({
     "Day 58"
   );
   await expect(page.getByTestId("timeline-draw-delta-readout")).toContainText(
-    "$160,000"
+    "$0"
   );
   await expect(
     chart.locator("text").filter({ hasText: "Day 58" }).first()
@@ -663,7 +767,7 @@ test("draw markers display editable dates and amounts", async ({ page }) => {
   await expect(drawMarker).toBeVisible();
   await expect(drawMarker).toContainText("Draw 3");
   await expect(drawMarker).toContainText("$245,000");
-  await expect(drawMarker).toContainText("Day 100");
+  await expect(drawMarker).toContainText("Day 120");
 
   await drawMarker.click();
   const editor = page.getByTestId("timeline-draw-editor-rough-in");
@@ -749,6 +853,12 @@ interface TimelineGeometryItem {
 interface TimelineGeometrySnapshot {
   items: Record<string, TimelineGeometryItem | null>;
   pathD: string | null;
+}
+
+interface TimelineSpacingItem {
+  cardLeft: number;
+  cardRight: number;
+  nodeCenterX: number;
 }
 
 async function expectContextMenuNearBox(
@@ -908,6 +1018,57 @@ function getTimelineGeometry(
   }, itemIds);
 }
 
+function getTimelineSpacing(
+  page: Page,
+  itemIds: string[]
+): Promise<Record<string, TimelineSpacingItem> | null> {
+  return page.evaluate((ids) => {
+    const timeline = document.querySelector(
+      "[data-testid=animated-curved-timeline]"
+    );
+    const viewport = timeline?.querySelector(
+      "[data-testid=timeline-scroll-viewport]"
+    );
+    const content = viewport?.firstElementChild;
+
+    if (!(timeline && content)) {
+      return null;
+    }
+
+    const contentRect = content.getBoundingClientRect();
+    const entries = ids.map((id) => {
+      const node = timeline.querySelector(
+        `[data-testid="demo-timeline-node-${id}"]`
+      );
+      const card = timeline.querySelector(
+        `[data-testid="timeline-card-${id}"]`
+      );
+
+      if (!(node && card)) {
+        return null;
+      }
+
+      const nodeRect = node.getBoundingClientRect();
+      const cardRect = card.getBoundingClientRect();
+
+      return [
+        id,
+        {
+          cardLeft: cardRect.left - contentRect.left,
+          cardRight: cardRect.right - contentRect.left,
+          nodeCenterX: nodeRect.left + nodeRect.width / 2 - contentRect.left,
+        },
+      ] as const;
+    });
+
+    if (entries.some((entry) => entry === null)) {
+      return null;
+    }
+
+    return Object.fromEntries(entries.filter((entry) => entry !== null));
+  }, itemIds);
+}
+
 function expectTimelineGeometryStable(
   before: TimelineGeometrySnapshot,
   after: TimelineGeometrySnapshot,
@@ -1042,6 +1203,47 @@ async function getNodeBox(page: Page, nodeId: string) {
   await node.scrollIntoViewIfNeeded();
 
   return node.boundingBox();
+}
+
+function getTimelineHandoffGap(
+  page: Page,
+  {
+    endNodeId,
+    nextStartNodeId,
+  }: { endNodeId: string; nextStartNodeId: string }
+): Promise<number | null> {
+  return page.evaluate(
+    ({ endId, startId }) => {
+      const timeline = document.querySelector(
+        "[data-testid=animated-curved-timeline]"
+      );
+      const viewport = timeline?.querySelector(
+        "[data-testid=timeline-scroll-viewport]"
+      );
+      const content = viewport?.firstElementChild;
+      const endNode = timeline?.querySelector(
+        `[data-testid="demo-timeline-end-node-${endId}"]`
+      );
+      const nextStartNode = timeline?.querySelector(
+        `[data-testid="demo-timeline-node-${startId}"]`
+      );
+
+      if (!(content && endNode && nextStartNode)) {
+        return null;
+      }
+
+      const contentRect = content.getBoundingClientRect();
+      const endRect = endNode.getBoundingClientRect();
+      const startRect = nextStartNode.getBoundingClientRect();
+
+      return (
+        startRect.left -
+        contentRect.left -
+        (endRect.right - contentRect.left)
+      );
+    },
+    { endId: endNodeId, startId: nextStartNodeId }
+  );
 }
 
 function hoverDotOpacity(page: Page) {
