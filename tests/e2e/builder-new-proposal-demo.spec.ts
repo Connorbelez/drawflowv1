@@ -51,6 +51,7 @@ test("Main demo dropdown includes every demo route", async ({ page }) => {
   ).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "WorkOS" })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Convex" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Timeline" })).toBeVisible();
   await expect(
     page.getByRole("menuitem", { name: "DrawFlow Workspace" })
   ).toBeVisible();

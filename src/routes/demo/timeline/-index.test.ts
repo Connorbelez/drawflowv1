@@ -51,7 +51,7 @@ describe("timeline cash shortfall logic", () => {
     ]);
   });
 
-  test("expands range to cover normalized milestone completion and default draw dates", () => {
+  test("fits range to five days after the last milestone completion", () => {
     const items: TimelineItem<DemoMilestone>[] = [
       {
         data: {
@@ -72,10 +72,10 @@ describe("timeline cash shortfall logic", () => {
 
     expect(
       expandTimelineRangeForMilestones(items, { max: 230, min: 0, unit: "days" })
-    ).toEqual({ max: 247, min: 0, unit: "days" });
+    ).toEqual({ max: 244, min: 0, unit: "days" });
     expect(
-      buildDemoDraws(items, { max: 247, min: 0, unit: "days" })[0]?.x
-    ).toBe(247);
+      buildDemoDraws(items, { max: 244, min: 0, unit: "days" })[0]?.x
+    ).toBe(244);
   });
 
   test("selected draw date follows the linked draw or computed completion reimbursement date", () => {
@@ -97,7 +97,7 @@ describe("timeline cash shortfall logic", () => {
 
     expect(
       resolveSelectedDrawDate(item, null, { max: 60, min: 0, unit: "days" })
-    ).toBe(38);
+    ).toBe(35);
     expect(
       resolveSelectedDrawDate(
         item,
@@ -134,6 +134,7 @@ describe("timeline cash shortfall logic", () => {
     const state: TimelineShareState = {
       activeSelection: { itemId: "late-change", phase: "inProgress" },
       capitalSpikes: [],
+      currentDay: 86,
       draws: [
         {
           amount: 120_000,
@@ -159,7 +160,7 @@ describe("timeline cash shortfall logic", () => {
 
     const hydrated = normalizeTimelineShareStateForRoute(state);
 
-    expect(hydrated.range.max).toBe(247);
+    expect(hydrated.range.max).toBe(244);
     expect(hydrated.draws).toEqual([
       {
         amount: 20_000,
@@ -172,7 +173,7 @@ describe("timeline cash shortfall logic", () => {
         id: "late-change-draw",
         itemId: "late-change",
         label: "Draw 1",
-        x: 247,
+        x: 244,
       },
     ]);
   });

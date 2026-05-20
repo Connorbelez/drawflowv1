@@ -5,6 +5,11 @@ import {
   withMutationTiming,
   withQueryTiming,
 } from "./fluent";
+import {
+  generateSiteVisitToken,
+  hashSiteVisitToken,
+  validateIncludedSiteVisitMilestones,
+} from "./demo_site_visit_tokens";
 import type { DatabaseReader, DatabaseWriter, Doc, Id } from "./types";
 
 const DEMO_TODAY = "2026-05-08";
@@ -22,6 +27,8 @@ const DEMO_TABLES = [
   "demo_forecastUpdates",
   "demo_rolloverBuffers",
   "demo_reviewReports",
+  "demo_siteVisitFiles",
+  "demo_siteVisitTargets",
   "demo_siteVisits",
   "demo_evidenceFiles",
   "demo_evidencePackages",
@@ -78,8 +85,16 @@ type DemoDependency = Doc<"demo_milestoneDependencies">;
 type DemoEvidenceFile = Doc<"demo_evidenceFiles">;
 type DemoEvidencePackage = Doc<"demo_evidencePackages">;
 type DemoSiteVisit = Doc<"demo_siteVisits">;
+type DemoSiteVisitFile = Doc<"demo_siteVisitFiles">;
+type DemoSiteVisitTarget = Doc<"demo_siteVisitTargets">;
 type DemoReviewReport = Doc<"demo_reviewReports">;
 type DemoPlanningRun = Doc<"demo_planningRuns">;
+
+type DecoratedSiteVisit = DemoSiteVisit & {
+  files: DemoSiteVisitFile[];
+  targetMilestoneKeys: string[];
+  targets: DemoSiteVisitTarget[];
+};
 
 type DecoratedMilestone = DemoMilestone & {
   blockedByKeys: string[];
@@ -100,9 +115,9 @@ type DecoratedMilestone = DemoMilestone & {
   issues: WorkspaceIssue[];
   latestEvidencePackage?: DemoEvidencePackage;
   latestReview?: DemoReviewReport;
-  latestSiteVisit?: DemoSiteVisit;
+  latestSiteVisit?: DecoratedSiteVisit;
   reviewReports: DemoReviewReport[];
-  siteVisits: DemoSiteVisit[];
+  siteVisits: DecoratedSiteVisit[];
 };
 
 type ProjectedDrawGroup = DemoDrawGroup & {
@@ -913,6 +928,78 @@ async function latestSiteVisit(
   return visits.sort((a, b) => b.createdAt - a.createdAt)[0];
 }
 
+async function getBuildByRouteId(ctx: DemoReadCtx, buildRouteId: string) {
+  return await ctx.db
+    .query("demo_builds")
+    .withIndex("by_key", (q) => q.eq("key", buildRouteId))
+    .first();
+}
+
+async function getSiteVisitForToken(
+  ctx: DemoReadCtx,
+  buildRouteId: string,
+  token: string
+) {
+  const tokenHash = await hashSiteVisitToken(token);
+  const visit = await ctx.db
+    .query("demo_siteVisits")
+    .withIndex("by_token_hash", (q) => q.eq("tokenHash", tokenHash))
+    .first();
+  const build = await getBuildByRouteId(ctx, buildRouteId);
+
+  if (!(visit && build) || visit.buildId !== build._id) {
+    return {
+      build,
+      reason: "not_found" as const,
+      state: "invalid" as const,
+      visit,
+    };
+  }
+
+  const now = Date.now();
+  if (visit.tokenConsumedAt) {
+    return { build, reason: "consumed" as const, state: "invalid" as const, visit };
+  }
+  if ((visit.tokenExpiresAt ?? 0) <= now) {
+    return { build, reason: "expired" as const, state: "invalid" as const, visit };
+  }
+
+  return { build, reason: null, state: "active" as const, visit };
+}
+
+async function requireActiveSiteVisitForToken(
+  ctx: DemoReadCtx,
+  buildRouteId: string,
+  token: string
+) {
+  const state = await getSiteVisitForToken(ctx, buildRouteId, token);
+  if (state.state !== "active" || !(state.build && state.visit)) {
+    if (state.reason === "expired") {
+      throw new Error("Site visit token has expired.");
+    }
+    if (state.reason === "consumed") {
+      throw new Error("Site visit token has already been used.");
+    }
+    throw new Error("Site visit token is invalid.");
+  }
+
+  return { build: state.build, visit: state.visit };
+}
+
+async function getSiteVisitTargets(ctx: DemoReadCtx, siteVisitId: DemoSiteVisit["_id"]) {
+  return await ctx.db
+    .query("demo_siteVisitTargets")
+    .withIndex("by_site_visit", (q) => q.eq("siteVisitId", siteVisitId))
+    .collect();
+}
+
+async function getSiteVisitFiles(ctx: DemoReadCtx, siteVisitId: DemoSiteVisit["_id"]) {
+  return await ctx.db
+    .query("demo_siteVisitFiles")
+    .withIndex("by_site_visit", (q) => q.eq("siteVisitId", siteVisitId))
+    .take(100);
+}
+
 async function appendAudit(ctx: DemoMutationCtx, input: AuditInput) {
   const createdAt = Date.now();
   await ctx.db.insert("demo_auditEvents", {
@@ -1332,6 +1419,14 @@ async function buildProjection(ctx: DemoReadCtx, scenario: Scenario) {
     .query("demo_siteVisits")
     .withIndex("by_scenario", (q) => q.eq("scenario", scenario))
     .collect();
+  const siteVisitTargets = await ctx.db
+    .query("demo_siteVisitTargets")
+    .withIndex("by_scenario", (q) => q.eq("scenario", scenario))
+    .collect();
+  const siteVisitFiles = await ctx.db
+    .query("demo_siteVisitFiles")
+    .withIndex("by_scenario", (q) => q.eq("scenario", scenario))
+    .collect();
   const reviewReports = await ctx.db
     .query("demo_reviewReports")
     .withIndex("by_milestone", (q) => q.eq("scenario", scenario))
@@ -1375,8 +1470,28 @@ async function buildProjection(ctx: DemoReadCtx, scenario: Scenario) {
       .filter((item) => item.milestoneKey === milestone.key)
       .sort((a, b) => b.createdAt - a.createdAt);
     const milestoneSiteVisits = siteVisits
-      .filter((visit) => visit.milestoneKey === milestone.key)
-      .sort((a, b) => b.createdAt - a.createdAt);
+      .filter((visit) => {
+        if (visit.milestoneKey === milestone.key) {
+          return true;
+        }
+        return siteVisitTargets.some(
+          (target) =>
+            target.siteVisitId === visit._id &&
+            target.milestoneKey === milestone.key
+        );
+      })
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .map((visit) => {
+        const targets = siteVisitTargets
+          .filter((target) => target.siteVisitId === visit._id)
+          .sort((a, b) => a.milestoneOrder - b.milestoneOrder);
+        return {
+          ...visit,
+          files: siteVisitFiles.filter((file) => file.siteVisitId === visit._id),
+          targetMilestoneKeys: targets.map((target) => target.milestoneKey),
+          targets,
+        };
+      });
     const milestoneReviewReports = reviewReports
       .filter((report) => report.milestoneKey === milestone.key)
       .sort((a, b) => b.createdAt - a.createdAt);
@@ -2631,7 +2746,12 @@ export const demo_reviewEvidence = publicMutation
 
 export const demo_requestSiteVisit = publicMutation
   .use(withMutationTiming("demo_drawflow.requestSiteVisit"))
-  .input({ milestoneKey: v.string(), persona: v.string(), reason: v.string() })
+  .input({
+    includedMilestoneKeys: v.optional(v.array(v.string())),
+    milestoneKey: v.string(),
+    persona: v.string(),
+    reason: v.string(),
+  })
   .returns(v.any())
   .handler(async (ctx, args) => {
     const milestone = await findMilestone(ctx, "active", args.milestoneKey);
@@ -2641,19 +2761,58 @@ export const demo_requestSiteVisit = publicMutation
     if (args.persona !== "lender_admin") {
       throw new Error("Only Lender Admin can request site visits.");
     }
+    const build = await ctx.db.get(milestone.buildId);
+    if (!build) {
+      throw new Error("Build not found");
+    }
+    const milestones = await getMilestones(ctx, "active");
+    const milestoneByKey = new Map(
+      milestones.map((candidate) => [candidate.key, candidate])
+    );
+    const includedMilestoneKeys = validateIncludedSiteVisitMilestones({
+      includedMilestoneKeys: args.includedMilestoneKeys?.length
+        ? args.includedMilestoneKeys
+        : [milestone.key],
+      milestoneOrder: milestones.map((candidate) => candidate.key),
+      selectedMilestoneKey: milestone.key,
+    });
+    const token = generateSiteVisitToken();
+    const tokenHash = await hashSiteVisitToken(token);
+    const createdAt = Date.now();
     const visitId = await ctx.db.insert("demo_siteVisits", {
       assignedPersona: "site_visitor",
       buildId: milestone.buildId,
-      createdAt: Date.now(),
+      createdAt,
       milestoneId: milestone._id,
       milestoneKey: milestone.key,
+      requestReason: args.reason,
+      requestedByPersona: args.persona,
       scenario: "active",
       status: "requested",
+      tokenExpiresAt: createdAt + 60 * 60 * 1000,
+      tokenHash,
     });
-    await ctx.db.patch(milestone._id, {
-      status: "site_visit_requested",
-      updatedAt: Date.now(),
-    });
+    for (const milestoneKey of includedMilestoneKeys) {
+      const targetMilestone = milestoneByKey.get(milestoneKey);
+      if (!targetMilestone) {
+        continue;
+      }
+      await ctx.db.insert("demo_siteVisitTargets", {
+        buildId: targetMilestone.buildId,
+        createdAt,
+        milestoneId: targetMilestone._id,
+        milestoneKey: targetMilestone.key,
+        milestoneName: targetMilestone.name,
+        milestoneOrder: targetMilestone.order,
+        scenario: "active",
+        siteVisitId: visitId,
+        submilestones: [],
+      });
+      await ctx.db.patch(targetMilestone._id, {
+        status: "site_visit_requested",
+        updatedAt: createdAt,
+      });
+    }
     await appendAudit(ctx, {
       actorPersona: args.persona,
       buildId: milestone.buildId,
@@ -2665,16 +2824,237 @@ export const demo_requestSiteVisit = publicMutation
       milestoneKey: milestone.key,
       reason: args.reason,
       scenario: "active",
+      validation: JSON.stringify({ includedMilestoneKeys }),
     });
     await appendOutbox(ctx, {
       buildId: milestone.buildId,
       eventType: "demo.siteVisit.requested",
       milestoneKey: milestone.key,
-      payloadPreview: `${milestone.name} site visit requested.`,
+      payloadPreview: `${milestone.name} site visit requested for ${includedMilestoneKeys.length} milestone(s).`,
       relatedEntity: milestone.name,
       scenario: "active",
     });
-    return { visitId };
+    return {
+      token,
+      tokenExpiresAt: createdAt + 60 * 60 * 1000,
+      url: `/backoffice/builds/${build.key}/newsitevisit/${token}`,
+      visitId,
+    };
+  })
+  .public();
+
+export const demo_getSiteVisitByToken = publicQuery
+  .use(withQueryTiming("demo_drawflow.getSiteVisitByToken"))
+  .input({ buildId: v.string(), token: v.string() })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    // TODO: Require WorkOS-authenticated site visitor/admin access in addition to token possession.
+    const state = await getSiteVisitForToken(ctx, args.buildId, args.token);
+    if (state.state !== "active" || !(state.build && state.visit)) {
+      return {
+        available: false,
+        reason: state.reason,
+        status:
+          state.reason === "expired"
+            ? "expired"
+            : state.reason === "consumed"
+              ? "completed"
+              : "invalid",
+      };
+    }
+
+    const targets = (await getSiteVisitTargets(ctx, state.visit._id)).sort(
+      (a, b) => a.milestoneOrder - b.milestoneOrder
+    );
+    const files = await getSiteVisitFiles(ctx, state.visit._id);
+    const filesWithUrls = await Promise.all(
+      files.map(async (file) => ({
+        ...file,
+        url: await ctx.storage.getUrl(file.storageId),
+      }))
+    );
+
+    return {
+      available: true,
+      build: state.build,
+      files: filesWithUrls,
+      targets,
+      visit: state.visit,
+    };
+  })
+  .public();
+
+export const demo_generateSiteVisitUploadUrl = publicMutation
+  .use(withMutationTiming("demo_drawflow.generateSiteVisitUploadUrl"))
+  .input({ buildId: v.string(), token: v.string() })
+  .returns(v.string())
+  .handler(async (ctx, args) => {
+    // TODO: Require WorkOS-authenticated site visitor/admin access in addition to token possession.
+    await requireActiveSiteVisitForToken(ctx, args.buildId, args.token);
+    return await ctx.storage.generateUploadUrl();
+  })
+  .public();
+
+export const demo_markSiteVisitTokenOpened = publicMutation
+  .use(withMutationTiming("demo_drawflow.markSiteVisitTokenOpened"))
+  .input({ buildId: v.string(), token: v.string() })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    // TODO: Require WorkOS-authenticated site visitor/admin access in addition to token possession.
+    const { visit } = await requireActiveSiteVisitForToken(
+      ctx,
+      args.buildId,
+      args.token
+    );
+    if (visit.status !== "requested") {
+      return { ok: true, status: visit.status };
+    }
+
+    const claimedAt = Date.now();
+    await ctx.db.patch(visit._id, {
+      claimedAt,
+      status: "claimed",
+    });
+    await appendAudit(ctx, {
+      actorPersona: "site_visitor",
+      buildId: visit.buildId,
+      command: "demo_markSiteVisitTokenOpened",
+      entityKey: visit.milestoneKey,
+      entityType: "site_visit",
+      eventType: "SiteVisitOpened",
+      milestoneKey: visit.milestoneKey,
+      scenario: "active",
+    });
+    await appendOutbox(ctx, {
+      buildId: visit.buildId,
+      eventType: "demo.siteVisit.opened",
+      milestoneKey: visit.milestoneKey,
+      payloadPreview: `${visit.milestoneKey} site visit token opened.`,
+      relatedEntity: visit.milestoneKey,
+      scenario: "active",
+    });
+
+    return { ok: true, status: "claimed" };
+  })
+  .public();
+
+export const demo_registerSiteVisitFile = publicMutation
+  .use(withMutationTiming("demo_drawflow.registerSiteVisitFile"))
+  .input({
+    buildId: v.string(),
+    fileName: v.string(),
+    mimeType: v.string(),
+    sizeBytes: v.number(),
+    storageId: v.id("_storage"),
+    targetMilestoneKey: v.optional(v.string()),
+    targetSubmilestoneKey: v.optional(v.string()),
+    token: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const { visit } = await requireActiveSiteVisitForToken(
+      ctx,
+      args.buildId,
+      args.token
+    );
+    if (args.targetMilestoneKey) {
+      const targets = await getSiteVisitTargets(ctx, visit._id);
+      if (
+        !targets.some(
+          (target) => target.milestoneKey === args.targetMilestoneKey
+        )
+      ) {
+        throw new Error("File target milestone is not included in this visit.");
+      }
+    }
+
+    const fileId = await ctx.db.insert("demo_siteVisitFiles", {
+      buildId: visit.buildId,
+      fileName: args.fileName,
+      mimeType: args.mimeType || "application/octet-stream",
+      scenario: visit.scenario,
+      siteVisitId: visit._id,
+      sizeBytes: args.sizeBytes,
+      storageId: args.storageId,
+      targetMilestoneKey: args.targetMilestoneKey,
+      targetSubmilestoneKey: args.targetSubmilestoneKey,
+      uploadedAt: Date.now(),
+    });
+
+    return { fileId };
+  })
+  .public();
+
+export const demo_submitTokenizedSiteVisitReport = publicMutation
+  .use(withMutationTiming("demo_drawflow.submitTokenizedSiteVisitReport"))
+  .input({
+    buildId: v.string(),
+    completionObserved: v.boolean(),
+    recommendedOutcome: v.string(),
+    reportNotes: v.string(),
+    token: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const notes = args.reportNotes.trim();
+    if (!notes) {
+      throw new Error("Site visit report notes are required.");
+    }
+
+    const { visit } = await requireActiveSiteVisitForToken(
+      ctx,
+      args.buildId,
+      args.token
+    );
+    const completedAt = Date.now();
+    const targets = await getSiteVisitTargets(ctx, visit._id);
+    const riskFlags = args.completionObserved
+      ? []
+      : ["completion_not_observed"];
+
+    await ctx.db.patch(visit._id, {
+      claimedAt: visit.claimedAt ?? completedAt,
+      completedAt,
+      completionObserved: args.completionObserved,
+      notes,
+      recommendedOutcome: args.recommendedOutcome,
+      riskFlags,
+      status: "completed",
+      tokenConsumedAt: completedAt,
+    });
+
+    for (const target of targets) {
+      await ctx.db.patch(target.milestoneId, {
+        status: "site_visit_complete",
+        updatedAt: completedAt,
+      });
+    }
+
+    await appendAudit(ctx, {
+      actorPersona: "site_visitor",
+      afterSummary: `${targets.length} milestone(s) inspected`,
+      buildId: visit.buildId,
+      command: "demo_submitTokenizedSiteVisitReport",
+      entityKey: visit.milestoneKey,
+      entityType: "site_visit",
+      eventType: "SiteVisitReportSubmitted",
+      milestoneKey: visit.milestoneKey,
+      reason: notes,
+      scenario: "active",
+      validation: JSON.stringify({
+        targetMilestoneKeys: targets.map((target) => target.milestoneKey),
+      }),
+    });
+    await appendOutbox(ctx, {
+      buildId: visit.buildId,
+      eventType: "demo.siteVisit.reportSubmitted",
+      milestoneKey: visit.milestoneKey,
+      payloadPreview: `Site visit report submitted for ${targets.length} milestone(s).`,
+      relatedEntity: visit.milestoneKey,
+      scenario: "active",
+    });
+
+    return { ok: true };
   })
   .public();
 

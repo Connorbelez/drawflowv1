@@ -6,6 +6,7 @@ import type { DemoMilestone } from "./-timeline-share-snapshot.ts";
 
 export const DEFAULT_MILESTONE_DURATION_DAYS = 14;
 export const DEFAULT_DRAW_REVIEW_LAG_DAYS = 8;
+export const MILESTONE_SPEND_INTERVAL_DAYS = 5;
 export const MINIMUM_MILESTONE_HANDOFF_GAP_DAYS = 5;
 
 export type MilestonePhase = "inProgress" | "complete";
@@ -175,21 +176,23 @@ export function buildMilestoneSpendEvents(
     milestoneName,
   });
 
-  for (
-    let day = Math.ceil(schedule.startX);
-    day < schedule.endX;
-    day += 1
-  ) {
-    if (schedule.dailyDistributedAmount <= 0) {
-      continue;
+  const distributedDays = getDistributedSpendDays(schedule);
+  const distributedAmount =
+    distributedDays.length > 0
+      ? schedule.distributedAmount / distributedDays.length
+      : 0;
+
+  for (const day of distributedDays) {
+    if (distributedAmount <= 0) {
+      break;
     }
 
     events.push({
-      amount: schedule.dailyDistributedAmount,
+      amount: distributedAmount,
       day,
-      id: `${milestoneId}-distributed-${day}`,
+      id: `${milestoneId}-distributed-${formatSpendEventDayId(day)}`,
       kind: "distributed",
-      label: `${milestoneName} daily spend`,
+      label: `${milestoneName} interval spend`,
       milestoneAmount: schedule.totalAmount,
       milestoneId,
       milestoneName,
@@ -210,6 +213,28 @@ export function buildMilestoneSpendEvents(
   return events;
 }
 
+function getDistributedSpendDays(schedule: MilestonePaymentSchedule): number[] {
+  if (schedule.distributedAmount <= 0) {
+    return [];
+  }
+
+  const days: number[] = [];
+
+  for (
+    let day = schedule.startX;
+    day < schedule.endX;
+    day += MILESTONE_SPEND_INTERVAL_DAYS
+  ) {
+    days.push(day);
+  }
+
+  return days.length > 0 ? days : [schedule.startX];
+}
+
+function formatSpendEventDayId(day: number): string {
+  return String(day).replaceAll(".", "-");
+}
+
 function normalizeDurationDays(value: number | undefined): number {
   if (value === undefined || !Number.isFinite(value) || value <= 0) {
     return DEFAULT_MILESTONE_DURATION_DAYS;
@@ -218,7 +243,10 @@ function normalizeDurationDays(value: number | undefined): number {
   return Math.max(1, Math.round(normalizeNumber(value, 1)));
 }
 
-function normalizeCurrency(value: number | undefined, fallback: number): number {
+function normalizeCurrency(
+  value: number | undefined,
+  fallback: number
+): number {
   return Math.max(0, Math.round(normalizeNumber(value, fallback)));
 }
 

@@ -121,17 +121,41 @@ export interface ReviewReportSummary {
   reviewerPersona: string;
 }
 
+export interface SiteVisitTargetSummary {
+  milestoneKey: string;
+  milestoneName: string;
+  milestoneOrder: number;
+  submilestones: string[];
+}
+
+export interface SiteVisitFileSummary {
+  fileName: string;
+  id: string;
+  mimeType: string;
+  sizeBytes: number;
+  targetMilestoneKey?: string;
+  targetSubmilestoneKey?: string;
+  uploadedAt: string;
+  url?: string | null;
+}
+
 export interface SiteVisitSummary {
   assignedPersona: string;
   claimedAt?: string;
   completedAt?: string;
   completionObserved?: boolean;
   createdAt: string;
+  files?: SiteVisitFileSummary[];
   id: string;
   notes?: string;
   recommendedOutcome?: string;
+  requestReason?: string;
   riskFlags: string[];
   status: string;
+  targetMilestoneKeys?: string[];
+  targets?: SiteVisitTargetSummary[];
+  tokenConsumedAt?: string;
+  tokenExpiresAt?: string;
 }
 
 export interface Milestone {
@@ -307,7 +331,11 @@ export interface BuildWorkspaceActions {
     milestoneId: string,
     reason: string
   ) => Promise<void>;
-  requestSiteVisit: (milestoneId: string, reason: string) => Promise<void>;
+  requestSiteVisit: (
+    milestoneId: string,
+    reason: string,
+    includedMilestoneIds?: string[]
+  ) => Promise<{ token?: string; url?: string; visitId?: string } | void>;
   resetWorkspace: () => Promise<void>;
   reviewEvidence: (
     milestoneId: string,

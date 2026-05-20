@@ -4,6 +4,8 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardCheck,
+  Copy,
+  ExternalLink,
   FileText,
   Info,
   Lock,
@@ -17,6 +19,7 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
+import { Checkbox } from "#/components/ui/checkbox.tsx";
 import {
   Dialog,
   DialogContent,
@@ -369,9 +372,14 @@ export function buildAdminReviewViewModel(
           ? "Site visit report submitted."
           : "Site visit report pending."),
       primaryAt: visit.completedAt ?? visit.claimedAt ?? visit.createdAt,
-      reportLabel: "Site Visit Report",
+      reportLabel: visit.files?.length
+        ? `${visit.files.length} uploaded file${visit.files.length === 1 ? "" : "s"}`
+        : "Site Visit Report",
       status: visit.status,
-      title: selectedMilestone?.name ?? "Milestone",
+      title:
+        visit.targets?.length && visit.targets.length > 1
+          ? `${visit.targets.length} milestone site visit`
+          : (selectedMilestone?.name ?? "Milestone"),
       visit,
     })
   );
@@ -386,6 +394,20 @@ export function buildAdminReviewViewModel(
     selectedMilestone,
     siteVisitPackages,
   };
+}
+
+export function getEligibleSiteVisitMilestones(
+  milestones: Milestone[],
+  selectedMilestoneId: string
+) {
+  const selectedIndex = milestones.findIndex(
+    (milestone) => milestone.id === selectedMilestoneId
+  );
+  if (selectedIndex < 0) {
+    return [];
+  }
+
+  return milestones.slice(0, selectedIndex + 1);
 }
 
 function evidencePackageNote(milestone: Milestone) {
@@ -491,8 +513,12 @@ function AdminBuildDashboard() {
   const [isEvidenceMutating, setIsEvidenceMutating] = useState(false);
   const [reviewScope, setReviewScope] = useState<ReviewScope>("milestone");
   const [isSiteVisitDialogOpen, setIsSiteVisitDialogOpen] = useState(false);
+  const [isSiteVisitRequestOpen, setIsSiteVisitRequestOpen] = useState(false);
   const [siteVisitNote, setSiteVisitNote] = useState("");
   const [siteVisitError, setSiteVisitError] = useState("");
+  const [siteVisitGeneratedUrl, setSiteVisitGeneratedUrl] = useState("");
+  const [includedSiteVisitMilestoneIds, setIncludedSiteVisitMilestoneIds] =
+    useState<string[]>([]);
   const [isSiteVisitMutating, setIsSiteVisitMutating] = useState(false);
 
   const viewModel = useMemo(
@@ -503,6 +529,17 @@ function AdminBuildDashboard() {
     viewModel.evidencePackages.find(
       (row) => row.id === selectedEvidencePackageId
     ) ?? null;
+  const selectedMilestone = viewModel.selectedMilestone;
+  const eligibleSiteVisitMilestones = useMemo(
+    () =>
+      selectedMilestone
+        ? getEligibleSiteVisitMilestones(
+            workspace.milestones,
+            selectedMilestone.id
+          )
+        : [],
+    [selectedMilestone, workspace.milestones]
+  );
 
   useEffect(() => {
     const selectedDrawGroupId = viewModel.selectedDrawGroup?.id;
@@ -533,7 +570,6 @@ function AdminBuildDashboard() {
     );
   }
 
-  const selectedMilestone = viewModel.selectedMilestone;
   const actionRequiresNote =
     pendingAction !== null &&
     isReviewNoteRequired(pendingAction, viewModel.decisionState);
@@ -620,14 +656,33 @@ function AdminBuildDashboard() {
       setIsEvidenceMutating(false);
     }
   };
+  const openSiteVisitRequest = () => {
+    if (!selectedMilestone) {
+      return;
+    }
+    setIncludedSiteVisitMilestoneIds([selectedMilestone.id]);
+    setSiteVisitGeneratedUrl("");
+    setSiteVisitError("");
+    setIsSiteVisitRequestOpen(true);
+  };
+
   const assignSiteVisit = async () => {
     if (!selectedMilestone) {
       return;
     }
     setSiteVisitError("");
+    if (!includedSiteVisitMilestoneIds.includes(selectedMilestone.id)) {
+      setSiteVisitError("The selected milestone must be included.");
+      return;
+    }
     setIsSiteVisitMutating(true);
     try {
-      await workspace.requestSiteVisit(selectedMilestone.id, siteVisitNote);
+      const result = await workspace.requestSiteVisit(
+        selectedMilestone.id,
+        siteVisitNote,
+        includedSiteVisitMilestoneIds
+      );
+      setSiteVisitGeneratedUrl(result?.url ?? "");
       setSiteVisitNote("");
     } catch (error) {
       setSiteVisitError(
@@ -637,28 +692,7 @@ function AdminBuildDashboard() {
       setIsSiteVisitMutating(false);
     }
   };
-  const startSiteVisit = async () => {
-    if (!selectedMilestone) {
-      return;
-    }
-    setSiteVisitError("");
-    setIsSiteVisitDialogOpen(true);
-    if (selectedMilestone.siteVisits.length === 0) {
-      setIsSiteVisitMutating(true);
-      try {
-        await workspace.requestSiteVisit(
-          selectedMilestone.id,
-          "Started from admin review."
-        );
-      } catch (error) {
-        setSiteVisitError(
-          error instanceof Error ? error.message : "Unable to start site visit."
-        );
-      } finally {
-        setIsSiteVisitMutating(false);
-      }
-    }
-  };
+
   const submitSiteVisit = async () => {
     if (!selectedMilestone) {
       return;
@@ -714,7 +748,7 @@ function AdminBuildDashboard() {
               viewModel={viewModel}
             />
             <ReviewCenterPane
-              onAssignSiteVisit={assignSiteVisit}
+              onAssignSiteVisit={openSiteVisitRequest}
               onDrawGroupCrumbSelect={() => setReviewScope("drawGroup")}
               onEvidencePackageSelect={(row) => {
                 setSelectedEvidencePackageId(row.id);
@@ -722,13 +756,17 @@ function AdminBuildDashboard() {
                 setEvidenceMutationError("");
               }}
               onMilestoneCrumbSelect={() => setReviewScope("milestone")}
-              onStartSiteVisit={() => void startSiteVisit()}
+              onStartSiteVisit={openSiteVisitRequest}
               reviewScope={reviewScope}
               viewModel={viewModel}
             />
             <DecisionPanel
               mutationError={mutationError}
               onAction={(action) => {
+                if (action === "assignSiteVisit") {
+                  openSiteVisitRequest();
+                  return;
+                }
                 setPendingAction(action);
                 setReviewNote("");
                 setMutationError("");
@@ -846,6 +884,27 @@ function AdminBuildDashboard() {
         }}
         onSubmit={submitSiteVisit}
         open={isSiteVisitDialogOpen}
+        pending={isSiteVisitMutating}
+        selectedMilestone={selectedMilestone}
+      />
+      <SiteVisitRequestDialog
+        eligibleMilestones={eligibleSiteVisitMilestones}
+        generatedUrl={siteVisitGeneratedUrl}
+        includedMilestoneIds={includedSiteVisitMilestoneIds}
+        mutationError={siteVisitError}
+        note={siteVisitNote}
+        onIncludedMilestoneIdsChange={setIncludedSiteVisitMilestoneIds}
+        onNoteChange={setSiteVisitNote}
+        onOpenChange={(open) => {
+          setIsSiteVisitRequestOpen(open);
+          if (!open) {
+            setSiteVisitNote("");
+            setSiteVisitError("");
+            setSiteVisitGeneratedUrl("");
+          }
+        }}
+        onSubmit={assignSiteVisit}
+        open={isSiteVisitRequestOpen}
         pending={isSiteVisitMutating}
         selectedMilestone={selectedMilestone}
       />
@@ -1923,6 +1982,181 @@ function PackageSection({
   );
 }
 
+function SiteVisitRequestDialog({
+  eligibleMilestones,
+  generatedUrl,
+  includedMilestoneIds,
+  mutationError,
+  note,
+  onIncludedMilestoneIdsChange,
+  onNoteChange,
+  onOpenChange,
+  onSubmit,
+  open,
+  pending,
+  selectedMilestone,
+}: {
+  eligibleMilestones: Milestone[];
+  generatedUrl: string;
+  includedMilestoneIds: string[];
+  mutationError: string;
+  note: string;
+  onIncludedMilestoneIdsChange: (value: string[]) => void;
+  onNoteChange: (value: string) => void;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: () => void;
+  open: boolean;
+  pending: boolean;
+  selectedMilestone?: Milestone;
+}) {
+  const displayUrl =
+    typeof window === "undefined" || !generatedUrl
+      ? generatedUrl
+      : `${window.location.origin}${generatedUrl}`;
+
+  const toggleMilestone = (milestoneId: string, checked: boolean) => {
+    if (milestoneId === selectedMilestone?.id) {
+      return;
+    }
+    if (checked) {
+      onIncludedMilestoneIdsChange([
+        ...new Set([...includedMilestoneIds, milestoneId]),
+      ]);
+      return;
+    }
+    onIncludedMilestoneIdsChange(
+      includedMilestoneIds.filter((id) => id !== milestoneId)
+    );
+  };
+
+  return (
+    <Dialog onOpenChange={onOpenChange} open={open}>
+      <DialogContent className="max-h-[min(44rem,calc(100vh-2rem))] overflow-hidden sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Request site visit</DialogTitle>
+          <DialogDescription>
+            Generate a one-hour field report token for the selected milestone
+            and any previous milestones included in the visit scope.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="min-h-0 overflow-y-auto pr-1">
+          <div className="grid gap-3 rounded-lg border bg-muted/20 p-4 sm:grid-cols-3">
+            <DecisionMetric
+              label="Selected milestone"
+              value={selectedMilestone?.name ?? "Not selected"}
+            />
+            <DecisionMetric
+              label="Eligible milestones"
+              value={`${eligibleMilestones.length}`}
+            />
+            <DecisionMetric
+              label="Token lifetime"
+              value="1 hour"
+            />
+          </div>
+
+          <section className="mt-4 grid gap-3">
+            <h3 className="font-semibold text-sm">Included milestones</h3>
+            <div className="grid gap-2">
+              {eligibleMilestones.map((milestone) => {
+                const checked =
+                  milestone.id === selectedMilestone?.id ||
+                  includedMilestoneIds.includes(milestone.id);
+                return (
+                  <label
+                    className="grid cursor-pointer grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-md border bg-background p-3 text-sm"
+                    key={milestone.id}
+                  >
+                    <Checkbox
+                      checked={checked}
+                      disabled={milestone.id === selectedMilestone?.id}
+                      onCheckedChange={(value) =>
+                        toggleMilestone(milestone.id, Boolean(value))
+                      }
+                    />
+                    <span className="min-w-0">
+                      <span className="block truncate font-semibold">
+                        {milestone.name}
+                      </span>
+                      <span className="block text-muted-foreground text-xs">
+                        {dateOnly(milestone.startAt)} -{" "}
+                        {dateOnly(milestone.endAt)} /{" "}
+                        {money(milestone.estimatedCost)}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </section>
+
+          <label className="mt-4 grid gap-2 font-semibold text-sm">
+            Request reason
+            <Textarea
+              data-testid="admin-site-visit-request-note"
+              onChange={(event) => onNoteChange(event.currentTarget.value)}
+              placeholder="Document why this field review is needed."
+              value={note}
+            />
+          </label>
+
+          {displayUrl ? (
+            <section className="mt-4 rounded-lg border bg-emerald-50 p-4 text-emerald-950 dark:bg-emerald-500/10 dark:text-emerald-100">
+              <div className="font-semibold">Site visit token generated</div>
+              <div className="mt-2 break-all rounded-md border bg-background/70 p-2 font-mono text-xs text-foreground">
+                {displayUrl}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  onClick={() => void navigator.clipboard?.writeText(displayUrl)}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  <Copy />
+                  Copy URL
+                </Button>
+                <Button
+                  onClick={() => window.open(generatedUrl, "_blank", "noopener")}
+                  size="sm"
+                  type="button"
+                >
+                  <ExternalLink />
+                  Open Visit
+                </Button>
+              </div>
+            </section>
+          ) : null}
+
+          {mutationError ? (
+            <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-destructive text-xs">
+              {mutationError}
+            </div>
+          ) : null}
+        </div>
+        <DialogFooter className="border-t pt-3">
+          <Button
+            disabled={pending}
+            onClick={() => onOpenChange(false)}
+            type="button"
+            variant="outline"
+          >
+            Close
+          </Button>
+          <Button
+            disabled={pending || !selectedMilestone || Boolean(generatedUrl)}
+            onClick={onSubmit}
+            type="button"
+          >
+            <MapPinned />
+            {pending ? "Generating..." : "Generate Token"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function SiteVisitSection({
   onAssignSiteVisit,
   onStartSiteVisit,
@@ -1978,6 +2212,28 @@ function SiteVisitSection({
               <div className="grid gap-2 text-sm">
                 <div className="font-semibold">{row.title}</div>
                 <p className="text-muted-foreground">{row.note}</p>
+                {row.visit.targets?.length ? (
+                  <p className="text-muted-foreground text-xs">
+                    Scope:{" "}
+                    {row.visit.targets
+                      .map((target) => target.milestoneName)
+                      .join(", ")}
+                  </p>
+                ) : null}
+                {row.visit.files?.length ? (
+                  <div className="flex flex-wrap gap-1">
+                    {row.visit.files.slice(0, 3).map((file) => (
+                      <Badge key={file.id} variant="secondary">
+                        {file.fileName}
+                      </Badge>
+                    ))}
+                    {row.visit.files.length > 3 ? (
+                      <Badge variant="outline">
+                        +{row.visit.files.length - 3} more
+                      </Badge>
+                    ) : null}
+                  </div>
+                ) : null}
                 {row.visit.riskFlags.length ? (
                   <p className="text-danger">
                     {row.visit.riskFlags.map(titleCase).join(", ")}

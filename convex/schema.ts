@@ -31,11 +31,47 @@ const demoTimelineToneValidator = v.optional(
 
 const demoTimelineMilestoneDataValidator = v.object({
   amount: v.number(),
+  completionClaim: v.optional(
+    v.object({
+      actualCost: v.optional(v.number()),
+      completedDay: v.number(),
+      note: v.optional(v.string()),
+      submittedAt: v.string(),
+    })
+  ),
   completionPaymentAmount: v.optional(v.number()),
+  completionReview: v.optional(
+    v.object({
+      note: v.optional(v.string()),
+      reviewedAt: v.string(),
+      siteVisit: v.optional(
+        v.object({
+          note: v.optional(v.string()),
+          requestedAt: v.string(),
+          requestedDay: v.number(),
+        })
+      ),
+      status: v.union(v.literal("approved"), v.literal("revisionRequested")),
+    })
+  ),
   draw: v.string(),
   drawX: v.optional(v.number()),
   durationDays: v.number(),
   evidence: v.string(),
+  evidencePackage: v.optional(
+    v.object({
+      assets: v.array(
+        v.object({
+          fileName: v.string(),
+          id: v.string(),
+          label: v.string(),
+          mimeType: v.string(),
+          size: v.number(),
+          tag: v.string(),
+        })
+      ),
+    })
+  ),
   icon: demoTimelineIconValidator,
   initialPaymentAmount: v.optional(v.number()),
   name: v.string(),
@@ -62,6 +98,18 @@ const demoTimelineDrawValidator = v.object({
   id: v.string(),
   itemId: v.optional(v.string()),
   label: v.string(),
+  requestReviewNote: v.optional(v.string()),
+  requestNote: v.optional(v.string()),
+  requestStatus: v.optional(
+    v.union(
+      v.literal("draft"),
+      v.literal("requested"),
+      v.literal("approved"),
+      v.literal("rejected")
+    )
+  ),
+  reviewedAt: v.optional(v.string()),
+  requestedAt: v.optional(v.string()),
   x: v.number(),
 });
 
@@ -312,16 +360,52 @@ export default defineSchema({
     milestoneKey: v.string(),
     notes: v.optional(v.string()),
     recommendedOutcome: v.optional(v.string()),
+    requestReason: v.optional(v.string()),
+    requestedByPersona: v.optional(v.string()),
     riskFlags: v.optional(v.array(v.string())),
     scenario: v.string(),
     status: v.string(),
+    tokenConsumedAt: v.optional(v.number()),
+    tokenExpiresAt: v.optional(v.number()),
+    tokenHash: v.optional(v.string()),
   })
     .index("by_milestone", ["scenario", "milestoneKey"])
+    .index("by_token_hash", ["tokenHash"])
+    .index("by_scenario", ["scenario"]),
+  demo_siteVisitTargets: defineTable({
+    buildId: v.id("demo_builds"),
+    createdAt: v.number(),
+    milestoneId: v.id("demo_milestones"),
+    milestoneKey: v.string(),
+    milestoneName: v.string(),
+    milestoneOrder: v.number(),
+    scenario: v.string(),
+    siteVisitId: v.id("demo_siteVisits"),
+    submilestones: v.array(v.string()),
+  })
+    .index("by_site_visit", ["siteVisitId"])
+    .index("by_milestone", ["scenario", "milestoneKey"])
+    .index("by_scenario", ["scenario"]),
+  demo_siteVisitFiles: defineTable({
+    buildId: v.id("demo_builds"),
+    fileName: v.string(),
+    mimeType: v.string(),
+    scenario: v.string(),
+    siteVisitId: v.id("demo_siteVisits"),
+    sizeBytes: v.number(),
+    storageId: v.id("_storage"),
+    targetMilestoneKey: v.optional(v.string()),
+    targetSubmilestoneKey: v.optional(v.string()),
+    uploadedAt: v.number(),
+  })
+    .index("by_site_visit", ["siteVisitId"])
+    .index("by_milestone", ["scenario", "targetMilestoneKey"])
     .index("by_scenario", ["scenario"]),
   demo_timelineSnapshots: defineTable({
     activeSelection: demoActiveMilestoneSelectionValidator,
     capitalSpikes: v.optional(v.array(demoTimelineCapitalSpikeValidator)),
     createdAt: v.number(),
+    currentDay: v.optional(v.number()),
     draws: v.array(demoTimelineDrawValidator),
     items: v.array(demoTimelineItemValidator),
     payloadVersion: v.literal(2),

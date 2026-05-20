@@ -1,5 +1,5 @@
-import { cn } from "#/lib/utils.ts";
 import * as React from "react";
+import { cn } from "#/lib/utils.ts";
 
 export type DotVariant = "default" | "border" | "colored-border";
 
@@ -25,40 +25,42 @@ const ChartDot = React.memo(function ChartDot({
   const dotId = React.useId().replace(/:/g, "");
   const gradientUrl = `url(#${chartId}-colors-${String(dataKey)})`;
 
-  if (cx === undefined || cy === undefined) return null;
+  if (cx === undefined || cy === undefined) {
+    return null;
+  }
 
   switch (type) {
     case "border":
       return (
         <PrimaryBorderDot
+          className={className}
           cx={cx}
           cy={cy}
           dotId={dotId}
           fillOpacity={fillOpacity}
           gradientUrl={gradientUrl}
-          className={className}
         />
       );
     case "colored-border":
       return (
         <ColoredBorderDot
+          className={className}
           cx={cx}
           cy={cy}
           dotId={dotId}
           fillOpacity={fillOpacity}
           gradientUrl={gradientUrl}
-          className={className}
         />
       );
     default:
       return (
         <DefaultDot
+          className={className}
           cx={cx}
           cy={cy}
           dotId={dotId}
           fillOpacity={fillOpacity}
           gradientUrl={gradientUrl}
-          className={className}
         />
       );
   }
@@ -85,17 +87,17 @@ const DefaultDot = React.memo(
         </defs>
         {/* Full-width gradient rectangle clipped to dot shape */}
         <rect
-          x="0"
-          y={cy - r}
-          width="100%"
-          height={r * 2}
+          clipPath={`url(#dot-clip-${dotId})`}
           fill={gradientUrl}
           fillOpacity={fillOpacity}
-          clipPath={`url(#dot-clip-${dotId})`}
+          height={r * 2}
+          width="100%"
+          x="0"
+          y={cy - r}
         />
       </g>
     );
-  },
+  }
 );
 
 DefaultDot.displayName = "DefaultDot";
@@ -112,16 +114,16 @@ const PrimaryBorderDot = React.memo(
           </clipPath>
         </defs>
         {/* Background stroke (border) */}
-        <circle cx={cx} cy={cy} r={r} fill="currentColor" />
+        <circle cx={cx} cy={cy} fill="currentColor" r={r} />
         {/* Inner gradient circle clipped */}
         <rect
-          x="0"
-          y={cy - (r - strokeWidth / 2)}
-          width="100%"
-          height={(r - strokeWidth / 2) * 2}
+          clipPath={`url(#dot-clip-inner-${dotId})`}
           fill={gradientUrl}
           fillOpacity={fillOpacity}
-          clipPath={`url(#dot-clip-inner-${dotId})`}
+          height={(r - strokeWidth / 2) * 2}
+          width="100%"
+          x="0"
+          y={cy - (r - strokeWidth / 2)}
         />
         <defs>
           <clipPath id={`dot-clip-inner-${dotId}`}>
@@ -130,7 +132,7 @@ const PrimaryBorderDot = React.memo(
         </defs>
       </g>
     );
-  },
+  }
 );
 
 PrimaryBorderDot.displayName = "PrimaryBorderDot";
@@ -148,19 +150,19 @@ const ColoredBorderDot = React.memo(
         </defs>
         {/* Gradient stroke (border) via clipped rect */}
         <rect
-          x="0"
-          y={cy - r - strokeWidth / 2}
-          width="100%"
-          height={(r + strokeWidth / 2) * 2}
+          clipPath={`url(#dot-clip-${dotId})`}
           fill={gradientUrl}
           fillOpacity={fillOpacity}
-          clipPath={`url(#dot-clip-${dotId})`}
+          height={(r + strokeWidth / 2) * 2}
+          width="100%"
+          x="0"
+          y={cy - r - strokeWidth / 2}
         />
         {/* Inner solid fill */}
-        <circle cx={cx} cy={cy} r={r - strokeWidth / 2} fill="currentColor" />
+        <circle cx={cx} cy={cy} fill="currentColor" r={r - strokeWidth / 2} />
       </g>
     );
-  },
+  }
 );
 
 ColoredBorderDot.displayName = "ColoredBorderDot";

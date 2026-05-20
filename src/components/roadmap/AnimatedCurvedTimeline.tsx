@@ -215,6 +215,9 @@ interface TimelineInsertMenuProps<TData = unknown> {
   laneStepY: number;
   onAction: (action: TimelineContextMenuAction<TData>) => void;
   onInsert: () => void;
+  onPointerMove: (
+    event: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>
+  ) => void;
   range: Required<TimelineRange>;
   top: number;
 }
@@ -462,10 +465,11 @@ export function AnimatedCurvedTimeline<TData = unknown>({
   const progressTargetX =
     typeof resolvedProgressValue === "number"
       ? progressValueTargetsActiveItemEnd
-        ? (activeLayoutItem.endLayoutX ?? layout.valueToX(resolvedProgressValue))
+        ? (activeLayoutItem.endLayoutX ??
+          layout.valueToX(resolvedProgressValue))
         : progressValueTargetsActiveItem
-        ? activeLayoutItem.layoutX
-        : layout.valueToX(resolvedProgressValue)
+          ? activeLayoutItem.layoutX
+          : layout.valueToX(resolvedProgressValue)
       : activeLayoutItem
         ? resolvedActiveItemPhase === "end"
           ? (activeLayoutItem.endLayoutX ?? activeLayoutItem.layoutX)
@@ -740,7 +744,7 @@ export function AnimatedCurvedTimeline<TData = unknown>({
   }, [hoverOpacity, onHoverValueChange]);
 
   const handleTrackPointerMove = useCallback(
-    (event: PointerEvent<HTMLDivElement>) => {
+    (event: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>) => {
       pendingHoverClientXRef.current = event.clientX;
       if (hoverFrameRef.current !== null) {
         return;
@@ -855,7 +859,8 @@ export function AnimatedCurvedTimeline<TData = unknown>({
     <motion.section
       animate={{ filter: "blur(0px)", opacity: 1, y: 0 }}
       className={cn(
-        "relative overflow-hidden rounded-lg border border-border bg-background text-foreground shadow-sm",
+        "relative overflow-visible rounded-lg border border-border bg-background text-foreground shadow-sm",
+        renderCard && "z-20",
         className
       )}
       data-animated-curved-timeline-root=""
@@ -873,17 +878,18 @@ export function AnimatedCurvedTimeline<TData = unknown>({
       />
       <div
         className={cn(
-          "overflow-x-auto overflow-y-hidden overscroll-x-contain",
+          "pointer-events-none overflow-x-auto overflow-y-visible overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+          renderCard && "-mb-56 pb-56",
           viewportClassName
         )}
         data-testid="timeline-scroll-viewport"
         ref={viewportRef}
-        style={{ scrollbarGutter: "stable" }}
       >
         <div
-          className="relative"
+          className="pointer-events-auto relative overflow-y-visible"
+          onMouseMoveCapture={handleTrackPointerMove}
           onPointerLeave={hideHoverMarker}
-          onPointerMove={handleTrackPointerMove}
+          onPointerMoveCapture={handleTrackPointerMove}
           ref={contentRef}
           style={{ height: stageHeight, width: contentWidth }}
         >
@@ -936,6 +942,7 @@ export function AnimatedCurvedTimeline<TData = unknown>({
             laneStepY={laneStepY}
             onAction={handleContextMenuAction}
             onInsert={handleInsert}
+            onPointerMove={handleTrackPointerMove}
             range={layout.range}
             top={layout.baselineY - laneStepY * 2 - 32}
           />
@@ -1020,8 +1027,7 @@ export function AnimatedCurvedTimeline<TData = unknown>({
               const itemActive = item.id === resolvedActiveItemId;
               const startActive =
                 itemActive && resolvedActiveItemPhase === "start";
-              const endActive =
-                itemActive && resolvedActiveItemPhase === "end";
+              const endActive = itemActive && resolvedActiveItemPhase === "end";
               const complete =
                 activeOrder >= 0 &&
                 (item.order < activeOrder ||
@@ -1377,6 +1383,7 @@ function TimelineInsertMenu<TData = unknown>({
   laneStepY,
   onAction,
   onInsert,
+  onPointerMove,
   range,
   top,
 }: TimelineInsertMenuProps<TData>): ReactElement {
@@ -1386,9 +1393,11 @@ function TimelineInsertMenu<TData = unknown>({
         render={
           <button
             aria-label="Timeline insertion rail"
-            className="absolute inset-x-0 z-[5] cursor-default border-0 bg-transparent p-0"
+            className="pointer-events-auto absolute inset-x-0 z-[5] cursor-default border-0 bg-transparent p-0"
             data-testid="timeline-track-hit-area"
             onContextMenu={handleContextMenu}
+            onMouseMove={onPointerMove}
+            onPointerMove={onPointerMove}
             style={{
               height: laneStepY * 4 + 64,
               top,

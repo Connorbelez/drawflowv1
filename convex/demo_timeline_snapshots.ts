@@ -37,11 +37,47 @@ const timelineToneValidator = v.optional(
 
 const timelineMilestoneDataValidator = v.object({
   amount: v.number(),
+  completionClaim: v.optional(
+    v.object({
+      actualCost: v.optional(v.number()),
+      completedDay: v.number(),
+      note: v.optional(v.string()),
+      submittedAt: v.string(),
+    })
+  ),
   completionPaymentAmount: v.optional(v.number()),
+  completionReview: v.optional(
+    v.object({
+      note: v.optional(v.string()),
+      reviewedAt: v.string(),
+      siteVisit: v.optional(
+        v.object({
+          note: v.optional(v.string()),
+          requestedAt: v.string(),
+          requestedDay: v.number(),
+        })
+      ),
+      status: v.union(v.literal("approved"), v.literal("revisionRequested")),
+    })
+  ),
   draw: v.string(),
   drawX: v.optional(v.number()),
   durationDays: v.number(),
   evidence: v.string(),
+  evidencePackage: v.optional(
+    v.object({
+      assets: v.array(
+        v.object({
+          fileName: v.string(),
+          id: v.string(),
+          label: v.string(),
+          mimeType: v.string(),
+          size: v.number(),
+          tag: v.string(),
+        })
+      ),
+    })
+  ),
   icon: timelineIconValidator,
   initialPaymentAmount: v.optional(v.number()),
   name: v.string(),
@@ -68,6 +104,18 @@ const timelineDrawValidator = v.object({
   id: v.string(),
   itemId: v.optional(v.string()),
   label: v.string(),
+  requestReviewNote: v.optional(v.string()),
+  requestNote: v.optional(v.string()),
+  requestStatus: v.optional(
+    v.union(
+      v.literal("draft"),
+      v.literal("requested"),
+      v.literal("approved"),
+      v.literal("rejected")
+    )
+  ),
+  reviewedAt: v.optional(v.string()),
+  requestedAt: v.optional(v.string()),
   x: v.number(),
 });
 
@@ -92,6 +140,7 @@ const activeMilestoneSelectionValidator = v.object({
 const timelineSnapshotValidator = v.object({
   activeSelection: activeMilestoneSelectionValidator,
   capitalSpikes: v.array(timelineCapitalSpikeValidator),
+  currentDay: v.number(),
   draws: v.array(timelineDrawValidator),
   items: v.array(timelineItemValidator),
   payloadVersion: v.literal(2),

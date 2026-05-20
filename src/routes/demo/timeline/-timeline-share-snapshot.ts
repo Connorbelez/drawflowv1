@@ -8,7 +8,7 @@ import {
   normalizeMilestoneSchedule,
 } from "./-timeline-milestone-schedule.ts";
 
-export type DemoStatus = "complete" | "ready" | "review" | "upcoming";
+export type DemoStatus = "complete" | "ready" | "upcoming";
 
 export type IsometricIconKey =
   | "change"
@@ -22,11 +22,14 @@ export type IsometricIconKey =
 
 export interface DemoMilestone {
   amount: number;
+  completionClaim?: DemoCompletionClaim;
   completionPaymentAmount?: number;
+  completionReview?: DemoCompletionReview;
   draw: string;
   drawX?: number;
   durationDays: number;
   evidence: string;
+  evidencePackage?: DemoEvidencePackage;
   icon: IsometricIconKey;
   initialPaymentAmount?: number;
   name: string;
@@ -35,12 +38,56 @@ export interface DemoMilestone {
   subMilestones: string[];
 }
 
+export interface DemoCompletionClaim {
+  actualCost?: number;
+  completedDay: number;
+  note?: string;
+  submittedAt: string;
+}
+
+export interface DemoCompletionReview {
+  note?: string;
+  reviewedAt: string;
+  siteVisit?: DemoSiteVisitRequest;
+  status: "approved" | "revisionRequested";
+}
+
+export interface DemoSiteVisitRequest {
+  includedItemIds?: string[];
+  note?: string;
+  requestedAt: string;
+  requestedDay: number;
+  status?: string;
+  tokenExpiresAt?: number;
+  url?: string;
+  visitId?: string;
+}
+
+export interface DemoEvidenceAsset {
+  fileName: string;
+  id: string;
+  label: string;
+  mimeType: string;
+  previewUrl?: string;
+  size: number;
+  tag: string;
+}
+
+export interface DemoEvidencePackage {
+  assets: DemoEvidenceAsset[];
+}
+
 export interface DemoDraw {
   amount: number;
   customDate?: boolean;
   id: string;
   itemId?: string;
   label: string;
+  requestReviewNote?: string;
+  requestNote?: string;
+  requestStatus?: "approved" | "draft" | "rejected" | "requested";
+  reviewedAt?: string;
+  requestedAt?: string;
   x: number;
 }
 
@@ -61,6 +108,7 @@ export type DemoTimelineSnapshotItem = Omit<
 export interface TimelineShareSnapshotV2 {
   activeSelection: ActiveMilestoneSelection;
   capitalSpikes: DemoCapitalSpike[];
+  currentDay: number;
   draws: DemoDraw[];
   items: DemoTimelineSnapshotItem[];
   payloadVersion: 2;
@@ -76,6 +124,7 @@ export interface TimelineShareSnapshotV2 {
 export interface TimelineShareSnapshotInput {
   activeSelection: ActiveMilestoneSelection;
   capitalSpikes: DemoCapitalSpike[];
+  currentDay: number;
   draws: DemoDraw[];
   items: TimelineItem<DemoMilestone>[];
   progressValue: number;
@@ -89,6 +138,7 @@ export interface TimelineShareSnapshotInput {
 export interface TimelineShareState {
   activeSelection: ActiveMilestoneSelection;
   capitalSpikes: DemoCapitalSpike[];
+  currentDay: number;
   draws: DemoDraw[];
   items: TimelineItem<DemoMilestone>[];
   progressValue: number;
@@ -113,6 +163,7 @@ export function buildTimelineShareSnapshotV2(
   const draws = normalizeShareDraws(input.draws);
   const capitalSpikes = normalizeShareCapitalSpikes(input.capitalSpikes);
   const activeSelection = resolveActiveSelection(input.activeSelection, items);
+  const currentDay = normalizeNumber(input.currentDay, range.min);
   const progressValue = normalizeNumber(input.progressValue, range.min);
   const startingCash = Math.max(
     0,
@@ -123,6 +174,7 @@ export function buildTimelineShareSnapshotV2(
   return {
     activeSelection,
     capitalSpikes,
+    currentDay,
     draws,
     items,
     payloadVersion: 2,
@@ -176,6 +228,7 @@ export function applyTimelineShareSnapshotV2(
   return {
     activeSelection,
     capitalSpikes,
+    currentDay: normalizeNumber(candidate.currentDay, fallbackState.currentDay),
     draws,
     items,
     progressValue: normalizeNumber(candidate.progressValue, range.min),
@@ -199,6 +252,7 @@ export function initialTimelineShareState(
   range: TimelineRange,
   activeSelection: ActiveMilestoneSelection,
   progressValue: number,
+  currentDay: number,
   selectedPanelOpen: boolean,
   startingCash: number,
   straightLine: boolean
@@ -206,6 +260,7 @@ export function initialTimelineShareState(
   return {
     activeSelection,
     capitalSpikes,
+    currentDay,
     draws,
     items,
     progressValue,
@@ -225,6 +280,7 @@ function normalizeTimelineShareState(
   return {
     activeSelection: resolveActiveSelection(state.activeSelection, items),
     capitalSpikes: normalizeShareCapitalSpikes(state.capitalSpikes),
+    currentDay: normalizeNumber(state.currentDay, range.min),
     draws: normalizeShareDraws(state.draws),
     items,
     progressValue: normalizeNumber(state.progressValue, range.min),
@@ -281,13 +337,22 @@ function normalizeMilestoneData(
 
   return {
     amount: normalized.amount,
+    ...(data?.completionClaim === undefined
+      ? {}
+      : { completionClaim: normalizeCompletionClaim(data.completionClaim) }),
     ...(data?.completionPaymentAmount === undefined
       ? {}
       : { completionPaymentAmount: normalized.completionPaymentAmount }),
+    ...(data?.completionReview === undefined
+      ? {}
+      : { completionReview: normalizeCompletionReview(data.completionReview) }),
     draw: normalized.draw,
     ...(normalized.drawX === undefined ? {} : { drawX: normalized.drawX }),
     durationDays: normalized.durationDays,
     evidence: normalized.evidence,
+    ...(data?.evidencePackage === undefined
+      ? {}
+      : { evidencePackage: normalizeEvidencePackage(data.evidencePackage) }),
     icon: normalized.icon,
     ...(data?.initialPaymentAmount === undefined
       ? {}
@@ -299,18 +364,140 @@ function normalizeMilestoneData(
   };
 }
 
+function normalizeCompletionClaim(
+  claim: DemoCompletionClaim | undefined
+): DemoCompletionClaim | undefined {
+  if (!claim) {
+    return;
+  }
+
+  const actualCost =
+    claim.actualCost === undefined
+      ? undefined
+      : Math.max(0, Math.round(normalizeNumber(claim.actualCost, 0)));
+  const note = claim.note?.trim();
+
+  return {
+    ...(actualCost === undefined ? {} : { actualCost }),
+    completedDay: Math.max(
+      0,
+      Math.round(normalizeNumber(claim.completedDay, 0))
+    ),
+    ...(note ? { note } : {}),
+    submittedAt: claim.submittedAt.trim() || new Date(0).toISOString(),
+  };
+}
+
+function normalizeCompletionReview(
+  review: DemoCompletionReview | undefined
+): DemoCompletionReview | undefined {
+  if (!review) {
+    return;
+  }
+
+  const note = review.note?.trim();
+  const siteVisit = normalizeSiteVisitRequest(review.siteVisit);
+
+  return {
+    ...(note ? { note } : {}),
+    reviewedAt: review.reviewedAt.trim() || new Date(0).toISOString(),
+    ...(siteVisit ? { siteVisit } : {}),
+    status:
+      review.status === "revisionRequested" ? "revisionRequested" : "approved",
+  };
+}
+
+function normalizeSiteVisitRequest(
+  siteVisit: DemoSiteVisitRequest | undefined
+): DemoSiteVisitRequest | undefined {
+  if (!siteVisit) {
+    return;
+  }
+
+  const note = siteVisit.note?.trim();
+  const includedItemIds = Array.from(
+    new Set((siteVisit.includedItemIds ?? []).map((id) => id.trim()).filter(Boolean))
+  );
+  const status = siteVisit.status?.trim();
+  const url = siteVisit.url?.trim();
+  const visitId = siteVisit.visitId?.trim();
+
+  return {
+    ...(includedItemIds.length ? { includedItemIds } : {}),
+    ...(note ? { note } : {}),
+    requestedAt: siteVisit.requestedAt.trim() || new Date(0).toISOString(),
+    requestedDay: Math.max(
+      0,
+      Math.round(normalizeNumber(siteVisit.requestedDay, 0))
+    ),
+    ...(status ? { status } : {}),
+    ...(siteVisit.tokenExpiresAt === undefined
+      ? {}
+      : { tokenExpiresAt: normalizeNumber(siteVisit.tokenExpiresAt, 0) }),
+    ...(url ? { url } : {}),
+    ...(visitId ? { visitId } : {}),
+  };
+}
+
+function normalizeEvidencePackage(
+  evidencePackage: DemoEvidencePackage | undefined
+): DemoEvidencePackage | undefined {
+  const assets = (evidencePackage?.assets ?? [])
+    .filter((asset) => asset.id.trim() && asset.fileName.trim())
+    .map((asset, index) => {
+      const label = asset.label.trim() || `Evidence image ${index + 1}`;
+      const tag = asset.tag.trim() || "Milestone";
+
+      return {
+        fileName: asset.fileName.trim(),
+        id: asset.id,
+        label,
+        mimeType: asset.mimeType.trim() || "image/*",
+        size: Math.max(0, Math.round(normalizeNumber(asset.size, 0))),
+        tag,
+      };
+    });
+
+  return { assets };
+}
+
 function normalizeShareDraws(draws: DemoDraw[]): DemoDraw[] {
   return draws
     .filter((draw) => draw.id.trim().length > 0 && Number.isFinite(draw.x))
-    .map((draw, index) => ({
-      amount: Math.max(0, Math.round(normalizeNumber(draw.amount, 0))),
-      ...(draw.customDate === undefined ? {} : { customDate: draw.customDate }),
-      id: draw.id,
-      ...(draw.itemId === undefined ? {} : { itemId: draw.itemId }),
-      label: draw.label.trim() || `Draw ${index + 1}`,
-      x: normalizeNumber(draw.x, 0),
-    }))
+    .map((draw, index) => {
+      const requestNote = draw.requestNote?.trim();
+      const requestReviewNote = draw.requestReviewNote?.trim();
+      const requestedAt = draw.requestedAt?.trim();
+      const reviewedAt = draw.reviewedAt?.trim();
+      const requestStatus = normalizeDrawRequestStatus(draw.requestStatus);
+
+      return {
+        amount: Math.max(0, Math.round(normalizeNumber(draw.amount, 0))),
+        ...(draw.customDate === undefined
+          ? {}
+          : { customDate: draw.customDate }),
+        id: draw.id,
+        ...(draw.itemId === undefined ? {} : { itemId: draw.itemId }),
+        label: draw.label.trim() || `Draw ${index + 1}`,
+        ...(requestReviewNote ? { requestReviewNote } : {}),
+        ...(requestNote ? { requestNote } : {}),
+        ...(requestStatus ? { requestStatus } : {}),
+        ...(reviewedAt ? { reviewedAt } : {}),
+        ...(requestedAt ? { requestedAt } : {}),
+        x: normalizeNumber(draw.x, 0),
+      };
+    })
     .sort((a, b) => a.x - b.x || a.id.localeCompare(b.id));
+}
+
+function normalizeDrawRequestStatus(
+  status: DemoDraw["requestStatus"] | undefined
+) {
+  return status === "requested" ||
+    status === "approved" ||
+    status === "rejected"
+    ? status
+    : undefined;
 }
 
 function normalizeShareCapitalSpikes(
@@ -366,9 +553,7 @@ export function resolveActiveSelection(
       : undefined;
   const itemId = validSelection?.itemId ?? items[0]?.id ?? "";
   const phase =
-    validSelection?.phase === "complete"
-      ? "complete"
-      : "inProgress";
+    validSelection?.phase === "complete" ? "complete" : "inProgress";
 
   return { itemId, phase };
 }

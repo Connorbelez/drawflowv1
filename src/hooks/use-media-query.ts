@@ -30,25 +30,39 @@ function resolveMax(value: Breakpoint | number): string {
 }
 
 function parseQuery(
-  query: BreakpointQuery | MediaQueryInput | (string & {}),
+  query: BreakpointQuery | MediaQueryInput | (string & {})
 ): string {
   if (typeof query !== "string") {
     const parts: string[] = [];
-    if (query.min != null) parts.push(resolveMin(query.min));
-    if (query.max != null) parts.push(resolveMax(query.max));
-    if (query.pointer === "coarse") parts.push("(pointer: coarse)");
-    if (query.pointer === "fine") parts.push("(pointer: fine)");
-    if (parts.length === 0) return "(min-width: 0px)";
+    if (query.min != null) {
+      parts.push(resolveMin(query.min));
+    }
+    if (query.max != null) {
+      parts.push(resolveMax(query.max));
+    }
+    if (query.pointer === "coarse") {
+      parts.push("(pointer: coarse)");
+    }
+    if (query.pointer === "fine") {
+      parts.push("(pointer: fine)");
+    }
+    if (parts.length === 0) {
+      return "(min-width: 0px)";
+    }
     return parts.join(" and ");
   }
 
-  if (query.startsWith("(")) return query;
+  if (query.startsWith("(")) {
+    return query;
+  }
 
   const parts: string[] = [];
   for (const segment of query.split(":")) {
     if (segment.startsWith("max-")) {
       const bp = segment.slice(4);
-      if (bp in BREAKPOINTS) parts.push(resolveMax(bp as Breakpoint));
+      if (bp in BREAKPOINTS) {
+        parts.push(resolveMax(bp as Breakpoint));
+      }
     } else if (segment in BREAKPOINTS) {
       parts.push(resolveMin(segment as Breakpoint));
     }
@@ -69,22 +83,26 @@ export type MediaQueryInput = {
 };
 
 export function useMediaQuery(
-  query: BreakpointQuery | MediaQueryInput | (string & {}),
+  query: BreakpointQuery | MediaQueryInput | (string & {})
 ): boolean {
   const mediaQuery = parseQuery(query);
 
   const subscribe = useCallback(
     (callback: () => void) => {
-      if (typeof window === "undefined") return () => {};
+      if (typeof window === "undefined") {
+        return () => {};
+      }
       const mql = window.matchMedia(mediaQuery);
       mql.addEventListener("change", callback);
       return () => mql.removeEventListener("change", callback);
     },
-    [mediaQuery],
+    [mediaQuery]
   );
 
   const getSnapshot = useCallback(() => {
-    if (typeof window === "undefined") return false;
+    if (typeof window === "undefined") {
+      return false;
+    }
     return window.matchMedia(mediaQuery).matches;
   }, [mediaQuery]);
 

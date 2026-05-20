@@ -17,7 +17,9 @@ export function useCopyToClipboard({
       return;
     }
 
-    if (!value) return;
+    if (!value) {
+      return;
+    }
 
     navigator.clipboard.writeText(value).then(() => {
       if (timeoutIdRef.current) {
@@ -39,13 +41,14 @@ export function useCopyToClipboard({
   };
 
   // Cleanup timeout on unmount
-  React.useEffect(() => {
-    return (): void => {
+  React.useEffect(
+    () => (): void => {
       if (timeoutIdRef.current) {
         clearTimeout(timeoutIdRef.current);
       }
-    };
-  }, []);
+    },
+    []
+  );
 
   return { copyToClipboard, isCopied };
 }

@@ -81,6 +81,7 @@ describe("timeline share snapshots", () => {
       { max: 230, min: 0, unit: "days" },
       { itemId: "framing", phase: "complete" },
       58,
+      86,
       true,
       400_000,
       false
@@ -88,6 +89,7 @@ describe("timeline share snapshots", () => {
     const snapshot = buildTimelineShareSnapshotV2(state);
 
     expect(snapshot.payloadVersion).toBe(2);
+    expect(snapshot.currentDay).toBe(86);
     expect(snapshot.activeSelection).toEqual({
       itemId: "framing",
       phase: "complete",
@@ -149,6 +151,7 @@ describe("timeline share snapshots", () => {
       { max: 260, min: 0, unit: "days" },
       { itemId: "inserted-1", phase: "complete" },
       245,
+      245,
       false,
       475_000,
       true
@@ -202,6 +205,7 @@ describe("timeline share snapshots", () => {
       { max: 230, min: 0, unit: "days" },
       { itemId: "missing", phase: "complete" },
       58,
+      86,
       true,
       400_000,
       false
@@ -229,6 +233,7 @@ describe("timeline share snapshots", () => {
       { max: 230, min: 0, unit: "days" },
       { itemId: "framing", phase: "complete" },
       58,
+      86,
       true,
       400_000,
       false
@@ -259,6 +264,7 @@ describe("timeline share snapshots", () => {
       { max: 230, min: 0, unit: "days" },
       { itemId: "framing", phase: "complete" },
       58,
+      86,
       true,
       400_000,
       false
@@ -288,6 +294,7 @@ describe("timeline share snapshots", () => {
       activeDrawId: "framing",
       drawEditDraft: { amount: "260000", x: "99" },
       capitalSpikes: [],
+      currentDay: 86,
       draws: initialDraws,
       items: initialItems,
       probeValue: 77,
@@ -303,5 +310,30 @@ describe("timeline share snapshots", () => {
     expect(snapshot).not.toHaveProperty("activeDrawId");
     expect(snapshot).not.toHaveProperty("drawEditDraft");
     expect(snapshot).not.toHaveProperty("probeValue");
+  });
+
+  test("uses fallback current day for older v2 snapshots without current day", () => {
+    const fallback = initialTimelineShareState(
+      initialItems,
+      initialDraws,
+      [],
+      { max: 230, min: 0, unit: "days" },
+      { itemId: "framing", phase: "complete" },
+      58,
+      86,
+      true,
+      400_000,
+      false
+    );
+    const snapshot = buildTimelineShareSnapshotV2({
+      ...fallback,
+      currentDay: 0,
+    });
+    const legacySnapshot = { ...snapshot };
+    delete (legacySnapshot as Partial<typeof legacySnapshot>).currentDay;
+
+    expect(applyTimelineShareSnapshotV2(legacySnapshot, fallback).currentDay).toBe(
+      86
+    );
   });
 });

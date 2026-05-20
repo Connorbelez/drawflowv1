@@ -257,11 +257,31 @@ function mapWorkspace(
           completedAt: isoDateTime(visit.completedAt),
           completionObserved: visit.completionObserved,
           createdAt: new Date(visit.createdAt).toISOString(),
+          files: (visit.files ?? []).map((file: any) => ({
+            fileName: file.fileName,
+            id: file._id,
+            mimeType: file.mimeType,
+            sizeBytes: file.sizeBytes,
+            targetMilestoneKey: file.targetMilestoneKey,
+            targetSubmilestoneKey: file.targetSubmilestoneKey,
+            uploadedAt: new Date(file.uploadedAt).toISOString(),
+            url: file.url,
+          })),
           id: visit._id,
           notes: visit.notes,
           recommendedOutcome: visit.recommendedOutcome,
+          requestReason: visit.requestReason,
           riskFlags: visit.riskFlags ?? [],
           status: visit.status,
+          targetMilestoneKeys: visit.targetMilestoneKeys ?? [],
+          targets: (visit.targets ?? []).map((target: any) => ({
+            milestoneKey: target.milestoneKey,
+            milestoneName: target.milestoneName,
+            milestoneOrder: target.milestoneOrder,
+            submilestones: target.submilestones ?? [],
+          })),
+          tokenConsumedAt: isoDateTime(visit.tokenConsumedAt),
+          tokenExpiresAt: isoDateTime(visit.tokenExpiresAt),
         })),
         staffRecommendation: milestone.latestReview?.outcome ?? "",
         startAt: new Date(`${start}T12:00:00`),
@@ -771,8 +791,9 @@ export function useConvexBuildWorkspace(
         persona: roleToPersona(role),
       });
     },
-    requestSiteVisit: async (milestoneId, reason) => {
-      await requestVisitMutation({
+    requestSiteVisit: async (milestoneId, reason, includedMilestoneIds) => {
+      return await requestVisitMutation({
+        includedMilestoneKeys: includedMilestoneIds,
         milestoneKey: milestoneId,
         persona: roleToPersona(role),
         reason,

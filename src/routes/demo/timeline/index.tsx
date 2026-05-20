@@ -6,23 +6,33 @@ import {
   CalendarDays,
   Check,
   CircleDollarSign,
+  ClipboardCheck,
   Copy,
+  Eye,
   ExternalLink,
+  FileImage,
   Flag,
   LinkIcon,
   Loader2,
   Mail,
+  MapPinned,
   QrCode,
   ReceiptText,
   RotateCcw,
   Share2,
+  ShieldCheck,
   Trash2,
+  UploadCloud,
+  UserRound,
+  X,
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { createStandardSchemaV1, parseAsString, useQueryStates } from "nuqs";
 import { QRCodeSVG } from "qrcode.react";
 import {
+  type ChangeEvent,
   type Dispatch,
+  type DragEvent,
   type FormEvent,
   type ReactNode,
   type SetStateAction,
@@ -63,13 +73,18 @@ import {
   PopoverTrigger,
 } from "#/components/ui/popover.tsx";
 import { Switch } from "#/components/ui/switch.tsx";
+import { Textarea } from "#/components/ui/textarea.tsx";
 import { useMediaQuery } from "#/hooks/use-media-query.ts";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../../convex/_generated/api";
+import { MilestoneCard, type MilestoneCardUpdate } from "./-MilestoneCard.tsx";
+import {
+  TimelineSetupFlow,
+  type TimelineSetupResult,
+} from "./-TimelineSetupFlow.tsx";
 import {
   type ActiveMilestoneSelection,
   buildMilestoneSpendEvents,
-  DEFAULT_DRAW_REVIEW_LAG_DAYS,
   DEFAULT_MILESTONE_DURATION_DAYS,
   getMilestoneEndX,
   getMilestonePaymentSchedule,
@@ -81,8 +96,8 @@ import {
   buildTimelineShareSnapshotV2,
   type DemoCapitalSpike,
   type DemoDraw,
+  type DemoEvidenceAsset,
   type DemoMilestone,
-  type IsometricIconKey,
   initialTimelineShareState,
   type TimelineShareState,
 } from "./-timeline-share-snapshot.ts";
@@ -110,9 +125,21 @@ interface CapitalSpikeEditDraft {
   x: string;
 }
 
+type TimelineDemoRole = "builder" | "lender";
+
 interface PendingNormalizedInsertSelection {
   itemId: string;
   x: number;
+}
+
+interface TimelineSiteVisitRequestInput {
+  includedItemIds?: string[];
+  note?: string;
+  requestedDay: number;
+  status?: string;
+  tokenExpiresAt?: number;
+  url?: string;
+  visitId?: string;
 }
 
 export interface CashflowDatum {
@@ -120,8 +147,8 @@ export interface CashflowDatum {
   capitalSpikeAmount: number;
   cashOnHand: number;
   day: number;
-  drawCapacityUnlocked: number;
   drawAmount: number;
+  drawCapacityUnlocked: number;
   event: "capitalSpike" | "draw" | "milestone" | "start";
   id: string;
   name: string;
@@ -153,7 +180,14 @@ interface FinancialOverview {
   totalDrawReleased: number;
 }
 
-const INITIAL_RANGE: TimelineRange = {
+interface DrawRequestLimit {
+  alreadyDrawn: number;
+  availableLimit: number;
+  remainingAfterRequest: number;
+  totalUnlocked: number;
+}
+
+const BASE_INITIAL_RANGE: TimelineRange = {
   max: 230,
   min: 0,
   unit: "days",
@@ -163,7 +197,22 @@ const INTEREST_APR = 0.0925;
 const CHART_PROBE_INTERVAL_DAYS = 5;
 const MINIMUM_POST_MILESTONE_CASH_RESERVE = 0;
 const STARTING_CASH = 400_000;
+const INITIAL_CURRENT_DAY = 86;
+const GENERATED_TIMELINE_CURRENT_DAY = 0;
+const TIMELINE_END_PADDING_DAYS = 5;
 const INITIAL_CAPITAL_SPIKES: DemoCapitalSpike[] = [];
+const INITIAL_COMPLETION_SUBMITTED_AT = "2026-05-01T14:00:00.000Z";
+const LOCAL_TIMELINE_SHARE_PREFIX = "local-timeline-";
+const TIMELINE_SITE_VISIT_BUILD_ID = "active-maple-ridge";
+const TIMELINE_TO_DEMO_MILESTONE_KEY: Record<string, string> = {
+  closeout: "aluminum_windows",
+  drywall: "aluminum_windows",
+  exterior: "aluminum_windows",
+  finishes: "aluminum_windows",
+  framing: "framing",
+  "rough-in": "aluminum_windows",
+  "site-prep": "foundation",
+};
 
 const cashflowChartConfig = {
   additionalAvailableDraw: {
@@ -214,13 +263,16 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
   {
     data: {
       amount: 125_000,
-      completionPaymentAmount: 20_000,
+      completionClaim: {
+        actualCost: 125_000,
+        completedDay: 28,
+        submittedAt: INITIAL_COMPLETION_SUBMITTED_AT,
+      },
       draw: "Draw 1",
       drawX: 36,
       durationDays: 14,
       evidence: "Accepted package",
       icon: "foundation",
-      initialPaymentAmount: 25_000,
       name: "Site prep & foundation",
       policy: "Released",
       status: "complete",
@@ -237,13 +289,16 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
   {
     data: {
       amount: 160_000,
-      completionPaymentAmount: 30_000,
+      completionClaim: {
+        actualCost: 160_000,
+        completedDay: 56,
+        submittedAt: INITIAL_COMPLETION_SUBMITTED_AT,
+      },
       draw: "Draw 2",
-      drawX: 84,
+      drawX: 64,
       durationDays: 18,
       evidence: "Accepted package",
       icon: "framing",
-      initialPaymentAmount: 35_000,
       name: "Framing & structure",
       policy: "Released",
       status: "complete",
@@ -255,21 +310,19 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
     lane: -1,
     markerLabel: "2",
     tone: "complete",
-    x: 58,
+    x: 38,
   },
   {
     data: {
       amount: 245_000,
-      completionPaymentAmount: 50_000,
       draw: "Draw 3",
-      drawX: 120,
+      drawX: 94,
       durationDays: 20,
       evidence: "Site visit today",
       icon: "roughIn",
-      initialPaymentAmount: 40_000,
       name: "Rough-in mechanical",
       policy: "Admin review",
-      status: "review",
+      status: "ready",
       subMilestones: ["Plumbing rough-in", "Electrical rough-in", "HVAC ducts"],
     },
     eyebrow: "Milestone 3",
@@ -278,18 +331,16 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
     lane: 1,
     markerLabel: "3",
     tone: "active",
-    x: 92,
+    x: 66,
   },
   {
     data: {
       amount: 210_000,
-      completionPaymentAmount: 45_000,
       draw: "Draw 4",
-      drawX: 158,
+      drawX: 122,
       durationDays: 18,
       evidence: "Draft started",
       icon: "exterior",
-      initialPaymentAmount: 35_000,
       name: "Windows & exterior",
       policy: "Evidence required",
       status: "ready",
@@ -301,18 +352,16 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
     lane: 0,
     markerLabel: "4",
     tone: "warning",
-    x: 132,
+    x: 96,
   },
   {
     data: {
       amount: 190_000,
-      completionPaymentAmount: 35_000,
       draw: "Draw 5",
-      drawX: 192,
+      drawX: 148,
       durationDays: 16,
       evidence: "Not started",
       icon: "drywall",
-      initialPaymentAmount: 25_000,
       name: "Inspections & drywall",
       policy: "Upcoming",
       status: "upcoming",
@@ -324,18 +373,16 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
     lane: -1,
     markerLabel: "5",
     tone: "upcoming",
-    x: 168,
+    x: 124,
   },
   {
     data: {
       amount: 160_000,
-      completionPaymentAmount: 30_000,
       draw: "Draw 6",
-      drawX: 224,
+      drawX: 170,
       durationDays: 12,
       evidence: "Not started",
       icon: "finishes",
-      initialPaymentAmount: 20_000,
       name: "Finishes & fixtures",
       policy: "Upcoming",
       status: "upcoming",
@@ -347,18 +394,16 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
     lane: 1,
     markerLabel: "6",
     tone: "upcoming",
-    x: 204,
+    x: 150,
   },
   {
     data: {
       amount: 160_000,
-      completionPaymentAmount: 60_000,
       draw: "Draw 7",
-      drawX: 230,
+      drawX: 184,
       durationDays: 4,
       evidence: "Not started",
       icon: "closeout",
-      initialPaymentAmount: 0,
       name: "Final inspection & closeout",
       policy: "Upcoming",
       status: "upcoming",
@@ -370,12 +415,19 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
     lane: 0,
     markerLabel: "7",
     tone: "upcoming",
-    x: 226,
+    x: 172,
   },
 ];
 
-const NORMALIZED_INITIAL_ITEMS =
-  normalizeMilestoneTimelineItems(INITIAL_ITEMS);
+const INITIAL_TOTAL_BUDGET = INITIAL_ITEMS.reduce(
+  (sum, item) => sum + (item.data?.amount ?? 0),
+  0
+);
+const NORMALIZED_INITIAL_ITEMS = normalizeMilestoneTimelineItems(INITIAL_ITEMS);
+const INITIAL_RANGE = expandTimelineRangeForMilestones(
+  NORMALIZED_INITIAL_ITEMS,
+  BASE_INITIAL_RANGE
+);
 
 const money = (value: number) =>
   new Intl.NumberFormat("en-US", {
@@ -383,6 +435,63 @@ const money = (value: number) =>
     maximumFractionDigits: 0,
     style: "currency",
   }).format(value);
+
+export function resolveTimelineSiteVisitMilestoneKey(itemId: string) {
+  return TIMELINE_TO_DEMO_MILESTONE_KEY[itemId] ?? itemId;
+}
+
+export function normalizeTimelineSiteVisitStatus(
+  status?: string,
+  tokenExpiresAt?: number,
+  now = Date.now()
+) {
+  if (status === "completed") {
+    return "complete";
+  }
+  if (status === "claimed" || status === "in_progress") {
+    return "in progress";
+  }
+  if (tokenExpiresAt && tokenExpiresAt <= now) {
+    return "expired";
+  }
+  if (status === "requested") {
+    return "un-opened";
+  }
+  return "not requested";
+}
+
+function buildAbsoluteSiteVisitUrl(path?: string) {
+  if (!path) {
+    return "";
+  }
+  if (/^https?:\/\//i.test(path)) {
+    return path;
+  }
+  if (typeof window === "undefined") {
+    return path;
+  }
+  return `${window.location.origin}${path}`;
+}
+
+function findLiveSiteVisit(workspace: any, visitId?: string) {
+  if (!(workspace && visitId)) {
+    return null;
+  }
+
+  for (const milestone of workspace.milestones ?? []) {
+    for (const visit of milestone.siteVisits ?? []) {
+      if (visit._id === visitId) {
+        return visit;
+      }
+    }
+  }
+
+  return null;
+}
+
+const fileSizeFormatter = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 1,
+});
 
 const routeSectionVariants = {
   hidden: {
@@ -472,13 +581,14 @@ function RouteComponent() {
     INITIAL_CAPITAL_SPIKES
   );
   const [startingCash, setStartingCash] = useState(STARTING_CASH);
+  const [currentDay, setCurrentDay] = useState(INITIAL_CURRENT_DAY);
   const [range, setRange] = useState<TimelineRange>(INITIAL_RANGE);
   const [activeSelection, setActiveSelection] =
     useState<ActiveMilestoneSelection>({
       itemId: "rough-in",
       phase: "inProgress",
     });
-  const [progressValue, setProgressValue] = useState(92);
+  const [progressValue, setProgressValue] = useState(66);
   const [probeValue, setProbeValue] = useState<number | null>(null);
   const [activeDrawId, setActiveDrawId] = useState<string | null>(null);
   const [activeCapitalSpikeId, setActiveCapitalSpikeId] = useState<
@@ -495,13 +605,32 @@ function RouteComponent() {
       x: "",
     });
   const [selectedPanelOpen, setSelectedPanelOpen] = useState(true);
+  const [timelineRole, setTimelineRole] =
+    useState<TimelineDemoRole>("builder");
   const [straightLine, setStraightLine] = useState(false);
+  const [setupComplete, setSetupComplete] = useState(false);
+  const [setupBaseline, setSetupBaseline] = useState<TimelineShareState | null>(
+    null
+  );
+  const [timelinePlanSummary, setTimelinePlanSummary] = useState({
+    includedCount: INITIAL_ITEMS.length,
+    templateTitle: "Elm Street build",
+    totalBudget: INITIAL_TOTAL_BUDGET,
+  });
   const activeItemId = activeSelection.itemId;
   const activeItem =
     items.find((item) => item.id === activeItemId) ?? items[0] ?? null;
   const activeItemDraw = activeItem
     ? (draws.find((draw) => draw.itemId === activeItem.id) ?? null)
     : null;
+  const activePanelDraw =
+    activeDrawId === null
+      ? null
+      : (draws.find((draw) => draw.id === activeDrawId) ?? null);
+  const activePanelDrawItem =
+    activePanelDraw?.itemId === undefined
+      ? null
+      : (items.find((item) => item.id === activePanelDraw.itemId) ?? null);
   const resolvedRange = useMemo(() => normalizeDemoRange(range), [range]);
   const {
     resetTimeline,
@@ -517,6 +646,7 @@ function RouteComponent() {
     draws,
     insertionCount,
     items,
+    currentDay,
     progressValue,
     resolvedRange,
     selectedPanelOpen,
@@ -528,6 +658,7 @@ function RouteComponent() {
     setDrawEditDraft,
     setDraws,
     setItems,
+    setCurrentDay,
     setProbeValue,
     setProgressValue,
     setRange,
@@ -537,6 +668,86 @@ function RouteComponent() {
     startingCash,
     straightLine,
   });
+
+  const applyTimelineState = useCallback((nextState: TimelineShareState) => {
+    const hydratedState = normalizeTimelineShareStateForRoute(nextState);
+
+    setItems(hydratedState.items);
+    setDraws(hydratedState.draws);
+    setCapitalSpikes(hydratedState.capitalSpikes);
+    setRange(hydratedState.range);
+    setActiveSelection(hydratedState.activeSelection);
+    setCurrentDay(hydratedState.currentDay);
+    setProgressValue(hydratedState.progressValue);
+    setProbeValue(null);
+    setActiveDrawId(null);
+    setActiveCapitalSpikeId(null);
+    setDrawEditDraft({ amount: "", x: "" });
+    setCapitalSpikeEditDraft({ amount: "", label: "", x: "" });
+    setSelectedPanelOpen(hydratedState.selectedPanelOpen);
+    setStartingCash(hydratedState.startingCash);
+    setStraightLine(hydratedState.straightLine);
+    insertionCount.current = countInsertedTimelineItems(hydratedState.items);
+    drawInsertionCount.current = countManualDraws(hydratedState.draws);
+    capitalSpikeInsertionCount.current = hydratedState.capitalSpikes.length;
+  }, []);
+
+  const completeTimelineSetup = useCallback(
+    (result: TimelineSetupResult) => {
+      const nextRange = expandTimelineRangeForMilestones(
+        result.items,
+        BASE_INITIAL_RANGE
+      );
+      const nextDraws = buildDemoDraws(result.items, nextRange);
+      const activeItem =
+        result.items.find((item) => item.id === result.activeItemId) ??
+        result.items[0] ??
+        null;
+      const nextState: TimelineShareState = {
+        activeSelection: {
+          itemId: activeItem?.id ?? "",
+          phase: "inProgress",
+        },
+        capitalSpikes: INITIAL_CAPITAL_SPIKES,
+        currentDay: result.currentDay,
+        draws: nextDraws,
+        items: result.items,
+        progressValue: result.currentDay,
+        range: nextRange,
+        selectedPanelOpen: Boolean(activeItem),
+        startingCash: result.startingCash,
+        straightLine: false,
+      };
+
+      setTimelinePlanSummary({
+        includedCount: result.includedCount,
+        templateTitle: result.templateTitle,
+        totalBudget: result.totalBudget,
+      });
+      setSetupBaseline(nextState);
+      applyTimelineState(nextState);
+      setSetupComplete(true);
+      window.requestAnimationFrame(() => {
+        window.scrollTo({ left: 0, top: 0 });
+      });
+    },
+    [applyTimelineState]
+  );
+
+  const resetCurrentTimeline = useCallback(() => {
+    if (share || !setupBaseline) {
+      resetTimeline();
+      return;
+    }
+
+    applyTimelineState(setupBaseline);
+  }, [applyTimelineState, resetTimeline, setupBaseline, share]);
+
+  useEffect(() => {
+    if (share) {
+      setSetupComplete(true);
+    }
+  }, [share]);
   const cashflowData = useMemo(
     () =>
       buildTimelineCashflowData(
@@ -549,8 +760,9 @@ function RouteComponent() {
     [capitalSpikes, draws, items, resolvedRange, startingCash]
   );
   const cashflowChartData = useMemo(
-    () => densifyCashflowData(cashflowData, resolvedRange),
-    [cashflowData, resolvedRange]
+    () =>
+      buildCashflowChartData(cashflowData, items, resolvedRange, startingCash),
+    [cashflowData, items, resolvedRange, startingCash]
   );
   const drawAvailabilityData = useMemo(
     () => buildDrawAvailabilityData(cashflowData),
@@ -569,8 +781,8 @@ function RouteComponent() {
     [cashflowData, draws, resolvedRange]
   );
   const cashflowExtent = useMemo(
-    () => getCashflowChartExtent(cashflowData),
-    [cashflowData]
+    () => getCashflowChartExtent(cashflowChartData),
+    [cashflowChartData]
   );
   const drawAvailabilityExtent = useMemo(
     () => getDrawAvailabilityChartExtent(drawAvailabilityData),
@@ -579,7 +791,7 @@ function RouteComponent() {
   const probeCashOnHand =
     probeValue === null
       ? null
-      : interpolateCashOnHand(cashflowData, probeValue);
+      : interpolateLinearCashOnHand(cashflowChartData, probeValue);
   const probeDrawAvailability =
     probeValue === null
       ? null
@@ -655,9 +867,12 @@ function RouteComponent() {
       {
         id: "today",
         label: "Today",
-        sublabel: "Site visit",
+        sublabel:
+          currentDay === GENERATED_TIMELINE_CURRENT_DAY
+            ? "Proposal start"
+            : "Site visit",
         tone: "today",
-        x: 86,
+        x: currentDay,
       },
       ...draws.map((draw) => ({
         id: `draw-${draw.id}`,
@@ -681,12 +896,13 @@ function RouteComponent() {
         x: 154,
       },
     ],
-    [capitalSpikes, draws]
+    [capitalSpikes, currentDay, draws]
   );
 
   const openDrawEditor = (draw: DemoDraw) => {
     setActiveCapitalSpikeId(null);
     setActiveDrawId(draw.id);
+    setSelectedPanelOpen(true);
     setDrawEditDraft({
       amount: String(draw.amount),
       x: String(Math.round(draw.x)),
@@ -696,6 +912,7 @@ function RouteComponent() {
   const openCapitalSpikeEditor = (spike: DemoCapitalSpike) => {
     setActiveDrawId(null);
     setActiveCapitalSpikeId(spike.id);
+    setSelectedPanelOpen(false);
     setCapitalSpikeEditDraft({
       amount: String(spike.amount),
       label: spike.label,
@@ -766,9 +983,15 @@ function RouteComponent() {
     const nextItems = normalizeMilestoneTimelineItems(
       items.filter((item) => item.id !== targetItem.id)
     );
+    const nextRange = expandTimelineRangeForMilestones(nextItems, range);
     setItems(nextItems);
+    setRange(nextRange);
     setDraws((currentDraws) =>
-      currentDraws.filter((draw) => draw.itemId !== targetItem.id)
+      syncDemoDrawsWithItems(
+        currentDraws.filter((draw) => draw.itemId !== targetItem.id),
+        nextItems,
+        nextRange
+      )
     );
 
     if (activeItemId === targetItem.id) {
@@ -780,9 +1003,213 @@ function RouteComponent() {
         itemId: replacementItem?.id ?? "",
         phase: "inProgress",
       });
-      setProgressValue(replacementItem?.x ?? resolvedRange.min);
+      setProgressValue(replacementItem?.x ?? nextRange.min);
       setSelectedPanelOpen(Boolean(replacementItem));
     }
+  };
+
+  const updateMilestone = (itemId: string, patch: MilestoneCardUpdate) => {
+    const targetItem = items.find((item) => item.id === itemId);
+
+    if (!targetItem?.data) {
+      return;
+    }
+
+    const previousAmount = targetItem.data.amount;
+    const nextItems = normalizeMilestoneTimelineItems(
+      items.map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              data: item.data
+                ? {
+                    ...item.data,
+                    ...(patch.amount === undefined
+                      ? {}
+                      : { amount: patch.amount }),
+                    ...(patch.durationDays === undefined
+                      ? {}
+                      : { durationDays: patch.durationDays }),
+                    ...(patch.initialPaymentAmount === undefined
+                      ? {}
+                      : { initialPaymentAmount: patch.initialPaymentAmount }),
+                  }
+                : item.data,
+              x: patch.x ?? item.x,
+            }
+          : item
+      )
+    );
+    const nextRange = expandTimelineRangeForMilestones(nextItems, range);
+
+    setItems(nextItems);
+    setRange(nextRange);
+    setDraws((currentDraws) =>
+      syncDemoDrawsWithItems(
+        currentDraws.map((draw) =>
+          draw.itemId === itemId && draw.amount === previousAmount
+            ? { ...draw, amount: patch.amount ?? draw.amount }
+            : draw
+        ),
+        nextItems,
+        nextRange
+      )
+    );
+
+    if (activeItemId === itemId) {
+      const nextActiveItem = nextItems.find((item) => item.id === itemId);
+      setProgressValue(
+        activeSelection.phase === "complete" && nextActiveItem
+          ? getMilestoneEndX(nextActiveItem)
+          : (nextActiveItem?.x ?? patch.x ?? progressValue)
+      );
+    }
+  };
+
+  const completeMilestone = (
+    itemId: string,
+    claim: {
+      actualCost?: number;
+      completedDay: number;
+      note?: string;
+    }
+  ) => {
+    setItems((currentItems) =>
+      currentItems.map((item) =>
+        item.id === itemId && item.data
+          ? {
+              ...item,
+              data: {
+                ...item.data,
+                completionClaim: {
+                  ...(claim.actualCost === undefined
+                    ? {}
+                    : { actualCost: claim.actualCost }),
+                  completedDay: claim.completedDay,
+                  ...(claim.note ? { note: claim.note } : {}),
+                  submittedAt: new Date().toISOString(),
+                },
+                evidence:
+                  (item.data.evidencePackage?.assets.length ?? 0) > 0
+                    ? "Submitted package"
+                    : "Completion claimed",
+                status: "complete",
+              },
+            }
+          : item
+      )
+    );
+  };
+
+  const addEvidenceFiles = (itemId: string, files: File[]) => {
+    if (files.length === 0) {
+      return;
+    }
+
+    setItems((currentItems) =>
+      currentItems.map((item) => {
+        if (!(item.id === itemId && item.data)) {
+          return item;
+        }
+
+        const existingAssets = item.data.evidencePackage?.assets ?? [];
+        const nextAssets = files
+          .filter((file) => file.type.startsWith("image/"))
+          .map((file, index) => {
+            const assetNumber = existingAssets.length + index + 1;
+
+            return {
+              fileName: file.name,
+              id: `evidence-${itemId}-${Date.now()}-${index}`,
+              label: `Evidence image ${assetNumber}`,
+              mimeType: file.type || "image/*",
+              previewUrl: URL.createObjectURL(file),
+              size: file.size,
+              tag: item.data?.name ?? item.label ?? "Milestone",
+            } satisfies DemoEvidenceAsset;
+          });
+
+        if (nextAssets.length === 0) {
+          return item;
+        }
+
+        return {
+          ...item,
+          data: {
+            ...item.data,
+            evidence: "Submitted package",
+            evidencePackage: {
+              assets: [...existingAssets, ...nextAssets],
+            },
+          },
+        };
+      })
+    );
+  };
+
+  const updateEvidenceAsset = (
+    itemId: string,
+    assetId: string,
+    patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>
+  ) => {
+    setItems((currentItems) =>
+      currentItems.map((item) =>
+        item.id === itemId && item.data?.evidencePackage
+          ? {
+              ...item,
+              data: {
+                ...item.data,
+                evidencePackage: {
+                  assets: item.data.evidencePackage.assets.map((asset) =>
+                    asset.id === assetId
+                      ? {
+                          ...asset,
+                          ...(patch.label === undefined
+                            ? {}
+                            : { label: patch.label }),
+                          ...(patch.tag === undefined
+                            ? {}
+                            : { tag: patch.tag }),
+                        }
+                      : asset
+                  ),
+                },
+              },
+            }
+          : item
+      )
+    );
+  };
+
+  const removeEvidenceAsset = (itemId: string, assetId: string) => {
+    setItems((currentItems) =>
+      currentItems.map((item) => {
+        if (!(item.id === itemId && item.data?.evidencePackage)) {
+          return item;
+        }
+
+        const removedAsset = item.data.evidencePackage.assets.find(
+          (asset) => asset.id === assetId
+        );
+        if (removedAsset?.previewUrl) {
+          URL.revokeObjectURL(removedAsset.previewUrl);
+        }
+
+        const nextAssets = item.data.evidencePackage.assets.filter(
+          (asset) => asset.id !== assetId
+        );
+
+        return {
+          ...item,
+          data: {
+            ...item.data,
+            evidence:
+              nextAssets.length > 0 ? "Submitted package" : "Draft package",
+            evidencePackage: { assets: nextAssets },
+          },
+        };
+      })
+    );
   };
 
   const applyDrawEdit = (event: FormEvent<HTMLFormElement>) => {
@@ -829,6 +1256,133 @@ function RouteComponent() {
       }));
     }
     setActiveDrawId(null);
+  };
+
+  const submitDrawRequest = (
+    drawId: string,
+    request: { amount: number; note?: string }
+  ) => {
+    const targetDraw = draws.find((draw) => draw.id === drawId);
+
+    if (!targetDraw) {
+      return;
+    }
+
+    const limit = calculateDrawRequestLimit(targetDraw, items, draws);
+    const nextAmount = clampNumber(
+      Math.round(request.amount),
+      0,
+      limit.availableLimit
+    );
+
+    setDraws((currentDraws) =>
+      currentDraws.map((draw) => {
+        if (draw.id !== drawId) {
+          return draw;
+        }
+
+        const {
+          requestReviewNote: _requestReviewNote,
+          reviewedAt: _reviewedAt,
+          ...draftDraw
+        } = draw;
+
+        return {
+          ...draftDraw,
+          amount: nextAmount,
+          ...(request.note ? { requestNote: request.note } : {}),
+          requestStatus: "requested",
+          requestedAt: new Date().toISOString(),
+        };
+      })
+    );
+  };
+
+  const reviewDrawRequest = (
+    drawId: string,
+    review: { note?: string; status: "approved" | "rejected" }
+  ) => {
+    setDraws((currentDraws) =>
+      currentDraws.map((draw) =>
+        draw.id === drawId
+          ? {
+              ...draw,
+              ...(review.note ? { requestReviewNote: review.note } : {}),
+              requestStatus: review.status,
+              reviewedAt: new Date().toISOString(),
+            }
+          : draw
+      )
+    );
+  };
+
+  const reviewMilestoneCompletion = (
+    itemId: string,
+    review: { note?: string; status: "approved" | "revisionRequested" }
+  ) => {
+    setItems((currentItems) =>
+      currentItems.map((item) =>
+        item.id === itemId && item.data
+          ? {
+              ...item,
+              data: {
+                ...item.data,
+                completionReview: {
+                  ...(review.note ? { note: review.note } : {}),
+                  reviewedAt: new Date().toISOString(),
+                  ...(item.data.completionReview?.siteVisit
+                    ? { siteVisit: item.data.completionReview.siteVisit }
+                    : {}),
+                  status: review.status,
+                },
+              },
+            }
+          : item
+      )
+    );
+  };
+
+  const requestMilestoneSiteVisit = (
+    itemId: string,
+    request: TimelineSiteVisitRequestInput
+  ) => {
+    setItems((currentItems) =>
+      currentItems.map((item) =>
+        item.id === itemId && item.data
+          ? {
+              ...item,
+              data: {
+                ...item.data,
+                completionReview: {
+                  ...(item.data.completionReview?.note
+                    ? { note: item.data.completionReview.note }
+                    : {}),
+                  reviewedAt:
+                    item.data.completionReview?.reviewedAt ??
+                    new Date().toISOString(),
+                  siteVisit: {
+                    ...(request.includedItemIds
+                      ? { includedItemIds: request.includedItemIds }
+                      : {}),
+                    ...(request.note ? { note: request.note } : {}),
+                    requestedAt: new Date().toISOString(),
+                    requestedDay: Math.max(0, Math.round(request.requestedDay)),
+                    ...(request.status ? { status: request.status } : {}),
+                    ...(request.tokenExpiresAt
+                      ? { tokenExpiresAt: request.tokenExpiresAt }
+                      : {}),
+                    ...(request.url ? { url: request.url } : {}),
+                    ...(request.visitId ? { visitId: request.visitId } : {}),
+                  },
+                  status:
+                    item.data.completionReview?.status ??
+                    "revisionRequested",
+                },
+              },
+            }
+          : item
+      )
+    );
   };
 
   const applyCapitalSpikeEdit = (event: FormEvent<HTMLFormElement>) => {
@@ -884,6 +1438,15 @@ function RouteComponent() {
     setActiveCapitalSpikeId(null);
   };
 
+  if (!(share || setupComplete)) {
+    return (
+      <TimelineSetupFlow
+        baseItems={INITIAL_ITEMS}
+        onComplete={completeTimelineSetup}
+      />
+    );
+  }
+
   return (
     <main className="min-h-svh overflow-x-clip bg-[radial-gradient(circle_at_top_left,color-mix(in_oklch,var(--primary)_14%,transparent),transparent_34%),linear-gradient(180deg,var(--background),var(--bg-base))] px-3 py-5 sm:px-6 sm:py-8 lg:px-8">
       <motion.div
@@ -915,16 +1478,32 @@ function RouteComponent() {
               />
             </div>
             <h1 className="text-balance font-semibold text-3xl text-foreground tracking-normal sm:text-4xl">
-              Elm Street build draw roadmap
+              {timelinePlanSummary.templateTitle} draw roadmap
             </h1>
             <p className="mt-3 max-w-2xl text-muted-foreground text-sm leading-6">
-              Seven reimbursement milestones staged against lender policy,
-              evidence review, and borrower working-capital exposure.
+              {timelinePlanSummary.includedCount} reimbursement milestones
+              staged against {money(timelinePlanSummary.totalBudget)} in lender
+              policy, evidence review, and borrower working-capital exposure.
             </p>
           </div>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+            <TimelineRoleSwitcher
+              onRoleChange={setTimelineRole}
+              role={timelineRole}
+            />
             <ShareTimelineMenu {...shareMenuProps} />
-            <Button onClick={resetTimeline} size="sm" variant="outline">
+            {share ? null : (
+              <Button
+                data-testid="timeline-reconfigure-plan"
+                onClick={() => setSetupComplete(false)}
+                size="sm"
+                variant="outline"
+              >
+                <ReceiptText />
+                Reconfigure budget
+              </Button>
+            )}
+            <Button onClick={resetCurrentTimeline} size="sm" variant="outline">
               <RotateCcw />
               Reset
             </Button>
@@ -938,206 +1517,17 @@ function RouteComponent() {
           </div>
         </motion.section>
 
-        <motion.section
-          className="min-w-0 rounded-lg border border-border bg-background/92 p-3 shadow-sm backdrop-blur sm:p-4"
-          data-testid="timeline-cashflow-chart"
-          variants={routeSectionVariants}
-        >
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                <Badge variant="outline">Controlled graph</Badge>
-                <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                <span
-                  className="font-medium text-muted-foreground text-xs"
-                  data-testid="timeline-cashflow-series-milestone-cost"
-                >
-                  Milestone cost
-                </span>
-                <span className="ml-2 h-2 w-2 rounded-full bg-amber-500" />
-                <span
-                  className="font-medium text-muted-foreground text-xs"
-                  data-testid="timeline-cashflow-series-cash-on-hand"
-                >
-                  Cash on hand
-                </span>
-              </div>
-              <h2 className="font-semibold text-xl">
-                Cash requirement vs draw recovery
-              </h2>
-              <p className="mt-1 max-w-2xl text-muted-foreground text-sm">
-                Costs pull borrower cash down as milestone work progresses;
-                draw capacity unlocks at completion and releases replenish cash
-                on their scheduled dates. Capital spikes model unexpected
-                planning costs.
-              </p>
-            </div>
-            <div className="grid w-full gap-3 lg:w-auto lg:min-w-[560px]">
-              <div className="grid gap-1.5 sm:ml-auto sm:w-56">
-                <Label className="text-xs" htmlFor="timeline-starting-cash">
-                  Initial cash on hand
-                </Label>
-                <Input
-                  data-testid="timeline-starting-cash-input"
-                  id="timeline-starting-cash"
-                  min={0}
-                  nativeInput
-                  onChange={(event) => {
-                    const nextValue = Math.max(
-                      0,
-                      Math.round(Number(event.currentTarget.value))
-                    );
-
-                    if (Number.isFinite(nextValue)) {
-                      setStartingCash(nextValue);
-                    }
-                  }}
-                  size="sm"
-                  step={5000}
-                  type="number"
-                  value={startingCash}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
-                <div className="min-w-0 rounded-md border border-border bg-muted/30 px-2.5 py-2 sm:px-3">
-                  <p className="font-medium text-[10px] text-muted-foreground uppercase">
-                    Probe
-                  </p>
-                  <p
-                    className="mt-1 font-semibold text-foreground"
-                    data-testid="timeline-cashflow-probe-day"
-                  >
-                    {probeValue === null
-                      ? "Hover chart"
-                      : `Day ${Math.round(probeValue)}`}
-                  </p>
-                </div>
-                <div className="min-w-0 rounded-md border border-border bg-muted/30 px-2.5 py-2 sm:px-3">
-                  <p className="font-medium text-[10px] text-muted-foreground uppercase">
-                    Cash
-                  </p>
-                  <p
-                    className="mt-1 font-semibold text-foreground tabular-nums"
-                    data-testid="timeline-cashflow-probe-cash"
-                  >
-                    {probeCashOnHand === null ? "-" : money(probeCashOnHand)}
-                  </p>
-                </div>
-                <div className="min-w-0 rounded-md border border-border bg-muted/30 px-2.5 py-2 sm:px-3">
-                  <p className="font-medium text-[10px] text-muted-foreground uppercase">
-                    Ending cash
-                  </p>
-                  <p
-                    className="mt-1 font-semibold text-foreground tabular-nums"
-                    data-testid="timeline-cashflow-ending-cash"
-                  >
-                    {money(endingCashOnHand)}
-                  </p>
-                </div>
-                <div
-                  className={cn(
-                    "min-w-0 rounded-md border px-2.5 py-2 sm:px-3",
-                    cashShortfalls.length > 0
-                      ? "border-rose-500/30 bg-rose-500/10"
-                      : "border-border bg-muted/30"
-                  )}
-                  data-testid="timeline-cashflow-risk-summary"
-                >
-                  <p className="font-medium text-[10px] text-muted-foreground uppercase">
-                    Cash risk
-                  </p>
-                  <p className="mt-1 font-semibold text-foreground tabular-nums">
-                    {cashShortfalls.length > 0
-                      ? `${cashShortfalls.length} flagged`
-                      : "Clear"}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-          {cashShortfalls.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {cashShortfalls.slice(0, 4).map((point) => (
-                <div
-                  className="inline-flex max-w-full items-center gap-2 rounded-md border border-rose-500/25 bg-rose-500/10 px-2.5 py-1.5 text-rose-700 text-xs dark:text-rose-100"
-                  data-testid="timeline-cash-shortfall-point"
-                  key={`${point.day}-${point.milestone}`}
-                >
-                  <AlertTriangle className="size-3.5" />
-                  <span className="font-medium">
-                    {formatTimelineDay(point.day)}
-                  </span>
-                  <span className="min-w-0 truncate text-muted-foreground">
-                    {formatCashShortfallMessage(point)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-          <EvilComposedChart
-            activeDotVariant="default"
-            areaConfig={{ cashOnHand: cashflowChartConfig.cashOnHand }}
-            areaCurveType="stepAfter"
-            areaOpacity={0.16}
-            areaVariant="gradient"
-            barConfig={{
-              budget: cashflowChartConfig.budget,
-              capitalSpikeAmount: cashflowChartConfig.capitalSpikeAmount,
-            }}
-            barRadius={6}
-            barSize={timelineSizing.barSize}
-            barVariant="duotone"
-            chartProps={{
-              margin: { bottom: 0, left: 0, right: 12, top: 18 },
-              onMouseLeave: () => setProbeValue(null),
-              onMouseMove: (state) => {
-                const nextValue = getChartProbeValue(state);
-
-                if (nextValue !== null) {
-                  setProbeValue(nextValue);
-                }
-              },
-            }}
-            className="mt-3 h-[220px] min-w-0 sm:h-[230px]"
-            curveType="stepAfter"
-            data={cashflowChartData}
-            dotVariant="default"
-            hideLegend
-            lineConfig={{ cashOnHand: cashflowChartConfig.cashOnHand }}
-            referenceLines={cashflowReferenceLines}
-            strokeVariant="solid"
-            tooltipRoundness="xl"
-            tooltipVariant="frosted-glass"
-            xAxisProps={{
-              domain: [resolvedRange.min, resolvedRange.max],
-              height: 26,
-              tickFormatter: formatTimelineDay,
-              ticks: cashflowTicks,
-              type: "number",
-            }}
-            xDataKey="day"
-            yAxisProps={{
-              domain: [cashflowExtent.min, cashflowExtent.max],
-              tickFormatter: formatCompactMoney,
-              width: timelineSizing.yAxisWidth,
-            }}
-            yDataKey="budget"
-          />
-        </motion.section>
-
-        <motion.section
+        <motion.div
           animate={{
-            gridTemplateColumns: isCompactLayout
-              ? "minmax(0, 1fr)"
-              : selectedPanelOpen
-                ? "minmax(0, 1fr) 280px"
-                : "minmax(0, 1fr) 0px",
+            gridTemplateColumns:
+              isCompactLayout || !selectedPanelOpen
+                ? "minmax(0, 1fr) 0px"
+                : "minmax(0, 1fr) 320px",
           }}
-          className="grid min-w-0 gap-y-4"
-          data-testid="timeline-roadmap-grid"
+          className="grid min-w-0 gap-y-6 lg:items-start"
+          data-testid="timeline-workspace-grid"
           style={{
-            columnGap: isCompactLayout || !selectedPanelOpen ? 0 : 16,
-            rowGap: 16,
+            columnGap: isCompactLayout || !selectedPanelOpen ? 0 : 20,
           }}
           transition={{
             duration: 0.26,
@@ -1145,246 +1535,576 @@ function RouteComponent() {
           }}
           variants={routeSectionVariants}
         >
-          <AnimatedCurvedTimeline<DemoMilestone>
-            activeItemId={activeItemId}
-            activeItemPhase={
-              activeSelection.phase === "complete" ? "end" : "start"
-            }
-            cardWidth={timelineSizing.cardWidth}
-            className="min-w-0"
-            endCardWidth={timelineSizing.endCardWidth}
-            formatValue={(value) => `Day ${Math.round(value)}`}
-            getItemEndValue={getMilestoneEndX}
-            hoverValue={probeValue}
-            insertion={{
-              actions: [
-                {
-                  icon: <CircleDollarSign className="size-4 text-rose-500" />,
-                  id: "add-draw",
-                  label: "Add draw",
-                  onSelect: ({ requestedX }) => addManualDraw(requestedX),
-                },
-                {
-                  icon: <AlertTriangle className="size-4 text-amber-500" />,
-                  id: "add-capital-spike",
-                  label: "Add capital spike",
-                  onSelect: ({ requestedX }) => addCapitalSpike(requestedX),
-                },
-              ],
-              createItem: (requestedX) => {
-                insertionCount.current += 1;
-                const count = insertionCount.current;
-                const lane = count % 3 === 0 ? 1 : count % 2 === 0 ? -1 : 0;
+          <div
+            className="grid min-w-0 gap-6"
+            data-testid="timeline-workspace-main"
+          >
+            <motion.section
+              className="min-w-0 rounded-lg border border-border bg-background/92 p-3 shadow-sm backdrop-blur sm:p-4"
+              data-testid="timeline-cashflow-chart"
+              variants={routeSectionVariants}
+            >
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">Controlled graph</Badge>
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                    <span
+                      className="font-medium text-muted-foreground text-xs"
+                      data-testid="timeline-cashflow-series-milestone-cost"
+                    >
+                      Milestone cost
+                    </span>
+                    <span className="ml-2 h-2 w-2 rounded-full bg-amber-500" />
+                    <span
+                      className="font-medium text-muted-foreground text-xs"
+                      data-testid="timeline-cashflow-series-cash-on-hand"
+                    >
+                      Cash on hand
+                    </span>
+                  </div>
+                  <h2 className="font-semibold text-xl">
+                    Cash requirement vs draw recovery
+                  </h2>
+                  <p className="mt-1 max-w-2xl text-muted-foreground text-sm">
+                    Costs pull borrower cash down as milestone work progresses;
+                    draw capacity unlocks at completion and releases replenish
+                    cash on their scheduled dates. Capital spikes model
+                    unexpected planning costs.
+                  </p>
+                </div>
+                <div className="grid w-full gap-3 lg:w-auto lg:min-w-[560px]">
+                  <div className="grid gap-1.5 sm:ml-auto sm:w-56">
+                    <Label className="text-xs" htmlFor="timeline-starting-cash">
+                      Initial cash on hand
+                    </Label>
+                    <Input
+                      data-testid="timeline-starting-cash-input"
+                      id="timeline-starting-cash"
+                      min={0}
+                      nativeInput
+                      onChange={(event) => {
+                        const nextValue = Math.max(
+                          0,
+                          Math.round(Number(event.currentTarget.value))
+                        );
 
-                return {
-                  data: {
-                    amount: 95_000 + count * 12_500,
-                    completionPaymentAmount: 20_000,
-                    draw: `Inserted ${count}`,
-                    durationDays: DEFAULT_MILESTONE_DURATION_DAYS,
-                    evidence: "Draft package",
-                    icon: "change",
-                    initialPaymentAmount: 15_000,
-                    name: `Field change ${count}`,
-                    policy: "Needs sequencing",
-                    status: "ready",
-                    subMilestones: [
-                      "Scope estimate",
-                      "Schedule alignment",
-                      "Draw planning",
-                    ],
+                        if (Number.isFinite(nextValue)) {
+                          setStartingCash(nextValue);
+                        }
+                      }}
+                      size="sm"
+                      step={5000}
+                      type="number"
+                      value={startingCash}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+                    <div className="min-w-0 rounded-md border border-border bg-muted/30 px-2.5 py-2 sm:px-3">
+                      <p className="font-medium text-[10px] text-muted-foreground uppercase">
+                        Probe
+                      </p>
+                      <p
+                        className="mt-1 font-semibold text-foreground"
+                        data-testid="timeline-cashflow-probe-day"
+                      >
+                        {probeValue === null
+                          ? "Hover chart"
+                          : `Day ${Math.round(probeValue)}`}
+                      </p>
+                    </div>
+                    <div className="min-w-0 rounded-md border border-border bg-muted/30 px-2.5 py-2 sm:px-3">
+                      <p className="font-medium text-[10px] text-muted-foreground uppercase">
+                        Cash
+                      </p>
+                      <p
+                        className="mt-1 font-semibold text-foreground tabular-nums"
+                        data-testid="timeline-cashflow-probe-cash"
+                      >
+                        {probeCashOnHand === null
+                          ? "-"
+                          : money(probeCashOnHand)}
+                      </p>
+                    </div>
+                    <div className="min-w-0 rounded-md border border-border bg-muted/30 px-2.5 py-2 sm:px-3">
+                      <p className="font-medium text-[10px] text-muted-foreground uppercase">
+                        Ending cash
+                      </p>
+                      <p
+                        className="mt-1 font-semibold text-foreground tabular-nums"
+                        data-testid="timeline-cashflow-ending-cash"
+                      >
+                        {money(endingCashOnHand)}
+                      </p>
+                    </div>
+                    <div
+                      className={cn(
+                        "min-w-0 rounded-md border px-2.5 py-2 sm:px-3",
+                        cashShortfalls.length > 0
+                          ? "border-rose-500/30 bg-rose-500/10"
+                          : "border-border bg-muted/30"
+                      )}
+                      data-testid="timeline-cashflow-risk-summary"
+                    >
+                      <p className="font-medium text-[10px] text-muted-foreground uppercase">
+                        Cash risk
+                      </p>
+                      <p className="mt-1 font-semibold text-foreground tabular-nums">
+                        {cashShortfalls.length > 0
+                          ? `${cashShortfalls.length} flagged`
+                          : "Clear"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {cashShortfalls.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {cashShortfalls.slice(0, 4).map((point) => (
+                    <div
+                      className="inline-flex max-w-full items-center gap-2 rounded-md border border-rose-500/25 bg-rose-500/10 px-2.5 py-1.5 text-rose-700 text-xs dark:text-rose-100"
+                      data-testid="timeline-cash-shortfall-point"
+                      key={`${point.day}-${point.milestone}`}
+                    >
+                      <AlertTriangle className="size-3.5" />
+                      <span className="font-medium">
+                        {formatTimelineDay(point.day)}
+                      </span>
+                      <span className="min-w-0 truncate text-muted-foreground">
+                        {formatCashShortfallMessage(point)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <EvilComposedChart
+                activeDotVariant="default"
+                areaConfig={{ cashOnHand: cashflowChartConfig.cashOnHand }}
+                areaCurveType="linear"
+                areaOpacity={0.16}
+                areaVariant="gradient"
+                barConfig={{
+                  budget: cashflowChartConfig.budget,
+                  capitalSpikeAmount: cashflowChartConfig.capitalSpikeAmount,
+                }}
+                barRadius={6}
+                barSize={timelineSizing.barSize}
+                barVariant="duotone"
+                chartProps={{
+                  margin: { bottom: 0, left: 0, right: 12, top: 18 },
+                  onMouseLeave: () => setProbeValue(null),
+                  onMouseMove: (state) => {
+                    const nextValue = getChartProbeValue(state);
+
+                    if (nextValue !== null) {
+                      setProbeValue(nextValue);
+                    }
                   },
-                  eyebrow: "Inserted milestone",
-                  id: `inserted-${Date.now()}-${count}`,
-                  label: `Field change ${count}`,
-                  lane,
-                  markerLabel: "+",
-                  tone: "warning",
-                  x: requestedX,
-                };
-              },
-              label: "Add milestone",
-              minGap: 14,
-              step: 1,
-            }}
-            items={items}
-            markers={markers}
-            minInlineNodeSpacingPx={72}
-            minNodeSpacingPx={timelineSizing.minNodeSpacingPx}
-            onActiveItemChange={(item) => {
-              setActiveSelection({ itemId: item.id, phase: "inProgress" });
-            }}
-            onEndNodeClick={(item) => {
-              setActiveSelection({ itemId: item.id, phase: "complete" });
-              setProgressValue(getMilestoneEndX(item));
-              setSelectedPanelOpen(true);
-            }}
-            onHoverValueChange={setProbeValue}
-            onItemsChange={(nextItems, details) => {
-              const normalizedItems =
-                normalizeMilestoneTimelineItems(nextItems);
-              const expandedRange = expandTimelineRangeForMilestones(
-                normalizedItems,
-                details.range
-              );
-              const normalizedInsertedItem =
-                details.type === "insert"
-                  ? normalizedItems.find(
-                      (item) => item.id === details.insertedItem.id
+                }}
+                className="mt-3 h-[220px] min-w-0 sm:h-[230px]"
+                curveType="linear"
+                data={cashflowChartData}
+                dotVariant="default"
+                hideLegend
+                lineConfig={{ cashOnHand: cashflowChartConfig.cashOnHand }}
+                minBarWidth={timelineSizing.barSize}
+                referenceLines={cashflowReferenceLines}
+                strokeVariant="solid"
+                tooltipRoundness="xl"
+                tooltipVariant="frosted-glass"
+                xAxisProps={{
+                  domain: [resolvedRange.min, resolvedRange.max],
+                  height: 26,
+                  tickFormatter: formatTimelineDay,
+                  ticks: cashflowTicks,
+                  type: "number",
+                }}
+                xDataKey="day"
+                yAxisProps={{
+                  domain: [cashflowExtent.min, cashflowExtent.max],
+                  tickFormatter: formatCompactMoney,
+                  width: timelineSizing.yAxisWidth,
+                }}
+                yDataKey="budget"
+              />
+            </motion.section>
+
+            <motion.section
+              className="relative z-30 min-w-0 overflow-visible"
+              data-testid="timeline-roadmap-grid"
+              variants={routeSectionVariants}
+            >
+              <AnimatedCurvedTimeline<DemoMilestone>
+                activeItemId={activeItemId}
+                activeItemPhase={
+                  activeSelection.phase === "complete" ? "end" : "start"
+                }
+                cardWidth={timelineSizing.cardWidth}
+                className="min-w-0"
+                endCardWidth={timelineSizing.endCardWidth}
+                formatValue={(value) => `Day ${Math.round(value)}`}
+                getItemEndValue={getMilestoneEndX}
+                hoverValue={probeValue}
+                insertion={{
+                  actions: [
+                    {
+                      icon: (
+                        <CircleDollarSign className="size-4 text-rose-500" />
+                      ),
+                      id: "add-draw",
+                      label: "Add draw",
+                      onSelect: ({ requestedX }) => addManualDraw(requestedX),
+                    },
+                    {
+                      icon: <AlertTriangle className="size-4 text-amber-500" />,
+                      id: "add-capital-spike",
+                      label: "Add capital spike",
+                      onSelect: ({ requestedX }) => addCapitalSpike(requestedX),
+                    },
+                  ],
+                  createItem: (requestedX) => {
+                    insertionCount.current += 1;
+                    const count = insertionCount.current;
+                    const lane = count % 3 === 0 ? 1 : count % 2 === 0 ? -1 : 0;
+
+                    return {
+                      data: {
+                        amount: 95_000 + count * 12_500,
+                        draw: `Inserted ${count}`,
+                        durationDays: DEFAULT_MILESTONE_DURATION_DAYS,
+                        evidence: "Draft package",
+                        icon: "change",
+                        name: `Field change ${count}`,
+                        policy: "Needs sequencing",
+                        status: "ready",
+                        subMilestones: [
+                          "Scope estimate",
+                          "Schedule alignment",
+                          "Draw planning",
+                        ],
+                      },
+                      eyebrow: "Inserted milestone",
+                      id: `inserted-${Date.now()}-${count}`,
+                      label: `Field change ${count}`,
+                      lane,
+                      markerLabel: "+",
+                      tone: "warning",
+                      x: requestedX,
+                    };
+                  },
+                  label: "Add milestone",
+                  minGap: 14,
+                  step: 1,
+                }}
+                items={items}
+                markers={markers}
+                minInlineNodeSpacingPx={72}
+                minNodeSpacingPx={timelineSizing.minNodeSpacingPx}
+                onActiveItemChange={(item) => {
+                  setActiveDrawId(null);
+                  setActiveCapitalSpikeId(null);
+                  setActiveSelection({ itemId: item.id, phase: "inProgress" });
+                }}
+                onEndNodeClick={(item) => {
+                  setActiveDrawId(null);
+                  setActiveCapitalSpikeId(null);
+                  setActiveSelection({ itemId: item.id, phase: "complete" });
+                  setProgressValue(getMilestoneEndX(item));
+                  setSelectedPanelOpen(true);
+                }}
+                onHoverValueChange={setProbeValue}
+                onItemsChange={(nextItems, details) => {
+                  const normalizedItems =
+                    normalizeMilestoneTimelineItems(nextItems);
+                  const expandedRange = expandTimelineRangeForMilestones(
+                    normalizedItems,
+                    details.range
+                  );
+                  const normalizedInsertedItem =
+                    details.type === "insert"
+                      ? normalizedItems.find(
+                          (item) => item.id === details.insertedItem.id
+                        )
+                      : null;
+
+                  if (normalizedInsertedItem) {
+                    pendingNormalizedInsertSelection.current = {
+                      itemId: normalizedInsertedItem.id,
+                      x: normalizedInsertedItem.x,
+                    };
+                    setSelectedPanelOpen(true);
+                  }
+
+                  pendingExpandedRange.current = expandedRange;
+                  setItems(normalizedItems);
+                  setDraws((currentDraws) =>
+                    syncDemoDrawsWithItems(
+                      currentDraws,
+                      normalizedItems,
+                      expandedRange
                     )
-                  : null;
+                  );
+                }}
+                onProgressValueChange={(value, item) => {
+                  const pendingSelection =
+                    pendingNormalizedInsertSelection.current;
 
-              if (normalizedInsertedItem) {
-                pendingNormalizedInsertSelection.current = {
-                  itemId: normalizedInsertedItem.id,
-                  x: normalizedInsertedItem.x,
-                };
-                setSelectedPanelOpen(true);
-              }
+                  if (
+                    pendingSelection &&
+                    item?.id === pendingSelection.itemId
+                  ) {
+                    setActiveSelection({
+                      itemId: pendingSelection.itemId,
+                      phase: "inProgress",
+                    });
+                    setProgressValue(pendingSelection.x);
+                    pendingNormalizedInsertSelection.current = null;
+                    return;
+                  }
 
-              pendingExpandedRange.current = expandedRange;
-              setItems(normalizedItems);
-              setDraws((currentDraws) =>
-                syncDemoDrawsWithItems(
-                  currentDraws,
-                  normalizedItems,
-                  expandedRange
-                )
-              );
-            }}
-            onProgressValueChange={(value, item) => {
-              const pendingSelection =
-                pendingNormalizedInsertSelection.current;
+                  setProgressValue(value);
+                }}
+                onRangeChange={(nextRange) => {
+                  const expandedRange = pendingExpandedRange.current;
+                  pendingExpandedRange.current = null;
+                  setRange(
+                    expandedRange ??
+                      expandTimelineRangeForMilestones(items, nextRange)
+                  );
+                }}
+                paddingX={timelineSizing.paddingX}
+                pixelsPerUnit={timelineSizing.pixelsPerUnit}
+                progressValue={progressValue}
+                range={range}
+                renderCard={(item, context) => (
+                  <TimelineDeleteContextMenu
+                    kind="milestone"
+                    onDelete={() => deleteMilestone(item.id)}
+                  >
+                    <MilestoneCard
+                      active={context.active}
+                      complete={hasCompletionClaim(item)}
+                      item={item}
+                      onUpdate={updateMilestone}
+                      reducedMotion={Boolean(prefersReducedMotion)}
+                    />
+                  </TimelineDeleteContextMenu>
+                )}
+                renderEndNode={(item, context) => (
+                  <TimelineEndNodeButton
+                    active={context.active}
+                    complete={hasCompletionClaim(item)}
+                    item={item}
+                      onClick={() => {
+                        context.activate();
+                        setActiveDrawId(null);
+                        setActiveCapitalSpikeId(null);
+                        setSelectedPanelOpen(true);
+                      }}
+                    reducedMotion={Boolean(prefersReducedMotion)}
+                  />
+                )}
+                renderMarker={(marker) => {
+                  const drawId = marker.id.startsWith("draw-")
+                    ? marker.id.slice("draw-".length)
+                    : null;
+                  const capitalSpikeId = marker.id.startsWith("capital-spike-")
+                    ? marker.id.slice("capital-spike-".length)
+                    : null;
+                  const draw = drawId
+                    ? draws.find((candidate) => candidate.id === drawId)
+                    : null;
+                  const capitalSpike = capitalSpikeId
+                    ? capitalSpikes.find(
+                        (candidate) => candidate.id === capitalSpikeId
+                      )
+                    : null;
 
-              if (pendingSelection && item?.id === pendingSelection.itemId) {
-                setActiveSelection({
-                  itemId: pendingSelection.itemId,
-                  phase: "inProgress",
-                });
-                setProgressValue(pendingSelection.x);
-                pendingNormalizedInsertSelection.current = null;
-                return;
-              }
+                  if (!draw) {
+                    if (capitalSpike) {
+                      return (
+                        <TimelineDeleteContextMenu
+                          kind="capitalSpike"
+                          onDelete={() => deleteCapitalSpike(capitalSpike.id)}
+                        >
+                          <CapitalSpikeTimelineMarker
+                            active={capitalSpike.id === activeCapitalSpikeId}
+                            draft={capitalSpikeEditDraft}
+                            onApply={applyCapitalSpikeEdit}
+                            onCancel={() => setActiveCapitalSpikeId(null)}
+                            onDraftChange={setCapitalSpikeEditDraft}
+                            onOpen={() => openCapitalSpikeEditor(capitalSpike)}
+                            reducedMotion={Boolean(prefersReducedMotion)}
+                            spike={capitalSpike}
+                          />
+                        </TimelineDeleteContextMenu>
+                      );
+                    }
+                    return <TimelineMarkerBadge marker={marker} />;
+                  }
 
-              setProgressValue(value);
-            }}
-            onRangeChange={(nextRange) => {
-              const expandedRange = pendingExpandedRange.current;
-              pendingExpandedRange.current = null;
-              setRange(expandedRange ?? nextRange);
-            }}
-            paddingX={timelineSizing.paddingX}
-            pixelsPerUnit={timelineSizing.pixelsPerUnit}
-            progressValue={progressValue}
-            range={range}
-            renderCard={(item, context) => (
-              <TimelineDeleteContextMenu
-                kind="milestone"
-                onDelete={() => deleteMilestone(item.id)}
-              >
-                <MilestoneCard
-                  active={context.active}
-                  activePhase={activeSelection.phase}
-                  complete={context.complete}
-                  item={item}
-                  reducedMotion={Boolean(prefersReducedMotion)}
-                />
-              </TimelineDeleteContextMenu>
-            )}
-            renderMarker={(marker) => {
-              const drawId = marker.id.startsWith("draw-")
-                ? marker.id.slice("draw-".length)
-                : null;
-              const capitalSpikeId = marker.id.startsWith("capital-spike-")
-                ? marker.id.slice("capital-spike-".length)
-                : null;
-              const draw = drawId
-                ? draws.find((candidate) => candidate.id === drawId)
-                : null;
-              const capitalSpike = capitalSpikeId
-                ? capitalSpikes.find(
-                    (candidate) => candidate.id === capitalSpikeId
-                  )
-                : null;
-
-              if (!draw) {
-                if (capitalSpike) {
                   return (
                     <TimelineDeleteContextMenu
-                      kind="capitalSpike"
-                      onDelete={() => deleteCapitalSpike(capitalSpike.id)}
+                      kind="draw"
+                      onDelete={() => deleteDraw(draw.id)}
                     >
-                      <CapitalSpikeTimelineMarker
-                        active={capitalSpike.id === activeCapitalSpikeId}
-                        draft={capitalSpikeEditDraft}
-                        onApply={applyCapitalSpikeEdit}
-                        onCancel={() => setActiveCapitalSpikeId(null)}
-                        onDraftChange={setCapitalSpikeEditDraft}
-                        onOpen={() => openCapitalSpikeEditor(capitalSpike)}
+                      <DrawTimelineMarker
+                        active={draw.id === activeDrawId}
+                        draft={drawEditDraft}
+                        draw={draw}
+                        onApply={applyDrawEdit}
+                        onCancel={() => setActiveDrawId(null)}
+                        onDraftChange={setDrawEditDraft}
+                        onOpen={() => openDrawEditor(draw)}
                         reducedMotion={Boolean(prefersReducedMotion)}
-                        spike={capitalSpike}
                       />
                     </TimelineDeleteContextMenu>
                   );
-                }
-                return <TimelineMarkerBadge marker={marker} />;
-              }
-
-              return (
-                <TimelineDeleteContextMenu
-                  kind="draw"
-                  onDelete={() => deleteDraw(draw.id)}
-                >
-                  <DrawTimelineMarker
-                    active={draw.id === activeDrawId}
-                    draft={drawEditDraft}
-                    draw={draw}
-                    onApply={applyDrawEdit}
-                    onCancel={() => setActiveDrawId(null)}
-                    onDraftChange={setDrawEditDraft}
-                    onOpen={() => openDrawEditor(draw)}
-                    reducedMotion={Boolean(prefersReducedMotion)}
-                  />
-                </TimelineDeleteContextMenu>
-              );
-            }}
-            renderEndNode={(item, context) => (
-              <TimelineEndNodeButton
-                active={context.active}
-                complete={context.complete}
-                item={item}
-                onClick={() => {
-                  context.activate();
-                  setSelectedPanelOpen(true);
                 }}
-                reducedMotion={Boolean(prefersReducedMotion)}
+                renderNode={(item, context) => (
+                  <TimelineDeleteContextMenu
+                    kind="milestone"
+                    onDelete={() => deleteMilestone(item.id)}
+                  >
+                    <TimelineNodeButton
+                      active={context.active}
+                      complete={hasCompletionClaim(item)}
+                      item={item}
+                      onClick={() => {
+                        context.activate();
+                        setActiveDrawId(null);
+                        setActiveCapitalSpikeId(null);
+                        setActiveSelection({
+                          itemId: item.id,
+                          phase: "inProgress",
+                        });
+                        setProgressValue(item.x);
+                        setSelectedPanelOpen(true);
+                      }}
+                      onDoubleClick={() => setSelectedPanelOpen(false)}
+                      reducedMotion={Boolean(prefersReducedMotion)}
+                    />
+                  </TimelineDeleteContextMenu>
+                )}
+                straightLine={straightLine}
               />
-            )}
-            renderNode={(item, context) => (
-              <TimelineDeleteContextMenu
-                kind="milestone"
-                onDelete={() => deleteMilestone(item.id)}
-              >
-                <TimelineNodeButton
-                  active={context.active}
-                  complete={context.complete}
-                  item={item}
-                  onClick={() => {
-                    context.activate();
-                    setActiveSelection({
-                      itemId: item.id,
-                      phase: "inProgress",
-                    });
-                    setProgressValue(item.x);
-                    setSelectedPanelOpen(true);
-                  }}
-                  onDoubleClick={() => setSelectedPanelOpen(false)}
-                  reducedMotion={Boolean(prefersReducedMotion)}
-                />
-              </TimelineDeleteContextMenu>
-            )}
-            straightLine={straightLine}
-          />
+            </motion.section>
+
+            <SelectedDrawMobileDrawer
+              activeDraw={activeItemDraw}
+              activeItem={activeItem}
+              activePanelDraw={activePanelDraw}
+              activePanelDrawItem={activePanelDrawItem}
+              addEvidenceFiles={addEvidenceFiles}
+              draws={draws}
+              items={items}
+              onCompleteMilestone={completeMilestone}
+              onOpenChange={setSelectedPanelOpen}
+              onRequestMilestoneSiteVisit={requestMilestoneSiteVisit}
+              onRemoveEvidenceAsset={removeEvidenceAsset}
+              onReviewDrawRequest={reviewDrawRequest}
+              onReviewMilestoneCompletion={reviewMilestoneCompletion}
+              onSubmitDrawRequest={submitDrawRequest}
+              onUpdateEvidenceAsset={updateEvidenceAsset}
+              open={
+                Boolean(activeItem) && selectedPanelOpen && isMobileDrawerLayout
+              }
+              overview={financialOverview}
+              range={resolvedRange}
+              role={timelineRole}
+            />
+
+            <motion.section
+              className="relative z-0 min-w-0 rounded-lg border border-border bg-background/92 p-3 shadow-sm backdrop-blur sm:p-4"
+              data-testid="timeline-draw-availability-chart"
+              variants={routeSectionVariants}
+            >
+              <div className="flex flex-col gap-3">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <Badge variant="outline">Draw availability</Badge>
+                  <span className="h-2 w-2 rounded-full bg-violet-500" />
+                  <span
+                    className="font-medium text-muted-foreground text-xs"
+                    data-testid="timeline-draw-series-interest-bearing"
+                  >
+                    Interest-bearing draw
+                  </span>
+                  <span className="ml-2 h-2 w-2 rounded-full bg-sky-500" />
+                  <span
+                    className="font-medium text-muted-foreground text-xs"
+                    data-testid="timeline-draw-series-additional-available"
+                  >
+                    Additional available draw
+                  </span>
+                </div>
+                <div>
+                  {/*<h2 className="font-semibold text-xl">Draw capacity envelope</h2>*/}
+                  {/*<p className="mt-1 max-w-2xl text-muted-foreground text-sm">
+                Top line is interest-bearing principal plus available draw;
+                lower line is interest-bearing principal.
+              </p>*/}
+                </div>
+              </div>
+              <EvilComposedChart
+                activeDotVariant="default"
+                areaConfig={{
+                  interestBearingDraw: cashflowChartConfig.interestBearingDraw,
+                  additionalAvailableDraw:
+                    cashflowChartConfig.additionalAvailableDraw,
+                }}
+                areaCurveType="stepAfter"
+                areaOpacity={0.18}
+                areaStacked
+                areaVariant="gradient"
+                barConfig={{}}
+                chartProps={{
+                  margin: { bottom: 0, left: 0, right: 12, top: 18 },
+                  onMouseLeave: () => setProbeValue(null),
+                  onMouseMove: (state) => {
+                    const nextValue = getChartProbeValue(state);
+
+                    if (nextValue !== null) {
+                      setProbeValue(nextValue);
+                    }
+                  },
+                }}
+                className="mt-3 h-[220px] min-w-0 sm:h-[210px]"
+                curveType="stepAfter"
+                data={drawAvailabilityChartData}
+                dotVariant="default"
+                hideLegend
+                lineConfig={{
+                  interestBearingDraw: cashflowChartConfig.interestBearingDraw,
+                  totalAvailableDraw: cashflowChartConfig.totalAvailableDraw,
+                }}
+                referenceLines={drawAvailabilityReferenceLines}
+                strokeVariant="solid"
+                tooltipRoundness="xl"
+                tooltipVariant="frosted-glass"
+                xAxisProps={{
+                  domain: [resolvedRange.min, resolvedRange.max],
+                  height: 26,
+                  tickFormatter: formatTimelineDay,
+                  ticks: cashflowTicks,
+                  type: "number",
+                }}
+                xDataKey="day"
+                yAxisProps={{
+                  domain: [0, drawAvailabilityExtent.max],
+                  tickFormatter: formatCompactMoney,
+                  width: timelineSizing.yAxisWidth,
+                }}
+                yDataKey="totalAvailableDraw"
+              />
+              <DrawAvailabilityMetrics
+                endingAvailability={endingAvailability}
+                probeDrawAvailability={probeDrawAvailability}
+              />
+              <DrawAvailabilityDeltaReadout
+                probeDrawAvailability={probeDrawAvailability}
+              />
+            </motion.section>
+          </div>
 
           <AnimatePresence initial={false} mode="popLayout">
             {selectedPanelOpen && !isMobileDrawerLayout ? (
@@ -1393,145 +2113,54 @@ function RouteComponent() {
                   filter: "blur(0px)",
                   opacity: 1,
                   scale: 1,
-                  width: isCompactLayout ? "100%" : 280,
                   x: 0,
-                  y: 0,
                 }}
-                className="min-w-0 overflow-hidden rounded-lg border border-border bg-background/92 p-3 shadow-sm backdrop-blur sm:p-4"
+                className="sticky top-5 h-[calc(100svh-2.5rem)] min-w-0 overflow-hidden rounded-lg border border-border bg-background/94 shadow-sm backdrop-blur"
                 data-testid="selected-draw-panel"
                 exit={{
                   filter: "blur(4px)",
                   opacity: 0,
                   scale: 0.96,
-                  width: isCompactLayout ? "100%" : 0,
-                  x: isCompactLayout ? 0 : 24,
-                  y: isCompactLayout ? -12 : 0,
+                  x: 24,
                 }}
                 initial={{
                   filter: "blur(4px)",
                   opacity: 0,
                   scale: 0.96,
-                  width: isCompactLayout ? "100%" : 0,
-                  x: isCompactLayout ? 0 : 24,
-                  y: isCompactLayout ? -12 : 0,
+                  x: 24,
                 }}
                 transition={{
                   duration: 0.24,
                   ease: [0.22, 1, 0.36, 1],
                 }}
               >
-                {activeItem ? (
-                  <SelectedDrawDetails
-                    activeDraw={activeItemDraw}
-                    activeItem={activeItem}
-                    overview={financialOverview}
-                    range={resolvedRange}
-                  />
-                ) : null}
+                <div className="h-full overflow-y-auto p-3 sm:p-4">
+                  {activeItem ? (
+                    <SelectedContextPanel
+                      activeDraw={activeItemDraw}
+                      activeItem={activeItem}
+                      activePanelDraw={activePanelDraw}
+                      activePanelDrawItem={activePanelDrawItem}
+                      addEvidenceFiles={addEvidenceFiles}
+                      draws={draws}
+                      items={items}
+                      onCompleteMilestone={completeMilestone}
+                      onRequestMilestoneSiteVisit={requestMilestoneSiteVisit}
+                      onRemoveEvidenceAsset={removeEvidenceAsset}
+                      onReviewDrawRequest={reviewDrawRequest}
+                      onReviewMilestoneCompletion={reviewMilestoneCompletion}
+                      onSubmitDrawRequest={submitDrawRequest}
+                      onUpdateEvidenceAsset={updateEvidenceAsset}
+                      overview={financialOverview}
+                      range={resolvedRange}
+                      role={timelineRole}
+                    />
+                  ) : null}
+                </div>
               </motion.aside>
             ) : null}
           </AnimatePresence>
-        </motion.section>
-
-        <SelectedDrawMobileDrawer
-          activeDraw={activeItemDraw}
-          activeItem={activeItem}
-          onOpenChange={setSelectedPanelOpen}
-          open={Boolean(activeItem) && selectedPanelOpen && isMobileDrawerLayout}
-          overview={financialOverview}
-          range={resolvedRange}
-        />
-
-        <motion.section
-          className="min-w-0 rounded-lg border border-border bg-background/92 p-3 shadow-sm backdrop-blur sm:p-4"
-          data-testid="timeline-draw-availability-chart"
-          variants={routeSectionVariants}
-        >
-          <div className="flex flex-col gap-3">
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <Badge variant="outline">Draw availability</Badge>
-              <span className="h-2 w-2 rounded-full bg-violet-500" />
-              <span
-                className="font-medium text-muted-foreground text-xs"
-                data-testid="timeline-draw-series-interest-bearing"
-              >
-                Interest-bearing draw
-              </span>
-              <span className="ml-2 h-2 w-2 rounded-full bg-sky-500" />
-              <span
-                className="font-medium text-muted-foreground text-xs"
-                data-testid="timeline-draw-series-additional-available"
-              >
-                Additional available draw
-              </span>
-            </div>
-            <div>
-              <h2 className="font-semibold text-xl">Draw capacity envelope</h2>
-              <p className="mt-1 max-w-2xl text-muted-foreground text-sm">
-                Top line is interest-bearing principal plus available draw;
-                lower line is interest-bearing principal.
-              </p>
-            </div>
-          </div>
-          <EvilComposedChart
-            activeDotVariant="default"
-            areaConfig={{
-              interestBearingDraw: cashflowChartConfig.interestBearingDraw,
-              additionalAvailableDraw:
-                cashflowChartConfig.additionalAvailableDraw,
-            }}
-            areaCurveType="stepAfter"
-            areaOpacity={0.18}
-            areaStacked
-            areaVariant="gradient"
-            barConfig={{}}
-            chartProps={{
-              margin: { bottom: 0, left: 0, right: 12, top: 18 },
-              onMouseLeave: () => setProbeValue(null),
-              onMouseMove: (state) => {
-                const nextValue = getChartProbeValue(state);
-
-                if (nextValue !== null) {
-                  setProbeValue(nextValue);
-                }
-              },
-            }}
-            className="mt-3 h-[220px] min-w-0 sm:h-[210px]"
-            curveType="stepAfter"
-            data={drawAvailabilityChartData}
-            dotVariant="default"
-            hideLegend
-            lineConfig={{
-              interestBearingDraw: cashflowChartConfig.interestBearingDraw,
-              totalAvailableDraw: cashflowChartConfig.totalAvailableDraw,
-            }}
-            referenceLines={drawAvailabilityReferenceLines}
-            strokeVariant="solid"
-            tooltipRoundness="xl"
-            tooltipVariant="frosted-glass"
-            xAxisProps={{
-              domain: [resolvedRange.min, resolvedRange.max],
-              height: 26,
-              tickFormatter: formatTimelineDay,
-              ticks: cashflowTicks,
-              type: "number",
-            }}
-            xDataKey="day"
-            yAxisProps={{
-              domain: [0, drawAvailabilityExtent.max],
-              tickFormatter: formatCompactMoney,
-              width: timelineSizing.yAxisWidth,
-            }}
-            yDataKey="totalAvailableDraw"
-          />
-          <DrawAvailabilityMetrics
-            endingAvailability={endingAvailability}
-            probeDrawAvailability={probeDrawAvailability}
-          />
-          <DrawAvailabilityDeltaReadout
-            probeDrawAvailability={probeDrawAvailability}
-          />
-        </motion.section>
+        </motion.div>
       </motion.div>
     </main>
   );
@@ -1545,6 +2174,7 @@ interface UseTimelineSnapshotSharingArgs {
   activeSelection: ActiveMilestoneSelection;
   capitalSpikeInsertionCount: CounterRef;
   capitalSpikes: DemoCapitalSpike[];
+  currentDay: number;
   drawInsertionCount: CounterRef;
   draws: DemoDraw[];
   insertionCount: CounterRef;
@@ -1557,6 +2187,7 @@ interface UseTimelineSnapshotSharingArgs {
   setActiveSelection: (value: ActiveMilestoneSelection) => void;
   setCapitalSpikeEditDraft: (value: CapitalSpikeEditDraft) => void;
   setCapitalSpikes: Dispatch<SetStateAction<DemoCapitalSpike[]>>;
+  setCurrentDay: (value: number) => void;
   setDrawEditDraft: (value: DrawEditDraft) => void;
   setDraws: (value: DemoDraw[]) => void;
   setItems: (value: TimelineItem<DemoMilestone>[]) => void;
@@ -1609,6 +2240,7 @@ function useTimelineSnapshotSharing({
   activeSelection,
   capitalSpikeInsertionCount,
   capitalSpikes,
+  currentDay,
   drawInsertionCount,
   draws,
   insertionCount,
@@ -1621,6 +2253,7 @@ function useTimelineSnapshotSharing({
   setActiveSelection,
   setCapitalSpikeEditDraft,
   setCapitalSpikes,
+  setCurrentDay,
   setDrawEditDraft,
   setDraws,
   setItems,
@@ -1639,7 +2272,9 @@ function useTimelineSnapshotSharing({
   );
   const sharedSnapshot = useQuery(
     api.demo_timeline_snapshots.demo_getTimelineSnapshot,
-    share ? { snapshotId: share } : "skip"
+    share && !share.startsWith(LOCAL_TIMELINE_SHARE_PREFIX)
+      ? { snapshotId: share }
+      : "skip"
   );
   const hydratedShareId = useRef<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
@@ -1655,7 +2290,8 @@ function useTimelineSnapshotSharing({
         INITIAL_CAPITAL_SPIKES,
         INITIAL_RANGE,
         { itemId: "rough-in", phase: "inProgress" },
-        92,
+        66,
+        INITIAL_CURRENT_DAY,
         true,
         STARTING_CASH,
         false
@@ -1672,6 +2308,7 @@ function useTimelineSnapshotSharing({
       setCapitalSpikes(hydratedState.capitalSpikes);
       setRange(hydratedState.range);
       setActiveSelection(hydratedState.activeSelection);
+      setCurrentDay(hydratedState.currentDay);
       setProgressValue(hydratedState.progressValue);
       setProbeValue(null);
       setActiveDrawId(null);
@@ -1694,6 +2331,7 @@ function useTimelineSnapshotSharing({
       setActiveSelection,
       setCapitalSpikeEditDraft,
       setCapitalSpikes,
+      setCurrentDay,
       setDrawEditDraft,
       setDraws,
       setItems,
@@ -1716,26 +2354,43 @@ function useTimelineSnapshotSharing({
   }, [share]);
 
   useEffect(() => {
+    if (
+      !(
+        share?.startsWith(LOCAL_TIMELINE_SHARE_PREFIX) &&
+        hydratedShareId.current !== share
+      )
+    ) {
+      return;
+    }
+
+    const storedSnapshot = readLocalTimelineSnapshot(share);
+    if (storedSnapshot) {
+      applyShareState(
+        applyTimelineShareSnapshotV2(storedSnapshot, initialShareState)
+      );
+      hydratedShareId.current = share;
+    }
+  }, [applyShareState, initialShareState, share]);
+
+  useEffect(() => {
     if (!(share && sharedSnapshot && hydratedShareId.current !== share)) {
       return;
     }
 
     applyShareState(
-      applyTimelineShareSnapshotV2(
-        sharedSnapshot,
-        initialShareState
-      )
+      applyTimelineShareSnapshotV2(sharedSnapshot, initialShareState)
     );
     hydratedShareId.current = share;
   }, [applyShareState, initialShareState, share, sharedSnapshot]);
 
   const resetTimeline = useCallback(() => {
-    const nextState =
-      share && sharedSnapshot
-        ? applyTimelineShareSnapshotV2(
-            sharedSnapshot,
-            initialShareState
-          )
+    const localSnapshot = share?.startsWith(LOCAL_TIMELINE_SHARE_PREFIX)
+      ? readLocalTimelineSnapshot(share)
+      : null;
+    const nextState = localSnapshot
+      ? applyTimelineShareSnapshotV2(localSnapshot, initialShareState)
+      : share && sharedSnapshot
+        ? applyTimelineShareSnapshotV2(sharedSnapshot, initialShareState)
         : initialShareState;
 
     applyShareState(nextState);
@@ -1751,6 +2406,7 @@ function useTimelineSnapshotSharing({
       const snapshot = buildTimelineShareSnapshotV2({
         activeSelection,
         capitalSpikes,
+        currentDay,
         draws,
         items,
         progressValue,
@@ -1764,12 +2420,26 @@ function useTimelineSnapshotSharing({
 
       await setTimelineSearch({ share: snapshotId });
       setShareUrl(nextShareUrl);
-    } catch (error) {
-      setShareError(
-        error instanceof Error
-          ? error.message
-          : "Unable to create a share link."
-      );
+    } catch {
+      const snapshot = buildTimelineShareSnapshotV2({
+        activeSelection,
+        capitalSpikes,
+        currentDay,
+        draws,
+        items,
+        progressValue,
+        range: resolvedRange,
+        selectedPanelOpen,
+        startingCash,
+        straightLine,
+      });
+      const localShareId = `${LOCAL_TIMELINE_SHARE_PREFIX}${Date.now().toString(
+        36
+      )}`;
+      writeLocalTimelineSnapshot(localShareId, snapshot);
+      await setTimelineSearch({ share: localShareId });
+      setShareUrl(buildTimelineShareUrl(localShareId));
+      setShareError(null);
     } finally {
       setShareCreating(false);
     }
@@ -1777,6 +2447,7 @@ function useTimelineSnapshotSharing({
     activeSelection,
     capitalSpikes,
     createTimelineSnapshot,
+    currentDay,
     draws,
     items,
     progressValue,
@@ -1805,8 +2476,16 @@ function useTimelineSnapshotSharing({
   return {
     resetTimeline,
     share,
-    sharedSnapshotLoading: Boolean(share && sharedSnapshot === undefined),
-    sharedSnapshotMissing: Boolean(share && sharedSnapshot === null),
+    sharedSnapshotLoading: Boolean(
+      share &&
+        !share.startsWith(LOCAL_TIMELINE_SHARE_PREFIX) &&
+        sharedSnapshot === undefined
+    ),
+    sharedSnapshotMissing: Boolean(
+      share &&
+        !share.startsWith(LOCAL_TIMELINE_SHARE_PREFIX) &&
+        sharedSnapshot === null
+    ),
     shareMenuProps: {
       copied: shareCopied,
       error: shareError,
@@ -1852,6 +2531,21 @@ function syncDemoDrawsWithItems(
       const syncedDraw = {
         ...nextDraw,
         amount: existingDraw.amount,
+        ...(existingDraw.requestReviewNote === undefined
+          ? {}
+          : { requestReviewNote: existingDraw.requestReviewNote }),
+        ...(existingDraw.requestNote === undefined
+          ? {}
+          : { requestNote: existingDraw.requestNote }),
+        ...(existingDraw.requestStatus === undefined
+          ? {}
+          : { requestStatus: existingDraw.requestStatus }),
+        ...(existingDraw.reviewedAt === undefined
+          ? {}
+          : { reviewedAt: existingDraw.reviewedAt }),
+        ...(existingDraw.requestedAt === undefined
+          ? {}
+          : { requestedAt: existingDraw.requestedAt }),
         x: existingDraw.customDate ? existingDraw.x : nextDraw.x,
       };
 
@@ -1886,22 +2580,16 @@ export function expandTimelineRangeForMilestones(
   range: TimelineRange
 ): Required<TimelineRange> {
   const resolvedRange = normalizeDemoRange(range);
-  const max = items.reduce((nextMax, item) => {
-    const milestoneDrawX = item.data?.drawX;
-    const completionX = getMilestoneEndX(item);
-    const defaultDrawX = completionX + DEFAULT_DRAW_REVIEW_LAG_DAYS;
-    const explicitDrawX = Number.isFinite(milestoneDrawX)
-      ? Number(milestoneDrawX)
-      : defaultDrawX;
-
-    return Math.max(
-      nextMax,
-      item.x,
-      completionX,
-      defaultDrawX,
-      explicitDrawX
-    );
-  }, resolvedRange.max);
+  const lastCompletionX = items.reduce(
+    (nextMax, item) => Math.max(nextMax, getMilestoneEndX(item)),
+    Number.NEGATIVE_INFINITY
+  );
+  const max = Number.isFinite(lastCompletionX)
+    ? Math.max(
+        resolvedRange.min + 1,
+        lastCompletionX + TIMELINE_END_PADDING_DAYS
+      )
+    : resolvedRange.min + TIMELINE_END_PADDING_DAYS;
 
   return {
     ...resolvedRange,
@@ -1949,8 +2637,83 @@ function formatTimelineDay(value: number) {
   return `Day ${Math.round(value)}`;
 }
 
+function formatTimelineDateTime(value: number) {
+  return new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+  }).format(new Date(value));
+}
+
+function formatFileSize(size: number) {
+  if (size >= 1_000_000) {
+    return `${fileSizeFormatter.format(size / 1_000_000)} MB`;
+  }
+
+  if (size >= 1000) {
+    return `${fileSizeFormatter.format(size / 1000)} KB`;
+  }
+
+  return `${size} B`;
+}
+
+function hasCompletionClaim(item: TimelineItem<DemoMilestone>) {
+  return Boolean(item.data?.completionClaim);
+}
+
 function getDrawDomId(draw: DemoDraw) {
   return draw.itemId ?? draw.id;
+}
+
+function getDrawRequestStatusLabel(status: DemoDraw["requestStatus"]) {
+  if (status === "approved") {
+    return "Draw approved";
+  }
+
+  if (status === "rejected") {
+    return "Draw rejected";
+  }
+
+  if (status === "requested") {
+    return "Request ready for review";
+  }
+
+  return "No builder request";
+}
+
+function calculateDrawRequestLimit(
+  targetDraw: DemoDraw,
+  items: TimelineItem<DemoMilestone>[],
+  draws: DemoDraw[]
+): DrawRequestLimit {
+  const drawDay = targetDraw.x;
+  const totalUnlocked = items.reduce((total, item) => {
+    if (!item.data || getMilestoneEndX(item) > drawDay) {
+      return total;
+    }
+
+    return total + item.data.amount;
+  }, 0);
+  const alreadyDrawn = draws.reduce((total, draw) => {
+    if (draw.id === targetDraw.id || draw.x > drawDay) {
+      return total;
+    }
+
+    if (draw.x === drawDay && draw.id.localeCompare(targetDraw.id) > 0) {
+      return total;
+    }
+
+    return total + draw.amount;
+  }, 0);
+  const availableLimit = Math.max(0, totalUnlocked - alreadyDrawn);
+
+  return {
+    alreadyDrawn,
+    availableLimit,
+    remainingAfterRequest: Math.max(0, availableLimit - targetDraw.amount),
+    totalUnlocked,
+  };
 }
 
 export function buildTimelineCashflowData(
@@ -1993,11 +2756,7 @@ export function buildTimelineCashflowData(
           id: event.id,
           label: event.label,
           sortOrder:
-            event.kind === "initial"
-              ? 0
-              : event.kind === "distributed"
-                ? 1
-                : 2,
+            event.kind === "initial" ? 0 : event.kind === "distributed" ? 1 : 2,
           type: "milestone" as const,
         }));
       }),
@@ -2118,6 +2877,149 @@ export function densifyCashflowData(
   });
 }
 
+export function buildCashflowChartData(
+  accountingData: CashflowDatum[],
+  items: TimelineItem<DemoMilestone>[],
+  range: Required<TimelineRange>,
+  startingCash = STARTING_CASH
+): CashflowDatum[] {
+  const milestoneBars = buildMilestoneCostBars(items, range);
+  const milestoneDays = items
+    .filter((item) => item.data)
+    .flatMap((item) => [item.x, getMilestoneEndX(item)]);
+  const eventDays = [
+    ...accountingData.map((point) => point.day),
+    ...milestoneDays,
+  ];
+  const milestoneBudgetByDay = new Map<number, number>();
+
+  for (const bar of milestoneBars) {
+    milestoneBudgetByDay.set(
+      bar.day,
+      (milestoneBudgetByDay.get(bar.day) ?? 0) + bar.amount
+    );
+  }
+
+  return buildCashflowChartEventDays(range, eventDays).map((day) => {
+    const dayEvents = accountingData.filter(
+      (point) => Math.round(point.day) === day
+    );
+    const drawAmount = dayEvents.reduce(
+      (total, point) => total + point.drawAmount,
+      0
+    );
+    const capitalSpikeAmount = dayEvents.reduce(
+      (total, point) => total + point.capitalSpikeAmount,
+      0
+    );
+    const budget = milestoneBudgetByDay.get(day) ?? 0;
+    const primaryEvent =
+      dayEvents.find((point) => point.event === "draw") ??
+      dayEvents.find((point) => point.event === "capitalSpike") ??
+      dayEvents[0];
+
+    return {
+      budget,
+      capitalSpikeAmount,
+      cashOnHand: projectCashOnHandForChart(
+        accountingData,
+        items,
+        range,
+        day,
+        startingCash
+      ),
+      day,
+      drawAmount,
+      drawCapacityUnlocked: 0,
+      event: budget > 0 ? "milestone" : (primaryEvent?.event ?? "start"),
+      id:
+        budget > 0
+          ? `milestone-cost-gate-${day}`
+          : (primaryEvent?.id ?? `cash-probe-${day}`),
+      name:
+        budget > 0
+          ? "Milestone cost gate"
+          : (primaryEvent?.name ?? formatTimelineDay(day)),
+    } satisfies CashflowDatum;
+  });
+}
+
+function buildCashflowChartEventDays(
+  range: Required<TimelineRange>,
+  eventDays: number[]
+): number[] {
+  const min = Math.round(range.min);
+  const max = Math.round(range.max);
+  const days = new Set<number>([min, max]);
+
+  for (const eventDay of eventDays) {
+    if (Number.isFinite(eventDay)) {
+      days.add(Math.round(clampNumber(eventDay, min, max)));
+    }
+  }
+
+  return [...days].sort((a, b) => a - b);
+}
+
+function buildMilestoneCostBars(
+  items: TimelineItem<DemoMilestone>[],
+  range: Required<TimelineRange>
+): Array<{ amount: number; day: number }> {
+  return items
+    .filter((item) => item.data)
+    .map((item) => {
+      const schedule = getMilestonePaymentSchedule(item);
+
+      return {
+        amount: schedule.totalAmount,
+        day: Math.round(clampNumber(schedule.startX, range.min, range.max)),
+      };
+    })
+    .filter((bar) => bar.amount > 0);
+}
+
+function projectCashOnHandForChart(
+  accountingData: CashflowDatum[],
+  items: TimelineItem<DemoMilestone>[],
+  range: Required<TimelineRange>,
+  value: number,
+  startingCash = STARTING_CASH
+): number {
+  const startPoint = accountingData.find((point) => point.event === "start");
+  let cashOnHand = startPoint?.cashOnHand ?? startingCash;
+
+  for (const point of accountingData) {
+    if (point.day <= value) {
+      cashOnHand += point.drawAmount;
+      cashOnHand -= point.capitalSpikeAmount;
+    }
+  }
+
+  for (const item of items) {
+    if (!item.data) {
+      continue;
+    }
+
+    const schedule = getMilestonePaymentSchedule(item);
+    const startX = clampNumber(schedule.startX, range.min, range.max);
+    const endX = clampNumber(schedule.endX, range.min, range.max);
+
+    if (value < startX) {
+      continue;
+    }
+
+    if (value >= endX || endX <= startX) {
+      cashOnHand -= schedule.totalAmount;
+      continue;
+    }
+
+    cashOnHand -=
+      schedule.totalAmount * ((value - startX) / Math.max(1, endX - startX));
+  }
+
+  return cashOnHand;
+}
+
 export function densifyDrawAvailabilityData(
   data: DrawAvailabilityDatum[],
   range: Required<TimelineRange>
@@ -2162,9 +3064,9 @@ export function buildChartProbeDays(
     }
   }
 
-  for (let day = min; day <= max; day += intervalDays) {
-    days.add(day);
-  }
+  // for (let day = min; day <= max; day += intervalDays) {
+  //   days.add(day);
+  // }
 
   return [...days].sort((a, b) => a - b);
 }
@@ -2349,6 +3251,47 @@ function interpolateCashOnHand(data: CashflowDatum[], value: number): number {
   return cashOnHand;
 }
 
+function interpolateLinearCashOnHand(
+  data: CashflowDatum[],
+  value: number
+): number {
+  if (data.length === 0) {
+    return STARTING_CASH;
+  }
+
+  const sorted = [...data].sort(
+    (a, b) => a.day - b.day || a.id.localeCompare(b.id)
+  );
+  let previous = sorted[0];
+
+  if (!previous) {
+    return STARTING_CASH;
+  }
+
+  if (value <= previous.day) {
+    return previous.cashOnHand;
+  }
+
+  for (const point of sorted.slice(1)) {
+    if (point.day < value) {
+      previous = point;
+      continue;
+    }
+
+    if (point.day === value || point.day === previous.day) {
+      return point.cashOnHand;
+    }
+
+    const ratio = (value - previous.day) / (point.day - previous.day);
+
+    return (
+      previous.cashOnHand + (point.cashOnHand - previous.cashOnHand) * ratio
+    );
+  }
+
+  return previous.cashOnHand;
+}
+
 function interpolateDrawAvailability(
   data: DrawAvailabilityDatum[],
   value: number
@@ -2461,6 +3404,37 @@ function buildTimelineShareUrl(snapshotId: string): string {
   url.searchParams.set("share", snapshotId);
 
   return url.toString();
+}
+
+function readLocalTimelineSnapshot(snapshotId: string): unknown {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const rawSnapshot = window.localStorage.getItem(
+    `${LOCAL_TIMELINE_SHARE_PREFIX}snapshot:${snapshotId}`
+  );
+
+  if (!rawSnapshot) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(rawSnapshot);
+  } catch {
+    return null;
+  }
+}
+
+function writeLocalTimelineSnapshot(snapshotId: string, snapshot: unknown) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(
+    `${LOCAL_TIMELINE_SHARE_PREFIX}snapshot:${snapshotId}`,
+    JSON.stringify(snapshot)
+  );
 }
 
 function ShareTimelineMenu({
@@ -2642,18 +3616,63 @@ function ShareTimelineMenu({
 
 function SelectedDrawMobileDrawer({
   activeDraw,
+  activePanelDraw,
+  activePanelDrawItem,
+  addEvidenceFiles,
   activeItem,
+  draws,
+  items,
   onOpenChange,
+  onCompleteMilestone,
+  onRequestMilestoneSiteVisit,
+  onRemoveEvidenceAsset,
+  onReviewDrawRequest,
+  onReviewMilestoneCompletion,
+  onSubmitDrawRequest,
+  onUpdateEvidenceAsset,
   open,
   overview,
   range,
+  role,
 }: {
   activeDraw: DemoDraw | null;
+  activePanelDraw: DemoDraw | null;
+  activePanelDrawItem: TimelineItem<DemoMilestone> | null;
+  addEvidenceFiles: (itemId: string, files: File[]) => void;
   activeItem: TimelineItem<DemoMilestone> | null;
+  draws: DemoDraw[];
+  items: TimelineItem<DemoMilestone>[];
   onOpenChange: (open: boolean) => void;
+  onCompleteMilestone: (
+    itemId: string,
+    claim: { actualCost?: number; completedDay: number; note?: string }
+  ) => void;
+  onRequestMilestoneSiteVisit: (
+    itemId: string,
+    request: TimelineSiteVisitRequestInput
+  ) => void;
+  onRemoveEvidenceAsset: (itemId: string, assetId: string) => void;
+  onReviewDrawRequest: (
+    drawId: string,
+    review: { note?: string; status: "approved" | "rejected" }
+  ) => void;
+  onReviewMilestoneCompletion: (
+    itemId: string,
+    review: { note?: string; status: "approved" | "revisionRequested" }
+  ) => void;
+  onSubmitDrawRequest: (
+    drawId: string,
+    request: { amount: number; note?: string }
+  ) => void;
+  onUpdateEvidenceAsset: (
+    itemId: string,
+    assetId: string,
+    patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>
+  ) => void;
   open: boolean;
   overview: FinancialOverview;
   range: Required<TimelineRange>;
+  role: TimelineDemoRole;
 }) {
   return (
     <Drawer onOpenChange={onOpenChange} open={open} position="bottom">
@@ -2663,13 +3682,26 @@ function SelectedDrawMobileDrawer({
         showBar
       >
         <DrawerPanel className="px-4 pt-5 pb-6" scrollFade>
-          <DrawerTitle className="sr-only">Selected draw</DrawerTitle>
+          <DrawerTitle className="sr-only">Selected timeline action</DrawerTitle>
           {activeItem ? (
-            <SelectedDrawDetails
+            <SelectedContextPanel
               activeDraw={activeDraw}
               activeItem={activeItem}
+              activePanelDraw={activePanelDraw}
+              activePanelDrawItem={activePanelDrawItem}
+              addEvidenceFiles={addEvidenceFiles}
+              draws={draws}
+              items={items}
+              onCompleteMilestone={onCompleteMilestone}
+              onRequestMilestoneSiteVisit={onRequestMilestoneSiteVisit}
+              onRemoveEvidenceAsset={onRemoveEvidenceAsset}
+              onReviewDrawRequest={onReviewDrawRequest}
+              onReviewMilestoneCompletion={onReviewMilestoneCompletion}
+              onSubmitDrawRequest={onSubmitDrawRequest}
+              onUpdateEvidenceAsset={onUpdateEvidenceAsset}
               overview={overview}
               range={range}
+              role={role}
             />
           ) : null}
         </DrawerPanel>
@@ -2678,14 +3710,198 @@ function SelectedDrawMobileDrawer({
   );
 }
 
-function SelectedDrawDetails({
+function SelectedContextPanel({
   activeDraw,
+  activePanelDraw,
+  activePanelDrawItem,
+  addEvidenceFiles,
   activeItem,
+  draws,
+  items,
+  onCompleteMilestone,
+  onRequestMilestoneSiteVisit,
+  onRemoveEvidenceAsset,
+  onReviewDrawRequest,
+  onReviewMilestoneCompletion,
+  onSubmitDrawRequest,
+  onUpdateEvidenceAsset,
+  overview,
+  range,
+  role,
+}: {
+  activeDraw: DemoDraw | null;
+  activePanelDraw: DemoDraw | null;
+  activePanelDrawItem: TimelineItem<DemoMilestone> | null;
+  addEvidenceFiles: (itemId: string, files: File[]) => void;
+  activeItem: TimelineItem<DemoMilestone>;
+  draws: DemoDraw[];
+  items: TimelineItem<DemoMilestone>[];
+  onCompleteMilestone: (
+    itemId: string,
+    claim: { actualCost?: number; completedDay: number; note?: string }
+  ) => void;
+  onRequestMilestoneSiteVisit: (
+    itemId: string,
+    request: TimelineSiteVisitRequestInput
+  ) => void;
+  onRemoveEvidenceAsset: (itemId: string, assetId: string) => void;
+  onReviewDrawRequest: (
+    drawId: string,
+    review: { note?: string; status: "approved" | "rejected" }
+  ) => void;
+  onReviewMilestoneCompletion: (
+    itemId: string,
+    review: { note?: string; status: "approved" | "revisionRequested" }
+  ) => void;
+  onSubmitDrawRequest: (
+    drawId: string,
+    request: { amount: number; note?: string }
+  ) => void;
+  onUpdateEvidenceAsset: (
+    itemId: string,
+    assetId: string,
+    patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>
+  ) => void;
+  overview: FinancialOverview;
+  range: Required<TimelineRange>;
+  role: TimelineDemoRole;
+}) {
+  if (activePanelDraw) {
+    if (role === "lender") {
+      return (
+        <LenderDrawReviewPanel
+          draw={activePanelDraw}
+          drawItem={activePanelDrawItem}
+          draws={draws}
+          items={items}
+          onReviewDrawRequest={onReviewDrawRequest}
+        />
+      );
+    }
+
+    return (
+      <DrawRequestPanel
+        draw={activePanelDraw}
+        drawItem={activePanelDrawItem}
+        draws={draws}
+        items={items}
+        onSubmitDrawRequest={onSubmitDrawRequest}
+      />
+    );
+  }
+
+  if (role === "lender") {
+    return (
+      <LenderMilestoneReviewPanel
+        activeDraw={activeDraw}
+        activeItem={activeItem}
+        items={items}
+        onRequestMilestoneSiteVisit={onRequestMilestoneSiteVisit}
+        onReviewMilestoneCompletion={onReviewMilestoneCompletion}
+        overview={overview}
+        range={range}
+      />
+    );
+  }
+
+  return (
+    <MilestoneOperationsPanel
+      activeDraw={activeDraw}
+      activeItem={activeItem}
+      addEvidenceFiles={addEvidenceFiles}
+      onCompleteMilestone={onCompleteMilestone}
+      onRemoveEvidenceAsset={onRemoveEvidenceAsset}
+      onUpdateEvidenceAsset={onUpdateEvidenceAsset}
+      overview={overview}
+      range={range}
+    />
+  );
+}
+
+function TimelineRoleSwitcher({
+  onRoleChange,
+  role,
+}: {
+  onRoleChange: (role: TimelineDemoRole) => void;
+  role: TimelineDemoRole;
+}) {
+  const options = [
+    {
+      icon: UserRound,
+      id: "builder" as const,
+      label: "Builder",
+      sublabel: "Borrower",
+    },
+    {
+      icon: ShieldCheck,
+      id: "lender" as const,
+      label: "Lender",
+      sublabel: "Backoffice",
+    },
+  ];
+
+  return (
+    <div
+      aria-label="Timeline role"
+      className="grid grid-cols-2 rounded-lg border border-border bg-background p-0.5 shadow-xs"
+      data-testid="timeline-role-switcher"
+      role="group"
+    >
+      {options.map((option) => {
+        const Icon = option.icon;
+        const active = role === option.id;
+
+        return (
+          <button
+            aria-pressed={active}
+            className={cn(
+              "inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md px-2.5 text-left font-medium text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              active
+                ? "bg-foreground text-background shadow-xs"
+                : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+            )}
+            data-testid={`timeline-role-${option.id}`}
+            key={option.id}
+            onClick={() => onRoleChange(option.id)}
+            type="button"
+          >
+            <Icon className="size-3.5" />
+            <span className="grid leading-tight">
+              <span>{option.label}</span>
+              <span className="hidden text-[9px] opacity-70 xl:block">
+                {option.sublabel}
+              </span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function MilestoneOperationsPanel({
+  activeDraw,
+  addEvidenceFiles,
+  activeItem,
+  onCompleteMilestone,
+  onRemoveEvidenceAsset,
+  onUpdateEvidenceAsset,
   overview,
   range,
 }: {
   activeDraw: DemoDraw | null;
+  addEvidenceFiles: (itemId: string, files: File[]) => void;
   activeItem: TimelineItem<DemoMilestone>;
+  onCompleteMilestone: (
+    itemId: string,
+    claim: { actualCost?: number; completedDay: number; note?: string }
+  ) => void;
+  onRemoveEvidenceAsset: (itemId: string, assetId: string) => void;
+  onUpdateEvidenceAsset: (
+    itemId: string,
+    assetId: string,
+    patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>
+  ) => void;
   overview: FinancialOverview;
   range: Required<TimelineRange>;
 }) {
@@ -2695,17 +3911,38 @@ function SelectedDrawDetails({
     return null;
   }
 
+  const evidenceAssets = milestone.evidencePackage?.assets ?? [];
+  const completionClaim = milestone.completionClaim;
+  const completed = Boolean(completionClaim);
+
   return (
     <div className="grid gap-4" data-testid="selected-draw-details">
       <div>
-        <div className="mb-3 grid size-10 place-items-center rounded-md bg-rose-500/10 text-rose-600">
-          <CircleDollarSign className="size-5" />
+        <div
+          className={cn(
+            "mb-3 grid size-10 place-items-center rounded-md",
+            completed
+              ? "bg-emerald-500/10 text-emerald-600"
+              : "bg-rose-500/10 text-rose-600"
+          )}
+        >
+          {completed ? (
+            <Check className="size-5" />
+          ) : (
+            <CircleDollarSign className="size-5" />
+          )}
         </div>
         <p className="font-semibold text-[10px] text-muted-foreground uppercase">
-          Selected draw
+          Selected milestone
         </p>
-        <h2 className="mt-1 font-semibold text-lg">{milestone.draw}</h2>
-        <p className="mt-1 text-muted-foreground text-sm">{milestone.name}</p>
+        <h2 className="mt-1 font-semibold text-lg">{milestone.name}</h2>
+        <p className="mt-1 text-muted-foreground text-sm">
+          {milestone.draw} scheduled for{" "}
+          {formatTimelineDay(resolveSelectedDrawDate(activeItem, activeDraw, range))}
+        </p>
+        <Badge className="mt-3" variant={completed ? "success" : "outline"}>
+          {completed ? "Builder marked complete" : "Awaiting completion claim"}
+        </Badge>
       </div>
 
       <dl className="grid gap-2 border-border border-t pt-3 text-sm">
@@ -2729,6 +3966,30 @@ function SelectedDrawDetails({
             {money(milestone.amount)}
           </dd>
         </div>
+        {completionClaim ? (
+          <>
+            <div className="flex items-center justify-between gap-3">
+              <dt className="text-muted-foreground">Completed</dt>
+              <dd
+                className="font-medium tabular-nums"
+                data-testid={`selected-draw-completed-day-${activeItem.id}`}
+              >
+                {formatTimelineDay(completionClaim.completedDay)}
+              </dd>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <dt className="text-muted-foreground">Actual cost</dt>
+              <dd
+                className="font-semibold tabular-nums"
+                data-testid={`selected-draw-actual-cost-${activeItem.id}`}
+              >
+                {completionClaim.actualCost === undefined
+                  ? "Not provided"
+                  : money(completionClaim.actualCost)}
+              </dd>
+            </div>
+          </>
+        ) : null}
       </dl>
 
       <div className="border-border border-t pt-3">
@@ -2747,8 +4008,1161 @@ function SelectedDrawDetails({
         </div>
       </div>
 
+      <CompletionClaimPanel
+        activeItem={activeItem}
+        evidenceCount={evidenceAssets.length}
+        onCompleteMilestone={onCompleteMilestone}
+      />
+
+      <EvidencePackagePanel
+        activeItem={activeItem}
+        addEvidenceFiles={addEvidenceFiles}
+        onRemoveEvidenceAsset={onRemoveEvidenceAsset}
+        onUpdateEvidenceAsset={onUpdateEvidenceAsset}
+      />
+
       <FinancialOverviewCard overview={overview} />
     </div>
+  );
+}
+
+function LenderMilestoneReviewPanel({
+  activeDraw,
+  activeItem,
+  items,
+  onRequestMilestoneSiteVisit,
+  onReviewMilestoneCompletion,
+  overview,
+  range,
+}: {
+  activeDraw: DemoDraw | null;
+  activeItem: TimelineItem<DemoMilestone>;
+  items: TimelineItem<DemoMilestone>[];
+  onRequestMilestoneSiteVisit: (
+    itemId: string,
+    request: TimelineSiteVisitRequestInput
+  ) => void;
+  onReviewMilestoneCompletion: (
+    itemId: string,
+    review: { note?: string; status: "approved" | "revisionRequested" }
+  ) => void;
+  overview: FinancialOverview;
+  range: Required<TimelineRange>;
+}) {
+  const milestone = activeItem.data;
+  const workspace = useQuery(api.demo_drawflow.demo_getWorkspace, {
+    scenario: "active",
+  });
+  const seedDemo = useMutation(api.demo_drawflow.demo_seedDrawFlowDemo);
+  const requestSiteVisit = useMutation(api.demo_drawflow.demo_requestSiteVisit);
+  const [siteVisitPending, setSiteVisitPending] = useState(false);
+  const [siteVisitError, setSiteVisitError] = useState("");
+  useEffect(() => {
+    if (workspace?.needsSeed) {
+      void seedDemo({});
+    }
+  }, [seedDemo, workspace?.needsSeed]);
+
+  if (!milestone) {
+    return null;
+  }
+
+  const claim = milestone.completionClaim;
+  const review = milestone.completionReview;
+  const siteVisit = review?.siteVisit;
+  const liveSiteVisit = findLiveSiteVisit(workspace, siteVisit?.visitId);
+  const liveStatus = normalizeTimelineSiteVisitStatus(
+    liveSiteVisit?.status ?? siteVisit?.status,
+    liveSiteVisit?.tokenExpiresAt ?? siteVisit?.tokenExpiresAt
+  );
+  const siteVisitUrl = buildAbsoluteSiteVisitUrl(siteVisit?.url);
+  const eligibleSiteVisitItems = items.slice(
+    0,
+    Math.max(
+      0,
+      items.findIndex((item) => item.id === activeItem.id)
+    ) + 1
+  );
+  const evidenceAssets = milestone.evidencePackage?.assets ?? [];
+  const submitReview = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const submitter = (event.nativeEvent as SubmitEvent)
+      .submitter as HTMLButtonElement | null;
+    const status =
+      submitter?.value === "approved"
+        ? "approved"
+        : "revisionRequested";
+    const note = String(formData.get("reviewNote") ?? "").trim();
+
+    onReviewMilestoneCompletion(activeItem.id, {
+      ...(note ? { note } : {}),
+      status,
+    });
+  };
+  const submitSiteVisit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const requestedDay = Math.round(
+      Number(formData.get("siteVisitDay") ?? getMilestoneEndX(activeItem))
+    );
+    const note = String(formData.get("siteVisitNote") ?? "").trim();
+    const includedItemIds = Array.from(
+      new Set(
+        [
+          ...formData.getAll("includedSiteVisitItemId").map(String),
+          activeItem.id,
+        ].filter(Boolean)
+      )
+    );
+
+    if (!Number.isFinite(requestedDay)) {
+      return;
+    }
+
+    setSiteVisitError("");
+    setSiteVisitPending(true);
+    try {
+      if (workspace?.needsSeed) {
+        await seedDemo({});
+      }
+      const result = await requestSiteVisit({
+        includedMilestoneKeys: includedItemIds.map(
+          resolveTimelineSiteVisitMilestoneKey
+        ),
+        milestoneKey: resolveTimelineSiteVisitMilestoneKey(activeItem.id),
+        persona: "lender_admin",
+        reason:
+          note ||
+          `Field verification requested from timeline for ${milestone.name}.`,
+      });
+
+      onRequestMilestoneSiteVisit(activeItem.id, {
+        includedItemIds,
+        ...(note ? { note } : {}),
+        requestedDay,
+        status: "requested",
+        tokenExpiresAt: result.tokenExpiresAt,
+        url: result.url,
+        visitId: result.visitId,
+      });
+    } catch (error) {
+      setSiteVisitError(
+        error instanceof Error
+          ? error.message
+          : "Unable to generate site visit token."
+      );
+    } finally {
+      setSiteVisitPending(false);
+    }
+  };
+
+  return (
+    <div
+      className="grid gap-4"
+      data-testid={`lender-milestone-review-panel-${activeItem.id}`}
+    >
+      <div>
+        <div className="mb-3 grid size-10 place-items-center rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-200">
+          <ClipboardCheck className="size-5" />
+        </div>
+        <p className="font-semibold text-[10px] text-muted-foreground uppercase">
+          Lender milestone review
+        </p>
+        <h2 className="mt-1 font-semibold text-lg">{milestone.name}</h2>
+        <p className="mt-1 text-muted-foreground text-sm">
+          {milestone.draw} scheduled for{" "}
+          {formatTimelineDay(
+            resolveSelectedDrawDate(activeItem, activeDraw, range)
+          )}
+        </p>
+        <Badge
+          className="mt-3"
+          variant={
+            review?.status === "approved"
+              ? "success"
+              : claim
+                ? "outline"
+                : "secondary"
+          }
+        >
+          {review?.status === "approved"
+            ? "Completion approved"
+            : review?.status === "revisionRequested"
+              ? "Revision requested"
+              : claim
+                ? "Claim ready for review"
+                : "No completion claim"}
+        </Badge>
+      </div>
+
+      <dl className="grid gap-2 border-border border-t pt-3 text-sm">
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-muted-foreground">Milestone cost</dt>
+          <dd className="font-semibold tabular-nums">
+            {money(milestone.amount)}
+          </dd>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-muted-foreground">Claimed complete</dt>
+          <dd
+            className="font-medium tabular-nums"
+            data-testid={`lender-milestone-claimed-day-${activeItem.id}`}
+          >
+            {claim ? formatTimelineDay(claim.completedDay) : "Not claimed"}
+          </dd>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-muted-foreground">Actual cost</dt>
+          <dd className="font-medium tabular-nums">
+            {claim?.actualCost === undefined
+              ? "Not provided"
+              : money(claim.actualCost)}
+          </dd>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-muted-foreground">Evidence</dt>
+          <dd className="font-medium tabular-nums">
+            {evidenceAssets.length} images
+          </dd>
+        </div>
+      </dl>
+
+      <form
+        className="grid gap-3 rounded-lg border border-border bg-muted/20 p-3"
+        data-testid={`lender-milestone-review-form-${activeItem.id}`}
+        onSubmit={submitReview}
+      >
+        <div>
+          <p className="font-medium text-[10px] text-muted-foreground uppercase">
+            Completion review
+          </p>
+          <p className="mt-1 text-muted-foreground text-xs">
+            Approve the builder claim or send it back for revision.
+          </p>
+        </div>
+        {claim?.note ? (
+          <div className="rounded-md border border-border bg-background/60 px-3 py-2 text-xs">
+            <span className="text-muted-foreground">Builder note: </span>
+            {claim.note}
+          </div>
+        ) : null}
+        <Textarea
+          className="min-h-20 resize-none text-sm"
+          data-testid={`lender-milestone-review-note-${activeItem.id}`}
+          defaultValue={review?.note ?? ""}
+          name="reviewNote"
+          placeholder="Review note, missing evidence, or approval context"
+        />
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            data-testid={`lender-milestone-request-revision-${activeItem.id}`}
+            disabled={!claim}
+            name="reviewStatus"
+            size="sm"
+            type="submit"
+            value="revisionRequested"
+            variant="outline"
+          >
+            <AlertTriangle />
+            Request revision
+          </Button>
+          <Button
+            data-testid={`lender-milestone-approve-${activeItem.id}`}
+            disabled={!claim}
+            name="reviewStatus"
+            size="sm"
+            type="submit"
+            value="approved"
+          >
+            <Check />
+            Approve
+          </Button>
+        </div>
+      </form>
+
+      <form
+        className="grid gap-3 rounded-lg border border-border bg-muted/20 p-3"
+        data-testid={`lender-site-visit-form-${activeItem.id}`}
+        onSubmit={submitSiteVisit}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="font-medium text-[10px] text-muted-foreground uppercase">
+              Site visit request
+            </p>
+            <p className="mt-1 text-muted-foreground text-xs">
+              Queue field verification without changing borrower state.
+            </p>
+          </div>
+          <Badge
+            variant={
+              liveStatus === "complete"
+                ? "success"
+                : siteVisit
+                  ? "outline"
+                  : "secondary"
+            }
+          >
+            {siteVisit ? liveStatus : "Optional"}
+          </Badge>
+        </div>
+        <div className="grid gap-1.5">
+          <span className="font-medium text-[10px] text-muted-foreground uppercase">
+            Scope
+          </span>
+          <div className="grid gap-1.5">
+            {eligibleSiteVisitItems.map((item) => {
+              const checked =
+                item.id === activeItem.id ||
+                (siteVisit?.includedItemIds?.includes(item.id) ?? false);
+              return (
+                <label
+                  className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-background/60 px-2.5 py-2 text-xs"
+                  key={`${activeItem.id}:${item.id}:${siteVisit?.visitId ?? "draft"}`}
+                >
+                  <input
+                    className="size-3.5"
+                    defaultChecked={checked}
+                    disabled={item.id === activeItem.id || siteVisitPending}
+                    name="includedSiteVisitItemId"
+                    type="checkbox"
+                    value={item.id}
+                  />
+                  <span className="min-w-0 flex-1 truncate">
+                    {item.data?.name ?? item.label}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+        <label className="grid gap-1.5">
+          <span className="font-medium text-[10px] text-muted-foreground uppercase">
+            Target day
+          </span>
+          <Input
+            data-testid={`lender-site-visit-day-${activeItem.id}`}
+            defaultValue={siteVisit?.requestedDay ?? Math.round(activeItem.x)}
+            min={0}
+            name="siteVisitDay"
+            nativeInput
+            size="sm"
+            type="number"
+          />
+        </label>
+        <Textarea
+          className="min-h-20 resize-none text-sm"
+          data-testid={`lender-site-visit-note-${activeItem.id}`}
+          defaultValue={siteVisit?.note ?? ""}
+          name="siteVisitNote"
+          placeholder="Inspector assignment, scope to verify, access notes"
+        />
+        {siteVisitUrl ? (
+          <div
+            className="grid gap-2 rounded-md border border-emerald-500/25 bg-emerald-500/10 p-2.5 text-xs"
+            data-testid={`lender-site-visit-share-link-${activeItem.id}`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium text-emerald-800 dark:text-emerald-100">
+                Shareable site visit link
+              </span>
+              <Badge variant="outline">{liveStatus}</Badge>
+            </div>
+            <a
+              className="break-all font-mono text-[11px] text-primary underline-offset-2 hover:underline"
+              href={siteVisitUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              {siteVisitUrl}
+            </a>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                disabled={!siteVisitUrl}
+                onClick={() => void navigator.clipboard?.writeText(siteVisitUrl)}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <Copy />
+                Copy
+              </Button>
+              <Button
+                render={
+                  <a href={siteVisitUrl} rel="noreferrer" target="_blank">
+                    Open
+                  </a>
+                }
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <ExternalLink />
+                Open
+              </Button>
+            </div>
+            {liveSiteVisit?.tokenExpiresAt ? (
+              <p className="text-muted-foreground">
+                Token expires {formatTimelineDateTime(liveSiteVisit.tokenExpiresAt)}.
+              </p>
+            ) : siteVisit.tokenExpiresAt ? (
+              <p className="text-muted-foreground">
+                Token expires {formatTimelineDateTime(siteVisit.tokenExpiresAt)}.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        {siteVisitError ? (
+          <div
+            className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-destructive text-xs"
+            data-testid={`lender-site-visit-error-${activeItem.id}`}
+          >
+            {siteVisitError}
+          </div>
+        ) : null}
+        <Button
+          disabled={siteVisitPending || liveStatus === "complete"}
+          data-testid={`lender-site-visit-submit-${activeItem.id}`}
+          size="sm"
+          type="submit"
+          variant="outline"
+        >
+          {siteVisitPending ? (
+            <Loader2 className="animate-spin" />
+          ) : (
+            <MapPinned />
+          )}
+          {siteVisitPending
+            ? "Generating token..."
+            : siteVisit
+              ? "Regenerate site visit link"
+              : "Request site visit"}
+        </Button>
+      </form>
+
+      <div className="rounded-lg border border-border bg-muted/20 p-3">
+        <p className="font-medium text-[10px] text-muted-foreground uppercase">
+          Evidence queue
+        </p>
+        <div className="mt-2 grid max-h-36 gap-2 overflow-y-auto pr-1">
+          {evidenceAssets.length === 0 ? (
+            <p className="text-muted-foreground text-xs">
+              No evidence submitted yet.
+            </p>
+          ) : (
+            evidenceAssets.map((asset) => (
+              <div
+                className="flex items-center gap-2 rounded-md border border-border bg-background/60 px-2 py-1.5 text-xs"
+                key={asset.id}
+              >
+                <Eye className="size-3.5 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate">{asset.label}</span>
+                <span className="text-muted-foreground">{asset.tag}</span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      <FinancialOverviewCard overview={overview} />
+    </div>
+  );
+}
+
+function DrawRequestPanel({
+  draw,
+  drawItem,
+  draws,
+  items,
+  onSubmitDrawRequest,
+}: {
+  draw: DemoDraw;
+  drawItem: TimelineItem<DemoMilestone> | null;
+  draws: DemoDraw[];
+  items: TimelineItem<DemoMilestone>[];
+  onSubmitDrawRequest: (
+    drawId: string,
+    request: { amount: number; note?: string }
+  ) => void;
+}) {
+  const limit = calculateDrawRequestLimit(draw, items, draws);
+  const overLimit = draw.amount > limit.availableLimit;
+  const requestSubmitted =
+    draw.requestStatus === "requested" ||
+    draw.requestStatus === "approved" ||
+    draw.requestStatus === "rejected";
+  const requestAmountId = `draw-request-amount-${draw.id}`;
+  const requestNoteId = `draw-request-note-${draw.id}`;
+
+  const submitRequest = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const requestedAmount = Math.round(
+      Number(formData.get("drawRequestAmount") ?? draw.amount)
+    );
+    const note = String(formData.get("drawRequestNote") ?? "").trim();
+
+    if (!Number.isFinite(requestedAmount)) {
+      return;
+    }
+
+    onSubmitDrawRequest(draw.id, {
+      amount: requestedAmount,
+      ...(note ? { note } : {}),
+    });
+  };
+
+  return (
+    <div className="grid gap-4" data-testid="selected-draw-details">
+      <div>
+        <div className="mb-3 grid size-10 place-items-center rounded-md bg-sky-500/10 text-sky-600">
+          <Banknote className="size-5" />
+        </div>
+        <p className="font-semibold text-[10px] text-muted-foreground uppercase">
+          Draw request
+        </p>
+        <h2 className="mt-1 font-semibold text-lg">{draw.label}</h2>
+        <p className="mt-1 text-muted-foreground text-sm">
+          {drawItem?.data?.name ?? "Manual reimbursement"} ·{" "}
+          {formatTimelineDay(draw.x)}
+        </p>
+        <Badge
+          className="mt-3"
+          variant={draw.requestStatus === "approved" ? "success" : "outline"}
+        >
+          {requestSubmitted
+            ? getDrawRequestStatusLabel(draw.requestStatus)
+            : "Builder request"}
+        </Badge>
+      </div>
+
+      <dl className="grid gap-2 border-border border-t pt-3 text-sm">
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-muted-foreground">Unlocked by day</dt>
+          <dd
+            className="font-semibold tabular-nums"
+            data-testid={`selected-draw-total-unlocked-${getDrawDomId(draw)}`}
+          >
+            {money(limit.totalUnlocked)}
+          </dd>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-muted-foreground">Already drawn</dt>
+          <dd
+            className="font-medium tabular-nums"
+            data-testid={`selected-draw-already-drawn-${getDrawDomId(draw)}`}
+          >
+            {money(limit.alreadyDrawn)}
+          </dd>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-muted-foreground">Available draw limit</dt>
+          <dd
+            className="font-semibold text-sky-700 tabular-nums dark:text-sky-100"
+            data-testid={`selected-draw-available-limit-${getDrawDomId(draw)}`}
+          >
+            {money(limit.availableLimit)}
+          </dd>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-muted-foreground">Remaining after request</dt>
+          <dd
+            className="font-medium tabular-nums"
+            data-testid={`selected-draw-remaining-limit-${getDrawDomId(draw)}`}
+          >
+            {money(Math.max(0, limit.availableLimit - draw.amount))}
+          </dd>
+        </div>
+      </dl>
+
+      {overLimit ? (
+        <div
+          className="rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-amber-800 text-xs dark:text-amber-100"
+          data-testid={`selected-draw-request-limit-warning-${getDrawDomId(draw)}`}
+        >
+          The current requested amount is above the unlocked limit. Submitting
+          will clamp the request to {money(limit.availableLimit)}.
+        </div>
+      ) : null}
+
+      <form
+        className="grid gap-3 rounded-lg border border-border bg-muted/20 p-3"
+        data-testid={`selected-draw-request-form-${getDrawDomId(draw)}`}
+        key={`${draw.id}-${draw.requestedAt ?? "draft"}-${draw.amount}`}
+        onSubmit={submitRequest}
+      >
+        <div>
+          <p className="font-medium text-[10px] text-muted-foreground uppercase">
+            Builder draw request
+          </p>
+          <p className="mt-1 text-muted-foreground text-xs">
+            Request reimbursement up to the unlocked capacity available on this
+            draw date.
+          </p>
+        </div>
+
+        <label className="grid gap-1.5" htmlFor={requestAmountId}>
+          <span className="font-medium text-[10px] text-muted-foreground uppercase">
+            Requested amount
+          </span>
+          <Input
+            data-testid={`selected-draw-request-amount-input-${getDrawDomId(draw)}`}
+            defaultValue={draw.amount}
+            id={requestAmountId}
+            max={limit.availableLimit}
+            min={0}
+            name="drawRequestAmount"
+            nativeInput
+            size="sm"
+            step={1000}
+            type="number"
+          />
+        </label>
+
+        <label className="grid gap-1.5" htmlFor={requestNoteId}>
+          <span className="font-medium text-[10px] text-muted-foreground uppercase">
+            Builder note
+          </span>
+          <Textarea
+            className="min-h-20 resize-none text-sm"
+            data-testid={`selected-draw-request-note-${getDrawDomId(draw)}`}
+            defaultValue={draw.requestNote ?? ""}
+            id={requestNoteId}
+            name="drawRequestNote"
+            placeholder="Scope covered, evidence reference, or lender context"
+          />
+        </label>
+
+        <Button
+          className="w-full"
+          data-testid={`selected-draw-submit-request-${getDrawDomId(draw)}`}
+          size="sm"
+          type="submit"
+        >
+          <Banknote />
+          {requestSubmitted ? "Update draw request" : "Request draw"}
+        </Button>
+      </form>
+
+      <div className="rounded-lg border border-border bg-muted/20 p-3">
+        <p className="font-medium text-[10px] text-muted-foreground uppercase">
+          Request basis
+        </p>
+        <p className="mt-2 text-muted-foreground text-xs leading-5">
+          Limit = total completed milestone budget unlocked by{" "}
+          {formatTimelineDay(draw.x)} minus prior released draws. Completion and
+          evidence are handled from the milestone panel.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function LenderDrawReviewPanel({
+  draw,
+  drawItem,
+  draws,
+  items,
+  onReviewDrawRequest,
+}: {
+  draw: DemoDraw;
+  drawItem: TimelineItem<DemoMilestone> | null;
+  draws: DemoDraw[];
+  items: TimelineItem<DemoMilestone>[];
+  onReviewDrawRequest: (
+    drawId: string,
+    review: { note?: string; status: "approved" | "rejected" }
+  ) => void;
+}) {
+  const limit = calculateDrawRequestLimit(draw, items, draws);
+  const hasBuilderRequest =
+    draw.requestStatus === "requested" ||
+    draw.requestStatus === "approved" ||
+    draw.requestStatus === "rejected";
+  const requestedAmountOverLimit = draw.amount > limit.availableLimit;
+  const submitReview = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const submitter = (event.nativeEvent as SubmitEvent)
+      .submitter as HTMLButtonElement | null;
+    const status =
+      submitter?.value === "approved" ? "approved" : "rejected";
+    const note = String(formData.get("drawReviewNote") ?? "").trim();
+
+    onReviewDrawRequest(draw.id, {
+      ...(note ? { note } : {}),
+      status,
+    });
+  };
+
+  return (
+    <div
+      className="grid gap-4"
+      data-testid={`lender-draw-review-panel-${getDrawDomId(draw)}`}
+    >
+      <div>
+        <div className="mb-3 grid size-10 place-items-center rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-200">
+          <ShieldCheck className="size-5" />
+        </div>
+        <p className="font-semibold text-[10px] text-muted-foreground uppercase">
+          Lender draw review
+        </p>
+        <h2 className="mt-1 font-semibold text-lg">{draw.label}</h2>
+        <p className="mt-1 text-muted-foreground text-sm">
+          {drawItem?.data?.name ?? "Manual reimbursement"} ·{" "}
+          {formatTimelineDay(draw.x)}
+        </p>
+        <Badge
+          className="mt-3"
+          variant={draw.requestStatus === "approved" ? "success" : "outline"}
+        >
+          {getDrawRequestStatusLabel(draw.requestStatus)}
+        </Badge>
+      </div>
+
+      <dl className="grid gap-2 border-border border-t pt-3 text-sm">
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-muted-foreground">Requested amount</dt>
+          <dd
+            className="font-semibold tabular-nums"
+            data-testid={`lender-draw-requested-amount-${getDrawDomId(draw)}`}
+          >
+            {money(draw.amount)}
+          </dd>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-muted-foreground">Available limit</dt>
+          <dd
+            className="font-semibold text-sky-700 tabular-nums dark:text-sky-100"
+            data-testid={`lender-draw-available-limit-${getDrawDomId(draw)}`}
+          >
+            {money(limit.availableLimit)}
+          </dd>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-muted-foreground">Prior releases</dt>
+          <dd className="font-medium tabular-nums">
+            {money(limit.alreadyDrawn)}
+          </dd>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-muted-foreground">Post-approval capacity</dt>
+          <dd className="font-medium tabular-nums">
+            {money(Math.max(0, limit.availableLimit - draw.amount))}
+          </dd>
+        </div>
+      </dl>
+
+      {requestedAmountOverLimit ? (
+        <div className="rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-amber-800 text-xs dark:text-amber-100">
+          Requested amount exceeds the available draw limit at this point in
+          the schedule.
+        </div>
+      ) : null}
+
+      <form
+        className="grid gap-3 rounded-lg border border-border bg-muted/20 p-3"
+        data-testid={`lender-draw-review-form-${getDrawDomId(draw)}`}
+        onSubmit={submitReview}
+      >
+        <div>
+          <p className="font-medium text-[10px] text-muted-foreground uppercase">
+            Draw approval
+          </p>
+          <p className="mt-1 text-muted-foreground text-xs">
+            Review the builder request against unlocked capacity and release
+            policy.
+          </p>
+        </div>
+        {draw.requestNote ? (
+          <div className="rounded-md border border-border bg-background/60 px-3 py-2 text-xs">
+            <span className="text-muted-foreground">Builder note: </span>
+            {draw.requestNote}
+          </div>
+        ) : null}
+        {!hasBuilderRequest ? (
+          <div className="rounded-md border border-border bg-background/60 px-3 py-2 text-muted-foreground text-xs">
+            No builder request has been filed for this draw. The review actions
+            stay disabled until a request exists.
+          </div>
+        ) : null}
+        <Textarea
+          className="min-h-20 resize-none text-sm"
+          data-testid={`lender-draw-review-note-${getDrawDomId(draw)}`}
+          defaultValue={draw.requestReviewNote ?? ""}
+          name="drawReviewNote"
+          placeholder="Approval condition, holdback reason, or audit note"
+        />
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            data-testid={`lender-draw-reject-${getDrawDomId(draw)}`}
+            disabled={!hasBuilderRequest}
+            name="drawReviewStatus"
+            size="sm"
+            type="submit"
+            value="rejected"
+            variant="outline"
+          >
+            <X />
+            Reject
+          </Button>
+          <Button
+            data-testid={`lender-draw-approve-${getDrawDomId(draw)}`}
+            disabled={!hasBuilderRequest || requestedAmountOverLimit}
+            name="drawReviewStatus"
+            size="sm"
+            type="submit"
+            value="approved"
+          >
+            <Check />
+            Approve
+          </Button>
+        </div>
+      </form>
+
+      <div className="rounded-lg border border-border bg-muted/20 p-3">
+        <p className="font-medium text-[10px] text-muted-foreground uppercase">
+          Review basis
+        </p>
+        <p className="mt-2 text-muted-foreground text-xs leading-5">
+          Approval is capped by work completed before{" "}
+          {formatTimelineDay(draw.x)}, less any prior releases. Site visits and
+          completion evidence are reviewed from the milestone panel.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function CompletionClaimPanel({
+  activeItem,
+  evidenceCount,
+  onCompleteMilestone,
+}: {
+  activeItem: TimelineItem<DemoMilestone>;
+  evidenceCount: number;
+  onCompleteMilestone: (
+    itemId: string,
+    claim: { actualCost?: number; completedDay: number; note?: string }
+  ) => void;
+}) {
+  const milestone = activeItem.data;
+  const claim = milestone?.completionClaim;
+  const schedule = getMilestonePaymentSchedule(activeItem);
+
+  if (!milestone) {
+    return null;
+  }
+
+  const completeMilestone = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const completedDay = Math.max(
+      0,
+      Math.round(Number(formData.get("completedDay") ?? schedule.endX))
+    );
+    const actualCostRaw = String(formData.get("actualCost") ?? "").trim();
+    const actualCost =
+      actualCostRaw.length === 0
+        ? undefined
+        : Math.max(0, Math.round(Number(actualCostRaw)));
+    const note = String(formData.get("completionNote") ?? "").trim();
+
+    if (!Number.isFinite(completedDay)) {
+      return;
+    }
+
+    if (actualCost !== undefined && !Number.isFinite(actualCost)) {
+      return;
+    }
+
+    onCompleteMilestone(activeItem.id, {
+      ...(actualCost === undefined ? {} : { actualCost }),
+      completedDay,
+      ...(note ? { note } : {}),
+    });
+  };
+
+  return (
+    <form
+      className="grid gap-3 rounded-lg border border-border bg-muted/20 p-3"
+      data-testid={`selected-draw-completion-form-${activeItem.id}`}
+      key={`${activeItem.id}-${claim?.submittedAt ?? "draft"}`}
+      onSubmit={completeMilestone}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-medium text-[10px] text-muted-foreground uppercase">
+            Indicate completion
+          </p>
+          <p className="mt-1 text-muted-foreground text-xs">
+            Backdate the claim when work finished; actual cost is optional.
+          </p>
+        </div>
+        <Badge variant={claim ? "success" : "outline"}>
+          {claim ? "Filed" : "Builder"}
+        </Badge>
+      </div>
+
+      {evidenceCount === 0 ? (
+        <div
+          className="rounded-md border border-amber-500/25 bg-amber-500/10 px-2.5 py-2 text-amber-800 text-xs dark:text-amber-100"
+          data-testid={`selected-draw-completion-warning-${activeItem.id}`}
+        >
+          No evidence images attached. Completion can be filed, but the package
+          will still need proof before lender review.
+        </div>
+      ) : null}
+
+      <div className="grid grid-cols-2 gap-2">
+        <label className="grid gap-1.5">
+          <span className="font-medium text-[10px] text-muted-foreground uppercase">
+            Completion day
+          </span>
+          <Input
+            data-testid={`selected-draw-completion-day-input-${activeItem.id}`}
+            defaultValue={claim?.completedDay ?? Math.round(schedule.endX)}
+            min={0}
+            name="completedDay"
+            nativeInput
+            size="sm"
+            type="number"
+          />
+        </label>
+        <label className="grid gap-1.5">
+          <span className="font-medium text-[10px] text-muted-foreground uppercase">
+            Actual cost
+          </span>
+          <Input
+            data-testid={`selected-draw-actual-cost-input-${activeItem.id}`}
+            defaultValue={claim?.actualCost ?? ""}
+            min={0}
+            name="actualCost"
+            nativeInput
+            placeholder="Optional"
+            size="sm"
+            step={1000}
+            type="number"
+          />
+        </label>
+      </div>
+
+      <label className="grid gap-1.5">
+        <span className="font-medium text-[10px] text-muted-foreground uppercase">
+          Note
+        </span>
+        <Textarea
+          className="min-h-16 resize-none text-sm"
+          data-testid={`selected-draw-completion-note-${activeItem.id}`}
+          defaultValue={claim?.note ?? ""}
+          name="completionNote"
+          placeholder="Scope note, variance, or lender context"
+        />
+      </label>
+
+      <Button
+        className="w-full"
+        data-testid={`selected-draw-submit-completion-${activeItem.id}`}
+        size="sm"
+        type="submit"
+      >
+        <Check />
+        {claim ? "Update completion" : "Mark milestone complete"}
+      </Button>
+    </form>
+  );
+}
+
+function EvidencePackagePanel({
+  activeItem,
+  addEvidenceFiles,
+  onRemoveEvidenceAsset,
+  onUpdateEvidenceAsset,
+}: {
+  activeItem: TimelineItem<DemoMilestone>;
+  addEvidenceFiles: (itemId: string, files: File[]) => void;
+  onRemoveEvidenceAsset: (itemId: string, assetId: string) => void;
+  onUpdateEvidenceAsset: (
+    itemId: string,
+    assetId: string,
+    patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>
+  ) => void;
+}) {
+  const [dragging, setDragging] = useState(false);
+  const milestone = activeItem.data;
+  const assets = milestone?.evidencePackage?.assets ?? [];
+
+  if (!milestone) {
+    return null;
+  }
+
+  const inputId = `selected-evidence-input-${activeItem.id}`;
+  const tagOptions = [milestone.name, ...milestone.subMilestones];
+  const acceptFiles = (fileList: FileList | null) => {
+    addEvidenceFiles(activeItem.id, Array.from(fileList ?? []));
+  };
+  const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    acceptFiles(event.currentTarget.files);
+    event.currentTarget.value = "";
+  };
+  const handleDrop = (event: DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    setDragging(false);
+    acceptFiles(event.dataTransfer.files);
+  };
+
+  return (
+    <section
+      className="grid gap-3 rounded-lg border border-border bg-muted/20 p-3"
+      data-testid={`selected-draw-evidence-package-${activeItem.id}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-medium text-[10px] text-muted-foreground uppercase">
+            Evidence package
+          </p>
+          <p className="mt-1 text-muted-foreground text-xs">
+            Label images and tag the milestone or sub-milestone they prove.
+          </p>
+        </div>
+        <Badge
+          data-testid={`selected-draw-evidence-count-${activeItem.id}`}
+          variant="outline"
+        >
+          {assets.length} images
+        </Badge>
+      </div>
+
+      <input
+        accept="image/*"
+        className="sr-only"
+        data-testid={`selected-draw-evidence-input-${activeItem.id}`}
+        id={inputId}
+        multiple
+        onChange={handleInputChange}
+        type="file"
+      />
+      <label
+        className={cn(
+          "grid cursor-pointer place-items-center rounded-lg border border-dashed px-3 py-4 text-center transition-colors",
+          dragging
+            ? "border-sky-400 bg-sky-500/10 text-sky-700"
+            : "border-border bg-background/60 text-muted-foreground hover:border-sky-300 hover:bg-sky-500/5"
+        )}
+        data-testid={`selected-draw-evidence-dropzone-${activeItem.id}`}
+        htmlFor={inputId}
+        onDragLeave={() => setDragging(false)}
+        onDragOver={(event) => {
+          event.preventDefault();
+          setDragging(true);
+        }}
+        onDrop={handleDrop}
+      >
+        <UploadCloud className="mb-2 size-5" />
+        <span className="font-medium text-xs">Drop labeled proof images</span>
+        <span className="mt-1 text-[11px]">or browse from this device</span>
+      </label>
+
+      <div className="grid max-h-[34svh] gap-2 overflow-y-auto pr-1">
+        {assets.length === 0 ? (
+          <div className="rounded-md border border-border bg-background/55 px-3 py-4 text-center text-muted-foreground text-xs">
+            No images uploaded.
+          </div>
+        ) : (
+          assets.map((asset) => (
+            <EvidenceAssetCard
+              asset={asset}
+              itemId={activeItem.id}
+              key={asset.id}
+              onRemoveEvidenceAsset={onRemoveEvidenceAsset}
+              onUpdateEvidenceAsset={onUpdateEvidenceAsset}
+              tagOptions={tagOptions}
+            />
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+function EvidenceAssetCard({
+  asset,
+  itemId,
+  onRemoveEvidenceAsset,
+  onUpdateEvidenceAsset,
+  tagOptions,
+}: {
+  asset: DemoEvidenceAsset;
+  itemId: string;
+  onRemoveEvidenceAsset: (itemId: string, assetId: string) => void;
+  onUpdateEvidenceAsset: (
+    itemId: string,
+    assetId: string,
+    patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>
+  ) => void;
+  tagOptions: string[];
+}) {
+  return (
+    <article
+      className="grid grid-cols-[64px_minmax(0,1fr)_32px] gap-2 rounded-md border border-border bg-background/70 p-2"
+      data-testid={`selected-draw-evidence-asset-${asset.id}`}
+    >
+      <div className="grid size-16 place-items-center overflow-hidden rounded-md border border-border bg-muted/35">
+        {asset.previewUrl ? (
+          <img
+            alt=""
+            className="size-full object-cover"
+            src={asset.previewUrl}
+          />
+        ) : (
+          <FileImage className="size-5 text-muted-foreground" />
+        )}
+      </div>
+      <div className="grid min-w-0 max-w-full gap-2 overflow-hidden">
+        <Input
+          aria-label="Evidence label"
+          data-testid={`selected-draw-evidence-label-${asset.id}`}
+          nativeInput
+          onChange={(event) =>
+            onUpdateEvidenceAsset(itemId, asset.id, {
+              label: event.currentTarget.value,
+            })
+          }
+          size="sm"
+          value={asset.label}
+        />
+        <select
+          aria-label="Evidence tag"
+          className="h-8 rounded-md border border-border bg-background px-2 text-xs outline-none transition-colors focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15"
+          data-testid={`selected-draw-evidence-tag-${asset.id}`}
+          onChange={(event) =>
+            onUpdateEvidenceAsset(itemId, asset.id, {
+              tag: event.currentTarget.value,
+            })
+          }
+          value={asset.tag}
+        >
+          {tagOptions.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+        <p className="truncate text-[11px] text-muted-foreground">
+          {asset.fileName} · {formatFileSize(asset.size)}
+        </p>
+      </div>
+      <button
+        aria-label={`Remove ${asset.label}`}
+        className="relative z-10 grid size-7 place-items-center self-start rounded-md text-muted-foreground transition-colors hover:bg-rose-500/10 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        data-testid={`selected-draw-evidence-remove-${asset.id}`}
+        onClick={() => onRemoveEvidenceAsset(itemId, asset.id)}
+        type="button"
+      >
+        <X className="size-4" />
+      </button>
+    </article>
   );
 }
 
@@ -3228,153 +5642,6 @@ function CapitalSpikeTimelineMarker({
   );
 }
 
-function MilestoneCard({
-  active,
-  activePhase,
-  complete,
-  item,
-  reducedMotion,
-}: {
-  active: boolean;
-  activePhase: ActiveMilestoneSelection["phase"];
-  complete: boolean;
-  item: TimelineItem<DemoMilestone>;
-  reducedMotion: boolean;
-}) {
-  const milestone = item.data;
-  if (!milestone) {
-    return null;
-  }
-  const schedule = getMilestonePaymentSchedule(item);
-  const statusLabel = active
-    ? activePhase === "complete"
-      ? "Complete"
-      : "In progress"
-    : milestone.status === "complete"
-      ? "Complete"
-      : milestone.status === "review"
-        ? "In review"
-        : milestone.status === "ready"
-          ? "Ready"
-          : "Upcoming";
-
-  return (
-    <motion.article
-      className={cn(
-        "min-h-[258px] rounded-lg border bg-card p-3 text-card-foreground shadow-sm transition-colors sm:p-4",
-        active && "border-rose-300 shadow-rose-500/10",
-        complete && "border-emerald-200 bg-emerald-50/40 dark:bg-emerald-500/5"
-      )}
-      data-testid={`timeline-card-${item.id}`}
-      layout
-      transition={{
-        duration: reducedMotion ? 0 : 0.22,
-        ease: [0.22, 1, 0.36, 1],
-        layout: {
-          damping: 28,
-          stiffness: 360,
-          type: "spring",
-        },
-      }}
-      whileHover={reducedMotion ? undefined : { scale: 1.012, y: -3 }}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="font-semibold text-[11px] text-muted-foreground uppercase">
-            {item.eyebrow}
-          </p>
-          <h3 className="mt-1 font-semibold text-sm leading-5">
-            {milestone.name}
-          </h3>
-          <Badge
-            className="mt-2"
-            data-testid={`timeline-card-status-${item.id}`}
-            variant={statusLabel === "Complete" ? "success" : "outline"}
-          >
-            {statusLabel}
-          </Badge>
-        </div>
-        <div className="mt-1 -mr-5 grid size-28 shrink-0 place-items-center sm:-mr-6 sm:size-32">
-          <IsometricMilestoneIcon
-            className="size-28 sm:size-32"
-            type={milestone.icon}
-          />
-        </div>
-      </div>
-
-      <div className="mt-5 space-y-3">
-        <div>
-          <p className="text-muted-foreground text-xs">Planned cost</p>
-          <p className="mt-1 font-semibold text-xl">
-            {money(milestone.amount)}
-          </p>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <p className="text-muted-foreground text-xs">Start date</p>
-            <p
-              className="mt-1 font-semibold text-sm tabular-nums"
-              data-testid={`timeline-card-start-date-${item.id}`}
-            >
-              {formatTimelineDay(item.x)}
-            </p>
-          </div>
-          <div>
-            <p className="text-muted-foreground text-xs">Completion date</p>
-            <p
-              className="mt-1 font-semibold text-sm tabular-nums"
-              data-testid={`timeline-card-end-date-${item.id}`}
-            >
-              {formatTimelineDay(schedule.endX)}
-            </p>
-          </div>
-          <div>
-            <p className="text-muted-foreground text-xs">Duration</p>
-            <p className="mt-1 font-semibold text-sm tabular-nums">
-              {schedule.durationDays} days
-            </p>
-          </div>
-          <div>
-            <p className="text-muted-foreground text-xs">Daily spend</p>
-            <p className="mt-1 font-semibold text-sm tabular-nums">
-              {money(schedule.dailyDistributedAmount)}
-            </p>
-          </div>
-        </div>
-        <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-          <div className="rounded-md border border-border bg-muted/35 px-2 py-1.5">
-            <p className="text-muted-foreground">Initial</p>
-            <p className="font-semibold tabular-nums">
-              {money(schedule.initialPaymentAmount)}
-            </p>
-          </div>
-          <div className="rounded-md border border-border bg-muted/35 px-2 py-1.5">
-            <p className="text-muted-foreground">Completion</p>
-            <p className="font-semibold tabular-nums">
-              {money(schedule.completionPaymentAmount)}
-            </p>
-          </div>
-        </div>
-        <div className="border-border border-t pt-3">
-          <p className="font-medium text-[10px] text-muted-foreground uppercase">
-            Sub-milestones
-          </p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {milestone.subMilestones.map((subMilestone) => (
-              <span
-                className="rounded-md border border-border bg-muted/35 px-2 py-1 text-[11px]"
-                key={subMilestone}
-              >
-                {subMilestone}
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
-    </motion.article>
-  );
-}
-
 function FinancialOverviewCard({ overview }: { overview: FinancialOverview }) {
   return (
     <article
@@ -3440,24 +5707,6 @@ function FinancialOverviewCard({ overview }: { overview: FinancialOverview }) {
   );
 }
 
-function IsometricMilestoneIcon({
-  className,
-  type,
-}: {
-  className?: string;
-  type: IsometricIconKey;
-}) {
-  return (
-    <img
-      alt=""
-      className={cn("pointer-events-none object-contain", className)}
-      height={160}
-      src={`/milestone-icons/${type}.png`}
-      width={160}
-    />
-  );
-}
-
 function TimelineNodeButton({
   active,
   complete,
@@ -3481,6 +5730,7 @@ function TimelineNodeButton({
         complete &&
           "border-emerald-400 bg-emerald-50 text-emerald-600 ring-4 ring-emerald-500/10 dark:bg-emerald-500/10",
         active &&
+          !complete &&
           "border-rose-500 bg-rose-500 text-white shadow-rose-500/30 ring-4 ring-rose-500/20",
         !(active || complete) && "border-zinc-300 dark:border-zinc-700"
       )}
@@ -3523,13 +5773,16 @@ function TimelineEndNodeButton({
 }) {
   return (
     <motion.button
-      aria-label={`Complete ${item.data?.name ?? item.label ?? item.id}`}
+      aria-label={`Select completion point for ${
+        item.data?.name ?? item.label ?? item.id
+      }`}
       className={cn(
         "grid size-8 place-items-center rounded-full border-2 bg-background text-muted-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         complete &&
           "border-emerald-400 bg-emerald-50 text-emerald-600 ring-4 ring-emerald-500/10 dark:bg-emerald-500/10",
         active &&
-          "border-emerald-500 bg-emerald-500 text-white shadow-emerald-500/30 ring-4 ring-emerald-500/20",
+          !complete &&
+          "border-rose-500 bg-rose-500 text-white shadow-rose-500/30 ring-4 ring-rose-500/20",
         !(active || complete) && "border-zinc-300 dark:border-zinc-700"
       )}
       data-testid={`demo-timeline-end-node-${item.id}`}

@@ -1,0 +1,945 @@
+/* -----------------------------------------------------------------------------
+ * Landing page — blueprint sheet.
+ *
+ * The landing page is rendered as an actual architectural drawing:
+ *   - sheet title block, revision stamps, sheet number, scale bar
+ *   - 96px major + 16px minor blueprint grid + corner registration marks
+ *   - drafting plates (engraved hairlines, hatched fill)
+ *   - dimension lines and numbered leader callouts (inline SVG)
+ *   - drafting schedule tables for plan variants and stack
+ *
+ * Scoped under `.lbp-shell`. Inside the shell we override a small set of
+ * design tokens so existing tailwind classes (`border-border`,
+ * `text-fg-tertiary`, etc.) automatically pick up the blueprint palette.
+ * Color tokens use `light-dark()`; the root keeps `color-scheme` in sync
+ * with the `.light` / `.dark` class.
+ * -------------------------------------------------------------------------- */
+
+.lbp-shell {
+  color-scheme: light;
+  /* Palette — mirrors the timeline setup blueprint scoping. */
+  --paper: oklch(0.985 0.010 235);
+  --paper-elevated: oklch(0.985 0.010 235 / 0.88);
+  --paper-sunken: oklch(0.965 0.012 235);
+  --ink: oklch(0.220 0.020 258);
+  --ink-soft: oklch(0.380 0.030 258);
+  --ink-mute: oklch(0.480 0.040 258);
+  --blue: oklch(0.400 0.160 236);
+  --blue-soft: oklch(0.400 0.120 240 / 0.30);
+  --blue-faint: oklch(0.400 0.120 240 / 0.10);
+  --release: oklch(0.450 0.200 145);
+  --release-soft: oklch(0.450 0.200 145 / 0.18);
+  --redline: oklch(0.520 0.190 27);
+}
+
+.dark .lbp-shell {
+  color-scheme: dark;
+  --paper: oklch(0.075 0.014 258);
+  --paper-elevated: oklch(0.12 0.018 258 / 0.88);
+  --paper-sunken: oklch(0.055 0.012 258);
+  --ink: oklch(0.94 0.012 260);
+  --ink-soft: oklch(0.78 0.014 260);
+  --ink-mute: oklch(0.60 0.020 260);
+  --blue: oklch(0.78 0.13 240);
+  --blue-soft: oklch(0.72 0.10 240 / 0.34);
+  --blue-faint: oklch(0.72 0.10 240 / 0.12);
+  --release: oklch(0.82 0.18 145);
+  --release-soft: oklch(0.82 0.18 145 / 0.22);
+  --redline: oklch(0.78 0.18 27);
+}
+
+.lbp-shell {
+
+  /* Scoped token overrides — picked up by existing tailwind utilities. */
+  --background: var(--paper);
+  --bg-base: var(--paper);
+  --bg-elevated: var(--paper-elevated);
+  --bg-sunken: var(--paper-sunken);
+  --card: var(--paper-elevated);
+  --card-foreground: var(--ink);
+  --popover: var(--paper-elevated);
+  --popover-foreground: var(--ink);
+  --foreground: var(--ink);
+  --fg-primary: var(--ink);
+  --fg-secondary: var(--ink-soft);
+  --fg-tertiary: var(--blue);
+  --muted-foreground: var(--ink-soft);
+  --border: light-dark(oklch(0.400 0.120 240 / 0.26), oklch(0.72 0.08 240 / 0.28));
+  --border-strong: light-dark(oklch(0.400 0.160 236 / 0.55), oklch(0.78 0.13 236 / 0.55));
+  --input: var(--border);
+  --ring: light-dark(oklch(0.400 0.160 236 / 0.45), oklch(0.78 0.13 236 / 0.45));
+  --primary: var(--release);
+  --primary-foreground: light-dark(oklch(0.985 0.010 235), oklch(0.12 0.02 150));
+
+  position: relative;
+  min-height: 100svh;
+  color: var(--ink);
+  background:
+    radial-gradient(
+      circle at 16% 6%,
+      light-dark(oklch(0.965 0.014 235 / 0.34), oklch(0.30 0.08 255 / 0.22)),
+      transparent 38%
+    ),
+    radial-gradient(
+      circle at 86% 94%,
+      light-dark(oklch(0.965 0.014 235 / 0.28), oklch(0.22 0.06 250 / 0.18)),
+      transparent 42%
+    ),
+    linear-gradient(180deg, var(--paper), var(--paper-sunken));
+}
+
+/* Blueprint grid backdrop — 96px major + 16px minor hairlines. */
+.lbp-shell::before {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  z-index: 0;
+  background-image:
+    linear-gradient(to right, var(--blue-faint) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--blue-faint) 1px, transparent 1px),
+    linear-gradient(
+      to right,
+      light-dark(oklch(0.400 0.120 240 / 0.045), oklch(0.72 0.10 240 / 0.045)) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      light-dark(oklch(0.400 0.120 240 / 0.045), oklch(0.72 0.10 240 / 0.045)) 1px,
+      transparent 1px
+    );
+  background-size: 96px 96px, 96px 96px, 16px 16px, 16px 16px;
+  background-position: 0 0;
+}
+
+/* Soft column wash. */
+.lbp-shell::after {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  z-index: 0;
+  background:
+    radial-gradient(
+      circle at 50% 0%,
+      light-dark(oklch(0.220 0.020 258 / 0.05), oklch(0.94 0.04 255 / 0.10)),
+      transparent 55%
+    );
+}
+
+.lbp-frame {
+  position: relative;
+  z-index: 1;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Sheet chrome: top sheet bar + corner crosshairs + title block + scale bar */
+/* ------------------------------------------------------------------------- */
+
+.lbp-sheet-bar {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--blue-soft);
+  background: light-dark(
+    oklch(0.985 0.010 235 / 0.85),
+    oklch(0.10 0.016 258 / 0.85)
+  );
+  backdrop-filter: blur(6px);
+  color: var(--blue);
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.lbp-sheet-bar > :nth-child(1) { justify-self: start; }
+.lbp-sheet-bar > :nth-child(2) { justify-self: center; }
+.lbp-sheet-bar > :nth-child(3) { justify-self: end; }
+.lbp-sheet-bar strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+.lbp-sheet-bar .dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 0 8px;
+  background: var(--blue);
+  border-radius: 999px;
+  vertical-align: middle;
+  opacity: 0.6;
+}
+
+/* Corner registration crosshairs. */
+.lbp-corner {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  color: light-dark(oklch(0.400 0.160 236 / 0.62), oklch(0.78 0.13 240 / 0.62));
+  pointer-events: none;
+  z-index: 2;
+}
+.lbp-corner svg { width: 100%; height: 100%; display: block; }
+.lbp-corner.tl { top: 56px; left: 18px; }
+.lbp-corner.tr { top: 56px; right: 18px; }
+.lbp-corner.bl { bottom: 28px; left: 18px; }
+.lbp-corner.br { bottom: 28px; right: 18px; }
+@media (max-width: 640px) {
+  .lbp-corner.tl { top: 60px; left: 8px; }
+  .lbp-corner.tr { top: 60px; right: 8px; }
+  .lbp-corner.bl { bottom: 12px; left: 8px; }
+  .lbp-corner.br { bottom: 12px; right: 8px; }
+}
+
+/* Title block — bottom-right corner, like a drafting cartouche. */
+.lbp-title-block {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(56px, auto));
+  gap: 0;
+  border: 1px solid var(--blue-soft);
+  background: light-dark(
+    oklch(0.985 0.010 235 / 0.92),
+    oklch(0.10 0.016 258 / 0.92)
+  );
+  backdrop-filter: blur(6px);
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  box-shadow:
+    inset 0 1px 0 light-dark(oklch(0.180 0.022 258 / 0.05), oklch(0.95 0.04 235 / 0.06)),
+    0 12px 28px light-dark(oklch(0.18 0.03 258 / 0.10), oklch(0.02 0.012 258 / 0.36));
+}
+.lbp-title-block > div {
+  display: grid;
+  gap: 2px;
+  padding: 8px 12px;
+  border-right: 1px solid var(--blue-soft);
+}
+.lbp-title-block > div:last-child { border-right: 0; }
+.lbp-title-block dt {
+  color: var(--blue);
+  font-size: 9px;
+}
+.lbp-title-block dd {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.lbp-title-block .rev {
+  background: light-dark(
+    oklch(0.520 0.190 27 / 0.10),
+    oklch(0.78 0.18 27 / 0.15)
+  );
+  color: var(--redline);
+}
+.lbp-title-block .rev dd { color: var(--redline); }
+@media (max-width: 768px) {
+  .lbp-title-block { display: none; }
+}
+
+/* Scale bar (decorative — bottom-left). */
+.lbp-scale-bar {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  z-index: 3;
+  display: grid;
+  gap: 4px;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--blue);
+}
+.lbp-scale-bar > div {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  width: 160px;
+  height: 6px;
+  border: 1px solid var(--blue);
+}
+.lbp-scale-bar > div > span:nth-child(odd) {
+  background: var(--blue);
+}
+.lbp-scale-bar > div > span:nth-child(even) {
+  background: transparent;
+}
+.lbp-scale-bar small {
+  display: flex;
+  justify-content: space-between;
+  width: 160px;
+  font-size: 9px;
+  color: var(--ink-mute);
+}
+@media (max-width: 768px) { .lbp-scale-bar { display: none; } }
+
+/* ------------------------------------------------------------------------- */
+/* Section tag — replaces eyebrow; reads as a sheet reference.               */
+/* ------------------------------------------------------------------------- */
+
+.lbp-section-tag {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--blue);
+}
+.lbp-section-tag .ref {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 22px;
+  border: 1px solid var(--blue);
+  border-radius: 11px;
+  color: var(--blue);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  font-weight: 700;
+}
+.lbp-section-tag .rule {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--blue-soft), transparent);
+}
+.lbp-section-tag .ink {
+  color: var(--ink);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Drafting plate — a paper card with engraved hairlines + drafting tape.    */
+/* ------------------------------------------------------------------------- */
+
+.lbp-plate {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background:
+    linear-gradient(
+      180deg,
+      light-dark(oklch(0.985 0.010 235 / 0.92), oklch(0.135 0.020 258 / 0.85)),
+      light-dark(oklch(0.985 0.010 235 / 0.96), oklch(0.10 0.016 258 / 0.92))
+    ),
+    linear-gradient(to right, var(--blue-faint) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--blue-faint) 1px, transparent 1px);
+  background-size: auto, 24px 24px, 24px 24px;
+  box-shadow:
+    inset 0 1px 0 light-dark(oklch(0.180 0.022 258 / 0.08), oklch(0.95 0.04 235 / 0.08)),
+    0 18px 44px light-dark(oklch(0.18 0.03 258 / 0.10), oklch(0.02 0.012 258 / 0.36));
+}
+.lbp-plate::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border-strong), transparent);
+  pointer-events: none;
+}
+.lbp-plate-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--blue-soft);
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--blue);
+}
+.lbp-plate-header .key {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+/* Hatched fill — used for "structure" zones inside diagrams and stamps. */
+.lbp-hatch {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--blue-soft) 0 1px,
+    transparent 1px 7px
+  );
+}
+.lbp-hatch-dense {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--blue-soft) 0 1px,
+    transparent 1px 4px
+  );
+}
+.lbp-hatch-release {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--release-soft) 0 1px,
+    transparent 1px 5px
+  );
+}
+
+/* Headline accent: dim blueprint blue on display sizes. */
+.lbp-accent {
+  color: light-dark(oklch(0.420 0.060 258), oklch(0.62 0.05 260));
+}
+.lbp-accent-blue {
+  color: var(--blue);
+}
+
+/* Redline stamp — used for the recommended plan and the "current revision". */
+.lbp-stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--redline);
+  border-radius: 3px;
+  color: var(--redline);
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-weight: 700;
+  transform: rotate(-2deg);
+  background: light-dark(
+    oklch(0.520 0.190 27 / 0.06),
+    oklch(0.78 0.18 27 / 0.10)
+  );
+}
+.lbp-stamp .dotpair {
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--redline);
+}
+
+/* Schedule table — drafting schedule for plan variants & stack. */
+.lbp-schedule {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 12px;
+}
+.lbp-schedule thead th {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--blue-soft);
+  color: var(--blue);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 700;
+  text-align: left;
+}
+.lbp-schedule tbody td {
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--blue-faint);
+  color: var(--ink);
+  vertical-align: top;
+}
+.lbp-schedule tbody tr:last-child td { border-bottom: 0; }
+.lbp-schedule .num {
+  color: var(--blue);
+  font-weight: 700;
+}
+.lbp-schedule .plan {
+  font-family: var(--font-heading, "Oxanium Variable", sans-serif);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+.lbp-schedule .meter {
+  display: inline-grid;
+  grid-template-columns: repeat(5, 8px);
+  gap: 3px;
+}
+.lbp-schedule .meter span {
+  height: 14px;
+  border: 1px solid var(--blue-soft);
+}
+.lbp-schedule .meter span.on { background: var(--blue); border-color: var(--blue); }
+.lbp-schedule .meter.r span.on { background: var(--redline); border-color: var(--redline); }
+.lbp-schedule .meter.g span.on { background: var(--release); border-color: var(--release); }
+
+/* Spec list — drafting notes block. */
+.lbp-specs {
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--blue-soft);
+  border-bottom: 1px solid var(--blue-soft);
+}
+.lbp-specs > li {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--blue-faint);
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.55;
+}
+.lbp-specs > li:last-child { border-bottom: 0; }
+.lbp-specs .marker {
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  color: var(--blue);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  font-weight: 700;
+  align-self: start;
+}
+
+/* Numbered callout chip used in workspace + governance. */
+.lbp-num {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--blue);
+  border-radius: 999px;
+  color: var(--blue);
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  background: light-dark(
+    oklch(0.985 0.010 235 / 0.6),
+    oklch(0.12 0.018 258 / 0.6)
+  );
+}
+
+/* Detail reference (Section A / 02 ringed marker for end of CTA). */
+.lbp-detail-ref {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--blue);
+  border-radius: 999px;
+  overflow: hidden;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--blue);
+}
+.lbp-detail-ref > span {
+  display: inline-grid;
+  place-items: center;
+  padding: 4px 10px;
+}
+.lbp-detail-ref > span + span {
+  border-left: 1px solid var(--blue);
+  background: var(--blue);
+  color: light-dark(oklch(0.985 0.010 235), oklch(0.10 0.016 258));
+}
+
+/* Hero diagram (SVG) — set fonts, hairline strokes. */
+.lbp-diagram {
+  width: 100%;
+  height: auto;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  letter-spacing: 0.06em;
+}
+.lbp-diagram .stroke { stroke: var(--blue); }
+.lbp-diagram .stroke-strong { stroke: var(--blue); stroke-width: 1.4; }
+.lbp-diagram .fill-ink { fill: var(--ink); }
+.lbp-diagram .fill-blue { fill: var(--blue); }
+.lbp-diagram .fill-release { fill: var(--release); }
+.lbp-diagram .fill-paper { fill: var(--paper); }
+.lbp-diagram .label {
+  fill: var(--blue);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+.lbp-diagram .label-ink {
+  fill: var(--ink);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+}
+.lbp-diagram .label-mute {
+  fill: var(--ink-mute);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+/* Compass rose (small, hero corner). */
+.lbp-compass {
+  color: var(--blue);
+}
+
+/* Background utility: hatched zone for "construction" + "capital" lanes. */
+.lbp-lane-construction {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--blue-soft) 0 1px,
+    transparent 1px 7px
+  );
+}
+.lbp-lane-capital {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--release-soft) 0 1px,
+    transparent 1px 7px
+  );
+}
+
+/* Inputs/badges over the grid — ensure readable backgrounds. */
+.lbp-frame .bg-background {
+  background-color: light-dark(
+    oklch(0.985 0.010 235 / 0.92),
+    oklch(0.10 0.016 258 / 0.92)
+  );
+}
+
+/* Section divider used between rebuilt sections — a labeled rule. */
+.lbp-section-rule {
+  position: relative;
+  margin: 96px 0 32px;
+  border-top: 1px dashed var(--blue-soft);
+}
+.lbp-section-rule .tick {
+  position: absolute;
+  top: -6px;
+  width: 1px;
+  height: 11px;
+  background: var(--blue);
+}
+.lbp-section-rule .tick.s { left: 0; }
+.lbp-section-rule .tick.e { right: 0; }
+
+/* Mono micro label utility (cleaner than tailwind chain). */
+.lbp-meta {
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--blue);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Motion — blueprint drafting choreography.                                 */
+/* Tokens, reveals, plotter wipes, per-letter draft-in, idle micro.          */
+/* All driven by `.in` toggled via IntersectionObserver. Reduced motion at   */
+/* the bottom collapses everything to instant.                               */
+/* ------------------------------------------------------------------------- */
+
+.lbp-shell {
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-expo:  cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Base reveal: fade + small rise. Delay via inline --rv-d (ms). */
+.lbp-shell [data-rv] {
+  opacity: 0;
+  transform: translate3d(0, 10px, 0);
+  transition:
+    opacity 720ms var(--ease-out-quart) calc(var(--rv-d, 0) * 1ms),
+    transform 880ms var(--ease-out-expo) calc(var(--rv-d, 0) * 1ms);
+  will-change: opacity, transform;
+}
+.lbp-shell [data-rv].in {
+  opacity: 1;
+  transform: none;
+}
+
+/* Plotter wipe: clip-path inset right-to-zero. Used on the hero diagram. */
+.lbp-shell [data-wipe] {
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path 1500ms var(--ease-out-expo) calc(var(--rv-d, 0) * 1ms);
+  will-change: clip-path;
+}
+.lbp-shell [data-wipe].in {
+  clip-path: inset(0 0 0 0);
+}
+
+/* Per-character draft-in. Per-char delay via --i. Wrap with .lbp-draft.    */
+/* Words get .lbp-word to keep them unbreakable across lines.              */
+.lbp-draft {
+  display: inline;
+}
+.lbp-word {
+  display: inline-block;
+  white-space: nowrap;
+}
+.lbp-char {
+  display: inline-block;
+  opacity: 0;
+  transform: translate3d(0, 0.55em, 0);
+  filter: blur(8px);
+  transition:
+    opacity 600ms var(--ease-out-quart) calc(var(--i, 0) * 22ms + var(--rv-d, 0) * 1ms),
+    transform 760ms var(--ease-out-expo) calc(var(--i, 0) * 22ms + var(--rv-d, 0) * 1ms),
+    filter 760ms var(--ease-out-quart) calc(var(--i, 0) * 22ms + var(--rv-d, 0) * 1ms);
+  will-change: opacity, transform, filter;
+}
+.in .lbp-char,
+.lbp-shell [data-rv].in .lbp-char {
+  opacity: 1;
+  transform: none;
+  filter: none;
+}
+
+/* Sheet bar — drafting tape unspools left to right on first paint. */
+.lbp-sheet-bar {
+  animation: lbp-bar-wipe 1100ms var(--ease-out-expo) 80ms both;
+  transform-origin: left center;
+}
+@keyframes lbp-bar-wipe {
+  from { clip-path: inset(0 100% 0 0); }
+  to   { clip-path: inset(0 0 0 0); }
+}
+/* Sheet bar dot — drafting cursor blink. */
+.lbp-sheet-bar :first-child strong::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 10px;
+  margin-left: 6px;
+  vertical-align: -1px;
+  background: var(--blue);
+  animation: lbp-cursor 1.1s steps(2, end) infinite;
+}
+@keyframes lbp-cursor {
+  0%, 50%   { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+
+/* Corner registration marks — circle + crosslines draw in. */
+.lbp-corner svg circle {
+  stroke-dasharray: 64;
+  stroke-dashoffset: 64;
+  animation: lbp-stroke-draw 1100ms var(--ease-out-quart) 320ms both;
+}
+.lbp-corner svg line {
+  stroke-dasharray: 32;
+  stroke-dashoffset: 32;
+  animation: lbp-stroke-draw 900ms var(--ease-out-quart) 540ms both;
+}
+@keyframes lbp-stroke-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+/* Title block + scale bar — slide in from their edges. */
+.lbp-title-block {
+  animation: lbp-title-in 900ms var(--ease-out-expo) 1100ms both;
+}
+@keyframes lbp-title-in {
+  from { opacity: 0; transform: translate3d(8px, 8px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+.lbp-scale-bar {
+  animation: lbp-scale-in 900ms var(--ease-out-expo) 1100ms both;
+}
+@keyframes lbp-scale-in {
+  from { opacity: 0; transform: translate3d(-8px, 8px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+/* Scale bar segments — drafted in left-to-right after parent slides. */
+.lbp-scale-bar > div > span {
+  transform: scaleX(0);
+  transform-origin: left;
+  animation: lbp-scale-seg 700ms var(--ease-out-quart) both;
+}
+.lbp-scale-bar > div > span:nth-child(1) { animation-delay: 1500ms; }
+.lbp-scale-bar > div > span:nth-child(2) { animation-delay: 1620ms; }
+.lbp-scale-bar > div > span:nth-child(3) { animation-delay: 1740ms; }
+.lbp-scale-bar > div > span:nth-child(4) { animation-delay: 1860ms; }
+@keyframes lbp-scale-seg {
+  to { transform: scaleX(1); }
+}
+
+/* Section tag — ref pops, dimension rule extends. Triggered on .in. */
+.lbp-section-tag .ref {
+  opacity: 0;
+  transform: scale(0.6);
+  transition:
+    opacity 360ms var(--ease-out-quart) calc(var(--rv-d, 0) * 1ms + 60ms),
+    transform 520ms var(--ease-out-expo) calc(var(--rv-d, 0) * 1ms + 60ms);
+}
+.lbp-section-tag .rule {
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 900ms var(--ease-out-expo) calc(var(--rv-d, 0) * 1ms + 220ms);
+}
+.lbp-section-tag.in .ref { opacity: 1; transform: none; }
+.lbp-section-tag.in .rule { transform: scaleX(1); }
+
+/* Section rule (dashed divider) — ticks extend, line wipes. */
+.lbp-section-rule {
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path 1100ms var(--ease-out-expo);
+}
+.lbp-section-rule.in { clip-path: inset(0 0 0 0); }
+
+/* Schedule rows — wipe from left, stagger by row. */
+.lbp-schedule tbody tr {
+  opacity: 0;
+  clip-path: inset(0 100% 0 0);
+  transition:
+    opacity 480ms var(--ease-out-quart) calc(var(--rv-d, 0) * 1ms),
+    clip-path 900ms var(--ease-out-expo) calc(var(--rv-d, 0) * 1ms);
+}
+.lbp-schedule tbody.in tr,
+[data-rv].in .lbp-schedule tbody tr {
+  opacity: 1;
+  clip-path: inset(0 0 0 0);
+}
+.lbp-schedule tbody.in tr:nth-child(1),
+[data-rv].in .lbp-schedule tbody tr:nth-child(1) { transition-delay: 0ms; }
+.lbp-schedule tbody.in tr:nth-child(2),
+[data-rv].in .lbp-schedule tbody tr:nth-child(2) { transition-delay: 140ms; }
+.lbp-schedule tbody.in tr:nth-child(3),
+[data-rv].in .lbp-schedule tbody tr:nth-child(3) { transition-delay: 280ms; }
+.lbp-schedule tbody.in tr:nth-child(4),
+[data-rv].in .lbp-schedule tbody tr:nth-child(4) { transition-delay: 420ms; }
+
+/* Meter pips — pop in once row is revealed. */
+.lbp-schedule .meter span {
+  transform: scale(0.6);
+  opacity: 0;
+  transition: transform 360ms var(--ease-out-expo), opacity 280ms linear;
+}
+.lbp-schedule tbody.in .meter span,
+[data-rv].in .lbp-schedule .meter span { transform: none; opacity: 1; }
+.lbp-schedule .meter span:nth-child(1) { transition-delay: 380ms; }
+.lbp-schedule .meter span:nth-child(2) { transition-delay: 440ms; }
+.lbp-schedule .meter span:nth-child(3) { transition-delay: 500ms; }
+.lbp-schedule .meter span:nth-child(4) { transition-delay: 560ms; }
+.lbp-schedule .meter span:nth-child(5) { transition-delay: 620ms; }
+
+/* Specs list — items wipe in left to right, marker pops first. */
+.lbp-specs > li {
+  opacity: 0;
+  transform: translate3d(-14px, 0, 0);
+  transition:
+    opacity 540ms var(--ease-out-quart),
+    transform 720ms var(--ease-out-expo);
+}
+.lbp-specs.in > li,
+[data-rv].in .lbp-specs > li { opacity: 1; transform: none; }
+.lbp-specs > li:nth-child(1) { transition-delay: 0ms; }
+.lbp-specs > li:nth-child(2) { transition-delay: 80ms; }
+.lbp-specs > li:nth-child(3) { transition-delay: 160ms; }
+.lbp-specs > li:nth-child(4) { transition-delay: 240ms; }
+.lbp-specs > li:nth-child(5) { transition-delay: 320ms; }
+.lbp-specs > li:nth-child(6) { transition-delay: 400ms; }
+.lbp-specs > li:nth-child(7) { transition-delay: 480ms; }
+.lbp-specs > li:nth-child(8) { transition-delay: 560ms; }
+
+/* Workspace layer list — same wipe-stagger. */
+.lbp-layers > li {
+  opacity: 0;
+  transform: translate3d(-12px, 0, 0);
+  transition:
+    opacity 520ms var(--ease-out-quart),
+    transform 700ms var(--ease-out-expo);
+}
+.lbp-layers.in > li,
+[data-rv].in .lbp-layers > li { opacity: 1; transform: none; }
+.lbp-layers > li:nth-child(1) { transition-delay: 0ms; }
+.lbp-layers > li:nth-child(2) { transition-delay: 90ms; }
+.lbp-layers > li:nth-child(3) { transition-delay: 180ms; }
+.lbp-layers > li:nth-child(4) { transition-delay: 270ms; }
+.lbp-layers > li:nth-child(5) { transition-delay: 360ms; }
+.lbp-layers > li:nth-child(6) { transition-delay: 450ms; }
+
+/* Plate — subtle paper lift on hover. No layout properties. */
+.lbp-plate {
+  transition:
+    transform 420ms var(--ease-out-quart),
+    box-shadow 420ms var(--ease-out-quart);
+}
+.lbp-plate:hover {
+  transform: translateY(-2px);
+}
+
+/* Stamp — gentle revision pulse (very small, intermittent). */
+.lbp-stamp {
+  animation: lbp-stamp-pulse 4.6s ease-in-out infinite;
+}
+@keyframes lbp-stamp-pulse {
+  0%, 92%, 100% { opacity: 1; }
+  94%           { opacity: 0.45; }
+  96%           { opacity: 1; }
+}
+
+/* Compass needle — slow, restful sway. */
+.lbp-diagram .lbp-compass path {
+  transform-origin: 0 0;
+  animation: lbp-needle 14s ease-in-out infinite alternate;
+}
+@keyframes lbp-needle {
+  from { transform: rotate(-3deg); }
+  to   { transform: rotate(4deg); }
+}
+
+/* Diagram strokes inside hero — line-draw effect under the plotter wipe.   */
+/* The wipe clips the whole figure, but if user has reduced motion the     */
+/* fallback still resolves to fully drawn lines.                            */
+[data-wipe].in .lbp-diagram line,
+[data-wipe].in .lbp-diagram polyline {
+  /* visible after wipe completes */
+}
+
+/* Header inside the lbp-shell — slide down on load. */
+.lbp-shell .lbp-frame > :first-child {
+  animation: lbp-header-in 700ms var(--ease-out-expo) 240ms both;
+}
+@keyframes lbp-header-in {
+  from { opacity: 0; transform: translate3d(0, -10px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Buttons inside hero — small drift up after copy lands. */
+.lbp-cta-row {
+  opacity: 0;
+  transform: translate3d(0, 14px, 0);
+  animation: lbp-cta-in 760ms var(--ease-out-expo) 920ms both;
+}
+@keyframes lbp-cta-in {
+  to { opacity: 1; transform: none; }
+}
+
+/* Accent phrase — flat color in per-char system, no gradient-text. */
+
+/* Reduced motion — collapse to instant, keep state. */
+@media (prefers-reduced-motion: reduce) {
+  .lbp-shell,
+  .lbp-shell *,
+  .lbp-shell *::before,
+  .lbp-shell *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    transition-delay: 0ms !important;
+  }
+  .lbp-shell [data-rv],
+  .lbp-shell [data-wipe],
+  .lbp-shell .lbp-char,
+  .lbp-shell .lbp-schedule tbody tr,
+  .lbp-shell .lbp-specs > li,
+  .lbp-shell .lbp-layers > li,
+  .lbp-shell .lbp-section-tag .ref,
+  .lbp-shell .lbp-section-tag .rule,
+  .lbp-shell .lbp-section-rule {
+    opacity: 1 !important;
+    transform: none !important;
+    clip-path: none !important;
+    filter: none !important;
+  }
+}

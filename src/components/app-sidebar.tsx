@@ -1,92 +1,127 @@
 "use client";
 
 import {
-  CalendarDays,
-  ClipboardCheck,
-  FileText,
-  HelpCircle,
-  LayoutDashboard,
-  MessageSquare,
-  Settings,
-} from "lucide-react";
+  AudioWave01Icon,
+  Building06Icon,
+  CommandIcon,
+  ConstructionIcon,
+  Home01Icon,
+  Invoice02Icon,
+  LayoutBottomIcon,
+  LocationCheck02Icon,
+  Settings02Icon,
+  UserGroupIcon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { linkOptions } from "@tanstack/react-router";
 import type * as React from "react";
-
+import { NavMain } from "#/components/nav-main.tsx";
+import { NavUser } from "#/components/nav-user.tsx";
+import { TeamSwitcher } from "#/components/team-switcher.tsx";
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
+  SidebarRail,
 } from "#/components/ui/sidebar.tsx";
 
-const navItems = [
-  { icon: LayoutDashboard, label: "Dashboard", url: "#proposal-start" },
-  { icon: CalendarDays, label: "Projects", url: "#proposal-start" },
-  { icon: ClipboardCheck, label: "Draws", url: "#proposal-start" },
-  { icon: FileText, label: "Proposals", url: "#proposal-start" },
-  { icon: FileText, label: "Estimates", url: "#proposal-start" },
-  { icon: FileText, label: "Documents", url: "#proposal-start" },
-  { icon: CalendarDays, label: "Schedule", url: "#proposal-start" },
-  { icon: ClipboardCheck, label: "Reports", url: "#proposal-start" },
-  { icon: MessageSquare, label: "Messages", url: "#proposal-start" },
-  { icon: Settings, label: "Settings", url: "#proposal-start" },
-];
+const data = {
+  user: {
+    name: "shadcn",
+    email: "m@example.com",
+    avatar: "/avatars/shadcn.jpg",
+  },
+  teams: [
+    {
+      name: "Acme Inc",
+      logo: <HugeiconsIcon icon={LayoutBottomIcon} strokeWidth={2} />,
+      plan: "Enterprise",
+    },
+    {
+      name: "Acme Corp.",
+      logo: <HugeiconsIcon icon={AudioWave01Icon} strokeWidth={2} />,
+      plan: "Startup",
+    },
+    {
+      name: "Evil Corp.",
+      logo: <HugeiconsIcon icon={CommandIcon} strokeWidth={2} />,
+      plan: "Free",
+    },
+  ],
+  navMain: linkOptions([
+    {
+      title: "Home",
+      to: "/backoffice",
+      activeOptions: { exact: true },
+      preload: "intent",
+      viewTransition: { types: ["sidebar-nav"] },
+      icon: <HugeiconsIcon icon={Home01Icon} strokeWidth={2} />,
+    },
+    {
+      title: "Builds",
+      to: "/backoffice/builds",
+      activeOptions: { exact: false },
+      preload: "intent",
+      viewTransition: { types: ["sidebar-nav"] },
+      icon: <HugeiconsIcon icon={Building06Icon} strokeWidth={2} />,
+    },
+    {
+      title: "Site Visits",
+      to: "/backoffice/site-visits",
+      activeOptions: { exact: false },
+      preload: "intent",
+      viewTransition: { types: ["sidebar-nav"] },
+      icon: <HugeiconsIcon icon={LocationCheck02Icon} strokeWidth={2} />,
+    },
+    {
+      title: "Builders",
+      to: "/backoffice/builders",
+      activeOptions: { exact: false },
+      preload: "intent",
+      viewTransition: { types: ["sidebar-nav"] },
+      icon: <HugeiconsIcon icon={UserGroupIcon} strokeWidth={2} />,
+    },
+    {
+      title: "Contractors",
+      to: "/backoffice/contractors",
+      activeOptions: { exact: false },
+      preload: "intent",
+      viewTransition: { types: ["sidebar-nav"] },
+      icon: <HugeiconsIcon icon={ConstructionIcon} strokeWidth={2} />,
+    },
+    {
+      title: "Draws",
+      to: "/backoffice/draws",
+      activeOptions: { exact: false },
+      preload: "intent",
+      viewTransition: { types: ["sidebar-nav"] },
+      icon: <HugeiconsIcon icon={Invoice02Icon} strokeWidth={2} />,
+    },
+    {
+      title: "Settings",
+      to: "/backoffice/settings",
+      activeOptions: { exact: false },
+      preload: "intent",
+      viewTransition: { types: ["sidebar-nav"] },
+      icon: <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />,
+    },
+  ]),
+};
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   return (
-    <Sidebar {...props}>
-      <SidebarHeader className="pb-demo-sidebar-header">
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className="pb-demo-brand"
-              render={
-                // biome-ignore lint/a11y/useAnchorContent: Base UI render prop receives accessible content from SidebarMenuButton children.
-                <a href="#proposal-start" />
-              }
-              size="lg"
-            >
-              <div className="pb-demo-brand-mark">D</div>
-              <div>
-                <strong>DrawFlow</strong>
-                <span>Lending</span>
-              </div>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+    <Sidebar collapsible="icon" {...props}>
+      <SidebarHeader>
+        <TeamSwitcher teams={data.teams} />
       </SidebarHeader>
-
-      <SidebarContent className="pb-demo-sidebar-content">
-        <SidebarMenu className="pb-demo-nav">
-          {navItems.map((item, index) => {
-            const Icon = item.icon;
-            return (
-              <SidebarMenuItem key={item.label}>
-                <SidebarMenuButton
-                  className="pb-demo-nav-item"
-                  isActive={index === 0}
-                  render={
-                    // biome-ignore lint/a11y/useAnchorContent: Base UI render prop receives accessible content from SidebarMenuButton children.
-                    <a href={item.url} />
-                  }
-                  tooltip={item.label}
-                >
-                  <Icon size={17} />
-                  <span>{item.label}</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            );
-          })}
-        </SidebarMenu>
-
-        <div className="pb-demo-help">
-          <HelpCircle size={18} />
-          <strong>Need help?</strong>
-          <span>Visit the help center or contact support.</span>
-          <a href="#proposal-start">Help Center</a>
-        </div>
+      <SidebarContent>
+        <NavMain items={data.navMain} />
       </SidebarContent>
+      <SidebarFooter>
+        <NavUser user={data.user} />
+      </SidebarFooter>
+      <SidebarRail />
     </Sidebar>
   );
 }

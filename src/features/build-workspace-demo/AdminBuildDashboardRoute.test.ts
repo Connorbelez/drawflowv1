@@ -4,6 +4,7 @@ import { describe, expect, test, vi } from "vitest";
 import {
   buildAdminReviewViewModel,
   deriveDecisionState,
+  getEligibleSiteVisitMilestones,
   isReviewNoteRequired,
   runAdminReviewAction,
 } from "./AdminBuildDashboardRoute";
@@ -245,6 +246,18 @@ describe("admin build dashboard selectors", () => {
     expect(decisionState.approveMilestoneEnabled).toBe(false);
     expect(decisionState.canOverrideSiteVisit).toBe(true);
     expect(decisionState.blockers).toEqual(["Site visit required"]);
+  });
+
+  test("limits site visit request scope to selected and previous milestones", () => {
+    const first = milestone({ drawGroupId: "draw-1", id: "foundation" });
+    const second = milestone({ drawGroupId: "draw-1", id: "framing" });
+    const third = milestone({ drawGroupId: "draw-2", id: "drywall" });
+
+    expect(
+      getEligibleSiteVisitMilestones([first, second, third], second.id).map(
+        (item) => item.id
+      )
+    ).toEqual(["foundation", "framing"]);
   });
 });
 

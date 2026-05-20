@@ -1,7 +1,11 @@
-import { getPayloadConfigFromPayload, getColorsCount, useChart } from "#/components/evilcharts/ui/chart.tsx";
+import type * as React from "react";
 import * as RechartsPrimitive from "recharts";
+import {
+  getColorsCount,
+  getPayloadConfigFromPayload,
+  useChart,
+} from "#/components/evilcharts/ui/chart.tsx";
 import { cn } from "#/lib/utils.ts";
-import * as React from "react";
 
 type ChartLegendVariant =
   | "square"
@@ -40,12 +44,12 @@ function ChartLegendContent({
   return (
     <div
       className={cn(
-        "flex items-center gap-4 select-none",
+        "flex select-none items-center gap-4",
         align === "left" && "justify-start",
         align === "center" && "justify-center",
         align === "right" && "justify-end",
         verticalAlign === "top" ? "pb-4" : "pt-4",
-        className,
+        className
       )}
     >
       {payload
@@ -67,14 +71,16 @@ function ChartLegendContent({
 
           return (
             <div
-              key={key}
               className={cn(
-                "[&>svg]:text-muted-foreground flex items-center gap-1.5 transition-opacity [&>svg]:h-3 [&>svg]:w-3",
+                "flex items-center gap-1.5 transition-opacity [&>svg]:h-3 [&>svg]:w-3 [&>svg]:text-muted-foreground",
                 !isSelected && "opacity-30",
-                isClickable && "cursor-pointer",
+                isClickable && "cursor-pointer"
               )}
+              key={key}
               onClick={() => {
-                if (!isClickable) return;
+                if (!isClickable) {
+                  return;
+                }
 
                 onSelectChange?.(selected === key ? null : key);
               }}
@@ -83,9 +89,9 @@ function ChartLegendContent({
                 <itemConfig.icon />
               ) : (
                 <LegendIndicator
-                  variant={variant}
-                  dataKey={key}
                   colorsCount={colorsCount}
+                  dataKey={key}
+                  variant={variant}
                 />
               )}
               {itemConfig?.label}
@@ -118,7 +124,9 @@ function LegendIndicator({
       return <div className="h-2 w-2 shrink-0" style={fillStyle} />;
 
     case "circle":
-      return <div className="h-2 w-2 shrink-0 rounded-full" style={fillStyle} />;
+      return (
+        <div className="h-2 w-2 shrink-0 rounded-full" style={fillStyle} />
+      );
 
     case "circle-outline":
       return (
@@ -129,10 +137,14 @@ function LegendIndicator({
       );
 
     case "vertical-bar":
-      return <div className="h-3 w-1 shrink-0 rounded-[2px]" style={fillStyle} />;
+      return (
+        <div className="h-3 w-1 shrink-0 rounded-[2px]" style={fillStyle} />
+      );
 
     case "horizontal-bar":
-      return <div className="h-1 w-3 shrink-0 rounded-[2px]" style={fillStyle} />;
+      return (
+        <div className="h-1 w-3 shrink-0 rounded-[2px]" style={fillStyle} />
+      );
 
     case "rounded-square-outline":
       return (
@@ -144,7 +156,9 @@ function LegendIndicator({
 
     case "rounded-square":
     default:
-      return <div className="h-2 w-2 shrink-0 rounded-[2px]" style={fillStyle} />;
+      return (
+        <div className="h-2 w-2 shrink-0 rounded-[2px]" style={fillStyle} />
+      );
   }
 }
 
@@ -153,7 +167,10 @@ function LegendIndicator({
 // ---------------------------------------------------------------------------
 
 /** Solid fill / gradient background for filled variants. */
-function getLegendFillStyle(dataKey: string, colorsCount: number): React.CSSProperties {
+function getLegendFillStyle(
+  dataKey: string,
+  colorsCount: number
+): React.CSSProperties {
   if (colorsCount <= 1) {
     return { backgroundColor: `var(--color-${dataKey}-0)` };
   }
@@ -172,7 +189,10 @@ function getLegendFillStyle(dataKey: string, colorsCount: number): React.CSSProp
  * "border" visible. Works with both solid colors and gradients, and respects
  * border-radius — unlike plain `border-color`.
  */
-function getLegendOutlineStyle(dataKey: string, colorsCount: number): React.CSSProperties {
+function getLegendOutlineStyle(
+  dataKey: string,
+  colorsCount: number
+): React.CSSProperties {
   const maskStyle: React.CSSProperties = {
     WebkitMask:
       "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
