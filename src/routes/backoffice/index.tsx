@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useQuery } from "convex/react";
 import {
   type ColumnDef,
   flexRender,
@@ -19,7 +20,7 @@ import {
   Plus,
   Search,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   KanbanBoard,
@@ -60,6 +61,7 @@ import {
   type ScheduleEvent,
 } from "#/features/backoffice-dashboard/mock-data.ts";
 import { cn } from "#/lib/utils.ts";
+import { api } from "../../../convex/_generated/api";
 
 export const Route = createFileRoute("/backoffice/")({
   staticData: {
@@ -109,8 +111,57 @@ const actionIcon = {
   siteVisit: ClipboardCheck,
 } satisfies Record<QuickAction["type"], typeof FileText>;
 
+type GeneratedProposalCard = {
+  _id: string;
+  column: ProposalKanbanCard["column"];
+  href: string;
+  subtitle: string;
+  title: string;
+  totalBudgetCents: number;
+};
+
+export function generatedProposalCardToKanbanCard(
+  card: GeneratedProposalCard,
+): ProposalKanbanCard {
+  return {
+    address: card.subtitle,
+    builder: "DrawFlow demo",
+    closeLabel: "demo",
+    column: card.column,
+    href: card.href,
+    id: card._id,
+    loanAmount: new Intl.NumberFormat("en-US", {
+      currency: "USD",
+      maximumFractionDigits: 0,
+      style: "currency",
+    }).format(card.totalBudgetCents),
+    ltv: 68,
+    name: card.title,
+    tag: "demo",
+  };
+}
+
 function RouteComponent() {
-  const dashboard = useMemo(() => getBackofficeDashboardData(), []);
+  const generatedDashboard = useQuery(
+    api.demo_timeline_plans.demo_getBackofficeDashboard,
+    {}
+  );
+  const dashboard = useMemo(() => {
+    const base = getBackofficeDashboardData();
+    const generated = generatedDashboard?.generatedProposalCards ?? [];
+    if (generated.length === 0) {
+      return base;
+    }
+    return {
+      ...base,
+      proposals: [
+        ...generated.map((card: GeneratedProposalCard) =>
+          generatedProposalCardToKanbanCard(card),
+        ),
+        ...base.proposals,
+      ],
+    };
+  }, [generatedDashboard]);
 
   return <BackofficeDashboard dashboard={dashboard} />;
 }
@@ -514,6 +565,9 @@ function ProposalKanban({
   proposals: ProposalKanbanCard[];
 }) {
   const [cards, setCards] = useState(proposals);
+  useEffect(() => {
+    setCards(proposals);
+  }, [proposals]);
 
   return (
     <Card>
@@ -580,8 +634,8 @@ function ProposalKanban({
 }
 
 function ProposalCard(card: ProposalKanbanCard) {
-  return (
-    <KanbanCard {...card} className="gap-3 p-3">
+  const content = (
+    <>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-muted-foreground text-xs">{card.name}</p>
@@ -590,14 +644,37 @@ function ProposalCard(card: ProposalKanbanCard) {
             {card.builder}
           </p>
         </div>
-        {card.closeLabel ? (
-          <Badge variant="success">{card.closeLabel}</Badge>
-        ) : null}
+        <div className="flex flex-col items-end gap-1">
+          {card.closeLabel ? (
+            <Badge
+              data-ixc-ref={card.tag === "demo" ? "UI-DEMO-TAG" : undefined}
+              variant="success"
+            >
+              {card.closeLabel}
+            </Badge>
+          ) : null}
+        </div>
       </div>
       <div className="flex items-center justify-between border-t pt-2 text-sm">
         <span className="font-medium">{card.loanAmount}</span>
         <span className="text-muted-foreground">{card.ltv}% LTV</span>
       </div>
+    </>
+  );
+
+  return (
+    <KanbanCard
+      {...card}
+      className="gap-3 p-3"
+      data-ixc-ref={card.tag === "demo" ? "UI-DEMO-PROPOSAL-CARD" : undefined}
+    >
+      {card.href ? (
+        <a className="contents" href={card.href}>
+          {content}
+        </a>
+      ) : (
+        content
+      )}
     </KanbanCard>
   );
 }

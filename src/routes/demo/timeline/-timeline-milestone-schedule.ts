@@ -6,11 +6,10 @@ import type { DemoMilestone } from "./-timeline-share-snapshot.ts";
 
 export const DEFAULT_MILESTONE_DURATION_DAYS = 14;
 export const DEFAULT_DRAW_REVIEW_LAG_DAYS = 8;
-export const MILESTONE_SPEND_INTERVAL_DAYS = 5;
 export const MINIMUM_MILESTONE_HANDOFF_GAP_DAYS = 5;
 
 export type MilestonePhase = "inProgress" | "complete";
-export type MilestoneSpendKind = "completion" | "distributed" | "initial";
+export type MilestoneSpendKind = "completion" | "initial";
 
 export interface ActiveMilestoneSelection {
   itemId: string;
@@ -163,76 +162,33 @@ export function buildMilestoneSpendEvents(
   const schedule = getMilestonePaymentSchedule(item);
   const milestoneId = item.id;
   const milestoneName = item.data?.name?.trim() || item.label || item.id;
-  const events: MilestoneSpendEvent[] = [];
+  const completionAmount = Math.max(
+    0,
+    schedule.totalAmount - schedule.initialPaymentAmount
+  );
 
-  events.push({
-    amount: schedule.initialPaymentAmount,
-    day: schedule.startX,
-    id: `${milestoneId}-initial-payment`,
-    kind: "initial",
-    label: `${milestoneName} initial payment`,
-    milestoneAmount: schedule.totalAmount,
-    milestoneId,
-    milestoneName,
-  });
-
-  const distributedDays = getDistributedSpendDays(schedule);
-  const distributedAmount =
-    distributedDays.length > 0
-      ? schedule.distributedAmount / distributedDays.length
-      : 0;
-
-  for (const day of distributedDays) {
-    if (distributedAmount <= 0) {
-      break;
-    }
-
-    events.push({
-      amount: distributedAmount,
-      day,
-      id: `${milestoneId}-distributed-${formatSpendEventDayId(day)}`,
-      kind: "distributed",
-      label: `${milestoneName} interval spend`,
+  return [
+    {
+      amount: schedule.initialPaymentAmount,
+      day: schedule.startX,
+      id: `${milestoneId}-initial-payment`,
+      kind: "initial",
+      label: `${milestoneName} initial payment`,
       milestoneAmount: schedule.totalAmount,
       milestoneId,
       milestoneName,
-    });
-  }
-
-  events.push({
-    amount: schedule.completionPaymentAmount,
-    day: schedule.endX,
-    id: `${milestoneId}-completion-payment`,
-    kind: "completion",
-    label: `${milestoneName} completion payment`,
-    milestoneAmount: schedule.totalAmount,
-    milestoneId,
-    milestoneName,
-  });
-
-  return events;
-}
-
-function getDistributedSpendDays(schedule: MilestonePaymentSchedule): number[] {
-  if (schedule.distributedAmount <= 0) {
-    return [];
-  }
-
-  const days: number[] = [];
-
-  for (
-    let day = schedule.startX;
-    day < schedule.endX;
-    day += MILESTONE_SPEND_INTERVAL_DAYS
-  ) {
-    days.push(day);
-  }
-
-  return days.length > 0 ? days : [schedule.startX];
-}
-
-function formatSpendEventDayId(day: number): string {
-  return String(day).replaceAll(".", "-");
+    },
+    {
+      amount: completionAmount,
+      day: schedule.endX,
+      id: `${milestoneId}-completion-payment`,
+      kind: "completion",
+      label: `${milestoneName} completion payment`,
+      milestoneAmount: schedule.totalAmount,
+      milestoneId,
+      milestoneName,
+    },
+  ];
 }
 
 function normalizeDurationDays(value: number | undefined): number {

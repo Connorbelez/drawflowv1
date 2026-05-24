@@ -1,26 +1,12 @@
 "use client";
 
-import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
-import { arrayMove } from "@dnd-kit/sortable";
-import {
-  type ColumnDef,
-  type ExpandedState,
-  flexRender,
-  getCoreRowModel,
-  getExpandedRowModel,
-  useReactTable,
-} from "@tanstack/react-table";
 import {
   Check,
-  ChevronDown,
   ChevronRight,
   ClipboardCheck,
   FileText,
-  GripVertical,
   Info,
-  Plus,
   ShieldCheck,
-  Trash2,
 } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import {
@@ -32,41 +18,16 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  Sortable,
-  SortableItem,
-  SortableItemHandle,
-} from "#/components/reui/sortable.tsx";
 import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
-import {
-  Autocomplete,
-  AutocompleteGroup,
-  AutocompleteGroupLabel,
-  AutocompleteInput,
-  AutocompleteList,
-  AutocompletePopup,
-} from "#/components/ui/autocomplete.tsx";
-import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
-import { Switch } from "#/components/ui/switch.tsx";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "#/components/ui/table.tsx";
 import { cn } from "#/lib/utils.ts";
 import {
   allocateBudgetCents,
   formatCurrency,
   parseCurrencyToCents,
 } from "../../../features/builder-proposal-demo/template-helpers.ts";
-import {
-  DEFAULT_DRAW_REVIEW_LAG_DAYS,
-  normalizeMilestoneTimelineItems,
-} from "./-timeline-milestone-schedule.ts";
+import { normalizeMilestoneTimelineItems } from "./-timeline-milestone-schedule.ts";
+import { TimelineMilestoneWorksheetTable } from "./-TimelineMilestoneWorksheetTable.tsx";
 import type {
   DemoMilestone,
   IsometricIconKey,
@@ -78,7 +39,8 @@ const DEFAULT_SETUP_CASH_TEXT = "$400,000";
 const DEFAULT_SETUP_CO_PAY_TEXT = "$0";
 const DEFAULT_SETUP_ADDRESS = "Hamilton, ON";
 const GENERATED_TIMELINE_CURRENT_DAY = 0;
-const DEFAULT_HANDOFF_GAP_DAYS = 10;
+const DEFAULT_HANDOFF_GAP_DAYS = 5;
+const DEFAULT_GENERATED_DRAW_OFFSET_DAYS = 2;
 const DEFAULT_NEW_MILESTONE_BUDGET_TEXT = "$0";
 const DEFAULT_NEW_MILESTONE_DURATION_TEXT = "7";
 const DEFAULT_NEW_SUB_MILESTONE_BUDGET_TEXT = "$0";
@@ -91,7 +53,7 @@ const subMilestoneDescriptions = [
   "Lender review checkpoint",
 ];
 
-interface SubMilestoneBankItem {
+export interface SubMilestoneBankItem {
   budgetText?: string;
   category: string;
   description: string;
@@ -99,7 +61,7 @@ interface SubMilestoneBankItem {
   name: string;
 }
 
-const SUB_MILESTONE_BANK: SubMilestoneBankItem[] = [
+export const SUB_MILESTONE_BANK: SubMilestoneBankItem[] = [
   {
     category: "Preconstruction",
     description:
@@ -492,7 +454,7 @@ const TEMPLATE_THUMBNAILS: Record<string, string> = {
 
 type SetupStep = "template" | "budget";
 
-interface TimelineSetupTemplate {
+export interface TimelineSetupTemplate {
   description: string;
   isDefault?: boolean;
   rows: TimelineSetupPreset[];
@@ -501,7 +463,7 @@ interface TimelineSetupTemplate {
   title: string;
 }
 
-interface TimelineSetupPreset {
+export interface TimelineSetupPreset {
   baseItemId?: string;
   dependencyKeys: string[];
   durationDays: number;
@@ -534,7 +496,9 @@ export interface TimelineSetupResult {
   currentDay: number;
   includedCount: number;
   items: TimelineItem<DemoMilestone>[];
+  redirectToDurableRoute: boolean;
   startingCash: number;
+  templateKey: string;
   templateTitle: string;
   totalBudget: number;
 }
@@ -542,6 +506,7 @@ export interface TimelineSetupResult {
 export interface TimelineSetupFlowProps {
   baseItems: TimelineItem<DemoMilestone>[];
   onComplete: (result: TimelineSetupResult) => void;
+  settingsTemplates?: TimelineSetupTemplate[];
 }
 
 function rowBudgetCents(row: TimelineSetupMilestoneRow) {
@@ -568,7 +533,7 @@ function validCurrencyCents(value: string) {
   return Number.isFinite(cents) ? Math.max(0, cents) : Number.NaN;
 }
 
-function normalizeDurationText(value: string) {
+export function normalizeDurationText(value: string) {
   const parsed = Number(value.replace(/^T/i, ""));
 
   return Number.isFinite(parsed)
@@ -594,7 +559,7 @@ function slugifySubMilestone(value: string) {
 function buildSubMilestoneDetails(
   row: TimelineSetupPreset,
   budgetCents: number,
-  durationDays: number
+  durationDays: number,
 ): TimelineSetupSubMilestone[] {
   const names =
     row.subMilestones.length > 0 ? row.subMilestones : ["Initial scope"];
@@ -608,12 +573,12 @@ function buildSubMilestoneDetails(
 
   return names.map((name, index) => ({
     budgetText: formatCurrency(
-      baseBudgetCents + (index < budgetRemainderCents ? 1 : 0)
+      baseBudgetCents + (index < budgetRemainderCents ? 1 : 0),
     ),
     description:
       subMilestoneDescriptions[index % subMilestoneDescriptions.length],
     durationText: String(
-      Math.max(1, baseDurationDays + (index < durationRemainderDays ? 1 : 0))
+      Math.max(1, baseDurationDays + (index < durationRemainderDays ? 1 : 0)),
     ),
     id: `${row.key}-${slugifySubMilestone(name)}-${index}`,
     name,
@@ -622,13 +587,13 @@ function buildSubMilestoneDetails(
 
 function withSubMilestoneDetails(
   row: TimelineSetupMilestoneRow,
-  subMilestoneDetails: TimelineSetupSubMilestone[]
+  subMilestoneDetails: TimelineSetupSubMilestone[],
 ): TimelineSetupMilestoneRow {
   return {
     ...row,
     subMilestoneDetails,
     subMilestones: subMilestoneDetails.map((detail) =>
-      sanitizeSubMilestoneName(detail.name)
+      sanitizeSubMilestoneName(detail.name),
     ),
   };
 }
@@ -649,7 +614,7 @@ function makeUniqueRowKey(name: string, rows: TimelineSetupMilestoneRow[]) {
   return `${baseKey}-${suffix}`;
 }
 
-function createCustomMilestoneRow({
+export function createCustomMilestoneRow({
   name,
   order,
   rows,
@@ -686,11 +651,11 @@ function createCustomMilestoneRow({
       subMilestones: [],
       type: "custom",
     },
-    subMilestoneDetails
+    subMilestoneDetails,
   );
 }
 
-function formatRowType(value: string) {
+export function formatRowType(value: string) {
   return value
     .replace(/([a-z])([A-Z])/g, "$1 $2")
     .replaceAll("_", " ")
@@ -700,7 +665,7 @@ function formatRowType(value: string) {
 function buildDefaultTemplate(baseItems: TimelineItem<DemoMilestone>[]) {
   const totalAmount = Math.max(
     1,
-    baseItems.reduce((sum, item) => sum + (item.data?.amount ?? 0), 0)
+    baseItems.reduce((sum, item) => sum + (item.data?.amount ?? 0), 0),
   );
 
   return {
@@ -742,7 +707,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           10,
           "foundation",
           "permitting",
-          ["Permit update", "Site protection", "Mobilization"]
+          ["Permit update", "Site protection", "Mobilization"],
         ),
         preset(
           "selective_demo",
@@ -751,7 +716,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           16,
           "change",
           "demolition",
-          ["Interior demo", "Waste removal", "Utility safety"]
+          ["Interior demo", "Waste removal", "Utility safety"],
         ),
         preset(
           "structural_repairs",
@@ -760,7 +725,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           24,
           "framing",
           "foundation_structural",
-          ["Beam repair", "Load path", "Inspection"]
+          ["Beam repair", "Load path", "Inspection"],
         ),
         preset(
           "mep_rework",
@@ -769,7 +734,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           21,
           "roughIn",
           "mechanical_electrical_plumbing",
-          ["Plumbing rework", "Electrical panel", "HVAC adjustments"]
+          ["Plumbing rework", "Electrical panel", "HVAC adjustments"],
         ),
         preset(
           "envelope_repairs",
@@ -778,7 +743,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           18,
           "exterior",
           "exterior_envelope",
-          ["Window repair", "Weather barrier", "Exterior patch"]
+          ["Window repair", "Weather barrier", "Exterior patch"],
         ),
         preset(
           "renovation_interiors",
@@ -787,7 +752,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           36,
           "finishes",
           "interior_finish",
-          ["Drywall", "Cabinetry", "Fixture set"]
+          ["Drywall", "Cabinetry", "Fixture set"],
         ),
         preset(
           "renovation_closeout",
@@ -796,7 +761,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           10,
           "closeout",
           "closeout",
-          ["Punch list", "Final inspection", "Closeout package"]
+          ["Punch list", "Final inspection", "Closeout package"],
         ),
       ],
       summary: "7 renovation milestones",
@@ -814,7 +779,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           16,
           "foundation",
           "permitting",
-          ["Civil permit", "Mobilization", "Survey control"]
+          ["Civil permit", "Mobilization", "Survey control"],
         ),
         preset(
           "shared_sitework",
@@ -823,7 +788,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           28,
           "foundation",
           "site_preparation",
-          ["Rough grading", "Utility trenching", "Site access"]
+          ["Rough grading", "Utility trenching", "Site access"],
         ),
         preset(
           "podium_foundation",
@@ -832,7 +797,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           30,
           "foundation",
           "foundation_structural",
-          ["Footings", "Podium formwork", "Concrete placement"]
+          ["Footings", "Podium formwork", "Concrete placement"],
         ),
         preset(
           "stacked_framing",
@@ -841,7 +806,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           42,
           "framing",
           "foundation_structural",
-          ["Level framing", "Trusses", "Dry-in"]
+          ["Level framing", "Trusses", "Dry-in"],
         ),
         preset(
           "shared_mep",
@@ -850,7 +815,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           35,
           "roughIn",
           "mechanical_electrical_plumbing",
-          ["Main risers", "Electrical rooms", "Mechanical trunk"]
+          ["Main risers", "Electrical rooms", "Mechanical trunk"],
         ),
         preset(
           "unit_finishes",
@@ -859,7 +824,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           45,
           "finishes",
           "interior_finish",
-          ["Drywall", "Flooring", "Kitchen package"]
+          ["Drywall", "Flooring", "Kitchen package"],
         ),
         preset(
           "multiplex_closeout",
@@ -868,7 +833,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           18,
           "closeout",
           "closeout",
-          ["Life safety", "Occupancy inspections", "Closeout binder"]
+          ["Life safety", "Occupancy inspections", "Closeout binder"],
         ),
       ],
       summary: "7 multiplex milestones",
@@ -885,7 +850,7 @@ function preset(
   durationDays: number,
   icon: IsometricIconKey,
   type: string,
-  subMilestones: string[]
+  subMilestones: string[],
 ): TimelineSetupPreset {
   return {
     dependencyKeys: [],
@@ -901,7 +866,7 @@ function preset(
 
 function createRowsFromTemplate(
   template: TimelineSetupTemplate,
-  budgetCents: number
+  budgetCents: number,
 ): TimelineSetupMilestoneRow[] {
   const allocations = allocateBudgetCents(budgetCents, template.rows);
 
@@ -917,7 +882,7 @@ function createRowsFromTemplate(
       subMilestoneDetails: buildSubMilestoneDetails(
         row,
         budgetCents,
-        row.durationDays
+        row.durationDays,
       ),
     };
   });
@@ -925,7 +890,7 @@ function createRowsFromTemplate(
 
 function chooseStatus(
   order: number,
-  includedCount: number
+  includedCount: number,
 ): DemoMilestone["status"] {
   if (includedCount > 0 && order === 0) {
     return "ready";
@@ -947,7 +912,7 @@ function chooseTone(status: DemoMilestone["status"]) {
 }
 
 export function buildTimelineItemsFromSetupRows(
-  rows: TimelineSetupMilestoneRow[]
+  rows: TimelineSetupMilestoneRow[],
 ): TimelineItem<DemoMilestone>[] {
   const includedRows = rows.filter((row) => !row.excluded);
   let cursor = GENERATED_TIMELINE_CURRENT_DAY;
@@ -968,13 +933,18 @@ export function buildTimelineItemsFromSetupRows(
         data: {
           amount,
           draw: `Draw ${includedIndex + 1}`,
-          drawX: startDay + normalizedDuration + DEFAULT_DRAW_REVIEW_LAG_DAYS,
+          drawX:
+            startDay +
+            normalizedDuration +
+            Math.min(
+              DEFAULT_GENERATED_DRAW_OFFSET_DAYS,
+              DEFAULT_HANDOFF_GAP_DAYS - 1,
+            ),
           durationDays: normalizedDuration,
           evidence: status === "ready" ? "Ready to start" : "Not started",
           icon: row.icon,
           name: row.name,
-          policy:
-            status === "ready" ? "Planning handoff" : "Upcoming",
+          policy: status === "ready" ? "Planning handoff" : "Upcoming",
           status,
           subMilestones: row.subMilestones,
         },
@@ -989,7 +959,7 @@ export function buildTimelineItemsFromSetupRows(
 
       cursor += normalizedDuration + DEFAULT_HANDOFF_GAP_DAYS;
       return item;
-    })
+    }),
   );
 }
 
@@ -1031,7 +1001,7 @@ function TemplateStep({
   templates: TimelineSetupTemplate[];
 }) {
   const selectedTemplate = templates.find(
-    (template) => template.templateKey === selectedTemplateKey
+    (template) => template.templateKey === selectedTemplateKey,
   );
   const budgetCents = validCurrencyCents(budgetText);
   const cashCents = validCurrencyCents(cashText);
@@ -1062,7 +1032,7 @@ function TemplateStep({
                   aria-pressed={selected}
                   className={cn(
                     "timeline-template-card",
-                    selected && "is-selected"
+                    selected && "is-selected",
                   )}
                   data-testid={`timeline-setup-template-card-${template.templateKey}`}
                   key={template.templateKey}
@@ -1370,8 +1340,8 @@ function BlueprintPermitUploader({
         (file) =>
           !files.some(
             (existing) =>
-              existing.name === file.name && existing.size === file.size
-          )
+              existing.name === file.name && existing.size === file.size,
+          ),
       ),
     ]);
   };
@@ -1430,482 +1400,6 @@ function BlueprintPermitUploader({
   );
 }
 
-function BlueprintMilestoneIcon({
-  icon,
-  name,
-  testId,
-}: {
-  icon: IsometricIconKey;
-  name: string;
-  testId?: string;
-}) {
-  const sources: Record<IsometricIconKey, string> = {
-    change: "/drawflow-milestone-blueprint-icons/change.png",
-    closeout: "/drawflow-milestone-blueprint-icons/closeout.png",
-    drywall: "/drawflow-milestone-blueprint-icons/drywall.png",
-    exterior: "/drawflow-milestone-blueprint-icons/exterior.png",
-    finishes: "/drawflow-milestone-blueprint-icons/finishes.png",
-    foundation: "/drawflow-milestone-blueprint-icons/foundation.png",
-    framing: "/drawflow-milestone-blueprint-icons/framing.png",
-    roughIn: "/drawflow-milestone-blueprint-icons/rough-in.png",
-  };
-
-  return (
-    <span className="timeline-blueprint-icon-shell">
-      <img
-        alt={`${name} blueprint milestone icon`}
-        className="timeline-blueprint-icon"
-        data-icon={icon}
-        data-testid={testId}
-        draggable={false}
-        loading="lazy"
-        src={sources[icon]}
-      />
-    </span>
-  );
-}
-
-function BlueprintInput({
-  align = "left",
-  className,
-  label,
-  onBlur,
-  onChange,
-  testId,
-  value,
-}: {
-  align?: "left" | "center" | "right";
-  className?: string;
-  label: string;
-  onBlur: () => void;
-  onChange: (value: string) => void;
-  testId: string;
-  value: string;
-}) {
-  return (
-    <input
-      aria-label={label}
-      className={cn("timeline-blueprint-input", className)}
-      data-align={align}
-      data-testid={testId}
-      onBlur={onBlur}
-      onChange={(event) => onChange(event.currentTarget.value)}
-      value={value}
-    />
-  );
-}
-
-function matchesSubMilestoneBankQuery(
-  item: SubMilestoneBankItem,
-  query: string
-) {
-  const normalizedQuery = query.trim().toLowerCase();
-
-  if (!normalizedQuery) {
-    return true;
-  }
-
-  return [item.name, item.category, item.description].some((value) =>
-    value.toLowerCase().includes(normalizedQuery)
-  );
-}
-
-function SubMilestoneBankPicker({
-  existingNames,
-  onAdd,
-  rowKey,
-}: {
-  existingNames: string[];
-  onAdd: (item: SubMilestoneBankItem) => void;
-  rowKey: string;
-}) {
-  const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(false);
-  const existingNameSet = useMemo(
-    () => new Set(existingNames.map((name) => name.trim().toLowerCase())),
-    [existingNames]
-  );
-  const availableItems = useMemo(
-    () =>
-      SUB_MILESTONE_BANK.filter(
-        (item) => !existingNameSet.has(item.name.toLowerCase())
-      ),
-    [existingNameSet]
-  );
-  const filteredItems = useMemo(
-    () =>
-      availableItems
-        .filter((item) => matchesSubMilestoneBankQuery(item, query))
-        .slice(0, 36),
-    [availableItems, query]
-  );
-  const groupedItems = useMemo(() => {
-    const groups = new Map<string, SubMilestoneBankItem[]>();
-
-    for (const item of filteredItems) {
-      groups.set(item.category, [...(groups.get(item.category) ?? []), item]);
-    }
-
-    return [...groups.entries()];
-  }, [filteredItems]);
-  const customName = sanitizeSubMilestoneName(query);
-  const normalizedCustomName = customName.toLowerCase();
-  const canCreate =
-    query.trim().length > 1 &&
-    !existingNameSet.has(normalizedCustomName) &&
-    !SUB_MILESTONE_BANK.some(
-      (item) => item.name.toLowerCase() === normalizedCustomName
-    );
-
-  const addItem = (item: SubMilestoneBankItem) => {
-    onAdd(item);
-    setQuery("");
-    setOpen(false);
-  };
-
-  return (
-    <div className="timeline-submilestone-bank">
-      <Autocomplete
-        autoHighlight="always"
-        keepHighlight
-        onOpenChange={setOpen}
-        onValueChange={(nextQuery) => {
-          setQuery(nextQuery);
-          setOpen(true);
-        }}
-        open={open}
-        openOnInputClick
-        value={query}
-      >
-        <AutocompleteInput
-          aria-label="Add sub-milestone from bank"
-          className="timeline-submilestone-bank-input"
-          data-testid={`timeline-setup-submilestone-bank-input-${rowKey}`}
-          onFocus={() => setOpen(true)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && canCreate) {
-              event.preventDefault();
-              addItem({
-                budgetText: DEFAULT_NEW_SUB_MILESTONE_BUDGET_TEXT,
-                category: "Custom",
-                description: "Custom scope checkpoint",
-                durationText: DEFAULT_NEW_SUB_MILESTONE_DURATION_TEXT,
-                name: customName,
-              });
-            }
-          }}
-          placeholder="Add from sub-milestone bank..."
-          showClear
-          showTrigger
-          size="sm"
-        />
-        <AutocompletePopup className="timeline-submilestone-bank-popup">
-          <AutocompleteList className="timeline-submilestone-bank-list">
-            {groupedItems.map(([category, items]) => (
-              <AutocompleteGroup key={category}>
-                <AutocompleteGroupLabel className="timeline-submilestone-bank-label">
-                  {category}
-                </AutocompleteGroupLabel>
-                {items.map((item) => (
-                  <button
-                    className="timeline-submilestone-bank-item"
-                    data-testid={`timeline-setup-submilestone-bank-item-${slugifySubMilestone(item.name)}`}
-                    key={item.name}
-                    onClick={() => addItem(item)}
-                    onMouseDown={(event) => event.preventDefault()}
-                    type="button"
-                  >
-                    <span>
-                      <strong>{item.name}</strong>
-                      <small>{item.description}</small>
-                    </span>
-                    <em>T{item.durationText}</em>
-                  </button>
-                ))}
-              </AutocompleteGroup>
-            ))}
-            {canCreate ? (
-              <button
-                className="timeline-submilestone-bank-item is-create"
-                data-testid={`timeline-setup-submilestone-bank-create-${rowKey}`}
-                onClick={() =>
-                  addItem({
-                    budgetText: DEFAULT_NEW_SUB_MILESTONE_BUDGET_TEXT,
-                    category: "Custom",
-                    description: "Custom scope checkpoint",
-                    durationText: DEFAULT_NEW_SUB_MILESTONE_DURATION_TEXT,
-                    name: customName,
-                  })
-                }
-                onMouseDown={(event) => event.preventDefault()}
-                type="button"
-              >
-                <span>
-                  <strong>Create "{customName}"</strong>
-                  <small>Add a custom reimbursement checkpoint</small>
-                </span>
-                <Plus aria-hidden="true" />
-              </button>
-            ) : null}
-            {filteredItems.length === 0 && !canCreate ? (
-              <div className="timeline-submilestone-bank-empty">
-                No available bank item matches this search.
-              </div>
-            ) : null}
-          </AutocompleteList>
-        </AutocompletePopup>
-      </Autocomplete>
-    </div>
-  );
-}
-
-function SubMilestoneEditor({
-  activeSubMilestoneId,
-  onActiveSubMilestoneChange,
-  onAddSubMilestone,
-  onRemoveSubMilestone,
-  onUpdateSubMilestone,
-  row,
-}: {
-  activeSubMilestoneId?: string;
-  onActiveSubMilestoneChange: (subMilestoneId: string) => void;
-  onAddSubMilestone: (item?: SubMilestoneBankItem) => void;
-  onRemoveSubMilestone: (subMilestoneId: string) => void;
-  onUpdateSubMilestone: (
-    subMilestoneId: string,
-    patch: Partial<TimelineSetupSubMilestone>
-  ) => void;
-  row: TimelineSetupMilestoneRow;
-}) {
-  const subMilestones = row.subMilestoneDetails;
-  const activeSubMilestone =
-    subMilestones.find((detail) => detail.id === activeSubMilestoneId) ??
-    subMilestones[0];
-
-  return (
-    <div className="timeline-submilestone-editor">
-      <section
-        aria-label={`${row.name} sub-milestones`}
-        className="timeline-submilestone-list-pane"
-      >
-        <div className="timeline-submilestone-editor-heading">
-          <div>
-            <Badge className="timeline-blueprint-mini-badge" variant="outline">
-              {subMilestones.length} sub-milestones
-            </Badge>
-            <p>{row.name}</p>
-          </div>
-          <SubMilestoneBankPicker
-            existingNames={subMilestones.map((subMilestone) =>
-              sanitizeSubMilestoneName(subMilestone.name)
-            )}
-            onAdd={onAddSubMilestone}
-            rowKey={row.key}
-          />
-        </div>
-
-        <div className="timeline-submilestone-card-list">
-          {subMilestones.map((subMilestone) => {
-            const selected = subMilestone.id === activeSubMilestone?.id;
-
-            return (
-              <article
-                className="timeline-submilestone-card"
-                data-selected={selected ? "true" : undefined}
-                data-testid={`timeline-setup-submilestone-card-${subMilestone.id}`}
-                key={subMilestone.id}
-              >
-                <button
-                  aria-pressed={selected}
-                  className="timeline-submilestone-card-main"
-                  onClick={() => onActiveSubMilestoneChange(subMilestone.id)}
-                  type="button"
-                >
-                  <span className="timeline-submilestone-card-title">
-                    <strong>
-                      {sanitizeSubMilestoneName(subMilestone.name)}
-                    </strong>
-                    <small>{subMilestone.description}</small>
-                  </span>
-                  <span className="timeline-submilestone-card-metrics">
-                    <span>
-                      <small>Budget</small>
-                      <strong>{subMilestone.budgetText}</strong>
-                    </span>
-                    <span>
-                      <small>Duration</small>
-                      <strong>T{subMilestone.durationText}</strong>
-                    </span>
-                  </span>
-                </button>
-                <button
-                  aria-label={`Remove ${sanitizeSubMilestoneName(subMilestone.name)}`}
-                  className="timeline-submilestone-remove"
-                  data-testid={`timeline-setup-submilestone-remove-${subMilestone.id}`}
-                  onClick={() => onRemoveSubMilestone(subMilestone.id)}
-                  type="button"
-                >
-                  <Trash2 aria-hidden="true" />
-                </button>
-              </article>
-            );
-          })}
-        </div>
-      </section>
-
-      <section
-        aria-label="Selected sub-milestone details"
-        className="timeline-submilestone-detail-pane"
-      >
-        {activeSubMilestone ? (
-          <div
-            className="timeline-submilestone-detail-body"
-            key={activeSubMilestone.id}
-          >
-            <div className="timeline-submilestone-detail-header">
-              <span>Selected sub-milestone</span>
-              <strong>
-                {sanitizeSubMilestoneName(activeSubMilestone.name)}
-              </strong>
-            </div>
-            <label className="timeline-submilestone-detail-field is-wide">
-              <span>Name</span>
-              <input
-                aria-label="Sub-milestone name"
-                data-testid={`timeline-setup-submilestone-name-${activeSubMilestone.id}`}
-                onChange={(event) =>
-                  onUpdateSubMilestone(activeSubMilestone.id, {
-                    name: event.currentTarget.value,
-                  })
-                }
-                value={activeSubMilestone.name}
-              />
-            </label>
-            <label className="timeline-submilestone-detail-field is-wide">
-              <span>Scope note</span>
-              <textarea
-                aria-label="Sub-milestone scope note"
-                data-testid={`timeline-setup-submilestone-description-${activeSubMilestone.id}`}
-                onChange={(event) =>
-                  onUpdateSubMilestone(activeSubMilestone.id, {
-                    description: event.currentTarget.value,
-                  })
-                }
-                value={activeSubMilestone.description}
-              />
-            </label>
-            <div className="timeline-submilestone-detail-grid">
-              <label className="timeline-submilestone-detail-field">
-                <span>Budget</span>
-                <BlueprintInput
-                  align="right"
-                  className="timeline-submilestone-detail-input"
-                  label="Sub-milestone budget"
-                  onBlur={() =>
-                    onUpdateSubMilestone(activeSubMilestone.id, {
-                      budgetText: normalizeCurrencyText(
-                        activeSubMilestone.budgetText
-                      ),
-                    })
-                  }
-                  onChange={(budgetText) =>
-                    onUpdateSubMilestone(activeSubMilestone.id, { budgetText })
-                  }
-                  testId={`timeline-setup-submilestone-budget-${activeSubMilestone.id}`}
-                  value={activeSubMilestone.budgetText}
-                />
-              </label>
-              <label className="timeline-submilestone-detail-field">
-                <span>Duration</span>
-                <BlueprintInput
-                  align="center"
-                  className="timeline-submilestone-detail-input"
-                  label="Sub-milestone duration"
-                  onBlur={() =>
-                    onUpdateSubMilestone(activeSubMilestone.id, {
-                      durationText: normalizeDurationText(
-                        activeSubMilestone.durationText
-                      ),
-                    })
-                  }
-                  onChange={(durationText) =>
-                    onUpdateSubMilestone(activeSubMilestone.id, {
-                      durationText: durationText
-                        .replace(/^T/i, "")
-                        .replace(/\D/g, ""),
-                    })
-                  }
-                  testId={`timeline-setup-submilestone-duration-${activeSubMilestone.id}`}
-                  value={`T${activeSubMilestone.durationText}`}
-                />
-              </label>
-            </div>
-            <button
-              className="timeline-submilestone-detail-remove"
-              data-testid={`timeline-setup-submilestone-detail-remove-${activeSubMilestone.id}`}
-              onClick={() => onRemoveSubMilestone(activeSubMilestone.id)}
-              type="button"
-            >
-              <Trash2 aria-hidden="true" />
-              Remove sub-milestone
-            </button>
-          </div>
-        ) : (
-          <div className="timeline-submilestone-empty">
-            <strong>No sub-milestones</strong>
-            <button
-              onClick={() =>
-                onAddSubMilestone({
-                  category: "Custom",
-                  description: "Custom scope checkpoint",
-                  durationText: DEFAULT_NEW_SUB_MILESTONE_DURATION_TEXT,
-                  name: "New sub-milestone",
-                })
-              }
-              type="button"
-            >
-              <Plus aria-hidden="true" />
-              Add sub-milestone
-            </button>
-          </div>
-        )}
-      </section>
-    </div>
-  );
-}
-
-function DragHandle({
-  id,
-  name,
-  onMove,
-}: {
-  id: string;
-  name: string;
-  onMove: (direction: "down" | "up") => void;
-}) {
-  return (
-    <SortableItemHandle
-      aria-label={`Drag ${name}`}
-      className="timeline-blueprint-drag-handle"
-      data-testid={`timeline-setup-row-drag-${id}`}
-      onKeyDown={(event) => {
-        if (event.key === "ArrowUp") {
-          event.preventDefault();
-          onMove("up");
-        }
-
-        if (event.key === "ArrowDown") {
-          event.preventDefault();
-          onMove("down");
-        }
-      }}
-      render={<button type="button" />}
-    >
-      <GripVertical aria-hidden="true" />
-    </SortableItemHandle>
-  );
-}
-
 function BudgetStep({
   cashText,
   error,
@@ -1918,530 +1412,24 @@ function BudgetStep({
   cashText: string;
   error: string;
   onBack: () => void;
-  onComplete: () => void;
+  onComplete: (options: { redirectToDurableRoute: boolean }) => void;
   onRowsChange: (rows: TimelineSetupMilestoneRow[]) => void;
   rows: TimelineSetupMilestoneRow[];
   templateTitle: string;
 }) {
-  const [expanded, setExpanded] = useState<ExpandedState>(() =>
-    rows[0]?.key ? { [rows[0].key]: true } : {}
-  );
-  const [activeSubMilestoneByRow, setActiveSubMilestoneByRow] = useState<
-    Record<string, string>
-  >(() =>
-    rows[0]?.key && rows[0].subMilestoneDetails[0]?.id
-      ? { [rows[0].key]: rows[0].subMilestoneDetails[0].id }
-      : {}
-  );
-  const [customMilestoneName, setCustomMilestoneName] = useState("");
-  const moveRowByKey = (rowKey: string, direction: "down" | "up") => {
-    const currentIndex = rows.findIndex((row) => row.key === rowKey);
-    const nextIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
-
-    if (
-      currentIndex < 0 ||
-      nextIndex < 0 ||
-      nextIndex >= rows.length ||
-      currentIndex === nextIndex
-    ) {
-      return;
-    }
-
-    onRowsChange(
-      arrayMove(rows, currentIndex, nextIndex).map((row, order) => ({
-        ...row,
-        order,
-      }))
-    );
-  };
-
-  const updateRow = (
-    rowKey: string,
-    patch: Partial<TimelineSetupMilestoneRow>
-  ) => {
-    onRowsChange(
-      rows.map((row) => (row.key === rowKey ? { ...row, ...patch } : row))
-    );
-  };
-  const updateSubMilestone = (
-    rowKey: string,
-    subMilestoneId: string,
-    patch: Partial<TimelineSetupSubMilestone>
-  ) => {
-    onRowsChange(
-      rows.map((row) => {
-        if (row.key !== rowKey) {
-          return row;
-        }
-
-        const subMilestoneDetails = row.subMilestoneDetails.map((detail) =>
-          detail.id === subMilestoneId ? { ...detail, ...patch } : detail
-        );
-
-        return withSubMilestoneDetails(row, subMilestoneDetails);
-      })
-    );
-    setActiveSubMilestoneByRow((current) => ({
-      ...current,
-      [rowKey]: subMilestoneId,
-    }));
-  };
-  const addSubMilestone = (rowKey: string, item?: SubMilestoneBankItem) => {
-    const row = rows.find((candidate) => candidate.key === rowKey);
-
-    if (!row) {
-      return;
-    }
-
-    const nextIndex = row.subMilestoneDetails.length + 1;
-    const nextName = item?.name ?? `New sub-milestone ${nextIndex}`;
-    const nextSubMilestone: TimelineSetupSubMilestone = {
-      budgetText: item?.budgetText ?? DEFAULT_NEW_SUB_MILESTONE_BUDGET_TEXT,
-      description: item?.description ?? "Define scope checkpoint",
-      durationText:
-        item?.durationText ?? DEFAULT_NEW_SUB_MILESTONE_DURATION_TEXT,
-      id: `${rowKey}-custom-${Date.now()}`,
-      name: nextName,
-    };
-
-    onRowsChange(
-      rows.map((candidate) =>
-        candidate.key === rowKey
-          ? withSubMilestoneDetails(candidate, [
-              ...candidate.subMilestoneDetails,
-              nextSubMilestone,
-            ])
-          : candidate
-      )
-    );
-    setActiveSubMilestoneByRow((current) => ({
-      ...current,
-      [rowKey]: nextSubMilestone.id,
-    }));
-  };
-  const removeSubMilestone = (rowKey: string, subMilestoneId: string) => {
-    let nextActiveSubMilestoneId = "";
-
-    onRowsChange(
-      rows.map((row) => {
-        if (row.key !== rowKey) {
-          return row;
-        }
-
-        const currentIndex = row.subMilestoneDetails.findIndex(
-          (detail) => detail.id === subMilestoneId
-        );
-        const subMilestoneDetails = row.subMilestoneDetails.filter(
-          (detail) => detail.id !== subMilestoneId
-        );
-        nextActiveSubMilestoneId =
-          subMilestoneDetails[Math.max(0, currentIndex - 1)]?.id ??
-          subMilestoneDetails[0]?.id ??
-          "";
-
-        return withSubMilestoneDetails(row, subMilestoneDetails);
-      })
-    );
-    setActiveSubMilestoneByRow((current) => ({
-      ...current,
-      [rowKey]: nextActiveSubMilestoneId,
-    }));
-  };
-  const addCustomMilestone = () => {
-    const fallbackCount =
-      rows.filter((row) => row.type === "custom").length + 1;
-    const name =
-      customMilestoneName.trim() || `Custom milestone ${fallbackCount}`;
-    const nextRow = createCustomMilestoneRow({
-      name,
-      order: rows.length,
-      rows,
-    });
-
-    onRowsChange([...rows, nextRow]);
-    setExpanded((current) =>
-      current === true ? true : { ...current, [nextRow.key]: true }
-    );
-    setActiveSubMilestoneByRow((current) => ({
-      ...current,
-      [nextRow.key]: nextRow.subMilestoneDetails[0]?.id ?? "",
-    }));
-    setCustomMilestoneName("");
-  };
-
-  const columns = useMemo<ColumnDef<TimelineSetupMilestoneRow>[]>(
-    () => [
-      {
-        cell: ({ row }) => (
-          <div
-            className="timeline-blueprint-name-cell"
-            data-testid={`timeline-setup-row-name-${row.original.key}`}
-          >
-            <DragHandle
-              id={row.original.key}
-              name={row.original.name}
-              onMove={(direction) => moveRowByKey(row.original.key, direction)}
-            />
-            <BlueprintMilestoneIcon
-              icon={row.original.icon}
-              name={row.original.name}
-              testId={`timeline-setup-row-icon-${row.original.key}`}
-            />
-            <span className="timeline-blueprint-name-copy">
-              <strong>{row.original.name}</strong>
-              <small>{formatRowType(row.original.type)}</small>
-            </span>
-          </div>
-        ),
-        header: "Name",
-        id: "name",
-        size: 380,
-      },
-      {
-        cell: ({ row }) => (
-          <div className="timeline-blueprint-sub-cell">
-            <Badge className="timeline-blueprint-mini-badge" variant="outline">
-              {row.original.subMilestoneDetails.length} sub-milestones
-            </Badge>
-            <span>{row.original.subMilestones.slice(0, 3).join(", ")}</span>
-          </div>
-        ),
-        header: "Submilestones",
-        id: "subMilestones",
-        size: 330,
-      },
-      {
-        cell: ({ row }) => (
-          <BlueprintInput
-            align="right"
-            className="timeline-blueprint-money"
-            label={`${row.original.name} budget`}
-            onBlur={() =>
-              updateRow(row.original.key, {
-                budgetText: normalizeCurrencyText(row.original.budgetText),
-              })
-            }
-            onChange={(budgetText) =>
-              updateRow(row.original.key, { budgetText })
-            }
-            testId={`timeline-setup-row-budget-${row.original.key}`}
-            value={row.original.budgetText}
-          />
-        ),
-        header: "Budget",
-        id: "budget",
-        size: 150,
-      },
-      {
-        cell: ({ row }) => (
-          <BlueprintInput
-            align="center"
-            className="timeline-blueprint-duration"
-            label={`${row.original.name} duration`}
-            onBlur={() =>
-              updateRow(row.original.key, {
-                durationText: normalizeDurationText(row.original.durationText),
-              })
-            }
-            onChange={(durationText) =>
-              updateRow(row.original.key, {
-                durationText: durationText
-                  .replace(/^T/i, "")
-                  .replace(/\D/g, ""),
-              })
-            }
-            testId={`timeline-setup-row-duration-${row.original.key}`}
-            value={`T${row.original.durationText}`}
-          />
-        ),
-        header: "Duration",
-        id: "duration",
-        size: 126,
-      },
-      {
-        cell: ({ row }) => (
-          <Switch
-            aria-label={`Exclude ${row.original.name}`}
-            checked={row.original.excluded}
-            className="timeline-blueprint-switch"
-            data-testid={`timeline-setup-row-exclude-${row.original.key}`}
-            onCheckedChange={(excluded) =>
-              updateRow(row.original.key, { excluded })
-            }
-          />
-        ),
-        header: "Exclude",
-        id: "exclude",
-        size: 110,
-      },
-      {
-        cell: ({ row }) => (
-          <button
-            aria-label={`${row.getIsExpanded() ? "Collapse" : "Expand"} ${row.original.name}`}
-            className="timeline-blueprint-expand"
-            data-testid={`timeline-setup-row-expand-${row.original.key}`}
-            onClick={row.getToggleExpandedHandler()}
-            type="button"
-          >
-            {row.getIsExpanded() ? <ChevronDown /> : <ChevronRight />}
-          </button>
-        ),
-        header: "",
-        id: "expand",
-        size: 64,
-      },
-    ],
-    [rows]
-  );
-
-  const table = useReactTable({
-    columns,
-    data: rows,
-    getCoreRowModel: getCoreRowModel(),
-    getExpandedRowModel: getExpandedRowModel(),
-    getRowCanExpand: () => true,
-    getRowId: (row) => row.key,
-    onExpandedChange: setExpanded,
-    state: {
-      expanded,
-    },
-  });
-  const includedRows = rows.filter((row) => !row.excluded);
-  const includedBudgetCents = includedRows.reduce((sum, row) => {
-    const budget = rowBudgetCents(row);
-
-    return sum + (Number.isFinite(budget) ? budget : 0);
-  }, 0);
-  const totalDuration = includedRows.reduce((sum, row) => {
-    const duration = rowDurationDays(row);
-
-    return sum + (Number.isFinite(duration) ? duration : 0);
-  }, 0);
-  const reorderRows = (activeIndex: number, overIndex: number) => {
-    if (
-      activeIndex < 0 ||
-      overIndex < 0 ||
-      activeIndex >= rows.length ||
-      overIndex >= rows.length ||
-      activeIndex === overIndex
-    ) {
-      return;
-    }
-
-    onRowsChange(
-      arrayMove(rows, activeIndex, overIndex).map((row, order) => ({
-        ...row,
-        order,
-      }))
-    );
-  };
-
   return (
-    <div
-      className="timeline-setup-panel timeline-setup-budget-panel"
-      data-testid="timeline-setup-budget-screen"
-    >
-      <ProposalProgressSection step="budget" />
-      <div className="timeline-blueprint-heading">
-        <div>
-          <span>Project milestones</span>
-          <h1>{templateTitle}</h1>
-        </div>
-        <div className="timeline-blueprint-heading-meta">
-          <span>Table variation 03</span>
-          <span>Units: USD</span>
-        </div>
-      </div>
-
-      <div className="timeline-blueprint-add-milestone">
-        <div>
-          <span>Custom milestone</span>
-          <strong>Add a one-off construction checkpoint</strong>
-        </div>
-        <div className="timeline-blueprint-add-milestone-form">
-          <input
-            aria-label="Custom milestone name"
-            data-testid="timeline-setup-custom-milestone-name"
-            onChange={(event) =>
-              setCustomMilestoneName(event.currentTarget.value)
-            }
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                addCustomMilestone();
-              }
-            }}
-            placeholder="Milestone name..."
-            value={customMilestoneName}
-          />
-          <Button
-            className="timeline-blueprint-add-milestone-button"
-            data-testid="timeline-setup-add-custom-milestone"
-            onClick={addCustomMilestone}
-            type="button"
-            variant="outline"
-          >
-            <Plus aria-hidden="true" />
-            Add milestone
-          </Button>
-        </div>
-      </div>
-
-      <div
-        className="timeline-blueprint-table-wrap"
-        data-testid="timeline-setup-budget-table"
-      >
-        {(
-          ["top-left", "top-right", "bottom-left", "bottom-right"] as const
-        ).map((position) => (
-          <span
-            aria-hidden="true"
-            className={`timeline-blueprint-table-corner is-${position}`}
-            data-testid={`timeline-setup-budget-table-corner-${position}`}
-            key={position}
-          />
-        ))}
-        <Table className="timeline-blueprint-table">
-          <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead
-                    key={header.id}
-                    style={{ width: header.getSize() }}
-                  >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext()
-                        )}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <Sortable
-            aria-label="Milestone budget order"
-            getItemValue={(row) => row.key}
-            modifiers={[restrictToVerticalAxis]}
-            onMove={({ activeIndex, overIndex }) =>
-              reorderRows(activeIndex, overIndex)
-            }
-            render={<TableBody />}
-            strategy="vertical"
-            value={rows}
-          >
-            {table.getRowModel().rows.flatMap((row) => {
-              const budgetRow = (
-                <SortableItem
-                  className={cn(row.original.excluded && "is-excluded")}
-                  data-testid={`timeline-setup-budget-row-${row.original.key}`}
-                  key={row.id}
-                  render={<TableRow />}
-                  value={row.original.key}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext()
-                      )}
-                    </TableCell>
-                  ))}
-                </SortableItem>
-              );
-
-              const expandedRow = row.getIsExpanded() ? (
-                <TableRow
-                  className="timeline-blueprint-expanded-row"
-                  key={`${row.id}:expanded`}
-                >
-                  <TableCell colSpan={row.getVisibleCells().length}>
-                    <SubMilestoneEditor
-                      activeSubMilestoneId={
-                        activeSubMilestoneByRow[row.original.key]
-                      }
-                      onActiveSubMilestoneChange={(subMilestoneId) =>
-                        setActiveSubMilestoneByRow((current) => ({
-                          ...current,
-                          [row.original.key]: subMilestoneId,
-                        }))
-                      }
-                      onAddSubMilestone={(item) =>
-                        addSubMilestone(row.original.key, item)
-                      }
-                      onRemoveSubMilestone={(subMilestoneId) =>
-                        removeSubMilestone(row.original.key, subMilestoneId)
-                      }
-                      onUpdateSubMilestone={(subMilestoneId, patch) =>
-                        updateSubMilestone(
-                          row.original.key,
-                          subMilestoneId,
-                          patch
-                        )
-                      }
-                      row={row.original}
-                    />
-                  </TableCell>
-                </TableRow>
-              ) : null;
-
-              return expandedRow ? [budgetRow, expandedRow] : [budgetRow];
-            })}
-          </Sortable>
-        </Table>
-      </div>
-
-      <div className="timeline-blueprint-footer">
-        <div className="timeline-blueprint-summary">
-          <MetricPill
-            label="Milestones"
-            value={`${includedRows.length} active`}
-          />
-          <MetricPill
-            label="Budget"
-            value={formatCurrency(includedBudgetCents)}
-          />
-          <MetricPill label="Duration" value={`${totalDuration} days`} />
-          <MetricPill label="Working capital" value={cashText} />
-        </div>
-        <div className="timeline-blueprint-actions">
-          {error ? (
-            <p
-              className="timeline-blueprint-error"
-              data-testid="timeline-setup-error"
-            >
-              {error}
-            </p>
-          ) : null}
-          <Button
-            className="timeline-setup-secondary"
-            onClick={onBack}
-            variant="outline"
-          >
-            Back to templates
-          </Button>
-          <Button
-            className="timeline-setup-primary"
-            data-testid="timeline-setup-complete"
-            onClick={onComplete}
-          >
-            Generate timeline
-            <ChevronRight />
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MetricPill({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="timeline-blueprint-metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
+    <TimelineMilestoneWorksheetTable
+      cashText={cashText}
+      error={error}
+      leadingContent={<ProposalProgressSection step="budget" />}
+      mode="setup"
+      onBack={onBack}
+      onComplete={onComplete}
+      onRowsChange={onRowsChange}
+      rows={rows}
+      showHeading
+      templateTitle={templateTitle}
+    />
   );
 }
 
@@ -2460,7 +1448,7 @@ function StepRail({ step }: { step: SetupStep }) {
         <li
           className={cn(
             index === activeIndex && "is-active",
-            index < activeIndex && "is-complete"
+            index < activeIndex && "is-complete",
           )}
           key={label}
         >
@@ -2485,17 +1473,21 @@ function CornerMarker({
 export function TimelineSetupFlow({
   baseItems,
   onComplete,
+  settingsTemplates,
 }: TimelineSetupFlowProps) {
   const reducedMotion = useReducedMotion();
   const templates = useMemo(
-    () => [buildDefaultTemplate(baseItems), ...secondaryTemplates()],
-    [baseItems]
+    () =>
+      settingsTemplates && settingsTemplates.length > 0
+        ? settingsTemplates
+        : [buildDefaultTemplate(baseItems), ...secondaryTemplates()],
+    [baseItems, settingsTemplates],
   );
   const defaultTemplate =
     templates.find((template) => template.isDefault) ?? templates[0];
   const [step, setStep] = useState<SetupStep>("template");
   const [selectedTemplateKey, setSelectedTemplateKey] = useState(
-    defaultTemplate?.templateKey ?? ""
+    defaultTemplate?.templateKey ?? "",
   );
   const [budgetText, setBudgetText] = useState(DEFAULT_SETUP_BUDGET_TEXT);
   const [cashText, setCashText] = useState(DEFAULT_SETUP_CASH_TEXT);
@@ -2507,15 +1499,32 @@ export function TimelineSetupFlow({
     defaultTemplate
       ? createRowsFromTemplate(
           defaultTemplate,
-          parseCurrencyToCents(DEFAULT_SETUP_BUDGET_TEXT)
+          parseCurrencyToCents(DEFAULT_SETUP_BUDGET_TEXT),
         )
-      : []
+      : [],
   );
   const [error, setError] = useState("");
   const selectedTemplate =
     templates.find(
-      (template) => template.templateKey === selectedTemplateKey
+      (template) => template.templateKey === selectedTemplateKey,
     ) ?? defaultTemplate;
+
+  useEffect(() => {
+    if (
+      defaultTemplate &&
+      !templates.some(
+        (template) => template.templateKey === selectedTemplateKey,
+      )
+    ) {
+      setSelectedTemplateKey(defaultTemplate.templateKey);
+      setRows(
+        createRowsFromTemplate(
+          defaultTemplate,
+          parseCurrencyToCents(DEFAULT_SETUP_BUDGET_TEXT),
+        ),
+      );
+    }
+  }, [defaultTemplate, selectedTemplateKey, templates]);
 
   useEffect(() => {
     window.scrollTo({ left: 0, top: 0 });
@@ -2523,7 +1532,7 @@ export function TimelineSetupFlow({
 
   const regenerateRows = (
     template: TimelineSetupTemplate,
-    nextBudgetText: string
+    nextBudgetText: string,
   ) => {
     const budgetCents = parseCurrencyToCents(nextBudgetText);
 
@@ -2573,7 +1582,11 @@ export function TimelineSetupFlow({
     }
   };
 
-  const completeSetup = () => {
+  const completeSetup = ({
+    redirectToDurableRoute,
+  }: {
+    redirectToDurableRoute: boolean;
+  }) => {
     const invalidRow = rows.find((row) => {
       const budget = rowBudgetCents(row);
       const duration = rowDurationDays(row);
@@ -2629,7 +1642,9 @@ export function TimelineSetupFlow({
       currentDay: GENERATED_TIMELINE_CURRENT_DAY,
       includedCount: items.length,
       items,
+      redirectToDurableRoute,
       startingCash: Math.round(cashCents / 100),
+      templateKey: selectedTemplate?.templateKey ?? "",
       templateTitle: selectedTemplate?.title ?? "Timeline plan",
       totalBudget,
     });
@@ -2638,7 +1653,7 @@ export function TimelineSetupFlow({
   const selectTemplate = (templateKey: string) => {
     setSelectedTemplateKey(templateKey);
     const nextTemplate = templates.find(
-      (template) => template.templateKey === templateKey
+      (template) => template.templateKey === templateKey,
     );
 
     if (nextTemplate) {

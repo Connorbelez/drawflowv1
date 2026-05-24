@@ -240,6 +240,13 @@ function Sortable<T>({
     () => ({ activeId, modifiers }),
     [activeId, modifiers]
   );
+  const accessibility = useMemo(
+    () =>
+      mounted && typeof document !== "undefined"
+        ? { container: document.body }
+        : undefined,
+    [mounted]
+  );
 
   const defaultProps = {
     "data-slot": "sortable",
@@ -271,6 +278,7 @@ function Sortable<T>({
   return (
     <SortableInternalContext.Provider value={contextValue}>
       <DndContext
+        accessibility={accessibility}
         measuring={{
           droppable: {
             strategy: MeasuringStrategy.Always,

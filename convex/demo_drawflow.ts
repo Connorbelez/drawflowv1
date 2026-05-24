@@ -9,6 +9,7 @@ import {
   generateSiteVisitToken,
   hashSiteVisitToken,
   validateIncludedSiteVisitMilestones,
+  validateSiteVisitReportSubmission,
 } from "./demo_site_visit_tokens";
 import type { DatabaseReader, DatabaseWriter, Doc, Id } from "./types";
 
@@ -2837,7 +2838,7 @@ export const demo_requestSiteVisit = publicMutation
     return {
       token,
       tokenExpiresAt: createdAt + 60 * 60 * 1000,
-      url: `/backoffice/builds/${build.key}/newsitevisit/${token}`,
+      url: `/newsitevisit/${build.key}/${token}`,
       visitId,
     };
   })
@@ -2851,8 +2852,16 @@ export const demo_getSiteVisitByToken = publicQuery
     // TODO: Require WorkOS-authenticated site visitor/admin access in addition to token possession.
     const state = await getSiteVisitForToken(ctx, args.buildId, args.token);
     if (state.state !== "active" || !(state.build && state.visit)) {
+      const targets = state.visit
+        ? (await getSiteVisitTargets(ctx, state.visit._id)).sort(
+            (a, b) => a.milestoneOrder - b.milestoneOrder
+          )
+        : [];
+      const files = state.visit ? await getSiteVisitFiles(ctx, state.visit._id) : [];
       return {
         available: false,
+        build: state.build,
+        files,
         reason: state.reason,
         status:
           state.reason === "expired"
@@ -2860,6 +2869,8 @@ export const demo_getSiteVisitByToken = publicQuery
             : state.reason === "consumed"
               ? "completed"
               : "invalid",
+        targets,
+        visit: state.visit,
       };
     }
 
@@ -3006,6 +3017,12 @@ export const demo_submitTokenizedSiteVisitReport = publicMutation
       args.buildId,
       args.token
     );
+    const files = await getSiteVisitFiles(ctx, visit._id);
+    validateSiteVisitReportSubmission({
+      compressedPackageBytes: files.reduce((sum, file) => sum + file.sizeBytes, 0),
+      reportNotes: notes,
+      uploadedEvidenceCount: files.length,
+    });
     const completedAt = Date.now();
     const targets = await getSiteVisitTargets(ctx, visit._id);
     const riskFlags = args.completionObserved

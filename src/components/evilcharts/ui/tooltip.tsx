@@ -42,7 +42,7 @@ function getTooltipPayloadKey(item: TooltipPayloadItem, nameKey?: string) {
   return `${payloadName ?? item.name ?? item.dataKey ?? "value"}`;
 }
 
-function dedupeTooltipPayload(payload: TooltipPayloadItem[]) {
+function dedupeTooltipPayload(payload: readonly TooltipPayloadItem[]) {
   const seenKeys = new Set<unknown>();
 
   return payload.filter((item) => {
@@ -73,6 +73,7 @@ function ChartTooltipContent({
   formatter,
   nameKey,
   labelKey,
+  hiddenKeys,
   selected,
   roundness = "lg",
   variant = "default",
@@ -83,6 +84,7 @@ function ChartTooltipContent({
     indicator?: "line" | "dot" | "dashed";
     nameKey?: string;
     labelKey?: string;
+    hiddenKeys?: string[];
     selected?: string | null;
     roundness?: TooltipRoundness;
     variant?: TooltipVariant;
@@ -91,6 +93,10 @@ function ChartTooltipContent({
     "accessibilityLayer"
   >) {
   const { config } = useChart();
+  const hiddenKeySet = React.useMemo(
+    () => new Set(hiddenKeys ?? []),
+    [hiddenKeys],
+  );
 
   const tooltipLabel = React.useMemo(() => {
     if (hideLabel || !payload?.length) {
@@ -134,7 +140,9 @@ function ChartTooltipContent({
   }
 
   const nestLabel = payload.length === 1 && indicator !== "dot";
-  const visiblePayload = dedupeTooltipPayload(payload);
+  const visiblePayload = dedupeTooltipPayload(payload).filter(
+    (item) => !hiddenKeySet.has(String(item.dataKey ?? item.name ?? "")),
+  );
 
   return (
     <div
@@ -142,7 +150,7 @@ function ChartTooltipContent({
         "grid min-w-32 items-start gap-1.5 border border-border/50 px-2.5 py-1.5 text-xs shadow-xl",
         roundnessMap[roundness],
         variantMap[variant],
-        className
+        className,
       )}
     >
       {nestLabel ? null : tooltipLabel}
@@ -202,7 +210,7 @@ function TooltipPayloadRow({
       className={cn(
         "flex w-full flex-wrap items-stretch gap-2 [&>svg]:h-2.5 [&>svg]:w-2.5 [&>svg]:text-muted-foreground",
         indicator === "dot" && "items-center",
-        selected != null && selected !== item.dataKey && "opacity-30"
+        selected != null && selected !== item.dataKey && "opacity-30",
       )}
     >
       {formatter && item.value !== undefined && item.name ? (
@@ -220,7 +228,7 @@ function TooltipPayloadRow({
           <div
             className={cn(
               "flex flex-1 justify-between gap-4 leading-none",
-              nestLabel ? "items-end" : "items-center"
+              nestLabel ? "items-end" : "items-center",
             )}
           >
             <div className="grid gap-1.5">
@@ -282,7 +290,7 @@ function TooltipPayloadIndicator({
 
 function getIndicatorColorStyle(
   dataKey: string,
-  colorsCount: number
+  colorsCount: number,
 ): React.CSSProperties {
   if (colorsCount <= 1) {
     return { background: `var(--color-${dataKey}-0)` };

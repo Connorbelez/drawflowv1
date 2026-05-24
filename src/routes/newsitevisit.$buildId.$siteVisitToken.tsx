@@ -1,16 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { ConvexHttpClient } from "convex/browser";
 
-import { api } from "../../../../../convex/_generated/api";
+import { api } from "../../convex/_generated/api";
 import { SiteVisitTokenRoute } from "#/features/build-workspace-demo/SiteVisitTokenRoute.tsx";
 
 const convexUrl =
   process.env.VITE_CONVEX_URL ?? import.meta.env.VITE_CONVEX_URL;
 const convex = new ConvexHttpClient(convexUrl);
 
-export const Route = createFileRoute(
-  "/backoffice/builds/$buildId/newsitevisit/$siteVisitToken"
-)({
+export const Route = createFileRoute("/newsitevisit/$buildId/$siteVisitToken")({
   loader: async ({ params }) =>
     await convex.query(api.demo_drawflow.demo_getSiteVisitByToken, {
       buildId: params.buildId,

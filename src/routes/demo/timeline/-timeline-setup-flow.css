@@ -1096,6 +1096,36 @@
   margin-left: auto;
 }
 
+.timeline-blueprint-type-cell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(96px, 0.72fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.timeline-blueprint-select {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.26), oklch(0.72 0.08 240 / 0.26));
+  border-radius: 5px;
+  background:
+    linear-gradient(180deg, light-dark(oklch(0.985 0.010 235 / 0.94), oklch(0.12 0.022 258 / 0.94)), light-dark(oklch(0.985 0.010 235 / 0.94), oklch(0.08 0.016 260 / 0.94))),
+    linear-gradient(135deg, light-dark(oklch(0.400 0.120 240 / 0.12), oklch(0.72 0.1 238 / 0.12)), transparent);
+  color: light-dark(oklch(0.180 0.022 258), oklch(0.95 0.012 260));
+  font-weight: 700;
+  font-size: 13px;
+  outline: none;
+  padding-inline: 9px;
+}
+
+.timeline-blueprint-percent {
+  max-width: 86px;
+  margin-left: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
 .timeline-blueprint-duration {
   max-width: 60px;
   margin: 0 auto;
@@ -1653,6 +1683,41 @@
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.timeline-durable-route-toggle {
+  display: inline-flex;
+  flex: 0 0 238px;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.2), oklch(0.72 0.08 240 / 0.2));
+  border-radius: 8px;
+  background: light-dark(oklch(0.985 0.010 235 / 0.72), oklch(0.08 0.016 255 / 0.72));
+  padding: 7px 12px;
+  cursor: pointer;
+}
+
+.timeline-durable-route-toggle span {
+  display: grid;
+  gap: 2px;
+  line-height: 1.1;
+}
+
+.timeline-durable-route-toggle strong {
+  color: light-dark(oklch(0.24 0.035 255), oklch(0.92 0.018 255));
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.timeline-durable-route-toggle small {
+  color: light-dark(oklch(0.43 0.045 255), oklch(0.66 0.026 255));
+  font-size: 0.66rem;
+}
+
+.timeline-durable-route-toggle [data-slot="switch"] {
+  flex: 0 0 auto;
 }
 
 .timeline-blueprint-metric {

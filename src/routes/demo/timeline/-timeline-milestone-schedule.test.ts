@@ -64,7 +64,7 @@ describe("timeline milestone schedule helpers", () => {
     expect(MINIMUM_MILESTONE_HANDOFF_GAP_DAYS).toBe(5);
   });
 
-  test("builds daily distributed spend events from start inclusive to end exclusive", () => {
+  test("builds boundary-only milestone spend events", () => {
     const events = buildMilestoneSpendEvents(
       milestoneItem({
         amount: 100_000,
@@ -88,47 +88,7 @@ describe("timeline milestone schedule helpers", () => {
         milestoneName: "Foundation",
       },
       {
-        amount: 10_000,
-        day: 10,
-        id: "foundation-distributed-10",
-        kind: "distributed",
-        label: "Foundation daily spend",
-        milestoneAmount: 100_000,
-        milestoneId: "foundation",
-        milestoneName: "Foundation",
-      },
-      {
-        amount: 10_000,
-        day: 11,
-        id: "foundation-distributed-11",
-        kind: "distributed",
-        label: "Foundation daily spend",
-        milestoneAmount: 100_000,
-        milestoneId: "foundation",
-        milestoneName: "Foundation",
-      },
-      {
-        amount: 10_000,
-        day: 12,
-        id: "foundation-distributed-12",
-        kind: "distributed",
-        label: "Foundation daily spend",
-        milestoneAmount: 100_000,
-        milestoneId: "foundation",
-        milestoneName: "Foundation",
-      },
-      {
-        amount: 10_000,
-        day: 13,
-        id: "foundation-distributed-13",
-        kind: "distributed",
-        label: "Foundation daily spend",
-        milestoneAmount: 100_000,
-        milestoneId: "foundation",
-        milestoneName: "Foundation",
-      },
-      {
-        amount: 20_000,
+        amount: 60_000,
         day: 14,
         id: "foundation-completion-payment",
         kind: "completion",
@@ -140,7 +100,7 @@ describe("timeline milestone schedule helpers", () => {
     ]);
   });
 
-  test("builds zero initial and completion events when no explicit payments exist", () => {
+  test("puts the full milestone impact at completion when no downpayment exists", () => {
     const events = buildMilestoneSpendEvents(
       milestoneItem({
         amount: 100_000,
@@ -162,27 +122,7 @@ describe("timeline milestone schedule helpers", () => {
         milestoneName: "Foundation",
       },
       {
-        amount: 50_000,
-        day: 10,
-        id: "foundation-distributed-10",
-        kind: "distributed",
-        label: "Foundation daily spend",
-        milestoneAmount: 100_000,
-        milestoneId: "foundation",
-        milestoneName: "Foundation",
-      },
-      {
-        amount: 50_000,
-        day: 11,
-        id: "foundation-distributed-11",
-        kind: "distributed",
-        label: "Foundation daily spend",
-        milestoneAmount: 100_000,
-        milestoneId: "foundation",
-        milestoneName: "Foundation",
-      },
-      {
-        amount: 0,
+        amount: 100_000,
         day: 12,
         id: "foundation-completion-payment",
         kind: "completion",
@@ -194,7 +134,7 @@ describe("timeline milestone schedule helpers", () => {
     ]);
   });
 
-  test("uses integer day buckets for fractional timeline starts", () => {
+  test("preserves fractional start and completion boundary days", () => {
     const events = buildMilestoneSpendEvents(
       milestoneItem({
         amount: 30_000,
@@ -203,51 +143,15 @@ describe("timeline milestone schedule helpers", () => {
         x: 10.6,
       })
     );
-    const distributedEvents = events.filter(
-      (event) => event.kind === "distributed"
-    );
 
     expect(events[0]).toMatchObject({
       amount: 0,
       day: 10.6,
       kind: "initial",
     });
-    expect(distributedEvents.map((event) => event.day)).toEqual([11, 12, 13]);
-    expect(distributedEvents.map((event) => event.id)).toEqual([
-      "foundation-distributed-11",
-      "foundation-distributed-12",
-      "foundation-distributed-13",
-    ]);
     expect(events.at(-1)).toMatchObject({
-      amount: 0,
+      amount: 30_000,
       day: 13.6,
-      kind: "completion",
-    });
-  });
-
-  test("does not emit distributed buckets before a fractional start", () => {
-    const events = buildMilestoneSpendEvents(
-      milestoneItem({
-        amount: 30_000,
-        durationDays: 3,
-        name: "Foundation",
-        x: 10.4,
-      })
-    );
-    const distributedEvents = events.filter(
-      (event) => event.kind === "distributed"
-    );
-
-    expect(distributedEvents.map((event) => event.day)).toEqual([11, 12, 13]);
-    expect(distributedEvents.some((event) => event.day === 10)).toBe(false);
-    expect(events[0]).toMatchObject({
-      amount: 0,
-      day: 10.4,
-      kind: "initial",
-    });
-    expect(events.at(-1)).toMatchObject({
-      amount: 0,
-      day: 13.4,
       kind: "completion",
     });
   });

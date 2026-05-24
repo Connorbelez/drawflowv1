@@ -1893,7 +1893,7 @@ function MilestoneBlock({
       <HoverCardTrigger
         className="flex h-full min-w-0 flex-1 items-center"
         render={
-          <button
+          <div
             className={cn(
               "flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-sm border border-border bg-muted/60 px-1.5 text-left transition-colors hover:border-cyan-200/40",
               effectiveHighlightTone === "selected" &&
@@ -1928,6 +1928,18 @@ function MilestoneBlock({
                 })
               );
             }}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" && event.key !== " ") {
+                return;
+              }
+              event.preventDefault();
+              onTimelineClick(milestone.id, event);
+              window.dispatchEvent(
+                new CustomEvent("drawflow-open-milestone-detail", {
+                  detail: milestone.id,
+                })
+              );
+            }}
             onMouseEnter={() => setPreviewOpen(true)}
             onMouseLeave={() => setPreviewOpen(false)}
             onPointerDown={(event) => {
@@ -1942,7 +1954,8 @@ function MilestoneBlock({
               scrollMarginLeft:
                 "calc(var(--gantt-leading-sidebar-width) + var(--gantt-kibo-sidebar-width) + 2rem)",
             }}
-            type="button"
+            role="button"
+            tabIndex={0}
           >
             <span
               className="h-2 w-2 shrink-0 rounded-full"
@@ -1964,7 +1977,7 @@ function MilestoneBlock({
             {milestone.isDragLocked ? (
               <Lock className="size-3 shrink-0 text-cyan-700 dark:text-cyan-100" />
             ) : null}
-          </button>
+          </div>
         }
       />
       <HoverCardContent

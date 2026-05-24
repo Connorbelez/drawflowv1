@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "convex/react";
 import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../../../convex/_generated/api";
+import { normalizeSiteVisitTokenRoute } from "./site-visit-token-route-model";
 import type {
   AddMilestoneInput,
   AuditEvent,
@@ -792,12 +793,22 @@ export function useConvexBuildWorkspace(
       });
     },
     requestSiteVisit: async (milestoneId, reason, includedMilestoneIds) => {
-      return await requestVisitMutation({
+      const result = await requestVisitMutation({
         includedMilestoneKeys: includedMilestoneIds,
         milestoneKey: milestoneId,
         persona: roleToPersona(role),
         reason,
       });
+      return result
+        ? {
+            ...result,
+            url: normalizeSiteVisitTokenRoute({
+              buildId: "active-maple-ridge",
+              token: result.token,
+              url: result.url,
+            }),
+          }
+        : result;
     },
     resetWorkspace: async () => {
       await resetDemo({});

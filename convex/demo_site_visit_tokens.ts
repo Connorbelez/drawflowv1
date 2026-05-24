@@ -1,4 +1,5 @@
 const TOKEN_BYTE_LENGTH = 32;
+export const SITE_VISIT_COMPRESSED_PACKAGE_CAP_BYTES = 1_000_000_000;
 
 function toBase64Url(bytes: Uint8Array) {
   const alphabet =
@@ -72,4 +73,29 @@ export function validateIncludedSiteVisitMilestones({
   return uniqueKeys.sort(
     (left, right) => milestoneOrder.indexOf(left) - milestoneOrder.indexOf(right)
   );
+}
+
+export function validateSiteVisitReportSubmission({
+  compressedPackageBytes,
+  reportNotes,
+  uploadedEvidenceCount,
+}: {
+  compressedPackageBytes: number;
+  reportNotes: string;
+  uploadedEvidenceCount: number;
+}) {
+  if (compressedPackageBytes > SITE_VISIT_COMPRESSED_PACKAGE_CAP_BYTES) {
+    throw new Error("Compressed site visit package exceeds the 1 GB cap.");
+  }
+  if (uploadedEvidenceCount < 1) {
+    throw new Error("At least one uploaded evidence file is required.");
+  }
+  if (reportNotes.trim().length === 0) {
+    throw new Error("Site visit report notes are required.");
+  }
+  return {
+    compressedPackageBytes,
+    reportNotes: reportNotes.trim(),
+    uploadedEvidenceCount,
+  };
 }

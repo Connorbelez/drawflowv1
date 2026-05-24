@@ -194,6 +194,10 @@ type EvilComposedChartProps<
   tooltipRoundness?: TooltipRoundness;
   tooltipVariant?: TooltipVariant;
   tooltipDefaultIndex?: number;
+  tooltipHiddenKeys?: string[];
+  tooltipLabelFormatter?: ComponentProps<
+    typeof ChartTooltipContent
+  >["labelFormatter"];
 
   // Interactive Stuffs
   isLoading?: boolean;
@@ -274,6 +278,8 @@ export function EvilComposedChart<
   tooltipRoundness,
   tooltipVariant,
   tooltipDefaultIndex,
+  tooltipHiddenKeys,
+  tooltipLabelFormatter,
   isClickable = false,
   isLoading = false,
   loadingBars,
@@ -290,7 +296,7 @@ export function EvilComposedChart<
   TAreaConfig
 >) {
   const [selectedDataKey, setSelectedDataKey] = useState<string | null>(
-    defaultSelectedDataKey
+    defaultSelectedDataKey,
   );
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const { loadingData, onShimmerExit } = useLoadingData(isLoading, loadingBars);
@@ -308,7 +314,7 @@ export function EvilComposedChart<
         onSelectionChange(newSelectedDataKey);
       }
     },
-    [onSelectionChange, isClickable]
+    [onSelectionChange, isClickable],
   );
 
   // Combined config for legend and tooltip
@@ -397,6 +403,8 @@ export function EvilComposedChart<
           <ChartTooltip
             content={
               <ChartTooltipContent
+                hiddenKeys={tooltipHiddenKeys}
+                labelFormatter={tooltipLabelFormatter}
                 roundness={tooltipRoundness}
                 selected={selectedDataKey}
                 variant={tooltipVariant}
@@ -484,7 +492,7 @@ export function EvilComposedChart<
         {!isLoading &&
           Object.keys(barConfig).map((dataKey) => {
             const isGlowing = glowingBars.includes(
-              dataKey as NumericDataKeys<TData>
+              dataKey as NumericDataKeys<TData>,
             );
             const isSelectedDataKey =
               selectedDataKey === null || selectedDataKey === dataKey;
@@ -540,7 +548,7 @@ export function EvilComposedChart<
                           return;
                         }
                         handleSelectionChange(
-                          selectedDataKey === dataKey ? null : dataKey
+                          selectedDataKey === dataKey ? null : dataKey,
                         );
                       }}
                       onMouseEnter={() => {
@@ -566,7 +574,7 @@ export function EvilComposedChart<
             const _opacity = getOpacity(isClickable, selectedDataKey, dataKey);
             const hasSelection = selectedDataKey !== null;
             const isGlowing = glowingLines.includes(
-              dataKey as NumericDataKeys<TData>
+              dataKey as NumericDataKeys<TData>,
             );
 
             const getFilter = () => {
@@ -753,7 +761,7 @@ export function EvilComposedChart<
 const getOpacity = (
   isClickable: boolean,
   selectedDataKey: string | null,
-  dataKey: string
+  dataKey: string,
 ) => {
   if (!isClickable || selectedDataKey === null) {
     return { stroke: 1, dot: 1 };
@@ -1027,7 +1035,7 @@ const AreaFillGradientStyle = ({
   const renderStops = (
     dataKey: string,
     colorsCount: number,
-    reverse = false
+    reverse = false,
   ) => (
     <>
       {Array.from({ length: colorsCount }, (_, index) => {
@@ -1533,7 +1541,7 @@ const LineGlowFilterStyle = ({
 const generateEasedGradientStops = (
   steps = 17,
   minOpacity = 0.05,
-  maxOpacity = 0.9
+  maxOpacity = 0.9,
 ) =>
   Array.from({ length: steps }, (_, i) => {
     const t = i / (steps - 1);
@@ -1557,7 +1565,7 @@ export function useLoadingData(isLoading: boolean, loadingBars = 12) {
   const loadingData = useMemo(
     () => getLoadingData(loadingBars, 20, 80),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [loadingBars, loadingDataKey]
+    [loadingBars, loadingDataKey],
   );
 
   return { loadingData, onShimmerExit };

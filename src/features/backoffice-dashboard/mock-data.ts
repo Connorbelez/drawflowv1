@@ -40,10 +40,12 @@ export interface ProposalKanbanCard {
   builder: string;
   closeLabel?: string;
   column: string;
+  href?: string;
   id: string;
   loanAmount: string;
   ltv: number;
   name: string;
+  tag?: string;
 }
 
 export interface ScheduleEvent {
