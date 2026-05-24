@@ -132,6 +132,13 @@
   z-index: 1;
 }
 
+.lbp-shell header {
+  border-color: var(--blue-soft);
+  box-shadow:
+    inset 0 1px 0 light-dark(oklch(0.180 0.022 258 / 0.05), oklch(0.95 0.04 235 / 0.06)),
+    0 12px 28px light-dark(oklch(0.18 0.03 258 / 0.08), oklch(0.02 0.012 258 / 0.28));
+}
+
 /* ------------------------------------------------------------------------- */
 /* Sheet chrome: top sheet bar + corner crosshairs + title block + scale bar */
 /* ------------------------------------------------------------------------- */
@@ -189,8 +196,8 @@
 .lbp-corner.bl { bottom: 28px; left: 18px; }
 .lbp-corner.br { bottom: 28px; right: 18px; }
 @media (max-width: 640px) {
-  .lbp-corner.tl { top: 60px; left: 8px; }
-  .lbp-corner.tr { top: 60px; right: 8px; }
+  .lbp-corner.tl { top: 48px; left: 8px; }
+  .lbp-corner.tr { top: 48px; right: 8px; }
   .lbp-corner.bl { bottom: 12px; left: 8px; }
   .lbp-corner.br { bottom: 12px; right: 8px; }
 }
@@ -284,6 +291,170 @@
 }
 @media (max-width: 768px) { .lbp-scale-bar { display: none; } }
 
+@media (max-width: 640px) {
+  .lbp-frame {
+    padding: 12px 16px 72px;
+  }
+
+  .lbp-shell header a,
+  .lbp-shell header button,
+  .lbp-shell a[data-slot="button"],
+  .lbp-shell button[data-slot="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .lbp-sheet-bar {
+    display: block;
+    min-width: 0;
+    padding: 9px 52px;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+  }
+
+  .lbp-sheet-bar > span {
+    display: none;
+  }
+
+  .lbp-sheet-bar > :nth-child(2) {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .lbp-sheet-bar .dot,
+  .lbp-sheet-bar :first-child strong::after {
+    display: none !important;
+  }
+
+  .lbp-shell header {
+    margin-inline: -4px;
+  }
+
+  .lbp-section-tag {
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+  }
+
+  .lbp-section-tag .ref {
+    width: 42px;
+    height: 22px;
+  }
+
+  .lbp-section-tag .rule {
+    display: none;
+  }
+
+  .lbp-section-tag .ink {
+    letter-spacing: 0.12em;
+    line-height: 1.45;
+  }
+
+  .lbp-plate {
+    border-radius: 3px;
+  }
+
+  .lbp-plate-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+    padding: 10px 12px;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    line-height: 1.45;
+  }
+
+  .lbp-section-rule {
+    margin: 64px 0 26px;
+  }
+
+  .lbp-cta-row > * {
+    flex: 1 1 100%;
+  }
+
+  .lbp-table-scroll {
+    overflow-x: visible !important;
+  }
+
+  .lbp-schedule {
+    min-width: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 13px;
+  }
+
+  .lbp-schedule thead {
+    display: none;
+  }
+
+  .lbp-schedule tbody {
+    display: grid;
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .lbp-schedule tbody tr {
+    display: grid;
+    gap: 0;
+    border: 1px solid var(--blue-soft);
+    border-radius: 4px;
+    background: light-dark(
+      oklch(0.985 0.010 235 / 0.56),
+      oklch(0.07 0.014 258 / 0.52)
+    );
+    overflow: hidden;
+  }
+
+  .lbp-schedule tbody td {
+    display: grid;
+    grid-template-columns: minmax(82px, 0.34fr) minmax(0, 1fr);
+    align-items: start;
+    gap: 12px;
+    min-width: 0;
+    padding: 11px 12px;
+    border-bottom: 1px solid var(--blue-faint);
+    overflow-wrap: anywhere;
+  }
+
+  .lbp-schedule tbody td:last-child {
+    border-bottom: 0;
+  }
+
+  .lbp-schedule tbody td::before {
+    content: attr(data-label);
+    color: var(--blue);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    line-height: 1.4;
+    text-transform: uppercase;
+  }
+
+  .lbp-schedule .plan {
+    font-size: 17px;
+    line-height: 1.18;
+  }
+
+  .lbp-schedule .meter {
+    align-self: center;
+  }
+
+  .lbp-specs > li {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .lbp-layers > li {
+    grid-template-columns: 1fr !important;
+    gap: 10px;
+  }
+}
+
 /* ------------------------------------------------------------------------- */
 /* Section tag — replaces eyebrow; reads as a sheet reference.               */
 /* ------------------------------------------------------------------------- */
@@ -292,6 +463,7 @@
   display: flex;
   align-items: center;
   gap: 14px;
+  min-width: 0;
   font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
   font-size: 11px;
   letter-spacing: 0.22em;
@@ -303,6 +475,7 @@
   place-items: center;
   width: 44px;
   height: 22px;
+  flex: 0 0 auto;
   border: 1px solid var(--blue);
   border-radius: 11px;
   color: var(--blue);
@@ -316,9 +489,11 @@
   background: linear-gradient(90deg, var(--blue-soft), transparent);
 }
 .lbp-section-tag .ink {
+  min-width: 0;
   color: var(--ink);
   font-weight: 700;
   letter-spacing: 0.18em;
+  overflow-wrap: anywhere;
 }
 
 /* ------------------------------------------------------------------------- */

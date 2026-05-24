@@ -273,7 +273,7 @@ function Hero() {
           <h1
             data-rv
             style={{ "--rv-d": 120 } as CSSProperties}
-            className="text-balance font-heading font-medium text-5xl text-fg-primary leading-[0.95] tracking-tight sm:text-6xl lg:text-[68px]"
+            className="text-balance font-heading font-medium text-[42px] text-fg-primary leading-[1.02] tracking-tight min-[380px]:text-[46px] sm:text-6xl sm:leading-[0.95] lg:text-[68px]"
           >
             <Draft text={HERO_PREFIX} />{" "}
             <Draft
@@ -755,7 +755,7 @@ function PlanSchedule() {
           <span>3 ROWS · OPTIMIZED 2026-05-19</span>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="lbp-table-scroll overflow-x-auto">
           <table className="lbp-schedule">
             <thead>
               <tr>
@@ -771,23 +771,29 @@ function PlanSchedule() {
             <tbody data-rv>
               {PLAN_ROWS.map((r) => (
                 <tr key={r.id}>
-                  <td className="num">{r.id}</td>
-                  <td>
+                  <td className="num" data-label="Ref">
+                    {r.id}
+                  </td>
+                  <td data-label="Variant">
                     <div className="plan">{r.name}</div>
                   </td>
-                  <td className="text-fg-secondary" style={{ lineHeight: 1.55 }}>
+                  <td
+                    className="text-fg-secondary"
+                    data-label="Rationale"
+                    style={{ lineHeight: 1.55 }}
+                  >
                     {r.rationale}
                   </td>
-                  <td>
+                  <td data-label="Fees">
                     <Meter level={r.fees} tone="r" />
                   </td>
-                  <td>
+                  <td data-label="Cycle">
                     <Meter level={r.cycle} />
                   </td>
-                  <td>
+                  <td data-label="WCL strain">
                     <Meter level={r.wcl} tone="g" />
                   </td>
-                  <td>
+                  <td data-label="Mark">
                     {r.recommended ? (
                       <span className="lbp-stamp" style={{ transform: "rotate(-4deg)" }}>
                         Default
@@ -1007,7 +1013,7 @@ function StackSchedule() {
           <span>04 items · api-first · tenant scoped</span>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="lbp-table-scroll overflow-x-auto">
           <table className="lbp-schedule">
             <thead>
               <tr>
@@ -1019,11 +1025,15 @@ function StackSchedule() {
             <tbody data-rv>
               {STACK_ROWS.map((row) => (
                 <tr key={row.ref}>
-                  <td className="num">{row.ref}</td>
-                  <td>
+                  <td className="num" data-label="Ref">
+                    {row.ref}
+                  </td>
+                  <td data-label="Part">
                     <span className="plan" style={{ fontSize: 16 }}>{row.part}</span>
                   </td>
-                  <td className="text-fg-secondary">{row.spec}</td>
+                  <td className="text-fg-secondary" data-label="Specification">
+                    {row.spec}
+                  </td>
                 </tr>
               ))}
             </tbody>
