@@ -814,6 +814,89 @@ export default defineSchema({
     .index("by_plan", ["planId"])
     .index("by_column_sort", ["column", "sortAt"])
     .index("by_updated", ["updatedAt"]),
+  demo_contractors: defineTable({
+    orgKey: v.string(),
+    scenario: v.string(),
+    name: v.string(),
+    kind: v.union(v.literal("company"), v.literal("individual")),
+    hourlyRateCents: v.number(),
+    city: v.string(),
+    skills: v.array(v.string()),
+    trades: v.array(v.string()),
+    phone: v.optional(v.string()),
+    email: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_org", ["orgKey"])
+    .index("by_scenario", ["scenario"]),
+  demo_buildContractors: defineTable({
+    buildId: v.id("demo_builds"),
+    contractorId: v.id("demo_contractors"),
+    scenario: v.string(),
+    role: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_build", ["buildId"])
+    .index("by_scenario", ["scenario"])
+    .index("by_build_contractor", ["buildId", "contractorId"]),
+  demo_milestoneContractors: defineTable({
+    buildId: v.id("demo_builds"),
+    milestoneKey: v.string(),
+    contractorId: v.id("demo_contractors"),
+    scenario: v.string(),
+    role: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_build", ["buildId"])
+    .index("by_build_milestone", ["buildId", "milestoneKey"])
+    .index("by_scenario", ["scenario"]),
+  demo_buildNotes: defineTable({
+    buildId: v.id("demo_builds"),
+    scenario: v.string(),
+    visibility: v.union(v.literal("internal"), v.literal("public")),
+    body: v.string(),
+    authorPersona: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_build", ["buildId"])
+    .index("by_build_visibility", ["buildId", "visibility"])
+    .index("by_scenario", ["scenario"]),
+  demo_buildDocuments: defineTable({
+    buildId: v.id("demo_builds"),
+    scenario: v.string(),
+    name: v.string(),
+    kind: v.string(),
+    sizeBytes: v.number(),
+    uploaderPersona: v.string(),
+    url: v.optional(v.string()),
+    storageId: v.optional(v.id("_storage")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_build", ["buildId"])
+    .index("by_scenario", ["scenario"]),
+  demo_milestoneSubmilestones: defineTable({
+    buildId: v.id("demo_builds"),
+    milestoneKey: v.string(),
+    key: v.string(),
+    name: v.string(),
+    order: v.number(),
+    status: v.union(
+      v.literal("todo"),
+      v.literal("in_progress"),
+      v.literal("done"),
+    ),
+    budgetCents: v.optional(v.number()),
+    durationDays: v.optional(v.number()),
+    scenario: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_build", ["buildId"])
+    .index("by_build_milestone", ["buildId", "milestoneKey"])
+    .index("by_scenario", ["scenario"]),
   products: defineTable({
     title: v.string(),
     imageId: v.string(),

@@ -11,6 +11,7 @@ import {
   validateIncludedSiteVisitMilestones,
   validateSiteVisitReportSubmission,
 } from "./demo_site_visit_tokens";
+import { seedBuildDetailExtras } from "./demo_drawflow_backoffice";
 import type { DatabaseReader, DatabaseWriter, Doc, Id } from "./types";
 
 const DEMO_TODAY = "2026-05-08";
@@ -1182,6 +1183,12 @@ async function seedActive(ctx: DemoMutationCtx) {
     interestAnnualBps: INTEREST_ANNUAL_BPS,
     scenario: "active",
     workingCapitalLimitCents: WORKING_CAPITAL_CENTS,
+  });
+
+  await seedBuildDetailExtras(ctx, {
+    buildId,
+    scenario: "active",
+    orgKey: "demo",
   });
 
   return buildId;

@@ -64,6 +64,10 @@ import {
   type ScheduleEvent,
 } from "#/features/backoffice-dashboard/mock-data.ts";
 import { MetricDetailSheet } from "#/features/backoffice-dashboard/metric-detail-sheet.tsx";
+import {
+  MilestoneCardDetailSheet,
+  ProposalCardDetailSheet,
+} from "#/features/backoffice-dashboard/kanban-card-detail-sheet.tsx";
 import { getMetricDrilldownItems } from "#/features/backoffice-dashboard/metric-drilldown.ts";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../convex/_generated/api";
@@ -611,11 +615,20 @@ function MilestoneKanban({
   milestones: MilestoneKanbanCard[];
 }) {
   const [cards, setCards] = useState(milestones);
+  const [activeMilestone, setActiveMilestone] =
+    useState<MilestoneKanbanCard | null>(null);
   useEffect(() => {
     setCards(milestones);
   }, [milestones]);
+  useEffect(() => {
+    if (!activeMilestone) return;
+    const latest = milestones.find((entry) => entry.id === activeMilestone.id);
+    if (latest && latest !== activeMilestone) setActiveMilestone(latest);
+    else if (!latest) setActiveMilestone(null);
+  }, [activeMilestone, milestones]);
 
   return (
+    <>
     <Card id="proposals-kanban">
       <CardHeader className="gap-3 border-b p-4">
         <CardTitle className="text-base">Milestone Kanban</CardTitle>
@@ -636,6 +649,7 @@ function MilestoneKanban({
             columns={columns}
             data={cards}
             onDataChange={setCards}
+            readOnly
           >
             {(column) => (
               <KanbanBoard
@@ -660,7 +674,12 @@ function MilestoneKanban({
                   className="gap-2 p-3"
                   id={column.id}
                 >
-                  {(card) => <MilestoneCard {...card} />}
+                  {(card) => (
+                    <MilestoneCard
+                      card={card}
+                      onSelect={setActiveMilestone}
+                    />
+                  )}
                 </KanbanCards>
               </KanbanBoard>
             )}
@@ -668,39 +687,54 @@ function MilestoneKanban({
         </ClientOnly>
       </CardContent>
     </Card>
+      <MilestoneCardDetailSheet
+        card={activeMilestone}
+        columns={columns}
+        onOpenChange={(open) => {
+          if (!open) setActiveMilestone(null);
+        }}
+      />
+    </>
   );
 }
 
-function MilestoneCard(card: MilestoneKanbanCard) {
-  const content = (
-    <>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-muted-foreground text-xs">
-            {card.buildId} · {card.address}
-          </p>
-          <p className="truncate font-medium text-sm">{card.name}</p>
-        </div>
-        {card.reviewerInitials ? (
-          <span className="grid size-6 shrink-0 place-items-center rounded-full bg-primary text-[0.625rem] text-primary-foreground">
-            {card.reviewerInitials}
-          </span>
-        ) : null}
-      </div>
-      <div className="flex items-center gap-2">
-        <Badge variant={priorityVariant[card.priority]}>{card.priority}</Badge>
-        {card.dueLabel ? (
-          <Badge variant="outline">{card.dueLabel}</Badge>
-        ) : null}
-      </div>
-    </>
-  );
-
+function MilestoneCard({
+  card,
+  onSelect,
+}: {
+  card: MilestoneKanbanCard;
+  onSelect: (card: MilestoneKanbanCard) => void;
+}) {
   return (
     <KanbanCard {...card} className="gap-2 p-3">
-      <a className="contents" href={card.href}>
-        {content}
-      </a>
+      <button
+        aria-label={`Open ${card.name} detail`}
+        className="contents text-left"
+        onClick={() => onSelect(card)}
+        type="button"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-muted-foreground text-xs">
+              {card.buildId} · {card.address}
+            </p>
+            <p className="truncate font-medium text-sm">{card.name}</p>
+          </div>
+          {card.reviewerInitials ? (
+            <span className="grid size-6 shrink-0 place-items-center rounded-full bg-primary text-[0.625rem] text-primary-foreground">
+              {card.reviewerInitials}
+            </span>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant={priorityVariant[card.priority]}>
+            {card.priority}
+          </Badge>
+          {card.dueLabel ? (
+            <Badge variant="outline">{card.dueLabel}</Badge>
+          ) : null}
+        </div>
+      </button>
     </KanbanCard>
   );
 }
@@ -713,11 +747,20 @@ function ProposalKanban({
   proposals: ProposalKanbanCard[];
 }) {
   const [cards, setCards] = useState(proposals);
+  const [activeProposal, setActiveProposal] =
+    useState<ProposalKanbanCard | null>(null);
   useEffect(() => {
     setCards(proposals);
   }, [proposals]);
+  useEffect(() => {
+    if (!activeProposal) return;
+    const latest = proposals.find((entry) => entry.id === activeProposal.id);
+    if (latest && latest !== activeProposal) setActiveProposal(latest);
+    else if (!latest) setActiveProposal(null);
+  }, [activeProposal, proposals]);
 
   return (
+    <>
     <Card>
       <CardHeader className="gap-3 border-b p-4">
         <CardTitle className="text-base">Builds - Proposals</CardTitle>
@@ -742,6 +785,7 @@ function ProposalKanban({
             columns={columns}
             data={cards}
             onDataChange={setCards}
+            readOnly
           >
             {(column) => (
               <KanbanBoard
@@ -773,7 +817,12 @@ function ProposalKanban({
                   className="gap-3 p-3"
                   id={column.id}
                 >
-                  {(card) => <ProposalCard {...card} />}
+                  {(card) => (
+                    <ProposalCard
+                      card={card}
+                      onSelect={setActiveProposal}
+                    />
+                  )}
                 </KanbanCards>
               </KanbanBoard>
             )}
@@ -781,64 +830,73 @@ function ProposalKanban({
         </ClientOnly>
       </CardContent>
     </Card>
+      <ProposalCardDetailSheet
+        card={activeProposal}
+        columns={columns}
+        onOpenChange={(open) => {
+          if (!open) setActiveProposal(null);
+        }}
+      />
+    </>
   );
 }
 
-function ProposalCard(card: ProposalKanbanCard) {
-  const content = (
-    <>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-muted-foreground text-xs">{card.name}</p>
-          <p className="truncate font-medium text-sm">{card.address}</p>
-          <p className="truncate text-muted-foreground text-xs">
-            {card.builder}
-          </p>
-          {card.isMockAddress || card.isMockBuilder ? (
-            <div className="mt-1 flex flex-wrap gap-1">
-              {card.isMockAddress ? (
-                <Badge variant="outline">Mock address</Badge>
-              ) : null}
-              {card.isMockBuilder ? (
-                <Badge variant="outline">Mock builder</Badge>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-        <div className="flex flex-col items-end gap-1">
-          {card.closeLabel ? (
-            <Badge
-              data-ixc-ref={card.tag === "demo" ? "UI-DEMO-TAG" : undefined}
-              variant="success"
-            >
-              {card.closeLabel}
-            </Badge>
-          ) : null}
-        </div>
-      </div>
-      <div className="flex items-center justify-between border-t pt-2 text-sm">
-        <span className="font-medium">{card.loanAmount}</span>
-        <span className="text-muted-foreground">
-          {card.isMockLtv ? "Mock " : ""}
-          {card.ltv}% LTV
-        </span>
-      </div>
-    </>
-  );
-
+function ProposalCard({
+  card,
+  onSelect,
+}: {
+  card: ProposalKanbanCard;
+  onSelect: (card: ProposalKanbanCard) => void;
+}) {
   return (
     <KanbanCard
       {...card}
       className="gap-3 p-3"
       data-ixc-ref={card.tag === "demo" ? "UI-DEMO-PROPOSAL-CARD" : undefined}
     >
-      {card.href ? (
-        <a className="contents" href={card.href}>
-          {content}
-        </a>
-      ) : (
-        content
-      )}
+      <button
+        aria-label={`Open ${card.name} detail`}
+        className="contents text-left"
+        onClick={() => onSelect(card)}
+        type="button"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-muted-foreground text-xs">{card.name}</p>
+            <p className="truncate font-medium text-sm">{card.address}</p>
+            <p className="truncate text-muted-foreground text-xs">
+              {card.builder}
+            </p>
+            {card.isMockAddress || card.isMockBuilder ? (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {card.isMockAddress ? (
+                  <Badge variant="outline">Mock address</Badge>
+                ) : null}
+                {card.isMockBuilder ? (
+                  <Badge variant="outline">Mock builder</Badge>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+          <div className="flex flex-col items-end gap-1">
+            {card.closeLabel ? (
+              <Badge
+                data-ixc-ref={card.tag === "demo" ? "UI-DEMO-TAG" : undefined}
+                variant="success"
+              >
+                {card.closeLabel}
+              </Badge>
+            ) : null}
+          </div>
+        </div>
+        <div className="flex items-center justify-between border-t pt-2 text-sm">
+          <span className="font-medium">{card.loanAmount}</span>
+          <span className="text-muted-foreground">
+            {card.isMockLtv ? "Mock " : ""}
+            {card.ltv}% LTV
+          </span>
+        </div>
+      </button>
     </KanbanCard>
   );
 }

@@ -578,6 +578,7 @@ export interface TimelineDemoWorkspaceProps {
     status: string;
   };
   durablePlanId?: string;
+  initialRole?: TimelineDemoRole;
   initialState?: TimelineShareState;
   planSummary?: {
     includedCount: number;
@@ -595,6 +596,7 @@ function RouteComponent() {
 export function TimelineDemoWorkspace({
   durableMeta,
   durablePlanId,
+  initialRole,
   initialState,
   planSummary,
 }: TimelineDemoWorkspaceProps = {}) {
@@ -730,7 +732,7 @@ export function TimelineDemoWorkspace({
   const [durableSaveStatus, setDurableSaveStatus] = useState<
     "idle" | "saved" | "error"
   >("idle");
-  const [timelineRole, setTimelineRole] = useState<TimelineDemoRole>("builder");
+  const [timelineRole, setTimelineRole] = useState<TimelineDemoRole>(initialRole ?? "builder");
   const [straightLine, setStraightLine] = useState(
     workspaceInitialState.straightLine,
   );

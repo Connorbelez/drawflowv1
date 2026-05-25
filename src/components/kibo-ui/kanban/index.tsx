@@ -56,12 +56,14 @@ type KanbanContextProps<
   columns: C[];
   data: T[];
   activeCardId: string | null;
+  readOnly: boolean;
 };
 
 const KanbanContext = createContext<KanbanContextProps>({
   columns: [],
   data: [],
   activeCardId: null,
+  readOnly: false,
 });
 
 export type KanbanBoardProps = {
@@ -110,27 +112,34 @@ export const KanbanCard = <T extends KanbanItemProps = KanbanItemProps>({
   } = useSortable({
     id,
   });
-  const { activeCardId } = useContext(KanbanContext) as KanbanContextProps;
+  const { activeCardId, readOnly } = useContext(
+    KanbanContext
+  ) as KanbanContextProps;
 
   const style = {
     transition,
     transform: CSS.Transform.toString(transform),
   };
 
+  const dragProps = readOnly
+    ? {}
+    : { ...listeners, ...attributes };
+
   return (
     <>
-      <div style={style} {...listeners} {...attributes} ref={setNodeRef}>
+      <div style={style} {...dragProps} ref={setNodeRef}>
         <Card
           className={cn(
-            "cursor-grab gap-4 rounded-md p-3 shadow-sm",
-            isDragging && "pointer-events-none cursor-grabbing opacity-30",
+            "gap-4 rounded-md p-3 shadow-sm",
+            !readOnly && "cursor-grab",
+            !readOnly && isDragging && "pointer-events-none cursor-grabbing opacity-30",
             className
           )}
         >
           {children ?? <p className="m-0 font-medium text-sm">{name}</p>}
         </Card>
       </div>
-      {activeCardId === id && (
+      {!readOnly && activeCardId === id && (
         <t.In>
           <Card
             className={cn(
@@ -197,6 +206,7 @@ export type KanbanProviderProps<
   onDragStart?: (event: DragStartEvent) => void;
   onDragEnd?: (event: DragEndEvent) => void;
   onDragOver?: (event: DragOverEvent) => void;
+  readOnly?: boolean;
 };
 
 export const KanbanProvider = <
@@ -211,6 +221,7 @@ export const KanbanProvider = <
   columns,
   data,
   onDataChange,
+  readOnly = false,
   ...props
 }: KanbanProviderProps<T, C>) => {
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
@@ -310,7 +321,7 @@ export const KanbanProvider = <
   };
 
   return (
-    <KanbanContext.Provider value={{ columns, data, activeCardId }}>
+    <KanbanContext.Provider value={{ columns, data, activeCardId, readOnly }}>
       <DndContext
         accessibility={{ announcements }}
         collisionDetection={closestCenter}

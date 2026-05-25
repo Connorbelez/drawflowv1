@@ -1,6 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 
-import { ConvexAdminBuildDashboardRoute } from "#/features/build-workspace-demo/AdminBuildDashboardRoute.tsx";
+import { BuildDetailRoute } from "#/features/backoffice-build-detail/BuildDetailRoute.tsx";
 
 export const Route = createFileRoute("/backoffice/builds/$buildId/")({
   ssr: false,
@@ -9,21 +9,31 @@ export const Route = createFileRoute("/backoffice/builds/$buildId/")({
 
 function RouteComponent() {
   const { buildId } = Route.useParams();
-  const { milestone } = Route.useSearch();
+  const search = Route.useSearch();
+  const navigate = useNavigate();
 
-  if (buildId !== "active-maple-ridge") {
-    return (
-      <main className="min-h-[calc(100vh-4rem)] bg-muted/30 p-4">
-        <div className="rounded-lg border bg-card p-6">
-          <p className="font-medium">Build detail unavailable</p>
-          <p className="mt-1 text-muted-foreground text-sm">
-            The reusable lender build workspace currently exists for
-            active-maple-ridge.
-          </p>
-        </div>
-      </main>
-    );
-  }
-
-  return <ConvexAdminBuildDashboardRoute initialMilestoneId={milestone} />;
+  return (
+    <BuildDetailRoute
+      buildKey={buildId}
+      initialMilestoneId={search.milestone}
+      onChangeRail={(rail) =>
+        navigate({
+          to: "/backoffice/builds/$buildId",
+          params: { buildId },
+          search: (prev) => ({ ...prev, rail }),
+          replace: true,
+        })
+      }
+      onChangeTab={(tab) =>
+        navigate({
+          to: "/backoffice/builds/$buildId",
+          params: { buildId },
+          search: (prev) => ({ ...prev, tab }),
+          replace: true,
+        })
+      }
+      rail={search.rail}
+      tab={search.tab}
+    />
+  );
 }

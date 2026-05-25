@@ -480,8 +480,12 @@ export async function runAdminReviewAction({
 
 export function ConvexAdminBuildDashboardRoute({
   initialMilestoneId,
+  initialTab,
+  hideTabs = false,
 }: {
   initialMilestoneId?: string;
+  initialTab?: AdminDashboardTab;
+  hideTabs?: boolean;
 }) {
   const workspace = useConvexBuildWorkspace("active");
 
@@ -503,14 +507,22 @@ export function ConvexAdminBuildDashboardRoute({
 
   return (
     <BuildWorkspaceProvider workspace={workspace}>
-      <AdminBuildDashboard />
+      <AdminBuildDashboard hideTabs={hideTabs} initialTab={initialTab} />
     </BuildWorkspaceProvider>
   );
 }
 
-function AdminBuildDashboard() {
+function AdminBuildDashboard({
+  hideTabs = false,
+  initialTab,
+}: {
+  hideTabs?: boolean;
+  initialTab?: AdminDashboardTab;
+}) {
   const workspace = useBuildWorkspace();
-  const [activeTab, setActiveTab] = useState<AdminDashboardTab>("overview");
+  const [activeTab, setActiveTab] = useState<AdminDashboardTab>(
+    initialTab ?? "overview",
+  );
   const [expandedDrawGroupIds, setExpandedDrawGroupIds] = useState<Set<string>>(
     () => new Set()
   );
@@ -740,7 +752,9 @@ function AdminBuildDashboard() {
       data-testid="admin-build-dashboard-shell"
     >
       <AdminDashboardTopbar />
-      <AdminDashboardTabs activeTab={activeTab} onTabChange={setActiveTab} />
+      {hideTabs ? null : (
+        <AdminDashboardTabs activeTab={activeTab} onTabChange={setActiveTab} />
+      )}
       <div className="min-h-0 overflow-y-auto">
         {activeTab === "overview" ? (
           <div
