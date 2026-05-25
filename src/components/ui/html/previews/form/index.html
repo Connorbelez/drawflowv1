@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Form HTML Snippet</title>
+    <link rel="stylesheet" href="../../assets/ui.css" />
+    <script defer src="../../assets/ui.js"></script>
+  </head>
+  <body>
+    <main class="snippet-shell" data-component="form">
+      <header class="snippet-header">
+        <span class="snippet-eyebrow">DrawFlow UI HTML</span>
+        <h1>Form</h1>
+        <p>Standalone preview of the composable HTML component fragment.</p>
+      </header>
+      <section class="snippet-stage" aria-label="Form preview">
+        <form class="df-form" data-form>
+          <div class="df-form-grid">
+            <label class="df-label" for="form-build">Build name</label>
+            <input id="form-build" class="df-input" value="Oak Ridge townhomes" />
+            <label class="df-label" for="form-policy">Draw policy</label>
+            <select id="form-policy" class="df-native-select"><option>Standard reimbursement</option><option>Admin override required</option></select>
+            <label class="df-check"><input type="checkbox" checked /><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20 6-11 11-5-5"/></svg></span>Write audit event on submit</label>
+          </div>
+          <footer><button class="df-button df-button-outline" type="button">Cancel</button><button class="df-button df-button-default" type="submit">Save policy</button></footer>
+        </form>
+      </section>
+    </main>
+  </body>
+</html>

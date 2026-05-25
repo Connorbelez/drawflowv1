@@ -1,16 +1,13 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/backoffice/builds/$buildId")({
+  validateSearch: (search) => ({
+    milestone:
+      typeof search.milestone === "string" ? search.milestone : undefined,
+  }),
   component: RouteComponent,
 });
 
 function RouteComponent() {
-  const { buildId } = Route.useParams();
-
-  return (
-    <div>
-      <div>{buildId}</div>
-      <Outlet />
-    </div>
-  );
+  return <Outlet />;
 }

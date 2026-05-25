@@ -478,7 +478,11 @@ export async function runAdminReviewAction({
   await workspace.rejectMilestone(milestoneId, note);
 }
 
-export function ConvexAdminBuildDashboardRoute() {
+export function ConvexAdminBuildDashboardRoute({
+  initialMilestoneId,
+}: {
+  initialMilestoneId?: string;
+}) {
   const workspace = useConvexBuildWorkspace("active");
 
   useEffect(() => {
@@ -486,6 +490,16 @@ export function ConvexAdminBuildDashboardRoute() {
       workspace.setRole("lenderAdmin");
     }
   }, [workspace]);
+
+  useEffect(() => {
+    if (
+      initialMilestoneId &&
+      workspace.selectedMilestoneId !== initialMilestoneId &&
+      workspace.milestones.some((milestone) => milestone.id === initialMilestoneId)
+    ) {
+      workspace.selectMilestone(initialMilestoneId);
+    }
+  }, [initialMilestoneId, workspace]);
 
   return (
     <BuildWorkspaceProvider workspace={workspace}>

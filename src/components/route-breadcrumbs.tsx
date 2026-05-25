@@ -45,7 +45,7 @@ export function RouteBreadcrumbs(): ReactElement | null {
           const itemClassName = isCurrentPage ? undefined : "hidden md:block";
 
           return (
-            <Fragment key={breadcrumb.to}>
+            <Fragment key={`${breadcrumb.to}-${index}`}>
               <BreadcrumbItem className={itemClassName}>
                 {isCurrentPage ? (
                   <BreadcrumbPage>{breadcrumb.label}</BreadcrumbPage>

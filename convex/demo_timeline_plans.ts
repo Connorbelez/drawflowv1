@@ -1,3 +1,4 @@
+import { makeFunctionReference } from "convex/server";
 import { v } from "convex/values";
 
 import {
@@ -21,6 +22,9 @@ const DEFAULT_PROJECT_START_DATE = "2026-06-01";
 const DEFAULT_TODAY_DATE = "2026-05-20";
 const TOKEN_TTL_MS = 60 * 60 * 1000;
 const SHORT_LINK_PATTERN = /^[a-z]+-[a-z]+-[a-z0-9]{4}$/;
+const drawflowBackofficeDashboardQuery = makeFunctionReference<"query">(
+  "demo_drawflow:demo_getBackofficeDashboard"
+);
 
 const slugVerbs = [
   "steady",
@@ -1909,17 +1913,6 @@ export const demo_getBackofficeDashboard = publicQuery
   .input({})
   .returns(v.any())
   .handler(async (ctx) => {
-    const cards = await ctx.db
-      .query("demo_backofficeProposalCards")
-      .withIndex("by_updated")
-      .order("desc")
-      .take(50);
-    return {
-      generatedProposalCards: cards.map((card) => ({
-        ...card,
-        badge: "demo",
-        href: `/demo/timeline/${card.planId}`,
-      })),
-    };
+    return await ctx.runQuery(drawflowBackofficeDashboardQuery, {});
   })
   .public();

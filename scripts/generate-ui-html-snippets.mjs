@@ -9,6 +9,7 @@ const components = [
   "alert-dialog",
   "alert",
   "aspect-ratio",
+  "autocomplete",
   "avatar",
   "badge",
   "breadcrumb",
@@ -19,6 +20,7 @@ const components = [
   "carousel",
   "chart",
   "checkbox",
+  "checkbox-group",
   "collapsible",
   "combobox",
   "command",
@@ -30,20 +32,32 @@ const components = [
   "dropdown-menu",
   "empty",
   "field",
+  "fieldset",
   "file-uploader",
+  "form",
+  "frame",
+  "group",
   "hover-card",
+  "inline-edit",
   "input-group",
   "input-otp",
   "input",
   "intro-disclosure",
+  "ipad",
+  "iphone",
   "item",
   "kbd",
   "label",
+  "menu",
   "menubar",
+  "meter",
   "native-select",
   "navigation-menu",
+  "number-field",
+  "otp-field",
   "pagination",
   "popover",
+  "preview-card",
   "progress",
   "radio-group",
   "resizable",
@@ -52,6 +66,7 @@ const components = [
   "separator",
   "sheet",
   "sidebar",
+  "safari",
   "skeleton",
   "slider",
   "sonner",
@@ -62,8 +77,10 @@ const components = [
   "table",
   "tabs",
   "textarea",
+  "toast",
   "toggle-group",
   "toggle",
+  "toolbar",
   "tooltip",
 ];
 
@@ -229,6 +246,16 @@ function componentBody(name) {
       return `<div class="df-alert">${icon.alert}<div><h3>Working capital warning</h3><p>This draw grouping exceeds the borrower working capital limit by $12,400.</p></div></div>`;
     case "aspect-ratio":
       return `<div class="df-aspect"><div><strong>16:9 site photo</strong><span>Framing bay · geofence verified</span></div></div>`;
+    case "autocomplete":
+      return `<div class="df-autocomplete" data-autocomplete>
+  <label class="df-label" for="autocomplete-build">Assign reviewer</label>
+  <input id="autocomplete-build" class="df-input" value="Ari Lender" aria-controls="autocomplete-options" aria-expanded="true" />
+  <div class="df-menu static" id="autocomplete-options" role="listbox">
+    <button class="df-menu-item" role="option" aria-selected="true">${icon.check}<span>Ari Lender</span><small>Admin</small></button>
+    <button class="df-menu-item" role="option"><span class="df-dot success"></span><span>Maya Field</span><small>Inspector</small></button>
+    <button class="df-menu-item" role="option"><span class="df-dot warning"></span><span>Noah Risk</span><small>Staff reviewer</small></button>
+  </div>
+</div>`;
     case "avatar":
       return `<div class="df-avatar-row"><span class="df-avatar"><img src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=120&q=80" alt="Reviewer" /></span><span class="df-avatar fallback">AL</span><span class="df-avatar sm">DF</span></div>`;
     case "badge":
@@ -249,6 +276,11 @@ function componentBody(name) {
       return `<div class="df-chart"><div class="bars">${[52, 82, 64, 38, 72].map((v, i) => `<span style="height:${v}%" data-label="D${i + 1}"></span>`).join("")}</div><footer><strong>Draw cost curve</strong><span>Fee + interest exposure</span></footer></div>`;
     case "checkbox":
       return `<label class="df-check"><input type="checkbox" checked /><span>${icon.check}</span>Require lien waiver before release</label>`;
+    case "checkbox-group":
+      return `<fieldset class="df-checkbox-group">
+  <legend>Required evidence</legend>
+  ${["Invoice packet", "Site photos", "Lien waiver", "Permit closeout"].map((item, i) => `<label class="df-check"><input type="checkbox" ${i < 2 ? "checked" : ""} /><span>${icon.check}</span>${item}</label>`).join("\n  ")}
+</fieldset>`;
     case "collapsible":
       return `<div class="df-collapsible"><button class="df-button df-button-outline" data-collapse="permit">Permit packet ${icon.chevronDown}</button><div data-collapse-panel="permit"><p>3 uploaded files, last reviewed by lender staff.</p></div></div>`;
     case "combobox":
@@ -271,10 +303,47 @@ function componentBody(name) {
       return `<div class="df-empty">${icon.file}<h2>No site visits scheduled</h2><p>Create a visit when evidence requires physical verification.</p><button class="df-button df-button-default">Schedule visit</button></div>`;
     case "field":
       return formGroup;
+    case "fieldset":
+      return `<fieldset class="df-fieldset">
+  <legend>Draw release policy</legend>
+  <p>Configure the lender checks that must pass before funds can be released.</p>
+  ${formGroup}
+</fieldset>`;
     case "file-uploader":
       return `<label class="df-upload" data-file-upload>${icon.upload}<strong>Upload evidence</strong><span>Drop invoices, waivers, or site photos here</span><input type="file" multiple /></label><ul class="df-file-list" data-file-list><li>${icon.file}<span>framing-invoice.pdf</span><strong>1.4 MB</strong></li></ul>`;
+    case "form":
+      return `<form class="df-form" data-form>
+  <div class="df-form-grid">
+    <label class="df-label" for="form-build">Build name</label>
+    <input id="form-build" class="df-input" value="Oak Ridge townhomes" />
+    <label class="df-label" for="form-policy">Draw policy</label>
+    <select id="form-policy" class="df-native-select"><option>Standard reimbursement</option><option>Admin override required</option></select>
+    <label class="df-check"><input type="checkbox" checked /><span>${icon.check}</span>Write audit event on submit</label>
+  </div>
+  <footer><button class="df-button df-button-outline" type="button">Cancel</button><button class="df-button df-button-default" type="submit">Save policy</button></footer>
+</form>`;
+    case "frame":
+      return `<section class="df-frame">
+  <header class="df-frame-header"><h2>Evidence review frame</h2><p>Structural wrapper for related panels.</p></header>
+  <article class="df-frame-panel"><strong>Framing package</strong><span class="df-badge warning">Needs admin</span><p>Site visit report is complete. Override reason remains required.</p></article>
+  <article class="df-frame-panel compact"><strong>Audit trail</strong><p>6 events recorded for Draw 03.</p></article>
+</section>`;
+    case "group":
+      return `<div class="df-group" role="group" aria-label="Draw view controls">
+  <button class="df-button df-button-outline">Roadmap</button>
+  <span class="df-group-separator"></span>
+  <button class="df-button df-button-outline active">Draws</button>
+  <span class="df-group-separator"></span>
+  <button class="df-button df-button-outline">Evidence</button>
+</div>`;
     case "hover-card":
       return `<div class="df-hover-wrap"><button class="df-button df-button-link" data-hover-card>Oak Ridge build</button><article class="df-hover-card" hidden><h3>Oak Ridge build</h3><p>4 active draws, $228k remaining budget, 2 pending admin decisions.</p></article></div>`;
+    case "inline-edit":
+      return `<div class="df-inline-edit" data-inline-edit>
+  <label class="df-label" for="inline-edit-budget">Milestone budget</label>
+  <div><input id="inline-edit-budget" class="df-input" value="$86,400" /><button class="df-button df-button-default">Save</button></div>
+  <p class="df-help">Budget revisions create a new version and audit event.</p>
+</div>`;
     case "input":
       return `<input class="df-input" value="Oak Ridge townhomes" aria-label="Build name" />`;
     case "input-group":
@@ -283,22 +352,43 @@ function componentBody(name) {
       return `<div class="df-otp" data-otp>${Array.from({ length: 6 }, (_, i) => `<input maxlength="1" inputmode="numeric" value="${i < 3 ? i + 2 : ""}" />`).join("")}</div>`;
     case "intro-disclosure":
       return `<section class="df-intro-disclosure"><button data-collapse="intro"><strong>DrawFlow reimbursement rules</strong>${icon.chevronDown}</button><div data-collapse-panel="intro"><p>Funds release only after work completion, evidence review, and lender admin approval.</p></div></section>`;
+    case "ipad":
+      return `<div class="df-device df-device-ipad"><div class="df-device-screen"><header><strong>Site visit</strong><span class="df-badge success">Offline draft</span></header><div class="df-device-map">Geofence attempt</div><footer><button class="df-button df-button-default">Capture report</button></footer></div></div>`;
+    case "iphone":
+      return `<div class="df-device df-device-iphone"><div class="df-device-screen"><header><strong>Evidence</strong></header><div class="df-device-photo">${icon.upload}<span>3 photos queued</span></div><button class="df-button df-button-default">Sync</button></div></div>`;
     case "item":
       return `<div class="df-item"><div>${icon.file}</div><section><h3>Framing invoice packet</h3><p>Uploaded by borrower · location verified</p></section><span class="df-badge success">Ready</span></div>`;
     case "kbd":
       return `<p class="df-kbd-row">Open command menu <kbd class="df-kbd">⌘</kbd><kbd class="df-kbd">K</kbd></p>`;
     case "label":
       return `<label class="df-label" for="label-demo">Borrower working capital limit</label><input id="label-demo" class="df-input" value="$125,000" />`;
+    case "menu":
+      return menuMarkup("menu");
     case "menubar":
       return `<nav class="df-menubar">${["Build", "Draws", "Evidence", "Admin"].map((v, i) => `<button class="${i === 1 ? "active" : ""}">${v}</button>`).join("")}</nav>`;
+    case "meter":
+      return `<div class="df-meter-block"><div><span>Borrower working capital used</span><strong>$82k / $125k</strong></div><meter class="df-meter" min="0" max="125" value="82">66%</meter><p>Under limit after draw grouping optimization.</p></div>`;
     case "native-select":
       return `<select class="df-native-select"><option>Cheapest feasible plan</option><option>Fastest plan</option><option>Capital constrained plan</option></select>`;
     case "navigation-menu":
       return `<nav class="df-navigation-menu"><a class="active">Workspace</a><a>Draw plans</a><a>Evidence</a><a>Audit log</a></nav>`;
+    case "number-field":
+      return `<div class="df-number-field" data-number-field>
+  <label class="df-label" for="number-field-draw">Draw fee</label>
+  <div><button class="df-icon-button" aria-label="Decrease">−</button><input id="number-field-draw" class="df-input" type="number" value="450" /><button class="df-icon-button" aria-label="Increase">+</button></div>
+  <p class="df-help">Lender configurable per released draw.</p>
+</div>`;
+    case "otp-field":
+      return `<div class="df-otp-field"><label class="df-label">Admin release code</label>${componentBody("input-otp")}<p class="df-help">Used for final draw-release authority.</p></div>`;
     case "pagination":
       return `<nav class="df-pagination" aria-label="Pagination"><button>Previous</button><button class="active">1</button><button>2</button><button>3</button><span>…</span><button>8</button><button>Next</button></nav>`;
     case "popover":
       return `<div class="df-popover-demo"><button class="df-button df-button-outline" data-popover-trigger>Policy limit</button><div class="df-popover" data-popover hidden><h3>Lender draw policy limit</h3><p>Maximum reimbursable amount per draw is $95,000.</p></div></div>`;
+    case "preview-card":
+      return `<article class="df-preview-card">
+  <div class="df-preview-media"><span>Draw 03</span></div>
+  <section><h3>Framing reimbursement</h3><p>Evidence complete with one admin override pending.</p><span class="df-badge warning">Review</span></section>
+</article>`;
     case "progress":
       return `<div class="df-progress-block"><div><span>Evidence completeness</span><strong>72%</strong></div><div class="df-progress"><span style="width:72%"></span></div></div>`;
     case "radio-group":
@@ -315,6 +405,8 @@ function componentBody(name) {
       return `<div><button class="df-button df-button-outline" data-sheet-open>Open sheet</button><aside class="df-sheet" data-sheet><button class="df-icon-button" data-sheet-close>${icon.close}</button><h2>Admin approval</h2><p>Approve release after evidence and site visit checks pass.</p><button class="df-button df-button-default">Release funds</button></aside></div>`;
     case "sidebar":
       return `<div class="df-sidebar-layout"><aside class="df-sidebar"><strong>DrawFlow</strong><a class="active">Workspace</a><a>Draws</a><a>Evidence</a><a>Admin</a></aside><section><h2>Build Workspace</h2><p>Canonical roadmap, budget, evidence, and approval context.</p></section></div>`;
+    case "safari":
+      return `<div class="df-browser-frame"><header><span></span><span></span><span></span><input value="drawflow.local/builds/oak-ridge" aria-label="Address" /></header><main><h2>Build Workspace</h2><p>Roadmap, draw groups, evidence, and approvals in one canonical surface.</p>${componentBody("progress")}</main></div>`;
     case "skeleton":
       return `<div class="df-skeleton-card"><span class="df-skeleton avatar"></span><div><span class="df-skeleton line"></span><span class="df-skeleton line short"></span></div></div>`;
     case "slider":
@@ -335,10 +427,19 @@ function componentBody(name) {
       return tabsMarkup(name);
     case "textarea":
       return `<textarea class="df-textarea" aria-label="Notes">Borrower submitted updated framing photos from the north elevation.</textarea>`;
+    case "toast":
+      return componentBody("sonner");
     case "toggle":
       return `<button class="df-toggle active" data-toggle>${icon.check} Geofence required</button>`;
     case "toggle-group":
       return `<div class="df-toggle-group">${["Day", "Week", "Month"].map((v, i) => `<button class="${i === 1 ? "active" : ""}">${v}</button>`).join("")}</div>`;
+    case "toolbar":
+      return `<div class="df-toolbar" role="toolbar" aria-label="Evidence editor toolbar">
+  <div class="df-toolbar-group"><button class="df-icon-button" aria-label="Bold"><strong>B</strong></button><button class="df-icon-button" aria-label="Italic"><em>I</em></button></div>
+  <span class="df-toolbar-separator"></span>
+  <input class="df-toolbar-input" value="Reviewer note" aria-label="Toolbar input" />
+  <button class="df-button df-button-default">Apply</button>
+</div>`;
     case "tooltip":
       return `<div class="df-tooltip-demo"><button class="df-icon-button" data-tooltip="Admin approval is required before funds are released.">?</button><span class="df-tooltip" hidden></span></div>`;
     default:
@@ -398,7 +499,7 @@ svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width:
 .df-stack { flex-direction: column; align-items: stretch; min-width: min(420px, 100%); }
 .df-button { display: inline-flex; height: 1.75rem; align-items: center; justify-content: center; gap: .25rem; border: 1px solid transparent; border-radius: calc(var(--radius) - 2px); padding: 0 .5rem; background: transparent; color: var(--foreground); font-size: .75rem; line-height: 1.625; font-weight: 500; white-space: nowrap; transition: background .16s, border-color .16s, transform .08s, color .16s, box-shadow .16s; }
 .df-button:active { transform: translateY(1px); }
-.df-button:focus-visible, .df-input:focus, .df-textarea:focus, .df-native-select:focus { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring), transparent 70%); outline: 0; }
+.df-button:focus-visible, .df-input:focus, .df-textarea:focus, .df-native-select:focus, .df-toolbar-input:focus { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring), transparent 70%); outline: 0; }
 .df-button svg { width: .875rem; height: .875rem; }
 .df-button-default { background: var(--primary); color: var(--primary-foreground); }
 .df-button-default:hover { background: color-mix(in oklch, var(--primary), transparent 20%); }
@@ -428,6 +529,11 @@ svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width:
 .df-label { display: inline-flex; align-items: center; gap: .375rem; font-size: .75rem; font-weight: 500; }
 .df-help { margin: -6px 0 8px; color: var(--muted-foreground); font-size: .75rem; }
 .df-form-grid { width: min(420px, 100%); display: grid; gap: 10px; }
+.df-form { width: min(460px, 100%); display: grid; gap: 18px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); padding: 18px; }
+.df-form footer { display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--border); padding-top: 14px; }
+.df-fieldset, .df-checkbox-group { width: min(520px, 100%); display: grid; gap: 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); padding: 18px; }
+.df-fieldset legend, .df-checkbox-group legend { padding: 0 6px; font-weight: 700; }
+.df-fieldset > p { margin: 0 0 4px; color: var(--muted-foreground); line-height: 1.5; }
 .df-alert { width: min(460px, 100%); display: grid; grid-template-columns: 20px 1fr; gap: 12px; border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; color: var(--foreground); }
 .df-alert h3 { margin: 0 0 4px; font-size: .875rem; }
 .df-alert p { margin: 0; color: var(--muted-foreground); font-size: .75rem; line-height: 1.5; }
@@ -444,13 +550,15 @@ svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width:
 .df-dialog h2 { margin: 0 0 8px; }
 .df-dialog p { margin: 0; color: var(--muted-foreground); line-height: 1.55; }
 .df-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
-.df-menu-demo, .df-select, .df-popover-demo, .df-hover-wrap { position: relative; display: inline-block; }
+.df-menu-demo, .df-select, .df-popover-demo, .df-hover-wrap, .df-autocomplete { position: relative; display: inline-block; }
+.df-autocomplete { width: min(360px, 100%); display: grid; gap: 8px; }
 .df-menu { position: absolute; z-index: 10; top: calc(100% + 6px); left: 0; min-width: 220px; border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); background: var(--popover); color: var(--popover-foreground); padding: 4px; box-shadow: 0 12px 36px oklch(0 0 0 / .12); }
 .df-menu.static { position: static; margin-top: 6px; box-shadow: none; }
 .df-menu.context { top: 60%; left: 50%; }
 .df-menu-item { width: 100%; display: grid; grid-template-columns: 16px 1fr auto; align-items: center; gap: 8px; border: 0; border-radius: calc(var(--radius) - 4px); background: transparent; color: inherit; padding: 7px 8px; text-align: left; font-size: .75rem; }
 .df-menu-item:hover { background: var(--accent); color: var(--accent-foreground); }
 .df-menu-item.danger { color: var(--destructive); }
+.df-menu-item small { color: var(--muted-foreground); font-size: .68rem; }
 .df-menu-separator { height: 1px; margin: 4px -4px; background: var(--border); }
 .df-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--muted-foreground); }
 .df-dot.success { background: var(--success); }
@@ -523,6 +631,9 @@ svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width:
 .df-input-group { display: flex; width: min(360px, 100%); border: 1px solid var(--input); border-radius: calc(var(--radius) - 2px); overflow: hidden; }
 .df-input-group span, .df-input-group button { display: grid; place-items: center; padding: 0 10px; background: var(--muted); border: 0; }
 .df-input-group input { min-width: 0; flex: 1; border: 0; padding: 0 10px; height: 2rem; outline: 0; }
+.df-inline-edit, .df-number-field, .df-otp-field { width: min(420px, 100%); display: grid; gap: 8px; }
+.df-inline-edit > div, .df-number-field > div { display: flex; gap: 8px; align-items: center; }
+.df-number-field .df-input { text-align: center; }
 .df-otp { display: flex; gap: 8px; }
 .df-otp input { width: 38px; height: 42px; border: 1px solid var(--input); border-radius: calc(var(--radius) - 2px); text-align: center; font-weight: 700; }
 .df-intro-disclosure { width: min(520px, 100%); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
@@ -534,6 +645,17 @@ svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width:
 .df-item p { color: var(--muted-foreground); font-size: .75rem; }
 .df-kbd, kbd { display: inline-flex; min-width: 1.5rem; height: 1.5rem; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: calc(var(--radius) - 4px); background: var(--muted); padding: 0 .35rem; font-family: inherit; font-size: .6875rem; }
 .df-kbd-row { display: flex; align-items: center; gap: 6px; }
+.df-frame { width: min(620px, 100%); display: flex; flex-direction: column; gap: 4px; border-radius: calc(var(--radius) + 8px); background: color-mix(in oklch, var(--muted), transparent 28%); padding: 4px; }
+.df-frame-header { padding: 14px 18px 10px; }
+.df-frame-header h2, .df-frame-header p { margin: 0; }
+.df-frame-header p { margin-top: 3px; color: var(--muted-foreground); font-size: .75rem; }
+.df-frame-panel { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); padding: 18px; box-shadow: 0 1px 2px oklch(0 0 0 / .04); }
+.df-frame-panel p { grid-column: 1 / -1; margin: 0; color: var(--muted-foreground); line-height: 1.5; }
+.df-frame-panel.compact { display: block; padding: 14px 18px; }
+.df-group { display: inline-flex; align-items: stretch; border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); background: var(--background); overflow: hidden; }
+.df-group .df-button { border: 0; border-radius: 0; }
+.df-group .df-button.active { background: var(--accent); color: var(--accent-foreground); }
+.df-group-separator { width: 1px; background: var(--border); }
 .df-menubar, .df-navigation-menu { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); padding: 4px; background: var(--background); }
 .df-menubar button, .df-navigation-menu a { border: 0; border-radius: calc(var(--radius) - 4px); background: transparent; color: var(--muted-foreground); padding: 7px 10px; text-decoration: none; font-size: .75rem; }
 .df-menubar .active, .df-navigation-menu .active { background: var(--accent); color: var(--accent-foreground); }
@@ -544,6 +666,17 @@ svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width:
 .df-progress { height: 8px; overflow: hidden; border-radius: 999px; background: var(--secondary); }
 .df-progress span { display: block; height: 100%; border-radius: inherit; background: var(--primary); }
 .df-progress.mini { width: 96px; height: 6px; }
+.df-meter-block { width: min(420px, 100%); display: grid; gap: 8px; }
+.df-meter-block > div { display: flex; justify-content: space-between; gap: 16px; }
+.df-meter-block span, .df-meter-block p { color: var(--muted-foreground); }
+.df-meter-block p { margin: 0; font-size: .75rem; }
+.df-meter { width: 100%; height: 12px; accent-color: var(--primary); }
+.df-preview-card { width: min(360px, 100%); overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); box-shadow: 0 1px 2px oklch(0 0 0 / .04); }
+.df-preview-media { min-height: 150px; display: grid; place-items: end start; padding: 16px; color: var(--primary-foreground); background: linear-gradient(135deg, color-mix(in oklch, var(--primary), black 8%), oklch(0.5 0.12 230)); }
+.df-preview-media span { border-radius: 999px; background: oklch(0 0 0 / .24); padding: 4px 8px; font-size: .7rem; }
+.df-preview-card section { display: grid; gap: 8px; padding: 16px; }
+.df-preview-card h3, .df-preview-card p { margin: 0; }
+.df-preview-card p { color: var(--muted-foreground); line-height: 1.45; }
 .df-radio-group { display: grid; gap: 10px; border: 0; }
 .df-radio-group legend { margin-bottom: 4px; font-weight: 700; }
 .df-radio-group label span { width: 18px; height: 18px; border: 1px solid var(--input); border-radius: 999px; }
@@ -563,6 +696,21 @@ svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width:
 .df-sidebar a { border-radius: calc(var(--radius) - 4px); padding: 8px 10px; color: var(--muted-foreground); text-decoration: none; }
 .df-sidebar a.active { background: var(--background); color: var(--foreground); }
 .df-sidebar-layout section { padding: 24px; }
+.df-device { background: var(--foreground); padding: 10px; box-shadow: 0 18px 60px oklch(0 0 0 / .18); }
+.df-device-ipad { width: min(520px, 100%); border-radius: 28px; }
+.df-device-iphone { width: 236px; border-radius: 34px; }
+.df-device-screen { min-height: 330px; display: grid; align-content: space-between; gap: 16px; border-radius: 20px; background: var(--background); padding: 18px; overflow: hidden; }
+.df-device-iphone .df-device-screen { min-height: 430px; border-radius: 26px; }
+.df-device-screen header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.df-device-map, .df-device-photo { min-height: 180px; display: grid; place-items: center; align-content: center; gap: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: radial-gradient(circle at 30% 20%, color-mix(in oklch, var(--primary), transparent 78%), transparent 30%), var(--muted); color: var(--muted-foreground); }
+.df-device-photo svg { width: 32px; height: 32px; }
+.df-browser-frame { width: min(680px, 100%); overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); box-shadow: 0 1px 2px oklch(0 0 0 / .04); }
+.df-browser-frame header { display: grid; grid-template-columns: 10px 10px 10px 1fr; gap: 8px; align-items: center; border-bottom: 1px solid var(--border); background: var(--muted); padding: 10px; }
+.df-browser-frame header span { width: 10px; height: 10px; border-radius: 999px; background: var(--muted-foreground); opacity: .55; }
+.df-browser-frame header input { min-width: 0; border: 1px solid var(--border); border-radius: 999px; background: var(--background); padding: 5px 10px; color: var(--muted-foreground); font-size: .7rem; }
+.df-browser-frame main { display: grid; gap: 12px; padding: 20px; }
+.df-browser-frame h2, .df-browser-frame p { margin: 0; }
+.df-browser-frame p { color: var(--muted-foreground); }
 .df-skeleton-card { display: grid; grid-template-columns: 40px 200px; gap: 12px; align-items: center; }
 .df-skeleton { display: block; border-radius: var(--radius); background: linear-gradient(90deg, var(--muted), color-mix(in oklch, var(--muted), white 55%), var(--muted)); background-size: 220% 100%; animation: shimmer 1.4s infinite; }
 .df-skeleton.avatar { width: 40px; height: 40px; border-radius: 999px; }
@@ -586,6 +734,10 @@ svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width:
 .df-switch input:checked + span::before { transform: translateX(16px); }
 .df-toggle { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); background: transparent; padding: 6px 10px; }
 .df-toggle.active { background: var(--accent); color: var(--accent-foreground); }
+.df-toolbar { width: min(620px, 100%); display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); padding: 6px; }
+.df-toolbar-group { display: flex; align-items: center; gap: 4px; }
+.df-toolbar-separator { align-self: stretch; width: 1px; background: var(--border); }
+.df-toolbar-input { min-width: 0; flex: 1; height: 1.75rem; border: 1px solid var(--input); border-radius: calc(var(--radius) - 2px); background: transparent; padding: 0 .5rem; color: var(--foreground); font-size: .75rem; }
 .df-tooltip-demo { position: relative; }
 .df-tooltip { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); width: 220px; border-radius: calc(var(--radius) - 2px); background: var(--foreground); color: var(--background); padding: 8px 10px; font-size: .75rem; text-align: center; }
 @keyframes shimmer { to { background-position: -220% 0; } }

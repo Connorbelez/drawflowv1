@@ -432,11 +432,15 @@ async function genericControlAudit(page, _record) {
   }
   const firstInput = page
     .locator(
-      "input:not([type='file']):not([type='range']):not([type='checkbox']):not([type='radio'])"
+      "input:not([type='file']):not([type='range']):not([type='checkbox']):not([type='radio']):not([type='number'])"
     )
     .first();
   if ((await firstInput.count()) > 0) {
     await firstInput.fill("Verified");
+  }
+  const numberInput = page.locator("input[type='number']").first();
+  if ((await numberInput.count()) > 0) {
+    await numberInput.fill("512");
   }
   const textarea = page.locator("textarea").first();
   if ((await textarea.count()) > 0) {

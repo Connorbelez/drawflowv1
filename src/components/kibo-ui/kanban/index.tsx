@@ -22,6 +22,7 @@ import { arrayMove, SortableContext, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
   createContext,
+  Fragment,
   type HTMLAttributes,
   type ReactNode,
   useContext,
@@ -168,7 +169,9 @@ export const KanbanCards = <T extends KanbanItemProps = KanbanItemProps>({
           className={cn("flex flex-grow flex-col gap-2 p-2", className)}
           {...props}
         >
-          {filteredData.map(children)}
+          {filteredData.map((item) => (
+            <Fragment key={item.id}>{children(item)}</Fragment>
+          ))}
         </div>
       </SortableContext>
       <ScrollBar orientation="vertical" />
