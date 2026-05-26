@@ -4,6 +4,7 @@ import {
   buildTimelineLayout,
   createCurvedTimelinePath,
   createStraightTimelinePath,
+  groupMarkersByProximity,
   insertTimelineItemWithSpacing,
   normalizeTimelineRange,
   routePointForX,
@@ -262,6 +263,72 @@ describe("animated curved timeline utilities", () => {
       { x: layout.items[0].layoutX, y: layout.items[0].layoutY },
       { x: shiftedItem.layoutX, y: shiftedItem.layoutY },
       { x: layout.endX, y: layout.baselineY },
+    ]);
+  });
+
+  test("groups marker stacks by rendered pixel proximity", () => {
+    const stacks = groupMarkersByProximity(
+      [
+        { id: "today", label: "Today", x: 0 },
+        { id: "draw-1", label: "Draw 1", x: 8 },
+        { id: "draw-2", label: "Draw 2", x: 30 },
+      ],
+      (value) => value * 4,
+      40
+    );
+
+    expect(stacks).toHaveLength(2);
+    expect(stacks[0]).toMatchObject({
+      id: "today__draw-1",
+      members: [
+        { layoutX: 0, marker: { id: "today" }, valueX: 0 },
+        { layoutX: 32, marker: { id: "draw-1" }, valueX: 8 },
+      ],
+    });
+    expect(stacks[0].anchorX).toBe(16);
+    expect(stacks[1]).toMatchObject({
+      id: "draw-2",
+      members: [{ layoutX: 120, marker: { id: "draw-2" }, valueX: 30 }],
+    });
+  });
+
+  test("forms transitive marker chains within the proximity threshold", () => {
+    const stacks = groupMarkersByProximity(
+      [
+        { id: "one", label: "One", x: 0 },
+        { id: "two", label: "Two", x: 10 },
+        { id: "three", label: "Three", x: 20 },
+      ],
+      (value) => value * 4,
+      40
+    );
+
+    expect(stacks).toHaveLength(1);
+    expect(stacks[0].members.map((member) => member.marker.id)).toEqual([
+      "one",
+      "two",
+      "three",
+    ]);
+  });
+
+  test("keeps non-transitive marker gaps in separate stacks", () => {
+    const stacks = groupMarkersByProximity(
+      [
+        { id: "one", label: "One", x: 0 },
+        { id: "two", label: "Two", x: 10 },
+        { id: "three", label: "Three", x: 25 },
+      ],
+      (value) => value * 4,
+      40
+    );
+
+    expect(stacks).toHaveLength(2);
+    expect(stacks[0].members.map((member) => member.marker.id)).toEqual([
+      "one",
+      "two",
+    ]);
+    expect(stacks[1].members.map((member) => member.marker.id)).toEqual([
+      "three",
     ]);
   });
 

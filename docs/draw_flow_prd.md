@@ -5,7 +5,9 @@
 **Document type:** Product Requirements Document  
 **Status:** Revised product draft  
 **Primary audience:** Product, engineering, lender operations, builder operations, executive stakeholders, future implementation agents  
-**Last updated:** May 7, 2026
+**Last updated:** May 25, 2026
+
+**Productionization companion:** `docs/draw_flow_production_prd.md` is authoritative for the May 25 production model covering WorkOS auth, brokerage tenancy, Principal Broker/Broker/Backoffice/Builder/Contractor roles, RBAC, contractor profile/account separation, production schema, and organization/workflow management. Where this older PRD uses generic lender-side role language, the production companion defines the current target model.
 
 ---
 
@@ -2376,6 +2378,5 @@ The next document should be a technical specification covering:
 11. audit/event model,
 12. implementation phases,
 13. acceptance criteria by subsystem.
-
 
 

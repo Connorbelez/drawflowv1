@@ -363,6 +363,10 @@
     transform var(--setup-fast) var(--setup-ease);
 }
 
+.timeline-setup-percent-input {
+  grid-template-columns: minmax(0, 1fr) 24px;
+}
+
 .timeline-setup-money-field:focus-within .timeline-setup-money-input,
 .timeline-setup-address-field:focus-within input {
   border-color: light-dark(oklch(0.400 0.160 236 / 0.72), oklch(0.82 0.14 238 / 0.72));
@@ -426,6 +430,9 @@
   background-size: auto, 24px 24px;
   color: light-dark(oklch(0.420 0.040 258), oklch(0.68 0.035 260));
   cursor: pointer;
+  width: 100%;
+  padding: 0;
+  font: inherit;
   text-align: center;
   transition:
     border-color 160ms var(--setup-ease),
@@ -694,6 +701,56 @@
 .timeline-blueprint-heading-meta {
   display: flex;
   gap: 28px;
+}
+
+.timeline-blueprint-budget-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.2), oklch(0.72 0.08 240 / 0.2));
+  background: light-dark(oklch(0.985 0.010 235 / 0.52), oklch(0.08 0.016 255 / 0.58));
+  padding: 10px 14px;
+}
+
+.timeline-blueprint-budget-controls span {
+  color: light-dark(oklch(0.400 0.120 240), oklch(0.68 0.055 246));
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.timeline-blueprint-budget-controls strong {
+  display: block;
+  margin-top: 4px;
+  color: light-dark(oklch(0.220 0.020 258), oklch(0.9 0.014 260));
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.timeline-blueprint-budget-toggle-group {
+  justify-self: end;
+}
+
+.timeline-blueprint-budget-toggle-group [data-slot="group-text"],
+.timeline-blueprint-budget-toggle-group [data-slot="toggle"] {
+  min-height: 36px;
+  font-size: 12px;
+}
+
+.timeline-blueprint-cascade-toggle[data-pressed] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--primary) 22%, transparent);
+}
+
+.timeline-blueprint-cascade-toggle[data-pressed]:hover,
+.timeline-blueprint-cascade-toggle[data-pressed]:focus-visible {
+  border-color: color-mix(in oklch, var(--primary) 88%, black);
+  background: color-mix(in oklch, var(--primary) 90%, black);
+  color: var(--primary-foreground);
 }
 
 .timeline-blueprint-add-milestone {
@@ -1301,6 +1358,13 @@
   min-width: 0;
 }
 
+.timeline-submilestone-bank-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
 .timeline-submilestone-bank [data-slot="autocomplete-input-group"] {
   width: 100%;
 }
@@ -1319,6 +1383,20 @@
   box-shadow:
     inset 0 0 0 1px light-dark(oklch(0.180 0.022 258 / 0.06), oklch(0.95 0.04 238 / 0.06)),
     0 0 0 3px light-dark(oklch(0.400 0.120 240 / 0.13), oklch(0.72 0.12 236 / 0.13)) !important;
+}
+
+.timeline-submilestone-bank-custom-button {
+  height: 30px;
+  border-color: light-dark(oklch(0.400 0.120 240 / 0.34), oklch(0.72 0.12 238 / 0.34));
+  background: light-dark(oklch(0.985 0.010 235 / 0.78), oklch(0.1 0.02 255 / 0.78));
+  color: light-dark(oklch(0.400 0.160 236), oklch(0.82 0.12 238));
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.timeline-submilestone-bank-custom-button svg {
+  width: 14px;
+  height: 14px;
 }
 
 .timeline-submilestone-bank-popup {
@@ -1864,8 +1942,13 @@
     grid-template-columns: 1fr;
   }
 
-  .timeline-blueprint-add-milestone {
+  .timeline-blueprint-add-milestone,
+  .timeline-blueprint-budget-controls {
     grid-template-columns: 1fr;
+  }
+
+  .timeline-blueprint-budget-toggle-group {
+    justify-self: start;
   }
 
   .timeline-blueprint-footer,

@@ -7,10 +7,16 @@ describe("convexWorkspaceToTimelineState", () => {
     const state = convexWorkspaceToTimelineState({
       capitalEvents: [
         {
-          amountCents: 50_000,
-          capitalEventKey: "reserve",
-          label: "Reserve",
+          amountCents: 5_000_000,
+          capitalEventKey: "permit-overrun",
+          label: "Permit overrun",
           x: 12,
+        },
+        {
+          amountCents: 40_000_000,
+          capitalEventKey: "reserve",
+          label: "Borrower reserve",
+          x: 0,
         },
       ],
       evidenceAssets: [
@@ -27,7 +33,7 @@ describe("convexWorkspaceToTimelineState", () => {
       ],
       draws: [
         {
-          amountCents: 125_000,
+          amountCents: 12_500_000,
           drawKey: "draw-01",
           itemMilestoneKey: "foundation",
           label: "Draw 1",
@@ -37,7 +43,8 @@ describe("convexWorkspaceToTimelineState", () => {
       ],
       milestones: [
         {
-          budgetCents: 125_000,
+          budgetCents: 12_500_000,
+          drawAvailabilityCents: 10_000_000,
           durationDays: 9,
           evidenceState: "accepted package",
           icon: "foundation",
@@ -46,11 +53,16 @@ describe("convexWorkspaceToTimelineState", () => {
           order: 1,
           policyState: "Released",
           status: "complete",
-          submilestoneSnapshot: [{ name: "Forms" }, { name: "Pour" }],
+          submilestoneSnapshot: [
+            { key: "foundation-sub-01", name: "Forms", order: 1 },
+            { key: "foundation-sub-02", name: "Pour", order: 2 },
+          ],
           x: 12,
         },
       ],
       plan: {
+        borrowerCoPayBps: 2_000,
+        borrowerCoPayCents: 2_500_000,
         currentDay: 18,
         progressValue: 18,
         rangeMax: 120,
@@ -60,13 +72,14 @@ describe("convexWorkspaceToTimelineState", () => {
           selectedPanelOpen: true,
           straightLine: false,
         },
-        startingCashCents: 400_000,
+        startingCashCents: 40_000_000,
       },
     });
 
     expect(state.items[0].id).toBe("foundation");
     expect(state.items[0].data).toMatchObject({
       amount: 125_000,
+      drawAvailabilityAmount: 100_000,
       draw: "Reimbursement draw",
       evidencePackage: {
         assets: [
@@ -77,6 +90,10 @@ describe("convexWorkspaceToTimelineState", () => {
         ],
       },
       subMilestones: ["Forms", "Pour"],
+      submilestoneDetails: [
+        expect.objectContaining({ key: "foundation-sub-01", name: "Forms", order: 1 }),
+        expect.objectContaining({ key: "foundation-sub-02", name: "Pour", order: 2 }),
+      ],
     });
     expect(state.draws[0]).toMatchObject({
       amount: 125_000,
@@ -84,7 +101,10 @@ describe("convexWorkspaceToTimelineState", () => {
       requestStatus: "requested",
     });
     expect(state.draws[0].itemId).toBeUndefined();
-    expect(state.capitalSpikes[0].id).toBe("reserve");
+    expect(state.capitalSpikes).toHaveLength(1);
+    expect(state.capitalSpikes[0].id).toBe("permit-overrun");
+    expect(state.capitalSpikes[0].amount).toBe(50_000);
+    expect(state.startingCash).toBe(400_000);
     expect(state.activeSelection.itemId).toBe("foundation");
   });
 });

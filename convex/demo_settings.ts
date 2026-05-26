@@ -6,6 +6,14 @@ import {
   withMutationTiming,
   withQueryTiming,
 } from "./fluent";
+import { DEMO_PERSONAS } from "./demo_personas";
+import {
+  defaultSiteVisitGuidance,
+  guidanceItemsToGuidance,
+  guidanceToItems,
+  normalizeSiteVisitGuidance,
+  type SiteVisitGuidance,
+} from "./demo_site_visit_guidance";
 import type { DatabaseReader, DatabaseWriter, Doc } from "./types";
 
 const SEED_VERSION = 2;
@@ -34,6 +42,11 @@ const scenarioDrawInputValidator = v.object({
   timingDay: v.number(),
 });
 
+const siteVisitGuidanceInputValidator = v.object({
+  cameraAngles: v.array(v.string()),
+  whatToVerify: v.array(v.string()),
+});
+
 const milestoneInputValidator = v.object({
   dependencyKeys: v.array(v.string()),
   durationDays: v.number(),
@@ -43,6 +56,7 @@ const milestoneInputValidator = v.object({
   name: v.string(),
   order: v.number(),
   percentageBps: v.number(),
+  siteVisitGuidance: v.optional(siteVisitGuidanceInputValidator),
   submilestones: v.array(
     v.object({
       description: v.string(),
@@ -90,6 +104,7 @@ interface SeedMilestone {
   milestoneKey: string;
   name: string;
   percentageBps: number;
+  siteVisitGuidance: SiteVisitGuidance;
   submilestones: SeedSubmilestone[];
   type: string;
 }
@@ -132,6 +147,7 @@ type MilestoneInput = {
   name: string;
   order: number;
   percentageBps: number;
+  siteVisitGuidance?: SiteVisitGuidance;
   submilestones: (SeedSubmilestone & { order: number })[];
   type: string;
 };
@@ -299,6 +315,16 @@ export const seedTimelineDemoDefaults = publicMutation
       ...result,
       settings: await buildSettingsProjection(ctx),
     };
+  })
+  .public();
+
+export const listDemoPersonas = publicQuery
+  .use(withQueryTiming("demo_settings.listDemoPersonas"))
+  .input({})
+  .returns(v.any())
+  .handler(async (ctx) => {
+    const rows = await ctx.db.query("demo_personas").take(50);
+    return rows.sort((a, b) => a.key.localeCompare(b.key));
   })
   .public();
 
@@ -601,6 +627,14 @@ function milestone(
 ): SeedMilestone {
   const base = Math.floor(percentageBps / subNames.length);
   const remainder = percentageBps - base * subNames.length;
+  const submilestones = subNames.map((subName, index) => ({
+    description:
+      index % 2 === 0 ? "Field completion target" : "Lender review checkpoint",
+    durationDays: Math.max(1, Math.round(durationDays / subNames.length)),
+    name: subName,
+    percentageBps: base + (index < remainder ? 1 : 0),
+    submilestoneKey: `${milestoneKey}-${slug(subName)}-${index}`,
+  }));
   return {
     dependencyKeys: [],
     durationDays,
@@ -609,16 +643,12 @@ function milestone(
     milestoneKey,
     name,
     percentageBps,
-    submilestones: subNames.map((subName, index) => ({
-      description:
-        index % 2 === 0
-          ? "Field completion target"
-          : "Lender review checkpoint",
-      durationDays: Math.max(1, Math.round(durationDays / subNames.length)),
-      name: subName,
-      percentageBps: base + (index < remainder ? 1 : 0),
-      submilestoneKey: `${milestoneKey}-${slug(subName)}-${index}`,
-    })),
+    siteVisitGuidance: defaultSiteVisitGuidance(
+      milestoneKey,
+      name,
+      submilestones.map((row) => row.name)
+    ),
+    submilestones,
     type: icon,
   };
 }
@@ -658,6 +688,10 @@ async function buildSettingsProjection(ctx: ReadCtx) {
 
   for (const templateRow of sortedTemplates) {
     const milestones = await listMilestones(ctx, templateRow.templateKey);
+    const guidanceItems = await listGuidanceItemsForTemplate(
+      ctx,
+      templateRow.templateKey
+    );
     const scenarios = await listScenarios(ctx, templateRow.templateKey);
     const scenarioProjections = [];
     for (const scenarioRow of scenarios) {
@@ -683,6 +717,7 @@ async function buildSettingsProjection(ctx: ReadCtx) {
         milestones,
         scenarioProjections
       ),
+      guidanceItems,
       submilestones: await listSubmilestonesForTemplate(
         ctx,
         templateRow.templateKey
@@ -707,11 +742,15 @@ async function seedDefaults(ctx: WriteCtx) {
   await clearTimelineDemoSettings(ctx);
   const inserted = {
     draws: 0,
+    guidanceItems: 0,
+    guidanceMilestones: 0,
     milestones: 0,
+    personas: 0,
     scenarios: 0,
     submilestones: 0,
     templates: 0,
   };
+  inserted.personas = await upsertDemoPersonas(ctx);
   for (const [templateIndex, templateRow] of DEFAULT_TEMPLATES.entries()) {
     if (await upsertTemplate(ctx, templateRow, templateIndex, false)) {
       inserted.templates += 1;
@@ -740,6 +779,13 @@ async function seedDefaults(ctx: WriteCtx) {
           inserted.submilestones += 1;
         }
       }
+      const guidanceResult = await insertMissingTemplateGuidance(
+        ctx,
+        templateRow.templateKey,
+        milestoneRow
+      );
+      inserted.guidanceMilestones += guidanceResult.guidanceMilestones;
+      inserted.guidanceItems += guidanceResult.guidanceItems;
     }
     const existingScenarios = await listScenarios(ctx, templateRow.templateKey);
     for (const [scenarioIndex, scenarioRow] of templateRow.scenarios.entries()) {
@@ -785,6 +831,30 @@ async function seedDefaults(ctx: WriteCtx) {
   return inserted;
 }
 
+async function upsertDemoPersonas(ctx: WriteCtx) {
+  let changed = 0;
+  for (const persona of DEMO_PERSONAS) {
+    const existing = await ctx.db
+      .query("demo_personas")
+      .withIndex("by_key", (q) => q.eq("key", persona.key))
+      .unique();
+    const nextRow = {
+      createdAt: existing?.createdAt ?? NOW,
+      key: persona.key,
+      label: persona.label,
+      role: persona.role,
+      updatedAt: NOW,
+    };
+    if (existing) {
+      await ctx.db.patch(existing._id, nextRow);
+    } else {
+      await ctx.db.insert("demo_personas", nextRow);
+    }
+    changed += 1;
+  }
+  return changed;
+}
+
 async function clearTimelineDemoSettings(ctx: WriteCtx) {
   for (const row of await ctx.db.query("demo_timelineDrawScenarioDraws").take(500)) {
     await ctx.db.delete(row._id);
@@ -793,6 +863,16 @@ async function clearTimelineDemoSettings(ctx: WriteCtx) {
     await ctx.db.delete(row._id);
   }
   for (const row of await ctx.db.query("demo_timelineTemplateSubmilestones").take(500)) {
+    await ctx.db.delete(row._id);
+  }
+  for (const row of await ctx.db
+    .query("demo_timelineTemplateMilestoneGuidanceItems")
+    .take(500)) {
+    await ctx.db.delete(row._id);
+  }
+  for (const row of await ctx.db
+    .query("demo_timelineTemplateMilestoneGuidance")
+    .take(200)) {
     await ctx.db.delete(row._id);
   }
   for (const row of await ctx.db.query("demo_timelineTemplateMilestones").take(200)) {
@@ -893,6 +973,48 @@ async function insertMissingSubmilestone(
   return true;
 }
 
+async function insertMissingTemplateGuidance(
+  ctx: WriteCtx,
+  templateKey: string,
+  milestoneRow: SeedMilestone
+) {
+  const existing = await getTemplateGuidance(
+    ctx,
+    templateKey,
+    milestoneRow.milestoneKey
+  );
+  if (existing) {
+    return { guidanceItems: 0, guidanceMilestones: 0 };
+  }
+  const guidanceId = await ctx.db.insert("demo_timelineTemplateMilestoneGuidance", {
+    createdAt: NOW,
+    milestoneKey: milestoneRow.milestoneKey,
+    templateKey,
+    updatedAt: NOW,
+  });
+  const items = guidanceToItems(
+    milestoneRow.siteVisitGuidance,
+    defaultSiteVisitGuidance(
+      milestoneRow.milestoneKey,
+      milestoneRow.name,
+      milestoneRow.submilestones.map((row) => row.name)
+    )
+  );
+  for (const item of items) {
+    await ctx.db.insert("demo_timelineTemplateMilestoneGuidanceItems", {
+      createdAt: NOW,
+      guidanceId,
+      kind: item.kind,
+      milestoneKey: milestoneRow.milestoneKey,
+      order: item.order ?? 0,
+      templateKey,
+      text: item.text,
+      updatedAt: NOW,
+    });
+  }
+  return { guidanceItems: items.length, guidanceMilestones: 1 };
+}
+
 async function upsertScenario(
   ctx: WriteCtx,
   templateKey: string,
@@ -963,6 +1085,9 @@ async function replaceTemplateMilestones(
   for (const row of await listSubmilestonesForTemplate(ctx, templateKey)) {
     await ctx.db.delete(row._id);
   }
+  for (const row of await listTemplateGuidanceRows(ctx, templateKey)) {
+    await deleteTemplateGuidance(ctx, row._id);
+  }
   for (const [index, row] of rows.entries()) {
     await ctx.db.insert("demo_timelineTemplateMilestones", {
       createdAt: NOW,
@@ -992,6 +1117,7 @@ async function replaceTemplateMilestones(
         updatedAt: NOW,
       });
     }
+    await replaceTemplateGuidance(ctx, templateKey, row);
   }
 }
 
@@ -1091,6 +1217,96 @@ async function listSubmilestonesForTemplate(ctx: ReadCtx, templateKey: string) {
     );
   }
   return rows;
+}
+
+async function listTemplateGuidanceRows(ctx: ReadCtx, templateKey: string) {
+  return await ctx.db
+    .query("demo_timelineTemplateMilestoneGuidance")
+    .withIndex("by_template", (q) => q.eq("templateKey", templateKey))
+    .take(100);
+}
+
+async function getTemplateGuidance(
+  ctx: ReadCtx,
+  templateKey: string,
+  milestoneKey: string
+) {
+  return await ctx.db
+    .query("demo_timelineTemplateMilestoneGuidance")
+    .withIndex("by_milestone", (q) =>
+      q.eq("templateKey", templateKey).eq("milestoneKey", milestoneKey)
+    )
+    .unique();
+}
+
+async function listGuidanceItemsForTemplate(ctx: ReadCtx, templateKey: string) {
+  const rows = [];
+  for (const guidanceRow of await listTemplateGuidanceRows(ctx, templateKey)) {
+    rows.push(...(await listTemplateGuidanceItems(ctx, guidanceRow._id)));
+  }
+  return rows.sort(
+    (a, b) =>
+      a.milestoneKey.localeCompare(b.milestoneKey) ||
+      a.kind.localeCompare(b.kind) ||
+      a.order - b.order
+  );
+}
+
+async function listTemplateGuidanceItems(
+  ctx: ReadCtx,
+  guidanceId: Doc<"demo_timelineTemplateMilestoneGuidance">["_id"]
+) {
+  return await ctx.db
+    .query("demo_timelineTemplateMilestoneGuidanceItems")
+    .withIndex("by_guidance", (q) => q.eq("guidanceId", guidanceId))
+    .take(100);
+}
+
+async function deleteTemplateGuidance(
+  ctx: WriteCtx,
+  guidanceId: Doc<"demo_timelineTemplateMilestoneGuidance">["_id"]
+) {
+  for (const item of await listTemplateGuidanceItems(ctx, guidanceId)) {
+    await ctx.db.delete(item._id);
+  }
+  await ctx.db.delete(guidanceId);
+}
+
+async function replaceTemplateGuidance(
+  ctx: WriteCtx,
+  templateKey: string,
+  row: MilestoneInput
+) {
+  const existing = await getTemplateGuidance(ctx, templateKey, row.milestoneKey);
+  if (existing) {
+    await deleteTemplateGuidance(ctx, existing._id);
+  }
+  const guidanceId = await ctx.db.insert("demo_timelineTemplateMilestoneGuidance", {
+    createdAt: NOW,
+    milestoneKey: row.milestoneKey,
+    templateKey,
+    updatedAt: NOW,
+  });
+  const guidance = normalizeSiteVisitGuidance(
+    row.siteVisitGuidance,
+    defaultSiteVisitGuidance(
+      row.milestoneKey,
+      row.name,
+      row.submilestones.map((subRow) => subRow.name)
+    )
+  );
+  for (const item of guidanceToItems(guidance)) {
+    await ctx.db.insert("demo_timelineTemplateMilestoneGuidanceItems", {
+      createdAt: NOW,
+      guidanceId,
+      kind: item.kind,
+      milestoneKey: row.milestoneKey,
+      order: item.order ?? 0,
+      templateKey,
+      text: item.text,
+      updatedAt: NOW,
+    });
+  }
 }
 
 async function listScenarios(ctx: ReadCtx, templateKey: string) {
@@ -1200,6 +1416,7 @@ function validateTemplateRows(
     name: string;
     order: number;
     percentageBps: number;
+    siteVisitGuidance?: SiteVisitGuidance;
     submilestones: { name: string }[];
   }[]
 ) {
@@ -1219,6 +1436,13 @@ function validateTemplateRows(
     }
     if (row.submilestones.some((subRow) => !subRow.name.trim())) {
       throw new Error("Sub-milestones require names.");
+    }
+    const guidance = normalizeSiteVisitGuidance(row.siteVisitGuidance);
+    if (
+      guidance.whatToVerify.some((item) => item.length > 280) ||
+      guidance.cameraAngles.some((item) => item.length > 280)
+    ) {
+      throw new Error("Field guidance items must be 280 characters or less.");
     }
   }
   validateMilestoneHandoffGaps(rows);
@@ -1386,6 +1610,14 @@ function toMilestoneInput(row: SeedMilestone, order = 0): MilestoneInput {
     name: row.name,
     order,
     percentageBps: row.percentageBps,
+    siteVisitGuidance: guidanceItemsToGuidance(
+      guidanceToItems(row.siteVisitGuidance),
+      defaultSiteVisitGuidance(
+        row.milestoneKey,
+        row.name,
+        row.submilestones.map((subRow) => subRow.name)
+      )
+    ),
     submilestones: row.submilestones.map((subRow, subOrder) => ({
       ...subRow,
       order: subOrder,

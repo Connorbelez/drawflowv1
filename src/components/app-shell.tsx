@@ -5,26 +5,32 @@ import { AppHeader } from "#/components/app-header.tsx";
 import { AppSidebar, type AppSidebarProps } from "#/components/app-sidebar.tsx";
 
 export type AppShellProps = {
-	children: ReactNode;
-	/** Forwarded to `AppSidebar` — override navigation, brand, or footer per route. */
-	sidebar?: AppSidebarProps;
+  children: ReactNode;
+  /** Applied to the scroll/content wrapper inside the app shell. */
+  contentClassName?: string;
+  /** Forwarded to `AppSidebar` — override navigation, brand, or footer per route. */
+  sidebar?: AppSidebarProps;
 };
 
-export function AppShell({ children, sidebar }: AppShellProps) {
-	return (
-		<SidebarProvider className={cn("[--app-wrapper-max-width:80rem]")}>
-			<AppSidebar {...sidebar} />
-			<SidebarInset>
-				<AppHeader />
-				<div
-					className={cn(
-						"flex flex-1 flex-col p-4 md:p-6",
-						"mx-auto w-full max-w-(--app-wrapper-max-width)"
-					)}
-				>
-					{children}
-				</div>
-			</SidebarInset>
-		</SidebarProvider>
-	);
+export function AppShell({
+  children,
+  contentClassName,
+  sidebar,
+}: AppShellProps) {
+  return (
+    <SidebarProvider>
+      <AppSidebar {...sidebar} />
+      <SidebarInset>
+        <AppHeader />
+        <div
+          className={cn(
+            "flex w-full flex-1 flex-col p-4 md:p-6",
+            contentClassName
+          )}
+        >
+          {children}
+        </div>
+      </SidebarInset>
+    </SidebarProvider>
+  );
 }

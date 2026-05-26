@@ -5,6 +5,10 @@ import type {
   DemoMilestone,
   TimelineShareState,
 } from "./-timeline-share-snapshot.ts";
+import {
+  mapSubmilestoneSnapshotRows,
+  type TimelineSubmilestoneSnapshotRow,
+} from "./-timeline-milestone-submilestones.ts";
 
 const statusMap = {
   complete: "complete",
@@ -17,6 +21,7 @@ export interface ConvexTimelineWorkspace {
   capitalEvents: {
     amountCents: number;
     capitalEventKey: string;
+    eventKind?: "cashInfusion" | "cost";
     label: string;
     x: number;
   }[];
@@ -47,6 +52,7 @@ export interface ConvexTimelineWorkspace {
     budgetCents: number;
     completionClaim?: DemoMilestone["completionClaim"];
     completionReview?: DemoMilestone["completionReview"];
+    drawAvailabilityCents?: number;
     drawKey?: string;
     durationDays: number;
     evidenceState: string;
@@ -58,11 +64,13 @@ export interface ConvexTimelineWorkspace {
     order: number;
     policyState: string;
     status: "complete" | "ready" | "review" | "upcoming";
-    submilestoneSnapshot: { name: string }[];
+    submilestoneSnapshot: TimelineSubmilestoneSnapshotRow[];
     tone?: TimelineItem<DemoMilestone>["tone"];
     x: number;
   }[];
   plan: {
+    borrowerCoPayBps?: number;
+    borrowerCoPayCents?: number;
     currentDay: number;
     progressValue: number;
     rangeMax: number;
@@ -77,11 +85,11 @@ export interface ConvexTimelineWorkspace {
 }
 
 export function convexWorkspaceToTimelineState(
-  workspace: ConvexTimelineWorkspace,
+  workspace: ConvexTimelineWorkspace
 ): TimelineShareState {
   const draws = workspace.draws.map(
     (draw): DemoDraw => ({
-      amount: draw.amountCents,
+      amount: centsToDollars(draw.amountCents),
       customDate: draw.customDate,
       id: draw.drawKey,
       label: draw.label,
@@ -91,7 +99,7 @@ export function convexWorkspaceToTimelineState(
       reviewedAt: draw.reviewedAt,
       requestedAt: draw.requestedAt,
       x: draw.x,
-    }),
+    })
   );
   const evidenceByMilestone = new Map<
     string,
@@ -119,9 +127,13 @@ export function convexWorkspaceToTimelineState(
             completionReview?: DemoMilestone["completionReview"];
           })
         | undefined;
+      const submilestoneDetails = mapSubmilestoneSnapshotRows(
+        milestone.submilestoneSnapshot,
+        milestone.milestoneKey
+      );
       return {
         data: {
-          amount: milestone.budgetCents,
+          amount: centsToDollars(milestone.budgetCents),
           ...(completionClaim === undefined ? {} : { completionClaim }),
           ...((milestone.completionReview ?? completionClaim?.completionReview)
             ? {
@@ -131,6 +143,13 @@ export function convexWorkspaceToTimelineState(
               }
             : {}),
           draw: milestone.drawKey ?? "Reimbursement draw",
+          ...(milestone.drawAvailabilityCents === undefined
+            ? {}
+            : {
+                drawAvailabilityAmount: centsToDollars(
+                  milestone.drawAvailabilityCents
+                ),
+              }),
           durationDays: milestone.durationDays,
           evidence: milestone.evidenceState,
           ...(evidenceAssets.length > 0
@@ -140,9 +159,8 @@ export function convexWorkspaceToTimelineState(
           name: milestone.name,
           policy: milestone.policyState,
           status: statusMap[milestone.status],
-          subMilestones: milestone.submilestoneSnapshot.map(
-            (item) => item.name,
-          ),
+          subMilestones: submilestoneDetails.map((item) => item.name),
+          submilestoneDetails,
         },
         eyebrow: `Milestone ${milestone.order}`,
         id: milestone.milestoneKey,
@@ -152,7 +170,7 @@ export function convexWorkspaceToTimelineState(
         tone: milestone.tone,
         x: milestone.x,
       };
-    },
+    }
   );
   const activeMilestoneKey =
     workspace.plan.routeState.activeMilestoneKey ?? items[0]?.id ?? "";
@@ -162,14 +180,18 @@ export function convexWorkspaceToTimelineState(
       itemId: activeMilestoneKey,
       phase: "inProgress",
     },
-    capitalSpikes: workspace.capitalEvents.map(
-      (event): DemoCapitalSpike => ({
-        amount: event.amountCents,
-        id: event.capitalEventKey,
-        label: event.label,
-        x: event.x,
-      }),
-    ),
+    capitalSpikes: workspace.capitalEvents
+      .filter((event) => !isInitialBorrowerCapitalEvent(event.label))
+      .map(
+        (event): DemoCapitalSpike => ({
+          amount: centsToDollars(event.amountCents),
+          eventKind:
+            event.eventKind === "cashInfusion" ? "cashInfusion" : "cost",
+          id: event.capitalEventKey,
+          label: event.label,
+          x: event.x,
+        })
+      ),
     currentDay: workspace.plan.currentDay,
     draws,
     items,
@@ -180,7 +202,15 @@ export function convexWorkspaceToTimelineState(
       unit: "days",
     },
     selectedPanelOpen: workspace.plan.routeState.selectedPanelOpen,
-    startingCash: workspace.plan.startingCashCents,
+    startingCash: centsToDollars(workspace.plan.startingCashCents),
     straightLine: workspace.plan.routeState.straightLine,
   };
+}
+
+function centsToDollars(value: number) {
+  return Math.round(value / 100);
+}
+
+function isInitialBorrowerCapitalEvent(label: string) {
+  return /^(borrower reserve|initial cash|cash on hand)$/i.test(label.trim());
 }

@@ -33,6 +33,18 @@ export interface TimelineMarker {
   x: number;
 }
 
+export interface TimelineMarkerLayoutMember {
+  layoutX: number;
+  marker: TimelineMarker;
+  valueX: number;
+}
+
+export interface TimelineMarkerStack {
+  anchorX: number;
+  id: string;
+  members: TimelineMarkerLayoutMember[];
+}
+
 export interface TimelineRoutePoint {
   x: number;
   y: number;
@@ -265,11 +277,71 @@ export function buildTimelineLayout<TData>(
   };
 }
 
+export function groupMarkersByProximity(
+  markers: TimelineMarker[],
+  valueToX: (value: number) => number,
+  proximityPx: number
+): TimelineMarkerStack[] {
+  if (markers.length === 0) {
+    return [];
+  }
+
+  const threshold = Math.max(0, proximityPx);
+  const sortedMembers = markers
+    .map((marker) => ({
+      layoutX: valueToX(marker.x),
+      marker,
+      valueX: marker.x,
+    }))
+    .sort(
+      (a, b) =>
+        a.layoutX - b.layoutX ||
+        a.valueX - b.valueX ||
+        a.marker.id.localeCompare(b.marker.id)
+    );
+  const stacks: TimelineMarkerStack[] = [];
+  let currentStack: TimelineMarkerLayoutMember[] = [];
+
+  for (const member of sortedMembers) {
+    const previousMember = currentStack.at(-1);
+
+    if (
+      previousMember &&
+      member.layoutX - previousMember.layoutX > threshold
+    ) {
+      stacks.push(buildTimelineMarkerStack(currentStack));
+      currentStack = [];
+    }
+
+    currentStack.push(member);
+  }
+
+  if (currentStack.length > 0) {
+    stacks.push(buildTimelineMarkerStack(currentStack));
+  }
+
+  return stacks;
+}
+
 function getTimelineLayoutEntryKey<TData>(
   inputIndex: number,
   item: TimelineItem<TData>
 ): string {
   return `${inputIndex}:${item.id}`;
+}
+
+function buildTimelineMarkerStack(
+  members: TimelineMarkerLayoutMember[]
+): TimelineMarkerStack {
+  const anchorX =
+    members.reduce((total, member) => total + member.layoutX, 0) /
+    members.length;
+
+  return {
+    anchorX,
+    id: members.map((member) => member.marker.id).join("__"),
+    members,
+  };
 }
 
 function getMinimumSpacingAxisWidth(

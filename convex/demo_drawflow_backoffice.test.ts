@@ -34,7 +34,7 @@ describe("drawflow backoffice dashboard projection", () => {
       address: expect.stringContaining("Mock address"),
       buildKey: "active-maple-ridge",
       builder: expect.stringContaining("Mock builder"),
-      href: "/backoffice/builds/active-maple-ridge",
+      href: "/backoffice/builds/active-maple-ridge?rail=closed&tab=timeline",
       id: expect.stringMatching(/^B-/),
     });
     expect(result.dashboard.metrics.map((metric: any) => metric.id)).toEqual([
@@ -52,7 +52,7 @@ describe("drawflow backoffice dashboard projection", () => {
       address: expect.stringContaining("Mock address"),
       buildId: expect.stringMatching(/^B-/),
       buildKey: "active-maple-ridge",
-      href: "/backoffice/builds/active-maple-ridge",
+      href: "/backoffice/builds/active-maple-ridge?rail=closed&tab=timeline",
       label: expect.any(String),
       requestedAmount: expect.stringMatching(/^\$/),
     });

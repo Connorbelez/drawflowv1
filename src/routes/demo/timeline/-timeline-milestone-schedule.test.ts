@@ -7,6 +7,7 @@ import {
   MINIMUM_MILESTONE_HANDOFF_GAP_DAYS,
   buildMilestoneSpendEvents,
   getMilestoneEndX,
+  getMilestonePlannedEndX,
   getMilestonePaymentSchedule,
   normalizeMilestoneSchedule,
   normalizeMilestoneTimelineItems,
@@ -21,10 +22,50 @@ describe("timeline milestone schedule helpers", () => {
       x: 40,
     });
 
+    expect(getMilestonePlannedEndX(item)).toBe(52);
     expect(getMilestoneEndX(item)).toBe(52);
     expect(resolveDefaultDrawX(item, { max: 80, min: 0, unit: "days" })).toBe(
       52 + DEFAULT_DRAW_REVIEW_LAG_DAYS
     );
+  });
+
+  test("uses claimed completion day for effective end and spend events", () => {
+    const item = milestoneItem({
+      amount: 100_000,
+      completionPaymentAmount: 20_000,
+      completionClaim: {
+        completedDay: 8,
+        submittedAt: "2026-05-01T00:00:00.000Z",
+      },
+      durationDays: 14,
+      initialPaymentAmount: 40_000,
+      status: "complete",
+      x: 0,
+    });
+
+    expect(getMilestonePlannedEndX(item)).toBe(14);
+    expect(getMilestoneEndX(item)).toBe(8);
+    expect(
+      buildMilestoneSpendEvents(item).find((event) => event.kind === "completion")
+    ).toMatchObject({
+      amount: 60_000,
+      day: 8,
+      kind: "completion",
+    });
+  });
+
+  test("clamps claimed completion day to milestone start", () => {
+    const item = milestoneItem({
+      completionClaim: {
+        completedDay: -4,
+        submittedAt: "2026-05-01T00:00:00.000Z",
+      },
+      durationDays: 10,
+      status: "complete",
+      x: 12,
+    });
+
+    expect(getMilestoneEndX(item)).toBe(12);
   });
 
   test("normalizes invalid durations and caps explicit payments", () => {
@@ -172,23 +213,33 @@ function milestoneItem(
 ): TimelineItem<DemoMilestone> {
   const id = overrides.id ?? "foundation";
   const name = overrides.name ?? "Foundation";
+  const {
+    completionClaim,
+    completionPaymentAmount,
+    durationDays,
+    initialPaymentAmount,
+    status,
+    x,
+    ...scheduleOverrides
+  } = overrides;
 
   return {
     data: normalizeMilestoneSchedule({
-      amount: overrides.amount ?? 100_000,
-      completionPaymentAmount: overrides.completionPaymentAmount,
+      amount: scheduleOverrides.amount ?? 100_000,
+      completionClaim,
+      completionPaymentAmount,
       draw: "Draw 1",
-      drawX: overrides.drawX,
-      durationDays: overrides.durationDays ?? DEFAULT_MILESTONE_DURATION_DAYS,
+      drawX: scheduleOverrides.drawX,
+      durationDays: durationDays ?? DEFAULT_MILESTONE_DURATION_DAYS,
       evidence: "Planning",
       icon: "foundation",
-      initialPaymentAmount: overrides.initialPaymentAmount,
+      initialPaymentAmount,
       name,
       policy: "Planning",
-      status: "ready",
+      status: status ?? "ready",
       subMilestones: ["Excavation"],
     }),
     id,
-    x: overrides.x ?? 10,
+    x: x ?? 10,
   };
 }

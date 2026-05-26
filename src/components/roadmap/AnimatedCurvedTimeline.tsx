@@ -33,6 +33,7 @@ import {
   buildTimelineLayout,
   createCurvedTimelinePath,
   createStraightTimelinePath,
+  groupMarkersByProximity,
   insertTimelineItemWithSpacing,
   normalizeTimelineRange,
   roundTimelineValue,
@@ -45,6 +46,10 @@ import {
   type TimelineMarker,
   type TimelineRange,
 } from "./animated-curved-timeline-utils.ts";
+import {
+  TimelineMarkerStack,
+  type TimelineMarkerStackContext,
+} from "./TimelineMarkerStack.tsx";
 
 export type {
   TimelineInsertionResult,
@@ -72,6 +77,7 @@ export interface TimelineItemRenderContext<TData = unknown> {
 export interface TimelineMarkerRenderContext {
   marker: TimelineMarker;
   range: Required<TimelineRange>;
+  stack?: TimelineMarkerStackContext;
   x: number;
 }
 
@@ -117,6 +123,7 @@ export interface AnimatedCurvedTimelineProps<TData = unknown> {
   defaultActiveItemId?: string;
   endCardWidth?: number;
   formatValue?: (value: number, range: Required<TimelineRange>) => string;
+  focusedMarkerId?: string | null;
   getItemEndValue?: (item: TimelineItem<TData>) => number | null | undefined;
   height?: number;
   hoverNodeCollisionPaddingPx?: number;
@@ -124,6 +131,7 @@ export interface AnimatedCurvedTimelineProps<TData = unknown> {
   insertion?: TimelineInsertionConfig<TData>;
   items: TimelineItem<TData>[];
   laneStepY?: number;
+  markerStackProximityPx?: number;
   markers?: TimelineMarker[];
   minInlineNodeSpacingPx?: number;
   minNodeSpacingPx?: number;
@@ -270,12 +278,14 @@ export function AnimatedCurvedTimeline<TData = unknown>({
   className,
   defaultActiveItemId,
   formatValue = defaultFormatValue,
+  focusedMarkerId,
   getItemEndValue,
   height = DEFAULT_HEIGHT,
   hoverValue,
   insertion,
   items,
   laneStepY = DEFAULT_LANE_STEP_Y,
+  markerStackProximityPx = 88,
   markers = [],
   minInlineNodeSpacingPx = 56,
   minNodeSpacingPx = DEFAULT_MIN_NODE_SPACING_PX,
@@ -418,6 +428,15 @@ export function AnimatedCurvedTimeline<TData = unknown>({
         ? layout.points.map((point) => ({ ...point, y: layout.baselineY }))
         : layout.points,
     [layout.baselineY, layout.points, straightLine]
+  );
+  const markerStacks = useMemo(
+    () =>
+      groupMarkersByProximity(
+        markers,
+        layout.valueToX,
+        markerStackProximityPx
+      ),
+    [layout.valueToX, markerStackProximityPx, markers]
   );
   const nodeLayoutSignature = useMemo(
     () =>
@@ -577,6 +596,11 @@ export function AnimatedCurvedTimeline<TData = unknown>({
       };
     },
     [pathMetrics, routeLength, routePoints]
+  );
+  const renderResolvedMarker = useCallback(
+    (marker: TimelineMarker, context: TimelineMarkerRenderContext) =>
+      renderMarker ? renderMarker(marker, context) : <DefaultMarker marker={marker} />,
+    [renderMarker]
   );
 
   const refreshNodeBounds = useCallback(() => {
@@ -948,47 +972,84 @@ export function AnimatedCurvedTimeline<TData = unknown>({
           />
 
           <AnimatePresence initial={false} mode="popLayout">
-            {markers.map((marker) => {
-              const x = layout.valueToX(marker.x);
-              const pathPoint = resolvePathPointAtX(x);
-              const markerTouchesProgress =
-                pathPoint.distance <= progressDistance + 0.5;
+            {markerStacks.map((stack) => {
+              if (stack.members.length === 1) {
+                const [member] = stack.members;
+                const pathPoint = resolvePathPointAtX(member.layoutX);
+                const markerTouchesProgress =
+                  pathPoint.distance <= progressDistance + 0.5;
+
+                return (
+                  <motion.div
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.94, y: -8 }}
+                    initial={timelineAppearInitial(prefersReducedMotion, -10)}
+                    key={member.marker.id}
+                    transition={{
+                      duration: timelineDuration(prefersReducedMotion, 0.22),
+                      ease: WEIGHTED_EASE,
+                    }}
+                  >
+                    <div
+                      aria-hidden="true"
+                      className={cn(
+                        "absolute z-1 w-px bg-linear-to-b from-zinc-300/80 via-zinc-300/80 dark:from-zinc-700 dark:via-zinc-700",
+                        markerTouchesProgress
+                          ? "to-rose-500/85 dark:to-rose-500/75"
+                          : "to-zinc-200 dark:to-zinc-800"
+                      )}
+                      data-testid={`timeline-marker-connector-${member.marker.id}`}
+                      style={{
+                        height: Math.max(0, pathPoint.y - 18),
+                        left: member.layoutX,
+                        top: 18,
+                      }}
+                    />
+                    <div
+                      className="absolute z-30"
+                      style={{
+                        left: member.layoutX,
+                        top: 18,
+                        transform: "translateX(-50%)",
+                      }}
+                    >
+                      {renderResolvedMarker(member.marker, {
+                        marker: member.marker,
+                        range: layout.range,
+                        x: member.layoutX,
+                      })}
+                    </div>
+                  </motion.div>
+                );
+              }
 
               return (
                 <motion.div
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.94, y: -8 }}
                   initial={timelineAppearInitial(prefersReducedMotion, -10)}
-                  key={marker.id}
+                  key={stack.id}
                   transition={{
                     duration: timelineDuration(prefersReducedMotion, 0.22),
                     ease: WEIGHTED_EASE,
                   }}
                 >
                   <div
-                    aria-hidden="true"
-                    className={cn(
-                      "absolute z-[1] w-px bg-gradient-to-b from-zinc-300/80 via-zinc-300/80 dark:from-zinc-700 dark:via-zinc-700",
-                      markerTouchesProgress
-                        ? "to-rose-500/85 dark:to-rose-500/75"
-                        : "to-zinc-200 dark:to-zinc-800"
-                    )}
-                    data-testid={`timeline-marker-connector-${marker.id}`}
-                    style={{
-                      height: Math.max(0, pathPoint.y - 18),
-                      left: x,
-                      top: 18,
-                    }}
-                  />
-                  <div
                     className="absolute z-30"
-                    style={{ left: x, top: 18, transform: "translateX(-50%)" }}
+                    style={{
+                      left: stack.anchorX,
+                      top: 18,
+                      transform: "translateX(-50%)",
+                    }}
                   >
-                    {renderMarker ? (
-                      renderMarker(marker, { marker, range: layout.range, x })
-                    ) : (
-                      <DefaultMarker marker={marker} />
-                    )}
+                    <TimelineMarkerStack
+                      focusedMarkerId={focusedMarkerId}
+                      prefersReducedMotion={Boolean(prefersReducedMotion)}
+                      range={layout.range}
+                      renderMarker={renderResolvedMarker}
+                      resolvePathPointAtX={resolvePathPointAtX}
+                      stack={stack}
+                    />
                   </div>
                 </motion.div>
               );

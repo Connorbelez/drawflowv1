@@ -102,6 +102,7 @@ export function withActionTiming(operation: string) {
 export const publicQuery = fluent.query();
 export const publicMutation = fluent.mutation();
 export const publicAction = fluent.action();
+export const internalMutation = fluent.mutation();
 
 export const publicZodQuery = publicQuery.extend(WithZod);
 export const publicZodMutation = publicMutation.extend(WithZod);

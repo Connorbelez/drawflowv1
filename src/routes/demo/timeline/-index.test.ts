@@ -5,12 +5,15 @@ import {
   buildCashflowChartData,
   buildChartProbeDays,
   buildCashShortfallPoints,
+  calculateApprovedDrawRequestLimit,
+  calculateDrawRequestLimit,
   buildDrawAvailabilityData,
   buildTimelineCashflowData,
   type CashflowDatum,
   densifyCashflowData,
   expandTimelineRangeForMilestones,
   getTimelineAlignedTicks,
+  getDrawTimelineMarkerState,
   interpolateLinearCashOnHand,
   normalizeTimelineShareStateForRoute,
   resolveSelectedDrawDate,
@@ -44,7 +47,7 @@ describe("timeline cash shortfall logic", () => {
 
     expect(buildDemoDraws(items, { max: 60, min: 0, unit: "days" })).toEqual([
       {
-        amount: 100_000,
+        amount: 80_000,
         id: "foundation-draw",
         label: "Draw 1",
         x: 38,
@@ -315,11 +318,52 @@ describe("timeline cash shortfall logic", () => {
         budget: 125_000,
         cashOnHand: 295_000,
         day: 22,
-        drawCapacityUnlocked: 125_000,
+        drawCapacityUnlocked: 100_000,
         id: "site-prep-completion-payment",
       },
       { cashOnHand: 420_000, day: 22, drawAmount: 125_000 },
     ]);
+  });
+
+  test("cash infusion increases cash on hand without counting as a capital cost", () => {
+    const cashflow = buildTimelineCashflowData(
+      [],
+      [],
+      [
+        {
+          amount: 75_000,
+          eventKind: "cashInfusion",
+          id: "infusion-1",
+          label: "Owner cash infusion",
+          x: 18,
+        },
+      ],
+      { max: 40, min: 0, unit: "days" },
+      100_000,
+    );
+
+    expect(cashflow).toMatchObject([
+      { cashOnHand: 100_000, event: "start" },
+      {
+        capitalSpikeAmount: 0,
+        cashInfusionAmount: 75_000,
+        cashOnHand: 175_000,
+        day: 18,
+        event: "cashInfusion",
+      },
+    ]);
+    expect(
+      buildCashflowChartData(
+        cashflow,
+        [],
+        { max: 40, min: 0, unit: "days" },
+        100_000,
+      ).find((point) => point.day === 18),
+    ).toMatchObject({
+      cashInfusionAmount: 75_000,
+      cashOnHand: 175_000,
+      event: "cashInfusion",
+    });
   });
 
   test("milestone cashflow applies only initial and completion boundary events", () => {
@@ -364,10 +408,93 @@ describe("timeline cash shortfall logic", () => {
         budget: 60_000,
         cashOnHand: 50_000,
         day: 14,
-        drawCapacityUnlocked: 100_000,
+        drawCapacityUnlocked: 80_000,
         id: "foundation-completion-payment",
       },
     ]);
+  });
+
+  test("early completion claim unlocks draw capacity before planned end", () => {
+    const cashflow = buildTimelineCashflowData(
+      [
+        {
+          data: {
+            amount: 100_000,
+            completionClaim: {
+              completedDay: 8,
+              submittedAt: "2026-05-01T00:00:00.000Z",
+            },
+            completionPaymentAmount: 20_000,
+            draw: "Draw 1",
+            durationDays: 14,
+            evidence: "Submitted",
+            icon: "foundation",
+            initialPaymentAmount: 40_000,
+            name: "Foundation",
+            policy: "Planning",
+            status: "complete",
+            subMilestones: ["Excavation"],
+          },
+          id: "foundation",
+          x: 0,
+        },
+      ],
+      [],
+      [],
+      { max: 30, min: 0, unit: "days" },
+      150_000,
+    );
+
+    expect(
+      cashflow
+        .filter((point) => point.event === "milestone")
+        .map((point) => ({
+          day: point.day,
+          drawCapacityUnlocked: point.drawCapacityUnlocked,
+          id: point.id,
+        })),
+    ).toEqual([
+      {
+        day: 0,
+        drawCapacityUnlocked: 0,
+        id: "foundation-initial-payment",
+      },
+      {
+        day: 8,
+        drawCapacityUnlocked: 80_000,
+        id: "foundation-completion-payment",
+      },
+    ]);
+    expect(
+      calculateDrawRequestLimit(
+        { amount: 80_000, id: "draw-1", label: "Draw 1", x: 10 },
+        [
+          {
+            data: {
+              amount: 100_000,
+              completionClaim: {
+                completedDay: 8,
+                submittedAt: "2026-05-01T00:00:00.000Z",
+              },
+              draw: "Draw 1",
+              durationDays: 14,
+              evidence: "Submitted",
+              icon: "foundation",
+              name: "Foundation",
+              policy: "Planning",
+              status: "complete",
+              subMilestones: ["Excavation"],
+            },
+            id: "foundation",
+            x: 0,
+          },
+        ],
+        [],
+      ),
+    ).toMatchObject({
+      availableLimit: 80_000,
+      totalUnlocked: 80_000,
+    });
   });
 
   test("draw capacity unlocks only on completion day", () => {
@@ -416,7 +543,7 @@ describe("timeline cash shortfall logic", () => {
       {
         budget: 60_000,
         day: 14,
-        drawCapacityUnlocked: 100_000,
+        drawCapacityUnlocked: 80_000,
         id: "foundation-completion-payment",
       },
     ]);
@@ -511,6 +638,13 @@ describe("timeline cash shortfall logic", () => {
     );
 
     expect(chartData.map((point) => point.day)).toEqual([0, 10, 14, 30]);
+    expect(
+      chartData.find((point) => point.id === "milestone-cost-gate-10"),
+    ).toMatchObject({
+      budget: 100_000,
+      day: 10,
+      milestoneEndDay: 14,
+    });
     expect(chartData.some((point) => point.id.includes("distributed"))).toBe(
       false,
     );
@@ -559,6 +693,118 @@ describe("timeline cash shortfall logic", () => {
       getTimelineAlignedTicks({ max: 230, min: 0, unit: "days" }, 6.4).length,
     ).toBeGreaterThanOrEqual(6);
   });
+
+  test("live draw request limit only counts admin-approved completed milestones", () => {
+    const items: TimelineItem<DemoMilestone>[] = [
+      {
+        data: {
+          amount: 120_000,
+          completionClaim: {
+            completedDay: 10,
+            submittedAt: "2026-05-01T00:00:00.000Z",
+          },
+          completionReview: {
+            reviewedAt: "2026-05-02T00:00:00.000Z",
+            status: "approved",
+          },
+          draw: "Draw 1",
+          durationDays: 10,
+          evidence: "Approved",
+          icon: "foundation",
+          name: "Foundation",
+          policy: "Approved",
+          status: "complete",
+          subMilestones: ["Excavation"],
+        },
+        id: "foundation",
+        x: 0,
+      },
+      {
+        data: {
+          amount: 90_000,
+          completionClaim: {
+            completedDay: 12,
+            submittedAt: "2026-05-03T00:00:00.000Z",
+          },
+          draw: "Draw 2",
+          durationDays: 12,
+          evidence: "Submitted",
+          icon: "framing",
+          name: "Framing",
+          policy: "Pending",
+          status: "complete",
+          subMilestones: ["Walls"],
+        },
+        id: "framing",
+        x: 0,
+      },
+    ];
+    const targetDraw: DemoDraw = {
+      amount: 80_000,
+      id: "draw-1",
+      label: "Draw 1",
+      x: 16,
+    };
+
+    expect(calculateApprovedDrawRequestLimit(targetDraw, items, [])).toEqual({
+      alreadyDrawn: 0,
+      availableLimit: 96_000,
+      blockingMilestones: ["Framing"],
+      remainingAfterRequest: 16_000,
+      totalUnlocked: 96_000,
+    });
+    expect(calculateDrawRequestLimit(targetDraw, items, [])).toEqual({
+      alreadyDrawn: 0,
+      availableLimit: 168_000,
+      remainingAfterRequest: 88_000,
+      totalUnlocked: 168_000,
+    });
+  });
+
+  test("draw marker state distinguishes planned requested happened and rejected", () => {
+    expect(
+      getDrawTimelineMarkerState(
+        { amount: 1, id: "planned", label: "Draw", x: 20 },
+        10,
+      ),
+    ).toBe("planned");
+    expect(
+      getDrawTimelineMarkerState(
+        {
+          amount: 1,
+          id: "requested",
+          label: "Draw",
+          requestStatus: "requested",
+          x: 20,
+        },
+        10,
+      ),
+    ).toBe("requested");
+    expect(
+      getDrawTimelineMarkerState(
+        {
+          amount: 1,
+          id: "rejected",
+          label: "Draw",
+          requestStatus: "rejected",
+          x: 20,
+        },
+        10,
+      ),
+    ).toBe("rejected");
+    expect(
+      getDrawTimelineMarkerState(
+        {
+          amount: 1,
+          id: "approved",
+          label: "Draw",
+          requestStatus: "approved",
+          x: 20,
+        },
+        10,
+      ),
+    ).toBe("happened");
+  });
 });
 
 function cashflowPoint(
@@ -568,6 +814,7 @@ function cashflowPoint(
   return {
     budget: 0,
     capitalSpikeAmount: 0,
+    cashInfusionAmount: 0,
     cashOnHand: 0,
     drawCapacityUnlocked: 0,
     drawAmount: 0,

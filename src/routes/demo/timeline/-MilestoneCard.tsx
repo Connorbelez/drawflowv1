@@ -64,6 +64,7 @@ export interface MilestoneCardProps {
   complete: boolean;
   item: TimelineItem<DemoMilestone>;
   onUpdate: (itemId: string, patch: MilestoneCardUpdate) => void;
+  readOnly?: boolean;
   reducedMotion: boolean;
 }
 
@@ -79,6 +80,7 @@ export function MilestoneCard({
   complete,
   item,
   onUpdate,
+  readOnly = false,
   reducedMotion,
 }: MilestoneCardProps) {
   const [cardExpanded, setCardExpanded] = useState(false);
@@ -243,12 +245,11 @@ export function MilestoneCard({
                               affordance="glint"
                               ariaLabel={`${milestone.name} planned cost`}
                               className="text-foreground"
+                              disabled={readOnly}
                               formatDisplay={(value) => money(value)}
                               inputWidth="6.35rem"
                               min={0}
-                              onCommit={(amount) =>
-                                onUpdate(item.id, { amount })
-                              }
+                              onCommit={(amount) => onUpdate(item.id, { amount })}
                               prefix="$"
                               reserveWidth="8.7rem"
                               size="money-lg"
@@ -371,6 +372,7 @@ export function MilestoneCard({
                   <div className="grid grid-cols-[4.25rem_4.5rem_5.1rem_5.5rem] gap-x-2.5 gap-y-4">
                     <ExpandedFadeIn index={0} reducedMotion={reducedMotion}>
                       <InlineEditableMetric
+                        disabled={readOnly}
                         inputWidth="1.6rem"
                         label="Start date"
                         min={0}
@@ -383,6 +385,7 @@ export function MilestoneCard({
                     </ExpandedFadeIn>
                     <ExpandedFadeIn index={1} reducedMotion={reducedMotion}>
                       <InlineEditableMetric
+                        disabled={readOnly}
                         inputWidth="1.45rem"
                         label="Duration"
                         min={1}
@@ -397,6 +400,7 @@ export function MilestoneCard({
                     </ExpandedFadeIn>
                     <ExpandedFadeIn index={2} reducedMotion={reducedMotion}>
                       <InlineEditableMetric
+                        disabled={readOnly}
                         formatDisplay={(value) => money(value)}
                         inputWidth="4.85rem"
                         label="Down Payment"
@@ -488,6 +492,7 @@ function MetricLabel({ children }: { children: ReactNode }) {
 }
 
 function InlineEditableMetric({
+  disabled = false,
   formatDisplay = (value) => String(Math.round(value)),
   label,
   inputWidth,
@@ -501,6 +506,7 @@ function InlineEditableMetric({
   testId,
   value,
 }: {
+  disabled?: boolean;
   formatDisplay?: (value: number) => string;
   inputWidth?: string;
   label: string;
@@ -524,6 +530,7 @@ function InlineEditableMetric({
       <MetricLabel>{label}</MetricLabel>
       <EditableNumberInput
         className="mt-1"
+        disabled={disabled}
         formatDisplay={() => displayValue}
         inputWidth={inputWidth}
         max={max}
@@ -542,6 +549,7 @@ function InlineEditableMetric({
 
 function EditableNumberInput({
   className,
+  disabled = false,
   formatDisplay,
   inputWidth,
   max,
@@ -555,6 +563,7 @@ function EditableNumberInput({
   value,
 }: {
   className?: string;
+  disabled?: boolean;
   formatDisplay: (value: number) => string;
   inputWidth?: string;
   max?: number;
@@ -572,6 +581,7 @@ function EditableNumberInput({
       affordance="glint"
       ariaLabel={testId}
       className={className}
+      disabled={disabled}
       formatDisplay={formatDisplay}
       inputWidth={inputWidth}
       max={max}

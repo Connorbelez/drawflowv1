@@ -3,12 +3,12 @@ import type {
   TimelineRange,
 } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
 import type { TimelineSetupTemplate } from "./-TimelineSetupFlow.tsx";
+import { normalizeMilestoneTimelineItems } from "./-timeline-milestone-schedule.ts";
 import type {
   DemoDraw,
   DemoMilestone,
   IsometricIconKey,
 } from "./-timeline-share-snapshot.ts";
-import { normalizeMilestoneTimelineItems } from "./-timeline-milestone-schedule.ts";
 
 export const TIMELINE_DEMO_SETTINGS_CONTRACT_REFS = {
   adapter: [
@@ -27,6 +27,7 @@ export const TIMELINE_DEMO_SETTINGS_CONTRACT_REFS = {
 
 export const TOTAL_BPS = 10_000;
 export const DEFAULT_TIMELINE_DEMO_PROJECT_BUDGET_CENTS = 125_000_000;
+export const DEFAULT_TIMELINE_DEMO_REIMBURSABLE_BUDGET_CENTS = 100_000_000;
 export const TIMELINE_DEMO_SETTINGS_HANDOFF_GAP_DAYS = 5;
 export const TIMELINE_DEMO_SETTINGS_DRAW_OFFSET_DAYS = 2;
 export const TIMELINE_DEMO_SETTINGS_MISSING_NOTICE =
@@ -41,6 +42,11 @@ export interface TimelineSettingsSubmilestoneDraft {
   submilestoneKey: string;
 }
 
+export interface TimelineSettingsSiteVisitGuidanceDraft {
+  cameraAngles: string[];
+  whatToVerify: string[];
+}
+
 export interface TimelineSettingsMilestoneDraft {
   dependencyKeys: string[];
   durationDays: number;
@@ -50,6 +56,7 @@ export interface TimelineSettingsMilestoneDraft {
   name: string;
   order: number;
   percentageBps: number;
+  siteVisitGuidance: TimelineSettingsSiteVisitGuidanceDraft;
   submilestones: TimelineSettingsSubmilestoneDraft[];
   type: string;
 }
@@ -103,10 +110,10 @@ export interface TimelineSettingsProjection {
 type RawRecord = Record<string, unknown>;
 
 export function normalizeTimelineSettingsProjection(
-  settings: TimelineSettingsProjection | null | undefined,
+  settings: TimelineSettingsProjection | null | undefined
 ): TimelineSettingsTemplateDraft[] {
   return (settings?.templates ?? []).map((templateRow) =>
-    normalizeTemplate(templateRow as RawRecord),
+    normalizeTemplate(templateRow as RawRecord)
   );
 }
 
@@ -127,7 +134,7 @@ export function scenarioDrawTotalBps(scenario: TimelineSettingsScenarioDraft) {
 }
 
 export function validateTemplateDraft(
-  template: TimelineSettingsTemplateDraft,
+  template: TimelineSettingsTemplateDraft
 ): TimelineSettingsValidationResult {
   const errors: Record<string, string> = {};
   const warnings: string[] = [];
@@ -154,12 +161,12 @@ export function validateTemplateDraft(
     const removedDependencies = row.dependencyKeys.filter(
       (dependencyKey) =>
         !includedRows.some(
-          (candidate) => candidate.milestoneKey === dependencyKey,
-        ),
+          (candidate) => candidate.milestoneKey === dependencyKey
+        )
     );
     if (removedDependencies.length > 0) {
       warnings.push(
-        `${row.name} has dependencies that will be removed during save validation.`,
+        `${row.name} has dependencies that will be removed during save validation.`
       );
     }
   }
@@ -169,7 +176,7 @@ export function validateTemplateDraft(
 
 export function validateScenarioDrafts(
   scenarios: TimelineSettingsScenarioDraft[],
-  template?: TimelineSettingsTemplateDraft,
+  template?: TimelineSettingsTemplateDraft
 ): TimelineSettingsValidationResult {
   const errors: Record<string, string> = {};
   const names = new Set<string>();
@@ -198,7 +205,7 @@ export function validateScenarioDrafts(
       scenario.draws,
       drawWindows,
       Boolean(template),
-      errors,
+      errors
     );
   }
   if (
@@ -213,18 +220,18 @@ export function validateScenarioDrafts(
 
 export function buildTimelineItemsFromSettings(
   template: TimelineSettingsTemplateDraft,
-  projectBudgetCents = DEFAULT_TIMELINE_DEMO_PROJECT_BUDGET_CENTS,
+  projectBudgetCents = DEFAULT_TIMELINE_DEMO_PROJECT_BUDGET_CENTS
 ): TimelineItem<DemoMilestone>[] {
   let cursor = 0;
   const items = template.milestones
     .filter((row) => row.included)
     .sort(
       (a, b) =>
-        a.order - b.order || a.milestoneKey.localeCompare(b.milestoneKey),
+        a.order - b.order || a.milestoneKey.localeCompare(b.milestoneKey)
     )
     .map((row, index) => {
       const amount = Math.round(
-        (projectBudgetCents * row.percentageBps) / TOTAL_BPS / 100,
+        (projectBudgetCents * row.percentageBps) / TOTAL_BPS / 100
       );
       const startDay = cursor;
       const status = index === 0 ? "ready" : "upcoming";
@@ -240,13 +247,14 @@ export function buildTimelineItemsFromSettings(
               1,
             startDay +
               row.durationDays +
-              TIMELINE_DEMO_SETTINGS_DRAW_OFFSET_DAYS,
+              TIMELINE_DEMO_SETTINGS_DRAW_OFFSET_DAYS
           ),
           durationDays: row.durationDays,
           evidence: status === "ready" ? "Ready to start" : "Not started",
           icon: row.icon,
           name: row.name,
           policy: status === "ready" ? "Planning handoff" : "Upcoming",
+          siteVisitGuidance: row.siteVisitGuidance,
           status,
           subMilestones: row.submilestones
             .sort((a, b) => a.order - b.order)
@@ -269,7 +277,7 @@ function validateScenarioDrawTiming(
   draws: TimelineSettingsDrawDraft[],
   windows: ReturnType<typeof buildMilestoneDrawWindows>,
   requireMilestoneWindow: boolean,
-  errors: Record<string, string>,
+  errors: Record<string, string>
 ) {
   for (const draw of draws) {
     if (!draw.label.trim()) {
@@ -287,7 +295,7 @@ function validateScenarioDrawTiming(
       !windows.some(
         (window) =>
           draw.timingDay > window.afterMilestoneEndDay &&
-          draw.timingDay < window.beforeMilestoneStartDay,
+          draw.timingDay < window.beforeMilestoneStartDay
       )
     ) {
       errors[`draw:${draw.drawKey}:timingDayWindow`] =
@@ -297,7 +305,7 @@ function validateScenarioDrawTiming(
 }
 
 export function buildTimelineSetupTemplatesFromSettings(
-  templates: TimelineSettingsTemplateDraft[],
+  templates: TimelineSettingsTemplateDraft[]
 ): TimelineSetupTemplate[] {
   return templates.map((template) => ({
     description: template.description,
@@ -311,6 +319,7 @@ export function buildTimelineSetupTemplatesFromSettings(
         key: row.milestoneKey,
         name: row.name,
         percentageBps: row.percentageBps,
+        siteVisitGuidance: row.siteVisitGuidance,
         subMilestones: row.submilestones
           .sort((a, b) => a.order - b.order)
           .map((subRow) => subRow.name),
@@ -325,7 +334,7 @@ export function buildTimelineSetupTemplatesFromSettings(
 export function buildDrawsFromActiveScenario(
   template: TimelineSettingsTemplateDraft,
   _items: TimelineItem<DemoMilestone>[],
-  projectBudgetCents = DEFAULT_TIMELINE_DEMO_PROJECT_BUDGET_CENTS,
+  reimbursableBudgetCents = DEFAULT_TIMELINE_DEMO_REIMBURSABLE_BUDGET_CENTS
 ): DemoDraw[] {
   const scenario = getActiveScenario(template);
   if (!scenario) {
@@ -335,7 +344,7 @@ export function buildDrawsFromActiveScenario(
     .sort((a, b) => a.order - b.order || a.drawKey.localeCompare(b.drawKey))
     .map((draw) => ({
       amount: Math.round(
-        (projectBudgetCents * draw.amountBps) / TOTAL_BPS / 100,
+        (reimbursableBudgetCents * draw.amountBps) / TOTAL_BPS / 100
       ),
       customDate: true,
       id: `${scenario.scenarioKey}-${draw.drawKey}`,
@@ -351,7 +360,7 @@ export function getActiveScenario(template: TimelineSettingsTemplateDraft) {
 
 export function buildCashflowPreview(
   template: TimelineSettingsTemplateDraft,
-  scenario: TimelineSettingsScenarioDraft | null,
+  scenario: TimelineSettingsScenarioDraft | null
 ) {
   let cashOnHand = 0;
   const events = [
@@ -359,7 +368,7 @@ export function buildCashflowPreview(
       .filter((row) => row.included)
       .sort(
         (a, b) =>
-          a.order - b.order || a.milestoneKey.localeCompare(b.milestoneKey),
+          a.order - b.order || a.milestoneKey.localeCompare(b.milestoneKey)
       )
       .map((row, index, rows) => ({
         amountBps: row.percentageBps,
@@ -399,11 +408,11 @@ export function formatDay(value: number) {
 
 export function duplicateScenario(
   scenario: TimelineSettingsScenarioDraft,
-  existing: TimelineSettingsScenarioDraft[],
+  existing: TimelineSettingsScenarioDraft[]
 ): TimelineSettingsScenarioDraft {
   const scenarioKey = uniqueKey(
     `${scenario.scenarioKey}-copy`,
-    existing.map((row) => row.scenarioKey),
+    existing.map((row) => row.scenarioKey)
   );
   return {
     ...scenario,
@@ -422,11 +431,11 @@ export function duplicateScenario(
 
 export function createBlankScenario(
   existing: TimelineSettingsScenarioDraft[],
-  template?: TimelineSettingsTemplateDraft,
+  template?: TimelineSettingsTemplateDraft
 ): TimelineSettingsScenarioDraft {
   const scenarioKey = uniqueKey(
     "new-scenario",
-    existing.map((row) => row.scenarioKey),
+    existing.map((row) => row.scenarioKey)
   );
   return {
     description: "Editable reimbursement timing scenario.",
@@ -449,20 +458,20 @@ export function createBlankScenario(
 }
 
 export function buildMilestoneDrawWindows(
-  template: TimelineSettingsTemplateDraft,
+  template: TimelineSettingsTemplateDraft
 ) {
   const milestones = template.milestones
     .filter((row) => row.included)
     .slice()
     .sort(
       (a, b) =>
-        a.order - b.order || a.milestoneKey.localeCompare(b.milestoneKey),
+        a.order - b.order || a.milestoneKey.localeCompare(b.milestoneKey)
     );
   const windows = [];
   for (let index = 0; index < milestones.length - 1; index += 1) {
     const milestone = milestones[index];
     const next = milestones[index + 1];
-    if (!milestone || !next) {
+    if (!(milestone && next)) {
       continue;
     }
     windows.push({
@@ -477,11 +486,11 @@ export function buildMilestoneDrawWindows(
 
 export function createCustomMilestone(
   name: string,
-  existing: TimelineSettingsMilestoneDraft[],
+  existing: TimelineSettingsMilestoneDraft[]
 ): TimelineSettingsMilestoneDraft {
   const milestoneKey = uniqueKey(
     `custom-${name}`,
-    existing.map((row) => row.milestoneKey),
+    existing.map((row) => row.milestoneKey)
   );
   return {
     dependencyKeys: [],
@@ -492,6 +501,15 @@ export function createCustomMilestone(
     name: name.trim() || "Custom milestone",
     order: existing.length,
     percentageBps: 0,
+    siteVisitGuidance: {
+      cameraAngles: [
+        "Wide shot showing the full custom milestone work area.",
+        "Close-up of the primary completion detail.",
+      ],
+      whatToVerify: [
+        "Custom milestone scope is complete and consistent with the approved draw plan.",
+      ],
+    },
     submilestones: [
       {
         description:
@@ -508,25 +526,27 @@ export function createCustomMilestone(
 }
 
 export function timelineSettingsRange(
-  items: TimelineItem<DemoMilestone>[],
+  items: TimelineItem<DemoMilestone>[]
 ): TimelineRange {
   const max = Math.max(
     230,
-    ...items.map((item) => item.x + (item.data?.durationDays ?? 14) + 12),
+    ...items.map((item) => item.x + (item.data?.durationDays ?? 14) + 12)
   );
   return { max, min: 0, unit: "days" };
 }
 
 function normalizeTemplate(
-  templateRow: RawRecord,
+  templateRow: RawRecord
 ): TimelineSettingsTemplateDraft {
   const submilestones =
     (templateRow.submilestones as RawRecord[] | undefined) ?? [];
+  const guidanceItems =
+    (templateRow.guidanceItems as RawRecord[] | undefined) ?? [];
   return {
     description: stringValue(templateRow.description),
     isDefault: Boolean(templateRow.isDefault),
     milestones: ((templateRow.milestones as RawRecord[] | undefined) ?? [])
-      .map((row) => normalizeMilestone(row, submilestones))
+      .map((row) => normalizeMilestone(row, submilestones, guidanceItems))
       .sort((a, b) => a.order - b.order),
     scenarios: ((templateRow.scenarios as RawRecord[] | undefined) ?? [])
       .map(normalizeScenario)
@@ -540,9 +560,18 @@ function normalizeTemplate(
 function normalizeMilestone(
   row: RawRecord,
   allSubmilestones: RawRecord[],
+  allGuidanceItems: RawRecord[]
 ): TimelineSettingsMilestoneDraft {
   const milestoneKey = stringValue(row.milestoneKey);
   const templateKey = stringValue(row.templateKey);
+  const submilestones = allSubmilestones
+    .filter(
+      (subRow) =>
+        stringValue(subRow.templateKey) === templateKey &&
+        stringValue(subRow.milestoneKey) === milestoneKey
+    )
+    .map(normalizeSubmilestone)
+    .sort((a, b) => a.order - b.order);
   return {
     dependencyKeys: stringArray(row.dependencyKeys),
     durationDays: numberValue(row.durationDays, 1),
@@ -552,20 +581,66 @@ function normalizeMilestone(
     name: stringValue(row.name),
     order: numberValue(row.order, 0),
     percentageBps: numberValue(row.percentageBps, 0),
-    submilestones: allSubmilestones
-      .filter(
-        (subRow) =>
-          stringValue(subRow.templateKey) === templateKey &&
-          stringValue(subRow.milestoneKey) === milestoneKey,
-      )
-      .map(normalizeSubmilestone)
-      .sort((a, b) => a.order - b.order),
+    siteVisitGuidance: normalizeGuidanceItems(
+      allGuidanceItems.filter(
+        (guidanceRow) =>
+          stringValue(guidanceRow.templateKey) === templateKey &&
+          stringValue(guidanceRow.milestoneKey) === milestoneKey
+      ),
+      row,
+      submilestones
+    ),
+    submilestones,
     type: stringValue(row.type),
   };
 }
 
+function normalizeGuidanceItems(
+  rows: RawRecord[],
+  milestone: RawRecord,
+  submilestones: TimelineSettingsSubmilestoneDraft[]
+): TimelineSettingsSiteVisitGuidanceDraft {
+  const sorted = rows
+    .slice()
+    .sort(
+      (a, b) =>
+        stringValue(a.kind).localeCompare(stringValue(b.kind)) ||
+        numberValue(a.order, 0) - numberValue(b.order, 0)
+    );
+  const guidance = {
+    cameraAngles: sorted
+      .filter((row) => stringValue(row.kind) === "cameraAngle")
+      .map((row) => stringValue(row.text).trim())
+      .filter(Boolean),
+    whatToVerify: sorted
+      .filter((row) => stringValue(row.kind) === "whatToVerify")
+      .map((row) => stringValue(row.text).trim())
+      .filter(Boolean),
+  };
+  if (guidance.cameraAngles.length || guidance.whatToVerify.length) {
+    return guidance;
+  }
+  const name = stringValue(milestone.name) || "Milestone";
+  return {
+    cameraAngles: [
+      "Wide shot showing the full milestone work area.",
+      "Close-up of the highest-risk connection, fixture, or finish.",
+    ],
+    whatToVerify: (
+      submilestones.length
+        ? submilestones.map((submilestone) => submilestone.name)
+        : [name]
+    )
+      .slice(0, 4)
+      .map(
+        (checkpoint) =>
+          `${checkpoint} is complete, visible, and consistent with the approved scope.`
+      ),
+  };
+}
+
 function normalizeSubmilestone(
-  row: RawRecord,
+  row: RawRecord
 ): TimelineSettingsSubmilestoneDraft {
   return {
     description: stringValue(row.description),
@@ -633,7 +708,7 @@ function stringArray(value: unknown) {
 }
 
 function defaultDrawTimingDay(
-  template: TimelineSettingsTemplateDraft | undefined,
+  template: TimelineSettingsTemplateDraft | undefined
 ) {
   if (!template) {
     return 30;
@@ -644,32 +719,32 @@ function defaultDrawTimingDay(
   }
   return Math.min(
     firstWindow.beforeMilestoneStartDay - 1,
-    firstWindow.afterMilestoneEndDay + TIMELINE_DEMO_SETTINGS_DRAW_OFFSET_DAYS,
+    firstWindow.afterMilestoneEndDay + TIMELINE_DEMO_SETTINGS_DRAW_OFFSET_DAYS
   );
 }
 
-function milestoneStartDay(
+export function milestoneStartDay(
   rows: Pick<
     TimelineSettingsMilestoneDraft,
     "durationDays" | "milestoneKey" | "order"
   >[],
-  index: number,
+  index: number
 ) {
   return rows
     .slice(0, index)
     .reduce(
       (day, row) =>
         day + row.durationDays + TIMELINE_DEMO_SETTINGS_HANDOFF_GAP_DAYS,
-      0,
+      0
     );
 }
 
-function milestoneEndDay(
+export function milestoneEndDay(
   rows: Pick<
     TimelineSettingsMilestoneDraft,
     "durationDays" | "milestoneKey" | "order"
   >[],
-  index: number,
+  index: number
 ) {
   return milestoneStartDay(rows, index) + (rows[index]?.durationDays ?? 0);
 }

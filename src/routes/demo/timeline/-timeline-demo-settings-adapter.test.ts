@@ -123,13 +123,13 @@ describe("timeline demo settings adapter", () => {
   test("converts active settings into timeline items and draw markers", () => {
     const [template] = normalizeTimelineSettingsProjection(projection);
     const items = buildTimelineItemsFromSettings(template, 1_000_000_00);
-    const draws = buildDrawsFromActiveScenario(template, items, 1_000_000_00);
+    const draws = buildDrawsFromActiveScenario(template, items, 800_000_00);
 
     expect(items.map((item) => item.data?.amount)).toEqual([500_000, 500_000]);
     expect(items[0]?.data?.subMilestones).toEqual(["Excavation"]);
     expect(draws).toMatchObject([
-      { amount: 400_000, customDate: true, label: "Draw 01", x: 12 },
-      { amount: 600_000, customDate: true, label: "Draw 02", x: 13 },
+      { amount: 320_000, customDate: true, label: "Draw 01", x: 12 },
+      { amount: 480_000, customDate: true, label: "Draw 02", x: 13 },
     ]);
     expect(draws.every((draw) => draw.itemId === undefined)).toBe(true);
   });

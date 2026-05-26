@@ -7,8 +7,17 @@ import {
   DEFAULT_MILESTONE_DURATION_DAYS,
   normalizeMilestoneSchedule,
 } from "./-timeline-milestone-schedule.ts";
+import {
+  type DemoSubmilestone,
+  submilestoneNames,
+} from "./-timeline-milestone-submilestones.ts";
+
+export type { DemoSubmilestone } from "./-timeline-milestone-submilestones.ts";
 
 export type DemoStatus = "complete" | "ready" | "upcoming";
+
+export const TOTAL_REIMBURSEMENT_BPS = 10_000;
+export const DEFAULT_BORROWER_CO_PAY_BPS = 2000;
 
 export type IsometricIconKey =
   | "change"
@@ -26,6 +35,7 @@ export interface DemoMilestone {
   completionPaymentAmount?: number;
   completionReview?: DemoCompletionReview;
   draw: string;
+  drawAvailabilityAmount?: number;
   drawX?: number;
   durationDays: number;
   evidence: string;
@@ -34,8 +44,56 @@ export interface DemoMilestone {
   initialPaymentAmount?: number;
   name: string;
   policy: string;
+  siteVisitGuidance?: {
+    cameraAngles: string[];
+    whatToVerify: string[];
+  };
   status: DemoStatus;
   subMilestones: string[];
+  submilestoneDetails?: DemoSubmilestone[];
+}
+
+export function normalizeBorrowerCoPayBps(value: number | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return DEFAULT_BORROWER_CO_PAY_BPS;
+  }
+
+  return Math.min(TOTAL_REIMBURSEMENT_BPS, Math.max(0, Math.round(value)));
+}
+
+export function getReimbursementBps(value: number | undefined) {
+  return TOTAL_REIMBURSEMENT_BPS - normalizeBorrowerCoPayBps(value);
+}
+
+export function calculateDrawAvailabilityAmount(
+  budgetAmount: number,
+  coPayBps: number | undefined
+) {
+  const reimbursementBps = getReimbursementBps(coPayBps);
+
+  return Math.max(
+    0,
+    Math.round(
+      (Math.max(0, budgetAmount) * reimbursementBps) / TOTAL_REIMBURSEMENT_BPS
+    )
+  );
+}
+
+export function getMilestoneDrawAvailabilityAmount(
+  milestone: DemoMilestone | undefined
+) {
+  if (!milestone) {
+    return 0;
+  }
+
+  if (Number.isFinite(milestone.drawAvailabilityAmount)) {
+    return Math.max(0, Math.round(milestone.drawAvailabilityAmount ?? 0));
+  }
+
+  return calculateDrawAvailabilityAmount(
+    milestone.amount,
+    DEFAULT_BORROWER_CO_PAY_BPS
+  );
 }
 
 export interface DemoCompletionClaim {
@@ -83,16 +141,17 @@ export interface DemoDraw {
   id: string;
   itemId?: string;
   label: string;
-  requestReviewNote?: string;
+  requestedAt?: string;
   requestNote?: string;
+  requestReviewNote?: string;
   requestStatus?: "approved" | "draft" | "rejected" | "requested";
   reviewedAt?: string;
-  requestedAt?: string;
   x: number;
 }
 
 export interface DemoCapitalSpike {
   amount: number;
+  eventKind?: "cashInfusion" | "cost";
   id: string;
   label: string;
   x: number;
@@ -321,6 +380,7 @@ function normalizeMilestoneData(
     amount: Math.max(0, Math.round(normalizeNumber(data?.amount, 0))),
     completionPaymentAmount: data?.completionPaymentAmount,
     draw: data?.draw?.trim() || `Draw ${index + 1}`,
+    drawAvailabilityAmount: data?.drawAvailabilityAmount,
     drawX:
       data?.drawX === undefined
         ? undefined
@@ -331,9 +391,13 @@ function normalizeMilestoneData(
     initialPaymentAmount: data?.initialPaymentAmount,
     name: data?.name?.trim() || `Milestone ${index + 1}`,
     policy: data?.policy?.trim() || "Needs review",
+    siteVisitGuidance: normalizeSiteVisitGuidance(data?.siteVisitGuidance),
     status: data?.status ?? "upcoming",
     subMilestones: normalizeShareSubMilestones(data?.subMilestones, index),
   });
+  const submilestoneDetails = data?.submilestoneDetails?.length
+    ? [...data.submilestoneDetails].sort((a, b) => a.order - b.order)
+    : undefined;
 
   return {
     amount: normalized.amount,
@@ -347,6 +411,14 @@ function normalizeMilestoneData(
       ? {}
       : { completionReview: normalizeCompletionReview(data.completionReview) }),
     draw: normalized.draw,
+    ...(data?.drawAvailabilityAmount === undefined
+      ? {}
+      : {
+          drawAvailabilityAmount: Math.max(
+            0,
+            Math.round(normalizeNumber(data.drawAvailabilityAmount, 0))
+          ),
+        }),
     ...(normalized.drawX === undefined ? {} : { drawX: normalized.drawX }),
     durationDays: normalized.durationDays,
     evidence: normalized.evidence,
@@ -359,8 +431,12 @@ function normalizeMilestoneData(
       : { initialPaymentAmount: normalized.initialPaymentAmount }),
     name: normalized.name,
     policy: normalized.policy,
+    ...(normalized.siteVisitGuidance ? { siteVisitGuidance: normalized.siteVisitGuidance } : {}),
     status: normalized.status,
-    subMilestones: normalized.subMilestones,
+    subMilestones: submilestoneDetails
+      ? submilestoneNames(submilestoneDetails)
+      : normalized.subMilestones,
+    ...(submilestoneDetails ? { submilestoneDetails } : {}),
   };
 }
 
@@ -416,7 +492,9 @@ function normalizeSiteVisitRequest(
 
   const note = siteVisit.note?.trim();
   const includedItemIds = Array.from(
-    new Set((siteVisit.includedItemIds ?? []).map((id) => id.trim()).filter(Boolean))
+    new Set(
+      (siteVisit.includedItemIds ?? []).map((id) => id.trim()).filter(Boolean)
+    )
   );
   const status = siteVisit.status?.trim();
   const url = siteVisit.url?.trim();
@@ -507,8 +585,13 @@ function normalizeShareCapitalSpikes(
     .filter((spike) => spike.id.trim().length > 0 && Number.isFinite(spike.x))
     .map((spike, index) => ({
       amount: Math.max(0, Math.round(normalizeNumber(spike.amount, 0))),
+      eventKind: spike.eventKind === "cashInfusion" ? "cashInfusion" : "cost",
       id: spike.id,
-      label: spike.label.trim() || `Capital spike ${index + 1}`,
+      label:
+        spike.label.trim() ||
+        (spike.eventKind === "cashInfusion"
+          ? `Cash infusion ${index + 1}`
+          : `Capital spike ${index + 1}`),
       x: normalizeNumber(spike.x, 0),
     }))
     .sort((a, b) => a.x - b.x || a.id.localeCompare(b.id));
@@ -526,6 +609,34 @@ function normalizeShareSubMilestones(
   return normalized.length > 0
     ? normalized
     : [`Scope ${index + 1}`, "Budget alignment", "Schedule planning"];
+}
+
+function normalizeSiteVisitGuidance(
+  guidance: DemoMilestone["siteVisitGuidance"] | undefined
+) {
+  if (!guidance) {
+    return undefined;
+  }
+  const cameraAngles = normalizeTextList(guidance.cameraAngles);
+  const whatToVerify = normalizeTextList(guidance.whatToVerify);
+  if (cameraAngles.length === 0 && whatToVerify.length === 0) {
+    return undefined;
+  }
+  return { cameraAngles, whatToVerify };
+}
+
+function normalizeTextList(value: string[] | undefined) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of value ?? []) {
+    const text = item.trim();
+    if (!text || seen.has(text.toLowerCase())) {
+      continue;
+    }
+    seen.add(text.toLowerCase());
+    result.push(text);
+  }
+  return result;
 }
 
 function normalizeShareRange(range: TimelineRange): TimelineRange {

@@ -11,6 +11,12 @@ import {
   validateIncludedSiteVisitMilestones,
   validateSiteVisitReportSubmission,
 } from "./demo_site_visit_tokens";
+import {
+  defaultSiteVisitGuidance,
+  guidanceItemsToGuidance,
+  guidanceToItems,
+} from "./demo_site_visit_guidance";
+import { MOCK_BUILDER_PERSONA } from "./demo_personas";
 import { seedBuildDetailExtras } from "./demo_drawflow_backoffice";
 import type { DatabaseReader, DatabaseWriter, Doc, Id } from "./types";
 
@@ -30,6 +36,7 @@ const DEMO_TABLES = [
   "demo_rolloverBuffers",
   "demo_reviewReports",
   "demo_siteVisitFiles",
+  "demo_siteVisitTargetGuidanceItems",
   "demo_siteVisitTargets",
   "demo_siteVisits",
   "demo_evidenceFiles",
@@ -995,6 +1002,49 @@ async function getSiteVisitTargets(ctx: DemoReadCtx, siteVisitId: DemoSiteVisit[
     .collect();
 }
 
+async function getSiteVisitTargetGuidanceItems(
+  ctx: DemoReadCtx,
+  siteVisitId: DemoSiteVisit["_id"]
+) {
+  return await ctx.db
+    .query("demo_siteVisitTargetGuidanceItems")
+    .withIndex("by_site_visit", (q) => q.eq("siteVisitId", siteVisitId))
+    .take(500);
+}
+
+async function decorateSiteVisitTargetsWithGuidance(
+  ctx: DemoReadCtx,
+  targets: DemoSiteVisitTarget[],
+  siteVisitId: DemoSiteVisit["_id"]
+) {
+  const items = await getSiteVisitTargetGuidanceItems(ctx, siteVisitId);
+  return targets.map((target) => ({
+    ...target,
+    guidance: guidanceItemsToGuidance(
+      items.filter((item) => item.siteVisitTargetId === target._id),
+      defaultSiteVisitGuidance(
+        target.milestoneKey,
+        target.milestoneName,
+        target.submilestones
+      )
+    ),
+  }));
+}
+
+async function getMilestoneSubmilestoneNames(
+  ctx: DemoReadCtx,
+  buildId: DemoBuildId,
+  milestoneKey: string
+) {
+  const rows = await ctx.db
+    .query("demo_milestoneSubmilestones")
+    .withIndex("by_build_milestone", (q) =>
+      q.eq("buildId", buildId).eq("milestoneKey", milestoneKey)
+    )
+    .collect();
+  return rows.sort((a, b) => a.order - b.order).map((row) => row.name);
+}
+
 async function getSiteVisitFiles(ctx: DemoReadCtx, siteVisitId: DemoSiteVisit["_id"]) {
   return await ctx.db
     .query("demo_siteVisitFiles")
@@ -1075,6 +1125,7 @@ async function seedActive(ctx: DemoMutationCtx) {
     key: "active-maple-ridge",
     lenderDrawPolicyLimitCents: WORKING_CAPITAL_CENTS,
     name: "Maple Ridge Townhomes",
+    ownerPersona: MOCK_BUILDER_PERSONA,
     payoffDate: "2027-01-05",
     projectStartDate: "2026-01-05",
     scenario: "active",
@@ -1201,6 +1252,7 @@ async function seedProposal(ctx: DemoMutationCtx) {
     key: "proposal-maple-ridge",
     lenderDrawPolicyLimitCents: WORKING_CAPITAL_CENTS,
     name: "Maple Ridge Townhomes",
+    ownerPersona: MOCK_BUILDER_PERSONA,
     payoffDate: "2027-01-05",
     projectStartDate: "2026-01-05",
     scenario: "proposal",
@@ -1756,6 +1808,9 @@ function activeBuildStatus(
   build: Doc<"demo_builds">,
   milestones: DecoratedMilestone[]
 ) {
+  if (build.status === "behind_schedule") {
+    return { label: "Behind schedule", status: "behind" as const };
+  }
   if (
     milestones.some((milestone) =>
       milestone.status.toLowerCase().includes("behind")
@@ -1969,7 +2024,7 @@ async function buildBackofficeDashboardProjection(ctx: DemoReadCtx) {
               milestone.latestSiteVisit.claimedAt ??
               milestone.latestSiteVisit.createdAt
           ).toISOString(),
-          id: `site-visit-${milestone.latestSiteVisit._id}`,
+          id: `site-visit-${milestone.latestSiteVisit._id}-${milestone.key}`,
           kind: "siteVisit" as const,
           label: `${milestone.name} site visit`,
         });
@@ -2003,7 +2058,7 @@ async function buildBackofficeDashboardProjection(ctx: DemoReadCtx) {
           buildKey: activeBuild.key,
           builder: "Mock builder - demo_builds has no builder company",
           daysActive: daysBetween(activeBuild.projectStartDate, activeBuild.todayDate),
-          href: `/backoffice/builds/${activeBuild.key}`,
+          href: `/backoffice/builds/${activeBuild.key}?rail=closed&tab=timeline`,
           id: activeDisplayId,
           milestoneState: milestoneState(
             activeMilestone?.displayStatus ?? activeMilestone?.status ?? "planned"
@@ -2017,7 +2072,7 @@ async function buildBackofficeDashboardProjection(ctx: DemoReadCtx) {
         buildId: activeDisplayId,
         buildKey: activeBuild.key,
         eligibleDate: group.eligibleDate,
-        href: `/backoffice/builds/${activeBuild.key}`,
+        href: `/backoffice/builds/${activeBuild.key}?rail=closed&tab=timeline`,
         id: group.key,
         label: group.label,
         requestedAmount: centsToCurrency(group.requestedValueCents),
@@ -3274,7 +3329,12 @@ export const demo_requestSiteVisit = publicMutation
       if (!targetMilestone) {
         continue;
       }
-      await ctx.db.insert("demo_siteVisitTargets", {
+      const submilestones = await getMilestoneSubmilestoneNames(
+        ctx,
+        targetMilestone.buildId,
+        targetMilestone.key
+      );
+      const targetId = await ctx.db.insert("demo_siteVisitTargets", {
         buildId: targetMilestone.buildId,
         createdAt,
         milestoneId: targetMilestone._id,
@@ -3283,8 +3343,29 @@ export const demo_requestSiteVisit = publicMutation
         milestoneOrder: targetMilestone.order,
         scenario: "active",
         siteVisitId: visitId,
-        submilestones: [],
+        submilestones,
       });
+      const guidance = defaultSiteVisitGuidance(
+        targetMilestone.key,
+        targetMilestone.name,
+        submilestones
+      );
+      for (const item of guidanceToItems(guidance)) {
+        await ctx.db.insert("demo_siteVisitTargetGuidanceItems", {
+          buildId: targetMilestone.buildId,
+          createdAt,
+          kind: item.kind,
+          milestoneKey: targetMilestone.key,
+          milestoneName: targetMilestone.name,
+          order: item.order ?? 0,
+          scenario: "active",
+          siteVisitId: visitId,
+          siteVisitTargetId: targetId,
+          sourceKind: "active_demo_default",
+          sourceKey: targetMilestone.key,
+          text: item.text,
+        });
+      }
       await ctx.db.patch(targetMilestone._id, {
         status: "site_visit_requested",
         updatedAt: createdAt,
@@ -3333,6 +3414,9 @@ export const demo_getSiteVisitByToken = publicQuery
             (a, b) => a.milestoneOrder - b.milestoneOrder
           )
         : [];
+      const targetsWithGuidance = state.visit
+        ? await decorateSiteVisitTargetsWithGuidance(ctx, targets, state.visit._id)
+        : targets;
       const files = state.visit ? await getSiteVisitFiles(ctx, state.visit._id) : [];
       return {
         available: false,
@@ -3345,7 +3429,7 @@ export const demo_getSiteVisitByToken = publicQuery
             : state.reason === "consumed"
               ? "completed"
               : "invalid",
-        targets,
+        targets: targetsWithGuidance,
         visit: state.visit,
       };
     }
@@ -3360,12 +3444,17 @@ export const demo_getSiteVisitByToken = publicQuery
         url: await ctx.storage.getUrl(file.storageId),
       }))
     );
+    const targetsWithGuidance = await decorateSiteVisitTargetsWithGuidance(
+      ctx,
+      targets,
+      state.visit._id
+    );
 
     return {
       available: true,
       build: state.build,
       files: filesWithUrls,
-      targets,
+      targets: targetsWithGuidance,
       visit: state.visit,
     };
   })

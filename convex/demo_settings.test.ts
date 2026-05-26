@@ -4,6 +4,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
 import { api } from "./_generated/api";
+import { MOCK_BUILDER_PERSONA, MOCK_STAFF_PERSONA } from "./demo_personas";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -19,11 +20,26 @@ describe("timeline demo settings Convex functions", () => {
     );
 
     expect(first.templates).toBe(3);
+    expect(first.personas).toBe(2);
     expect(first.settings.templates).toHaveLength(3);
     expectDefaultDrawTimings(first.settings.templates);
     expect(template.milestones).toHaveLength(7);
     expect(template.status.totalPocBps).toBe(10_000);
     expect(template.activeScenarioName).toBe("Standard reimbursement");
+    expect(template.guidanceItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "whatToVerify",
+          milestoneKey: "framing",
+          text: expect.stringContaining("load-bearing walls"),
+        }),
+        expect.objectContaining({
+          kind: "cameraAngle",
+          milestoneKey: "framing",
+          text: expect.stringContaining("Wide shot"),
+        }),
+      ])
+    );
     expectDefaultTimingRules(seeded.templates);
     expectDefaultDrawTimings(seeded.templates);
 
@@ -78,6 +94,31 @@ describe("timeline demo settings Convex functions", () => {
     expectDefaultDrawTimings(afterReseed.templates);
     expect(afterReseed.events.some((row: any) => row.eventType === "seed_defaults")).toBe(
       true
+    );
+  });
+
+  test("seed defaults upserts demo personas idempotently", async () => {
+    const t = convexTest(schema, modules);
+
+    await t.mutation(api.demo_settings.seedTimelineDemoDefaults, {});
+    await t.mutation(api.demo_settings.seedTimelineDemoDefaults, {});
+
+    const personas = await t.query(api.demo_settings.listDemoPersonas, {});
+
+    expect(personas).toHaveLength(2);
+    expect(personas).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: MOCK_BUILDER_PERSONA,
+          label: "Mock Builder",
+          role: "builder",
+        }),
+        expect.objectContaining({
+          key: MOCK_STAFF_PERSONA,
+          label: "Mock Staff",
+          role: "staff",
+        }),
+      ]),
     );
   });
 
@@ -140,6 +181,50 @@ describe("timeline demo settings Convex functions", () => {
         templateKey: template.templateKey,
       })
     ).rejects.toThrow(/Active scenario/);
+  });
+
+  test("saves configurable field guidance per milestone", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(api.demo_settings.seedTimelineDemoDefaults, {});
+    const settings = await t.query(api.demo_settings.getTimelineDemoSettings, {});
+    const template = settings.templates.find(
+      (row: any) => row.templateKey === "single_family_full_build"
+    );
+    const milestones = toMilestoneInputs(template).map((row: any) =>
+      row.milestoneKey === "framing"
+        ? {
+            ...row,
+            siteVisitGuidance: {
+              cameraAngles: ["Custom north elevation", "Custom truss bay"],
+              whatToVerify: ["Custom shear wall verification"],
+            },
+          }
+        : row
+    );
+
+    await t.mutation(api.demo_settings.saveTimelineTemplateWorksheet, {
+      milestones,
+      templateKey: template.templateKey,
+    });
+    const after = await t.query(api.demo_settings.getTimelineDemoSettings, {});
+    const updated = after.templates.find(
+      (row: any) => row.templateKey === "single_family_full_build"
+    );
+
+    expect(updated.guidanceItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "whatToVerify",
+          milestoneKey: "framing",
+          text: "Custom shear wall verification",
+        }),
+        expect.objectContaining({
+          kind: "cameraAngle",
+          milestoneKey: "framing",
+          text: "Custom north elevation",
+        }),
+      ])
+    );
   });
 
   test("rejects draw timing outside adjacent milestone handoff windows", async () => {
@@ -284,4 +369,41 @@ function toScenarioInput(row: any) {
     scenarioKey: row.scenarioKey,
     sortOrder: row.sortOrder,
   };
+}
+
+function toMilestoneInputs(template: any) {
+  return template.milestones.map((row: any) => ({
+    dependencyKeys: row.dependencyKeys,
+    durationDays: row.durationDays,
+    icon: row.icon,
+    included: row.included,
+    milestoneKey: row.milestoneKey,
+    name: row.name,
+    order: row.order,
+    percentageBps: row.percentageBps,
+    siteVisitGuidance: {
+      cameraAngles: guidanceItems(template, row.milestoneKey, "cameraAngle"),
+      whatToVerify: guidanceItems(template, row.milestoneKey, "whatToVerify"),
+    },
+    submilestones: template.submilestones
+      .filter((subRow: any) => subRow.milestoneKey === row.milestoneKey)
+      .map((subRow: any) => ({
+        description: subRow.description,
+        durationDays: subRow.durationDays,
+        name: subRow.name,
+        order: subRow.order,
+        percentageBps: subRow.percentageBps,
+        submilestoneKey: subRow.submilestoneKey,
+      })),
+    type: row.type,
+  }));
+}
+
+function guidanceItems(template: any, milestoneKey: string, kind: string) {
+  return template.guidanceItems
+    .filter(
+      (row: any) => row.milestoneKey === milestoneKey && row.kind === kind
+    )
+    .sort((a: any, b: any) => a.order - b.order)
+    .map((row: any) => row.text);
 }

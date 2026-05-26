@@ -48,7 +48,8 @@ import {
   parsePercentToBps,
   scenarioDrawTotalBps,
   TIMELINE_DEMO_SETTINGS_CONTRACT_REFS,
-  TIMELINE_DEMO_SETTINGS_HANDOFF_GAP_DAYS,
+  milestoneEndDay,
+  milestoneStartDay,
   type TimelineSettingsDrawDraft,
   type TimelineSettingsScenarioDraft,
   type TimelineSettingsTemplateDraft,
@@ -846,6 +847,7 @@ function templateToWorksheetRows(
       order: index,
       percentageBps: milestone.percentageBps,
       percentageText: formatBps(milestone.percentageBps),
+      siteVisitGuidance: milestone.siteVisitGuidance,
       subMilestoneDetails: milestone.submilestones
         .slice()
         .sort((a, b) => a.order - b.order)
@@ -881,6 +883,10 @@ function worksheetRowsToTemplate(
       name: row.name,
       order,
       percentageBps: finiteBps(row.percentageBps),
+      siteVisitGuidance: {
+        cameraAngles: guidanceLines(row.siteVisitGuidance?.cameraAngles),
+        whatToVerify: guidanceLines(row.siteVisitGuidance?.whatToVerify),
+      },
       submilestones: row.subMilestoneDetails.map((submilestone, subOrder) => ({
         description: submilestone.description,
         durationDays: positiveInteger(submilestone.durationText, 1),
@@ -1500,29 +1506,28 @@ export function buildSettingsCashflowChartData(
   scenario: TimelineSettingsScenarioDraft | null,
   startingCash = getSettingsStartingCashDollars(template),
 ): TimelineCashflowCompoundDatum[] {
-  let cursor = 0;
   let cashOnHand = startingCash;
   const projectBudgetDollars = SETTINGS_SAMPLE_PROJECT_BUDGET_DOLLARS;
+  const includedMilestones = template.milestones
+    .filter((row) => row.included)
+    .slice()
+    .sort((a, b) => a.order - b.order);
   const events = [
-    ...template.milestones
-      .filter((row) => row.included)
-      .slice()
-      .sort((a, b) => a.order - b.order)
-      .map((milestone) => {
-        cursor += milestone.durationDays;
-        const day = cursor;
-        cursor += TIMELINE_DEMO_SETTINGS_HANDOFF_GAP_DAYS;
+    ...includedMilestones.map((milestone, index) => {
+      const startDay = milestoneStartDay(includedMilestones, index);
+      const endDay = milestoneEndDay(includedMilestones, index);
 
-        return {
-          amount: Math.round(
-            (projectBudgetDollars * milestone.percentageBps) / TOTAL_BPS,
-          ),
-          day,
-          id: `milestone:${milestone.milestoneKey}`,
-          name: milestone.name,
-          type: "milestone" as const,
-        };
-      }),
+      return {
+        amount: Math.round(
+          (projectBudgetDollars * milestone.percentageBps) / TOTAL_BPS,
+        ),
+        day: startDay,
+        id: `milestone:${milestone.milestoneKey}`,
+        milestoneEndDay: endDay,
+        name: milestone.name,
+        type: "milestone" as const,
+      };
+    }),
     ...(scenario?.draws ?? [])
       .slice()
       .sort((a, b) => a.order - b.order)
@@ -1556,6 +1561,8 @@ export function buildSettingsCashflowChartData(
       day: event.day,
       event: event.type === "draw" ? "draw" : "milestone",
       id: event.id,
+      milestoneEndDay:
+        event.type === "milestone" ? event.milestoneEndDay : undefined,
       name: event.name,
     });
   }
@@ -1614,4 +1621,8 @@ function positiveInteger(value: string, fallback: number) {
 
 function finiteBps(value: number) {
   return Number.isFinite(value) ? value : 0;
+}
+
+function guidanceLines(value: string[] | undefined) {
+  return (value ?? []).map((line) => line.trim()).filter(Boolean);
 }

@@ -5,6 +5,7 @@ import {
   buildTimelineShareSnapshotV2,
   type DemoDraw,
   type DemoMilestone,
+  getMilestoneDrawAvailabilityAmount,
   initialTimelineShareState,
 } from "./-timeline-share-snapshot.ts";
 
@@ -73,6 +74,22 @@ const initialDraws: DemoDraw[] = [
 ];
 
 describe("timeline share snapshots", () => {
+  test("falls back to 20% co-pay when milestone draw availability is missing", () => {
+    expect(
+      getMilestoneDrawAvailabilityAmount({
+        amount: 100_000,
+        draw: "Draw 1",
+        durationDays: 10,
+        evidence: "Planning",
+        icon: "foundation",
+        name: "Foundation",
+        policy: "Planning",
+        status: "ready",
+        subMilestones: [],
+      }),
+    ).toBe(80_000);
+  });
+
   test("round-trips initial timeline state", () => {
     const state = initialTimelineShareState(
       initialItems,
@@ -143,6 +160,7 @@ describe("timeline share snapshots", () => {
       [
         {
           amount: 35_000,
+          eventKind: "cost",
           id: "capital-spike-1",
           label: "Unexpected permit fee",
           x: 248,

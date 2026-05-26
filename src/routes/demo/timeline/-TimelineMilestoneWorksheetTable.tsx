@@ -15,7 +15,15 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useCallback,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import {
   Sortable,
@@ -32,15 +40,18 @@ import {
 } from "#/components/ui/autocomplete.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
+import { Group, GroupText } from "#/components/ui/group.tsx";
 import { Switch } from "#/components/ui/switch.tsx";
 import {
   Table,
   TableBody,
+  TableCaption,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
 } from "#/components/ui/table.tsx";
+import { Toggle } from "#/components/ui/toggle.tsx";
 import { cn } from "#/lib/utils.ts";
 import {
   formatCurrency,
@@ -53,6 +64,15 @@ const DEFAULT_NEW_MILESTONE_BUDGET_TEXT = "$0";
 const DEFAULT_NEW_MILESTONE_DURATION_TEXT = "7";
 const DEFAULT_NEW_SUB_MILESTONE_BUDGET_TEXT = "$0";
 const DEFAULT_NEW_SUB_MILESTONE_DURATION_TEXT = "1";
+const FOCUSABLE_TABLE_CONTROL_SELECTOR = [
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+const DURATION_PREFIX_REGEX = /^T/i;
+const NON_DIGIT_REGEX = /\D/g;
 
 const iconOptions = [
   "change",
@@ -135,6 +155,10 @@ export interface TimelineMilestoneWorksheetRow {
   order: number;
   percentageBps: number;
   percentageText?: string;
+  siteVisitGuidance?: {
+    cameraAngles: string[];
+    whatToVerify: string[];
+  };
   subMilestoneDetails: TimelineMilestoneWorksheetSubMilestone[];
   subMilestones: string[];
   type: string;
@@ -143,6 +167,7 @@ export interface TimelineMilestoneWorksheetRow {
 type WorksheetMode = "settings" | "setup";
 
 export function TimelineMilestoneWorksheetTable({
+  cascadeBudgetEdits = false,
   cashText,
   className,
   error,
@@ -150,13 +175,16 @@ export function TimelineMilestoneWorksheetTable({
   leadingContent,
   mode,
   onBack,
+  onCascadeBudgetEditsChange,
   onComplete,
   onReset,
   onRowsChange,
   rows,
   showHeading = false,
+  targetBudgetCents,
   templateTitle,
 }: {
+  cascadeBudgetEdits?: boolean;
   cashText?: string;
   className?: string;
   error?: string;
@@ -164,11 +192,13 @@ export function TimelineMilestoneWorksheetTable({
   leadingContent?: ReactNode;
   mode: WorksheetMode;
   onBack?: () => void;
+  onCascadeBudgetEditsChange?: (enabled: boolean) => void;
   onComplete?: (options: { redirectToDurableRoute: boolean }) => void;
   onReset?: () => void;
   onRowsChange: (rows: TimelineMilestoneWorksheetRow[]) => void;
   rows: TimelineMilestoneWorksheetRow[];
   showHeading?: boolean;
+  targetBudgetCents?: number;
   templateTitle: string;
 }) {
   const [expanded, setExpanded] = useState<ExpandedState>(() =>
@@ -183,21 +213,33 @@ export function TimelineMilestoneWorksheetTable({
   );
   const [redirectToDurableRoute, setRedirectToDurableRoute] = useState(false);
   const [customMilestoneName, setCustomMilestoneName] = useState("");
+  const keyboardInstructionsId = useId();
+  const rowsRef = useRef(rows);
+  const onRowsChangeRef = useRef(onRowsChange);
+  rowsRef.current = rows;
+  onRowsChangeRef.current = onRowsChange;
 
-  const updateRows = (nextRows: TimelineMilestoneWorksheetRow[]) =>
-    onRowsChange(
-      nextRows.map((row, order) => ({
-        ...row,
-        order,
-      }))
-    );
+  const updateRows = useCallback(
+    (nextRows: TimelineMilestoneWorksheetRow[]) =>
+      onRowsChangeRef.current(
+        nextRows.map((row, order) => ({
+          ...row,
+          order,
+        }))
+      ),
+    []
+  );
 
-  const updateRow = (
-    rowKey: string,
-    patch: Partial<TimelineMilestoneWorksheetRow>
-  ) => {
-    updateRows(rows.map((row) => (row.key === rowKey ? { ...row, ...patch } : row)));
-  };
+  const updateRow = useCallback(
+    (rowKey: string, patch: Partial<TimelineMilestoneWorksheetRow>) => {
+      updateRows(
+        rowsRef.current.map((row) =>
+          row.key === rowKey ? { ...row, ...patch } : row
+        )
+      );
+    },
+    [updateRows]
+  );
 
   const updateSubMilestone = (
     rowKey: string,
@@ -233,9 +275,11 @@ export function TimelineMilestoneWorksheetTable({
     const nextSubMilestone: TimelineMilestoneWorksheetSubMilestone = {
       budgetText: item?.budgetText ?? DEFAULT_NEW_SUB_MILESTONE_BUDGET_TEXT,
       description: item?.description ?? "Define scope checkpoint",
-      durationText: item?.durationText ?? DEFAULT_NEW_SUB_MILESTONE_DURATION_TEXT,
+      durationText:
+        item?.durationText ?? DEFAULT_NEW_SUB_MILESTONE_DURATION_TEXT,
       id: `${rowKey}-custom-${Date.now()}`,
-      name: item?.name ?? `New sub-milestone ${row.subMilestoneDetails.length + 1}`,
+      name:
+        item?.name ?? `New sub-milestone ${row.subMilestoneDetails.length + 1}`,
       percentageBps: 0,
       percentageText: "0.00%",
     };
@@ -286,9 +330,15 @@ export function TimelineMilestoneWorksheetTable({
   };
 
   const addCustomMilestone = () => {
-    const fallbackCount = rows.filter((row) => row.type === "custom").length + 1;
-    const name = customMilestoneName.trim() || `Custom milestone ${fallbackCount}`;
-    const nextRow = createCustomMilestoneRow({ name, order: rows.length, rows });
+    const fallbackCount =
+      rows.filter((row) => row.type === "custom").length + 1;
+    const name =
+      customMilestoneName.trim() || `Custom milestone ${fallbackCount}`;
+    const nextRow = createCustomMilestoneRow({
+      name,
+      order: rows.length,
+      rows,
+    });
 
     updateRows([...rows, nextRow]);
     setExpanded((current) =>
@@ -301,32 +351,76 @@ export function TimelineMilestoneWorksheetTable({
     setCustomMilestoneName("");
   };
 
-  const reorderRows = (activeIndex: number, overIndex: number) => {
-    if (
-      activeIndex < 0 ||
-      overIndex < 0 ||
-      activeIndex >= rows.length ||
-      overIndex >= rows.length ||
-      activeIndex === overIndex
-    ) {
-      return;
-    }
+  const reorderRows = useCallback(
+    (activeIndex: number, overIndex: number) => {
+      const currentRows = rowsRef.current;
+      if (
+        activeIndex < 0 ||
+        overIndex < 0 ||
+        activeIndex >= currentRows.length ||
+        overIndex >= currentRows.length ||
+        activeIndex === overIndex
+      ) {
+        return;
+      }
 
-    updateRows(arrayMove(rows, activeIndex, overIndex));
-  };
+      updateRows(arrayMove(currentRows, activeIndex, overIndex));
+    },
+    [updateRows]
+  );
 
-  const moveRowByKey = (rowKey: string, direction: "down" | "up") => {
-    const currentIndex = rows.findIndex((row) => row.key === rowKey);
-    const nextIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
-    reorderRows(currentIndex, nextIndex);
-  };
+  const moveRowByKey = useCallback(
+    (rowKey: string, direction: "down" | "up") => {
+      const currentIndex = rowsRef.current.findIndex(
+        (row) => row.key === rowKey
+      );
+      const nextIndex =
+        direction === "up" ? currentIndex - 1 : currentIndex + 1;
+      reorderRows(currentIndex, nextIndex);
+    },
+    [reorderRows]
+  );
+
+  const commitBudgetEdit = useCallback(
+    (rowKey: string) => {
+      const currentRows = rowsRef.current;
+      const row = currentRows.find((candidate) => candidate.key === rowKey);
+      if (!row) {
+        return;
+      }
+
+      const nextBudgetCents = rowBudgetCents(row);
+      if (
+        cascadeBudgetEdits &&
+        !row.excluded &&
+        Number.isFinite(nextBudgetCents) &&
+        Number.isFinite(targetBudgetCents) &&
+        (targetBudgetCents ?? 0) > 0
+      ) {
+        updateRows(
+          cascadeBudgetEdit({
+            nextBudgetCents,
+            rowKey,
+            rows: currentRows,
+            targetBudgetCents: targetBudgetCents ?? 0,
+          })
+        );
+        return;
+      }
+
+      updateRow(rowKey, {
+        budgetText: normalizeCurrencyText(row.budgetText),
+      });
+    },
+    [cascadeBudgetEdits, targetBudgetCents, updateRow, updateRows]
+  );
 
   const columns = useMemo<ColumnDef<TimelineMilestoneWorksheetRow>[]>(
     () =>
       mode === "settings"
         ? settingsColumns({ updateRow, moveRowByKey })
-        : setupColumns({ updateRow, moveRowByKey }),
-    [mode, rows]
+        : setupColumns({ commitBudgetEdit, updateRow, moveRowByKey }),
+    [commitBudgetEdit, mode, moveRowByKey, updateRow]
   );
   const table = useReactTable({
     columns,
@@ -379,6 +473,34 @@ export function TimelineMilestoneWorksheetTable({
         </div>
       ) : null}
 
+      {mode === "setup" ? (
+        <div className="timeline-blueprint-budget-controls">
+          <div>
+            <span>Budget tools</span>
+            <strong>Keep the worksheet aligned to the target budget</strong>
+          </div>
+          <Group
+            aria-label="Budget worksheet controls"
+            className="timeline-blueprint-budget-toggle-group"
+          >
+            <GroupText>Allocation mode</GroupText>
+            <Toggle
+              aria-label="Cascade downstream budget edits"
+              className="timeline-blueprint-cascade-toggle"
+              data-testid="timeline-setup-budget-cascade-toggle"
+              onPressedChange={(pressed) =>
+                onCascadeBudgetEditsChange?.(pressed)
+              }
+              pressed={cascadeBudgetEdits}
+              type="button"
+              variant="outline"
+            >
+              Cascade
+            </Toggle>
+          </Group>
+        </div>
+      ) : null}
+
       <div className="timeline-blueprint-add-milestone">
         <div>
           <span>Custom milestone</span>
@@ -388,7 +510,9 @@ export function TimelineMilestoneWorksheetTable({
           <input
             aria-label="Custom milestone name"
             data-testid="timeline-setup-custom-milestone-name"
-            onChange={(event) => setCustomMilestoneName(event.currentTarget.value)}
+            onChange={(event) =>
+              setCustomMilestoneName(event.currentTarget.value)
+            }
             onKeyDown={(event) => {
               if (event.key === "Enter") {
                 event.preventDefault();
@@ -420,25 +544,47 @@ export function TimelineMilestoneWorksheetTable({
         className="timeline-blueprint-table-wrap"
         data-testid="timeline-setup-budget-table"
       >
-        {(["top-left", "top-right", "bottom-left", "bottom-right"] as const).map(
-          (position) => (
-            <span
-              aria-hidden="true"
-              className={`timeline-blueprint-table-corner is-${position}`}
-              data-testid={`timeline-setup-budget-table-corner-${position}`}
-              key={position}
-            />
-          )
-        )}
-        <Table className="timeline-blueprint-table">
+        <p className="sr-only" id={keyboardInstructionsId}>
+          Use Tab to move through controls. In editable worksheet cells, press
+          Enter or Arrow Down to move to the next control, and Shift Enter or
+          Arrow Up to move to the previous control. Drag handles can be moved
+          with Arrow Up and Arrow Down.
+        </p>
+        {(
+          ["top-left", "top-right", "bottom-left", "bottom-right"] as const
+        ).map((position) => (
+          <span
+            aria-hidden="true"
+            className={`timeline-blueprint-table-corner is-${position}`}
+            data-testid={`timeline-setup-budget-table-corner-${position}`}
+            key={position}
+          />
+        ))}
+        <Table
+          aria-describedby={keyboardInstructionsId}
+          aria-label={`${templateTitle} milestone worksheet`}
+          className="timeline-blueprint-table"
+        >
+          <TableCaption className="sr-only">
+            {mode === "settings"
+              ? "Edit the milestone template names, types, percentages, durations, inclusion state, and sub-milestones."
+              : "Edit milestone budgets, durations, exclusion state, order, and sub-milestones."}
+          </TableCaption>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id} style={{ width: header.getSize() }}>
+                  <TableHead
+                    key={header.id}
+                    scope="col"
+                    style={{ width: header.getSize() }}
+                  >
                     {header.isPlaceholder
                       ? null
-                      : flexRender(header.column.columnDef.header, header.getContext())}
+                      : flexRender(
+                          header.column.columnDef.header,
+                          header.getContext()
+                        )}
                   </TableHead>
                 ))}
               </TableRow>
@@ -448,12 +594,15 @@ export function TimelineMilestoneWorksheetTable({
             aria-label="Milestone budget order"
             getItemValue={(row) => row.key}
             modifiers={[restrictToVerticalAxis]}
-            onMove={({ activeIndex, overIndex }) => reorderRows(activeIndex, overIndex)}
+            onMove={({ activeIndex, overIndex }) =>
+              reorderRows(activeIndex, overIndex)
+            }
             render={<TableBody />}
             strategy="vertical"
             value={rows}
           >
             {table.getRowModel().rows.flatMap((row) => {
+              const expandedRowId = getExpandedRowId(row.original.key);
               const budgetRow = (
                 <SortableItem
                   className={cn(row.original.excluded && "is-excluded")}
@@ -464,7 +613,10 @@ export function TimelineMilestoneWorksheetTable({
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext()
+                      )}
                     </TableCell>
                   ))}
                 </SortableItem>
@@ -472,27 +624,44 @@ export function TimelineMilestoneWorksheetTable({
               const expandedRow = row.getIsExpanded() ? (
                 <TableRow
                   className="timeline-blueprint-expanded-row"
+                  id={expandedRowId}
                   key={`${row.id}:expanded`}
                 >
                   <TableCell colSpan={row.getVisibleCells().length}>
-                    <SubMilestoneEditor
-                      activeSubMilestoneId={activeSubMilestoneByRow[row.original.key]}
-                      mode={mode}
-                      onActiveSubMilestoneChange={(subMilestoneId) =>
-                        setActiveSubMilestoneByRow((current) => ({
-                          ...current,
-                          [row.original.key]: subMilestoneId,
-                        }))
-                      }
-                      onAddSubMilestone={(item) => addSubMilestone(row.original.key, item)}
-                      onRemoveSubMilestone={(subMilestoneId) =>
-                        removeSubMilestone(row.original.key, subMilestoneId)
-                      }
-                      onUpdateSubMilestone={(subMilestoneId, patch) =>
-                        updateSubMilestone(row.original.key, subMilestoneId, patch)
-                      }
-                      row={row.original}
-                    />
+                    <div className="grid gap-4">
+                      <SubMilestoneEditor
+                        activeSubMilestoneId={
+                          activeSubMilestoneByRow[row.original.key]
+                        }
+                        mode={mode}
+                        onActiveSubMilestoneChange={(subMilestoneId) =>
+                          setActiveSubMilestoneByRow((current) => ({
+                            ...current,
+                            [row.original.key]: subMilestoneId,
+                          }))
+                        }
+                        onAddSubMilestone={(item) =>
+                          addSubMilestone(row.original.key, item)
+                        }
+                        onRemoveSubMilestone={(subMilestoneId) =>
+                          removeSubMilestone(row.original.key, subMilestoneId)
+                        }
+                        onUpdateSubMilestone={(subMilestoneId, patch) =>
+                          updateSubMilestone(
+                            row.original.key,
+                            subMilestoneId,
+                            patch
+                          )
+                        }
+                        row={row.original}
+                      />
+                      <FieldGuidanceEditor
+                        onUpdate={(siteVisitGuidance) =>
+                          updateRow(row.original.key, { siteVisitGuidance })
+                        }
+                        row={row.original}
+                      />
+                    </div>
                   </TableCell>
                 </TableRow>
               ) : null;
@@ -512,7 +681,10 @@ export function TimelineMilestoneWorksheetTable({
           {mode === "settings" ? (
             <MetricPill label="Total PoC" value={formatBps(totalPocBps)} />
           ) : (
-            <MetricPill label="Budget" value={formatCurrency(includedBudgetCents)} />
+            <MetricPill
+              label="Budget"
+              value={formatCurrency(includedBudgetCents)}
+            />
           )}
           <MetricPill label="Duration" value={`${totalDuration} days`} />
           {mode === "setup" ? (
@@ -523,7 +695,10 @@ export function TimelineMilestoneWorksheetTable({
         </div>
         <div className="timeline-blueprint-actions">
           {error ? (
-            <p className="timeline-blueprint-error" data-testid="timeline-setup-error">
+            <p
+              className="timeline-blueprint-error"
+              data-testid="timeline-setup-error"
+            >
               {error}
             </p>
           ) : null}
@@ -536,7 +711,7 @@ export function TimelineMilestoneWorksheetTable({
               >
                 Back to templates
               </Button>
-              <label className="timeline-durable-route-toggle">
+              <div className="timeline-durable-route-toggle">
                 <span>
                   <strong>Open durable route</strong>
                   <small>Redirect after generation</small>
@@ -547,7 +722,7 @@ export function TimelineMilestoneWorksheetTable({
                   data-testid="timeline-setup-durable-route-toggle"
                   onCheckedChange={setRedirectToDurableRoute}
                 />
-              </label>
+              </div>
               <Button
                 className="timeline-setup-primary"
                 data-testid="timeline-setup-complete"
@@ -565,11 +740,16 @@ export function TimelineMilestoneWorksheetTable({
 }
 
 function setupColumns({
+  commitBudgetEdit,
   moveRowByKey,
   updateRow,
 }: {
+  commitBudgetEdit: (rowKey: string) => void;
   moveRowByKey: (rowKey: string, direction: "down" | "up") => void;
-  updateRow: (rowKey: string, patch: Partial<TimelineMilestoneWorksheetRow>) => void;
+  updateRow: (
+    rowKey: string,
+    patch: Partial<TimelineMilestoneWorksheetRow>
+  ) => void;
 }): ColumnDef<TimelineMilestoneWorksheetRow>[] {
   return [
     nameColumn(moveRowByKey),
@@ -580,11 +760,7 @@ function setupColumns({
           align="right"
           className="timeline-blueprint-money"
           label={`${row.original.name} budget`}
-          onBlur={() =>
-            updateRow(row.original.key, {
-              budgetText: normalizeCurrencyText(row.original.budgetText),
-            })
-          }
+          onBlur={() => commitBudgetEdit(row.original.key)}
           onChange={(budgetText) => updateRow(row.original.key, { budgetText })}
           testId={`timeline-setup-row-budget-${row.original.key}`}
           value={row.original.budgetText}
@@ -605,7 +781,10 @@ function settingsColumns({
   updateRow,
 }: {
   moveRowByKey: (rowKey: string, direction: "down" | "up") => void;
-  updateRow: (rowKey: string, patch: Partial<TimelineMilestoneWorksheetRow>) => void;
+  updateRow: (
+    rowKey: string,
+    patch: Partial<TimelineMilestoneWorksheetRow>
+  ) => void;
 }): ColumnDef<TimelineMilestoneWorksheetRow>[] {
   return [
     nameColumn(moveRowByKey, updateRow),
@@ -651,8 +830,12 @@ function settingsColumns({
           label={`${row.original.name} PoC`}
           onBlur={() =>
             updateRow(row.original.key, {
-              percentageBps: parsePercentToBps(row.original.percentageText ?? ""),
-              percentageText: normalizePercentText(row.original.percentageText ?? ""),
+              percentageBps: parsePercentToBps(
+                row.original.percentageText ?? ""
+              ),
+              percentageText: normalizePercentText(
+                row.original.percentageText ?? ""
+              ),
             })
           }
           onChange={(percentageText) =>
@@ -662,7 +845,9 @@ function settingsColumns({
             })
           }
           testId={`timeline-setup-row-poc-${row.original.key}`}
-          value={row.original.percentageText ?? formatBps(row.original.percentageBps)}
+          value={
+            row.original.percentageText ?? formatBps(row.original.percentageBps)
+          }
         />
       ),
       header: "PoC %",
@@ -692,7 +877,10 @@ function settingsColumns({
 
 function nameColumn(
   moveRowByKey: (rowKey: string, direction: "down" | "up") => void,
-  updateRow?: (rowKey: string, patch: Partial<TimelineMilestoneWorksheetRow>) => void
+  updateRow?: (
+    rowKey: string,
+    patch: Partial<TimelineMilestoneWorksheetRow>
+  ) => void
 ): ColumnDef<TimelineMilestoneWorksheetRow> {
   return {
     cell: ({ row }) => (
@@ -749,7 +937,10 @@ function subMilestoneColumn(): ColumnDef<TimelineMilestoneWorksheetRow> {
 }
 
 function durationColumn(
-  updateRow: (rowKey: string, patch: Partial<TimelineMilestoneWorksheetRow>) => void
+  updateRow: (
+    rowKey: string,
+    patch: Partial<TimelineMilestoneWorksheetRow>
+  ) => void
 ): ColumnDef<TimelineMilestoneWorksheetRow> {
   return {
     cell: ({ row }) => (
@@ -766,7 +957,9 @@ function durationColumn(
         onChange={(durationText) =>
           updateRow(row.original.key, {
             durationDays: parseDurationDays(durationText),
-            durationText: durationText.replace(/^T/i, "").replace(/\D/g, ""),
+            durationText: durationText
+              .replace(DURATION_PREFIX_REGEX, "")
+              .replace(NON_DIGIT_REGEX, ""),
           })
         }
         testId={`timeline-setup-row-duration-${row.original.key}`}
@@ -780,7 +973,10 @@ function durationColumn(
 }
 
 function excludeColumn(
-  updateRow: (rowKey: string, patch: Partial<TimelineMilestoneWorksheetRow>) => void
+  updateRow: (
+    rowKey: string,
+    patch: Partial<TimelineMilestoneWorksheetRow>
+  ) => void
 ): ColumnDef<TimelineMilestoneWorksheetRow> {
   return {
     cell: ({ row }) => (
@@ -789,7 +985,9 @@ function excludeColumn(
         checked={row.original.excluded}
         className="timeline-blueprint-switch"
         data-testid={`timeline-setup-row-exclude-${row.original.key}`}
-        onCheckedChange={(excluded) => updateRow(row.original.key, { excluded })}
+        onCheckedChange={(excluded) =>
+          updateRow(row.original.key, { excluded })
+        }
       />
     ),
     header: "Exclude",
@@ -802,6 +1000,8 @@ function expandColumn(): ColumnDef<TimelineMilestoneWorksheetRow> {
   return {
     cell: ({ row }) => (
       <button
+        aria-controls={getExpandedRowId(row.original.key)}
+        aria-expanded={row.getIsExpanded()}
         aria-label={`${row.getIsExpanded() ? "Collapse" : "Expand"} ${row.original.name}`}
         className="timeline-blueprint-expand"
         data-testid={`timeline-setup-row-expand-${row.original.key}`}
@@ -811,7 +1011,7 @@ function expandColumn(): ColumnDef<TimelineMilestoneWorksheetRow> {
         {row.getIsExpanded() ? <ChevronDown /> : <ChevronRight />}
       </button>
     ),
-    header: "",
+    header: () => <span className="sr-only">Sub-milestone details</span>,
     id: "expand",
     size: 64,
   };
@@ -845,8 +1045,10 @@ function BlueprintMilestoneIcon({
         data-icon={icon}
         data-testid={testId}
         draggable={false}
+        height={58}
         loading="lazy"
         src={sources[icon]}
+        width={58}
       />
     </span>
   );
@@ -855,7 +1057,9 @@ function BlueprintMilestoneIcon({
 function BlueprintInput({
   align = "left",
   className,
+  id,
   label,
+  labelledBy,
   onBlur,
   onChange,
   testId,
@@ -863,7 +1067,9 @@ function BlueprintInput({
 }: {
   align?: "left" | "center" | "right";
   className?: string;
+  id?: string;
   label: string;
+  labelledBy?: string;
   onBlur: () => void;
   onChange: (value: string) => void;
   testId: string;
@@ -871,15 +1077,68 @@ function BlueprintInput({
 }) {
   return (
     <input
-      aria-label={label}
+      aria-keyshortcuts="Enter Shift+Enter ArrowDown ArrowUp"
+      aria-label={labelledBy ? undefined : label}
+      aria-labelledby={labelledBy}
       className={cn("timeline-blueprint-input", className)}
       data-align={align}
       data-testid={testId}
+      id={id}
       onBlur={onBlur}
       onChange={(event) => onChange(event.currentTarget.value)}
+      onKeyDown={handleBlueprintInputKeyDown}
       value={value}
     />
   );
+}
+
+function handleBlueprintInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+  if (event.altKey || event.ctrlKey || event.metaKey) {
+    return;
+  }
+
+  if (event.key === "Enter") {
+    event.preventDefault();
+    focusAdjacentTableControl(event.currentTarget, event.shiftKey ? -1 : 1);
+    return;
+  }
+
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    focusAdjacentTableControl(event.currentTarget, 1);
+    return;
+  }
+
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    focusAdjacentTableControl(event.currentTarget, -1);
+  }
+}
+
+function focusAdjacentTableControl(
+  currentControl: HTMLElement,
+  direction: 1 | -1
+) {
+  const table = currentControl.closest("table");
+  if (!table) {
+    return;
+  }
+
+  const controls = Array.from(
+    table.querySelectorAll<HTMLElement>(FOCUSABLE_TABLE_CONTROL_SELECTOR)
+  ).filter(
+    (control) =>
+      control.tabIndex >= 0 &&
+      control.getAttribute("aria-hidden") !== "true" &&
+      !control.closest('[aria-hidden="true"]')
+  );
+  const currentIndex = controls.indexOf(currentControl);
+  const nextControl = controls[currentIndex + direction];
+  nextControl?.focus();
+}
+
+function getExpandedRowId(rowKey: string) {
+  return `timeline-blueprint-expanded-${rowKey}`;
 }
 
 function SubMilestoneEditor({
@@ -907,6 +1166,12 @@ function SubMilestoneEditor({
     subMilestones.find((detail) => detail.id === activeSubMilestoneId) ??
     subMilestones[0];
   const valueLabel = mode === "settings" ? "PoC" : "Budget";
+  const valueFieldLabelId = activeSubMilestone
+    ? `timeline-submilestone-value-label-${activeSubMilestone.id}`
+    : undefined;
+  const durationFieldLabelId = activeSubMilestone
+    ? `timeline-submilestone-duration-label-${activeSubMilestone.id}`
+    : undefined;
 
   return (
     <div className="timeline-submilestone-editor">
@@ -946,7 +1211,9 @@ function SubMilestoneEditor({
                   type="button"
                 >
                   <span className="timeline-submilestone-card-title">
-                    <strong>{sanitizeSubMilestoneName(subMilestone.name)}</strong>
+                    <strong>
+                      {sanitizeSubMilestoneName(subMilestone.name)}
+                    </strong>
                     <small>{subMilestone.description}</small>
                   </span>
                   <span className="timeline-submilestone-card-metrics">
@@ -985,10 +1252,15 @@ function SubMilestoneEditor({
         className="timeline-submilestone-detail-pane"
       >
         {activeSubMilestone ? (
-          <div className="timeline-submilestone-detail-body" key={activeSubMilestone.id}>
+          <div
+            className="timeline-submilestone-detail-body"
+            key={activeSubMilestone.id}
+          >
             <div className="timeline-submilestone-detail-header">
               <span>Selected sub-milestone</span>
-              <strong>{sanitizeSubMilestoneName(activeSubMilestone.name)}</strong>
+              <strong>
+                {sanitizeSubMilestoneName(activeSubMilestone.name)}
+              </strong>
             </div>
             <label className="timeline-submilestone-detail-field is-wide">
               <span>Name</span>
@@ -1017,12 +1289,13 @@ function SubMilestoneEditor({
               />
             </label>
             <div className="timeline-submilestone-detail-grid">
-              <label className="timeline-submilestone-detail-field">
-                <span>{valueLabel}</span>
+              <div className="timeline-submilestone-detail-field">
+                <span id={valueFieldLabelId}>{valueLabel}</span>
                 <BlueprintInput
                   align="right"
                   className="timeline-submilestone-detail-input"
                   label={`Sub-milestone ${valueLabel.toLowerCase()}`}
+                  labelledBy={valueFieldLabelId}
                   onBlur={() =>
                     onUpdateSubMilestone(
                       activeSubMilestone.id,
@@ -1061,13 +1334,14 @@ function SubMilestoneEditor({
                       : activeSubMilestone.budgetText
                   }
                 />
-              </label>
-              <label className="timeline-submilestone-detail-field">
-                <span>Duration</span>
+              </div>
+              <div className="timeline-submilestone-detail-field">
+                <span id={durationFieldLabelId}>Duration</span>
                 <BlueprintInput
                   align="center"
                   className="timeline-submilestone-detail-input"
                   label="Sub-milestone duration"
+                  labelledBy={durationFieldLabelId}
                   onBlur={() =>
                     onUpdateSubMilestone(activeSubMilestone.id, {
                       durationText: normalizeDurationText(
@@ -1077,15 +1351,18 @@ function SubMilestoneEditor({
                   }
                   onChange={(durationText) =>
                     onUpdateSubMilestone(activeSubMilestone.id, {
-                      durationText: durationText.replace(/^T/i, "").replace(/\D/g, ""),
+                      durationText: durationText
+                        .replace(DURATION_PREFIX_REGEX, "")
+                        .replace(NON_DIGIT_REGEX, ""),
                     })
                   }
                   testId={`timeline-setup-submilestone-duration-${activeSubMilestone.id}`}
                   value={`T${activeSubMilestone.durationText}`}
                 />
-              </label>
+              </div>
             </div>
             <button
+              aria-label={`Remove ${sanitizeSubMilestoneName(activeSubMilestone.name)}`}
               className="timeline-submilestone-detail-remove"
               data-testid={`timeline-setup-submilestone-detail-remove-${activeSubMilestone.id}`}
               onClick={() => onRemoveSubMilestone(activeSubMilestone.id)}
@@ -1116,6 +1393,67 @@ function SubMilestoneEditor({
         )}
       </section>
     </div>
+  );
+}
+
+function FieldGuidanceEditor({
+  onUpdate,
+  row,
+}: {
+  onUpdate: (guidance: {
+    cameraAngles: string[];
+    whatToVerify: string[];
+  }) => void;
+  row: TimelineMilestoneWorksheetRow;
+}) {
+  const guidance = row.siteVisitGuidance ?? defaultGuidanceForRow(row);
+  return (
+    <section
+      aria-label={`${row.name} field guidance`}
+      className="rounded-xl border bg-background/70 p-4"
+      data-testid={`timeline-settings-field-guidance-${row.key}`}
+    >
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <Badge className="timeline-blueprint-mini-badge" variant="outline">
+            Field Guidance
+          </Badge>
+          <p className="mt-1 text-muted-foreground text-sm">
+            Configure the site visitor checklist for this milestone.
+          </p>
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <label className="grid gap-2 text-sm">
+          <span className="font-medium">What to verify</span>
+          <textarea
+            className="min-h-32 rounded-md border bg-background p-3 text-sm"
+            data-testid={`timeline-settings-guidance-verify-${row.key}`}
+            onChange={(event) =>
+              onUpdate({
+                ...guidance,
+                whatToVerify: linesToGuidanceItems(event.currentTarget.value),
+              })
+            }
+            value={guidance.whatToVerify.join("\n")}
+          />
+        </label>
+        <label className="grid gap-2 text-sm">
+          <span className="font-medium">Required photo angles</span>
+          <textarea
+            className="min-h-32 rounded-md border bg-background p-3 text-sm"
+            data-testid={`timeline-settings-guidance-camera-${row.key}`}
+            onChange={(event) =>
+              onUpdate({
+                ...guidance,
+                cameraAngles: linesToGuidanceItems(event.currentTarget.value),
+              })
+            }
+            value={guidance.cameraAngles.join("\n")}
+          />
+        </label>
+      </div>
+    </section>
   );
 }
 
@@ -1163,43 +1501,71 @@ function SubMilestoneBankPicker({
     setQuery("");
     setOpen(false);
   };
+  const addCustomSubMilestone = () => {
+    addItem({
+      budgetText: DEFAULT_NEW_SUB_MILESTONE_BUDGET_TEXT,
+      category: "Custom",
+      description: "Custom scope checkpoint",
+      durationText: DEFAULT_NEW_SUB_MILESTONE_DURATION_TEXT,
+      name: canCreate
+        ? customName
+        : makeUniqueSubMilestoneName("New sub-milestone", existingNameSet),
+    });
+  };
 
   return (
     <div className="timeline-submilestone-bank">
       <Autocomplete
         autoHighlight="always"
         keepHighlight
-        onOpenChange={setOpen}
+        modal={false}
+        onOpenChange={(nextOpen) =>
+          setOpen(nextOpen && filteredItems.length > 0)
+        }
         onValueChange={(nextQuery) => {
           setQuery(nextQuery);
-          setOpen(true);
+          setOpen(
+            hasAvailableSubMilestoneBankMatches(existingNameSet, nextQuery)
+          );
         }}
         open={open}
         openOnInputClick
         value={query}
       >
-        <AutocompleteInput
-          aria-label="Add sub-milestone from bank"
-          className="timeline-submilestone-bank-input"
-          data-testid={`timeline-setup-submilestone-bank-input-${rowKey}`}
-          onFocus={() => setOpen(true)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && canCreate) {
-              event.preventDefault();
-              addItem({
-                budgetText: DEFAULT_NEW_SUB_MILESTONE_BUDGET_TEXT,
-                category: "Custom",
-                description: "Custom scope checkpoint",
-                durationText: DEFAULT_NEW_SUB_MILESTONE_DURATION_TEXT,
-                name: customName,
-              });
+        <div className="timeline-submilestone-bank-controls">
+          <AutocompleteInput
+            aria-label="Add sub-milestone from bank"
+            className="timeline-submilestone-bank-input"
+            data-testid={`timeline-setup-submilestone-bank-input-${rowKey}`}
+            onFocus={() => setOpen(filteredItems.length > 0)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && canCreate) {
+                event.preventDefault();
+                addCustomSubMilestone();
+              }
+            }}
+            placeholder="Add from sub-milestone bank..."
+            showClear
+            showTrigger
+            size="sm"
+          />
+          <Button
+            aria-label={
+              canCreate
+                ? `Add custom sub-milestone ${customName}`
+                : "Add custom sub-milestone"
             }
-          }}
-          placeholder="Add from sub-milestone bank..."
-          showClear
-          showTrigger
-          size="sm"
-        />
+            className="timeline-submilestone-bank-custom-button"
+            data-testid={`timeline-setup-submilestone-bank-custom-${rowKey}`}
+            onClick={addCustomSubMilestone}
+            onMouseDown={(event) => event.preventDefault()}
+            type="button"
+            variant="outline"
+          >
+            <Plus aria-hidden="true" />
+            Add custom
+          </Button>
+        </div>
         <AutocompletePopup className="timeline-submilestone-bank-popup">
           <AutocompleteList className="timeline-submilestone-bank-list">
             {groupedItems.map(([category, items]) => (
@@ -1313,7 +1679,8 @@ function createCustomMilestoneRow({
   const subMilestoneDetails: TimelineMilestoneWorksheetSubMilestone[] = [
     {
       budgetText: DEFAULT_NEW_SUB_MILESTONE_BUDGET_TEXT,
-      description: "Define reimbursable scope, evidence, and acceptance criteria",
+      description:
+        "Define reimbursable scope, evidence, and acceptance criteria",
       durationText: DEFAULT_NEW_SUB_MILESTONE_DURATION_TEXT,
       id: `${key}-scope-definition-0`,
       name: "Scope definition",
@@ -1335,6 +1702,15 @@ function createCustomMilestoneRow({
       order,
       percentageBps: 0,
       percentageText: "0.00%",
+      siteVisitGuidance: {
+        cameraAngles: [
+          "Wide shot showing the full custom milestone work area.",
+          "Close-up of the primary completion detail.",
+        ],
+        whatToVerify: [
+          "Custom milestone scope is complete and consistent with the approved draw plan.",
+        ],
+      },
       subMilestoneDetails,
       subMilestones: [],
       type: "custom",
@@ -1356,6 +1732,28 @@ function withSubMilestoneDetails(
   };
 }
 
+function defaultGuidanceForRow(row: TimelineMilestoneWorksheetRow) {
+  return {
+    cameraAngles: [
+      "Wide shot showing the full milestone work area.",
+      "Close-up of the highest-risk connection, fixture, or finish.",
+    ],
+    whatToVerify: (row.subMilestones.length ? row.subMilestones : [row.name])
+      .slice(0, 4)
+      .map(
+        (checkpoint) =>
+          `${checkpoint} is complete, visible, and consistent with the approved scope.`
+      ),
+  };
+}
+
+function linesToGuidanceItems(value: string) {
+  return value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 function makeUniqueRowKey(name: string, rows: TimelineMilestoneWorksheetRow[]) {
   const baseKey = `custom-${slugifySubMilestone(name)}`;
   const existingKeys = new Set(rows.map((row) => row.key));
@@ -1369,18 +1767,181 @@ function makeUniqueRowKey(name: string, rows: TimelineMilestoneWorksheetRow[]) {
   return `${baseKey}-${suffix}`;
 }
 
+function cascadeBudgetEdit({
+  nextBudgetCents,
+  rowKey,
+  rows,
+  targetBudgetCents,
+}: {
+  nextBudgetCents: number;
+  rowKey: string;
+  rows: TimelineMilestoneWorksheetRow[];
+  targetBudgetCents: number;
+}) {
+  const editedIndex = rows.findIndex((row) => row.key === rowKey);
+  const roundedTargetBudgetCents = Math.round(targetBudgetCents);
+  if (editedIndex < 0 || roundedTargetBudgetCents <= 0) {
+    return rows;
+  }
+
+  const precedingBudgetCents = rows
+    .slice(0, editedIndex)
+    .filter((row) => !row.excluded)
+    .reduce((sum, row) => {
+      const budget = rowBudgetCents(row);
+      return sum + (Number.isFinite(budget) ? budget : 0);
+    }, 0);
+  const maxEditedBudgetCents = Math.max(
+    0,
+    roundedTargetBudgetCents - precedingBudgetCents
+  );
+  const editedBudgetCents = Math.min(
+    Math.max(0, Math.round(nextBudgetCents)),
+    maxEditedBudgetCents
+  );
+  const downstreamTargetBudgetCents = Math.max(
+    0,
+    roundedTargetBudgetCents - precedingBudgetCents - editedBudgetCents
+  );
+  const downstreamIndexes = rows
+    .map((row, index) => ({ index, row }))
+    .filter(({ index, row }) => index > editedIndex && !row.excluded)
+    .map(({ index }) => index);
+  const downstreamAllocations = allocateWeightedCents({
+    fallbackWeights: downstreamIndexes.map((index) => {
+      const row = rows[index];
+      const budget = row ? rowBudgetCents(row) : Number.NaN;
+      return Number.isFinite(budget) ? budget : 0;
+    }),
+    preferredWeights: downstreamIndexes.map(
+      (index) => rows[index]?.percentageBps ?? 0
+    ),
+    totalCents: downstreamTargetBudgetCents,
+  });
+  const nextRows = rows.map((row, index) => {
+    if (index === editedIndex) {
+      return {
+        ...row,
+        budgetText: formatCurrency(editedBudgetCents),
+      };
+    }
+
+    const downstreamIndex = downstreamIndexes.indexOf(index);
+    if (downstreamIndex >= 0) {
+      return {
+        ...row,
+        budgetText: formatCurrency(downstreamAllocations[downstreamIndex] ?? 0),
+      };
+    }
+
+    return row;
+  });
+
+  return withBudgetPercentages(nextRows, roundedTargetBudgetCents);
+}
+
+function allocateWeightedCents({
+  fallbackWeights,
+  preferredWeights,
+  totalCents,
+}: {
+  fallbackWeights: number[];
+  preferredWeights: number[];
+  totalCents: number;
+}) {
+  const roundedTotalCents = Math.max(0, Math.round(totalCents));
+  if (preferredWeights.length === 0) {
+    return [];
+  }
+
+  const weights = resolveAllocationWeights(preferredWeights, fallbackWeights);
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+  const allocations = weights.map((weight, order) => {
+    const raw = roundedTotalCents * weight;
+    return {
+      cents: Math.floor(raw / totalWeight),
+      order,
+      remainder: raw % totalWeight,
+    };
+  });
+  let remainderCents =
+    roundedTotalCents -
+    allocations.reduce((sum, allocation) => sum + allocation.cents, 0);
+  const byRemainder = [...allocations].sort(
+    (a, b) => b.remainder - a.remainder || a.order - b.order
+  );
+  for (const allocation of byRemainder) {
+    if (remainderCents <= 0) {
+      break;
+    }
+    allocation.cents += 1;
+    remainderCents -= 1;
+  }
+
+  return allocations
+    .sort((a, b) => a.order - b.order)
+    .map((allocation) => allocation.cents);
+}
+
+function resolveAllocationWeights(
+  preferredWeights: number[],
+  fallbackWeights: number[]
+) {
+  const normalizedPreferredWeights = preferredWeights.map((weight) =>
+    Number.isFinite(weight) ? Math.max(0, weight) : 0
+  );
+  if (normalizedPreferredWeights.some((weight) => weight > 0)) {
+    return normalizedPreferredWeights;
+  }
+
+  const normalizedFallbackWeights = fallbackWeights.map((weight) =>
+    Number.isFinite(weight) ? Math.max(0, weight) : 0
+  );
+  if (normalizedFallbackWeights.some((weight) => weight > 0)) {
+    return normalizedFallbackWeights;
+  }
+
+  return preferredWeights.map(() => 1);
+}
+
+function withBudgetPercentages(
+  rows: TimelineMilestoneWorksheetRow[],
+  targetBudgetCents: number
+) {
+  if (!(Number.isFinite(targetBudgetCents) && targetBudgetCents > 0)) {
+    return rows;
+  }
+
+  return rows.map((row) => {
+    if (row.excluded) {
+      return row;
+    }
+
+    const budget = rowBudgetCents(row);
+    const percentageBps = Number.isFinite(budget)
+      ? Math.max(0, Math.round((budget / targetBudgetCents) * 10_000))
+      : row.percentageBps;
+
+    return {
+      ...row,
+      percentageBps,
+      percentageText: formatBps(percentageBps),
+    };
+  });
+}
+
 function rowBudgetCents(row: TimelineMilestoneWorksheetRow) {
   const parsed = parseCurrencyToCents(row.budgetText);
   return Number.isFinite(parsed) ? Math.max(0, parsed) : Number.NaN;
 }
 
 function rowDurationDays(row: TimelineMilestoneWorksheetRow) {
-  const parsed = Number(row.durationText.replace(/^T/i, ""));
+  const parsed = Number(row.durationText.replace(DURATION_PREFIX_REGEX, ""));
   return Number.isFinite(parsed) ? Math.max(1, Math.round(parsed)) : Number.NaN;
 }
 
 function parseDurationDays(value: string) {
-  const parsed = Number(value.replace(/^T/i, ""));
+  const parsed = Number(value.replace(DURATION_PREFIX_REGEX, ""));
   return Number.isFinite(parsed) ? Math.max(1, Math.round(parsed)) : 1;
 }
 
@@ -1390,8 +1951,10 @@ function normalizeCurrencyText(value: string) {
 }
 
 function normalizeDurationText(value: string) {
-  const parsed = Number(value.replace(/^T/i, ""));
-  return Number.isFinite(parsed) ? String(Math.max(1, Math.round(parsed))) : value;
+  const parsed = Number(value.replace(DURATION_PREFIX_REGEX, ""));
+  return Number.isFinite(parsed)
+    ? String(Math.max(1, Math.round(parsed)))
+    : value;
 }
 
 function formatBps(value: number) {
@@ -1421,7 +1984,39 @@ function slugifySubMilestone(value: string) {
   );
 }
 
-function matchesSubMilestoneBankQuery(item: SubMilestoneBankItem, query: string) {
+function makeUniqueSubMilestoneName(
+  baseName: string,
+  existingNameSet: Set<string>
+) {
+  const sanitizedBaseName = sanitizeSubMilestoneName(baseName);
+  if (!existingNameSet.has(sanitizedBaseName.toLowerCase())) {
+    return sanitizedBaseName;
+  }
+
+  let nextIndex = 2;
+  while (
+    existingNameSet.has(`${sanitizedBaseName} ${nextIndex}`.toLowerCase())
+  ) {
+    nextIndex += 1;
+  }
+  return `${sanitizedBaseName} ${nextIndex}`;
+}
+
+function hasAvailableSubMilestoneBankMatches(
+  existingNameSet: Set<string>,
+  query: string
+) {
+  return SUB_MILESTONE_BANK.some(
+    (item) =>
+      !existingNameSet.has(item.name.toLowerCase()) &&
+      matchesSubMilestoneBankQuery(item, query)
+  );
+}
+
+function matchesSubMilestoneBankQuery(
+  item: SubMilestoneBankItem,
+  query: string
+) {
   const normalizedQuery = query.trim().toLowerCase();
   if (!normalizedQuery) {
     return true;

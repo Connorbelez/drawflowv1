@@ -1,16 +1,16 @@
 import type { ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-	DashboardSquare01Icon,
-	Building06Icon,
-	UserMultipleIcon,
-	ConstructionIcon,
-	BankIcon,
-	ClipboardIcon,
-	Settings01Icon,
-	HelpCircleIcon,
-	BookOpen01Icon,
-	PresentationOnlineIcon,
+  DashboardSquare01Icon,
+  Building06Icon,
+  UserMultipleIcon,
+  ConstructionIcon,
+  BankIcon,
+  ClipboardIcon,
+  Settings01Icon,
+  HelpCircleIcon,
+  BookOpen01Icon,
+  PresentationOnlineIcon,
 } from "@hugeicons/core-free-icons";
 import type { FileRoutesByTo } from "#/routeTree.gen";
 
@@ -18,61 +18,149 @@ import type { FileRoutesByTo } from "#/routeTree.gen";
 export type SidebarNavTo = keyof FileRoutesByTo;
 
 export type SidebarNavItem = {
-	title: string;
-	to: SidebarNavTo;
-	icon?: ReactNode;
-	/** Match when the current pathname starts with `to` (default: exact match only). */
-	matchPrefix?: boolean;
-	subItems?: SidebarNavItem[];
+  title: string;
+  to: SidebarNavTo;
+  icon?: ReactNode;
+  /** Match when the current pathname starts with `to` (default: exact match only). */
+  matchPrefix?: boolean;
+  subItems?: SidebarNavItem[];
 };
 
 export type SidebarNavGroup = {
-	label?: string;
-	items: SidebarNavItem[];
+  label?: string;
+  items: SidebarNavItem[];
 };
 
 const icon = (i: typeof DashboardSquare01Icon) => (
-	<HugeiconsIcon icon={i} strokeWidth={2} />
+  <HugeiconsIcon icon={i} strokeWidth={2} />
 );
 
 export const navGroups: SidebarNavGroup[] = [
-	{
-		label: "Backoffice",
-		items: [
-			{ title: "Dashboard", to: "/backoffice", icon: icon(DashboardSquare01Icon) },
-			{ title: "Builds", to: "/backoffice/builds", icon: icon(Building06Icon), matchPrefix: true },
-			{ title: "Builders", to: "/backoffice/builders", icon: icon(UserMultipleIcon), matchPrefix: true },
-			{ title: "Contractors", to: "/backoffice/contractors", icon: icon(ConstructionIcon), matchPrefix: true },
-			{ title: "Draws", to: "/backoffice/draws", icon: icon(BankIcon), matchPrefix: true },
-			{ title: "Site Visits", to: "/backoffice/site-visits", icon: icon(ClipboardIcon), matchPrefix: true },
-		],
-	},
-	{
-		label: "Administration",
-		items: [
-			{ title: "Settings", to: "/backoffice/settings", icon: icon(Settings01Icon), matchPrefix: true },
-		],
-	},
-	{
-		label: "Demos",
-		items: [
-			{ title: "DrawFlow", to: "/demo/drawflow", icon: icon(PresentationOnlineIcon), matchPrefix: true },
-			{ title: "Timeline", to: "/demo/timeline", icon: icon(PresentationOnlineIcon), matchPrefix: true },
-			{ title: "Evil Charts", to: "/demo/evil-charts", icon: icon(PresentationOnlineIcon), matchPrefix: true },
-		],
-	},
+  {
+    label: "Backoffice",
+    items: [
+      {
+        title: "Dashboard",
+        to: "/backoffice",
+        icon: icon(DashboardSquare01Icon),
+      },
+      {
+        title: "Builds",
+        to: "/backoffice/builds",
+        icon: icon(Building06Icon),
+        matchPrefix: true,
+      },
+      {
+        title: "Builders",
+        to: "/backoffice/builders",
+        icon: icon(UserMultipleIcon),
+        matchPrefix: true,
+      },
+      {
+        title: "Contractors",
+        to: "/backoffice/contractors",
+        icon: icon(ConstructionIcon),
+        matchPrefix: true,
+      },
+      {
+        title: "Draws",
+        to: "/backoffice/draws",
+        icon: icon(BankIcon),
+        matchPrefix: true,
+      },
+      {
+        title: "Site Visits",
+        to: "/backoffice/site-visits",
+        icon: icon(ClipboardIcon),
+        matchPrefix: true,
+      },
+    ],
+  },
+  {
+    label: "Administration",
+    items: [
+      {
+        title: "Settings",
+        to: "/backoffice/settings",
+        icon: icon(Settings01Icon),
+        matchPrefix: true,
+      },
+    ],
+  },
+  {
+    label: "Demos",
+    items: [
+      {
+        title: "DrawFlow",
+        to: "/demo/drawflow",
+        icon: icon(PresentationOnlineIcon),
+        matchPrefix: true,
+      },
+      {
+        title: "Timeline",
+        to: "/demo/timeline",
+        icon: icon(PresentationOnlineIcon),
+        matchPrefix: true,
+      },
+      {
+        title: "Evil Charts",
+        to: "/demo/evil-charts",
+        icon: icon(PresentationOnlineIcon),
+        matchPrefix: true,
+      },
+    ],
+  },
+];
+
+const builderRoute = (to: string) => to as SidebarNavTo;
+
+export const builderNavGroups: SidebarNavGroup[] = [
+  {
+    label: "Builder",
+    items: [
+      {
+        title: "Dashboard",
+        to: builderRoute("/builder/demo/dashboard"),
+        icon: icon(DashboardSquare01Icon),
+      },
+      {
+        title: "Proposals",
+        to: builderRoute("/builder/demo/dashboard/proposals"),
+        icon: icon(ClipboardIcon),
+        matchPrefix: true,
+      },
+      {
+        title: "Live Builds",
+        to: builderRoute("/builder/demo/dashboard/builds"),
+        icon: icon(Building06Icon),
+        matchPrefix: true,
+      },
+    ],
+  },
+  {
+    label: "Demos",
+    items: [
+      {
+        title: "Timeline Setup",
+        to: "/demo/timeline",
+        icon: icon(PresentationOnlineIcon),
+        matchPrefix: true,
+      },
+    ],
+  },
 ];
 
 export const footerNavLinks: SidebarNavItem[] = [
-	{ title: "About", to: "/about", icon: icon(HelpCircleIcon) },
-	{ title: "Docs", to: "/demo", icon: icon(BookOpen01Icon), matchPrefix: true },
+  { title: "About", to: "/about", icon: icon(HelpCircleIcon) },
+  { title: "Docs", to: "/demo", icon: icon(BookOpen01Icon), matchPrefix: true },
 ];
 
-
-
 /** Does `pathname` represent the given nav item? */
-export function isNavItemActive(item: SidebarNavItem, pathname: string): boolean {
-	if (pathname === item.to) return true;
-	if (!item.matchPrefix) return false;
-	return pathname.startsWith(`${item.to}/`);
+export function isNavItemActive(
+  item: SidebarNavItem,
+  pathname: string
+): boolean {
+  if (pathname === item.to) return true;
+  if (!item.matchPrefix) return false;
+  return pathname.startsWith(`${item.to}/`);
 }

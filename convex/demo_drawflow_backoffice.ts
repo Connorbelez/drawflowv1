@@ -65,7 +65,12 @@ export function projectMilestoneToKanbanColumn(
   ) {
     return "NeedsApproval";
   }
-  if (milestone.status === "ready" || milestone.status === "in_progress") {
+  if (
+    milestone.status === "ready" ||
+    milestone.status === "in_progress" ||
+    milestone.status === "in_progress_on_schedule" ||
+    milestone.status === "in_progress_behind_schedule"
+  ) {
     return "InProgress";
   }
   return "Backlog";

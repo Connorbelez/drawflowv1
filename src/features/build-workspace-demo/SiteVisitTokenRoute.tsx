@@ -51,6 +51,10 @@ const tokenConvex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL);
 
 type VisitTarget = {
   _id: string;
+  guidance?: {
+    cameraAngles?: string[];
+    whatToVerify?: string[];
+  };
   milestoneKey: string;
   milestoneName: string;
   milestoneOrder: number;
@@ -104,7 +108,7 @@ type UnavailableVisitState = {
 };
 
 type VisitState = ActiveVisitState | UnavailableVisitState;
-type DrawerKey = "guide" | "location" | "scope" | "uploaded";
+type DrawerKey = "capture" | "guide" | "location" | "scope" | "uploaded";
 
 type StagedItem = {
   evidence: SiteVisitStagedEvidence;
@@ -122,7 +126,7 @@ type SubmittedSummary = {
 const DEFAULT_REPORT_NOTES =
   "Observed requested milestone scope on site. Evidence package attached for lender admin review.";
 
-const GUIDE_SECTIONS = [
+const FALLBACK_GUIDE_SECTIONS = [
   {
     items: [
       "All exterior load-bearing walls erected, sheathed, and braced.",
@@ -459,6 +463,7 @@ function SiteVisitTokenRouteContent({
           filesCount={files.length}
           onOpen={setDrawer}
           scopeCount={targets.length}
+          stagedCount={stagedItems.length}
         />
       }
       status="active"
@@ -483,99 +488,18 @@ function SiteVisitTokenRouteContent({
 
           <Frame>
             <FramePanel className="p-3 sm:p-4 lg:p-5">
-              <div className="mb-4 border-b pb-3">
-                <p className="font-semibold text-sm uppercase tracking-[0.22em]">
-                  Capture
-                </p>
-                <p className="text-muted-foreground text-sm">
-                  Phone / tablet stage before upload
-                </p>
-              </div>
-              <div className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-3 sm:gap-3">
-                <CaptureButton
-                  accept="image/*"
-                  capture="environment"
-                  icon={<Camera className="size-7" />}
-                  label="Take Photo"
-                  meta="JPG to WEBP"
-                  onChange={stageFiles}
-                />
-                <CaptureButton
-                  accept="video/*"
-                  capture="environment"
-                  icon={<Video className="size-7" />}
-                  label="Record"
-                  meta="Optional"
-                  onChange={stageFiles}
-                />
-                <CaptureButton
-                  accept="image/*,video/*,application/pdf"
-                  icon={<FileText className="size-7" />}
-                  label="Files"
-                  meta="PDF / IMG"
-                  onChange={stageFiles}
-                />
-              </div>
-
-              <div className="mt-5">
-                <h2 className="font-semibold text-primary text-sm uppercase tracking-[0.22em]">
-                  Tag next capture to
-                </h2>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <TargetButton
-                    active={selectedTarget === "visit-wide"}
-                    onClick={() => setSelectedTarget("visit-wide")}
-                  >
-                    Visit-wide
-                  </TargetButton>
-                  {targets.map((target, index) => (
-                    <TargetButton
-                      active={selectedTarget === target.milestoneKey}
-                      key={target._id}
-                      onClick={() => setSelectedTarget(target.milestoneKey)}
-                    >
-                      {targetCode(target, index)} {target.milestoneName}
-                    </TargetButton>
-                  ))}
-                </div>
-              </div>
-
-              <div className="mt-5 grid gap-2">
-                <div className="flex flex-wrap items-start justify-between gap-3 text-sm">
-                  <span className="font-medium">
-                    Package size after compression
-                  </span>
-                  <span className="font-semibold">
-                    {formatSiteVisitBytes(totalPackageBytes)} / 1 GB
-                  </span>
-                </div>
-                <div className="h-2 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full bg-primary"
-                    style={{
-                      width: `${Math.min(100, (totalPackageBytes / 1_000_000_000) * 100)}%`,
-                    }}
-                  />
-                </div>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground text-xs">
-                  <span>Uploaded {formatSiteVisitBytes(uploadedBytes)}</span>
-                  <span>Staged {formatSiteVisitBytes(stagedBytes)}</span>
-                </div>
-              </div>
-
-              <Button
-                className="mt-4 w-full"
-                disabled={stagedItems.length === 0 || uploadingCount > 0}
-                onClick={() => void uploadStagedFiles()}
-                type="button"
-              >
-                {uploadingCount > 0 ? (
-                  <LoaderCircle className="animate-spin" />
-                ) : (
-                  <Upload />
-                )}
-                Upload staged to Convex
-              </Button>
+              <SiteVisitCapturePanel
+                onStageFiles={stageFiles}
+                onUploadStaged={() => void uploadStagedFiles()}
+                selectedTarget={selectedTarget}
+                setSelectedTarget={setSelectedTarget}
+                stagedBytes={stagedBytes}
+                stagedCount={stagedItems.length}
+                targets={targets}
+                totalPackageBytes={totalPackageBytes}
+                uploadedBytes={uploadedBytes}
+                uploadingCount={uploadingCount}
+              />
             </FramePanel>
           </Frame>
 
@@ -658,7 +582,7 @@ function SiteVisitTokenRouteContent({
           </Frame>
 
           <DesktopUploadedPanel files={files} targets={targets} />
-          <DesktopGuidePanel />
+          <DesktopGuidePanel targets={targets} />
         </aside>
       </section>
 
@@ -667,9 +591,18 @@ function SiteVisitTokenRouteContent({
         buildCode={deriveBuildCode(buildId, build)}
         files={files}
         onClose={() => setDrawer(null)}
+        onStageFiles={stageFiles}
+        onUploadStaged={() => void uploadStagedFiles()}
         open={drawer !== null}
+        selectedTarget={selectedTarget}
+        setSelectedTarget={setSelectedTarget}
+        stagedBytes={stagedBytes}
+        stagedCount={stagedItems.length}
         targets={targets}
+        totalPackageBytes={totalPackageBytes}
         type={drawer ?? "location"}
+        uploadedBytes={uploadedBytes}
+        uploadingCount={uploadingCount}
       />
     </MobileShell>
   );
@@ -762,12 +695,140 @@ function SectionTitle({
   );
 }
 
+function SiteVisitCapturePanel({
+  onStageFiles,
+  onUploadStaged,
+  selectedTarget,
+  setSelectedTarget,
+  stagedBytes,
+  stagedCount,
+  targets,
+  totalPackageBytes,
+  uploadedBytes,
+  uploadingCount,
+  variant = "page",
+}: {
+  onStageFiles: (event: ChangeEvent<HTMLInputElement>) => void;
+  onUploadStaged: () => void;
+  selectedTarget: string;
+  setSelectedTarget: (target: string) => void;
+  stagedBytes: number;
+  stagedCount: number;
+  targets: VisitTarget[];
+  totalPackageBytes: number;
+  uploadedBytes: number;
+  uploadingCount: number;
+  variant?: "drawer" | "page";
+}) {
+  return (
+    <>
+      {variant === "page" ? (
+        <div className="mb-4 border-b pb-3">
+          <p className="font-semibold text-sm uppercase tracking-[0.22em]">
+            Capture
+          </p>
+          <p className="text-muted-foreground text-sm">
+            Phone / tablet stage before upload
+          </p>
+        </div>
+      ) : null}
+      <div className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-3 sm:gap-3">
+        <CaptureButton
+          accept="image/*,video/*,application/pdf"
+          icon={<FileText className="size-7" />}
+          label="Files"
+          meta="PDF / IMG"
+          multiple
+          onChange={onStageFiles}
+        />
+        <CaptureButton
+          accept="video/*"
+          capture="environment"
+          icon={<Video className="size-7" />}
+          label="Record"
+          meta="Optional"
+          onChange={onStageFiles}
+        />
+        <CaptureButton
+          accept="image/*"
+          capture="environment"
+          icon={<Camera className="size-7" />}
+          label="Take Photo"
+          meta="JPG to WEBP"
+          nativeCamera
+          onChange={onStageFiles}
+        />
+      </div>
+
+      <div className="mt-5">
+        <h2 className="font-semibold text-primary text-sm uppercase tracking-[0.22em]">
+          Tag next capture to
+        </h2>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <TargetButton
+            active={selectedTarget === "visit-wide"}
+            onClick={() => setSelectedTarget("visit-wide")}
+          >
+            Visit-wide
+          </TargetButton>
+          {targets.map((target, index) => (
+            <TargetButton
+              active={selectedTarget === target.milestoneKey}
+              key={target._id}
+              onClick={() => setSelectedTarget(target.milestoneKey)}
+            >
+              {targetCode(target, index)} {target.milestoneName}
+            </TargetButton>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-2">
+        <div className="flex flex-wrap items-start justify-between gap-3 text-sm">
+          <span className="font-medium">Package size after compression</span>
+          <span className="font-semibold">
+            {formatSiteVisitBytes(totalPackageBytes)} / 1 GB
+          </span>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full bg-muted">
+          <div
+            className="h-full bg-primary"
+            style={{
+              width: `${Math.min(100, (totalPackageBytes / 1_000_000_000) * 100)}%`,
+            }}
+          />
+        </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground text-xs">
+          <span>Uploaded {formatSiteVisitBytes(uploadedBytes)}</span>
+          <span>Staged {formatSiteVisitBytes(stagedBytes)}</span>
+        </div>
+      </div>
+
+      <Button
+        className="mt-4 w-full"
+        disabled={stagedCount === 0 || uploadingCount > 0}
+        onClick={onUploadStaged}
+        type="button"
+      >
+        {uploadingCount > 0 ? (
+          <LoaderCircle className="animate-spin" />
+        ) : (
+          <Upload />
+        )}
+        Upload staged to Convex
+      </Button>
+    </>
+  );
+}
+
 function CaptureButton({
   accept,
   capture,
   icon,
   label,
   meta,
+  multiple = false,
+  nativeCamera = false,
   onChange,
 }: {
   accept: string;
@@ -775,20 +836,49 @@ function CaptureButton({
   icon: React.ReactNode;
   label: string;
   meta: string;
+  multiple?: boolean;
+  nativeCamera?: boolean;
   onChange: (event: ChangeEvent<HTMLInputElement>) => void;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const openPicker = () => {
+    inputRef.current?.click();
+  };
+
   return (
     <Card
       aria-label={label}
       className="grid min-h-28 cursor-pointer place-items-center p-2 text-center transition-colors hover:border-primary/40 hover:bg-accent/5 sm:min-h-32 lg:min-h-24"
-      render={<label role="button" />}
+      data-testid={
+        nativeCamera ? "site-visit-take-photo" : `site-visit-capture-${label.toLowerCase().replace(/\s+/g, "-")}`
+      }
+      onClick={nativeCamera ? openPicker : undefined}
+      onKeyDown={
+        nativeCamera
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                openPicker();
+              }
+            }
+          : undefined
+      }
+      render={
+        nativeCamera ? (
+          <div role="button" tabIndex={0} />
+        ) : (
+          <label role="button" />
+        )
+      }
     >
       <input
         accept={accept}
         {...(capture ? { capture } : {})}
-        className="hidden"
-        multiple={!capture}
+        className="sr-only"
+        multiple={multiple}
         onChange={onChange}
+        ref={inputRef}
         type="file"
       />
       <span className="text-primary">{icon}</span>
@@ -912,13 +1002,15 @@ function BottomNav({
   filesCount,
   onOpen,
   scopeCount,
+  stagedCount,
 }: {
   filesCount: number;
   onOpen: (key: DrawerKey) => void;
   scopeCount: number;
+  stagedCount: number;
 }) {
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-20 mx-auto grid max-w-md grid-cols-4 border-t bg-background/95 px-2 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] backdrop-blur md:inset-x-auto md:top-1/2 md:right-4 md:bottom-auto md:w-24 md:max-w-none md:-translate-y-1/2 md:grid-cols-1 md:gap-3 md:rounded-xl md:border md:px-2 md:py-3 lg:hidden">
+    <nav className="fixed inset-x-0 bottom-0 z-20 mx-auto grid max-w-lg grid-cols-5 border-t bg-background/95 px-1 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] backdrop-blur md:inset-x-auto md:top-1/2 md:right-4 md:bottom-auto md:w-24 md:max-w-none md:-translate-y-1/2 md:grid-cols-1 md:gap-3 md:rounded-xl md:border md:px-2 md:py-3 lg:hidden">
       <NavButton
         icon={<MapPin />}
         label="Location"
@@ -929,6 +1021,13 @@ function BottomNav({
         icon={<Hammer />}
         label="Scope"
         onClick={() => onOpen("scope")}
+      />
+      <NavButton
+        badge={stagedCount > 0 ? stagedCount : undefined}
+        icon={<Camera />}
+        label="Capture"
+        onClick={() => onOpen("capture")}
+        testId="site-visit-nav-capture"
       />
       <NavButton
         badge={filesCount}
@@ -950,15 +1049,18 @@ function NavButton({
   icon,
   label,
   onClick,
+  testId,
 }: {
   badge?: number;
   icon: React.ReactNode;
   label: string;
   onClick: () => void;
+  testId?: string;
 }) {
   return (
     <button
       className="relative grid place-items-center gap-1 text-muted-foreground text-xs"
+      data-testid={testId}
       onClick={onClick}
       type="button"
     >
@@ -1058,13 +1160,14 @@ function DesktopUploadedPanel({
   );
 }
 
-function DesktopGuidePanel() {
+function DesktopGuidePanel({ targets }: { targets: VisitTarget[] }) {
+  const sections = guidanceSectionsForTargets(targets);
   return (
     <Frame>
       <FramePanel className="p-4">
         <SectionTitle code="D.07" title="Guide" />
         <div className="mt-4 grid gap-4">
-          {GUIDE_SECTIONS.slice(0, 2).map((section) => (
+          {sections.slice(0, 4).map((section) => (
             <section key={section.title}>
               <h3 className="font-semibold text-primary text-xs uppercase tracking-[0.14em]">
                 {section.title}
@@ -1089,19 +1192,38 @@ function SiteVisitDrawer({
   buildCode,
   files,
   onClose,
+  onStageFiles,
+  onUploadStaged,
   open,
+  selectedTarget,
+  setSelectedTarget,
+  stagedBytes,
+  stagedCount,
   targets,
+  totalPackageBytes,
   type,
+  uploadedBytes,
+  uploadingCount,
 }: {
   build: VisitBuild;
   buildCode: string;
   files: VisitFile[];
   onClose: () => void;
+  onStageFiles: (event: ChangeEvent<HTMLInputElement>) => void;
+  onUploadStaged: () => void;
   open: boolean;
+  selectedTarget: string;
+  setSelectedTarget: (target: string) => void;
+  stagedBytes: number;
+  stagedCount: number;
   targets: VisitTarget[];
+  totalPackageBytes: number;
   type: DrawerKey;
+  uploadedBytes: number;
+  uploadingCount: number;
 }) {
   const title = {
+    capture: "Capture evidence",
     guide: "Field Guidance",
     location: "Site Location",
     scope: "Visit Scope",
@@ -1125,7 +1247,9 @@ function SiteVisitDrawer({
                   ? `${targets.length} milestones`
                   : type === "uploaded"
                     ? `${files.length} files · ${formatSiteVisitBytes(files.reduce((sum, file) => sum + file.sizeBytes, 0))}`
-                    : "Inspection checklist"}
+                    : type === "capture"
+                      ? `${stagedCount} staged · ${formatSiteVisitBytes(totalPackageBytes)} package`
+                      : "Inspection checklist"}
             </p>
           </div>
           <Button onClick={onClose} size="icon" type="button" variant="ghost">
@@ -1139,8 +1263,22 @@ function SiteVisitDrawer({
             <ScopePanel targets={targets} />
           ) : type === "uploaded" ? (
             <EvidenceGrid files={files} targets={targets} variant="uploaded" />
+          ) : type === "capture" ? (
+            <SiteVisitCapturePanel
+              onStageFiles={onStageFiles}
+              onUploadStaged={onUploadStaged}
+              selectedTarget={selectedTarget}
+              setSelectedTarget={setSelectedTarget}
+              stagedBytes={stagedBytes}
+              stagedCount={stagedCount}
+              targets={targets}
+              totalPackageBytes={totalPackageBytes}
+              uploadedBytes={uploadedBytes}
+              uploadingCount={uploadingCount}
+              variant="drawer"
+            />
           ) : (
-            <GuidePanel />
+            <GuidePanel targets={targets} />
           )}
         </DrawerPanel>
       </DrawerPopup>
@@ -1243,10 +1381,11 @@ function ScopePanel({ targets }: { targets: VisitTarget[] }) {
   );
 }
 
-function GuidePanel() {
+function GuidePanel({ targets }: { targets: VisitTarget[] }) {
+  const sections = guidanceSectionsForTargets(targets);
   return (
     <div className="grid gap-5">
-      {GUIDE_SECTIONS.map((section) => (
+      {sections.map((section) => (
         <section key={section.title}>
           <h3 className="font-semibold text-primary text-sm uppercase tracking-[0.18em]">
             {section.title}
@@ -1348,6 +1487,58 @@ function deriveCityLine(build?: VisitBuild | null) {
 
 function targetCode(target: VisitTarget, fallbackIndex = 0) {
   return `M-${String(target.milestoneOrder || fallbackIndex + 1).padStart(2, "0")}`;
+}
+
+function guidanceSectionsForTargets(targets: VisitTarget[]) {
+  const sections = targets.flatMap((target, index) => {
+    const code = targetCode(target, index);
+    const label = shortMilestoneLabel(target.milestoneName);
+    const guidance = normalizedGuidance(target);
+    return [
+      {
+        items: guidance.whatToVerify,
+        title: `${code} · ${label} — What to verify`,
+      },
+      {
+        items: guidance.cameraAngles,
+        title: `${code} · ${label} — Required photo angles`,
+      },
+    ].filter((section) => section.items.length > 0);
+  });
+
+  return sections.length > 0 ? sections : FALLBACK_GUIDE_SECTIONS;
+}
+
+function normalizedGuidance(target: VisitTarget) {
+  const whatToVerify = normalizeGuidanceList(target.guidance?.whatToVerify);
+  const cameraAngles = normalizeGuidanceList(target.guidance?.cameraAngles);
+  if (whatToVerify.length > 0 || cameraAngles.length > 0) {
+    return { cameraAngles, whatToVerify };
+  }
+  return {
+    cameraAngles: [
+      "Wide shot showing the full milestone work area.",
+      "Close-up of the highest-risk connection, fixture, or finish.",
+    ],
+    whatToVerify: (target.submilestones.length
+      ? target.submilestones
+      : [target.milestoneName]
+    )
+      .slice(0, 4)
+      .map(
+        (checkpoint) =>
+          `${checkpoint} is complete, visible, and consistent with the approved scope.`
+      ),
+  };
+}
+
+function normalizeGuidanceList(items: string[] | undefined) {
+  return (items ?? []).map((item) => item.trim()).filter(Boolean);
+}
+
+function shortMilestoneLabel(value: string) {
+  const [first] = value.split("&");
+  return first?.trim() || value;
 }
 
 function subCode(target: VisitTarget, index: number) {

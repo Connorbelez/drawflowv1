@@ -71,6 +71,12 @@ describe("settings cashflow preview data", () => {
       budget: 250_000,
       capitalSpikeAmount: 0,
       cashOnHand: 0,
+      day: 0,
+      milestoneEndDay: 10,
+    });
+    expect(data.find((row) => row.id === "milestone:framing")).toMatchObject({
+      day: 15,
+      milestoneEndDay: 27,
     });
     expect(data.find((row) => row.id === "draw:draw-01")).toMatchObject({
       budget: 0,

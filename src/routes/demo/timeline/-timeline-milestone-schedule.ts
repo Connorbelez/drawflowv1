@@ -111,10 +111,23 @@ export function getMilestonePaymentSchedule(
   };
 }
 
-export function getMilestoneEndX(item: TimelineItem<DemoMilestone>): number {
+export function getMilestonePlannedEndX(
+  item: TimelineItem<DemoMilestone>
+): number {
   const data = item.data as ScheduledDemoMilestone | undefined;
 
   return normalizeNumber(item.x, 0) + normalizeDurationDays(data?.durationDays);
+}
+
+export function getMilestoneEndX(item: TimelineItem<DemoMilestone>): number {
+  const startX = normalizeNumber(item.x, 0);
+  const claimedDay = item.data?.completionClaim?.completedDay;
+
+  if (claimedDay === undefined || !Number.isFinite(claimedDay)) {
+    return getMilestonePlannedEndX(item);
+  }
+
+  return Math.max(startX, normalizeNumber(claimedDay, getMilestonePlannedEndX(item)));
 }
 
 export function resolveDefaultDrawX(

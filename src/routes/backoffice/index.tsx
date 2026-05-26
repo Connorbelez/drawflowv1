@@ -1,11 +1,15 @@
-import { ClientOnly, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMutation, useQuery } from "convex/react";
+import {
+  ClientOnly,
+  createFileRoute,
+  useNavigate,
+} from "@tanstack/react-router";
 import {
   type ColumnDef,
   flexRender,
   getCoreRowModel,
   useReactTable,
 } from "@tanstack/react-table";
+import { useMutation, useQuery } from "convex/react";
 import {
   ArrowUpDown,
   CalendarClock,
@@ -16,11 +20,14 @@ import {
   Eye,
   FileText,
   Filter,
+  Loader2,
   MoreHorizontal,
   Plus,
+  RefreshCw,
   Search,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import {
   KanbanBoard,
@@ -52,6 +59,16 @@ import {
   TableRow,
 } from "#/components/ui/table.tsx";
 import {
+  MilestoneCardDetailSheet,
+  ProposalCardDetailSheet,
+} from "#/features/backoffice-dashboard/kanban-card-detail-sheet.tsx";
+import { MetricDetailSheet } from "#/features/backoffice-dashboard/metric-detail-sheet.tsx";
+import {
+  BACKOFFICE_BUILD_WORKSPACE_SEARCH,
+  backofficeBuildWorkspaceHref,
+} from "#/features/backoffice-dashboard/backoffice-build-links.ts";
+import { getMetricDrilldownItems } from "#/features/backoffice-dashboard/metric-drilldown.ts";
+import {
   type ActiveBuild,
   type BackofficeDashboardData,
   type DashboardDrawRequest,
@@ -63,12 +80,6 @@ import {
   type QuickAction,
   type ScheduleEvent,
 } from "#/features/backoffice-dashboard/mock-data.ts";
-import { MetricDetailSheet } from "#/features/backoffice-dashboard/metric-detail-sheet.tsx";
-import {
-  MilestoneCardDetailSheet,
-  ProposalCardDetailSheet,
-} from "#/features/backoffice-dashboard/kanban-card-detail-sheet.tsx";
-import { getMetricDrilldownItems } from "#/features/backoffice-dashboard/metric-drilldown.ts";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../convex/_generated/api";
 
@@ -120,16 +131,47 @@ const actionIcon = {
   siteVisit: ClipboardCheck,
 } satisfies Record<QuickAction["type"], typeof FileText>;
 
-type BackofficeDashboardQueryResult = {
+interface BackofficeDashboardQueryResult {
   dashboard?: Omit<BackofficeDashboardData, "drawRequests" | "scheduleDate"> & {
     drawRequests?: DashboardDrawRequest[];
     scheduleDate: string;
   };
   needsSeed?: boolean;
-};
+}
+
+interface TimelineBackofficeDrawRequestRow {
+  amountCents?: number;
+  drawKey?: string;
+  href?: string;
+  id?: string;
+  label?: string;
+  x?: number;
+}
+
+interface TimelineBackofficeRow {
+  activeMilestone?: string;
+  address: string;
+  buildId?: string;
+  buildKey?: string;
+  buildName: string;
+  buildStatus?: ActiveBuild["status"];
+  currentDay?: number;
+  builder?: string;
+  drawRequests?: TimelineBackofficeDrawRequestRow[];
+  href?: string;
+  liveStatusLabel?: string;
+  milestoneCount?: number;
+  ownerPersona?: string;
+  pendingDrawRequestCount?: number;
+  pendingModificationRequestCount?: number;
+  planId: string;
+  status: "approved" | "draft" | "submitted" | string;
+  statusLabel?: string;
+  totalBudgetCents?: number;
+}
 
 export function normalizeBackofficeDashboardQuery(
-  result: BackofficeDashboardQueryResult | null | undefined,
+  result: BackofficeDashboardQueryResult | null | undefined
 ): BackofficeDashboardData {
   if (!result?.dashboard || result.needsSeed) {
     return getExplicitMockBackofficeDashboardData();
@@ -147,11 +189,138 @@ function RouteComponent() {
     api.demo_timeline_plans.demo_getBackofficeDashboard,
     {}
   );
+  const submittedTimelineProposals = useQuery(
+    api.demo_timeline_plans.demo_getSubmittedProposalsForBackoffice,
+    {}
+  );
   const dashboard = useMemo(() => {
-    return normalizeBackofficeDashboardQuery(generatedDashboard);
-  }, [generatedDashboard]);
+    const normalized = normalizeBackofficeDashboardQuery(generatedDashboard);
+    return mergeTimelineRowsIntoBackofficeDashboard(
+      normalized,
+      submittedTimelineProposals ?? []
+    );
+  }, [generatedDashboard, submittedTimelineProposals]);
 
   return <BackofficeDashboard dashboard={dashboard} />;
+}
+
+export function mergeTimelineRowsIntoBackofficeDashboard(
+  normalized: BackofficeDashboardData,
+  timelineRows: TimelineBackofficeRow[]
+): BackofficeDashboardData {
+  const timelineProposalCards = timelineRows
+    .filter((row) => row.status === "draft" || row.status === "submitted")
+    .map((row): ProposalKanbanCard => ({
+      address: row.address,
+      buildKey: row.buildKey,
+      builder: row.ownerPersona ?? row.builder ?? "Timeline builder",
+      column: row.status === "submitted" ? "submitted" : "draft",
+      href: row.href,
+      id: String(row.planId),
+      isMockBuilder: true,
+      isMockLtv: true,
+      loanAmount: centsToCurrency(row.totalBudgetCents ?? 0),
+      ltv: 68,
+      name: row.buildName,
+      statusLabel: row.statusLabel,
+      tag: "demo",
+    }));
+  const timelineActiveBuilds = timelineRows
+    .filter((row) => row.status === "approved")
+    .map((row): ActiveBuild => ({
+      activeMilestone:
+        row.pendingDrawRequestCount || row.pendingModificationRequestCount
+          ? `${row.pendingDrawRequestCount ?? 0} draw requests; ${row.pendingModificationRequestCount ?? 0} change requests`
+          : (row.activeMilestone ?? `${row.milestoneCount ?? 0} milestones`),
+      address: row.address,
+      buildKey: row.buildKey ?? String(row.buildId),
+      builder: row.ownerPersona ?? row.builder ?? "Timeline builder",
+      daysActive: Math.max(0, Math.round(row.currentDay ?? 0)),
+      href: backofficeBuildWorkspaceHref(
+        String(row.buildKey ?? row.buildId ?? row.planId),
+      ),
+      id: String(row.buildKey ?? row.planId),
+      milestoneState:
+        row.buildStatus === "behind" ? ("inProgress" as const) : ("backlog" as const),
+      status: row.buildStatus ?? ("onTrack" as const),
+      statusLabel: row.liveStatusLabel ?? "Live timeline",
+    }));
+  const timelineDrawRequests = timelineRows.flatMap((row) =>
+    (row.drawRequests ?? []).map((request): DashboardDrawRequest => ({
+      address: row.address,
+      buildId: String(row.buildKey ?? row.buildId ?? row.planId),
+      buildKey: String(row.buildKey ?? row.buildId ?? row.planId),
+      eligibleDate: `Day ${Math.round(request.x ?? 0)}`,
+      href:
+        row.status === "approved"
+          ? backofficeBuildWorkspaceHref(
+              String(row.buildKey ?? row.buildId ?? row.planId),
+            )
+          : (request.href ?? `/demo/timeline/${row.planId}`),
+      id: String(request.drawKey ?? request.id),
+      label: request.label ?? "Timeline draw request",
+      requestedAmount: centsToCurrency(request.amountCents ?? 0),
+      statusLabel: "Requested",
+    }))
+  );
+  const generatedTimelineProposalIds = new Set(
+    timelineProposalCards.map((proposal) => String(proposal.id))
+  );
+  const retainedGeneratedProposals = normalized.proposals.filter(
+    (proposal) => !generatedTimelineProposalIds.has(String(proposal.id))
+  );
+  const proposals = [...retainedGeneratedProposals, ...timelineProposalCards];
+  const draftCount = timelineProposalCards.filter(
+    (card) => card.column === "draft"
+  ).length;
+  const submittedCount = timelineProposalCards.filter(
+    (card) => card.column === "submitted"
+  ).length;
+
+  return {
+    ...normalized,
+    activeBuilds: [...normalized.activeBuilds, ...timelineActiveBuilds],
+    drawRequests: [...normalized.drawRequests, ...timelineDrawRequests],
+    metrics: normalized.metrics.map((metric) =>
+      metric.id === "proposals"
+        ? {
+            ...metric,
+            detail: `${proposals.length} draft/submitted proposals`,
+            trend: `${draftCount} timeline drafts; ${submittedCount} submitted`,
+            value: proposals.length,
+          }
+        : metric.id === "active-builds"
+          ? {
+              ...metric,
+              detail: `${normalized.activeBuilds.length + timelineActiveBuilds.length} active builds including approved timelines`,
+              value:
+                normalized.activeBuilds.length + timelineActiveBuilds.length,
+            }
+          : metric.id === "draw-requests"
+            ? {
+                ...metric,
+                detail: `${normalized.drawRequests.length + timelineDrawRequests.length} draw requests including live timelines`,
+                trend: `${timelineDrawRequests.length} timeline draw requests`,
+                value:
+                  normalized.drawRequests.length + timelineDrawRequests.length,
+              }
+            : metric
+    ),
+    proposals,
+    proposalColumns: normalized.proposalColumns.map((column) =>
+      column.id === "submitted"
+        ? {
+            ...column,
+            description: `${submittedCount} timeline proposals waiting for review`,
+          }
+        : column.id === "draft"
+          ? {
+              ...column,
+              description: `${draftCount} timeline drafts ready to open`,
+            }
+          : column
+    ),
+  };
 }
 
 function BackofficeDashboard({
@@ -185,6 +354,27 @@ function BackofficeDashboard({
 }
 
 function DashboardToolbar() {
+  const syncTimelines = useMutation(
+    api.demo_timeline_plans.demo_syncApprovedTimelinesNow
+  );
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const runTimelineSync = async () => {
+    setIsSyncing(true);
+    try {
+      const summary = await syncTimelines({});
+      toast.success(
+        `Timeline sync complete: ${summary.plansUpdated ?? 0} plans updated, ${summary.milestonesUpdated ?? 0} milestones updated, ${summary.autoRequestedDraws ?? 0} draws requested.`
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Timeline sync failed."
+      );
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   return (
     <Frame>
       <FramePanel className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -197,19 +387,27 @@ function DashboardToolbar() {
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2 text-muted-foreground text-sm">
           <span>Source</span>
-          <span className="font-medium text-foreground">Convex demo tables</span>
+          <span className="font-medium text-foreground">
+            Convex demo tables
+          </span>
           <Badge variant="success">Live</Badge>
+          <Button
+            disabled={isSyncing}
+            onClick={runTimelineSync}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            {isSyncing ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+            Sync timelines
+          </Button>
         </div>
       </FramePanel>
     </Frame>
   );
 }
 
-function MetricGrid({
-  dashboard,
-}: {
-  dashboard: BackofficeDashboardData;
-}) {
+function MetricGrid({ dashboard }: { dashboard: BackofficeDashboardData }) {
   const [activeMetricId, setActiveMetricId] = useState<string | null>(null);
   const metrics = dashboard.metrics;
   const activeMetric =
@@ -282,6 +480,17 @@ function MetricGrid({
       ) : null}
     </>
   );
+}
+
+function openBackofficeBuildWorkspace(
+  navigate: ReturnType<typeof useNavigate>,
+  build: ActiveBuild,
+) {
+  void navigate({
+    params: { buildId: build.buildKey },
+    search: BACKOFFICE_BUILD_WORKSPACE_SEARCH,
+    to: "/backoffice/builds/$buildId",
+  });
 }
 
 function ActiveBuildsCard({ builds }: { builds: ActiveBuild[] }) {
@@ -366,11 +575,7 @@ function ActiveBuildsCard({ builds }: { builds: ActiveBuild[] }) {
               aria-label={`View ${row.original.id}`}
               onClick={(event) => {
                 event.stopPropagation();
-                void navigate({
-                  params: { buildId: row.original.buildKey },
-                  search: { milestone: undefined },
-                  to: "/backoffice/builds/$buildId",
-                });
+                openBackofficeBuildWorkspace(navigate, row.original);
               }}
               size="icon-xs"
               variant="ghost"
@@ -469,21 +674,13 @@ function ActiveBuildsCard({ builds }: { builds: ActiveBuild[] }) {
               <TableRow
                 className="cursor-pointer"
                 key={row.id}
-                onClick={() =>
-                  void navigate({
-                    params: { buildId: row.original.buildKey },
-                    search: { milestone: undefined },
-                    to: "/backoffice/builds/$buildId",
-                  })
-                }
+                onClick={() => {
+                  openBackofficeBuildWorkspace(navigate, row.original);
+                }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
-                    void navigate({
-                      params: { buildId: row.original.buildKey },
-                      search: { milestone: undefined },
-                      to: "/backoffice/builds/$buildId",
-                    });
+                    openBackofficeBuildWorkspace(navigate, row.original);
                   }
                 }}
                 tabIndex={0}
@@ -510,24 +707,10 @@ function SubmittedProposalsCard({
 }: {
   proposals: ProposalKanbanCard[];
 }) {
-  const approveProposal = useMutation(api.demo_drawflow.demo_approveProposal);
-  const submitted = proposals.filter((proposal) => proposal.column === "submitted");
-  const [approvingId, setApprovingId] = useState<string | null>(null);
-  const [error, setError] = useState("");
-
-  const approve = async (proposal: ProposalKanbanCard) => {
-    setApprovingId(proposal.id);
-    setError("");
-    try {
-      await approveProposal({
-        reason: `Approved from backoffice dashboard: ${proposal.name}`,
-      });
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Approval failed.");
-    } finally {
-      setApprovingId(null);
-    }
-  };
+  const navigate = useNavigate();
+  const submitted = proposals.filter(
+    (proposal) => proposal.column === "submitted"
+  );
 
   return (
     <Card id="milestones-kanban">
@@ -574,20 +757,18 @@ function SubmittedProposalsCard({
                     <div className="flex justify-end gap-2">
                       {proposal.href ? (
                         <Button
-                          render={<a href={proposal.href} />}
+                          onClick={() =>
+                            void navigate({
+                              params: { planId: proposal.id },
+                              to: "/backoffice/proposals/$planId",
+                            })
+                          }
                           size="sm"
                           variant="outline"
                         >
-                          Open
+                          Review
                         </Button>
                       ) : null}
-                      <Button
-                        disabled={approvingId === proposal.id}
-                        onClick={() => void approve(proposal)}
-                        size="sm"
-                      >
-                        Approve
-                      </Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -599,9 +780,6 @@ function SubmittedProposalsCard({
             No submitted proposals are waiting for admin approval.
           </div>
         )}
-        {error ? (
-          <div className="border-t p-4 text-destructive text-sm">{error}</div>
-        ) : null}
       </CardContent>
     </Card>
   );
@@ -621,77 +799,85 @@ function MilestoneKanban({
     setCards(milestones);
   }, [milestones]);
   useEffect(() => {
-    if (!activeMilestone) return;
+    if (!activeMilestone) {
+      return;
+    }
     const latest = milestones.find((entry) => entry.id === activeMilestone.id);
-    if (latest && latest !== activeMilestone) setActiveMilestone(latest);
-    else if (!latest) setActiveMilestone(null);
+    if (latest && latest !== activeMilestone) {
+      setActiveMilestone(latest);
+    } else if (!latest) {
+      setActiveMilestone(null);
+    }
   }, [activeMilestone, milestones]);
 
   return (
     <>
-    <Card id="proposals-kanban">
-      <CardHeader className="gap-3 border-b p-4">
-        <CardTitle className="text-base">Milestone Kanban</CardTitle>
-        <CardDescription>
-          Milestones grouped by build; drag to move state
-        </CardDescription>
-        <CardAction className="row-span-1 flex items-center gap-2 text-muted-foreground text-sm">
-          <Switch aria-label="Show completed milestones" />
-          Show completed
-        </CardAction>
-      </CardHeader>
-      <CardContent className="overflow-x-auto p-0">
-        <ClientOnly
-          fallback={<div className="min-h-80 min-w-4xl" />}
-        >
-          <KanbanProvider
-            className="min-h-80 min-w-4xl gap-0"
-            columns={columns}
-            data={cards}
-            onDataChange={setCards}
-            readOnly
-          >
-            {(column) => (
-              <KanbanBoard
-                className="rounded-none border-0 border-r bg-card shadow-none ring-0 last:border-r-0"
-                id={column.id}
-                key={column.id}
-              >
-                <KanbanHeader className="space-y-1 border-b p-4">
-                  <div className="flex items-center gap-2">
-                    <span>{column.name}</span>
-                    <Badge variant="outline">
-                      {cards.filter((card) => card.column === column.id).length}
-                    </Badge>
-                  </div>
-                  {column.description ? (
-                    <p className="font-normal text-muted-foreground text-xs">
-                      {column.description}
-                    </p>
-                  ) : null}
-                </KanbanHeader>
-                <KanbanCards<MilestoneKanbanCard>
-                  className="gap-2 p-3"
+      <Card id="proposals-kanban">
+        <CardHeader className="gap-3 border-b p-4">
+          <CardTitle className="text-base">Milestone Kanban</CardTitle>
+          <CardDescription>
+            Milestones grouped by build; drag to move state
+          </CardDescription>
+          <CardAction className="row-span-1 flex items-center gap-2 text-muted-foreground text-sm">
+            <Switch aria-label="Show completed milestones" />
+            Show completed
+          </CardAction>
+        </CardHeader>
+        <CardContent className="overflow-x-auto p-0">
+          <ClientOnly fallback={<div className="min-h-80 min-w-4xl" />}>
+            <KanbanProvider
+              className="min-h-80 min-w-4xl gap-0"
+              columns={columns}
+              data={cards}
+              onDataChange={setCards}
+              readOnly
+            >
+              {(column) => (
+                <KanbanBoard
+                  className="rounded-none border-0 border-r bg-card shadow-none ring-0 last:border-r-0"
                   id={column.id}
+                  key={column.id}
                 >
-                  {(card) => (
-                    <MilestoneCard
-                      card={card}
-                      onSelect={setActiveMilestone}
-                    />
-                  )}
-                </KanbanCards>
-              </KanbanBoard>
-            )}
-          </KanbanProvider>
-        </ClientOnly>
-      </CardContent>
-    </Card>
+                  <KanbanHeader className="space-y-1 border-b p-4">
+                    <div className="flex items-center gap-2">
+                      <span>{column.name}</span>
+                      <Badge variant="outline">
+                        {
+                          cards.filter((card) => card.column === column.id)
+                            .length
+                        }
+                      </Badge>
+                    </div>
+                    {column.description ? (
+                      <p className="font-normal text-muted-foreground text-xs">
+                        {column.description}
+                      </p>
+                    ) : null}
+                  </KanbanHeader>
+                  <KanbanCards<MilestoneKanbanCard>
+                    className="gap-2 p-3"
+                    id={column.id}
+                  >
+                    {(card) => (
+                      <MilestoneCard
+                        card={card}
+                        onSelect={setActiveMilestone}
+                      />
+                    )}
+                  </KanbanCards>
+                </KanbanBoard>
+              )}
+            </KanbanProvider>
+          </ClientOnly>
+        </CardContent>
+      </Card>
       <MilestoneCardDetailSheet
         card={activeMilestone}
         columns={columns}
         onOpenChange={(open) => {
-          if (!open) setActiveMilestone(null);
+          if (!open) {
+            setActiveMilestone(null);
+          }
         }}
       />
     </>
@@ -746,6 +932,7 @@ function ProposalKanban({
   columns: DashboardKanbanColumn[];
   proposals: ProposalKanbanCard[];
 }) {
+  const navigate = useNavigate();
   const [cards, setCards] = useState(proposals);
   const [activeProposal, setActiveProposal] =
     useState<ProposalKanbanCard | null>(null);
@@ -753,88 +940,108 @@ function ProposalKanban({
     setCards(proposals);
   }, [proposals]);
   useEffect(() => {
-    if (!activeProposal) return;
+    if (!activeProposal) {
+      return;
+    }
     const latest = proposals.find((entry) => entry.id === activeProposal.id);
-    if (latest && latest !== activeProposal) setActiveProposal(latest);
-    else if (!latest) setActiveProposal(null);
+    if (latest && latest !== activeProposal) {
+      setActiveProposal(latest);
+    } else if (!latest) {
+      setActiveProposal(null);
+    }
   }, [activeProposal, proposals]);
 
   return (
     <>
-    <Card>
-      <CardHeader className="gap-3 border-b p-4">
-        <CardTitle className="text-base">Builds - Proposals</CardTitle>
-        <CardDescription>Pipeline by stage</CardDescription>
-        <CardAction className="row-span-1 flex flex-wrap gap-2">
-          <Button variant="outline">
-            <Filter />
-            Filter
-          </Button>
-          <Button variant="outline">
-            <Plus />
-            Draft new
-          </Button>
-        </CardAction>
-      </CardHeader>
-      <CardContent className="overflow-x-auto p-0">
-        <ClientOnly
-          fallback={<div className="min-h-96 min-w-4xl" />}
-        >
-          <KanbanProvider
-            className="min-h-96 min-w-4xl gap-0"
-            columns={columns}
-            data={cards}
-            onDataChange={setCards}
-            readOnly
-          >
-            {(column) => (
-              <KanbanBoard
-                className="rounded-none border-0 border-r bg-card shadow-none ring-0 last:border-r-0"
-                id={column.id}
-                key={column.id}
-              >
-                <KanbanHeader className="border-b p-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <span>{column.name}</span>
-                      <Badge variant="outline">
-                        {
-                          cards.filter((card) => card.column === column.id)
-                            .length
-                        }
-                      </Badge>
-                    </div>
-                    <Button
-                      aria-label={`Add ${column.name} proposal`}
-                      size="icon-xs"
-                      variant="ghost"
-                    >
-                      <Plus />
-                    </Button>
-                  </div>
-                </KanbanHeader>
-                <KanbanCards<ProposalKanbanCard>
-                  className="gap-3 p-3"
+      <Card>
+        <CardHeader className="gap-3 border-b p-4">
+          <CardTitle className="text-base">Builds - Proposals</CardTitle>
+          <CardDescription>Pipeline by stage</CardDescription>
+          <CardAction className="row-span-1 flex flex-wrap gap-2">
+            <Button variant="outline">
+              <Filter />
+              Filter
+            </Button>
+            <Button variant="outline">
+              <Plus />
+              Draft new
+            </Button>
+          </CardAction>
+        </CardHeader>
+        <CardContent className="overflow-x-auto p-0">
+          <ClientOnly fallback={<div className="min-h-96 min-w-4xl" />}>
+            <KanbanProvider
+              className="min-h-96 min-w-4xl gap-0"
+              columns={columns}
+              data={cards}
+              onDataChange={setCards}
+              readOnly
+            >
+              {(column) => (
+                <KanbanBoard
+                  className="rounded-none border-0 border-r bg-card shadow-none ring-0 last:border-r-0"
                   id={column.id}
+                  key={column.id}
                 >
-                  {(card) => (
-                    <ProposalCard
-                      card={card}
-                      onSelect={setActiveProposal}
-                    />
-                  )}
-                </KanbanCards>
-              </KanbanBoard>
-            )}
-          </KanbanProvider>
-        </ClientOnly>
-      </CardContent>
-    </Card>
+                  <KanbanHeader className="border-b p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span>{column.name}</span>
+                        <Badge variant="outline">
+                          {
+                            cards.filter((card) => card.column === column.id)
+                              .length
+                          }
+                        </Badge>
+                      </div>
+                      <Button
+                        aria-label={`Add ${column.name} proposal`}
+                        size="icon-xs"
+                        variant="ghost"
+                      >
+                        <Plus />
+                      </Button>
+                    </div>
+                  </KanbanHeader>
+                  <KanbanCards<ProposalKanbanCard>
+                    className="gap-3 p-3"
+                    id={column.id}
+                  >
+                    {(card) => (
+                      <ProposalCard
+                        card={card}
+                        onSelect={(selected) => {
+                          if (
+                            selected.href?.startsWith("/backoffice/proposals/")
+                          ) {
+                            void navigate({
+                              params: { planId: selected.id },
+                              to: "/backoffice/proposals/$planId",
+                            });
+                            return;
+                          }
+                          if (selected.href?.startsWith("/demo/timeline/")) {
+                            window.location.assign(selected.href);
+                            return;
+                          }
+                          setActiveProposal(selected);
+                        }}
+                      />
+                    )}
+                  </KanbanCards>
+                </KanbanBoard>
+              )}
+            </KanbanProvider>
+          </ClientOnly>
+        </CardContent>
+      </Card>
       <ProposalCardDetailSheet
         card={activeProposal}
         columns={columns}
         onOpenChange={(open) => {
-          if (!open) setActiveProposal(null);
+          if (!open) {
+            setActiveProposal(null);
+          }
         }}
       />
     </>
@@ -1056,6 +1263,14 @@ function formatActionType(type: QuickAction["type"]) {
   };
 
   return labels[type];
+}
+
+function centsToCurrency(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    currency: "USD",
+    maximumFractionDigits: 0,
+    style: "currency",
+  }).format(value / 100);
 }
 
 function formatMonthYear(date: Date) {

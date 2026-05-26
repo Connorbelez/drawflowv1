@@ -145,6 +145,23 @@ const demoTimelineDrawStatusValidator = v.union(
   v.literal("rejected")
 );
 
+const demoTimelineCapitalEventKindValidator = v.union(
+  v.literal("cost"),
+  v.literal("cashInfusion")
+);
+
+const demoTimelineModificationRequestTypeValidator = v.union(
+  v.literal("createMilestone"),
+  v.literal("deleteMilestone"),
+  v.literal("updateMilestoneBudget")
+);
+
+const demoTimelineModificationRequestStatusValidator = v.union(
+  v.literal("requested"),
+  v.literal("approved"),
+  v.literal("rejected")
+);
+
 const demoTimelineSiteVisitStatusValidator = v.union(
   v.literal("unopened"),
   v.literal("in_progress"),
@@ -153,12 +170,21 @@ const demoTimelineSiteVisitStatusValidator = v.union(
   v.literal("superseded")
 );
 
+const demoSiteVisitGuidanceKindValidator = v.union(
+  v.literal("whatToVerify"),
+  v.literal("cameraAngle")
+);
+
 const demoTimelineSubmilestoneSnapshotValidator = v.object({
   budgetCents: v.optional(v.number()),
+  description: v.optional(v.string()),
   durationDays: v.optional(v.number()),
   key: v.string(),
   name: v.string(),
   order: v.number(),
+  status: v.optional(
+    v.union(v.literal("todo"), v.literal("in_progress"), v.literal("done"))
+  ),
 });
 
 export default defineSchema({
@@ -184,12 +210,15 @@ export default defineSchema({
     .index("by_milestone", ["scenario", "milestoneKey"])
     .index("by_draw_group", ["scenario", "drawGroupKey"]),
   demo_builds: defineTable({
+    borrowerCoPayBps: v.optional(v.number()),
     borrowerCoPayCents: v.optional(v.number()),
     flatDrawFeeCents: v.number(),
     interestAnnualBps: v.number(),
     key: v.string(),
     lenderDrawPolicyLimitCents: v.number(),
     name: v.string(),
+    orgKey: v.optional(v.string()),
+    ownerPersona: v.optional(v.string()),
     payoffDate: v.string(),
     projectStartDate: v.string(),
     scenario: v.string(),
@@ -213,16 +242,22 @@ export default defineSchema({
     key: v.string(),
     label: v.string(),
     order: v.number(),
+    orgKey: v.optional(v.string()),
     plannedEndDate: v.optional(v.string()),
     plannedStartDate: v.optional(v.string()),
     releaseApprovedAt: v.optional(v.number()),
     requestedValueCents: v.number(),
     reviewLagDays: v.optional(v.number()),
     scenario: v.string(),
+    sourceTimelineDrawId: v.optional(v.id("demo_timelineDraws")),
     status: v.string(),
     updatedAt: v.number(),
   })
     .index("by_build_order", ["buildId", "order"])
+    .index("by_build_and_source_timeline_draw", [
+      "buildId",
+      "sourceTimelineDrawId",
+    ])
     .index("by_scenario", ["scenario"])
     .index("by_scenario_key", ["scenario", "key"]),
   demo_eventOutbox: defineTable({
@@ -258,7 +293,10 @@ export default defineSchema({
     buildId: v.id("demo_builds"),
     createdAt: v.number(),
     frozenAt: v.optional(v.number()),
-    milestoneId: v.union(v.id("demo_milestones"), v.id("demo_timelineMilestones")),
+    milestoneId: v.union(
+      v.id("demo_milestones"),
+      v.id("demo_timelineMilestones")
+    ),
     milestoneKey: v.string(),
     reviewStatus: v.string(),
     scenario: v.string(),
@@ -310,18 +348,24 @@ export default defineSchema({
     key: v.string(),
     name: v.string(),
     order: v.number(),
+    orgKey: v.optional(v.string()),
     plannedEndDate: v.optional(v.string()),
     plannedStartDate: v.optional(v.string()),
     progressPercent: v.number(),
     requestedAmountCents: v.optional(v.number()),
     requiresSiteVisit: v.boolean(),
     scenario: v.string(),
+    sourceTimelineMilestoneId: v.optional(v.id("demo_timelineMilestones")),
     status: v.string(),
     submittedAt: v.optional(v.number()),
     type: v.string(),
     updatedAt: v.number(),
   })
     .index("by_build_order", ["buildId", "order"])
+    .index("by_build_and_source_timeline_milestone", [
+      "buildId",
+      "sourceTimelineMilestoneId",
+    ])
     .index("by_draw_group", ["scenario", "drawGroupKey"])
     .index("by_key", ["scenario", "key"])
     .index("by_scenario", ["scenario"]),
@@ -361,7 +405,10 @@ export default defineSchema({
   demo_reviewReports: defineTable({
     buildId: v.id("demo_builds"),
     createdAt: v.number(),
-    milestoneId: v.union(v.id("demo_milestones"), v.id("demo_timelineMilestones")),
+    milestoneId: v.union(
+      v.id("demo_milestones"),
+      v.id("demo_timelineMilestones")
+    ),
     milestoneKey: v.string(),
     notes: v.string(),
     outcome: v.string(),
@@ -371,7 +418,10 @@ export default defineSchema({
   demo_rolloverBuffers: defineTable({
     buildId: v.id("demo_builds"),
     createdAt: v.number(),
-    milestoneId: v.union(v.id("demo_milestones"), v.id("demo_timelineMilestones")),
+    milestoneId: v.union(
+      v.id("demo_milestones"),
+      v.id("demo_timelineMilestones")
+    ),
     milestoneKey: v.string(),
     originalApprovedCents: v.number(),
     requestedAmountCents: v.number(),
@@ -386,7 +436,10 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
     completionObserved: v.optional(v.boolean()),
     createdAt: v.number(),
-    milestoneId: v.union(v.id("demo_milestones"), v.id("demo_timelineMilestones")),
+    milestoneId: v.union(
+      v.id("demo_milestones"),
+      v.id("demo_timelineMilestones")
+    ),
     milestoneKey: v.string(),
     notes: v.optional(v.string()),
     recommendedOutcome: v.optional(v.string()),
@@ -405,7 +458,10 @@ export default defineSchema({
   demo_siteVisitTargets: defineTable({
     buildId: v.id("demo_builds"),
     createdAt: v.number(),
-    milestoneId: v.union(v.id("demo_milestones"), v.id("demo_timelineMilestones")),
+    milestoneId: v.union(
+      v.id("demo_milestones"),
+      v.id("demo_timelineMilestones")
+    ),
     milestoneKey: v.string(),
     milestoneName: v.string(),
     milestoneOrder: v.number(),
@@ -416,6 +472,23 @@ export default defineSchema({
     .index("by_site_visit", ["siteVisitId"])
     .index("by_milestone", ["scenario", "milestoneKey"])
     .index("by_scenario", ["scenario"]),
+  demo_siteVisitTargetGuidanceItems: defineTable({
+    buildId: v.id("demo_builds"),
+    createdAt: v.number(),
+    kind: demoSiteVisitGuidanceKindValidator,
+    milestoneKey: v.string(),
+    milestoneName: v.string(),
+    order: v.number(),
+    scenario: v.string(),
+    siteVisitId: v.id("demo_siteVisits"),
+    siteVisitTargetId: v.id("demo_siteVisitTargets"),
+    sourceKind: v.optional(v.string()),
+    sourceKey: v.optional(v.string()),
+    text: v.string(),
+  })
+    .index("by_site_visit", ["siteVisitId"])
+    .index("by_target", ["siteVisitTargetId"])
+    .index("by_milestone", ["scenario", "milestoneKey"]),
   demo_siteVisitFiles: defineTable({
     buildId: v.id("demo_builds"),
     fileName: v.string(),
@@ -559,8 +632,7 @@ export default defineSchema({
     templateKey: v.string(),
     title: v.string(),
     updatedAt: v.number(),
-  })
-    .index("by_template", ["templateKey"]),
+  }).index("by_template", ["templateKey"]),
   demo_timelineTemplateMilestones: defineTable({
     createdAt: v.number(),
     dependencyKeys: v.array(v.string()),
@@ -592,6 +664,26 @@ export default defineSchema({
   })
     .index("by_milestone", ["templateKey", "milestoneKey"])
     .index("by_milestone_and_order", ["templateKey", "milestoneKey", "order"]),
+  demo_timelineTemplateMilestoneGuidance: defineTable({
+    createdAt: v.number(),
+    milestoneKey: v.string(),
+    templateKey: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_template", ["templateKey"])
+    .index("by_milestone", ["templateKey", "milestoneKey"]),
+  demo_timelineTemplateMilestoneGuidanceItems: defineTable({
+    createdAt: v.number(),
+    guidanceId: v.id("demo_timelineTemplateMilestoneGuidance"),
+    kind: demoSiteVisitGuidanceKindValidator,
+    milestoneKey: v.string(),
+    order: v.number(),
+    templateKey: v.string(),
+    text: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_guidance", ["guidanceId"])
+    .index("by_milestone_kind", ["templateKey", "milestoneKey", "kind"]),
   demo_timelineDrawScenarios: defineTable({
     createdAt: v.number(),
     description: v.string(),
@@ -633,18 +725,31 @@ export default defineSchema({
     priorState: v.optional(v.string()),
     reason: v.optional(v.string()),
     warnings: v.array(v.string()),
-  })
-    .index("by_entity", ["entityType", "entityKey"]),
+  }).index("by_entity", ["entityType", "entityKey"]),
+  demo_personas: defineTable({
+    createdAt: v.number(),
+    key: v.string(),
+    label: v.string(),
+    role: v.union(v.literal("builder"), v.literal("staff")),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
   demo_timelinePlans: defineTable({
     actorPersona: v.string(),
     address: v.string(),
     buildId: v.id("demo_builds"),
-    borrowerCoPayCents: v.number(),
+    borrowerCoPayBps: v.optional(v.number()),
+    borrowerCoPayCents: v.optional(v.number()),
     buildName: v.string(),
     createdAt: v.number(),
     currentDay: v.number(),
     lenderDrawPolicyLimitCents: v.number(),
+    adminNote: v.optional(v.string()),
+    approvedAt: v.optional(v.number()),
+    approvedByPersona: v.optional(v.string()),
+    archivedAt: v.optional(v.number()),
+    archivedReason: v.optional(v.string()),
     orgKey: v.string(),
+    ownerPersona: v.optional(v.string()),
     progressValue: v.number(),
     proposalSlug: v.string(),
     rangeMax: v.number(),
@@ -659,16 +764,113 @@ export default defineSchema({
     source: v.literal("timeline_setup"),
     startingCashCents: v.number(),
     status: demoTimelinePlanStatusValidator,
+    startDate: v.optional(v.number()),
     tag: v.literal("demo"),
     templateTitle: v.string(),
+    submittedAt: v.optional(v.number()),
+    submittedByPersona: v.optional(v.string()),
+    submittedSnapshotId: v.optional(v.id("demo_timelinePlanSnapshots")),
     totalBudgetCents: v.number(),
     updatedAt: v.number(),
     workingCapitalLimitCents: v.number(),
   })
     .index("by_build", ["buildId"])
+    .index("by_owner_updated", ["ownerPersona", "updatedAt"])
     .index("by_org_updated", ["orgKey", "updatedAt"])
     .index("by_proposal_slug", ["proposalSlug"])
     .index("by_status_updated", ["status", "updatedAt"]),
+  demo_timelinePlanSnapshots: defineTable({
+    address: v.string(),
+    borrowerCoPayBps: v.optional(v.number()),
+    borrowerCoPayCents: v.optional(v.number()),
+    buildId: v.id("demo_builds"),
+    buildName: v.string(),
+    createdAt: v.number(),
+    lenderDrawPolicyLimitCents: v.number(),
+    orgKey: v.string(),
+    ownerPersona: v.optional(v.string()),
+    planId: v.id("demo_timelinePlans"),
+    planName: v.string(),
+    submittedAt: v.number(),
+    submittedByPersona: v.string(),
+    totalBudgetCents: v.number(),
+    workingCapitalLimitCents: v.number(),
+  })
+    .index("by_build", ["buildId"])
+    .index("by_plan", ["planId"])
+    .index("by_org_submitted", ["orgKey", "submittedAt"]),
+  demo_timelinePlanSnapshotMilestones: defineTable({
+    budgetCents: v.number(),
+    buildId: v.id("demo_builds"),
+    createdAt: v.number(),
+    dayEnd: v.number(),
+    dayStart: v.number(),
+    dependencyKeys: v.array(v.string()),
+    drawAvailabilityCents: v.optional(v.number()),
+    drawKey: v.optional(v.string()),
+    durationDays: v.number(),
+    evidenceState: v.string(),
+    icon: demoTimelineIconValidator,
+    included: v.boolean(),
+    lane: v.optional(v.number()),
+    markerLabel: v.optional(v.string()),
+    milestoneKey: v.string(),
+    name: v.string(),
+    order: v.number(),
+    orgKey: v.string(),
+    planId: v.id("demo_timelinePlans"),
+    policyState: v.string(),
+    snapshotId: v.id("demo_timelinePlanSnapshots"),
+    sourceTimelineMilestoneId: v.id("demo_timelineMilestones"),
+    status: demoTimelineStatusValidator,
+    submilestoneSnapshot: v.array(demoTimelineSubmilestoneSnapshotValidator),
+    tone: demoTimelineToneValidator,
+    type: v.string(),
+    x: v.number(),
+  })
+    .index("by_plan", ["planId"])
+    .index("by_snapshot", ["snapshotId"])
+    .index("by_build", ["buildId", "sourceTimelineMilestoneId"]),
+  demo_timelinePlanSnapshotDraws: defineTable({
+    amountCents: v.number(),
+    buildId: v.id("demo_builds"),
+    createdAt: v.number(),
+    customDate: v.boolean(),
+    drawKey: v.string(),
+    itemMilestoneKey: v.optional(v.string()),
+    label: v.string(),
+    order: v.number(),
+    orgKey: v.string(),
+    planId: v.id("demo_timelinePlans"),
+    requestNote: v.optional(v.string()),
+    requestReviewNote: v.optional(v.string()),
+    requestStatus: demoTimelineDrawStatusValidator,
+    reviewedAt: v.optional(v.string()),
+    requestedAt: v.optional(v.string()),
+    snapshotId: v.id("demo_timelinePlanSnapshots"),
+    sourceTimelineDrawId: v.id("demo_timelineDraws"),
+    x: v.number(),
+  })
+    .index("by_plan", ["planId"])
+    .index("by_snapshot", ["snapshotId"])
+    .index("by_build", ["buildId", "sourceTimelineDrawId"]),
+  demo_timelinePlanSnapshotCapitalEvents: defineTable({
+    amountCents: v.number(),
+    buildId: v.id("demo_builds"),
+    capitalEventKey: v.string(),
+    createdAt: v.number(),
+    eventKind: v.optional(demoTimelineCapitalEventKindValidator),
+    label: v.string(),
+    order: v.number(),
+    orgKey: v.string(),
+    planId: v.id("demo_timelinePlans"),
+    snapshotId: v.id("demo_timelinePlanSnapshots"),
+    sourceTimelineCapitalEventId: v.id("demo_timelineCapitalEvents"),
+    x: v.number(),
+  })
+    .index("by_plan", ["planId"])
+    .index("by_snapshot", ["snapshotId"])
+    .index("by_build", ["buildId", "sourceTimelineCapitalEventId"]),
   demo_timelineMilestones: defineTable({
     budgetCents: v.number(),
     completedAt: v.optional(v.number()),
@@ -677,6 +879,7 @@ export default defineSchema({
     dayEnd: v.number(),
     dayStart: v.number(),
     dependencyKeys: v.array(v.string()),
+    drawAvailabilityCents: v.optional(v.number()),
     drawKey: v.optional(v.string()),
     durationDays: v.number(),
     evidenceState: v.string(),
@@ -699,6 +902,17 @@ export default defineSchema({
     .index("by_plan", ["planId"])
     .index("by_plan_and_key", ["planId", "milestoneKey"])
     .index("by_plan_and_order", ["planId", "order"]),
+  demo_timelineMilestoneGuidanceItems: defineTable({
+    createdAt: v.number(),
+    kind: demoSiteVisitGuidanceKindValidator,
+    milestoneKey: v.string(),
+    order: v.number(),
+    planId: v.id("demo_timelinePlans"),
+    text: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_plan", ["planId"])
+    .index("by_plan_milestone", ["planId", "milestoneKey"]),
   demo_timelineDraws: defineTable({
     amountCents: v.number(),
     createdAt: v.number(),
@@ -723,6 +937,7 @@ export default defineSchema({
     amountCents: v.number(),
     capitalEventKey: v.string(),
     createdAt: v.number(),
+    eventKind: v.optional(demoTimelineCapitalEventKindValidator),
     label: v.string(),
     order: v.number(),
     planId: v.id("demo_timelinePlans"),
@@ -732,6 +947,26 @@ export default defineSchema({
     .index("by_plan", ["planId"])
     .index("by_plan_and_key", ["planId", "capitalEventKey"])
     .index("by_plan_and_order", ["planId", "order"]),
+  demo_timelineModificationRequests: defineTable({
+    actorPersona: v.string(),
+    buildId: v.id("demo_builds"),
+    createdAt: v.number(),
+    milestoneKey: v.optional(v.string()),
+    orgKey: v.string(),
+    planId: v.id("demo_timelinePlans"),
+    priorState: v.optional(v.any()),
+    reason: v.optional(v.string()),
+    requestedPayload: v.any(),
+    requestType: demoTimelineModificationRequestTypeValidator,
+    reviewedAt: v.optional(v.number()),
+    reviewerPersona: v.optional(v.string()),
+    reviewNote: v.optional(v.string()),
+    status: demoTimelineModificationRequestStatusValidator,
+    updatedAt: v.number(),
+  })
+    .index("by_plan", ["planId"])
+    .index("by_plan_status", ["planId", "status"])
+    .index("by_status_updated", ["status", "updatedAt"]),
   demo_timelineEvidenceAssets: defineTable({
     createdAt: v.number(),
     evidenceKey: v.string(),
@@ -814,6 +1049,26 @@ export default defineSchema({
     .index("by_plan", ["planId"])
     .index("by_column_sort", ["column", "sortAt"])
     .index("by_updated", ["updatedAt"]),
+  demo_capitalEvents: defineTable({
+    amountCents: v.number(),
+    buildId: v.id("demo_builds"),
+    capitalEventKey: v.string(),
+    eventDate: v.string(),
+    label: v.string(),
+    order: v.number(),
+    orgKey: v.optional(v.string()),
+    scenario: v.string(),
+    sourceTimelineCapitalEventId: v.optional(
+      v.id("demo_timelineCapitalEvents")
+    ),
+    updatedAt: v.number(),
+  })
+    .index("by_build_order", ["buildId", "order"])
+    .index("by_build_and_source_timeline_capital_event", [
+      "buildId",
+      "sourceTimelineCapitalEventId",
+    ])
+    .index("by_scenario", ["scenario"]),
   demo_contractors: defineTable({
     orgKey: v.string(),
     scenario: v.string(),
@@ -879,6 +1134,7 @@ export default defineSchema({
     .index("by_scenario", ["scenario"]),
   demo_milestoneSubmilestones: defineTable({
     buildId: v.id("demo_builds"),
+    description: v.optional(v.string()),
     milestoneKey: v.string(),
     key: v.string(),
     name: v.string(),
@@ -886,7 +1142,7 @@ export default defineSchema({
     status: v.union(
       v.literal("todo"),
       v.literal("in_progress"),
-      v.literal("done"),
+      v.literal("done")
     ),
     budgetCents: v.optional(v.number()),
     durationDays: v.optional(v.number()),

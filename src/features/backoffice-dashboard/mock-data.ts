@@ -1,3 +1,5 @@
+import { backofficeBuildWorkspaceHref } from "#/features/backoffice-dashboard/backoffice-build-links.ts";
+
 export interface DashboardMetric {
   detail: string;
   id: string;
@@ -118,7 +120,7 @@ export function getExplicitMockBackofficeDashboardData(): BackofficeDashboardDat
         buildKey: "mock-build-1",
         builder: "Mock builder 1",
         daysActive: 0,
-        href: "/backoffice/builds/mock-build-1",
+        href: backofficeBuildWorkspaceHref("mock-build-1"),
         id: "MOCK-BUILD-1",
         milestoneState: "backlog",
         status: "onTrack",
@@ -131,7 +133,7 @@ export function getExplicitMockBackofficeDashboardData(): BackofficeDashboardDat
         buildId: "MOCK-BUILD-1",
         buildKey: "mock-build-1",
         eligibleDate: "2026-05-08",
-        href: "/backoffice/builds/mock-build-1",
+        href: backofficeBuildWorkspaceHref("mock-build-1"),
         id: "mock-draw-1",
         label: "Mock draw request",
         requestedAmount: "$0",
