@@ -11,12 +11,47 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as CallbackRouteImport } from './routes/callback'
 import { Route as AboutRouteImport } from './routes/about'
+import { Route as DemoRouteRouteImport } from './routes/demo/route'
+import { Route as BuilderRouteRouteImport } from './routes/builder/route'
+import { Route as BackofficeRouteRouteImport } from './routes/backoffice/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as BackofficeIndexRouteImport } from './routes/backoffice/index'
 import { Route as DemoWorkosRouteImport } from './routes/demo/workos'
 import { Route as DemoTanstackQueryRouteImport } from './routes/demo/tanstack-query'
 import { Route as DemoConvexRouteImport } from './routes/demo/convex'
+import { Route as BuilderDemoRouteRouteImport } from './routes/builder/demo/route'
+import { Route as BackofficeSiteVisitsRouteRouteImport } from './routes/backoffice/site-visits/route'
+import { Route as BackofficeSettingsRouteRouteImport } from './routes/backoffice/settings/route'
+import { Route as BackofficeDrawsRouteRouteImport } from './routes/backoffice/draws/route'
+import { Route as BackofficeContractorsRouteRouteImport } from './routes/backoffice/contractors/route'
+import { Route as BackofficeBuildsRouteRouteImport } from './routes/backoffice/builds/route'
+import { Route as BackofficeBuildersRouteRouteImport } from './routes/backoffice/builders/route'
+import { Route as DemoTimelineIndexRouteImport } from './routes/demo/timeline/index'
+import { Route as DemoEvilChartsIndexRouteImport } from './routes/demo/evil-charts/index'
+import { Route as DemoDrawflowIndexRouteImport } from './routes/demo/drawflow/index'
+import { Route as BackofficeSettingsIndexRouteImport } from './routes/backoffice/settings/index'
+import { Route as NewsitevisitBuildIdSiteVisitTokenRouteImport } from './routes/newsitevisit.$buildId.$siteVisitToken'
+import { Route as DemoTimelineTimelineIdRouteImport } from './routes/demo/timeline/$timelineId'
+import { Route as DemoDrawflowProposalRouteImport } from './routes/demo/drawflow/proposal'
+import { Route as DemoDrawflowNewProposalRouteImport } from './routes/demo/drawflow/new-proposal'
+import { Route as DemoDrawflowBuilderDashboardRouteImport } from './routes/demo/drawflow/builder-dashboard'
+import { Route as DemoDrawflowAdminBuildDashboardRouteImport } from './routes/demo/drawflow/admin-build-dashboard'
+import { Route as DemoDrawflowActiveRouteImport } from './routes/demo/drawflow/active'
+import { Route as BackofficeProposalsPlanIdRouteImport } from './routes/backoffice/proposals.$planId'
+import { Route as BackofficeContractorsContractorIdRouteImport } from './routes/backoffice/contractors/contractorId'
+import { Route as BackofficeBuildersBuilderIdRouteImport } from './routes/backoffice/builders/builderId'
 import { Route as ApiAuthSignUpRouteImport } from './routes/api/auth/sign-up'
 import { Route as ApiAuthSignInRouteImport } from './routes/api/auth/sign-in'
+import { Route as BuilderDemoDashboardRouteRouteImport } from './routes/builder/demo/dashboard/route'
+import { Route as BackofficeBuildsBuildIdRouteRouteImport } from './routes/backoffice/builds/$buildId/route'
+import { Route as BuilderDemoDashboardIndexRouteImport } from './routes/builder/demo/dashboard/index'
+import { Route as BackofficeBuildsBuildIdIndexRouteImport } from './routes/backoffice/builds/$buildId/index'
+import { Route as BuilderDemoDashboardProposalsRouteRouteImport } from './routes/builder/demo/dashboard/proposals/route'
+import { Route as BuilderDemoDashboardBuildsRouteRouteImport } from './routes/builder/demo/dashboard/builds/route'
+import { Route as BuilderDemoDashboardProposalsIndexRouteImport } from './routes/builder/demo/dashboard/proposals/index'
+import { Route as BuilderDemoDashboardBuildsIndexRouteImport } from './routes/builder/demo/dashboard/builds/index'
+import { Route as BuilderDemoDashboardProposalsDraftIdRouteImport } from './routes/builder/demo/dashboard/proposals/$draftId'
+import { Route as BuilderDemoDashboardBuildsBuildIdRouteImport } from './routes/builder/demo/dashboard/builds/$buildId'
 
 const CallbackRoute = CallbackRouteImport.update({
   id: '/callback',
@@ -28,26 +63,159 @@ const AboutRoute = AboutRouteImport.update({
   path: '/about',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DemoRouteRoute = DemoRouteRouteImport.update({
+  id: '/demo',
+  path: '/demo',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BuilderRouteRoute = BuilderRouteRouteImport.update({
+  id: '/builder',
+  path: '/builder',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BackofficeRouteRoute = BackofficeRouteRouteImport.update({
+  id: '/backoffice',
+  path: '/backoffice',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BackofficeIndexRoute = BackofficeIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => BackofficeRouteRoute,
+} as any)
 const DemoWorkosRoute = DemoWorkosRouteImport.update({
-  id: '/demo/workos',
-  path: '/demo/workos',
-  getParentRoute: () => rootRouteImport,
+  id: '/workos',
+  path: '/workos',
+  getParentRoute: () => DemoRouteRoute,
 } as any)
 const DemoTanstackQueryRoute = DemoTanstackQueryRouteImport.update({
-  id: '/demo/tanstack-query',
-  path: '/demo/tanstack-query',
-  getParentRoute: () => rootRouteImport,
+  id: '/tanstack-query',
+  path: '/tanstack-query',
+  getParentRoute: () => DemoRouteRoute,
 } as any)
 const DemoConvexRoute = DemoConvexRouteImport.update({
-  id: '/demo/convex',
-  path: '/demo/convex',
-  getParentRoute: () => rootRouteImport,
+  id: '/convex',
+  path: '/convex',
+  getParentRoute: () => DemoRouteRoute,
 } as any)
+const BuilderDemoRouteRoute = BuilderDemoRouteRouteImport.update({
+  id: '/demo',
+  path: '/demo',
+  getParentRoute: () => BuilderRouteRoute,
+} as any)
+const BackofficeSiteVisitsRouteRoute =
+  BackofficeSiteVisitsRouteRouteImport.update({
+    id: '/site-visits',
+    path: '/site-visits',
+    getParentRoute: () => BackofficeRouteRoute,
+  } as any)
+const BackofficeSettingsRouteRoute = BackofficeSettingsRouteRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => BackofficeRouteRoute,
+} as any)
+const BackofficeDrawsRouteRoute = BackofficeDrawsRouteRouteImport.update({
+  id: '/draws',
+  path: '/draws',
+  getParentRoute: () => BackofficeRouteRoute,
+} as any)
+const BackofficeContractorsRouteRoute =
+  BackofficeContractorsRouteRouteImport.update({
+    id: '/contractors',
+    path: '/contractors',
+    getParentRoute: () => BackofficeRouteRoute,
+  } as any)
+const BackofficeBuildsRouteRoute = BackofficeBuildsRouteRouteImport.update({
+  id: '/builds',
+  path: '/builds',
+  getParentRoute: () => BackofficeRouteRoute,
+} as any)
+const BackofficeBuildersRouteRoute = BackofficeBuildersRouteRouteImport.update({
+  id: '/builders',
+  path: '/builders',
+  getParentRoute: () => BackofficeRouteRoute,
+} as any)
+const DemoTimelineIndexRoute = DemoTimelineIndexRouteImport.update({
+  id: '/timeline/',
+  path: '/timeline/',
+  getParentRoute: () => DemoRouteRoute,
+} as any)
+const DemoEvilChartsIndexRoute = DemoEvilChartsIndexRouteImport.update({
+  id: '/evil-charts/',
+  path: '/evil-charts/',
+  getParentRoute: () => DemoRouteRoute,
+} as any)
+const DemoDrawflowIndexRoute = DemoDrawflowIndexRouteImport.update({
+  id: '/drawflow/',
+  path: '/drawflow/',
+  getParentRoute: () => DemoRouteRoute,
+} as any)
+const BackofficeSettingsIndexRoute = BackofficeSettingsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => BackofficeSettingsRouteRoute,
+} as any)
+const NewsitevisitBuildIdSiteVisitTokenRoute =
+  NewsitevisitBuildIdSiteVisitTokenRouteImport.update({
+    id: '/newsitevisit/$buildId/$siteVisitToken',
+    path: '/newsitevisit/$buildId/$siteVisitToken',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const DemoTimelineTimelineIdRoute = DemoTimelineTimelineIdRouteImport.update({
+  id: '/timeline/$timelineId',
+  path: '/timeline/$timelineId',
+  getParentRoute: () => DemoRouteRoute,
+} as any)
+const DemoDrawflowProposalRoute = DemoDrawflowProposalRouteImport.update({
+  id: '/drawflow/proposal',
+  path: '/drawflow/proposal',
+  getParentRoute: () => DemoRouteRoute,
+} as any)
+const DemoDrawflowNewProposalRoute = DemoDrawflowNewProposalRouteImport.update({
+  id: '/drawflow/new-proposal',
+  path: '/drawflow/new-proposal',
+  getParentRoute: () => DemoRouteRoute,
+} as any)
+const DemoDrawflowBuilderDashboardRoute =
+  DemoDrawflowBuilderDashboardRouteImport.update({
+    id: '/drawflow/builder-dashboard',
+    path: '/drawflow/builder-dashboard',
+    getParentRoute: () => DemoRouteRoute,
+  } as any)
+const DemoDrawflowAdminBuildDashboardRoute =
+  DemoDrawflowAdminBuildDashboardRouteImport.update({
+    id: '/drawflow/admin-build-dashboard',
+    path: '/drawflow/admin-build-dashboard',
+    getParentRoute: () => DemoRouteRoute,
+  } as any)
+const DemoDrawflowActiveRoute = DemoDrawflowActiveRouteImport.update({
+  id: '/drawflow/active',
+  path: '/drawflow/active',
+  getParentRoute: () => DemoRouteRoute,
+} as any)
+const BackofficeProposalsPlanIdRoute =
+  BackofficeProposalsPlanIdRouteImport.update({
+    id: '/proposals/$planId',
+    path: '/proposals/$planId',
+    getParentRoute: () => BackofficeRouteRoute,
+  } as any)
+const BackofficeContractorsContractorIdRoute =
+  BackofficeContractorsContractorIdRouteImport.update({
+    id: '/contractorId',
+    path: '/contractorId',
+    getParentRoute: () => BackofficeContractorsRouteRoute,
+  } as any)
+const BackofficeBuildersBuilderIdRoute =
+  BackofficeBuildersBuilderIdRouteImport.update({
+    id: '/builderId',
+    path: '/builderId',
+    getParentRoute: () => BackofficeBuildersRouteRoute,
+  } as any)
 const ApiAuthSignUpRoute = ApiAuthSignUpRouteImport.update({
   id: '/api/auth/sign-up',
   path: '/api/auth/sign-up',
@@ -58,80 +226,339 @@ const ApiAuthSignInRoute = ApiAuthSignInRouteImport.update({
   path: '/api/auth/sign-in',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BuilderDemoDashboardRouteRoute =
+  BuilderDemoDashboardRouteRouteImport.update({
+    id: '/dashboard',
+    path: '/dashboard',
+    getParentRoute: () => BuilderDemoRouteRoute,
+  } as any)
+const BackofficeBuildsBuildIdRouteRoute =
+  BackofficeBuildsBuildIdRouteRouteImport.update({
+    id: '/$buildId',
+    path: '/$buildId',
+    getParentRoute: () => BackofficeBuildsRouteRoute,
+  } as any)
+const BuilderDemoDashboardIndexRoute =
+  BuilderDemoDashboardIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => BuilderDemoDashboardRouteRoute,
+  } as any)
+const BackofficeBuildsBuildIdIndexRoute =
+  BackofficeBuildsBuildIdIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => BackofficeBuildsBuildIdRouteRoute,
+  } as any)
+const BuilderDemoDashboardProposalsRouteRoute =
+  BuilderDemoDashboardProposalsRouteRouteImport.update({
+    id: '/proposals',
+    path: '/proposals',
+    getParentRoute: () => BuilderDemoDashboardRouteRoute,
+  } as any)
+const BuilderDemoDashboardBuildsRouteRoute =
+  BuilderDemoDashboardBuildsRouteRouteImport.update({
+    id: '/builds',
+    path: '/builds',
+    getParentRoute: () => BuilderDemoDashboardRouteRoute,
+  } as any)
+const BuilderDemoDashboardProposalsIndexRoute =
+  BuilderDemoDashboardProposalsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => BuilderDemoDashboardProposalsRouteRoute,
+  } as any)
+const BuilderDemoDashboardBuildsIndexRoute =
+  BuilderDemoDashboardBuildsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => BuilderDemoDashboardBuildsRouteRoute,
+  } as any)
+const BuilderDemoDashboardProposalsDraftIdRoute =
+  BuilderDemoDashboardProposalsDraftIdRouteImport.update({
+    id: '/$draftId',
+    path: '/$draftId',
+    getParentRoute: () => BuilderDemoDashboardProposalsRouteRoute,
+  } as any)
+const BuilderDemoDashboardBuildsBuildIdRoute =
+  BuilderDemoDashboardBuildsBuildIdRouteImport.update({
+    id: '/$buildId',
+    path: '/$buildId',
+    getParentRoute: () => BuilderDemoDashboardBuildsRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/backoffice': typeof BackofficeRouteRouteWithChildren
+  '/builder': typeof BuilderRouteRouteWithChildren
+  '/demo': typeof DemoRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/callback': typeof CallbackRoute
+  '/backoffice/builders': typeof BackofficeBuildersRouteRouteWithChildren
+  '/backoffice/builds': typeof BackofficeBuildsRouteRouteWithChildren
+  '/backoffice/contractors': typeof BackofficeContractorsRouteRouteWithChildren
+  '/backoffice/draws': typeof BackofficeDrawsRouteRoute
+  '/backoffice/settings': typeof BackofficeSettingsRouteRouteWithChildren
+  '/backoffice/site-visits': typeof BackofficeSiteVisitsRouteRoute
+  '/builder/demo': typeof BuilderDemoRouteRouteWithChildren
   '/demo/convex': typeof DemoConvexRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/demo/workos': typeof DemoWorkosRoute
+  '/backoffice/': typeof BackofficeIndexRoute
+  '/backoffice/builds/$buildId': typeof BackofficeBuildsBuildIdRouteRouteWithChildren
+  '/builder/demo/dashboard': typeof BuilderDemoDashboardRouteRouteWithChildren
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
   '/api/auth/sign-up': typeof ApiAuthSignUpRoute
+  '/backoffice/builders/builderId': typeof BackofficeBuildersBuilderIdRoute
+  '/backoffice/contractors/contractorId': typeof BackofficeContractorsContractorIdRoute
+  '/backoffice/proposals/$planId': typeof BackofficeProposalsPlanIdRoute
+  '/demo/drawflow/active': typeof DemoDrawflowActiveRoute
+  '/demo/drawflow/admin-build-dashboard': typeof DemoDrawflowAdminBuildDashboardRoute
+  '/demo/drawflow/builder-dashboard': typeof DemoDrawflowBuilderDashboardRoute
+  '/demo/drawflow/new-proposal': typeof DemoDrawflowNewProposalRoute
+  '/demo/drawflow/proposal': typeof DemoDrawflowProposalRoute
+  '/demo/timeline/$timelineId': typeof DemoTimelineTimelineIdRoute
+  '/newsitevisit/$buildId/$siteVisitToken': typeof NewsitevisitBuildIdSiteVisitTokenRoute
+  '/backoffice/settings/': typeof BackofficeSettingsIndexRoute
+  '/demo/drawflow/': typeof DemoDrawflowIndexRoute
+  '/demo/evil-charts/': typeof DemoEvilChartsIndexRoute
+  '/demo/timeline/': typeof DemoTimelineIndexRoute
+  '/builder/demo/dashboard/builds': typeof BuilderDemoDashboardBuildsRouteRouteWithChildren
+  '/builder/demo/dashboard/proposals': typeof BuilderDemoDashboardProposalsRouteRouteWithChildren
+  '/backoffice/builds/$buildId/': typeof BackofficeBuildsBuildIdIndexRoute
+  '/builder/demo/dashboard/': typeof BuilderDemoDashboardIndexRoute
+  '/builder/demo/dashboard/builds/$buildId': typeof BuilderDemoDashboardBuildsBuildIdRoute
+  '/builder/demo/dashboard/proposals/$draftId': typeof BuilderDemoDashboardProposalsDraftIdRoute
+  '/builder/demo/dashboard/builds/': typeof BuilderDemoDashboardBuildsIndexRoute
+  '/builder/demo/dashboard/proposals/': typeof BuilderDemoDashboardProposalsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/builder': typeof BuilderRouteRouteWithChildren
+  '/demo': typeof DemoRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/callback': typeof CallbackRoute
+  '/backoffice/builders': typeof BackofficeBuildersRouteRouteWithChildren
+  '/backoffice/builds': typeof BackofficeBuildsRouteRouteWithChildren
+  '/backoffice/contractors': typeof BackofficeContractorsRouteRouteWithChildren
+  '/backoffice/draws': typeof BackofficeDrawsRouteRoute
+  '/backoffice/site-visits': typeof BackofficeSiteVisitsRouteRoute
+  '/builder/demo': typeof BuilderDemoRouteRouteWithChildren
   '/demo/convex': typeof DemoConvexRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/demo/workos': typeof DemoWorkosRoute
+  '/backoffice': typeof BackofficeIndexRoute
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
   '/api/auth/sign-up': typeof ApiAuthSignUpRoute
+  '/backoffice/builders/builderId': typeof BackofficeBuildersBuilderIdRoute
+  '/backoffice/contractors/contractorId': typeof BackofficeContractorsContractorIdRoute
+  '/backoffice/proposals/$planId': typeof BackofficeProposalsPlanIdRoute
+  '/demo/drawflow/active': typeof DemoDrawflowActiveRoute
+  '/demo/drawflow/admin-build-dashboard': typeof DemoDrawflowAdminBuildDashboardRoute
+  '/demo/drawflow/builder-dashboard': typeof DemoDrawflowBuilderDashboardRoute
+  '/demo/drawflow/new-proposal': typeof DemoDrawflowNewProposalRoute
+  '/demo/drawflow/proposal': typeof DemoDrawflowProposalRoute
+  '/demo/timeline/$timelineId': typeof DemoTimelineTimelineIdRoute
+  '/newsitevisit/$buildId/$siteVisitToken': typeof NewsitevisitBuildIdSiteVisitTokenRoute
+  '/backoffice/settings': typeof BackofficeSettingsIndexRoute
+  '/demo/drawflow': typeof DemoDrawflowIndexRoute
+  '/demo/evil-charts': typeof DemoEvilChartsIndexRoute
+  '/demo/timeline': typeof DemoTimelineIndexRoute
+  '/backoffice/builds/$buildId': typeof BackofficeBuildsBuildIdIndexRoute
+  '/builder/demo/dashboard': typeof BuilderDemoDashboardIndexRoute
+  '/builder/demo/dashboard/builds/$buildId': typeof BuilderDemoDashboardBuildsBuildIdRoute
+  '/builder/demo/dashboard/proposals/$draftId': typeof BuilderDemoDashboardProposalsDraftIdRoute
+  '/builder/demo/dashboard/builds': typeof BuilderDemoDashboardBuildsIndexRoute
+  '/builder/demo/dashboard/proposals': typeof BuilderDemoDashboardProposalsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/backoffice': typeof BackofficeRouteRouteWithChildren
+  '/builder': typeof BuilderRouteRouteWithChildren
+  '/demo': typeof DemoRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/callback': typeof CallbackRoute
+  '/backoffice/builders': typeof BackofficeBuildersRouteRouteWithChildren
+  '/backoffice/builds': typeof BackofficeBuildsRouteRouteWithChildren
+  '/backoffice/contractors': typeof BackofficeContractorsRouteRouteWithChildren
+  '/backoffice/draws': typeof BackofficeDrawsRouteRoute
+  '/backoffice/settings': typeof BackofficeSettingsRouteRouteWithChildren
+  '/backoffice/site-visits': typeof BackofficeSiteVisitsRouteRoute
+  '/builder/demo': typeof BuilderDemoRouteRouteWithChildren
   '/demo/convex': typeof DemoConvexRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/demo/workos': typeof DemoWorkosRoute
+  '/backoffice/': typeof BackofficeIndexRoute
+  '/backoffice/builds/$buildId': typeof BackofficeBuildsBuildIdRouteRouteWithChildren
+  '/builder/demo/dashboard': typeof BuilderDemoDashboardRouteRouteWithChildren
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
   '/api/auth/sign-up': typeof ApiAuthSignUpRoute
+  '/backoffice/builders/builderId': typeof BackofficeBuildersBuilderIdRoute
+  '/backoffice/contractors/contractorId': typeof BackofficeContractorsContractorIdRoute
+  '/backoffice/proposals/$planId': typeof BackofficeProposalsPlanIdRoute
+  '/demo/drawflow/active': typeof DemoDrawflowActiveRoute
+  '/demo/drawflow/admin-build-dashboard': typeof DemoDrawflowAdminBuildDashboardRoute
+  '/demo/drawflow/builder-dashboard': typeof DemoDrawflowBuilderDashboardRoute
+  '/demo/drawflow/new-proposal': typeof DemoDrawflowNewProposalRoute
+  '/demo/drawflow/proposal': typeof DemoDrawflowProposalRoute
+  '/demo/timeline/$timelineId': typeof DemoTimelineTimelineIdRoute
+  '/newsitevisit/$buildId/$siteVisitToken': typeof NewsitevisitBuildIdSiteVisitTokenRoute
+  '/backoffice/settings/': typeof BackofficeSettingsIndexRoute
+  '/demo/drawflow/': typeof DemoDrawflowIndexRoute
+  '/demo/evil-charts/': typeof DemoEvilChartsIndexRoute
+  '/demo/timeline/': typeof DemoTimelineIndexRoute
+  '/builder/demo/dashboard/builds': typeof BuilderDemoDashboardBuildsRouteRouteWithChildren
+  '/builder/demo/dashboard/proposals': typeof BuilderDemoDashboardProposalsRouteRouteWithChildren
+  '/backoffice/builds/$buildId/': typeof BackofficeBuildsBuildIdIndexRoute
+  '/builder/demo/dashboard/': typeof BuilderDemoDashboardIndexRoute
+  '/builder/demo/dashboard/builds/$buildId': typeof BuilderDemoDashboardBuildsBuildIdRoute
+  '/builder/demo/dashboard/proposals/$draftId': typeof BuilderDemoDashboardProposalsDraftIdRoute
+  '/builder/demo/dashboard/builds/': typeof BuilderDemoDashboardBuildsIndexRoute
+  '/builder/demo/dashboard/proposals/': typeof BuilderDemoDashboardProposalsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/backoffice'
+    | '/builder'
+    | '/demo'
     | '/about'
     | '/callback'
+    | '/backoffice/builders'
+    | '/backoffice/builds'
+    | '/backoffice/contractors'
+    | '/backoffice/draws'
+    | '/backoffice/settings'
+    | '/backoffice/site-visits'
+    | '/builder/demo'
     | '/demo/convex'
     | '/demo/tanstack-query'
     | '/demo/workos'
+    | '/backoffice/'
+    | '/backoffice/builds/$buildId'
+    | '/builder/demo/dashboard'
     | '/api/auth/sign-in'
     | '/api/auth/sign-up'
+    | '/backoffice/builders/builderId'
+    | '/backoffice/contractors/contractorId'
+    | '/backoffice/proposals/$planId'
+    | '/demo/drawflow/active'
+    | '/demo/drawflow/admin-build-dashboard'
+    | '/demo/drawflow/builder-dashboard'
+    | '/demo/drawflow/new-proposal'
+    | '/demo/drawflow/proposal'
+    | '/demo/timeline/$timelineId'
+    | '/newsitevisit/$buildId/$siteVisitToken'
+    | '/backoffice/settings/'
+    | '/demo/drawflow/'
+    | '/demo/evil-charts/'
+    | '/demo/timeline/'
+    | '/builder/demo/dashboard/builds'
+    | '/builder/demo/dashboard/proposals'
+    | '/backoffice/builds/$buildId/'
+    | '/builder/demo/dashboard/'
+    | '/builder/demo/dashboard/builds/$buildId'
+    | '/builder/demo/dashboard/proposals/$draftId'
+    | '/builder/demo/dashboard/builds/'
+    | '/builder/demo/dashboard/proposals/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/builder'
+    | '/demo'
     | '/about'
     | '/callback'
+    | '/backoffice/builders'
+    | '/backoffice/builds'
+    | '/backoffice/contractors'
+    | '/backoffice/draws'
+    | '/backoffice/site-visits'
+    | '/builder/demo'
     | '/demo/convex'
     | '/demo/tanstack-query'
     | '/demo/workos'
+    | '/backoffice'
     | '/api/auth/sign-in'
     | '/api/auth/sign-up'
+    | '/backoffice/builders/builderId'
+    | '/backoffice/contractors/contractorId'
+    | '/backoffice/proposals/$planId'
+    | '/demo/drawflow/active'
+    | '/demo/drawflow/admin-build-dashboard'
+    | '/demo/drawflow/builder-dashboard'
+    | '/demo/drawflow/new-proposal'
+    | '/demo/drawflow/proposal'
+    | '/demo/timeline/$timelineId'
+    | '/newsitevisit/$buildId/$siteVisitToken'
+    | '/backoffice/settings'
+    | '/demo/drawflow'
+    | '/demo/evil-charts'
+    | '/demo/timeline'
+    | '/backoffice/builds/$buildId'
+    | '/builder/demo/dashboard'
+    | '/builder/demo/dashboard/builds/$buildId'
+    | '/builder/demo/dashboard/proposals/$draftId'
+    | '/builder/demo/dashboard/builds'
+    | '/builder/demo/dashboard/proposals'
   id:
     | '__root__'
     | '/'
+    | '/backoffice'
+    | '/builder'
+    | '/demo'
     | '/about'
     | '/callback'
+    | '/backoffice/builders'
+    | '/backoffice/builds'
+    | '/backoffice/contractors'
+    | '/backoffice/draws'
+    | '/backoffice/settings'
+    | '/backoffice/site-visits'
+    | '/builder/demo'
     | '/demo/convex'
     | '/demo/tanstack-query'
     | '/demo/workos'
+    | '/backoffice/'
+    | '/backoffice/builds/$buildId'
+    | '/builder/demo/dashboard'
     | '/api/auth/sign-in'
     | '/api/auth/sign-up'
+    | '/backoffice/builders/builderId'
+    | '/backoffice/contractors/contractorId'
+    | '/backoffice/proposals/$planId'
+    | '/demo/drawflow/active'
+    | '/demo/drawflow/admin-build-dashboard'
+    | '/demo/drawflow/builder-dashboard'
+    | '/demo/drawflow/new-proposal'
+    | '/demo/drawflow/proposal'
+    | '/demo/timeline/$timelineId'
+    | '/newsitevisit/$buildId/$siteVisitToken'
+    | '/backoffice/settings/'
+    | '/demo/drawflow/'
+    | '/demo/evil-charts/'
+    | '/demo/timeline/'
+    | '/builder/demo/dashboard/builds'
+    | '/builder/demo/dashboard/proposals'
+    | '/backoffice/builds/$buildId/'
+    | '/builder/demo/dashboard/'
+    | '/builder/demo/dashboard/builds/$buildId'
+    | '/builder/demo/dashboard/proposals/$draftId'
+    | '/builder/demo/dashboard/builds/'
+    | '/builder/demo/dashboard/proposals/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  BackofficeRouteRoute: typeof BackofficeRouteRouteWithChildren
+  BuilderRouteRoute: typeof BuilderRouteRouteWithChildren
+  DemoRouteRoute: typeof DemoRouteRouteWithChildren
   AboutRoute: typeof AboutRoute
   CallbackRoute: typeof CallbackRoute
-  DemoConvexRoute: typeof DemoConvexRoute
-  DemoTanstackQueryRoute: typeof DemoTanstackQueryRoute
-  DemoWorkosRoute: typeof DemoWorkosRoute
   ApiAuthSignInRoute: typeof ApiAuthSignInRoute
   ApiAuthSignUpRoute: typeof ApiAuthSignUpRoute
+  NewsitevisitBuildIdSiteVisitTokenRoute: typeof NewsitevisitBuildIdSiteVisitTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -150,6 +577,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AboutRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/demo': {
+      id: '/demo'
+      path: '/demo'
+      fullPath: '/demo'
+      preLoaderRoute: typeof DemoRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/builder': {
+      id: '/builder'
+      path: '/builder'
+      fullPath: '/builder'
+      preLoaderRoute: typeof BuilderRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/backoffice': {
+      id: '/backoffice'
+      path: '/backoffice'
+      fullPath: '/backoffice'
+      preLoaderRoute: typeof BackofficeRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -157,26 +605,180 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/backoffice/': {
+      id: '/backoffice/'
+      path: '/'
+      fullPath: '/backoffice/'
+      preLoaderRoute: typeof BackofficeIndexRouteImport
+      parentRoute: typeof BackofficeRouteRoute
+    }
     '/demo/workos': {
       id: '/demo/workos'
-      path: '/demo/workos'
+      path: '/workos'
       fullPath: '/demo/workos'
       preLoaderRoute: typeof DemoWorkosRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof DemoRouteRoute
     }
     '/demo/tanstack-query': {
       id: '/demo/tanstack-query'
-      path: '/demo/tanstack-query'
+      path: '/tanstack-query'
       fullPath: '/demo/tanstack-query'
       preLoaderRoute: typeof DemoTanstackQueryRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof DemoRouteRoute
     }
     '/demo/convex': {
       id: '/demo/convex'
-      path: '/demo/convex'
+      path: '/convex'
       fullPath: '/demo/convex'
       preLoaderRoute: typeof DemoConvexRouteImport
+      parentRoute: typeof DemoRouteRoute
+    }
+    '/builder/demo': {
+      id: '/builder/demo'
+      path: '/demo'
+      fullPath: '/builder/demo'
+      preLoaderRoute: typeof BuilderDemoRouteRouteImport
+      parentRoute: typeof BuilderRouteRoute
+    }
+    '/backoffice/site-visits': {
+      id: '/backoffice/site-visits'
+      path: '/site-visits'
+      fullPath: '/backoffice/site-visits'
+      preLoaderRoute: typeof BackofficeSiteVisitsRouteRouteImport
+      parentRoute: typeof BackofficeRouteRoute
+    }
+    '/backoffice/settings': {
+      id: '/backoffice/settings'
+      path: '/settings'
+      fullPath: '/backoffice/settings'
+      preLoaderRoute: typeof BackofficeSettingsRouteRouteImport
+      parentRoute: typeof BackofficeRouteRoute
+    }
+    '/backoffice/draws': {
+      id: '/backoffice/draws'
+      path: '/draws'
+      fullPath: '/backoffice/draws'
+      preLoaderRoute: typeof BackofficeDrawsRouteRouteImport
+      parentRoute: typeof BackofficeRouteRoute
+    }
+    '/backoffice/contractors': {
+      id: '/backoffice/contractors'
+      path: '/contractors'
+      fullPath: '/backoffice/contractors'
+      preLoaderRoute: typeof BackofficeContractorsRouteRouteImport
+      parentRoute: typeof BackofficeRouteRoute
+    }
+    '/backoffice/builds': {
+      id: '/backoffice/builds'
+      path: '/builds'
+      fullPath: '/backoffice/builds'
+      preLoaderRoute: typeof BackofficeBuildsRouteRouteImport
+      parentRoute: typeof BackofficeRouteRoute
+    }
+    '/backoffice/builders': {
+      id: '/backoffice/builders'
+      path: '/builders'
+      fullPath: '/backoffice/builders'
+      preLoaderRoute: typeof BackofficeBuildersRouteRouteImport
+      parentRoute: typeof BackofficeRouteRoute
+    }
+    '/demo/timeline/': {
+      id: '/demo/timeline/'
+      path: '/timeline'
+      fullPath: '/demo/timeline/'
+      preLoaderRoute: typeof DemoTimelineIndexRouteImport
+      parentRoute: typeof DemoRouteRoute
+    }
+    '/demo/evil-charts/': {
+      id: '/demo/evil-charts/'
+      path: '/evil-charts'
+      fullPath: '/demo/evil-charts/'
+      preLoaderRoute: typeof DemoEvilChartsIndexRouteImport
+      parentRoute: typeof DemoRouteRoute
+    }
+    '/demo/drawflow/': {
+      id: '/demo/drawflow/'
+      path: '/drawflow'
+      fullPath: '/demo/drawflow/'
+      preLoaderRoute: typeof DemoDrawflowIndexRouteImport
+      parentRoute: typeof DemoRouteRoute
+    }
+    '/backoffice/settings/': {
+      id: '/backoffice/settings/'
+      path: '/'
+      fullPath: '/backoffice/settings/'
+      preLoaderRoute: typeof BackofficeSettingsIndexRouteImport
+      parentRoute: typeof BackofficeSettingsRouteRoute
+    }
+    '/newsitevisit/$buildId/$siteVisitToken': {
+      id: '/newsitevisit/$buildId/$siteVisitToken'
+      path: '/newsitevisit/$buildId/$siteVisitToken'
+      fullPath: '/newsitevisit/$buildId/$siteVisitToken'
+      preLoaderRoute: typeof NewsitevisitBuildIdSiteVisitTokenRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/demo/timeline/$timelineId': {
+      id: '/demo/timeline/$timelineId'
+      path: '/timeline/$timelineId'
+      fullPath: '/demo/timeline/$timelineId'
+      preLoaderRoute: typeof DemoTimelineTimelineIdRouteImport
+      parentRoute: typeof DemoRouteRoute
+    }
+    '/demo/drawflow/proposal': {
+      id: '/demo/drawflow/proposal'
+      path: '/drawflow/proposal'
+      fullPath: '/demo/drawflow/proposal'
+      preLoaderRoute: typeof DemoDrawflowProposalRouteImport
+      parentRoute: typeof DemoRouteRoute
+    }
+    '/demo/drawflow/new-proposal': {
+      id: '/demo/drawflow/new-proposal'
+      path: '/drawflow/new-proposal'
+      fullPath: '/demo/drawflow/new-proposal'
+      preLoaderRoute: typeof DemoDrawflowNewProposalRouteImport
+      parentRoute: typeof DemoRouteRoute
+    }
+    '/demo/drawflow/builder-dashboard': {
+      id: '/demo/drawflow/builder-dashboard'
+      path: '/drawflow/builder-dashboard'
+      fullPath: '/demo/drawflow/builder-dashboard'
+      preLoaderRoute: typeof DemoDrawflowBuilderDashboardRouteImport
+      parentRoute: typeof DemoRouteRoute
+    }
+    '/demo/drawflow/admin-build-dashboard': {
+      id: '/demo/drawflow/admin-build-dashboard'
+      path: '/drawflow/admin-build-dashboard'
+      fullPath: '/demo/drawflow/admin-build-dashboard'
+      preLoaderRoute: typeof DemoDrawflowAdminBuildDashboardRouteImport
+      parentRoute: typeof DemoRouteRoute
+    }
+    '/demo/drawflow/active': {
+      id: '/demo/drawflow/active'
+      path: '/drawflow/active'
+      fullPath: '/demo/drawflow/active'
+      preLoaderRoute: typeof DemoDrawflowActiveRouteImport
+      parentRoute: typeof DemoRouteRoute
+    }
+    '/backoffice/proposals/$planId': {
+      id: '/backoffice/proposals/$planId'
+      path: '/proposals/$planId'
+      fullPath: '/backoffice/proposals/$planId'
+      preLoaderRoute: typeof BackofficeProposalsPlanIdRouteImport
+      parentRoute: typeof BackofficeRouteRoute
+    }
+    '/backoffice/contractors/contractorId': {
+      id: '/backoffice/contractors/contractorId'
+      path: '/contractorId'
+      fullPath: '/backoffice/contractors/contractorId'
+      preLoaderRoute: typeof BackofficeContractorsContractorIdRouteImport
+      parentRoute: typeof BackofficeContractorsRouteRoute
+    }
+    '/backoffice/builders/builderId': {
+      id: '/backoffice/builders/builderId'
+      path: '/builderId'
+      fullPath: '/backoffice/builders/builderId'
+      preLoaderRoute: typeof BackofficeBuildersBuilderIdRouteImport
+      parentRoute: typeof BackofficeBuildersRouteRoute
     }
     '/api/auth/sign-up': {
       id: '/api/auth/sign-up'
@@ -192,18 +794,299 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSignInRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/builder/demo/dashboard': {
+      id: '/builder/demo/dashboard'
+      path: '/dashboard'
+      fullPath: '/builder/demo/dashboard'
+      preLoaderRoute: typeof BuilderDemoDashboardRouteRouteImport
+      parentRoute: typeof BuilderDemoRouteRoute
+    }
+    '/backoffice/builds/$buildId': {
+      id: '/backoffice/builds/$buildId'
+      path: '/$buildId'
+      fullPath: '/backoffice/builds/$buildId'
+      preLoaderRoute: typeof BackofficeBuildsBuildIdRouteRouteImport
+      parentRoute: typeof BackofficeBuildsRouteRoute
+    }
+    '/builder/demo/dashboard/': {
+      id: '/builder/demo/dashboard/'
+      path: '/'
+      fullPath: '/builder/demo/dashboard/'
+      preLoaderRoute: typeof BuilderDemoDashboardIndexRouteImport
+      parentRoute: typeof BuilderDemoDashboardRouteRoute
+    }
+    '/backoffice/builds/$buildId/': {
+      id: '/backoffice/builds/$buildId/'
+      path: '/'
+      fullPath: '/backoffice/builds/$buildId/'
+      preLoaderRoute: typeof BackofficeBuildsBuildIdIndexRouteImport
+      parentRoute: typeof BackofficeBuildsBuildIdRouteRoute
+    }
+    '/builder/demo/dashboard/proposals': {
+      id: '/builder/demo/dashboard/proposals'
+      path: '/proposals'
+      fullPath: '/builder/demo/dashboard/proposals'
+      preLoaderRoute: typeof BuilderDemoDashboardProposalsRouteRouteImport
+      parentRoute: typeof BuilderDemoDashboardRouteRoute
+    }
+    '/builder/demo/dashboard/builds': {
+      id: '/builder/demo/dashboard/builds'
+      path: '/builds'
+      fullPath: '/builder/demo/dashboard/builds'
+      preLoaderRoute: typeof BuilderDemoDashboardBuildsRouteRouteImport
+      parentRoute: typeof BuilderDemoDashboardRouteRoute
+    }
+    '/builder/demo/dashboard/proposals/': {
+      id: '/builder/demo/dashboard/proposals/'
+      path: '/'
+      fullPath: '/builder/demo/dashboard/proposals/'
+      preLoaderRoute: typeof BuilderDemoDashboardProposalsIndexRouteImport
+      parentRoute: typeof BuilderDemoDashboardProposalsRouteRoute
+    }
+    '/builder/demo/dashboard/builds/': {
+      id: '/builder/demo/dashboard/builds/'
+      path: '/'
+      fullPath: '/builder/demo/dashboard/builds/'
+      preLoaderRoute: typeof BuilderDemoDashboardBuildsIndexRouteImport
+      parentRoute: typeof BuilderDemoDashboardBuildsRouteRoute
+    }
+    '/builder/demo/dashboard/proposals/$draftId': {
+      id: '/builder/demo/dashboard/proposals/$draftId'
+      path: '/$draftId'
+      fullPath: '/builder/demo/dashboard/proposals/$draftId'
+      preLoaderRoute: typeof BuilderDemoDashboardProposalsDraftIdRouteImport
+      parentRoute: typeof BuilderDemoDashboardProposalsRouteRoute
+    }
+    '/builder/demo/dashboard/builds/$buildId': {
+      id: '/builder/demo/dashboard/builds/$buildId'
+      path: '/$buildId'
+      fullPath: '/builder/demo/dashboard/builds/$buildId'
+      preLoaderRoute: typeof BuilderDemoDashboardBuildsBuildIdRouteImport
+      parentRoute: typeof BuilderDemoDashboardBuildsRouteRoute
+    }
   }
 }
 
-const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  AboutRoute: AboutRoute,
-  CallbackRoute: CallbackRoute,
+interface BackofficeBuildersRouteRouteChildren {
+  BackofficeBuildersBuilderIdRoute: typeof BackofficeBuildersBuilderIdRoute
+}
+
+const BackofficeBuildersRouteRouteChildren: BackofficeBuildersRouteRouteChildren =
+  {
+    BackofficeBuildersBuilderIdRoute: BackofficeBuildersBuilderIdRoute,
+  }
+
+const BackofficeBuildersRouteRouteWithChildren =
+  BackofficeBuildersRouteRoute._addFileChildren(
+    BackofficeBuildersRouteRouteChildren,
+  )
+
+interface BackofficeBuildsBuildIdRouteRouteChildren {
+  BackofficeBuildsBuildIdIndexRoute: typeof BackofficeBuildsBuildIdIndexRoute
+}
+
+const BackofficeBuildsBuildIdRouteRouteChildren: BackofficeBuildsBuildIdRouteRouteChildren =
+  {
+    BackofficeBuildsBuildIdIndexRoute: BackofficeBuildsBuildIdIndexRoute,
+  }
+
+const BackofficeBuildsBuildIdRouteRouteWithChildren =
+  BackofficeBuildsBuildIdRouteRoute._addFileChildren(
+    BackofficeBuildsBuildIdRouteRouteChildren,
+  )
+
+interface BackofficeBuildsRouteRouteChildren {
+  BackofficeBuildsBuildIdRouteRoute: typeof BackofficeBuildsBuildIdRouteRouteWithChildren
+}
+
+const BackofficeBuildsRouteRouteChildren: BackofficeBuildsRouteRouteChildren = {
+  BackofficeBuildsBuildIdRouteRoute:
+    BackofficeBuildsBuildIdRouteRouteWithChildren,
+}
+
+const BackofficeBuildsRouteRouteWithChildren =
+  BackofficeBuildsRouteRoute._addFileChildren(
+    BackofficeBuildsRouteRouteChildren,
+  )
+
+interface BackofficeContractorsRouteRouteChildren {
+  BackofficeContractorsContractorIdRoute: typeof BackofficeContractorsContractorIdRoute
+}
+
+const BackofficeContractorsRouteRouteChildren: BackofficeContractorsRouteRouteChildren =
+  {
+    BackofficeContractorsContractorIdRoute:
+      BackofficeContractorsContractorIdRoute,
+  }
+
+const BackofficeContractorsRouteRouteWithChildren =
+  BackofficeContractorsRouteRoute._addFileChildren(
+    BackofficeContractorsRouteRouteChildren,
+  )
+
+interface BackofficeSettingsRouteRouteChildren {
+  BackofficeSettingsIndexRoute: typeof BackofficeSettingsIndexRoute
+}
+
+const BackofficeSettingsRouteRouteChildren: BackofficeSettingsRouteRouteChildren =
+  {
+    BackofficeSettingsIndexRoute: BackofficeSettingsIndexRoute,
+  }
+
+const BackofficeSettingsRouteRouteWithChildren =
+  BackofficeSettingsRouteRoute._addFileChildren(
+    BackofficeSettingsRouteRouteChildren,
+  )
+
+interface BackofficeRouteRouteChildren {
+  BackofficeBuildersRouteRoute: typeof BackofficeBuildersRouteRouteWithChildren
+  BackofficeBuildsRouteRoute: typeof BackofficeBuildsRouteRouteWithChildren
+  BackofficeContractorsRouteRoute: typeof BackofficeContractorsRouteRouteWithChildren
+  BackofficeDrawsRouteRoute: typeof BackofficeDrawsRouteRoute
+  BackofficeSettingsRouteRoute: typeof BackofficeSettingsRouteRouteWithChildren
+  BackofficeSiteVisitsRouteRoute: typeof BackofficeSiteVisitsRouteRoute
+  BackofficeIndexRoute: typeof BackofficeIndexRoute
+  BackofficeProposalsPlanIdRoute: typeof BackofficeProposalsPlanIdRoute
+}
+
+const BackofficeRouteRouteChildren: BackofficeRouteRouteChildren = {
+  BackofficeBuildersRouteRoute: BackofficeBuildersRouteRouteWithChildren,
+  BackofficeBuildsRouteRoute: BackofficeBuildsRouteRouteWithChildren,
+  BackofficeContractorsRouteRoute: BackofficeContractorsRouteRouteWithChildren,
+  BackofficeDrawsRouteRoute: BackofficeDrawsRouteRoute,
+  BackofficeSettingsRouteRoute: BackofficeSettingsRouteRouteWithChildren,
+  BackofficeSiteVisitsRouteRoute: BackofficeSiteVisitsRouteRoute,
+  BackofficeIndexRoute: BackofficeIndexRoute,
+  BackofficeProposalsPlanIdRoute: BackofficeProposalsPlanIdRoute,
+}
+
+const BackofficeRouteRouteWithChildren = BackofficeRouteRoute._addFileChildren(
+  BackofficeRouteRouteChildren,
+)
+
+interface BuilderDemoDashboardBuildsRouteRouteChildren {
+  BuilderDemoDashboardBuildsBuildIdRoute: typeof BuilderDemoDashboardBuildsBuildIdRoute
+  BuilderDemoDashboardBuildsIndexRoute: typeof BuilderDemoDashboardBuildsIndexRoute
+}
+
+const BuilderDemoDashboardBuildsRouteRouteChildren: BuilderDemoDashboardBuildsRouteRouteChildren =
+  {
+    BuilderDemoDashboardBuildsBuildIdRoute:
+      BuilderDemoDashboardBuildsBuildIdRoute,
+    BuilderDemoDashboardBuildsIndexRoute: BuilderDemoDashboardBuildsIndexRoute,
+  }
+
+const BuilderDemoDashboardBuildsRouteRouteWithChildren =
+  BuilderDemoDashboardBuildsRouteRoute._addFileChildren(
+    BuilderDemoDashboardBuildsRouteRouteChildren,
+  )
+
+interface BuilderDemoDashboardProposalsRouteRouteChildren {
+  BuilderDemoDashboardProposalsDraftIdRoute: typeof BuilderDemoDashboardProposalsDraftIdRoute
+  BuilderDemoDashboardProposalsIndexRoute: typeof BuilderDemoDashboardProposalsIndexRoute
+}
+
+const BuilderDemoDashboardProposalsRouteRouteChildren: BuilderDemoDashboardProposalsRouteRouteChildren =
+  {
+    BuilderDemoDashboardProposalsDraftIdRoute:
+      BuilderDemoDashboardProposalsDraftIdRoute,
+    BuilderDemoDashboardProposalsIndexRoute:
+      BuilderDemoDashboardProposalsIndexRoute,
+  }
+
+const BuilderDemoDashboardProposalsRouteRouteWithChildren =
+  BuilderDemoDashboardProposalsRouteRoute._addFileChildren(
+    BuilderDemoDashboardProposalsRouteRouteChildren,
+  )
+
+interface BuilderDemoDashboardRouteRouteChildren {
+  BuilderDemoDashboardBuildsRouteRoute: typeof BuilderDemoDashboardBuildsRouteRouteWithChildren
+  BuilderDemoDashboardProposalsRouteRoute: typeof BuilderDemoDashboardProposalsRouteRouteWithChildren
+  BuilderDemoDashboardIndexRoute: typeof BuilderDemoDashboardIndexRoute
+}
+
+const BuilderDemoDashboardRouteRouteChildren: BuilderDemoDashboardRouteRouteChildren =
+  {
+    BuilderDemoDashboardBuildsRouteRoute:
+      BuilderDemoDashboardBuildsRouteRouteWithChildren,
+    BuilderDemoDashboardProposalsRouteRoute:
+      BuilderDemoDashboardProposalsRouteRouteWithChildren,
+    BuilderDemoDashboardIndexRoute: BuilderDemoDashboardIndexRoute,
+  }
+
+const BuilderDemoDashboardRouteRouteWithChildren =
+  BuilderDemoDashboardRouteRoute._addFileChildren(
+    BuilderDemoDashboardRouteRouteChildren,
+  )
+
+interface BuilderDemoRouteRouteChildren {
+  BuilderDemoDashboardRouteRoute: typeof BuilderDemoDashboardRouteRouteWithChildren
+}
+
+const BuilderDemoRouteRouteChildren: BuilderDemoRouteRouteChildren = {
+  BuilderDemoDashboardRouteRoute: BuilderDemoDashboardRouteRouteWithChildren,
+}
+
+const BuilderDemoRouteRouteWithChildren =
+  BuilderDemoRouteRoute._addFileChildren(BuilderDemoRouteRouteChildren)
+
+interface BuilderRouteRouteChildren {
+  BuilderDemoRouteRoute: typeof BuilderDemoRouteRouteWithChildren
+}
+
+const BuilderRouteRouteChildren: BuilderRouteRouteChildren = {
+  BuilderDemoRouteRoute: BuilderDemoRouteRouteWithChildren,
+}
+
+const BuilderRouteRouteWithChildren = BuilderRouteRoute._addFileChildren(
+  BuilderRouteRouteChildren,
+)
+
+interface DemoRouteRouteChildren {
+  DemoConvexRoute: typeof DemoConvexRoute
+  DemoTanstackQueryRoute: typeof DemoTanstackQueryRoute
+  DemoWorkosRoute: typeof DemoWorkosRoute
+  DemoDrawflowActiveRoute: typeof DemoDrawflowActiveRoute
+  DemoDrawflowAdminBuildDashboardRoute: typeof DemoDrawflowAdminBuildDashboardRoute
+  DemoDrawflowBuilderDashboardRoute: typeof DemoDrawflowBuilderDashboardRoute
+  DemoDrawflowNewProposalRoute: typeof DemoDrawflowNewProposalRoute
+  DemoDrawflowProposalRoute: typeof DemoDrawflowProposalRoute
+  DemoTimelineTimelineIdRoute: typeof DemoTimelineTimelineIdRoute
+  DemoDrawflowIndexRoute: typeof DemoDrawflowIndexRoute
+  DemoEvilChartsIndexRoute: typeof DemoEvilChartsIndexRoute
+  DemoTimelineIndexRoute: typeof DemoTimelineIndexRoute
+}
+
+const DemoRouteRouteChildren: DemoRouteRouteChildren = {
   DemoConvexRoute: DemoConvexRoute,
   DemoTanstackQueryRoute: DemoTanstackQueryRoute,
   DemoWorkosRoute: DemoWorkosRoute,
+  DemoDrawflowActiveRoute: DemoDrawflowActiveRoute,
+  DemoDrawflowAdminBuildDashboardRoute: DemoDrawflowAdminBuildDashboardRoute,
+  DemoDrawflowBuilderDashboardRoute: DemoDrawflowBuilderDashboardRoute,
+  DemoDrawflowNewProposalRoute: DemoDrawflowNewProposalRoute,
+  DemoDrawflowProposalRoute: DemoDrawflowProposalRoute,
+  DemoTimelineTimelineIdRoute: DemoTimelineTimelineIdRoute,
+  DemoDrawflowIndexRoute: DemoDrawflowIndexRoute,
+  DemoEvilChartsIndexRoute: DemoEvilChartsIndexRoute,
+  DemoTimelineIndexRoute: DemoTimelineIndexRoute,
+}
+
+const DemoRouteRouteWithChildren = DemoRouteRoute._addFileChildren(
+  DemoRouteRouteChildren,
+)
+
+const rootRouteChildren: RootRouteChildren = {
+  IndexRoute: IndexRoute,
+  BackofficeRouteRoute: BackofficeRouteRouteWithChildren,
+  BuilderRouteRoute: BuilderRouteRouteWithChildren,
+  DemoRouteRoute: DemoRouteRouteWithChildren,
+  AboutRoute: AboutRoute,
+  CallbackRoute: CallbackRoute,
   ApiAuthSignInRoute: ApiAuthSignInRoute,
   ApiAuthSignUpRoute: ApiAuthSignUpRoute,
+  NewsitevisitBuildIdSiteVisitTokenRoute:
+    NewsitevisitBuildIdSiteVisitTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -1,0 +1,15 @@
+<div class="df-stack">
+  <button class="df-button df-button-default" data-dialog-open="alert-dialog">Delete draw package</button>
+  <div class="df-overlay" data-dialog="alert-dialog" hidden>
+    <section class="df-dialog" role="dialog" aria-modal="true" aria-labelledby="alert-dialog-title">
+      <button class="df-icon-button df-dialog-close" data-dialog-close="alert-dialog" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      <div class="df-dialog-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg></div>
+      <h2 id="alert-dialog-title">Release cannot be undone</h2>
+      <p>This removes the pending package and writes an audit event for lender review.</p>
+      <footer class="df-dialog-actions">
+        <button class="df-button df-button-outline" data-dialog-close="alert-dialog">Cancel</button>
+        <button class="df-button df-button-destructive">Delete package</button>
+      </footer>
+    </section>
+  </div>
+</div>
