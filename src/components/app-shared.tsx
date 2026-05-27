@@ -8,6 +8,7 @@ import {
   BankIcon,
   ClipboardIcon,
   Settings01Icon,
+  UserSettings01Icon,
   HelpCircleIcon,
   BookOpen01Icon,
   PresentationOnlineIcon,
@@ -79,6 +80,12 @@ export const navGroups: SidebarNavGroup[] = [
   {
     label: "Administration",
     items: [
+      {
+        title: "User management",
+        to: "/backoffice/user-management",
+        icon: icon(UserSettings01Icon),
+        matchPrefix: true,
+      },
       {
         title: "Settings",
         to: "/backoffice/settings",

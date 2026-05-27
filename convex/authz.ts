@@ -42,7 +42,7 @@ const capabilities: Record<Capability, readonly RoleSlug[] | null> = {
   authenticated: null,
   admin: ["admin"],
   backoffice: ["admin", "principle-broker", "broker", "broker-staff"],
-  builder: ["builder"],
+  builder: ["admin", "builder"],
   userManagementWrite: ["admin", "principle-broker"],
   nonDestructiveWrite: ["admin", "principle-broker", "broker", "broker-staff"],
   destructiveWrite: ["admin", "principle-broker"],

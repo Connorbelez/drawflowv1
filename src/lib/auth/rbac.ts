@@ -20,7 +20,10 @@ export const BACKOFFICE_ROLE_SLUGS = [
   "broker-staff",
 ] as const satisfies readonly RoleSlug[];
 
-export const BUILDER_ROLE_SLUGS = ["builder"] as const satisfies readonly RoleSlug[];
+export const BUILDER_ROLE_SLUGS = [
+  "admin",
+  "builder",
+] as const satisfies readonly RoleSlug[];
 
 export const USER_MANAGEMENT_WRITE_ROLE_SLUGS = [
   "admin",

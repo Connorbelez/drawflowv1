@@ -42,6 +42,10 @@ describe("production Convex RBAC builders", () => {
     ).resolves.toMatchObject({ capability: "builder" });
 
     await expect(
+      authed(["admin"]).query(api.authzTest.requireBuilder, {})
+    ).resolves.toMatchObject({ capability: "builder", roles: ["admin"] });
+
+    await expect(
       authed(["principle-broker"]).mutation(api.authzTest.requireUserManagementWrite, {})
     ).resolves.toMatchObject({ capability: "userManagementWrite" });
 

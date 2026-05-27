@@ -87,6 +87,55 @@ describe("durable timeline plan helpers", () => {
     expect(slug).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{4}$/);
   });
 
+  test("persists project address on timeline plan and linked demo build", async () => {
+    const t = convexTest(schema, modules);
+    const created = await t.mutation(
+      api.demo_timeline_plans.demo_createTimelinePlanFromSetup,
+      {
+        address: "Toronto, ON",
+        buildName: "Addressed plan",
+        currentDay: 0,
+        milestones: [
+          {
+            budgetCents: 100_000,
+            dayEnd: 14,
+            dayStart: 0,
+            durationDays: 14,
+            key: "foundation",
+            name: "Foundation",
+            x: 0,
+          },
+        ],
+        startingCashCents: 100_000,
+        templateTitle: "Addressed plan",
+        totalBudgetCents: 100_000,
+      },
+    );
+
+    const workspace = await t.query(
+      api.demo_timeline_plans.demo_getTimelinePlanWorkspace,
+      { planId: created.timelineId },
+    );
+    const build = await t.run(async (ctx) => {
+      const planId = ctx.db.normalizeId(
+        "demo_timelinePlans",
+        created.timelineId,
+      );
+      if (!planId) {
+        throw new Error("Missing plan id.");
+      }
+      const plan = await ctx.db.get(planId);
+      if (!plan) {
+        throw new Error("Missing plan.");
+      }
+      return await ctx.db.get(plan.buildId);
+    });
+
+    expect(workspace.plan.address).toBe("Toronto, ON");
+    expect(build?.address).toBe("Toronto, ON");
+    expect(build?.subtitle).toContain("Toronto, ON");
+  });
+
   test("persists draw mutations without regenerating milestone-owned draws", async () => {
     const t = convexTest(schema, modules);
     const created = await t.mutation(

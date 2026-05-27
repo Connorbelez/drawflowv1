@@ -1,7 +1,9 @@
 import { describe, expect, test } from "vitest";
 import {
   buildTimelineItemsFromSetupRows,
+  DEFAULT_SETUP_ADDRESS,
   parsePercentTextToBps,
+  resolveTimelineSetupAddress,
   type TimelineSetupMilestoneRow,
 } from "./-TimelineSetupFlow";
 
@@ -20,6 +22,14 @@ const row = {
   subMilestones: ["Excavation"],
   type: "foundation",
 } satisfies TimelineSetupMilestoneRow;
+
+describe("resolveTimelineSetupAddress", () => {
+  test("trims whitespace and falls back to the default when blank", () => {
+    expect(resolveTimelineSetupAddress("  Toronto, ON  ")).toBe("Toronto, ON");
+    expect(resolveTimelineSetupAddress("   ")).toBe(DEFAULT_SETUP_ADDRESS);
+    expect(resolveTimelineSetupAddress("")).toBe(DEFAULT_SETUP_ADDRESS);
+  });
+});
 
 describe("TimelineSetupFlow reimbursement percentage", () => {
   test("parses co-pay percentages into basis points", () => {

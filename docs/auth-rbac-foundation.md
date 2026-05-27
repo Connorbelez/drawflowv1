@@ -30,7 +30,8 @@ Frontend route policy is centralized in `src/lib/auth/rbac.ts`.
 
 - `/backoffice` is restricted to `admin`, `principle-broker`, `broker`, and
   `broker-staff`.
-- Canonical production `/builder` routes are restricted to `builder`.
+- Canonical production `/builder` routes are restricted to `admin` and
+  `builder`; `admin` is god-mode for product workspace access.
 - `/builder/demo` remains unauthenticated as the legacy demo exception.
 - Authenticated users without workspace access are redirected to
   `/protected-access`.
@@ -53,8 +54,9 @@ Production Convex authorization helpers live in `convex/authz.ts`, not
 - destructive writes
 
 Destructive capability is limited to `admin` and `principle-broker`.
-`broker` and `broker-staff` have backoffice and non-destructive operational
-capability. Same-organization enforcement is intentionally deferred, so
+`admin` also satisfies builder workspace capability. `broker` and
+`broker-staff` have backoffice and non-destructive operational capability.
+Same-organization enforcement is intentionally deferred, so
 `principle-broker` user-management writes are broad until the future
 organization-scoped policy layer is added.
 
@@ -102,6 +104,13 @@ Write actions call WorkOS first and return an accepted result with
 `waiting-for-webhook` sync state. The UI does not directly mutate Convex
 projection tables. Tests use the fake adapter automatically, so WorkOS
 credentials are not required and real WorkOS data is never mutated in test runs.
+
+Admins can also trigger `workosManagement.syncWorkosDirectory` from
+`/backoffice/user-management`. This action lists the current WorkOS
+organizations, memberships, users, organization roles, and permissions, then
+feeds them through the same projection ingestion path as webhook events. It is
+the recovery path for records created before the webhook existed and for
+temporary webhook delivery outages.
 
 ## Deferred Scope
 

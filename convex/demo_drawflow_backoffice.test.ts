@@ -31,7 +31,7 @@ describe("drawflow backoffice dashboard projection", () => {
     expect(result.dashboard.activeBuilds).toHaveLength(1);
     expect(result.dashboard.activeBuilds[0]).toMatchObject({
       activeMilestone: expect.any(String),
-      address: expect.stringContaining("Mock address"),
+      address: "1420 Maple Ridge Dr, Hamilton, ON L8P 2X4",
       buildKey: "active-maple-ridge",
       builder: expect.stringContaining("Mock builder"),
       href: "/backoffice/builds/active-maple-ridge?rail=closed&tab=timeline",
@@ -49,7 +49,7 @@ describe("drawflow backoffice dashboard projection", () => {
         .value,
     );
     expect(result.dashboard.drawRequests[0]).toMatchObject({
-      address: expect.stringContaining("Mock address"),
+      address: "1420 Maple Ridge Dr, Hamilton, ON L8P 2X4",
       buildId: expect.stringMatching(/^B-/),
       buildKey: "active-maple-ridge",
       href: "/backoffice/builds/active-maple-ridge?rail=closed&tab=timeline",
@@ -96,5 +96,49 @@ describe("drawflow backoffice dashboard projection", () => {
       column: "approved",
       statusLabel: "Approved",
     });
+  });
+
+  test("updates editable build detail fields from the backoffice card", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(api.demo_drawflow.demo_seedDrawFlowDemo, {});
+
+    const buildId = await t.query(
+      api.demo_drawflow_backoffice.demo_resolveBuildIdByKey,
+      { buildKey: "active-maple-ridge" },
+    );
+    expect(buildId).not.toBeNull();
+
+    const updated = await t.mutation(
+      api.demo_drawflow_backoffice.demo_updateBuildDetails,
+      {
+        buildId: buildId!,
+        address: "88 King St W, Hamilton, ON L8P 1A1",
+        todayDate: "2026-06-01",
+        daysToPayoff: 120,
+        percentComplete: 42,
+        openWarnings: 2,
+        siteVisitsOpen: 1,
+      },
+    );
+
+    expect(updated).toMatchObject({
+      address: "88 King St W, Hamilton, ON L8P 1A1",
+      todayDate: "2026-06-01",
+      payoffDate: "2026-09-29",
+      daysToPayoff: 120,
+      percentComplete: 42,
+      openWarnings: 2,
+      siteVisitsOpen: 1,
+    });
+
+    const vm = await t.query(
+      api.demo_drawflow_backoffice.demo_getBuildDetailViewModel,
+      { buildId: buildId! },
+    );
+    expect(vm.needsSeed).toBe(false);
+    expect(vm.address).toBe("88 King St W, Hamilton, ON L8P 1A1");
+    expect(vm.derived.percentComplete).toBe(42);
+    expect(vm.derived.openWarnings).toBe(2);
+    expect(vm.derived.siteVisitsOpen).toBe(1);
   });
 });

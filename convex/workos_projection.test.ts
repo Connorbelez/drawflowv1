@@ -54,6 +54,107 @@ describe("WorkOS webhook projections", () => {
     );
   });
 
+  test("projects AuthKit camelCase membership payloads", async () => {
+    const t = convexTest(schema, modules);
+    const membershipId = "om_01KSKFM9DYQN8FBZ12Y734QEZA";
+    const event = {
+      event: "organization_membership.created",
+      data: {
+        id: membershipId,
+        object: "organization_membership",
+        organizationId: "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
+        userId: "user_01EHWNC0FCBHZ3BJ7EGKYXK0E6",
+        status: "active",
+        createdAt: "2023-11-27T19:07:33.155Z",
+        updatedAt: "2023-11-27T19:07:33.155Z",
+        role: { slug: "member" },
+        roles: [{ slug: "member" }],
+        directoryManaged: false,
+      },
+    };
+
+    await t.mutation(internal.auth.authKitEvent, event);
+
+    const projections = await asAdmin(t).query(
+      api.workosProjection.listUserManagement,
+      {}
+    );
+    expect(projections.memberships).toHaveLength(1);
+    expect(projections.memberships[0]).toMatchObject({
+      workosMembershipId: membershipId,
+      workosOrganizationId: "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
+      workosUserId: "user_01EHWNC0FCBHZ3BJ7EGKYXK0E6",
+      status: "active",
+      roleSlug: "member",
+      roleSlugs: ["member"],
+    });
+  });
+
+  test("preserves pending memberships and aggregates multi-role memberships", async () => {
+    const t = convexTest(schema, modules);
+
+    await t.mutation(internal.auth.authKitEvent, {
+      data: userEvent("user.created", "user_multi_role"),
+      event: "user.created",
+    });
+    await t.mutation(internal.auth.authKitEvent, {
+      data: {
+        id: "membership_pending",
+        event: "organization_membership.created",
+        data: {
+          id: "om_pending",
+          object: "organization_membership",
+          organizationId: "org_fixture",
+          userId: "user_fixture",
+          status: "pending",
+          createdAt: "2023-11-27T19:07:33.155Z",
+          updatedAt: "2023-11-27T19:07:33.155Z",
+          role: { slug: "builder" },
+          roles: [{ slug: "builder" }, { slug: "contractor" }],
+          directoryManaged: false,
+        },
+      },
+      event: "organization_membership.created",
+    });
+    await t.mutation(internal.auth.authKitEvent, {
+      data: {
+        id: "membership_active",
+        event: "organization_membership.created",
+        data: {
+          id: "om_active",
+          object: "organization_membership",
+          organizationId: "org_fixture",
+          userId: "user_fixture",
+          status: "active",
+          createdAt: "2023-11-27T19:07:33.155Z",
+          updatedAt: "2023-11-27T19:07:33.155Z",
+          role: { slug: "admin" },
+          roles: [{ slug: "admin" }, { slug: "broker" }],
+          directoryManaged: false,
+        },
+      },
+      event: "organization_membership.created",
+    });
+
+    const projections = await asAdmin(t).query(
+      api.workosProjection.listUserManagement,
+      {}
+    );
+    expect(
+      projections.memberships.find(
+        (membership: any) => membership.workosMembershipId === "om_pending"
+      )
+    ).toMatchObject({
+      roleSlug: "builder",
+      roleSlugs: ["builder", "contractor"],
+      status: "pending",
+    });
+    expect(projections.users[0]).toMatchObject({
+      roleSlugs: ["admin", "broker"],
+      roles: "admin, broker",
+    });
+  });
+
   test("skips duplicate WorkOS event ids without mutating projection timestamps twice", async () => {
     const t = convexTest(schema, modules);
     const event = userEvent("user.created", "event_duplicate");

@@ -210,6 +210,14 @@ export default defineSchema({
     .index("by_milestone", ["scenario", "milestoneKey"])
     .index("by_draw_group", ["scenario", "drawGroupKey"]),
   demo_builds: defineTable({
+    address: v.optional(v.string()),
+    detailOverrides: v.optional(
+      v.object({
+        openWarnings: v.optional(v.number()),
+        percentComplete: v.optional(v.number()),
+        siteVisitsOpen: v.optional(v.number()),
+      })
+    ),
     borrowerCoPayBps: v.optional(v.number()),
     borrowerCoPayCents: v.optional(v.number()),
     flatDrawFeeCents: v.number(),
@@ -1195,7 +1203,12 @@ export default defineSchema({
     workosMembershipId: v.string(),
     workosUserId: v.string(),
     workosOrganizationId: v.string(),
-    status: v.union(v.literal("active"), v.literal("inactive"), v.literal("deleted")),
+    status: v.union(
+      v.literal("active"),
+      v.literal("inactive"),
+      v.literal("pending"),
+      v.literal("deleted")
+    ),
     roleSlug: v.optional(v.string()),
     roleSlugs: v.array(v.string()),
     directoryManaged: v.optional(v.boolean()),

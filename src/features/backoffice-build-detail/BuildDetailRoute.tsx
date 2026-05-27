@@ -20,15 +20,29 @@ import {
   MilestoneDetailSheet,
 } from "./MilestoneDetailSheet";
 import { SitePhotoCarousel } from "./SitePhotoCarousel";
+import { InlineEdit, InlineEditNumber } from "#/components/ui/inline-edit.tsx";
 import {
+  formatBuildAddress,
   formatCents,
   formatDate,
   initialsFor,
+  normalizeIsoDateInput,
   statusChipLabel,
   statusChipTone,
 } from "./format";
 
 type SubTab = "details" | "timeline" | "calendar" | "gantt";
+
+type BuildDetailsPatch = {
+  address?: string;
+  projectStartDate?: string;
+  payoffDate?: string;
+  todayDate?: string;
+  daysToPayoff?: number;
+  percentComplete?: number;
+  openWarnings?: number;
+  siteVisitsOpen?: number;
+};
 
 interface BuildDetailRouteProps {
   buildKey: string;
@@ -96,6 +110,9 @@ function BuildDetailShell({
     api.demo_drawflow_backoffice.demo_approveMilestoneFromSheet,
   );
   const addNote = useMutation(api.demo_drawflow_backoffice.demo_addBuildNote);
+  const updateBuildDetails = useMutation(
+    api.demo_drawflow_backoffice.demo_updateBuildDetails,
+  );
   const [activeMilestoneKey, setActiveMilestoneKey] = useState<string | null>(
     null,
   );
@@ -251,6 +268,11 @@ function BuildDetailShell({
   const build: any = vm.build;
   const derived: any = vm.derived;
   const displayId: string = vm.displayId;
+  const address: string = vm.address ?? formatBuildAddress(build);
+
+  const onUpdateBuildDetails = async (patch: BuildDetailsPatch) => {
+    await updateBuildDetails({ buildId, ...patch });
+  };
 
   return (
     <main
@@ -276,10 +298,12 @@ function BuildDetailShell({
 
         {activeTab === "details" ? (
           <DetailsTabPanel
+            address={address}
             buildId={buildId}
             build={build}
             derived={derived}
             displayId={displayId}
+            onUpdateBuildDetails={onUpdateBuildDetails}
             documents={vm.documents}
             draws={vm.draws}
             drawErrors={drawErrors}
@@ -422,9 +446,11 @@ function TabBar({
 }
 
 function DetailsTabPanel({
+  address,
   build,
   derived,
   displayId,
+  onUpdateBuildDetails,
   documents,
   draws,
   drawErrors,
@@ -445,9 +471,11 @@ function DetailsTabPanel({
   availableContractors,
   buildId,
 }: {
+  address: string;
   build: any;
   derived: any;
   displayId: string;
+  onUpdateBuildDetails: (patch: BuildDetailsPatch) => Promise<void>;
   documents: any[];
   draws: any[];
   drawErrors: Record<string, string>;
@@ -475,9 +503,11 @@ function DetailsTabPanel({
         id="section-overview"
       >
         <BuildDetailsCard
+          address={address}
           build={build}
           derived={derived}
           displayId={displayId}
+          onUpdate={onUpdateBuildDetails}
         />
         <SitePhotoCarousel photos={sitePhotos} />
       </section>
@@ -532,14 +562,26 @@ function DetailsTabPanel({
 }
 
 function BuildDetailsCard({
+  address,
   build,
   derived,
   displayId,
+  onUpdate,
 }: {
+  address: string;
   build: any;
   derived: any;
   displayId: string;
+  onUpdate: (patch: BuildDetailsPatch) => Promise<void>;
 }) {
+  const commitDate =
+    (field: "projectStartDate" | "payoffDate" | "todayDate", label: string) =>
+    async (draftValue: string) => {
+      await onUpdate({
+        [field]: normalizeIsoDateInput(label, draftValue, build[field]),
+      });
+    };
+
   return (
     <article
       className="rounded-xl border border-border bg-card p-5"
@@ -549,20 +591,102 @@ function BuildDetailsCard({
         <h3 className="font-semibold text-sm">Build Details</h3>
         <span className="text-[11px] text-muted-foreground">demo_builds</span>
       </header>
-      <dl className="grid grid-cols-[120px_1fr] gap-y-1.5 text-sm">
+      <dl className="grid grid-cols-[120px_minmax(0,1fr)] gap-y-1.5 text-sm">
         <Label>Loan number</Label>
-        <span>FL-{displayId}</span>
+        <dd className="tabular-nums">FL-{displayId}</dd>
+        <Label>Address</Label>
+        <dd className="min-w-0">
+          <InlineEdit
+            affordance="glint"
+            ariaLabel="Build address"
+            className="w-full max-w-full whitespace-normal!"
+            displayValue={address}
+            draftValue={address}
+            inputWidth="100%"
+            onCommit={async (draftValue) => {
+              const trimmed = draftValue.trim();
+              if (!trimmed) return;
+              await onUpdate({ address: trimmed });
+            }}
+            reserveWidth="100%"
+            size="body"
+            testId="build-detail-address"
+            tone="neutral"
+            weight="regular"
+          />
+        </dd>
         <Label>Project start</Label>
-        <span>{formatDate(build.projectStartDate)}</span>
+        <dd>
+          <InlineEdit
+            affordance="glint"
+            ariaLabel="Project start date"
+            displayValue={formatDate(build.projectStartDate)}
+            draftValue={build.projectStartDate}
+            inputWidth="7.5rem"
+            onCommit={commitDate("projectStartDate", "Project start")}
+            reserveWidth="7.5rem"
+            testId="build-detail-project-start"
+          />
+        </dd>
         <Label>Payoff</Label>
-        <span>{formatDate(build.payoffDate)}</span>
+        <dd>
+          <InlineEdit
+            affordance="glint"
+            ariaLabel="Payoff date"
+            displayValue={formatDate(build.payoffDate)}
+            draftValue={build.payoffDate}
+            inputWidth="7.5rem"
+            onCommit={commitDate("payoffDate", "Payoff")}
+            reserveWidth="7.5rem"
+            testId="build-detail-payoff"
+          />
+        </dd>
         <Label>Today</Label>
-        <span>{formatDate(build.todayDate)}</span>
+        <dd>
+          <InlineEdit
+            affordance="glint"
+            ariaLabel="Today date"
+            displayValue={formatDate(build.todayDate)}
+            draftValue={build.todayDate}
+            inputWidth="7.5rem"
+            onCommit={commitDate("todayDate", "Today")}
+            reserveWidth="7.5rem"
+            testId="build-detail-today"
+          />
+        </dd>
         <Label>Days to payoff</Label>
-        <span className="tabular-nums">{derived.daysToPayoff}</span>
+        <dd>
+          <InlineEditNumber
+            affordance="glint"
+            ariaLabel="Days to payoff"
+            formatDisplay={(value) => String(value)}
+            inputWidth="3rem"
+            min={0}
+            onCommit={async (value) => {
+              await onUpdate({ daysToPayoff: value });
+            }}
+            reserveWidth="3rem"
+            testId="build-detail-days-to-payoff"
+            value={derived.daysToPayoff}
+          />
+        </dd>
         <Label>% complete</Label>
-        <span className="flex items-center gap-2">
-          <span className="tabular-nums">{derived.percentComplete}%</span>
+        <dd className="flex items-center gap-2">
+          <InlineEditNumber
+            affordance="glint"
+            ariaLabel="Percent complete"
+            formatDisplay={(value) => `${value}%`}
+            inputWidth="3rem"
+            max={100}
+            min={0}
+            onCommit={async (value) => {
+              await onUpdate({ percentComplete: value });
+            }}
+            reserveWidth="3rem"
+            suffix="%"
+            testId="build-detail-percent-complete"
+            value={derived.percentComplete}
+          />
           <span
             aria-hidden
             className="h-1.5 w-24 overflow-hidden rounded-full bg-muted"
@@ -572,19 +696,43 @@ function BuildDetailsCard({
               style={{ width: `${Math.min(100, derived.percentComplete)}%` }}
             />
           </span>
-        </span>
+        </dd>
         <Label>Open warnings</Label>
-        <span
-          className={
-            derived.openWarnings > 0
-              ? "text-amber-400 tabular-nums"
-              : "tabular-nums"
-          }
-        >
-          {derived.openWarnings}
-        </span>
+        <dd>
+          <InlineEditNumber
+            affordance="glint"
+            ariaLabel="Open warnings"
+            className={
+              derived.openWarnings > 0 ? "text-amber-400" : undefined
+            }
+            formatDisplay={(value) => String(value)}
+            inputWidth="2.5rem"
+            min={0}
+            onCommit={async (value) => {
+              await onUpdate({ openWarnings: value });
+            }}
+            reserveWidth="2.5rem"
+            testId="build-detail-open-warnings"
+            tone={derived.openWarnings > 0 ? "warning" : "neutral"}
+            value={derived.openWarnings}
+          />
+        </dd>
         <Label>Site visits open</Label>
-        <span className="tabular-nums">{derived.siteVisitsOpen}</span>
+        <dd>
+          <InlineEditNumber
+            affordance="glint"
+            ariaLabel="Site visits open"
+            formatDisplay={(value) => String(value)}
+            inputWidth="2.5rem"
+            min={0}
+            onCommit={async (value) => {
+              await onUpdate({ siteVisitsOpen: value });
+            }}
+            reserveWidth="2.5rem"
+            testId="build-detail-site-visits-open"
+            value={derived.siteVisitsOpen}
+          />
+        </dd>
       </dl>
       <hr className="my-4 border-border" />
       <h3 className="mb-2 font-semibold text-sm">Loan Details</h3>

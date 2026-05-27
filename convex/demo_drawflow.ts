@@ -16,6 +16,7 @@ import {
   guidanceItemsToGuidance,
   guidanceToItems,
 } from "./demo_site_visit_guidance";
+import { demoBuildAddress } from "./demo_build_address";
 import { MOCK_BUILDER_PERSONA } from "./demo_personas";
 import { seedBuildDetailExtras } from "./demo_drawflow_backoffice";
 import type { DatabaseReader, DatabaseWriter, Doc, Id } from "./types";
@@ -1120,6 +1121,7 @@ async function seedCommonDependencies(
 
 async function seedActive(ctx: DemoMutationCtx) {
   const buildId = await ctx.db.insert("demo_builds", {
+    address: "1420 Maple Ridge Dr, Hamilton, ON L8P 2X4",
     flatDrawFeeCents: FLAT_DRAW_FEE_CENTS,
     interestAnnualBps: INTEREST_ANNUAL_BPS,
     key: "active-maple-ridge",
@@ -1247,6 +1249,7 @@ async function seedActive(ctx: DemoMutationCtx) {
 
 async function seedProposal(ctx: DemoMutationCtx) {
   const buildId = await ctx.db.insert("demo_builds", {
+    address: "1420 Maple Ridge Dr, Hamilton, ON L8P 2X4",
     flatDrawFeeCents: FLAT_DRAW_FEE_CENTS,
     interestAnnualBps: INTEREST_ANNUAL_BPS,
     key: "proposal-maple-ridge",
@@ -1780,10 +1783,6 @@ function buildDisplayId(build: Doc<"demo_builds">, prefix: string) {
   return `${prefix}-${build.key.replace(/[^a-z0-9]/gi, "-").toUpperCase()}`;
 }
 
-function demoBuildAddress(build: Doc<"demo_builds">) {
-  const location = build.subtitle.match(/·\s*([^·]+?)\s*·/)?.[1]?.trim();
-  return location ? `Mock address - ${location}` : "Mock address - demo build";
-}
 
 function daysBetween(startDate: string, endDate: string) {
   return Math.max(0, dateDiffDays(startDate, endDate));

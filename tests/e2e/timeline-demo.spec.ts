@@ -89,6 +89,9 @@ test("timeline setup selects a template, edits the blueprint budget table, and g
 
   await expect(page.getByTestId("timeline-setup-budget-screen")).toBeVisible();
   await expect(
+    page.getByTestId("timeline-setup-budget-screen").getByText("Toronto, ON"),
+  ).toBeVisible();
+  await expect(
     page.getByTestId("timeline-setup-budget-row-site-prep"),
   ).toBeVisible();
   await expect(
@@ -315,6 +318,9 @@ test("timeline setup selects a template, edits the blueprint budget table, and g
       name: /Single Family Full Build draw roadmap/,
     }),
   ).toBeVisible();
+  await expect(page.getByTestId("timeline-roadmap-address")).toHaveText(
+    "Toronto, ON",
+  );
   await expect(page.getByTestId("timeline-card-framing")).toContainText(
     /Milestone 1/i,
   );

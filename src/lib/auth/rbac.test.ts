@@ -29,7 +29,7 @@ describe("DrawFlow frontend RBAC policy", () => {
       "broker",
       "broker-staff",
     ]);
-    expect(BUILDER_ROLE_SLUGS).toEqual(["builder"]);
+    expect(BUILDER_ROLE_SLUGS).toEqual(["admin", "builder"]);
     expect(DESTRUCTIVE_WRITE_ROLE_SLUGS).toEqual(["admin", "principle-broker"]);
   });
 
@@ -49,6 +49,15 @@ describe("DrawFlow frontend RBAC policy", () => {
         pathname: "/backoffice",
         roles: ["broker-staff"],
         workspace: "backoffice",
+      })
+    ).toMatchObject({ status: "allowed" });
+
+    expect(
+      getWorkspaceAccessDecision({
+        isAuthenticated: true,
+        pathname: "/builder",
+        roles: ["admin"],
+        workspace: "builder",
       })
     ).toMatchObject({ status: "allowed" });
 

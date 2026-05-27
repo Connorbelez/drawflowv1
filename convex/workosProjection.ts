@@ -4,12 +4,16 @@ import type { MutationCtx } from "./_generated/server";
 import { authenticatedQuery, backofficeQuery } from "./authz";
 import { fluent } from "./fluent";
 
-type WorkosEvent = {
+interface WorkosEvent {
   created_at?: string;
+  createdAt?: string;
+  // biome-ignore lint/suspicious/noExplicitAny: WorkOS webhook payloads are untyped external records.
   data: Record<string, any>;
   event: string;
-  id: string;
-};
+  id?: string;
+}
+
+type NormalizedWorkosEvent = WorkosEvent & { id: string };
 
 const userRow = v.object({
   _id: v.id("users"),
@@ -26,12 +30,17 @@ const userRow = v.object({
   createdAt: v.optional(v.number()),
   updatedAt: v.optional(v.number()),
   deletedAt: v.optional(v.number()),
+  roles: v.string(),
+  roleSlugs: v.array(v.string()),
   sourceEventId: v.optional(v.string()),
   sourceEventType: v.optional(v.string()),
 });
 
-export const processWorkosEvent = async (ctx: MutationCtx, event: WorkosEvent) => {
-  event = normalizeIncomingEvent(event);
+export const processWorkosEvent = async (
+  ctx: MutationCtx,
+  incoming: WorkosEvent
+) => {
+  const event = normalizeIncomingEvent(incoming);
   const existing = await ctx.db
     .query("workosWebhookReceipts")
     .withIndex("by_event_id", (q) => q.eq("eventId", event.id))
@@ -82,7 +91,9 @@ export const ingestWorkosEvent = fluent
     data: v.record(v.string(), v.any()),
   })
   .returns(v.null())
-  .handler(async (ctx, args) => processWorkosEvent(ctx, args.data as WorkosEvent))
+  .handler(async (ctx, args) =>
+    processWorkosEvent(ctx, args.data as WorkosEvent)
+  )
   .internal();
 
 export const listUserManagement = backofficeQuery
@@ -96,14 +107,57 @@ export const listUserManagement = backofficeQuery
       users: v.array(userRow),
     })
   )
-  .handler(async (ctx) => ({
-    memberships: await ctx.db.query("workosOrganizationMemberships").collect(),
-    organizationRoles: await ctx.db.query("workosOrganizationRoles").collect(),
-    organizations: await ctx.db.query("workosOrganizations").collect(),
-    permissions: await ctx.db.query("workosPermissions").collect(),
-    roles: await ctx.db.query("workosRoles").collect(),
-    users: await ctx.db.query("users").collect(),
-  }))
+  .handler(async (ctx) => {
+    const memberships = await ctx.db
+      .query("workosOrganizationMemberships")
+      .collect();
+    const rolesByUserId = new Map<string, Set<string>>();
+
+    for (const membership of memberships) {
+      if (membership.status !== "active") {
+        continue;
+      }
+
+      const roleSlugs =
+        membership.roleSlugs.length > 0
+          ? membership.roleSlugs
+          : membership.roleSlug
+            ? [membership.roleSlug]
+            : [];
+      if (roleSlugs.length === 0) {
+        continue;
+      }
+
+      const userRoles =
+        rolesByUserId.get(membership.workosUserId) ?? new Set<string>();
+      for (const roleSlug of roleSlugs) {
+        userRoles.add(roleSlug);
+      }
+      rolesByUserId.set(membership.workosUserId, userRoles);
+    }
+
+    const users = (await ctx.db.query("users").collect()).map((user) => {
+      const roleSlugs = [
+        ...(rolesByUserId.get(user.workosUserId ?? "") ?? []),
+      ].sort();
+      return {
+        ...user,
+        roles: roleSlugs.join(", "),
+        roleSlugs,
+      };
+    });
+
+    return {
+      memberships,
+      organizationRoles: await ctx.db
+        .query("workosOrganizationRoles")
+        .collect(),
+      organizations: await ctx.db.query("workosOrganizations").collect(),
+      permissions: await ctx.db.query("workosPermissions").collect(),
+      roles: await ctx.db.query("workosRoles").collect(),
+      users,
+    };
+  })
   .public();
 
 export const listSyncStatus = authenticatedQuery
@@ -120,7 +174,11 @@ export const listSyncStatus = authenticatedQuery
   }))
   .public();
 
-async function applyProjection(ctx: MutationCtx, event: WorkosEvent, now: number) {
+async function applyProjection(
+  ctx: MutationCtx,
+  event: NormalizedWorkosEvent,
+  now: number
+) {
   if (event.event.startsWith("user.")) {
     await upsertUser(ctx, event, now);
     return;
@@ -151,7 +209,11 @@ async function applyProjection(ctx: MutationCtx, event: WorkosEvent, now: number
   }
 }
 
-async function upsertUser(ctx: MutationCtx, event: WorkosEvent, now: number) {
+async function upsertUser(
+  ctx: MutationCtx,
+  event: NormalizedWorkosEvent,
+  now: number
+) {
   const data = event.data;
   const row = await ctx.db
     .query("users")
@@ -169,7 +231,8 @@ async function upsertUser(ctx: MutationCtx, event: WorkosEvent, now: number) {
     name: [data.firstName ?? data.first_name, data.lastName ?? data.last_name]
       .filter(Boolean)
       .join(" "),
-    profilePictureUrl: data.profilePictureUrl ?? data.profile_picture_url ?? undefined,
+    profilePictureUrl:
+      data.profilePictureUrl ?? data.profile_picture_url ?? undefined,
     sourceEventId: event.id,
     sourceEventType: event.event,
     status: deleted ? ("deleted" as const) : ("active" as const),
@@ -184,7 +247,11 @@ async function upsertUser(ctx: MutationCtx, event: WorkosEvent, now: number) {
   }
 }
 
-async function upsertOrganization(ctx: MutationCtx, event: WorkosEvent, now: number) {
+async function upsertOrganization(
+  ctx: MutationCtx,
+  event: NormalizedWorkosEvent,
+  now: number
+) {
   const data = event.data;
   const row = await ctx.db
     .query("workosOrganizations")
@@ -194,23 +261,42 @@ async function upsertOrganization(ctx: MutationCtx, event: WorkosEvent, now: num
     .unique();
   const deleted = event.event.endsWith(".deleted");
   const patch = {
-    createdAt: parseTime(data.created_at),
+    createdAt: parseTime(workosField(data, "created_at", "createdAt")),
     deletedAt: deleted ? now : undefined,
     domains: data.domains ?? [],
     name: data.name ?? "",
     sourceEventId: event.id,
     sourceEventType: event.event,
     status: deleted ? ("deleted" as const) : ("active" as const),
-    updatedAt: parseTime(data.updated_at) ?? now,
+    updatedAt: parseTime(workosField(data, "updated_at", "updatedAt")) ?? now,
     workosOrganizationId: data.id,
   };
 
-  if (row) await ctx.db.patch(row._id, patch);
-  else await ctx.db.insert("workosOrganizations", patch);
+  if (row) {
+    await ctx.db.patch(row._id, patch);
+  } else {
+    await ctx.db.insert("workosOrganizations", patch);
+  }
 }
 
-async function upsertMembership(ctx: MutationCtx, event: WorkosEvent, now: number) {
+async function upsertMembership(
+  ctx: MutationCtx,
+  event: NormalizedWorkosEvent,
+  now: number
+) {
   const data = event.data;
+  const workosOrganizationId = workosField<string>(
+    data,
+    "organization_id",
+    "organizationId"
+  );
+  const workosUserId = workosField<string>(data, "user_id", "userId");
+  if (!(workosOrganizationId && workosUserId)) {
+    throw new Error(
+      `organization_membership event ${event.id} is missing organization or user id`
+    );
+  }
+
   const row = await ctx.db
     .query("workosOrganizationMemberships")
     .withIndex("by_workos_membership_id", (q) =>
@@ -219,29 +305,60 @@ async function upsertMembership(ctx: MutationCtx, event: WorkosEvent, now: numbe
     .unique();
   const deleted = event.event.endsWith(".deleted");
   const patch = {
-    createdAt: parseTime(data.created_at),
+    createdAt: parseTime(workosField(data, "created_at", "createdAt")),
     deletedAt: deleted ? now : undefined,
-    directoryManaged: Boolean(data.directory_managed),
+    directoryManaged: Boolean(
+      workosField(data, "directory_managed", "directoryManaged")
+    ),
     roleSlug: data.role?.slug,
-    roleSlugs: (data.roles ?? []).map((role: any) => role.slug).filter(Boolean),
+    roleSlugs: normalizeRoleSlugs(data),
     sourceEventId: event.id,
     sourceEventType: event.event,
     status: deleted
       ? ("deleted" as const)
-      : data.status === "inactive"
-        ? ("inactive" as const)
-        : ("active" as const),
-    updatedAt: parseTime(data.updated_at) ?? now,
+      : normalizeMembershipStatus(data.status),
+    updatedAt: parseTime(workosField(data, "updated_at", "updatedAt")) ?? now,
     workosMembershipId: data.id,
-    workosOrganizationId: data.organization_id,
-    workosUserId: data.user_id,
+    workosOrganizationId,
+    workosUserId,
   };
 
-  if (row) await ctx.db.patch(row._id, patch);
-  else await ctx.db.insert("workosOrganizationMemberships", patch);
+  if (row) {
+    await ctx.db.patch(row._id, patch);
+  } else {
+    await ctx.db.insert("workosOrganizationMemberships", patch);
+  }
 }
 
-async function upsertRole(ctx: MutationCtx, event: WorkosEvent, now: number) {
+// biome-ignore lint/suspicious/noExplicitAny: WorkOS role payloads have varying external shapes.
+function normalizeRoleSlugs(data: Record<string, any>): string[] {
+  const slugs = new Set<string>();
+  if (typeof data.role?.slug === "string") {
+    slugs.add(data.role.slug);
+  }
+  for (const role of data.roles ?? []) {
+    if (typeof role?.slug === "string") {
+      slugs.add(role.slug);
+    }
+  }
+  return [...slugs];
+}
+
+function normalizeMembershipStatus(status: unknown) {
+  if (status === "inactive") {
+    return "inactive" as const;
+  }
+  if (status === "pending") {
+    return "pending" as const;
+  }
+  return "active" as const;
+}
+
+async function upsertRole(
+  ctx: MutationCtx,
+  event: NormalizedWorkosEvent,
+  now: number
+) {
   const data = event.data;
   const row = await ctx.db
     .query("workosRoles")
@@ -249,54 +366,83 @@ async function upsertRole(ctx: MutationCtx, event: WorkosEvent, now: number) {
     .unique();
   const deleted = event.event.endsWith(".deleted");
   const patch = {
-    createdAt: parseTime(data.created_at),
+    createdAt: parseTime(workosField(data, "created_at", "createdAt")),
     deletedAt: deleted ? now : undefined,
     permissionSlugs: data.permissions ?? [],
-    resourceTypeSlug: data.resource_type_slug,
+    resourceTypeSlug: workosField<string>(
+      data,
+      "resource_type_slug",
+      "resourceTypeSlug"
+    ),
     slug: data.slug,
     sourceEventId: event.id,
     sourceEventType: event.event,
     status: deleted ? ("deleted" as const) : ("active" as const),
-    updatedAt: parseTime(data.updated_at) ?? now,
+    updatedAt: parseTime(workosField(data, "updated_at", "updatedAt")) ?? now,
   };
 
-  if (row) await ctx.db.patch(row._id, patch);
-  else await ctx.db.insert("workosRoles", patch);
+  if (row) {
+    await ctx.db.patch(row._id, patch);
+  } else {
+    await ctx.db.insert("workosRoles", patch);
+  }
 }
 
 async function upsertOrganizationRole(
   ctx: MutationCtx,
-  event: WorkosEvent,
+  event: NormalizedWorkosEvent,
   now: number
 ) {
   const data = event.data;
+  const workosOrganizationId = workosField<string>(
+    data,
+    "organization_id",
+    "organizationId"
+  );
+  if (!workosOrganizationId) {
+    throw new Error(
+      `organization_role event ${event.id} is missing organization id`
+    );
+  }
+
   const row = await ctx.db
     .query("workosOrganizationRoles")
     .withIndex("by_organization_slug", (q) =>
-      q.eq("workosOrganizationId", data.organization_id).eq("slug", data.slug)
+      q.eq("workosOrganizationId", workosOrganizationId).eq("slug", data.slug)
     )
     .unique();
   const deleted = event.event.endsWith(".deleted");
   const patch = {
-    createdAt: parseTime(data.created_at),
+    createdAt: parseTime(workosField(data, "created_at", "createdAt")),
     deletedAt: deleted ? now : undefined,
     description: data.description,
     name: data.name ?? data.slug,
     permissionSlugs: data.permissions ?? [],
-    resourceTypeSlug: data.resource_type_slug,
+    resourceTypeSlug: workosField<string>(
+      data,
+      "resource_type_slug",
+      "resourceTypeSlug"
+    ),
     slug: data.slug,
     sourceEventId: event.id,
     sourceEventType: event.event,
     status: deleted ? ("deleted" as const) : ("active" as const),
-    updatedAt: parseTime(data.updated_at) ?? now,
-    workosOrganizationId: data.organization_id,
+    updatedAt: parseTime(workosField(data, "updated_at", "updatedAt")) ?? now,
+    workosOrganizationId,
   };
 
-  if (row) await ctx.db.patch(row._id, patch);
-  else await ctx.db.insert("workosOrganizationRoles", patch);
+  if (row) {
+    await ctx.db.patch(row._id, patch);
+  } else {
+    await ctx.db.insert("workosOrganizationRoles", patch);
+  }
 }
 
-async function upsertPermission(ctx: MutationCtx, event: WorkosEvent, now: number) {
+async function upsertPermission(
+  ctx: MutationCtx,
+  event: NormalizedWorkosEvent,
+  now: number
+) {
   const data = event.data;
   const row = await ctx.db
     .query("workosPermissions")
@@ -304,7 +450,7 @@ async function upsertPermission(ctx: MutationCtx, event: WorkosEvent, now: numbe
     .unique();
   const deleted = event.event.endsWith(".deleted");
   const patch = {
-    createdAt: parseTime(data.created_at),
+    createdAt: parseTime(workosField(data, "created_at", "createdAt")),
     deletedAt: deleted ? now : undefined,
     description: data.description,
     name: data.name ?? data.slug,
@@ -313,26 +459,46 @@ async function upsertPermission(ctx: MutationCtx, event: WorkosEvent, now: numbe
     sourceEventType: event.event,
     status: deleted ? ("deleted" as const) : ("active" as const),
     system: Boolean(data.system),
-    updatedAt: parseTime(data.updated_at) ?? now,
+    updatedAt: parseTime(workosField(data, "updated_at", "updatedAt")) ?? now,
     workosPermissionId: data.id,
   };
 
-  if (row) await ctx.db.patch(row._id, patch);
-  else await ctx.db.insert("workosPermissions", patch);
+  if (row) {
+    await ctx.db.patch(row._id, patch);
+  } else {
+    await ctx.db.insert("workosPermissions", patch);
+  }
+}
+
+function workosField<T>(
+  data: Record<string, unknown>,
+  snake: string,
+  camel: string
+): T | undefined {
+  const value = data[snake] ?? data[camel];
+  return value as T | undefined;
 }
 
 function parseTime(value: unknown): number | undefined {
   if (typeof value !== "string") {
-    return undefined;
+    return;
   }
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? timestamp : undefined;
 }
 
-function normalizeIncomingEvent(event: WorkosEvent): WorkosEvent {
+function normalizeIncomingEvent(event: WorkosEvent): NormalizedWorkosEvent {
   const nested = event.data;
-  if (nested && typeof nested.id === "string" && typeof nested.event === "string") {
-    return nested as WorkosEvent;
+  if (
+    nested &&
+    typeof nested.id === "string" &&
+    typeof nested.event === "string"
+  ) {
+    const normalized = nested as WorkosEvent;
+    return {
+      ...normalized,
+      id: normalized.id ?? `${normalized.event}:${nested.id}`,
+    };
   }
 
   const entityId =
@@ -345,6 +511,7 @@ function normalizeIncomingEvent(event: WorkosEvent): WorkosEvent {
   return {
     created_at:
       event.created_at ??
+      event.createdAt ??
       nested?.updated_at ??
       nested?.updatedAt ??
       nested?.created_at ??

@@ -37,15 +37,112 @@ describe("WorkOS management actions", () => {
     });
 
     await expect(
-      t.action(api.workosManagement.updateMembershipRole, {
+      t.action(api.workosManagement.updateMembershipRoles, {
         membershipId: "om_fixture",
-        roleSlug: "broker",
+        primaryRoleSlug: "broker",
+        roleSlugs: ["broker", "builder"],
       })
     ).resolves.toMatchObject({
       adapter: "fake",
-      operation: "updateMembershipRole",
+      operation: "updateMembershipRoles",
       status: "accepted",
     });
+
+    await expect(
+      t.action(api.workosManagement.createMembership, {
+        organizationId: "org_fixture",
+        primaryRoleSlug: "builder",
+        roleSlugs: ["builder"],
+        userId: "user_unassigned",
+      })
+    ).resolves.toMatchObject({
+      adapter: "fake",
+      operation: "createMembership",
+      status: "accepted",
+    });
+
+    await expect(
+      t.action(api.workosManagement.removeMembership, {
+        membershipId: "om_fixture",
+      })
+    ).resolves.toMatchObject({
+      adapter: "fake",
+      operation: "removeMembership",
+      status: "accepted",
+    });
+
+    await expect(
+      t.query(api.workosProjection.listUserManagement, {})
+    ).resolves.toMatchObject({
+      memberships: [],
+      organizations: [],
+      users: [],
+    });
+  });
+
+  test("admin can backfill WorkOS projections when webhooks missed existing records", async () => {
+    const t = adminTest();
+
+    const result = await t.action(api.workosManagement.syncWorkosDirectory, {});
+
+    expect(result).toMatchObject({
+      adapter: "fake",
+      operation: "syncWorkosDirectory",
+      status: "synced",
+      counts: {
+        memberships: 1,
+        organizationRoles: 1,
+        organizations: 1,
+        permissions: 1,
+        roles: 2,
+        users: 2,
+      },
+    });
+
+    const projections = await t.query(api.workosProjection.listUserManagement, {});
+    expect(projections.organizations).toEqual([
+      expect.objectContaining({
+        name: "FairLend",
+        status: "active",
+        workosOrganizationId: "org_fixture",
+      }),
+    ]);
+    expect(projections.memberships).toEqual([
+      expect.objectContaining({
+        roleSlug: "admin",
+        status: "active",
+        workosMembershipId: "om_fixture",
+        workosOrganizationId: "org_fixture",
+        workosUserId: "user_admin",
+      }),
+    ]);
+    expect(projections.users).toEqual([
+      expect.objectContaining({
+        roleSlugs: ["admin"],
+        roles: "admin",
+        workosUserId: "user_admin",
+      }),
+      expect.objectContaining({
+        roleSlugs: [],
+        roles: "",
+        workosUserId: "user_unassigned",
+      }),
+    ]);
+    expect(projections.roles).toEqual([
+      expect.objectContaining({ slug: "admin" }),
+      expect.objectContaining({ slug: "builder" }),
+    ]);
+    expect(projections.organizationRoles).toEqual([
+      expect.objectContaining({
+        slug: "admin",
+        workosOrganizationId: "org_fixture",
+      }),
+    ]);
+    expect(projections.permissions).toEqual([
+      expect.objectContaining({
+        slug: "widgets:users-table:manage",
+      }),
+    ]);
   });
 
   test("requires user-management write capability for WorkOS-owned writes", async () => {
