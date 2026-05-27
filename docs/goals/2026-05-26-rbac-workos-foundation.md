@@ -3,7 +3,7 @@
 Status: Approved
 Created: 2026-05-26
 Source request: Inline `derive-goal-contract` interview for productionizing DrawFlow auth/RBAC before migrating demos.
-Target workspace: `/Users/connor/Dev/drawFlow/v1/drawflowv1`
+Target workspace: repository root
 
 ## Source Context
 

@@ -42,7 +42,7 @@ const capabilities: Record<Capability, readonly RoleSlug[] | null> = {
   authenticated: null,
   admin: ["admin"],
   backoffice: ["admin", "principle-broker", "broker", "broker-staff"],
-  builder: ["admin", "builder"],
+  builder: ["admin", "builder", "builder-staff"],
   userManagementWrite: ["admin", "principle-broker"],
   nonDestructiveWrite: ["admin", "principle-broker", "broker", "broker-staff"],
   destructiveWrite: ["admin", "principle-broker"],
@@ -82,7 +82,9 @@ export const requireDestructiveWrite =
   createCapabilityMiddleware("destructiveWrite");
 
 export const authenticatedQuery = fluent.query().use(requireAuthenticated);
-export const authenticatedMutation = fluent.mutation().use(requireAuthenticated);
+export const authenticatedMutation = fluent
+  .mutation()
+  .use(requireAuthenticated);
 export const authenticatedAction = fluent.action().use(requireAuthenticated);
 
 export const adminQuery = fluent.query().use(requireAdmin);
@@ -117,7 +119,9 @@ export const nonDestructiveWriteAction = fluent
 export const destructiveWriteMutation = fluent
   .mutation()
   .use(requireDestructiveWrite);
-export const destructiveWriteAction = fluent.action().use(requireDestructiveWrite);
+export const destructiveWriteAction = fluent
+  .action()
+  .use(requireDestructiveWrite);
 
 export function normalizeRoleSlug(role: unknown): RoleSlug | null {
   return typeof role === "string"
@@ -126,7 +130,9 @@ export function normalizeRoleSlug(role: unknown): RoleSlug | null {
 }
 
 export function normalizeRoleSlugs(roles: readonly unknown[]): RoleSlug[] {
-  return [...new Set(roles.map(normalizeRoleSlug).filter((role) => role !== null))];
+  return [
+    ...new Set(roles.map(normalizeRoleSlug).filter((role) => role !== null)),
+  ];
 }
 
 export function viewerFromIdentity(
@@ -149,20 +155,22 @@ export function viewerFromIdentity(
 }
 
 function createCapabilityMiddleware(capability: Capability) {
-  return fluent.$context<{ auth: Auth }>().createMiddleware(async (ctx, next) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Unauthorized");
-    }
+  return fluent
+    .$context<{ auth: Auth }>()
+    .createMiddleware(async (ctx, next) => {
+      const identity = await ctx.auth.getUserIdentity();
+      if (!identity) {
+        throw new Error("Unauthorized");
+      }
 
-    const viewer = viewerFromIdentity(identity, capability);
-    const allowed = capabilities[capability];
-    if (allowed && !viewer.roles.some((role) => allowed.includes(role))) {
-      throw new Error(`Forbidden: ${capability}`);
-    }
+      const viewer = viewerFromIdentity(identity, capability);
+      const allowed = capabilities[capability];
+      if (allowed && !viewer.roles.some((role) => allowed.includes(role))) {
+        throw new Error(`Forbidden: ${capability}`);
+      }
 
-    return next({ ...ctx, viewer });
-  });
+      return next({ ...ctx, viewer });
+    });
 }
 
 function toArray(value: unknown): unknown[] {

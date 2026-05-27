@@ -2,10 +2,19 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useAction, useQuery } from "convex/react";
 import { useState } from "react";
 
+import { requireUserManagementWriteAccess } from "#/lib/auth/rbac.ts";
+
 import { api } from "../../../convex/_generated/api";
 import { UserManagementSurface } from "./-user-management-surface";
 
 export const Route = createFileRoute("/backoffice/user-management")({
+  beforeLoad: ({ context, location }) =>
+    requireUserManagementWriteAccess({
+      isAuthenticated: Boolean(context.userId),
+      pathname: location.pathname,
+      roles: [context.role, ...(context.roles ?? [])],
+      workspace: "backoffice",
+    }),
   staticData: {
     breadcrumb: {
       label: "User management",
@@ -31,39 +40,68 @@ function UserManagementRoute() {
     api.workosManagement.updateMembershipRoles
   );
   const [accepted, setAccepted] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const runAction = async (action: () => Promise<string>) => {
+    setAccepted(null);
+    setActionError(null);
+    try {
+      setAccepted(await action());
+    } catch (error) {
+      setActionError(getActionErrorMessage(error));
+    }
+  };
 
   return (
     <UserManagementSurface
       accepted={accepted}
+      actionError={actionError}
       onCreateMembership={async (args) => {
-        const result = await createMembership(args);
-        setAccepted(`${result.operation}: ${result.sync}`);
+        await runAction(async () => {
+          const result = await createMembership(args);
+          return `${result.operation}: ${result.sync}`;
+        });
       }}
       onInviteUser={async (args) => {
-        const result = await inviteUser(args);
-        setAccepted(`${result.operation}: ${result.sync}`);
+        await runAction(async () => {
+          const result = await inviteUser(args);
+          return `${result.operation}: ${result.sync}`;
+        });
       }}
       onReactivateMembership={async (membershipId) => {
-        const result = await reactivateMembership({ membershipId });
-        setAccepted(`${result.operation}: ${result.sync}`);
+        await runAction(async () => {
+          const result = await reactivateMembership({ membershipId });
+          return `${result.operation}: ${result.sync}`;
+        });
       }}
       onRemoveMembership={async (membershipId) => {
-        const result = await removeMembership({ membershipId });
-        setAccepted(`${result.operation}: ${result.sync}`);
+        await runAction(async () => {
+          const result = await removeMembership({ membershipId });
+          return `${result.operation}: ${result.sync}`;
+        });
       }}
       onRoleUpdate={async (args) => {
-        const result = await updateMembershipRoles(args);
-        setAccepted(`${result.operation}: ${result.sync}`);
+        await runAction(async () => {
+          const result = await updateMembershipRoles(args);
+          return `${result.operation}: ${result.sync}`;
+        });
       }}
       onSyncDirectory={async () => {
-        const result = await syncWorkosDirectory({});
-        setAccepted(
-          `${result.operation}: synced ${result.counts.organizations} organizations, ${result.counts.memberships} memberships, ${result.counts.users} users, ${result.counts.roles} roles`
-        );
+        await runAction(async () => {
+          const result = await syncWorkosDirectory({});
+          return `${result.operation}: synced ${result.counts.organizations} organizations, ${result.counts.memberships} memberships, ${result.counts.users} users, ${result.counts.roles} roles`;
+        });
       }}
       projections={projections}
-      setAccepted={setAccepted}
+      setActionError={setActionError}
       syncStatus={syncStatus}
     />
   );
+}
+
+function getActionErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return "WorkOS user-management action failed. Try again or check the sync logs.";
 }

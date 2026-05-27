@@ -1,5 +1,5 @@
 import type { ColumnDef } from "@tanstack/react-table";
-import { CheckCircle2, RefreshCw, UserPlus } from "lucide-react";
+import { AlertCircle, CheckCircle2, RefreshCw, UserPlus } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Button } from "#/components/ui/button.tsx";
@@ -37,6 +37,7 @@ import type {
 
 export function UserManagementSurface({
   accepted,
+  actionError,
   onCreateMembership,
   onInviteUser,
   onReactivateMembership,
@@ -44,10 +45,11 @@ export function UserManagementSurface({
   onRoleUpdate,
   onSyncDirectory,
   projections,
-  setAccepted,
+  setActionError,
   syncStatus,
 }: {
   accepted: string | null;
+  actionError: string | null;
   onCreateMembership: (args: MembershipCreate) => Promise<void>;
   onInviteUser: (args: {
     email: string;
@@ -59,7 +61,7 @@ export function UserManagementSurface({
   onRoleUpdate: (args: MembershipRoleUpdate) => Promise<void>;
   onSyncDirectory: () => Promise<void>;
   projections: UserManagementProjection | undefined;
-  setAccepted: (message: string | null) => void;
+  setActionError: (message: string | null) => void;
   syncStatus: SyncStatusProjection | undefined;
 }) {
   const [email, setEmail] = useState("");
@@ -133,6 +135,15 @@ export function UserManagementSurface({
               {accepted}
             </p>
           ) : null}
+          {actionError ? (
+            <p
+              className="mt-3 inline-flex items-center gap-2 text-destructive text-sm"
+              role="alert"
+            >
+              <AlertCircle className="size-4" />
+              {actionError}
+            </p>
+          ) : null}
         </FramePanel>
         <FramePanel className="flex flex-col gap-3 border-t md:flex-row md:items-center md:justify-between">
           <div className="space-y-1">
@@ -146,7 +157,7 @@ export function UserManagementSurface({
             disabled={syncingDirectory}
             onClick={async () => {
               setSyncingDirectory(true);
-              setAccepted(null);
+              setActionError(null);
               try {
                 await onSyncDirectory();
               } finally {

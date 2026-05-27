@@ -24,11 +24,19 @@ const additionalEventTypes = [
 
 const authFunctions: AuthFunctions = internal.auth;
 
+function requireWorkosEnv(name: string): string {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    throw new Error(`${name} is required`);
+  }
+  return value;
+}
+
 export const authKit = new AuthKit<DataModel>(components.workOSAuthKit, {
-  actionSecret: process.env.WORKOS_ACTION_SECRET ?? "actsec_test_drawflow",
-  apiKey: process.env.WORKOS_API_KEY ?? "sk_test_drawflow",
-  clientId: process.env.WORKOS_CLIENT_ID ?? "client_test_drawflow",
-  webhookSecret: process.env.WORKOS_WEBHOOK_SECRET ?? "whsec_test_drawflow",
+  actionSecret: requireWorkosEnv("WORKOS_ACTION_SECRET"),
+  apiKey: requireWorkosEnv("WORKOS_API_KEY"),
+  clientId: requireWorkosEnv("WORKOS_CLIENT_ID"),
+  webhookSecret: requireWorkosEnv("WORKOS_WEBHOOK_SECRET"),
   additionalEventTypes: [...additionalEventTypes],
   authFunctions,
 });
@@ -86,11 +94,6 @@ export const { authKitEvent } = authKit.events({
     await processWorkosEvent(ctx, event);
   },
   "organization.deleted": async (ctx, event) => {
-    await processWorkosEvent(ctx, event);
-  },
-
-  // Handle any event type
-  "session.created": async (ctx, event) => {
     await processWorkosEvent(ctx, event);
   },
 });

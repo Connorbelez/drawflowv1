@@ -23,6 +23,7 @@ export const BACKOFFICE_ROLE_SLUGS = [
 export const BUILDER_ROLE_SLUGS = [
   "admin",
   "builder",
+  "builder-staff",
 ] as const satisfies readonly RoleSlug[];
 
 export const USER_MANAGEMENT_WRITE_ROLE_SLUGS = [
@@ -73,7 +74,9 @@ export interface AuthAccessInput {
   workspace: Workspace;
 }
 
-export function normalizeRoleSlug(role: string | null | undefined): RoleSlug | null {
+export function normalizeRoleSlug(
+  role: string | null | undefined
+): RoleSlug | null {
   if (!role) {
     return null;
   }
@@ -83,7 +86,9 @@ export function normalizeRoleSlug(role: string | null | undefined): RoleSlug | n
 export function normalizeRoleSlugs(
   roles: readonly (string | null | undefined)[]
 ): RoleSlug[] {
-  return [...new Set(roles.map(normalizeRoleSlug).filter((role) => role !== null))];
+  return [
+    ...new Set(roles.map(normalizeRoleSlug).filter((role) => role !== null)),
+  ];
 }
 
 export function roleLabel(role: RoleSlug): string {
@@ -122,7 +127,9 @@ export function getWorkspaceAccessDecision(
     : { reason: "no-workspace-access", status: "forbidden" };
 }
 
-export function requireWorkspaceAccess(input: AuthAccessInput): WorkspaceAccessDecision {
+export function requireWorkspaceAccess(
+  input: AuthAccessInput
+): WorkspaceAccessDecision {
   const decision = getWorkspaceAccessDecision(input);
   logRbacDebug("workspace access decision", {
     decision,
@@ -134,6 +141,49 @@ export function requireWorkspaceAccess(input: AuthAccessInput): WorkspaceAccessD
     return decision;
   }
 
+  throwAccessRedirect(input, decision);
+}
+
+export function getUserManagementAccessDecision(
+  input: AuthAccessInput
+): WorkspaceAccessDecision {
+  const workspaceDecision = getWorkspaceAccessDecision({
+    ...input,
+    workspace: "backoffice",
+  });
+  if (workspaceDecision.status !== "allowed") {
+    return workspaceDecision;
+  }
+
+  return hasAnyRole(
+    normalizeRoleSlugs(input.roles),
+    USER_MANAGEMENT_WRITE_ROLE_SLUGS
+  )
+    ? { status: "allowed" }
+    : { reason: "no-workspace-access", status: "forbidden" };
+}
+
+export function requireUserManagementWriteAccess(
+  input: AuthAccessInput
+): WorkspaceAccessDecision {
+  const decision = getUserManagementAccessDecision(input);
+  logRbacDebug("user management access decision", {
+    decision,
+    input,
+    normalizedRoles: normalizeRoleSlugs(input.roles),
+  });
+
+  if (decision.status === "allowed") {
+    return decision;
+  }
+
+  throwAccessRedirect({ ...input, workspace: "backoffice" }, decision);
+}
+
+function throwAccessRedirect(
+  input: AuthAccessInput,
+  decision: Exclude<WorkspaceAccessDecision, { status: "allowed" }>
+): never {
   if (decision.status === "unauthenticated") {
     throw redirect({
       href: `/api/auth/sign-in?returnTo=${encodeURIComponent(input.pathname)}`,

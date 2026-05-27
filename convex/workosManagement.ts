@@ -2,7 +2,11 @@ import { WorkOS } from "@workos-inc/node";
 import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
-import { adminAction, userManagementWriteAction } from "./authz";
+import {
+  adminAction,
+  normalizeRoleSlug,
+  userManagementWriteAction,
+} from "./authz";
 
 const acceptedReturn = v.object({
   adapter: v.union(v.literal("fake"), v.literal("workos")),
@@ -148,59 +152,53 @@ export const syncWorkosDirectory = adminAction
 
     for (const organization of snapshot.organizations) {
       await ctx.runMutation(internal.workosProjection.ingestWorkosEvent, {
-        data: eventForSync(
+        ...eventForSync(
           "organization.created",
           entityIdentifier(organization),
           organization
         ),
-        event: "organization.created",
       });
     }
 
     for (const user of snapshot.users) {
       await ctx.runMutation(internal.workosProjection.ingestWorkosEvent, {
-        data: eventForSync("user.created", entityIdentifier(user), user),
-        event: "user.created",
+        ...eventForSync("user.created", entityIdentifier(user), user),
       });
     }
 
     for (const membership of snapshot.memberships) {
       await ctx.runMutation(internal.workosProjection.ingestWorkosEvent, {
-        data: eventForSync(
+        ...eventForSync(
           "organization_membership.created",
           entityIdentifier(membership),
           membership
         ),
-        event: "organization_membership.created",
       });
     }
 
     for (const role of snapshot.organizationRoles) {
       await ctx.runMutation(internal.workosProjection.ingestWorkosEvent, {
-        data: eventForSync(
+        ...eventForSync(
           "organization_role.created",
           entityIdentifier(role),
           role
         ),
-        event: "organization_role.created",
       });
     }
 
     for (const role of snapshot.roles) {
       await ctx.runMutation(internal.workosProjection.ingestWorkosEvent, {
-        data: eventForSync("role.created", entityIdentifier(role), role),
-        event: "role.created",
+        ...eventForSync("role.created", entityIdentifier(role), role),
       });
     }
 
     for (const permission of snapshot.permissions) {
       await ctx.runMutation(internal.workosProjection.ingestWorkosEvent, {
-        data: eventForSync(
+        ...eventForSync(
           "permission.created",
           entityIdentifier(permission),
           permission
         ),
-        event: "permission.created",
       });
     }
 
@@ -244,7 +242,7 @@ const fakeAdapter = {
     organizationId: string;
     roleSlug: string;
   }): Promise<AcceptedResult> {
-    requireNonEmptyRoleSlug(args.roleSlug);
+    normalizeWorkosRoleSlug(args.roleSlug);
     return Promise.resolve({
       adapter: "fake",
       operation: "inviteUser",
@@ -257,7 +255,7 @@ const fakeAdapter = {
     membershipId: string;
     roleSlug: string;
   }): Promise<AcceptedResult> {
-    requireNonEmptyRoleSlug(args.roleSlug);
+    normalizeWorkosRoleSlug(args.roleSlug);
     return Promise.resolve(
       accepted("fake", "updateMembershipRole", args.membershipId)
     );
@@ -267,8 +265,13 @@ const fakeAdapter = {
     primaryRoleSlug?: string;
     roleSlugs: string[];
   }): Promise<AcceptedResult> {
-    requireNonEmptyRoleSlugs(args.roleSlugs);
-    requireSelectedPrimaryRole(args.primaryRoleSlug, args.roleSlugs);
+    const roleSlugs = normalizeWorkosRoleSlugs(args.roleSlugs);
+    const primaryRoleSlug =
+      args.primaryRoleSlug === undefined
+        ? undefined
+        : normalizeWorkosRoleSlug(args.primaryRoleSlug);
+    requireNonEmptyRoleSlugs(roleSlugs);
+    requireSelectedPrimaryRole(primaryRoleSlug, roleSlugs);
     return Promise.resolve(
       accepted("fake", "updateMembershipRoles", args.membershipId)
     );
@@ -279,8 +282,13 @@ const fakeAdapter = {
     roleSlugs: string[];
     userId: string;
   }): Promise<AcceptedResult> {
-    requireNonEmptyRoleSlugs(args.roleSlugs);
-    requireSelectedPrimaryRole(args.primaryRoleSlug, args.roleSlugs);
+    const roleSlugs = normalizeWorkosRoleSlugs(args.roleSlugs);
+    const primaryRoleSlug =
+      args.primaryRoleSlug === undefined
+        ? undefined
+        : normalizeWorkosRoleSlug(args.primaryRoleSlug);
+    requireNonEmptyRoleSlugs(roleSlugs);
+    requireSelectedPrimaryRole(primaryRoleSlug, roleSlugs);
     return Promise.resolve(
       accepted(
         "fake",
@@ -410,11 +418,12 @@ function liveAdapter(workos: WorkOS) {
       organizationId: string;
       roleSlug: string;
     }): Promise<AcceptedResult> {
-      requireNonEmptyRoleSlug(args.roleSlug);
+      const roleSlug = normalizeWorkosRoleSlug(args.roleSlug);
+      requireNonEmptyRoleSlug(roleSlug);
       const result = await workos.userManagement.sendInvitation({
         email: args.email,
         organizationId: args.organizationId,
-        roleSlug: args.roleSlug,
+        roleSlug,
       });
       return accepted("workos", "inviteUser", result.id);
     },
@@ -422,11 +431,12 @@ function liveAdapter(workos: WorkOS) {
       membershipId: string;
       roleSlug: string;
     }): Promise<AcceptedResult> {
-      requireNonEmptyRoleSlug(args.roleSlug);
+      const roleSlug = normalizeWorkosRoleSlug(args.roleSlug);
+      requireNonEmptyRoleSlug(roleSlug);
       await workos.userManagement.updateOrganizationMembership(
         args.membershipId,
         {
-          roleSlug: args.roleSlug,
+          roleSlug,
         }
       );
       return accepted("workos", "updateMembershipRole", args.membershipId);
@@ -436,13 +446,18 @@ function liveAdapter(workos: WorkOS) {
       primaryRoleSlug?: string;
       roleSlugs: string[];
     }): Promise<AcceptedResult> {
-      requireNonEmptyRoleSlugs(args.roleSlugs);
-      requireSelectedPrimaryRole(args.primaryRoleSlug, args.roleSlugs);
+      const roleSlugs = normalizeWorkosRoleSlugs(args.roleSlugs);
+      const primaryRoleSlug =
+        args.primaryRoleSlug === undefined
+          ? undefined
+          : normalizeWorkosRoleSlug(args.primaryRoleSlug);
+      requireNonEmptyRoleSlugs(roleSlugs);
+      requireSelectedPrimaryRole(primaryRoleSlug, roleSlugs);
       await workos.userManagement.updateOrganizationMembership(
         args.membershipId,
         {
-          roleSlug: args.primaryRoleSlug,
-          roleSlugs: args.roleSlugs,
+          roleSlug: primaryRoleSlug,
+          roleSlugs,
         }
       );
       return accepted("workos", "updateMembershipRoles", args.membershipId);
@@ -453,13 +468,18 @@ function liveAdapter(workos: WorkOS) {
       roleSlugs: string[];
       userId: string;
     }): Promise<AcceptedResult> {
-      requireNonEmptyRoleSlugs(args.roleSlugs);
-      requireSelectedPrimaryRole(args.primaryRoleSlug, args.roleSlugs);
+      const roleSlugs = normalizeWorkosRoleSlugs(args.roleSlugs);
+      const primaryRoleSlug =
+        args.primaryRoleSlug === undefined
+          ? undefined
+          : normalizeWorkosRoleSlug(args.primaryRoleSlug);
+      requireNonEmptyRoleSlugs(roleSlugs);
+      requireSelectedPrimaryRole(primaryRoleSlug, roleSlugs);
       const membership =
         await workos.userManagement.createOrganizationMembership({
           organizationId: args.organizationId,
-          roleSlug: args.primaryRoleSlug,
-          roleSlugs: args.roleSlugs,
+          roleSlug: primaryRoleSlug,
+          roleSlugs,
           userId: args.userId,
         });
       return accepted("workos", "createMembership", membership.id);
@@ -593,6 +613,18 @@ function requireNonEmptyRoleSlug(roleSlug: string) {
   if (roleSlug.trim().length === 0) {
     throw new Error("WorkOS role slug is required");
   }
+}
+
+function normalizeWorkosRoleSlug(roleSlug: string) {
+  const normalized = normalizeRoleSlug(roleSlug);
+  if (!normalized) {
+    throw new Error(`Unknown WorkOS role slug: ${roleSlug}`);
+  }
+  return normalized;
+}
+
+function normalizeWorkosRoleSlugs(roleSlugs: string[]) {
+  return [...new Set(roleSlugs.map(normalizeWorkosRoleSlug))];
 }
 
 function requireSelectedPrimaryRole(

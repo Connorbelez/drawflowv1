@@ -1,363 +1,334 @@
-{
+[
+  {
     "id": "event_01G69A9MDSW8MM1XW5S0EHA0NY",
     "event": "organization_membership.created",
     "data": {
-        "object": "organization_membership",
-        "id": "om_01EHWNC0FCBHZ3BJ7EGKYXK0E7",
-        "user_id": "user_01EHWNC0FCBHZ3BJ7EGKYXK0E6",
-        "organization_id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
-        "status": "active",
-        "created_at": "2023-11-27T19:07:33.155Z",
-        "updated_at": "2023-11-27T19:07:33.155Z",
-        "role": {
-            "slug": "member"
-        },
-        "roles": [
-            {
-                "slug": "member"
-            }
-        ],
-        "custom_attributes": {},
-        "directory_managed": false
+      "object": "organization_membership",
+      "id": "om_01EHWNC0FCBHZ3BJ7EGKYXK0E7",
+      "user_id": "user_01EHWNC0FCBHZ3BJ7EGKYXK0E6",
+      "organization_id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
+      "status": "active",
+      "created_at": "2023-11-27T19:07:33.155Z",
+      "updated_at": "2023-11-27T19:07:33.155Z",
+      "role": {
+        "slug": "member"
+      },
+      "roles": [
+        {
+          "slug": "member"
+        }
+      ],
+      "custom_attributes": {},
+      "directory_managed": false
     },
     "created_at": "2023-11-27T19:07:33.155Z"
-}
-
+  },
   {
     "id": "event_01G69A9MDSW8MM1XW5S0EHA0NZ",
     "event": "organization_membership.deleted",
     "data": {
-        "object": "organization_membership",
-        "id": "om_01EHWNC0FCBHZ3BJ7EGKYXK0E7",
-        "user_id": "user_01EHWNC0FCBHZ3BJ7EGKYXK0E6",
-        "organization_id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
-        "status": "active",
-        "created_at": "2023-11-27T19:07:33.155Z",
-        "updated_at": "2023-11-27T19:07:33.155Z",
-        "role": {
-            "slug": "member"
-        },
-        "roles": [
-            {
-                "slug": "member"
-            }
-        ],
-        "custom_attributes": {},
-        "directory_managed": false
+      "object": "organization_membership",
+      "id": "om_01EHWNC0FCBHZ3BJ7EGKYXK0E7",
+      "user_id": "user_01EHWNC0FCBHZ3BJ7EGKYXK0E6",
+      "organization_id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
+      "status": "active",
+      "created_at": "2023-11-27T19:07:33.155Z",
+      "updated_at": "2023-11-27T19:07:33.155Z",
+      "role": {
+        "slug": "member"
+      },
+      "roles": [
+        {
+          "slug": "member"
+        }
+      ],
+      "custom_attributes": {},
+      "directory_managed": false
     },
     "created_at": "2023-11-27T19:07:33.155Z"
-}
-
+  },
   {
     "id": "event_01G69A9MDSW8MM1XW5S0EHBR9F",
     "event": "organization_membership.updated",
     "data": {
-        "object": "organization_membership",
-        "id": "om_01EHWNC0FCBHZ3BJ7EGKYXK0E7",
-        "user_id": "user_01EHWNC0FCBHZ3BJ7EGKYXK0E6",
-        "organization_id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
-        "status": "active",
-        "created_at": "2023-11-27T19:07:33.155Z",
-        "updated_at": "2023-11-27T19:07:33.155Z",
-        "role": {
-            "slug": "member"
-        },
-        "roles": [
-            {
-                "slug": "member"
-            }
-        ],
-        "custom_attributes": {},
-        "directory_managed": false
+      "object": "organization_membership",
+      "id": "om_01EHWNC0FCBHZ3BJ7EGKYXK0E7",
+      "user_id": "user_01EHWNC0FCBHZ3BJ7EGKYXK0E6",
+      "organization_id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
+      "status": "active",
+      "created_at": "2023-11-27T19:07:33.155Z",
+      "updated_at": "2023-11-27T19:07:33.155Z",
+      "role": {
+        "slug": "member"
+      },
+      "roles": [
+        {
+          "slug": "member"
+        }
+      ],
+      "custom_attributes": {},
+      "directory_managed": false
     },
     "created_at": "2023-11-27T19:07:33.155Z"
-}
-
+  },
   {
     "id": "event_01G69A9MDSW8MM1XW5S0EHA0FA",
     "event": "role.created",
     "data": {
-        "object": "role",
-        "slug": "member",
-        "resource_type_slug": "organization",
-        "created_at": "2023-11-27T19:07:33.155Z",
-        "updated_at": "2023-11-27T19:07:33.155Z"
+      "object": "role",
+      "slug": "member",
+      "resource_type_slug": "organization",
+      "created_at": "2023-11-27T19:07:33.155Z",
+      "updated_at": "2023-11-27T19:07:33.155Z"
     },
     "created_at": "2023-11-27T19:07:33.155Z"
-}
-
+  },
   {
     "id": "event_01G69A9MDSW8MM1XW5S0EHA0JU",
     "event": "role.deleted",
     "data": {
-        "object": "role",
-        "slug": "member",
-        "resource_type_slug": "organization",
-        "created_at": "2023-11-27T19:07:33.155Z",
-        "updated_at": "2023-11-27T19:07:33.155Z"
+      "object": "role",
+      "slug": "member",
+      "resource_type_slug": "organization",
+      "created_at": "2023-11-27T19:07:33.155Z",
+      "updated_at": "2023-11-27T19:07:33.155Z"
     },
     "created_at": "2023-11-27T19:07:33.155Z"
-}
-
+  },
   {
-    "id": "event_01G69A9MDSW8MM1XW5S0EHA0FA",
+    "id": "event_01G69A9MDSW8MM1XW5S0EHA0FB",
     "event": "role.updated",
     "data": {
-        "object": "role",
-        "slug": "member",
-        "resource_type_slug": "organization",
-        "permissions": [
-            "posts:read",
-            "posts:write"
-        ],
-        "created_at": "2023-11-27T19:07:33.155Z",
-        "updated_at": "2023-11-27T19:07:33.155Z"
+      "object": "role",
+      "slug": "member",
+      "resource_type_slug": "organization",
+      "permissions": ["posts:read", "posts:write"],
+      "created_at": "2023-11-27T19:07:33.155Z",
+      "updated_at": "2023-11-27T19:07:33.155Z"
     },
     "created_at": "2023-11-27T19:07:33.155Z"
-}
-
+  },
   {
     "id": "event_01HWDP814K1EN7VS6K3BD49GWD",
     "event": "organization_role.created",
     "data": {
-        "object": "organization_role",
-        "organization_id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
-        "slug": "admin",
-        "name": "Admin",
-        "description": "Administrator role with full access",
-        "resource_type_slug": "organization",
-        "permissions": [
-            "users:read",
-            "users:write",
-            "settings:manage"
-        ],
-        "created_at": "2023-11-27T19:07:33.155Z",
-        "updated_at": "2023-11-27T19:07:33.155Z"
+      "object": "organization_role",
+      "organization_id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
+      "slug": "admin",
+      "name": "Admin",
+      "description": "Administrator role with full access",
+      "resource_type_slug": "organization",
+      "permissions": ["users:read", "users:write", "settings:manage"],
+      "created_at": "2023-11-27T19:07:33.155Z",
+      "updated_at": "2023-11-27T19:07:33.155Z"
     },
     "context": {
-        "client_id": "client_01HWDP91J37GZW2FT9GCEX8YWV",
-        "actor": {
-            "id": "user_01HWDP91J37GZW2FT9GCEX8YWV",
-            "source": "api",
-            "name": "Test User"
-        }
+      "client_id": "client_01HWDP91J37GZW2FT9GCEX8YWV",
+      "actor": {
+        "id": "user_01HWDP91J37GZW2FT9GCEX8YWV",
+        "source": "api",
+        "name": "Test User"
+      }
     },
     "created_at": "2023-11-27T19:07:33.155Z"
-} 
-
+  },
   {
     "id": "event_01HWDP814K1EN7VS6K3BD49GWE",
     "event": "organization_role.deleted",
     "data": {
-        "object": "organization_role",
-        "organization_id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
-        "slug": "admin",
-        "name": "Admin",
-        "description": "Administrator role with full access",
-        "resource_type_slug": "organization",
-        "permissions": [
-            "users:read",
-            "users:write",
-            "settings:manage"
-        ],
-        "created_at": "2023-11-27T19:07:33.155Z",
-        "updated_at": "2023-11-27T19:07:33.155Z"
+      "object": "organization_role",
+      "organization_id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
+      "slug": "admin",
+      "name": "Admin",
+      "description": "Administrator role with full access",
+      "resource_type_slug": "organization",
+      "permissions": ["users:read", "users:write", "settings:manage"],
+      "created_at": "2023-11-27T19:07:33.155Z",
+      "updated_at": "2023-11-27T19:07:33.155Z"
     },
     "context": {
-        "client_id": "client_01HWDP91J37GZW2FT9GCEX8YWV",
-        "actor": {
-            "id": "user_01HWDP91J37GZW2FT9GCEX8YWV",
-            "source": "api",
-            "name": "Test User"
-        }
+      "client_id": "client_01HWDP91J37GZW2FT9GCEX8YWV",
+      "actor": {
+        "id": "user_01HWDP91J37GZW2FT9GCEX8YWV",
+        "source": "api",
+        "name": "Test User"
+      }
     },
     "created_at": "2023-11-27T19:07:33.155Z"
-}
-
+  },
   {
     "id": "event_01HWDP814K1EN7VS6K3BD49GWF",
     "event": "organization_role.updated",
     "data": {
-        "object": "organization_role",
-        "organization_id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
-        "slug": "admin",
-        "name": "Admin",
-        "description": "Administrator role with full access",
-        "resource_type_slug": "organization",
-        "permissions": [
-            "users:read",
-            "users:write",
-            "settings:manage"
-        ],
-        "created_at": "2023-11-27T19:07:33.155Z",
-        "updated_at": "2023-11-27T19:07:33.155Z"
+      "object": "organization_role",
+      "organization_id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
+      "slug": "admin",
+      "name": "Admin",
+      "description": "Administrator role with full access",
+      "resource_type_slug": "organization",
+      "permissions": ["users:read", "users:write", "settings:manage"],
+      "created_at": "2023-11-27T19:07:33.155Z",
+      "updated_at": "2023-11-27T19:07:33.155Z"
     },
     "context": {
-        "client_id": "client_01HWDP91J37GZW2FT9GCEX8YWV",
-        "actor": {
-            "id": "user_01HWDP91J37GZW2FT9GCEX8YWV",
-            "source": "api",
-            "name": "Test User"
-        },
-        "previous_attributes": {
-            "data": {
-                "name": "Previous Role Name"
-            }
+      "client_id": "client_01HWDP91J37GZW2FT9GCEX8YWV",
+      "actor": {
+        "id": "user_01HWDP91J37GZW2FT9GCEX8YWV",
+        "source": "api",
+        "name": "Test User"
+      },
+      "previous_attributes": {
+        "data": {
+          "name": "Previous Role Name"
         }
+      }
     },
     "created_at": "2023-11-27T19:07:33.155Z"
-}
-
-
+  },
   {
     "id": "event_01HWDP814K1EN7VS6K3BD49GWG",
     "event": "permission.created",
     "data": {
-        "object": "permission",
-        "id": "perm_01HWDP91J37GZW2FT9GCEX8YWV",
-        "slug": "users:read",
-        "name": "Read Users",
-        "description": "Allows reading user data",
-        "system": false,
-        "created_at": "2023-11-27T19:07:33.155Z",
-        "updated_at": "2023-11-27T19:07:33.155Z"
+      "object": "permission",
+      "id": "perm_01HWDP91J37GZW2FT9GCEX8YWV",
+      "slug": "users:read",
+      "name": "Read Users",
+      "description": "Allows reading user data",
+      "system": false,
+      "created_at": "2023-11-27T19:07:33.155Z",
+      "updated_at": "2023-11-27T19:07:33.155Z"
     },
     "context": {
-        "client_id": "client_01HWDP91J37GZW2FT9GCEX8YWV",
-        "actor": {
-            "id": "user_01HWDP91J37GZW2FT9GCEX8YWV",
-            "source": "api",
-            "name": "Test User"
-        }
+      "client_id": "client_01HWDP91J37GZW2FT9GCEX8YWV",
+      "actor": {
+        "id": "user_01HWDP91J37GZW2FT9GCEX8YWV",
+        "source": "api",
+        "name": "Test User"
+      }
     },
     "created_at": "2023-11-27T19:07:33.155Z"
-}
-
+  },
   {
     "id": "event_01HWDP814K1EN7VS6K3BD49GWH",
     "event": "permission.deleted",
     "data": {
-        "object": "permission",
-        "id": "perm_01HWDP91J37GZW2FT9GCEX8YWV",
-        "slug": "users:read",
-        "name": "Read Users",
-        "description": "Allows reading user data",
-        "system": false,
-        "created_at": "2023-11-27T19:07:33.155Z",
-        "updated_at": "2023-11-27T19:07:33.155Z"
+      "object": "permission",
+      "id": "perm_01HWDP91J37GZW2FT9GCEX8YWV",
+      "slug": "users:read",
+      "name": "Read Users",
+      "description": "Allows reading user data",
+      "system": false,
+      "created_at": "2023-11-27T19:07:33.155Z",
+      "updated_at": "2023-11-27T19:07:33.155Z"
     },
     "context": {
-        "client_id": "client_01HWDP91J37GZW2FT9GCEX8YWV",
-        "actor": {
-            "id": "user_01HWDP91J37GZW2FT9GCEX8YWV",
-            "source": "api",
-            "name": "Test User"
-        }
+      "client_id": "client_01HWDP91J37GZW2FT9GCEX8YWV",
+      "actor": {
+        "id": "user_01HWDP91J37GZW2FT9GCEX8YWV",
+        "source": "api",
+        "name": "Test User"
+      }
     },
     "created_at": "2023-11-27T19:07:33.155Z"
-}
-
+  },
   {
     "id": "event_01HWDP814K1EN7VS6K3BD49GWI",
     "event": "permission.updated",
     "data": {
-        "object": "permission",
-        "id": "perm_01HWDP91J37GZW2FT9GCEX8YWV",
-        "slug": "users:read",
-        "name": "Read Users",
-        "description": "Allows reading user data",
-        "system": false,
-        "created_at": "2023-11-27T19:07:33.155Z",
-        "updated_at": "2023-11-27T19:07:33.155Z"
+      "object": "permission",
+      "id": "perm_01HWDP91J37GZW2FT9GCEX8YWV",
+      "slug": "users:read",
+      "name": "Read Users",
+      "description": "Allows reading user data",
+      "system": false,
+      "created_at": "2023-11-27T19:07:33.155Z",
+      "updated_at": "2023-11-27T19:07:33.155Z"
     },
     "context": {
-        "client_id": "client_01HWDP91J37GZW2FT9GCEX8YWV",
-        "actor": {
-            "id": "user_01HWDP91J37GZW2FT9GCEX8YWV",
-            "source": "api",
-            "name": "Test User"
-        },
-        "previous_attributes": {
-            "data": {
-                "name": "Previous Permission Name"
-            }
+      "client_id": "client_01HWDP91J37GZW2FT9GCEX8YWV",
+      "actor": {
+        "id": "user_01HWDP91J37GZW2FT9GCEX8YWV",
+        "source": "api",
+        "name": "Test User"
+      },
+      "previous_attributes": {
+        "data": {
+          "name": "Previous Permission Name"
         }
+      }
     },
     "created_at": "2023-11-27T19:07:33.155Z"
-}
-
+  },
   {
-    "id": "event_01G69A9MDSW8MM1XW5S0EHA0NY",
+    "id": "event_01G69A9MDSW8MM1XW5S0EHA0OA",
     "event": "organization.created",
     "data": {
-        "object": "organization",
-        "id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
-        "name": "Foo Corp",
-        "external_id": null,
-        "domains": [
-            {
-                "domain": "foo-corp.com",
-                "organization_id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
-                "id": "org_domain_01EZTR5N6Y9RQKHK2E9F31KZX6",
-                "object": "organization_domain",
-                "created_at": "2023-11-27T19:07:33.155Z",
-                "updated_at": "2023-11-27T19:07:33.155Z"
-            }
-        ],
-        "metadata": {},
-        "created_at": "2023-11-27T19:07:33.155Z",
-        "updated_at": "2023-11-27T19:07:33.155Z"
+      "object": "organization",
+      "id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
+      "name": "Foo Corp",
+      "external_id": null,
+      "domains": [
+        {
+          "domain": "foo-corp.com",
+          "organization_id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
+          "id": "org_domain_01EZTR5N6Y9RQKHK2E9F31KZX6",
+          "object": "organization_domain",
+          "created_at": "2023-11-27T19:07:33.155Z",
+          "updated_at": "2023-11-27T19:07:33.155Z"
+        }
+      ],
+      "metadata": {},
+      "created_at": "2023-11-27T19:07:33.155Z",
+      "updated_at": "2023-11-27T19:07:33.155Z"
     },
     "created_at": "2023-11-27T19:07:33.155Z"
-}
-
+  },
   {
-    "id": "event_01G69A9MDSW8MM1XW5S0EHA0FA",
+    "id": "event_01G69A9MDSW8MM1XW5S0EHA0OC",
     "event": "organization.deleted",
     "data": {
-        "object": "organization",
-        "id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
-        "name": "Foo Corp",
-        "external_id": null,
-        "domains": [
-            {
-                "domain": "foo-corp.com",
-                "organization_id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
-                "id": "org_domain_01EZTR5N6Y9RQKHK2E9F31KZX6",
-                "object": "organization_domain",
-                "created_at": "2023-11-27T19:07:33.155Z",
-                "updated_at": "2023-11-27T19:07:33.155Z"
-            }
-        ],
-        "metadata": {},
-        "created_at": "2023-11-27T19:07:33.155Z",
-        "updated_at": "2023-11-27T19:07:33.155Z"
+      "object": "organization",
+      "id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
+      "name": "Foo Corp",
+      "external_id": null,
+      "domains": [
+        {
+          "domain": "foo-corp.com",
+          "organization_id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
+          "id": "org_domain_01EZTR5N6Y9RQKHK2E9F31KZX6",
+          "object": "organization_domain",
+          "created_at": "2023-11-27T19:07:33.155Z",
+          "updated_at": "2023-11-27T19:07:33.155Z"
+        }
+      ],
+      "metadata": {},
+      "created_at": "2023-11-27T19:07:33.155Z",
+      "updated_at": "2023-11-27T19:07:33.155Z"
     },
     "created_at": "2023-11-27T19:07:33.155Z"
-}
-
-
+  },
   {
-    "id": "event_01G69A9MDSW8MM1XW5S0EHA0NZ",
+    "id": "event_01G69A9MDSW8MM1XW5S0EHA0OB",
     "event": "organization.updated",
     "data": {
-        "object": "organization",
-        "id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
-        "name": "Foo Corp",
-        "external_id": null,
-        "domains": [
-            {
-                "domain": "foo-corp.com",
-                "id": "org_domain_01EZTR5N6Y9RQKHK2E9F31KZX6",
-                "organization_id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
-                "object": "organization_domain",
-                "created_at": "2023-11-27T19:07:33.155Z",
-                "updated_at": "2023-11-27T19:07:33.155Z"
-            }
-        ],
-        "metadata": {},
-        "created_at": "2023-11-27T19:07:33.155Z",
-        "updated_at": "2023-11-27T19:07:33.155Z"
+      "object": "organization",
+      "id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
+      "name": "Foo Corp",
+      "external_id": null,
+      "domains": [
+        {
+          "domain": "foo-corp.com",
+          "id": "org_domain_01EZTR5N6Y9RQKHK2E9F31KZX6",
+          "organization_id": "org_01EHWNCE74X7JSDV0X3SZ3KJNY",
+          "object": "organization_domain",
+          "created_at": "2023-11-27T19:07:33.155Z",
+          "updated_at": "2023-11-27T19:07:33.155Z"
+        }
+      ],
+      "metadata": {},
+      "created_at": "2023-11-27T19:07:33.155Z",
+      "updated_at": "2023-11-27T19:07:33.155Z"
     },
     "created_at": "2023-11-27T19:07:33.155Z"
-}
+  }
+]

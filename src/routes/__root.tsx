@@ -37,25 +37,24 @@ const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getIte
 const fetchWorkosAuth = createServerFn({ method: "GET" }).handler(async () => {
   const auth = await getAuth();
   const authPayload = {
-    accessToken: auth.user ? auth.accessToken : null,
-    decodedAccessToken: auth.user ? decodeJwtForDebug(auth.accessToken) : null,
-    featureFlags: auth.user ? (auth.featureFlags ?? []) : [],
-    impersonator: auth.user ? (auth.impersonator ?? null) : null,
+    featureFlagCount: auth.user ? (auth.featureFlags ?? []).length : 0,
+    impersonatorPresent: Boolean(auth.user && auth.impersonator),
     organizationId: auth.user ? (auth.organizationId ?? null) : null,
-    permissions: auth.user ? (auth.permissions ?? []) : [],
+    permissionCount: auth.user ? (auth.permissions ?? []).length : 0,
     role: auth.user ? (auth.role ?? null) : null,
-    roles: auth.user ? (auth.roles ?? []) : [],
-    sessionId: auth.user ? auth.sessionId : null,
-    user: auth.user,
+    roleCount: auth.user ? (auth.roles ?? []).length : 0,
+    sessionPresent: Boolean(auth.user && auth.sessionId),
+    tokenPresent: Boolean(auth.user && auth.accessToken),
+    userPresent: Boolean(auth.user),
   };
 
   logAuthDebug("getAuth payload", authPayload);
 
   return {
     organizationId: authPayload.organizationId,
-    permissions: authPayload.permissions,
+    permissions: auth.user ? (auth.permissions ?? []) : [],
     role: authPayload.role,
-    roles: authPayload.roles,
+    roles: auth.user ? (auth.roles ?? []) : [],
     token: auth.user ? auth.accessToken : null,
     userId: auth.user?.id ?? null,
   };
@@ -68,15 +67,17 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 
     if (token) {
       ctx.context.convexQueryClient.serverHttpClient?.setAuth(token);
+    } else {
+      ctx.context.convexQueryClient.serverHttpClient?.clearAuth();
     }
 
     logAuthDebug("root beforeLoad context payload", {
       organizationId: auth.organizationId,
-      permissions: auth.permissions,
+      permissionCount: auth.permissions.length,
       role: auth.role,
-      roles: auth.roles,
+      roleCount: auth.roles.length,
       tokenPresent: Boolean(auth.token),
-      userId: auth.userId,
+      userPresent: Boolean(auth.userId),
     });
 
     return auth;
@@ -105,32 +106,24 @@ export const Route = createRootRouteWithContext<RouterContext>()({
   shellComponent: RootDocument,
 });
 
-function logAuthDebug(label: string, payload: unknown) {
+interface AuthDebugPayload {
+  featureFlagCount?: number;
+  impersonatorPresent?: boolean;
+  organizationId?: string | null;
+  permissionCount?: number;
+  role?: string | null;
+  roleCount?: number;
+  sessionPresent?: boolean;
+  tokenPresent?: boolean;
+  userPresent?: boolean;
+}
+
+function logAuthDebug(label: string, payload: AuthDebugPayload) {
   if (import.meta.env.PROD) {
     return;
   }
 
   console.info(`[drawflow:auth] ${label}`, payload);
-}
-
-function decodeJwtForDebug(token: string | null | undefined): unknown {
-  if (!token) {
-    return null;
-  }
-
-  try {
-    const [, payload] = token.split(".");
-    if (!payload) {
-      return { error: "JWT payload segment missing" };
-    }
-    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
-    const padded = `${base64}${"=".repeat((4 - (base64.length % 4)) % 4)}`;
-    return JSON.parse(Buffer.from(padded, "base64").toString("utf8"));
-  } catch (error) {
-    return {
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
 }
 
 interface RootDocumentProps {

@@ -42,6 +42,10 @@ describe("production Convex RBAC builders", () => {
     ).resolves.toMatchObject({ capability: "builder" });
 
     await expect(
+      authed(["builder-staff"]).query(api.authzTest.requireBuilder, {})
+    ).resolves.toMatchObject({ capability: "builder", roles: ["builder-staff"] });
+
+    await expect(
       authed(["admin"]).query(api.authzTest.requireBuilder, {})
     ).resolves.toMatchObject({ capability: "builder", roles: ["admin"] });
 

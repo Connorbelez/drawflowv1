@@ -1,6 +1,10 @@
 import type { AuthConfig } from "convex/server";
 
-const clientId = process.env.WORKOS_CLIENT_ID ?? "client_test_drawflow";
+const clientId = process.env.WORKOS_CLIENT_ID?.trim();
+
+if (!clientId) {
+  throw new Error("WORKOS_CLIENT_ID is required");
+}
 
 export default {
   providers: [

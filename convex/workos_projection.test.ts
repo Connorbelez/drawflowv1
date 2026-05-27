@@ -171,6 +171,43 @@ describe("WorkOS webhook projections", () => {
     expect(projections.users).toHaveLength(1);
   });
 
+  test("requires backoffice authorization to list sync receipts", async () => {
+    const t = convexTest(schema, modules);
+
+    await expect(
+      asBuilder(t).query(api.workosProjection.listSyncStatus, {})
+    ).rejects.toThrow(/Forbidden: backoffice/);
+  });
+
+  test("ingests a full WorkOS event contract for internal sync callers", async () => {
+    const t = convexTest(schema, modules);
+
+    await t.mutation(internal.workosProjection.ingestWorkosEvent, {
+      id: "sync_contract_org",
+      event: "organization.created",
+      created_at: "2023-11-27T19:07:33.155Z",
+      data: {
+        id: "org_sync_contract",
+        name: "Sync Contract Org",
+        domains: [],
+        createdAt: "2023-11-27T19:07:33.155Z",
+        updatedAt: "2023-11-27T19:07:33.155Z",
+      },
+    });
+
+    const projections = await asAdmin(t).query(
+      api.workosProjection.listUserManagement,
+      {}
+    );
+    expect(projections.organizations).toEqual([
+      expect.objectContaining({
+        name: "Sync Contract Org",
+        sourceEventId: "sync_contract_org",
+        workosOrganizationId: "org_sync_contract",
+      }),
+    ]);
+  });
+
   test("soft-deletes user, organization, membership, role, organization role, and permission projections", async () => {
     const t = convexTest(schema, modules);
     const createEvents = [
@@ -209,6 +246,55 @@ describe("WorkOS webhook projections", () => {
     expect(projections.permissions[0]).toMatchObject({ status: "deleted" });
     expect(projections.users[0].deletedAt).toBeTypeOf("number");
   });
+
+  test("preserves existing projection fields on sparse update and delete events", async () => {
+    const t = convexTest(schema, modules);
+
+    await t.mutation(internal.auth.authKitEvent, {
+      data: payload("organization.created"),
+      event: "organization.created",
+    });
+    await t.mutation(internal.auth.authKitEvent, {
+      data: payload("organization_membership.created"),
+      event: "organization_membership.created",
+    });
+    await t.mutation(internal.workosProjection.ingestWorkosEvent, {
+      id: "sparse_org_update",
+      event: "organization.updated",
+      created_at: "2023-11-28T19:07:33.155Z",
+      data: {
+        id: payload("organization.created").data.id,
+      },
+    });
+    await t.mutation(internal.workosProjection.ingestWorkosEvent, {
+      id: "sparse_membership_delete",
+      event: "organization_membership.deleted",
+      created_at: "2023-11-28T19:07:33.155Z",
+      data: {
+        id: payload("organization_membership.created").data.id,
+      },
+    });
+
+    const projections = await asAdmin(t).query(
+      api.workosProjection.listUserManagement,
+      {}
+    );
+    expect(projections.organizations[0]).toMatchObject({
+      domains: payload("organization.created").data.domains,
+      name: payload("organization.created").data.name,
+      sourceEventId: "sparse_org_update",
+      status: "active",
+    });
+    expect(projections.memberships[0]).toMatchObject({
+      roleSlug: payload("organization_membership.created").data.role.slug,
+      roleSlugs: [payload("organization_membership.created").data.role.slug],
+      sourceEventId: "sparse_membership_delete",
+      status: "deleted",
+      workosOrganizationId:
+        payload("organization_membership.created").data.organization_id,
+      workosUserId: payload("organization_membership.created").data.user_id,
+    });
+  });
 });
 
 function payload(type: string) {
@@ -222,9 +308,11 @@ function payload(type: string) {
 function loadPayloadEvents(): any[] {
   const filePath = fileURLToPath(new URL("../docs/payloads.json", import.meta.url));
   const text = readFileSync(filePath, "utf8");
-  return [...text.matchAll(/(?<=^|\n)\s*(\{[\s\S]*?\n\})\s*(?=\n\s*\{|$)/g)].map(
-    (match) => JSON.parse(match[1])
-  );
+  const payloads = JSON.parse(text);
+  if (!Array.isArray(payloads)) {
+    throw new Error("Expected docs/payloads.json to contain a JSON array");
+  }
+  return payloads;
 }
 
 function userEvent(event: "user.created" | "user.updated" | "user.deleted", id: string) {
@@ -253,5 +341,16 @@ function asAdmin(t: any) {
     roles: ["admin"],
     subject: "user_admin",
     tokenIdentifier: "https://api.workos.com/|user_admin",
+  } as any);
+}
+
+function asBuilder(t: any) {
+  return t.withIdentity({
+    email: "builder@example.com",
+    name: "Builder",
+    role: "builder",
+    roles: ["builder"],
+    subject: "user_builder",
+    tokenIdentifier: "https://api.workos.com/|user_builder",
   } as any);
 }
