@@ -294,12 +294,16 @@ const fakeAdapter = {
       accepted("fake", "removeMembership", args.membershipId)
     );
   },
-  deactivateMembership(args: { membershipId: string }): Promise<AcceptedResult> {
+  deactivateMembership(args: {
+    membershipId: string;
+  }): Promise<AcceptedResult> {
     return Promise.resolve(
       accepted("fake", "deactivateMembership", args.membershipId)
     );
   },
-  reactivateMembership(args: { membershipId: string }): Promise<AcceptedResult> {
+  reactivateMembership(args: {
+    membershipId: string;
+  }): Promise<AcceptedResult> {
     return Promise.resolve(
       accepted("fake", "reactivateMembership", args.membershipId)
     );
@@ -503,9 +507,9 @@ function liveAdapter(workos: WorkOS) {
       const users = await (
         await workos.userManagement.listUsers()
       ).autoPagination();
-      const roles = (await workos.authorization.listEnvironmentRoles()).data.map(
-        toWorkosEntity
-      );
+      const roles = (
+        await workos.authorization.listEnvironmentRoles()
+      ).data.map(toWorkosEntity);
 
       const memberships: WorkosEntity[] = [];
       const organizationRoles: WorkosEntity[] = [];
