@@ -23,15 +23,39 @@ import appCss from "../styles.css?url";
 interface RouterContext {
   convexClient: ConvexReactClient;
   convexQueryClient: ConvexQueryClient;
+  organizationId?: string | null;
+  permissions?: string[];
   queryClient: QueryClient;
+  role?: string | null;
+  roles?: string[];
+  token?: string | null;
+  userId?: string | null;
 }
 
 const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);root.style.colorScheme=resolved;}catch(e){}})();`;
 
 const fetchWorkosAuth = createServerFn({ method: "GET" }).handler(async () => {
   const auth = await getAuth();
+  const authPayload = {
+    accessToken: auth.user ? auth.accessToken : null,
+    decodedAccessToken: auth.user ? decodeJwtForDebug(auth.accessToken) : null,
+    featureFlags: auth.user ? (auth.featureFlags ?? []) : [],
+    impersonator: auth.user ? (auth.impersonator ?? null) : null,
+    organizationId: auth.user ? (auth.organizationId ?? null) : null,
+    permissions: auth.user ? (auth.permissions ?? []) : [],
+    role: auth.user ? (auth.role ?? null) : null,
+    roles: auth.user ? (auth.roles ?? []) : [],
+    sessionId: auth.user ? auth.sessionId : null,
+    user: auth.user,
+  };
+
+  logAuthDebug("getAuth payload", authPayload);
 
   return {
+    organizationId: authPayload.organizationId,
+    permissions: authPayload.permissions,
+    role: authPayload.role,
+    roles: authPayload.roles,
     token: auth.user ? auth.accessToken : null,
     userId: auth.user?.id ?? null,
   };
@@ -39,13 +63,23 @@ const fetchWorkosAuth = createServerFn({ method: "GET" }).handler(async () => {
 
 export const Route = createRootRouteWithContext<RouterContext>()({
   beforeLoad: async (ctx) => {
-    const { token, userId } = await fetchWorkosAuth();
+    const auth = await fetchWorkosAuth();
+    const { token } = auth;
 
     if (token) {
       ctx.context.convexQueryClient.serverHttpClient?.setAuth(token);
     }
 
-    return { token, userId };
+    logAuthDebug("root beforeLoad context payload", {
+      organizationId: auth.organizationId,
+      permissions: auth.permissions,
+      role: auth.role,
+      roles: auth.roles,
+      tokenPresent: Boolean(auth.token),
+      userId: auth.userId,
+    });
+
+    return auth;
   },
   head: () => ({
     meta: [
@@ -70,6 +104,34 @@ export const Route = createRootRouteWithContext<RouterContext>()({
   notFoundComponent: RootNotFound,
   shellComponent: RootDocument,
 });
+
+function logAuthDebug(label: string, payload: unknown) {
+  if (import.meta.env.PROD) {
+    return;
+  }
+
+  console.info(`[drawflow:auth] ${label}`, payload);
+}
+
+function decodeJwtForDebug(token: string | null | undefined): unknown {
+  if (!token) {
+    return null;
+  }
+
+  try {
+    const [, payload] = token.split(".");
+    if (!payload) {
+      return { error: "JWT payload segment missing" };
+    }
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = `${base64}${"=".repeat((4 - (base64.length % 4)) % 4)}`;
+    return JSON.parse(Buffer.from(padded, "base64").toString("utf8"));
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
 
 interface RootDocumentProps {
   children: ReactNode;

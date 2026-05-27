@@ -1,0 +1,156 @@
+/// <reference types="vite/client" />
+
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { convexTest } from "convex-test";
+import { describe, expect, test } from "vitest";
+
+import { api, internal } from "./_generated/api";
+import schema from "./schema";
+
+const modules = import.meta.glob("./**/*.ts");
+
+const sampleEvents = loadPayloadEvents();
+
+describe("WorkOS webhook projections", () => {
+  test("processes every payload-file event plus user lifecycle events into projections and receipts", async () => {
+    const t = convexTest(schema, modules);
+    const events = [
+      ...sampleEvents.map((event, index) => ({
+        ...event,
+        id: `${event.id}_${index}`,
+      })),
+      userEvent("user.created", "user_created"),
+      userEvent("user.updated", "user_updated"),
+      userEvent("user.deleted", "user_deleted"),
+    ];
+
+    for (const event of events) {
+      await t.mutation(internal.auth.authKitEvent, {
+        data: event,
+        event: event.event,
+      });
+    }
+
+    const authed = asAdmin(t);
+    const status = await authed.query(api.workosProjection.listSyncStatus, {});
+    expect(status.receipts).toHaveLength(events.length);
+    expect(status.receipts.every((row: any) => row.status === "processed")).toBe(
+      true
+    );
+
+    const projections = await authed.query(api.workosProjection.listUserManagement, {});
+    expect(projections.users.some((row: any) => row.workosUserId === "user_fixture")).toBe(
+      true
+    );
+    expect(projections.organizations).toHaveLength(1);
+    expect(projections.memberships).toHaveLength(1);
+    expect(projections.roles.some((row: any) => row.slug === "member")).toBe(true);
+    expect(projections.organizationRoles.some((row: any) => row.slug === "admin")).toBe(
+      true
+    );
+    expect(projections.permissions.some((row: any) => row.slug === "users:read")).toBe(
+      true
+    );
+  });
+
+  test("skips duplicate WorkOS event ids without mutating projection timestamps twice", async () => {
+    const t = convexTest(schema, modules);
+    const event = userEvent("user.created", "event_duplicate");
+
+    await t.mutation(internal.auth.authKitEvent, { data: event, event: event.event });
+    await t.mutation(internal.auth.authKitEvent, { data: event, event: event.event });
+
+    const authed = asAdmin(t);
+    const status = await authed.query(api.workosProjection.listSyncStatus, {});
+    const projections = await authed.query(api.workosProjection.listUserManagement, {});
+
+    expect(status.receipts).toHaveLength(1);
+    expect(status.receipts[0]).toMatchObject({ eventId: "event_duplicate" });
+    expect(projections.users).toHaveLength(1);
+  });
+
+  test("soft-deletes user, organization, membership, role, organization role, and permission projections", async () => {
+    const t = convexTest(schema, modules);
+    const createEvents = [
+      userEvent("user.created", "user_create"),
+      payload("organization.created"),
+      payload("organization_membership.created"),
+      payload("role.created"),
+      payload("organization_role.created"),
+      payload("permission.created"),
+    ];
+    const deleteEvents = [
+      userEvent("user.deleted", "user_delete"),
+      payload("organization.deleted"),
+      payload("organization_membership.deleted"),
+      payload("role.deleted"),
+      payload("organization_role.deleted"),
+      payload("permission.deleted"),
+    ].map((event, index) => ({ ...event, id: `${event.id}_delete_${index}` }));
+
+    for (const event of [...createEvents, ...deleteEvents]) {
+      await t.mutation(internal.auth.authKitEvent, {
+        data: event,
+        event: event.event,
+      });
+    }
+
+    const projections = await asAdmin(t).query(
+      api.workosProjection.listUserManagement,
+      {}
+    );
+    expect(projections.users[0]).toMatchObject({ status: "deleted" });
+    expect(projections.organizations[0]).toMatchObject({ status: "deleted" });
+    expect(projections.memberships[0]).toMatchObject({ status: "deleted" });
+    expect(projections.roles[0]).toMatchObject({ status: "deleted" });
+    expect(projections.organizationRoles[0]).toMatchObject({ status: "deleted" });
+    expect(projections.permissions[0]).toMatchObject({ status: "deleted" });
+    expect(projections.users[0].deletedAt).toBeTypeOf("number");
+  });
+});
+
+function payload(type: string) {
+  const event = sampleEvents.find((row) => row.event === type);
+  if (!event) {
+    throw new Error(`Missing payload fixture for ${type}`);
+  }
+  return event;
+}
+
+function loadPayloadEvents(): any[] {
+  const filePath = fileURLToPath(new URL("../docs/payloads.json", import.meta.url));
+  const text = readFileSync(filePath, "utf8");
+  return [...text.matchAll(/(?<=^|\n)\s*(\{[\s\S]*?\n\})\s*(?=\n\s*\{|$)/g)].map(
+    (match) => JSON.parse(match[1])
+  );
+}
+
+function userEvent(event: "user.created" | "user.updated" | "user.deleted", id: string) {
+  return {
+    id,
+    event,
+    data: {
+      id: "user_fixture",
+      email: "fixture@example.com",
+      firstName: "Fixture",
+      lastName: "User",
+      emailVerified: true,
+      profilePictureUrl: null,
+      createdAt: "2023-11-27T19:07:33.155Z",
+      updatedAt: "2023-11-27T19:07:33.155Z",
+    },
+    created_at: "2023-11-27T19:07:33.155Z",
+  };
+}
+
+function asAdmin(t: any) {
+  return t.withIdentity({
+    email: "admin@example.com",
+    name: "Admin",
+    role: "admin",
+    roles: ["admin"],
+    subject: "user_admin",
+    tokenIdentifier: "https://api.workos.com/|user_admin",
+  } as any);
+}
