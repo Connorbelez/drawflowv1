@@ -1,11 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { useState } from "react";
-
-import { requireUserManagementWriteAccess } from "#/lib/auth/rbac.ts";
 import { isProductionVisualParityFixtureEnabled } from "#/features/production-proposals/visualParityFixtures.ts";
+import { requireUserManagementWriteAccess } from "#/lib/auth/rbac.ts";
 
 import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
 import { UserManagementSurface } from "./-user-management-surface";
 import type {
   BrokerageProvisioningProjection,
@@ -35,25 +35,31 @@ function UserManagementRoute() {
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
   const projectionsQuery = useQuery(
     api.workosProjection.listUserManagement,
-    visualFixtureEnabled ? "skip" : {},
+    visualFixtureEnabled ? "skip" : {}
   );
   const brokerageProvisioningQuery = useQuery(
     api.brokerageProvisioning.listBrokerageProvisioning,
-    visualFixtureEnabled ? "skip" : {},
+    visualFixtureEnabled ? "skip" : {}
   );
   const syncStatusQuery = useQuery(
     api.workosProjection.listSyncStatus,
-    visualFixtureEnabled ? "skip" : {},
+    visualFixtureEnabled ? "skip" : {}
   );
-  const projections = visualFixtureEnabled
-    ? userManagementVisualFixture.projections
-    : projectionsQuery;
-  const brokerageProvisioning = visualFixtureEnabled
-    ? userManagementVisualFixture.brokerageProvisioning
-    : brokerageProvisioningQuery;
-  const syncStatus = visualFixtureEnabled
-    ? userManagementVisualFixture.syncStatus
-    : syncStatusQuery;
+  const projections = (
+    visualFixtureEnabled
+      ? userManagementVisualFixture.projections
+      : projectionsQuery
+  ) as UserManagementProjection | undefined;
+  const brokerageProvisioning = (
+    visualFixtureEnabled
+      ? userManagementVisualFixture.brokerageProvisioning
+      : brokerageProvisioningQuery
+  ) as BrokerageProvisioningProjection | undefined;
+  const syncStatus = (
+    visualFixtureEnabled
+      ? userManagementVisualFixture.syncStatus
+      : syncStatusQuery
+  ) as SyncStatusProjection | undefined;
   const createMembership = useAction(api.workosManagement.createMembership);
   const removeMembership = useAction(api.workosManagement.removeMembership);
   const inviteUser = useAction(api.workosManagement.inviteUser);
@@ -67,10 +73,19 @@ function UserManagementRoute() {
     api.workosManagement.updateMembershipRoles
   );
   const provisionBrokerageProfile = useMutation(
-    api.brokerageProvisioning.provisionBrokerageProfile,
+    api.brokerageProvisioning.provisionBrokerageProfile
+  );
+  const provisionBuilderProfile = useMutation(
+    api.brokerageProvisioning.provisionBuilderProfile
   );
   const provisionFairLendBrokerage = useMutation(
-    api.brokerageProvisioning.provisionFairLendBrokerage,
+    api.brokerageProvisioning.provisionFairLendBrokerage
+  );
+  const linkBuilderAccount = useMutation(
+    api.brokerageProvisioning.linkBuilderAccount
+  );
+  const unlinkBuilderAccount = useMutation(
+    api.brokerageProvisioning.unlinkBuilderAccount
   );
   const [accepted, setAccepted] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -89,6 +104,7 @@ function UserManagementRoute() {
     <UserManagementSurface
       accepted={accepted}
       actionError={actionError}
+      brokerageProvisioning={brokerageProvisioning}
       onCreateMembership={async (args) => {
         await runAction(async () => {
           const result = await createMembership(args);
@@ -99,6 +115,37 @@ function UserManagementRoute() {
         await runAction(async () => {
           const result = await inviteUser(args);
           return `${result.operation}: ${result.sync}`;
+        });
+      }}
+      onLinkBuilderAccount={async (args) => {
+        await runAction(async () => {
+          const result = await linkBuilderAccount({
+            builderProfileId: args.builderProfileId as Id<"builderProfiles">,
+            role: args.role,
+            workosUserId: args.workosUserId,
+          });
+          return `${result.operation}: builder link ${result.linkId}`;
+        });
+      }}
+      onProvisionBrokerageProfile={async (args) => {
+        await runAction(async () => {
+          const result = await provisionBrokerageProfile(args);
+          return `${result.operation}: brokerage profile ${result.brokerageId}`;
+        });
+      }}
+      onProvisionBuilderProfile={async (args) => {
+        await runAction(async () => {
+          const result = await provisionBuilderProfile(args);
+          const linkSuffix = result.linkId
+            ? ` (owner link ${result.linkId})`
+            : "";
+          return `${result.operation}: builder profile ${result.builderProfileId}${linkSuffix}`;
+        });
+      }}
+      onProvisionFairLendBrokerage={async () => {
+        await runAction(async () => {
+          const result = await provisionFairLendBrokerage({});
+          return `${result.operation}: FairLendBrokerage ${result.brokerageId}`;
         });
       }}
       onReactivateMembership={async (membershipId) => {
@@ -125,20 +172,16 @@ function UserManagementRoute() {
           return `${result.operation}: synced ${result.counts.organizations} organizations, ${result.counts.memberships} memberships, ${result.counts.users} users, ${result.counts.roles} roles`;
         });
       }}
-      onProvisionBrokerageProfile={async (args) => {
+      onUnlinkBuilderAccount={async (linkId) => {
         await runAction(async () => {
-          const result = await provisionBrokerageProfile(args);
-          return `${result.operation}: brokerage profile ${result.brokerageId}`;
+          const result = await unlinkBuilderAccount({
+            linkId: linkId as Id<"builderAccountLinks">,
+          });
+          return `${result.operation}: builder link`;
         });
       }}
-      onProvisionFairLendBrokerage={async () => {
-        await runAction(async () => {
-          const result = await provisionFairLendBrokerage({});
-          return `${result.operation}: FairLendBrokerage ${result.brokerageId}`;
-        });
-      }}
-      brokerageProvisioning={brokerageProvisioning}
       projections={projections}
+      setAccepted={setAccepted}
       setActionError={setActionError}
       syncStatus={syncStatus}
     />
@@ -170,9 +213,14 @@ const userManagementVisualFixture = {
             workosUserId: "user_01KR207FRFHQT46EV9N538XBF3",
           },
         ],
+        builderAccountLinks: [],
+        builderMemberships: [],
+        builderProfile: null,
         hasBrokerageProfile: true,
+        hasBuilderProfile: false,
         name: "FairLendBrokerage",
         needsBrokerageProfile: false,
+        needsBuilderProfile: false,
         status: "active",
         workosOrganizationId: "org_01KSNW6JHW9P9YS41DZX1YHHGS",
       },
@@ -180,16 +228,29 @@ const userManagementVisualFixture = {
         brokerage: null,
         brokerMemberships: [
           {
-            email: "broker@oakline.example",
-            name: "Oakline Broker",
+            email: "river.han@oaklinelending.com",
+            name: "River Han",
             roleSlugs: ["broker"],
             workosMembershipId: "om_visual_broker",
             workosUserId: "user_visual_broker",
           },
         ],
+        builderAccountLinks: [],
+        builderMemberships: [
+          {
+            email: "alex.morgan@oaklinebuilds.com",
+            name: "Alex Morgan",
+            roleSlugs: ["builder"],
+            workosMembershipId: "om_visual_builder",
+            workosUserId: "user_visual_builder",
+          },
+        ],
+        builderProfile: null,
         hasBrokerageProfile: false,
+        hasBuilderProfile: false,
         name: "Oakline Lending",
         needsBrokerageProfile: true,
+        needsBuilderProfile: false,
         status: "active",
         workosOrganizationId: "org_visual_oakline",
       },
@@ -212,6 +273,14 @@ const userManagementVisualFixture = {
         workosMembershipId: "om_visual_broker",
         workosOrganizationId: "org_visual_oakline",
         workosUserId: "user_visual_broker",
+      },
+      {
+        roleSlug: "builder",
+        roleSlugs: ["builder"],
+        status: "active",
+        workosMembershipId: "om_visual_builder",
+        workosOrganizationId: "org_visual_oakline",
+        workosUserId: "user_visual_builder",
       },
     ],
     organizationRoles: [],
@@ -254,12 +323,23 @@ const userManagementVisualFixture = {
         _creationTime: 0,
         _id: "user_visual_broker" as never,
         authId: "user_visual_broker",
-        email: "broker@oakline.example",
-        name: "Oakline Broker",
+        email: "river.han@oaklinelending.com",
+        name: "River Han",
         roleSlugs: ["broker"],
         roles: "broker",
         status: "active",
         workosUserId: "user_visual_broker",
+      },
+      {
+        _creationTime: 0,
+        _id: "user_visual_builder" as never,
+        authId: "user_visual_builder",
+        email: "alex.morgan@oaklinebuilds.com",
+        name: "Alex Morgan",
+        roleSlugs: ["builder"],
+        roles: "builder",
+        status: "active",
+        workosUserId: "user_visual_builder",
       },
     ],
   } satisfies UserManagementProjection,

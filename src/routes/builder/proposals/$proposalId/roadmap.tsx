@@ -44,8 +44,12 @@ function ProductionProposalRoadmapRoute() {
   const detail = visualFixtureEnabled
     ? getVisualParityProposalDetail()
     : detailQuery;
+  const roadmap = useMemo(
+    () => (detail ? buildProductionRoadmapProjection(detail) : null),
+    [detail],
+  );
 
-  if (!detail) {
+  if (!(detail && roadmap)) {
     return (
       <div className="grid min-h-[24rem] place-items-center">
         <div className="flex items-center gap-2 rounded-lg border bg-background p-4 text-sm">
@@ -55,11 +59,6 @@ function ProductionProposalRoadmapRoute() {
       </div>
     );
   }
-
-  const roadmap = useMemo(
-    () => buildProductionRoadmapProjection(detail),
-    [detail],
-  );
 
   return (
     <main className="flex min-h-[calc(100vh-4rem)] flex-col gap-4 bg-muted/30 p-3 md:p-5">
