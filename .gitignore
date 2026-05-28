@@ -12,4 +12,7 @@ dist-ssr
 __unconfig*
 todos.json
 tmp/
-convex/_generated/
+# Convex generated bindings are imported by Vite/TanStack routes at build time.
+# Keep them tracked so clean Vercel clones can compile without running Convex
+# codegen before the app bundle is built.
+convex/_generated/ai/
