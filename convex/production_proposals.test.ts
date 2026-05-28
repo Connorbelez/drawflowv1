@@ -169,6 +169,74 @@ describe("production proposal foundation", () => {
     expect(demoCounts.demoProposalDrafts).toHaveLength(0);
   });
 
+  test("persists an unassigned broker draft after the setup workflow", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const broker = withIdentity(base, ["broker"], "user_broker");
+
+    const proposalId = await broker.mutation(
+      (api as any).production_proposals.createBrokerDraftProposal,
+      {
+        buildName: "Broker setup workflow proposal",
+        location: "77 Workflow Way",
+        workosOrganizationId: ORG,
+      },
+    );
+    const assignedDraftId = await admin.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Assigned builder draft",
+        location: "88 Assigned Lane",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const detail = await broker.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(detail.proposal).toMatchObject({
+      buildName: "Broker setup workflow proposal",
+      location: "77 Workflow Way",
+      status: "draft",
+    });
+    expect(detail.proposal.builderProfileId).toBeUndefined();
+    expect(detail.auditEvents.map((event: any) => event.eventType)).toContain(
+        "proposal.created",
+    );
+
+    const unassignedDrafts = await broker.query(
+      (api as any).production_proposals.listUnassignedDraftProposals,
+      { workosOrganizationId: ORG },
+    );
+    expect(
+      unassignedDrafts.drafts.map((proposal: any) => proposal.proposalId),
+    ).toContain(proposalId);
+    expect(
+      unassignedDrafts.drafts.map((proposal: any) => proposal.proposalId),
+    ).not.toContain(assignedDraftId);
+    expect(unassignedDrafts.drafts[0]).toMatchObject({
+      builder: "Unassigned builder",
+      column: "draft",
+      name: "Broker setup workflow proposal",
+    });
+
+    const dashboard = await admin.query(
+      (api as any).production_proposals.getBackofficeDashboard,
+      { workosOrganizationId: ORG },
+    );
+    expect(
+      dashboard.proposals.find(
+        (proposal: any) => proposal.proposalId === proposalId,
+      ),
+    ).toMatchObject({
+      builder: "Unassigned builder",
+      column: "draft",
+      name: "Broker setup workflow proposal",
+    });
+  });
+
   test("enforces proposal ownership, state, reason, and permit waiver rules", async () => {
     const { base, seed, t } = await seeded(["admin"], "user_admin");
     const proposalId = await t.mutation(
@@ -635,6 +703,248 @@ describe("production proposal foundation", () => {
     });
   });
 
+  test("broker resolves proposal setup context without selecting a builder", async () => {
+    const { base, seed } = await seeded(["admin"], "user_admin");
+    const broker = withIdentity(base, ["broker"], "user_broker");
+
+    const context = await broker.query(
+      (api as any).production_proposals.getBrokerProposalCreateContext,
+      { workosOrganizationId: ORG },
+    );
+
+    expect(context).toMatchObject({
+      brokerage: { _id: seed.brokerageId },
+    });
+    expect(context.builderProfile).toBeUndefined();
+    expect(context.templates[0]).toMatchObject({
+      templateKey: "single-family-full-build",
+      title: "Single Family Full Build",
+    });
+    expect(context.templates[0].milestones).toHaveLength(3);
+  });
+
+  test("seeds production defaults from the demo milestone setup templates", async () => {
+    const { t } = await seeded(["admin"], "user_admin");
+
+    const result = await t.mutation(
+      (api as any).production_proposals.seedProductionDefaultsToProd,
+      { workosOrganizationId: ORG },
+    );
+
+    expect(result).toMatchObject({
+      milestones: 21,
+      scenarios: 4,
+      submilestones: 50,
+      templates: 3,
+    });
+
+    const settings = await t.query(
+      (api as any).production_proposals.getProductionProposalSettings,
+      { workosOrganizationId: ORG },
+    );
+    expect(settings.templates.map((template: any) => template.templateKey)).toEqual([
+      "single-family-full-build",
+      "single-family-renovation",
+      "multiplex-build",
+    ]);
+
+    const fullBuild = settings.templates.find(
+      (template: any) => template.templateKey === "single-family-full-build",
+    );
+    expect(fullBuild.scenarios[0]).toMatchObject({
+      description:
+        "Standard reimbursement draw timing and reimbursement amount assumptions.",
+      draws: expect.arrayContaining([
+        expect.objectContaining({
+          amountBps: 2000,
+          drawKey: "draw-01",
+          label: "Draw 01",
+          reviewNote: "Foundation complete",
+          timingDay: 16,
+        }),
+      ]),
+      isActive: true,
+      name: "Standard reimbursement",
+      scenarioKey: "standard-reimbursement",
+    });
+    expect(fullBuild.milestones.map((milestone: any) => milestone.key)).toEqual([
+      "site-prep",
+      "framing",
+      "rough-in",
+      "exterior",
+      "drywall",
+      "finishes",
+      "closeout",
+    ]);
+    expect(fullBuild.milestones[0]).toMatchObject({
+      durationDays: 14,
+      name: "Site prep & foundation",
+      percentageBps: 1000,
+      submilestones: [
+        expect.objectContaining({ name: "Permit mobilization" }),
+        expect.objectContaining({ name: "Excavation" }),
+        expect.objectContaining({ name: "Concrete forms" }),
+        expect.objectContaining({ name: "Foundation pour" }),
+      ],
+    });
+    expect(
+      fullBuild.milestones.every(
+        (milestone: any) =>
+          milestone.siteVisitGuidance?.whatToVerify?.length > 0 &&
+          milestone.siteVisitGuidance?.cameraAngles?.length > 0,
+      ),
+    ).toBe(true);
+    expect(
+      fullBuild.milestones.map((milestone: any) => milestone.key),
+    ).not.toContain("shell-dry-in");
+
+    const secondResult = await t.mutation(
+      (api as any).production_proposals.seedProductionDefaultsToProd,
+      { workosOrganizationId: ORG },
+    );
+    expect(secondResult).toMatchObject({
+      milestones: 21,
+      templates: 3,
+    });
+    const secondSettings = await t.query(
+      (api as any).production_proposals.getProductionProposalSettings,
+      { workosOrganizationId: ORG },
+    );
+    expect(
+      secondSettings.templates.find(
+        (template: any) =>
+          template.templateKey === "single-family-full-build",
+      ).milestones,
+    ).toHaveLength(7);
+  });
+
+  test("saves production template settings through the timeline settings workspace shape", async () => {
+    const { t } = await seeded(["admin"], "user_admin");
+    await t.mutation(
+      (api as any).production_proposals.seedProductionDefaultsToProd,
+      { workosOrganizationId: ORG },
+    );
+    const settings = await t.query(
+      (api as any).production_proposals.getProductionProposalSettings,
+      { workosOrganizationId: ORG },
+    );
+    const fullBuild = settings.templates.find(
+      (template: any) => template.templateKey === "single-family-full-build",
+    );
+    const [standardScenario, ...otherScenarios] = fullBuild.scenarios;
+
+    await t.mutation(
+      (api as any).production_proposals.saveProductionProposalTemplateConfiguration,
+      {
+        milestones: fullBuild.milestones.map((milestone: any, index: number) => ({
+          dependencyKeys: milestone.dependencyKeys,
+          durationDays: milestone.key === "site-prep" ? 15 : milestone.durationDays,
+          icon: milestone.icon,
+          included: true,
+          milestoneKey: milestone.key,
+          name:
+            milestone.key === "site-prep"
+              ? "Site prep, utilities & foundation"
+              : milestone.name,
+          order: index,
+          percentageBps: milestone.percentageBps,
+          siteVisitGuidance: milestone.siteVisitGuidance,
+          submilestones: milestone.submilestones.map(
+            (submilestone: any, subIndex: number) => ({
+              description: submilestone.description,
+              durationDays: submilestone.durationDays,
+              name: submilestone.name,
+              order: subIndex,
+              percentageBps: submilestone.percentageBps,
+              submilestoneKey: submilestone.key,
+            }),
+          ),
+          type: milestone.archetypeKey,
+        })),
+        scenarios: [
+          {
+            description: "Backoffice-reviewed reimbursement cadence.",
+            draws: standardScenario.draws.map((draw: any) => ({
+              amountBps: draw.amountBps,
+              drawKey: draw.drawKey,
+              label: draw.label,
+              order: draw.order,
+              reviewNote:
+                draw.drawKey === "draw-01"
+                  ? "Foundation completion and utility tie-in verified."
+                  : draw.reviewNote,
+              timingDay: draw.timingDay,
+            })),
+            isActive: true,
+            isDefault: standardScenario.isDefault,
+            name: "Standard reimbursement updated",
+            scenarioKey: standardScenario.scenarioKey,
+            sortOrder: standardScenario.sortOrder,
+          },
+          ...otherScenarios.map((scenario: any) => ({
+            description: scenario.description,
+            draws: scenario.draws.map((draw: any) => ({
+              amountBps: draw.amountBps,
+              drawKey: draw.drawKey,
+              label: draw.label,
+              order: draw.order,
+              reviewNote: draw.reviewNote,
+              timingDay: draw.timingDay,
+            })),
+            isActive: false,
+            isDefault: scenario.isDefault,
+            name: scenario.name,
+            scenarioKey: scenario.scenarioKey,
+            sortOrder: scenario.sortOrder,
+          })),
+        ],
+        template: {
+          description: fullBuild.description,
+          isDefault: fullBuild.isDefault,
+          summary: fullBuild.summary,
+          templateKey: fullBuild.templateKey,
+          title: fullBuild.title,
+        },
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const updated = await t.query(
+      (api as any).production_proposals.getProductionProposalSettings,
+      { workosOrganizationId: ORG },
+    );
+    const updatedFullBuild = updated.templates.find(
+      (template: any) => template.templateKey === "single-family-full-build",
+    );
+    expect(updatedFullBuild.milestones[0]).toMatchObject({
+      durationDays: 15,
+      key: "site-prep",
+      name: "Site prep, utilities & foundation",
+    });
+    expect(updatedFullBuild.scenarios[0]).toMatchObject({
+      description: "Backoffice-reviewed reimbursement cadence.",
+      isActive: true,
+      name: "Standard reimbursement updated",
+    });
+    expect(updatedFullBuild.scenarios[0].draws[0]).toMatchObject({
+      reviewNote: "Foundation completion and utility tie-in verified.",
+    });
+
+    const audits = await t.run(async (ctx: any) =>
+      ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q: any) =>
+          q
+            .eq("entityType", "productionProposalSettings")
+            .eq("entityId", "single-family-full-build"),
+        )
+        .collect(),
+    );
+    expect(audits.map((event: any) => event.eventType)).toContain(
+      "production_settings.template_configuration_saved",
+    );
+  });
+
   test("hydrates a production proposal timeline workspace from production rows", async () => {
     const { seed, t } = await seeded(["admin"], "user_admin");
     const proposalId = await t.mutation(
@@ -1075,6 +1385,7 @@ describe("production proposal foundation", () => {
         amountCents: 24_000_000,
         customDate: true,
         drawKey: "manual-draw-framing",
+        itemMilestoneKey: "framing",
         label: "Manual framing draw",
         order: 2,
         proposalId,
@@ -1112,6 +1423,7 @@ describe("production proposal foundation", () => {
         expect.objectContaining({
           amountCents: 25_000_000,
           drawKey: "manual-draw-framing",
+          itemMilestoneKey: "framing",
           label: "Manual framing reimbursement",
           x: 49,
         }),
@@ -1229,7 +1541,8 @@ describe("production proposal foundation", () => {
   });
 
   test("materializes a full production active-build workspace with audited draw and milestone actions", async () => {
-    const { seed, t } = await seeded(["admin"], "user_admin");
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const builder = withIdentity(base, ["builder"], "user_builder");
     const proposalId = await t.mutation(
       (api as any).production_proposals.createDraftProposal,
       {
@@ -1310,6 +1623,55 @@ describe("production proposal foundation", () => {
         },
         proposalId,
         reason: "Loan closed offline.",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const principalRequestId = await builder.mutation(
+      (api as any).production_proposals.requestActiveBuildFacilityChange,
+      {
+        buildId: closing.buildId,
+        reason: "Framing quote increased after lender approval.",
+        requestedPrincipalCents: 60_000_000,
+        requestType: "principalIncrease",
+        workosOrganizationId: ORG,
+      },
+    );
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals.reviewActiveBuildFacilityChangeRequest,
+        {
+          requestId: principalRequestId,
+          status: "approved",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/role|permission|Forbidden/i);
+    await t.mutation(
+      (api as any).production_proposals.reviewActiveBuildFacilityChangeRequest,
+      {
+        note: "Approved within revised loan authority.",
+        requestId: principalRequestId,
+        status: "approved",
+        workosOrganizationId: ORG,
+      },
+    );
+    const extensionRequestId = await builder.mutation(
+      (api as any).production_proposals.requestActiveBuildFacilityChange,
+      {
+        buildId: closing.buildId,
+        reason: "Winter sequencing pushed exterior work.",
+        requestedPaybackDate: "2027-10-01",
+        requestType: "paybackExtension",
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.reviewActiveBuildFacilityChangeRequest,
+      {
+        note: "Extension accepted after broker review.",
+        requestId: extensionRequestId,
+        status: "approved",
         workosOrganizationId: ORG,
       },
     );
@@ -1427,6 +1789,22 @@ describe("production proposal foundation", () => {
       releaseNote: "Released after admin approval.",
       status: "released",
     });
+    expect(workspace.loanFacility).toMatchObject({
+      paybackDate: "2027-10-01",
+      principalCents: 60_000_000,
+    });
+    expect(workspace.facilityChangeRequests).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          requestType: "principalIncrease",
+          status: "approved",
+        }),
+        expect.objectContaining({
+          requestType: "paybackExtension",
+          status: "approved",
+        }),
+      ]),
+    );
     expect(workspace.milestones[0]).toMatchObject({
       completionReview: expect.objectContaining({
         note: "Milestone approved from production build detail.",
@@ -1446,6 +1824,8 @@ describe("production proposal foundation", () => {
     expect(workspace.auditEvents.map((event: any) => event.eventType)).toEqual(
       expect.arrayContaining([
         "active_build.created",
+        "active_build.facility_change.requested",
+        "active_build.facility_change.reviewed",
         "active_build.note.created",
         "active_build.document.created",
         "active_build.contractor.attached",
@@ -1688,17 +2068,7 @@ describe("production proposal foundation", () => {
     expect(dashboard.activeBuilds[0].id).not.toContain("Approved");
     expect(dashboard.activeBuilds[0].href).toMatch(/^\/backoffice\/builds\//);
 
-    expect(dashboard.milestones).toHaveLength(2);
-    expect(
-      dashboard.milestones.map((milestone: any) => milestone.name),
-    ).toEqual(["Foundation", "Shell and Dry-In"]);
-    expect(
-      dashboard.milestones.every((milestone: any) =>
-        milestone.href.startsWith(
-          `/backoffice/builds/${dashboard.activeBuilds[0].buildKey}`,
-        ),
-      ),
-    ).toBe(true);
+    expect(dashboard.milestones).toEqual([]);
 
     expect(dashboard.proposalColumns.map((column: any) => column.id)).toEqual([
       "draft",
@@ -1732,6 +2102,66 @@ describe("production proposal foundation", () => {
         build.id.includes("Approved With Permit"),
       ),
     ).toBe(false);
+  });
+
+  test("dashboard milestone review queue only includes builder completion claims", async () => {
+    const { base, t } = await seeded(["admin"], "user_admin");
+
+    await t.mutation(
+      (api as any).production_proposals.dev_seedProductionProposalScenarios,
+      { workosOrganizationId: ORG },
+    );
+
+    const initialDashboard = await t.query(
+      (api as any).production_proposals.getBackofficeDashboard,
+      { workosOrganizationId: ORG },
+    );
+    expect(initialDashboard.milestones).toEqual([]);
+
+    const buildId = initialDashboard.activeBuilds[0].buildKey;
+    await withIdentity(base, ["builder"], "user_builder").mutation(
+      (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
+      {
+        actualCostCents: 50_000_000,
+        buildId,
+        completedDay: 30,
+        milestoneKey: "foundation",
+        note: "Foundation ready for review.",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const dashboardAfterClaim = await t.query(
+      (api as any).production_proposals.getBackofficeDashboard,
+      { workosOrganizationId: ORG },
+    );
+    expect(dashboardAfterClaim.milestones).toEqual([
+      expect.objectContaining({
+        column: "backlog",
+        milestoneKey: "foundation",
+        name: "Foundation",
+      }),
+    ]);
+
+    await t.mutation((api as any).production_proposals.assignActiveBuildSiteVisit, {
+      buildId,
+      milestoneKey: "foundation",
+      note: "Verify completion claim.",
+      requestedDay: 31,
+      workosOrganizationId: ORG,
+    });
+
+    const dashboardAfterSiteVisit = await t.query(
+      (api as any).production_proposals.getBackofficeDashboard,
+      { workosOrganizationId: ORG },
+    );
+    expect(dashboardAfterSiteVisit.milestones).toEqual([
+      expect.objectContaining({
+        column: "needsSiteVisit",
+        milestoneKey: "foundation",
+        name: "Foundation",
+      }),
+    ]);
   });
 
   test("requires backoffice authorization for the production backoffice dashboard", async () => {
@@ -1957,5 +2387,181 @@ describe("production proposal foundation", () => {
         },
       ),
     ).resolves.toMatchObject({ proposal: { buildName: "Scoped proposal" } });
+  });
+});
+
+describe("draft builder assignment and deletion", () => {
+  test("lists active brokerage builders sorted by name", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const broker = withIdentity(base, ["broker"], "user_broker");
+
+    await admin.run(async (ctx: any) => {
+      await ctx.db.insert("builderProfiles", {
+        brokerageId: seed.brokerageId,
+        createdAt: Date.now(),
+        displayName: "Acme Builders",
+        organizationId: ORG,
+        status: "active",
+        updatedAt: Date.now(),
+      });
+      await ctx.db.insert("builderProfiles", {
+        brokerageId: seed.brokerageId,
+        createdAt: Date.now(),
+        displayName: "Retired Builders",
+        organizationId: ORG,
+        status: "inactive",
+        updatedAt: Date.now(),
+      });
+    });
+
+    const builders = await broker.query(
+      (api as any).production_proposals.listBrokerageBuilders,
+      { workosOrganizationId: ORG },
+    );
+    const names = builders.map((builder: any) => builder.displayName);
+    expect(names).toContain("Acme Builders");
+    expect(names).not.toContain("Retired Builders");
+    expect([...names]).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+  });
+
+  test("assigns a builder to an unassigned draft and reflects it on the kanban", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const broker = withIdentity(base, ["broker"], "user_broker");
+
+    const proposalId = await broker.mutation(
+      (api as any).production_proposals.createBrokerDraftProposal,
+      { buildName: "Unassigned draft", workosOrganizationId: ORG },
+    );
+
+    const before = await admin.query(
+      (api as any).production_proposals.listProposalKanban,
+      { workosOrganizationId: ORG },
+    );
+    const draftBefore = before.columns
+      .find((column: any) => column.id === "draft")
+      .cards.find((card: any) => card.proposalId === proposalId);
+    expect(draftBefore).toMatchObject({
+      builderAssigned: false,
+      builderName: "Unassigned builder",
+    });
+
+    await admin.mutation(
+      (api as any).production_proposals.assignDraftBuilder,
+      {
+        builderProfileId: seed.builderProfileId,
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const after = await admin.query(
+      (api as any).production_proposals.listProposalKanban,
+      { workosOrganizationId: ORG },
+    );
+    const draftAfter = after.columns
+      .find((column: any) => column.id === "draft")
+      .cards.find((card: any) => card.proposalId === proposalId);
+    expect(draftAfter.builderAssigned).toBe(true);
+    expect(draftAfter.builderName).not.toBe("Unassigned builder");
+
+    const detail = await admin.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(detail.proposal.builderProfileId).toBe(seed.builderProfileId);
+    expect(
+      detail.auditEvents.map((event: any) => event.eventType),
+    ).toContain("proposal.builder_assigned");
+  });
+
+  test("rejects assigning a builder to an already-assigned draft", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const proposalId = await admin.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Already assigned",
+        location: "1 Assigned Rd",
+        workosOrganizationId: ORG,
+      },
+    );
+    await expect(
+      admin.mutation((api as any).production_proposals.assignDraftBuilder, {
+        builderProfileId: seed.builderProfileId,
+        proposalId,
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow(/already assigned/);
+  });
+
+  test("rejects assigning a builder once the proposal leaves draft", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const broker = withIdentity(base, ["broker"], "user_broker");
+    const proposalId = await broker.mutation(
+      (api as any).production_proposals.createBrokerDraftProposal,
+      { buildName: "Will be submitted", workosOrganizationId: ORG },
+    );
+    await admin.run(async (ctx: any) => {
+      await ctx.db.patch(proposalId, { status: "submitted" });
+    });
+    await expect(
+      admin.mutation((api as any).production_proposals.assignDraftBuilder, {
+        builderProfileId: seed.builderProfileId,
+        proposalId,
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow(/Only draft proposals/);
+  });
+
+  test("deletes a draft along with its kanban card and plan children", async () => {
+    const { base, t: admin } = await seeded(["admin"], "user_admin");
+    const broker = withIdentity(base, ["broker"], "user_broker");
+    const proposalId = await broker.mutation(
+      (api as any).production_proposals.createBrokerDraftProposal,
+      { buildName: "Deletable draft", workosOrganizationId: ORG },
+    );
+
+    await admin.mutation(
+      (api as any).production_proposals.deleteDraftProposal,
+      { proposalId, workosOrganizationId: ORG },
+    );
+
+    const kanban = await admin.query(
+      (api as any).production_proposals.listProposalKanban,
+      { workosOrganizationId: ORG },
+    );
+    const ids = kanban.columns.flatMap((column: any) =>
+      column.cards.map((card: any) => card.proposalId),
+    );
+    expect(ids).not.toContain(proposalId);
+
+    const leftovers = await admin.run(async (ctx: any) => ({
+      card: await ctx.db
+        .query("proposalKanbanCards")
+        .withIndex("by_proposal", (q: any) => q.eq("proposalId", proposalId))
+        .unique(),
+      proposal: await ctx.db.get(proposalId),
+    }));
+    expect(leftovers.card).toBeNull();
+    expect(leftovers.proposal).toBeNull();
+  });
+
+  test("rejects deleting a non-draft proposal", async () => {
+    const { base, t: admin } = await seeded(["admin"], "user_admin");
+    const broker = withIdentity(base, ["broker"], "user_broker");
+    const proposalId = await broker.mutation(
+      (api as any).production_proposals.createBrokerDraftProposal,
+      { buildName: "Non-draft", workosOrganizationId: ORG },
+    );
+    await admin.run(async (ctx: any) => {
+      await ctx.db.patch(proposalId, { status: "submitted" });
+    });
+    await expect(
+      admin.mutation((api as any).production_proposals.deleteDraftProposal, {
+        proposalId,
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow(/Only draft proposals/);
   });
 });

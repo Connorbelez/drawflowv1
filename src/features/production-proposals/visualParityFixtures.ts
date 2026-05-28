@@ -4,7 +4,7 @@ import type {
   ProductionProposalSettings,
 } from "./ProductionProposalSurfaces.tsx";
 import type { ProductionProposalTemplateProjection } from "./timelineSetupAdapter.ts";
-import type { ConvexTimelineWorkspace } from "#/routes/demo/timeline/-timeline-convex-adapter.ts";
+import type { ConvexTimelineWorkspace } from "#/features/timeline-workspace/-timeline-convex-adapter.ts";
 
 export const VISUAL_PARITY_ORGANIZATION_ID = "org_visual_parity_workos";
 export const VISUAL_PARITY_PROPOSAL_ID = "proposal_visual_parity";

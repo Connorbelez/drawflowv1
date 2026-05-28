@@ -24,12 +24,51 @@ vi.mock("@tanstack/react-router", async () => {
 
 import type { ProposalKanbanCard } from "#/features/backoffice-dashboard/mock-data.ts";
 import {
+  ActiveBuildsCard,
   ApprovedProposalSidebar,
   ClosingConfirmationDialog,
   normalizeProductionBackofficeDashboard,
+  ProposalKanban,
   SubmittedProposalsCard,
   type ClosingConfirmationInput,
+  type ProductionBuilderOption,
 } from "./index";
+
+const proposalColumns = [
+  { id: "draft", name: "Draft" },
+  { id: "submitted", name: "Submitted" },
+  { id: "approved", name: "Approved" },
+  { id: "closed", name: "Closed" },
+];
+
+const builders: ProductionBuilderOption[] = [
+  { _id: "builder-1", displayName: "Northwind Homes" },
+  { _id: "builder-2", displayName: "Summit Builders" },
+];
+
+function renderKanban(
+  proposals: ProposalKanbanCard[],
+  overrides: {
+    builders?: ProductionBuilderOption[];
+    onAssignBuilder?: (
+      proposal: ProposalKanbanCard,
+      builderProfileId: string
+    ) => Promise<unknown>;
+    onDeleteDraft?: (proposal: ProposalKanbanCard) => Promise<unknown>;
+  } = {}
+) {
+  return render(
+    <ProposalKanban
+      builders={overrides.builders ?? builders}
+      columns={proposalColumns}
+      onAssignBuilder={overrides.onAssignBuilder ?? vi.fn().mockResolvedValue(null)}
+      onDeleteDraft={overrides.onDeleteDraft ?? vi.fn().mockResolvedValue(null)}
+      onOpenApprovedProposal={vi.fn()}
+      onRecordClosing={vi.fn()}
+      proposals={proposals}
+    />
+  );
+}
 
 afterEach(() => cleanup());
 
@@ -221,6 +260,46 @@ describe("SubmittedProposalsCard", () => {
   });
 });
 
+describe("ActiveBuildsCard", () => {
+  test("starts the full New Build workflow", async () => {
+    const startWorkflow = vi.fn<() => Promise<void>>().mockResolvedValue();
+
+    render(
+      <ActiveBuildsCard
+        builds={[]}
+        onOpenUnassignedDrafts={vi.fn()}
+        onStartNewBuildWorkflow={startWorkflow}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "New Build" }));
+
+    await waitFor(() =>
+      expect(startWorkflow).toHaveBeenCalledTimes(1),
+    );
+  });
+
+  test("opens the unassigned broker draft queue", async () => {
+    const openUnassignedDrafts = vi.fn<() => Promise<void>>().mockResolvedValue();
+
+    render(
+      <ActiveBuildsCard
+        builds={[]}
+        onOpenUnassignedDrafts={openUnassignedDrafts}
+        onStartNewBuildWorkflow={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Unassigned drafts" }),
+    );
+
+    await waitFor(() =>
+      expect(openUnassignedDrafts).toHaveBeenCalledTimes(1),
+    );
+  });
+});
+
 describe("ApprovedProposalSidebar", () => {
   test("shows approved proposal closing context and exposes the shared record closing action", () => {
     const recordClosing = vi.fn();
@@ -239,5 +318,130 @@ describe("ApprovedProposalSidebar", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Record closing" }));
     expect(recordClosing).toHaveBeenCalledWith(approvedProposal);
+  });
+});
+
+const unassignedDraft: ProposalKanbanCard = {
+  address: "12 Draft Lane, Toronto, ON",
+  builder: "Unassigned builder",
+  builderAssigned: false,
+  column: "draft",
+  href: "/backoffice/proposals/proposal-draft",
+  id: "proposal-draft",
+  loanAmount: "$0",
+  ltv: 0,
+  name: "Unassigned Draft",
+  proposalId: "proposal-draft",
+  tag: "production",
+};
+
+const assignedDraft: ProposalKanbanCard = {
+  address: "44 Assigned Way, Toronto, ON",
+  builder: "Northwind Homes",
+  builderAssigned: true,
+  column: "draft",
+  href: "/backoffice/proposals/proposal-assigned-draft",
+  id: "proposal-assigned-draft",
+  loanAmount: "$900,000",
+  ltv: 0,
+  name: "Assigned Draft",
+  proposalId: "proposal-assigned-draft",
+  tag: "production",
+};
+
+describe("ProposalKanban context menu", () => {
+  test("marks an unassigned draft and offers assign + delete actions", async () => {
+    renderKanban([unassignedDraft]);
+
+    expect(screen.getByTestId("proposal-card-unassigned")).toBeTruthy();
+    expect(screen.getByText("Unassigned")).toBeTruthy();
+
+    fireEvent.contextMenu(screen.getByText("Unassigned Draft"));
+
+    expect(
+      await screen.findByRole("menuitem", { name: "Assign builder" })
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("menuitem", { name: "Delete draft" })
+    ).toBeTruthy();
+  });
+
+  test("shows the builder name and hides assign for an already-assigned draft", async () => {
+    renderKanban([assignedDraft]);
+
+    expect(screen.queryByTestId("proposal-card-unassigned")).toBeNull();
+    expect(screen.getByText("Northwind Homes")).toBeTruthy();
+
+    fireEvent.contextMenu(screen.getByText("Assigned Draft"));
+
+    expect(
+      await screen.findByRole("menuitem", { name: "Delete draft" })
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("menuitem", { name: "Assign builder" })
+    ).toBeNull();
+  });
+
+  test("hides assign and delete for non-draft proposals", async () => {
+    renderKanban([approvedProposal]);
+
+    fireEvent.contextMenu(screen.getByText("Approved With Permit"));
+
+    expect(
+      await screen.findByRole("menuitem", { name: "Open" })
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("menuitem", { name: "Assign builder" })
+    ).toBeNull();
+    expect(
+      screen.queryByRole("menuitem", { name: "Delete draft" })
+    ).toBeNull();
+  });
+
+  test("opens the assign dialog and guards the confirm button until a builder is chosen", async () => {
+    renderKanban([unassignedDraft]);
+
+    fireEvent.contextMenu(screen.getByText("Unassigned Draft"));
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Assign builder" })
+    );
+
+    await screen.findByRole("dialog", { name: "Assign builder" });
+    expect(
+      (screen.getByTestId("assign-builder-confirm") as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
+  });
+
+  test("surfaces an empty-builders state in the assign dialog", async () => {
+    renderKanban([unassignedDraft], { builders: [] });
+
+    fireEvent.contextMenu(screen.getByText("Unassigned Draft"));
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Assign builder" })
+    );
+
+    expect(
+      await screen.findByText(
+        "No active builders are available in this brokerage yet."
+      )
+    ).toBeTruthy();
+  });
+
+  test("confirms deletion through the alert dialog", async () => {
+    const onDeleteDraft = vi.fn().mockResolvedValue(null);
+    renderKanban([unassignedDraft], { onDeleteDraft });
+
+    fireEvent.contextMenu(screen.getByText("Unassigned Draft"));
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Delete draft" })
+    );
+
+    await screen.findByRole("alertdialog", { name: "Delete draft proposal" });
+    fireEvent.click(screen.getByTestId("delete-draft-confirm"));
+
+    await waitFor(() =>
+      expect(onDeleteDraft).toHaveBeenCalledWith(unassignedDraft)
+    );
   });
 });

@@ -6,8 +6,10 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { toast } from "sonner";
 
 import {
   ProductionProposalDraftEditorSurface,
@@ -18,7 +20,17 @@ import {
   toTimelineRows,
 } from "./ProductionProposalSurfaces";
 
-afterEach(() => cleanup());
+vi.mock("sonner", () => ({
+  toast: {
+    error: vi.fn(),
+    success: vi.fn(),
+  },
+}));
+
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
 
 const proposalDetail = {
   documents: [
@@ -192,12 +204,212 @@ describe("ProductionProposalKanbanSurface", () => {
     expect(screen.getByText("Approved")).toBeTruthy();
     expect(screen.getByText("Closed")).toBeTruthy();
   });
+
+  function kanbanWithDraft(card: Record<string, unknown>) {
+    return {
+      columns: [
+        {
+          cards: [
+            {
+              column: "draft" as const,
+              proposalId: "p1",
+              subtitle: "Hamilton, ON",
+              title: "Hamilton Infill",
+              totalBudgetCents: 1_250_000_00,
+              updatedAt: 0,
+              ...card,
+            },
+          ],
+          id: "draft" as const,
+          name: "Draft",
+        },
+        { cards: [], id: "submitted" as const, name: "Submitted" },
+        { cards: [], id: "approved" as const, name: "Approved" },
+        { cards: [], id: "closed" as const, name: "Closed" },
+      ],
+    };
+  }
+
+  test("renders builder identity for assigned and unassigned cards", () => {
+    const { rerender } = render(
+      <ProductionProposalKanbanSurface
+        kanban={kanbanWithDraft({
+          builderAssigned: true,
+          builderName: "Northline Homes",
+        })}
+      />,
+    );
+    expect(screen.getByText("Northline Homes")).toBeTruthy();
+    expect(screen.queryByTestId("production-kanban-card-unassigned")).toBeNull();
+
+    rerender(
+      <ProductionProposalKanbanSurface
+        kanban={kanbanWithDraft({
+          builderAssigned: false,
+          builderName: "Unassigned builder",
+        })}
+      />,
+    );
+    expect(
+      screen.getByTestId("production-kanban-card-unassigned"),
+    ).toBeTruthy();
+  });
+
+  test("left click opens the card", () => {
+    const onOpen = vi.fn();
+    render(
+      <ProductionProposalKanbanSurface
+        kanban={kanbanWithDraft({ builderAssigned: false })}
+        onOpen={onOpen}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("production-kanban-card"));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onOpen.mock.calls[0][0]).toMatchObject({ proposalId: "p1" });
+  });
+
+  test("right click on an unassigned draft offers assign and delete", async () => {
+    render(
+      <ProductionProposalKanbanSurface
+        builders={[{ _id: "b1", displayName: "Northline Homes" }]}
+        kanban={kanbanWithDraft({ builderAssigned: false })}
+        onAssignBuilder={vi.fn()}
+        onDeleteDraft={vi.fn()}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByTestId("production-kanban-card"));
+    await waitFor(() => {
+      expect(screen.getByText("Assign builder")).toBeTruthy();
+    });
+    expect(screen.getByText("Delete draft")).toBeTruthy();
+  });
+
+  test("an assigned draft hides assign but still offers delete", async () => {
+    render(
+      <ProductionProposalKanbanSurface
+        builders={[]}
+        kanban={kanbanWithDraft({
+          builderAssigned: true,
+          builderName: "Northline Homes",
+        })}
+        onAssignBuilder={vi.fn()}
+        onDeleteDraft={vi.fn()}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByTestId("production-kanban-card"));
+    await waitFor(() => {
+      expect(screen.getByText("Delete draft")).toBeTruthy();
+    });
+    expect(screen.queryByText("Assign builder")).toBeNull();
+  });
+
+  test("a non-draft card offers neither assign nor delete", async () => {
+    render(
+      <ProductionProposalKanbanSurface
+        kanban={{
+          columns: [
+            { cards: [], id: "draft", name: "Draft" },
+            {
+              cards: [
+                {
+                  builderAssigned: true,
+                  builderName: "Northline Homes",
+                  column: "submitted",
+                  proposalId: "p2",
+                  title: "Submitted Build",
+                  totalBudgetCents: 1_000_000_00,
+                  updatedAt: 0,
+                },
+              ],
+              id: "submitted",
+              name: "Submitted",
+            },
+            { cards: [], id: "approved", name: "Approved" },
+            { cards: [], id: "closed", name: "Closed" },
+          ],
+        }}
+        onAssignBuilder={vi.fn()}
+        onDeleteDraft={vi.fn()}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByTestId("production-kanban-card"));
+    await waitFor(() => {
+      expect(screen.getByText("Open")).toBeTruthy();
+    });
+    expect(screen.queryByText("Assign builder")).toBeNull();
+    expect(screen.queryByText("Delete draft")).toBeNull();
+  });
+
+  test("assign dialog lists builders and guards the confirm button", async () => {
+    const onAssignBuilder = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ProductionProposalKanbanSurface
+        builders={[
+          { _id: "b1", displayName: "Northline Homes" },
+          { _id: "b2", displayName: "Cedarpoint Builders" },
+        ]}
+        kanban={kanbanWithDraft({ builderAssigned: false })}
+        onAssignBuilder={onAssignBuilder}
+        onDeleteDraft={vi.fn()}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByTestId("production-kanban-card"));
+    fireEvent.click(await screen.findByText("Assign builder"));
+
+    expect(await screen.findByTestId("assign-builder-select")).toBeTruthy();
+    const confirm = screen.getByTestId(
+      "assign-builder-confirm",
+    ) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    expect(onAssignBuilder).not.toHaveBeenCalled();
+  });
+
+  test("assign dialog shows an empty state without active builders", async () => {
+    render(
+      <ProductionProposalKanbanSurface
+        builders={[]}
+        kanban={kanbanWithDraft({ builderAssigned: false })}
+        onAssignBuilder={vi.fn()}
+        onDeleteDraft={vi.fn()}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByTestId("production-kanban-card"));
+    fireEvent.click(await screen.findByText("Assign builder"));
+    expect(
+      await screen.findByText(
+        "No active builders are available in this brokerage yet.",
+      ),
+    ).toBeTruthy();
+    expect(
+      (screen.getByTestId("assign-builder-confirm") as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  test("deleting a draft confirms through the alert dialog", async () => {
+    const onDeleteDraft = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ProductionProposalKanbanSurface
+        kanban={kanbanWithDraft({ builderAssigned: false })}
+        onDeleteDraft={onDeleteDraft}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByTestId("production-kanban-card"));
+    fireEvent.click(await screen.findByText("Delete draft"));
+    fireEvent.click(await screen.findByTestId("delete-draft-confirm"));
+    await waitFor(() => {
+      expect(onDeleteDraft).toHaveBeenCalledTimes(1);
+    });
+    expect(onDeleteDraft.mock.calls[0][0]).toMatchObject({ proposalId: "p1" });
+  });
 });
 
 describe("ProductionProposalSettingsSurface", () => {
   test("renders production template, archetype, scenario, and workflow counts", () => {
+    const seed = vi.fn();
     render(
       <ProductionProposalSettingsSurface
+        onSeed={seed}
         settings={{
           archetypes: [
             { key: "foundation", name: "Foundation", status: "active" },
@@ -249,10 +461,46 @@ describe("ProductionProposalSettingsSurface", () => {
     expect(screen.getByDisplayValue("25.00% / 2500 bps")).toBeTruthy();
     expect(screen.getByText("Cheapest Feasible")).toBeTruthy();
     expect(screen.getByText("Interest starts on funds_released")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Seed defaults to prod" }));
+    expect(seed).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("ProductionProposalReviewSurface", () => {
+  test("uses the existing timeline workspace as the default production review tab", () => {
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          proposal: { ...proposalDetail.proposal, status: "submitted" },
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+        timeline={<div data-testid="timeline-slot">Timeline workspace</div>}
+      />,
+    );
+
+    const tablist = screen.getByRole("tablist", {
+      name: /proposal workspace sections/i,
+    });
+    expect(within(tablist).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "Timeline",
+      "Review",
+      "Draw schedule",
+      "Packet",
+    ]);
+    expect(
+      screen.getByRole("tab", { name: "Timeline" }).getAttribute(
+        "aria-selected",
+      ),
+    ).toBe("true");
+    expect(screen.getByTestId("timeline-slot")).toBeTruthy();
+    expect(screen.queryByText("Submit proposal")).toBeNull();
+  });
+
   test("shows approval without build creation and closing with future start date", () => {
     render(
       <ProductionProposalReviewSurface
@@ -268,11 +516,71 @@ describe("ProductionProposalReviewSurface", () => {
       />,
     );
 
-    expect(screen.getByText("Approved proposal")).toBeTruthy();
+    expect(screen.getByTestId("approved-proposal-confirmation")).toBeTruthy();
+    expect(screen.getByText("Proposal approved for closing")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Closing" }));
     expect(screen.getByText("No active build created yet.")).toBeTruthy();
     expect(screen.getByLabelText("Build start date").getAttribute("type")).toBe(
       "date",
     );
+  });
+
+  test("reports missing decision reasons with toast before calling review mutations", () => {
+    const onApprove = vi.fn();
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          proposal: { ...proposalDetail.proposal, status: "submitted" },
+        }}
+        onApprove={onApprove}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    expect(onApprove).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith(
+      "Decision reason required.",
+      expect.objectContaining({
+        description: expect.stringContaining("audit reason"),
+      }),
+    );
+  });
+
+  test("reports rejected review mutations with a concise toast error", async () => {
+    const onApprove = vi.fn().mockRejectedValue(
+      new Error(
+        "5/29/2026, 4:33:49 PM [CONVEX M(production_proposals:approveProposal)] Uncaught Error: A reason is required.\n    at requireReason",
+      ),
+    );
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          proposal: { ...proposalDetail.proposal, status: "submitted" },
+        }}
+        onApprove={onApprove}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Review" }));
+    fireEvent.change(screen.getByLabelText("Decision reason"), {
+      target: { value: "Meets policy." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith("A reason is required.");
+    });
   });
 
   test("edits submitted draw schedule rows with an explicit review reason", () => {
@@ -291,10 +599,11 @@ describe("ProductionProposalReviewSurface", () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole("tab", { name: "Draw schedule" }));
     expect(screen.getByText("Save draw row").hasAttribute("disabled")).toBe(
       true,
     );
-    fireEvent.change(screen.getByLabelText("Reason"), {
+    fireEvent.change(screen.getByLabelText("Change reason"), {
       target: { value: "Adjusted after lender review." },
     });
     fireEvent.change(screen.getByLabelText("draw-01 label"), {

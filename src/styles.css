@@ -87,6 +87,23 @@
   --invert-foreground: var(--color-zinc-50);
 }
 
+/*
+ * Lightning CSS lowers `light-dark(light, dark)` into paired custom-property
+ * fallbacks during production builds. Keep these selectors in sync with the
+ * app's `.light` / `.dark` theme classes so built CSS keeps the same colors as
+ * Vite dev CSS.
+ */
+:root,
+.light {
+  --lightningcss-light: initial;
+  --lightningcss-dark: ;
+}
+
+.dark {
+  --lightningcss-light: ;
+  --lightningcss-dark: initial;
+}
+
 @theme inline {
   --font-sans: 'Oxanium Variable', sans-serif;
   --font-heading: var(--font-sans);

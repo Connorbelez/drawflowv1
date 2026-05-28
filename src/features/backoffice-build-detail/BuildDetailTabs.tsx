@@ -18,28 +18,30 @@ export function BuildDetailTabBar({
   onChangeTab: (tab: BuildDetailSubTab) => void;
 }) {
   return (
-    <div
-      className="flex w-max gap-1 rounded-lg border border-border bg-card p-1"
-      data-testid="build-detail-tabbar"
-      role="tablist"
-    >
-      {BUILD_DETAIL_TABS.map((tab) => (
-        <button
-          aria-selected={activeTab === tab.value}
-          className={
-            activeTab === tab.value
-              ? "rounded-md bg-primary/25 px-3 py-1.5 text-xs text-foreground"
-              : "rounded-md px-3 py-1.5 text-muted-foreground text-xs hover:bg-accent hover:text-foreground"
-          }
-          data-testid={`build-detail-tab-${tab.value}`}
-          key={tab.value}
-          onClick={() => onChangeTab(tab.value)}
-          role="tab"
-          type="button"
-        >
-          {tab.label}
-        </button>
-      ))}
+    <div className="-mx-2 overflow-x-auto px-2 sm:mx-0 sm:px-0">
+      <div
+        className="flex w-max min-w-full gap-1 rounded-lg border border-border bg-card p-1 sm:min-w-0"
+        data-testid="build-detail-tabbar"
+        role="tablist"
+      >
+        {BUILD_DETAIL_TABS.map((tab) => (
+          <button
+            aria-selected={activeTab === tab.value}
+            className={
+              activeTab === tab.value
+                ? "min-h-9 flex-1 whitespace-nowrap rounded-md bg-primary/25 px-3 py-2 text-xs text-foreground sm:flex-none sm:py-1.5"
+                : "min-h-9 flex-1 whitespace-nowrap rounded-md px-3 py-2 text-muted-foreground text-xs hover:bg-accent hover:text-foreground sm:flex-none sm:py-1.5"
+            }
+            data-testid={`build-detail-tab-${tab.value}`}
+            key={tab.value}
+            onClick={() => onChangeTab(tab.value)}
+            role="tab"
+            type="button"
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

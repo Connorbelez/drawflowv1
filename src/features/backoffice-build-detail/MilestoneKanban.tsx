@@ -117,23 +117,23 @@ export function MilestoneKanban({
   }
   return (
     <section
-      className="rounded-xl border border-border bg-card p-4"
+      className="rounded-xl border border-border bg-card p-3 sm:p-4"
       data-ixc-ref="UI-KANBAN"
       data-testid="build-detail-kanban"
       id="kanban"
     >
-      <header className="mb-3 flex items-center justify-between">
+      <header className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="font-semibold text-sm">Milestone Kanban</h3>
           <p className="text-[11px] text-muted-foreground">
             Read-only projection · drag locked · click a card for full detail
           </p>
         </div>
-        <label className="flex items-center gap-2 text-muted-foreground text-xs">
+        <label className="flex items-center justify-between gap-2 text-muted-foreground text-xs sm:justify-start">
           <span>Show completed</span>
           <button
             aria-pressed={showCompleted}
-            className="rounded-md border border-border bg-card px-2 py-1 text-xs"
+            className="min-h-8 rounded-md border border-border bg-card px-2 py-1 text-xs"
             data-testid="kanban-toggle-show-completed"
             onClick={onToggleShowCompleted}
             type="button"
@@ -142,40 +142,42 @@ export function MilestoneKanban({
           </button>
         </label>
       </header>
-      <div className="grid grid-cols-5 gap-3 rounded-lg border border-border bg-background/30 p-3">
-        {COLUMNS.map((col) => {
-          const list = byColumn.get(col.key) ?? [];
-          return (
-            <div
-              className="flex flex-col gap-2"
-              data-column={col.key}
-              data-testid={`kanban-col-${col.key}`}
-              key={col.key}
-            >
-              <h4 className="flex items-center justify-between px-1 text-[11px] text-muted-foreground uppercase tracking-wider">
-                <span>{col.label}</span>
-                <span className="rounded-full bg-card px-1.5 py-0.5 text-[10px] text-foreground">
-                  {list.length}
-                </span>
-              </h4>
-              <div className="flex flex-col gap-2">
-                {list.length === 0 ? (
-                  <p className="rounded-md border border-dashed border-border p-3 text-[11px] text-muted-foreground">
-                    No milestones in this column.
-                  </p>
-                ) : null}
-                {list.map((card) => (
-                  <MilestoneCard
-                    card={card}
-                    columnAccent={col.accent}
-                    key={card.milestoneId}
-                    onClick={() => onCardClick(card)}
-                  />
-                ))}
+      <div className="-mx-3 overflow-x-auto px-3 sm:mx-0 sm:px-0">
+        <div className="grid min-w-[62rem] grid-cols-5 gap-3 rounded-lg border border-border bg-background/30 p-3">
+          {COLUMNS.map((col) => {
+            const list = byColumn.get(col.key) ?? [];
+            return (
+              <div
+                className="flex min-w-0 flex-col gap-2"
+                data-column={col.key}
+                data-testid={`kanban-col-${col.key}`}
+                key={col.key}
+              >
+                <h4 className="flex items-center justify-between px-1 text-[11px] text-muted-foreground uppercase tracking-wider">
+                  <span className="truncate">{col.label}</span>
+                  <span className="rounded-full bg-card px-1.5 py-0.5 text-[10px] text-foreground">
+                    {list.length}
+                  </span>
+                </h4>
+                <div className="flex flex-col gap-2">
+                  {list.length === 0 ? (
+                    <p className="rounded-md border border-dashed border-border p-3 text-[11px] text-muted-foreground">
+                      No milestones in this column.
+                    </p>
+                  ) : null}
+                  {list.map((card) => (
+                    <MilestoneCard
+                      card={card}
+                      columnAccent={col.accent}
+                      key={card.milestoneId}
+                      onClick={() => onCardClick(card)}
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     </section>
   );

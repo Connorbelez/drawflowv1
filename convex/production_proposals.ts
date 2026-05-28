@@ -7,7 +7,16 @@ import {
   normalizeRoleSlugs,
   type RoleSlug,
 } from "./authz";
+import {
+  defaultSiteVisitGuidance,
+  type SiteVisitGuidance,
+} from "./demo_site_visit_guidance";
 import { publicMutation, publicQuery } from "./fluent";
+import {
+  assertProposalCollaborationEditAllowed,
+  hasActiveCollaborationParticipant,
+  pushProposalPlanningSnapshot,
+} from "./proposal_collaboration_model";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const PROPOSAL_COLUMNS = ["draft", "submitted", "approved", "closed"] as const;
@@ -24,6 +33,8 @@ const FAIRLEND_BROKERAGE_NAME = "FairLendBrokerage";
 const FAIRLEND_WORKOS_ORGANIZATION_ID = "org_01KSNW6JHW9P9YS41DZX1YHHGS";
 const FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID =
   "user_01KR207FRFHQT46EV9N538XBF3";
+const TOTAL_BPS = 10_000;
+const PRODUCTION_SETTINGS_HANDOFF_GAP_DAYS = 5;
 
 const submilestoneInput = v.object({
   budgetCents: v.optional(v.number()),
@@ -59,6 +70,53 @@ const documentInput = v.object({
   storageId: v.optional(v.id("_storage")),
 });
 
+const productionSettingsSiteVisitGuidanceInput = v.object({
+  cameraAngles: v.array(v.string()),
+  whatToVerify: v.array(v.string()),
+});
+
+const productionSettingsSubmilestoneInput = v.object({
+  description: v.string(),
+  durationDays: v.number(),
+  name: v.string(),
+  order: v.number(),
+  percentageBps: v.number(),
+  submilestoneKey: v.string(),
+});
+
+const productionSettingsMilestoneInput = v.object({
+  dependencyKeys: v.array(v.string()),
+  durationDays: v.number(),
+  icon: v.string(),
+  included: v.boolean(),
+  milestoneKey: v.string(),
+  name: v.string(),
+  order: v.number(),
+  percentageBps: v.number(),
+  siteVisitGuidance: v.optional(productionSettingsSiteVisitGuidanceInput),
+  submilestones: v.array(productionSettingsSubmilestoneInput),
+  type: v.string(),
+});
+
+const productionSettingsScenarioDrawInput = v.object({
+  amountBps: v.number(),
+  drawKey: v.string(),
+  label: v.string(),
+  order: v.number(),
+  reviewNote: v.string(),
+  timingDay: v.number(),
+});
+
+const productionSettingsScenarioInput = v.object({
+  description: v.string(),
+  draws: v.array(productionSettingsScenarioDrawInput),
+  isActive: v.boolean(),
+  isDefault: v.boolean(),
+  name: v.string(),
+  scenarioKey: v.string(),
+  sortOrder: v.number(),
+});
+
 const evidenceAssetInput = v.object({
   evidenceKey: v.string(),
   fileName: v.string(),
@@ -86,6 +144,11 @@ const timelineModificationRequestType = v.union(
   v.literal("createMilestone"),
   v.literal("deleteMilestone"),
   v.literal("updateMilestoneBudget")
+);
+
+const activeBuildFacilityChangeRequestType = v.union(
+  v.literal("principalIncrease"),
+  v.literal("paybackExtension")
 );
 
 const productionTimelineMilestoneInput = v.object({
@@ -190,6 +253,51 @@ export const dev_seedProductionFoundation = authenticatedMutation
       builderProfileId,
       templateId,
       workflowRuleId,
+    };
+  })
+  .public();
+
+export const seedProductionDefaultsToProd = authenticatedMutation
+  .input({ workosOrganizationId: v.string() })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    requireAnyRole(ctx.viewer.roles, ["admin"]);
+    const now = Date.now();
+
+    await upsertWorkosProjection(ctx, args.workosOrganizationId, now);
+    await upsertWorkosUserAndMembership(ctx, {
+      email: ctx.viewer.email ?? "admin@example.com",
+      now,
+      roleSlugs: ["admin"],
+      workosOrganizationId: args.workosOrganizationId,
+      workosUserId: ctx.viewer.subject,
+    });
+    const brokerageId = await ensureBrokerage(ctx, {
+      displayName: FAIRLEND_BROKERAGE_NAME,
+      legalName: FAIRLEND_BROKERAGE_NAME,
+      now,
+      principalBrokerWorkosUserId: ctx.viewer.subject,
+      workosOrganizationId: args.workosOrganizationId,
+    });
+    const templateResult = await seedProductionDefaultTemplates(ctx, {
+      brokerageId,
+      now,
+      organizationId: args.workosOrganizationId,
+    });
+    const workflowRuleId = await ensureWorkflowRule(ctx, {
+      brokerageId,
+      now,
+      organizationId: args.workosOrganizationId,
+    });
+    const brokerage = await ctx.db.get(brokerageId);
+
+    return {
+      brokerageId,
+      settings: brokerage
+        ? await buildProductionSettingsProjection(ctx, brokerage)
+        : null,
+      workflowRuleId,
+      ...templateResult,
     };
   })
   .public();
@@ -358,7 +466,7 @@ export const generateProposalDocumentUploadUrl = authenticatedMutation
     if (!isBackoffice(auth.roles)) {
       await assertBuilderOwnership(
         ctx,
-        auth.proposal.builderProfileId,
+        assignedBuilderProfileIdOrThrow(auth.proposal),
         auth.subject
       );
     }
@@ -390,6 +498,9 @@ export const createDraftProposal = authenticatedMutation
     const now = Date.now();
     const proposalId = await ctx.db.insert("buildProposals", {
       brokerageId: auth.brokerage._id,
+      ...(isBackoffice(auth.roles)
+        ? { assignedBrokerWorkosUserId: auth.subject }
+        : {}),
       borrowerCoPayBps: 2000,
       borrowerWorkingCapitalLimitCents: 0,
       buildName: args.buildName,
@@ -411,6 +522,50 @@ export const createDraftProposal = authenticatedMutation
       command: "createDraftProposal",
       eventType: "proposal.created",
       newState: "draft",
+      proposalId,
+    });
+    return proposalId;
+  })
+  .public();
+
+export const createBrokerDraftProposal = authenticatedMutation
+  .input({
+    buildName: v.optional(v.string()),
+    location: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.id("buildProposals"))
+  .handler(async (ctx, args) => {
+    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+
+    const now = Date.now();
+    const proposalId = await ctx.db.insert("buildProposals", {
+      brokerageId: auth.brokerage._id,
+      assignedBrokerWorkosUserId: auth.subject,
+      borrowerCoPayBps: 2000,
+      borrowerWorkingCapitalLimitCents: 0,
+      buildName: args.buildName?.trim() || "Unassigned broker draft",
+      createdAt: now,
+      createdByWorkosUserId: auth.subject,
+      lenderDrawPolicyLimitCents: 0,
+      location: args.location?.trim() || "Unassigned site",
+      organizationId: args.workosOrganizationId,
+      reviewOutcome: "none",
+      status: "draft",
+      totalBudgetCents: 0,
+      updatedAt: now,
+      updatedByWorkosUserId: auth.subject,
+    });
+    await upsertKanbanCard(ctx, proposalId, now);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "createBrokerDraftProposal",
+      eventType: "proposal.created",
+      newState: JSON.stringify({
+        assignment: "unassigned",
+        status: "draft",
+      }),
       proposalId,
     });
     return proposalId;
@@ -443,7 +598,7 @@ export const saveDraftProposalPackage = authenticatedMutation
     if (!isBackoffice(auth.roles)) {
       await assertBuilderOwnership(
         ctx,
-        auth.proposal.builderProfileId,
+        assignedBuilderProfileIdOrThrow(auth.proposal),
         auth.subject
       );
     }
@@ -574,7 +729,7 @@ export const submitProposal = authenticatedMutation
     if (!isBackoffice(auth.roles)) {
       await assertBuilderOwnership(
         ctx,
-        auth.proposal.builderProfileId,
+        assignedBuilderProfileIdOrThrow(auth.proposal),
         auth.subject
       );
     }
@@ -782,6 +937,7 @@ export const updateSubmittedProposalDrawScheduleRow = authenticatedMutation
     );
     requireAnyRole(auth.roles, BACKOFFICE_ROLES);
     requireBackofficeProposalWrite(auth, auth.proposal);
+    await assertProposalCollaborationEditAllowed(ctx, auth);
     requireReason(args.reason);
     if (!["submitted", "approved"].includes(auth.proposal.status)) {
       throw new Error(
@@ -835,6 +991,7 @@ export const updateSubmittedProposalDrawScheduleRow = authenticatedMutation
       proposalId: args.proposalId,
       reason: args.reason,
     });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
     return null;
   })
   .public();
@@ -852,7 +1009,7 @@ export const createProductionTimelineMilestone = authenticatedMutation
       args.proposalId,
       args.workosOrganizationId
     );
-    requireProductionTimelineDraftStructureWrite(auth);
+    await requireProductionTimelineDraftStructureWrite(ctx, auth);
     await insertProductionMilestoneFromInput(ctx, auth, args.milestone);
     await recalculateProposalBudget(ctx, auth, args.proposalId);
     await writeProposalEvent(ctx, {
@@ -862,6 +1019,7 @@ export const createProductionTimelineMilestone = authenticatedMutation
       newState: JSON.stringify(args.milestone),
       proposalId: args.proposalId,
     });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
     return null;
   })
   .public();
@@ -895,7 +1053,7 @@ export const updateProductionTimelineMilestone = authenticatedMutation
       args.proposalId,
       args.workosOrganizationId
     );
-    requireProductionTimelineDraftStructureWrite(auth);
+    await requireProductionTimelineDraftStructureWrite(ctx, auth);
     const milestone = await getProductionMilestoneOrThrow(
       ctx,
       args.proposalId,
@@ -975,6 +1133,7 @@ export const updateProductionTimelineMilestone = authenticatedMutation
       priorState: JSON.stringify(milestone),
       proposalId: args.proposalId,
     });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
     return null;
   })
   .public();
@@ -992,7 +1151,7 @@ export const deleteProductionTimelineMilestone = authenticatedMutation
       args.proposalId,
       args.workosOrganizationId
     );
-    requireProductionTimelineDraftStructureWrite(auth);
+    await requireProductionTimelineDraftStructureWrite(ctx, auth);
     const milestone = await getProductionMilestoneOrThrow(
       ctx,
       args.proposalId,
@@ -1007,6 +1166,7 @@ export const deleteProductionTimelineMilestone = authenticatedMutation
       priorState: JSON.stringify(milestone),
       proposalId: args.proposalId,
     });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
     return null;
   })
   .public();
@@ -1016,6 +1176,7 @@ export const createProductionTimelineDraw = authenticatedMutation
     amountCents: v.number(),
     customDate: v.optional(v.boolean()),
     drawKey: v.string(),
+    itemMilestoneKey: v.optional(v.string()),
     label: v.string(),
     order: v.optional(v.number()),
     proposalId: v.id("buildProposals"),
@@ -1029,7 +1190,7 @@ export const createProductionTimelineDraw = authenticatedMutation
       args.proposalId,
       args.workosOrganizationId
     );
-    requireProductionTimelineEditable(auth);
+    await requireProductionTimelineEditable(ctx, auth);
     const existing = await ctx.db
       .query("proposalDrawScheduleRows")
       .withIndex("by_proposal_key", (q) =>
@@ -1045,6 +1206,14 @@ export const createProductionTimelineDraw = authenticatedMutation
       "by_proposal",
       args.proposalId
     );
+    const milestone =
+      args.itemMilestoneKey === undefined
+        ? null
+        : await getProductionMilestoneOrThrow(
+            ctx,
+            args.proposalId,
+            args.itemMilestoneKey
+          );
     const now = Date.now();
     await ctx.db.insert("proposalDrawScheduleRows", {
       amountCents: Math.max(0, Math.round(args.amountCents)),
@@ -1053,9 +1222,13 @@ export const createProductionTimelineDraw = authenticatedMutation
       customDate: args.customDate ?? true,
       drawKey: args.drawKey,
       label: args.label.trim() || "Reimbursement draw",
+      ...(args.itemMilestoneKey === undefined
+        ? {}
+        : { milestoneKey: args.itemMilestoneKey }),
       order: args.order ?? draws.length + 1,
       organizationId: auth.proposal.organizationId,
       proposalId: args.proposalId,
+      ...(milestone === null ? {} : { proposalMilestoneId: milestone._id }),
       source: "manual",
       timingDay: Math.max(0, Math.round(args.x)),
       updatedAt: now,
@@ -1067,6 +1240,7 @@ export const createProductionTimelineDraw = authenticatedMutation
       newState: JSON.stringify(args),
       proposalId: args.proposalId,
     });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
     return null;
   })
   .public();
@@ -1076,6 +1250,7 @@ export const updateProductionTimelineDraw = authenticatedMutation
     amountCents: v.optional(v.number()),
     customDate: v.optional(v.boolean()),
     drawKey: v.string(),
+    itemMilestoneKey: v.optional(v.string()),
     label: v.optional(v.string()),
     order: v.optional(v.number()),
     proposalId: v.id("buildProposals"),
@@ -1089,17 +1264,31 @@ export const updateProductionTimelineDraw = authenticatedMutation
       args.proposalId,
       args.workosOrganizationId
     );
-    requireProductionTimelineEditable(auth);
+    await requireProductionTimelineEditable(ctx, auth);
     const draw = await getProductionDrawOrThrow(
       ctx,
       args.proposalId,
       args.drawKey
     );
+    const milestone =
+      args.itemMilestoneKey === undefined
+        ? undefined
+        : await getProductionMilestoneOrThrow(
+            ctx,
+            args.proposalId,
+            args.itemMilestoneKey
+          );
     const patch = {
       ...(args.amountCents === undefined
         ? {}
         : { amountCents: Math.max(0, Math.round(args.amountCents)) }),
       ...(args.customDate === undefined ? {} : { customDate: args.customDate }),
+      ...(milestone === undefined
+        ? {}
+        : {
+            milestoneKey: args.itemMilestoneKey,
+            proposalMilestoneId: milestone._id,
+          }),
       ...(args.label === undefined
         ? {}
         : { label: args.label.trim() || draw.label }),
@@ -1120,6 +1309,7 @@ export const updateProductionTimelineDraw = authenticatedMutation
       priorState: JSON.stringify(draw),
       proposalId: args.proposalId,
     });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
     return null;
   })
   .public();
@@ -1137,7 +1327,7 @@ export const deleteProductionTimelineDraw = authenticatedMutation
       args.proposalId,
       args.workosOrganizationId
     );
-    requireProductionTimelineEditable(auth);
+    await requireProductionTimelineEditable(ctx, auth);
     const draw = await getProductionDrawOrThrow(
       ctx,
       args.proposalId,
@@ -1154,6 +1344,7 @@ export const deleteProductionTimelineDraw = authenticatedMutation
       priorState: JSON.stringify(draw),
       proposalId: args.proposalId,
     });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
     return null;
   })
   .public();
@@ -1243,6 +1434,7 @@ export const reviewProductionTimelineModificationRequest = authenticatedMutation
     );
     requireAnyRole(auth.roles, BACKOFFICE_ROLES);
     requireBackofficeProposalWrite(auth, auth.proposal);
+    await assertProposalCollaborationEditAllowed(ctx, auth);
 
     if (request.status !== "requested") {
       return null;
@@ -1269,6 +1461,7 @@ export const reviewProductionTimelineModificationRequest = authenticatedMutation
       proposalId: request.proposalId,
       reason: args.note,
     });
+    await pushProposalPlanningSnapshot(ctx, request.proposalId);
     return null;
   })
   .public();
@@ -1287,6 +1480,7 @@ export const updateProductionTimelinePlanState = authenticatedMutation
       selectedPanelOpen: v.boolean(),
       straightLine: v.boolean(),
     }),
+    minimumCashReserveCents: v.optional(v.number()),
     startingCashCents: v.number(),
     workosOrganizationId: v.string(),
   })
@@ -1297,13 +1491,14 @@ export const updateProductionTimelinePlanState = authenticatedMutation
       args.proposalId,
       args.workosOrganizationId
     );
-    requireProductionTimelineEditable(auth);
+    await requireProductionTimelineEditable(ctx, auth);
     const priorState = JSON.stringify({
       currentDay: auth.proposal.timelineCurrentDay,
       progressValue: auth.proposal.timelineProgressValue,
       rangeMax: auth.proposal.timelineRangeMax,
       rangeMin: auth.proposal.timelineRangeMin,
       routeState: auth.proposal.timelineRouteState,
+      minimumCashReserveCents: auth.proposal.timelineMinimumCashReserveCents,
       startingCashCents: auth.proposal.timelineStartingCashCents,
     });
     const now = Date.now();
@@ -1317,6 +1512,10 @@ export const updateProductionTimelinePlanState = authenticatedMutation
       timelineRangeMax: Math.round(args.rangeMax),
       timelineRangeMin: Math.round(args.rangeMin),
       timelineRouteState: args.routeState,
+      timelineMinimumCashReserveCents: Math.max(
+        0,
+        Math.round(args.minimumCashReserveCents ?? 0)
+      ),
       timelineStartingCashCents: Math.max(
         0,
         Math.round(args.startingCashCents)
@@ -1334,11 +1533,16 @@ export const updateProductionTimelinePlanState = authenticatedMutation
         rangeMax: Math.round(args.rangeMax),
         rangeMin: Math.round(args.rangeMin),
         routeState: args.routeState,
+        minimumCashReserveCents: Math.max(
+          0,
+          Math.round(args.minimumCashReserveCents ?? 0)
+        ),
         startingCashCents: Math.max(0, Math.round(args.startingCashCents)),
       }),
       priorState,
       proposalId: args.proposalId,
     });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
     return null;
   })
   .public();
@@ -1361,7 +1565,7 @@ export const createProductionTimelineCapitalEvent = authenticatedMutation
       args.proposalId,
       args.workosOrganizationId
     );
-    requireProductionTimelineEditable(auth);
+    await requireProductionTimelineEditable(ctx, auth);
     await insertProductionCapitalEvent(ctx, auth, {
       amountCents: args.amountCents,
       capitalEventKey: args.capitalEventKey,
@@ -1378,6 +1582,7 @@ export const createProductionTimelineCapitalEvent = authenticatedMutation
       newState: JSON.stringify(args),
       proposalId: args.proposalId,
     });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
     return null;
   })
   .public();
@@ -1399,7 +1604,7 @@ export const createProductionTimelineCashInfusion = authenticatedMutation
       args.proposalId,
       args.workosOrganizationId
     );
-    requireProductionTimelineEditable(auth);
+    await requireProductionTimelineEditable(ctx, auth);
     await insertProductionCapitalEvent(ctx, auth, {
       amountCents: args.amountCents,
       capitalEventKey: args.cashInfusionKey,
@@ -1416,6 +1621,7 @@ export const createProductionTimelineCashInfusion = authenticatedMutation
       newState: JSON.stringify(args),
       proposalId: args.proposalId,
     });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
     return null;
   })
   .public();
@@ -1438,7 +1644,7 @@ export const updateProductionTimelineCapitalEvent = authenticatedMutation
       args.proposalId,
       args.workosOrganizationId
     );
-    requireProductionTimelineEditable(auth);
+    await requireProductionTimelineEditable(ctx, auth);
     const event = await getProductionCapitalEventOrThrow(
       ctx,
       args.proposalId,
@@ -1465,6 +1671,7 @@ export const updateProductionTimelineCapitalEvent = authenticatedMutation
       priorState: JSON.stringify(event),
       proposalId: args.proposalId,
     });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
     return null;
   })
   .public();
@@ -1482,7 +1689,7 @@ export const deleteProductionTimelineCapitalEvent = authenticatedMutation
       args.proposalId,
       args.workosOrganizationId
     );
-    requireProductionTimelineEditable(auth);
+    await requireProductionTimelineEditable(ctx, auth);
     const event = await getProductionCapitalEventOrThrow(
       ctx,
       args.proposalId,
@@ -1496,6 +1703,7 @@ export const deleteProductionTimelineCapitalEvent = authenticatedMutation
       priorState: JSON.stringify(event),
       proposalId: args.proposalId,
     });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
     return null;
   })
   .public();
@@ -1512,7 +1720,7 @@ export const generateProductionEvidenceUploadUrl = authenticatedMutation
       args.proposalId,
       args.workosOrganizationId
     );
-    requireProductionTimelineEditable(auth);
+    await requireProductionTimelineEditable(ctx, auth);
     return await ctx.storage.generateUploadUrl();
   })
   .public();
@@ -1530,7 +1738,7 @@ export const createProductionTimelineEvidenceAsset = authenticatedMutation
       args.proposalId,
       args.workosOrganizationId
     );
-    requireProductionTimelineEditable(auth);
+    await requireProductionTimelineEditable(ctx, auth);
     const milestone = await getProductionMilestoneOrThrow(
       ctx,
       args.proposalId,
@@ -1595,7 +1803,7 @@ export const updateProductionTimelineEvidenceAsset = authenticatedMutation
       args.proposalId,
       args.workosOrganizationId
     );
-    requireProductionTimelineEditable(auth);
+    await requireProductionTimelineEditable(ctx, auth);
     const asset = await getProductionEvidenceAssetOrThrow(
       ctx,
       args.proposalId,
@@ -1634,7 +1842,7 @@ export const deleteProductionTimelineEvidenceAsset = authenticatedMutation
       args.proposalId,
       args.workosOrganizationId
     );
-    requireProductionTimelineEditable(auth);
+    await requireProductionTimelineEditable(ctx, auth);
     const asset = await getProductionEvidenceAssetOrThrow(
       ctx,
       args.proposalId,
@@ -1671,7 +1879,7 @@ export const submitProductionMilestoneCompletion = authenticatedMutation
       args.proposalId,
       args.workosOrganizationId
     );
-    requireProductionTimelineLiveWrite(auth);
+    await requireProductionTimelineLiveWrite(ctx, auth);
     const milestone = await getProductionMilestoneOrThrow(
       ctx,
       args.proposalId,
@@ -1722,6 +1930,7 @@ export const reviewProductionMilestoneCompletion = authenticatedMutation
     );
     requireAnyRole(auth.roles, BACKOFFICE_ROLES);
     requireBackofficeProposalWrite(auth, auth.proposal);
+    await assertProposalCollaborationEditAllowed(ctx, auth);
     const milestone = await getProductionMilestoneOrThrow(
       ctx,
       args.proposalId,
@@ -1787,6 +1996,7 @@ export const requestProductionMilestoneSiteVisit = authenticatedMutation
     }
     requireAnyRole(auth.roles, BACKOFFICE_ROLES);
     requireBackofficeProposalWrite(auth, auth.proposal);
+    await assertProposalCollaborationEditAllowed(ctx, auth);
     const milestone = await getProductionMilestoneOrThrow(
       ctx,
       args.proposalId,
@@ -1853,6 +2063,7 @@ export const recordProductionMilestoneSiteVisit = authenticatedMutation
     }
     requireAnyRole(auth.roles, BACKOFFICE_ROLES);
     requireBackofficeProposalWrite(auth, auth.proposal);
+    await assertProposalCollaborationEditAllowed(ctx, auth);
     const milestone = await getProductionMilestoneOrThrow(
       ctx,
       args.proposalId,
@@ -1912,7 +2123,7 @@ export const submitProductionDrawRequest = authenticatedMutation
       args.proposalId,
       args.workosOrganizationId
     );
-    requireProductionTimelineLiveWrite(auth);
+    await requireProductionTimelineLiveWrite(ctx, auth);
     const draw = await getProductionDrawOrThrow(
       ctx,
       args.proposalId,
@@ -1958,6 +2169,7 @@ export const reviewProductionDrawRequest = authenticatedMutation
     );
     requireAnyRole(auth.roles, BACKOFFICE_ROLES);
     requireBackofficeProposalWrite(auth, auth.proposal);
+    await assertProposalCollaborationEditAllowed(ctx, auth);
     const draw = await getProductionDrawOrThrow(
       ctx,
       args.proposalId,
@@ -2009,6 +2221,10 @@ export const recordOfflineClosing = authenticatedMutation
     if (!auth.proposal.workflowRuleSnapshotId) {
       throw new Error("Approved proposal is missing workflow rule snapshot.");
     }
+    const assignedBuilderProfileId = assignedBuilderProfileIdOrThrow(
+      auth.proposal,
+      "Closing requires an assigned builder."
+    );
 
     const now = Date.now();
     const permit = await getPermitDocument(ctx, args.proposalId);
@@ -2016,7 +2232,7 @@ export const recordOfflineClosing = authenticatedMutation
     const buildId = await ctx.db.insert("activeBuilds", {
       brokerageId: auth.brokerage._id,
       buildName: auth.proposal.buildName,
-      builderProfileId: auth.proposal.builderProfileId,
+      builderProfileId: assignedBuilderProfileId,
       createdAt: now,
       location: auth.proposal.location,
       organizationId: args.workosOrganizationId,
@@ -2028,6 +2244,9 @@ export const recordOfflineClosing = authenticatedMutation
         new Date(`${args.buildStartDate}T00:00:00Z`).getTime() > now
           ? "future_start"
           : "active",
+      timelineMinimumCashReserveCents:
+        auth.proposal.timelineMinimumCashReserveCents,
+      timelineStartingCashCents: auth.proposal.timelineStartingCashCents,
       totalBudgetCents: auth.proposal.totalBudgetCents,
       updatedAt: now,
       workflowRuleSnapshotId: auth.proposal.workflowRuleSnapshotId,
@@ -2048,6 +2267,10 @@ export const recordOfflineClosing = authenticatedMutation
       interestAnnualBps: args.loanFacility.interestAnnualBps,
       interestStartsOn: "funds_released",
       organizationId: args.workosOrganizationId,
+      paybackDate: addDaysIso(
+        args.buildStartDate,
+        auth.proposal.timelineRangeMax ?? 365
+      ),
       principalCents: args.loanFacility.principalCents,
       proposalId: args.proposalId,
       status: "active",
@@ -2170,7 +2393,11 @@ export const recordOfflineClosing = authenticatedMutation
       });
     }
     await copyProposalOperationalRowsToActiveBuild(ctx, {
-      auth: { brokerage: auth.brokerage, roles: auth.roles, subject: auth.subject },
+      auth: {
+        brokerage: auth.brokerage,
+        roles: auth.roles,
+        subject: auth.subject,
+      },
       buildId,
       organizationId: args.workosOrganizationId,
       proposalId: args.proposalId,
@@ -2297,6 +2524,20 @@ export const getBuilderProposalCreateContext = authenticatedQuery
     return {
       brokerage: auth.brokerage,
       builderProfile,
+      templates: await collectProposalTemplateDetails(ctx, auth.brokerage._id),
+    };
+  })
+  .public();
+
+export const getBrokerProposalCreateContext = authenticatedQuery
+  .input({ workosOrganizationId: v.string() })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+
+    return {
+      brokerage: auth.brokerage,
       templates: await collectProposalTemplateDetails(ctx, auth.brokerage._id),
     };
   })
@@ -2725,6 +2966,8 @@ export const getProductionTimelineWorkspace = authenticatedQuery
             Boolean(activeMilestone),
           straightLine: auth.proposal.timelineRouteState?.straightLine ?? true,
         },
+        minimumCashReserveCents:
+          auth.proposal.timelineMinimumCashReserveCents ?? 0,
         startingCashCents:
           auth.proposal.timelineStartingCashCents ??
           auth.proposal.borrowerWorkingCapitalLimitCents,
@@ -2848,9 +3091,19 @@ export const listProposalKanban = authenticatedQuery
     const cards = isBackoffice(auth.roles)
       ? await visibleBackofficeCards(ctx, auth)
       : await visibleBuilderCards(ctx, auth);
+    const enriched = await Promise.all(
+      cards.map(async (card) => {
+        const proposal = await ctx.db.get(card.proposalId);
+        return {
+          ...card,
+          activeBuildId: proposal?.activeBuildId,
+          builderAssigned: Boolean(proposal?.builderProfileId),
+        };
+      })
+    );
     return {
       columns: PROPOSAL_COLUMNS.map((id) => ({
-        cards: cards.filter((card) => card.column === id),
+        cards: enriched.filter((card) => card.column === id),
         id,
         name: titleCase(id),
       })),
@@ -2976,12 +3229,12 @@ export const getBackofficeDashboard = authenticatedQuery
 
     const milestones = visibleActiveBuilds.flatMap(({ build, milestones }) =>
       milestones
-        .filter((milestone) => milestone.status !== "complete")
+        .filter(productionMilestoneNeedsBackofficeReview)
         .map((milestone) => ({
           address: build.location,
           buildId: productionBuildDisplayId(build),
           buildKey: String(build._id),
-          column: productionMilestoneColumn(milestone.status),
+          column: productionMilestoneColumn(milestone),
           dueLabel: `Day ${milestone.dayEnd}`,
           href: `/backoffice/builds/${build._id}?milestone=${milestone.key}`,
           id: String(milestone._id),
@@ -3090,6 +3343,196 @@ export const getBackofficeDashboard = authenticatedQuery
   })
   .public();
 
+export const listUnassignedDraftProposals = authenticatedQuery
+  .input({ workosOrganizationId: v.string() })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+
+    const staffCanRead =
+      auth.roles.includes("broker-staff") &&
+      (await hasPermission(
+        ctx,
+        auth.brokerage.workosOrganizationId,
+        auth.roles,
+        "proposals:read"
+      ));
+    const proposals = await ctx.db
+      .query("buildProposals")
+      .withIndex("by_brokerage_status_builder", (q) =>
+        q
+          .eq("brokerageId", auth.brokerage._id)
+          .eq("status", "draft")
+          .eq("builderProfileId", undefined)
+      )
+      .order("desc")
+      .take(100);
+    const visible = [];
+
+    for (const proposal of proposals) {
+      if (!(canReadBackofficeProposal(auth, proposal) || staffCanRead)) {
+        continue;
+      }
+      const card = await ctx.db
+        .query("proposalKanbanCards")
+        .withIndex("by_proposal", (q) => q.eq("proposalId", proposal._id))
+        .unique();
+      visible.push(productionDashboardProposalCard(card, proposal));
+    }
+
+    return {
+      drafts: visible,
+      total: visible.length,
+    };
+  })
+  .public();
+
+export const listBrokerageBuilders = authenticatedQuery
+  .input({ workosOrganizationId: v.string() })
+  .returns(
+    v.array(
+      v.object({
+        _id: v.id("builderProfiles"),
+        displayName: v.string(),
+      })
+    )
+  )
+  .handler(async (ctx, args) => {
+    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+    const builders = await ctx.db
+      .query("builderProfiles")
+      .withIndex("by_brokerage", (q) => q.eq("brokerageId", auth.brokerage._id))
+      .filter((q) => q.eq(q.field("status"), "active"))
+      .collect();
+    return builders
+      .map((builder) => ({
+        _id: builder._id,
+        displayName: builder.displayName,
+      }))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName));
+  })
+  .public();
+
+export const assignDraftBuilder = authenticatedMutation
+  .input({
+    builderProfileId: v.id("builderProfiles"),
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
+    requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+    requireBackofficeProposalWrite(auth, auth.proposal);
+    if (auth.proposal.status !== "draft") {
+      throw new Error("Only draft proposals can be assigned to a builder.");
+    }
+    if (auth.proposal.builderProfileId) {
+      throw new Error("Proposal is already assigned to a builder.");
+    }
+    await assertBuilderProfileScope(
+      ctx,
+      args.builderProfileId,
+      auth.brokerage._id
+    );
+
+    const now = Date.now();
+    await ctx.db.patch(args.proposalId, {
+      builderProfileId: args.builderProfileId,
+      updatedAt: now,
+      updatedByWorkosUserId: auth.subject,
+    });
+    await upsertKanbanCard(ctx, args.proposalId, now);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "assignDraftBuilder",
+      eventType: "proposal.builder_assigned",
+      newState: JSON.stringify({ builderProfileId: args.builderProfileId }),
+      priorState: JSON.stringify({ assignment: "unassigned" }),
+      proposalId: args.proposalId,
+    });
+    return null;
+  })
+  .public();
+
+export const deleteDraftProposal = authenticatedMutation
+  .input({
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
+    requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+    requireBackofficeProposalWrite(auth, auth.proposal);
+    if (auth.proposal.status !== "draft") {
+      throw new Error("Only draft proposals can be deleted.");
+    }
+
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "deleteDraftProposal",
+      eventType: "proposal.deleted",
+      priorState: JSON.stringify({
+        builderProfileId: auth.proposal.builderProfileId ?? null,
+        buildName: auth.proposal.buildName,
+        status: auth.proposal.status,
+      }),
+      proposalId: args.proposalId,
+    });
+
+    await deleteProposalPlanChildren(ctx, args.proposalId);
+    for (const table of ["proposalDocuments", "documentWaivers"] as const) {
+      const rows = await collectByIndex(
+        ctx,
+        table,
+        "by_proposal",
+        args.proposalId
+      );
+      for (const row of rows) {
+        await ctx.db.delete(row._id);
+      }
+    }
+    const participants = await collectByIndex(
+      ctx,
+      "proposalCollaborationParticipants",
+      "by_proposal",
+      args.proposalId
+    );
+    for (const participant of participants) {
+      await ctx.db.delete(participant._id);
+    }
+    const sessions = await collectByIndex(
+      ctx,
+      "proposalCollaborationSessions",
+      "by_proposal",
+      args.proposalId
+    );
+    for (const session of sessions) {
+      await ctx.db.delete(session._id);
+    }
+    const card = await ctx.db
+      .query("proposalKanbanCards")
+      .withIndex("by_proposal", (q) => q.eq("proposalId", args.proposalId))
+      .unique();
+    if (card) {
+      await ctx.db.delete(card._id);
+    }
+    await ctx.db.delete(args.proposalId);
+    return null;
+  })
+  .public();
+
 export const getProductionProposalSettings = authenticatedQuery
   .input({ workosOrganizationId: v.string() })
   .returns(v.any())
@@ -3107,39 +3550,219 @@ export const getProductionProposalSettings = authenticatedQuery
       };
     }
 
-    const auth = {
-      brokerage: scope.brokerage,
-      roles: scope.roles,
-      subject: scope.subject,
-    };
+    return await buildProductionSettingsProjection(ctx, scope.brokerage);
+  })
+  .public();
 
-    const [archetypes, templates, workflowRules] = await Promise.all([
-      ctx.db
-        .query("milestoneArchetypes")
-        .withIndex("by_brokerage_key", (q) =>
-          q.eq("brokerageId", auth.brokerage._id)
-        )
-        .collect(),
-      ctx.db
-        .query("proposalTemplates")
-        .withIndex("by_brokerage", (q) =>
-          q.eq("brokerageId", auth.brokerage._id)
-        )
-        .collect(),
-      ctx.db
-        .query("workflowRules")
-        .withIndex("by_brokerage", (q) =>
-          q.eq("brokerageId", auth.brokerage._id)
-        )
-        .collect(),
-    ]);
+export const saveProductionProposalTemplateConfiguration = authenticatedMutation
+  .input({
+    milestones: v.array(productionSettingsMilestoneInput),
+    scenarios: v.array(productionSettingsScenarioInput),
+    template: v.object({
+      description: v.string(),
+      isDefault: v.boolean(),
+      summary: v.string(),
+      templateKey: v.string(),
+      title: v.string(),
+    }),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProductionSettingsMutation(
+      ctx,
+      args.workosOrganizationId
+    );
+    validateProductionTemplateRows(args.milestones);
+    validateProductionScenarios(args.scenarios, args.milestones);
 
-    return {
-      archetypes,
-      brokerage: auth.brokerage,
-      templates: await collectProposalTemplateDetails(ctx, auth.brokerage._id),
-      workflowRules,
-    };
+    const priorState = JSON.stringify(
+      await collectProposalTemplateDetails(ctx, auth.brokerage._id)
+    );
+    const now = Date.now();
+    const templateId = await upsertProductionSettingsTemplate(ctx, {
+      brokerageId: auth.brokerage._id,
+      description: args.template.description,
+      isDefault: args.template.isDefault,
+      now,
+      organizationId: args.workosOrganizationId,
+      summary: args.template.summary,
+      templateKey: args.template.templateKey,
+      title: args.template.title,
+    });
+    await replaceProductionSettingsMilestones(ctx, {
+      brokerageId: auth.brokerage._id,
+      milestones: args.milestones,
+      now,
+      organizationId: args.workosOrganizationId,
+      templateId,
+    });
+    await replaceProductionSettingsScenarios(ctx, {
+      brokerageId: auth.brokerage._id,
+      now,
+      organizationId: args.workosOrganizationId,
+      scenarios: args.scenarios,
+      templateId,
+    });
+    await writeProductionSettingsEvent(ctx, {
+      auth,
+      command: "saveProductionProposalTemplateConfiguration",
+      entityId: args.template.templateKey,
+      eventType: "production_settings.template_configuration_saved",
+      newState: JSON.stringify({
+        milestoneCount: args.milestones.filter((row) => row.included).length,
+        scenarioCount: args.scenarios.length,
+      }),
+      organizationId: args.workosOrganizationId,
+      priorState,
+    });
+    return await buildProductionSettingsProjection(ctx, auth.brokerage);
+  })
+  .public();
+
+export const deleteProductionDrawScenario = authenticatedMutation
+  .input({
+    scenarioKey: v.string(),
+    templateKey: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProductionSettingsMutation(
+      ctx,
+      args.workosOrganizationId
+    );
+    const template = await getProductionSettingsTemplate(
+      ctx,
+      auth.brokerage._id,
+      args.templateKey
+    );
+    if (!template) {
+      return await buildProductionSettingsProjection(ctx, auth.brokerage);
+    }
+    const scenario = await getProductionSettingsScenario(
+      ctx,
+      template._id,
+      args.scenarioKey
+    );
+    if (!scenario) {
+      return await buildProductionSettingsProjection(ctx, auth.brokerage);
+    }
+    if (scenario.isActive) {
+      throw new Error("Active scenario cannot be deleted.");
+    }
+    await deleteProductionScenarioDraws(ctx, template._id, args.scenarioKey);
+    await ctx.db.patch(scenario._id, {
+      status: "inactive",
+      updatedAt: Date.now(),
+    });
+    await writeProductionSettingsEvent(ctx, {
+      auth,
+      command: "deleteProductionDrawScenario",
+      entityId: args.templateKey,
+      eventType: "production_settings.scenario_deleted",
+      organizationId: args.workosOrganizationId,
+      priorState: JSON.stringify(scenario),
+    });
+    return await buildProductionSettingsProjection(ctx, auth.brokerage);
+  })
+  .public();
+
+export const resetProductionTemplateToDefaults = authenticatedMutation
+  .input({ templateKey: v.string(), workosOrganizationId: v.string() })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProductionSettingsMutation(
+      ctx,
+      args.workosOrganizationId
+    );
+    const seed = requiredProductionDefaultTemplate(args.templateKey);
+    const priorState = JSON.stringify(
+      await collectProposalTemplateDetails(ctx, auth.brokerage._id)
+    );
+    const now = Date.now();
+    const templateId = await ensureProductionDefaultTemplate(ctx, {
+      brokerageId: auth.brokerage._id,
+      now,
+      organizationId: args.workosOrganizationId,
+      template: seed,
+    });
+    await replaceProductionDefaultMilestones(ctx, {
+      brokerageId: auth.brokerage._id,
+      now,
+      organizationId: args.workosOrganizationId,
+      template: seed,
+      templateId,
+    });
+    await writeProductionSettingsEvent(ctx, {
+      auth,
+      command: "resetProductionTemplateToDefaults",
+      entityId: args.templateKey,
+      eventType: "production_settings.template_reset",
+      organizationId: args.workosOrganizationId,
+      priorState,
+    });
+    return await buildProductionSettingsProjection(ctx, auth.brokerage);
+  })
+  .public();
+
+export const resetProductionDrawScenarioToDefaults = authenticatedMutation
+  .input({
+    scenarioKey: v.string(),
+    templateKey: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProductionSettingsMutation(
+      ctx,
+      args.workosOrganizationId
+    );
+    const seed = requiredProductionDefaultTemplate(args.templateKey);
+    const scenario = seed.scenarios.find(
+      (row) => row.scenarioKey === args.scenarioKey
+    );
+    if (!scenario) {
+      throw new Error("No default scenario exists for reset.");
+    }
+    const template = await getProductionSettingsTemplate(
+      ctx,
+      auth.brokerage._id,
+      args.templateKey
+    );
+    if (!template) {
+      throw new Error("Production template is not provisioned.");
+    }
+    const now = Date.now();
+    await ensureDrawScheduleScenario(ctx, {
+      brokerageId: auth.brokerage._id,
+      description: scenario.description,
+      isActive: scenario.isActive,
+      isDefault: scenario.isDefault,
+      name: scenario.name,
+      now,
+      organizationId: args.workosOrganizationId,
+      scenarioKey: scenario.scenarioKey,
+      sortOrder: seed.scenarios.indexOf(scenario),
+      templateId: template._id,
+    });
+    await replaceProductionScenarioDraws(ctx, {
+      brokerageId: auth.brokerage._id,
+      draws: scenario.draws,
+      now,
+      organizationId: args.workosOrganizationId,
+      scenarioKey: scenario.scenarioKey,
+      templateId: template._id,
+    });
+    await writeProductionSettingsEvent(ctx, {
+      auth,
+      command: "resetProductionDrawScenarioToDefaults",
+      entityId: args.templateKey,
+      eventType: "production_settings.scenario_reset",
+      organizationId: args.workosOrganizationId,
+      newState: JSON.stringify({ scenarioKey: scenario.scenarioKey }),
+    });
+    return await buildProductionSettingsProjection(ctx, auth.brokerage);
   })
   .public();
 
@@ -3163,13 +3786,25 @@ export const getActiveBuildDetailByString = authenticatedQuery
       return null;
     }
     const { build } = auth;
-    const [loanFacilities, capitalPlans, milestones, submilestones, draws] =
-      await Promise.all([
+    const [
+      loanFacilities,
+      capitalPlans,
+      milestones,
+      submilestones,
+      draws,
+      facilityChangeRequests,
+    ] = await Promise.all([
         collectByIndex(ctx, "loanFacilities", "by_build", buildId),
         collectByIndex(ctx, "buildCapitalPlans", "by_build", buildId),
         collectByIndex(ctx, "buildMilestones", "by_build", buildId),
         collectByIndex(ctx, "buildSubmilestones", "by_build", buildId),
         collectByIndex(ctx, "plannedDrawScheduleRows", "by_build", buildId),
+        collectByIndex(
+          ctx,
+          "activeBuildFacilityChangeRequests",
+          "by_build",
+          buildId
+        ),
       ]);
     const [
       documents,
@@ -3193,7 +3828,9 @@ export const getActiveBuildDetailByString = authenticatedQuery
         .collect(),
       ctx.db
         .query("contractorProfiles")
-        .withIndex("by_brokerage", (q) => q.eq("brokerageId", build.brokerageId))
+        .withIndex("by_brokerage", (q) =>
+          q.eq("brokerageId", build.brokerageId)
+        )
         .collect(),
     ]);
     const buildDocuments = documents as Doc<"buildDocuments">[];
@@ -3203,7 +3840,10 @@ export const getActiveBuildDetailByString = authenticatedQuery
       assignments as Doc<"buildContractorAssignments">[];
     const buildSiteVisits = siteVisits as Doc<"buildSiteVisits">[];
     const contractorById = new Map(
-      contractorProfiles.map((contractor) => [String(contractor._id), contractor])
+      contractorProfiles.map((contractor) => [
+        String(contractor._id),
+        contractor,
+      ])
     );
     const attachedContractorIds = new Set(
       buildContractorAssignments.map((assignment) =>
@@ -3228,9 +3868,27 @@ export const getActiveBuildDetailByString = authenticatedQuery
       displayId: productionBuildDisplayId(build),
       documents: await withBuildDocumentStorageUrls(ctx, buildDocuments),
       draws,
+      facilityChangeRequests: (facilityChangeRequests as Doc<"activeBuildFacilityChangeRequests">[])
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .map((request) => ({
+          _id: request._id,
+          createdAt: request.createdAt,
+          priorState: request.priorState,
+          reason: request.reason,
+          requestedByWorkosUserId: request.requestedByWorkosUserId,
+          requestedPayload: request.requestedPayload,
+          requestType: request.requestType,
+          reviewNote: request.reviewNote,
+          reviewedAt: request.reviewedAt,
+          reviewerWorkosUserId: request.reviewerWorkosUserId,
+          status: request.status,
+          updatedAt: request.updatedAt,
+        })),
       auditEvents: mappedAuditEvents,
       availableContractors: contractorProfiles
-        .filter((contractor) => !attachedContractorIds.has(String(contractor._id)))
+        .filter(
+          (contractor) => !attachedContractorIds.has(String(contractor._id))
+        )
         .map((contractor) => ({
           _id: contractor._id,
           city: "",
@@ -3240,7 +3898,9 @@ export const getActiveBuildDetailByString = authenticatedQuery
         })),
       contractors: buildContractorAssignments
         .map((assignment) => {
-          const contractor = contractorById.get(String(assignment.contractorId));
+          const contractor = contractorById.get(
+            String(assignment.contractorId)
+          );
           if (!contractor) {
             return null;
           }
@@ -3258,7 +3918,8 @@ export const getActiveBuildDetailByString = authenticatedQuery
         _id: event._id,
         createdAt: event.createdAt,
         eventType: event.eventType,
-        payloadPreview: event.afterSummary ?? event.beforeSummary ?? event.eventType,
+        payloadPreview:
+          event.afterSummary ?? event.beforeSummary ?? event.eventType,
       })),
       loanFacility: loanFacilities[0] ?? null,
       milestones,
@@ -3335,7 +3996,10 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
     );
     const computedCurrentDay = Math.max(
       0,
-      Math.min(maxDay, daysBetweenIso(build.startDate, new Date().toISOString()))
+      Math.min(
+        maxDay,
+        daysBetweenIso(build.startDate, new Date().toISOString())
+      )
     );
     const currentDay = build.timelineCurrentDay ?? computedCurrentDay;
     const activeMilestone =
@@ -3444,17 +4108,23 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
           durationDays: milestone.durationDays,
           evidenceState:
             milestone.evidenceState ??
-            (milestone.completionClaim ? "Completion claimed" : "Draft package"),
+            (milestone.completionClaim
+              ? "Completion claimed"
+              : "Draft package"),
           icon: iconForProductionMilestone(milestone.key, milestone.name),
           lane: index % 3 === 1 ? -1 : index % 3 === 2 ? 1 : 0,
           markerLabel: String(index + 1),
           milestoneKey: milestone.key,
           name: milestone.name,
           order: index + 1,
-          policyState: milestone.policyState ?? productionPolicyState(proposal, permitWaiver),
+          policyState:
+            milestone.policyState ??
+            productionPolicyState(proposal, permitWaiver),
           status,
           submilestoneSnapshot: activeSubmilestones
-            .filter((submilestone) => submilestone.milestoneKey === milestone.key)
+            .filter(
+              (submilestone) => submilestone.milestoneKey === milestone.key
+            )
             .sort((a, b) => a.order - b.order || a.key.localeCompare(b.key))
             .map((submilestone) => ({
               ...(submilestone.budgetCents === undefined
@@ -3479,7 +4149,8 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
         submitMilestoneCompletion: !isBackoffice(auth.roles),
       },
       plan: {
-        borrowerCoPayBps: capitalPlan?.borrowerCoPayBps ?? proposal.borrowerCoPayBps,
+        borrowerCoPayBps:
+          capitalPlan?.borrowerCoPayBps ?? proposal.borrowerCoPayBps,
         borrowerCoPayCents: Math.round(
           (build.totalBudgetCents *
             (capitalPlan?.borrowerCoPayBps ?? proposal.borrowerCoPayBps)) /
@@ -3487,15 +4158,17 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
         ),
         currentDay,
         progressValue:
-          build.timelineProgressValue ?? activeMilestone?.dayStart ?? currentDay,
+          build.timelineProgressValue ??
+          activeMilestone?.dayStart ??
+          currentDay,
         rangeMax: build.timelineRangeMax ?? maxDay,
         rangeMin: build.timelineRangeMin ?? 0,
-        routeState:
-          build.timelineRouteState ?? {
-            activeMilestoneKey: activeMilestone?.key,
-            selectedPanelOpen: Boolean(activeMilestone),
-            straightLine: true,
-          },
+        routeState: build.timelineRouteState ?? {
+          activeMilestoneKey: activeMilestone?.key,
+          selectedPanelOpen: Boolean(activeMilestone),
+          straightLine: true,
+        },
+        minimumCashReserveCents: build.timelineMinimumCashReserveCents ?? 0,
         startingCashCents:
           build.timelineStartingCashCents ??
           capitalPlan?.borrowerWorkingCapitalLimitCents ??
@@ -3532,6 +4205,7 @@ export const updateActiveBuildTimelinePlanState = authenticatedMutation
       selectedPanelOpen: v.boolean(),
       straightLine: v.boolean(),
     }),
+    minimumCashReserveCents: v.optional(v.number()),
     startingCashCents: v.number(),
     workosOrganizationId: v.string(),
   })
@@ -3548,6 +4222,7 @@ export const updateActiveBuildTimelinePlanState = authenticatedMutation
       rangeMax: auth.build.timelineRangeMax,
       rangeMin: auth.build.timelineRangeMin,
       routeState: auth.build.timelineRouteState,
+      minimumCashReserveCents: auth.build.timelineMinimumCashReserveCents,
       startingCashCents: auth.build.timelineStartingCashCents,
     });
     const patch = {
@@ -3556,6 +4231,10 @@ export const updateActiveBuildTimelinePlanState = authenticatedMutation
       timelineRangeMax: Math.round(args.rangeMax),
       timelineRangeMin: Math.round(args.rangeMin),
       timelineRouteState: args.routeState,
+      timelineMinimumCashReserveCents: Math.max(
+        0,
+        Math.round(args.minimumCashReserveCents ?? 0)
+      ),
       timelineStartingCashCents: Math.max(
         0,
         Math.round(args.startingCashCents)
@@ -3570,6 +4249,197 @@ export const updateActiveBuildTimelinePlanState = authenticatedMutation
       eventType: "active_build.timeline_state.updated",
       newState: JSON.stringify(patch),
       priorState,
+    });
+    return null;
+  })
+  .public();
+
+export const requestActiveBuildFacilityChange = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    reason: v.optional(v.string()),
+    requestedPaybackDate: v.optional(v.string()),
+    requestedPrincipalCents: v.optional(v.number()),
+    requestType: activeBuildFacilityChangeRequestType,
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.id("activeBuildFacilityChangeRequests"))
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireAnyRole(auth.roles, BUILDER_ROLES);
+    const loanFacility = await getPrimaryLoanFacility(ctx, args.buildId);
+    if (!loanFacility) {
+      throw new Error("Active build loan facility is missing.");
+    }
+    const priorState = {
+      paybackDate: loanFacility.paybackDate,
+      principalCents: loanFacility.principalCents,
+    };
+    let requestedPayload:
+      | { requestedPrincipalCents: number }
+      | { requestedPaybackDate: string };
+    if (args.requestType === "principalIncrease") {
+      const requestedPrincipalCents = normalizePositiveCents(
+        args.requestedPrincipalCents,
+        "Requested principal is required."
+      );
+      if (requestedPrincipalCents <= loanFacility.principalCents) {
+        throw new Error("Requested principal must exceed current principal.");
+      }
+      requestedPayload = { requestedPrincipalCents };
+    } else {
+      requestedPayload = {
+        requestedPaybackDate: normalizeIsoDate(
+          args.requestedPaybackDate,
+          "Requested payback date is required."
+        ),
+      };
+    }
+    if (args.requestType === "paybackExtension") {
+      if (!("requestedPaybackDate" in requestedPayload)) {
+        throw new Error("Requested payback date is required.");
+      }
+      const currentPaybackDate =
+        loanFacility.paybackDate ??
+        addDaysIso(
+          auth.build.startDate,
+          auth.build.timelineRangeMax ?? auth.proposal.timelineRangeMax ?? 365
+        );
+      if (
+        daysBetweenIso(
+          currentPaybackDate,
+          requestedPayload.requestedPaybackDate
+        ) <= 0
+      ) {
+        throw new Error("Requested payback date must extend the current date.");
+      }
+    }
+    const now = Date.now();
+    const requestId = await ctx.db.insert("activeBuildFacilityChangeRequests", {
+      brokerageId: auth.brokerage._id,
+      buildId: args.buildId,
+      createdAt: now,
+      organizationId: args.workosOrganizationId,
+      priorState,
+      proposalId: auth.proposal._id,
+      reason: args.reason,
+      requestedByWorkosUserId: auth.subject,
+      requestedPayload,
+      requestType: args.requestType,
+      status: "requested",
+      updatedAt: now,
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "requestActiveBuildFacilityChange",
+      eventType: "active_build.facility_change.requested",
+      newState: JSON.stringify({
+        requestId,
+        requestType: args.requestType,
+        requestedPayload,
+      }),
+      priorState: JSON.stringify(priorState),
+      reason: args.reason,
+    });
+    return requestId;
+  })
+  .public();
+
+export const reviewActiveBuildFacilityChangeRequest = authenticatedMutation
+  .input({
+    note: v.optional(v.string()),
+    requestId: v.id("activeBuildFacilityChangeRequests"),
+    status: v.union(v.literal("approved"), v.literal("rejected")),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const request = await ctx.db.get(args.requestId);
+    if (!request || request.organizationId !== args.workosOrganizationId) {
+      throw new Error("Facility change request not found.");
+    }
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      request.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    if (request.status !== "requested") {
+      throw new Error("Facility change request has already been reviewed.");
+    }
+    const loanFacility = await getPrimaryLoanFacility(ctx, request.buildId);
+    if (!loanFacility) {
+      throw new Error("Active build loan facility is missing.");
+    }
+    const priorState = {
+      paybackDate: loanFacility.paybackDate,
+      principalCents: loanFacility.principalCents,
+    };
+    let newState: Record<string, unknown> = {
+      status: args.status,
+      requestId: args.requestId,
+      requestType: request.requestType,
+    };
+    if (args.status === "approved") {
+      if (request.requestType === "principalIncrease") {
+        const requestedPrincipalCents = normalizePositiveCents(
+          request.requestedPayload?.requestedPrincipalCents,
+          "Requested principal is required."
+        );
+        if (requestedPrincipalCents <= loanFacility.principalCents) {
+          throw new Error("Requested principal must exceed current principal.");
+        }
+        await ctx.db.patch(loanFacility._id, {
+          principalCents: requestedPrincipalCents,
+          updatedAt: Date.now(),
+        });
+        newState = {
+          ...newState,
+          principalCents: requestedPrincipalCents,
+        };
+      } else {
+        const requestedPaybackDate = normalizeIsoDate(
+          request.requestedPayload?.requestedPaybackDate,
+          "Requested payback date is required."
+        );
+        await ctx.db.patch(loanFacility._id, {
+          paybackDate: requestedPaybackDate,
+          updatedAt: Date.now(),
+        });
+        const newEndDay = daysBetweenIso(auth.build.startDate, requestedPaybackDate);
+        if (newEndDay > (auth.build.timelineRangeMax ?? 0)) {
+          await ctx.db.patch(auth.build._id, {
+            timelineRangeMax: newEndDay,
+            updatedAt: Date.now(),
+          });
+        }
+        newState = {
+          ...newState,
+          paybackDate: requestedPaybackDate,
+          timelineRangeMax: Math.max(auth.build.timelineRangeMax ?? 0, newEndDay),
+        };
+      }
+    }
+    await ctx.db.patch(args.requestId, {
+      reviewedAt: Date.now(),
+      reviewerWorkosUserId: auth.subject,
+      reviewNote: args.note,
+      status: args.status,
+      updatedAt: Date.now(),
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "reviewActiveBuildFacilityChangeRequest",
+      eventType: "active_build.facility_change.reviewed",
+      newState: JSON.stringify(newState),
+      priorState: JSON.stringify(priorState),
+      reason: args.note,
     });
     return null;
   })
@@ -3619,7 +4489,11 @@ export const updateActiveBuildTimelineMilestone = authenticatedMutation
     policyState: v.optional(v.string()),
     progressPercent: v.optional(v.number()),
     status: v.optional(
-      v.union(v.literal("planned"), v.literal("in_progress"), v.literal("complete"))
+      v.union(
+        v.literal("planned"),
+        v.literal("in_progress"),
+        v.literal("complete")
+      )
     ),
     submilestones: v.optional(v.array(submilestoneInput)),
     workosOrganizationId: v.string(),
@@ -3929,7 +4803,9 @@ export const deleteActiveBuildTimelineDraw = authenticatedMutation
       args.drawKey
     );
     if (draw.status === "approved" || draw.status === "released") {
-      throw new Error("Approved or released reimbursement draws cannot be deleted.");
+      throw new Error(
+        "Approved or released reimbursement draws cannot be deleted."
+      );
     }
     await ctx.db.delete(draw._id);
     await writeActiveBuildEvent(ctx, {
@@ -4286,7 +5162,10 @@ export const startActiveBuildMilestone = authenticatedMutation
         `Cannot start milestone until dependencies are complete: ${blockers.join(", ")}.`
       );
     }
-    const currentDay = daysBetweenIso(auth.build.startDate, new Date().toISOString());
+    const currentDay = daysBetweenIso(
+      auth.build.startDate,
+      new Date().toISOString()
+    );
     if (currentDay < milestone.dayStart) {
       throw new Error("Milestone is not scheduled to start yet.");
     }
@@ -4456,8 +5335,9 @@ export const recordActiveBuildSiteVisit = authenticatedMutation
 export const getActiveBuildSiteVisitByToken = publicQuery
   .input({ buildId: v.string(), token: v.string() })
   .returns(v.any())
-  .handler(async (ctx, args) =>
-    await getActiveBuildSiteVisitTokenState(ctx, args.buildId, args.token)
+  .handler(
+    async (ctx, args) =>
+      await getActiveBuildSiteVisitTokenState(ctx, args.buildId, args.token)
   )
   .public();
 
@@ -4884,7 +5764,11 @@ export const requestActiveBuildDraw = authenticatedMutation
       args.buildId,
       args.workosOrganizationId
     );
-    const draw = await getActiveBuildDrawOrThrow(ctx, args.buildId, args.drawKey);
+    const draw = await getActiveBuildDrawOrThrow(
+      ctx,
+      args.buildId,
+      args.drawKey
+    );
     const patch = {
       amountCents: Math.max(0, Math.round(args.amountCents)),
       requestNote: args.note,
@@ -4921,7 +5805,11 @@ export const approveActiveBuildDraw = authenticatedMutation
       args.workosOrganizationId
     );
     requireBackofficeActiveBuildWrite(auth);
-    const draw = await getActiveBuildDrawOrThrow(ctx, args.buildId, args.drawKey);
+    const draw = await getActiveBuildDrawOrThrow(
+      ctx,
+      args.buildId,
+      args.drawKey
+    );
     const patch = {
       requestReviewNote: args.note,
       reviewedAt: new Date().toISOString(),
@@ -4957,7 +5845,11 @@ export const rejectActiveBuildDraw = authenticatedMutation
       args.workosOrganizationId
     );
     requireBackofficeActiveBuildWrite(auth);
-    const draw = await getActiveBuildDrawOrThrow(ctx, args.buildId, args.drawKey);
+    const draw = await getActiveBuildDrawOrThrow(
+      ctx,
+      args.buildId,
+      args.drawKey
+    );
     const patch = {
       requestReviewNote: args.note,
       reviewedAt: new Date().toISOString(),
@@ -4994,7 +5886,11 @@ export const releaseActiveBuildDraw = authenticatedMutation
       args.workosOrganizationId
     );
     requireBackofficeActiveBuildWrite(auth);
-    const draw = await getActiveBuildDrawOrThrow(ctx, args.buildId, args.drawKey);
+    const draw = await getActiveBuildDrawOrThrow(
+      ctx,
+      args.buildId,
+      args.drawKey
+    );
     const patch = {
       releaseDate: args.releaseDate,
       releaseNote: args.note,
@@ -5229,7 +6125,8 @@ export const rejectActiveBuildMilestone = authenticatedMutation
     await ctx.db.patch(milestone._id, {
       completionReview,
       evidenceState: "Rejected",
-      status: milestone.status === "complete" ? "in_progress" : milestone.status,
+      status:
+        milestone.status === "complete" ? "in_progress" : milestone.status,
       updatedAt: Date.now(),
     });
     await writeActiveBuildEvent(ctx, {
@@ -5304,7 +6201,11 @@ async function authorizeActiveBuild(
   if (isBackoffice(auth.roles)) {
     await assertBackofficeProposalRead(ctx, auth, proposal);
   } else {
-    await assertBuilderOwnership(ctx, proposal.builderProfileId, auth.subject);
+    await assertBuilderOwnership(
+      ctx,
+      assignedBuilderProfileIdOrThrow(proposal),
+      auth.subject
+    );
   }
   return { ...auth, build, proposal };
 }
@@ -5330,6 +6231,19 @@ function requireBackofficeActiveBuildWrite(auth: {
   requireBackofficeProposalWrite(auth, auth.proposal);
 }
 
+async function getPrimaryLoanFacility(
+  ctx: QueryCtx | MutationCtx,
+  buildId: Id<"activeBuilds">
+) {
+  const facilities = await collectByIndex(
+    ctx,
+    "loanFacilities",
+    "by_build",
+    buildId
+  );
+  return facilities[0] ?? null;
+}
+
 async function authorizeProposal(
   ctx: (QueryCtx | MutationCtx) & { viewer: AuthorizedViewer },
   proposalId: Id<"buildProposals">,
@@ -5341,9 +6255,31 @@ async function authorizeProposal(
     throw new Error("Forbidden: proposal scope");
   }
   if (isBackoffice(auth.roles)) {
-    await assertBackofficeProposalRead(ctx, auth, proposal);
+    try {
+      await assertBackofficeProposalRead(ctx, auth, proposal);
+    } catch (error) {
+      if (
+        await hasActiveCollaborationParticipant(ctx, proposal._id, auth.subject)
+      ) {
+        return { ...auth, proposal };
+      }
+      throw error;
+    }
   } else {
-    await assertBuilderOwnership(ctx, proposal.builderProfileId, auth.subject);
+    try {
+      await assertBuilderOwnership(
+        ctx,
+        assignedBuilderProfileIdOrThrow(proposal),
+        auth.subject
+      );
+    } catch (error) {
+      if (
+        await hasActiveCollaborationParticipant(ctx, proposal._id, auth.subject)
+      ) {
+        return { ...auth, proposal };
+      }
+      throw error;
+    }
   }
   return { ...auth, proposal };
 }
@@ -5361,6 +6297,16 @@ async function assertBuilderProfileScope(
   ) {
     throw new Error("Forbidden: builder scope");
   }
+}
+
+function assignedBuilderProfileIdOrThrow(
+  proposal: Pick<Doc<"buildProposals">, "builderProfileId">,
+  message = "Proposal is not assigned to a builder."
+) {
+  if (!proposal.builderProfileId) {
+    throw new Error(message);
+  }
+  return proposal.builderProfileId;
 }
 
 async function assertBuilderOwnership(
@@ -5410,26 +6356,29 @@ function isBackoffice(roles: readonly RoleSlug[]) {
 }
 
 function productionDashboardProposalCard(
-  card: Doc<"proposalKanbanCards">,
+  card: Doc<"proposalKanbanCards"> | null,
   proposal: Doc<"buildProposals">
 ) {
   return {
-    address: card.subtitle,
+    address: card?.subtitle ?? proposal.location,
     approvedAt: proposal.approvedAt,
     borrowerWorkingCapitalLimitCents: proposal.borrowerWorkingCapitalLimitCents,
-    builder: card.builderName,
+    builderAssigned: Boolean(proposal.builderProfileId),
+    builder: card?.builderName ?? "Unassigned builder",
     closeLabel:
       proposal.status === "approved" && !proposal.activeBuildId
         ? "Pending closing"
         : undefined,
-    column: card.column,
+    column: card?.column ?? proposal.status,
     createdAt: proposal.createdAt,
-    href: card.href,
+    href: card?.href ?? `/backoffice/proposals/${proposal._id}`,
     id: String(proposal._id),
     lenderDrawPolicyLimitCents: proposal.lenderDrawPolicyLimitCents,
-    loanAmount: centsToCurrency(card.totalBudgetCents),
+    loanAmount: centsToCurrency(
+      card?.totalBudgetCents ?? proposal.totalBudgetCents
+    ),
     ltv: 0,
-    name: card.title,
+    name: card?.title ?? proposal.buildName,
     proposalId: String(proposal._id),
     reviewOutcome: proposal.reviewOutcome,
     status: proposal.status,
@@ -5495,6 +6444,29 @@ function daysBetweenIso(startIso: string, endIso: string) {
     0,
     Math.round((parseDay(endIso) - parseDay(startIso)) / 86_400_000)
   );
+}
+
+function normalizeIsoDate(value: unknown, message: string) {
+  if (typeof value !== "string") {
+    throw new Error(message);
+  }
+  const day = value.slice(0, 10);
+  const parsed = Date.parse(`${day}T00:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !Number.isFinite(parsed)) {
+    throw new Error(message);
+  }
+  return day;
+}
+
+function normalizePositiveCents(value: unknown, message: string) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(message);
+  }
+  const rounded = Math.round(value);
+  if (rounded <= 0) {
+    throw new Error(message);
+  }
+  return rounded;
 }
 
 function activeBuildTimelineDrawStatus(
@@ -5613,11 +6585,27 @@ function productionMilestoneState(
   return "backlog";
 }
 
-function productionMilestoneColumn(status: Doc<"buildMilestones">["status"]) {
-  if (status === "in_progress") {
-    return "inProgress";
+function productionMilestoneNeedsBackofficeReview(
+  milestone: Doc<"buildMilestones">
+) {
+  if (!milestone.completionClaim) {
+    return false;
   }
-  if (status === "complete") {
+  if (
+    milestone.status === "complete" ||
+    milestone.completionReview?.status === "approved"
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function productionMilestoneColumn(milestone: Doc<"buildMilestones">) {
+  const siteVisitStatus = milestone.completionReview?.siteVisit?.status;
+  if (siteVisitStatus === "requested") {
+    return "needsSiteVisit";
+  }
+  if (siteVisitStatus === "complete") {
     return "inReview";
   }
   return "backlog";
@@ -5930,42 +6918,55 @@ function iconForProductionMilestone(key: string, name?: string) {
   return "change";
 }
 
-function requireProductionTimelineEditable(auth: {
-  proposal: Doc<"buildProposals">;
-  roles: RoleSlug[];
-  subject: string;
-}) {
+async function requireProductionTimelineEditable(
+  ctx: QueryCtx | MutationCtx,
+  auth: {
+    proposal: Doc<"buildProposals">;
+    roles: RoleSlug[];
+    subject: string;
+  }
+) {
   if (auth.proposal.status === "draft") {
+    await assertProposalCollaborationEditAllowed(ctx, auth);
     return;
   }
   if (auth.proposal.status === "approved") {
+    await assertProposalCollaborationEditAllowed(ctx, auth);
     return;
   }
   if (auth.proposal.status === "submitted" && isBackoffice(auth.roles)) {
     requireBackofficeProposalWrite(auth, auth.proposal);
+    await assertProposalCollaborationEditAllowed(ctx, auth);
     return;
   }
   throw new Error("Timeline is locked in this proposal state.");
 }
 
-function requireProductionTimelineDraftStructureWrite(auth: {
-  proposal: Doc<"buildProposals">;
-  roles: RoleSlug[];
-  subject: string;
-}) {
+async function requireProductionTimelineDraftStructureWrite(
+  ctx: QueryCtx | MutationCtx,
+  auth: {
+    proposal: Doc<"buildProposals">;
+    roles: RoleSlug[];
+    subject: string;
+  }
+) {
   if (auth.proposal.status !== "draft") {
     throw new Error("Proposal structure is locked after submission.");
   }
   if (isBackoffice(auth.roles)) {
     requireBackofficeProposalWrite(auth, auth.proposal);
   }
+  await assertProposalCollaborationEditAllowed(ctx, auth);
 }
 
-function requireProductionTimelineLiveWrite(auth: {
-  proposal: Doc<"buildProposals">;
-  roles: RoleSlug[];
-  subject: string;
-}) {
+async function requireProductionTimelineLiveWrite(
+  ctx: QueryCtx | MutationCtx,
+  auth: {
+    proposal: Doc<"buildProposals">;
+    roles: RoleSlug[];
+    subject: string;
+  }
+) {
   if (auth.proposal.status !== "approved") {
     throw new Error(
       "Live-build timeline actions require an approved proposal."
@@ -5974,6 +6975,7 @@ function requireProductionTimelineLiveWrite(auth: {
   if (isBackoffice(auth.roles)) {
     requireBackofficeProposalWrite(auth, auth.proposal);
   }
+  await assertProposalCollaborationEditAllowed(ctx, auth);
 }
 
 async function insertProductionMilestoneFromInput(
@@ -6365,14 +7367,16 @@ async function upsertKanbanCard(
   if (!proposal) {
     throw new Error("Missing proposal.");
   }
-  const builder = await ctx.db.get(proposal.builderProfileId);
+  const builder = proposal.builderProfileId
+    ? await ctx.db.get(proposal.builderProfileId)
+    : null;
   const existing = await ctx.db
     .query("proposalKanbanCards")
     .withIndex("by_proposal", (q) => q.eq("proposalId", proposalId))
     .unique();
   const card = {
     brokerageId: proposal.brokerageId,
-    builderName: builder?.displayName ?? "Builder",
+    builderName: builder?.displayName ?? "Unassigned builder",
     column: proposal.status,
     href: `/backoffice/proposals/${proposalId}`,
     organizationId: proposal.organizationId,
@@ -6503,6 +7507,52 @@ async function writeActiveBuildEvent(
   });
 }
 
+async function writeProductionSettingsEvent(
+  ctx: MutationCtx,
+  input: {
+    auth: { brokerage: Doc<"brokerages">; roles: RoleSlug[]; subject: string };
+    command: string;
+    entityId: string;
+    eventType: string;
+    newState?: string;
+    organizationId: string;
+    priorState?: string;
+    reason?: string;
+    warnings?: string[];
+  }
+) {
+  const now = Date.now();
+  await ctx.db.insert("auditEvents", {
+    actorRoles: input.auth.roles,
+    actorWorkosUserId: input.auth.subject,
+    brokerageId: input.auth.brokerage._id,
+    command: input.command,
+    createdAt: now,
+    entityId: input.entityId,
+    entityType: "productionProposalSettings",
+    eventType: input.eventType,
+    newState: input.newState,
+    organizationId: input.organizationId,
+    priorState: input.priorState,
+    reason: input.reason,
+    warnings: input.warnings ?? [],
+  });
+  await ctx.db.insert("eventOutbox", {
+    brokerageId: input.auth.brokerage._id,
+    createdAt: now,
+    eventType: input.eventType,
+    organizationId: input.organizationId,
+    payloadPreview: JSON.stringify({
+      entityId: input.entityId,
+      newState: input.newState,
+      priorState: input.priorState,
+    }),
+    relatedEntityId: input.entityId,
+    relatedEntityType: "productionProposalSettings",
+    status: "pending",
+  });
+}
+
 async function copyProposalOperationalRowsToActiveBuild(
   ctx: MutationCtx,
   input: {
@@ -6564,7 +7614,11 @@ async function copyProposalOperationalRowsToActiveBuild(
 function activeBuildDrawStatusFromProposal(
   status: Doc<"proposalDrawScheduleRows">["requestStatus"]
 ): Doc<"plannedDrawScheduleRows">["status"] {
-  if (status === "approved" || status === "rejected" || status === "requested") {
+  if (
+    status === "approved" ||
+    status === "rejected" ||
+    status === "requested"
+  ) {
     return status;
   }
   return "planned";
@@ -6728,27 +7782,32 @@ async function replaceActiveBuildSubmilestones(
 ) {
   const existing = await ctx.db
     .query("buildSubmilestones")
-    .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", input.milestone._id))
+    .withIndex("by_milestone", (q) =>
+      q.eq("buildMilestoneId", input.milestone._id)
+    )
     .collect();
   for (const row of existing) {
     await ctx.db.delete(row._id);
   }
   const now = Date.now();
   for (const row of [...input.rows].sort((a, b) => a.order - b.order)) {
-    const proposalSubmilestoneId = await ctx.db.insert("proposalSubmilestones", {
-      brokerageId: auth.brokerage._id,
-      budgetCents: row.budgetCents,
-      createdAt: now,
-      durationDays: row.durationDays,
-      key: row.key,
-      milestoneKey: input.milestone.key,
-      name: row.name.trim() || "Submilestone",
-      order: Math.max(1, Math.round(row.order)),
-      organizationId: auth.build.organizationId,
-      proposalId: auth.proposal._id,
-      proposalMilestoneId: input.milestone.proposalMilestoneId,
-      updatedAt: now,
-    });
+    const proposalSubmilestoneId = await ctx.db.insert(
+      "proposalSubmilestones",
+      {
+        brokerageId: auth.brokerage._id,
+        budgetCents: row.budgetCents,
+        createdAt: now,
+        durationDays: row.durationDays,
+        key: row.key,
+        milestoneKey: input.milestone.key,
+        name: row.name.trim() || "Submilestone",
+        order: Math.max(1, Math.round(row.order)),
+        organizationId: auth.build.organizationId,
+        proposalId: auth.proposal._id,
+        proposalMilestoneId: input.milestone.proposalMilestoneId,
+        updatedAt: now,
+      }
+    );
     await ctx.db.insert("buildSubmilestones", {
       brokerageId: auth.brokerage._id,
       buildId: input.buildId,
@@ -6887,7 +7946,8 @@ async function getActiveBuildCapitalEventOrThrow(
     await collectByIndex(ctx, "capitalEvents", "by_build", buildId)
   ).find(
     (row: any) =>
-      row.capitalEventKey === capitalEventKey || String(row._id) === capitalEventKey
+      row.capitalEventKey === capitalEventKey ||
+      String(row._id) === capitalEventKey
   );
   if (!event) {
     throw new Error("Production active-build capital event not found.");
@@ -7021,7 +8081,8 @@ async function getActiveBuildSiteVisitTokenState(
     completedAt: visit.completedAt ? Date.parse(visit.completedAt) : undefined,
     createdAt: visit.createdAt,
     milestoneKey: visit.milestoneKey,
-    recommendedOutcome: milestone?.completionReview?.siteVisit?.recommendedOutcome,
+    recommendedOutcome:
+      milestone?.completionReview?.siteVisit?.recommendedOutcome,
     requestReason: visit.note,
     status: visit.status,
     tokenConsumedAt: visit.tokenConsumedAt,
@@ -7107,8 +8168,8 @@ async function productionSitePhotosForBuild(
       locationVerified: asset.locationVerified,
       takenAt: new Date(asset.createdAt).toISOString(),
       url: asset.storageId
-        ? (await ctx.storage.getUrl(asset.storageId)) ??
-          `production-evidence://${asset.evidenceKey}`
+        ? ((await ctx.storage.getUrl(asset.storageId)) ??
+          `production-evidence://${asset.evidenceKey}`)
         : `production-evidence://${asset.evidenceKey}`,
     }))
   );
@@ -7255,14 +8316,50 @@ async function visibleBackofficeCards(
   return visible;
 }
 
+async function buildProductionSettingsProjection(
+  ctx: QueryCtx | MutationCtx,
+  brokerage: Doc<"brokerages">
+) {
+  const [archetypes, workflowRules, templates] = await Promise.all([
+    ctx.db
+      .query("milestoneArchetypes")
+      .withIndex("by_brokerage_key", (q) => q.eq("brokerageId", brokerage._id))
+      .collect(),
+    ctx.db
+      .query("workflowRules")
+      .withIndex("by_brokerage", (q) => q.eq("brokerageId", brokerage._id))
+      .collect(),
+    collectProposalTemplateDetails(ctx, brokerage._id),
+  ]);
+
+  return {
+    archetypes,
+    brokerage,
+    completeness: productionSettingsCompleteness(templates),
+    templates,
+    workflowRules,
+  };
+}
+
 async function collectProposalTemplateDetails(
-  ctx: QueryCtx,
+  ctx: QueryCtx | MutationCtx,
   brokerageId: Id<"brokerages">
 ) {
-  const templates = await ctx.db
-    .query("proposalTemplates")
-    .withIndex("by_brokerage", (q) => q.eq("brokerageId", brokerageId))
-    .collect();
+  const templates = (
+    await ctx.db
+      .query("proposalTemplates")
+      .withIndex("by_brokerage", (q) => q.eq("brokerageId", brokerageId))
+      .collect()
+  )
+    .filter((template) => template.status === "active")
+    .sort(
+      (a, b) =>
+        Number(b.isDefault) - Number(a.isDefault) ||
+        productionTemplateSortOrder(a.templateKey) -
+          productionTemplateSortOrder(b.templateKey) ||
+        a.createdAt - b.createdAt ||
+        a.templateKey.localeCompare(b.templateKey)
+    );
   const templateDetails = [];
   for (const template of templates) {
     const [milestones, scenarios] = await Promise.all([
@@ -7277,21 +8374,106 @@ async function collectProposalTemplateDetails(
     ]);
     const milestoneDetails = [];
     for (const milestone of milestones) {
-      const submilestones = await ctx.db
-        .query("proposalTemplateSubmilestones")
-        .withIndex("by_template_milestone", (q) =>
-          q.eq("templateMilestoneId", milestone._id)
-        )
-        .collect();
-      milestoneDetails.push({ ...milestone, submilestones });
+      const submilestones = (
+        await ctx.db
+          .query("proposalTemplateSubmilestones")
+          .withIndex("by_template_milestone", (q) =>
+            q.eq("templateMilestoneId", milestone._id)
+          )
+          .collect()
+      ).sort((a, b) => a.order - b.order || a.key.localeCompare(b.key));
+      milestoneDetails.push({
+        ...milestone,
+        icon: milestone.archetypeKey ?? milestone.key,
+        included: true,
+        milestoneKey: milestone.key,
+        submilestones: submilestones.map((submilestone) => ({
+          ...submilestone,
+          description: `${submilestone.name} completion target.`,
+          submilestoneKey: submilestone.key,
+        })),
+        type: milestone.archetypeKey ?? milestone.key,
+      });
+    }
+    const scenarioDetails = [];
+    for (const scenario of scenarios
+      .filter((row) => row.status === "active")
+      .sort(
+        (a, b) =>
+          Number(a.sortOrder ?? Number.MAX_SAFE_INTEGER) -
+            Number(b.sortOrder ?? Number.MAX_SAFE_INTEGER) ||
+          Number(b.isDefault) - Number(a.isDefault) ||
+          a.createdAt - b.createdAt ||
+          a.scenarioKey.localeCompare(b.scenarioKey)
+      )) {
+      scenarioDetails.push({
+        ...scenario,
+        description:
+          scenario.description ??
+          `${scenario.name} draw timing and reimbursement amount assumptions.`,
+        draws: await listProductionScenarioDraws(
+          ctx,
+          template._id,
+          scenario.scenarioKey
+        ),
+        isActive: scenario.isActive ?? scenario.isDefault,
+        sortOrder: scenario.sortOrder ?? scenarioDetails.length,
+      });
     }
     templateDetails.push({
       ...template,
+      description: template.summary,
       milestones: milestoneDetails,
-      scenarios,
+      scenarios: scenarioDetails,
     });
   }
   return templateDetails;
+}
+
+async function listProductionScenarioDraws(
+  ctx: QueryCtx | MutationCtx,
+  templateId: Id<"proposalTemplates">,
+  scenarioKey: string
+) {
+  return await ctx.db
+    .query("drawScheduleScenarioRows")
+    .withIndex("by_template_scenario_order", (q) =>
+      q.eq("templateId", templateId).eq("scenarioKey", scenarioKey)
+    )
+    .collect()
+    .then((rows) =>
+      rows.sort(
+        (a, b) => a.order - b.order || a.drawKey.localeCompare(b.drawKey)
+      )
+    );
+}
+
+function productionSettingsCompleteness(
+  templates: Array<{
+    milestones: unknown[];
+    scenarios: Array<{ draws?: unknown[]; isActive?: boolean }>;
+    templateKey: string;
+  }>
+) {
+  const requiredTemplateKeys = PRODUCTION_DEFAULT_TEMPLATES.map(
+    (template) => template.templateKey
+  );
+  return {
+    missingTemplateKeys: requiredTemplateKeys.filter(
+      (templateKey) =>
+        !templates.some((template) => template.templateKey === templateKey)
+    ),
+    readyTemplateCount: templates.filter(
+      (template) =>
+        template.milestones.length > 0 &&
+        template.scenarios.some((scenario) => scenario.isActive) &&
+        template.scenarios.every(
+          (scenario) => (scenario.draws ?? []).length > 0
+        )
+    ).length,
+    requiredTemplateCount: requiredTemplateKeys.length,
+    templateCount: templates.length,
+  };
 }
 
 async function collectByIndex<TableName extends keyof any>(
@@ -7506,6 +8688,1101 @@ async function ensureBuilderAccountLink(
   });
 }
 
+type ProductionDefaultScenario = {
+  description: string;
+  draws: ProductionDefaultScenarioDraw[];
+  isActive: boolean;
+  isDefault: boolean;
+  name: string;
+  scenarioKey: string;
+};
+
+type ProductionDefaultScenarioDraw = {
+  amountBps: number;
+  drawKey: string;
+  label: string;
+  order?: number;
+  reviewNote: string;
+  timingDay: number;
+};
+
+type ProductionDefaultMilestone = {
+  archetypeDescription: string;
+  archetypeKey: string;
+  dependencyKeys: string[];
+  durationDays: number;
+  key: string;
+  name: string;
+  percentageBps: number;
+  siteVisitGuidance: SiteVisitGuidance;
+  submilestones: Array<{
+    durationDays: number;
+    key: string;
+    name: string;
+    percentageBps: number;
+  }>;
+};
+
+type ProductionDefaultTemplate = {
+  description: string;
+  isDefault: boolean;
+  milestones: ProductionDefaultMilestone[];
+  scenarios: ProductionDefaultScenario[];
+  summary: string;
+  templateKey: string;
+  title: string;
+};
+
+const PRODUCTION_DEFAULT_TEMPLATES: ProductionDefaultTemplate[] = [
+  {
+    description:
+      "Ground-up single family construction roadmap for reimbursement draw planning.",
+    isDefault: true,
+    milestones: [
+      productionDefaultMilestone(
+        "site-prep",
+        "Site prep & foundation",
+        1000,
+        14,
+        "foundation",
+        [
+          "Permit mobilization",
+          "Excavation",
+          "Concrete forms",
+          "Foundation pour",
+        ]
+      ),
+      productionDefaultMilestone(
+        "framing",
+        "Framing & structure",
+        1280,
+        18,
+        "framing",
+        ["Wall framing", "Roof trusses", "Structural sheathing"]
+      ),
+      productionDefaultMilestone(
+        "rough-in",
+        "Rough-in mechanical",
+        1960,
+        20,
+        "roughIn",
+        ["Plumbing rough-in", "Electrical rough-in", "HVAC ducts"]
+      ),
+      productionDefaultMilestone(
+        "exterior",
+        "Windows & exterior",
+        1680,
+        18,
+        "exterior",
+        ["Window install", "Weather barrier", "Exterior doors"]
+      ),
+      productionDefaultMilestone(
+        "drywall",
+        "Inspections & drywall",
+        1520,
+        16,
+        "drywall",
+        ["Rough-in inspection", "Insulation", "Drywall hang"]
+      ),
+      productionDefaultMilestone(
+        "finishes",
+        "Finishes & fixtures",
+        1280,
+        12,
+        "finishes",
+        ["Cabinetry", "Flooring", "Fixture set"]
+      ),
+      productionDefaultMilestone(
+        "closeout",
+        "Final inspection & closeout",
+        1280,
+        4,
+        "closeout",
+        ["Punch list", "Final inspection", "Closeout package"]
+      ),
+    ],
+    scenarios: [
+      productionDefaultScenario(
+        "standard-reimbursement",
+        "Standard reimbursement",
+        true,
+        [
+          productionDefaultDraw(
+            "draw-01",
+            "Draw 01",
+            16,
+            2000,
+            "Foundation complete"
+          ),
+          productionDefaultDraw(
+            "draw-02",
+            "Draw 02",
+            39,
+            2500,
+            "Framing verified"
+          ),
+          productionDefaultDraw(
+            "draw-03",
+            "Draw 03",
+            64,
+            2500,
+            "Rough-in approved"
+          ),
+          productionDefaultDraw(
+            "draw-04",
+            "Draw 04",
+            108,
+            2000,
+            "Envelope and drywall reviewed"
+          ),
+          productionDefaultDraw(
+            "draw-05",
+            "Draw 05",
+            125,
+            1000,
+            "Finishes accepted before closeout"
+          ),
+        ]
+      ),
+      productionDefaultScenario(
+        "conservative-review-lag",
+        "Conservative review lag",
+        false,
+        [
+          productionDefaultDraw(
+            "draw-01",
+            "Draw 01",
+            18,
+            1800,
+            "Foundation plus review lag"
+          ),
+          productionDefaultDraw(
+            "draw-02",
+            "Draw 02",
+            41,
+            2200,
+            "Framing plus review lag"
+          ),
+          productionDefaultDraw(
+            "draw-03",
+            "Draw 03",
+            66,
+            2500,
+            "Rough-in plus review lag"
+          ),
+          productionDefaultDraw(
+            "draw-04",
+            "Draw 04",
+            110,
+            2200,
+            "Drywall plus review lag"
+          ),
+          productionDefaultDraw(
+            "draw-05",
+            "Draw 05",
+            127,
+            1300,
+            "Finishes plus review lag"
+          ),
+        ]
+      ),
+    ],
+    summary: "7 milestones, 100.00% PoC, 102 field days",
+    templateKey: "single-family-full-build",
+    title: "Single Family Full Build",
+  },
+  {
+    description:
+      "Selective renovation path for quicker inspection cadence and lighter scope.",
+    isDefault: false,
+    milestones: [
+      productionDefaultMilestone(
+        "renovation-permits",
+        "Permit updates and mobilization",
+        800,
+        10,
+        "foundation",
+        ["Permit update", "Site protection"]
+      ),
+      productionDefaultMilestone(
+        "selective-demo",
+        "Selective demolition",
+        1400,
+        16,
+        "change",
+        ["Interior demo", "Waste removal"]
+      ),
+      productionDefaultMilestone(
+        "structural-repairs",
+        "Structural repairs",
+        1800,
+        18,
+        "framing",
+        ["Beam repairs", "Blocking"]
+      ),
+      productionDefaultMilestone(
+        "envelope-repairs",
+        "Envelope repairs",
+        1500,
+        12,
+        "exterior",
+        ["Flashing", "Window repairs"]
+      ),
+      productionDefaultMilestone(
+        "rough-in-refresh",
+        "Rough-in refresh",
+        1500,
+        14,
+        "roughIn",
+        ["Electrical", "Plumbing"]
+      ),
+      productionDefaultMilestone(
+        "interior-rebuild",
+        "Interior rebuild",
+        2200,
+        14,
+        "finishes",
+        ["Drywall", "Millwork"]
+      ),
+      productionDefaultMilestone(
+        "renovation-closeout",
+        "Inspection closeout",
+        800,
+        2,
+        "closeout",
+        ["Deficiency list", "Final signoff"]
+      ),
+    ],
+    scenarios: [
+      productionDefaultScenario("quick-inspection", "Quick inspection", true, [
+        productionDefaultDraw(
+          "draw-01",
+          "Draw 01",
+          33,
+          2200,
+          "Demolition complete"
+        ),
+        productionDefaultDraw(
+          "draw-02",
+          "Draw 02",
+          57,
+          2800,
+          "Structure reviewed"
+        ),
+        productionDefaultDraw(
+          "draw-03",
+          "Draw 03",
+          93,
+          3000,
+          "Rough-in refresh complete"
+        ),
+        productionDefaultDraw(
+          "draw-04",
+          "Draw 04",
+          111,
+          2000,
+          "Interior rebuild substantially complete"
+        ),
+      ]),
+    ],
+    summary: "7 milestones, 100.00% PoC, 86 days",
+    templateKey: "single-family-renovation",
+    title: "Single Family Renovation",
+  },
+  {
+    description:
+      "Multi-unit build template with heavier envelope and closeout coordination.",
+    isDefault: false,
+    milestones: [
+      productionDefaultMilestone(
+        "multiplex-sitework",
+        "Sitework and servicing",
+        900,
+        18,
+        "foundation",
+        ["Survey", "Civil servicing"]
+      ),
+      productionDefaultMilestone(
+        "multiplex-foundation",
+        "Foundation podium",
+        1600,
+        26,
+        "foundation",
+        ["Footings", "Foundation walls"]
+      ),
+      productionDefaultMilestone(
+        "multiplex-framing",
+        "Multi-plex framing",
+        2200,
+        30,
+        "framing",
+        ["Floor framing", "Party walls"]
+      ),
+      productionDefaultMilestone(
+        "multiplex-rough-in",
+        "Stacked rough-ins",
+        1800,
+        28,
+        "roughIn",
+        ["Electrical stacks", "Mechanical shafts"]
+      ),
+      productionDefaultMilestone(
+        "multiplex-envelope",
+        "Envelope and windows",
+        1500,
+        18,
+        "exterior",
+        ["Windows", "Cladding"]
+      ),
+      productionDefaultMilestone(
+        "multiplex-finishes",
+        "Suite finishes",
+        1400,
+        20,
+        "finishes",
+        ["Drywall", "Cabinets"]
+      ),
+      productionDefaultMilestone(
+        "multiplex-closeout",
+        "Occupancy closeout",
+        600,
+        6,
+        "closeout",
+        ["Life safety", "Occupancy package"]
+      ),
+    ],
+    scenarios: [
+      productionDefaultScenario(
+        "standard-multiplex",
+        "Standard multi-plex",
+        true,
+        [
+          productionDefaultDraw(
+            "draw-01",
+            "Draw 01",
+            51,
+            2500,
+            "Foundation podium accepted"
+          ),
+          productionDefaultDraw(
+            "draw-02",
+            "Draw 02",
+            86,
+            2500,
+            "Framing inspection"
+          ),
+          productionDefaultDraw(
+            "draw-03",
+            "Draw 03",
+            119,
+            2000,
+            "Rough-in review"
+          ),
+          productionDefaultDraw(
+            "draw-04",
+            "Draw 04",
+            143,
+            2000,
+            "Envelope review"
+          ),
+          productionDefaultDraw(
+            "draw-05",
+            "Draw 05",
+            167,
+            1000,
+            "Suite finishes accepted"
+          ),
+        ]
+      ),
+    ],
+    summary: "7 milestones, 100.00% PoC, 146 days",
+    templateKey: "multiplex-build",
+    title: "Multi-plex Build",
+  },
+];
+
+function productionDefaultScenario(
+  scenarioKey: string,
+  name: string,
+  isActive: boolean,
+  draws: ProductionDefaultScenarioDraw[]
+): ProductionDefaultScenario {
+  return {
+    description: `${name} draw timing and reimbursement amount assumptions.`,
+    draws: draws.map((draw, order) => ({ ...draw, order })),
+    isActive,
+    isDefault: true,
+    name,
+    scenarioKey,
+  };
+}
+
+function productionDefaultDraw(
+  drawKey: string,
+  label: string,
+  timingDay: number,
+  amountBps: number,
+  reviewNote: string
+): ProductionDefaultScenarioDraw {
+  return { amountBps, drawKey, label, reviewNote, timingDay };
+}
+
+function productionDefaultMilestone(
+  key: string,
+  name: string,
+  percentageBps: number,
+  durationDays: number,
+  archetypeKey: string,
+  submilestoneNames: string[]
+): ProductionDefaultMilestone {
+  const base = Math.floor(percentageBps / submilestoneNames.length);
+  const remainder = percentageBps - base * submilestoneNames.length;
+  const submilestones = submilestoneNames.map((submilestoneName, index) => ({
+    durationDays: Math.max(
+      1,
+      Math.round(durationDays / submilestoneNames.length)
+    ),
+    key: `${key}-${slug(submilestoneName)}-${index}`,
+    name: submilestoneName,
+    percentageBps: base + (index < remainder ? 1 : 0),
+  }));
+
+  return {
+    archetypeDescription:
+      archetypeDescriptionForProductionDefault(archetypeKey),
+    archetypeKey,
+    dependencyKeys: [],
+    durationDays,
+    key,
+    name,
+    percentageBps,
+    siteVisitGuidance: productionDefaultGuidance(key, name, submilestoneNames),
+    submilestones,
+  };
+}
+
+function productionDefaultGuidance(
+  key: string,
+  name: string,
+  submilestones: string[]
+) {
+  const normalized = `${key} ${name}`.toLowerCase();
+
+  if (normalized.includes("foundation") || normalized.includes("site-prep")) {
+    return {
+      cameraAngles: [
+        "Wide site overview showing excavation limits, access, and completed foundation area.",
+        "Close-up of forms, reinforcing, anchors, or embeds before concrete cover is lost.",
+        "Drainage, waterproofing, and backfill condition at the most constrained elevation.",
+      ],
+      whatToVerify: [
+        "Permit mobilization and site controls are in place before reimbursable work is counted.",
+        "Excavation, forms, reinforcing, and concrete placement match approved plan dimensions.",
+        "Waterproofing, drainage, and backfill are complete where required for the draw scope.",
+      ],
+    };
+  }
+
+  if (normalized.includes("demo")) {
+    return {
+      cameraAngles: [
+        "Wide room-by-room overview showing demolition limits and protected areas.",
+        "Close-up of capped utilities, shoring, or exposed structural conditions.",
+        "Waste staging or haul-off evidence showing removed material left the site.",
+      ],
+      whatToVerify: [
+        "Demolition is limited to the approved scope and retained structure is protected.",
+        "Utilities affected by demolition are capped or made safe.",
+        "Debris removal is complete enough for the next milestone to start.",
+      ],
+    };
+  }
+
+  if (normalized.includes("exterior") || normalized.includes("envelope")) {
+    return {
+      cameraAngles: [
+        "Full elevation showing windows, doors, weather barrier, and cladding scope.",
+        "Close-up of flashing transitions at openings and penetrations.",
+        "Corner or roofline detail tying envelope work back to the approved plan.",
+      ],
+      whatToVerify: [
+        "Windows and exterior doors are installed, flashed, and weather-tight.",
+        "Weather barrier is continuous at seams, corners, and penetrations.",
+        "Exterior cladding or repairs are complete for the draw scope being requested.",
+      ],
+    };
+  }
+
+  if (normalized.includes("drywall") || normalized.includes("inspection")) {
+    return {
+      cameraAngles: [
+        "Wide interior overview showing insulation or board installation progress.",
+        "Close-up of inspection stickers, signoff record, or deficiency tag.",
+        "Representative ceiling and wall planes before finishes conceal the work.",
+      ],
+      whatToVerify: [
+        "Required rough-in or insulation inspections are complete before close-in value is counted.",
+        "Insulation, vapor control, drywall hang, or board scope is complete in the claimed areas.",
+        "No unresolved inspection deficiencies block reimbursement for this milestone.",
+      ],
+    };
+  }
+
+  if (normalized.includes("finish") || normalized.includes("rebuild")) {
+    return {
+      cameraAngles: [
+        "Wide view of completed rooms showing flooring, cabinetry, and trim continuity.",
+        "Close-up of fixtures, cabinet installation, flooring transitions, or finish quality.",
+        "Context photo tying finish work back to the milestone area and unit or room number.",
+      ],
+      whatToVerify: [
+        "Finish materials are installed, not merely delivered or staged.",
+        "Fixtures, millwork, flooring, and trim are complete enough to support reimbursement.",
+        "Visible damage, missing components, or incomplete punch work is documented for review.",
+      ],
+    };
+  }
+
+  if (normalized.includes("closeout") || normalized.includes("occupancy")) {
+    return {
+      cameraAngles: [
+        "Wide final condition photo of the completed work area or unit.",
+        "Close-up of final inspection, occupancy, or closeout document evidence.",
+        "Photo of remaining punch-list items, if any, with location context.",
+      ],
+      whatToVerify: [
+        "Final inspection, occupancy, or lender-required closeout document is present.",
+        "Punch-list work is complete or exceptions are clearly identified for admin review.",
+        "The site is safe, accessible, and ready for final reimbursement review.",
+      ],
+    };
+  }
+
+  return defaultSiteVisitGuidance(key, name, submilestones);
+}
+
+function archetypeDescriptionForProductionDefault(archetypeKey: string) {
+  const descriptions: Record<string, string> = {
+    change: "Selective demolition and change-scope work.",
+    closeout: "Inspection, punch-list, occupancy, and final package work.",
+    drywall: "Inspection close-in, insulation, and drywall work.",
+    exterior:
+      "Envelope, windows, doors, weather barrier, and exterior finishes.",
+    finishes: "Interior finish, fixture, millwork, and final surface work.",
+    foundation: "Permits, sitework, excavation, concrete, and foundation work.",
+    framing: "Structural framing, sheathing, hardware, and dry-in work.",
+    roughIn: "Mechanical, electrical, plumbing, and rough-in coordination.",
+  };
+
+  return (
+    descriptions[archetypeKey] ?? `${titleCase(archetypeKey)} milestone work.`
+  );
+}
+
+function slug(value: string) {
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || "item"
+  );
+}
+
+function productionTemplateSortOrder(templateKey: string) {
+  const index = PRODUCTION_DEFAULT_TEMPLATES.findIndex(
+    (template) => template.templateKey === templateKey
+  );
+  return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+}
+
+async function authorizeProductionSettingsMutation(
+  ctx: MutationCtx & { viewer: AuthorizedViewer },
+  workosOrganizationId: string
+) {
+  const auth = await authorizeBrokerage(ctx, workosOrganizationId);
+  requireAnyRole(auth.roles, APPROVER_ROLES);
+  return auth;
+}
+
+async function getProductionSettingsTemplate(
+  ctx: QueryCtx | MutationCtx,
+  brokerageId: Id<"brokerages">,
+  templateKey: string
+) {
+  return await ctx.db
+    .query("proposalTemplates")
+    .withIndex("by_brokerage_template", (q) =>
+      q.eq("brokerageId", brokerageId).eq("templateKey", templateKey)
+    )
+    .unique();
+}
+
+async function getProductionSettingsScenario(
+  ctx: QueryCtx | MutationCtx,
+  templateId: Id<"proposalTemplates">,
+  scenarioKey: string
+) {
+  return await ctx.db
+    .query("drawScheduleScenarios")
+    .withIndex("by_template_scenario", (q) =>
+      q.eq("templateId", templateId).eq("scenarioKey", scenarioKey)
+    )
+    .unique();
+}
+
+async function upsertProductionSettingsTemplate(
+  ctx: MutationCtx,
+  input: {
+    brokerageId: Id<"brokerages">;
+    description: string;
+    isDefault: boolean;
+    now: number;
+    organizationId: string;
+    summary: string;
+    templateKey: string;
+    title: string;
+  }
+) {
+  const existing = await getProductionSettingsTemplate(
+    ctx,
+    input.brokerageId,
+    input.templateKey
+  );
+  const payload = {
+    isDefault: input.isDefault,
+    status: "active" as const,
+    summary: input.summary || input.description,
+    title: input.title.trim() || "Production template",
+    updatedAt: input.now,
+  };
+  if (existing) {
+    await ctx.db.patch(existing._id, payload);
+    return existing._id;
+  }
+  return await ctx.db.insert("proposalTemplates", {
+    ...payload,
+    brokerageId: input.brokerageId,
+    createdAt: input.now,
+    organizationId: input.organizationId,
+    templateKey: input.templateKey,
+  });
+}
+
+async function replaceProductionSettingsMilestones(
+  ctx: MutationCtx,
+  input: {
+    brokerageId: Id<"brokerages">;
+    milestones: Array<{
+      dependencyKeys: string[];
+      durationDays: number;
+      included: boolean;
+      milestoneKey: string;
+      name: string;
+      order: number;
+      percentageBps: number;
+      siteVisitGuidance?: SiteVisitGuidance;
+      submilestones: Array<{
+        durationDays: number;
+        name: string;
+        order: number;
+        percentageBps: number;
+        submilestoneKey: string;
+      }>;
+      type: string;
+    }>;
+    now: number;
+    organizationId: string;
+    templateId: Id<"proposalTemplates">;
+  }
+) {
+  const existing = await ctx.db
+    .query("proposalTemplateMilestones")
+    .withIndex("by_template", (q) => q.eq("templateId", input.templateId))
+    .collect();
+  for (const milestone of existing) {
+    await deleteTemplateSubmilestones(ctx, milestone._id);
+    await ctx.db.delete(milestone._id);
+  }
+  const includedRows = input.milestones
+    .filter((row) => row.included)
+    .slice()
+    .sort(
+      (a, b) =>
+        a.order - b.order || a.milestoneKey.localeCompare(b.milestoneKey)
+    );
+  for (const [index, row] of includedRows.entries()) {
+    const milestoneId = await ctx.db.insert("proposalTemplateMilestones", {
+      archetypeKey: row.type || row.milestoneKey,
+      brokerageId: input.brokerageId,
+      createdAt: input.now,
+      dependencyKeys: row.dependencyKeys.filter((dependencyKey) =>
+        includedRows.some(
+          (candidate) => candidate.milestoneKey === dependencyKey
+        )
+      ),
+      durationDays: Math.max(1, Math.round(row.durationDays)),
+      key: row.milestoneKey,
+      name: row.name.trim(),
+      order: index + 1,
+      organizationId: input.organizationId,
+      percentageBps: Math.max(0, Math.round(row.percentageBps)),
+      siteVisitGuidance: normalizeProductionSettingsGuidance(row),
+      templateId: input.templateId,
+      updatedAt: input.now,
+    });
+    for (const [subIndex, submilestone] of row.submilestones.entries()) {
+      await ctx.db.insert("proposalTemplateSubmilestones", {
+        brokerageId: input.brokerageId,
+        createdAt: input.now,
+        durationDays: Math.max(1, Math.round(submilestone.durationDays)),
+        key: submilestone.submilestoneKey,
+        milestoneKey: row.milestoneKey,
+        name: submilestone.name.trim(),
+        order: subIndex + 1,
+        organizationId: input.organizationId,
+        percentageBps: Math.max(0, Math.round(submilestone.percentageBps)),
+        templateMilestoneId: milestoneId,
+        updatedAt: input.now,
+      });
+    }
+  }
+}
+
+async function replaceProductionSettingsScenarios(
+  ctx: MutationCtx,
+  input: {
+    brokerageId: Id<"brokerages">;
+    now: number;
+    organizationId: string;
+    scenarios: Array<{
+      description: string;
+      draws: ProductionDefaultScenarioDraw[];
+      isActive: boolean;
+      isDefault: boolean;
+      name: string;
+      scenarioKey: string;
+      sortOrder: number;
+    }>;
+    templateId: Id<"proposalTemplates">;
+  }
+) {
+  const desiredKeys = new Set(input.scenarios.map((row) => row.scenarioKey));
+  const existing = await ctx.db
+    .query("drawScheduleScenarios")
+    .withIndex("by_template", (q) => q.eq("templateId", input.templateId))
+    .collect();
+  for (const stale of existing.filter(
+    (row) => !desiredKeys.has(row.scenarioKey)
+  )) {
+    await deleteProductionScenarioDraws(
+      ctx,
+      input.templateId,
+      stale.scenarioKey
+    );
+    await ctx.db.patch(stale._id, {
+      status: "inactive",
+      updatedAt: input.now,
+    });
+  }
+  for (const [index, scenario] of input.scenarios.entries()) {
+    await ensureDrawScheduleScenario(ctx, {
+      ...input,
+      description: scenario.description,
+      isActive: scenario.isActive,
+      isDefault: scenario.isDefault,
+      name: scenario.name,
+      scenarioKey: scenario.scenarioKey,
+      sortOrder: scenario.sortOrder ?? index,
+    });
+    await replaceProductionScenarioDraws(ctx, {
+      ...input,
+      draws: scenario.draws,
+      scenarioKey: scenario.scenarioKey,
+    });
+  }
+}
+
+async function replaceProductionScenarioDraws(
+  ctx: MutationCtx,
+  input: {
+    brokerageId: Id<"brokerages">;
+    draws: ProductionDefaultScenarioDraw[];
+    now: number;
+    organizationId: string;
+    scenarioKey: string;
+    templateId: Id<"proposalTemplates">;
+  }
+) {
+  await deleteProductionScenarioDraws(ctx, input.templateId, input.scenarioKey);
+  for (const [index, draw] of input.draws.entries()) {
+    await ctx.db.insert("drawScheduleScenarioRows", {
+      amountBps: Math.max(0, Math.round(draw.amountBps)),
+      brokerageId: input.brokerageId,
+      createdAt: input.now,
+      drawKey: draw.drawKey,
+      label: draw.label.trim() || `Draw ${String(index + 1).padStart(2, "0")}`,
+      order: draw.order ?? index,
+      organizationId: input.organizationId,
+      reviewNote: draw.reviewNote,
+      scenarioKey: input.scenarioKey,
+      templateId: input.templateId,
+      timingDay: Math.max(0, Math.round(draw.timingDay)),
+      updatedAt: input.now,
+    });
+  }
+}
+
+async function deleteProductionScenarioDraws(
+  ctx: MutationCtx,
+  templateId: Id<"proposalTemplates">,
+  scenarioKey: string
+) {
+  const rows = await listProductionScenarioDraws(ctx, templateId, scenarioKey);
+  for (const row of rows) {
+    await ctx.db.delete(row._id);
+  }
+}
+
+function normalizeProductionSettingsGuidance(row: {
+  milestoneKey: string;
+  name: string;
+  siteVisitGuidance?: SiteVisitGuidance;
+  submilestones: Array<{ name: string }>;
+}) {
+  const fallback = defaultSiteVisitGuidance(
+    row.milestoneKey,
+    row.name,
+    row.submilestones.map((submilestone) => submilestone.name)
+  );
+  return {
+    cameraAngles:
+      row.siteVisitGuidance?.cameraAngles
+        ?.map((line) => line.trim())
+        .filter(Boolean) ?? fallback.cameraAngles,
+    whatToVerify:
+      row.siteVisitGuidance?.whatToVerify
+        ?.map((line) => line.trim())
+        .filter(Boolean) ?? fallback.whatToVerify,
+  };
+}
+
+function validateProductionTemplateRows(
+  rows: Array<{
+    durationDays: number;
+    included: boolean;
+    milestoneKey: string;
+    name: string;
+    order: number;
+    percentageBps: number;
+    siteVisitGuidance?: SiteVisitGuidance;
+    submilestones: Array<{ name: string }>;
+  }>
+) {
+  const included = rows.filter((row) => row.included);
+  const total = included.reduce((sum, row) => sum + row.percentageBps, 0);
+  if (total !== TOTAL_BPS) {
+    throw new Error(
+      `Included PoC total must equal 100.00%; received ${(total / 100).toFixed(2)}%.`
+    );
+  }
+  for (const row of included) {
+    if (!row.name.trim()) {
+      throw new Error("Included milestones require names.");
+    }
+    if (row.durationDays <= 0) {
+      throw new Error("Included milestones require positive durations.");
+    }
+    if (row.submilestones.some((submilestone) => !submilestone.name.trim())) {
+      throw new Error("Sub-milestones require names.");
+    }
+    const guidance = normalizeProductionSettingsGuidance(row);
+    if (
+      guidance.whatToVerify.some((item) => item.length > 280) ||
+      guidance.cameraAngles.some((item) => item.length > 280)
+    ) {
+      throw new Error("Field guidance items must be 280 characters or less.");
+    }
+  }
+  validateProductionMilestoneHandoffGaps(rows);
+}
+
+function validateProductionScenarios(
+  rows: Array<{
+    draws: Array<{ amountBps: number; label: string; timingDay: number }>;
+    isActive: boolean;
+    name: string;
+  }>,
+  milestones: Array<{
+    durationDays: number;
+    included: boolean;
+    milestoneKey: string;
+    name: string;
+    order: number;
+  }>
+) {
+  const names = new Set<string>();
+  for (const row of rows) {
+    const name = row.name.trim().toLowerCase();
+    if (!name) {
+      throw new Error("Scenario name is required.");
+    }
+    if (names.has(name)) {
+      throw new Error("Scenario names must be unique within a template.");
+    }
+    names.add(name);
+    validateProductionScenarioDrawRows(row.draws, milestones);
+  }
+  if (rows.length > 0 && rows.filter((row) => row.isActive).length !== 1) {
+    throw new Error("Exactly one active scenario is required.");
+  }
+}
+
+function validateProductionScenarioDrawRows(
+  rows: Array<{ amountBps: number; label: string; timingDay: number }>,
+  milestones: Array<{
+    durationDays: number;
+    included: boolean;
+    milestoneKey: string;
+    name: string;
+    order: number;
+  }>
+) {
+  if (rows.length === 0) {
+    throw new Error("Scenario requires at least one draw.");
+  }
+  const total = rows.reduce((sum, row) => sum + row.amountBps, 0);
+  if (total !== TOTAL_BPS) {
+    throw new Error(
+      `Draw total must equal 100.00%; received ${(total / 100).toFixed(2)}%.`
+    );
+  }
+  for (const row of rows) {
+    if (!row.label.trim()) {
+      throw new Error("Draw labels are required.");
+    }
+    if (row.timingDay < 0) {
+      throw new Error("Draw timing day must be non-negative.");
+    }
+    if (row.amountBps <= 0) {
+      throw new Error("Draw percentage must be positive.");
+    }
+  }
+  const windows = buildProductionMilestoneDrawWindows(milestones);
+  if (windows.length === 0) {
+    throw new Error(
+      "Draw timing requires at least two included milestones to create a reimbursement window."
+    );
+  }
+  for (const row of rows) {
+    const inWindow = windows.some(
+      (window) =>
+        row.timingDay > window.afterMilestoneEndDay &&
+        row.timingDay < window.beforeMilestoneStartDay
+    );
+    if (!inWindow) {
+      throw new Error(
+        `Draw "${row.label}" must happen between the end of one milestone and the start of another.`
+      );
+    }
+  }
+}
+
+function validateProductionMilestoneHandoffGaps(
+  rows: Array<{
+    durationDays: number;
+    included: boolean;
+    milestoneKey: string;
+    order: number;
+  }>
+) {
+  const included = sortedProductionIncludedMilestones(rows);
+  for (let index = 0; index < included.length - 1; index += 1) {
+    const gap =
+      productionMilestoneStartDay(included, index + 1) -
+      productionMilestoneEndDay(included, index);
+    if (gap > PRODUCTION_SETTINGS_HANDOFF_GAP_DAYS) {
+      throw new Error(
+        `Milestone handoff gap cannot exceed ${PRODUCTION_SETTINGS_HANDOFF_GAP_DAYS} days.`
+      );
+    }
+  }
+}
+
+function buildProductionMilestoneDrawWindows(
+  rows: Array<{
+    durationDays: number;
+    included: boolean;
+    milestoneKey: string;
+    order: number;
+  }>
+) {
+  const included = sortedProductionIncludedMilestones(rows);
+  const windows = [];
+  for (let index = 0; index < included.length - 1; index += 1) {
+    const current = included[index];
+    const next = included[index + 1];
+    if (!(current && next)) {
+      continue;
+    }
+    windows.push({
+      afterMilestoneEndDay: productionMilestoneEndDay(included, index),
+      afterMilestoneKey: current.milestoneKey,
+      beforeMilestoneKey: next.milestoneKey,
+      beforeMilestoneStartDay: productionMilestoneStartDay(included, index + 1),
+    });
+  }
+  return windows;
+}
+
+function sortedProductionIncludedMilestones(
+  rows: Array<{
+    durationDays: number;
+    included: boolean;
+    milestoneKey: string;
+    order: number;
+  }>
+) {
+  return rows
+    .filter((row) => row.included)
+    .slice()
+    .sort(
+      (a, b) =>
+        a.order - b.order || a.milestoneKey.localeCompare(b.milestoneKey)
+    );
+}
+
+function productionMilestoneStartDay(
+  rows: Array<{ durationDays: number }>,
+  index: number
+) {
+  return rows
+    .slice(0, index)
+    .reduce(
+      (day, row) =>
+        day + row.durationDays + PRODUCTION_SETTINGS_HANDOFF_GAP_DAYS,
+      0
+    );
+}
+
+function productionMilestoneEndDay(
+  rows: Array<{ durationDays: number }>,
+  index: number
+) {
+  return (
+    productionMilestoneStartDay(rows, index) + (rows[index]?.durationDays ?? 0)
+  );
+}
+
+function requiredProductionDefaultTemplate(templateKey: string) {
+  const seed = PRODUCTION_DEFAULT_TEMPLATES.find(
+    (template) => template.templateKey === templateKey
+  );
+  if (!seed) {
+    throw new Error(`Unknown production template: ${templateKey}`);
+  }
+  return seed;
+}
+
 async function ensureProposalTemplate(
   ctx: MutationCtx,
   input: { brokerageId: Id<"brokerages">; now: number; organizationId: string }
@@ -7532,6 +9809,249 @@ async function ensureProposalTemplate(
     title: "Single Family Full Build",
     updatedAt: input.now,
   });
+}
+
+async function seedProductionDefaultTemplates(
+  ctx: MutationCtx,
+  input: {
+    brokerageId: Id<"brokerages">;
+    now: number;
+    organizationId: string;
+  }
+) {
+  const result = {
+    draws: 0,
+    milestones: 0,
+    scenarios: 0,
+    submilestones: 0,
+    templates: 0,
+  };
+
+  for (const template of PRODUCTION_DEFAULT_TEMPLATES) {
+    const templateId = await ensureProductionDefaultTemplate(ctx, {
+      ...input,
+      template,
+    });
+    result.templates += 1;
+
+    for (const milestone of template.milestones) {
+      await ensureMilestoneArchetype(ctx, {
+        ...input,
+        description: milestone.archetypeDescription,
+        key: milestone.archetypeKey,
+        name: titleCase(milestone.archetypeKey),
+        sortOrder: result.milestones + 1,
+      });
+    }
+
+    await replaceProductionDefaultMilestones(ctx, {
+      ...input,
+      template,
+      templateId,
+    });
+    result.milestones += template.milestones.length;
+    result.submilestones += template.milestones.reduce(
+      (sum, milestone) => sum + milestone.submilestones.length,
+      0
+    );
+
+    await replaceProductionDefaultScenarios(ctx, {
+      ...input,
+      scenarios: template.scenarios,
+      templateId,
+    });
+    result.scenarios += template.scenarios.length;
+    result.draws += template.scenarios.reduce(
+      (sum, scenario) => sum + scenario.draws.length,
+      0
+    );
+  }
+
+  return result;
+}
+
+async function ensureProductionDefaultTemplate(
+  ctx: MutationCtx,
+  input: {
+    brokerageId: Id<"brokerages">;
+    now: number;
+    organizationId: string;
+    template: ProductionDefaultTemplate;
+  }
+) {
+  const existing = await ctx.db
+    .query("proposalTemplates")
+    .withIndex("by_brokerage_template", (q) =>
+      q
+        .eq("brokerageId", input.brokerageId)
+        .eq("templateKey", input.template.templateKey)
+    )
+    .unique();
+  const payload = {
+    isDefault: input.template.isDefault,
+    status: "active" as const,
+    summary: input.template.summary,
+    title: input.template.title,
+    updatedAt: input.now,
+  };
+  if (existing) {
+    await ctx.db.patch(existing._id, payload);
+    return existing._id;
+  }
+  return await ctx.db.insert("proposalTemplates", {
+    ...payload,
+    brokerageId: input.brokerageId,
+    createdAt: input.now,
+    organizationId: input.organizationId,
+    templateKey: input.template.templateKey,
+  });
+}
+
+async function replaceProductionDefaultMilestones(
+  ctx: MutationCtx,
+  input: {
+    brokerageId: Id<"brokerages">;
+    now: number;
+    organizationId: string;
+    template: ProductionDefaultTemplate;
+    templateId: Id<"proposalTemplates">;
+  }
+) {
+  const desiredKeys = new Set(
+    input.template.milestones.map((milestone) => milestone.key)
+  );
+  const existing = await ctx.db
+    .query("proposalTemplateMilestones")
+    .withIndex("by_template", (q) => q.eq("templateId", input.templateId))
+    .collect();
+
+  for (const staleMilestone of existing.filter(
+    (milestone) => !desiredKeys.has(milestone.key)
+  )) {
+    await deleteTemplateSubmilestones(ctx, staleMilestone._id);
+    await ctx.db.delete(staleMilestone._id);
+  }
+
+  for (const [index, milestone] of input.template.milestones.entries()) {
+    const templateMilestoneId = await ensureTemplateMilestone(ctx, {
+      ...input,
+      archetypeKey: milestone.archetypeKey,
+      dependencyKeys: milestone.dependencyKeys,
+      durationDays: milestone.durationDays,
+      key: milestone.key,
+      name: milestone.name,
+      order: index + 1,
+      percentageBps: milestone.percentageBps,
+      siteVisitGuidance: milestone.siteVisitGuidance,
+    });
+    await replaceProductionDefaultSubmilestones(ctx, {
+      ...input,
+      milestone,
+      templateMilestoneId,
+    });
+  }
+}
+
+async function replaceProductionDefaultSubmilestones(
+  ctx: MutationCtx,
+  input: {
+    brokerageId: Id<"brokerages">;
+    milestone: ProductionDefaultMilestone;
+    now: number;
+    organizationId: string;
+    templateMilestoneId: Id<"proposalTemplateMilestones">;
+  }
+) {
+  const desiredKeys = new Set(
+    input.milestone.submilestones.map((submilestone) => submilestone.key)
+  );
+  const existing = await ctx.db
+    .query("proposalTemplateSubmilestones")
+    .withIndex("by_template_milestone", (q) =>
+      q.eq("templateMilestoneId", input.templateMilestoneId)
+    )
+    .collect();
+  for (const staleSubmilestone of existing.filter(
+    (submilestone) => !desiredKeys.has(submilestone.key)
+  )) {
+    await ctx.db.delete(staleSubmilestone._id);
+  }
+
+  for (const [index, submilestone] of input.milestone.submilestones.entries()) {
+    await ensureTemplateSubmilestone(ctx, {
+      ...input,
+      durationDays: submilestone.durationDays,
+      key: submilestone.key,
+      milestoneKey: input.milestone.key,
+      name: submilestone.name,
+      order: index + 1,
+      percentageBps: submilestone.percentageBps,
+    });
+  }
+}
+
+async function deleteTemplateSubmilestones(
+  ctx: MutationCtx,
+  templateMilestoneId: Id<"proposalTemplateMilestones">
+) {
+  const submilestones = await ctx.db
+    .query("proposalTemplateSubmilestones")
+    .withIndex("by_template_milestone", (q) =>
+      q.eq("templateMilestoneId", templateMilestoneId)
+    )
+    .collect();
+  for (const submilestone of submilestones) {
+    await ctx.db.delete(submilestone._id);
+  }
+}
+
+async function replaceProductionDefaultScenarios(
+  ctx: MutationCtx,
+  input: {
+    brokerageId: Id<"brokerages">;
+    now: number;
+    organizationId: string;
+    scenarios: ProductionDefaultScenario[];
+    templateId: Id<"proposalTemplates">;
+  }
+) {
+  const desiredKeys = new Set(
+    input.scenarios.map((scenario) => scenario.scenarioKey)
+  );
+  const existing = await ctx.db
+    .query("drawScheduleScenarios")
+    .withIndex("by_template", (q) => q.eq("templateId", input.templateId))
+    .collect();
+  for (const staleScenario of existing.filter(
+    (scenario) => !desiredKeys.has(scenario.scenarioKey)
+  )) {
+    await deleteProductionScenarioDraws(
+      ctx,
+      input.templateId,
+      staleScenario.scenarioKey
+    );
+    await ctx.db.patch(staleScenario._id, {
+      status: "inactive",
+      updatedAt: input.now,
+    });
+  }
+
+  for (const [index, scenario] of input.scenarios.entries()) {
+    await ensureDrawScheduleScenario(ctx, {
+      ...input,
+      description: scenario.description,
+      isActive: scenario.isActive,
+      isDefault: scenario.isDefault,
+      name: scenario.name,
+      scenarioKey: scenario.scenarioKey,
+      sortOrder: index,
+    });
+    await replaceProductionScenarioDraws(ctx, {
+      ...input,
+      draws: scenario.draws,
+      scenarioKey: scenario.scenarioKey,
+    });
+  }
 }
 
 async function ensureProductionSettingsRows(
@@ -7621,19 +10141,30 @@ async function ensureProductionSettingsRows(
 
   for (const scenario of [
     {
+      description:
+        "Cheapest feasible draw timing and reimbursement amount assumptions.",
+      isActive: true,
       isDefault: true,
       name: "Cheapest Feasible",
       scenarioKey: "cheapest-feasible",
+      sortOrder: 0,
     },
     {
+      description: "Fastest draw timing and reimbursement amount assumptions.",
+      isActive: false,
       isDefault: false,
       name: "Fastest",
       scenarioKey: "fastest",
+      sortOrder: 1,
     },
     {
+      description:
+        "Capital-constrained draw timing and reimbursement amount assumptions.",
+      isActive: false,
       isDefault: false,
       name: "Capital-Constrained",
       scenarioKey: "capital-constrained",
+      sortOrder: 2,
     },
   ]) {
     await ensureDrawScheduleScenario(ctx, { ...input, ...scenario });
@@ -7691,6 +10222,7 @@ async function ensureTemplateMilestone(
     order: number;
     organizationId: string;
     percentageBps: number;
+    siteVisitGuidance?: SiteVisitGuidance;
     templateId: Id<"proposalTemplates">;
   }
 ) {
@@ -7707,6 +10239,9 @@ async function ensureTemplateMilestone(
     name: input.name,
     order: input.order,
     percentageBps: input.percentageBps,
+    ...(input.siteVisitGuidance
+      ? { siteVisitGuidance: input.siteVisitGuidance }
+      : {}),
     updatedAt: input.now,
   };
   if (existing) {
@@ -7772,11 +10307,14 @@ async function ensureDrawScheduleScenario(
   ctx: MutationCtx,
   input: {
     brokerageId: Id<"brokerages">;
+    description: string;
+    isActive: boolean;
     isDefault: boolean;
     name: string;
     now: number;
     organizationId: string;
     scenarioKey: string;
+    sortOrder: number;
     templateId: Id<"proposalTemplates">;
   }
 ) {
@@ -7787,8 +10325,11 @@ async function ensureDrawScheduleScenario(
     )
     .unique();
   const payload = {
+    description: input.description,
+    isActive: input.isActive,
     isDefault: input.isDefault,
     name: input.name,
+    sortOrder: input.sortOrder,
     status: "active" as const,
     updatedAt: input.now,
   };
@@ -8263,10 +10804,11 @@ async function seedCloseProposal(
   }
   const permit = await getPermitDocument(ctx, input.proposalId);
   const permitWaiver = await getPermitWaiver(ctx, input.proposalId);
+  const assignedBuilderProfileId = assignedBuilderProfileIdOrThrow(proposal);
   const buildId = await ctx.db.insert("activeBuilds", {
     brokerageId: input.auth.brokerage._id,
     buildName: proposal.buildName,
-    builderProfileId: proposal.builderProfileId,
+    builderProfileId: assignedBuilderProfileId,
     createdAt: input.now,
     location: proposal.location,
     organizationId: input.organizationId,
@@ -8278,6 +10820,8 @@ async function seedCloseProposal(
       new Date(`${input.buildStartDate}T00:00:00Z`).getTime() > input.now
         ? "future_start"
         : "active",
+    timelineMinimumCashReserveCents: proposal.timelineMinimumCashReserveCents,
+    timelineStartingCashCents: proposal.timelineStartingCashCents,
     totalBudgetCents: proposal.totalBudgetCents,
     updatedAt: input.now,
     workflowRuleSnapshotId: proposal.workflowRuleSnapshotId,
@@ -8298,6 +10842,7 @@ async function seedCloseProposal(
     interestAnnualBps: input.loanFacility.interestAnnualBps,
     interestStartsOn: "funds_released",
     organizationId: input.organizationId,
+    paybackDate: addDaysIso(input.buildStartDate, proposal.timelineRangeMax ?? 365),
     principalCents: input.loanFacility.principalCents,
     proposalId: input.proposalId,
     status: "active",

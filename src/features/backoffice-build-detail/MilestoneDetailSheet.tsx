@@ -81,15 +81,17 @@ export function MilestoneDetailSheet({
         type="button"
       />
       <aside
-        className="absolute top-0 right-0 flex h-full w-[640px] max-w-full flex-col gap-3 overflow-y-auto border-l border-border bg-card p-5 shadow-2xl"
+        className="absolute inset-x-0 bottom-0 flex max-h-[92dvh] w-full flex-col gap-3 overflow-y-auto rounded-t-xl border-border border-t bg-card p-3 shadow-2xl sm:inset-x-auto sm:top-0 sm:right-0 sm:bottom-auto sm:h-full sm:max-h-none sm:w-[640px] sm:max-w-full sm:rounded-none sm:border-t-0 sm:border-l sm:p-5"
         data-testid="milestone-detail-sheet-panel"
       >
-        <header className="flex items-start justify-between">
-          <div>
+        <header className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
             <p className="text-[11px] text-muted-foreground uppercase tracking-wider">
               Milestone detail
             </p>
-            <h2 className="font-semibold text-lg">{data.name}</h2>
+            <h2 className="text-wrap break-words font-semibold text-lg">
+              {data.name}
+            </h2>
             <p className="text-muted-foreground text-xs">
               {data.column} · Linked draw {data.drawGroupKey.toUpperCase()}
             </p>
@@ -105,7 +107,7 @@ export function MilestoneDetailSheet({
           </button>
         </header>
 
-        <section className="grid grid-cols-3 gap-2">
+        <section className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <KpiCell label="Status" value={data.column} />
           <KpiCell
             label="Unlock value"
@@ -131,14 +133,14 @@ export function MilestoneDetailSheet({
             <ul className="space-y-2">
               {data.contractors.map((c) => (
                 <li
-                  className="flex items-center gap-3 rounded-lg border border-border bg-background/60 p-2"
+                  className="flex min-w-0 items-center gap-3 rounded-lg border border-border bg-background/60 p-2"
                   key={`${c.name}-${c.role ?? ""}`}
                 >
                   <span className="grid size-8 place-items-center rounded-full bg-primary/30 text-xs font-semibold">
                     {c.initials || initialsFor(c.name)}
                   </span>
-                  <div className="text-sm">
-                    <p>{c.name}</p>
+                  <div className="min-w-0 text-sm">
+                    <p className="break-words">{c.name}</p>
                     {c.role ? (
                       <p className="text-[11px] text-muted-foreground">{c.role}</p>
                     ) : null}
@@ -219,7 +221,7 @@ export function MilestoneDetailSheet({
           >
             {pending ? "Approving…" : "Approve milestone"}
           </button>
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <button
               className="flex-1 rounded-md border border-border bg-card px-3 py-2 text-xs hover:bg-accent"
               data-testid="milestone-detail-sheet-request-info"

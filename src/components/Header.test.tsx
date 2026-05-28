@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -47,6 +47,14 @@ describe("Header", () => {
     render(<Header />);
 
     expect(
+      screen.getByRole("link", { name: "Backoffice" }).getAttribute("href"),
+    ).toBe("/backoffice");
+    expect(
+      screen.getByRole("link", { name: "Builder dashboard" }).getAttribute(
+        "href",
+      ),
+    ).toBe("/builder");
+    expect(
       screen.getByRole("link", { name: "Builder onboarding" }).getAttribute(
         "href",
       ),
@@ -67,7 +75,40 @@ describe("Header", () => {
     expect(screen.getAllByText("Demos")).toHaveLength(2);
     expect(screen.getByText("Convex")).toBeTruthy();
     expect(screen.getByText("TanStack Query")).toBeTruthy();
+    expect(screen.queryByText("Backoffice")).toBeNull();
+    expect(screen.queryByText("Builder dashboard")).toBeNull();
     expect(screen.queryByText("Builder onboarding")).toBeNull();
     expect(screen.queryByText("Broker intake")).toBeNull();
+  });
+
+  test("opens a landing-only mobile navigation menu", async () => {
+    render(<Header enableLandingMobileMenu />);
+
+    const trigger = screen.getByRole("button", {
+      name: "Open site navigation",
+    });
+
+    fireEvent.click(trigger);
+
+    const dialog = await screen.findByRole("dialog");
+    const mobileNav = within(dialog).getByRole("navigation", {
+      name: "Mobile site navigation",
+    });
+
+    expect(
+      within(mobileNav).getByRole("link", { name: /about/i }).getAttribute(
+        "href",
+      ),
+    ).toBe("/about");
+    expect(
+      within(mobileNav)
+        .getByRole("link", { name: /builder dashboard/i })
+        .getAttribute("href"),
+    ).toBe("/builder");
+    expect(
+      within(mobileNav).getByRole("link", { name: /broker intake/i }).getAttribute(
+        "href",
+      ),
+    ).toBe("/backoffice/onboard-builder");
   });
 });

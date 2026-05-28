@@ -65,9 +65,15 @@ function RouteComponent() {
     api.production_proposals.rejectActiveBuildMilestone,
   );
   const releaseDraw = useMutation(api.production_proposals.releaseActiveBuildDraw);
+  const requestFacilityChange = useMutation(
+    (api as any).production_proposals.requestActiveBuildFacilityChange,
+  );
   const requestDraw = useMutation(api.production_proposals.requestActiveBuildDraw);
   const requestMilestoneInfo = useMutation(
     api.production_proposals.requestActiveBuildMilestoneInfo,
+  );
+  const reviewFacilityChangeRequest = useMutation(
+    (api as any).production_proposals.reviewActiveBuildFacilityChangeRequest,
   );
   const startMilestoneWork = useMutation(
     api.production_proposals.startActiveBuildMilestone,
@@ -214,12 +220,24 @@ function RouteComponent() {
           releaseDate: new Date().toISOString().slice(0, 10),
           workosOrganizationId,
         }),
+      requestFacilityChange: (input) =>
+        requestFacilityChange({
+          ...input,
+          buildId: activeBuildId,
+          workosOrganizationId,
+        }),
       requestDraw: (draw) =>
         requestDraw({
           amountCents: draw.amountCents,
           buildId: activeBuildId,
           drawKey: draw.drawKey,
           note: "Requested from build detail workspace.",
+          workosOrganizationId,
+        }),
+      reviewFacilityChangeRequest: (input) =>
+        reviewFacilityChangeRequest({
+          ...input,
+          requestId: input.requestId as any,
           workosOrganizationId,
         }),
       requestMilestoneInfo: ({ milestoneKey, note }) =>

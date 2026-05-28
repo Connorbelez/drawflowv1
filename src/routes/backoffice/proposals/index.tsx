@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { Loader2 } from "lucide-react";
 
 import { ProductionProposalKanbanSurface } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
@@ -8,6 +8,7 @@ import {
   isProductionVisualParityFixtureEnabled,
 } from "#/features/production-proposals/visualParityFixtures.ts";
 import { api } from "../../../../convex/_generated/api";
+import type { Id } from "../../../../convex/_generated/dataModel";
 
 export const Route = createFileRoute("/backoffice/proposals/")({
   ssr: false,
@@ -21,7 +22,17 @@ function BackofficeProductionProposalsRoute() {
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
   const kanbanQuery = useQuery(
     api.production_proposals.listProposalKanban,
-    visualFixtureEnabled ? "skip" : { workosOrganizationId },
+    visualFixtureEnabled ? "skip" : { workosOrganizationId }
+  );
+  const buildersQuery = useQuery(
+    api.production_proposals.listBrokerageBuilders,
+    visualFixtureEnabled ? "skip" : { workosOrganizationId }
+  );
+  const assignDraftBuilder = useMutation(
+    api.production_proposals.assignDraftBuilder
+  );
+  const deleteDraftProposal = useMutation(
+    api.production_proposals.deleteDraftProposal
   );
   const kanban = visualFixtureEnabled ? getVisualParityKanban() : kanbanQuery;
 
@@ -38,7 +49,29 @@ function BackofficeProductionProposalsRoute() {
 
   return (
     <ProductionProposalKanbanSurface
+      builders={buildersQuery ?? []}
       kanban={kanban}
+      onAssignBuilder={
+        visualFixtureEnabled
+          ? undefined
+          : async (card, builderProfileId) => {
+              await assignDraftBuilder({
+                builderProfileId: builderProfileId as Id<"builderProfiles">,
+                proposalId: card.proposalId as Id<"buildProposals">,
+                workosOrganizationId,
+              });
+            }
+      }
+      onDeleteDraft={
+        visualFixtureEnabled
+          ? undefined
+          : async (card) => {
+              await deleteDraftProposal({
+                proposalId: card.proposalId as Id<"buildProposals">,
+                workosOrganizationId,
+              });
+            }
+      }
       onOpen={(card) =>
         void navigate({
           params: { planId: card.proposalId },

@@ -81,6 +81,7 @@ function BuilderProductionHomeRoute() {
   return (
     <BuilderTimelineDashboardSurface
       chrome="embedded"
+      liveBuildRoute="/builder/builds/$buildId"
       onNavigate={(to, params) => {
         if (to === "/demo/timeline") {
           void navigate({ to: "/builder/proposals/new" });
@@ -94,7 +95,10 @@ function BuilderProductionHomeRoute() {
           return;
         }
         if (params?.buildId) {
-          void navigate({ to: "/builder/proposals" });
+          void navigate({
+            params: { buildId: params.buildId },
+            to: "/builder/builds/$buildId",
+          });
           return;
         }
         void navigate({ to: "/builder/proposals" });

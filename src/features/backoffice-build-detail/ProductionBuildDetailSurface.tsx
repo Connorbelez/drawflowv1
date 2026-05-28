@@ -81,7 +81,18 @@ export interface ProductionBuildDetailActions {
   rejectDraw?: (draw: ProductionDraw) => Promise<void> | void;
   rejectMilestone?: (input: { milestoneKey: string }) => Promise<void> | void;
   releaseDraw?: (draw: ProductionDraw) => Promise<void> | void;
+  requestFacilityChange?: (input: {
+    reason?: string;
+    requestedPaybackDate?: string;
+    requestedPrincipalCents?: number;
+    requestType: "principalIncrease" | "paybackExtension";
+  }) => Promise<void> | void;
   requestDraw?: (draw: ProductionDraw) => Promise<void> | void;
+  reviewFacilityChangeRequest?: (input: {
+    note?: string;
+    requestId: string;
+    status: "approved" | "rejected";
+  }) => Promise<void> | void;
   requestMilestoneInfo?: (input: {
     milestoneKey: string;
     note: string;
@@ -115,8 +126,10 @@ export interface ProductionBuildDetail {
     principalCents: number;
     interestAnnualBps: number;
     interestStartsOn: "funds_released";
+    paybackDate?: string;
     status: "active" | "closed";
   } | null;
+  facilityChangeRequests?: ProductionFacilityChangeRequest[];
   auditEvents?: ProductionAuditEvent[];
   availableContractors?: ProductionAvailableContractor[];
   contractors?: ProductionAttachedContractor[];
@@ -182,6 +195,27 @@ interface ProductionDraw {
   releaseNote?: string;
   releasedAt?: string;
   status: ProductionDrawStatus;
+}
+
+interface ProductionFacilityChangeRequest {
+  _id: string;
+  createdAt: number;
+  priorState?: {
+    paybackDate?: string;
+    principalCents?: number;
+  };
+  reason?: string;
+  requestedByWorkosUserId: string;
+  requestedPayload: {
+    requestedPaybackDate?: string;
+    requestedPrincipalCents?: number;
+  };
+  requestType: "principalIncrease" | "paybackExtension";
+  reviewNote?: string;
+  reviewedAt?: number;
+  reviewerWorkosUserId?: string;
+  status: "requested" | "approved" | "rejected";
+  updatedAt?: number;
 }
 
 interface ProductionSitePhoto {
@@ -320,16 +354,20 @@ export function ProductionBuildDetailSurface({
   return (
     <main
       className={cn(
-        "grid min-h-[calc(100vh-4rem)] bg-muted/30",
+        "grid min-h-[calc(100vh-4rem)] overflow-x-hidden bg-muted/30",
         railCollapsed
-          ? "grid-cols-[minmax(0,1fr)_56px]"
+          ? "xl:grid-cols-[minmax(0,1fr)_56px]"
           : "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px]",
       )}
       data-testid="production-build-detail-route"
     >
-      <section className="flex min-w-0 flex-col gap-5 p-4 md:p-6">
+      <section className="flex min-w-0 flex-col gap-3 px-2 py-3 sm:gap-4 sm:p-4 md:gap-5 md:p-6">
         <ProductionBuildHeader detail={detail} />
         <BuildDetailTabBar activeTab={activeTab} onChangeTab={onChangeTab} />
+        <ProductionMobileEventDigest
+          auditEvents={detail.auditEvents ?? []}
+          quickActionEvents={detail.quickActionEvents ?? []}
+        />
         {activeTab === "details" ? (
           <ProductionDetailsTab
             actions={actions}
@@ -397,11 +435,11 @@ export function ProductionBuildDetailSurface({
 function ProductionBuildHeader({ detail }: { detail: ProductionBuildDetail }) {
   return (
     <Frame>
-      <FramePanel className="flex flex-col gap-4 p-4 md:flex-row md:items-end md:justify-between">
+      <FramePanel className="flex flex-col gap-4 p-3 sm:p-4 md:flex-row md:items-end md:justify-between">
         <div className="min-w-0">
           <nav
             aria-label="Breadcrumbs"
-            className="mb-3 flex items-center gap-2 text-muted-foreground text-xs"
+            className="mb-3 flex min-w-0 items-center gap-2 overflow-x-auto text-muted-foreground text-xs"
           >
             <a className="hover:text-foreground" href="/backoffice">
               Backoffice
@@ -419,15 +457,17 @@ function ProductionBuildHeader({ detail }: { detail: ProductionBuildDetail }) {
               Production active Build
             </span>
           </div>
-          <h1 className="mt-2 truncate font-semibold text-2xl tracking-tight">
+          <h1 className="mt-2 max-w-full text-wrap break-words font-semibold text-xl tracking-tight sm:text-2xl">
             {detail.build.buildName}
           </h1>
-          <p className="mt-1 flex items-center gap-1.5 text-muted-foreground text-sm">
+          <p className="mt-1 flex min-w-0 items-start gap-1.5 text-muted-foreground text-sm">
             <MapPin className="size-4" />
-            <span className="min-w-0 truncate">{detail.build.location}</span>
+            <span className="min-w-0 text-wrap break-words">
+              {detail.build.location}
+            </span>
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-2 text-sm md:min-w-72">
+        <div className="grid w-full grid-cols-2 gap-2 text-sm md:min-w-72 md:max-w-sm">
           <HeaderStat label="Start" value={formatDate(detail.build.startDate)} />
           <HeaderStat
             label="Budget"
@@ -441,10 +481,44 @@ function ProductionBuildHeader({ detail }: { detail: ProductionBuildDetail }) {
 
 function HeaderStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border bg-background/60 px-3 py-2">
+    <div className="min-w-0 rounded-md border bg-background/60 px-3 py-2">
       <p className="text-muted-foreground text-xs">{label}</p>
-      <p className="font-medium tabular-nums">{value}</p>
+      <p className="truncate font-medium tabular-nums">{value}</p>
     </div>
+  );
+}
+
+function ProductionMobileEventDigest({
+  auditEvents,
+  quickActionEvents,
+}: {
+  auditEvents: ProductionAuditEvent[];
+  quickActionEvents: ProductionRailEvent[];
+}) {
+  const latestEvent = quickActionEvents[0] ?? auditEvents[0];
+
+  return (
+    <Card className="xl:hidden" data-testid="production-build-mobile-events">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 p-3 pb-2">
+        <CardTitle className="text-sm">Events</CardTitle>
+        <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] text-foreground tabular-nums">
+          {quickActionEvents.length + auditEvents.length}
+        </span>
+      </CardHeader>
+      <CardContent className="p-3 pt-0">
+        {latestEvent ? (
+          <p className="line-clamp-2 text-muted-foreground text-xs">
+            {"payloadPreview" in latestEvent
+              ? latestEvent.payloadPreview
+              : latestEvent.afterSummary ??
+                latestEvent.entityLabel ??
+                latestEvent.eventType}
+          </p>
+        ) : (
+          <p className="text-muted-foreground text-xs">No events yet.</p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -469,7 +543,7 @@ function ProductionDetailsTab({
 
   return (
     <div className="flex flex-col gap-4" data-testid="production-build-details">
-      <section className="grid items-stretch gap-4 xl:grid-cols-[minmax(280px,0.85fr)_minmax(0,1.6fr)]">
+      <section className="grid items-stretch gap-3 sm:gap-4 xl:grid-cols-[minmax(280px,0.85fr)_minmax(0,1.6fr)]">
         <ProductionBuildDetailsCard detail={detail} projection={projection} />
         <SitePhotoCarousel photos={detail.sitePhotos ?? []} />
       </section>
@@ -480,6 +554,8 @@ function ProductionDetailsTab({
         projection={projection}
       />
 
+      <FacilityChangeRequestsCard actions={actions} detail={detail} />
+
       <MilestoneKanban
         cards={kanbanCards}
         onCardClick={onCardClick}
@@ -487,7 +563,7 @@ function ProductionDetailsTab({
         showCompleted={showCompletedKanban}
       />
 
-      <section className="grid gap-4 xl:grid-cols-2">
+      <section className="grid gap-3 sm:gap-4 xl:grid-cols-2">
         <ContractorsCard
           actions={{
             onAttachExisting: actions?.attachContractor,
@@ -504,7 +580,7 @@ function ProductionDetailsTab({
         />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-2">
+      <section className="grid gap-3 sm:gap-4 xl:grid-cols-2">
         <ProductionNotesCard
           actions={actions}
           notes={detail.notes?.internal ?? []}
@@ -555,30 +631,32 @@ function ProductionBuildDetailsCard({
 
   return (
     <Card data-testid="production-build-details-card" id="ui-build-details">
-      <CardHeader className="flex flex-row items-center justify-between p-5 pb-3">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 p-3 pb-2 sm:p-5 sm:pb-3">
         <CardTitle className="text-sm">Build Details</CardTitle>
-        <span className="text-[11px] text-muted-foreground">
+        <span className="shrink-0 text-[11px] text-muted-foreground">
           active_builds
         </span>
       </CardHeader>
-      <CardContent className="p-5 pt-0">
-        <dl className="grid grid-cols-[120px_minmax(0,1fr)] gap-y-1.5 text-sm">
+      <CardContent className="p-3 pt-0 sm:p-5 sm:pt-0">
+        <dl className="grid grid-cols-[minmax(0,1fr)] gap-y-1.5 text-sm sm:grid-cols-[120px_minmax(0,1fr)]">
           <Label>Loan number</Label>
-          <dd className="tabular-nums">
+          <dd className="min-w-0 break-words tabular-nums">
             FL-{detail.displayId ?? detail.build._id}
           </dd>
           <Label>Address</Label>
           <dd className="min-w-0 break-words">{detail.build.location}</dd>
           <Label>Project start</Label>
-          <dd>{formatDate(detail.build.startDate)}</dd>
+          <dd className="min-w-0 break-words">{formatDate(detail.build.startDate)}</dd>
           <Label>Roadmap end</Label>
-          <dd>{formatDate(addDaysSafe(detail.build.startDate, projection.maxDay))}</dd>
+          <dd className="min-w-0 break-words">
+            {formatDate(addDaysSafe(detail.build.startDate, projection.maxDay))}
+          </dd>
           <Label>% complete</Label>
-          <dd className="flex items-center gap-2">
+          <dd className="flex min-w-0 items-center gap-2">
             <span className="tabular-nums">{percentComplete}%</span>
             <span
               aria-hidden
-              className="h-1.5 w-24 overflow-hidden rounded-full bg-muted"
+              className="h-1.5 min-w-16 flex-1 overflow-hidden rounded-full bg-muted sm:w-24 sm:flex-none"
             >
               <span
                 className="block h-full bg-primary"
@@ -595,26 +673,32 @@ function ProductionBuildDetailsCard({
         </dl>
         <hr className="my-4 border-border" />
         <h3 className="mb-2 font-semibold text-sm">Loan Details</h3>
-        <dl className="grid grid-cols-[120px_1fr] gap-y-1.5 text-sm">
+        <dl className="grid grid-cols-[minmax(0,1fr)] gap-y-1.5 text-sm sm:grid-cols-[120px_1fr]">
           <Label>Working capital limit</Label>
-          <span>
+          <span className="min-w-0 break-words">
             {formatCents(
               detail.capitalPlan?.borrowerWorkingCapitalLimitCents ?? 0,
             )}
           </span>
           <Label>Lender policy limit</Label>
-          <span>
+          <span className="min-w-0 break-words">
             {formatCents(detail.capitalPlan?.lenderDrawPolicyLimitCents ?? 0)}
           </span>
           <Label>Approved principal</Label>
-          <span>{formatCents(detail.loanFacility?.principalCents ?? 0)}</span>
+          <span className="min-w-0 break-words">{formatCents(detail.loanFacility?.principalCents ?? 0)}</span>
+          <Label>Payback date</Label>
+          <span className="min-w-0 break-words">
+            {detail.loanFacility?.paybackDate
+              ? formatDate(detail.loanFacility.paybackDate)
+              : formatDate(addDaysSafe(detail.build.startDate, projection.maxDay))}
+          </span>
           <Label>Draw availability</Label>
-          <span>
+          <span className="min-w-0 break-words">
             {formatCents(drawAvailableCents)} of{" "}
             {formatCents(detail.build.totalBudgetCents)}
           </span>
           <Label>Drawn to date</Label>
-          <span>{formatCents(drawnCents)}</span>
+          <span className="min-w-0 break-words">{formatCents(drawnCents)}</span>
           <Label>Interest (annual)</Label>
           <span className="tabular-nums">
             {((detail.loanFacility?.interestAnnualBps ?? 0) / 100).toFixed(2)}%
@@ -629,7 +713,9 @@ function ProductionBuildDetailsCard({
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
-    <dt className="text-[11px] text-muted-foreground uppercase">{children}</dt>
+    <dt className="pt-1 text-[11px] text-muted-foreground uppercase sm:pt-0">
+      {children}
+    </dt>
   );
 }
 
@@ -663,15 +749,15 @@ function ProductionDrawsTable({
 
   return (
     <Card data-testid="build-detail-draws" id="draws-table">
-      <CardHeader className="flex flex-row items-center justify-between p-4">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 p-3 sm:p-4">
         <CardTitle className="text-sm">Draws</CardTitle>
-        <span className="text-[11px] text-muted-foreground">
+        <span className="shrink-0 text-right text-[11px] text-muted-foreground">
           planned_draw_schedule_rows
         </span>
       </CardHeader>
-      <CardContent className="p-4 pt-0">
+      <CardContent className="p-3 pt-0 sm:p-4 sm:pt-0">
         <div className="overflow-x-auto rounded-md border border-border">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[760px] text-sm">
             <thead className="bg-card/70 text-[10px] text-muted-foreground uppercase">
               <tr>
                 <Th>Draw</Th>
@@ -714,7 +800,7 @@ function ProductionDrawsTable({
                       <StatusChip status={draw.status} />
                     </Td>
                     <Td>
-                      <div className="flex flex-wrap gap-1">
+                      <div className="flex flex-wrap justify-end gap-1 sm:justify-start">
                         {draw.status === "planned" ||
                         draw.status === "rejected" ? (
                           <DrawActionButton
@@ -795,6 +881,231 @@ function DrawActionButton({
   );
 }
 
+function FacilityChangeRequestsCard({
+  actions,
+  detail,
+}: {
+  actions?: ProductionBuildDetailActions;
+  detail: ProductionBuildDetail;
+}) {
+  const [principalText, setPrincipalText] = useState(
+    String(Math.round((detail.loanFacility?.principalCents ?? 0) / 100)),
+  );
+  const [paybackDate, setPaybackDate] = useState(
+    detail.loanFacility?.paybackDate ?? detail.build.startDate,
+  );
+  const [reason, setReason] = useState("");
+  const [reviewNote, setReviewNote] = useState("");
+  const [pending, setPending] = useState("");
+  const [error, setError] = useState("");
+  const requests = detail.facilityChangeRequests ?? [];
+  const pendingRequests = requests.filter((request) => request.status === "requested");
+
+  const run = async (key: string, fn?: () => Promise<void> | void) => {
+    if (!fn || pending) return;
+    setPending(key);
+    setError("");
+    try {
+      await fn();
+      if (key.startsWith("request")) {
+        setReason("");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPending("");
+    }
+  };
+
+  const requestPrincipal = () =>
+    run("request-principal", () =>
+      actions?.requestFacilityChange?.({
+        reason: reason.trim() || undefined,
+        requestedPrincipalCents: Math.round(Number(principalText) * 100),
+        requestType: "principalIncrease",
+      }),
+    );
+  const requestPayback = () =>
+    run("request-payback", () =>
+      actions?.requestFacilityChange?.({
+        reason: reason.trim() || undefined,
+        requestedPaybackDate: paybackDate,
+        requestType: "paybackExtension",
+      }),
+    );
+  const review = (
+    request: ProductionFacilityChangeRequest,
+    status: "approved" | "rejected",
+  ) =>
+    run(`${status}-${request._id}`, () =>
+      actions?.reviewFacilityChangeRequest?.({
+        note: reviewNote.trim() || undefined,
+        requestId: request._id,
+        status,
+      }),
+    );
+
+  return (
+    <Card data-testid="facility-change-requests">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 p-3 sm:p-4">
+        <div>
+          <CardTitle className="text-sm">Capital and term requests</CardTitle>
+          <p className="mt-1 text-muted-foreground text-xs">
+            Builder requests for principal increases and payback extensions.
+          </p>
+        </div>
+        <Badge variant={pendingRequests.length > 0 ? "default" : "outline"}>
+          {pendingRequests.length} pending
+        </Badge>
+      </CardHeader>
+      <CardContent className="grid gap-3 p-3 pt-0 sm:p-4 sm:pt-0 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <div className="rounded-md border border-border bg-background/40 p-3">
+          <dl className="grid gap-2 text-sm sm:grid-cols-[130px_1fr]">
+            <Label>Current principal</Label>
+            <dd className="font-medium tabular-nums">
+              {formatCents(detail.loanFacility?.principalCents ?? 0)}
+            </dd>
+            <Label>Current payback</Label>
+            <dd className="font-medium">
+              {detail.loanFacility?.paybackDate
+                ? formatDate(detail.loanFacility.paybackDate)
+                : "Not set"}
+            </dd>
+          </dl>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            <label className="grid gap-1 text-xs">
+              <span className="font-medium">Requested principal</span>
+              <input
+                className="rounded-md border border-border bg-background px-2 py-2 tabular-nums"
+                data-testid="facility-principal-input"
+                min={0}
+                onChange={(event) => setPrincipalText(event.target.value)}
+                step={5000}
+                type="number"
+                value={principalText}
+              />
+            </label>
+            <label className="grid gap-1 text-xs">
+              <span className="font-medium">Requested payback date</span>
+              <input
+                className="rounded-md border border-border bg-background px-2 py-2"
+                data-testid="facility-payback-input"
+                onChange={(event) => setPaybackDate(event.target.value)}
+                type="date"
+                value={paybackDate}
+              />
+            </label>
+          </div>
+          <textarea
+            className="mt-2 min-h-[64px] w-full rounded-md border border-border bg-background p-2 text-xs"
+            data-testid="facility-change-reason"
+            onChange={(event) => setReason(event.target.value)}
+            placeholder="Reason for the request"
+            value={reason}
+          />
+          <div className="mt-2 flex flex-wrap gap-2">
+            <DrawActionButton
+              disabled={!actions?.requestFacilityChange || Boolean(pending)}
+              label={pending === "request-principal" ? "Requesting..." : "Request principal"}
+              onClick={requestPrincipal}
+              testId="facility-request-principal"
+            />
+            <DrawActionButton
+              disabled={!actions?.requestFacilityChange || Boolean(pending)}
+              label={pending === "request-payback" ? "Requesting..." : "Request extension"}
+              onClick={requestPayback}
+              testId="facility-request-payback"
+            />
+          </div>
+        </div>
+        <div className="rounded-md border border-border bg-background/40 p-3">
+          <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <p className="font-medium text-sm">Review queue</p>
+            <input
+              className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+              data-testid="facility-review-note"
+              onChange={(event) => setReviewNote(event.target.value)}
+              placeholder="Review note"
+              value={reviewNote}
+            />
+          </div>
+          {requests.length === 0 ? (
+            <p className="rounded-md border border-dashed border-border p-3 text-muted-foreground text-xs">
+              No capital or term requests have been submitted.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {requests.slice(0, 5).map((request) => (
+                <li
+                  className="rounded-md border border-border bg-card/50 p-2 text-xs"
+                  data-testid={`facility-change-request-${request._id}`}
+                  key={request._id}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="font-medium">
+                        {facilityRequestLabel(request)}
+                      </p>
+                      <p className="text-muted-foreground">
+                        {formatDate(request.createdAt)} by{" "}
+                        {request.requestedByWorkosUserId}
+                      </p>
+                    </div>
+                    <StatusPill status={request.status} />
+                  </div>
+                  {request.reason ? (
+                    <p className="mt-2 text-muted-foreground">{request.reason}</p>
+                  ) : null}
+                  {request.status === "requested" ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <DrawActionButton
+                        disabled={!actions?.reviewFacilityChangeRequest || Boolean(pending)}
+                        label="Approve"
+                        onClick={() => review(request, "approved")}
+                        testId={`facility-approve-${request._id}`}
+                      />
+                      <DrawActionButton
+                        disabled={!actions?.reviewFacilityChangeRequest || Boolean(pending)}
+                        label="Deny"
+                        onClick={() => review(request, "rejected")}
+                        testId={`facility-deny-${request._id}`}
+                      />
+                    </div>
+                  ) : request.reviewNote ? (
+                    <p className="mt-2 text-muted-foreground">
+                      Review: {request.reviewNote}
+                    </p>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+          {error ? (
+            <p className="mt-2 text-[11px] text-destructive" role="alert">
+              {error}
+            </p>
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function facilityRequestLabel(request: ProductionFacilityChangeRequest) {
+  if (request.requestType === "principalIncrease") {
+    return `Principal increase to ${formatCents(
+      request.requestedPayload.requestedPrincipalCents ?? 0,
+    )}`;
+  }
+  return `Payback extension to ${formatDate(
+    request.requestedPayload.requestedPaybackDate ?? "",
+  )}`;
+}
+
+function StatusPill({ status }: { status: string }) {
+  return <Badge variant={status === "approved" ? "default" : "outline"}>{status}</Badge>;
+}
+
 function Th({ children }: { children: React.ReactNode }) {
   return <th className="px-3 py-2 text-left font-medium">{children}</th>;
 }
@@ -844,13 +1155,13 @@ function ProductionDocumentsCard({
 
   return (
     <Card data-testid="build-detail-documents" id="documents">
-      <CardHeader className="flex flex-row items-center justify-between p-4">
+      <CardHeader className="flex flex-row items-center justify-between p-3 sm:p-4">
         <CardTitle className="text-sm">Documents</CardTitle>
         <span className="text-[11px] text-muted-foreground tabular-nums">
           {documents.length}
         </span>
       </CardHeader>
-      <CardContent className="p-4 pt-0">
+      <CardContent className="p-3 pt-0 sm:p-4 sm:pt-0">
         <div
           className="mb-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_120px_auto]"
           data-testid="documents-add-form"
@@ -877,7 +1188,7 @@ function ProductionDocumentsCard({
             ))}
           </select>
           <button
-            className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground text-sm disabled:opacity-50"
+            className="rounded-md bg-primary px-3 py-2 font-medium text-primary-foreground text-sm disabled:opacity-50 md:py-1.5"
             data-testid="documents-add"
             disabled={!name.trim() || !actions?.addDocument || pending}
             onClick={onAdd}
@@ -895,14 +1206,14 @@ function ProductionDocumentsCard({
           <ul className="space-y-1">
             {documents.map((document) => (
               <li
-                className="flex items-center justify-between rounded-md border border-border bg-background/40 p-2 text-sm"
+                className="flex flex-col items-start gap-1 rounded-md border border-border bg-background/40 p-2 text-sm sm:flex-row sm:items-center sm:justify-between"
                 data-testid={`build-detail-document-${document._id}`}
                 key={document._id}
               >
                 <span className="truncate">
                   {document.name ?? document.fileName}
                 </span>
-                <span className="ml-2 shrink-0 text-[11px] text-muted-foreground">
+                <span className="shrink-0 text-[11px] text-muted-foreground sm:ml-2">
                   {document.kind ?? document.documentType}
                   {document.sizeBytes
                     ? ` - ${Math.round(document.sizeBytes / 1024)}KB`
@@ -948,13 +1259,13 @@ function ProductionNotesCard({
 
   return (
     <Card className={`border-2 ${accent}`} data-testid={testIdPrefix}>
-      <CardHeader className="flex flex-row items-center justify-between p-4">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 p-3 sm:p-4">
         <CardTitle className="text-sm">{title}</CardTitle>
-        <span className="text-[11px] text-muted-foreground">
+        <span className="shrink-0 text-right text-[11px] text-muted-foreground">
           {variant === "internal" ? "Lender-only" : "Borrower-visible"}
         </span>
       </CardHeader>
-      <CardContent className="p-4 pt-0">
+      <CardContent className="p-3 pt-0 sm:p-4 sm:pt-0">
         <div className="min-h-[120px] rounded-md border border-border bg-background/40 p-3">
           {notes.length === 0 ? (
             <p className="text-muted-foreground text-xs">No notes yet.</p>
@@ -971,7 +1282,7 @@ function ProductionNotesCard({
             </ul>
           )}
         </div>
-        <div className="mt-3 flex gap-2">
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
           <textarea
             className="min-h-[56px] flex-1 rounded-md border border-border bg-background/40 p-2 text-xs"
             data-testid={`${testIdPrefix}-input`}
@@ -980,7 +1291,7 @@ function ProductionNotesCard({
             value={draft}
           />
           <button
-            className="self-start rounded-md border border-border bg-card px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50"
+            className="rounded-md border border-border bg-card px-3 py-2 text-xs hover:bg-accent disabled:opacity-50 sm:self-start sm:py-1.5"
             data-testid={`${testIdPrefix}-save`}
             disabled={!draft.trim() || !actions?.addNote || pending}
             onClick={onSave}
