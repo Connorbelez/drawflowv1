@@ -23,15 +23,38 @@ import appCss from "../styles.css?url";
 interface RouterContext {
   convexClient: ConvexReactClient;
   convexQueryClient: ConvexQueryClient;
+  organizationId?: string | null;
+  permissions?: string[];
   queryClient: QueryClient;
+  role?: string | null;
+  roles?: string[];
+  token?: string | null;
+  userId?: string | null;
 }
 
 const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);root.style.colorScheme=resolved;}catch(e){}})();`;
 
 const fetchWorkosAuth = createServerFn({ method: "GET" }).handler(async () => {
   const auth = await getAuth();
+  const authPayload = {
+    featureFlagCount: auth.user ? (auth.featureFlags ?? []).length : 0,
+    impersonatorPresent: Boolean(auth.user && auth.impersonator),
+    organizationId: auth.user ? (auth.organizationId ?? null) : null,
+    permissionCount: auth.user ? (auth.permissions ?? []).length : 0,
+    role: auth.user ? (auth.role ?? null) : null,
+    roleCount: auth.user ? (auth.roles ?? []).length : 0,
+    sessionPresent: Boolean(auth.user && auth.sessionId),
+    tokenPresent: Boolean(auth.user && auth.accessToken),
+    userPresent: Boolean(auth.user),
+  };
+
+  logAuthDebug("getAuth payload", authPayload);
 
   return {
+    organizationId: authPayload.organizationId,
+    permissions: auth.user ? (auth.permissions ?? []) : [],
+    role: authPayload.role,
+    roles: auth.user ? (auth.roles ?? []) : [],
     token: auth.user ? auth.accessToken : null,
     userId: auth.user?.id ?? null,
   };
@@ -39,13 +62,25 @@ const fetchWorkosAuth = createServerFn({ method: "GET" }).handler(async () => {
 
 export const Route = createRootRouteWithContext<RouterContext>()({
   beforeLoad: async (ctx) => {
-    const { token, userId } = await fetchWorkosAuth();
+    const auth = await fetchWorkosAuth();
+    const { token } = auth;
 
     if (token) {
       ctx.context.convexQueryClient.serverHttpClient?.setAuth(token);
+    } else {
+      ctx.context.convexQueryClient.serverHttpClient?.clearAuth();
     }
 
-    return { token, userId };
+    logAuthDebug("root beforeLoad context payload", {
+      organizationId: auth.organizationId,
+      permissionCount: auth.permissions.length,
+      role: auth.role,
+      roleCount: auth.roles.length,
+      tokenPresent: Boolean(auth.token),
+      userPresent: Boolean(auth.userId),
+    });
+
+    return auth;
   },
   head: () => ({
     meta: [
@@ -70,6 +105,26 @@ export const Route = createRootRouteWithContext<RouterContext>()({
   notFoundComponent: RootNotFound,
   shellComponent: RootDocument,
 });
+
+interface AuthDebugPayload {
+  featureFlagCount?: number;
+  impersonatorPresent?: boolean;
+  organizationId?: string | null;
+  permissionCount?: number;
+  role?: string | null;
+  roleCount?: number;
+  sessionPresent?: boolean;
+  tokenPresent?: boolean;
+  userPresent?: boolean;
+}
+
+function logAuthDebug(label: string, payload: AuthDebugPayload) {
+  if (import.meta.env.PROD) {
+    return;
+  }
+
+  console.info(`[drawflow:auth] ${label}`, payload);
+}
 
 interface RootDocumentProps {
   children: ReactNode;

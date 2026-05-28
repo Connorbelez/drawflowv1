@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 
+import { demoBuildAddress } from "./demo_build_address";
 import {
   publicMutation,
   publicQuery,
@@ -166,6 +167,7 @@ interface BuildDetailViewModel {
   eventOutbox: DemoEventOutboxEntry[];
   quickActionEvents: DemoEventOutboxEntry[];
   auditEvents: DemoAuditEvent[];
+  address: string;
   derived: {
     approvedPrincipalCents: number;
     drawAvailableCents: number;
@@ -219,6 +221,28 @@ function daysBetween(start: string, end: string): number {
   const b = Date.parse(end);
   if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
   return Math.max(0, Math.round((b - a) / 86_400_000));
+}
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function assertIsoDate(field: string, value: string): string {
+  const trimmed = value.trim();
+  if (!ISO_DATE_RE.test(trimmed)) {
+    throw new Error(`${field} must use YYYY-MM-DD format.`);
+  }
+  const parsed = Date.parse(trimmed);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`${field} is not a valid calendar date.`);
+  }
+  return trimmed;
+}
+
+function addDaysToIsoDate(isoDate: string, days: number): string {
+  const parsed = Date.parse(isoDate);
+  if (!Number.isFinite(parsed)) {
+    throw new Error("Base date is not valid.");
+  }
+  return new Date(parsed + days * 86_400_000).toISOString().slice(0, 10);
 }
 
 export const demo_getBuildDetailViewModel = publicQuery
@@ -475,7 +499,7 @@ export const demo_getBuildDetailViewModel = publicQuery
     const daysToPayoff = daysBetween(build.todayDate, build.payoffDate);
 
     const milestoneCount = milestones.length || 1;
-    const percentComplete = Math.round(
+    const calculatedPercentComplete = Math.round(
       centsSum(
         milestones,
         (m) => m.progressPercent * Math.max(1, m.approvedValueCents),
@@ -485,16 +509,24 @@ export const demo_getBuildDetailViewModel = publicQuery
           centsSum(milestones, (m) => Math.max(1, m.approvedValueCents)),
         ),
     );
-    const openWarnings = milestones.filter(
+    const calculatedOpenWarnings = milestones.filter(
       (m) =>
         m.status === "review" ||
         m.evidenceReviewStatus === "submitted" ||
         m.evidenceReviewStatus === "rejected",
     ).length;
-    const siteVisitsOpen = Array.from(visitByMilestone.values()).filter(
+    const calculatedSiteVisitsOpen = Array.from(
+      visitByMilestone.values(),
+    ).filter(
       (visit) =>
         visit.status === "unopened" || visit.status === "in_progress",
     ).length;
+    const percentComplete =
+      build.detailOverrides?.percentComplete ?? calculatedPercentComplete;
+    const openWarnings =
+      build.detailOverrides?.openWarnings ?? calculatedOpenWarnings;
+    const siteVisitsOpen =
+      build.detailOverrides?.siteVisitsOpen ?? calculatedSiteVisitsOpen;
 
     // Notes split
     const noteSplit: BuildDetailViewModel["notes"] = {
@@ -596,6 +628,7 @@ export const demo_getBuildDetailViewModel = publicQuery
     const vm: BuildDetailViewModel = {
       buildId,
       displayId: buildDisplayId(build),
+      address: demoBuildAddress(build),
       build,
       milestones,
       drawGroups,
@@ -658,6 +691,144 @@ export const demo_resolveBuildIdByKey = publicQuery
 // -----------------------------------------------------------------------------
 // Mutations
 // -----------------------------------------------------------------------------
+
+export const demo_updateBuildDetails = publicMutation
+  .use(withMutationTiming("demo_drawflow_backoffice.updateBuildDetails"))
+  .input({
+    buildId: v.id("demo_builds"),
+    address: v.optional(v.string()),
+    projectStartDate: v.optional(v.string()),
+    payoffDate: v.optional(v.string()),
+    todayDate: v.optional(v.string()),
+    daysToPayoff: v.optional(v.number()),
+    percentComplete: v.optional(v.number()),
+    openWarnings: v.optional(v.number()),
+    siteVisitsOpen: v.optional(v.number()),
+  })
+  .returns(
+    v.object({
+      address: v.string(),
+      projectStartDate: v.string(),
+      payoffDate: v.string(),
+      todayDate: v.string(),
+      daysToPayoff: v.number(),
+      percentComplete: v.number(),
+      openWarnings: v.number(),
+      siteVisitsOpen: v.number(),
+    }),
+  )
+  .handler(async (ctx, args) => {
+    const build = await ctx.db.get(args.buildId);
+    if (!build) {
+      throw new Error(`Build ${args.buildId} not found`);
+    }
+
+    const patch: Partial<DemoBuild> & { updatedAt: number } = {
+      updatedAt: Date.now(),
+    };
+
+    if (args.address !== undefined) {
+      const trimmed = args.address.trim();
+      if (!trimmed) {
+        throw new Error("Address cannot be empty.");
+      }
+      patch.address = trimmed;
+    }
+    if (args.projectStartDate !== undefined) {
+      patch.projectStartDate = assertIsoDate(
+        "Project start",
+        args.projectStartDate,
+      );
+    }
+    if (args.todayDate !== undefined) {
+      patch.todayDate = assertIsoDate("Today", args.todayDate);
+    }
+    if (args.payoffDate !== undefined) {
+      patch.payoffDate = assertIsoDate("Payoff", args.payoffDate);
+    }
+    if (args.daysToPayoff !== undefined) {
+      const todayDate = patch.todayDate ?? build.todayDate;
+      const boundedDays = Math.max(0, Math.round(args.daysToPayoff));
+      patch.payoffDate = addDaysToIsoDate(todayDate, boundedDays);
+    }
+
+    const detailOverrides = { ...(build.detailOverrides ?? {}) };
+    let detailOverridesTouched = false;
+    if (args.percentComplete !== undefined) {
+      detailOverrides.percentComplete = Math.min(
+        100,
+        Math.max(0, Math.round(args.percentComplete)),
+      );
+      detailOverridesTouched = true;
+    }
+    if (args.openWarnings !== undefined) {
+      detailOverrides.openWarnings = Math.max(0, Math.round(args.openWarnings));
+      detailOverridesTouched = true;
+    }
+    if (args.siteVisitsOpen !== undefined) {
+      detailOverrides.siteVisitsOpen = Math.max(
+        0,
+        Math.round(args.siteVisitsOpen),
+      );
+      detailOverridesTouched = true;
+    }
+    if (detailOverridesTouched) {
+      patch.detailOverrides = detailOverrides;
+    }
+
+    await ctx.db.patch(args.buildId, patch);
+    const updated = await ctx.db.get(args.buildId);
+    if (!updated) {
+      throw new Error(`Build ${args.buildId} not found after update`);
+    }
+
+    const refreshedMilestones = await ctx.db
+      .query("demo_milestones")
+      .withIndex("by_build_order", (q) => q.eq("buildId", args.buildId))
+      .collect();
+    const refreshedVisits = (
+      await ctx.db
+        .query("demo_siteVisits")
+        .withIndex("by_scenario", (q) => q.eq("scenario", updated.scenario))
+        .collect()
+    ).filter((visit) => visit.buildId === args.buildId);
+
+    const calculatedPercentComplete = Math.round(
+      centsSum(
+        refreshedMilestones,
+        (m) => m.progressPercent * Math.max(1, m.approvedValueCents),
+      ) /
+        Math.max(
+          1,
+          centsSum(refreshedMilestones, (m) => Math.max(1, m.approvedValueCents)),
+        ),
+    );
+    const calculatedOpenWarnings = refreshedMilestones.filter(
+      (m) =>
+        m.status === "review" ||
+        m.evidenceReviewStatus === "submitted" ||
+        m.evidenceReviewStatus === "rejected",
+    ).length;
+    const calculatedSiteVisitsOpen = refreshedVisits.filter(
+      (visit) =>
+        visit.status === "unopened" || visit.status === "in_progress",
+    ).length;
+
+    return {
+      address: demoBuildAddress(updated),
+      projectStartDate: updated.projectStartDate,
+      payoffDate: updated.payoffDate,
+      todayDate: updated.todayDate,
+      daysToPayoff: daysBetween(updated.todayDate, updated.payoffDate),
+      percentComplete:
+        updated.detailOverrides?.percentComplete ?? calculatedPercentComplete,
+      openWarnings:
+        updated.detailOverrides?.openWarnings ?? calculatedOpenWarnings,
+      siteVisitsOpen:
+        updated.detailOverrides?.siteVisitsOpen ?? calculatedSiteVisitsOpen,
+    };
+  })
+  .public();
 
 interface ApproveDrawAuditMeta {
   buildId: Id<"demo_builds">;

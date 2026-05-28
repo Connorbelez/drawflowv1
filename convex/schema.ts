@@ -210,6 +210,14 @@ export default defineSchema({
     .index("by_milestone", ["scenario", "milestoneKey"])
     .index("by_draw_group", ["scenario", "drawGroupKey"]),
   demo_builds: defineTable({
+    address: v.optional(v.string()),
+    detailOverrides: v.optional(
+      v.object({
+        openWarnings: v.optional(v.number()),
+        percentComplete: v.optional(v.number()),
+        siteVisitsOpen: v.optional(v.number()),
+      })
+    ),
     borrowerCoPayBps: v.optional(v.number()),
     borrowerCoPayCents: v.optional(v.number()),
     flatDrawFeeCents: v.number(),
@@ -1166,5 +1174,102 @@ export default defineSchema({
     authId: v.string(),
     email: v.string(),
     name: v.string(),
-  }).index("authId", ["authId"]),
+    status: v.optional(v.union(v.literal("active"), v.literal("deleted"))),
+    workosUserId: v.optional(v.string()),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
+    emailVerified: v.optional(v.boolean()),
+    profilePictureUrl: v.optional(v.string()),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+    deletedAt: v.optional(v.number()),
+    sourceEventId: v.optional(v.string()),
+    sourceEventType: v.optional(v.string()),
+  })
+    .index("authId", ["authId"])
+    .index("by_workos_user_id", ["workosUserId"]),
+  workosOrganizations: defineTable({
+    workosOrganizationId: v.string(),
+    name: v.string(),
+    status: v.union(v.literal("active"), v.literal("deleted")),
+    domains: v.array(v.any()),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+    deletedAt: v.optional(v.number()),
+    sourceEventId: v.string(),
+    sourceEventType: v.string(),
+  }).index("by_workos_organization_id", ["workosOrganizationId"]),
+  workosOrganizationMemberships: defineTable({
+    workosMembershipId: v.string(),
+    workosUserId: v.string(),
+    workosOrganizationId: v.string(),
+    status: v.union(
+      v.literal("active"),
+      v.literal("inactive"),
+      v.literal("pending"),
+      v.literal("deleted")
+    ),
+    roleSlug: v.optional(v.string()),
+    roleSlugs: v.array(v.string()),
+    directoryManaged: v.optional(v.boolean()),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+    deletedAt: v.optional(v.number()),
+    sourceEventId: v.string(),
+    sourceEventType: v.string(),
+  })
+    .index("by_workos_membership_id", ["workosMembershipId"])
+    .index("by_user", ["workosUserId"])
+    .index("by_organization", ["workosOrganizationId"]),
+  workosRoles: defineTable({
+    slug: v.string(),
+    resourceTypeSlug: v.optional(v.string()),
+    permissionSlugs: v.array(v.string()),
+    status: v.union(v.literal("active"), v.literal("deleted")),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+    deletedAt: v.optional(v.number()),
+    sourceEventId: v.string(),
+    sourceEventType: v.string(),
+  }).index("by_slug", ["slug"]),
+  workosOrganizationRoles: defineTable({
+    workosOrganizationId: v.string(),
+    slug: v.string(),
+    name: v.string(),
+    description: v.optional(v.string()),
+    resourceTypeSlug: v.optional(v.string()),
+    permissionSlugs: v.array(v.string()),
+    status: v.union(v.literal("active"), v.literal("deleted")),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+    deletedAt: v.optional(v.number()),
+    sourceEventId: v.string(),
+    sourceEventType: v.string(),
+  }).index("by_organization_slug", ["workosOrganizationId", "slug"]),
+  workosPermissions: defineTable({
+    workosPermissionId: v.optional(v.string()),
+    slug: v.string(),
+    name: v.string(),
+    description: v.optional(v.string()),
+    system: v.optional(v.boolean()),
+    status: v.union(v.literal("active"), v.literal("deleted")),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+    deletedAt: v.optional(v.number()),
+    sourceEventId: v.string(),
+    sourceEventType: v.string(),
+  }).index("by_slug", ["slug"]),
+  workosWebhookReceipts: defineTable({
+    eventId: v.string(),
+    eventType: v.string(),
+    workosCreatedAt: v.optional(v.number()),
+    status: v.union(
+      v.literal("processing"),
+      v.literal("processed"),
+      v.literal("failed"),
+      v.literal("skipped")
+    ),
+    processedAt: v.optional(v.number()),
+    error: v.optional(v.string()),
+  }).index("by_event_id", ["eventId"]),
 });

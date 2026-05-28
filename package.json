@@ -35,6 +35,7 @@
     "@tiptap/starter-kit": "^3.22.5",
     "@tiptap/suggestion": "^3.22.5",
     "@uidotdev/usehooks": "^2.4.1",
+    "@workos-inc/node": "^9.3.1",
     "@workos/authkit-tanstack-react-start": "^0.8.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

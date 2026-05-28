@@ -45,7 +45,12 @@ import "./-timeline-setup-flow.css";
 const DEFAULT_SETUP_BUDGET_TEXT = "$1,250,000";
 const DEFAULT_SETUP_CASH_TEXT = "$400,000";
 const DEFAULT_SETUP_CO_PAY_TEXT = "20%";
-const DEFAULT_SETUP_ADDRESS = "Hamilton, ON";
+export const DEFAULT_SETUP_ADDRESS = "Hamilton, ON";
+
+export function resolveTimelineSetupAddress(value: string): string {
+  const trimmed = value.trim();
+  return trimmed || DEFAULT_SETUP_ADDRESS;
+}
 const GENERATED_TIMELINE_CURRENT_DAY = 0;
 const DEFAULT_HANDOFF_GAP_DAYS = 5;
 const DEFAULT_GENERATED_DRAW_OFFSET_DAYS = 2;
@@ -512,6 +517,7 @@ export interface TimelineSetupResult {
   currentDay: number;
   includedCount: number;
   items: TimelineItem<DemoMilestone>[];
+  projectAddress: string;
   redirectToDurableRoute: boolean;
   reimbursableBudgetCents: number;
   reimbursementBps: number;
@@ -1538,6 +1544,7 @@ function BudgetStep({
   onCascadeBudgetEditsChange,
   onComplete,
   onRowsChange,
+  projectAddress,
   rows,
   targetBudgetCents,
   templateTitle,
@@ -1549,6 +1556,7 @@ function BudgetStep({
   onCascadeBudgetEditsChange: (enabled: boolean) => void;
   onComplete: (options: { redirectToDurableRoute: boolean }) => void;
   onRowsChange: (rows: TimelineSetupMilestoneRow[]) => void;
+  projectAddress: string;
   rows: TimelineSetupMilestoneRow[];
   targetBudgetCents: number;
   templateTitle: string;
@@ -1564,6 +1572,7 @@ function BudgetStep({
       onCascadeBudgetEditsChange={onCascadeBudgetEditsChange}
       onComplete={onComplete}
       onRowsChange={onRowsChange}
+      projectAddress={projectAddress}
       rows={rows}
       showHeading
       targetBudgetCents={targetBudgetCents}
@@ -1791,6 +1800,7 @@ export function TimelineSetupFlow({
       currentDay: GENERATED_TIMELINE_CURRENT_DAY,
       includedCount: items.length,
       items,
+      projectAddress: resolveTimelineSetupAddress(projectAddress),
       redirectToDurableRoute,
       reimbursableBudgetCents,
       reimbursementBps,
@@ -1876,6 +1886,7 @@ export function TimelineSetupFlow({
               setRows(nextRows);
               setError("");
             }}
+            projectAddress={projectAddress}
             rows={rows}
             targetBudgetCents={validCurrencyCents(budgetText)}
             templateTitle={selectedTemplate?.title ?? "Timeline plan"}

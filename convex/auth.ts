@@ -1,56 +1,99 @@
-import { AuthKit } from '@convex-dev/workos-authkit'
-import { components } from './_generated/api'
-import type { DataModel } from './_generated/dataModel'
+import { AuthKit, type AuthFunctions } from "@convex-dev/workos-authkit";
 
-export const authKit = new AuthKit<DataModel>(components.workOSAuthKit)
+import { components, internal } from "./_generated/api";
+import type { DataModel } from "./_generated/dataModel";
+import { processWorkosEvent } from "./workosProjection";
 
-// // convex/auth.ts
-// import { AuthKit, type AuthFunctions } from "@convex-dev/workos-authkit";
-// import { components, internal } from "./_generated/api";
-// import type { DataModel } from "./_generated/dataModel";
-//
-// const authFunctions: AuthFunctions = internal.auth;
-//
-// const authKit = new AuthKit<DataModel>(components.workOSAuthKit, {
-//   authFunctions,
-// });
+const additionalEventTypes = [
+  "organization_membership.created",
+  "organization_membership.updated",
+  "organization_membership.deleted",
+  "role.created",
+  "role.updated",
+  "role.deleted",
+  "organization_role.created",
+  "organization_role.updated",
+  "organization_role.deleted",
+  "permission.created",
+  "permission.updated",
+  "permission.deleted",
+  "organization.created",
+  "organization.updated",
+  "organization.deleted",
+] as const;
+
+const authFunctions: AuthFunctions = internal.auth;
+
+function requireWorkosEnv(name: string): string {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    throw new Error(`${name} is required`);
+  }
+  return value;
+}
+
+export const authKit = new AuthKit<DataModel>(components.workOSAuthKit, {
+  actionSecret: requireWorkosEnv("WORKOS_ACTION_SECRET"),
+  apiKey: requireWorkosEnv("WORKOS_API_KEY"),
+  clientId: requireWorkosEnv("WORKOS_CLIENT_ID"),
+  webhookSecret: requireWorkosEnv("WORKOS_WEBHOOK_SECRET"),
+  additionalEventTypes: [...additionalEventTypes],
+  authFunctions,
+});
 
 export const { authKitEvent } = authKit.events({
   "user.created": async (ctx, event) => {
-    await ctx.db.insert("users", {
-      authId: event.data.id,
-      email: event.data.email,
-      name: `${event.data.firstName} ${event.data.lastName}`,
-    });
+    await processWorkosEvent(ctx, event);
   },
   "user.updated": async (ctx, event) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("authId", (q) => q.eq("authId", event.data.id))
-      .unique();
-    if (!user) {
-      console.warn(`User not found: ${event.data.id}`);
-      return;
-    }
-    await ctx.db.patch(user._id, {
-      email: event.data.email,
-      name: `${event.data.firstName} ${event.data.lastName}`,
-    });
+    await processWorkosEvent(ctx, event);
   },
   "user.deleted": async (ctx, event) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("authId", (q) => q.eq("authId", event.data.id))
-      .unique();
-    if (!user) {
-      console.warn(`User not found: ${event.data.id}`);
-      return;
-    }
-    await ctx.db.delete(user._id);
+    await processWorkosEvent(ctx, event);
   },
-
-  // Handle any event type
-  "session.created": async (ctx, event) => {
-    console.log("onCreateSession", event);
+  "organization_membership.created": async (ctx, event) => {
+    await processWorkosEvent(ctx, event);
+  },
+  "organization_membership.updated": async (ctx, event) => {
+    await processWorkosEvent(ctx, event);
+  },
+  "organization_membership.deleted": async (ctx, event) => {
+    await processWorkosEvent(ctx, event);
+  },
+  "role.created": async (ctx, event) => {
+    await processWorkosEvent(ctx, event);
+  },
+  "role.updated": async (ctx, event) => {
+    await processWorkosEvent(ctx, event);
+  },
+  "role.deleted": async (ctx, event) => {
+    await processWorkosEvent(ctx, event);
+  },
+  "organization_role.created": async (ctx, event) => {
+    await processWorkosEvent(ctx, event);
+  },
+  "organization_role.updated": async (ctx, event) => {
+    await processWorkosEvent(ctx, event);
+  },
+  "organization_role.deleted": async (ctx, event) => {
+    await processWorkosEvent(ctx, event);
+  },
+  "permission.created": async (ctx, event) => {
+    await processWorkosEvent(ctx, event);
+  },
+  "permission.updated": async (ctx, event) => {
+    await processWorkosEvent(ctx, event);
+  },
+  "permission.deleted": async (ctx, event) => {
+    await processWorkosEvent(ctx, event);
+  },
+  "organization.created": async (ctx, event) => {
+    await processWorkosEvent(ctx, event);
+  },
+  "organization.updated": async (ctx, event) => {
+    await processWorkosEvent(ctx, event);
+  },
+  "organization.deleted": async (ctx, event) => {
+    await processWorkosEvent(ctx, event);
   },
 });

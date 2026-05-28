@@ -23,6 +23,44 @@ export function formatDate(date?: string | number): string {
   return d.toISOString().slice(0, 10);
 }
 
+export function formatBuildAddress(build: {
+  address?: string;
+  subtitle: string;
+}): string {
+  const stored = build.address?.trim();
+  if (stored) {
+    return stored;
+  }
+  const location = build.subtitle.match(/·\s*([^·]+?)\s*·/)?.[1]?.trim();
+  return location ? `Mock address - ${location}` : "Mock address - demo build";
+}
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function normalizeIsoDateInput(
+  fieldLabel: string,
+  value: string,
+  fallback: string,
+): string {
+  const trimmed = value.trim();
+  if (!ISO_DATE_RE.test(trimmed)) {
+    throw new Error(`${fieldLabel} must use YYYY-MM-DD format.`);
+  }
+  const parsed = Date.parse(trimmed);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`${fieldLabel} is not a valid calendar date.`);
+  }
+  return trimmed;
+}
+
+export function addDaysToIsoDate(isoDate: string, days: number): string {
+  const parsed = Date.parse(isoDate);
+  if (!Number.isFinite(parsed)) {
+    throw new Error("Base date is not valid.");
+  }
+  return new Date(parsed + days * 86_400_000).toISOString().slice(0, 10);
+}
+
 export function formatRelative(ms: number): string {
   const delta = Date.now() - ms;
   if (delta < 0) return "just now";

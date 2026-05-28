@@ -1151,6 +1151,7 @@ export const demo_createTimelinePlanFromSetup = publicMutation
     const proposalSlug = await generateUniqueProposalSlug(ctx);
     const buildKey = `demo-timeline-${proposalSlug}`;
     const buildId = await ctx.db.insert("demo_builds", {
+      address: args.address.trim() || undefined,
       borrowerCoPayBps,
       borrowerCoPayCents,
       flatDrawFeeCents: DEFAULT_FLAT_DRAW_FEE_CENTS,

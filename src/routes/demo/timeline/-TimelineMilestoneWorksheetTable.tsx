@@ -179,6 +179,7 @@ export function TimelineMilestoneWorksheetTable({
   onComplete,
   onReset,
   onRowsChange,
+  projectAddress,
   rows,
   showHeading = false,
   targetBudgetCents,
@@ -196,6 +197,7 @@ export function TimelineMilestoneWorksheetTable({
   onComplete?: (options: { redirectToDurableRoute: boolean }) => void;
   onReset?: () => void;
   onRowsChange: (rows: TimelineMilestoneWorksheetRow[]) => void;
+  projectAddress?: string;
   rows: TimelineMilestoneWorksheetRow[];
   showHeading?: boolean;
   targetBudgetCents?: number;
@@ -465,6 +467,11 @@ export function TimelineMilestoneWorksheetTable({
           <div>
             <span>Project milestones</span>
             <h1>{templateTitle}</h1>
+            {projectAddress?.trim() ? (
+              <p className="timeline-blueprint-heading-address">
+                {projectAddress.trim()}
+              </p>
+            ) : null}
           </div>
           <div className="timeline-blueprint-heading-meta">
             <span>Table variation 03</span>

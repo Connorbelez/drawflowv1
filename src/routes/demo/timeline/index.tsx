@@ -557,6 +557,7 @@ export interface TimelineDemoWorkspaceProps {
   initialState?: TimelineShareState;
   modificationRequests?: TimelineModificationRequestView[];
   planSummary?: {
+    address?: string;
     includedCount: number;
     templateTitle: string;
     totalBudget: number;
@@ -837,6 +838,7 @@ export function TimelineDemoWorkspace({
     setModificationRequests(initialModificationRequests);
   }, [initialModificationRequests]);
   const [timelinePlanSummary, setTimelinePlanSummary] = useState({
+    address: planSummary?.address,
     includedCount: planSummary?.includedCount ?? INITIAL_ITEMS.length,
     templateTitle: planSummary?.templateTitle ?? "Elm Street build",
     totalBudget: planSummary?.totalBudget ?? INITIAL_TOTAL_BUDGET,
@@ -1040,6 +1042,7 @@ export function TimelineDemoWorkspace({
       };
 
       setTimelinePlanSummary({
+        address: result.projectAddress,
         includedCount: result.includedCount,
         templateTitle: result.templateTitle,
         totalBudget: result.totalBudget,
@@ -1049,7 +1052,7 @@ export function TimelineDemoWorkspace({
       setSetupComplete(true);
       void createTimelinePlan({
         actorPersona: "lender_admin",
-        address: "Hamilton, ON",
+        address: result.projectAddress,
         buildName: result.templateTitle,
         currentDay: result.currentDay,
         draws: nextDraws.map((draw, index) => ({
@@ -2515,6 +2518,14 @@ export function TimelineDemoWorkspace({
             <h1 className="text-balance font-semibold text-3xl text-foreground tracking-normal sm:text-4xl">
               {timelinePlanSummary.templateTitle} draw roadmap
             </h1>
+            {timelinePlanSummary.address ? (
+              <p
+                className="mt-2 text-muted-foreground text-sm"
+                data-testid="timeline-roadmap-address"
+              >
+                {timelinePlanSummary.address}
+              </p>
+            ) : null}
             <p className="mt-3 max-w-2xl text-muted-foreground text-sm leading-6">
               {timelinePlanSummary.includedCount} reimbursement milestones
               staged against {money(timelinePlanSummary.totalBudget)} in lender

@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as ProtectedAccessRouteImport } from './routes/protected-access'
 import { Route as CallbackRouteImport } from './routes/callback'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as DemoRouteRouteImport } from './routes/demo/route'
@@ -19,6 +20,7 @@ import { Route as BackofficeIndexRouteImport } from './routes/backoffice/index'
 import { Route as DemoWorkosRouteImport } from './routes/demo/workos'
 import { Route as DemoTanstackQueryRouteImport } from './routes/demo/tanstack-query'
 import { Route as DemoConvexRouteImport } from './routes/demo/convex'
+import { Route as BackofficeUserManagementRouteImport } from './routes/backoffice/user-management'
 import { Route as BuilderDemoRouteRouteImport } from './routes/builder/demo/route'
 import { Route as BackofficeSiteVisitsRouteRouteImport } from './routes/backoffice/site-visits/route'
 import { Route as BackofficeSettingsRouteRouteImport } from './routes/backoffice/settings/route'
@@ -53,6 +55,11 @@ import { Route as BuilderDemoDashboardBuildsIndexRouteImport } from './routes/bu
 import { Route as BuilderDemoDashboardProposalsDraftIdRouteImport } from './routes/builder/demo/dashboard/proposals/$draftId'
 import { Route as BuilderDemoDashboardBuildsBuildIdRouteImport } from './routes/builder/demo/dashboard/builds/$buildId'
 
+const ProtectedAccessRoute = ProtectedAccessRouteImport.update({
+  id: '/protected-access',
+  path: '/protected-access',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CallbackRoute = CallbackRouteImport.update({
   id: '/callback',
   path: '/callback',
@@ -103,6 +110,12 @@ const DemoConvexRoute = DemoConvexRouteImport.update({
   path: '/convex',
   getParentRoute: () => DemoRouteRoute,
 } as any)
+const BackofficeUserManagementRoute =
+  BackofficeUserManagementRouteImport.update({
+    id: '/user-management',
+    path: '/user-management',
+    getParentRoute: () => BackofficeRouteRoute,
+  } as any)
 const BuilderDemoRouteRoute = BuilderDemoRouteRouteImport.update({
   id: '/demo',
   path: '/demo',
@@ -294,6 +307,7 @@ export interface FileRoutesByFullPath {
   '/demo': typeof DemoRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/callback': typeof CallbackRoute
+  '/protected-access': typeof ProtectedAccessRoute
   '/backoffice/builders': typeof BackofficeBuildersRouteRouteWithChildren
   '/backoffice/builds': typeof BackofficeBuildsRouteRouteWithChildren
   '/backoffice/contractors': typeof BackofficeContractorsRouteRouteWithChildren
@@ -301,6 +315,7 @@ export interface FileRoutesByFullPath {
   '/backoffice/settings': typeof BackofficeSettingsRouteRouteWithChildren
   '/backoffice/site-visits': typeof BackofficeSiteVisitsRouteRoute
   '/builder/demo': typeof BuilderDemoRouteRouteWithChildren
+  '/backoffice/user-management': typeof BackofficeUserManagementRoute
   '/demo/convex': typeof DemoConvexRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/demo/workos': typeof DemoWorkosRoute
@@ -338,12 +353,14 @@ export interface FileRoutesByTo {
   '/demo': typeof DemoRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/callback': typeof CallbackRoute
+  '/protected-access': typeof ProtectedAccessRoute
   '/backoffice/builders': typeof BackofficeBuildersRouteRouteWithChildren
   '/backoffice/builds': typeof BackofficeBuildsRouteRouteWithChildren
   '/backoffice/contractors': typeof BackofficeContractorsRouteRouteWithChildren
   '/backoffice/draws': typeof BackofficeDrawsRouteRoute
   '/backoffice/site-visits': typeof BackofficeSiteVisitsRouteRoute
   '/builder/demo': typeof BuilderDemoRouteRouteWithChildren
+  '/backoffice/user-management': typeof BackofficeUserManagementRoute
   '/demo/convex': typeof DemoConvexRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/demo/workos': typeof DemoWorkosRoute
@@ -379,6 +396,7 @@ export interface FileRoutesById {
   '/demo': typeof DemoRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/callback': typeof CallbackRoute
+  '/protected-access': typeof ProtectedAccessRoute
   '/backoffice/builders': typeof BackofficeBuildersRouteRouteWithChildren
   '/backoffice/builds': typeof BackofficeBuildsRouteRouteWithChildren
   '/backoffice/contractors': typeof BackofficeContractorsRouteRouteWithChildren
@@ -386,6 +404,7 @@ export interface FileRoutesById {
   '/backoffice/settings': typeof BackofficeSettingsRouteRouteWithChildren
   '/backoffice/site-visits': typeof BackofficeSiteVisitsRouteRoute
   '/builder/demo': typeof BuilderDemoRouteRouteWithChildren
+  '/backoffice/user-management': typeof BackofficeUserManagementRoute
   '/demo/convex': typeof DemoConvexRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/demo/workos': typeof DemoWorkosRoute
@@ -426,6 +445,7 @@ export interface FileRouteTypes {
     | '/demo'
     | '/about'
     | '/callback'
+    | '/protected-access'
     | '/backoffice/builders'
     | '/backoffice/builds'
     | '/backoffice/contractors'
@@ -433,6 +453,7 @@ export interface FileRouteTypes {
     | '/backoffice/settings'
     | '/backoffice/site-visits'
     | '/builder/demo'
+    | '/backoffice/user-management'
     | '/demo/convex'
     | '/demo/tanstack-query'
     | '/demo/workos'
@@ -470,12 +491,14 @@ export interface FileRouteTypes {
     | '/demo'
     | '/about'
     | '/callback'
+    | '/protected-access'
     | '/backoffice/builders'
     | '/backoffice/builds'
     | '/backoffice/contractors'
     | '/backoffice/draws'
     | '/backoffice/site-visits'
     | '/builder/demo'
+    | '/backoffice/user-management'
     | '/demo/convex'
     | '/demo/tanstack-query'
     | '/demo/workos'
@@ -510,6 +533,7 @@ export interface FileRouteTypes {
     | '/demo'
     | '/about'
     | '/callback'
+    | '/protected-access'
     | '/backoffice/builders'
     | '/backoffice/builds'
     | '/backoffice/contractors'
@@ -517,6 +541,7 @@ export interface FileRouteTypes {
     | '/backoffice/settings'
     | '/backoffice/site-visits'
     | '/builder/demo'
+    | '/backoffice/user-management'
     | '/demo/convex'
     | '/demo/tanstack-query'
     | '/demo/workos'
@@ -556,6 +581,7 @@ export interface RootRouteChildren {
   DemoRouteRoute: typeof DemoRouteRouteWithChildren
   AboutRoute: typeof AboutRoute
   CallbackRoute: typeof CallbackRoute
+  ProtectedAccessRoute: typeof ProtectedAccessRoute
   ApiAuthSignInRoute: typeof ApiAuthSignInRoute
   ApiAuthSignUpRoute: typeof ApiAuthSignUpRoute
   NewsitevisitBuildIdSiteVisitTokenRoute: typeof NewsitevisitBuildIdSiteVisitTokenRoute
@@ -563,6 +589,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/protected-access': {
+      id: '/protected-access'
+      path: '/protected-access'
+      fullPath: '/protected-access'
+      preLoaderRoute: typeof ProtectedAccessRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/callback': {
       id: '/callback'
       path: '/callback'
@@ -632,6 +665,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/demo/convex'
       preLoaderRoute: typeof DemoConvexRouteImport
       parentRoute: typeof DemoRouteRoute
+    }
+    '/backoffice/user-management': {
+      id: '/backoffice/user-management'
+      path: '/user-management'
+      fullPath: '/backoffice/user-management'
+      preLoaderRoute: typeof BackofficeUserManagementRouteImport
+      parentRoute: typeof BackofficeRouteRoute
     }
     '/builder/demo': {
       id: '/builder/demo'
@@ -945,6 +985,7 @@ interface BackofficeRouteRouteChildren {
   BackofficeDrawsRouteRoute: typeof BackofficeDrawsRouteRoute
   BackofficeSettingsRouteRoute: typeof BackofficeSettingsRouteRouteWithChildren
   BackofficeSiteVisitsRouteRoute: typeof BackofficeSiteVisitsRouteRoute
+  BackofficeUserManagementRoute: typeof BackofficeUserManagementRoute
   BackofficeIndexRoute: typeof BackofficeIndexRoute
   BackofficeProposalsPlanIdRoute: typeof BackofficeProposalsPlanIdRoute
 }
@@ -956,6 +997,7 @@ const BackofficeRouteRouteChildren: BackofficeRouteRouteChildren = {
   BackofficeDrawsRouteRoute: BackofficeDrawsRouteRoute,
   BackofficeSettingsRouteRoute: BackofficeSettingsRouteRouteWithChildren,
   BackofficeSiteVisitsRouteRoute: BackofficeSiteVisitsRouteRoute,
+  BackofficeUserManagementRoute: BackofficeUserManagementRoute,
   BackofficeIndexRoute: BackofficeIndexRoute,
   BackofficeProposalsPlanIdRoute: BackofficeProposalsPlanIdRoute,
 }
@@ -1083,6 +1125,7 @@ const rootRouteChildren: RootRouteChildren = {
   DemoRouteRoute: DemoRouteRouteWithChildren,
   AboutRoute: AboutRoute,
   CallbackRoute: CallbackRoute,
+  ProtectedAccessRoute: ProtectedAccessRoute,
   ApiAuthSignInRoute: ApiAuthSignInRoute,
   ApiAuthSignUpRoute: ApiAuthSignUpRoute,
   NewsitevisitBuildIdSiteVisitTokenRoute:
