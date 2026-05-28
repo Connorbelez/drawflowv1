@@ -49,7 +49,10 @@ export type WorkspaceAccessDecision =
   | { reason?: "demo-exception"; status: "allowed" }
   | { reason: "unauthenticated"; status: "unauthenticated" }
   | {
-      reason: "no-workspace-access" | "onboarding-required";
+      reason:
+        | "missing-organization"
+        | "no-workspace-access"
+        | "onboarding-required";
       status: "forbidden";
     };
 
@@ -69,6 +72,7 @@ const ROLE_ALIASES: Record<string, RoleSlug> = {
 
 export interface AuthAccessInput {
   isAuthenticated: boolean;
+  organizationId?: string | null;
   pathname: string;
   roles: readonly (string | null | undefined)[];
   workspace: Workspace;
@@ -110,6 +114,10 @@ export function getWorkspaceAccessDecision(
 
   if (!input.isAuthenticated) {
     return { reason: "unauthenticated", status: "unauthenticated" };
+  }
+
+  if (!input.organizationId?.trim()) {
+    return { reason: "missing-organization", status: "forbidden" };
   }
 
   const roles = normalizeRoleSlugs(input.roles);

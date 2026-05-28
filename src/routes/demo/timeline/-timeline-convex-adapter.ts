@@ -92,6 +92,7 @@ export function convexWorkspaceToTimelineState(
       amount: centsToDollars(draw.amountCents),
       customDate: draw.customDate,
       id: draw.drawKey,
+      itemId: draw.itemMilestoneKey,
       label: draw.label,
       requestNote: draw.requestNote,
       requestReviewNote: draw.requestReviewNote,

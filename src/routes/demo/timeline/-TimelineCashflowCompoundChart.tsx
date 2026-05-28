@@ -1,12 +1,16 @@
 import { EvilComposedChart } from "#/components/evilcharts/charts/composed-chart.tsx";
 import type { ChartConfig } from "#/components/evilcharts/ui/chart.tsx";
 
+const CASHFLOW_EDGE_BAR_PADDING_RATIO = 0.035;
+const CASHFLOW_MIN_EDGE_BAR_PADDING_DAYS = 2;
+
 export interface TimelineCashflowCompoundDatum {
   budget: number;
+  cashInfusionAmount?: number;
   capitalSpikeAmount: number;
   cashOnHand: number;
   day: number;
-  event: "capitalSpike" | "draw" | "milestone" | "start";
+  event: "capitalSpike" | "cashInfusion" | "draw" | "milestone" | "start";
   id: string;
   milestoneEndDay?: number;
   name: string;
@@ -41,6 +45,13 @@ export const timelineCashflowChartConfig = {
     colors: {
       dark: ["oklch(0.68 0.2 35)", "oklch(0.78 0.18 55)"],
       light: ["oklch(0.62 0.22 35)", "oklch(0.74 0.18 55)"],
+    },
+  },
+  cashInfusionAmount: {
+    label: "Cash infusion",
+    colors: {
+      dark: ["oklch(0.72 0.16 150)", "oklch(0.8 0.14 170)"],
+      light: ["oklch(0.58 0.18 150)", "oklch(0.7 0.16 170)"],
     },
   },
 } satisfies ChartConfig;
@@ -128,6 +139,7 @@ export function TimelineCashflowCompoundChart({
     ...drawReferenceLines,
     ...(referenceLines ?? []),
   ];
+  const barSafeXDomain = buildCashflowBarSafeXDomain(xDomain);
   const chart = (
     <EvilComposedChart
       activeDotVariant="default"
@@ -138,6 +150,7 @@ export function TimelineCashflowCompoundChart({
       barConfig={{
         budget: timelineCashflowChartConfig.budget,
         capitalSpikeAmount: timelineCashflowChartConfig.capitalSpikeAmount,
+        cashInfusionAmount: timelineCashflowChartConfig.cashInfusionAmount,
       }}
       barRadius={6}
       barSize={barSize}
@@ -192,7 +205,7 @@ export function TimelineCashflowCompoundChart({
       tooltipRoundness="xl"
       tooltipVariant="frosted-glass"
       xAxisProps={{
-        domain: xDomain,
+        domain: barSafeXDomain,
         height: 26,
         tickFormatter: formatTimelineDay,
         ticks: xTicks,
@@ -211,11 +224,28 @@ export function TimelineCashflowCompoundChart({
   return testId ? <div data-testid={testId}>{chart}</div> : chart;
 }
 
+export function buildCashflowBarSafeXDomain(
+  domain: [number, number],
+): [number, number] {
+  const [min, max] = domain;
+  if (!(Number.isFinite(min) && Number.isFinite(max) && max > min)) {
+    return domain;
+  }
+
+  const padding = Math.max(
+    CASHFLOW_MIN_EDGE_BAR_PADDING_DAYS,
+    (max - min) * CASHFLOW_EDGE_BAR_PADDING_RATIO,
+  );
+
+  return [min - padding, max + padding];
+}
+
 export function getCashflowCompoundExtent(
   data: TimelineCashflowCompoundDatum[],
 ) {
   const values = data.flatMap((row) => [
     row.budget,
+    row.cashInfusionAmount ?? 0,
     row.capitalSpikeAmount,
     row.cashOnHand,
   ]);

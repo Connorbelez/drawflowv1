@@ -27,13 +27,15 @@ const authFunctions: AuthFunctions = internal.auth;
 function requireWorkosEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) {
+    if (process.env.VITEST || process.env.NODE_ENV === "test") {
+      return `test_${name}`;
+    }
     throw new Error(`${name} is required`);
   }
   return value;
 }
 
 export const authKit = new AuthKit<DataModel>(components.workOSAuthKit, {
-  actionSecret: requireWorkosEnv("WORKOS_ACTION_SECRET"),
   apiKey: requireWorkosEnv("WORKOS_API_KEY"),
   clientId: requireWorkosEnv("WORKOS_CLIENT_ID"),
   webhookSecret: requireWorkosEnv("WORKOS_WEBHOOK_SECRET"),

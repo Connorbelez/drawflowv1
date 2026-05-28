@@ -17,6 +17,11 @@ import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Card } from "#/components/ui/card.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
+import { ProductionProposalSettingsSurface } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
+import {
+  getVisualParitySettings,
+  isProductionVisualParityFixtureEnabled,
+} from "#/features/production-proposals/visualParityFixtures.ts";
 import { Input } from "#/components/ui/input.tsx";
 import {
   Select,
@@ -109,7 +114,20 @@ const SETTINGS_TAB_PANEL_VARIANTS = {
 };
 
 function RouteComponent() {
+  const context = Route.useRouteContext();
+  const workosOrganizationId = context.organizationId as string;
   const prefersReducedMotion = useReducedMotion();
+  const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
+  const productionSettingsQuery = useQuery(
+    api.production_proposals.getProductionProposalSettings,
+    visualFixtureEnabled ? "skip" : { workosOrganizationId },
+  );
+  const productionSettings = visualFixtureEnabled
+    ? getVisualParitySettings()
+    : productionSettingsQuery;
+  const seedProductionFoundation = useMutation(
+    api.production_proposals.dev_seedProductionFoundation,
+  );
   const settings = useQuery(api.demo_settings.getTimelineDemoSettings, {});
   const seedDefaults = useMutation(api.demo_settings.seedTimelineDemoDefaults);
   const saveTemplate = useMutation(
@@ -355,9 +373,8 @@ function RouteComponent() {
               Settings
             </h1>
             <p className="mt-2 max-w-3xl text-muted-foreground text-sm leading-6">
-              Demo configuration for timeline templates,
-              percentage-of-completion worksheets, and reimbursement draw
-              scenarios. V1 is demo-only and has no authz or org scoping.
+              Production proposal-flow settings are tenant scoped. Demo
+              timeline settings remain below as a public parity reference.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -379,6 +396,15 @@ function RouteComponent() {
             </Button>
           </div>
         </header>
+
+        <ProductionProposalSettingsSurface
+          onSeed={() =>
+            void seedProductionFoundation({ workosOrganizationId }).then(() =>
+              toast.success("Production proposal foundation seeded."),
+            )
+          }
+          settings={productionSettings}
+        />
 
         <StatusStrip settings={settings} templates={drafts} />
 

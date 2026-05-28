@@ -57,7 +57,10 @@ import {
   formatCurrency,
   parseCurrencyToCents,
 } from "../../../features/builder-proposal-demo/template-helpers.ts";
-import type { IsometricIconKey } from "./-timeline-share-snapshot.ts";
+import {
+  ISOMETRIC_ICON_KEYS,
+  type IsometricIconKey,
+} from "./-timeline-share-snapshot.ts";
 import "./-timeline-setup-flow.css";
 
 const DEFAULT_NEW_MILESTONE_BUDGET_TEXT = "$0";
@@ -74,16 +77,7 @@ const FOCUSABLE_TABLE_CONTROL_SELECTOR = [
 const DURATION_PREFIX_REGEX = /^T/i;
 const NON_DIGIT_REGEX = /\D/g;
 
-const iconOptions = [
-  "change",
-  "closeout",
-  "drywall",
-  "exterior",
-  "finishes",
-  "foundation",
-  "framing",
-  "roughIn",
-] as const satisfies IsometricIconKey[];
+const iconOptions = ISOMETRIC_ICON_KEYS;
 
 interface SubMilestoneBankItem {
   budgetText?: string;
@@ -1041,6 +1035,9 @@ function BlueprintMilestoneIcon({
     finishes: "/drawflow-milestone-blueprint-icons/finishes.png",
     foundation: "/drawflow-milestone-blueprint-icons/foundation.png",
     framing: "/drawflow-milestone-blueprint-icons/framing.png",
+    kitchen: "/milestone-icons/kitchen.png",
+    plumbing: "/milestone-icons/plumbing.png",
+    roofing: "/milestone-icons/roofing.png",
     roughIn: "/drawflow-milestone-blueprint-icons/rough-in.png",
   };
 

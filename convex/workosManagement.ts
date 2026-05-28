@@ -653,14 +653,18 @@ function entityIdentifier(entity: WorkosEntity) {
 function eventForSync(event: string, id: string, data: WorkosEntity) {
   const sanitized = JSON.parse(JSON.stringify(data)) as WorkosEntity;
   return {
-    created_at:
+    created_at: stringOrNow(
       sanitized.updated_at ??
-      sanitized.updatedAt ??
-      sanitized.created_at ??
-      sanitized.createdAt ??
-      new Date().toISOString(),
+        sanitized.updatedAt ??
+        sanitized.created_at ??
+        sanitized.createdAt
+    ),
     data: sanitized,
     event,
     id: `sync:${event}:${id}`,
   };
+}
+
+function stringOrNow(value: unknown): string {
+  return typeof value === "string" ? value : new Date().toISOString();
 }

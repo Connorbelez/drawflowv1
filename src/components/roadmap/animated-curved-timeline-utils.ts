@@ -87,6 +87,11 @@ export interface TimelineLayout<TData = unknown> {
   xToValue: (x: number) => number;
 }
 
+interface TimelineValueAnchor {
+  value: number;
+  x: number;
+}
+
 export interface TimelineInsertionOptions {
   minGap: number;
   range: TimelineRange;
@@ -213,11 +218,6 @@ export function buildTimelineLayout<TData>(
   );
   const valueToX = (value: number) =>
     paddingX + normalizeTimelineValue(value, range) * axisWidth;
-  const xToValue = (x: number) => {
-    const normalized = clampTimelineValue((x - paddingX) / axisWidth, 0, 1);
-
-    return range.min + normalized * (range.max - range.min);
-  };
   let contentWidth = axisWidth + paddingX * 2;
   let previousLayoutX = Number.NEGATIVE_INFINITY;
 
@@ -257,6 +257,14 @@ export function buildTimelineLayout<TData>(
 
   const startX = paddingX;
   const endX = Math.max(contentWidth - paddingX, startX + axisWidth);
+  const renderedValueAnchors = buildRenderedTimelineValueAnchors(
+    startX,
+    endX,
+    range,
+    layoutItems
+  );
+  const xToValue = (x: number) =>
+    interpolateRenderedTimelineValue(x, renderedValueAnchors);
   const points: TimelineRoutePoint[] = [
     { x: startX, y: options.baselineY },
     ...layoutItems.map((item) => ({ x: item.layoutX, y: item.layoutY })),
@@ -275,6 +283,95 @@ export function buildTimelineLayout<TData>(
     valueToX,
     xToValue,
   };
+}
+
+function buildRenderedTimelineValueAnchors<TData>(
+  startX: number,
+  endX: number,
+  range: Required<TimelineRange>,
+  items: TimelineLayoutItem<TData>[]
+): TimelineValueAnchor[] {
+  const anchors: TimelineValueAnchor[] = [
+    {
+      value: range.min,
+      x: startX,
+    },
+  ];
+
+  for (const item of items) {
+    anchors.push({
+      value: item.x,
+      x: item.layoutX,
+    });
+
+    if (item.endLayoutX !== undefined && item.endX !== undefined) {
+      anchors.push({
+        value: item.endX,
+        x: item.endLayoutX,
+      });
+    }
+  }
+
+  const sortedAnchors = anchors.sort((a, b) => a.x - b.x || a.value - b.value);
+  const lastAnchor = sortedAnchors.at(-1);
+  if (!lastAnchor || endX > lastAnchor.x + 0.000_001) {
+    sortedAnchors.push({
+      value: range.max,
+      x: endX,
+    });
+  }
+
+  return sortedAnchors.reduce<TimelineValueAnchor[]>((deduped, anchor) => {
+    const previous = deduped.at(-1);
+    if (previous && Math.abs(previous.x - anchor.x) <= 0.000_001) {
+      deduped[deduped.length - 1] = {
+        value: Math.max(previous.value, anchor.value),
+        x: previous.x,
+      };
+      return deduped;
+    }
+
+    deduped.push(anchor);
+    return deduped;
+  }, []);
+}
+
+function interpolateRenderedTimelineValue(
+  x: number,
+  anchors: TimelineValueAnchor[]
+): number {
+  const firstAnchor = anchors[0];
+  if (!firstAnchor) {
+    return 0;
+  }
+
+  if (x <= firstAnchor.x) {
+    return firstAnchor.value;
+  }
+
+  const lastAnchor = anchors.at(-1) ?? firstAnchor;
+  if (x >= lastAnchor.x) {
+    return lastAnchor.value;
+  }
+
+  for (let index = 1; index < anchors.length; index += 1) {
+    const previous = anchors[index - 1];
+    const next = anchors[index];
+
+    if (x > next.x) {
+      continue;
+    }
+
+    const span = next.x - previous.x;
+    if (span <= 0) {
+      return next.value;
+    }
+
+    const ratio = (x - previous.x) / span;
+    return previous.value + (next.value - previous.value) * ratio;
+  }
+
+  return lastAnchor.value;
 }
 
 export function groupMarkersByProximity(

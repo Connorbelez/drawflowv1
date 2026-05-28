@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  buildCashflowBarSafeXDomain,
   buildMilestoneEndReferenceLines,
   isMilestoneEndDatum,
   resolveMilestoneEndDay,
@@ -7,6 +8,13 @@ import {
 } from "./-TimelineCashflowCompoundChart.tsx";
 
 describe("TimelineCashflowCompoundChart milestone end markers", () => {
+  test("pads the x domain so edge bars render inside the plot area", () => {
+    const wideDomain = buildCashflowBarSafeXDomain([0, 160]);
+    expect(wideDomain[0]).toBeCloseTo(-5.6);
+    expect(wideDomain[1]).toBeCloseTo(165.6);
+    expect(buildCashflowBarSafeXDomain([0, 30])).toEqual([-2, 32]);
+  });
+
   test("places settings milestone bars on start day and end markers on milestoneEndDay", () => {
     const row: TimelineCashflowCompoundDatum = {
       budget: 250_000,

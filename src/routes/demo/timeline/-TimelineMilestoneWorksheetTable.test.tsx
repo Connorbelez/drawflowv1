@@ -62,9 +62,25 @@ const worksheetRows: TimelineMilestoneWorksheetRow[] = [
       },
     ],
     subMilestones: ["Frame shell"],
-    type: "framing",
+  type: "framing",
   },
 ];
+
+test("exposes the expanded milestone icon set in the settings selector", () => {
+  render(<ControlledWorksheet mode="settings" />);
+
+  const iconSelect = screen.getByTestId(
+    "timeline-setup-row-icon-select-site-prep-foundation",
+  );
+
+  expect(
+    Array.from(iconSelect.querySelectorAll("option")).map(
+      (option) => option.value,
+    ),
+  ).toEqual(
+    expect.arrayContaining(["foundation", "kitchen", "plumbing", "roofing"]),
+  );
+});
 
 const cascadeRows: TimelineMilestoneWorksheetRow[] = [
   {
@@ -120,11 +136,13 @@ const cascadeRows: TimelineMilestoneWorksheetRow[] = [
 function ControlledWorksheet({
   cascadeBudgetEdits = false,
   initialRows = worksheetRows,
+  mode = "setup",
   onRowsChange = vi.fn(),
   targetBudgetCents = 200_000_00,
 }: {
   cascadeBudgetEdits?: boolean;
   initialRows?: TimelineMilestoneWorksheetRow[];
+  mode?: "settings" | "setup";
   onRowsChange?: (rows: TimelineMilestoneWorksheetRow[]) => void;
   targetBudgetCents?: number;
 }) {
@@ -135,7 +153,7 @@ function ControlledWorksheet({
     <TimelineMilestoneWorksheetTable
       cascadeBudgetEdits={cascadeEnabled}
       cashText="$25,000"
-      mode="setup"
+      mode={mode}
       onCascadeBudgetEditsChange={setCascadeEnabled}
       onRowsChange={(nextRows) => {
         setRows(nextRows);

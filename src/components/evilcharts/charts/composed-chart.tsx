@@ -104,12 +104,30 @@ function ReferenceLineLabel({
   const box = viewBox as Record<string, unknown>;
   const x = Number(box.x);
   const y = Number(box.y);
+  const width = Number(box.width);
 
   if (!(Number.isFinite(x) && Number.isFinite(y))) {
     return null;
   }
 
   const lines = Array.isArray(value) ? value : [value];
+  const numericFontSize =
+    typeof fontSize === "number"
+      ? fontSize
+      : typeof fontSize === "string"
+        ? Number.parseFloat(fontSize)
+        : 11;
+  const estimatedHalfWidth =
+    Math.max(...lines.map((line) => line.length), 1) *
+    (Number.isFinite(numericFontSize) ? numericFontSize : 11) *
+    0.28;
+  const textX =
+    Number.isFinite(width) && width > 0
+      ? Math.min(
+          Math.max(x, estimatedHalfWidth + 8),
+          Math.max(estimatedHalfWidth + 8, width - estimatedHalfWidth - 8),
+        )
+      : x;
 
   return (
     <text
@@ -117,11 +135,11 @@ function ReferenceLineLabel({
       fontSize={fontSize}
       fontWeight={fontWeight}
       textAnchor="middle"
-      x={x}
+      x={textX}
       y={y - 8 - (lines.length - 1) * 12}
     >
       {lines.map((line, index) => (
-        <tspan dy={index === 0 ? 0 : 12} key={`${line}-${index}`} x={x}>
+        <tspan dy={index === 0 ? 0 : 12} key={`${line}-${index}`} x={textX}>
           {line}
         </tspan>
       ))}
@@ -864,7 +882,7 @@ const CustomBar = ({
     height > 0 && minBarWidth !== undefined
       ? Math.max(width, minBarWidth)
       : width;
-  const renderedX = x - (renderedWidth - width) / 2;
+  const renderedX = getMinimumWidthBarX(x, width, renderedWidth);
   const hitAreaX = background?.x ?? renderedX;
   const hitAreaY = background?.y ?? y;
   const hitAreaWidth = background?.width ?? renderedWidth;
@@ -934,6 +952,14 @@ const CustomBar = ({
     </g>
   );
 };
+
+export function getMinimumWidthBarX(
+  x: number,
+  width: number,
+  renderedWidth: number
+) {
+  return x - (renderedWidth - width) / 2;
+}
 
 // Create vertical color gradient for bars (top to bottom)
 const VerticalColorGradientStyle = ({

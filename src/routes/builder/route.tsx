@@ -8,6 +8,7 @@ export const Route = createFileRoute("/builder")({
   beforeLoad: ({ context, location }) =>
     requireWorkspaceAccess({
       isAuthenticated: Boolean(context.userId),
+      organizationId: context.organizationId,
       pathname: location.pathname,
       roles: [context.role, ...(context.roles ?? [])],
       workspace: "builder",
@@ -15,7 +16,7 @@ export const Route = createFileRoute("/builder")({
   staticData: {
     breadcrumb: {
       label: "Builder",
-      to: "/builder/demo/dashboard",
+      to: "/builder",
     },
   },
   component: RouteComponent,
@@ -28,7 +29,7 @@ function RouteComponent() {
       sidebar={{
         brand: {
           label: "DrawFlow Builder",
-          to: "/builder/demo/dashboard" as never,
+          to: "/builder" as never,
         },
         footerLinks: footerNavLinks,
         groups: builderNavGroups,
