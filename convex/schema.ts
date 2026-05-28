@@ -222,6 +222,14 @@ const productionBuildStatusValidator = v.union(
   v.literal("future_start")
 );
 
+const productionBuildDrawStatusValidator = v.union(
+  v.literal("planned"),
+  v.literal("requested"),
+  v.literal("approved"),
+  v.literal("rejected"),
+  v.literal("released")
+);
+
 const productionOutboxStatusValidator = v.union(
   v.literal("pending"),
   v.literal("processed"),
@@ -1236,6 +1244,11 @@ export default defineSchema({
     .index("by_builder", ["builderProfileId"])
     .index("by_user", ["workosUserId"])
     .index("by_builder_user", ["builderProfileId", "workosUserId"]),
+  builderOnboardingDismissals: defineTable({
+    workosUserId: v.string(),
+    organizationId: v.string(),
+    dismissedAt: v.number(),
+  }).index("by_user_org", ["workosUserId", "organizationId"]),
   contractorProfiles: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -1628,6 +1641,68 @@ export default defineSchema({
   })
     .index("by_proposal", ["proposalId"])
     .index("by_brokerage", ["brokerageId"]),
+  buildDocuments: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    proposalId: v.id("buildProposals"),
+    documentType: productionDocumentTypeValidator,
+    status: productionDocumentStatusValidator,
+    fileName: v.string(),
+    mimeType: v.string(),
+    sizeBytes: v.number(),
+    storageId: v.optional(v.id("_storage")),
+    uploadedByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_build", ["buildId"])
+    .index("by_build_type", ["buildId", "documentType"]),
+  buildEvidenceAssets: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    proposalId: v.id("buildProposals"),
+    evidenceKey: v.string(),
+    milestoneKey: v.string(),
+    fileName: v.string(),
+    label: v.string(),
+    mimeType: v.string(),
+    sizeBytes: v.number(),
+    storageId: v.optional(v.id("_storage")),
+    tag: v.string(),
+    locationVerified: v.boolean(),
+    source: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_build", ["buildId"])
+    .index("by_build_key", ["buildId", "evidenceKey"])
+    .index("by_build_milestone", ["buildId", "milestoneKey"]),
+  buildNotes: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    visibility: v.union(v.literal("internal"), v.literal("public")),
+    body: v.string(),
+    authorWorkosUserId: v.string(),
+    authorRoles: v.array(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_build", ["buildId"])
+    .index("by_build_visibility", ["buildId", "visibility"]),
+  buildContractorAssignments: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    contractorId: v.id("contractorProfiles"),
+    role: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_build", ["buildId"])
+    .index("by_build_contractor", ["buildId", "contractorId"]),
   buildBrokerAssignments: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -1681,6 +1756,10 @@ export default defineSchema({
     dayEnd: v.number(),
     durationDays: v.number(),
     dependencyKeys: v.array(v.string()),
+    completionClaim: v.optional(v.any()),
+    completionReview: v.optional(v.any()),
+    evidenceState: v.optional(v.string()),
+    policyState: v.optional(v.string()),
     status: v.union(v.literal("planned"), v.literal("in_progress"), v.literal("complete")),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -1718,12 +1797,44 @@ export default defineSchema({
     order: v.number(),
     timingDay: v.number(),
     amountCents: v.number(),
-    status: v.union(v.literal("planned"), v.literal("requested"), v.literal("released")),
+    requestNote: v.optional(v.string()),
+    requestReviewNote: v.optional(v.string()),
+    requestedAt: v.optional(v.string()),
+    reviewedAt: v.optional(v.string()),
+    releaseDate: v.optional(v.string()),
+    releaseNote: v.optional(v.string()),
+    releasedAt: v.optional(v.string()),
+    status: productionBuildDrawStatusValidator,
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_build", ["buildId"])
     .index("by_build_order", ["buildId", "order"]),
+  buildSiteVisits: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    buildMilestoneId: v.id("buildMilestones"),
+    milestoneKey: v.string(),
+    visitId: v.string(),
+    status: v.union(
+      v.literal("requested"),
+      v.literal("complete"),
+      v.literal("cancelled")
+    ),
+    requestedDay: v.number(),
+    requestedAt: v.string(),
+    note: v.optional(v.string()),
+    completedAt: v.optional(v.string()),
+    recordNote: v.optional(v.string()),
+    tokenExpiresAt: v.number(),
+    url: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_build", ["buildId"])
+    .index("by_build_milestone", ["buildId", "milestoneKey"])
+    .index("by_visit", ["visitId"]),
   capitalEvents: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),

@@ -45,6 +45,11 @@ function DurableTimelineRoute() {
   const canonicalProposal = workspace.plan.proposalSlug;
   const proposalSlug =
     proposal && resolvedProposal !== null ? proposal : canonicalProposal;
+  const buildKey =
+    typeof workspace.build?.key === "string" ? workspace.build.key : undefined;
+  const liveBuildHref = buildKey
+    ? `/builder/demo/dashboard/builds/${buildKey}`
+    : undefined;
 
   return (
     <>
@@ -60,6 +65,8 @@ function DurableTimelineRoute() {
           proposalHref: `/demo/timeline/${timelineId}?proposal=${canonicalProposal}`,
           proposalSlug,
           status: workspace.plan.status,
+          ...(buildKey ? { buildKey } : {}),
+          ...(liveBuildHref ? { liveBuildHref } : {}),
         }}
         durablePlanId={timelineId}
         initialState={convexWorkspaceToTimelineState(workspace)}

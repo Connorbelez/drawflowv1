@@ -1,9 +1,9 @@
 import { v } from "convex/values";
 
 import {
+  type AuthorizedViewer,
   authenticatedMutation,
   authenticatedQuery,
-  type AuthorizedViewer,
   normalizeRoleSlugs,
   type RoleSlug,
 } from "./authz";
@@ -50,7 +50,7 @@ const documentInput = v.object({
     v.literal("permit"),
     v.literal("budget"),
     v.literal("plan"),
-    v.literal("supporting"),
+    v.literal("supporting")
   ),
   fileName: v.string(),
   mimeType: v.string(),
@@ -71,15 +71,20 @@ const evidenceAssetInput = v.object({
   tag: v.string(),
 });
 
+const activeBuildNoteVisibility = v.union(
+  v.literal("internal"),
+  v.literal("public")
+);
+
 const timelineCapitalEventKind = v.union(
   v.literal("cost"),
-  v.literal("cashInfusion"),
+  v.literal("cashInfusion")
 );
 
 const timelineModificationRequestType = v.union(
   v.literal("createMilestone"),
   v.literal("deleteMilestone"),
-  v.literal("updateMilestoneBudget"),
+  v.literal("updateMilestoneBudget")
 );
 
 const productionTimelineMilestoneInput = v.object({
@@ -341,12 +346,20 @@ export const generateProposalDocumentUploadUrl = authenticatedMutation
   })
   .returns(v.string())
   .handler(async (ctx, args) => {
-    const auth = await authorizeProposal(ctx, args.proposalId, args.workosOrganizationId);
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
     if (auth.proposal.status !== "draft") {
       throw new Error("Only draft proposals can receive document uploads.");
     }
     if (!isBackoffice(auth.roles)) {
-      await assertBuilderOwnership(ctx, auth.proposal.builderProfileId, auth.subject);
+      await assertBuilderOwnership(
+        ctx,
+        auth.proposal.builderProfileId,
+        auth.subject
+      );
     }
     return await ctx.storage.generateUploadUrl();
   })
@@ -363,7 +376,11 @@ export const createDraftProposal = authenticatedMutation
   .returns(v.id("buildProposals"))
   .handler(async (ctx, args) => {
     const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
-    await assertBuilderProfileScope(ctx, args.builderProfileId, auth.brokerage._id);
+    await assertBuilderProfileScope(
+      ctx,
+      args.builderProfileId,
+      auth.brokerage._id
+    );
     if (!isBackoffice(auth.roles)) {
       await assertBuilderOwnership(ctx, args.builderProfileId, auth.subject);
       requireAnyRole(auth.roles, BUILDER_ROLES);
@@ -372,7 +389,7 @@ export const createDraftProposal = authenticatedMutation
     const now = Date.now();
     const proposalId = await ctx.db.insert("buildProposals", {
       brokerageId: auth.brokerage._id,
-      borrowerCoPayBps: 2_000,
+      borrowerCoPayBps: 2000,
       borrowerWorkingCapitalLimitCents: 0,
       buildName: args.buildName,
       builderProfileId: args.builderProfileId,
@@ -414,12 +431,20 @@ export const saveDraftProposalPackage = authenticatedMutation
   })
   .returns(v.null())
   .handler(async (ctx, args) => {
-    const auth = await authorizeProposal(ctx, args.proposalId, args.workosOrganizationId);
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
     if (auth.proposal.status !== "draft") {
       throw new Error("Only draft proposals can be edited.");
     }
     if (!isBackoffice(auth.roles)) {
-      await assertBuilderOwnership(ctx, auth.proposal.builderProfileId, auth.subject);
+      await assertBuilderOwnership(
+        ctx,
+        auth.proposal.builderProfileId,
+        auth.subject
+      );
     }
     if (args.borrowerCoPayBps < 0 || args.borrowerCoPayBps > 10_000) {
       throw new Error("Borrower co-pay bps must be between 0 and 10000.");
@@ -436,7 +461,7 @@ export const saveDraftProposalPackage = authenticatedMutation
       totalBudgetCents += row.budgetCents;
       const drawAvailabilityCents = calculateDrawAvailability(
         row.budgetCents,
-        args.borrowerCoPayBps,
+        args.borrowerCoPayBps
       );
       const milestoneId = await ctx.db.insert("proposalMilestones", {
         brokerageId: auth.brokerage._id,
@@ -493,7 +518,7 @@ export const saveDraftProposalPackage = authenticatedMutation
         ctx,
         "proposalDocuments",
         "by_proposal",
-        args.proposalId,
+        args.proposalId
       );
       for (const document of documents) {
         await ctx.db.delete(document._id);
@@ -539,12 +564,25 @@ export const submitProposal = authenticatedMutation
   })
   .returns(v.id("workflowRuleSnapshots"))
   .handler(async (ctx, args) => {
-    const auth = await authorizeProposal(ctx, args.proposalId, args.workosOrganizationId);
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
     requireState(auth.proposal, "draft");
     if (!isBackoffice(auth.roles)) {
-      await assertBuilderOwnership(ctx, auth.proposal.builderProfileId, auth.subject);
+      await assertBuilderOwnership(
+        ctx,
+        auth.proposal.builderProfileId,
+        auth.subject
+      );
     }
-    const milestones = await collectByIndex(ctx, "proposalMilestones", "by_proposal", args.proposalId);
+    const milestones = await collectByIndex(
+      ctx,
+      "proposalMilestones",
+      "by_proposal",
+      args.proposalId
+    );
     if (milestones.length === 0) {
       throw new Error("At least one milestone is required before submission.");
     }
@@ -593,7 +631,11 @@ export const requestChanges = authenticatedMutation
   })
   .returns(v.null())
   .handler(async (ctx, args) => {
-    const auth = await authorizeProposal(ctx, args.proposalId, args.workosOrganizationId);
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
     requireAnyRole(auth.roles, BACKOFFICE_ROLES);
     requireState(auth.proposal, "submitted");
     requireReason(args.reason);
@@ -626,7 +668,11 @@ export const rejectProposal = authenticatedMutation
   })
   .returns(v.null())
   .handler(async (ctx, args) => {
-    const auth = await authorizeProposal(ctx, args.proposalId, args.workosOrganizationId);
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
     requireAnyRole(auth.roles, BACKOFFICE_ROLES);
     requireState(auth.proposal, "submitted");
     requireReason(args.reason);
@@ -658,7 +704,11 @@ export const approveProposal = authenticatedMutation
   })
   .returns(v.null())
   .handler(async (ctx, args) => {
-    const auth = await authorizeProposal(ctx, args.proposalId, args.workosOrganizationId);
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
     requireAnyRole(auth.roles, APPROVER_ROLES);
     requireState(auth.proposal, "submitted");
     requireReason(args.reason);
@@ -667,10 +717,12 @@ export const approveProposal = authenticatedMutation
     let waiverId: Id<"documentWaivers"> | undefined;
     if (!permit && snapshot.requirePermitForApproval) {
       if (!args.permitWaiverReason?.trim()) {
-        throw new Error("A permit waiver reason is required when no permit waiver exists.");
+        throw new Error(
+          "A permit waiver reason is required when no permit waiver exists."
+        );
       }
       const actorRole = auth.roles.find((role) =>
-        snapshot.allowPermitWaiverByRoles.includes(role),
+        snapshot.allowPermitWaiverByRoles.includes(role)
       );
       if (!actorRole) {
         throw new Error("Forbidden: permit waiver");
@@ -722,12 +774,18 @@ export const updateSubmittedProposalDrawScheduleRow = authenticatedMutation
   })
   .returns(v.null())
   .handler(async (ctx, args) => {
-    const auth = await authorizeProposal(ctx, args.proposalId, args.workosOrganizationId);
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
     requireAnyRole(auth.roles, BACKOFFICE_ROLES);
     requireBackofficeProposalWrite(auth, auth.proposal);
     requireReason(args.reason);
     if (!["submitted", "approved"].includes(auth.proposal.status)) {
-      throw new Error("Only submitted or approved proposal draw schedules can be edited.");
+      throw new Error(
+        "Only submitted or approved proposal draw schedules can be edited."
+      );
     }
     if (args.amountCents !== undefined && args.amountCents < 0) {
       throw new Error("Draw amount cannot be negative.");
@@ -739,7 +797,7 @@ export const updateSubmittedProposalDrawScheduleRow = authenticatedMutation
     const draw = await ctx.db
       .query("proposalDrawScheduleRows")
       .withIndex("by_proposal_key", (q) =>
-        q.eq("proposalId", args.proposalId).eq("drawKey", args.drawKey),
+        q.eq("proposalId", args.proposalId).eq("drawKey", args.drawKey)
       )
       .unique();
     if (!draw) {
@@ -791,7 +849,7 @@ export const createProductionTimelineMilestone = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireProductionTimelineDraftStructureWrite(auth);
     await insertProductionMilestoneFromInput(ctx, auth, args.milestone);
@@ -834,13 +892,13 @@ export const updateProductionTimelineMilestone = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireProductionTimelineDraftStructureWrite(auth);
     const milestone = await getProductionMilestoneOrThrow(
       ctx,
       args.proposalId,
-      args.milestoneKey,
+      args.milestoneKey
     );
     const nextDayStart = args.dayStart ?? milestone.dayStart;
     const nextDayEnd = args.dayEnd ?? milestone.dayEnd;
@@ -853,7 +911,9 @@ export const updateProductionTimelineMilestone = authenticatedMutation
         : Math.max(0, Math.round(args.budgetCents));
     const now = Date.now();
     const patch = {
-      ...(args.budgetCents === undefined ? {} : { budgetCents: nextBudgetCents }),
+      ...(args.budgetCents === undefined
+        ? {}
+        : { budgetCents: nextBudgetCents }),
       ...(args.dayEnd === undefined ? {} : { dayEnd: Math.round(args.dayEnd) }),
       ...(args.dayStart === undefined
         ? {}
@@ -869,7 +929,7 @@ export const updateProductionTimelineMilestone = authenticatedMutation
               args.drawAvailabilityCents === undefined
                 ? calculateDrawAvailability(
                     nextBudgetCents,
-                    auth.proposal.borrowerCoPayBps,
+                    auth.proposal.borrowerCoPayBps
                   )
                 : Math.max(0, Math.round(args.drawAvailabilityCents)),
           }),
@@ -881,9 +941,15 @@ export const updateProductionTimelineMilestone = authenticatedMutation
         : { evidenceState: args.evidenceState }),
       ...(args.icon === undefined ? {} : { icon: args.icon }),
       ...(args.lane === undefined ? {} : { lane: args.lane }),
-      ...(args.markerLabel === undefined ? {} : { markerLabel: args.markerLabel }),
-      ...(args.name === undefined ? {} : { name: args.name.trim() || milestone.name }),
-      ...(args.order === undefined ? {} : { order: Math.max(1, Math.round(args.order)) }),
+      ...(args.markerLabel === undefined
+        ? {}
+        : { markerLabel: args.markerLabel }),
+      ...(args.name === undefined
+        ? {}
+        : { name: args.name.trim() || milestone.name }),
+      ...(args.order === undefined
+        ? {}
+        : { order: Math.max(1, Math.round(args.order)) }),
       ...(args.policyState === undefined
         ? {}
         : { policyState: args.policyState }),
@@ -923,13 +989,13 @@ export const deleteProductionTimelineMilestone = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireProductionTimelineDraftStructureWrite(auth);
     const milestone = await getProductionMilestoneOrThrow(
       ctx,
       args.proposalId,
-      args.milestoneKey,
+      args.milestoneKey
     );
     await deleteProductionMilestoneCascade(ctx, args.proposalId, milestone);
     await recalculateProposalBudget(ctx, auth, args.proposalId);
@@ -960,13 +1026,13 @@ export const createProductionTimelineDraw = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireProductionTimelineEditable(auth);
     const existing = await ctx.db
       .query("proposalDrawScheduleRows")
       .withIndex("by_proposal_key", (q) =>
-        q.eq("proposalId", args.proposalId).eq("drawKey", args.drawKey),
+        q.eq("proposalId", args.proposalId).eq("drawKey", args.drawKey)
       )
       .unique();
     if (existing) {
@@ -976,7 +1042,7 @@ export const createProductionTimelineDraw = authenticatedMutation
       ctx,
       "proposalDrawScheduleRows",
       "by_proposal",
-      args.proposalId,
+      args.proposalId
     );
     const now = Date.now();
     await ctx.db.insert("proposalDrawScheduleRows", {
@@ -1020,13 +1086,13 @@ export const updateProductionTimelineDraw = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireProductionTimelineEditable(auth);
     const draw = await getProductionDrawOrThrow(
       ctx,
       args.proposalId,
-      args.drawKey,
+      args.drawKey
     );
     const patch = {
       ...(args.amountCents === undefined
@@ -1036,7 +1102,9 @@ export const updateProductionTimelineDraw = authenticatedMutation
       ...(args.label === undefined
         ? {}
         : { label: args.label.trim() || draw.label }),
-      ...(args.order === undefined ? {} : { order: Math.max(1, Math.round(args.order)) }),
+      ...(args.order === undefined
+        ? {}
+        : { order: Math.max(1, Math.round(args.order)) }),
       ...(args.x === undefined
         ? {}
         : { customDate: true, timingDay: Math.max(0, Math.round(args.x)) }),
@@ -1066,13 +1134,13 @@ export const deleteProductionTimelineDraw = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireProductionTimelineEditable(auth);
     const draw = await getProductionDrawOrThrow(
       ctx,
       args.proposalId,
-      args.drawKey,
+      args.drawKey
     );
     if (draw.requestStatus === "approved") {
       throw new Error("Approved reimbursement draws cannot be deleted.");
@@ -1098,12 +1166,14 @@ export const requestProductionTimelineModification = authenticatedMutation
     requestType: timelineModificationRequestType,
     workosOrganizationId: v.string(),
   })
-  .returns(v.object({ requestId: v.id("proposalTimelineModificationRequests") }))
+  .returns(
+    v.object({ requestId: v.id("proposalTimelineModificationRequests") })
+  )
   .handler(async (ctx, args) => {
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     if (auth.proposal.status !== "approved") {
       throw new Error("Live-build modification requests require approval.");
@@ -1119,24 +1189,27 @@ export const requestProductionTimelineModification = authenticatedMutation
       priorState = await getProductionMilestoneOrThrow(
         ctx,
         args.proposalId,
-        args.milestoneKey,
+        args.milestoneKey
       );
     }
     const now = Date.now();
-    const requestId = await ctx.db.insert("proposalTimelineModificationRequests", {
-      brokerageId: auth.brokerage._id,
-      createdAt: now,
-      milestoneKey: args.milestoneKey,
-      organizationId: auth.proposal.organizationId,
-      priorState,
-      proposalId: args.proposalId,
-      reason: args.reason,
-      requestedByWorkosUserId: auth.subject,
-      requestedPayload: args.requestedPayload,
-      requestType: args.requestType,
-      status: "requested",
-      updatedAt: now,
-    });
+    const requestId = await ctx.db.insert(
+      "proposalTimelineModificationRequests",
+      {
+        brokerageId: auth.brokerage._id,
+        createdAt: now,
+        milestoneKey: args.milestoneKey,
+        organizationId: auth.proposal.organizationId,
+        priorState,
+        proposalId: args.proposalId,
+        reason: args.reason,
+        requestedByWorkosUserId: auth.subject,
+        requestedPayload: args.requestedPayload,
+        requestType: args.requestType,
+        status: "requested",
+        updatedAt: now,
+      }
+    );
     await writeProposalEvent(ctx, {
       auth,
       command: "requestProductionTimelineModification",
@@ -1149,53 +1222,55 @@ export const requestProductionTimelineModification = authenticatedMutation
   })
   .public();
 
-export const reviewProductionTimelineModificationRequest =
-  authenticatedMutation
-    .input({
-      note: v.optional(v.string()),
-      requestId: v.id("proposalTimelineModificationRequests"),
-      status: v.union(v.literal("approved"), v.literal("rejected")),
-      workosOrganizationId: v.string(),
-    })
-    .returns(v.null())
-    .handler(async (ctx, args) => {
-      const request = await ctx.db.get(args.requestId);
-      if (!request) {
-        throw new Error("Production timeline modification request not found.");
-      }
-      const auth = await authorizeProposal(
-        ctx,
-        request.proposalId,
-        args.workosOrganizationId,
-      );
-      requireAnyRole(auth.roles, BACKOFFICE_ROLES);
-      requireBackofficeProposalWrite(auth, auth.proposal);
+export const reviewProductionTimelineModificationRequest = authenticatedMutation
+  .input({
+    note: v.optional(v.string()),
+    requestId: v.id("proposalTimelineModificationRequests"),
+    status: v.union(v.literal("approved"), v.literal("rejected")),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const request = await ctx.db.get(args.requestId);
+    if (!request) {
+      throw new Error("Production timeline modification request not found.");
+    }
+    const auth = await authorizeProposal(
+      ctx,
+      request.proposalId,
+      args.workosOrganizationId
+    );
+    requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+    requireBackofficeProposalWrite(auth, auth.proposal);
 
-      if (request.status !== "requested") {
-        return null;
-      }
-      if (args.status === "approved") {
-        await applyProductionTimelineModificationRequest(ctx, auth, request);
-      }
-      await ctx.db.patch(request._id, {
-        reviewNote: args.note,
-        reviewedAt: Date.now(),
-        reviewerWorkosUserId: auth.subject,
-        status: args.status,
-        updatedAt: Date.now(),
-      });
-      await writeProposalEvent(ctx, {
-        auth,
-        command: "reviewProductionTimelineModificationRequest",
-        eventType: "proposal.modification.reviewed",
-        newState: JSON.stringify({ requestId: args.requestId, status: args.status }),
-        priorState: JSON.stringify(request),
-        proposalId: request.proposalId,
-        reason: args.note,
-      });
+    if (request.status !== "requested") {
       return null;
-    })
-    .public();
+    }
+    if (args.status === "approved") {
+      await applyProductionTimelineModificationRequest(ctx, auth, request);
+    }
+    await ctx.db.patch(request._id, {
+      reviewNote: args.note,
+      reviewedAt: Date.now(),
+      reviewerWorkosUserId: auth.subject,
+      status: args.status,
+      updatedAt: Date.now(),
+    });
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "reviewProductionTimelineModificationRequest",
+      eventType: "proposal.modification.reviewed",
+      newState: JSON.stringify({
+        requestId: args.requestId,
+        status: args.status,
+      }),
+      priorState: JSON.stringify(request),
+      proposalId: request.proposalId,
+      reason: args.note,
+    });
+    return null;
+  })
+  .public();
 
 export const updateProductionTimelinePlanState = authenticatedMutation
   .input({
@@ -1219,7 +1294,7 @@ export const updateProductionTimelinePlanState = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireProductionTimelineEditable(auth);
     const priorState = JSON.stringify({
@@ -1234,14 +1309,17 @@ export const updateProductionTimelinePlanState = authenticatedMutation
     await ctx.db.patch(args.proposalId, {
       borrowerWorkingCapitalLimitCents: Math.max(
         0,
-        Math.round(args.startingCashCents),
+        Math.round(args.startingCashCents)
       ),
       timelineCurrentDay: Math.round(args.currentDay),
       timelineProgressValue: Math.round(args.progressValue),
       timelineRangeMax: Math.round(args.rangeMax),
       timelineRangeMin: Math.round(args.rangeMin),
       timelineRouteState: args.routeState,
-      timelineStartingCashCents: Math.max(0, Math.round(args.startingCashCents)),
+      timelineStartingCashCents: Math.max(
+        0,
+        Math.round(args.startingCashCents)
+      ),
       updatedAt: now,
       updatedByWorkosUserId: auth.subject,
     });
@@ -1280,7 +1358,7 @@ export const createProductionTimelineCapitalEvent = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireProductionTimelineEditable(auth);
     await insertProductionCapitalEvent(ctx, auth, {
@@ -1318,7 +1396,7 @@ export const createProductionTimelineCashInfusion = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireProductionTimelineEditable(auth);
     await insertProductionCapitalEvent(ctx, auth, {
@@ -1357,13 +1435,13 @@ export const updateProductionTimelineCapitalEvent = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireProductionTimelineEditable(auth);
     const event = await getProductionCapitalEventOrThrow(
       ctx,
       args.proposalId,
-      args.capitalEventKey,
+      args.capitalEventKey
     );
     const patch = {
       ...(args.amountCents === undefined
@@ -1401,13 +1479,13 @@ export const deleteProductionTimelineCapitalEvent = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireProductionTimelineEditable(auth);
     const event = await getProductionCapitalEventOrThrow(
       ctx,
       args.proposalId,
-      args.capitalEventKey,
+      args.capitalEventKey
     );
     await ctx.db.delete(event._id);
     await writeProposalEvent(ctx, {
@@ -1431,7 +1509,7 @@ export const generateProductionEvidenceUploadUrl = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireProductionTimelineEditable(auth);
     return await ctx.storage.generateUploadUrl();
@@ -1449,18 +1527,20 @@ export const createProductionTimelineEvidenceAsset = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireProductionTimelineEditable(auth);
     const milestone = await getProductionMilestoneOrThrow(
       ctx,
       args.proposalId,
-      args.asset.milestoneKey,
+      args.asset.milestoneKey
     );
     const existing = await ctx.db
       .query("proposalEvidenceAssets")
       .withIndex("by_proposal_key", (q) =>
-        q.eq("proposalId", args.proposalId).eq("evidenceKey", args.asset.evidenceKey),
+        q
+          .eq("proposalId", args.proposalId)
+          .eq("evidenceKey", args.asset.evidenceKey)
       )
       .unique();
     if (existing) {
@@ -1512,13 +1592,13 @@ export const updateProductionTimelineEvidenceAsset = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireProductionTimelineEditable(auth);
     const asset = await getProductionEvidenceAssetOrThrow(
       ctx,
       args.proposalId,
-      args.evidenceKey,
+      args.evidenceKey
     );
     const patch = {
       ...(args.label === undefined
@@ -1551,13 +1631,13 @@ export const deleteProductionTimelineEvidenceAsset = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireProductionTimelineEditable(auth);
     const asset = await getProductionEvidenceAssetOrThrow(
       ctx,
       args.proposalId,
-      args.evidenceKey,
+      args.evidenceKey
     );
     if (asset.storageId) {
       await ctx.storage.delete(asset.storageId);
@@ -1588,13 +1668,13 @@ export const submitProductionMilestoneCompletion = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireProductionTimelineLiveWrite(auth);
     const milestone = await getProductionMilestoneOrThrow(
       ctx,
       args.proposalId,
-      args.milestoneKey,
+      args.milestoneKey
     );
     const completionClaim = {
       ...(args.actualCostCents === undefined
@@ -1637,14 +1717,14 @@ export const reviewProductionMilestoneCompletion = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireAnyRole(auth.roles, BACKOFFICE_ROLES);
     requireBackofficeProposalWrite(auth, auth.proposal);
     const milestone = await getProductionMilestoneOrThrow(
       ctx,
       args.proposalId,
-      args.milestoneKey,
+      args.milestoneKey
     );
     const completionReview = {
       ...(args.note ? { note: args.note } : {}),
@@ -1693,13 +1773,13 @@ export const requestProductionMilestoneSiteVisit = authenticatedMutation
       tokenExpiresAt: v.number(),
       url: v.string(),
       visitId: v.string(),
-    }),
+    })
   )
   .handler(async (ctx, args) => {
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     if (auth.proposal.status !== "approved") {
       throw new Error("Site visit requests require an approved proposal.");
@@ -1709,7 +1789,7 @@ export const requestProductionMilestoneSiteVisit = authenticatedMutation
     const milestone = await getProductionMilestoneOrThrow(
       ctx,
       args.proposalId,
-      args.milestoneKey,
+      args.milestoneKey
     );
     const now = Date.now();
     const visitId = `site_visit_${args.milestoneKey}_${now}`;
@@ -1728,7 +1808,8 @@ export const requestProductionMilestoneSiteVisit = authenticatedMutation
     };
     const completionReview = {
       ...(milestone.completionReview ?? {}),
-      reviewedAt: milestone.completionReview?.reviewedAt ?? siteVisit.requestedAt,
+      reviewedAt:
+        milestone.completionReview?.reviewedAt ?? siteVisit.requestedAt,
       siteVisit,
       status: milestone.completionReview?.status ?? "revisionRequested",
     };
@@ -1764,7 +1845,7 @@ export const recordProductionMilestoneSiteVisit = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     if (auth.proposal.status !== "approved") {
       throw new Error("Site visit records require an approved proposal.");
@@ -1774,7 +1855,7 @@ export const recordProductionMilestoneSiteVisit = authenticatedMutation
     const milestone = await getProductionMilestoneOrThrow(
       ctx,
       args.proposalId,
-      args.milestoneKey,
+      args.milestoneKey
     );
     const existingReview = milestone.completionReview ?? {};
     const existingSiteVisit = existingReview.siteVisit;
@@ -1828,13 +1909,13 @@ export const submitProductionDrawRequest = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireProductionTimelineLiveWrite(auth);
     const draw = await getProductionDrawOrThrow(
       ctx,
       args.proposalId,
-      args.drawKey,
+      args.drawKey
     );
     const patch = {
       amountCents: Math.max(0, Math.round(args.amountCents)),
@@ -1872,14 +1953,14 @@ export const reviewProductionDrawRequest = authenticatedMutation
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     requireAnyRole(auth.roles, BACKOFFICE_ROLES);
     requireBackofficeProposalWrite(auth, auth.proposal);
     const draw = await getProductionDrawOrThrow(
       ctx,
       args.proposalId,
-      args.drawKey,
+      args.drawKey
     );
     const patch = {
       requestReviewNote: args.note,
@@ -1913,7 +1994,11 @@ export const recordOfflineClosing = authenticatedMutation
   })
   .returns(v.object({ buildId: v.id("activeBuilds") }))
   .handler(async (ctx, args) => {
-    const auth = await authorizeProposal(ctx, args.proposalId, args.workosOrganizationId);
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
     requireAnyRole(auth.roles, APPROVER_ROLES);
     requireState(auth.proposal, "approved");
     requireReason(args.reason);
@@ -1938,7 +2023,10 @@ export const recordOfflineClosing = authenticatedMutation
       permitWaiverId: permitWaiver?._id,
       proposalId: args.proposalId,
       startDate: args.buildStartDate,
-      status: new Date(`${args.buildStartDate}T00:00:00Z`).getTime() > now ? "future_start" : "active",
+      status:
+        new Date(`${args.buildStartDate}T00:00:00Z`).getTime() > now
+          ? "future_start"
+          : "active",
       totalBudgetCents: auth.proposal.totalBudgetCents,
       updatedAt: now,
       workflowRuleSnapshotId: auth.proposal.workflowRuleSnapshotId,
@@ -1979,34 +2067,54 @@ export const recordOfflineClosing = authenticatedMutation
       version: 1,
     });
 
-    const milestoneIdByProposalMilestone = new Map<string, Id<"buildMilestones">>();
-    const milestones = await collectByIndex(ctx, "proposalMilestones", "by_proposal", args.proposalId);
+    const milestoneIdByProposalMilestone = new Map<
+      string,
+      Id<"buildMilestones">
+    >();
+    const milestones = await collectByIndex(
+      ctx,
+      "proposalMilestones",
+      "by_proposal",
+      args.proposalId
+    );
     for (const milestone of milestones) {
       const buildMilestoneId = await ctx.db.insert("buildMilestones", {
         brokerageId: auth.brokerage._id,
         budgetCents: milestone.budgetCents,
         buildId,
+        completionClaim: milestone.completionClaim,
+        completionReview: milestone.completionReview,
         createdAt: now,
         dayEnd: milestone.dayEnd,
         dayStart: milestone.dayStart,
         dependencyKeys: milestone.dependencyKeys,
         drawAvailabilityCents: milestone.drawAvailabilityCents,
         durationDays: milestone.durationDays,
+        evidenceState: milestone.evidenceState,
         key: milestone.key,
         name: milestone.name,
         order: milestone.order,
         organizationId: args.workosOrganizationId,
+        policyState: milestone.policyState,
         proposalMilestoneId: milestone._id,
-        status: "planned",
+        status:
+          milestone.completionReview?.status === "approved"
+            ? "complete"
+            : "planned",
         updatedAt: now,
       });
       milestoneIdByProposalMilestone.set(milestone._id, buildMilestoneId);
     }
 
-    const submilestones = await collectByIndex(ctx, "proposalSubmilestones", "by_proposal", args.proposalId);
+    const submilestones = await collectByIndex(
+      ctx,
+      "proposalSubmilestones",
+      "by_proposal",
+      args.proposalId
+    );
     for (const submilestone of submilestones) {
       const buildMilestoneId = milestoneIdByProposalMilestone.get(
-        submilestone.proposalMilestoneId,
+        submilestone.proposalMilestoneId
       );
       if (!buildMilestoneId) {
         continue;
@@ -2029,7 +2137,12 @@ export const recordOfflineClosing = authenticatedMutation
       });
     }
 
-    const draws = await collectByIndex(ctx, "proposalDrawScheduleRows", "by_proposal", args.proposalId);
+    const draws = await collectByIndex(
+      ctx,
+      "proposalDrawScheduleRows",
+      "by_proposal",
+      args.proposalId
+    );
     for (const draw of draws) {
       const buildMilestoneId = draw.proposalMilestoneId
         ? milestoneIdByProposalMilestone.get(draw.proposalMilestoneId)
@@ -2046,11 +2159,22 @@ export const recordOfflineClosing = authenticatedMutation
         order: draw.order,
         organizationId: args.workosOrganizationId,
         proposalDrawScheduleRowId: draw._id,
-        status: "planned",
+        requestNote: draw.requestNote,
+        requestReviewNote: draw.requestReviewNote,
+        requestedAt: draw.requestedAt,
+        reviewedAt: draw.reviewedAt,
+        status: activeBuildDrawStatusFromProposal(draw.requestStatus),
         timingDay: draw.timingDay,
         updatedAt: now,
       });
     }
+    await copyProposalOperationalRowsToActiveBuild(ctx, {
+      auth: { brokerage: auth.brokerage, roles: auth.roles, subject: auth.subject },
+      buildId,
+      organizationId: args.workosOrganizationId,
+      proposalId: args.proposalId,
+      now,
+    });
     await ctx.db.insert("capitalEvents", {
       amountCents: 0,
       brokerageId: auth.brokerage._id,
@@ -2079,6 +2203,22 @@ export const recordOfflineClosing = authenticatedMutation
       proposalId: args.proposalId,
       reason: args.reason,
     });
+    const build = await ctx.db.get(buildId);
+    if (build) {
+      await writeActiveBuildEvent(ctx, {
+        auth: {
+          brokerage: auth.brokerage,
+          proposal: auth.proposal,
+          roles: auth.roles,
+          subject: auth.subject,
+        },
+        build,
+        command: "recordOfflineClosing",
+        eventType: "active_build.created",
+        newState: JSON.stringify({ buildId, proposalId: args.proposalId }),
+        reason: args.reason,
+      });
+    }
     await ctx.db.insert("eventOutbox", {
       brokerageId: auth.brokerage._id,
       createdAt: now,
@@ -2143,7 +2283,9 @@ export const getBuilderProposalCreateContext = authenticatedQuery
     const builderProfile = isBackoffice(auth.roles)
       ? await ctx.db
           .query("builderProfiles")
-          .withIndex("by_brokerage", (q) => q.eq("brokerageId", auth.brokerage._id))
+          .withIndex("by_brokerage", (q) =>
+            q.eq("brokerageId", auth.brokerage._id)
+          )
           .filter((q) => q.eq(q.field("status"), "active"))
           .first()
       : await getOwnedBuilderProfile(ctx, auth.brokerage._id, auth.subject);
@@ -2159,6 +2301,100 @@ export const getBuilderProposalCreateContext = authenticatedQuery
   })
   .public();
 
+export const getBuilderOnboardingState = authenticatedQuery
+  .input({ workosOrganizationId: v.string() })
+  .returns(
+    v.object({
+      builderProfile: v.union(
+        v.object({
+          _id: v.id("builderProfiles"),
+          displayName: v.string(),
+        }),
+        v.null()
+      ),
+      complete: v.boolean(),
+      dismissed: v.boolean(),
+      hasProfile: v.boolean(),
+      hasProposals: v.boolean(),
+      isBuilder: v.boolean(),
+      proposalCount: v.number(),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    const isBuilder =
+      auth.roles.includes("builder") || auth.roles.includes("builder-staff");
+
+    // First-run is a builder concept. Backoffice/admin viewers are never gated.
+    const builderProfile = isBuilder
+      ? await getOwnedBuilderProfile(ctx, auth.brokerage._id, auth.subject)
+      : null;
+    const hasProfile = Boolean(builderProfile);
+
+    let proposalCount = 0;
+    if (builderProfile) {
+      const proposals = await ctx.db
+        .query("buildProposals")
+        .withIndex("by_builder", (q) =>
+          q.eq("builderProfileId", builderProfile._id)
+        )
+        .collect();
+      proposalCount = proposals.length;
+    }
+    const hasProposals = proposalCount > 0;
+
+    const dismissal = await ctx.db
+      .query("builderOnboardingDismissals")
+      .withIndex("by_user_org", (q) =>
+        q
+          .eq("workosUserId", auth.subject)
+          .eq("organizationId", args.workosOrganizationId)
+      )
+      .unique();
+
+    return {
+      builderProfile: builderProfile
+        ? {
+            _id: builderProfile._id,
+            displayName: builderProfile.displayName,
+          }
+        : null,
+      // Onboarding is "complete" once the builder has reached first value
+      // (a submitted/started proposal) or is not a builder at all.
+      complete: !isBuilder || hasProposals,
+      dismissed: Boolean(dismissal),
+      hasProfile,
+      hasProposals,
+      isBuilder,
+      proposalCount,
+    };
+  })
+  .public();
+
+export const dismissBuilderOnboarding = authenticatedMutation
+  .input({ workosOrganizationId: v.string() })
+  .returns(v.object({ dismissed: v.literal(true) }))
+  .handler(async (ctx, args) => {
+    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    const existing = await ctx.db
+      .query("builderOnboardingDismissals")
+      .withIndex("by_user_org", (q) =>
+        q
+          .eq("workosUserId", auth.subject)
+          .eq("organizationId", args.workosOrganizationId)
+      )
+      .unique();
+    if (!existing) {
+      await ctx.db.insert("builderOnboardingDismissals", {
+        dismissedAt: Date.now(),
+        organizationId: args.workosOrganizationId,
+        workosUserId: auth.subject,
+      });
+    }
+    return { dismissed: true as const };
+  })
+  .public();
+
 export const getProposalDetail = authenticatedQuery
   .input({
     proposalId: v.id("buildProposals"),
@@ -2166,7 +2402,11 @@ export const getProposalDetail = authenticatedQuery
   })
   .returns(v.any())
   .handler(async (ctx, args) => {
-    const auth = await authorizeProposal(ctx, args.proposalId, args.workosOrganizationId);
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
     const [
       documents,
       milestones,
@@ -2178,13 +2418,23 @@ export const getProposalDetail = authenticatedQuery
     ] = await Promise.all([
       collectByIndex(ctx, "proposalDocuments", "by_proposal", args.proposalId),
       collectByIndex(ctx, "proposalMilestones", "by_proposal", args.proposalId),
-      collectByIndex(ctx, "proposalSubmilestones", "by_proposal", args.proposalId),
-      collectByIndex(ctx, "proposalDrawScheduleRows", "by_proposal", args.proposalId),
+      collectByIndex(
+        ctx,
+        "proposalSubmilestones",
+        "by_proposal",
+        args.proposalId
+      ),
+      collectByIndex(
+        ctx,
+        "proposalDrawScheduleRows",
+        "by_proposal",
+        args.proposalId
+      ),
       collectByIndex(ctx, "proposalEvents", "by_proposal", args.proposalId),
       ctx.db
         .query("auditEvents")
         .withIndex("by_entity", (q) =>
-          q.eq("entityType", "buildProposal").eq("entityId", args.proposalId),
+          q.eq("entityType", "buildProposal").eq("entityId", args.proposalId)
         )
         .collect(),
       getPermitWaiver(ctx, args.proposalId),
@@ -2193,13 +2443,28 @@ export const getProposalDetail = authenticatedQuery
       ? await ctx.db.get(auth.proposal.activeBuildId)
       : null;
     const buildMilestones = activeBuild
-      ? await collectByIndex(ctx, "buildMilestones", "by_build", activeBuild._id)
+      ? await collectByIndex(
+          ctx,
+          "buildMilestones",
+          "by_build",
+          activeBuild._id
+        )
       : [];
     const buildSubmilestones = activeBuild
-      ? await collectByIndex(ctx, "buildSubmilestones", "by_build", activeBuild._id)
+      ? await collectByIndex(
+          ctx,
+          "buildSubmilestones",
+          "by_build",
+          activeBuild._id
+        )
       : [];
     const plannedDraws = activeBuild
-      ? await collectByIndex(ctx, "plannedDrawScheduleRows", "by_build", activeBuild._id)
+      ? await collectByIndex(
+          ctx,
+          "plannedDrawScheduleRows",
+          "by_build",
+          activeBuild._id
+        )
       : [];
 
     return {
@@ -2229,7 +2494,7 @@ export const getProductionTimelineWorkspace = authenticatedQuery
     const auth = await authorizeProposal(
       ctx,
       args.proposalId,
-      args.workosOrganizationId,
+      args.workosOrganizationId
     );
     const [
       milestoneRows,
@@ -2240,55 +2505,55 @@ export const getProductionTimelineWorkspace = authenticatedQuery
       modificationRequests,
       permitWaiver,
     ] = await Promise.all([
-        collectByIndex(ctx, "proposalMilestones", "by_proposal", args.proposalId),
-        collectByIndex(
-          ctx,
-          "proposalSubmilestones",
-          "by_proposal",
-          args.proposalId,
-        ),
-        collectByIndex(
-          ctx,
-          "proposalDrawScheduleRows",
-          "by_proposal",
-          args.proposalId,
-        ),
-        collectByIndex(
-          ctx,
-          "proposalCapitalEvents",
-          "by_proposal",
-          args.proposalId,
-        ),
-        collectByIndex(
-          ctx,
-          "proposalEvidenceAssets",
-          "by_proposal",
-          args.proposalId,
-        ),
-        collectByIndex(
-          ctx,
-          "proposalTimelineModificationRequests",
-          "by_proposal",
-          args.proposalId,
-        ),
-        getPermitWaiver(ctx, args.proposalId),
-      ]);
+      collectByIndex(ctx, "proposalMilestones", "by_proposal", args.proposalId),
+      collectByIndex(
+        ctx,
+        "proposalSubmilestones",
+        "by_proposal",
+        args.proposalId
+      ),
+      collectByIndex(
+        ctx,
+        "proposalDrawScheduleRows",
+        "by_proposal",
+        args.proposalId
+      ),
+      collectByIndex(
+        ctx,
+        "proposalCapitalEvents",
+        "by_proposal",
+        args.proposalId
+      ),
+      collectByIndex(
+        ctx,
+        "proposalEvidenceAssets",
+        "by_proposal",
+        args.proposalId
+      ),
+      collectByIndex(
+        ctx,
+        "proposalTimelineModificationRequests",
+        "by_proposal",
+        args.proposalId
+      ),
+      getPermitWaiver(ctx, args.proposalId),
+    ]);
 
     const milestones = [...milestoneRows].sort(
-      (a, b) => a.order - b.order || a.key.localeCompare(b.key),
+      (a, b) => a.order - b.order || a.key.localeCompare(b.key)
     );
     const draws = [...drawRows].sort(
-      (a, b) => a.order - b.order || a.drawKey.localeCompare(b.drawKey),
+      (a, b) => a.order - b.order || a.drawKey.localeCompare(b.drawKey)
     );
     const drawByMilestoneKey = new Map(
       draws
         .filter((draw) => draw.milestoneKey)
-        .map((draw) => [draw.milestoneKey as string, draw]),
+        .map((draw) => [draw.milestoneKey as string, draw])
     );
     const maxDay = Math.max(
       60,
       ...milestones.map((milestone) => milestone.dayEnd + 10),
-      ...draws.map((draw) => draw.timingDay + 10),
+      ...draws.map((draw) => draw.timingDay + 10)
     );
     const currentDay =
       auth.proposal.status === "draft"
@@ -2300,9 +2565,9 @@ export const getProductionTimelineWorkspace = authenticatedQuery
               Math.round(
                 ((auth.proposal.submittedAt ?? auth.proposal.updatedAt) -
                   auth.proposal.createdAt) /
-                  86_400_000,
-              ),
-            ),
+                  86_400_000
+              )
+            )
           );
     const activeMilestone = firstActiveMilestoneForWorkspace(milestones);
 
@@ -2357,13 +2622,15 @@ export const getProductionTimelineWorkspace = authenticatedQuery
               : null,
             sizeBytes: asset.sizeBytes,
             tag: asset.tag,
-          })),
+          }))
       ),
       milestones: milestones.map((milestone, index) => {
         const draw = drawByMilestoneKey.get(milestone.key);
         const evidenceState =
           milestone.evidenceState ??
-          (evidenceRows.some((asset: any) => asset.milestoneKey === milestone.key)
+          (evidenceRows.some(
+            (asset: any) => asset.milestoneKey === milestone.key
+          )
             ? "Submitted package"
             : milestone.completionClaim
               ? "Completion claimed"
@@ -2371,11 +2638,11 @@ export const getProductionTimelineWorkspace = authenticatedQuery
         return {
           budgetCents: milestone.budgetCents,
           completionClaim: productionCompletionClaimView(
-            milestone.completionClaim,
+            milestone.completionClaim
           ),
           completionReview: productionCompletionReviewView(
             milestone.completionReview ??
-              milestone.completionClaim?.completionReview,
+              milestone.completionClaim?.completionReview
           ),
           drawAvailabilityCents:
             draw?.amountCents ?? milestone.drawAvailabilityCents,
@@ -2385,17 +2652,28 @@ export const getProductionTimelineWorkspace = authenticatedQuery
           icon:
             milestone.icon ??
             iconForProductionMilestone(milestone.key, milestone.name),
-          lane: milestone.lane ?? (index % 3 === 1 ? -1 : index % 3 === 2 ? 1 : 0),
+          lane:
+            milestone.lane ?? (index % 3 === 1 ? -1 : index % 3 === 2 ? 1 : 0),
           markerLabel: milestone.markerLabel ?? String(index + 1),
           milestoneKey: milestone.key,
           name: milestone.name,
           order: index + 1,
           policyState:
-            milestone.policyState ?? productionPolicyState(auth.proposal, permitWaiver),
-          status: productionTimelineStatusForMilestone(index, auth.proposal, milestone),
+            milestone.policyState ??
+            productionPolicyState(auth.proposal, permitWaiver),
+          status: productionTimelineStatusForMilestone(
+            index,
+            auth.proposal,
+            milestone
+          ),
           submilestoneSnapshot: submilestones
-            .filter((submilestone: any) => submilestone.milestoneKey === milestone.key)
-            .sort((a: any, b: any) => a.order - b.order || a.key.localeCompare(b.key))
+            .filter(
+              (submilestone: any) => submilestone.milestoneKey === milestone.key
+            )
+            .sort(
+              (a: any, b: any) =>
+                a.order - b.order || a.key.localeCompare(b.key)
+            )
             .map((submilestone: any) => ({
               ...(submilestone.budgetCents === undefined
                 ? {}
@@ -2407,7 +2685,11 @@ export const getProductionTimelineWorkspace = authenticatedQuery
               name: submilestone.name,
               order: submilestone.order,
             })),
-          tone: productionTimelineToneForMilestone(index, auth.proposal, milestone),
+          tone: productionTimelineToneForMilestone(
+            index,
+            auth.proposal,
+            milestone
+          ),
           x: milestone.dayStart,
         };
       }),
@@ -2427,7 +2709,7 @@ export const getProductionTimelineWorkspace = authenticatedQuery
         borrowerCoPayBps: auth.proposal.borrowerCoPayBps,
         borrowerCoPayCents: Math.round(
           (auth.proposal.totalBudgetCents * auth.proposal.borrowerCoPayBps) /
-            10_000,
+            10_000
         ),
         currentDay: auth.proposal.timelineCurrentDay ?? currentDay,
         progressValue: auth.proposal.timelineProgressValue ?? currentDay,
@@ -2468,7 +2750,11 @@ export const getProposalDetailByString = authenticatedQuery
     if (!proposalId) {
       return null;
     }
-    const auth = await authorizeProposal(ctx, proposalId, args.workosOrganizationId);
+    const auth = await authorizeProposal(
+      ctx,
+      proposalId,
+      args.workosOrganizationId
+    );
     const [
       documents,
       milestones,
@@ -2481,12 +2767,17 @@ export const getProposalDetailByString = authenticatedQuery
       collectByIndex(ctx, "proposalDocuments", "by_proposal", proposalId),
       collectByIndex(ctx, "proposalMilestones", "by_proposal", proposalId),
       collectByIndex(ctx, "proposalSubmilestones", "by_proposal", proposalId),
-      collectByIndex(ctx, "proposalDrawScheduleRows", "by_proposal", proposalId),
+      collectByIndex(
+        ctx,
+        "proposalDrawScheduleRows",
+        "by_proposal",
+        proposalId
+      ),
       collectByIndex(ctx, "proposalEvents", "by_proposal", proposalId),
       ctx.db
         .query("auditEvents")
         .withIndex("by_entity", (q) =>
-          q.eq("entityType", "buildProposal").eq("entityId", proposalId),
+          q.eq("entityType", "buildProposal").eq("entityId", proposalId)
         )
         .collect(),
       getPermitWaiver(ctx, proposalId),
@@ -2495,17 +2786,27 @@ export const getProposalDetailByString = authenticatedQuery
       ? await ctx.db.get(auth.proposal.activeBuildId)
       : null;
     const buildMilestones = activeBuild
-      ? await collectByIndex(ctx, "buildMilestones", "by_build", activeBuild._id)
+      ? await collectByIndex(
+          ctx,
+          "buildMilestones",
+          "by_build",
+          activeBuild._id
+        )
       : [];
     const buildSubmilestones = activeBuild
-      ? await collectByIndex(ctx, "buildSubmilestones", "by_build", activeBuild._id)
+      ? await collectByIndex(
+          ctx,
+          "buildSubmilestones",
+          "by_build",
+          activeBuild._id
+        )
       : [];
     const plannedDraws = activeBuild
       ? await collectByIndex(
           ctx,
           "plannedDrawScheduleRows",
           "by_build",
-          activeBuild._id,
+          activeBuild._id
         )
       : [];
 
@@ -2556,6 +2857,238 @@ export const listProposalKanban = authenticatedQuery
   })
   .public();
 
+export const getBackofficeDashboard = authenticatedQuery
+  .input({ workosOrganizationId: v.string() })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const scope = await resolveBrokerageScope(ctx, args.workosOrganizationId);
+    if (!isBackoffice(scope.roles)) {
+      throw new Error("Forbidden: backoffice");
+    }
+    if (!scope.brokerage) {
+      throw new Error("Forbidden: brokerage");
+    }
+    const auth = {
+      brokerage: scope.brokerage,
+      roles: scope.roles,
+      subject: scope.subject,
+    };
+    const staffCanRead =
+      auth.roles.includes("broker-staff") &&
+      (await hasPermission(
+        ctx,
+        auth.brokerage.workosOrganizationId,
+        auth.roles,
+        "proposals:read"
+      ));
+
+    const proposalCards = await visibleBackofficeCards(ctx, auth);
+    const proposalRows: Array<{
+      card: Awaited<ReturnType<typeof visibleBackofficeCards>>[number];
+      proposal: Doc<"buildProposals">;
+    }> = [];
+    for (const card of proposalCards) {
+      const proposal = await ctx.db.get(card.proposalId);
+      if (!proposal) {
+        continue;
+      }
+      proposalRows.push({ card, proposal });
+    }
+
+    const activeBuildRows = await ctx.db
+      .query("activeBuilds")
+      .withIndex("by_brokerage", (q) => q.eq("brokerageId", auth.brokerage._id))
+      .take(50);
+    const visibleActiveBuilds: Array<{
+      build: Doc<"activeBuilds">;
+      builder: Doc<"builderProfiles"> | null;
+      draws: Doc<"plannedDrawScheduleRows">[];
+      milestones: Doc<"buildMilestones">[];
+      proposal: Doc<"buildProposals">;
+    }> = [];
+    for (const build of activeBuildRows) {
+      const proposal = await ctx.db.get(build.proposalId);
+      if (!proposal) {
+        continue;
+      }
+      if (!(canReadBackofficeProposal(auth, proposal) || staffCanRead)) {
+        continue;
+      }
+      const [builder, milestones, draws] = await Promise.all([
+        ctx.db.get(build.builderProfileId),
+        ctx.db
+          .query("buildMilestones")
+          .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
+          .take(100),
+        ctx.db
+          .query("plannedDrawScheduleRows")
+          .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
+          .take(100),
+      ]);
+      visibleActiveBuilds.push({
+        build,
+        builder,
+        draws,
+        milestones,
+        proposal,
+      });
+    }
+
+    const activeBuilds = visibleActiveBuilds.map(
+      ({ build, builder, milestones }) => {
+        const activeMilestone =
+          milestones.find((milestone) => milestone.status !== "complete") ??
+          milestones[0];
+        return {
+          activeMilestone:
+            activeMilestone?.name ?? `${milestones.length} milestones`,
+          address: build.location,
+          buildKey: String(build._id),
+          builder: builder?.displayName ?? "Builder",
+          daysActive: productionDaysActive(build.startDate),
+          href: `/backoffice/builds/${build._id}`,
+          id: productionBuildDisplayId(build),
+          milestoneState: activeMilestone
+            ? productionMilestoneState(activeMilestone.status)
+            : "backlog",
+          status: productionBuildDashboardStatus(build.status),
+          statusLabel: productionBuildStatusLabel(build.status),
+        };
+      }
+    );
+
+    const drawRequests = visibleActiveBuilds.flatMap(({ build, draws }) =>
+      draws
+        .filter((draw) => draw.status === "requested")
+        .map((draw) => ({
+          address: build.location,
+          buildId: productionBuildDisplayId(build),
+          buildKey: String(build._id),
+          eligibleDate: `Day ${draw.timingDay}`,
+          href: `/backoffice/builds/${build._id}`,
+          id: String(draw._id),
+          label: draw.label,
+          requestedAmount: centsToCurrency(draw.amountCents),
+          statusLabel: "Requested",
+        }))
+    );
+
+    const milestones = visibleActiveBuilds.flatMap(({ build, milestones }) =>
+      milestones
+        .filter((milestone) => milestone.status !== "complete")
+        .map((milestone) => ({
+          address: build.location,
+          buildId: productionBuildDisplayId(build),
+          buildKey: String(build._id),
+          column: productionMilestoneColumn(milestone.status),
+          dueLabel: `Day ${milestone.dayEnd}`,
+          href: `/backoffice/builds/${build._id}?milestone=${milestone.key}`,
+          id: String(milestone._id),
+          milestoneKey: milestone.key,
+          name: milestone.name,
+          priority: productionMilestonePriority(milestone),
+        }))
+    );
+
+    const proposals = proposalRows.map(({ card, proposal }) =>
+      productionDashboardProposalCard(card, proposal)
+    );
+    const submittedProposals = proposalRows
+      .filter(
+        ({ proposal }) =>
+          proposal.status === "submitted" &&
+          proposal.reviewOutcome !== "rejected"
+      )
+      .map(({ card, proposal }) =>
+        productionDashboardProposalCard(card, proposal)
+      );
+    const approvedPendingClosing = proposalRows
+      .filter(
+        ({ proposal }) =>
+          proposal.status === "approved" && proposal.activeBuildId === undefined
+      )
+      .map(({ card, proposal }) =>
+        productionDashboardProposalCard(card, proposal)
+      );
+
+    const proposalColumns = PROPOSAL_COLUMNS.map((id) => ({
+      description: productionProposalColumnDescription(id, proposals),
+      id,
+      name: titleCase(id),
+    }));
+    const milestoneColumns = [
+      {
+        description: "Builder marked complete; triage",
+        id: "backlog",
+        name: "Backlog",
+      },
+      {
+        description: "Visit ordered or requested",
+        id: "needsSiteVisit",
+        name: "Needs site visit",
+      },
+      {
+        description: "Visit picked up and scheduled",
+        id: "inProgress",
+        name: "In progress",
+      },
+      {
+        description: "Pending staff approval",
+        id: "inReview",
+        name: "In review",
+      },
+    ];
+
+    return {
+      activeBuilds,
+      approvedPendingClosing,
+      drawRequests,
+      metrics: [
+        {
+          detail: `${drawRequests.length} production draw requests awaiting review`,
+          id: "draw-requests",
+          label: "Draw requests",
+          tone: drawRequests.length > 0 ? "warning" : "success",
+          trend: "Production plannedDrawScheduleRows",
+          value: drawRequests.length,
+        },
+        {
+          detail: `${activeBuilds.length} production active builds after closing`,
+          id: "active-builds",
+          label: "Active builds",
+          tone: activeBuilds.length > 0 ? "success" : "default",
+          trend: "Only activeBuilds created by loan closing",
+          value: activeBuilds.length,
+        },
+        {
+          detail: `${proposals.length} production Build Proposals`,
+          id: "proposals",
+          label: "Proposals",
+          tone: "default",
+          trend: `${approvedPendingClosing.length} approved pending closing`,
+          value: proposals.length,
+        },
+        {
+          detail: `${milestones.length} production active-build milestones`,
+          id: "milestones",
+          label: "Milestones",
+          tone: "success",
+          trend: "Only buildMilestones from active builds",
+          value: milestones.length,
+        },
+      ],
+      milestoneColumns,
+      milestones,
+      proposalColumns,
+      proposals,
+      quickActions: [],
+      scheduleDate: new Date().toISOString(),
+      scheduleEvents: [],
+      submittedProposals,
+    };
+  })
+  .public();
+
 export const getProductionProposalSettings = authenticatedQuery
   .input({ workosOrganizationId: v.string() })
   .returns(v.any())
@@ -2583,16 +3116,20 @@ export const getProductionProposalSettings = authenticatedQuery
       ctx.db
         .query("milestoneArchetypes")
         .withIndex("by_brokerage_key", (q) =>
-          q.eq("brokerageId", auth.brokerage._id),
+          q.eq("brokerageId", auth.brokerage._id)
         )
         .collect(),
       ctx.db
         .query("proposalTemplates")
-        .withIndex("by_brokerage", (q) => q.eq("brokerageId", auth.brokerage._id))
+        .withIndex("by_brokerage", (q) =>
+          q.eq("brokerageId", auth.brokerage._id)
+        )
         .collect(),
       ctx.db
         .query("workflowRules")
-        .withIndex("by_brokerage", (q) => q.eq("brokerageId", auth.brokerage._id))
+        .withIndex("by_brokerage", (q) =>
+          q.eq("brokerageId", auth.brokerage._id)
+        )
         .collect(),
     ]);
 
@@ -2616,11 +3153,15 @@ export const getActiveBuildDetailByString = authenticatedQuery
     if (!buildId) {
       return null;
     }
-    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
-    const build = await ctx.db.get(buildId);
-    if (!build || build.brokerageId !== auth.brokerage._id) {
+    const auth = await authorizeActiveBuild(
+      ctx,
+      buildId,
+      args.workosOrganizationId
+    );
+    if (!auth) {
       return null;
     }
+    const { build } = auth;
     const [loanFacilities, capitalPlans, milestones, submilestones, draws] =
       await Promise.all([
         collectByIndex(ctx, "loanFacilities", "by_build", buildId),
@@ -2629,20 +3170,655 @@ export const getActiveBuildDetailByString = authenticatedQuery
         collectByIndex(ctx, "buildSubmilestones", "by_build", buildId),
         collectByIndex(ctx, "plannedDrawScheduleRows", "by_build", buildId),
       ]);
+    const [
+      documents,
+      evidenceAssets,
+      notes,
+      assignments,
+      siteVisits,
+      auditEvents,
+      contractorProfiles,
+    ] = await Promise.all([
+      collectByIndex(ctx, "buildDocuments", "by_build", buildId),
+      collectByIndex(ctx, "buildEvidenceAssets", "by_build", buildId),
+      collectByIndex(ctx, "buildNotes", "by_build", buildId),
+      collectByIndex(ctx, "buildContractorAssignments", "by_build", buildId),
+      collectByIndex(ctx, "buildSiteVisits", "by_build", buildId),
+      ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q) =>
+          q.eq("entityType", "activeBuild").eq("entityId", String(buildId))
+        )
+        .collect(),
+      ctx.db
+        .query("contractorProfiles")
+        .withIndex("by_brokerage", (q) => q.eq("brokerageId", build.brokerageId))
+        .collect(),
+    ]);
+    const buildDocuments = documents as Doc<"buildDocuments">[];
+    const buildEvidenceAssets = evidenceAssets as Doc<"buildEvidenceAssets">[];
+    const buildNotes = notes as Doc<"buildNotes">[];
+    const buildContractorAssignments =
+      assignments as Doc<"buildContractorAssignments">[];
+    const buildSiteVisits = siteVisits as Doc<"buildSiteVisits">[];
+    const contractorById = new Map(
+      contractorProfiles.map((contractor) => [String(contractor._id), contractor])
+    );
+    const attachedContractorIds = new Set(
+      buildContractorAssignments.map((assignment) =>
+        String(assignment.contractorId)
+      )
+    );
+    const mappedAuditEvents = auditEvents
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .map((event) => ({
+        _id: String(event._id),
+        actorPersona: event.actorWorkosUserId,
+        afterSummary: event.newState,
+        beforeSummary: event.priorState,
+        createdAt: event.createdAt,
+        entityLabel: build.buildName,
+        entityType: event.entityType,
+        eventType: event.eventType,
+      }));
     return {
       build,
       capitalPlan: capitalPlans[0] ?? null,
+      displayId: productionBuildDisplayId(build),
+      documents: await withBuildDocumentStorageUrls(ctx, buildDocuments),
       draws,
+      auditEvents: mappedAuditEvents,
+      availableContractors: contractorProfiles
+        .filter((contractor) => !attachedContractorIds.has(String(contractor._id)))
+        .map((contractor) => ({
+          _id: contractor._id,
+          city: "",
+          name: contractor.name,
+          skills: contractor.trades,
+          trades: contractor.trades,
+        })),
+      contractors: buildContractorAssignments
+        .map((assignment) => {
+          const contractor = contractorById.get(String(assignment.contractorId));
+          if (!contractor) {
+            return null;
+          }
+          return {
+            _id: String(assignment._id),
+            contractorId: contractor._id,
+            email: contractor.email,
+            name: contractor.name,
+            role: assignment.role,
+            trades: contractor.trades,
+          };
+        })
+        .filter(Boolean),
+      quickActionEvents: mappedAuditEvents.slice(0, 8).map((event) => ({
+        _id: event._id,
+        createdAt: event.createdAt,
+        eventType: event.eventType,
+        payloadPreview: event.afterSummary ?? event.beforeSummary ?? event.eventType,
+      })),
       loanFacility: loanFacilities[0] ?? null,
       milestones,
+      notes: {
+        internal: buildNotes
+          .filter((note) => note.visibility === "internal")
+          .sort((a, b) => b.createdAt - a.createdAt)
+          .map(formatActiveBuildNote),
+        public: buildNotes
+          .filter((note) => note.visibility === "public")
+          .sort((a, b) => b.createdAt - a.createdAt)
+          .map(formatActiveBuildNote),
+      },
+      sitePhotos: await productionSitePhotosForBuild(
+        ctx,
+        build,
+        buildEvidenceAssets
+      ),
+      siteVisits: buildSiteVisits,
       submilestones,
     };
   })
   .public();
 
+export const addActiveBuildNote = authenticatedMutation
+  .input({
+    body: v.string(),
+    buildId: v.id("activeBuilds"),
+    visibility: activeBuildNoteVisibility,
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    if (args.visibility === "internal") {
+      requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+    }
+    const body = args.body.trim();
+    if (!body) {
+      throw new Error("Note body is required.");
+    }
+    const now = Date.now();
+    await ctx.db.insert("buildNotes", {
+      authorRoles: auth.roles,
+      authorWorkosUserId: auth.subject,
+      body,
+      brokerageId: auth.brokerage._id,
+      buildId: args.buildId,
+      createdAt: now,
+      organizationId: args.workosOrganizationId,
+      updatedAt: now,
+      visibility: args.visibility,
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "addActiveBuildNote",
+      eventType: "active_build.note.created",
+      newState: JSON.stringify({ body, visibility: args.visibility }),
+    });
+    return null;
+  })
+  .public();
+
+export const addActiveBuildDocument = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    documentType: v.union(
+      v.literal("permit"),
+      v.literal("budget"),
+      v.literal("plan"),
+      v.literal("supporting")
+    ),
+    fileName: v.string(),
+    mimeType: v.string(),
+    sizeBytes: v.number(),
+    storageId: v.optional(v.id("_storage")),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    const now = Date.now();
+    const document = {
+      brokerageId: auth.brokerage._id,
+      buildId: args.buildId,
+      createdAt: now,
+      documentType: args.documentType,
+      fileName: args.fileName.trim(),
+      mimeType: args.mimeType,
+      organizationId: args.workosOrganizationId,
+      proposalId: auth.proposal._id,
+      sizeBytes: Math.max(0, Math.round(args.sizeBytes)),
+      status: "uploaded" as const,
+      storageId: args.storageId,
+      updatedAt: now,
+      uploadedByWorkosUserId: auth.subject,
+    };
+    if (!document.fileName) {
+      throw new Error("Document file name is required.");
+    }
+    await ctx.db.insert("buildDocuments", document);
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "addActiveBuildDocument",
+      eventType: "active_build.document.created",
+      newState: JSON.stringify(document),
+    });
+    return null;
+  })
+  .public();
+
+export const attachActiveBuildContractor = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    contractorId: v.id("contractorProfiles"),
+    role: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    const contractor = await ctx.db.get(args.contractorId);
+    if (
+      !contractor ||
+      contractor.brokerageId !== auth.brokerage._id ||
+      contractor.status !== "active"
+    ) {
+      throw new Error("Production contractor not found.");
+    }
+    const existing = await ctx.db
+      .query("buildContractorAssignments")
+      .withIndex("by_build_contractor", (q) =>
+        q.eq("buildId", args.buildId).eq("contractorId", args.contractorId)
+      )
+      .unique();
+    const now = Date.now();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        role: args.role.trim() || existing.role,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.insert("buildContractorAssignments", {
+        brokerageId: auth.brokerage._id,
+        buildId: args.buildId,
+        contractorId: args.contractorId,
+        createdAt: now,
+        organizationId: args.workosOrganizationId,
+        role: args.role.trim() || "Contractor",
+        updatedAt: now,
+      });
+    }
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "attachActiveBuildContractor",
+      eventType: "active_build.contractor.attached",
+      newState: JSON.stringify({
+        contractorId: args.contractorId,
+        role: args.role,
+      }),
+    });
+    return null;
+  })
+  .public();
+
+export const requestActiveBuildDraw = authenticatedMutation
+  .input({
+    amountCents: v.number(),
+    buildId: v.id("activeBuilds"),
+    drawKey: v.string(),
+    note: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    const draw = await getActiveBuildDrawOrThrow(ctx, args.buildId, args.drawKey);
+    const patch = {
+      amountCents: Math.max(0, Math.round(args.amountCents)),
+      requestNote: args.note,
+      requestedAt: new Date().toISOString(),
+      status: "requested" as const,
+      updatedAt: Date.now(),
+    };
+    await ctx.db.patch(draw._id, patch);
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "requestActiveBuildDraw",
+      eventType: "active_build.draw.requested",
+      newState: JSON.stringify(patch),
+      priorState: JSON.stringify(draw),
+      reason: args.note,
+    });
+    return null;
+  })
+  .public();
+
+export const approveActiveBuildDraw = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    drawKey: v.string(),
+    note: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    const draw = await getActiveBuildDrawOrThrow(ctx, args.buildId, args.drawKey);
+    const patch = {
+      requestReviewNote: args.note,
+      reviewedAt: new Date().toISOString(),
+      status: "approved" as const,
+      updatedAt: Date.now(),
+    };
+    await ctx.db.patch(draw._id, patch);
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "approveActiveBuildDraw",
+      eventType: "active_build.draw.approved",
+      newState: JSON.stringify(patch),
+      priorState: JSON.stringify(draw),
+      reason: args.note,
+    });
+    return null;
+  })
+  .public();
+
+export const rejectActiveBuildDraw = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    drawKey: v.string(),
+    note: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    const draw = await getActiveBuildDrawOrThrow(ctx, args.buildId, args.drawKey);
+    const patch = {
+      requestReviewNote: args.note,
+      reviewedAt: new Date().toISOString(),
+      status: "rejected" as const,
+      updatedAt: Date.now(),
+    };
+    await ctx.db.patch(draw._id, patch);
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "rejectActiveBuildDraw",
+      eventType: "active_build.draw.rejected",
+      newState: JSON.stringify(patch),
+      priorState: JSON.stringify(draw),
+      reason: args.note,
+    });
+    return null;
+  })
+  .public();
+
+export const releaseActiveBuildDraw = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    drawKey: v.string(),
+    note: v.optional(v.string()),
+    releaseDate: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    const draw = await getActiveBuildDrawOrThrow(ctx, args.buildId, args.drawKey);
+    const patch = {
+      releaseDate: args.releaseDate,
+      releaseNote: args.note,
+      releasedAt: new Date().toISOString(),
+      status: "released" as const,
+      updatedAt: Date.now(),
+    };
+    await ctx.db.patch(draw._id, patch);
+    await ctx.db.insert("capitalEvents", {
+      amountCents: draw.amountCents,
+      brokerageId: auth.brokerage._id,
+      buildId: args.buildId,
+      createdAt: Date.now(),
+      eventDate: args.releaseDate,
+      eventType: "draw_release",
+      label: draw.label,
+      organizationId: args.workosOrganizationId,
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "releaseActiveBuildDraw",
+      eventType: "active_build.draw.released",
+      newState: JSON.stringify(patch),
+      priorState: JSON.stringify(draw),
+      reason: args.note,
+    });
+    return null;
+  })
+  .public();
+
+export const requestActiveBuildMilestoneInfo = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    milestoneKey: v.string(),
+    note: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    const milestone = await getActiveBuildMilestoneOrThrow(
+      ctx,
+      args.buildId,
+      args.milestoneKey
+    );
+    const completionReview = {
+      ...(milestone.completionReview ?? {}),
+      note: args.note,
+      reviewedAt: new Date().toISOString(),
+      status: "revisionRequested",
+    };
+    await ctx.db.patch(milestone._id, {
+      completionReview,
+      evidenceState: "Info requested",
+      status: milestone.status === "planned" ? "in_progress" : milestone.status,
+      updatedAt: Date.now(),
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "requestActiveBuildMilestoneInfo",
+      eventType: "active_build.milestone.info_requested",
+      newState: JSON.stringify(completionReview),
+      priorState: JSON.stringify(milestone.completionReview),
+      reason: args.note,
+    });
+    return null;
+  })
+  .public();
+
+export const assignActiveBuildSiteVisit = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    milestoneKey: v.string(),
+    note: v.optional(v.string()),
+    requestedDay: v.number(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(
+    v.object({
+      note: v.optional(v.string()),
+      requestedAt: v.string(),
+      requestedDay: v.number(),
+      status: v.string(),
+      tokenExpiresAt: v.number(),
+      url: v.string(),
+      visitId: v.string(),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    const milestone = await getActiveBuildMilestoneOrThrow(
+      ctx,
+      args.buildId,
+      args.milestoneKey
+    );
+    const now = Date.now();
+    const visitId = `active_visit_${args.milestoneKey}_${now}`;
+    const siteVisit = {
+      ...(args.note ? { note: args.note } : {}),
+      requestedAt: new Date(now).toISOString(),
+      requestedDay: Math.max(0, Math.round(args.requestedDay)),
+      status: "requested",
+      tokenExpiresAt: now + 60 * 60 * 1000,
+      url: `/newsitevisit/${String(args.buildId)}/${visitId}`,
+      visitId,
+    };
+    await ctx.db.insert("buildSiteVisits", {
+      brokerageId: auth.brokerage._id,
+      buildId: args.buildId,
+      buildMilestoneId: milestone._id,
+      createdAt: now,
+      milestoneKey: args.milestoneKey,
+      note: args.note,
+      organizationId: args.workosOrganizationId,
+      requestedAt: siteVisit.requestedAt,
+      requestedDay: siteVisit.requestedDay,
+      status: "requested",
+      tokenExpiresAt: siteVisit.tokenExpiresAt,
+      updatedAt: now,
+      url: siteVisit.url,
+      visitId,
+    });
+    const completionReview = {
+      ...(milestone.completionReview ?? {}),
+      reviewedAt:
+        milestone.completionReview?.reviewedAt ?? siteVisit.requestedAt,
+      siteVisit,
+      status: milestone.completionReview?.status ?? "revisionRequested",
+    };
+    await ctx.db.patch(milestone._id, {
+      completionReview,
+      evidenceState: milestone.evidenceState ?? "Site visit requested",
+      status: milestone.status === "planned" ? "in_progress" : milestone.status,
+      updatedAt: now,
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "assignActiveBuildSiteVisit",
+      eventType: "active_build.site_visit.requested",
+      newState: JSON.stringify(siteVisit),
+      priorState: JSON.stringify(milestone.completionReview),
+      reason: args.note,
+    });
+    return siteVisit;
+  })
+  .public();
+
+export const approveActiveBuildMilestone = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    milestoneKey: v.string(),
+    note: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    const milestone = await getActiveBuildMilestoneOrThrow(
+      ctx,
+      args.buildId,
+      args.milestoneKey
+    );
+    const completionReview = {
+      ...(milestone.completionReview ?? {}),
+      ...(args.note ? { note: args.note } : {}),
+      reviewedAt: new Date().toISOString(),
+      status: "approved",
+    };
+    await ctx.db.patch(milestone._id, {
+      completionReview,
+      evidenceState: "Approved",
+      status: "complete",
+      updatedAt: Date.now(),
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "approveActiveBuildMilestone",
+      eventType: "active_build.milestone.approved",
+      newState: JSON.stringify(completionReview),
+      priorState: JSON.stringify(milestone.completionReview),
+      reason: args.note,
+    });
+    return null;
+  })
+  .public();
+
+export const rejectActiveBuildMilestone = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    milestoneKey: v.string(),
+    note: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    const milestone = await getActiveBuildMilestoneOrThrow(
+      ctx,
+      args.buildId,
+      args.milestoneKey
+    );
+    const completionReview = {
+      ...(milestone.completionReview ?? {}),
+      ...(args.note ? { note: args.note } : {}),
+      reviewedAt: new Date().toISOString(),
+      status: "rejected",
+    };
+    await ctx.db.patch(milestone._id, {
+      completionReview,
+      evidenceState: "Rejected",
+      status: milestone.status === "complete" ? "in_progress" : milestone.status,
+      updatedAt: Date.now(),
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "rejectActiveBuildMilestone",
+      eventType: "active_build.milestone.rejected",
+      newState: JSON.stringify(completionReview),
+      priorState: JSON.stringify(milestone.completionReview),
+      reason: args.note,
+    });
+    return null;
+  })
+  .public();
+
 async function authorizeBrokerage(
   ctx: (QueryCtx | MutationCtx) & { viewer: AuthorizedViewer },
-  workosOrganizationId: string,
+  workosOrganizationId: string
 ) {
   const scope = await resolveBrokerageScope(ctx, workosOrganizationId);
   if (!scope.brokerage) {
@@ -2658,7 +3834,7 @@ async function authorizeBrokerage(
 
 async function resolveBrokerageScope(
   ctx: (QueryCtx | MutationCtx) & { viewer: AuthorizedViewer },
-  workosOrganizationId: string,
+  workosOrganizationId: string
 ) {
   const roles = normalizeRoleSlugs(ctx.viewer.roles);
   const subject = ctx.viewer.subject;
@@ -2674,7 +3850,7 @@ async function resolveBrokerageScope(
   const brokerage = await ctx.db
     .query("brokerages")
     .withIndex("by_workos_organization", (q) =>
-      q.eq("workosOrganizationId", workosOrganizationId),
+      q.eq("workosOrganizationId", workosOrganizationId)
     )
     .unique();
   const activeBrokerage = brokerage?.status === "active" ? brokerage : null;
@@ -2682,10 +3858,53 @@ async function resolveBrokerageScope(
   return { brokerage: activeBrokerage, roles, subject };
 }
 
+async function authorizeActiveBuild(
+  ctx: (QueryCtx | MutationCtx) & { viewer: AuthorizedViewer },
+  buildId: Id<"activeBuilds">,
+  workosOrganizationId: string
+) {
+  const auth = await authorizeBrokerage(ctx, workosOrganizationId);
+  const build = await ctx.db.get(buildId);
+  if (!build || build.brokerageId !== auth.brokerage._id) {
+    return null;
+  }
+  const proposal = await ctx.db.get(build.proposalId);
+  if (!proposal || proposal.brokerageId !== auth.brokerage._id) {
+    return null;
+  }
+  if (isBackoffice(auth.roles)) {
+    await assertBackofficeProposalRead(ctx, auth, proposal);
+  } else {
+    await assertBuilderOwnership(ctx, proposal.builderProfileId, auth.subject);
+  }
+  return { ...auth, build, proposal };
+}
+
+async function authorizeActiveBuildOrThrow(
+  ctx: (QueryCtx | MutationCtx) & { viewer: AuthorizedViewer },
+  buildId: Id<"activeBuilds">,
+  workosOrganizationId: string
+) {
+  const auth = await authorizeActiveBuild(ctx, buildId, workosOrganizationId);
+  if (!auth) {
+    throw new Error("Forbidden: active build scope");
+  }
+  return auth;
+}
+
+function requireBackofficeActiveBuildWrite(auth: {
+  proposal: Doc<"buildProposals">;
+  roles: RoleSlug[];
+  subject: string;
+}) {
+  requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+  requireBackofficeProposalWrite(auth, auth.proposal);
+}
+
 async function authorizeProposal(
   ctx: (QueryCtx | MutationCtx) & { viewer: AuthorizedViewer },
   proposalId: Id<"buildProposals">,
-  workosOrganizationId: string,
+  workosOrganizationId: string
 ) {
   const auth = await authorizeBrokerage(ctx, workosOrganizationId);
   const proposal = await ctx.db.get(proposalId);
@@ -2703,10 +3922,14 @@ async function authorizeProposal(
 async function assertBuilderProfileScope(
   ctx: QueryCtx | MutationCtx,
   builderProfileId: Id<"builderProfiles">,
-  brokerageId: Id<"brokerages">,
+  brokerageId: Id<"brokerages">
 ) {
   const builder = await ctx.db.get(builderProfileId);
-  if (!builder || builder.brokerageId !== brokerageId || builder.status !== "active") {
+  if (
+    !builder ||
+    builder.brokerageId !== brokerageId ||
+    builder.status !== "active"
+  ) {
     throw new Error("Forbidden: builder scope");
   }
 }
@@ -2714,12 +3937,14 @@ async function assertBuilderProfileScope(
 async function assertBuilderOwnership(
   ctx: QueryCtx | MutationCtx,
   builderProfileId: Id<"builderProfiles">,
-  workosUserId: string,
+  workosUserId: string
 ) {
   const link = await ctx.db
     .query("builderAccountLinks")
     .withIndex("by_builder_user", (q) =>
-      q.eq("builderProfileId", builderProfileId).eq("workosUserId", workosUserId),
+      q
+        .eq("builderProfileId", builderProfileId)
+        .eq("workosUserId", workosUserId)
     )
     .unique();
   if (!link || link.status !== "active") {
@@ -2730,7 +3955,7 @@ async function assertBuilderOwnership(
 async function getOwnedBuilderProfile(
   ctx: QueryCtx | MutationCtx,
   brokerageId: Id<"brokerages">,
-  workosUserId: string,
+  workosUserId: string
 ) {
   const links = await ctx.db
     .query("builderAccountLinks")
@@ -2751,8 +3976,131 @@ async function getOwnedBuilderProfile(
 
 function isBackoffice(roles: readonly RoleSlug[]) {
   return roles.some((role) =>
-    (BACKOFFICE_ROLES as readonly RoleSlug[]).includes(role),
+    (BACKOFFICE_ROLES as readonly RoleSlug[]).includes(role)
   );
+}
+
+function productionDashboardProposalCard(
+  card: Doc<"proposalKanbanCards">,
+  proposal: Doc<"buildProposals">
+) {
+  return {
+    address: card.subtitle,
+    approvedAt: proposal.approvedAt,
+    borrowerWorkingCapitalLimitCents: proposal.borrowerWorkingCapitalLimitCents,
+    builder: card.builderName,
+    closeLabel:
+      proposal.status === "approved" && !proposal.activeBuildId
+        ? "Pending closing"
+        : undefined,
+    column: card.column,
+    createdAt: proposal.createdAt,
+    href: card.href,
+    id: String(proposal._id),
+    lenderDrawPolicyLimitCents: proposal.lenderDrawPolicyLimitCents,
+    loanAmount: centsToCurrency(card.totalBudgetCents),
+    ltv: 0,
+    name: card.title,
+    proposalId: String(proposal._id),
+    reviewOutcome: proposal.reviewOutcome,
+    status: proposal.status,
+    statusLabel: productionProposalStatusLabel(proposal),
+    submittedAt: proposal.submittedAt,
+    tag: "production",
+    totalBudgetCents: proposal.totalBudgetCents,
+    updatedAt: proposal.updatedAt,
+  };
+}
+
+function productionProposalStatusLabel(proposal: Doc<"buildProposals">) {
+  if (proposal.reviewOutcome === "rejected") {
+    return "Rejected";
+  }
+  if (proposal.reviewOutcome === "requested_changes") {
+    return "Changes requested";
+  }
+  if (proposal.status === "approved" && !proposal.activeBuildId) {
+    return "Approved - pending closing";
+  }
+  return titleCase(proposal.status);
+}
+
+function productionProposalColumnDescription(
+  column: (typeof PROPOSAL_COLUMNS)[number],
+  proposals: ReturnType<typeof productionDashboardProposalCard>[]
+) {
+  const count = proposals.filter(
+    (proposal) => proposal.column === column
+  ).length;
+  if (column === "approved") {
+    return `${count} approved proposals pending or ready for closing`;
+  }
+  if (column === "submitted") {
+    return `${count} submitted proposals in lender review`;
+  }
+  if (column === "closed") {
+    return `${count} proposals converted to active builds`;
+  }
+  return `${count} draft proposals`;
+}
+
+function productionBuildDisplayId(build: Doc<"activeBuilds">) {
+  return `B-${String(build._id).slice(-8).toUpperCase()}`;
+}
+
+function productionDaysActive(startDate: string) {
+  const startMs = Date.parse(`${startDate}T00:00:00Z`);
+  if (!Number.isFinite(startMs)) {
+    return 0;
+  }
+  return Math.max(0, Math.floor((Date.now() - startMs) / 86_400_000));
+}
+
+function productionBuildDashboardStatus(
+  _status: Doc<"activeBuilds">["status"]
+): "behind" | "onTrack" | "overBudget" {
+  return "onTrack";
+}
+
+function productionBuildStatusLabel(status: Doc<"activeBuilds">["status"]) {
+  return status === "future_start" ? "Future start" : "On track";
+}
+
+function productionMilestoneState(
+  status: Doc<"buildMilestones">["status"]
+): "backlog" | "inProgress" | "inReview" {
+  if (status === "in_progress") {
+    return "inProgress";
+  }
+  if (status === "complete") {
+    return "inReview";
+  }
+  return "backlog";
+}
+
+function productionMilestoneColumn(status: Doc<"buildMilestones">["status"]) {
+  if (status === "in_progress") {
+    return "inProgress";
+  }
+  if (status === "complete") {
+    return "inReview";
+  }
+  return "backlog";
+}
+
+function productionMilestonePriority(milestone: Doc<"buildMilestones">) {
+  if (milestone.status === "in_progress") {
+    return "high";
+  }
+  return "medium";
+}
+
+function centsToCurrency(cents: number) {
+  return new Intl.NumberFormat("en-US", {
+    currency: "USD",
+    maximumFractionDigits: 0,
+    style: "currency",
+  }).format(cents / 100);
 }
 
 async function assertBackofficeProposalRead(
@@ -2762,14 +4110,19 @@ async function assertBackofficeProposalRead(
     roles: RoleSlug[];
     subject: string;
   },
-  proposal: Doc<"buildProposals">,
+  proposal: Doc<"buildProposals">
 ) {
   if (canReadBackofficeProposal(auth, proposal)) {
     return;
   }
   if (
     auth.roles.includes("broker-staff") &&
-    (await hasPermission(ctx, auth.brokerage.workosOrganizationId, auth.roles, "proposals:read"))
+    (await hasPermission(
+      ctx,
+      auth.brokerage.workosOrganizationId,
+      auth.roles,
+      "proposals:read"
+    ))
   ) {
     return;
   }
@@ -2780,9 +4133,22 @@ async function assertBackofficeProposalRead(
 function canReadBackofficeProposal(
   auth: {
     roles: RoleSlug[];
-    subject: string;
   },
-  proposal: Doc<"buildProposals">,
+  _proposal: Doc<"buildProposals">
+) {
+  if (
+    auth.roles.includes("admin") ||
+    auth.roles.includes("principle-broker") ||
+    auth.roles.includes("broker")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function canWriteBackofficeProposal(
+  auth: { roles: RoleSlug[]; subject: string },
+  proposal: Doc<"buildProposals">
 ) {
   if (auth.roles.includes("admin") || auth.roles.includes("principle-broker")) {
     return true;
@@ -2795,15 +4161,9 @@ function canReadBackofficeProposal(
 
 function requireBackofficeProposalWrite(
   auth: { roles: RoleSlug[]; subject: string },
-  proposal: Doc<"buildProposals">,
+  proposal: Doc<"buildProposals">
 ) {
-  if (auth.roles.includes("admin") || auth.roles.includes("principle-broker")) {
-    return;
-  }
-  if (
-    auth.roles.includes("broker") &&
-    proposal.assignedBrokerWorkosUserId === auth.subject
-  ) {
+  if (canWriteBackofficeProposal(auth, proposal)) {
     return;
   }
   throw new Error("Forbidden: proposal write");
@@ -2813,13 +4173,13 @@ async function hasPermission(
   ctx: QueryCtx | MutationCtx,
   workosOrganizationId: string,
   roles: readonly RoleSlug[],
-  permission: string,
+  permission: string
 ) {
   for (const role of roles) {
     const organizationRole = await ctx.db
       .query("workosOrganizationRoles")
       .withIndex("by_organization_slug", (q) =>
-        q.eq("workosOrganizationId", workosOrganizationId).eq("slug", role),
+        q.eq("workosOrganizationId", workosOrganizationId).eq("slug", role)
       )
       .unique();
     if (
@@ -2846,7 +4206,7 @@ async function hasPermission(
 
 function requireAnyRole(
   actual: readonly RoleSlug[],
-  allowed: readonly RoleSlug[] | readonly string[],
+  allowed: readonly RoleSlug[] | readonly string[]
 ) {
   const allowedRoles: readonly string[] = allowed;
   if (!actual.some((role) => allowedRoles.includes(role))) {
@@ -2856,7 +4216,7 @@ function requireAnyRole(
 
 function requireState(
   proposal: Doc<"buildProposals">,
-  expected: Doc<"buildProposals">["status"],
+  expected: Doc<"buildProposals">["status"]
 ) {
   if (proposal.status !== expected) {
     throw new Error(`Expected proposal state ${expected}.`);
@@ -2869,12 +4229,15 @@ function requireReason(reason: string) {
   }
 }
 
-function calculateDrawAvailability(budgetCents: number, borrowerCoPayBps: number) {
+function calculateDrawAvailability(
+  budgetCents: number,
+  borrowerCoPayBps: number
+) {
   return Math.round((budgetCents * (10_000 - borrowerCoPayBps)) / 10_000);
 }
 
 function firstActiveMilestoneForWorkspace(
-  milestones: Doc<"proposalMilestones">[],
+  milestones: Doc<"proposalMilestones">[]
 ) {
   return milestones[0] ?? null;
 }
@@ -2882,7 +4245,7 @@ function firstActiveMilestoneForWorkspace(
 function productionTimelineStatusForMilestone(
   index: number,
   proposal: Doc<"buildProposals">,
-  milestone?: Doc<"proposalMilestones">,
+  milestone?: Doc<"proposalMilestones">
 ) {
   if (milestone?.timelineStatus === "complete" || milestone?.completionClaim) {
     return "complete" as const;
@@ -2896,7 +4259,7 @@ function productionTimelineStatusForMilestone(
 function productionTimelineToneForMilestone(
   index: number,
   proposal: Doc<"buildProposals">,
-  milestone?: Doc<"proposalMilestones">,
+  milestone?: Doc<"proposalMilestones">
 ) {
   if (milestone?.tone) {
     return milestone.tone;
@@ -2918,7 +4281,7 @@ function productionTimelineToneForMilestone(
 
 function productionCompletionClaimView(claim: any) {
   if (!claim) {
-    return undefined;
+    return;
   }
   return {
     ...(typeof claim.actualCostCents === "number"
@@ -2934,7 +4297,7 @@ function productionCompletionClaimView(claim: any) {
 
 function productionCompletionReviewView(review: any) {
   if (!review) {
-    return undefined;
+    return;
   }
   return {
     ...(review.note ? { note: review.note } : {}),
@@ -2950,7 +4313,7 @@ function centsToDollars(cents: number) {
 
 function productionPolicyState(
   proposal: Doc<"buildProposals">,
-  permitWaiver: Doc<"documentWaivers"> | null,
+  permitWaiver: Doc<"documentWaivers"> | null
 ) {
   if (proposal.reviewOutcome === "rejected") {
     return "Rejected by lender review";
@@ -3069,7 +4432,9 @@ function requireProductionTimelineLiveWrite(auth: {
   subject: string;
 }) {
   if (auth.proposal.status !== "approved") {
-    throw new Error("Live-build timeline actions require an approved proposal.");
+    throw new Error(
+      "Live-build timeline actions require an approved proposal."
+    );
   }
   if (isBackoffice(auth.roles)) {
     requireBackofficeProposalWrite(auth, auth.proposal);
@@ -3107,12 +4472,12 @@ async function insertProductionMilestoneFromInput(
     }[];
     tone?: string;
     x: number;
-  },
+  }
 ) {
   const existing = await ctx.db
     .query("proposalMilestones")
     .withIndex("by_proposal_key", (q) =>
-      q.eq("proposalId", auth.proposal._id).eq("key", milestone.milestoneKey),
+      q.eq("proposalId", auth.proposal._id).eq("key", milestone.milestoneKey)
     )
     .unique();
   if (existing) {
@@ -3176,11 +4541,13 @@ async function replaceProductionSubmilestones(
       name: string;
       order: number;
     }[];
-  },
+  }
 ) {
   const existing = await ctx.db
     .query("proposalSubmilestones")
-    .withIndex("by_milestone", (q) => q.eq("proposalMilestoneId", input.milestone._id))
+    .withIndex("by_milestone", (q) =>
+      q.eq("proposalMilestoneId", input.milestone._id)
+    )
     .collect();
   for (const row of existing) {
     await ctx.db.delete(row._id);
@@ -3207,11 +4574,13 @@ async function replaceProductionSubmilestones(
 async function deleteProductionMilestoneCascade(
   ctx: MutationCtx,
   proposalId: Id<"buildProposals">,
-  milestone: Doc<"proposalMilestones">,
+  milestone: Doc<"proposalMilestones">
 ) {
   const submilestones = await ctx.db
     .query("proposalSubmilestones")
-    .withIndex("by_milestone", (q) => q.eq("proposalMilestoneId", milestone._id))
+    .withIndex("by_milestone", (q) =>
+      q.eq("proposalMilestoneId", milestone._id)
+    )
     .collect();
   for (const row of submilestones) {
     await ctx.db.delete(row._id);
@@ -3219,7 +4588,7 @@ async function deleteProductionMilestoneCascade(
   const evidenceAssets = await ctx.db
     .query("proposalEvidenceAssets")
     .withIndex("by_proposal_milestone", (q) =>
-      q.eq("proposalId", proposalId).eq("milestoneKey", milestone.key),
+      q.eq("proposalId", proposalId).eq("milestoneKey", milestone.key)
     )
     .collect();
   for (const asset of evidenceAssets) {
@@ -3232,9 +4601,11 @@ async function deleteProductionMilestoneCascade(
     ctx,
     "proposalDrawScheduleRows",
     "by_proposal",
-    proposalId,
+    proposalId
   );
-  for (const draw of draws.filter((row: any) => row.milestoneKey === milestone.key)) {
+  for (const draw of draws.filter(
+    (row: any) => row.milestoneKey === milestone.key
+  )) {
     await ctx.db.delete(draw._id);
   }
   await ctx.db.delete(milestone._id);
@@ -3243,17 +4614,17 @@ async function deleteProductionMilestoneCascade(
 async function recalculateProposalBudget(
   ctx: MutationCtx,
   auth: { subject: string },
-  proposalId: Id<"buildProposals">,
+  proposalId: Id<"buildProposals">
 ) {
   const milestones = await collectByIndex(
     ctx,
     "proposalMilestones",
     "by_proposal",
-    proposalId,
+    proposalId
   );
   const totalBudgetCents = milestones.reduce(
     (total: number, milestone: any) => total + milestone.budgetCents,
-    0,
+    0
   );
   await ctx.db.patch(proposalId, {
     totalBudgetCents,
@@ -3271,7 +4642,7 @@ async function applyProductionTimelineModificationRequest(
     roles: RoleSlug[];
     subject: string;
   },
-  request: Doc<"proposalTimelineModificationRequests">,
+  request: Doc<"proposalTimelineModificationRequests">
 ) {
   if (request.requestType === "createMilestone") {
     const milestone = request.requestedPayload?.milestone;
@@ -3288,7 +4659,7 @@ async function applyProductionTimelineModificationRequest(
   const milestone = await getProductionMilestoneOrThrow(
     ctx,
     request.proposalId,
-    request.milestoneKey,
+    request.milestoneKey
   );
   if (request.requestType === "deleteMilestone") {
     await deleteProductionMilestoneCascade(ctx, request.proposalId, milestone);
@@ -3304,7 +4675,7 @@ async function applyProductionTimelineModificationRequest(
       budgetCents: Math.round(budgetCents),
       drawAvailabilityCents: calculateDrawAvailability(
         Math.round(budgetCents),
-        auth.proposal.borrowerCoPayBps,
+        auth.proposal.borrowerCoPayBps
       ),
       updatedAt: Date.now(),
     });
@@ -3326,14 +4697,14 @@ async function insertProductionCapitalEvent(
     order?: number;
     proposalId: Id<"buildProposals">;
     x: number;
-  },
+  }
 ) {
   const existing = await ctx.db
     .query("proposalCapitalEvents")
     .withIndex("by_proposal_key", (q) =>
       q
         .eq("proposalId", input.proposalId)
-        .eq("capitalEventKey", input.capitalEventKey),
+        .eq("capitalEventKey", input.capitalEventKey)
     )
     .unique();
   if (existing) {
@@ -3343,7 +4714,7 @@ async function insertProductionCapitalEvent(
     ctx,
     "proposalCapitalEvents",
     "by_proposal",
-    input.proposalId,
+    input.proposalId
   );
   const now = Date.now();
   await ctx.db.insert("proposalCapitalEvents", {
@@ -3366,12 +4737,12 @@ async function insertProductionCapitalEvent(
 async function getProductionMilestoneOrThrow(
   ctx: QueryCtx | MutationCtx,
   proposalId: Id<"buildProposals">,
-  milestoneKey: string,
+  milestoneKey: string
 ) {
   const milestone = await ctx.db
     .query("proposalMilestones")
     .withIndex("by_proposal_key", (q) =>
-      q.eq("proposalId", proposalId).eq("key", milestoneKey),
+      q.eq("proposalId", proposalId).eq("key", milestoneKey)
     )
     .unique();
   if (!milestone) {
@@ -3383,12 +4754,12 @@ async function getProductionMilestoneOrThrow(
 async function getProductionDrawOrThrow(
   ctx: QueryCtx | MutationCtx,
   proposalId: Id<"buildProposals">,
-  drawKey: string,
+  drawKey: string
 ) {
   const draw = await ctx.db
     .query("proposalDrawScheduleRows")
     .withIndex("by_proposal_key", (q) =>
-      q.eq("proposalId", proposalId).eq("drawKey", drawKey),
+      q.eq("proposalId", proposalId).eq("drawKey", drawKey)
     )
     .unique();
   if (!draw) {
@@ -3400,12 +4771,12 @@ async function getProductionDrawOrThrow(
 async function getProductionCapitalEventOrThrow(
   ctx: QueryCtx | MutationCtx,
   proposalId: Id<"buildProposals">,
-  capitalEventKey: string,
+  capitalEventKey: string
 ) {
   const event = await ctx.db
     .query("proposalCapitalEvents")
     .withIndex("by_proposal_key", (q) =>
-      q.eq("proposalId", proposalId).eq("capitalEventKey", capitalEventKey),
+      q.eq("proposalId", proposalId).eq("capitalEventKey", capitalEventKey)
     )
     .unique();
   if (!event) {
@@ -3417,12 +4788,12 @@ async function getProductionCapitalEventOrThrow(
 async function getProductionEvidenceAssetOrThrow(
   ctx: QueryCtx | MutationCtx,
   proposalId: Id<"buildProposals">,
-  evidenceKey: string,
+  evidenceKey: string
 ) {
   const asset = await ctx.db
     .query("proposalEvidenceAssets")
     .withIndex("by_proposal_key", (q) =>
-      q.eq("proposalId", proposalId).eq("evidenceKey", evidenceKey),
+      q.eq("proposalId", proposalId).eq("evidenceKey", evidenceKey)
     )
     .unique();
   if (!asset) {
@@ -3431,7 +4802,10 @@ async function getProductionEvidenceAssetOrThrow(
   return asset;
 }
 
-async function deleteProposalPlanChildren(ctx: MutationCtx, proposalId: Id<"buildProposals">) {
+async function deleteProposalPlanChildren(
+  ctx: MutationCtx,
+  proposalId: Id<"buildProposals">
+) {
   for (const table of [
     "proposalTimelineModificationRequests",
     "proposalEvidenceAssets",
@@ -3450,7 +4824,7 @@ async function deleteProposalPlanChildren(ctx: MutationCtx, proposalId: Id<"buil
 async function upsertKanbanCard(
   ctx: MutationCtx,
   proposalId: Id<"buildProposals">,
-  now: number,
+  now: number
 ) {
   const proposal = await ctx.db.get(proposalId);
   if (!proposal) {
@@ -3492,7 +4866,7 @@ async function writeProposalEvent(
     proposalId: Id<"buildProposals">;
     reason?: string;
     warnings?: string[];
-  },
+  }
 ) {
   const now = Date.now();
   const proposal = await ctx.db.get(input.proposalId);
@@ -3544,11 +4918,227 @@ async function writeProposalEvent(
   });
 }
 
-async function getActiveWorkflowRule(ctx: QueryCtx | MutationCtx, brokerageId: Id<"brokerages">) {
+async function writeActiveBuildEvent(
+  ctx: MutationCtx,
+  input: {
+    auth: {
+      brokerage: Doc<"brokerages">;
+      proposal: Doc<"buildProposals">;
+      roles: RoleSlug[];
+      subject: string;
+    };
+    build: Doc<"activeBuilds">;
+    command: string;
+    eventType: string;
+    newState?: string;
+    priorState?: string;
+    reason?: string;
+    warnings?: string[];
+  }
+) {
+  const now = Date.now();
+  await ctx.db.insert("auditEvents", {
+    actorRoles: input.auth.roles,
+    actorWorkosUserId: input.auth.subject,
+    brokerageId: input.auth.brokerage._id,
+    command: input.command,
+    createdAt: now,
+    entityId: String(input.build._id),
+    entityType: "activeBuild",
+    eventType: input.eventType,
+    newState: input.newState,
+    organizationId: input.build.organizationId,
+    priorState: input.priorState,
+    reason: input.reason,
+    warnings: input.warnings ?? [],
+  });
+  await ctx.db.insert("eventOutbox", {
+    brokerageId: input.auth.brokerage._id,
+    createdAt: now,
+    eventType: input.eventType,
+    organizationId: input.build.organizationId,
+    payloadPreview: JSON.stringify({
+      buildId: input.build._id,
+      newState: input.newState,
+      priorState: input.priorState,
+    }),
+    relatedEntityId: input.build._id,
+    relatedEntityType: "activeBuild",
+    status: "pending",
+  });
+}
+
+async function copyProposalOperationalRowsToActiveBuild(
+  ctx: MutationCtx,
+  input: {
+    auth: { brokerage: Doc<"brokerages">; roles: RoleSlug[]; subject: string };
+    buildId: Id<"activeBuilds">;
+    now: number;
+    organizationId: string;
+    proposalId: Id<"buildProposals">;
+  }
+) {
+  const [documents, evidenceAssets] = await Promise.all([
+    collectByIndex(ctx, "proposalDocuments", "by_proposal", input.proposalId),
+    collectByIndex(
+      ctx,
+      "proposalEvidenceAssets",
+      "by_proposal",
+      input.proposalId
+    ),
+  ]);
+  for (const document of documents) {
+    await ctx.db.insert("buildDocuments", {
+      brokerageId: input.auth.brokerage._id,
+      buildId: input.buildId,
+      createdAt: input.now,
+      documentType: document.documentType,
+      fileName: document.fileName,
+      mimeType: document.mimeType,
+      organizationId: input.organizationId,
+      proposalId: input.proposalId,
+      sizeBytes: document.sizeBytes,
+      status: document.status,
+      storageId: document.storageId,
+      updatedAt: input.now,
+      uploadedByWorkosUserId: document.uploadedByWorkosUserId,
+    });
+  }
+  for (const asset of evidenceAssets) {
+    await ctx.db.insert("buildEvidenceAssets", {
+      brokerageId: input.auth.brokerage._id,
+      buildId: input.buildId,
+      createdAt: input.now,
+      evidenceKey: asset.evidenceKey,
+      fileName: asset.fileName,
+      label: asset.label,
+      locationVerified: asset.locationVerified,
+      milestoneKey: asset.milestoneKey,
+      mimeType: asset.mimeType,
+      organizationId: input.organizationId,
+      proposalId: input.proposalId,
+      sizeBytes: asset.sizeBytes,
+      source: asset.source,
+      storageId: asset.storageId,
+      tag: asset.tag,
+      updatedAt: input.now,
+    });
+  }
+}
+
+function activeBuildDrawStatusFromProposal(
+  status: Doc<"proposalDrawScheduleRows">["requestStatus"]
+): Doc<"plannedDrawScheduleRows">["status"] {
+  if (status === "approved" || status === "rejected" || status === "requested") {
+    return status;
+  }
+  return "planned";
+}
+
+async function getActiveBuildDrawOrThrow(
+  ctx: QueryCtx | MutationCtx,
+  buildId: Id<"activeBuilds">,
+  drawKey: string
+) {
+  const draw = await ctx.db
+    .query("plannedDrawScheduleRows")
+    .withIndex("by_build_order", (q) => q.eq("buildId", buildId))
+    .collect()
+    .then((rows) => rows.find((row) => row.drawKey === drawKey));
+  if (!draw) {
+    throw new Error("Production active-build draw not found.");
+  }
+  return draw;
+}
+
+async function getActiveBuildMilestoneOrThrow(
+  ctx: QueryCtx | MutationCtx,
+  buildId: Id<"activeBuilds">,
+  milestoneKey: string
+) {
+  const milestone = await ctx.db
+    .query("buildMilestones")
+    .withIndex("by_build_key", (q) =>
+      q.eq("buildId", buildId).eq("key", milestoneKey)
+    )
+    .unique();
+  if (!milestone) {
+    throw new Error("Production active-build milestone not found.");
+  }
+  return milestone;
+}
+
+async function withBuildDocumentStorageUrls(
+  ctx: QueryCtx,
+  documents: Doc<"buildDocuments">[]
+) {
+  return await Promise.all(
+    documents
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map(async (document) => ({
+        ...document,
+        name: document.fileName,
+        kind: document.documentType,
+        storageUrl: document.storageId
+          ? await ctx.storage.getUrl(document.storageId)
+          : null,
+      }))
+  );
+}
+
+async function productionSitePhotosForBuild(
+  ctx: QueryCtx,
+  build: Doc<"activeBuilds">,
+  evidenceAssets: Doc<"buildEvidenceAssets">[]
+) {
+  const imageAssets = evidenceAssets
+    .filter(
+      (asset) =>
+        asset.mimeType.startsWith("image/") ||
+        asset.tag.toLowerCase().includes("photo")
+    )
+    .sort((a, b) => a.createdAt - b.createdAt);
+  if (imageAssets.length === 0) {
+    return [
+      {
+        caption: "Build site overview",
+        evidenceKey: `build-overview-${String(build._id)}`,
+        locationVerified: true,
+        takenAt: new Date(build.createdAt).toISOString(),
+        url: `production-build://${String(build._id)}`,
+      },
+    ];
+  }
+  return await Promise.all(
+    imageAssets.map(async (asset) => ({
+      caption: asset.label,
+      evidenceKey: asset.evidenceKey,
+      locationVerified: asset.locationVerified,
+      takenAt: new Date(asset.createdAt).toISOString(),
+      url: asset.storageId
+        ? (await ctx.storage.getUrl(asset.storageId)) ??
+          `production-evidence://${asset.evidenceKey}`
+        : `production-evidence://${asset.evidenceKey}`,
+    }))
+  );
+}
+
+function formatActiveBuildNote(note: Doc<"buildNotes">) {
+  return {
+    ...note,
+    _id: String(note._id),
+    authorPersona: note.authorWorkosUserId,
+  };
+}
+
+async function getActiveWorkflowRule(
+  ctx: QueryCtx | MutationCtx,
+  brokerageId: Id<"brokerages">
+) {
   const rule = await ctx.db
     .query("workflowRules")
     .withIndex("by_brokerage_status", (q) =>
-      q.eq("brokerageId", brokerageId).eq("status", "active"),
+      q.eq("brokerageId", brokerageId).eq("status", "active")
     )
     .first();
   if (!rule) {
@@ -3557,7 +5147,10 @@ async function getActiveWorkflowRule(ctx: QueryCtx | MutationCtx, brokerageId: I
   return rule;
 }
 
-async function getWorkflowSnapshot(ctx: QueryCtx | MutationCtx, proposal: Doc<"buildProposals">) {
+async function getWorkflowSnapshot(
+  ctx: QueryCtx | MutationCtx,
+  proposal: Doc<"buildProposals">
+) {
   if (!proposal.workflowRuleSnapshotId) {
     throw new Error("Proposal is missing workflow rule snapshot.");
   }
@@ -3568,27 +5161,33 @@ async function getWorkflowSnapshot(ctx: QueryCtx | MutationCtx, proposal: Doc<"b
   return snapshot;
 }
 
-async function getPermitDocument(ctx: QueryCtx | MutationCtx, proposalId: Id<"buildProposals">) {
+async function getPermitDocument(
+  ctx: QueryCtx | MutationCtx,
+  proposalId: Id<"buildProposals">
+) {
   return await ctx.db
     .query("proposalDocuments")
     .withIndex("by_proposal_type", (q) =>
-      q.eq("proposalId", proposalId).eq("documentType", "permit"),
+      q.eq("proposalId", proposalId).eq("documentType", "permit")
     )
     .first();
 }
 
-async function getPermitWaiver(ctx: QueryCtx | MutationCtx, proposalId: Id<"buildProposals">) {
+async function getPermitWaiver(
+  ctx: QueryCtx | MutationCtx,
+  proposalId: Id<"buildProposals">
+) {
   return await ctx.db
     .query("documentWaivers")
     .withIndex("by_proposal_type", (q) =>
-      q.eq("proposalId", proposalId).eq("documentType", "permit"),
+      q.eq("proposalId", proposalId).eq("documentType", "permit")
     )
     .first();
 }
 
 async function withDocumentStorageUrls(
   ctx: QueryCtx,
-  documents: Doc<"proposalDocuments">[],
+  documents: Doc<"proposalDocuments">[]
 ) {
   return await Promise.all(
     documents.map(async (document) => ({
@@ -3596,13 +5195,13 @@ async function withDocumentStorageUrls(
       storageUrl: document.storageId
         ? await ctx.storage.getUrl(document.storageId)
         : null,
-    })),
+    }))
   );
 }
 
 async function visibleBuilderCards(
   ctx: QueryCtx,
-  auth: { brokerage: Doc<"brokerages">; subject: string },
+  auth: { brokerage: Doc<"brokerages">; subject: string }
 ) {
   const links = await ctx.db
     .query("builderAccountLinks")
@@ -3612,7 +5211,9 @@ async function visibleBuilderCards(
   for (const link of links.filter((row) => row.status === "active")) {
     const proposals = await ctx.db
       .query("buildProposals")
-      .withIndex("by_builder", (q) => q.eq("builderProfileId", link.builderProfileId))
+      .withIndex("by_builder", (q) =>
+        q.eq("builderProfileId", link.builderProfileId)
+      )
       .collect();
     for (const proposal of proposals) {
       if (proposal.brokerageId !== auth.brokerage._id) {
@@ -3632,12 +5233,12 @@ async function visibleBuilderCards(
 
 async function visibleBackofficeCards(
   ctx: QueryCtx,
-  auth: { brokerage: Doc<"brokerages">; roles: RoleSlug[]; subject: string },
+  auth: { brokerage: Doc<"brokerages">; roles: RoleSlug[]; subject: string }
 ) {
   const cards = await ctx.db
     .query("proposalKanbanCards")
     .withIndex("by_brokerage_column_sort", (q) =>
-      q.eq("brokerageId", auth.brokerage._id),
+      q.eq("brokerageId", auth.brokerage._id)
     )
     .collect();
   const staffCanRead =
@@ -3646,7 +5247,7 @@ async function visibleBackofficeCards(
       ctx,
       auth.brokerage.workosOrganizationId,
       auth.roles,
-      "proposals:read",
+      "proposals:read"
     ));
   const visible: Doc<"proposalKanbanCards">[] = [];
 
@@ -3665,7 +5266,7 @@ async function visibleBackofficeCards(
 
 async function collectProposalTemplateDetails(
   ctx: QueryCtx,
-  brokerageId: Id<"brokerages">,
+  brokerageId: Id<"brokerages">
 ) {
   const templates = await ctx.db
     .query("proposalTemplates")
@@ -3688,7 +5289,7 @@ async function collectProposalTemplateDetails(
       const submilestones = await ctx.db
         .query("proposalTemplateSubmilestones")
         .withIndex("by_template_milestone", (q) =>
-          q.eq("templateMilestoneId", milestone._id),
+          q.eq("templateMilestoneId", milestone._id)
         )
         .collect();
       milestoneDetails.push({ ...milestone, submilestones });
@@ -3706,23 +5307,25 @@ async function collectByIndex<TableName extends keyof any>(
   ctx: QueryCtx | MutationCtx,
   table: TableName,
   indexName: string,
-  id: string,
+  id: string
 ) {
   return await (ctx.db.query(table as never) as any)
-    .withIndex(indexName, (q: any) => q.eq(indexName === "by_build" ? "buildId" : "proposalId", id))
+    .withIndex(indexName, (q: any) =>
+      q.eq(indexName === "by_build" ? "buildId" : "proposalId", id)
+    )
     .collect();
 }
 
 async function upsertWorkosProjection(
   ctx: MutationCtx,
   workosOrganizationId: string,
-  now: number,
+  now: number
 ) {
   const name = FAIRLEND_BROKERAGE_NAME;
   const organization = await ctx.db
     .query("workosOrganizations")
     .withIndex("by_workos_organization_id", (q) =>
-      q.eq("workosOrganizationId", workosOrganizationId),
+      q.eq("workosOrganizationId", workosOrganizationId)
     )
     .unique();
   if (organization) {
@@ -3753,7 +5356,7 @@ async function upsertWorkosUserAndMembership(
     roleSlugs: string[];
     workosOrganizationId: string;
     workosUserId: string;
-  },
+  }
 ) {
   const user = await ctx.db
     .query("users")
@@ -3785,7 +5388,7 @@ async function upsertWorkosUserAndMembership(
     .withIndex("by_user", (q) => q.eq("workosUserId", input.workosUserId))
     .collect();
   const membership = memberships.find(
-    (row) => row.workosOrganizationId === input.workosOrganizationId,
+    (row) => row.workosOrganizationId === input.workosOrganizationId
   );
   const payload = {
     directoryManaged: false,
@@ -3817,12 +5420,12 @@ async function ensureBrokerage(
     now: number;
     principalBrokerWorkosUserId?: string;
     workosOrganizationId: string;
-  },
+  }
 ) {
   const existing = await ctx.db
     .query("brokerages")
     .withIndex("by_workos_organization", (q) =>
-      q.eq("workosOrganizationId", input.workosOrganizationId),
+      q.eq("workosOrganizationId", input.workosOrganizationId)
     )
     .unique();
   if (existing) {
@@ -3855,11 +5458,13 @@ async function ensureBuilderProfile(
     displayName: string;
     now: number;
     organizationId: string;
-  },
+  }
 ) {
   const existing = await ctx.db
     .query("builderProfiles")
-    .withIndex("by_organization", (q) => q.eq("organizationId", input.organizationId))
+    .withIndex("by_organization", (q) =>
+      q.eq("organizationId", input.organizationId)
+    )
     .first();
   if (existing) {
     return existing._id;
@@ -3882,16 +5487,21 @@ async function ensureBuilderAccountLink(
     now: number;
     role: "owner" | "staff";
     workosUserId: string;
-  },
+  }
 ) {
   const existing = await ctx.db
     .query("builderAccountLinks")
     .withIndex("by_builder_user", (q) =>
-      q.eq("builderProfileId", input.builderProfileId).eq("workosUserId", input.workosUserId),
+      q
+        .eq("builderProfileId", input.builderProfileId)
+        .eq("workosUserId", input.workosUserId)
     )
     .unique();
   if (existing) {
-    await ctx.db.patch(existing._id, { status: "active", updatedAt: input.now });
+    await ctx.db.patch(existing._id, {
+      status: "active",
+      updatedAt: input.now,
+    });
     return existing._id;
   }
   return await ctx.db.insert("builderAccountLinks", {
@@ -3907,12 +5517,14 @@ async function ensureBuilderAccountLink(
 
 async function ensureProposalTemplate(
   ctx: MutationCtx,
-  input: { brokerageId: Id<"brokerages">; now: number; organizationId: string },
+  input: { brokerageId: Id<"brokerages">; now: number; organizationId: string }
 ) {
   const existing = await ctx.db
     .query("proposalTemplates")
     .withIndex("by_brokerage_template", (q) =>
-      q.eq("brokerageId", input.brokerageId).eq("templateKey", "single-family-full-build"),
+      q
+        .eq("brokerageId", input.brokerageId)
+        .eq("templateKey", "single-family-full-build")
     )
     .unique();
   if (existing) {
@@ -3938,11 +5550,12 @@ async function ensureProductionSettingsRows(
     now: number;
     organizationId: string;
     templateId: Id<"proposalTemplates">;
-  },
+  }
 ) {
   for (const archetype of [
     {
-      description: "Site prep, excavation, footings, forms, and foundation pour.",
+      description:
+        "Site prep, excavation, footings, forms, and foundation pour.",
       key: "foundation",
       name: "Foundation",
       sortOrder: 1,
@@ -3971,7 +5584,7 @@ async function ensureProductionSettingsRows(
     key: "foundation",
     name: "Foundation",
     order: 1,
-    percentageBps: 2_500,
+    percentageBps: 2500,
   });
   await ensureTemplateSubmilestone(ctx, {
     ...input,
@@ -3980,7 +5593,7 @@ async function ensureProductionSettingsRows(
     milestoneKey: "foundation",
     name: "Forms and pour",
     order: 1,
-    percentageBps: 1_200,
+    percentageBps: 1200,
     templateMilestoneId: foundationMilestoneId,
   });
   await ensureTemplateSubmilestone(ctx, {
@@ -3990,7 +5603,7 @@ async function ensureProductionSettingsRows(
     milestoneKey: "foundation",
     name: "Waterproofing and backfill",
     order: 2,
-    percentageBps: 1_300,
+    percentageBps: 1300,
     templateMilestoneId: foundationMilestoneId,
   });
 
@@ -4002,7 +5615,7 @@ async function ensureProductionSettingsRows(
     key: "shell-dry-in",
     name: "Shell and Dry-In",
     order: 2,
-    percentageBps: 3_500,
+    percentageBps: 3500,
   });
   await ensureTemplateMilestone(ctx, {
     ...input,
@@ -4012,7 +5625,7 @@ async function ensureProductionSettingsRows(
     key: "interior-finish",
     name: "Interior Finish",
     order: 3,
-    percentageBps: 4_000,
+    percentageBps: 4000,
   });
 
   for (const scenario of [
@@ -4046,12 +5659,12 @@ async function ensureMilestoneArchetype(
     now: number;
     organizationId: string;
     sortOrder: number;
-  },
+  }
 ) {
   const existing = await ctx.db
     .query("milestoneArchetypes")
     .withIndex("by_brokerage_key", (q) =>
-      q.eq("brokerageId", input.brokerageId).eq("key", input.key),
+      q.eq("brokerageId", input.brokerageId).eq("key", input.key)
     )
     .unique();
   const payload = {
@@ -4088,7 +5701,7 @@ async function ensureTemplateMilestone(
     organizationId: string;
     percentageBps: number;
     templateId: Id<"proposalTemplates">;
-  },
+  }
 ) {
   const existing = (
     await ctx.db
@@ -4132,13 +5745,13 @@ async function ensureTemplateSubmilestone(
     organizationId: string;
     percentageBps: number;
     templateMilestoneId: Id<"proposalTemplateMilestones">;
-  },
+  }
 ) {
   const existing = (
     await ctx.db
       .query("proposalTemplateSubmilestones")
       .withIndex("by_template_milestone", (q) =>
-        q.eq("templateMilestoneId", input.templateMilestoneId),
+        q.eq("templateMilestoneId", input.templateMilestoneId)
       )
       .collect()
   ).find((row) => row.key === input.key);
@@ -4174,12 +5787,12 @@ async function ensureDrawScheduleScenario(
     organizationId: string;
     scenarioKey: string;
     templateId: Id<"proposalTemplates">;
-  },
+  }
 ) {
   const existing = await ctx.db
     .query("drawScheduleScenarios")
     .withIndex("by_template_scenario", (q) =>
-      q.eq("templateId", input.templateId).eq("scenarioKey", input.scenarioKey),
+      q.eq("templateId", input.templateId).eq("scenarioKey", input.scenarioKey)
     )
     .unique();
   const payload = {
@@ -4204,16 +5817,21 @@ async function ensureDrawScheduleScenario(
 
 async function ensureWorkflowRule(
   ctx: MutationCtx,
-  input: { brokerageId: Id<"brokerages">; now: number; organizationId: string },
+  input: { brokerageId: Id<"brokerages">; now: number; organizationId: string }
 ) {
   const existing = await ctx.db
     .query("workflowRules")
     .withIndex("by_brokerage_rule", (q) =>
-      q.eq("brokerageId", input.brokerageId).eq("ruleKey", DEFAULT_WORKFLOW_RULE_KEY),
+      q
+        .eq("brokerageId", input.brokerageId)
+        .eq("ruleKey", DEFAULT_WORKFLOW_RULE_KEY)
     )
     .unique();
   if (existing) {
-    await ctx.db.patch(existing._id, { status: "active", updatedAt: input.now });
+    await ctx.db.patch(existing._id, {
+      status: "active",
+      updatedAt: input.now,
+    });
     return existing._id;
   }
   return await ctx.db.insert("workflowRules", {
@@ -4254,7 +5872,7 @@ async function ensureSeedScenarioProposal(
     organizationId: string;
     scenario: SeedScenario;
     templateId: Id<"proposalTemplates">;
-  },
+  }
 ) {
   const existing = (
     await ctx.db
@@ -4269,7 +5887,7 @@ async function ensureSeedScenarioProposal(
   const proposalId = await ctx.db.insert("buildProposals", {
     assignedBrokerWorkosUserId: "user_broker",
     brokerageId: input.brokerageId,
-    borrowerCoPayBps: 2_000,
+    borrowerCoPayBps: 2000,
     borrowerWorkingCapitalLimitCents: 40_000_000,
     buildName: input.buildName,
     builderProfileId: input.builderProfileId,
@@ -4389,7 +6007,7 @@ async function seedProposalPackage(
     now: number;
     organizationId: string;
     proposalId: Id<"buildProposals">;
-  },
+  }
 ) {
   const milestones = [
     {
@@ -4441,7 +6059,7 @@ async function seedProposalPackage(
     totalBudgetCents += milestone.budgetCents;
     const drawAvailabilityCents = calculateDrawAvailability(
       milestone.budgetCents,
-      2_000,
+      2000
     );
     const proposalMilestoneId = await ctx.db.insert("proposalMilestones", {
       brokerageId: input.brokerageId,
@@ -4522,6 +6140,23 @@ async function seedProposalPackage(
     });
   }
 
+  await ctx.db.insert("proposalEvidenceAssets", {
+    brokerageId: input.brokerageId,
+    createdAt: input.now,
+    evidenceKey: `seed-site-photo-${String(input.proposalId)}`,
+    fileName: "seed-site-photo.jpg",
+    label: "Seed site photo",
+    locationVerified: true,
+    milestoneKey: "foundation",
+    mimeType: "image/jpeg",
+    organizationId: input.organizationId,
+    proposalId: input.proposalId,
+    sizeBytes: 2048,
+    source: "seeded_production_workspace",
+    tag: "site-photo",
+    updatedAt: input.now,
+  });
+
   await ctx.db.patch(input.proposalId, {
     totalBudgetCents,
     updatedAt: input.now,
@@ -4535,9 +6170,12 @@ async function seedSubmitProposal(
     now: number;
     organizationId: string;
     proposalId: Id<"buildProposals">;
-  },
+  }
 ) {
-  const workflowRule = await getActiveWorkflowRule(ctx, input.auth.brokerage._id);
+  const workflowRule = await getActiveWorkflowRule(
+    ctx,
+    input.auth.brokerage._id
+  );
   const snapshotId = await ctx.db.insert("workflowRuleSnapshots", {
     allowPermitWaiverByRoles: workflowRule.allowPermitWaiverByRoles,
     brokerageId: input.auth.brokerage._id,
@@ -4578,7 +6216,7 @@ async function seedApproveProposal(
     organizationId: string;
     permitWaiverReason?: string;
     proposalId: Id<"buildProposals">;
-  },
+  }
 ) {
   let waiverWarnings: string[] = [];
   if (input.permitWaiverReason) {
@@ -4626,7 +6264,7 @@ async function seedCloseProposal(
     now: number;
     organizationId: string;
     proposalId: Id<"buildProposals">;
-  },
+  }
 ) {
   const proposal = await ctx.db.get(input.proposalId);
   if (!proposal?.workflowRuleSnapshotId) {
@@ -4654,7 +6292,8 @@ async function seedCloseProposal(
     workflowRuleSnapshotId: proposal.workflowRuleSnapshotId,
   });
   await ctx.db.insert("buildBrokerAssignments", {
-    assignedBrokerWorkosUserId: proposal.assignedBrokerWorkosUserId ?? input.auth.subject,
+    assignedBrokerWorkosUserId:
+      proposal.assignedBrokerWorkosUserId ?? input.auth.subject,
     brokerageId: input.auth.brokerage._id,
     buildId,
     createdAt: input.now,
@@ -4692,25 +6331,32 @@ async function seedCloseProposal(
     ctx,
     "proposalMilestones",
     "by_proposal",
-    input.proposalId,
+    input.proposalId
   );
   for (const milestone of milestones) {
     const buildMilestoneId = await ctx.db.insert("buildMilestones", {
       brokerageId: input.auth.brokerage._id,
       budgetCents: milestone.budgetCents,
       buildId,
+      completionClaim: milestone.completionClaim,
+      completionReview: milestone.completionReview,
       createdAt: input.now,
       dayEnd: milestone.dayEnd,
       dayStart: milestone.dayStart,
       dependencyKeys: milestone.dependencyKeys,
       drawAvailabilityCents: milestone.drawAvailabilityCents,
       durationDays: milestone.durationDays,
+      evidenceState: milestone.evidenceState,
       key: milestone.key,
       name: milestone.name,
       order: milestone.order,
       organizationId: input.organizationId,
+      policyState: milestone.policyState,
       proposalMilestoneId: milestone._id,
-      status: "planned",
+      status:
+        milestone.completionReview?.status === "approved"
+          ? "complete"
+          : "planned",
       updatedAt: input.now,
     });
     buildMilestoneIds.set(milestone._id, buildMilestoneId);
@@ -4720,10 +6366,12 @@ async function seedCloseProposal(
     ctx,
     "proposalSubmilestones",
     "by_proposal",
-    input.proposalId,
+    input.proposalId
   );
   for (const submilestone of submilestones) {
-    const buildMilestoneId = buildMilestoneIds.get(submilestone.proposalMilestoneId);
+    const buildMilestoneId = buildMilestoneIds.get(
+      submilestone.proposalMilestoneId
+    );
     if (!buildMilestoneId) {
       continue;
     }
@@ -4749,7 +6397,7 @@ async function seedCloseProposal(
     ctx,
     "proposalDrawScheduleRows",
     "by_proposal",
-    input.proposalId,
+    input.proposalId
   );
   for (const draw of draws) {
     await ctx.db.insert("plannedDrawScheduleRows", {
@@ -4766,11 +6414,22 @@ async function seedCloseProposal(
       order: draw.order,
       organizationId: input.organizationId,
       proposalDrawScheduleRowId: draw._id,
-      status: "planned",
+      requestNote: draw.requestNote,
+      requestReviewNote: draw.requestReviewNote,
+      requestedAt: draw.requestedAt,
+      reviewedAt: draw.reviewedAt,
+      status: activeBuildDrawStatusFromProposal(draw.requestStatus),
       timingDay: draw.timingDay,
       updatedAt: input.now,
     });
   }
+  await copyProposalOperationalRowsToActiveBuild(ctx, {
+    auth: input.auth,
+    buildId,
+    now: input.now,
+    organizationId: input.organizationId,
+    proposalId: input.proposalId,
+  });
   await ctx.db.insert("capitalEvents", {
     amountCents: 0,
     brokerageId: input.auth.brokerage._id,
@@ -4798,6 +6457,22 @@ async function seedCloseProposal(
     proposalId: input.proposalId,
     reason: "Seeded offline loan closing.",
   });
+  const build = await ctx.db.get(buildId);
+  if (build) {
+    await writeActiveBuildEvent(ctx, {
+      auth: {
+        brokerage: input.auth.brokerage,
+        proposal,
+        roles: input.auth.roles,
+        subject: input.auth.subject,
+      },
+      build,
+      command: "dev_seedProductionProposalScenarios",
+      eventType: "active_build.created",
+      newState: JSON.stringify({ buildId, proposalId: input.proposalId }),
+      reason: "Seeded offline loan closing.",
+    });
+  }
   await ctx.db.insert("eventOutbox", {
     brokerageId: input.auth.brokerage._id,
     createdAt: input.now,
@@ -4820,7 +6495,7 @@ async function ensureSeedContractorProfile(
     brokerageId: Id<"brokerages">;
     now: number;
     organizationId: string;
-  },
+  }
 ) {
   const existing = (
     await ctx.db

@@ -243,6 +243,25 @@ const TIMELINE_TO_DEMO_MILESTONE_KEY: Record<string, string> = {
   "site-prep": "foundation",
 };
 
+export function getDemoApprovalStartDate(now = Date.now()) {
+  const date = new Date(now);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+export function resolveDemoLiveBuildHref({
+  buildKey,
+  liveBuildHref,
+}: {
+  buildKey?: string | null;
+  liveBuildHref?: string | null;
+}) {
+  if (liveBuildHref) {
+    return liveBuildHref;
+  }
+
+  return buildKey ? `/builder/demo/dashboard/builds/${buildKey}` : undefined;
+}
+
 const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
   {
     data: {
@@ -549,6 +568,8 @@ function getTimelineResponsiveSizing(
 export interface TimelineDemoWorkspaceProps {
   durableMeta?: {
     backofficeHref: string;
+    buildKey?: string;
+    liveBuildHref?: string;
     proposalHref: string;
     proposalSlug: string;
     status: string;
@@ -698,6 +719,9 @@ export function TimelineDemoWorkspace({
   );
   const submitTimelinePlan = useMutation(
     api.demo_timeline_plans.demo_submitTimelinePlan
+  );
+  const approveTimelinePlan = useMutation(
+    api.demo_timeline_plans.demo_approveTimelinePlan
   );
   const createTimelineDraw = useMutation(
     api.demo_timeline_plans.demo_createTimelineDraw
@@ -853,6 +877,10 @@ export function TimelineDemoWorkspace({
   const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
   const [submitPending, setSubmitPending] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [lenderApprovalPending, setLenderApprovalPending] = useState(false);
+  const [lenderApprovedBuildKey, setLenderApprovedBuildKey] = useState<
+    string | null
+  >(null);
   const [straightLine, setStraightLine] = useState(
     workspaceInitialState.straightLine
   );
@@ -1424,6 +1452,30 @@ export function TimelineDemoWorkspace({
       setSubmitPending(false);
     }
   }, [durablePlanId, persistSubmitPlan, readOnly]);
+
+  const approveAndCloseFromLenderDemo = useCallback(async () => {
+    if (!(durablePlanId && planStatus === "submitted")) {
+      toast.error("This proposal is no longer awaiting approval.");
+      return;
+    }
+
+    setLenderApprovalPending(true);
+    try {
+      const result = await approveTimelinePlan({
+        adminNote: "Approved and closed from the lender demo timeline.",
+        planId: durablePlanId,
+        startDate: getDemoApprovalStartDate(),
+      });
+      if (typeof result?.buildKey === "string") {
+        setLenderApprovedBuildKey(result.buildKey);
+      }
+      toast.success("Proposal approved. Live build is ready.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Approval failed.");
+    } finally {
+      setLenderApprovalPending(false);
+    }
+  }, [approveTimelinePlan, durablePlanId, planStatus]);
 
   useEffect(() => {
     if (share) {
@@ -2654,6 +2706,24 @@ export function TimelineDemoWorkspace({
     setActiveCapitalSpikeId(null);
   };
 
+  const lenderLiveBuildHref = resolveDemoLiveBuildHref({
+    buildKey: lenderApprovedBuildKey ?? durableMeta?.buildKey,
+    liveBuildHref: durableMeta?.liveBuildHref,
+  });
+  const showLenderDealControls = Boolean(
+    durableMeta && timelineRole === "lender"
+  );
+  const showLenderApproveCta = Boolean(
+    showLenderDealControls &&
+      planStatus === "submitted" &&
+      !lenderApprovedBuildKey
+  );
+  const showLenderLiveBuildLink = Boolean(
+    showLenderDealControls &&
+      lenderLiveBuildHref &&
+      (planStatus === "approved" || lenderApprovedBuildKey)
+  );
+
   if (!(share || setupComplete)) {
     return (
       <>
@@ -2786,6 +2856,32 @@ export function TimelineDemoWorkspace({
                 onRoleChange={setTimelineRole}
                 role={timelineRole}
               />
+            ) : null}
+            {showLenderApproveCta ? (
+              <Button
+                data-testid="timeline-lender-approve-close"
+                disabled={lenderApprovalPending}
+                onClick={() => void approveAndCloseFromLenderDemo()}
+                size="sm"
+              >
+                {lenderApprovalPending ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <ShieldCheck />
+                )}
+                Approve proposal and close deal
+              </Button>
+            ) : null}
+            {showLenderLiveBuildLink && lenderLiveBuildHref ? (
+              <Button
+                data-testid="timeline-lender-live-build-link"
+                render={<a href={lenderLiveBuildHref} />}
+                size="sm"
+                variant="secondary"
+              >
+                <ExternalLink />
+                Open live build
+              </Button>
             ) : null}
             {durableMeta ? (
               <>

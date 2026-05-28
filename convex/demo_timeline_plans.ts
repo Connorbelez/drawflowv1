@@ -2512,6 +2512,7 @@ async function buildTimelinePlanWorkspace(
   plan: TimelinePlan
 ) {
   const [
+    build,
     milestoneRows,
     draws,
     capitalEvents,
@@ -2521,6 +2522,7 @@ async function buildTimelinePlanWorkspace(
     projection,
     modificationRequests,
   ] = await Promise.all([
+    ctx.db.get(plan.buildId),
     timelineMilestones(ctx, plan._id),
     ctx.db
       .query("demo_timelineDraws")
@@ -2579,6 +2581,7 @@ async function buildTimelinePlanWorkspace(
     }))
   );
   return {
+    build,
     capitalEvents: capitalEvents.sort((a, b) => a.order - b.order),
     draws: draws.sort((a, b) => a.order - b.order),
     events,

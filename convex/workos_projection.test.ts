@@ -155,6 +155,128 @@ describe("WorkOS webhook projections", () => {
     });
   });
 
+  test("lists only the current user's active organizations with role labels", async () => {
+    const t = convexTest(schema, modules);
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("workosOrganizations", {
+        domains: [],
+        name: "FairLend",
+        sourceEventId: "seed_org_fairlend",
+        sourceEventType: "organization.created",
+        status: "active",
+        workosOrganizationId: "org_fairlend",
+      });
+      await ctx.db.insert("workosOrganizations", {
+        domains: [],
+        name: "Oakline Builds",
+        sourceEventId: "seed_org_oakline",
+        sourceEventType: "organization.created",
+        status: "active",
+        workosOrganizationId: "org_oakline",
+      });
+      await ctx.db.insert("workosOrganizations", {
+        domains: [],
+        name: "Deleted Org",
+        sourceEventId: "seed_org_deleted",
+        sourceEventType: "organization.created",
+        status: "deleted",
+        workosOrganizationId: "org_deleted",
+      });
+      await ctx.db.insert("workosOrganizationRoles", {
+        name: "Principal Broker",
+        permissionSlugs: [],
+        slug: "principle-broker",
+        sourceEventId: "seed_role_principal",
+        sourceEventType: "organization_role.created",
+        status: "active",
+        workosOrganizationId: "org_fairlend",
+      });
+      await ctx.db.insert("workosOrganizationRoles", {
+        name: "Builder",
+        permissionSlugs: [],
+        slug: "builder",
+        sourceEventId: "seed_role_builder",
+        sourceEventType: "organization_role.created",
+        status: "active",
+        workosOrganizationId: "org_oakline",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        roleSlug: "principle-broker",
+        roleSlugs: ["principle-broker"],
+        sourceEventId: "seed_membership_fairlend",
+        sourceEventType: "organization_membership.created",
+        status: "active",
+        workosMembershipId: "om_fairlend",
+        workosOrganizationId: "org_fairlend",
+        workosUserId: "user_builder",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        roleSlug: "builder",
+        roleSlugs: ["builder"],
+        sourceEventId: "seed_membership_oakline",
+        sourceEventType: "organization_membership.created",
+        status: "active",
+        workosMembershipId: "om_oakline",
+        workosOrganizationId: "org_oakline",
+        workosUserId: "user_builder",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        roleSlug: "admin",
+        roleSlugs: ["admin"],
+        sourceEventId: "seed_membership_pending",
+        sourceEventType: "organization_membership.created",
+        status: "pending",
+        workosMembershipId: "om_pending",
+        workosOrganizationId: "org_pending",
+        workosUserId: "user_builder",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        roleSlug: "admin",
+        roleSlugs: ["admin"],
+        sourceEventId: "seed_membership_deleted",
+        sourceEventType: "organization_membership.created",
+        status: "active",
+        workosMembershipId: "om_deleted",
+        workosOrganizationId: "org_deleted",
+        workosUserId: "user_builder",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        roleSlug: "admin",
+        roleSlugs: ["admin"],
+        sourceEventId: "seed_membership_other",
+        sourceEventType: "organization_membership.created",
+        status: "active",
+        workosMembershipId: "om_other",
+        workosOrganizationId: "org_fairlend",
+        workosUserId: "user_other",
+      });
+    });
+
+    await expect(
+      asBuilder(t).query(api.workosProjection.listCurrentUserOrganizations, {})
+    ).resolves.toEqual({
+      organizations: [
+        {
+          membershipId: "om_fairlend",
+          organizationName: "FairLend",
+          roleNames: ["Principal Broker"],
+          roleSlug: "principle-broker",
+          roleSlugs: ["principle-broker"],
+          workosOrganizationId: "org_fairlend",
+        },
+        {
+          membershipId: "om_oakline",
+          organizationName: "Oakline Builds",
+          roleNames: ["Builder"],
+          roleSlug: "builder",
+          roleSlugs: ["builder"],
+          workosOrganizationId: "org_oakline",
+        },
+      ],
+    });
+  });
+
   test("skips duplicate WorkOS event ids without mutating projection timestamps twice", async () => {
     const t = convexTest(schema, modules);
     const event = userEvent("user.created", "event_duplicate");

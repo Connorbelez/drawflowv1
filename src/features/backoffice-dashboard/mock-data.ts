@@ -34,8 +34,8 @@ export interface DashboardDrawRequest {
 export interface ActiveBuild {
   activeMilestone: string;
   address: string;
-  buildKey: string;
   builder: string;
+  buildKey: string;
   daysActive: number;
   href: string;
   id: string;
@@ -52,8 +52,8 @@ export interface DashboardKanbanColumn extends Record<string, unknown> {
 
 export interface MilestoneKanbanCard extends Record<string, unknown> {
   address: string;
-  buildKey: string;
   buildId: string;
+  buildKey: string;
   column: string;
   dueLabel?: string;
   href: string;
@@ -66,19 +66,28 @@ export interface MilestoneKanbanCard extends Record<string, unknown> {
 
 export interface ProposalKanbanCard extends Record<string, unknown> {
   address: string;
+  approvedAt?: number;
+  borrowerWorkingCapitalLimitCents?: number;
   builder: string;
   closeLabel?: string;
   column: string;
+  createdAt?: number;
   href?: string;
   id: string;
   isMockAddress?: boolean;
   isMockBuilder?: boolean;
   isMockLtv?: boolean;
+  lenderDrawPolicyLimitCents?: number;
   loanAmount: string;
   ltv: number;
   name: string;
+  proposalId?: string;
+  reviewOutcome?: string;
   statusLabel?: string;
+  submittedAt?: number;
   tag?: string;
+  totalBudgetCents?: number;
+  updatedAt?: number;
 }
 
 export interface ScheduleEvent {

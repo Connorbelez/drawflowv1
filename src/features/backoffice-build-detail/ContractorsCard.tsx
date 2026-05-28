@@ -28,12 +28,35 @@ type AttachedContractor = {
 };
 
 type AvailableContractor = {
-  _id: Id<"demo_contractors">;
+  _id: Id<"demo_contractors"> | string;
   name: string;
   city: string;
   trades?: string[];
   skills?: string[];
 };
+
+type ContractorInput = {
+  name: string;
+  kind: "company" | "individual";
+  hourlyRateCents: number;
+  city: string;
+  trades: string[];
+  skills: string[];
+  phone?: string;
+  email?: string;
+};
+
+interface ContractorActions {
+  onAttachExisting?: (input: {
+    contractorId: string;
+    role: string;
+  }) => Promise<void> | void;
+  onCreateAndAttach?: (input: {
+    contractor: ContractorInput;
+    role: string;
+  }) => Promise<void> | void;
+  sourceLabel?: string;
+}
 
 const CONTRACTOR_KINDS: Array<{
   value: "company" | "individual";
@@ -44,12 +67,14 @@ const CONTRACTOR_KINDS: Array<{
 ];
 
 interface ContractorsCardProps {
-  buildId: Id<"demo_builds">;
+  buildId: Id<"demo_builds"> | string;
   contractors: AttachedContractor[];
   availableContractors: AvailableContractor[];
+  actions?: ContractorActions;
 }
 
 export function ContractorsCard({
+  actions,
   buildId,
   contractors,
   availableContractors,
@@ -66,7 +91,7 @@ export function ContractorsCard({
         <h3 className="font-semibold text-sm">
           Contractors{" "}
           <span className="text-[11px] text-muted-foreground">
-            demo_contractors
+            {actions?.sourceLabel ?? "demo_contractors"}
           </span>
         </h3>
         <div className="flex items-center gap-3">
@@ -118,6 +143,7 @@ export function ContractorsCard({
       <Dialog onOpenChange={setDialogOpen} open={dialogOpen}>
         <DialogPopup className="max-w-xl">
           <ContractorAddDialogContent
+            actions={actions}
             availableContractors={availableContractors}
             buildId={buildId}
             onDone={() => setDialogOpen(false)}
@@ -129,12 +155,14 @@ export function ContractorsCard({
 }
 
 interface ContractorAddDialogContentProps {
+  actions?: ContractorActions;
   availableContractors: AvailableContractor[];
-  buildId: Id<"demo_builds">;
+  buildId: Id<"demo_builds"> | string;
   onDone: () => void;
 }
 
 function ContractorAddDialogContent({
+  actions,
   availableContractors,
   buildId,
   onDone,
@@ -178,9 +206,14 @@ function ContractorAddDialogContent({
         </div>
       </DialogHeader>
       {mode === "new" ? (
-        <NewContractorForm buildId={buildId} onDone={onDone} />
+        <NewContractorForm
+          actions={actions}
+          buildId={buildId}
+          onDone={onDone}
+        />
       ) : (
         <ExistingContractorForm
+          actions={actions}
           availableContractors={availableContractors}
           buildId={buildId}
           onDone={onDone}
@@ -215,10 +248,12 @@ const EMPTY_NEW: NewContractorFormState = {
 };
 
 function NewContractorForm({
+  actions,
   buildId,
   onDone,
 }: {
-  buildId: Id<"demo_builds">;
+  actions?: ContractorActions;
+  buildId: Id<"demo_builds"> | string;
   onDone: () => void;
 }) {
   const create = useMutation(
@@ -253,20 +288,28 @@ function NewContractorForm({
     setPending(true);
     setError("");
     try {
-      await create({
-        buildId,
-        role: form.role.trim(),
-        contractor: {
-          name: form.name.trim(),
-          kind: form.kind,
-          hourlyRateCents,
-          city: form.city.trim(),
-          trades: splitChips(form.trades),
-          skills: splitChips(form.skills),
-          phone: form.phone.trim() || undefined,
-          email: form.email.trim() || undefined,
-        },
-      });
+      const contractor = {
+        name: form.name.trim(),
+        kind: form.kind,
+        hourlyRateCents,
+        city: form.city.trim(),
+        trades: splitChips(form.trades),
+        skills: splitChips(form.skills),
+        phone: form.phone.trim() || undefined,
+        email: form.email.trim() || undefined,
+      };
+      if (actions?.onCreateAndAttach) {
+        await actions.onCreateAndAttach({
+          contractor,
+          role: form.role.trim(),
+        });
+      } else {
+        await create({
+          buildId: buildId as Id<"demo_builds">,
+          role: form.role.trim(),
+          contractor,
+        });
+      }
       setForm(EMPTY_NEW);
       onDone();
     } catch (err) {
@@ -405,12 +448,14 @@ function NewContractorForm({
 }
 
 function ExistingContractorForm({
+  actions,
   availableContractors,
   buildId,
   onDone,
 }: {
+  actions?: ContractorActions;
   availableContractors: AvailableContractor[];
-  buildId: Id<"demo_builds">;
+  buildId: Id<"demo_builds"> | string;
   onDone: () => void;
 }) {
   const attach = useMutation(
@@ -418,9 +463,7 @@ function ExistingContractorForm({
   );
   const [query, setQuery] = useState("");
   const [role, setRole] = useState("");
-  const [selectedId, setSelectedId] = useState<Id<"demo_contractors"> | null>(
-    null,
-  );
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
@@ -453,11 +496,18 @@ function ExistingContractorForm({
     setPending(true);
     setError("");
     try {
-      await attach({
-        buildId,
-        contractorId: selected._id,
-        role: role.trim(),
-      });
+      if (actions?.onAttachExisting) {
+        await actions.onAttachExisting({
+          contractorId: String(selected._id),
+          role: role.trim(),
+        });
+      } else {
+        await attach({
+          buildId: buildId as Id<"demo_builds">,
+          contractorId: selected._id as Id<"demo_contractors">,
+          role: role.trim(),
+        });
+      }
       onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

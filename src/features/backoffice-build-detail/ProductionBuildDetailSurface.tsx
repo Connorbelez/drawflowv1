@@ -1,0 +1,1630 @@
+"use client";
+
+import { MapPin } from "lucide-react";
+import type * as React from "react";
+import { useMemo, useState } from "react";
+
+import {
+  AnimatedCurvedTimeline,
+  type TimelineItem,
+  type TimelineMarker,
+} from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
+import {
+  GanttColumns,
+  type GanttFeature,
+  GanttFeatureList,
+  GanttFeatureRow,
+  GanttHeader,
+  GanttMarker,
+  GanttProvider,
+  GanttSidebar,
+  GanttSidebarItem,
+  GanttTimeline,
+} from "#/components/kibo-ui/gantt/index.tsx";
+import { Badge } from "#/components/ui/badge.tsx";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "#/components/ui/card.tsx";
+import { Calendar } from "#/components/ui/calendar.tsx";
+import { Frame, FramePanel } from "#/components/ui/frame.tsx";
+import { cn } from "#/lib/utils.ts";
+import {
+  BuildDetailTabBar,
+  type BuildDetailSubTab,
+} from "./BuildDetailTabs";
+import { ContractorsCard } from "./ContractorsCard";
+import { EventRail } from "./EventRail";
+import {
+  type KanbanCardData,
+  type KanbanColumn,
+  MilestoneKanban,
+} from "./MilestoneKanban";
+import {
+  type MilestoneSheetData,
+  MilestoneDetailSheet,
+} from "./MilestoneDetailSheet";
+import { SitePhotoCarousel } from "./SitePhotoCarousel";
+import { formatCents, formatDate, initialsFor } from "./format";
+
+type ProductionBuildStatus = "active" | "paused" | "completed" | string;
+type ProductionMilestoneStatus = "planned" | "in_progress" | "complete";
+type ProductionDrawStatus =
+  | "planned"
+  | "requested"
+  | "approved"
+  | "rejected"
+  | "released";
+
+export interface ProductionBuildDetailActions {
+  addDocument?: (input: {
+    documentType: "permit" | "budget" | "plan" | "supporting";
+    fileName: string;
+  }) => Promise<void> | void;
+  addNote?: (input: {
+    body: string;
+    visibility: "internal" | "public";
+  }) => Promise<void> | void;
+  approveDraw?: (draw: ProductionDraw) => Promise<void> | void;
+  approveMilestone?: (input: {
+    milestoneKey: string;
+    note?: string;
+  }) => Promise<void> | void;
+  assignSiteVisit?: (input: { milestoneKey: string }) => Promise<void> | void;
+  attachContractor?: (input: {
+    contractorId: string;
+    role: string;
+  }) => Promise<void> | void;
+  createAndAttachContractor?: (input: {
+    contractor: {
+      name: string;
+      kind: "company" | "individual";
+      hourlyRateCents: number;
+      city: string;
+      trades: string[];
+      skills: string[];
+      phone?: string;
+      email?: string;
+    };
+    role: string;
+  }) => Promise<void> | void;
+  rejectDraw?: (draw: ProductionDraw) => Promise<void> | void;
+  rejectMilestone?: (input: { milestoneKey: string }) => Promise<void> | void;
+  releaseDraw?: (draw: ProductionDraw) => Promise<void> | void;
+  requestDraw?: (draw: ProductionDraw) => Promise<void> | void;
+  requestMilestoneInfo?: (input: {
+    milestoneKey: string;
+    note: string;
+  }) => Promise<void> | void;
+}
+
+export interface ProductionBuildDetail {
+  build: {
+    _id: string;
+    buildName: string;
+    location: string;
+    status: ProductionBuildStatus;
+    startDate: string;
+    totalBudgetCents: number;
+    brokerageId?: string;
+    createdAt?: number;
+    updatedAt?: number;
+  };
+  capitalPlan?: {
+    borrowerWorkingCapitalLimitCents: number;
+    borrowerCoPayBps: number;
+    lenderDrawPolicyLimitCents: number;
+    version: number;
+  } | null;
+  draws: ProductionDraw[];
+  loanFacility?: {
+    principalCents: number;
+    interestAnnualBps: number;
+    interestStartsOn: "funds_released";
+    status: "active" | "closed";
+  } | null;
+  auditEvents?: ProductionAuditEvent[];
+  availableContractors?: ProductionAvailableContractor[];
+  contractors?: ProductionAttachedContractor[];
+  displayId?: string;
+  documents?: ProductionDocument[];
+  milestones: ProductionMilestone[];
+  notes?: {
+    internal: ProductionNote[];
+    public: ProductionNote[];
+  };
+  quickActionEvents?: ProductionRailEvent[];
+  sitePhotos?: ProductionSitePhoto[];
+  siteVisits?: ProductionSiteVisit[];
+  submilestones: ProductionSubmilestone[];
+}
+
+interface ProductionMilestone {
+  _id: string;
+  key: string;
+  name: string;
+  order: number;
+  budgetCents: number;
+  drawAvailabilityCents: number;
+  dayStart: number;
+  dayEnd: number;
+  durationDays: number;
+  dependencyKeys: string[];
+  completionClaim?: Record<string, unknown>;
+  completionReview?: Record<string, any>;
+  evidenceState?: string;
+  policyState?: string;
+  status: ProductionMilestoneStatus;
+  updatedAt?: number;
+}
+
+interface ProductionSubmilestone {
+  _id: string;
+  milestoneKey: string;
+  key: string;
+  name: string;
+  order: number;
+  budgetCents?: number;
+  durationDays?: number;
+  status: ProductionMilestoneStatus;
+}
+
+interface ProductionDraw {
+  _id: string;
+  drawKey: string;
+  label: string;
+  order: number;
+  timingDay: number;
+  amountCents: number;
+  milestoneKey?: string;
+  requestNote?: string;
+  requestReviewNote?: string;
+  requestedAt?: string;
+  reviewedAt?: string;
+  releaseDate?: string;
+  releaseNote?: string;
+  releasedAt?: string;
+  status: ProductionDrawStatus;
+}
+
+interface ProductionSitePhoto {
+  caption: string;
+  evidenceKey?: string;
+  locationVerified?: boolean;
+  takenAt: string;
+  url: string;
+}
+
+interface ProductionDocument {
+  _id: string;
+  documentType?: string;
+  fileName?: string;
+  kind?: string;
+  name?: string;
+  sizeBytes?: number;
+}
+
+interface ProductionNote {
+  _id: string;
+  authorPersona?: string;
+  body: string;
+  createdAt: number | string;
+  visibility: "internal" | "public";
+}
+
+interface ProductionRailEvent {
+  _id: string;
+  createdAt: number;
+  eventType: string;
+  payloadPreview: string;
+}
+
+interface ProductionAuditEvent {
+  _id: string;
+  actorPersona: string;
+  afterSummary?: string;
+  beforeSummary?: string;
+  createdAt: number;
+  entityLabel?: string;
+  entityType: string;
+  eventType: string;
+}
+
+interface ProductionAttachedContractor {
+  _id: string;
+  contractorId?: string;
+  email?: string;
+  name: string;
+  role: string;
+  trades?: string[];
+}
+
+interface ProductionAvailableContractor {
+  _id: string;
+  city: string;
+  name: string;
+  skills?: string[];
+  trades?: string[];
+}
+
+interface ProductionSiteVisit {
+  _id?: string;
+  milestoneKey: string;
+  note?: string;
+  requestedAt: string;
+  requestedDay: number;
+  status: string;
+  visitId: string;
+}
+
+interface ProductionTimelineData {
+  budgetCents: number;
+  dayEnd: number;
+  dependencyKeys: string[];
+  drawAmountCents: number;
+  drawLabel: string;
+  status: ProductionMilestoneStatus;
+  submilestones: ProductionSubmilestone[];
+}
+
+interface ProductionBuildProjection {
+  calendarDates: Date[];
+  draws: ProductionDraw[];
+  features: GanttFeature[];
+  maxDay: number;
+  milestones: ProductionMilestone[];
+  submilestonesByMilestone: Map<string, ProductionSubmilestone[]>;
+  timelineItems: TimelineItem<ProductionTimelineData>[];
+  timelineMarkers: TimelineMarker[];
+}
+
+export function ProductionBuildDetailSurface({
+  actions,
+  activeTab,
+  detail,
+  milestoneKey,
+  onChangeMilestone,
+  onChangeRail,
+  onChangeTab,
+  rail,
+}: {
+  activeTab: BuildDetailSubTab;
+  actions?: ProductionBuildDetailActions;
+  detail: ProductionBuildDetail;
+  milestoneKey?: string;
+  onChangeMilestone?: (milestoneKey?: string) => void;
+  onChangeRail: (rail: "open" | "closed") => void;
+  onChangeTab: (tab: BuildDetailSubTab) => void;
+  rail?: "open" | "closed";
+}) {
+  const projection = useMemo(
+    () => buildProductionBuildProjection(detail),
+    [detail],
+  );
+  const railCollapsed = rail === "closed";
+  const [localActiveMilestoneKey, setLocalActiveMilestoneKey] = useState<
+    string | null
+  >(milestoneKey ?? null);
+  const activeMilestoneKey = milestoneKey ?? localActiveMilestoneKey;
+  const setActiveMilestoneKey = (next: string | null) => {
+    setLocalActiveMilestoneKey(next);
+    onChangeMilestone?.(next ?? undefined);
+  };
+  const sheetData = useMemo(
+    () =>
+      activeMilestoneKey
+        ? buildMilestoneSheetData(detail, projection, activeMilestoneKey)
+        : null,
+    [activeMilestoneKey, detail, projection],
+  );
+
+  return (
+    <main
+      className={cn(
+        "grid min-h-[calc(100vh-4rem)] bg-muted/30",
+        railCollapsed
+          ? "grid-cols-[minmax(0,1fr)_56px]"
+          : "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px]",
+      )}
+      data-testid="production-build-detail-route"
+    >
+      <section className="flex min-w-0 flex-col gap-5 p-4 md:p-6">
+        <ProductionBuildHeader detail={detail} />
+        <BuildDetailTabBar activeTab={activeTab} onChangeTab={onChangeTab} />
+        {activeTab === "details" ? (
+          <ProductionDetailsTab
+            actions={actions}
+            detail={detail}
+            onCardClick={(card) => setActiveMilestoneKey(card.milestoneKey)}
+            projection={projection}
+          />
+        ) : null}
+        {activeTab === "timeline" ? (
+          <ProductionTimelineTab detail={detail} projection={projection} />
+        ) : null}
+        {activeTab === "calendar" ? (
+          <ProductionCalendarTab detail={detail} projection={projection} />
+        ) : null}
+        {activeTab === "gantt" ? (
+          <ProductionGanttTab detail={detail} projection={projection} />
+        ) : null}
+      </section>
+      <EventRail
+        auditEvents={detail.auditEvents ?? []}
+        collapsed={railCollapsed}
+        onResolve={(_event) => {}}
+        onToggleCollapsed={() =>
+          onChangeRail(railCollapsed ? "open" : "closed")
+        }
+        onView={(_event) => {}}
+        quickActionEvents={detail.quickActionEvents ?? []}
+      />
+      <MilestoneDetailSheet
+        data={sheetData}
+        onApprove={async (milestoneKey, note) =>
+          actions?.approveMilestone?.({ milestoneKey, note })
+        }
+        onAssignVisit={(milestoneKey) =>
+          void actions?.assignSiteVisit?.({ milestoneKey })
+        }
+        onClose={() => setActiveMilestoneKey(null)}
+        onReject={(milestoneKey) =>
+          void actions?.rejectMilestone?.({ milestoneKey })
+        }
+        onRequestInfo={(milestoneKey, note) =>
+          void actions?.requestMilestoneInfo?.({ milestoneKey, note })
+        }
+      />
+    </main>
+  );
+}
+
+function ProductionBuildHeader({ detail }: { detail: ProductionBuildDetail }) {
+  return (
+    <Frame>
+      <FramePanel className="flex flex-col gap-4 p-4 md:flex-row md:items-end md:justify-between">
+        <div className="min-w-0">
+          <nav
+            aria-label="Breadcrumbs"
+            className="mb-3 flex items-center gap-2 text-muted-foreground text-xs"
+          >
+            <a className="hover:text-foreground" href="/backoffice">
+              Backoffice
+            </a>
+            <span>/</span>
+            <a className="hover:text-foreground" href="/backoffice/builds">
+              Builds
+            </a>
+          </nav>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={statusBadgeVariant(detail.build.status)}>
+              {statusLabel(detail.build.status)}
+            </Badge>
+            <span className="text-muted-foreground text-xs">
+              Production active Build
+            </span>
+          </div>
+          <h1 className="mt-2 truncate font-semibold text-2xl tracking-tight">
+            {detail.build.buildName}
+          </h1>
+          <p className="mt-1 flex items-center gap-1.5 text-muted-foreground text-sm">
+            <MapPin className="size-4" />
+            <span className="min-w-0 truncate">{detail.build.location}</span>
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-sm md:min-w-72">
+          <HeaderStat label="Start" value={formatDate(detail.build.startDate)} />
+          <HeaderStat
+            label="Budget"
+            value={formatCents(detail.build.totalBudgetCents)}
+          />
+        </div>
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function HeaderStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border bg-background/60 px-3 py-2">
+      <p className="text-muted-foreground text-xs">{label}</p>
+      <p className="font-medium tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function ProductionDetailsTab({
+  actions,
+  detail,
+  onCardClick,
+  projection,
+}: {
+  actions?: ProductionBuildDetailActions;
+  detail: ProductionBuildDetail;
+  onCardClick: (card: KanbanCardData) => void;
+  projection: ProductionBuildProjection;
+}) {
+  const [showCompletedKanban, setShowCompletedKanban] = useState(false);
+  const kanbanCards = useMemo(
+    () => buildProductionKanbanCards(detail, projection),
+    [detail, projection],
+  );
+
+  return (
+    <div className="flex flex-col gap-4" data-testid="production-build-details">
+      <section className="grid items-stretch gap-4 xl:grid-cols-[minmax(280px,0.85fr)_minmax(0,1.6fr)]">
+        <ProductionBuildDetailsCard detail={detail} projection={projection} />
+        <SitePhotoCarousel photos={detail.sitePhotos ?? []} />
+      </section>
+
+      <ProductionDrawsTable
+        actions={actions}
+        detail={detail}
+        projection={projection}
+      />
+
+      <MilestoneKanban
+        cards={kanbanCards}
+        onCardClick={onCardClick}
+        onToggleShowCompleted={() => setShowCompletedKanban((prev) => !prev)}
+        showCompleted={showCompletedKanban}
+      />
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <ContractorsCard
+          actions={{
+            onAttachExisting: actions?.attachContractor,
+            onCreateAndAttach: actions?.createAndAttachContractor,
+            sourceLabel: "production_contractors",
+          }}
+          availableContractors={detail.availableContractors ?? []}
+          buildId={detail.build._id}
+          contractors={detail.contractors ?? []}
+        />
+        <ProductionDocumentsCard
+          actions={actions}
+          documents={detail.documents ?? []}
+        />
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <ProductionNotesCard
+          actions={actions}
+          notes={detail.notes?.internal ?? []}
+          testIdPrefix="internal-notes"
+          title="Internal Notes"
+          variant="internal"
+        />
+        <ProductionNotesCard
+          actions={actions}
+          notes={detail.notes?.public ?? []}
+          testIdPrefix="public-notes"
+          title="Public Notes"
+          variant="public"
+        />
+      </section>
+    </div>
+  );
+}
+
+function ProductionBuildDetailsCard({
+  detail,
+  projection,
+}: {
+  detail: ProductionBuildDetail;
+  projection: ProductionBuildProjection;
+}) {
+  const completed = projection.milestones.filter(
+    (milestone) => milestone.status === "complete",
+  ).length;
+  const percentComplete =
+    projection.milestones.length > 0
+      ? Math.round((completed / projection.milestones.length) * 100)
+      : 0;
+  const drawnCents = projection.draws
+    .filter((draw) => draw.status === "released")
+    .reduce((sum, draw) => sum + draw.amountCents, 0);
+  const drawAvailableCents = projection.milestones.reduce(
+    (sum, milestone) => sum + milestone.drawAvailabilityCents,
+    0,
+  );
+  const siteVisitsOpen = detail.siteVisits?.filter(
+    (visit) => visit.status === "requested",
+  ).length ?? 0;
+  const openWarnings =
+    projection.draws.filter((draw) => draw.status === "rejected").length +
+    (detail.sitePhotos?.filter((photo) => photo.locationVerified === false)
+      .length ?? 0);
+
+  return (
+    <Card data-testid="production-build-details-card" id="ui-build-details">
+      <CardHeader className="flex flex-row items-center justify-between p-5 pb-3">
+        <CardTitle className="text-sm">Build Details</CardTitle>
+        <span className="text-[11px] text-muted-foreground">
+          active_builds
+        </span>
+      </CardHeader>
+      <CardContent className="p-5 pt-0">
+        <dl className="grid grid-cols-[120px_minmax(0,1fr)] gap-y-1.5 text-sm">
+          <Label>Loan number</Label>
+          <dd className="tabular-nums">
+            FL-{detail.displayId ?? detail.build._id}
+          </dd>
+          <Label>Address</Label>
+          <dd className="min-w-0 break-words">{detail.build.location}</dd>
+          <Label>Project start</Label>
+          <dd>{formatDate(detail.build.startDate)}</dd>
+          <Label>Roadmap end</Label>
+          <dd>{formatDate(addDaysSafe(detail.build.startDate, projection.maxDay))}</dd>
+          <Label>% complete</Label>
+          <dd className="flex items-center gap-2">
+            <span className="tabular-nums">{percentComplete}%</span>
+            <span
+              aria-hidden
+              className="h-1.5 w-24 overflow-hidden rounded-full bg-muted"
+            >
+              <span
+                className="block h-full bg-primary"
+                style={{ width: `${Math.min(100, percentComplete)}%` }}
+              />
+            </span>
+          </dd>
+          <Label>Open warnings</Label>
+          <dd className={openWarnings > 0 ? "text-amber-400" : undefined}>
+            {openWarnings}
+          </dd>
+          <Label>Site visits open</Label>
+          <dd>{siteVisitsOpen}</dd>
+        </dl>
+        <hr className="my-4 border-border" />
+        <h3 className="mb-2 font-semibold text-sm">Loan Details</h3>
+        <dl className="grid grid-cols-[120px_1fr] gap-y-1.5 text-sm">
+          <Label>Working capital limit</Label>
+          <span>
+            {formatCents(
+              detail.capitalPlan?.borrowerWorkingCapitalLimitCents ?? 0,
+            )}
+          </span>
+          <Label>Lender policy limit</Label>
+          <span>
+            {formatCents(detail.capitalPlan?.lenderDrawPolicyLimitCents ?? 0)}
+          </span>
+          <Label>Approved principal</Label>
+          <span>{formatCents(detail.loanFacility?.principalCents ?? 0)}</span>
+          <Label>Draw availability</Label>
+          <span>
+            {formatCents(drawAvailableCents)} of{" "}
+            {formatCents(detail.build.totalBudgetCents)}
+          </span>
+          <Label>Drawn to date</Label>
+          <span>{formatCents(drawnCents)}</span>
+          <Label>Interest (annual)</Label>
+          <span className="tabular-nums">
+            {((detail.loanFacility?.interestAnnualBps ?? 0) / 100).toFixed(2)}%
+          </span>
+          <Label>Interest starts</Label>
+          <span>Funds released</span>
+        </dl>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Label({ children }: { children: React.ReactNode }) {
+  return (
+    <dt className="text-[11px] text-muted-foreground uppercase">{children}</dt>
+  );
+}
+
+function ProductionDrawsTable({
+  actions,
+  detail,
+  projection,
+}: {
+  actions?: ProductionBuildDetailActions;
+  detail: ProductionBuildDetail;
+  projection: ProductionBuildProjection;
+}) {
+  const [pendingDraw, setPendingDraw] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  const run = async (
+    draw: ProductionDraw,
+    fn?: (draw: ProductionDraw) => Promise<void> | void,
+  ) => {
+    if (!fn || pendingDraw) return;
+    setPendingDraw(draw.drawKey);
+    setError("");
+    try {
+      await fn(draw);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPendingDraw(null);
+    }
+  };
+
+  return (
+    <Card data-testid="build-detail-draws" id="draws-table">
+      <CardHeader className="flex flex-row items-center justify-between p-4">
+        <CardTitle className="text-sm">Draws</CardTitle>
+        <span className="text-[11px] text-muted-foreground">
+          planned_draw_schedule_rows
+        </span>
+      </CardHeader>
+      <CardContent className="p-4 pt-0">
+        <div className="overflow-x-auto rounded-md border border-border">
+          <table className="w-full text-sm">
+            <thead className="bg-card/70 text-[10px] text-muted-foreground uppercase">
+              <tr>
+                <Th>Draw</Th>
+                <Th>Approved</Th>
+                <Th>Requested</Th>
+                <Th>Planned</Th>
+                <Th>Actual</Th>
+                <Th>Status</Th>
+                <Th>Actions</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {projection.draws.map((draw) => {
+                const pending = pendingDraw === draw.drawKey;
+                return (
+                  <tr
+                    className="border-border border-t"
+                    data-draw-key={draw.drawKey}
+                    data-testid={`build-detail-draw-row-${draw.drawKey}`}
+                    key={draw.drawKey}
+                  >
+                    <Td>{draw.label}</Td>
+                    <Td className="tabular-nums">
+                      {formatCents(draw.amountCents)}
+                    </Td>
+                    <Td className="tabular-nums">
+                      {draw.status === "requested" ||
+                      draw.status === "approved" ||
+                      draw.status === "released"
+                        ? formatCents(draw.amountCents)
+                        : "-"}
+                    </Td>
+                    <Td>
+                      {formatDate(addDaysSafe(detail.build.startDate, draw.timingDay))}
+                    </Td>
+                    <Td>
+                      {draw.releaseDate ? formatDate(draw.releaseDate) : "-"}
+                    </Td>
+                    <Td>
+                      <StatusChip status={draw.status} />
+                    </Td>
+                    <Td>
+                      <div className="flex flex-wrap gap-1">
+                        {draw.status === "planned" ||
+                        draw.status === "rejected" ? (
+                          <DrawActionButton
+                            disabled={!actions?.requestDraw || pending}
+                            label={pending ? "Requesting..." : "Request"}
+                            onClick={() => run(draw, actions?.requestDraw)}
+                            testId={`build-detail-draw-request-${draw.drawKey}`}
+                          />
+                        ) : null}
+                        {draw.status === "requested" ? (
+                          <>
+                            <DrawActionButton
+                              disabled={!actions?.approveDraw || pending}
+                              label={pending ? "Approving..." : "Approve"}
+                              onClick={() => run(draw, actions?.approveDraw)}
+                              testId={`build-detail-draw-approve-${draw.drawKey}`}
+                            />
+                            <DrawActionButton
+                              disabled={!actions?.rejectDraw || pending}
+                              label="Reject"
+                              onClick={() => run(draw, actions?.rejectDraw)}
+                              testId={`build-detail-draw-reject-${draw.drawKey}`}
+                            />
+                          </>
+                        ) : null}
+                        {draw.status === "approved" ? (
+                          <DrawActionButton
+                            disabled={!actions?.releaseDraw || pending}
+                            label={pending ? "Releasing..." : "Release"}
+                            onClick={() => run(draw, actions?.releaseDraw)}
+                            testId={`build-detail-draw-release-${draw.drawKey}`}
+                          />
+                        ) : null}
+                        {draw.status === "released" ? (
+                          <span className="text-muted-foreground text-xs">
+                            Released
+                          </span>
+                        ) : null}
+                      </div>
+                    </Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {error ? (
+          <p className="mt-2 text-[11px] text-destructive" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function DrawActionButton({
+  disabled,
+  label,
+  onClick,
+  testId,
+}: {
+  disabled?: boolean;
+  label: string;
+  onClick: () => void;
+  testId: string;
+}) {
+  return (
+    <button
+      className="rounded-md border border-primary/40 bg-primary/20 px-2 py-1 text-xs disabled:opacity-50"
+      data-testid={testId}
+      disabled={disabled}
+      onClick={onClick}
+      type="button"
+    >
+      {label}
+    </button>
+  );
+}
+
+function Th({ children }: { children: React.ReactNode }) {
+  return <th className="px-3 py-2 text-left font-medium">{children}</th>;
+}
+
+function Td({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return <td className={cn("px-3 py-2 align-top", className)}>{children}</td>;
+}
+
+function StatusChip({ status }: { status: ProductionDrawStatus }) {
+  return <Badge variant={drawBadgeVariant(status)}>{drawStatusLabel(status)}</Badge>;
+}
+
+function ProductionDocumentsCard({
+  actions,
+  documents,
+}: {
+  actions?: ProductionBuildDetailActions;
+  documents: ProductionDocument[];
+}) {
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState<
+    "permit" | "budget" | "plan" | "supporting"
+  >("supporting");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+
+  const onAdd = async () => {
+    if (!name.trim() || !actions?.addDocument || pending) return;
+    setPending(true);
+    setError("");
+    try {
+      await actions.addDocument({ documentType: kind, fileName: name.trim() });
+      setName("");
+      setKind("supporting");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <Card data-testid="build-detail-documents" id="documents">
+      <CardHeader className="flex flex-row items-center justify-between p-4">
+        <CardTitle className="text-sm">Documents</CardTitle>
+        <span className="text-[11px] text-muted-foreground tabular-nums">
+          {documents.length}
+        </span>
+      </CardHeader>
+      <CardContent className="p-4 pt-0">
+        <div
+          className="mb-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_120px_auto]"
+          data-testid="documents-add-form"
+        >
+          <input
+            aria-label="Document name"
+            className="rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
+            data-testid="documents-name"
+            onChange={(event) => setName(event.target.value)}
+            placeholder="e.g. Inspection_2026-08.pdf"
+            value={name}
+          />
+          <select
+            aria-label="Document kind"
+            className="rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
+            data-testid="documents-kind"
+            onChange={(event) => setKind(event.target.value as typeof kind)}
+            value={kind}
+          >
+            {["permit", "budget", "plan", "supporting"].map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+          <button
+            className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground text-sm disabled:opacity-50"
+            data-testid="documents-add"
+            disabled={!name.trim() || !actions?.addDocument || pending}
+            onClick={onAdd}
+            type="button"
+          >
+            {pending ? "Adding..." : "Add"}
+          </button>
+        </div>
+        {error ? (
+          <p className="mb-2 text-[11px] text-destructive">{error}</p>
+        ) : null}
+        {documents.length === 0 ? (
+          <p className="text-muted-foreground text-xs">No documents yet.</p>
+        ) : (
+          <ul className="space-y-1">
+            {documents.map((document) => (
+              <li
+                className="flex items-center justify-between rounded-md border border-border bg-background/40 p-2 text-sm"
+                data-testid={`build-detail-document-${document._id}`}
+                key={document._id}
+              >
+                <span className="truncate">
+                  {document.name ?? document.fileName}
+                </span>
+                <span className="ml-2 shrink-0 text-[11px] text-muted-foreground">
+                  {document.kind ?? document.documentType}
+                  {document.sizeBytes
+                    ? ` - ${Math.round(document.sizeBytes / 1024)}KB`
+                    : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ProductionNotesCard({
+  actions,
+  notes,
+  testIdPrefix,
+  title,
+  variant,
+}: {
+  actions?: ProductionBuildDetailActions;
+  notes: ProductionNote[];
+  testIdPrefix: string;
+  title: string;
+  variant: "internal" | "public";
+}) {
+  const [draft, setDraft] = useState("");
+  const [pending, setPending] = useState(false);
+  const accent =
+    variant === "internal" ? "border-amber-500/40" : "border-emerald-500/40";
+
+  const onSave = async () => {
+    if (!draft.trim() || !actions?.addNote || pending) return;
+    setPending(true);
+    try {
+      await actions.addNote({ body: draft.trim(), visibility: variant });
+      setDraft("");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <Card className={`border-2 ${accent}`} data-testid={testIdPrefix}>
+      <CardHeader className="flex flex-row items-center justify-between p-4">
+        <CardTitle className="text-sm">{title}</CardTitle>
+        <span className="text-[11px] text-muted-foreground">
+          {variant === "internal" ? "Lender-only" : "Borrower-visible"}
+        </span>
+      </CardHeader>
+      <CardContent className="p-4 pt-0">
+        <div className="min-h-[120px] rounded-md border border-border bg-background/40 p-3">
+          {notes.length === 0 ? (
+            <p className="text-muted-foreground text-xs">No notes yet.</p>
+          ) : (
+            <ul className="space-y-2 text-xs">
+              {notes.map((note) => (
+                <li data-testid={`${testIdPrefix}-item-${note._id}`} key={note._id}>
+                  <p className="text-[11px] text-muted-foreground">
+                    {formatDate(note.createdAt)} - {note.authorPersona}
+                  </p>
+                  <p>{note.body}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="mt-3 flex gap-2">
+          <textarea
+            className="min-h-[56px] flex-1 rounded-md border border-border bg-background/40 p-2 text-xs"
+            data-testid={`${testIdPrefix}-input`}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder="Add a note..."
+            value={draft}
+          />
+          <button
+            className="self-start rounded-md border border-border bg-card px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50"
+            data-testid={`${testIdPrefix}-save`}
+            disabled={!draft.trim() || !actions?.addNote || pending}
+            onClick={onSave}
+            type="button"
+          >
+            {pending ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DescriptionRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-border border-b pb-2 last:border-b-0 last:pb-0">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-right font-medium tabular-nums">{value}</span>
+    </div>
+  );
+}
+
+function ProductionTimelineTab({
+  detail,
+  projection,
+}: {
+  detail: ProductionBuildDetail;
+  projection: ProductionBuildProjection;
+}) {
+  return (
+    <Frame data-testid="production-build-timeline">
+      <FramePanel className="overflow-hidden p-4">
+        <div className="mb-4 flex flex-col gap-1">
+          <h2 className="font-semibold text-base">Timeline</h2>
+          <p className="text-muted-foreground text-sm">
+            Production roadmap copied from the approved proposal at loan
+            closing.
+          </p>
+        </div>
+        <AnimatedCurvedTimeline<ProductionTimelineData>
+          cardWidth={264}
+          className="min-w-0"
+          formatValue={(value) => `Day ${Math.round(value)}`}
+          getItemEndValue={(item) => item.data?.dayEnd}
+          items={projection.timelineItems}
+          markerStackProximityPx={80}
+          markers={projection.timelineMarkers}
+          minNodeSpacingPx={190}
+          paddingX={80}
+          pixelsPerUnit={6.4}
+          range={{ max: projection.maxDay, min: 0, unit: "days" }}
+          renderCard={(item) => (
+            <Card className="w-[264px]">
+              <CardHeader className="p-3">
+                <CardTitle className="truncate text-sm">{item.label}</CardTitle>
+                <p className="text-muted-foreground text-xs">
+                  Day {item.x} - {item.data?.dayEnd ?? item.x}
+                </p>
+              </CardHeader>
+              <CardContent className="grid gap-2 p-3 pt-0 text-xs">
+                <DescriptionRow
+                  label="Budget"
+                  value={formatCents(item.data?.budgetCents ?? 0)}
+                />
+                <DescriptionRow
+                  label="Draw"
+                  value={formatCents(item.data?.drawAmountCents ?? 0)}
+                />
+                <DescriptionRow
+                  label="Status"
+                  value={milestoneStatusLabel(
+                    item.data?.status ?? "planned",
+                  )}
+                />
+              </CardContent>
+            </Card>
+          )}
+          straightLine
+        />
+      </FramePanel>
+      <FramePanel className="p-4">
+        <DrawMilestoneLegend detail={detail} projection={projection} />
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function DrawMilestoneLegend({
+  detail,
+  projection,
+}: {
+  detail: ProductionBuildDetail;
+  projection: ProductionBuildProjection;
+}) {
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      {projection.draws.map((draw) => (
+        <div
+          className="flex items-center justify-between gap-3 rounded-md border bg-background/60 px-3 py-2 text-sm"
+          key={draw._id}
+        >
+          <div className="min-w-0">
+            <p className="truncate font-medium">{draw.label}</p>
+            <p className="text-muted-foreground text-xs">
+              {formatDate(addDaysSafe(detail.build.startDate, draw.timingDay))}
+            </p>
+          </div>
+          <span className="shrink-0 font-medium tabular-nums">
+            {formatCents(draw.amountCents)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ProductionCalendarTab({
+  detail,
+  projection,
+}: {
+  detail: ProductionBuildDetail;
+  projection: ProductionBuildProjection;
+}) {
+  return (
+    <div
+      className="grid gap-4 xl:grid-cols-[auto_1fr]"
+      data-testid="production-build-calendar"
+    >
+      <Frame>
+        <FramePanel className="p-4">
+          <Calendar
+            mode="multiple"
+            selected={projection.calendarDates}
+            showOutsideDays
+          />
+        </FramePanel>
+      </Frame>
+      <Card>
+        <CardHeader className="p-4">
+          <CardTitle className="text-base">Calendar milestones</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 p-4 pt-0">
+          {projection.milestones.map((milestone) => (
+            <div
+              className="grid gap-3 rounded-md border bg-background/60 p-3 text-sm md:grid-cols-[1fr_auto]"
+              key={milestone._id}
+            >
+              <div className="min-w-0">
+                <p className="truncate font-medium">{milestone.name}</p>
+                <p className="text-muted-foreground text-xs">
+                  {formatDate(addDaysSafe(detail.build.startDate, milestone.dayStart))}{" "}
+                  to{" "}
+                  {formatDate(addDaysSafe(detail.build.startDate, milestone.dayEnd))}
+                </p>
+              </div>
+              <Badge variant={milestoneBadgeVariant(milestone.status)}>
+                {milestoneStatusLabel(milestone.status)}
+              </Badge>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function ProductionGanttTab({
+  detail,
+  projection,
+}: {
+  detail: ProductionBuildDetail;
+  projection: ProductionBuildProjection;
+}) {
+  const disabledIds = useMemo(
+    () => new Set(projection.features.map((feature) => feature.id)),
+    [projection.features],
+  );
+  const columns = Math.max(18, Math.ceil(projection.maxDay / 14) + 6);
+  return (
+    <Frame data-testid="production-build-gantt">
+      <FramePanel className="h-[560px] overflow-hidden p-0">
+        <GanttProvider
+          className="rounded-xl"
+          initialScrollDate={dateFromIso(detail.build.startDate)}
+          range="monthly"
+          rowGap={10}
+          rowHeight={42}
+          zoom={95}
+        >
+          <GanttSidebar className="w-72">
+            <div className="divide-y divide-border/50">
+              {projection.features.map((feature) => (
+                <GanttSidebarItem feature={feature} key={feature.id}>
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
+                    <span
+                      className="size-2 rounded-full"
+                      style={{ backgroundColor: feature.status.color }}
+                    />
+                    <span className="truncate font-medium">
+                      {feature.name}
+                    </span>
+                  </div>
+                  <span className="text-muted-foreground">
+                    {drawForFeature(projection.draws, feature.id)}
+                  </span>
+                </GanttSidebarItem>
+              ))}
+            </div>
+          </GanttSidebar>
+          <GanttTimeline>
+            <GanttHeader />
+            <GanttColumns
+              columns={columns}
+              isColumnSecondary={(index) => index % 2 === 1}
+            />
+            {projection.draws.map((draw) => (
+              <GanttMarker
+                date={dateFromIso(
+                  addDaysSafe(detail.build.startDate, draw.timingDay),
+                )}
+                id={draw._id}
+                key={draw._id}
+                label={draw.label}
+                testId={`production-gantt-draw-${draw.drawKey}`}
+              />
+            ))}
+            <GanttFeatureList>
+              {projection.features.map((feature) => (
+                <GanttFeatureRow
+                  disabledIds={disabledIds}
+                  features={[feature]}
+                  key={feature.id}
+                >
+                  {(rowFeature) => (
+                    <span className="truncate px-2 text-xs">
+                      {rowFeature.name}
+                    </span>
+                  )}
+                </GanttFeatureRow>
+              ))}
+            </GanttFeatureList>
+          </GanttTimeline>
+        </GanttProvider>
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function ProductionActivityRail({
+  collapsed,
+  detail,
+  onToggle,
+  projection,
+}: {
+  collapsed: boolean;
+  detail: ProductionBuildDetail;
+  onToggle: () => void;
+  projection: ProductionBuildProjection;
+}) {
+  if (collapsed) {
+    return (
+      <Frame className="h-full rounded-none border-border border-l p-1">
+        <FramePanel className="flex h-full items-start justify-center p-2">
+          <button
+            aria-label="Open activity rail"
+            className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+            onClick={onToggle}
+            type="button"
+          >
+            <PanelRightOpen className="size-4" />
+          </button>
+        </FramePanel>
+      </Frame>
+    );
+  }
+
+  return (
+    <Frame
+      className="h-full rounded-none border-border border-l p-1"
+      data-testid="production-build-activity-rail"
+    >
+      <FramePanel className="flex h-full flex-col gap-4 p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-sm">Build activity</h2>
+            <p className="text-muted-foreground text-xs">
+              Production state summary
+            </p>
+          </div>
+          <button
+            aria-label="Close activity rail"
+            className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+            onClick={onToggle}
+            type="button"
+          >
+            <PanelRightClose className="size-4" />
+          </button>
+        </div>
+        <div className="grid gap-3 text-sm">
+          <RailFact
+            icon={<CalendarDays />}
+            label="Build start"
+            value={formatDate(detail.build.startDate)}
+          />
+          <RailFact
+            icon={<Clock3 />}
+            label="Roadmap duration"
+            value={`${projection.maxDay} days`}
+          />
+          <RailFact
+            icon={<GitBranch />}
+            label="Dependencies"
+            value={`${projection.milestones.reduce(
+              (count, milestone) => count + milestone.dependencyKeys.length,
+              0,
+            )}`}
+          />
+        </div>
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function RailFact({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-md border bg-background/60 p-3">
+      <span className="grid size-8 place-items-center rounded-md bg-muted text-muted-foreground [&_svg]:size-4">
+        {icon}
+      </span>
+      <div>
+        <p className="text-muted-foreground text-xs">{label}</p>
+        <p className="font-medium">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function TableHead({ children }: { children: React.ReactNode }) {
+  return <th className="px-4 py-2 text-left font-medium">{children}</th>;
+}
+
+function TableCell({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return <td className={cn("px-4 py-3 align-top", className)}>{children}</td>;
+}
+
+function buildProductionKanbanCards(
+  detail: ProductionBuildDetail,
+  projection: ProductionBuildProjection,
+): KanbanCardData[] {
+  const drawByMilestone = new Map(
+    projection.draws
+      .filter((draw) => draw.milestoneKey)
+      .map((draw) => [draw.milestoneKey as string, draw]),
+  );
+  return projection.milestones.map((milestone) => {
+    const draw = drawByMilestone.get(milestone.key);
+    const submilestones =
+      projection.submilestonesByMilestone.get(milestone.key) ?? [];
+    const progressPercent =
+      submilestones.length > 0
+        ? Math.round(
+            (submilestones.filter((sub) => sub.status === "complete").length /
+              submilestones.length) *
+              100,
+          )
+        : milestone.status === "complete"
+          ? 100
+          : milestone.status === "in_progress"
+            ? 50
+            : 0;
+    return {
+      approvedValueCents: milestone.drawAvailabilityCents,
+      code: milestone.key.toUpperCase(),
+      column: kanbanColumnForProductionMilestone(milestone, draw),
+      contractors:
+        detail.contractors?.map((contractor) => ({
+          initials: initialsFor(contractor.name),
+          name: contractor.name,
+        })) ?? [],
+      drawGroupKey: draw?.drawKey ?? milestone.key,
+      evidenceReviewStatus: milestone.evidenceState,
+      forecastEndDate: addDaysSafe(detail.build.startDate, milestone.dayEnd),
+      forecastStartDate: addDaysSafe(detail.build.startDate, milestone.dayStart),
+      milestoneId: milestone._id,
+      milestoneKey: milestone.key,
+      name: milestone.name,
+      progressPercent,
+      requestedAmountCents:
+        draw?.status === "requested" ||
+        draw?.status === "approved" ||
+        draw?.status === "released"
+          ? draw.amountCents
+          : undefined,
+      requiresSiteVisit:
+        milestone.completionReview?.siteVisit?.status === "requested",
+      status: kanbanStatusForProductionMilestone(milestone, draw),
+      submittedAt: draw?.requestedAt
+        ? Date.parse(draw.requestedAt)
+        : milestone.updatedAt,
+      submilestones: submilestones.map((submilestone) => ({
+        budgetCents: submilestone.budgetCents,
+        durationDays: submilestone.durationDays,
+        key: submilestone.key,
+        name: submilestone.name,
+        order: submilestone.order,
+        status:
+          submilestone.status === "complete"
+            ? "done"
+            : submilestone.status === "in_progress"
+              ? "in_progress"
+              : "todo",
+      })),
+      type: "construction",
+    };
+  });
+}
+
+function kanbanColumnForProductionMilestone(
+  milestone: ProductionMilestone,
+  draw?: ProductionDraw,
+): KanbanColumn {
+  if (milestone.completionReview?.siteVisit?.status === "requested") {
+    return "SiteVisit";
+  }
+  if (draw?.status === "requested" || milestone.evidenceState === "Info requested") {
+    return "NeedsApproval";
+  }
+  if (milestone.status === "complete") {
+    return "MarkedComplete";
+  }
+  if (milestone.status === "in_progress") {
+    return "InProgress";
+  }
+  return "Backlog";
+}
+
+function kanbanStatusForProductionMilestone(
+  milestone: ProductionMilestone,
+  draw?: ProductionDraw,
+) {
+  if (milestone.status === "complete") return "completion_approved";
+  if (draw?.status === "requested") return "review";
+  if (milestone.status === "in_progress") return "in_progress_on_schedule";
+  return "planned";
+}
+
+function buildMilestoneSheetData(
+  detail: ProductionBuildDetail,
+  projection: ProductionBuildProjection,
+  milestoneKey: string,
+): MilestoneSheetData | null {
+  const milestone = projection.milestones.find((row) => row.key === milestoneKey);
+  if (!milestone) return null;
+  const draw = projection.draws.find((row) => row.milestoneKey === milestoneKey);
+  const events = (detail.auditEvents ?? [])
+    .filter((event) => event.eventType.includes("milestone"))
+    .slice(0, 6)
+    .map((event) => ({
+      _id: event._id,
+      actor: event.actorPersona,
+      createdAt: event.createdAt,
+      title: event.eventType.replace(/[._]/g, " "),
+    }));
+  return {
+    column: kanbanColumnForProductionMilestone(milestone, draw),
+    contractors:
+      detail.contractors?.map((contractor) => ({
+        initials: initialsFor(contractor.name),
+        name: contractor.name,
+        role: contractor.role,
+      })) ?? [],
+    drawGroupKey: draw?.drawKey ?? milestone.key,
+    milestoneKey: milestone.key,
+    name: milestone.name,
+    recentEvents: events,
+    requestedAmountCents: draw?.amountCents,
+    submittedAt: draw?.requestedAt ? Date.parse(draw.requestedAt) : undefined,
+  };
+}
+
+function buildProductionBuildProjection(
+  detail: ProductionBuildDetail,
+): ProductionBuildProjection {
+  const milestones = [...detail.milestones].sort((a, b) => a.order - b.order);
+  const draws = [...detail.draws].sort((a, b) => a.order - b.order);
+  const submilestones = [...detail.submilestones].sort(
+    (a, b) => a.order - b.order,
+  );
+  const submilestonesByMilestone = new Map<string, ProductionSubmilestone[]>();
+  for (const submilestone of submilestones) {
+    const list = submilestonesByMilestone.get(submilestone.milestoneKey) ?? [];
+    list.push(submilestone);
+    submilestonesByMilestone.set(submilestone.milestoneKey, list);
+  }
+  const drawByMilestone = new Map(
+    draws
+      .filter((draw) => draw.milestoneKey)
+      .map((draw) => [draw.milestoneKey as string, draw]),
+  );
+  const maxDay = Math.max(
+    60,
+    ...milestones.map((milestone) => milestone.dayEnd + 14),
+    ...draws.map((draw) => draw.timingDay + 14),
+  );
+  const calendarIsoDates = new Set<string>();
+  for (const milestone of milestones) {
+    calendarIsoDates.add(addDaysSafe(detail.build.startDate, milestone.dayStart));
+    calendarIsoDates.add(addDaysSafe(detail.build.startDate, milestone.dayEnd));
+  }
+  for (const draw of draws) {
+    calendarIsoDates.add(addDaysSafe(detail.build.startDate, draw.timingDay));
+  }
+
+  return {
+    calendarDates: [...calendarIsoDates].map(dateFromIso),
+    draws,
+    features: milestones.map((milestone) => ({
+      endAt: dateFromIso(addDaysSafe(detail.build.startDate, milestone.dayEnd)),
+      id: milestone.key,
+      name: milestone.name,
+      startAt: dateFromIso(
+        addDaysSafe(detail.build.startDate, milestone.dayStart),
+      ),
+      status: ganttStatusForMilestone(milestone.status),
+    })),
+    maxDay,
+    milestones,
+    submilestonesByMilestone,
+    timelineItems: milestones.map((milestone, index) => {
+      const draw = drawByMilestone.get(milestone.key);
+      return {
+        data: {
+          budgetCents: milestone.budgetCents,
+          dayEnd: milestone.dayEnd,
+          dependencyKeys: milestone.dependencyKeys,
+          drawAmountCents: draw?.amountCents ?? milestone.drawAvailabilityCents,
+          drawLabel: draw?.label ?? "Planned reimbursement draw",
+          status: milestone.status,
+          submilestones:
+            submilestonesByMilestone.get(milestone.key) ?? [],
+        },
+        id: milestone.key,
+        label: milestone.name,
+        lane: index % 3 === 1 ? -1 : index % 3 === 2 ? 1 : 0,
+        markerLabel: String(index + 1),
+        tone: timelineToneForMilestone(milestone.status),
+        x: milestone.dayStart,
+      };
+    }),
+    timelineMarkers: draws.map((draw) => ({
+      id: draw._id,
+      label: draw.label,
+      tone: draw.status === "released" ? "today" : "accent",
+      x: draw.timingDay,
+    })),
+  };
+}
+
+function addDaysSafe(isoDate: string, days: number): string {
+  const base = dateFromIso(isoDate);
+  if (Number.isNaN(base.valueOf())) {
+    return isoDate;
+  }
+  const next = new Date(base);
+  next.setDate(base.getDate() + days);
+  return next.toISOString().slice(0, 10);
+}
+
+function dateFromIso(isoDate: string): Date {
+  const [year, month, day] = isoDate.split("-").map(Number);
+  if (!year || !month || !day) {
+    return new Date(isoDate);
+  }
+  return new Date(year, month - 1, day);
+}
+
+function statusLabel(status: ProductionBuildStatus): string {
+  return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function milestoneStatusLabel(status: ProductionMilestoneStatus): string {
+  switch (status) {
+    case "in_progress":
+      return "In progress";
+    case "complete":
+      return "Complete";
+    default:
+      return "Planned";
+  }
+}
+
+function drawStatusLabel(status: ProductionDrawStatus): string {
+  switch (status) {
+    case "requested":
+      return "Requested";
+    case "released":
+      return "Released";
+    default:
+      return "Planned";
+  }
+}
+
+function statusBadgeVariant(
+  status: ProductionBuildStatus,
+): React.ComponentProps<typeof Badge>["variant"] {
+  if (status === "completed") return "success";
+  if (status === "paused") return "warning";
+  return "info";
+}
+
+function milestoneBadgeVariant(
+  status: ProductionMilestoneStatus,
+): React.ComponentProps<typeof Badge>["variant"] {
+  if (status === "complete") return "success";
+  if (status === "in_progress") return "warning";
+  return "outline";
+}
+
+function drawBadgeVariant(
+  status: ProductionDrawStatus,
+): React.ComponentProps<typeof Badge>["variant"] {
+  if (status === "released") return "success";
+  if (status === "requested") return "warning";
+  return "outline";
+}
+
+function timelineToneForMilestone(
+  status: ProductionMilestoneStatus,
+): TimelineItem<ProductionTimelineData>["tone"] {
+  if (status === "complete") return "complete";
+  if (status === "in_progress") return "active";
+  return "upcoming";
+}
+
+function ganttStatusForMilestone(status: ProductionMilestoneStatus) {
+  if (status === "complete") {
+    return { color: "#16a34a", id: "complete", name: "Complete" };
+  }
+  if (status === "in_progress") {
+    return { color: "#d97706", id: "in_progress", name: "In progress" };
+  }
+  return { color: "#2563eb", id: "planned", name: "Planned" };
+}
+
+function drawForFeature(draws: ProductionDraw[], milestoneKey: string): string {
+  const draw = draws.find((row) => row.milestoneKey === milestoneKey);
+  return draw ? formatCents(draw.amountCents, { compact: true }) : "No draw";
+}

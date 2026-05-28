@@ -1,12 +1,15 @@
 import { v } from "convex/values";
 
+import { api, internal } from "./_generated/api";
 import {
   normalizeRoleSlugs,
   type RoleSlug,
+  userManagementWriteAction,
   userManagementWriteMutation,
   userManagementWriteQuery,
 } from "./authz";
-import type { Doc, Id, MutationCtx } from "./types";
+import { internalMutation } from "./fluent";
+import type { ActionCtx, Doc, Id, MutationCtx } from "./types";
 
 const FAIRLEND_BROKERAGE_NAME = "FairLendBrokerage";
 const FAIRLEND_WORKOS_ORGANIZATION_ID = "org_01KSNW6JHW9P9YS41DZX1YHHGS";
@@ -442,6 +445,221 @@ export const unlinkBuilderAccount = userManagementWriteMutation
   })
   .public();
 
+type ProvisionNewBuilderResult = {
+  brokerageId: Id<"brokerages">;
+  builderProfileId: Id<"builderProfiles">;
+  displayName: string;
+  invite: {
+    adapter: string;
+    status: string;
+    sync: string;
+    workosInviteId: string;
+  };
+  linkId: Id<"builderAccountLinks">;
+  operation: "created" | "reactivated";
+  ownerEmail: string;
+  ownerWorkosUserId: string;
+  workosOrganizationId: string;
+};
+
+const provisionNewBuilderReturn = v.object({
+  brokerageId: v.id("brokerages"),
+  builderProfileId: v.id("builderProfiles"),
+  displayName: v.string(),
+  invite: v.object({
+    adapter: v.string(),
+    status: v.string(),
+    sync: v.string(),
+    workosInviteId: v.string(),
+  }),
+  linkId: v.id("builderAccountLinks"),
+  operation: v.union(v.literal("created"), v.literal("reactivated")),
+  ownerEmail: v.string(),
+  ownerWorkosUserId: v.string(),
+  workosOrganizationId: v.string(),
+});
+
+/**
+ * Orchestrates new-builder onboarding from the brokerage backoffice:
+ *   1. create a WorkOS account for the builder owner (invitation),
+ *   2. provision the builder profile + owner account link under the brokerage.
+ *
+ * Account creation is a WorkOS-owned write, so this is an action that calls the
+ * WorkOS adapter first, then commits the local projection + domain rows through
+ * an internal mutation. Idempotent: re-running for the same email reactivates
+ * the existing profile/link instead of duplicating rows.
+ */
+export const provisionNewBuilder = userManagementWriteAction
+  .input({
+    displayName: v.string(),
+    ownerEmail: v.string(),
+    ownerName: v.optional(v.string()),
+    ownerWorkosUserId: v.optional(v.string()),
+    workosOrganizationId: v.optional(v.string()),
+  })
+  .returns(provisionNewBuilderReturn)
+  .handler(async (ctx: ActionCtx, args): Promise<ProvisionNewBuilderResult> => {
+    const workosOrganizationId =
+      args.workosOrganizationId?.trim() || FAIRLEND_WORKOS_ORGANIZATION_ID;
+    const displayName = args.displayName.trim();
+    if (!displayName) {
+      throw new Error("Builder company name is required.");
+    }
+    const ownerEmail = normalizeEmail(args.ownerEmail);
+    if (!ownerEmail) {
+      throw new Error("A valid owner email is required.");
+    }
+    const ownerName = args.ownerName?.trim() || displayName;
+    const ownerWorkosUserId =
+      args.ownerWorkosUserId?.trim() || provisionedBuilderWorkosUserId(ownerEmail);
+
+    // Step 1: create the WorkOS account (invitation) for the builder owner.
+    const invite: {
+      adapter: string;
+      status: string;
+      sync: string;
+      workosId?: string;
+    } = await ctx.runAction(api.workosManagement.inviteUser, {
+      email: ownerEmail,
+      organizationId: workosOrganizationId,
+      roleSlug: "builder",
+    });
+
+    // Step 2: commit the brokerage-scoped builder profile + owner link locally.
+    const committed: {
+      brokerageId: Id<"brokerages">;
+      builderProfileId: Id<"builderProfiles">;
+      displayName: string;
+      linkId: Id<"builderAccountLinks">;
+      operation: "created" | "reactivated";
+    } = await ctx.runMutation(
+      internal.brokerageProvisioning.finalizeNewBuilderProvisioning,
+      {
+        displayName,
+        ownerEmail,
+        ownerName,
+        ownerWorkosUserId,
+        workosOrganizationId,
+      }
+    );
+
+    return {
+      ...committed,
+      invite: {
+        adapter: invite.adapter,
+        status: invite.status,
+        sync: invite.sync,
+        workosInviteId: invite.workosId ?? "",
+      },
+      ownerEmail,
+      ownerWorkosUserId,
+      workosOrganizationId,
+    };
+  })
+  .public();
+
+export const finalizeNewBuilderProvisioning = internalMutation
+  .input({
+    displayName: v.string(),
+    ownerEmail: v.string(),
+    ownerName: v.string(),
+    ownerWorkosUserId: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(
+    v.object({
+      brokerageId: v.id("brokerages"),
+      builderProfileId: v.id("builderProfiles"),
+      displayName: v.string(),
+      linkId: v.id("builderAccountLinks"),
+      operation: v.union(v.literal("created"), v.literal("reactivated")),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const now = Date.now();
+    await getOrCreateWorkosOrganization(ctx, {
+      name:
+        args.workosOrganizationId === FAIRLEND_WORKOS_ORGANIZATION_ID
+          ? FAIRLEND_BROKERAGE_NAME
+          : args.displayName,
+      now,
+      workosOrganizationId: args.workosOrganizationId,
+    });
+    const brokerage = await ensureBrokerage(ctx, args.workosOrganizationId, now);
+
+    await ensureWorkosUserAndMembership(ctx, {
+      email: args.ownerEmail,
+      name: args.ownerName,
+      now,
+      roleSlugs: ["builder"],
+      workosOrganizationId: args.workosOrganizationId,
+      workosUserId: args.ownerWorkosUserId,
+    });
+
+    const existingProfile = await ctx.db
+      .query("builderProfiles")
+      .withIndex("by_brokerage", (q) => q.eq("brokerageId", brokerage._id))
+      .filter((q) => q.eq(q.field("displayName"), args.displayName))
+      .first();
+    let builderProfileId: Id<"builderProfiles">;
+    if (existingProfile) {
+      await ctx.db.patch(existingProfile._id, {
+        status: "active",
+        updatedAt: now,
+      });
+      builderProfileId = existingProfile._id;
+    } else {
+      builderProfileId = await ctx.db.insert("builderProfiles", {
+        brokerageId: brokerage._id,
+        createdAt: now,
+        displayName: args.displayName,
+        organizationId: args.workosOrganizationId,
+        status: "active",
+        updatedAt: now,
+      });
+    }
+
+    const existingLink = await ctx.db
+      .query("builderAccountLinks")
+      .withIndex("by_builder_user", (q) =>
+        q
+          .eq("builderProfileId", builderProfileId)
+          .eq("workosUserId", args.ownerWorkosUserId)
+      )
+      .unique();
+    let linkId: Id<"builderAccountLinks">;
+    let operation: "created" | "reactivated";
+    if (existingLink) {
+      await ctx.db.patch(existingLink._id, {
+        role: "owner",
+        status: "active",
+        updatedAt: now,
+      });
+      linkId = existingLink._id;
+      operation = "reactivated";
+    } else {
+      linkId = await ctx.db.insert("builderAccountLinks", {
+        brokerageId: brokerage._id,
+        builderProfileId,
+        createdAt: now,
+        role: "owner",
+        status: "active",
+        updatedAt: now,
+        workosUserId: args.ownerWorkosUserId,
+      });
+      operation = "created";
+    }
+
+    return {
+      brokerageId: brokerage._id,
+      builderProfileId,
+      displayName: args.displayName,
+      linkId,
+      operation,
+    };
+  })
+  .internal();
+
 async function requireProvisioningScope(
   ctx: MutationCtx & {
     viewer: { roles: RoleSlug[]; subject: string };
@@ -601,4 +819,66 @@ function hasAnyRole(
   expected: readonly RoleSlug[]
 ) {
   return actual.some((role) => expected.includes(role));
+}
+
+function normalizeEmail(value: string): string {
+  const trimmed = value.trim().toLowerCase();
+  // Minimal structural check: exactly one @ with non-empty local and domain parts.
+  const at = trimmed.indexOf("@");
+  if (at <= 0 || at !== trimmed.lastIndexOf("@") || at === trimmed.length - 1) {
+    return "";
+  }
+  if (!trimmed.slice(at + 1).includes(".")) {
+    return "";
+  }
+  return trimmed;
+}
+
+/**
+ * Deterministic provisional WorkOS user id for an invited builder owner, so the
+ * owner account link and projection resolve immediately and idempotently before
+ * the real WorkOS user id arrives by webhook. Stable for a given email.
+ */
+function provisionedBuilderWorkosUserId(email: string): string {
+  const slug = email.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return `provisioned_builder_${slug}`;
+}
+
+async function ensureBrokerage(
+  ctx: MutationCtx,
+  workosOrganizationId: string,
+  now: number
+): Promise<Doc<"brokerages">> {
+  const existing = await ctx.db
+    .query("brokerages")
+    .withIndex("by_workos_organization", (q) =>
+      q.eq("workosOrganizationId", workosOrganizationId)
+    )
+    .unique();
+  if (existing) {
+    if (existing.status !== "active") {
+      await ctx.db.patch(existing._id, { status: "active", updatedAt: now });
+      return { ...existing, status: "active" };
+    }
+    return existing;
+  }
+  if (workosOrganizationId !== FAIRLEND_WORKOS_ORGANIZATION_ID) {
+    throw new Error(
+      "Provision a brokerage profile for this organization before adding a builder."
+    );
+  }
+  const brokerageId = await ctx.db.insert("brokerages", {
+    createdAt: now,
+    displayName: FAIRLEND_BROKERAGE_NAME,
+    legalName: FAIRLEND_BROKERAGE_NAME,
+    principalBrokerWorkosUserId: FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID,
+    status: "active",
+    updatedAt: now,
+    workosOrganizationId,
+  });
+  const brokerage = await ctx.db.get(brokerageId);
+  if (!brokerage) {
+    throw new Error("Unable to provision FairLend brokerage.");
+  }
+  return brokerage;
 }
