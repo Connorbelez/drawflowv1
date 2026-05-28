@@ -117,6 +117,7 @@ export interface TimelineInsertionConfig<TData = unknown> {
 export interface AnimatedCurvedTimelineProps<TData = unknown> {
   activeItemId?: string | null;
   activeItemPhase?: TimelineItemPhase;
+  baselineY?: number;
   cardTop?: number;
   cardWidth?: number;
   className?: string;
@@ -273,6 +274,7 @@ function timelineDuration(
 export function AnimatedCurvedTimeline<TData = unknown>({
   activeItemId,
   activeItemPhase,
+  baselineY = DEFAULT_BASELINE_Y,
   cardTop = DEFAULT_CARD_TOP,
   cardWidth = DEFAULT_CARD_WIDTH,
   className,
@@ -354,7 +356,7 @@ export function AnimatedCurvedTimeline<TData = unknown>({
     const metrics = pathMetricsRef.current;
 
     if (!(pathElement && metrics)) {
-      return DEFAULT_BASELINE_Y;
+      return baselineY;
     }
 
     return pathElement.getPointAtLength(clampPathDistance(distance, metrics)).y;
@@ -393,7 +395,7 @@ export function AnimatedCurvedTimeline<TData = unknown>({
   const layout = useMemo(
     () =>
       buildTimelineLayout(items, {
-        baselineY: DEFAULT_BASELINE_Y,
+        baselineY,
         getItemEndValue,
         laneStepY,
         minInlineNodeSpacingPx,
@@ -404,6 +406,7 @@ export function AnimatedCurvedTimeline<TData = unknown>({
         viewportWidth,
       }),
     [
+      baselineY,
       effectiveMinNodeSpacingPx,
       getItemEndValue,
       items,

@@ -10,6 +10,10 @@ export type SyncStatusProjection = FunctionReturnType<
   typeof api.workosProjection.listSyncStatus
 >;
 
+export type BrokerageProvisioningProjection = FunctionReturnType<
+  typeof api.brokerageProvisioning.listBrokerageProvisioning
+>;
+
 export type WorkosUserRow = UserManagementProjection["users"][number];
 
 export interface WorkosOrganizationRow {

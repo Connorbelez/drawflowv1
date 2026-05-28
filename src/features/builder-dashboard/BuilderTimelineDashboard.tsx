@@ -45,11 +45,13 @@ type BuilderDashboardNavigate = (
 export function BuilderTimelineDashboardSurface({
   chrome = "page",
   onNavigate,
+  personaLabel = MOCK_BUILDER_PERSONA,
   rows,
   showBuilderShellAction = false,
 }: {
   chrome?: "embedded" | "page";
   onNavigate: BuilderDashboardNavigate;
+  personaLabel?: string;
   rows: TimelinePlanRow[];
   showBuilderShellAction?: boolean;
 }) {
@@ -69,14 +71,14 @@ export function BuilderTimelineDashboardSurface({
         <FramePanel className="flex flex-col gap-3 p-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-muted-foreground text-xs uppercase tracking-wide">
-              Builder home · {MOCK_BUILDER_PERSONA}
+              Builder home · {personaLabel}
             </p>
             <h1 className="mt-1 font-semibold text-2xl tracking-tight">
               Builder dashboard
             </h1>
             <p className="mt-1 text-muted-foreground text-sm">
               Proposal workspaces, submitted plans, and approved live builds
-              owned by the mock builder persona.
+              owned by your builder account.
             </p>
           </div>
           <BuilderDashboardActions

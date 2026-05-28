@@ -127,18 +127,18 @@ export const builderNavGroups: SidebarNavGroup[] = [
     items: [
       {
         title: "Dashboard",
-        to: builderRoute("/builder/demo/dashboard"),
+        to: builderRoute("/builder"),
         icon: icon(DashboardSquare01Icon),
       },
       {
         title: "Proposals",
-        to: builderRoute("/builder/demo/dashboard/proposals"),
+        to: builderRoute("/builder/proposals"),
         icon: icon(ClipboardIcon),
         matchPrefix: true,
       },
       {
         title: "Live Builds",
-        to: builderRoute("/builder/demo/dashboard/builds"),
+        to: builderRoute("/builder/proposals"),
         icon: icon(Building06Icon),
         matchPrefix: true,
       },

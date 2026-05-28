@@ -54,6 +54,17 @@ describe("DrawFlow frontend RBAC policy", () => {
     expect(
       getWorkspaceAccessDecision({
         isAuthenticated: true,
+        organizationId: null,
+        pathname: "/backoffice",
+        roles: ["admin"],
+        workspace: "backoffice",
+      })
+    ).toMatchObject({ status: "forbidden", reason: "missing-organization" });
+
+    expect(
+      getWorkspaceAccessDecision({
+        isAuthenticated: true,
+        organizationId: "org_123",
         pathname: "/backoffice",
         roles: ["broker-staff"],
         workspace: "backoffice",
@@ -63,6 +74,7 @@ describe("DrawFlow frontend RBAC policy", () => {
     expect(
       getWorkspaceAccessDecision({
         isAuthenticated: true,
+        organizationId: "org_123",
         pathname: "/builder",
         roles: ["admin"],
         workspace: "builder",
@@ -72,6 +84,7 @@ describe("DrawFlow frontend RBAC policy", () => {
     expect(
       getWorkspaceAccessDecision({
         isAuthenticated: true,
+        organizationId: "org_123",
         pathname: "/builder",
         roles: ["builder-staff"],
         workspace: "builder",
@@ -81,6 +94,7 @@ describe("DrawFlow frontend RBAC policy", () => {
     expect(
       getWorkspaceAccessDecision({
         isAuthenticated: true,
+        organizationId: "org_123",
         pathname: "/builder",
         roles: ["builder"],
         workspace: "builder",
@@ -90,6 +104,7 @@ describe("DrawFlow frontend RBAC policy", () => {
     expect(
       getWorkspaceAccessDecision({
         isAuthenticated: true,
+        organizationId: "org_123",
         pathname: "/backoffice",
         roles: ["builder"],
         workspace: "backoffice",
@@ -99,6 +114,7 @@ describe("DrawFlow frontend RBAC policy", () => {
     expect(
       getWorkspaceAccessDecision({
         isAuthenticated: true,
+        organizationId: "org_123",
         pathname: "/builder",
         roles: ["member"],
         workspace: "builder",
@@ -134,6 +150,27 @@ describe("DrawFlow frontend RBAC policy", () => {
       () =>
         requireWorkspaceAccess({
           isAuthenticated: true,
+          organizationId: null,
+          pathname: "/builder/proposals",
+          roles: ["builder"],
+          workspace: "builder",
+        }),
+      {
+        options: {
+          search: {
+            reason: "missing-organization",
+            workspace: "builder",
+          },
+          to: "/protected-access",
+        },
+      }
+    );
+
+    expectRedirect(
+      () =>
+        requireWorkspaceAccess({
+          isAuthenticated: true,
+          organizationId: "org_123",
           pathname: "/builder",
           roles: ["broker"],
           workspace: "builder",
@@ -153,6 +190,7 @@ describe("DrawFlow frontend RBAC policy", () => {
       () =>
         requireWorkspaceAccess({
           isAuthenticated: true,
+          organizationId: "org_123",
           pathname: "/backoffice",
           roles: ["member"],
           workspace: "backoffice",
@@ -169,10 +207,87 @@ describe("DrawFlow frontend RBAC policy", () => {
     );
   });
 
+  test("canonical production proposal routes are guarded while demo routes remain public", () => {
+    for (const pathname of [
+      "/builder/proposals/new",
+      "/builder/proposals/proposal_123",
+      "/builder/proposals/proposal_123/roadmap",
+    ]) {
+      expect(
+        getWorkspaceAccessDecision({
+          isAuthenticated: false,
+          pathname,
+          roles: [],
+          workspace: "builder",
+        }),
+      ).toMatchObject({ reason: "unauthenticated", status: "unauthenticated" });
+      expect(
+        getWorkspaceAccessDecision({
+          isAuthenticated: true,
+          organizationId: "org_123",
+          pathname,
+          roles: ["builder"],
+          workspace: "builder",
+        }),
+      ).toMatchObject({ status: "allowed" });
+      expect(
+        getWorkspaceAccessDecision({
+          isAuthenticated: true,
+          organizationId: "org_123",
+          pathname,
+          roles: ["broker"],
+          workspace: "builder",
+        }),
+      ).toMatchObject({ reason: "no-workspace-access", status: "forbidden" });
+    }
+
+    for (const pathname of [
+      "/backoffice/proposals",
+      "/backoffice/proposals/proposal_123",
+    ]) {
+      expect(
+        getWorkspaceAccessDecision({
+          isAuthenticated: false,
+          pathname,
+          roles: [],
+          workspace: "backoffice",
+        }),
+      ).toMatchObject({ reason: "unauthenticated", status: "unauthenticated" });
+      expect(
+        getWorkspaceAccessDecision({
+          isAuthenticated: true,
+          organizationId: "org_123",
+          pathname,
+          roles: ["broker-staff"],
+          workspace: "backoffice",
+        }),
+      ).toMatchObject({ status: "allowed" });
+      expect(
+        getWorkspaceAccessDecision({
+          isAuthenticated: true,
+          organizationId: "org_123",
+          pathname,
+          roles: ["builder"],
+          workspace: "backoffice",
+        }),
+      ).toMatchObject({ reason: "no-workspace-access", status: "forbidden" });
+    }
+
+    expect(
+      getWorkspaceAccessDecision({
+        isAuthenticated: false,
+        pathname: "/builder/demo/dashboard/proposals",
+        roles: [],
+        workspace: "builder",
+      }),
+    ).toMatchObject({ reason: "demo-exception", status: "allowed" });
+  });
+
   test("user management route access requires user-management write roles", () => {
     expect(
       getUserManagementAccessDecision({
         isAuthenticated: true,
+        organizationId: "org_123",
         pathname: "/backoffice/user-management",
         roles: ["admin"],
         workspace: "backoffice",
@@ -182,6 +297,7 @@ describe("DrawFlow frontend RBAC policy", () => {
     expect(
       getUserManagementAccessDecision({
         isAuthenticated: true,
+        organizationId: "org_123",
         pathname: "/backoffice/user-management",
         roles: ["principle-broker"],
         workspace: "backoffice",
@@ -191,6 +307,7 @@ describe("DrawFlow frontend RBAC policy", () => {
     expect(
       getUserManagementAccessDecision({
         isAuthenticated: true,
+        organizationId: "org_123",
         pathname: "/backoffice/user-management",
         roles: ["broker-staff"],
         workspace: "backoffice",
@@ -201,6 +318,7 @@ describe("DrawFlow frontend RBAC policy", () => {
       () =>
         requireUserManagementWriteAccess({
           isAuthenticated: true,
+          organizationId: "org_123",
           pathname: "/backoffice/user-management",
           roles: ["broker"],
           workspace: "backoffice",

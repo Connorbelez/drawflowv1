@@ -24,6 +24,11 @@ import {
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
+import { ProductionProposalReviewSurface } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
+import {
+  getVisualParityProposalDetail,
+  isProductionVisualParityFixtureEnabled,
+} from "#/features/production-proposals/visualParityFixtures.ts";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import {
   Table,
@@ -35,6 +40,7 @@ import {
 } from "#/components/ui/table.tsx";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
 import {
   MilestoneCard,
   type MilestoneCardUpdate,
@@ -59,7 +65,6 @@ const PROPOSAL_REVIEW_TIMELINE_SIZING = {
   paddingX: 136,
   pixelsPerUnit: 6.4,
 } as const;
-
 const proposalMilestoneStatusMap = {
   complete: "complete",
   ready: "ready",
@@ -77,7 +82,32 @@ type DecisionModal = "approve" | "reject";
 
 function ProposalReviewRoute() {
   const { planId } = Route.useParams();
+  const context = Route.useRouteContext();
   const navigate = useNavigate();
+  const workosOrganizationId = context.organizationId as string;
+  const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
+  const productionDetailQuery = useQuery(
+    api.production_proposals.getProposalDetailByString,
+    visualFixtureEnabled ? "skip" : { proposalId: planId, workosOrganizationId },
+  );
+  const productionDetail = visualFixtureEnabled
+    ? getVisualParityProposalDetail()
+    : productionDetailQuery;
+  const requestProductionChanges = useMutation(
+    api.production_proposals.requestChanges,
+  );
+  const rejectProductionProposal = useMutation(
+    api.production_proposals.rejectProposal,
+  );
+  const approveProductionProposal = useMutation(
+    api.production_proposals.approveProposal,
+  );
+  const recordProductionClosing = useMutation(
+    api.production_proposals.recordOfflineClosing,
+  );
+  const updateProductionDrawScheduleRow = useMutation(
+    api.production_proposals.updateSubmittedProposalDrawScheduleRow,
+  );
   const viewModel = useQuery(
     api.demo_timeline_plans.demo_getProposalReviewViewModel,
     { planId },
@@ -90,6 +120,67 @@ function ProposalReviewRoute() {
   );
   const approvePlan = useMutation(api.demo_timeline_plans.demo_approveTimelinePlan);
   const rejectPlan = useMutation(api.demo_timeline_plans.demo_rejectTimelinePlan);
+
+  if (productionDetail) {
+    const proposalId = planId as Id<"buildProposals">;
+    return (
+      <ProductionProposalReviewSurface
+        detail={productionDetail}
+        onApprove={(reason, permitWaiverReason) =>
+          void approveProductionProposal({
+            permitWaiverReason,
+            proposalId,
+            reason,
+            workosOrganizationId,
+          }).then(() => toast.success("Proposal approved."))
+        }
+        onClose={(buildStartDate, reason) =>
+          void recordProductionClosing({
+            buildStartDate,
+            loanFacility: {
+              interestAnnualBps: 925,
+              principalCents:
+                productionDetail.proposal.lenderDrawPolicyLimitCents,
+            },
+            proposalId,
+            reason,
+            workosOrganizationId,
+          }).then((result) => {
+            toast.success("Closing recorded.");
+            void navigate({
+              params: { buildId: result.buildId },
+              to: "/backoffice/builds/$buildId",
+            });
+          })
+        }
+        onReject={(reason) =>
+          void rejectProductionProposal({
+            proposalId,
+            reason,
+            workosOrganizationId,
+          }).then(() => toast.success("Proposal rejected."))
+        }
+        onRequestChanges={(reason) =>
+          void requestProductionChanges({
+            proposalId,
+            reason,
+            workosOrganizationId,
+          }).then(() => toast.success("Changes requested."))
+        }
+        onUpdateDraw={(drawKey, patch) =>
+          void updateProductionDrawScheduleRow({
+            amountCents: patch.amountCents,
+            drawKey,
+            label: patch.label,
+            proposalId,
+            reason: patch.reason,
+            timingDay: patch.timingDay,
+            workosOrganizationId,
+          }).then(() => toast.success("Draw schedule updated."))
+        }
+      />
+    );
+  }
 
   return (
     <ProposalReviewSurface

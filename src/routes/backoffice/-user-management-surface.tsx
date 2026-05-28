@@ -1,5 +1,12 @@
 import type { ColumnDef } from "@tanstack/react-table";
-import { AlertCircle, CheckCircle2, RefreshCw, UserPlus } from "lucide-react";
+import {
+  AlertCircle,
+  Building2,
+  CheckCircle2,
+  DatabaseZap,
+  RefreshCw,
+  UserPlus,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Button } from "#/components/ui/button.tsx";
@@ -25,6 +32,7 @@ import { UserManagementTable } from "./-user-management-table";
 import type {
   MembershipCreate,
   MembershipRoleUpdate,
+  BrokerageProvisioningProjection,
   SyncStatusProjection,
   UserManagementProjection,
   WorkosMembershipRow,
@@ -38,8 +46,11 @@ import type {
 export function UserManagementSurface({
   accepted,
   actionError,
+  brokerageProvisioning,
   onCreateMembership,
   onInviteUser,
+  onProvisionBrokerageProfile,
+  onProvisionFairLendBrokerage,
   onReactivateMembership,
   onRemoveMembership,
   onRoleUpdate,
@@ -50,12 +61,20 @@ export function UserManagementSurface({
 }: {
   accepted: string | null;
   actionError: string | null;
+  brokerageProvisioning: BrokerageProvisioningProjection | undefined;
   onCreateMembership: (args: MembershipCreate) => Promise<void>;
   onInviteUser: (args: {
     email: string;
     organizationId: string;
     roleSlug: string;
   }) => Promise<void>;
+  onProvisionBrokerageProfile: (args: {
+    displayName?: string;
+    legalName?: string;
+    principalBrokerWorkosUserId?: string;
+    workosOrganizationId: string;
+  }) => Promise<void>;
+  onProvisionFairLendBrokerage: () => Promise<void>;
   onReactivateMembership: (membershipId: string) => Promise<void>;
   onRemoveMembership: (membershipId: string) => Promise<void>;
   onRoleUpdate: (args: MembershipRoleUpdate) => Promise<void>;
@@ -175,6 +194,12 @@ export function UserManagementSurface({
         </FramePanel>
       </Frame>
 
+      <BrokerageProvisioningPanel
+        onProvisionBrokerageProfile={onProvisionBrokerageProfile}
+        onProvisionFairLendBrokerage={onProvisionFairLendBrokerage}
+        provisioning={brokerageProvisioning}
+      />
+
       {pending ? (
         <Frame>
           <FramePanel className="flex items-center gap-2 text-muted-foreground text-sm">
@@ -253,6 +278,135 @@ export function UserManagementSurface({
         </>
       )}
     </div>
+  );
+}
+
+function BrokerageProvisioningPanel({
+  onProvisionBrokerageProfile,
+  onProvisionFairLendBrokerage,
+  provisioning,
+}: {
+  onProvisionBrokerageProfile: (args: {
+    displayName?: string;
+    legalName?: string;
+    principalBrokerWorkosUserId?: string;
+    workosOrganizationId: string;
+  }) => Promise<void>;
+  onProvisionFairLendBrokerage: () => Promise<void>;
+  provisioning: BrokerageProvisioningProjection | undefined;
+}) {
+  const [saving, setSaving] = useState<string | null>(null);
+  const rows = provisioning?.organizations ?? [];
+  const missingRows = rows.filter((row) => row.needsBrokerageProfile);
+  const fairLend = provisioning?.fairLendBootstrap;
+  const fairLendRow = rows.find(
+    (row) => row.workosOrganizationId === fairLend?.workosOrganizationId
+  );
+
+  return (
+    <Frame>
+      <FrameHeader>
+        <FrameTitle className="flex items-center gap-2 text-base">
+          <Building2 className="size-4" />
+          Brokerage provisioning
+        </FrameTitle>
+        <FrameDescription>
+          WorkOS membership creates access; DrawFlow still needs one active
+          brokerage profile per broker organization before proposal queues can
+          load.
+        </FrameDescription>
+      </FrameHeader>
+      <FramePanel className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 rounded-lg border bg-muted/30 p-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="font-medium text-sm">FairLendBrokerage bootstrap</p>
+            <p className="text-muted-foreground text-xs">
+              {fairLend?.workosOrganizationId} · principal{" "}
+              {fairLend?.principalBrokerWorkosUserId}
+            </p>
+          </div>
+          <Button
+            disabled={saving === "fairlend"}
+            onClick={async () => {
+              setSaving("fairlend");
+              try {
+                await onProvisionFairLendBrokerage();
+              } finally {
+                setSaving(null);
+              }
+            }}
+            type="button"
+            variant={fairLendRow?.hasBrokerageProfile ? "outline" : "default"}
+          >
+            <DatabaseZap />
+            {fairLendRow?.hasBrokerageProfile ? "Refresh seed" : "Seed default"}
+          </Button>
+        </div>
+
+        {provisioning === undefined ? (
+          <div className="flex items-center gap-2 text-muted-foreground text-sm">
+            <RefreshCw className="size-4 animate-spin" />
+            Checking brokerage profiles
+          </div>
+        ) : missingRows.length === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            No active broker organizations are missing DrawFlow brokerage
+            profiles.
+          </p>
+        ) : (
+          <div className="grid gap-2">
+            {missingRows.map((row) => {
+              const principal =
+                row.brokerMemberships.find((membership) =>
+                  membership.roleSlugs.includes("principle-broker")
+                ) ?? row.brokerMemberships[0];
+              return (
+                <div
+                  className="grid gap-3 rounded-lg border bg-background p-3 md:grid-cols-[1fr_auto] md:items-center"
+                  key={row.workosOrganizationId}
+                >
+                  <div>
+                    <p className="font-medium text-sm">{row.name}</p>
+                    <p className="text-muted-foreground text-xs">
+                      {row.workosOrganizationId} ·{" "}
+                      {row.brokerMemberships.length} broker membership
+                      {row.brokerMemberships.length === 1 ? "" : "s"}
+                    </p>
+                    {principal ? (
+                      <p className="mt-1 text-muted-foreground text-xs">
+                        Principal candidate:{" "}
+                        {principal.email ?? principal.workosUserId}
+                      </p>
+                    ) : null}
+                  </div>
+                  <Button
+                    disabled={saving === row.workosOrganizationId}
+                    onClick={async () => {
+                      setSaving(row.workosOrganizationId);
+                      try {
+                        await onProvisionBrokerageProfile({
+                          displayName: row.name,
+                          legalName: row.name,
+                          principalBrokerWorkosUserId:
+                            principal?.workosUserId,
+                          workosOrganizationId: row.workosOrganizationId,
+                        });
+                      } finally {
+                        setSaving(null);
+                      }
+                    }}
+                    type="button"
+                  >
+                    <Building2 />
+                    Provision profile
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </FramePanel>
+    </Frame>
   );
 }
 

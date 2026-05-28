@@ -99,6 +99,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "visual:production": "bun scripts/capture-production-visual-parity.mjs",
     "ui:html:audit": "bun scripts/audit-ui-html-interactions.mjs",
     "ui:html:extract": "bun scripts/extract-react-component-html.mjs",
     "ui:html:generate": "bun scripts/generate-ui-html-snippets.mjs",

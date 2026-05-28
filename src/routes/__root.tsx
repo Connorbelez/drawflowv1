@@ -19,6 +19,7 @@ import ConvexProvider from "../integrations/convex/provider";
 import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
 import WorkOSProvider from "../integrations/workos/provider";
 import appCss from "../styles.css?url";
+import { VISUAL_PARITY_ORGANIZATION_ID } from "#/features/production-proposals/visualParityFixtures.ts";
 
 interface RouterContext {
   convexClient: ConvexReactClient;
@@ -35,6 +36,26 @@ interface RouterContext {
 const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);root.style.colorScheme=resolved;}catch(e){}})();`;
 
 const fetchWorkosAuth = createServerFn({ method: "GET" }).handler(async () => {
+  if (isVisualParityFixtureEnabled()) {
+    const fixtureAuth = {
+      organizationId: VISUAL_PARITY_ORGANIZATION_ID,
+      permissions: ["proposal:read", "proposal:write"],
+      role: "admin",
+      roles: ["admin", "builder", "broker"],
+      token: null,
+      userId: "user_visual_parity",
+    };
+    logAuthDebug("visual parity auth fixture", {
+      organizationId: fixtureAuth.organizationId,
+      permissionCount: fixtureAuth.permissions.length,
+      role: fixtureAuth.role,
+      roleCount: fixtureAuth.roles.length,
+      tokenPresent: false,
+      userPresent: true,
+    });
+    return fixtureAuth;
+  }
+
   const auth = await getAuth();
   const authPayload = {
     featureFlagCount: auth.user ? (auth.featureFlags ?? []).length : 0,
@@ -124,6 +145,14 @@ function logAuthDebug(label: string, payload: AuthDebugPayload) {
   }
 
   console.info(`[drawflow:auth] ${label}`, payload);
+}
+
+function isVisualParityFixtureEnabled(): boolean {
+  return (
+    !import.meta.env.PROD &&
+    (process.env.DRAWFLOW_VISUAL_PARITY_FIXTURE === "1" ||
+      import.meta.env.VITE_DRAWFLOW_VISUAL_PARITY_FIXTURE === "1")
+  );
 }
 
 interface RootDocumentProps {

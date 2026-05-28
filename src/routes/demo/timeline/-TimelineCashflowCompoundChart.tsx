@@ -3,10 +3,11 @@ import type { ChartConfig } from "#/components/evilcharts/ui/chart.tsx";
 
 export interface TimelineCashflowCompoundDatum {
   budget: number;
+  cashInfusionAmount?: number;
   capitalSpikeAmount: number;
   cashOnHand: number;
   day: number;
-  event: "capitalSpike" | "draw" | "milestone" | "start";
+  event: "capitalSpike" | "cashInfusion" | "draw" | "milestone" | "start";
   id: string;
   milestoneEndDay?: number;
   name: string;
@@ -41,6 +42,13 @@ export const timelineCashflowChartConfig = {
     colors: {
       dark: ["oklch(0.68 0.2 35)", "oklch(0.78 0.18 55)"],
       light: ["oklch(0.62 0.22 35)", "oklch(0.74 0.18 55)"],
+    },
+  },
+  cashInfusionAmount: {
+    label: "Cash infusion",
+    colors: {
+      dark: ["oklch(0.72 0.16 150)", "oklch(0.8 0.14 170)"],
+      light: ["oklch(0.58 0.18 150)", "oklch(0.7 0.16 170)"],
     },
   },
 } satisfies ChartConfig;
@@ -138,6 +146,7 @@ export function TimelineCashflowCompoundChart({
       barConfig={{
         budget: timelineCashflowChartConfig.budget,
         capitalSpikeAmount: timelineCashflowChartConfig.capitalSpikeAmount,
+        cashInfusionAmount: timelineCashflowChartConfig.cashInfusionAmount,
       }}
       barRadius={6}
       barSize={barSize}
@@ -216,6 +225,7 @@ export function getCashflowCompoundExtent(
 ) {
   const values = data.flatMap((row) => [
     row.budget,
+    row.cashInfusionAmount ?? 0,
     row.capitalSpikeAmount,
     row.cashOnHand,
   ]);

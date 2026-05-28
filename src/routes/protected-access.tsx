@@ -4,13 +4,14 @@ import { Frame, FrameDescription, FramePanel, FrameTitle } from "#/components/ui
 import { roleLabel, type Workspace } from "#/lib/auth/rbac.ts";
 
 type ProtectedAccessSearch = {
-  reason?: "no-workspace-access" | "onboarding-required";
+  reason?: "missing-organization" | "no-workspace-access" | "onboarding-required";
   workspace?: Workspace;
 };
 
 export const Route = createFileRoute("/protected-access")({
   validateSearch: (search: Record<string, unknown>): ProtectedAccessSearch => ({
     reason:
+      search.reason === "missing-organization" ||
       search.reason === "onboarding-required" ||
       search.reason === "no-workspace-access"
         ? search.reason
@@ -23,6 +24,7 @@ export const Route = createFileRoute("/protected-access")({
 function ProtectedAccessRoute() {
   const { reason, workspace } = Route.useSearch();
   const isOnboarding = reason === "onboarding-required";
+  const isMissingOrganization = reason === "missing-organization";
 
   return (
     <main className="grid min-h-svh place-items-center bg-bg-base p-6">
@@ -32,12 +34,18 @@ function ProtectedAccessRoute() {
             Protected access
           </p>
           <FrameTitle className="mt-2 text-xl">
-            {isOnboarding ? "Onboarding required" : "Workspace access required"}
+            {isOnboarding
+              ? "Onboarding required"
+              : isMissingOrganization
+                ? "Organization required"
+                : "Workspace access required"}
           </FrameTitle>
           <FrameDescription className="mt-2">
             {isOnboarding
               ? `Your ${roleLabel("member")} role is authenticated, but it is not enabled for DrawFlow product workspaces yet.`
-              : `Your current WorkOS session does not include access to the ${workspace} workspace.`}
+              : isMissingOrganization
+                ? "Your WorkOS session is authenticated but does not include an active organization. Select an organization before opening production DrawFlow workspaces."
+                : `Your current WorkOS session does not include access to the ${workspace} workspace.`}
           </FrameDescription>
           <div className="mt-5 flex gap-3">
             <Link
