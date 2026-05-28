@@ -43,6 +43,50 @@ describe("production proposal timeline setup adapter", () => {
     });
   });
 
+  test("maps richer production milestone names to the expanded icon set", () => {
+    const templates = productionTemplatesToTimelineSetupTemplates([
+      {
+        milestones: [
+          {
+            archetypeKey: "shell",
+            dependencyKeys: [],
+            durationDays: 18,
+            key: "roof-dry-in",
+            name: "Roofing and dry-in",
+            order: 1,
+            percentageBps: 2_000,
+          },
+          {
+            archetypeKey: "mechanical",
+            dependencyKeys: ["roof-dry-in"],
+            durationDays: 14,
+            key: "rough-in",
+            name: "MEP rough-in",
+            order: 2,
+            percentageBps: 3_000,
+          },
+          {
+            archetypeKey: "interior",
+            dependencyKeys: ["rough-in"],
+            durationDays: 12,
+            key: "kitchen-cabinets",
+            name: "Kitchen cabinets",
+            order: 3,
+            percentageBps: 5_000,
+          },
+        ],
+        templateKey: "expanded-icons",
+        title: "Expanded icons",
+      },
+    ]);
+
+    expect(templates?.[0]?.rows.map((row) => row.icon)).toEqual([
+      "roofing",
+      "plumbing",
+      "kitchen",
+    ]);
+  });
+
   test("converts generated timeline setup rows into production draft package fields", () => {
     const payload = timelineSetupResultToDraftPackage({
       activeItemId: "foundation",
@@ -122,6 +166,7 @@ describe("production proposal timeline setup adapter", () => {
         dayEnd: 30,
         dayStart: 0,
         dependencyKeys: [],
+        icon: "foundation",
         key: "foundation",
         submilestones: [
           {
@@ -138,6 +183,7 @@ describe("production proposal timeline setup adapter", () => {
         dayEnd: 80,
         dayStart: 35,
         dependencyKeys: ["foundation"],
+        icon: "framing",
         key: "shell",
       }),
     ]);

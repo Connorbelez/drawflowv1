@@ -142,6 +142,10 @@ describe("buildProductionRoadmapProjection", () => {
         totalAvailableDraw: 600_000,
       }),
     ]);
+    expect(projection.drawAvailability.data[3]?.totalInterestAccrued).toBeCloseTo(
+      240_000 * ((1 + 0.0925 / 365) ** 41 - 1),
+      2,
+    );
     expect(projection.drawAvailability.referenceLines.map((line) => line.x)).toEqual([
       30,
       73,

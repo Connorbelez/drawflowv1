@@ -22,6 +22,9 @@ const timelineIconValidator = v.union(
   v.literal("finishes"),
   v.literal("foundation"),
   v.literal("framing"),
+  v.literal("kitchen"),
+  v.literal("plumbing"),
+  v.literal("roofing"),
   v.literal("roughIn")
 );
 

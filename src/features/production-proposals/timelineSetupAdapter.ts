@@ -74,7 +74,7 @@ export const PRODUCTION_SETUP_BASE_ITEMS: TimelineItem<DemoMilestone>[] = [
       drawX: 94,
       durationDays: 20,
       evidence: "Site visit today",
-      icon: "roughIn",
+      icon: "plumbing",
       name: "Rough-in mechanical",
       policy: "Admin review",
       status: "ready",
@@ -137,7 +137,7 @@ export const PRODUCTION_SETUP_BASE_ITEMS: TimelineItem<DemoMilestone>[] = [
       drawX: 170,
       durationDays: 12,
       evidence: "Not started",
-      icon: "finishes",
+      icon: "kitchen",
       name: "Finishes & fixtures",
       policy: "Upcoming",
       status: "upcoming",
@@ -189,7 +189,11 @@ export function productionTemplatesToTimelineSetupTemplates(
       .map((milestone) => ({
         dependencyKeys: milestone.dependencyKeys ?? [],
         durationDays: milestone.durationDays,
-        icon: iconForMilestone(milestone.key, milestone.archetypeKey),
+        icon: iconForMilestone(
+          milestone.key,
+          milestone.archetypeKey,
+          milestone.name,
+        ),
         key: milestone.key,
         name: milestone.name,
         percentageBps: milestone.percentageBps,
@@ -222,6 +226,7 @@ export function timelineSetupResultToDraftPackage(
         dayStart,
         dependencyKeys: index === 0 ? [] : [result.items[index - 1]?.id ?? ""].filter(Boolean),
         durationDays,
+        icon: item.data.icon,
         key: item.id,
         name: item.data.name,
         order: index + 1,
@@ -242,10 +247,24 @@ export function timelineSetupResultToDraftPackage(
 function iconForMilestone(
   key: string,
   archetypeKey?: string,
+  name?: string,
 ): DemoMilestone["icon"] {
-  const value = `${archetypeKey ?? ""} ${key}`.toLowerCase();
+  const value = `${archetypeKey ?? ""} ${key} ${name ?? ""}`.toLowerCase();
   if (value.includes("foundation") || value.includes("site")) {
     return "foundation";
+  }
+  if (value.includes("kitchen") || value.includes("cabinet")) {
+    return "kitchen";
+  }
+  if (
+    value.includes("plumb") ||
+    value.includes("mechanical") ||
+    value.includes("mep")
+  ) {
+    return "plumbing";
+  }
+  if (value.includes("roof") || value.includes("dry-in")) {
+    return "roofing";
   }
   if (value.includes("shell") || value.includes("fram")) {
     return "framing";

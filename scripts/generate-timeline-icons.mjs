@@ -10,9 +10,12 @@ const iconSources = {
   closeout: "closeout.jpg",
   drywall: "drywall.jpg",
   exterior: "exterior.jpg",
-  finishes: "finishes.jpg",
+  finishes: "finishes.png",
   foundation: "foundation.jpg",
   framing: "framing.jpg",
+  kitchen: "kitchen.png",
+  plumbing: "plumbing.png",
+  roofing: "roofing.png",
   roughIn: "roughIn.jpg",
 };
 

@@ -1,6 +1,9 @@
 import { EvilComposedChart } from "#/components/evilcharts/charts/composed-chart.tsx";
 import type { ChartConfig } from "#/components/evilcharts/ui/chart.tsx";
 
+const CASHFLOW_EDGE_BAR_PADDING_RATIO = 0.035;
+const CASHFLOW_MIN_EDGE_BAR_PADDING_DAYS = 2;
+
 export interface TimelineCashflowCompoundDatum {
   budget: number;
   cashInfusionAmount?: number;
@@ -136,6 +139,7 @@ export function TimelineCashflowCompoundChart({
     ...drawReferenceLines,
     ...(referenceLines ?? []),
   ];
+  const barSafeXDomain = buildCashflowBarSafeXDomain(xDomain);
   const chart = (
     <EvilComposedChart
       activeDotVariant="default"
@@ -201,7 +205,7 @@ export function TimelineCashflowCompoundChart({
       tooltipRoundness="xl"
       tooltipVariant="frosted-glass"
       xAxisProps={{
-        domain: xDomain,
+        domain: barSafeXDomain,
         height: 26,
         tickFormatter: formatTimelineDay,
         ticks: xTicks,
@@ -218,6 +222,22 @@ export function TimelineCashflowCompoundChart({
   );
 
   return testId ? <div data-testid={testId}>{chart}</div> : chart;
+}
+
+export function buildCashflowBarSafeXDomain(
+  domain: [number, number],
+): [number, number] {
+  const [min, max] = domain;
+  if (!(Number.isFinite(min) && Number.isFinite(max) && max > min)) {
+    return domain;
+  }
+
+  const padding = Math.max(
+    CASHFLOW_MIN_EDGE_BAR_PADDING_DAYS,
+    (max - min) * CASHFLOW_EDGE_BAR_PADDING_RATIO,
+  );
+
+  return [min - padding, max + padding];
 }
 
 export function getCashflowCompoundExtent(

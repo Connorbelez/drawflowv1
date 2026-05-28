@@ -38,6 +38,7 @@ const milestoneInput = v.object({
   dayStart: v.number(),
   dependencyKeys: v.array(v.string()),
   durationDays: v.number(),
+  icon: v.optional(v.string()),
   key: v.string(),
   name: v.string(),
   order: v.number(),
@@ -55,6 +56,52 @@ const documentInput = v.object({
   mimeType: v.string(),
   sizeBytes: v.number(),
   storageId: v.optional(v.id("_storage")),
+});
+
+const evidenceAssetInput = v.object({
+  evidenceKey: v.string(),
+  fileName: v.string(),
+  label: v.string(),
+  locationVerified: v.optional(v.boolean()),
+  milestoneKey: v.string(),
+  mimeType: v.string(),
+  sizeBytes: v.number(),
+  source: v.optional(v.string()),
+  storageId: v.optional(v.id("_storage")),
+  tag: v.string(),
+});
+
+const timelineCapitalEventKind = v.union(
+  v.literal("cost"),
+  v.literal("cashInfusion"),
+);
+
+const timelineModificationRequestType = v.union(
+  v.literal("createMilestone"),
+  v.literal("deleteMilestone"),
+  v.literal("updateMilestoneBudget"),
+);
+
+const productionTimelineMilestoneInput = v.object({
+  budgetCents: v.number(),
+  dayEnd: v.number(),
+  dayStart: v.number(),
+  dependencyKeys: v.optional(v.array(v.string())),
+  drawAvailabilityCents: v.optional(v.number()),
+  drawKey: v.optional(v.string()),
+  durationDays: v.number(),
+  evidenceState: v.string(),
+  icon: v.optional(v.string()),
+  lane: v.optional(v.number()),
+  markerLabel: v.optional(v.string()),
+  milestoneKey: v.string(),
+  name: v.string(),
+  order: v.number(),
+  policyState: v.string(),
+  status: v.optional(v.string()),
+  submilestones: v.optional(v.array(submilestoneInput)),
+  tone: v.optional(v.string()),
+  x: v.number(),
 });
 
 export const dev_seedProductionFoundation = authenticatedMutation
@@ -400,6 +447,7 @@ export const saveDraftProposalPackage = authenticatedMutation
         dependencyKeys: row.dependencyKeys,
         drawAvailabilityCents,
         durationDays: row.durationDays,
+        icon: row.icon,
         key: row.key,
         name: row.name,
         order: row.order,
@@ -732,6 +780,1126 @@ export const updateSubmittedProposalDrawScheduleRow = authenticatedMutation
   })
   .public();
 
+export const createProductionTimelineMilestone = authenticatedMutation
+  .input({
+    milestone: productionTimelineMilestoneInput,
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    requireProductionTimelineDraftStructureWrite(auth);
+    await insertProductionMilestoneFromInput(ctx, auth, args.milestone);
+    await recalculateProposalBudget(ctx, auth, args.proposalId);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "createProductionTimelineMilestone",
+      eventType: "proposal.milestone.created",
+      newState: JSON.stringify(args.milestone),
+      proposalId: args.proposalId,
+    });
+    return null;
+  })
+  .public();
+
+export const updateProductionTimelineMilestone = authenticatedMutation
+  .input({
+    budgetCents: v.optional(v.number()),
+    dayEnd: v.optional(v.number()),
+    dayStart: v.optional(v.number()),
+    dependencyKeys: v.optional(v.array(v.string())),
+    drawAvailabilityCents: v.optional(v.number()),
+    durationDays: v.optional(v.number()),
+    evidenceState: v.optional(v.string()),
+    icon: v.optional(v.string()),
+    lane: v.optional(v.number()),
+    markerLabel: v.optional(v.string()),
+    milestoneKey: v.string(),
+    name: v.optional(v.string()),
+    order: v.optional(v.number()),
+    policyState: v.optional(v.string()),
+    proposalId: v.id("buildProposals"),
+    status: v.optional(v.string()),
+    submilestones: v.optional(v.array(submilestoneInput)),
+    tone: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    requireProductionTimelineDraftStructureWrite(auth);
+    const milestone = await getProductionMilestoneOrThrow(
+      ctx,
+      args.proposalId,
+      args.milestoneKey,
+    );
+    const nextDayStart = args.dayStart ?? milestone.dayStart;
+    const nextDayEnd = args.dayEnd ?? milestone.dayEnd;
+    if (nextDayEnd < nextDayStart) {
+      throw new Error("Milestone end day must be after start day.");
+    }
+    const nextBudgetCents =
+      args.budgetCents === undefined
+        ? milestone.budgetCents
+        : Math.max(0, Math.round(args.budgetCents));
+    const now = Date.now();
+    const patch = {
+      ...(args.budgetCents === undefined ? {} : { budgetCents: nextBudgetCents }),
+      ...(args.dayEnd === undefined ? {} : { dayEnd: Math.round(args.dayEnd) }),
+      ...(args.dayStart === undefined
+        ? {}
+        : { dayStart: Math.round(args.dayStart) }),
+      ...(args.dependencyKeys === undefined
+        ? {}
+        : { dependencyKeys: args.dependencyKeys }),
+      ...(args.drawAvailabilityCents === undefined &&
+      args.budgetCents === undefined
+        ? {}
+        : {
+            drawAvailabilityCents:
+              args.drawAvailabilityCents === undefined
+                ? calculateDrawAvailability(
+                    nextBudgetCents,
+                    auth.proposal.borrowerCoPayBps,
+                  )
+                : Math.max(0, Math.round(args.drawAvailabilityCents)),
+          }),
+      ...(args.durationDays === undefined
+        ? {}
+        : { durationDays: Math.max(1, Math.round(args.durationDays)) }),
+      ...(args.evidenceState === undefined
+        ? {}
+        : { evidenceState: args.evidenceState }),
+      ...(args.icon === undefined ? {} : { icon: args.icon }),
+      ...(args.lane === undefined ? {} : { lane: args.lane }),
+      ...(args.markerLabel === undefined ? {} : { markerLabel: args.markerLabel }),
+      ...(args.name === undefined ? {} : { name: args.name.trim() || milestone.name }),
+      ...(args.order === undefined ? {} : { order: Math.max(1, Math.round(args.order)) }),
+      ...(args.policyState === undefined
+        ? {}
+        : { policyState: args.policyState }),
+      ...(args.status === undefined ? {} : { timelineStatus: args.status }),
+      ...(args.tone === undefined ? {} : { tone: args.tone }),
+      updatedAt: now,
+    };
+    await ctx.db.patch(milestone._id, patch);
+    if (args.submilestones !== undefined) {
+      await replaceProductionSubmilestones(ctx, auth, {
+        milestone,
+        proposalId: args.proposalId,
+        rows: args.submilestones,
+      });
+    }
+    await recalculateProposalBudget(ctx, auth, args.proposalId);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "updateProductionTimelineMilestone",
+      eventType: "proposal.milestone.updated",
+      newState: JSON.stringify(patch),
+      priorState: JSON.stringify(milestone),
+      proposalId: args.proposalId,
+    });
+    return null;
+  })
+  .public();
+
+export const deleteProductionTimelineMilestone = authenticatedMutation
+  .input({
+    milestoneKey: v.string(),
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    requireProductionTimelineDraftStructureWrite(auth);
+    const milestone = await getProductionMilestoneOrThrow(
+      ctx,
+      args.proposalId,
+      args.milestoneKey,
+    );
+    await deleteProductionMilestoneCascade(ctx, args.proposalId, milestone);
+    await recalculateProposalBudget(ctx, auth, args.proposalId);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "deleteProductionTimelineMilestone",
+      eventType: "proposal.milestone.deleted",
+      priorState: JSON.stringify(milestone),
+      proposalId: args.proposalId,
+    });
+    return null;
+  })
+  .public();
+
+export const createProductionTimelineDraw = authenticatedMutation
+  .input({
+    amountCents: v.number(),
+    customDate: v.optional(v.boolean()),
+    drawKey: v.string(),
+    label: v.string(),
+    order: v.optional(v.number()),
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+    x: v.number(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    requireProductionTimelineEditable(auth);
+    const existing = await ctx.db
+      .query("proposalDrawScheduleRows")
+      .withIndex("by_proposal_key", (q) =>
+        q.eq("proposalId", args.proposalId).eq("drawKey", args.drawKey),
+      )
+      .unique();
+    if (existing) {
+      throw new Error("Production draw already exists.");
+    }
+    const draws = await collectByIndex(
+      ctx,
+      "proposalDrawScheduleRows",
+      "by_proposal",
+      args.proposalId,
+    );
+    const now = Date.now();
+    await ctx.db.insert("proposalDrawScheduleRows", {
+      amountCents: Math.max(0, Math.round(args.amountCents)),
+      brokerageId: auth.brokerage._id,
+      createdAt: now,
+      customDate: args.customDate ?? true,
+      drawKey: args.drawKey,
+      label: args.label.trim() || "Reimbursement draw",
+      order: args.order ?? draws.length + 1,
+      organizationId: auth.proposal.organizationId,
+      proposalId: args.proposalId,
+      source: "manual",
+      timingDay: Math.max(0, Math.round(args.x)),
+      updatedAt: now,
+    });
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "createProductionTimelineDraw",
+      eventType: "proposal.draw.created",
+      newState: JSON.stringify(args),
+      proposalId: args.proposalId,
+    });
+    return null;
+  })
+  .public();
+
+export const updateProductionTimelineDraw = authenticatedMutation
+  .input({
+    amountCents: v.optional(v.number()),
+    customDate: v.optional(v.boolean()),
+    drawKey: v.string(),
+    label: v.optional(v.string()),
+    order: v.optional(v.number()),
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+    x: v.optional(v.number()),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    requireProductionTimelineEditable(auth);
+    const draw = await getProductionDrawOrThrow(
+      ctx,
+      args.proposalId,
+      args.drawKey,
+    );
+    const patch = {
+      ...(args.amountCents === undefined
+        ? {}
+        : { amountCents: Math.max(0, Math.round(args.amountCents)) }),
+      ...(args.customDate === undefined ? {} : { customDate: args.customDate }),
+      ...(args.label === undefined
+        ? {}
+        : { label: args.label.trim() || draw.label }),
+      ...(args.order === undefined ? {} : { order: Math.max(1, Math.round(args.order)) }),
+      ...(args.x === undefined
+        ? {}
+        : { customDate: true, timingDay: Math.max(0, Math.round(args.x)) }),
+      updatedAt: Date.now(),
+    };
+    await ctx.db.patch(draw._id, patch);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "updateProductionTimelineDraw",
+      eventType: "proposal.draw.updated",
+      newState: JSON.stringify(patch),
+      priorState: JSON.stringify(draw),
+      proposalId: args.proposalId,
+    });
+    return null;
+  })
+  .public();
+
+export const deleteProductionTimelineDraw = authenticatedMutation
+  .input({
+    drawKey: v.string(),
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    requireProductionTimelineEditable(auth);
+    const draw = await getProductionDrawOrThrow(
+      ctx,
+      args.proposalId,
+      args.drawKey,
+    );
+    if (draw.requestStatus === "approved") {
+      throw new Error("Approved reimbursement draws cannot be deleted.");
+    }
+    await ctx.db.delete(draw._id);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "deleteProductionTimelineDraw",
+      eventType: "proposal.draw.deleted",
+      priorState: JSON.stringify(draw),
+      proposalId: args.proposalId,
+    });
+    return null;
+  })
+  .public();
+
+export const requestProductionTimelineModification = authenticatedMutation
+  .input({
+    milestoneKey: v.optional(v.string()),
+    proposalId: v.id("buildProposals"),
+    reason: v.optional(v.string()),
+    requestedPayload: v.any(),
+    requestType: timelineModificationRequestType,
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.object({ requestId: v.id("proposalTimelineModificationRequests") }))
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    if (auth.proposal.status !== "approved") {
+      throw new Error("Live-build modification requests require approval.");
+    }
+    let priorState: unknown;
+    if (
+      args.requestType === "deleteMilestone" ||
+      args.requestType === "updateMilestoneBudget"
+    ) {
+      if (!args.milestoneKey) {
+        throw new Error("milestoneKey is required for this request.");
+      }
+      priorState = await getProductionMilestoneOrThrow(
+        ctx,
+        args.proposalId,
+        args.milestoneKey,
+      );
+    }
+    const now = Date.now();
+    const requestId = await ctx.db.insert("proposalTimelineModificationRequests", {
+      brokerageId: auth.brokerage._id,
+      createdAt: now,
+      milestoneKey: args.milestoneKey,
+      organizationId: auth.proposal.organizationId,
+      priorState,
+      proposalId: args.proposalId,
+      reason: args.reason,
+      requestedByWorkosUserId: auth.subject,
+      requestedPayload: args.requestedPayload,
+      requestType: args.requestType,
+      status: "requested",
+      updatedAt: now,
+    });
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "requestProductionTimelineModification",
+      eventType: "proposal.modification.requested",
+      newState: JSON.stringify({ requestId, requestType: args.requestType }),
+      proposalId: args.proposalId,
+      reason: args.reason,
+    });
+    return { requestId };
+  })
+  .public();
+
+export const reviewProductionTimelineModificationRequest =
+  authenticatedMutation
+    .input({
+      note: v.optional(v.string()),
+      requestId: v.id("proposalTimelineModificationRequests"),
+      status: v.union(v.literal("approved"), v.literal("rejected")),
+      workosOrganizationId: v.string(),
+    })
+    .returns(v.null())
+    .handler(async (ctx, args) => {
+      const request = await ctx.db.get(args.requestId);
+      if (!request) {
+        throw new Error("Production timeline modification request not found.");
+      }
+      const auth = await authorizeProposal(
+        ctx,
+        request.proposalId,
+        args.workosOrganizationId,
+      );
+      requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+      requireBackofficeProposalWrite(auth, auth.proposal);
+
+      if (request.status !== "requested") {
+        return null;
+      }
+      if (args.status === "approved") {
+        await applyProductionTimelineModificationRequest(ctx, auth, request);
+      }
+      await ctx.db.patch(request._id, {
+        reviewNote: args.note,
+        reviewedAt: Date.now(),
+        reviewerWorkosUserId: auth.subject,
+        status: args.status,
+        updatedAt: Date.now(),
+      });
+      await writeProposalEvent(ctx, {
+        auth,
+        command: "reviewProductionTimelineModificationRequest",
+        eventType: "proposal.modification.reviewed",
+        newState: JSON.stringify({ requestId: args.requestId, status: args.status }),
+        priorState: JSON.stringify(request),
+        proposalId: request.proposalId,
+        reason: args.note,
+      });
+      return null;
+    })
+    .public();
+
+export const updateProductionTimelinePlanState = authenticatedMutation
+  .input({
+    currentDay: v.number(),
+    progressValue: v.number(),
+    proposalId: v.id("buildProposals"),
+    rangeMax: v.number(),
+    rangeMin: v.number(),
+    routeState: v.object({
+      activeCapitalSpikeId: v.optional(v.string()),
+      activeDrawId: v.optional(v.string()),
+      activeMilestoneKey: v.optional(v.string()),
+      selectedPanelOpen: v.boolean(),
+      straightLine: v.boolean(),
+    }),
+    startingCashCents: v.number(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    requireProductionTimelineEditable(auth);
+    const priorState = JSON.stringify({
+      currentDay: auth.proposal.timelineCurrentDay,
+      progressValue: auth.proposal.timelineProgressValue,
+      rangeMax: auth.proposal.timelineRangeMax,
+      rangeMin: auth.proposal.timelineRangeMin,
+      routeState: auth.proposal.timelineRouteState,
+      startingCashCents: auth.proposal.timelineStartingCashCents,
+    });
+    const now = Date.now();
+    await ctx.db.patch(args.proposalId, {
+      borrowerWorkingCapitalLimitCents: Math.max(
+        0,
+        Math.round(args.startingCashCents),
+      ),
+      timelineCurrentDay: Math.round(args.currentDay),
+      timelineProgressValue: Math.round(args.progressValue),
+      timelineRangeMax: Math.round(args.rangeMax),
+      timelineRangeMin: Math.round(args.rangeMin),
+      timelineRouteState: args.routeState,
+      timelineStartingCashCents: Math.max(0, Math.round(args.startingCashCents)),
+      updatedAt: now,
+      updatedByWorkosUserId: auth.subject,
+    });
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "updateProductionTimelinePlanState",
+      eventType: "proposal.timeline_state.updated",
+      newState: JSON.stringify({
+        currentDay: Math.round(args.currentDay),
+        progressValue: Math.round(args.progressValue),
+        rangeMax: Math.round(args.rangeMax),
+        rangeMin: Math.round(args.rangeMin),
+        routeState: args.routeState,
+        startingCashCents: Math.max(0, Math.round(args.startingCashCents)),
+      }),
+      priorState,
+      proposalId: args.proposalId,
+    });
+    return null;
+  })
+  .public();
+
+export const createProductionTimelineCapitalEvent = authenticatedMutation
+  .input({
+    amountCents: v.number(),
+    capitalEventKey: v.string(),
+    eventKind: timelineCapitalEventKind,
+    label: v.string(),
+    order: v.optional(v.number()),
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+    x: v.number(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    requireProductionTimelineEditable(auth);
+    await insertProductionCapitalEvent(ctx, auth, {
+      amountCents: args.amountCents,
+      capitalEventKey: args.capitalEventKey,
+      eventKind: args.eventKind,
+      label: args.label,
+      order: args.order,
+      proposalId: args.proposalId,
+      x: args.x,
+    });
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "createProductionTimelineCapitalEvent",
+      eventType: "proposal.capital_event.created",
+      newState: JSON.stringify(args),
+      proposalId: args.proposalId,
+    });
+    return null;
+  })
+  .public();
+
+export const createProductionTimelineCashInfusion = authenticatedMutation
+  .input({
+    amountCents: v.number(),
+    cashInfusionKey: v.string(),
+    label: v.string(),
+    order: v.optional(v.number()),
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+    x: v.number(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    requireProductionTimelineEditable(auth);
+    await insertProductionCapitalEvent(ctx, auth, {
+      amountCents: args.amountCents,
+      capitalEventKey: args.cashInfusionKey,
+      eventKind: "cashInfusion",
+      label: args.label,
+      order: args.order,
+      proposalId: args.proposalId,
+      x: args.x,
+    });
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "createProductionTimelineCashInfusion",
+      eventType: "proposal.cash_infusion.created",
+      newState: JSON.stringify(args),
+      proposalId: args.proposalId,
+    });
+    return null;
+  })
+  .public();
+
+export const updateProductionTimelineCapitalEvent = authenticatedMutation
+  .input({
+    amountCents: v.optional(v.number()),
+    capitalEventKey: v.string(),
+    eventKind: v.optional(timelineCapitalEventKind),
+    label: v.optional(v.string()),
+    order: v.optional(v.number()),
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+    x: v.optional(v.number()),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    requireProductionTimelineEditable(auth);
+    const event = await getProductionCapitalEventOrThrow(
+      ctx,
+      args.proposalId,
+      args.capitalEventKey,
+    );
+    const patch = {
+      ...(args.amountCents === undefined
+        ? {}
+        : { amountCents: Math.max(0, Math.round(args.amountCents)) }),
+      ...(args.eventKind === undefined ? {} : { eventKind: args.eventKind }),
+      ...(args.label === undefined
+        ? {}
+        : { label: args.label.trim() || event.label }),
+      ...(args.order === undefined ? {} : { order: Math.max(1, args.order) }),
+      ...(args.x === undefined ? {} : { x: Math.max(0, Math.round(args.x)) }),
+      updatedAt: Date.now(),
+    };
+    await ctx.db.patch(event._id, patch);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "updateProductionTimelineCapitalEvent",
+      eventType: "proposal.capital_event.updated",
+      newState: JSON.stringify(patch),
+      priorState: JSON.stringify(event),
+      proposalId: args.proposalId,
+    });
+    return null;
+  })
+  .public();
+
+export const deleteProductionTimelineCapitalEvent = authenticatedMutation
+  .input({
+    capitalEventKey: v.string(),
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    requireProductionTimelineEditable(auth);
+    const event = await getProductionCapitalEventOrThrow(
+      ctx,
+      args.proposalId,
+      args.capitalEventKey,
+    );
+    await ctx.db.delete(event._id);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "deleteProductionTimelineCapitalEvent",
+      eventType: "proposal.capital_event.deleted",
+      priorState: JSON.stringify(event),
+      proposalId: args.proposalId,
+    });
+    return null;
+  })
+  .public();
+
+export const generateProductionEvidenceUploadUrl = authenticatedMutation
+  .input({
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.string())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    requireProductionTimelineEditable(auth);
+    return await ctx.storage.generateUploadUrl();
+  })
+  .public();
+
+export const createProductionTimelineEvidenceAsset = authenticatedMutation
+  .input({
+    asset: evidenceAssetInput,
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    requireProductionTimelineEditable(auth);
+    const milestone = await getProductionMilestoneOrThrow(
+      ctx,
+      args.proposalId,
+      args.asset.milestoneKey,
+    );
+    const existing = await ctx.db
+      .query("proposalEvidenceAssets")
+      .withIndex("by_proposal_key", (q) =>
+        q.eq("proposalId", args.proposalId).eq("evidenceKey", args.asset.evidenceKey),
+      )
+      .unique();
+    if (existing) {
+      throw new Error("Production evidence asset already exists.");
+    }
+    const now = Date.now();
+    await ctx.db.insert("proposalEvidenceAssets", {
+      brokerageId: auth.brokerage._id,
+      createdAt: now,
+      evidenceKey: args.asset.evidenceKey,
+      fileName: args.asset.fileName,
+      label: args.asset.label.trim() || args.asset.fileName,
+      locationVerified: args.asset.locationVerified ?? false,
+      milestoneKey: args.asset.milestoneKey,
+      mimeType: args.asset.mimeType,
+      organizationId: auth.proposal.organizationId,
+      proposalId: args.proposalId,
+      sizeBytes: Math.max(0, Math.round(args.asset.sizeBytes)),
+      source: args.asset.source ?? "production_timeline_upload",
+      storageId: args.asset.storageId,
+      tag: args.asset.tag.trim() || milestone.name,
+      updatedAt: now,
+    });
+    await ctx.db.patch(milestone._id, {
+      evidenceState: "Submitted package",
+      updatedAt: now,
+    });
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "createProductionTimelineEvidenceAsset",
+      eventType: "proposal.evidence.created",
+      newState: JSON.stringify(args.asset),
+      proposalId: args.proposalId,
+    });
+    return null;
+  })
+  .public();
+
+export const updateProductionTimelineEvidenceAsset = authenticatedMutation
+  .input({
+    evidenceKey: v.string(),
+    label: v.optional(v.string()),
+    proposalId: v.id("buildProposals"),
+    tag: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    requireProductionTimelineEditable(auth);
+    const asset = await getProductionEvidenceAssetOrThrow(
+      ctx,
+      args.proposalId,
+      args.evidenceKey,
+    );
+    const patch = {
+      ...(args.label === undefined
+        ? {}
+        : { label: args.label.trim() || asset.label }),
+      ...(args.tag === undefined ? {} : { tag: args.tag.trim() || asset.tag }),
+      updatedAt: Date.now(),
+    };
+    await ctx.db.patch(asset._id, patch);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "updateProductionTimelineEvidenceAsset",
+      eventType: "proposal.evidence.updated",
+      newState: JSON.stringify(patch),
+      priorState: JSON.stringify(asset),
+      proposalId: args.proposalId,
+    });
+    return null;
+  })
+  .public();
+
+export const deleteProductionTimelineEvidenceAsset = authenticatedMutation
+  .input({
+    evidenceKey: v.string(),
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    requireProductionTimelineEditable(auth);
+    const asset = await getProductionEvidenceAssetOrThrow(
+      ctx,
+      args.proposalId,
+      args.evidenceKey,
+    );
+    if (asset.storageId) {
+      await ctx.storage.delete(asset.storageId);
+    }
+    await ctx.db.delete(asset._id);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "deleteProductionTimelineEvidenceAsset",
+      eventType: "proposal.evidence.deleted",
+      priorState: JSON.stringify(asset),
+      proposalId: args.proposalId,
+    });
+    return null;
+  })
+  .public();
+
+export const submitProductionMilestoneCompletion = authenticatedMutation
+  .input({
+    actualCostCents: v.optional(v.number()),
+    completedDay: v.number(),
+    milestoneKey: v.string(),
+    note: v.optional(v.string()),
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    requireProductionTimelineLiveWrite(auth);
+    const milestone = await getProductionMilestoneOrThrow(
+      ctx,
+      args.proposalId,
+      args.milestoneKey,
+    );
+    const completionClaim = {
+      ...(args.actualCostCents === undefined
+        ? {}
+        : { actualCostCents: Math.max(0, Math.round(args.actualCostCents)) }),
+      completedDay: Math.max(0, Math.round(args.completedDay)),
+      ...(args.note ? { note: args.note } : {}),
+      submittedAt: new Date().toISOString(),
+    };
+    const now = Date.now();
+    await ctx.db.patch(milestone._id, {
+      completionClaim,
+      evidenceState: milestone.evidenceState ?? "Completion claimed",
+      timelineStatus: "complete",
+      tone: "complete",
+      updatedAt: now,
+    });
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "submitProductionMilestoneCompletion",
+      eventType: "proposal.milestone_completion.submitted",
+      newState: JSON.stringify(completionClaim),
+      priorState: JSON.stringify(milestone.completionClaim),
+      proposalId: args.proposalId,
+    });
+    return null;
+  })
+  .public();
+
+export const reviewProductionMilestoneCompletion = authenticatedMutation
+  .input({
+    milestoneKey: v.string(),
+    note: v.optional(v.string()),
+    proposalId: v.id("buildProposals"),
+    status: v.union(v.literal("approved"), v.literal("revisionRequested")),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+    requireBackofficeProposalWrite(auth, auth.proposal);
+    const milestone = await getProductionMilestoneOrThrow(
+      ctx,
+      args.proposalId,
+      args.milestoneKey,
+    );
+    const completionReview = {
+      ...(args.note ? { note: args.note } : {}),
+      reviewedAt: new Date().toISOString(),
+      status: args.status,
+    };
+    await ctx.db.patch(milestone._id, {
+      completionReview,
+      completionClaim: {
+        ...(milestone.completionClaim ?? {}),
+        completionReview,
+      },
+      timelineStatus:
+        args.status === "approved" ? "complete" : milestone.timelineStatus,
+      tone: args.status === "approved" ? "complete" : "warning",
+      updatedAt: Date.now(),
+    });
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "reviewProductionMilestoneCompletion",
+      eventType: "proposal.milestone_completion.reviewed",
+      newState: JSON.stringify(completionReview),
+      priorState: JSON.stringify(milestone.completionReview),
+      proposalId: args.proposalId,
+    });
+    return null;
+  })
+  .public();
+
+export const requestProductionMilestoneSiteVisit = authenticatedMutation
+  .input({
+    includedMilestoneKeys: v.optional(v.array(v.string())),
+    milestoneKey: v.string(),
+    note: v.optional(v.string()),
+    proposalId: v.id("buildProposals"),
+    requestedDay: v.number(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(
+    v.object({
+      includedItemIds: v.optional(v.array(v.string())),
+      note: v.optional(v.string()),
+      requestedAt: v.string(),
+      requestedDay: v.number(),
+      status: v.string(),
+      tokenExpiresAt: v.number(),
+      url: v.string(),
+      visitId: v.string(),
+    }),
+  )
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    if (auth.proposal.status !== "approved") {
+      throw new Error("Site visit requests require an approved proposal.");
+    }
+    requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+    requireBackofficeProposalWrite(auth, auth.proposal);
+    const milestone = await getProductionMilestoneOrThrow(
+      ctx,
+      args.proposalId,
+      args.milestoneKey,
+    );
+    const now = Date.now();
+    const visitId = `site_visit_${args.milestoneKey}_${now}`;
+    const siteVisit = {
+      includedItemIds:
+        args.includedMilestoneKeys && args.includedMilestoneKeys.length > 0
+          ? args.includedMilestoneKeys
+          : [args.milestoneKey],
+      ...(args.note ? { note: args.note } : {}),
+      requestedAt: new Date(now).toISOString(),
+      requestedDay: Math.max(0, Math.round(args.requestedDay)),
+      status: "requested",
+      tokenExpiresAt: now + 60 * 60 * 1000,
+      url: `/newsitevisit/${String(args.proposalId)}/${visitId}`,
+      visitId,
+    };
+    const completionReview = {
+      ...(milestone.completionReview ?? {}),
+      reviewedAt: milestone.completionReview?.reviewedAt ?? siteVisit.requestedAt,
+      siteVisit,
+      status: milestone.completionReview?.status ?? "revisionRequested",
+    };
+    await ctx.db.patch(milestone._id, {
+      completionReview,
+      tone: "warning",
+      updatedAt: now,
+    });
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "requestProductionMilestoneSiteVisit",
+      eventType: "proposal.site_visit.requested",
+      newState: JSON.stringify(siteVisit),
+      priorState: JSON.stringify(milestone.completionReview),
+      proposalId: args.proposalId,
+      reason: args.note,
+    });
+    return siteVisit;
+  })
+  .public();
+
+export const recordProductionMilestoneSiteVisit = authenticatedMutation
+  .input({
+    milestoneKey: v.string(),
+    note: v.optional(v.string()),
+    proposalId: v.id("buildProposals"),
+    status: v.union(v.literal("complete"), v.literal("cancelled")),
+    visitId: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    if (auth.proposal.status !== "approved") {
+      throw new Error("Site visit records require an approved proposal.");
+    }
+    requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+    requireBackofficeProposalWrite(auth, auth.proposal);
+    const milestone = await getProductionMilestoneOrThrow(
+      ctx,
+      args.proposalId,
+      args.milestoneKey,
+    );
+    const existingReview = milestone.completionReview ?? {};
+    const existingSiteVisit = existingReview.siteVisit;
+    if (!existingSiteVisit || existingSiteVisit.visitId !== args.visitId) {
+      throw new Error("Production site visit request not found.");
+    }
+    const now = Date.now();
+    const siteVisit = {
+      ...existingSiteVisit,
+      completedAt:
+        args.status === "complete"
+          ? new Date(now).toISOString()
+          : existingSiteVisit.completedAt,
+      ...(args.note ? { recordNote: args.note } : {}),
+      status: args.status,
+    };
+    const completionReview = {
+      ...existingReview,
+      reviewedAt: existingReview.reviewedAt ?? new Date(now).toISOString(),
+      siteVisit,
+      status: existingReview.status ?? "revisionRequested",
+    };
+    await ctx.db.patch(milestone._id, {
+      completionReview,
+      updatedAt: now,
+    });
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "recordProductionMilestoneSiteVisit",
+      eventType: "proposal.site_visit.recorded",
+      newState: JSON.stringify(siteVisit),
+      priorState: JSON.stringify(existingSiteVisit),
+      proposalId: args.proposalId,
+      reason: args.note,
+    });
+    return null;
+  })
+  .public();
+
+export const submitProductionDrawRequest = authenticatedMutation
+  .input({
+    amountCents: v.number(),
+    drawKey: v.string(),
+    note: v.optional(v.string()),
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+    x: v.optional(v.number()),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    requireProductionTimelineLiveWrite(auth);
+    const draw = await getProductionDrawOrThrow(
+      ctx,
+      args.proposalId,
+      args.drawKey,
+    );
+    const patch = {
+      amountCents: Math.max(0, Math.round(args.amountCents)),
+      customDate: args.x === undefined ? draw.customDate : true,
+      requestNote: args.note,
+      requestStatus: "requested" as const,
+      requestedAt: new Date().toISOString(),
+      timingDay:
+        args.x === undefined ? draw.timingDay : Math.max(0, Math.round(args.x)),
+      updatedAt: Date.now(),
+    };
+    await ctx.db.patch(draw._id, patch);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "submitProductionDrawRequest",
+      eventType: "proposal.draw_request.submitted",
+      newState: JSON.stringify(patch),
+      priorState: JSON.stringify(draw),
+      proposalId: args.proposalId,
+    });
+    return null;
+  })
+  .public();
+
+export const reviewProductionDrawRequest = authenticatedMutation
+  .input({
+    drawKey: v.string(),
+    note: v.optional(v.string()),
+    proposalId: v.id("buildProposals"),
+    status: v.union(v.literal("approved"), v.literal("rejected")),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+    requireBackofficeProposalWrite(auth, auth.proposal);
+    const draw = await getProductionDrawOrThrow(
+      ctx,
+      args.proposalId,
+      args.drawKey,
+    );
+    const patch = {
+      requestReviewNote: args.note,
+      requestStatus: args.status,
+      reviewedAt: new Date().toISOString(),
+      updatedAt: Date.now(),
+    };
+    await ctx.db.patch(draw._id, patch);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "reviewProductionDrawRequest",
+      eventType: "proposal.draw_request.reviewed",
+      newState: JSON.stringify(patch),
+      priorState: JSON.stringify(draw),
+      proposalId: args.proposalId,
+    });
+    return null;
+  })
+  .public();
+
 export const recordOfflineClosing = authenticatedMutation
   .input({
     buildStartDate: v.string(),
@@ -1047,6 +2215,244 @@ export const getProposalDetail = authenticatedQuery
       proposal: auth.proposal,
       submilestones,
       draws,
+    };
+  })
+  .public();
+
+export const getProductionTimelineWorkspace = authenticatedQuery
+  .input({
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    const [
+      milestoneRows,
+      submilestones,
+      drawRows,
+      capitalEventRows,
+      evidenceRows,
+      modificationRequests,
+      permitWaiver,
+    ] = await Promise.all([
+        collectByIndex(ctx, "proposalMilestones", "by_proposal", args.proposalId),
+        collectByIndex(
+          ctx,
+          "proposalSubmilestones",
+          "by_proposal",
+          args.proposalId,
+        ),
+        collectByIndex(
+          ctx,
+          "proposalDrawScheduleRows",
+          "by_proposal",
+          args.proposalId,
+        ),
+        collectByIndex(
+          ctx,
+          "proposalCapitalEvents",
+          "by_proposal",
+          args.proposalId,
+        ),
+        collectByIndex(
+          ctx,
+          "proposalEvidenceAssets",
+          "by_proposal",
+          args.proposalId,
+        ),
+        collectByIndex(
+          ctx,
+          "proposalTimelineModificationRequests",
+          "by_proposal",
+          args.proposalId,
+        ),
+        getPermitWaiver(ctx, args.proposalId),
+      ]);
+
+    const milestones = [...milestoneRows].sort(
+      (a, b) => a.order - b.order || a.key.localeCompare(b.key),
+    );
+    const draws = [...drawRows].sort(
+      (a, b) => a.order - b.order || a.drawKey.localeCompare(b.drawKey),
+    );
+    const drawByMilestoneKey = new Map(
+      draws
+        .filter((draw) => draw.milestoneKey)
+        .map((draw) => [draw.milestoneKey as string, draw]),
+    );
+    const maxDay = Math.max(
+      60,
+      ...milestones.map((milestone) => milestone.dayEnd + 10),
+      ...draws.map((draw) => draw.timingDay + 10),
+    );
+    const currentDay =
+      auth.proposal.status === "draft"
+        ? (milestones[0]?.dayStart ?? 0)
+        : Math.max(
+            milestones[0]?.dayStart ?? 0,
+            Math.min(
+              maxDay,
+              Math.round(
+                ((auth.proposal.submittedAt ?? auth.proposal.updatedAt) -
+                  auth.proposal.createdAt) /
+                  86_400_000,
+              ),
+            ),
+          );
+    const activeMilestone = firstActiveMilestoneForWorkspace(milestones);
+
+    return {
+      activeBuild: auth.proposal.activeBuildId
+        ? await ctx.db.get(auth.proposal.activeBuildId)
+        : null,
+      capitalEvents: [
+        {
+          amountCents:
+            auth.proposal.timelineStartingCashCents ??
+            auth.proposal.borrowerWorkingCapitalLimitCents,
+          capitalEventKey: "borrower-reserve",
+          eventKind: "cashInfusion",
+          label: "Borrower reserve",
+          x: 0,
+        },
+        ...[...capitalEventRows]
+          .sort((a, b) => a.order - b.order || a.x - b.x)
+          .map((event) => ({
+            amountCents: event.amountCents,
+            capitalEventKey: event.capitalEventKey,
+            eventKind: event.eventKind,
+            label: event.label,
+            x: event.x,
+          })),
+      ],
+      draws: draws.map((draw) => ({
+        amountCents: draw.amountCents,
+        customDate: draw.customDate ?? draw.source === "manual",
+        drawKey: draw.drawKey,
+        itemMilestoneKey: draw.milestoneKey,
+        label: draw.label,
+        requestNote: draw.requestNote,
+        requestReviewNote: draw.requestReviewNote,
+        requestStatus: draw.requestStatus,
+        reviewedAt: draw.reviewedAt,
+        requestedAt: draw.requestedAt,
+        x: draw.timingDay,
+      })),
+      evidenceAssets: await Promise.all(
+        [...evidenceRows]
+          .sort((a, b) => a.createdAt - b.createdAt)
+          .map(async (asset) => ({
+            evidenceKey: asset.evidenceKey,
+            fileName: asset.fileName,
+            label: asset.label,
+            milestoneKey: asset.milestoneKey,
+            mimeType: asset.mimeType,
+            previewUrl: asset.storageId
+              ? await ctx.storage.getUrl(asset.storageId)
+              : null,
+            sizeBytes: asset.sizeBytes,
+            tag: asset.tag,
+          })),
+      ),
+      milestones: milestones.map((milestone, index) => {
+        const draw = drawByMilestoneKey.get(milestone.key);
+        const evidenceState =
+          milestone.evidenceState ??
+          (evidenceRows.some((asset: any) => asset.milestoneKey === milestone.key)
+            ? "Submitted package"
+            : milestone.completionClaim
+              ? "Completion claimed"
+              : "Draft package");
+        return {
+          budgetCents: milestone.budgetCents,
+          completionClaim: productionCompletionClaimView(
+            milestone.completionClaim,
+          ),
+          completionReview: productionCompletionReviewView(
+            milestone.completionReview ??
+              milestone.completionClaim?.completionReview,
+          ),
+          drawAvailabilityCents:
+            draw?.amountCents ?? milestone.drawAvailabilityCents,
+          drawKey: draw?.label ?? "Reimbursement draw",
+          durationDays: milestone.durationDays,
+          evidenceState,
+          icon:
+            milestone.icon ??
+            iconForProductionMilestone(milestone.key, milestone.name),
+          lane: milestone.lane ?? (index % 3 === 1 ? -1 : index % 3 === 2 ? 1 : 0),
+          markerLabel: milestone.markerLabel ?? String(index + 1),
+          milestoneKey: milestone.key,
+          name: milestone.name,
+          order: index + 1,
+          policyState:
+            milestone.policyState ?? productionPolicyState(auth.proposal, permitWaiver),
+          status: productionTimelineStatusForMilestone(index, auth.proposal, milestone),
+          submilestoneSnapshot: submilestones
+            .filter((submilestone: any) => submilestone.milestoneKey === milestone.key)
+            .sort((a: any, b: any) => a.order - b.order || a.key.localeCompare(b.key))
+            .map((submilestone: any) => ({
+              ...(submilestone.budgetCents === undefined
+                ? {}
+                : { budgetCents: submilestone.budgetCents }),
+              ...(submilestone.durationDays === undefined
+                ? {}
+                : { durationDays: submilestone.durationDays }),
+              key: submilestone.key,
+              name: submilestone.name,
+              order: submilestone.order,
+            })),
+          tone: productionTimelineToneForMilestone(index, auth.proposal, milestone),
+          x: milestone.dayStart,
+        };
+      }),
+      modificationRequests: [...modificationRequests]
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .map((request) => ({
+          _id: request._id,
+          milestoneKey: request.milestoneKey,
+          reason: request.reason,
+          requestedPayload: request.requestedPayload,
+          requestType: request.requestType,
+          reviewNote: request.reviewNote,
+          status: request.status,
+        })),
+      permissions: productionTimelinePermissions(auth),
+      plan: {
+        borrowerCoPayBps: auth.proposal.borrowerCoPayBps,
+        borrowerCoPayCents: Math.round(
+          (auth.proposal.totalBudgetCents * auth.proposal.borrowerCoPayBps) /
+            10_000,
+        ),
+        currentDay: auth.proposal.timelineCurrentDay ?? currentDay,
+        progressValue: auth.proposal.timelineProgressValue ?? currentDay,
+        rangeMax: auth.proposal.timelineRangeMax ?? maxDay,
+        rangeMin: auth.proposal.timelineRangeMin ?? 0,
+        routeState: {
+          activeMilestoneKey:
+            auth.proposal.timelineRouteState?.activeMilestoneKey ??
+            activeMilestone?.key,
+          selectedPanelOpen:
+            auth.proposal.timelineRouteState?.selectedPanelOpen ??
+            Boolean(activeMilestone),
+          straightLine: auth.proposal.timelineRouteState?.straightLine ?? true,
+        },
+        startingCashCents:
+          auth.proposal.timelineStartingCashCents ??
+          auth.proposal.borrowerWorkingCapitalLimitCents,
+      },
+      planSummary: {
+        address: auth.proposal.location,
+        includedCount: milestones.length,
+        templateTitle: auth.proposal.buildName,
+        totalBudget: auth.proposal.totalBudgetCents,
+      },
+      proposal: auth.proposal,
     };
   })
   .public();
@@ -1467,8 +2873,569 @@ function calculateDrawAvailability(budgetCents: number, borrowerCoPayBps: number
   return Math.round((budgetCents * (10_000 - borrowerCoPayBps)) / 10_000);
 }
 
+function firstActiveMilestoneForWorkspace(
+  milestones: Doc<"proposalMilestones">[],
+) {
+  return milestones[0] ?? null;
+}
+
+function productionTimelineStatusForMilestone(
+  index: number,
+  proposal: Doc<"buildProposals">,
+  milestone?: Doc<"proposalMilestones">,
+) {
+  if (milestone?.timelineStatus === "complete" || milestone?.completionClaim) {
+    return "complete" as const;
+  }
+  if (proposal.status === "closed") {
+    return "complete" as const;
+  }
+  return index === 0 ? ("ready" as const) : ("upcoming" as const);
+}
+
+function productionTimelineToneForMilestone(
+  index: number,
+  proposal: Doc<"buildProposals">,
+  milestone?: Doc<"proposalMilestones">,
+) {
+  if (milestone?.tone) {
+    return milestone.tone;
+  }
+  if (milestone?.timelineStatus === "complete" || milestone?.completionClaim) {
+    return "complete" as const;
+  }
+  if (proposal.status === "closed") {
+    return "complete" as const;
+  }
+  if (proposal.status === "submitted") {
+    return index === 0 ? ("warning" as const) : ("upcoming" as const);
+  }
+  if (proposal.status === "approved") {
+    return index === 0 ? ("active" as const) : ("upcoming" as const);
+  }
+  return index === 0 ? ("active" as const) : ("upcoming" as const);
+}
+
+function productionCompletionClaimView(claim: any) {
+  if (!claim) {
+    return undefined;
+  }
+  return {
+    ...(typeof claim.actualCostCents === "number"
+      ? { actualCost: centsToDollars(claim.actualCostCents) }
+      : typeof claim.actualCost === "number"
+        ? { actualCost: claim.actualCost }
+        : {}),
+    completedDay: claim.completedDay,
+    ...(claim.note ? { note: claim.note } : {}),
+    submittedAt: claim.submittedAt,
+  };
+}
+
+function productionCompletionReviewView(review: any) {
+  if (!review) {
+    return undefined;
+  }
+  return {
+    ...(review.note ? { note: review.note } : {}),
+    reviewedAt: review.reviewedAt,
+    ...(review.siteVisit ? { siteVisit: review.siteVisit } : {}),
+    status: review.status,
+  };
+}
+
+function centsToDollars(cents: number) {
+  return Math.round(cents / 100);
+}
+
+function productionPolicyState(
+  proposal: Doc<"buildProposals">,
+  permitWaiver: Doc<"documentWaivers"> | null,
+) {
+  if (proposal.reviewOutcome === "rejected") {
+    return "Rejected by lender review";
+  }
+  if (proposal.reviewOutcome === "requested_changes") {
+    return "Changes requested by lender review";
+  }
+  if (permitWaiver) {
+    return "Permit waiver recorded";
+  }
+  if (proposal.status === "submitted") {
+    return "Locked for lender review";
+  }
+  if (proposal.status === "approved" || proposal.status === "closed") {
+    return "Approved reimbursement policy";
+  }
+  return "Draft proposal policy";
+}
+
+function productionTimelinePermissions(auth: {
+  proposal: Doc<"buildProposals">;
+  roles: RoleSlug[];
+  subject: string;
+}) {
+  const backoffice = isBackoffice(auth.roles);
+  const draft = auth.proposal.status === "draft";
+  const liveBuild = auth.proposal.status === "approved";
+  const submitted = auth.proposal.status === "submitted";
+  return {
+    approveProposal: submitted && backoffice,
+    closeProposal: auth.proposal.status === "approved" && backoffice,
+    editDraftStructure: draft,
+    editSubmittedDraws: submitted && backoffice,
+    requestLiveModification: liveBuild && !backoffice,
+    reviewDraws: liveBuild && backoffice,
+    reviewMilestones: liveBuild && backoffice,
+    submitDrawRequests: liveBuild && !backoffice,
+    submitMilestoneCompletion: liveBuild && !backoffice,
+    submitProposal: draft,
+  };
+}
+
+function iconForProductionMilestone(key: string, name?: string) {
+  const normalized = `${key} ${name ?? ""}`.toLowerCase();
+  if (normalized.includes("foundation") || normalized.includes("site")) {
+    return "foundation";
+  }
+  if (normalized.includes("kitchen") || normalized.includes("cabinet")) {
+    return "kitchen";
+  }
+  if (
+    normalized.includes("plumb") ||
+    normalized.includes("mechanical") ||
+    normalized.includes("mep")
+  ) {
+    return "plumbing";
+  }
+  if (normalized.includes("roof") || normalized.includes("dry-in")) {
+    return "roofing";
+  }
+  if (normalized.includes("shell") || normalized.includes("fram")) {
+    return "framing";
+  }
+  if (normalized.includes("rough")) {
+    return "roughIn";
+  }
+  if (normalized.includes("exterior")) {
+    return "exterior";
+  }
+  if (normalized.includes("dry")) {
+    return "drywall";
+  }
+  if (normalized.includes("finish") || normalized.includes("interior")) {
+    return "finishes";
+  }
+  if (normalized.includes("close")) {
+    return "closeout";
+  }
+  return "change";
+}
+
+function requireProductionTimelineEditable(auth: {
+  proposal: Doc<"buildProposals">;
+  roles: RoleSlug[];
+  subject: string;
+}) {
+  if (auth.proposal.status === "draft") {
+    return;
+  }
+  if (auth.proposal.status === "approved") {
+    return;
+  }
+  if (auth.proposal.status === "submitted" && isBackoffice(auth.roles)) {
+    requireBackofficeProposalWrite(auth, auth.proposal);
+    return;
+  }
+  throw new Error("Timeline is locked in this proposal state.");
+}
+
+function requireProductionTimelineDraftStructureWrite(auth: {
+  proposal: Doc<"buildProposals">;
+  roles: RoleSlug[];
+  subject: string;
+}) {
+  if (auth.proposal.status !== "draft") {
+    throw new Error("Proposal structure is locked after submission.");
+  }
+  if (isBackoffice(auth.roles)) {
+    requireBackofficeProposalWrite(auth, auth.proposal);
+  }
+}
+
+function requireProductionTimelineLiveWrite(auth: {
+  proposal: Doc<"buildProposals">;
+  roles: RoleSlug[];
+  subject: string;
+}) {
+  if (auth.proposal.status !== "approved") {
+    throw new Error("Live-build timeline actions require an approved proposal.");
+  }
+  if (isBackoffice(auth.roles)) {
+    requireBackofficeProposalWrite(auth, auth.proposal);
+  }
+}
+
+async function insertProductionMilestoneFromInput(
+  ctx: MutationCtx,
+  auth: {
+    brokerage: Doc<"brokerages">;
+    proposal: Doc<"buildProposals">;
+  },
+  milestone: {
+    budgetCents: number;
+    dayEnd: number;
+    dayStart: number;
+    dependencyKeys?: string[];
+    drawAvailabilityCents?: number;
+    durationDays: number;
+    evidenceState: string;
+    icon?: string;
+    lane?: number;
+    markerLabel?: string;
+    milestoneKey: string;
+    name: string;
+    order: number;
+    policyState: string;
+    status?: string;
+    submilestones?: {
+      budgetCents?: number;
+      durationDays?: number;
+      key: string;
+      name: string;
+      order: number;
+    }[];
+    tone?: string;
+    x: number;
+  },
+) {
+  const existing = await ctx.db
+    .query("proposalMilestones")
+    .withIndex("by_proposal_key", (q) =>
+      q.eq("proposalId", auth.proposal._id).eq("key", milestone.milestoneKey),
+    )
+    .unique();
+  if (existing) {
+    throw new Error("Production milestone already exists.");
+  }
+  if (milestone.dayEnd < milestone.dayStart) {
+    throw new Error("Milestone end day must be after start day.");
+  }
+  const now = Date.now();
+  const budgetCents = Math.max(0, Math.round(milestone.budgetCents));
+  const milestoneId = await ctx.db.insert("proposalMilestones", {
+    brokerageId: auth.brokerage._id,
+    budgetCents,
+    createdAt: now,
+    dayEnd: Math.round(milestone.dayEnd),
+    dayStart: Math.round(milestone.dayStart),
+    dependencyKeys: milestone.dependencyKeys ?? [],
+    drawAvailabilityCents:
+      milestone.drawAvailabilityCents === undefined
+        ? calculateDrawAvailability(budgetCents, auth.proposal.borrowerCoPayBps)
+        : Math.max(0, Math.round(milestone.drawAvailabilityCents)),
+    durationDays: Math.max(1, Math.round(milestone.durationDays)),
+    evidenceState: milestone.evidenceState,
+    icon: milestone.icon,
+    key: milestone.milestoneKey,
+    lane: milestone.lane,
+    markerLabel: milestone.markerLabel,
+    name: milestone.name.trim() || "Requested milestone",
+    order: Math.max(1, Math.round(milestone.order)),
+    organizationId: auth.proposal.organizationId,
+    policyState: milestone.policyState,
+    proposalId: auth.proposal._id,
+    timelineStatus: milestone.status,
+    tone: milestone.tone,
+    updatedAt: now,
+  });
+  await replaceProductionSubmilestones(ctx, auth, {
+    milestone: {
+      _id: milestoneId,
+      key: milestone.milestoneKey,
+    },
+    proposalId: auth.proposal._id,
+    rows: milestone.submilestones ?? [],
+  });
+  return milestoneId;
+}
+
+async function replaceProductionSubmilestones(
+  ctx: MutationCtx,
+  auth: {
+    brokerage: Doc<"brokerages">;
+    proposal: Doc<"buildProposals">;
+  },
+  input: {
+    milestone: Pick<Doc<"proposalMilestones">, "_id" | "key">;
+    proposalId: Id<"buildProposals">;
+    rows: {
+      budgetCents?: number;
+      durationDays?: number;
+      key: string;
+      name: string;
+      order: number;
+    }[];
+  },
+) {
+  const existing = await ctx.db
+    .query("proposalSubmilestones")
+    .withIndex("by_milestone", (q) => q.eq("proposalMilestoneId", input.milestone._id))
+    .collect();
+  for (const row of existing) {
+    await ctx.db.delete(row._id);
+  }
+  const now = Date.now();
+  for (const row of [...input.rows].sort((a, b) => a.order - b.order)) {
+    await ctx.db.insert("proposalSubmilestones", {
+      brokerageId: auth.brokerage._id,
+      budgetCents: row.budgetCents,
+      createdAt: now,
+      durationDays: row.durationDays,
+      key: row.key,
+      milestoneKey: input.milestone.key,
+      name: row.name.trim() || "Submilestone",
+      order: Math.max(1, Math.round(row.order)),
+      organizationId: auth.proposal.organizationId,
+      proposalId: input.proposalId,
+      proposalMilestoneId: input.milestone._id,
+      updatedAt: now,
+    });
+  }
+}
+
+async function deleteProductionMilestoneCascade(
+  ctx: MutationCtx,
+  proposalId: Id<"buildProposals">,
+  milestone: Doc<"proposalMilestones">,
+) {
+  const submilestones = await ctx.db
+    .query("proposalSubmilestones")
+    .withIndex("by_milestone", (q) => q.eq("proposalMilestoneId", milestone._id))
+    .collect();
+  for (const row of submilestones) {
+    await ctx.db.delete(row._id);
+  }
+  const evidenceAssets = await ctx.db
+    .query("proposalEvidenceAssets")
+    .withIndex("by_proposal_milestone", (q) =>
+      q.eq("proposalId", proposalId).eq("milestoneKey", milestone.key),
+    )
+    .collect();
+  for (const asset of evidenceAssets) {
+    if (asset.storageId) {
+      await ctx.storage.delete(asset.storageId);
+    }
+    await ctx.db.delete(asset._id);
+  }
+  const draws = await collectByIndex(
+    ctx,
+    "proposalDrawScheduleRows",
+    "by_proposal",
+    proposalId,
+  );
+  for (const draw of draws.filter((row: any) => row.milestoneKey === milestone.key)) {
+    await ctx.db.delete(draw._id);
+  }
+  await ctx.db.delete(milestone._id);
+}
+
+async function recalculateProposalBudget(
+  ctx: MutationCtx,
+  auth: { subject: string },
+  proposalId: Id<"buildProposals">,
+) {
+  const milestones = await collectByIndex(
+    ctx,
+    "proposalMilestones",
+    "by_proposal",
+    proposalId,
+  );
+  const totalBudgetCents = milestones.reduce(
+    (total: number, milestone: any) => total + milestone.budgetCents,
+    0,
+  );
+  await ctx.db.patch(proposalId, {
+    totalBudgetCents,
+    updatedAt: Date.now(),
+    updatedByWorkosUserId: auth.subject,
+  });
+  await upsertKanbanCard(ctx, proposalId, Date.now());
+}
+
+async function applyProductionTimelineModificationRequest(
+  ctx: MutationCtx,
+  auth: {
+    brokerage: Doc<"brokerages">;
+    proposal: Doc<"buildProposals">;
+    roles: RoleSlug[];
+    subject: string;
+  },
+  request: Doc<"proposalTimelineModificationRequests">,
+) {
+  if (request.requestType === "createMilestone") {
+    const milestone = request.requestedPayload?.milestone;
+    if (!milestone) {
+      throw new Error("milestone payload is required.");
+    }
+    await insertProductionMilestoneFromInput(ctx, auth, milestone);
+    await recalculateProposalBudget(ctx, auth, request.proposalId);
+    return;
+  }
+  if (!request.milestoneKey) {
+    throw new Error("milestoneKey is required.");
+  }
+  const milestone = await getProductionMilestoneOrThrow(
+    ctx,
+    request.proposalId,
+    request.milestoneKey,
+  );
+  if (request.requestType === "deleteMilestone") {
+    await deleteProductionMilestoneCascade(ctx, request.proposalId, milestone);
+    await recalculateProposalBudget(ctx, auth, request.proposalId);
+    return;
+  }
+  if (request.requestType === "updateMilestoneBudget") {
+    const budgetCents = request.requestedPayload?.budgetCents;
+    if (typeof budgetCents !== "number" || budgetCents < 0) {
+      throw new Error("budgetCents is required.");
+    }
+    await ctx.db.patch(milestone._id, {
+      budgetCents: Math.round(budgetCents),
+      drawAvailabilityCents: calculateDrawAvailability(
+        Math.round(budgetCents),
+        auth.proposal.borrowerCoPayBps,
+      ),
+      updatedAt: Date.now(),
+    });
+    await recalculateProposalBudget(ctx, auth, request.proposalId);
+  }
+}
+
+async function insertProductionCapitalEvent(
+  ctx: MutationCtx,
+  auth: {
+    brokerage: Doc<"brokerages">;
+    proposal: Doc<"buildProposals">;
+  },
+  input: {
+    amountCents: number;
+    capitalEventKey: string;
+    eventKind: "cashInfusion" | "cost";
+    label: string;
+    order?: number;
+    proposalId: Id<"buildProposals">;
+    x: number;
+  },
+) {
+  const existing = await ctx.db
+    .query("proposalCapitalEvents")
+    .withIndex("by_proposal_key", (q) =>
+      q
+        .eq("proposalId", input.proposalId)
+        .eq("capitalEventKey", input.capitalEventKey),
+    )
+    .unique();
+  if (existing) {
+    throw new Error("Production capital event already exists.");
+  }
+  const rows = await collectByIndex(
+    ctx,
+    "proposalCapitalEvents",
+    "by_proposal",
+    input.proposalId,
+  );
+  const now = Date.now();
+  await ctx.db.insert("proposalCapitalEvents", {
+    amountCents: Math.max(0, Math.round(input.amountCents)),
+    brokerageId: auth.brokerage._id,
+    capitalEventKey: input.capitalEventKey,
+    createdAt: now,
+    eventKind: input.eventKind,
+    label:
+      input.label.trim() ||
+      (input.eventKind === "cashInfusion" ? "Cash infusion" : "Capital spike"),
+    order: input.order ?? rows.length + 1,
+    organizationId: auth.proposal.organizationId,
+    proposalId: input.proposalId,
+    updatedAt: now,
+    x: Math.max(0, Math.round(input.x)),
+  });
+}
+
+async function getProductionMilestoneOrThrow(
+  ctx: QueryCtx | MutationCtx,
+  proposalId: Id<"buildProposals">,
+  milestoneKey: string,
+) {
+  const milestone = await ctx.db
+    .query("proposalMilestones")
+    .withIndex("by_proposal_key", (q) =>
+      q.eq("proposalId", proposalId).eq("key", milestoneKey),
+    )
+    .unique();
+  if (!milestone) {
+    throw new Error("Production milestone not found.");
+  }
+  return milestone;
+}
+
+async function getProductionDrawOrThrow(
+  ctx: QueryCtx | MutationCtx,
+  proposalId: Id<"buildProposals">,
+  drawKey: string,
+) {
+  const draw = await ctx.db
+    .query("proposalDrawScheduleRows")
+    .withIndex("by_proposal_key", (q) =>
+      q.eq("proposalId", proposalId).eq("drawKey", drawKey),
+    )
+    .unique();
+  if (!draw) {
+    throw new Error("Production draw not found.");
+  }
+  return draw;
+}
+
+async function getProductionCapitalEventOrThrow(
+  ctx: QueryCtx | MutationCtx,
+  proposalId: Id<"buildProposals">,
+  capitalEventKey: string,
+) {
+  const event = await ctx.db
+    .query("proposalCapitalEvents")
+    .withIndex("by_proposal_key", (q) =>
+      q.eq("proposalId", proposalId).eq("capitalEventKey", capitalEventKey),
+    )
+    .unique();
+  if (!event) {
+    throw new Error("Production capital event not found.");
+  }
+  return event;
+}
+
+async function getProductionEvidenceAssetOrThrow(
+  ctx: QueryCtx | MutationCtx,
+  proposalId: Id<"buildProposals">,
+  evidenceKey: string,
+) {
+  const asset = await ctx.db
+    .query("proposalEvidenceAssets")
+    .withIndex("by_proposal_key", (q) =>
+      q.eq("proposalId", proposalId).eq("evidenceKey", evidenceKey),
+    )
+    .unique();
+  if (!asset) {
+    throw new Error("Production evidence asset not found.");
+  }
+  return asset;
+}
+
 async function deleteProposalPlanChildren(ctx: MutationCtx, proposalId: Id<"buildProposals">) {
   for (const table of [
+    "proposalTimelineModificationRequests",
+    "proposalEvidenceAssets",
+    "proposalCapitalEvents",
     "proposalDrawScheduleRows",
     "proposalSubmilestones",
     "proposalMilestones",

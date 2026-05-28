@@ -14,6 +14,8 @@ import type { DemoMilestone } from "#/routes/demo/timeline/-timeline-share-snaps
 
 import type { ProductionProposalDetail } from "./ProductionProposalSurfaces.tsx";
 
+const DEFAULT_INTEREST_ANNUAL_BPS = 925;
+
 export interface ProductionRoadmapProjection {
   cashflow: {
     data: TimelineCashflowCompoundDatum[];
@@ -76,6 +78,7 @@ export function buildProductionRoadmapProjection(
     drawAvailability: buildDrawAvailabilityProjection(
       milestones,
       draws,
+      detail.loanFacility?.interestAnnualBps ?? DEFAULT_INTEREST_ANNUAL_BPS,
       xDomain,
       xTicks,
     ),
@@ -94,7 +97,7 @@ export function buildProductionRoadmapProjection(
           milestone.durationDays ??
           Math.max(1, milestone.dayEnd - milestone.dayStart),
         evidence: "Future evidence package",
-        icon: iconForMilestone(milestone.key),
+        icon: milestone.icon ?? iconForMilestone(milestone.key, milestone.name),
         name: milestone.name,
         policy: "Within proposal policy",
         status: index === 0 ? "ready" : "upcoming",
@@ -237,17 +240,21 @@ function buildCashflowProjection(
 function buildDrawAvailabilityProjection(
   milestones: NonNullable<ProductionProposalDetail["milestones"]>,
   draws: NonNullable<ProductionProposalDetail["draws"]>,
+  interestAnnualBps: number,
   xDomain: [number, number],
   xTicks: number[],
 ) {
   let unlockedDraw = 0;
   let releasedDraw = 0;
+  let previousDay = 0;
+  let totalInterestAccrued = 0;
   const data: TimelineDrawAvailabilityDatum[] = [
     {
       additionalAvailableDraw: 0,
       day: 0,
       interestBearingDraw: 0,
       name: "Proposal start",
+      totalInterestAccrued: 0,
       totalAvailableDraw: 0,
     },
   ];
@@ -282,6 +289,13 @@ function buildDrawAvailabilityProjection(
   );
 
   for (const event of events) {
+    totalInterestAccrued += calculateDailyCompoundedInterest(
+      releasedDraw + totalInterestAccrued,
+      event.day - previousDay,
+      interestAnnualBps,
+    );
+    previousDay = event.day;
+
     if (event.type === "unlock") {
       unlockedDraw += event.amount;
     } else {
@@ -294,6 +308,7 @@ function buildDrawAvailabilityProjection(
       day: event.day,
       interestBearingDraw: releasedDraw,
       name: event.name,
+      totalInterestAccrued,
       totalAvailableDraw: releasedDraw + additionalAvailableDraw,
     });
   }
@@ -311,6 +326,19 @@ function buildDrawAvailabilityProjection(
     xTicks,
     yDomain: [0, Math.ceil(yMax * 1.12)] as [number, number],
   };
+}
+
+function calculateDailyCompoundedInterest(
+  principal: number,
+  elapsedDays: number,
+  interestAnnualBps: number,
+) {
+  if (principal <= 0 || elapsedDays <= 0 || interestAnnualBps <= 0) {
+    return 0;
+  }
+
+  const dailyRate = interestAnnualBps / 10_000 / 365;
+  return principal * ((1 + dailyRate) ** elapsedDays - 1);
 }
 
 function buildTimelineMarkers(
@@ -432,10 +460,23 @@ function formatCompactMoney(value: number) {
   return `${sign}$${Math.round(absolute)}`;
 }
 
-function iconForMilestone(key: string): DemoMilestone["icon"] {
-  const normalized = key.toLowerCase();
+function iconForMilestone(key: string, name?: string): DemoMilestone["icon"] {
+  const normalized = `${key} ${name ?? ""}`.toLowerCase();
   if (normalized.includes("foundation") || normalized.includes("site")) {
     return "foundation";
+  }
+  if (normalized.includes("kitchen") || normalized.includes("cabinet")) {
+    return "kitchen";
+  }
+  if (
+    normalized.includes("plumb") ||
+    normalized.includes("mechanical") ||
+    normalized.includes("mep")
+  ) {
+    return "plumbing";
+  }
+  if (normalized.includes("roof") || normalized.includes("dry-in")) {
+    return "roofing";
   }
   if (normalized.includes("shell") || normalized.includes("fram")) {
     return "framing";

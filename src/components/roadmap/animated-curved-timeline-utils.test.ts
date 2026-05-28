@@ -232,6 +232,31 @@ describe("animated curved timeline utilities", () => {
     expect(layout.items[1].layoutX - layout.items[0].layoutX).toBe(12);
   });
 
+  test("maps visually shifted node positions back to their source days", () => {
+    const layout = buildTimelineLayout(
+      [
+        { id: "one", x: 10 },
+        { id: "two", x: 10 },
+        { id: "three", x: 22 },
+      ],
+      {
+        baselineY: 100,
+        laneStepY: 18,
+        minNodeSpacingPx: 160,
+        paddingX: 0,
+        pixelsPerUnit: 1,
+        range: { max: 40, min: 0, unit: "days" },
+        viewportWidth: 0,
+      }
+    );
+    const shiftedItem = layout.items[1];
+
+    expect(shiftedItem.layoutX).toBeGreaterThan(shiftedItem.rawX);
+    expect(layout.xToValue(shiftedItem.layoutX)).toBe(shiftedItem.x);
+    expect(layout.xToValue(layout.items[0].layoutX)).toBe(10);
+    expect(layout.xToValue(layout.items[2].layoutX)).toBe(22);
+  });
+
   test("keeps shifted inline end marker after its own shifted start", () => {
     const layout = buildTimelineLayout(
       [

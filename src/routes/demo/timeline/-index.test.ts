@@ -8,6 +8,7 @@ import {
   calculateApprovedDrawRequestLimit,
   calculateDrawRequestLimit,
   buildDrawAvailabilityData,
+  buildFinancialOverview,
   buildTimelineCashflowData,
   type CashflowDatum,
   densifyCashflowData,
@@ -15,6 +16,7 @@ import {
   getTimelineAlignedTicks,
   getDrawTimelineMarkerState,
   interpolateLinearCashOnHand,
+  interpolateDrawAvailability,
   normalizeTimelineShareStateForRoute,
   resolveSelectedDrawDate,
 } from "./index.tsx";
@@ -600,6 +602,140 @@ describe("timeline cash shortfall logic", () => {
         totalAvailableDraw: 100_000,
       },
     ]);
+  });
+
+  test("draw availability accrues released principal interest with daily compounding", () => {
+    const availability = buildDrawAvailabilityData([
+      cashflowPoint({
+        cashOnHand: 100_000,
+        day: 0,
+        event: "start",
+        id: "start",
+        name: "Starting cash",
+      }),
+      cashflowPoint({
+        cashOnHand: 160_000,
+        day: 10,
+        drawAmount: 60_000,
+        event: "draw",
+        id: "foundation-draw",
+        name: "Draw 1",
+      }),
+      cashflowPoint({
+        cashOnHand: 160_000,
+        day: 40,
+        event: "milestone",
+        id: "inspection-checkpoint",
+        name: "Inspection checkpoint",
+      }),
+    ]);
+
+    expect(availability[1]?.totalInterestAccrued).toBe(0);
+    expect(availability[2]?.totalInterestAccrued).toBeCloseTo(
+      60_000 * ((1 + 0.0925 / 365) ** 30 - 1),
+      2,
+    );
+  });
+
+  test("draw availability probe interest accrues to the hovered day", () => {
+    const availability = buildDrawAvailabilityData([
+      cashflowPoint({
+        cashOnHand: 100_000,
+        day: 0,
+        event: "start",
+        id: "start",
+        name: "Starting cash",
+      }),
+      cashflowPoint({
+        cashOnHand: 160_000,
+        day: 10,
+        drawAmount: 60_000,
+        event: "draw",
+        id: "foundation-draw",
+        name: "Draw 1",
+      }),
+      cashflowPoint({
+        cashOnHand: 160_000,
+        day: 40,
+        event: "milestone",
+        id: "inspection-checkpoint",
+        name: "Inspection checkpoint",
+      }),
+    ]);
+
+    const probe = interpolateDrawAvailability(availability, 25);
+
+    expect(probe.day).toBe(25);
+    expect(probe.totalInterestAccrued).toBeCloseTo(
+      60_000 * ((1 + 0.0925 / 365) ** 15 - 1),
+      2,
+    );
+  });
+
+  test("draw availability interest is stable across non-draw event boundaries", () => {
+    const availability = buildDrawAvailabilityData([
+      cashflowPoint({
+        cashOnHand: 100_000,
+        day: 0,
+        event: "start",
+        id: "start",
+        name: "Starting cash",
+      }),
+      cashflowPoint({
+        cashOnHand: 160_000,
+        day: 10,
+        drawAmount: 60_000,
+        event: "draw",
+        id: "foundation-draw",
+        name: "Draw 1",
+      }),
+      cashflowPoint({
+        cashOnHand: 160_000,
+        day: 20,
+        event: "milestone",
+        id: "inspection-checkpoint",
+        name: "Inspection checkpoint",
+      }),
+    ]);
+
+    const probe = interpolateDrawAvailability(availability, 25);
+
+    expect(probe.totalInterestAccrued).toBeCloseTo(
+      60_000 * ((1 + 0.0925 / 365) ** 15 - 1),
+      2,
+    );
+  });
+
+  test("financial overview interest matches range-end compounded draw availability", () => {
+    const cashflow = [
+      cashflowPoint({
+        cashOnHand: 100_000,
+        day: 0,
+        event: "start",
+        id: "start",
+        name: "Starting cash",
+      }),
+      cashflowPoint({
+        cashOnHand: 160_000,
+        day: 10,
+        drawAmount: 60_000,
+        event: "draw",
+        id: "foundation-draw",
+        name: "Draw 1",
+      }),
+    ];
+    const availability = buildDrawAvailabilityData(cashflow);
+    const rangeEndAvailability = interpolateDrawAvailability(availability, 25);
+    const overview = buildFinancialOverview(
+      cashflow,
+      [{ amount: 60_000, id: "foundation-draw", label: "Draw 1", x: 10 }],
+      { max: 25, min: 0, unit: "days" },
+    );
+
+    expect(overview.interestPaid).toBeCloseTo(
+      rangeEndAvailability.totalInterestAccrued,
+      2,
+    );
   });
 
   test("cashflow chart keeps milestone data sparse and interpolates hover cash", () => {

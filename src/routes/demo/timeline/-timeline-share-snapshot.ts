@@ -19,15 +19,21 @@ export type DemoStatus = "complete" | "ready" | "upcoming";
 export const TOTAL_REIMBURSEMENT_BPS = 10_000;
 export const DEFAULT_BORROWER_CO_PAY_BPS = 2000;
 
-export type IsometricIconKey =
-  | "change"
-  | "closeout"
-  | "drywall"
-  | "exterior"
-  | "finishes"
-  | "foundation"
-  | "framing"
-  | "roughIn";
+export const ISOMETRIC_ICON_KEYS = [
+  "change",
+  "closeout",
+  "drywall",
+  "exterior",
+  "finishes",
+  "foundation",
+  "framing",
+  "kitchen",
+  "plumbing",
+  "roofing",
+  "roughIn",
+] as const;
+
+export type IsometricIconKey = (typeof ISOMETRIC_ICON_KEYS)[number];
 
 export interface DemoMilestone {
   amount: number;

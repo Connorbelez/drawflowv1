@@ -98,9 +98,9 @@ describe("convexWorkspaceToTimelineState", () => {
     expect(state.draws[0]).toMatchObject({
       amount: 125_000,
       id: "draw-01",
+      itemId: "foundation",
       requestStatus: "requested",
     });
-    expect(state.draws[0].itemId).toBeUndefined();
     expect(state.capitalSpikes).toHaveLength(1);
     expect(state.capitalSpikes[0].id).toBe("permit-overrun");
     expect(state.capitalSpikes[0].amount).toBe(50_000);

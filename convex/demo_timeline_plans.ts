@@ -83,6 +83,9 @@ type TimelineIcon =
   | "finishes"
   | "foundation"
   | "framing"
+  | "kitchen"
+  | "plumbing"
+  | "roofing"
   | "roughIn";
 type TimelineStatus = "complete" | "ready" | "review" | "upcoming";
 type TimelineTone = "active" | "blocked" | "complete" | "upcoming" | "warning";
@@ -458,6 +461,9 @@ function normalizeIcon(icon: string | undefined): TimelineIcon {
     "finishes",
     "foundation",
     "framing",
+    "kitchen",
+    "plumbing",
+    "roofing",
     "roughIn",
   ]);
   return icon && allowed.has(icon as TimelineIcon)
@@ -1199,7 +1205,7 @@ export const demo_createTimelinePlanFromSetup = publicMutation
       routeState: {
         activeMilestoneKey: normalized.milestones[0]?.key,
         selectedPanelOpen: true,
-        straightLine: false,
+        straightLine: true,
       },
       source: "timeline_setup",
       startingCashCents: args.startingCashCents,

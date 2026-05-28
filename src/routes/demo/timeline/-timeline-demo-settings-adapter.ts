@@ -4,6 +4,7 @@ import type {
 } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
 import type { TimelineSetupTemplate } from "./-TimelineSetupFlow.tsx";
 import { normalizeMilestoneTimelineItems } from "./-timeline-milestone-schedule.ts";
+import { ISOMETRIC_ICON_KEYS } from "./-timeline-share-snapshot.ts";
 import type {
   DemoDraw,
   DemoMilestone,
@@ -679,16 +680,7 @@ function normalizeDraw(row: RawRecord): TimelineSettingsDrawDraft {
 
 function normalizeIcon(value: unknown): IsometricIconKey {
   const icon = stringValue(value);
-  return [
-    "change",
-    "closeout",
-    "drywall",
-    "exterior",
-    "finishes",
-    "foundation",
-    "framing",
-    "roughIn",
-  ].includes(icon)
+  return (ISOMETRIC_ICON_KEYS as readonly string[]).includes(icon)
     ? (icon as IsometricIconKey)
     : "change";
 }

@@ -63,6 +63,7 @@ interface ProductionMilestone {
   dayStart: number;
   dependencyKeys?: string[];
   durationDays?: number;
+  icon?: IsometricIconKey;
   key: string;
   name: string;
   order: number;
@@ -96,6 +97,7 @@ export interface ProductionProposalDetail {
   activeBuild?: { _id?: string; startDate?: string } | null;
   documents?: ProductionDocument[];
   draws?: ProductionDraw[];
+  loanFacility?: { interestAnnualBps?: number; principalCents?: number } | null;
   milestones?: ProductionMilestone[];
   permitWaiver?: { reason: string } | null;
   plannedDraws?: ProductionDraw[];
@@ -182,6 +184,7 @@ export interface ProductionProposalDraftSavePayload {
     dayStart: number;
     dependencyKeys: string[];
     durationDays: number;
+    icon?: IsometricIconKey;
     key: string;
     name: string;
     order: number;
@@ -1068,7 +1071,7 @@ function productionTemplateToWorksheetRows(
       durationDays,
       durationText: String(durationDays),
       excluded: false,
-      icon: milestone.icon ?? iconForMilestoneKey(milestone.key),
+      icon: milestone.icon ?? iconForMilestoneKey(milestone.key, milestone.name),
       key: milestone.key,
       name: milestone.name,
       order: index,
@@ -1093,10 +1096,23 @@ function productionTemplateToWorksheetRows(
   });
 }
 
-function iconForMilestoneKey(key: string): IsometricIconKey {
-  const normalized = key.toLowerCase();
+function iconForMilestoneKey(key: string, name?: string): IsometricIconKey {
+  const normalized = `${key} ${name ?? ""}`.toLowerCase();
   if (normalized.includes("foundation") || normalized.includes("site")) {
     return "foundation";
+  }
+  if (normalized.includes("kitchen") || normalized.includes("cabinet")) {
+    return "kitchen";
+  }
+  if (
+    normalized.includes("plumb") ||
+    normalized.includes("mechanical") ||
+    normalized.includes("mep")
+  ) {
+    return "plumbing";
+  }
+  if (normalized.includes("roof") || normalized.includes("dry-in")) {
+    return "roofing";
   }
   if (normalized.includes("frame") || normalized.includes("shell")) {
     return "framing";

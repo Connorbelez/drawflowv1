@@ -6,6 +6,7 @@ export interface TimelineDrawAvailabilityDatum {
   day: number;
   interestBearingDraw: number;
   name: string;
+  totalInterestAccrued: number;
   totalAvailableDraw: number;
   [key: string]: unknown;
 }
@@ -81,7 +82,7 @@ export function TimelineDrawAvailabilityChart({
       areaVariant="gradient"
       barConfig={{}}
       chartProps={{
-        margin: { bottom: 0, left: 0, right: 12, top: 18 },
+        margin: { bottom: 0, left: 0, right: 12, top: 48 },
         onMouseLeave: () => onProbeChange?.(null),
         onMouseMove: (state: unknown) => {
           const nextValue = getChartProbeValue(state);

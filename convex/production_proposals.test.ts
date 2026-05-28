@@ -635,6 +635,599 @@ describe("production proposal foundation", () => {
     });
   });
 
+  test("hydrates a production proposal timeline workspace from production rows", async () => {
+    const { seed, t } = await seeded(["admin"], "user_admin");
+    const proposalId = await t.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Production timeline workspace",
+        location: "88 Timeline Road",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
+      borrowerCoPayBps: 2_000,
+      borrowerWorkingCapitalLimitCents: 25_000_000,
+      lenderDrawPolicyLimitCents: 90_000_000,
+      milestones: [
+        {
+          budgetCents: 50_000_000,
+          dayEnd: 20,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 20,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+          submilestones: [
+            {
+              budgetCents: 20_000_000,
+              durationDays: 8,
+              key: "forms",
+              name: "Forms and pour",
+              order: 1,
+            },
+          ],
+        },
+        {
+          budgetCents: 75_000_000,
+          dayEnd: 48,
+          dayStart: 24,
+          dependencyKeys: ["foundation"],
+          durationDays: 24,
+          key: "framing",
+          name: "Framing",
+          order: 2,
+          submilestones: [
+            {
+              budgetCents: 30_000_000,
+              durationDays: 10,
+              key: "walls",
+              name: "Wall framing",
+              order: 1,
+            },
+          ],
+        },
+      ],
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+
+    const workspace = await t.query(
+      (api as any).production_proposals.getProductionTimelineWorkspace,
+      { proposalId, workosOrganizationId: ORG },
+    );
+
+    expect(workspace.plan).toMatchObject({
+      borrowerCoPayBps: 2_000,
+      currentDay: 0,
+      rangeMin: 0,
+      startingCashCents: 25_000_000,
+    });
+    expect(workspace.plan.rangeMax).toBeGreaterThanOrEqual(58);
+    expect(workspace.proposal).toMatchObject({
+      buildName: "Production timeline workspace",
+      status: "draft",
+    });
+    expect(workspace.milestones).toHaveLength(2);
+    expect(workspace.milestones[0]).toMatchObject({
+      budgetCents: 50_000_000,
+      drawAvailabilityCents: 40_000_000,
+      icon: "foundation",
+      milestoneKey: "foundation",
+      status: "ready",
+      submilestoneSnapshot: [
+        {
+          budgetCents: 20_000_000,
+          durationDays: 8,
+          key: "forms",
+          name: "Forms and pour",
+          order: 1,
+        },
+      ],
+      x: 0,
+    });
+    expect(workspace.draws).toEqual([
+      expect.objectContaining({
+        amountCents: 40_000_000,
+        drawKey: "draw-01",
+        itemMilestoneKey: "foundation",
+        x: 20,
+      }),
+      expect.objectContaining({
+        amountCents: 60_000_000,
+        drawKey: "draw-02",
+        itemMilestoneKey: "framing",
+        x: 48,
+      }),
+    ]);
+    expect(workspace.capitalEvents).toEqual([
+      expect.objectContaining({
+        amountCents: 25_000_000,
+        capitalEventKey: "borrower-reserve",
+        eventKind: "cashInfusion",
+        x: 0,
+      }),
+    ]);
+  });
+
+  test("persists production timeline evidence, completion, draw review, capital events, and audit events", async () => {
+    const { seed, t } = await seeded(["admin"], "user_admin");
+    const proposalId = await t.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Live production timeline",
+        location: "101 Live Build Way",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
+      borrowerCoPayBps: 2_000,
+      borrowerWorkingCapitalLimitCents: 30_000_000,
+      documents: [
+        {
+          documentType: "permit",
+          fileName: "permit.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 512,
+        },
+      ],
+      lenderDrawPolicyLimitCents: 100_000_000,
+      milestones: [
+        {
+          budgetCents: 50_000_000,
+          dayEnd: 20,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 20,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+          submilestones: [],
+        },
+      ],
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+    await t.mutation((api as any).production_proposals.submitProposal, {
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Ready for live draw controls.",
+      workosOrganizationId: ORG,
+    });
+
+    await t.mutation(
+      (api as any).production_proposals.createProductionTimelineCapitalEvent,
+      {
+        amountCents: 7_500_000,
+        capitalEventKey: "weather-delay-cost",
+        eventKind: "cost",
+        label: "Weather delay capital spike",
+        proposalId,
+        workosOrganizationId: ORG,
+        x: 12,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.createProductionTimelineCashInfusion,
+      {
+        amountCents: 8_000_000,
+        cashInfusionKey: "owner-infusion-01",
+        label: "Owner cash infusion",
+        proposalId,
+        workosOrganizationId: ORG,
+        x: 13,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.createProductionTimelineEvidenceAsset,
+      {
+        asset: {
+          evidenceKey: "foundation-photo-1",
+          fileName: "foundation.jpg",
+          label: "Foundation photo",
+          milestoneKey: "foundation",
+          mimeType: "image/jpeg",
+          sizeBytes: 2048,
+          tag: "Foundation",
+        },
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.submitProductionMilestoneCompletion,
+      {
+        actualCostCents: 52_500_000,
+        completedDay: 21,
+        milestoneKey: "foundation",
+        note: "Foundation complete with signed inspection.",
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.reviewProductionMilestoneCompletion,
+      {
+        milestoneKey: "foundation",
+        note: "Inspection package accepted.",
+        proposalId,
+        status: "approved",
+        workosOrganizationId: ORG,
+      },
+    );
+    const siteVisit = await t.mutation(
+      (api as any).production_proposals.requestProductionMilestoneSiteVisit,
+      {
+        includedMilestoneKeys: ["foundation"],
+        milestoneKey: "foundation",
+        note: "Verify footing photos against the permit package.",
+        proposalId,
+        requestedDay: 22,
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.recordProductionMilestoneSiteVisit,
+      {
+        milestoneKey: "foundation",
+        note: "Inspector verified the poured footing scope.",
+        proposalId,
+        status: "complete",
+        visitId: siteVisit.visitId,
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.submitProductionDrawRequest,
+      {
+        amountCents: 40_000_000,
+        drawKey: "draw-01",
+        note: "Requesting foundation reimbursement.",
+        proposalId,
+        workosOrganizationId: ORG,
+        x: 22,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.reviewProductionDrawRequest,
+      {
+        drawKey: "draw-01",
+        note: "Released after completion approval.",
+        proposalId,
+        status: "approved",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const workspace = await t.query(
+      (api as any).production_proposals.getProductionTimelineWorkspace,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(workspace.capitalEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          amountCents: 7_500_000,
+          capitalEventKey: "weather-delay-cost",
+          eventKind: "cost",
+          x: 12,
+        }),
+        expect.objectContaining({
+          amountCents: 8_000_000,
+          capitalEventKey: "owner-infusion-01",
+          eventKind: "cashInfusion",
+          x: 13,
+        }),
+      ]),
+    );
+    expect(workspace.evidenceAssets).toEqual([
+      expect.objectContaining({
+        evidenceKey: "foundation-photo-1",
+        fileName: "foundation.jpg",
+        milestoneKey: "foundation",
+        tag: "Foundation",
+      }),
+    ]);
+    expect(workspace.milestones[0]).toMatchObject({
+      completionClaim: {
+        actualCost: 525_000,
+        completedDay: 21,
+        note: "Foundation complete with signed inspection.",
+      },
+      completionReview: {
+        note: "Inspection package accepted.",
+        siteVisit: expect.objectContaining({
+          completedAt: expect.any(String),
+          includedItemIds: ["foundation"],
+          note: "Verify footing photos against the permit package.",
+          recordNote: "Inspector verified the poured footing scope.",
+          requestedDay: 22,
+          status: "complete",
+        }),
+        status: "approved",
+      },
+      evidenceState: "Submitted package",
+      status: "complete",
+    });
+    expect(workspace.draws[0]).toMatchObject({
+      amountCents: 40_000_000,
+      requestNote: "Requesting foundation reimbursement.",
+      requestReviewNote: "Released after completion approval.",
+      requestStatus: "approved",
+      x: 22,
+    });
+
+    const detail = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(detail.auditEvents.map((event: any) => event.eventType)).toEqual(
+      expect.arrayContaining([
+        "proposal.capital_event.created",
+        "proposal.evidence.created",
+        "proposal.milestone_completion.submitted",
+        "proposal.milestone_completion.reviewed",
+        "proposal.site_visit.requested",
+        "proposal.site_visit.recorded",
+        "proposal.draw_request.submitted",
+        "proposal.draw_request.reviewed",
+      ]),
+    );
+  });
+
+  test("supports audited draft timeline edits and approved live-build modification requests", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const proposalId = await t.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Editable production timeline",
+        location: "44 Edit Lane",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
+      borrowerCoPayBps: 2_000,
+      borrowerWorkingCapitalLimitCents: 35_000_000,
+      documents: [
+        {
+          documentType: "permit",
+          fileName: "permit.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 512,
+        },
+      ],
+      lenderDrawPolicyLimitCents: 110_000_000,
+      milestones: [
+        {
+          budgetCents: 40_000_000,
+          dayEnd: 20,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 20,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+          submilestones: [],
+        },
+      ],
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+
+    await t.mutation(
+      (api as any).production_proposals.updateProductionTimelineMilestone,
+      {
+        budgetCents: 42_000_000,
+        dayEnd: 22,
+        dayStart: 1,
+        durationDays: 21,
+        milestoneKey: "foundation",
+        name: "Foundation revised",
+        proposalId,
+        submilestones: [
+          {
+            budgetCents: 18_000_000,
+            durationDays: 9,
+            key: "forms",
+            name: "Forms revised",
+            order: 1,
+          },
+        ],
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.createProductionTimelineMilestone,
+      {
+        milestone: {
+          budgetCents: 30_000_000,
+          dayEnd: 46,
+          dayStart: 24,
+          durationDays: 22,
+          evidenceState: "Draft package",
+          milestoneKey: "framing",
+          name: "Framing",
+          order: 2,
+          policyState: "Draft proposal policy",
+          status: "ready",
+          submilestones: [{ key: "walls", name: "Wall framing", order: 1 }],
+          x: 24,
+        },
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.createProductionTimelineDraw,
+      {
+        amountCents: 24_000_000,
+        customDate: true,
+        drawKey: "manual-draw-framing",
+        label: "Manual framing draw",
+        order: 2,
+        proposalId,
+        workosOrganizationId: ORG,
+        x: 47,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.updateProductionTimelineDraw,
+      {
+        amountCents: 25_000_000,
+        drawKey: "manual-draw-framing",
+        label: "Manual framing reimbursement",
+        proposalId,
+        workosOrganizationId: ORG,
+        x: 49,
+      },
+    );
+
+    let workspace = await t.query(
+      (api as any).production_proposals.getProductionTimelineWorkspace,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(workspace.milestones.map((milestone: any) => milestone.milestoneKey)).toEqual([
+      "foundation",
+      "framing",
+    ]);
+    expect(workspace.milestones[0]).toMatchObject({
+      budgetCents: 42_000_000,
+      name: "Foundation revised",
+      x: 1,
+    });
+    expect(workspace.draws).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          amountCents: 25_000_000,
+          drawKey: "manual-draw-framing",
+          label: "Manual framing reimbursement",
+          x: 49,
+        }),
+      ]),
+    );
+
+    await t.mutation((api as any).production_proposals.deleteProductionTimelineDraw, {
+      drawKey: "manual-draw-framing",
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+    await t.mutation(
+      (api as any).production_proposals.deleteProductionTimelineMilestone,
+      {
+        milestoneKey: "framing",
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    workspace = await t.query(
+      (api as any).production_proposals.getProductionTimelineWorkspace,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(workspace.milestones.map((milestone: any) => milestone.milestoneKey)).toEqual([
+      "foundation",
+    ]);
+    expect(workspace.draws.map((draw: any) => draw.drawKey)).not.toContain(
+      "manual-draw-framing",
+    );
+
+    await t.mutation((api as any).production_proposals.submitProposal, {
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals.updateProductionTimelineMilestone,
+        {
+          budgetCents: 43_000_000,
+          milestoneKey: "foundation",
+          proposalId,
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/locked/);
+
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve revised timeline.",
+      workosOrganizationId: ORG,
+    });
+    const request = await builder.mutation(
+      (api as any).production_proposals.requestProductionTimelineModification,
+      {
+        proposalId,
+        reason: "Add porch scope after buyer selection.",
+        requestedPayload: {
+          milestone: {
+            budgetCents: 12_000_000,
+            dayEnd: 38,
+            dayStart: 30,
+            durationDays: 8,
+            evidenceState: "Requested change",
+            milestoneKey: "porch",
+            name: "Porch allowance",
+            order: 2,
+            policyState: "Admin approval required",
+            status: "ready",
+            submilestones: [{ key: "porch-scope", name: "Porch scope", order: 1 }],
+            x: 30,
+          },
+        },
+        requestType: "createMilestone",
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.reviewProductionTimelineModificationRequest,
+      {
+        note: "Approved as buyer-paid change order.",
+        requestId: request.requestId,
+        status: "approved",
+        workosOrganizationId: ORG,
+      },
+    );
+    workspace = await t.query(
+      (api as any).production_proposals.getProductionTimelineWorkspace,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(workspace.modificationRequests[0]).toMatchObject({
+      reviewNote: "Approved as buyer-paid change order.",
+      status: "approved",
+    });
+    expect(workspace.milestones.map((milestone: any) => milestone.milestoneKey)).toContain(
+      "porch",
+    );
+
+    const detail = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(detail.auditEvents.map((event: any) => event.eventType)).toEqual(
+      expect.arrayContaining([
+        "proposal.milestone.updated",
+        "proposal.milestone.created",
+        "proposal.draw.created",
+        "proposal.draw.updated",
+        "proposal.draw.deleted",
+        "proposal.milestone.deleted",
+        "proposal.modification.requested",
+        "proposal.modification.reviewed",
+      ]),
+    );
+  });
+
   test("seeds deterministic production proposal lifecycle scenarios without demo data", async () => {
     const { t } = await seeded(["admin"], "user_admin");
 

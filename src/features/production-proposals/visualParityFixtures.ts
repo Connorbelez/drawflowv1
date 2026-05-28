@@ -4,9 +4,15 @@ import type {
   ProductionProposalSettings,
 } from "./ProductionProposalSurfaces.tsx";
 import type { ProductionProposalTemplateProjection } from "./timelineSetupAdapter.ts";
+import type { ConvexTimelineWorkspace } from "#/routes/demo/timeline/-timeline-convex-adapter.ts";
 
 export const VISUAL_PARITY_ORGANIZATION_ID = "org_visual_parity_workos";
 export const VISUAL_PARITY_PROPOSAL_ID = "proposal_visual_parity";
+export const VISUAL_PARITY_SUBMITTED_PROPOSAL_ID = "proposal_visual_submitted";
+export const VISUAL_PARITY_APPROVED_PROPOSAL_ID = "proposal_visual_approved";
+export const VISUAL_PARITY_CLOSED_PROPOSAL_ID = "proposal_visual_closed";
+
+type VisualParityProposalStatus = "approved" | "closed" | "draft" | "submitted";
 
 export function isProductionVisualParityFixtureEnabled(): boolean {
   return (
@@ -99,9 +105,18 @@ export function getVisualParityKanban(): ProductionKanban {
   };
 }
 
-export function getVisualParityProposalDetail(): ProductionProposalDetail {
+export function getVisualParityProposalDetail(
+  proposalId = VISUAL_PARITY_PROPOSAL_ID,
+): ProductionProposalDetail {
+  const proposalStatus = getVisualParityProposalStatus(proposalId);
   return {
-    activeBuild: null,
+    activeBuild:
+      proposalStatus === "closed"
+        ? {
+            _id: "build_visual_parity",
+            startDate: "2026-06-03",
+          }
+        : null,
     documents: [
       {
         documentType: "permit",
@@ -197,6 +212,7 @@ export function getVisualParityProposalDetail(): ProductionProposalDetail {
         dayEnd: 64,
         dayStart: 44,
         durationDays: 20,
+        icon: "plumbing",
         key: "rough-in",
         name: "Rough-in mechanical",
         order: 3,
@@ -224,6 +240,7 @@ export function getVisualParityProposalDetail(): ProductionProposalDetail {
         dayEnd: 136,
         dayStart: 117,
         durationDays: 19,
+        icon: "kitchen",
         key: "finishes",
         name: "Finishes & fixtures",
         order: 6,
@@ -245,7 +262,7 @@ export function getVisualParityProposalDetail(): ProductionProposalDetail {
       buildName: "Hamilton Infill Build",
       lenderDrawPolicyLimitCents: 1_000_000_00,
       location: "Hamilton, ON",
-      status: "submitted",
+      status: proposalStatus,
       totalBudgetCents: 1_250_000_00,
     },
     submilestones: [
@@ -268,6 +285,160 @@ export function getVisualParityProposalDetail(): ProductionProposalDetail {
   };
 }
 
+export function getVisualParityTimelineWorkspace(
+  proposalId = VISUAL_PARITY_PROPOSAL_ID,
+): ConvexTimelineWorkspace & {
+  modificationRequests: any[];
+  planSummary: {
+    address: string;
+    includedCount: number;
+    templateTitle: string;
+    totalBudget: number;
+  };
+  proposal: NonNullable<ProductionProposalDetail["proposal"]>;
+} {
+  const detail = getVisualParityProposalDetail(proposalId);
+  const milestones = [...(detail.milestones ?? [])].sort(
+    (a, b) => a.order - b.order,
+  );
+  const draws = [...(detail.draws ?? [])].sort(
+    (a, b) => a.timingDay - b.timingDay,
+  );
+  return {
+    capitalEvents: [
+      {
+        amountCents: detail.proposal.borrowerWorkingCapitalLimitCents,
+        capitalEventKey: "borrower-reserve",
+        eventKind: "cashInfusion",
+        label: "Borrower reserve",
+        x: 0,
+      },
+      {
+        amountCents: 48_000_00,
+        capitalEventKey: "cash-infusion-drywall",
+        eventKind: "cashInfusion",
+        label: "Drywall cash infusion",
+        x: 93,
+      },
+      {
+        amountCents: 36_000_00,
+        capitalEventKey: "material-spike-framing",
+        eventKind: "cost",
+        label: "Framing material spike",
+        x: 32,
+      },
+    ],
+    draws: draws.map((draw) => ({
+      amountCents: draw.amountCents,
+      customDate: true,
+      drawKey: draw.drawKey,
+      itemMilestoneKey: draw.milestoneKey,
+      label: draw.label,
+      requestStatus: draw.drawKey === "draw-site-prep" ? "approved" : "draft",
+      x: draw.timingDay,
+    })),
+    evidenceAssets: [
+      {
+        evidenceKey: "fixture-foundation-photo",
+        fileName: "foundation-progress.jpg",
+        label: "Foundation progress",
+        milestoneKey: "site-prep",
+        mimeType: "image/jpeg",
+        previewUrl: null,
+        sizeBytes: 238_000,
+        tag: "Site prep & foundation",
+      },
+    ],
+    milestones: milestones.map((milestone, index) => ({
+      budgetCents: milestone.budgetCents,
+      completionClaim:
+        index === 0
+          ? {
+              actualCost: 126_500,
+              completedDay: milestone.dayEnd,
+              note: "Foundation package submitted.",
+              submittedAt: "2026-05-27T14:30:00.000Z",
+            }
+          : undefined,
+      completionReview:
+        index === 0
+          ? {
+              note: "Approved after permit check.",
+              reviewedAt: "2026-05-27T15:30:00.000Z",
+              status: "approved",
+            }
+          : undefined,
+      drawAvailabilityCents:
+        draws.find((draw) => draw.milestoneKey === milestone.key)?.amountCents ??
+        milestone.budgetCents,
+      drawKey:
+        draws.find((draw) => draw.milestoneKey === milestone.key)?.label ??
+        "Reimbursement draw",
+      durationDays: milestone.durationDays,
+      evidenceState: index === 0 ? "Submitted package" : "Draft package",
+      icon:
+        milestone.icon ??
+        (iconForTemplateMilestone(milestone.key, milestone.name) as any),
+      lane: index % 3 === 1 ? -1 : index % 3 === 2 ? 1 : 0,
+      markerLabel: String(index + 1),
+      milestoneKey: milestone.key,
+      name: milestone.name,
+      order: index + 1,
+      policyState: "Within proposal policy",
+      status: index === 0 ? "complete" : index === 1 ? "ready" : "upcoming",
+      submilestoneSnapshot: (detail.submilestones ?? [])
+        .filter((submilestone) => submilestone.milestoneKey === milestone.key)
+        .map((submilestone, subIndex) => ({
+          key: submilestone.key,
+          name: submilestone.name,
+          order: subIndex + 1,
+        })),
+      tone: index === 0 ? "complete" : index === 1 ? "active" : "upcoming",
+      x: milestone.dayStart,
+    })),
+    modificationRequests: [],
+    plan: {
+      borrowerCoPayBps: detail.proposal.borrowerCoPayBps,
+      borrowerCoPayCents: Math.round(
+        (detail.proposal.totalBudgetCents * detail.proposal.borrowerCoPayBps) /
+          10_000,
+      ),
+      currentDay: 28,
+      progressValue: 28,
+      rangeMax: 166,
+      rangeMin: 0,
+      routeState: {
+        activeMilestoneKey: "site-prep",
+        selectedPanelOpen: true,
+        straightLine: true,
+      },
+      startingCashCents: detail.proposal.borrowerWorkingCapitalLimitCents,
+    },
+    planSummary: {
+      address: detail.proposal.location,
+      includedCount: milestones.length,
+      templateTitle: detail.proposal.buildName,
+      totalBudget: detail.proposal.totalBudgetCents,
+    },
+    proposal: detail.proposal,
+  };
+}
+
+function getVisualParityProposalStatus(
+  proposalId: string,
+): VisualParityProposalStatus {
+  if (proposalId.includes("approved")) {
+    return "approved";
+  }
+  if (proposalId.includes("closed")) {
+    return "closed";
+  }
+  if (proposalId.includes("submitted")) {
+    return "submitted";
+  }
+  return "draft";
+}
+
 export function getVisualParitySettings(): ProductionProposalSettings {
   return {
     archetypes: [
@@ -280,7 +451,7 @@ export function getVisualParitySettings(): ProductionProposalSettings {
         archetypeKey: milestone.archetypeKey,
         dependencyKeys: milestone.dependencyKeys,
         durationDays: milestone.durationDays,
-        icon: iconForTemplateMilestone(milestone.key),
+        icon: iconForTemplateMilestone(milestone.key, milestone.name),
         key: milestone.key,
         name: milestone.name,
         percentageBps: milestone.percentageBps,
@@ -318,10 +489,23 @@ export function getVisualParitySettings(): ProductionProposalSettings {
   };
 }
 
-function iconForTemplateMilestone(key: string) {
-  const normalized = key.toLowerCase();
+function iconForTemplateMilestone(key: string, name?: string) {
+  const normalized = `${key} ${name ?? ""}`.toLowerCase();
   if (normalized.includes("site") || normalized.includes("foundation")) {
     return "foundation";
+  }
+  if (normalized.includes("kitchen") || normalized.includes("cabinet")) {
+    return "kitchen";
+  }
+  if (
+    normalized.includes("plumb") ||
+    normalized.includes("mechanical") ||
+    normalized.includes("mep")
+  ) {
+    return "plumbing";
+  }
+  if (normalized.includes("roof") || normalized.includes("dry-in")) {
+    return "roofing";
   }
   if (normalized.includes("fram")) {
     return "framing";

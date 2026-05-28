@@ -1046,6 +1046,7 @@ export function AnimatedCurvedTimeline<TData = unknown>({
                     }}
                   >
                     <TimelineMarkerStack
+                      contentWidth={contentWidth}
                       focusedMarkerId={focusedMarkerId}
                       prefersReducedMotion={Boolean(prefersReducedMotion)}
                       range={layout.range}

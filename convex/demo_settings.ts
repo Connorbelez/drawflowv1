@@ -30,6 +30,9 @@ const iconValidator = v.union(
   v.literal("finishes"),
   v.literal("foundation"),
   v.literal("framing"),
+  v.literal("kitchen"),
+  v.literal("plumbing"),
+  v.literal("roofing"),
   v.literal("roughIn")
 );
 
@@ -99,6 +102,9 @@ interface SeedMilestone {
     | "finishes"
     | "foundation"
     | "framing"
+    | "kitchen"
+    | "plumbing"
+    | "roofing"
     | "roughIn";
   included: boolean;
   milestoneKey: string;

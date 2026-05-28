@@ -21,6 +21,8 @@ const STACK_CARD_OFFSET_X = 6;
 const STACK_CARD_OFFSET_Y = 4;
 const STACK_VISIBLE_PREVIEW_COUNT = 2;
 const STACK_LINE_TOP = 18;
+const STACK_POPOVER_WIDTH_PX = 256;
+const STACK_POPOVER_GUTTER_PX = 16;
 const STACK_WEAK_LINE_CLASS =
   "bg-linear-to-b from-zinc-300/80 via-zinc-300/80 to-zinc-200 dark:from-zinc-700 dark:via-zinc-700 dark:to-zinc-800";
 const STACK_ACTIVE_LINE_CLASS =
@@ -38,6 +40,7 @@ export type TimelineMarkerStackContext = {
 };
 
 export interface TimelineMarkerStackProps {
+  contentWidth?: number;
   focusedMarkerId?: string | null;
   prefersReducedMotion: boolean;
   range: Required<TimelineRange>;
@@ -55,6 +58,7 @@ export interface TimelineMarkerStackProps {
 }
 
 export function TimelineMarkerStack({
+  contentWidth,
   focusedMarkerId,
   prefersReducedMotion,
   range,
@@ -105,6 +109,25 @@ export function TimelineMarkerStack({
     () => resolveFocusedMarkerIndex(stack, focusedMarkerId),
     [focusedMarkerId, stack]
   );
+  const listPlacement = useMemo(() => {
+    if (!contentWidth) {
+      return "left";
+    }
+
+    const spaceLeft = stack.anchorX;
+    const spaceRight = contentWidth - stack.anchorX;
+    const requiredSpace = STACK_POPOVER_WIDTH_PX + STACK_POPOVER_GUTTER_PX;
+
+    if (spaceLeft >= requiredSpace) {
+      return "left";
+    }
+
+    if (spaceRight >= requiredSpace) {
+      return "right";
+    }
+
+    return spaceLeft >= spaceRight ? "left" : "right";
+  }, [contentWidth, stack.anchorX]);
 
   useEffect(() => {
     if (focusedMarkerId) {
@@ -229,6 +252,65 @@ export function TimelineMarkerStack({
             })}
           </motion.div>
         </AnimatePresence>
+
+        {stack.members.length > 1 ? (
+          <AnimatePresence initial={false}>
+            {listOpen ? (
+              <motion.div
+                animate={{ opacity: 1, scale: 1, x: 0 }}
+                className={cn(
+                  "absolute top-0 w-64 max-w-[min(16rem,calc(100vw-2rem))] rounded-md border bg-popover p-2 text-popover-foreground shadow-md",
+                  "before:absolute before:top-0 before:h-full before:w-4 before:content-['']",
+                  listPlacement === "left"
+                    ? "right-full mr-3 origin-right before:-right-4"
+                    : "left-full ml-3 origin-left before:-left-4"
+                )}
+                data-side={listPlacement}
+                exit={{
+                  opacity: 0,
+                  scale: 0.96,
+                  x: listPlacement === "left" ? 4 : -4,
+                }}
+                initial={{
+                  opacity: 0,
+                  scale: 0.96,
+                  x: listPlacement === "left" ? 6 : -6,
+                }}
+                role="listbox"
+                transition={{
+                  duration: prefersReducedMotion ? 0 : 0.16,
+                  ease: [0.22, 1, 0.36, 1],
+                }}
+              >
+                <div className="px-1 pb-1 font-medium text-[10px] text-muted-foreground uppercase">
+                  Stacked markers
+                </div>
+                <div className="grid gap-1">
+                  {stack.members.map((member, index) => (
+                    <button
+                      aria-selected={index === activeIndex}
+                      className={cn(
+                        "grid min-w-0 grid-cols-[1.75rem_minmax(0,1fr)] items-start gap-1 rounded-sm px-2 py-1 text-left text-xs transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        index === activeIndex && "bg-muted font-medium"
+                      )}
+                      key={member.marker.id}
+                      onClick={() => setActiveIndex(index)}
+                      role="option"
+                      type="button"
+                    >
+                      <span className="font-semibold tabular-nums">
+                        {index + 1}.
+                      </span>
+                      <span className="min-w-0 truncate">
+                        {member.marker.label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+        ) : null}
       </div>
 
       {stack.members.length > 1 ? (
@@ -245,46 +327,6 @@ export function TimelineMarkerStack({
           >
             {activeIndex + 1}/{stack.members.length}
           </button>
-
-          <AnimatePresence initial={false}>
-            {listOpen ? (
-              <motion.div
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                className="absolute top-full left-1/2 mt-2 w-48 -translate-x-1/2 rounded-md border bg-popover p-2 text-popover-foreground shadow-md"
-                exit={{ opacity: 0, scale: 0.96, y: -4 }}
-                initial={{ opacity: 0, scale: 0.96, y: -6 }}
-                role="listbox"
-                transition={{
-                  duration: prefersReducedMotion ? 0 : 0.16,
-                  ease: [0.22, 1, 0.36, 1],
-                }}
-              >
-                <div className="px-1 pb-1 font-medium text-[10px] text-muted-foreground uppercase">
-                  Stacked markers
-                </div>
-                <div className="grid gap-1">
-                  {stack.members.map((member, index) => (
-                    <button
-                      aria-selected={index === activeIndex}
-                      className={cn(
-                        "rounded-sm px-2 py-1 text-left text-xs transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        index === activeIndex && "bg-muted font-medium"
-                      )}
-                      key={member.marker.id}
-                      onClick={() => setActiveIndex(index)}
-                      role="option"
-                      type="button"
-                    >
-                      <span className="mr-1 inline-block w-5 font-semibold tabular-nums">
-                        {index + 1}.
-                      </span>
-                      <span className="truncate">{member.marker.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </motion.div>
-            ) : null}
-          </AnimatePresence>
         </div>
       ) : null}
     </div>

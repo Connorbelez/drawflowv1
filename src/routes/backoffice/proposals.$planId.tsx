@@ -25,8 +25,10 @@ import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import { ProductionProposalReviewSurface } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
+import { ProductionTimelineWorkspace } from "#/features/production-proposals/ProductionTimelineWorkspace.tsx";
 import {
   getVisualParityProposalDetail,
+  getVisualParityTimelineWorkspace,
   isProductionVisualParityFixtureEnabled,
 } from "#/features/production-proposals/visualParityFixtures.ts";
 import { Textarea } from "#/components/ui/textarea.tsx";
@@ -65,6 +67,7 @@ const PROPOSAL_REVIEW_TIMELINE_SIZING = {
   paddingX: 136,
   pixelsPerUnit: 6.4,
 } as const;
+const PROPOSAL_REVIEW_INTEREST_APR = 0.0925;
 const proposalMilestoneStatusMap = {
   complete: "complete",
   ready: "ready",
@@ -91,8 +94,20 @@ function ProposalReviewRoute() {
     visualFixtureEnabled ? "skip" : { proposalId: planId, workosOrganizationId },
   );
   const productionDetail = visualFixtureEnabled
-    ? getVisualParityProposalDetail()
+    ? getVisualParityProposalDetail(planId)
     : productionDetailQuery;
+  const productionWorkspaceQuery = useQuery(
+    api.production_proposals.getProductionTimelineWorkspace,
+    visualFixtureEnabled || !productionDetail
+      ? "skip"
+      : {
+          proposalId: planId as Id<"buildProposals">,
+          workosOrganizationId,
+        },
+  );
+  const productionWorkspace = visualFixtureEnabled
+    ? getVisualParityTimelineWorkspace(planId)
+    : productionWorkspaceQuery;
   const requestProductionChanges = useMutation(
     api.production_proposals.requestChanges,
   );
@@ -108,9 +123,11 @@ function ProposalReviewRoute() {
   const updateProductionDrawScheduleRow = useMutation(
     api.production_proposals.updateSubmittedProposalDrawScheduleRow,
   );
+  const shouldQueryDemoReview =
+    !visualFixtureEnabled && productionDetail === null;
   const viewModel = useQuery(
     api.demo_timeline_plans.demo_getProposalReviewViewModel,
-    { planId },
+    shouldQueryDemoReview ? { planId } : "skip",
   );
   const updateMilestone = useMutation(
     api.demo_timeline_plans.demo_adminUpdateTimelineMilestone,
@@ -121,64 +138,75 @@ function ProposalReviewRoute() {
   const approvePlan = useMutation(api.demo_timeline_plans.demo_approveTimelinePlan);
   const rejectPlan = useMutation(api.demo_timeline_plans.demo_rejectTimelinePlan);
 
-  if (productionDetail) {
+  if (productionDetail && productionWorkspace) {
     const proposalId = planId as Id<"buildProposals">;
     return (
-      <ProductionProposalReviewSurface
-        detail={productionDetail}
-        onApprove={(reason, permitWaiverReason) =>
-          void approveProductionProposal({
-            permitWaiverReason,
-            proposalId,
-            reason,
-            workosOrganizationId,
-          }).then(() => toast.success("Proposal approved."))
-        }
-        onClose={(buildStartDate, reason) =>
-          void recordProductionClosing({
-            buildStartDate,
-            loanFacility: {
-              interestAnnualBps: 925,
-              principalCents:
-                productionDetail.proposal.lenderDrawPolicyLimitCents,
-            },
-            proposalId,
-            reason,
-            workosOrganizationId,
-          }).then((result) => {
-            toast.success("Closing recorded.");
-            void navigate({
-              params: { buildId: result.buildId },
-              to: "/backoffice/builds/$buildId",
-            });
-          })
-        }
-        onReject={(reason) =>
-          void rejectProductionProposal({
-            proposalId,
-            reason,
-            workosOrganizationId,
-          }).then(() => toast.success("Proposal rejected."))
-        }
-        onRequestChanges={(reason) =>
-          void requestProductionChanges({
-            proposalId,
-            reason,
-            workosOrganizationId,
-          }).then(() => toast.success("Changes requested."))
-        }
-        onUpdateDraw={(drawKey, patch) =>
-          void updateProductionDrawScheduleRow({
-            amountCents: patch.amountCents,
-            drawKey,
-            label: patch.label,
-            proposalId,
-            reason: patch.reason,
-            timingDay: patch.timingDay,
-            workosOrganizationId,
-          }).then(() => toast.success("Draw schedule updated."))
-        }
-      />
+      <div className="grid gap-6">
+        <ProductionTimelineWorkspace
+          backofficeHref={`/backoffice/proposals/${planId}`}
+          initialRole="lender"
+          persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
+          proposalHref={`/builder/proposals/${planId}`}
+          proposalId={proposalId}
+          workspace={productionWorkspace}
+          workosOrganizationId={workosOrganizationId}
+        />
+        <ProductionProposalReviewSurface
+          detail={productionDetail}
+          onApprove={(reason, permitWaiverReason) =>
+            void approveProductionProposal({
+              permitWaiverReason,
+              proposalId,
+              reason,
+              workosOrganizationId,
+            }).then(() => toast.success("Proposal approved."))
+          }
+          onClose={(buildStartDate, reason) =>
+            void recordProductionClosing({
+              buildStartDate,
+              loanFacility: {
+                interestAnnualBps: 925,
+                principalCents:
+                  productionDetail.proposal.lenderDrawPolicyLimitCents,
+              },
+              proposalId,
+              reason,
+              workosOrganizationId,
+            }).then((result) => {
+              toast.success("Closing recorded.");
+              void navigate({
+                params: { buildId: result.buildId },
+                to: "/backoffice/builds/$buildId",
+              });
+            })
+          }
+          onReject={(reason) =>
+            void rejectProductionProposal({
+              proposalId,
+              reason,
+              workosOrganizationId,
+            }).then(() => toast.success("Proposal rejected."))
+          }
+          onRequestChanges={(reason) =>
+            void requestProductionChanges({
+              proposalId,
+              reason,
+              workosOrganizationId,
+            }).then(() => toast.success("Changes requested."))
+          }
+          onUpdateDraw={(drawKey, patch) =>
+            void updateProductionDrawScheduleRow({
+              amountCents: patch.amountCents,
+              drawKey,
+              label: patch.label,
+              proposalId,
+              reason: patch.reason,
+              timingDay: patch.timingDay,
+              workosOrganizationId,
+            }).then(() => toast.success("Draw schedule updated."))
+          }
+        />
+      </div>
     );
   }
 
@@ -1291,6 +1319,8 @@ export function buildReviewChartData(viewModel: any) {
   }
   let unlockedDraw = 0;
   let releasedDraw = 0;
+  let previousAvailabilityDay = 0;
+  let totalInterestAccrued = 0;
   const availabilityEvents = [
     ...milestones.map((row: any) => ({
       amount: centsToDollars(row.budgetCents),
@@ -1306,6 +1336,12 @@ export function buildReviewChartData(viewModel: any) {
     })),
   ].sort((a, b) => a.day - b.day);
   const drawAvailability = availabilityEvents.map((event) => {
+    totalInterestAccrued += calculateProposalDailyCompoundedInterest(
+      releasedDraw + totalInterestAccrued,
+      event.day - previousAvailabilityDay,
+    );
+    previousAvailabilityDay = event.day;
+
     if (event.type === "unlock") {
       unlockedDraw += event.amount;
     } else {
@@ -1316,6 +1352,7 @@ export function buildReviewChartData(viewModel: any) {
       day: event.day,
       interestBearingDraw: releasedDraw,
       name: event.label,
+      totalInterestAccrued,
       totalAvailableDraw: unlockedDraw,
     };
   });
@@ -1388,9 +1425,17 @@ export function buildProposalProbeReferenceLines(
     ],
     drawAvailability: [
       {
-        label: `Delta ${formatProbeMoney(
-          probeDrawAvailability.additionalAvailableDraw,
-        )}`,
+        label: [
+          `Delta ${formatProbeMoney(
+            probeDrawAvailability.additionalAvailableDraw,
+          )}`,
+          `Interest-bearing ${formatProbeMoney(
+            probeDrawAvailability.interestBearingDraw,
+          )}`,
+          `Total interest ${formatProbeMoney(
+            probeDrawAvailability.totalInterestAccrued,
+          )}`,
+        ],
         opacity: 0.82,
         stroke: "oklch(0.6 0.18 240)",
         strokeDasharray: "4 3",
@@ -1449,6 +1494,7 @@ function interpolateProposalDrawAvailability(
     day: value,
     interestBearingDraw: 0,
     name: "No draw capacity",
+    totalInterestAccrued: 0,
     totalAvailableDraw: 0,
   };
 
@@ -1469,7 +1515,24 @@ function interpolateProposalDrawAvailability(
   return {
     ...current,
     day: value,
+    totalInterestAccrued:
+      current.totalInterestAccrued +
+      calculateProposalDailyCompoundedInterest(
+        current.interestBearingDraw + current.totalInterestAccrued,
+        Math.max(0, value - current.day),
+      ),
   };
+}
+
+function calculateProposalDailyCompoundedInterest(
+  principal: number,
+  elapsedDays: number,
+) {
+  if (principal <= 0 || elapsedDays <= 0) {
+    return 0;
+  }
+
+  return principal * ((1 + PROPOSAL_REVIEW_INTEREST_APR / 365) ** elapsedDays - 1);
 }
 
 function formatProbeMoney(value: number) {

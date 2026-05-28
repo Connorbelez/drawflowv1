@@ -16,6 +16,9 @@ const demoTimelineIconValidator = v.union(
   v.literal("finishes"),
   v.literal("foundation"),
   v.literal("framing"),
+  v.literal("kitchen"),
+  v.literal("plumbing"),
+  v.literal("roofing"),
   v.literal("roughIn")
 );
 
@@ -1359,6 +1362,12 @@ export default defineSchema({
     borrowerWorkingCapitalLimitCents: v.number(),
     lenderDrawPolicyLimitCents: v.number(),
     borrowerCoPayBps: v.number(),
+    timelineCurrentDay: v.optional(v.number()),
+    timelineProgressValue: v.optional(v.number()),
+    timelineRangeMax: v.optional(v.number()),
+    timelineRangeMin: v.optional(v.number()),
+    timelineRouteState: v.optional(v.any()),
+    timelineStartingCashCents: v.optional(v.number()),
     templateId: v.optional(v.id("proposalTemplates")),
     workflowRuleSnapshotId: v.optional(v.id("workflowRuleSnapshots")),
     activeBuildId: v.optional(v.id("activeBuilds")),
@@ -1415,6 +1424,15 @@ export default defineSchema({
     dayEnd: v.number(),
     durationDays: v.number(),
     dependencyKeys: v.array(v.string()),
+    completionClaim: v.optional(v.any()),
+    completionReview: v.optional(v.any()),
+    evidenceState: v.optional(v.string()),
+    icon: v.optional(v.string()),
+    lane: v.optional(v.number()),
+    markerLabel: v.optional(v.string()),
+    policyState: v.optional(v.string()),
+    timelineStatus: v.optional(v.string()),
+    tone: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -1449,12 +1467,88 @@ export default defineSchema({
     timingDay: v.number(),
     amountCents: v.number(),
     source: v.union(v.literal("milestone"), v.literal("manual")),
+    customDate: v.optional(v.boolean()),
+    requestNote: v.optional(v.string()),
+    requestReviewNote: v.optional(v.string()),
+    requestStatus: v.optional(
+      v.union(
+        v.literal("draft"),
+        v.literal("requested"),
+        v.literal("approved"),
+        v.literal("rejected")
+      )
+    ),
+    requestedAt: v.optional(v.string()),
+    reviewedAt: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_proposal", ["proposalId"])
     .index("by_proposal_order", ["proposalId", "order"])
     .index("by_proposal_key", ["proposalId", "drawKey"]),
+  proposalCapitalEvents: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    capitalEventKey: v.string(),
+    label: v.string(),
+    amountCents: v.number(),
+    eventKind: v.union(v.literal("cost"), v.literal("cashInfusion")),
+    order: v.number(),
+    x: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_proposal", ["proposalId"])
+    .index("by_proposal_key", ["proposalId", "capitalEventKey"])
+    .index("by_proposal_order", ["proposalId", "order"]),
+  proposalEvidenceAssets: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    evidenceKey: v.string(),
+    milestoneKey: v.string(),
+    fileName: v.string(),
+    label: v.string(),
+    mimeType: v.string(),
+    sizeBytes: v.number(),
+    storageId: v.optional(v.id("_storage")),
+    tag: v.string(),
+    locationVerified: v.boolean(),
+    source: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_proposal", ["proposalId"])
+    .index("by_proposal_key", ["proposalId", "evidenceKey"])
+    .index("by_proposal_milestone", ["proposalId", "milestoneKey"]),
+  proposalTimelineModificationRequests: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    milestoneKey: v.optional(v.string()),
+    priorState: v.optional(v.any()),
+    reason: v.optional(v.string()),
+    requestedPayload: v.any(),
+    requestType: v.union(
+      v.literal("createMilestone"),
+      v.literal("deleteMilestone"),
+      v.literal("updateMilestoneBudget")
+    ),
+    reviewNote: v.optional(v.string()),
+    reviewedAt: v.optional(v.number()),
+    reviewerWorkosUserId: v.optional(v.string()),
+    requestedByWorkosUserId: v.string(),
+    status: v.union(
+      v.literal("requested"),
+      v.literal("approved"),
+      v.literal("rejected")
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_proposal", ["proposalId"])
+    .index("by_proposal_status", ["proposalId", "status"]),
   proposalKanbanCards: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
