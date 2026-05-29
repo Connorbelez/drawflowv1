@@ -1459,6 +1459,106 @@ describe("production proposal foundation", () => {
     );
   });
 
+  test("starts active-build milestone work explicitly with audit history", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const proposalId = await t.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Explicit work start active build",
+        location: "12 Start Work Lane",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
+      borrowerCoPayBps: 2_000,
+      borrowerWorkingCapitalLimitCents: 35_000_000,
+      documents: [
+        {
+          documentType: "permit",
+          fileName: "start-work-permit.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 512,
+        },
+      ],
+      lenderDrawPolicyLimitCents: 55_000_000,
+      milestones: [
+        {
+          budgetCents: 50_000_000,
+          dayEnd: 20,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 20,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+          submilestones: [],
+        },
+      ],
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+    await t.mutation((api as any).production_proposals.submitProposal, {
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Ready to close.",
+      workosOrganizationId: ORG,
+    });
+    const closing = await t.mutation(
+      (api as any).production_proposals.recordOfflineClosing,
+      {
+        buildStartDate: "2026-05-01",
+        loanFacility: {
+          interestAnnualBps: 925,
+          principalCents: 55_000_000,
+        },
+        proposalId,
+        reason: "Loan closed offline.",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    await builder.mutation(
+      (api as any).production_proposals.startActiveBuildMilestone,
+      {
+        buildId: closing.buildId,
+        milestoneKey: "foundation",
+        note: "Crew mobilized and site work started.",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const detail = await t.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(detail.milestones[0]).toMatchObject({
+      evidenceState: "Work started",
+      progressPercent: 5,
+      startedAt: expect.any(Number),
+      status: "in_progress",
+    });
+    expect(detail.auditEvents.map((event: any) => event.eventType)).toContain(
+      "active_build.milestone.started",
+    );
+
+    const workspace = await t.query(
+      (api as any).production_proposals.getActiveBuildTimelineWorkspace,
+      { buildId: closing.buildId, workosOrganizationId: ORG },
+    );
+    expect(workspace.milestones[0]).toMatchObject({
+      milestoneKey: "foundation",
+      status: "ready",
+      tone: "warning",
+    });
+  });
+
   test("seeds deterministic production proposal lifecycle scenarios without demo data", async () => {
     const { t } = await seeded(["admin"], "user_admin");
 

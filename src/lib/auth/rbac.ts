@@ -194,7 +194,7 @@ function throwAccessRedirect(
 ): never {
   if (decision.status === "unauthenticated") {
     throw redirect({
-      href: `/api/auth/sign-in?returnTo=${encodeURIComponent(input.pathname)}`,
+      href: `/api/auth/sign-in?returnPathname=${encodeURIComponent(input.pathname)}`,
     });
   }
 

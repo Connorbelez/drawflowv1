@@ -197,6 +197,112 @@ describe("builder roster aggregation", () => {
   });
 });
 
+describe("unprovisioned builders + naming guards", () => {
+  test("listUnprovisionedBuilders surfaces builder-role users without a profile and excludes linked ones", async () => {
+    const { admin, base, seed } = await seededRoster();
+
+    // A builder-role user with no builder account link in the FairLend org.
+    await base.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("users", {
+        authId: "user_unlinked_builder",
+        createdAt: now,
+        email: "newbuilder@example.com",
+        emailVerified: true,
+        name: "New Builder",
+        status: "active",
+        updatedAt: now,
+        workosUserId: "user_unlinked_builder",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        createdAt: now,
+        roleSlug: "builder",
+        roleSlugs: ["builder"],
+        sourceEventId: "test_membership_unlinked_builder",
+        sourceEventType: "test",
+        status: "active",
+        updatedAt: now,
+        workosMembershipId: "om_unlinked_builder",
+        workosOrganizationId: FAIRLEND_ORG,
+        workosUserId: "user_unlinked_builder",
+      });
+    });
+
+    const result = await admin.query(
+      (api as any).builderRoster.listUnprovisionedBuilders,
+      {},
+    );
+    const ids = result.candidates.map((row: any) => row.workosUserId);
+    expect(ids).toContain("user_unlinked_builder");
+    // The seed builder owner is already linked, so must not be a candidate.
+    expect(ids).not.toContain("user_builder");
+    expect(seed.builderProfileId).toBeDefined();
+  });
+
+  test("provisionBuilderProfile requires a builder name distinct from the brokerage", async () => {
+    const { admin } = await seededRoster();
+
+    await expect(
+      admin.mutation((api as any).brokerageProvisioning.provisionBuilderProfile, {
+        displayName: "FairLendBrokerage",
+        workosOrganizationId: FAIRLEND_ORG,
+      }),
+    ).rejects.toThrow();
+
+    const result = await admin.mutation(
+      (api as any).brokerageProvisioning.provisionBuilderProfile,
+      {
+        displayName: "Northwind Homes",
+        workosOrganizationId: FAIRLEND_ORG,
+      },
+    );
+    expect(result.operation).toBe("created");
+
+    const roster = await admin.query(
+      (api as any).builderRoster.listBuilderRoster,
+      {},
+    );
+    const names = roster.builders.map((row: any) => row.displayName);
+    expect(names).toContain("Northwind Homes");
+  });
+
+  test("renameBuilderProfile updates the name and rejects the brokerage name", async () => {
+    const { admin, seed } = await seededRoster();
+
+    const renamed = await admin.mutation(
+      (api as any).builderRoster.renameBuilderProfile,
+      { builderProfileId: seed.builderProfileId, displayName: "Cedar Build Co." },
+    );
+    expect(renamed.displayName).toBe("Cedar Build Co.");
+
+    const roster = await admin.query(
+      (api as any).builderRoster.listBuilderRoster,
+      {},
+    );
+    const builder = roster.builders.find(
+      (row: any) => row._id === seed.builderProfileId,
+    );
+    expect(builder.displayName).toBe("Cedar Build Co.");
+
+    // The seed profile shares the FairLend org with the FairLend brokerage, so
+    // renaming it to the brokerage name must be rejected.
+    await expect(
+      admin.mutation((api as any).builderRoster.renameBuilderProfile, {
+        builderProfileId: seed.builderProfileId,
+        displayName: "FairLendBrokerage",
+      }),
+    ).rejects.toThrow();
+  });
+
+  test("listUnprovisionedBuilders rejects callers without backoffice access", async () => {
+    const { base } = await seededRoster();
+    const builder = asRole(base, ["builder"], "user_builder");
+    await expect(
+      builder.query((api as any).builderRoster.listUnprovisionedBuilders, {}),
+    ).rejects.toThrow();
+  });
+});
+
 describe("deriveStage", () => {
   const { deriveStage } = __test;
   const proposal = (status: "draft" | "submitted" | "approved" | "closed") => ({

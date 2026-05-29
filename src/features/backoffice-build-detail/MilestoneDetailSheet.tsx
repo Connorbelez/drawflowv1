@@ -1,9 +1,12 @@
 "use client";
 
+import { Play } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Button } from "#/components/ui/button.tsx";
 import { formatCents, formatDate, formatRelative, initialsFor } from "./format";
 
 export interface MilestoneSheetData {
+  canStartWork?: boolean;
   milestoneKey: string;
   name: string;
   column: string;
@@ -29,6 +32,7 @@ interface MilestoneDetailSheetProps {
   onRequestInfo?: (milestoneKey: string, note: string) => void;
   onAssignVisit?: (milestoneKey: string) => void;
   onReject?: (milestoneKey: string) => void;
+  onStartWork?: (milestoneKey: string, note?: string) => Promise<void> | void;
   onClose: () => void;
 }
 
@@ -42,6 +46,7 @@ export function MilestoneDetailSheet({
   onRequestInfo,
   onAssignVisit,
   onReject,
+  onStartWork,
   onClose,
 }: MilestoneDetailSheetProps) {
   const [note, setNote] = useState("");
@@ -189,6 +194,22 @@ export function MilestoneDetailSheet({
         </section>
 
         <footer className="mt-auto flex flex-col gap-2">
+          {data.canStartWork ? (
+            <Button
+              className="w-full"
+              data-testid="milestone-detail-sheet-start-work"
+              disabled={pending || !onStartWork}
+              onClick={() =>
+                onStartWork?.(data.milestoneKey, note || undefined)
+              }
+              size="sm"
+              type="button"
+              variant="default"
+            >
+              <Play className="size-4" />
+              Start work
+            </Button>
+          ) : null}
           <button
             className="rounded-md border border-primary/40 bg-primary/30 px-3 py-2 text-sm font-medium disabled:opacity-50"
             data-testid="milestone-detail-sheet-approve"

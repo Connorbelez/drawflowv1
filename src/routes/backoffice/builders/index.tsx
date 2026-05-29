@@ -8,7 +8,10 @@ import { requireUserManagementWriteAccess } from "#/lib/auth/rbac.ts";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { BuilderRosterSurface } from "./-builder-roster-surface";
-import type { BuilderRosterResult } from "./-builder-roster-types";
+import type {
+  BuilderRosterResult,
+  UnprovisionedBuildersResult,
+} from "./-builder-roster-types";
 
 export const Route = createFileRoute("/backoffice/builders/")({
   beforeLoad: ({ context, location }) =>
@@ -36,6 +39,13 @@ function BuildersRoute() {
   const setBuilderProfileStatus = useMutation(
     api.builderRoster.setBuilderProfileStatus
   );
+  const provisionBuilderProfile = useMutation(
+    api.brokerageProvisioning.provisionBuilderProfile
+  );
+  const unprovisioned = useQuery(
+    api.builderRoster.listUnprovisionedBuilders,
+    {}
+  ) as UnprovisionedBuildersResult | undefined;
 
   const onLinkAccount = useCallback(
     async (input: {
@@ -101,6 +111,22 @@ function BuildersRoute() {
     navigate({ to: "/backoffice/user-management" });
   }, [navigate]);
 
+  const onProvisionBuilder = useCallback(
+    async (input: {
+      displayName: string;
+      ownerWorkosUserId: string;
+      workosOrganizationId: string;
+    }) => {
+      try {
+        await provisionBuilderProfile(input);
+        toast.success(`Builder profile created for ${input.displayName}`);
+      } catch (error) {
+        toast.error(actionErrorMessage(error));
+      }
+    },
+    [provisionBuilderProfile]
+  );
+
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:py-8">
       <BuilderRosterSurface
@@ -108,9 +134,11 @@ function BuildersRoute() {
         builders={roster?.builders}
         onInviteBuilder={onInviteBuilder}
         onLinkAccount={onLinkAccount}
+        onProvisionBuilder={onProvisionBuilder}
         onSetProfileStatus={onSetProfileStatus}
         onUnlinkAccount={onUnlinkAccount}
         pending={roster === undefined}
+        unprovisionedBuilders={unprovisioned?.candidates}
       />
     </div>
   );

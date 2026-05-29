@@ -10,8 +10,17 @@ import {
   ShieldCheck,
   UserMinus,
 } from "lucide-react";
-import { type ReactElement, useMemo, useState } from "react";
-
+import { type ReactElement, useId, useMemo, useState } from "react";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "#/components/ui/alert-dialog.tsx";
 import { Avatar, AvatarFallback } from "#/components/ui/avatar.tsx";
 import { Badge, type BadgeProps } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -272,9 +281,11 @@ function MembershipCard({
             </Button>
           ) : null}
           {isDeleted ? null : (
-            <Button
+            <ConfirmButton
+              confirmLabel="Remove membership"
+              description={`This revokes ${organizationName} access for this account. The membership is removed in WorkOS and can only be restored by re-inviting.`}
               disabled={saving}
-              onClick={async () => {
+              onConfirm={async () => {
                 setSaving(true);
                 try {
                   await handlers.onRemoveMembership(
@@ -284,12 +295,11 @@ function MembershipCard({
                   setSaving(false);
                 }
               }}
-              size="xs"
-              variant="destructive-outline"
+              title="Remove this membership?"
             >
               <UserMinus />
               Remove
-            </Button>
+            </ConfirmButton>
           )}
         </div>
       </div>
@@ -636,17 +646,16 @@ function ProfileRow({
             </>
           ) : null}
           {linkedAsBuilder ? (
-            <Button
+            <ConfirmButton
+              confirmLabel="Unlink account"
+              description={`This detaches the account from the ${provisioning.name} builder profile. They lose builder access until re-linked.`}
               disabled={savingBuilder}
-              onClick={() => {
-                unlink();
-              }}
-              size="sm"
-              variant="destructive-outline"
+              onConfirm={unlink}
+              title="Unlink builder account?"
             >
               <UserMinus />
               Unlink builder account
-            </Button>
+            </ConfirmButton>
           ) : null}
           {showBuilderProvision && !provisioning.hasBrokerageProfile ? (
             <span className="text-muted-foreground text-xs">
@@ -676,6 +685,53 @@ function ProfileBadge({
   );
 }
 
+function ConfirmButton({
+  children,
+  confirmLabel,
+  description,
+  disabled,
+  onConfirm,
+  title,
+}: {
+  children: React.ReactNode;
+  confirmLabel: string;
+  description: string;
+  disabled?: boolean;
+  onConfirm: () => void | Promise<void>;
+  title: string;
+}): ReactElement {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger
+        render={
+          <Button disabled={disabled} size="xs" variant="destructive-outline" />
+        }
+      >
+        {children}
+      </AlertDialogTrigger>
+      <AlertDialogContent className="max-w-md">
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription>{description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogClose render={<Button variant="outline" />}>
+            Cancel
+          </AlertDialogClose>
+          <AlertDialogClose
+            onClick={() => {
+              onConfirm();
+            }}
+            render={<Button variant="destructive" />}
+          >
+            {confirmLabel}
+          </AlertDialogClose>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 function RoleEditor({
   disabled,
   onSubmit,
@@ -696,17 +752,27 @@ function RoleEditor({
   submitIcon?: ReactElement;
   submitLabel?: string;
 }): ReactElement {
+  const primaryRoleId = useId();
   const initialRoles =
     roleSlugs.length > 0 ? roleSlugs : roleOptions.slice(0, 1);
+  const initialPrimary = primaryRoleSlug ?? initialRoles[0] ?? "";
+  // Signature of the server-confirmed roles. When a mutation lands and the
+  // parent feeds new props for the same membership, reset local edit state so
+  // the editor reflects the persisted truth instead of a stale draft.
+  const baseline = `${initialPrimary}\u0000${[...initialRoles].sort().join(",")}`;
+  const [syncedBaseline, setSyncedBaseline] = useState(baseline);
   const [selected, setSelected] = useState(initialRoles);
-  const [primary, setPrimary] = useState(
-    primaryRoleSlug ?? initialRoles[0] ?? ""
-  );
+  const [primary, setPrimary] = useState(initialPrimary);
+  if (baseline !== syncedBaseline) {
+    setSyncedBaseline(baseline);
+    setSelected(initialRoles);
+    setPrimary(initialPrimary);
+  }
   const selectedActive = roleOptions.filter((role) => selected.includes(role));
   const dirty =
     selected.length !== initialRoles.length ||
     selected.some((role) => !initialRoles.includes(role)) ||
-    primary !== (primaryRoleSlug ?? initialRoles[0] ?? "");
+    primary !== initialPrimary;
 
   return (
     <div className="flex flex-col gap-2.5">
@@ -742,13 +808,16 @@ function RoleEditor({
         })}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <label className="text-muted-foreground text-xs" htmlFor="primary-role">
+        <label
+          className="text-muted-foreground text-xs"
+          htmlFor={primaryRoleId}
+        >
           Primary
         </label>
         <NativeSelect
           aria-label="Primary role"
           disabled={disabled || selectedActive.length === 0}
-          id="primary-role"
+          id={primaryRoleId}
           onChange={(event) => setPrimary(event.target.value)}
           value={primary}
         >

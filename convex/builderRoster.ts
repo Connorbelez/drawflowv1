@@ -322,6 +322,126 @@ export const setBuilderProfileStatus = userManagementWriteMutation
   })
   .public();
 
+/**
+ * Rename a builder profile's display name. Brokers use this to correct a
+ * builder's company name (e.g. a profile that inherited the brokerage name at
+ * provisioning time). The name must not mirror the owning brokerage.
+ */
+export const renameBuilderProfile = userManagementWriteMutation
+  .input({
+    builderProfileId: v.id("builderProfiles"),
+    displayName: v.string(),
+  })
+  .returns(
+    v.object({
+      builderProfileId: v.id("builderProfiles"),
+      displayName: v.string(),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const profile = await ctx.db.get(args.builderProfileId);
+    if (!profile) {
+      throw new Error("Builder profile not found.");
+    }
+    await requireBrokerageScope(ctx, profile.organizationId);
+    const displayName = args.displayName.trim();
+    if (!displayName) {
+      throw new Error("A builder company name is required.");
+    }
+    const brokerage = await ctx.db.get(profile.brokerageId);
+    if (
+      brokerage &&
+      brokerage.workosOrganizationId === profile.organizationId &&
+      displayName.toLowerCase() === brokerage.displayName.toLowerCase()
+    ) {
+      throw new Error(
+        "A builder profile must use the builder's own company name, not the brokerage name."
+      );
+    }
+    await ctx.db.patch(args.builderProfileId, {
+      displayName,
+      updatedAt: Date.now(),
+    });
+    return { builderProfileId: args.builderProfileId, displayName };
+  })
+  .public();
+
+const BUILDER_ROLE_SLUGS = ["builder", "builder-staff"] as const;
+
+/**
+ * WorkOS users who carry a builder role but are not yet linked to any active
+ * builder profile. These are builders the platform knows about (via their
+ * membership) but who have no borrower profile to underwrite against, so a
+ * broker can provision one for them directly from the builders console.
+ *
+ * Scoped to organizations that already have a brokerage, since a builder
+ * profile must attach to a lender.
+ */
+export const listUnprovisionedBuilders = backofficeQuery
+  .returns(v.any())
+  .handler(async (ctx) => {
+    const [memberships, users, brokerages, links] = await Promise.all([
+      ctx.db.query("workosOrganizationMemberships").collect(),
+      ctx.db.query("users").collect(),
+      ctx.db.query("brokerages").collect(),
+      ctx.db.query("builderAccountLinks").collect(),
+    ]);
+
+    const usersByWorkosId = new Map(
+      users
+        .filter((row) => row.workosUserId)
+        .map((row) => [row.workosUserId as string, row])
+    );
+    const brokerageByOrg = new Map(
+      brokerages.map((row) => [row.workosOrganizationId, row])
+    );
+    const linkedUserIds = new Set(
+      links
+        .filter((link) => link.status === "active")
+        .map((link) => link.workosUserId)
+    );
+
+    const candidates = memberships
+      .filter((membership) => {
+        if (membership.status !== "active") {
+          return false;
+        }
+        const slugs = membershipRoleSlugs(membership);
+        const isBuilder = slugs.some((slug) =>
+          (BUILDER_ROLE_SLUGS as readonly string[]).includes(slug)
+        );
+        if (!isBuilder) {
+          return false;
+        }
+        if (linkedUserIds.has(membership.workosUserId)) {
+          return false;
+        }
+        return brokerageByOrg.has(membership.workosOrganizationId);
+      })
+      .map((membership) => {
+        const user = usersByWorkosId.get(membership.workosUserId);
+        const brokerage = brokerageByOrg.get(membership.workosOrganizationId);
+        return {
+          brokerageDisplayName: brokerage?.displayName ?? null,
+          email: user?.email ?? null,
+          name: user?.name ?? null,
+          profilePictureUrl: user?.profilePictureUrl ?? null,
+          roleSlugs: membershipRoleSlugs(membership),
+          workosMembershipId: membership.workosMembershipId,
+          workosOrganizationId: membership.workosOrganizationId,
+          workosUserId: membership.workosUserId,
+        };
+      })
+      .sort((a, b) =>
+        (a.name ?? a.email ?? a.workosUserId).localeCompare(
+          b.name ?? b.email ?? b.workosUserId
+        )
+      );
+
+    return { candidates };
+  })
+  .public();
+
 function membershipKey(organizationId: string, userId: string): string {
   return `${organizationId}::${userId}`;
 }

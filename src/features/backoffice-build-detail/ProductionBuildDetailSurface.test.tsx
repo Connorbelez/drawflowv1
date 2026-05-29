@@ -1,27 +1,27 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import type * as React from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-vi.mock("#/components/roadmap/AnimatedCurvedTimeline.tsx", () => ({
-  AnimatedCurvedTimeline: ({
-    items,
-    markers,
-    renderCard,
-  }: {
-    items: Array<{ id: string; label?: string }>;
-    markers?: Array<{ id: string; label?: string }>;
-    renderCard?: (item: { id: string; label?: string }) => React.ReactNode;
-  }) => (
-    <div data-testid="mock-production-timeline">
-      <div data-testid="mock-production-timeline-items">{items.length}</div>
-      <div data-testid="mock-production-timeline-markers">
-        {markers?.length ?? 0}
+vi.mock("./ActiveBuildTimelineWorkspace", () => ({
+  ActiveBuildTimelineWorkspace: ({ workspace }: { workspace: any }) => (
+    <div data-testid="mock-active-build-timeline">
+      <div data-testid="mock-active-build-timeline-milestones">
+        {workspace.milestones.length}
       </div>
-      {items.map((item) => (
-        <div data-testid={`mock-production-timeline-item-${item.id}`} key={item.id}>
-          {renderCard ? renderCard(item) : item.label}
+      <div data-testid="mock-active-build-timeline-draws">
+        {workspace.draws.length}
+      </div>
+    </div>
+  ),
+}));
+
+vi.mock("./ActiveBuildGanttWorkspace", () => ({
+  ActiveBuildGanttWorkspace: ({ detail }: { detail: ProductionBuildDetail }) => (
+    <div data-testid="mock-active-build-gantt">
+      {detail.milestones.map((milestone) => (
+        <div data-testid={`mock-active-build-gantt-${milestone.key}`} key={milestone.key}>
+          {milestone.name}
         </div>
       ))}
     </div>
@@ -173,6 +173,61 @@ const detail: ProductionBuildDetail = {
   siteVisits: [],
 };
 
+const timelineWorkspace = {
+  capitalEvents: [],
+  draws: [
+    {
+      amountCents: 225_000_00,
+      drawKey: "draw-01",
+      itemMilestoneKey: "foundation",
+      label: "Foundation reimbursement",
+      requestStatus: "draft",
+      x: 31,
+    },
+  ],
+  evidenceAssets: [],
+  milestones: [
+    {
+      budgetCents: 225_000_00,
+      dayEnd: 30,
+      dayStart: 0,
+      drawAvailabilityCents: 225_000_00,
+      durationDays: 30,
+      evidenceState: "Submitted package",
+      milestoneKey: "foundation",
+      name: "Foundation",
+      order: 1,
+      policyState: "Approved reimbursement policy",
+      status: "ready",
+      submilestoneSnapshot: [],
+      x: 0,
+    },
+  ],
+  permissions: {
+    reviewDrawRequests: true,
+    reviewMilestones: true,
+    submitDrawRequests: false,
+    submitMilestoneCompletion: false,
+  },
+  plan: {
+    currentDay: 1,
+    progressValue: 1,
+    rangeMax: 60,
+    rangeMin: 0,
+    routeState: {
+      selectedPanelOpen: false,
+      straightLine: true,
+    },
+    startingCashCents: 180_000_00,
+  },
+  proposal: {
+    buildName: "Approved With Permit Site",
+    location: "Toronto, ON",
+    status: "approved",
+    totalBudgetCents: 750_000_00,
+  },
+} as any;
+
 describe("ProductionBuildDetailSurface", () => {
   test("restores the build detail tab bar for production active builds", () => {
     const onChangeTab = vi.fn();
@@ -260,6 +315,112 @@ describe("ProductionBuildDetailSurface", () => {
     expect(onChangeMilestone).toHaveBeenCalledWith("foundation");
   });
 
+  test("derives scheduled ready milestones out of backlog without marking work started", () => {
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={{
+          ...detail,
+          milestones: [
+            {
+              ...detail.milestones[0],
+              evidenceState: "Draft package",
+              progressPercent: undefined,
+              status: "planned",
+            },
+          ],
+          submilestones: [],
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="open"
+        timelineWorkspace={{
+          ...timelineWorkspace,
+          plan: { ...timelineWorkspace.plan, currentDay: 5 },
+        }}
+      />,
+    );
+
+    const inProgress = screen.getByTestId("kanban-col-InProgress");
+    expect(within(inProgress).getByTestId("kanban-card-foundation")).toBeTruthy();
+    expect(within(inProgress).getByText("Ready")).toBeTruthy();
+    expect(
+      within(screen.getByTestId("kanban-col-Backlog")).queryByTestId(
+        "kanban-card-foundation",
+      ),
+    ).toBeNull();
+  });
+
+  test("keeps future planned milestones in backlog until schedule unlock", () => {
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={{
+          ...detail,
+          milestones: [
+            {
+              ...detail.milestones[0],
+              dayEnd: 25,
+              dayStart: 15,
+              evidenceState: "Draft package",
+              progressPercent: undefined,
+              status: "planned",
+            },
+          ],
+          submilestones: [],
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="open"
+        timelineWorkspace={{
+          ...timelineWorkspace,
+          plan: { ...timelineWorkspace.plan, currentDay: 5 },
+        }}
+      />,
+    );
+
+    const backlog = screen.getByTestId("kanban-col-Backlog");
+    expect(within(backlog).getByTestId("kanban-card-foundation")).toBeTruthy();
+    expect(within(backlog).getByText("Planned")).toBeTruthy();
+  });
+
+  test("exposes explicit start-work action for scheduled ready milestones", () => {
+    const startMilestoneWork = vi.fn();
+
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ startMilestoneWork }}
+        activeTab="details"
+        detail={{
+          ...detail,
+          milestones: [
+            {
+              ...detail.milestones[0],
+              evidenceState: "Draft package",
+              progressPercent: undefined,
+              status: "planned",
+            },
+          ],
+          submilestones: [],
+        }}
+        milestoneKey="foundation"
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="open"
+        timelineWorkspace={{
+          ...timelineWorkspace,
+          plan: { ...timelineWorkspace.plan, currentDay: 5 },
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("milestone-detail-sheet-start-work"));
+    expect(startMilestoneWork).toHaveBeenCalledWith({
+      milestoneKey: "foundation",
+      note: undefined,
+    });
+  });
+
   test("renders the migrated production details workspace with demo-route parity regions", () => {
     render(
       <ProductionBuildDetailSurface
@@ -282,26 +443,44 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.queryByTestId("production-build-milestones")).toBeNull();
   });
 
-  test("renders the production-backed timeline tab from copied build milestones and draws", () => {
+  test("renders the rich production-backed timeline workspace", () => {
     render(
       <ProductionBuildDetailSurface
+        activeBuildId="active-build-01"
         activeTab="timeline"
         detail={detail}
         onChangeRail={vi.fn()}
         onChangeTab={vi.fn()}
         rail="closed"
+        timelineWorkspace={timelineWorkspace}
+        workosOrganizationId="org_test"
       />,
     );
 
     expect(screen.getByTestId("production-build-timeline")).toBeTruthy();
-    expect(screen.getByTestId("mock-production-timeline-items").textContent).toBe(
+    expect(screen.getByTestId("mock-active-build-timeline-milestones").textContent).toBe(
       "1",
     );
-    expect(
-      screen.getByTestId("mock-production-timeline-markers").textContent,
-    ).toBe("1");
-    expect(
-      screen.getByTestId("mock-production-timeline-item-foundation"),
-    ).toBeTruthy();
+    expect(screen.getByTestId("mock-active-build-timeline-draws").textContent).toBe(
+      "1",
+    );
+  });
+
+  test("renders the rich production-backed Gantt workspace", () => {
+    render(
+      <ProductionBuildDetailSurface
+        activeBuildId="active-build-01"
+        activeTab="gantt"
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+        timelineWorkspace={timelineWorkspace}
+        workosOrganizationId="org_test"
+      />,
+    );
+
+    expect(screen.getByTestId("production-build-gantt")).toBeTruthy();
+    expect(screen.getByTestId("mock-active-build-gantt-foundation")).toBeTruthy();
   });
 });

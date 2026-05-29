@@ -12,6 +12,11 @@ export type BuilderProposal = BuilderRow["proposals"][number];
 export type BuilderBuild = BuilderRow["builds"][number];
 export type BrokerageOption = BuilderRosterResult["brokerages"][number];
 
+export type UnprovisionedBuildersResult = FunctionReturnType<
+  typeof api.builderRoster.listUnprovisionedBuilders
+>;
+export type UnprovisionedBuilder =
+  UnprovisionedBuildersResult["candidates"][number];
 export type BuilderStage =
   | "invited"
   | "no_proposal"

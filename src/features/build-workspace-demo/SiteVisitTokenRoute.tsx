@@ -160,10 +160,12 @@ export function SiteVisitTokenRoute({
   buildId,
   initialVisitState,
   siteVisitToken,
+  source = "demo",
 }: {
   buildId: string;
   initialVisitState?: VisitState;
   siteVisitToken: string;
+  source?: "demo" | "production";
 }) {
   useEffect(() => {
     document.body.classList.add("bg-bg-base");
@@ -176,6 +178,7 @@ export function SiteVisitTokenRoute({
         buildId={buildId}
         initialVisitState={initialVisitState}
         siteVisitToken={siteVisitToken}
+        source={source}
       />
     </ConvexProvider>
   );
@@ -185,27 +188,42 @@ function SiteVisitTokenRouteContent({
   buildId,
   initialVisitState,
   siteVisitToken,
+  source,
 }: {
   buildId: string;
   initialVisitState?: VisitState;
   siteVisitToken: string;
+  source: "demo" | "production";
 }) {
-  const liveVisitState = useQuery(api.demo_drawflow.demo_getSiteVisitByToken, {
+  const visitApi =
+    source === "production"
+      ? (api as any).production_proposals.getActiveBuildSiteVisitByToken
+      : api.demo_drawflow.demo_getSiteVisitByToken;
+  const liveVisitState = useQuery(visitApi, {
     buildId,
     token: siteVisitToken,
   }) as VisitState | undefined;
   const visitState = liveVisitState ?? initialVisitState;
   const generateUploadUrl = useMutation(
-    api.demo_drawflow.demo_generateSiteVisitUploadUrl
+    source === "production"
+      ? (api as any).production_proposals.generateActiveBuildSiteVisitUploadUrl
+      : api.demo_drawflow.demo_generateSiteVisitUploadUrl,
   );
   const registerFile = useMutation(
-    api.demo_drawflow.demo_registerSiteVisitFile
+    source === "production"
+      ? (api as any).production_proposals.registerActiveBuildSiteVisitFile
+      : api.demo_drawflow.demo_registerSiteVisitFile,
   );
   const markOpened = useMutation(
-    api.demo_drawflow.demo_markSiteVisitTokenOpened
+    source === "production"
+      ? (api as any).production_proposals.markActiveBuildSiteVisitTokenOpened
+      : api.demo_drawflow.demo_markSiteVisitTokenOpened,
   );
   const submitReport = useMutation(
-    api.demo_drawflow.demo_submitTokenizedSiteVisitReport
+    source === "production"
+      ? (api as any).production_proposals
+          .submitActiveBuildTokenizedSiteVisitReport
+      : api.demo_drawflow.demo_submitTokenizedSiteVisitReport,
   );
   const openedRef = useRef(false);
   const [selectedTarget, setSelectedTarget] = useState("visit-wide");

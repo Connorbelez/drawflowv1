@@ -69,12 +69,25 @@ function RouteComponent() {
   const requestMilestoneInfo = useMutation(
     api.production_proposals.requestActiveBuildMilestoneInfo,
   );
+  const startMilestoneWork = useMutation(
+    api.production_proposals.startActiveBuildMilestone,
+  );
   const productionBuild = useQuery(
     api.production_proposals.getActiveBuildDetailByString,
     {
       buildId,
       workosOrganizationId: context.organizationId as string,
     },
+  );
+  const activeBuildIdForWorkspace = productionBuild?.build?._id as any;
+  const timelineWorkspace = useQuery(
+    (api as any).production_proposals.getActiveBuildTimelineWorkspace,
+    productionBuild
+      ? {
+          buildId: activeBuildIdForWorkspace,
+          workosOrganizationId: context.organizationId as string,
+        }
+      : "skip",
   );
 
   const onChangeTab = (tab: BuildDetailSubTab) =>
@@ -216,10 +229,18 @@ function RouteComponent() {
           note,
           workosOrganizationId,
         }),
+      startMilestoneWork: ({ milestoneKey, note }) =>
+        startMilestoneWork({
+          buildId: activeBuildId,
+          milestoneKey,
+          note,
+          workosOrganizationId,
+        }),
     };
     return (
       <ProductionBuildDetailSurface
         actions={actions}
+        activeBuildId={activeBuildId}
         activeTab={search.tab ?? "details"}
         detail={detail}
         milestoneKey={search.milestone}
@@ -227,6 +248,8 @@ function RouteComponent() {
         onChangeRail={onChangeRail}
         onChangeTab={onChangeTab}
         rail={search.rail}
+        timelineWorkspace={timelineWorkspace as any}
+        workosOrganizationId={workosOrganizationId}
       />
     );
   }

@@ -4,23 +4,6 @@ import { MapPin } from "lucide-react";
 import type * as React from "react";
 import { useMemo, useState } from "react";
 
-import {
-  AnimatedCurvedTimeline,
-  type TimelineItem,
-  type TimelineMarker,
-} from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
-import {
-  GanttColumns,
-  type GanttFeature,
-  GanttFeatureList,
-  GanttFeatureRow,
-  GanttHeader,
-  GanttMarker,
-  GanttProvider,
-  GanttSidebar,
-  GanttSidebarItem,
-  GanttTimeline,
-} from "#/components/kibo-ui/gantt/index.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import {
   Card,
@@ -35,6 +18,11 @@ import {
   BuildDetailTabBar,
   type BuildDetailSubTab,
 } from "./BuildDetailTabs";
+import { ActiveBuildGanttWorkspace } from "./ActiveBuildGanttWorkspace";
+import {
+  ActiveBuildTimelineWorkspace,
+  type ActiveBuildTimelineWorkspaceProps,
+} from "./ActiveBuildTimelineWorkspace";
 import { ContractorsCard } from "./ContractorsCard";
 import { EventRail } from "./EventRail";
 import {
@@ -98,6 +86,10 @@ export interface ProductionBuildDetailActions {
     milestoneKey: string;
     note: string;
   }) => Promise<void> | void;
+  startMilestoneWork?: (input: {
+    milestoneKey: string;
+    note?: string;
+  }) => Promise<void> | void;
 }
 
 export interface ProductionBuildDetail {
@@ -155,7 +147,10 @@ interface ProductionMilestone {
   completionClaim?: Record<string, unknown>;
   completionReview?: Record<string, any>;
   evidenceState?: string;
+  isDragLocked?: boolean;
   policyState?: string;
+  progressPercent?: number;
+  startedAt?: number;
   status: ProductionMilestoneStatus;
   updatedAt?: number;
 }
@@ -251,37 +246,28 @@ interface ProductionAvailableContractor {
 
 interface ProductionSiteVisit {
   _id?: string;
+  completedAt?: string;
   milestoneKey: string;
   note?: string;
+  recordNote?: string;
   requestedAt: string;
   requestedDay: number;
   status: string;
+  tokenExpiresAt?: number;
   visitId: string;
-}
-
-interface ProductionTimelineData {
-  budgetCents: number;
-  dayEnd: number;
-  dependencyKeys: string[];
-  drawAmountCents: number;
-  drawLabel: string;
-  status: ProductionMilestoneStatus;
-  submilestones: ProductionSubmilestone[];
 }
 
 interface ProductionBuildProjection {
   calendarDates: Date[];
   draws: ProductionDraw[];
-  features: GanttFeature[];
   maxDay: number;
   milestones: ProductionMilestone[];
   submilestonesByMilestone: Map<string, ProductionSubmilestone[]>;
-  timelineItems: TimelineItem<ProductionTimelineData>[];
-  timelineMarkers: TimelineMarker[];
 }
 
 export function ProductionBuildDetailSurface({
   actions,
+  activeBuildId,
   activeTab,
   detail,
   milestoneKey,
@@ -289,8 +275,11 @@ export function ProductionBuildDetailSurface({
   onChangeRail,
   onChangeTab,
   rail,
+  timelineWorkspace,
+  workosOrganizationId,
 }: {
   activeTab: BuildDetailSubTab;
+  activeBuildId?: string;
   actions?: ProductionBuildDetailActions;
   detail: ProductionBuildDetail;
   milestoneKey?: string;
@@ -298,11 +287,14 @@ export function ProductionBuildDetailSurface({
   onChangeRail: (rail: "open" | "closed") => void;
   onChangeTab: (tab: BuildDetailSubTab) => void;
   rail?: "open" | "closed";
+  timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null;
+  workosOrganizationId?: string;
 }) {
   const projection = useMemo(
     () => buildProductionBuildProjection(detail),
     [detail],
   );
+  const currentDay = resolveProductionCurrentDay(detail, timelineWorkspace);
   const railCollapsed = rail === "closed";
   const [localActiveMilestoneKey, setLocalActiveMilestoneKey] = useState<
     string | null
@@ -315,9 +307,14 @@ export function ProductionBuildDetailSurface({
   const sheetData = useMemo(
     () =>
       activeMilestoneKey
-        ? buildMilestoneSheetData(detail, projection, activeMilestoneKey)
+        ? buildMilestoneSheetData(
+            detail,
+            projection,
+            activeMilestoneKey,
+            currentDay,
+          )
         : null,
-    [activeMilestoneKey, detail, projection],
+    [activeMilestoneKey, currentDay, detail, projection],
   );
 
   return (
@@ -336,19 +333,30 @@ export function ProductionBuildDetailSurface({
         {activeTab === "details" ? (
           <ProductionDetailsTab
             actions={actions}
+            currentDay={currentDay}
             detail={detail}
             onCardClick={(card) => setActiveMilestoneKey(card.milestoneKey)}
             projection={projection}
           />
         ) : null}
         {activeTab === "timeline" ? (
-          <ProductionTimelineTab detail={detail} projection={projection} />
+          <ProductionTimelineTab
+            activeBuildId={activeBuildId}
+            detail={detail}
+            timelineWorkspace={timelineWorkspace}
+            workosOrganizationId={workosOrganizationId}
+          />
         ) : null}
         {activeTab === "calendar" ? (
           <ProductionCalendarTab detail={detail} projection={projection} />
         ) : null}
         {activeTab === "gantt" ? (
-          <ProductionGanttTab detail={detail} projection={projection} />
+          <ProductionGanttTab
+            activeBuildId={activeBuildId}
+            detail={detail}
+            timelineWorkspace={timelineWorkspace}
+            workosOrganizationId={workosOrganizationId}
+          />
         ) : null}
       </section>
       <EventRail
@@ -377,6 +385,9 @@ export function ProductionBuildDetailSurface({
         }
         onRequestInfo={(milestoneKey, note) =>
           void actions?.requestMilestoneInfo?.({ milestoneKey, note })
+        }
+        onStartWork={(milestoneKey, note) =>
+          actions?.startMilestoneWork?.({ milestoneKey, note })
         }
       />
     </main>
@@ -439,19 +450,21 @@ function HeaderStat({ label, value }: { label: string; value: string }) {
 
 function ProductionDetailsTab({
   actions,
+  currentDay,
   detail,
   onCardClick,
   projection,
 }: {
   actions?: ProductionBuildDetailActions;
+  currentDay: number;
   detail: ProductionBuildDetail;
   onCardClick: (card: KanbanCardData) => void;
   projection: ProductionBuildProjection;
 }) {
   const [showCompletedKanban, setShowCompletedKanban] = useState(false);
   const kanbanCards = useMemo(
-    () => buildProductionKanbanCards(detail, projection),
-    [detail, projection],
+    () => buildProductionKanbanCards(detail, projection, currentDay),
+    [currentDay, detail, projection],
   );
 
   return (
@@ -991,95 +1004,44 @@ function DescriptionRow({ label, value }: { label: string; value: string }) {
 }
 
 function ProductionTimelineTab({
+  activeBuildId,
   detail,
-  projection,
+  timelineWorkspace,
+  workosOrganizationId,
 }: {
+  activeBuildId?: string;
   detail: ProductionBuildDetail;
-  projection: ProductionBuildProjection;
+  timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null;
+  workosOrganizationId?: string;
 }) {
+  if (!activeBuildId || !workosOrganizationId || timelineWorkspace === undefined) {
+    return (
+      <Frame data-testid="production-build-timeline-loading">
+        <FramePanel className="grid min-h-[28rem] place-items-center p-6 text-muted-foreground text-sm">
+          Loading production timeline workspace...
+        </FramePanel>
+      </Frame>
+    );
+  }
+  if (timelineWorkspace === null) {
+    return (
+      <Frame data-testid="production-build-timeline-unavailable">
+        <FramePanel className="p-4 text-sm">
+          Production timeline workspace is unavailable for this build.
+        </FramePanel>
+      </Frame>
+    );
+  }
   return (
-    <Frame data-testid="production-build-timeline">
-      <FramePanel className="overflow-hidden p-4">
-        <div className="mb-4 flex flex-col gap-1">
-          <h2 className="font-semibold text-base">Timeline</h2>
-          <p className="text-muted-foreground text-sm">
-            Production roadmap copied from the approved proposal at loan
-            closing.
-          </p>
-        </div>
-        <AnimatedCurvedTimeline<ProductionTimelineData>
-          cardWidth={264}
-          className="min-w-0"
-          formatValue={(value) => `Day ${Math.round(value)}`}
-          getItemEndValue={(item) => item.data?.dayEnd}
-          items={projection.timelineItems}
-          markerStackProximityPx={80}
-          markers={projection.timelineMarkers}
-          minNodeSpacingPx={190}
-          paddingX={80}
-          pixelsPerUnit={6.4}
-          range={{ max: projection.maxDay, min: 0, unit: "days" }}
-          renderCard={(item) => (
-            <Card className="w-[264px]">
-              <CardHeader className="p-3">
-                <CardTitle className="truncate text-sm">{item.label}</CardTitle>
-                <p className="text-muted-foreground text-xs">
-                  Day {item.x} - {item.data?.dayEnd ?? item.x}
-                </p>
-              </CardHeader>
-              <CardContent className="grid gap-2 p-3 pt-0 text-xs">
-                <DescriptionRow
-                  label="Budget"
-                  value={formatCents(item.data?.budgetCents ?? 0)}
-                />
-                <DescriptionRow
-                  label="Draw"
-                  value={formatCents(item.data?.drawAmountCents ?? 0)}
-                />
-                <DescriptionRow
-                  label="Status"
-                  value={milestoneStatusLabel(
-                    item.data?.status ?? "planned",
-                  )}
-                />
-              </CardContent>
-            </Card>
-          )}
-          straightLine
-        />
-      </FramePanel>
-      <FramePanel className="p-4">
-        <DrawMilestoneLegend detail={detail} projection={projection} />
-      </FramePanel>
-    </Frame>
-  );
-}
-
-function DrawMilestoneLegend({
-  detail,
-  projection,
-}: {
-  detail: ProductionBuildDetail;
-  projection: ProductionBuildProjection;
-}) {
-  return (
-    <div className="grid gap-3 md:grid-cols-2">
-      {projection.draws.map((draw) => (
-        <div
-          className="flex items-center justify-between gap-3 rounded-md border bg-background/60 px-3 py-2 text-sm"
-          key={draw._id}
-        >
-          <div className="min-w-0">
-            <p className="truncate font-medium">{draw.label}</p>
-            <p className="text-muted-foreground text-xs">
-              {formatDate(addDaysSafe(detail.build.startDate, draw.timingDay))}
-            </p>
-          </div>
-          <span className="shrink-0 font-medium tabular-nums">
-            {formatCents(draw.amountCents)}
-          </span>
-        </div>
-      ))}
+    <div data-testid="production-build-timeline">
+      <ActiveBuildTimelineWorkspace
+        backofficeHref="/backoffice"
+        buildHref={`/backoffice/builds/${detail.build._id}`}
+        buildId={activeBuildId as any}
+        initialRole="lender"
+        workspace={timelineWorkspace}
+        workosOrganizationId={workosOrganizationId}
+      />
     </div>
   );
 }
@@ -1135,90 +1097,41 @@ function ProductionCalendarTab({
 }
 
 function ProductionGanttTab({
+  activeBuildId,
   detail,
-  projection,
+  timelineWorkspace,
+  workosOrganizationId,
 }: {
+  activeBuildId?: string;
   detail: ProductionBuildDetail;
-  projection: ProductionBuildProjection;
+  timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null;
+  workosOrganizationId?: string;
 }) {
-  const disabledIds = useMemo(
-    () => new Set(projection.features.map((feature) => feature.id)),
-    [projection.features],
-  );
-  const columns = Math.max(18, Math.ceil(projection.maxDay / 14) + 6);
+  if (!activeBuildId || !workosOrganizationId || timelineWorkspace === undefined) {
+    return (
+      <Frame data-testid="production-build-gantt-loading">
+        <FramePanel className="grid min-h-[28rem] place-items-center p-6 text-muted-foreground text-sm">
+          Loading production Gantt workspace...
+        </FramePanel>
+      </Frame>
+    );
+  }
   return (
-    <Frame data-testid="production-build-gantt">
-      <FramePanel className="h-[560px] overflow-hidden p-0">
-        <GanttProvider
-          className="rounded-xl"
-          initialScrollDate={dateFromIso(detail.build.startDate)}
-          range="monthly"
-          rowGap={10}
-          rowHeight={42}
-          zoom={95}
-        >
-          <GanttSidebar className="w-72">
-            <div className="divide-y divide-border/50">
-              {projection.features.map((feature) => (
-                <GanttSidebarItem feature={feature} key={feature.id}>
-                  <div className="flex min-w-0 flex-1 items-center gap-2">
-                    <span
-                      className="size-2 rounded-full"
-                      style={{ backgroundColor: feature.status.color }}
-                    />
-                    <span className="truncate font-medium">
-                      {feature.name}
-                    </span>
-                  </div>
-                  <span className="text-muted-foreground">
-                    {drawForFeature(projection.draws, feature.id)}
-                  </span>
-                </GanttSidebarItem>
-              ))}
-            </div>
-          </GanttSidebar>
-          <GanttTimeline>
-            <GanttHeader />
-            <GanttColumns
-              columns={columns}
-              isColumnSecondary={(index) => index % 2 === 1}
-            />
-            {projection.draws.map((draw) => (
-              <GanttMarker
-                date={dateFromIso(
-                  addDaysSafe(detail.build.startDate, draw.timingDay),
-                )}
-                id={draw._id}
-                key={draw._id}
-                label={draw.label}
-                testId={`production-gantt-draw-${draw.drawKey}`}
-              />
-            ))}
-            <GanttFeatureList>
-              {projection.features.map((feature) => (
-                <GanttFeatureRow
-                  disabledIds={disabledIds}
-                  features={[feature]}
-                  key={feature.id}
-                >
-                  {(rowFeature) => (
-                    <span className="truncate px-2 text-xs">
-                      {rowFeature.name}
-                    </span>
-                  )}
-                </GanttFeatureRow>
-              ))}
-            </GanttFeatureList>
-          </GanttTimeline>
-        </GanttProvider>
-      </FramePanel>
-    </Frame>
+    <div className="min-h-[42rem]" data-testid="production-build-gantt">
+      <ActiveBuildGanttWorkspace
+        buildId={activeBuildId as any}
+        detail={detail}
+        timelineWorkspace={timelineWorkspace}
+        workosOrganizationId={workosOrganizationId}
+      />
+    </div>
   );
 }
 
 function buildProductionKanbanCards(
   detail: ProductionBuildDetail,
   projection: ProductionBuildProjection,
+  currentDay: number,
 ): KanbanCardData[] {
   const drawByMilestone = new Map(
     projection.draws
@@ -1230,7 +1143,9 @@ function buildProductionKanbanCards(
     const submilestones =
       projection.submilestonesByMilestone.get(milestone.key) ?? [];
     const progressPercent =
-      submilestones.length > 0
+      typeof milestone.progressPercent === "number"
+        ? clampPercent(milestone.progressPercent)
+        : submilestones.length > 0
         ? Math.round(
             (submilestones.filter((sub) => sub.status === "complete").length /
               submilestones.length) *
@@ -1241,10 +1156,16 @@ function buildProductionKanbanCards(
           : milestone.status === "in_progress"
             ? 50
             : 0;
+    const state = resolveProductionMilestoneKanbanState({
+      currentDay,
+      draw,
+      milestone,
+      projection,
+    });
     return {
       approvedValueCents: milestone.drawAvailabilityCents,
       code: milestone.key.toUpperCase(),
-      column: kanbanColumnForProductionMilestone(milestone, draw),
+      column: state.column,
       contractors:
         detail.contractors?.map((contractor) => ({
           initials: initialsFor(contractor.name),
@@ -1266,7 +1187,7 @@ function buildProductionKanbanCards(
           : undefined,
       requiresSiteVisit:
         milestone.completionReview?.siteVisit?.status === "requested",
-      status: kanbanStatusForProductionMilestone(milestone, draw),
+      status: state.status,
       submittedAt: draw?.requestedAt
         ? Date.parse(draw.requestedAt)
         : milestone.updatedAt,
@@ -1288,43 +1209,112 @@ function buildProductionKanbanCards(
   });
 }
 
-function kanbanColumnForProductionMilestone(
-  milestone: ProductionMilestone,
-  draw?: ProductionDraw,
-): KanbanColumn {
+function resolveProductionMilestoneKanbanState({
+  currentDay,
+  draw,
+  milestone,
+  projection,
+}: {
+  currentDay: number;
+  draw?: ProductionDraw;
+  milestone: ProductionMilestone;
+  projection: ProductionBuildProjection;
+}): {
+  canStartWork: boolean;
+  column: KanbanColumn;
+  status: string;
+} {
   if (milestone.completionReview?.siteVisit?.status === "requested") {
-    return "SiteVisit";
+    return { canStartWork: false, column: "SiteVisit", status: "review" };
   }
   if (draw?.status === "requested" || milestone.evidenceState === "Info requested") {
-    return "NeedsApproval";
+    return { canStartWork: false, column: "NeedsApproval", status: "review" };
   }
   if (milestone.status === "complete") {
-    return "MarkedComplete";
+    return {
+      canStartWork: false,
+      column: "MarkedComplete",
+      status: "completion_approved",
+    };
   }
-  if (milestone.status === "in_progress") {
-    return "InProgress";
+  const dependenciesReady = productionMilestoneDependenciesSatisfied(
+    milestone,
+    projection,
+  );
+  const hasStarted = productionMilestoneHasStartedWorkflow(milestone, draw);
+  const isPastEnd = currentDay > milestone.dayEnd;
+  if (hasStarted) {
+    return {
+      canStartWork: false,
+      column: "InProgress",
+      status: isPastEnd
+        ? "in_progress_behind_schedule"
+        : "in_progress_on_schedule",
+    };
   }
-  return "Backlog";
+  if (!dependenciesReady) {
+    return {
+      canStartWork: false,
+      column: "Backlog",
+      status: currentDay >= milestone.dayStart ? "blocked" : "planned",
+    };
+  }
+  if (currentDay >= milestone.dayStart) {
+    return {
+      canStartWork: true,
+      column: "InProgress",
+      status: isPastEnd ? "in_progress_behind_schedule" : "ready_to_start",
+    };
+  }
+  return { canStartWork: false, column: "Backlog", status: "planned" };
 }
 
-function kanbanStatusForProductionMilestone(
+function productionMilestoneDependenciesSatisfied(
+  milestone: ProductionMilestone,
+  projection: ProductionBuildProjection,
+) {
+  const byKey = new Map(projection.milestones.map((row) => [row.key, row]));
+  return (milestone.dependencyKeys ?? []).every(
+    (key) => byKey.get(key)?.status === "complete",
+  );
+}
+
+function productionMilestoneHasStartedWorkflow(
   milestone: ProductionMilestone,
   draw?: ProductionDraw,
 ) {
-  if (milestone.status === "complete") return "completion_approved";
-  if (draw?.status === "requested") return "review";
-  if (milestone.status === "in_progress") return "in_progress_on_schedule";
-  return "planned";
+  if (milestone.status === "in_progress") return true;
+  if (milestone.completionClaim) return true;
+  if ((milestone.progressPercent ?? 0) > 0) return true;
+  if (
+    draw?.status === "requested" ||
+    draw?.status === "approved" ||
+    draw?.status === "released"
+  ) {
+    return true;
+  }
+  const evidenceState = String(milestone.evidenceState ?? "").toLowerCase();
+  return Boolean(
+    evidenceState &&
+      !["draft package", "not started", "planned"].includes(evidenceState),
+  );
 }
 
 function buildMilestoneSheetData(
   detail: ProductionBuildDetail,
   projection: ProductionBuildProjection,
   milestoneKey: string,
+  currentDay: number,
 ): MilestoneSheetData | null {
   const milestone = projection.milestones.find((row) => row.key === milestoneKey);
   if (!milestone) return null;
   const draw = projection.draws.find((row) => row.milestoneKey === milestoneKey);
+  const state = resolveProductionMilestoneKanbanState({
+    currentDay,
+    draw,
+    milestone,
+    projection,
+  });
   const events = (detail.auditEvents ?? [])
     .filter((event) => event.eventType.includes("milestone"))
     .slice(0, 6)
@@ -1335,7 +1325,8 @@ function buildMilestoneSheetData(
       title: event.eventType.replace(/[._]/g, " "),
     }));
   return {
-    column: kanbanColumnForProductionMilestone(milestone, draw),
+    canStartWork: state.canStartWork,
+    column: state.column,
     contractors:
       detail.contractors?.map((contractor) => ({
         initials: initialsFor(contractor.name),
@@ -1349,6 +1340,36 @@ function buildMilestoneSheetData(
     requestedAmountCents: draw?.amountCents,
     submittedAt: draw?.requestedAt ? Date.parse(draw.requestedAt) : undefined,
   };
+}
+
+function resolveProductionCurrentDay(
+  detail: ProductionBuildDetail,
+  timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null,
+) {
+  const timelineDay = timelineWorkspace?.plan?.currentDay;
+  if (typeof timelineDay === "number" && Number.isFinite(timelineDay)) {
+    return Math.round(timelineDay);
+  }
+  return daysBetweenProductionDates(
+    detail.build.startDate,
+    new Date().toISOString(),
+  );
+}
+
+function daysBetweenProductionDates(startIso: string, endIso: string) {
+  const parseDay = (value: string) => {
+    const dayPart = value.includes("T") ? value.slice(0, 10) : value;
+    const ms = Date.parse(`${dayPart}T00:00:00Z`);
+    return Number.isFinite(ms) ? ms : Date.now();
+  };
+  return Math.max(
+    0,
+    Math.round((parseDay(endIso) - parseDay(startIso)) / 86_400_000),
+  );
+}
+
+function clampPercent(value: number) {
+  return Math.max(0, Math.min(100, Math.round(value)));
 }
 
 function buildProductionBuildProjection(
@@ -1365,11 +1386,6 @@ function buildProductionBuildProjection(
     list.push(submilestone);
     submilestonesByMilestone.set(submilestone.milestoneKey, list);
   }
-  const drawByMilestone = new Map(
-    draws
-      .filter((draw) => draw.milestoneKey)
-      .map((draw) => [draw.milestoneKey as string, draw]),
-  );
   const maxDay = Math.max(
     60,
     ...milestones.map((milestone) => milestone.dayEnd + 14),
@@ -1387,45 +1403,9 @@ function buildProductionBuildProjection(
   return {
     calendarDates: [...calendarIsoDates].map(dateFromIso),
     draws,
-    features: milestones.map((milestone) => ({
-      endAt: dateFromIso(addDaysSafe(detail.build.startDate, milestone.dayEnd)),
-      id: milestone.key,
-      name: milestone.name,
-      startAt: dateFromIso(
-        addDaysSafe(detail.build.startDate, milestone.dayStart),
-      ),
-      status: ganttStatusForMilestone(milestone.status),
-    })),
     maxDay,
     milestones,
     submilestonesByMilestone,
-    timelineItems: milestones.map((milestone, index) => {
-      const draw = drawByMilestone.get(milestone.key);
-      return {
-        data: {
-          budgetCents: milestone.budgetCents,
-          dayEnd: milestone.dayEnd,
-          dependencyKeys: milestone.dependencyKeys,
-          drawAmountCents: draw?.amountCents ?? milestone.drawAvailabilityCents,
-          drawLabel: draw?.label ?? "Planned reimbursement draw",
-          status: milestone.status,
-          submilestones:
-            submilestonesByMilestone.get(milestone.key) ?? [],
-        },
-        id: milestone.key,
-        label: milestone.name,
-        lane: index % 3 === 1 ? -1 : index % 3 === 2 ? 1 : 0,
-        markerLabel: String(index + 1),
-        tone: timelineToneForMilestone(milestone.status),
-        x: milestone.dayStart,
-      };
-    }),
-    timelineMarkers: draws.map((draw) => ({
-      id: draw._id,
-      label: draw.label,
-      tone: draw.status === "released" ? "today" : "accent",
-      x: draw.timingDay,
-    })),
   };
 }
 
@@ -1464,6 +1444,10 @@ function milestoneStatusLabel(status: ProductionMilestoneStatus): string {
 
 function drawStatusLabel(status: ProductionDrawStatus): string {
   switch (status) {
+    case "approved":
+      return "Approved";
+    case "rejected":
+      return "Rejected";
     case "requested":
       return "Requested";
     case "released":
@@ -1494,28 +1478,7 @@ function drawBadgeVariant(
 ): React.ComponentProps<typeof Badge>["variant"] {
   if (status === "released") return "success";
   if (status === "requested") return "warning";
+  if (status === "approved") return "info";
+  if (status === "rejected") return "destructive";
   return "outline";
-}
-
-function timelineToneForMilestone(
-  status: ProductionMilestoneStatus,
-): TimelineItem<ProductionTimelineData>["tone"] {
-  if (status === "complete") return "complete";
-  if (status === "in_progress") return "active";
-  return "upcoming";
-}
-
-function ganttStatusForMilestone(status: ProductionMilestoneStatus) {
-  if (status === "complete") {
-    return { color: "#16a34a", id: "complete", name: "Complete" };
-  }
-  if (status === "in_progress") {
-    return { color: "#d97706", id: "in_progress", name: "In progress" };
-  }
-  return { color: "#2563eb", id: "planned", name: "Planned" };
-}
-
-function drawForFeature(draws: ProductionDraw[], milestoneKey: string): string {
-  const draw = draws.find((row) => row.milestoneKey === milestoneKey);
-  return draw ? formatCents(draw.amountCents, { compact: true }) : "No draw";
 }

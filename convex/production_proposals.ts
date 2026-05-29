@@ -7,6 +7,7 @@ import {
   normalizeRoleSlugs,
   type RoleSlug,
 } from "./authz";
+import { publicMutation, publicQuery } from "./fluent";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const PROPOSAL_COLUMNS = ["draft", "submitted", "approved", "closed"] as const;
@@ -3282,6 +3283,1434 @@ export const getActiveBuildDetailByString = authenticatedQuery
   })
   .public();
 
+export const getActiveBuildTimelineWorkspace = authenticatedQuery
+  .input({
+    buildId: v.id("activeBuilds"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    const { build, proposal } = auth;
+    const [
+      milestones,
+      submilestones,
+      draws,
+      evidenceAssets,
+      capitalPlanRows,
+      siteVisits,
+      capitalEvents,
+      auditEvents,
+      permitWaiver,
+    ] = await Promise.all([
+      collectByIndex(ctx, "buildMilestones", "by_build", args.buildId),
+      collectByIndex(ctx, "buildSubmilestones", "by_build", args.buildId),
+      collectByIndex(ctx, "plannedDrawScheduleRows", "by_build", args.buildId),
+      collectByIndex(ctx, "buildEvidenceAssets", "by_build", args.buildId),
+      collectByIndex(ctx, "buildCapitalPlans", "by_build", args.buildId),
+      collectByIndex(ctx, "buildSiteVisits", "by_build", args.buildId),
+      collectByIndex(ctx, "capitalEvents", "by_build", args.buildId),
+      ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q) =>
+          q.eq("entityType", "activeBuild").eq("entityId", String(args.buildId))
+        )
+        .collect(),
+      build.permitWaiverId ? ctx.db.get(build.permitWaiverId) : null,
+    ]);
+    const sortedMilestones = [...milestones].sort(
+      (a, b) => a.order - b.order || a.key.localeCompare(b.key)
+    );
+    const sortedDraws = [...draws].sort(
+      (a, b) => a.order - b.order || a.drawKey.localeCompare(b.drawKey)
+    );
+    const maxDay = Math.max(
+      60,
+      ...sortedMilestones.map((milestone) => milestone.dayEnd + 10),
+      ...sortedDraws.map((draw) => draw.timingDay + 10)
+    );
+    const computedCurrentDay = Math.max(
+      0,
+      Math.min(maxDay, daysBetweenIso(build.startDate, new Date().toISOString()))
+    );
+    const currentDay = build.timelineCurrentDay ?? computedCurrentDay;
+    const activeMilestone =
+      sortedMilestones.find((milestone) => milestone.status !== "complete") ??
+      sortedMilestones[0];
+    const drawByMilestoneKey = new Map(
+      sortedDraws
+        .filter((draw) => draw.milestoneKey)
+        .map((draw) => [draw.milestoneKey as string, draw])
+    );
+    const capitalPlan = capitalPlanRows[0] ?? null;
+    const siteVisitsByMilestone = new Map<string, any[]>();
+    for (const visit of siteVisits) {
+      const list = siteVisitsByMilestone.get(visit.milestoneKey) ?? [];
+      list.push(visit);
+      siteVisitsByMilestone.set(visit.milestoneKey, list);
+    }
+    const activeCapitalEvents = capitalEvents as Doc<"capitalEvents">[];
+    const activeSubmilestones = submilestones as Doc<"buildSubmilestones">[];
+
+    return {
+      activeBuild: build,
+      auditEvents: auditEvents
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .map((event) => ({
+          _id: event._id,
+          actorPersona: event.actorWorkosUserId,
+          command: event.command,
+          createdAt: event.createdAt,
+          entityType: event.entityType,
+          eventType: event.eventType,
+          reason: event.reason,
+        })),
+      capitalEvents: [
+        {
+          amountCents:
+            capitalPlan?.borrowerWorkingCapitalLimitCents ??
+            proposal.borrowerWorkingCapitalLimitCents,
+          capitalEventKey: "borrower-reserve",
+          eventKind: "cashInfusion",
+          label: "Borrower reserve",
+          x: 0,
+        },
+        ...activeCapitalEvents
+          .filter((event) => event.eventType !== "draw_release")
+          .sort((a, b) => a.createdAt - b.createdAt)
+          .map((event) => ({
+            amountCents: event.amountCents,
+            capitalEventKey: event.capitalEventKey ?? String(event._id),
+            eventKind:
+              event.eventType === "borrower_copay" ? "cashInfusion" : "cost",
+            label: event.label,
+            x: daysBetweenIso(build.startDate, event.eventDate),
+          })),
+      ],
+      draws: sortedDraws.map((draw) => ({
+        amountCents: draw.amountCents,
+        customDate: false,
+        drawKey: draw.drawKey,
+        itemMilestoneKey: draw.milestoneKey,
+        label: draw.label,
+        requestNote: draw.requestNote,
+        requestReviewNote: draw.requestReviewNote ?? draw.releaseNote,
+        requestStatus: activeBuildTimelineDrawStatus(draw.status),
+        reviewedAt: draw.reviewedAt ?? draw.releasedAt,
+        requestedAt: draw.requestedAt,
+        x: draw.timingDay,
+      })),
+      evidenceAssets: await Promise.all(
+        [...evidenceAssets]
+          .sort((a, b) => a.createdAt - b.createdAt)
+          .map(async (asset) => ({
+            evidenceKey: asset.evidenceKey,
+            fileName: asset.fileName,
+            label: asset.label,
+            milestoneKey: asset.milestoneKey,
+            mimeType: asset.mimeType,
+            previewUrl: asset.storageId
+              ? await ctx.storage.getUrl(asset.storageId)
+              : null,
+            sizeBytes: asset.sizeBytes,
+            tag: asset.tag,
+          }))
+      ),
+      milestones: sortedMilestones.map((milestone, index) => {
+        const draw = drawByMilestoneKey.get(milestone.key);
+        const visits = siteVisitsByMilestone.get(milestone.key) ?? [];
+        const completionReview = productionCompletionReviewView(
+          milestone.completionReview
+        );
+        const status = activeBuildTimelineMilestoneStatus(milestone, {
+          currentDay,
+          milestones: sortedMilestones,
+        });
+        return {
+          budgetCents: milestone.budgetCents,
+          completionClaim: productionCompletionClaimView(
+            milestone.completionClaim
+          ),
+          completionReview:
+            completionReview ??
+            activeBuildSiteVisitCompletionReviewView(visits.at(-1)),
+          drawAvailabilityCents:
+            draw?.amountCents ?? milestone.drawAvailabilityCents,
+          drawKey: draw?.label ?? "Reimbursement draw",
+          durationDays: milestone.durationDays,
+          evidenceState:
+            milestone.evidenceState ??
+            (milestone.completionClaim ? "Completion claimed" : "Draft package"),
+          icon: iconForProductionMilestone(milestone.key, milestone.name),
+          lane: index % 3 === 1 ? -1 : index % 3 === 2 ? 1 : 0,
+          markerLabel: String(index + 1),
+          milestoneKey: milestone.key,
+          name: milestone.name,
+          order: index + 1,
+          policyState: milestone.policyState ?? productionPolicyState(proposal, permitWaiver),
+          status,
+          submilestoneSnapshot: activeSubmilestones
+            .filter((submilestone) => submilestone.milestoneKey === milestone.key)
+            .sort((a, b) => a.order - b.order || a.key.localeCompare(b.key))
+            .map((submilestone) => ({
+              ...(submilestone.budgetCents === undefined
+                ? {}
+                : { budgetCents: submilestone.budgetCents }),
+              ...(submilestone.durationDays === undefined
+                ? {}
+                : { durationDays: submilestone.durationDays }),
+              key: submilestone.key,
+              name: submilestone.name,
+              order: submilestone.order,
+            })),
+          tone: activeBuildTimelineMilestoneTone(milestone, status, currentDay),
+          x: milestone.dayStart,
+        };
+      }),
+      modificationRequests: [],
+      permissions: {
+        reviewDrawRequests: isBackoffice(auth.roles),
+        reviewMilestones: isBackoffice(auth.roles),
+        submitDrawRequests: !isBackoffice(auth.roles),
+        submitMilestoneCompletion: !isBackoffice(auth.roles),
+      },
+      plan: {
+        borrowerCoPayBps: capitalPlan?.borrowerCoPayBps ?? proposal.borrowerCoPayBps,
+        borrowerCoPayCents: Math.round(
+          (build.totalBudgetCents *
+            (capitalPlan?.borrowerCoPayBps ?? proposal.borrowerCoPayBps)) /
+            10_000
+        ),
+        currentDay,
+        progressValue:
+          build.timelineProgressValue ?? activeMilestone?.dayStart ?? currentDay,
+        rangeMax: build.timelineRangeMax ?? maxDay,
+        rangeMin: build.timelineRangeMin ?? 0,
+        routeState:
+          build.timelineRouteState ?? {
+            activeMilestoneKey: activeMilestone?.key,
+            selectedPanelOpen: Boolean(activeMilestone),
+            straightLine: true,
+          },
+        startingCashCents:
+          build.timelineStartingCashCents ??
+          capitalPlan?.borrowerWorkingCapitalLimitCents ??
+          proposal.borrowerWorkingCapitalLimitCents,
+      },
+      planSummary: {
+        address: build.location,
+        includedCount: sortedMilestones.length,
+        templateTitle: build.buildName,
+        totalBudget: build.totalBudgetCents,
+      },
+      proposal: {
+        buildName: build.buildName,
+        location: build.location,
+        reviewOutcome: proposal.reviewOutcome,
+        status: "approved",
+        totalBudgetCents: build.totalBudgetCents,
+      },
+    };
+  })
+  .public();
+
+export const updateActiveBuildTimelinePlanState = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    currentDay: v.number(),
+    progressValue: v.number(),
+    rangeMax: v.number(),
+    rangeMin: v.number(),
+    routeState: v.object({
+      activeCapitalSpikeId: v.optional(v.string()),
+      activeDrawId: v.optional(v.string()),
+      activeMilestoneKey: v.optional(v.string()),
+      selectedPanelOpen: v.boolean(),
+      straightLine: v.boolean(),
+    }),
+    startingCashCents: v.number(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    const priorState = JSON.stringify({
+      currentDay: auth.build.timelineCurrentDay,
+      progressValue: auth.build.timelineProgressValue,
+      rangeMax: auth.build.timelineRangeMax,
+      rangeMin: auth.build.timelineRangeMin,
+      routeState: auth.build.timelineRouteState,
+      startingCashCents: auth.build.timelineStartingCashCents,
+    });
+    const patch = {
+      timelineCurrentDay: Math.round(args.currentDay),
+      timelineProgressValue: Math.round(args.progressValue),
+      timelineRangeMax: Math.round(args.rangeMax),
+      timelineRangeMin: Math.round(args.rangeMin),
+      timelineRouteState: args.routeState,
+      timelineStartingCashCents: Math.max(
+        0,
+        Math.round(args.startingCashCents)
+      ),
+      updatedAt: Date.now(),
+    };
+    await ctx.db.patch(args.buildId, patch);
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "updateActiveBuildTimelinePlanState",
+      eventType: "active_build.timeline_state.updated",
+      newState: JSON.stringify(patch),
+      priorState,
+    });
+    return null;
+  })
+  .public();
+
+export const createActiveBuildTimelineMilestone = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    milestone: productionTimelineMilestoneInput,
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    await insertActiveBuildMilestoneFromInput(ctx, auth, args.milestone);
+    await recalculateActiveBuildBudget(ctx, args.buildId);
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "createActiveBuildTimelineMilestone",
+      eventType: "active_build.milestone.created",
+      newState: JSON.stringify(args.milestone),
+    });
+    return null;
+  })
+  .public();
+
+export const updateActiveBuildTimelineMilestone = authenticatedMutation
+  .input({
+    budgetCents: v.optional(v.number()),
+    buildId: v.id("activeBuilds"),
+    dayEnd: v.optional(v.number()),
+    dayStart: v.optional(v.number()),
+    dependencyKeys: v.optional(v.array(v.string())),
+    drawAvailabilityCents: v.optional(v.number()),
+    durationDays: v.optional(v.number()),
+    evidenceState: v.optional(v.string()),
+    isDragLocked: v.optional(v.boolean()),
+    milestoneKey: v.string(),
+    name: v.optional(v.string()),
+    order: v.optional(v.number()),
+    policyState: v.optional(v.string()),
+    progressPercent: v.optional(v.number()),
+    status: v.optional(
+      v.union(v.literal("planned"), v.literal("in_progress"), v.literal("complete"))
+    ),
+    submilestones: v.optional(v.array(submilestoneInput)),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    const milestone = await getActiveBuildMilestoneOrThrow(
+      ctx,
+      args.buildId,
+      args.milestoneKey
+    );
+    const nextDayStart = args.dayStart ?? milestone.dayStart;
+    const nextDayEnd = args.dayEnd ?? milestone.dayEnd;
+    if (nextDayEnd < nextDayStart) {
+      throw new Error("Milestone end day must be after start day.");
+    }
+    const nextBudgetCents =
+      args.budgetCents === undefined
+        ? milestone.budgetCents
+        : Math.max(0, Math.round(args.budgetCents));
+    const capitalPlan = (
+      await collectByIndex(ctx, "buildCapitalPlans", "by_build", args.buildId)
+    )[0] as Doc<"buildCapitalPlans"> | undefined;
+    const borrowerCoPayBps =
+      capitalPlan?.borrowerCoPayBps ?? auth.proposal.borrowerCoPayBps;
+    const patch = {
+      ...(args.budgetCents === undefined
+        ? {}
+        : { budgetCents: nextBudgetCents }),
+      ...(args.dayEnd === undefined ? {} : { dayEnd: Math.round(args.dayEnd) }),
+      ...(args.dayStart === undefined
+        ? {}
+        : { dayStart: Math.round(args.dayStart) }),
+      ...(args.dependencyKeys === undefined
+        ? {}
+        : { dependencyKeys: args.dependencyKeys }),
+      ...(args.drawAvailabilityCents === undefined &&
+      args.budgetCents === undefined
+        ? {}
+        : {
+            drawAvailabilityCents:
+              args.drawAvailabilityCents === undefined
+                ? calculateDrawAvailability(nextBudgetCents, borrowerCoPayBps)
+                : Math.max(0, Math.round(args.drawAvailabilityCents)),
+          }),
+      ...(args.durationDays === undefined
+        ? {}
+        : { durationDays: Math.max(1, Math.round(args.durationDays)) }),
+      ...(args.evidenceState === undefined
+        ? {}
+        : { evidenceState: args.evidenceState }),
+      ...(args.isDragLocked === undefined
+        ? {}
+        : { isDragLocked: args.isDragLocked }),
+      ...(args.name === undefined
+        ? {}
+        : { name: args.name.trim() || milestone.name }),
+      ...(args.order === undefined
+        ? {}
+        : { order: Math.max(1, Math.round(args.order)) }),
+      ...(args.policyState === undefined
+        ? {}
+        : { policyState: args.policyState }),
+      ...(args.progressPercent === undefined
+        ? {}
+        : {
+            progressPercent: Math.max(
+              0,
+              Math.min(100, Math.round(args.progressPercent))
+            ),
+          }),
+      ...(args.status === undefined ? {} : { status: args.status }),
+      updatedAt: Date.now(),
+    };
+    await ctx.db.patch(milestone._id, patch);
+    if (args.submilestones !== undefined) {
+      await replaceActiveBuildSubmilestones(ctx, auth, {
+        buildId: args.buildId,
+        milestone,
+        rows: args.submilestones,
+      });
+    }
+    await recalculateActiveBuildBudget(ctx, args.buildId);
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "updateActiveBuildTimelineMilestone",
+      eventType: "active_build.milestone.updated",
+      newState: JSON.stringify(patch),
+      priorState: JSON.stringify(milestone),
+    });
+    return null;
+  })
+  .public();
+
+export const deleteActiveBuildTimelineMilestone = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    milestoneKey: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    const milestone = await getActiveBuildMilestoneOrThrow(
+      ctx,
+      args.buildId,
+      args.milestoneKey
+    );
+    await deleteActiveBuildMilestoneCascade(ctx, args.buildId, milestone);
+    await recalculateActiveBuildBudget(ctx, args.buildId);
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "deleteActiveBuildTimelineMilestone",
+      eventType: "active_build.milestone.deleted",
+      priorState: JSON.stringify(milestone),
+    });
+    return null;
+  })
+  .public();
+
+export const createActiveBuildTimelineDraw = authenticatedMutation
+  .input({
+    amountCents: v.number(),
+    buildId: v.id("activeBuilds"),
+    customDate: v.optional(v.boolean()),
+    drawKey: v.string(),
+    itemMilestoneKey: v.optional(v.string()),
+    label: v.string(),
+    order: v.optional(v.number()),
+    workosOrganizationId: v.string(),
+    x: v.number(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    const existing = await ctx.db
+      .query("plannedDrawScheduleRows")
+      .withIndex("by_build_order", (q) => q.eq("buildId", args.buildId))
+      .collect()
+      .then((rows) => rows.find((row) => row.drawKey === args.drawKey));
+    if (existing) {
+      throw new Error("Production active-build draw already exists.");
+    }
+    const draws = await collectByIndex(
+      ctx,
+      "plannedDrawScheduleRows",
+      "by_build",
+      args.buildId
+    );
+    const milestone =
+      args.itemMilestoneKey === undefined
+        ? null
+        : await getActiveBuildMilestoneOrThrow(
+            ctx,
+            args.buildId,
+            args.itemMilestoneKey
+          );
+    const now = Date.now();
+    const proposalDrawScheduleRowId = await ctx.db.insert(
+      "proposalDrawScheduleRows",
+      {
+        amountCents: Math.max(0, Math.round(args.amountCents)),
+        brokerageId: auth.brokerage._id,
+        createdAt: now,
+        customDate: args.customDate ?? true,
+        drawKey: args.drawKey,
+        label: args.label.trim() || "Reimbursement draw",
+        milestoneKey: args.itemMilestoneKey,
+        order: args.order ?? draws.length + 1,
+        organizationId: args.workosOrganizationId,
+        proposalId: auth.proposal._id,
+        proposalMilestoneId: milestone?.proposalMilestoneId,
+        source: "manual",
+        timingDay: Math.max(0, Math.round(args.x)),
+        updatedAt: now,
+      }
+    );
+    await ctx.db.insert("plannedDrawScheduleRows", {
+      amountCents: Math.max(0, Math.round(args.amountCents)),
+      brokerageId: auth.brokerage._id,
+      buildId: args.buildId,
+      buildMilestoneId: milestone?._id,
+      createdAt: now,
+      drawKey: args.drawKey,
+      label: args.label.trim() || "Reimbursement draw",
+      milestoneKey: args.itemMilestoneKey,
+      order: args.order ?? draws.length + 1,
+      organizationId: args.workosOrganizationId,
+      proposalDrawScheduleRowId,
+      status: "planned",
+      timingDay: Math.max(0, Math.round(args.x)),
+      updatedAt: now,
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "createActiveBuildTimelineDraw",
+      eventType: "active_build.draw.created",
+      newState: JSON.stringify(args),
+    });
+    return null;
+  })
+  .public();
+
+export const updateActiveBuildTimelineDraw = authenticatedMutation
+  .input({
+    amountCents: v.optional(v.number()),
+    buildId: v.id("activeBuilds"),
+    customDate: v.optional(v.boolean()),
+    drawKey: v.string(),
+    itemMilestoneKey: v.optional(v.string()),
+    label: v.optional(v.string()),
+    order: v.optional(v.number()),
+    workosOrganizationId: v.string(),
+    x: v.optional(v.number()),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    const draw = await getActiveBuildDrawOrThrow(
+      ctx,
+      args.buildId,
+      args.drawKey
+    );
+    const milestone =
+      args.itemMilestoneKey === undefined
+        ? undefined
+        : await getActiveBuildMilestoneOrThrow(
+            ctx,
+            args.buildId,
+            args.itemMilestoneKey
+          );
+    const patch = {
+      ...(args.amountCents === undefined
+        ? {}
+        : { amountCents: Math.max(0, Math.round(args.amountCents)) }),
+      ...(args.itemMilestoneKey === undefined
+        ? {}
+        : {
+            buildMilestoneId: milestone?._id,
+            milestoneKey: args.itemMilestoneKey,
+          }),
+      ...(args.label === undefined
+        ? {}
+        : { label: args.label.trim() || draw.label }),
+      ...(args.order === undefined
+        ? {}
+        : { order: Math.max(1, Math.round(args.order)) }),
+      ...(args.x === undefined
+        ? {}
+        : { timingDay: Math.max(0, Math.round(args.x)) }),
+      updatedAt: Date.now(),
+    };
+    await ctx.db.patch(draw._id, patch);
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "updateActiveBuildTimelineDraw",
+      eventType: "active_build.draw.updated",
+      newState: JSON.stringify(patch),
+      priorState: JSON.stringify(draw),
+    });
+    return null;
+  })
+  .public();
+
+export const deleteActiveBuildTimelineDraw = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    drawKey: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    const draw = await getActiveBuildDrawOrThrow(
+      ctx,
+      args.buildId,
+      args.drawKey
+    );
+    if (draw.status === "approved" || draw.status === "released") {
+      throw new Error("Approved or released reimbursement draws cannot be deleted.");
+    }
+    await ctx.db.delete(draw._id);
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "deleteActiveBuildTimelineDraw",
+      eventType: "active_build.draw.deleted",
+      priorState: JSON.stringify(draw),
+    });
+    return null;
+  })
+  .public();
+
+export const createActiveBuildTimelineCapitalEvent = authenticatedMutation
+  .input({
+    amountCents: v.number(),
+    buildId: v.id("activeBuilds"),
+    capitalEventKey: v.string(),
+    eventKind: timelineCapitalEventKind,
+    label: v.string(),
+    workosOrganizationId: v.string(),
+    x: v.number(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    await insertActiveBuildCapitalEvent(ctx, auth, {
+      amountCents: args.amountCents,
+      capitalEventKey: args.capitalEventKey,
+      eventKind: args.eventKind,
+      label: args.label,
+      x: args.x,
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "createActiveBuildTimelineCapitalEvent",
+      eventType: "active_build.capital_event.created",
+      newState: JSON.stringify(args),
+    });
+    return null;
+  })
+  .public();
+
+export const createActiveBuildTimelineCashInfusion = authenticatedMutation
+  .input({
+    amountCents: v.number(),
+    buildId: v.id("activeBuilds"),
+    cashInfusionKey: v.string(),
+    label: v.string(),
+    workosOrganizationId: v.string(),
+    x: v.number(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    await insertActiveBuildCapitalEvent(ctx, auth, {
+      amountCents: args.amountCents,
+      capitalEventKey: args.cashInfusionKey,
+      eventKind: "cashInfusion",
+      label: args.label,
+      x: args.x,
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "createActiveBuildTimelineCashInfusion",
+      eventType: "active_build.cash_infusion.created",
+      newState: JSON.stringify(args),
+    });
+    return null;
+  })
+  .public();
+
+export const updateActiveBuildTimelineCapitalEvent = authenticatedMutation
+  .input({
+    amountCents: v.optional(v.number()),
+    buildId: v.id("activeBuilds"),
+    capitalEventKey: v.string(),
+    eventKind: v.optional(timelineCapitalEventKind),
+    label: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+    x: v.optional(v.number()),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    const event = await getActiveBuildCapitalEventOrThrow(
+      ctx,
+      args.buildId,
+      args.capitalEventKey
+    );
+    const patch = {
+      ...(args.amountCents === undefined
+        ? {}
+        : { amountCents: Math.max(0, Math.round(args.amountCents)) }),
+      ...(args.eventKind === undefined
+        ? {}
+        : {
+            eventType:
+              args.eventKind === "cashInfusion"
+                ? ("borrower_copay" as const)
+                : ("cost" as const),
+          }),
+      ...(args.label === undefined
+        ? {}
+        : { label: args.label.trim() || event.label }),
+      ...(args.x === undefined
+        ? {}
+        : { eventDate: addDaysIso(auth.build.startDate, args.x) }),
+    };
+    await ctx.db.patch(event._id, patch);
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "updateActiveBuildTimelineCapitalEvent",
+      eventType: "active_build.capital_event.updated",
+      newState: JSON.stringify(patch),
+      priorState: JSON.stringify(event),
+    });
+    return null;
+  })
+  .public();
+
+export const deleteActiveBuildTimelineCapitalEvent = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    capitalEventKey: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    const event = await getActiveBuildCapitalEventOrThrow(
+      ctx,
+      args.buildId,
+      args.capitalEventKey
+    );
+    await ctx.db.delete(event._id);
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "deleteActiveBuildTimelineCapitalEvent",
+      eventType: "active_build.capital_event.deleted",
+      priorState: JSON.stringify(event),
+    });
+    return null;
+  })
+  .public();
+
+export const generateActiveBuildEvidenceUploadUrl = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.string())
+  .handler(async (ctx, args) => {
+    await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    return await ctx.storage.generateUploadUrl();
+  })
+  .public();
+
+export const createActiveBuildTimelineEvidenceAsset = authenticatedMutation
+  .input({
+    asset: evidenceAssetInput,
+    buildId: v.id("activeBuilds"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    const milestone = await getActiveBuildMilestoneOrThrow(
+      ctx,
+      args.buildId,
+      args.asset.milestoneKey
+    );
+    const existing = await ctx.db
+      .query("buildEvidenceAssets")
+      .withIndex("by_build_key", (q) =>
+        q.eq("buildId", args.buildId).eq("evidenceKey", args.asset.evidenceKey)
+      )
+      .unique();
+    if (existing) {
+      throw new Error("Production active-build evidence asset already exists.");
+    }
+    const now = Date.now();
+    await ctx.db.insert("buildEvidenceAssets", {
+      brokerageId: auth.brokerage._id,
+      buildId: args.buildId,
+      createdAt: now,
+      evidenceKey: args.asset.evidenceKey,
+      fileName: args.asset.fileName,
+      label: args.asset.label.trim() || args.asset.fileName,
+      locationVerified: args.asset.locationVerified ?? false,
+      milestoneKey: args.asset.milestoneKey,
+      mimeType: args.asset.mimeType,
+      organizationId: args.workosOrganizationId,
+      proposalId: auth.proposal._id,
+      sizeBytes: Math.max(0, Math.round(args.asset.sizeBytes)),
+      source: args.asset.source ?? "active_build_timeline_upload",
+      storageId: args.asset.storageId,
+      tag: args.asset.tag.trim() || milestone.name,
+      updatedAt: now,
+    });
+    await ctx.db.patch(milestone._id, {
+      evidenceState: args.asset.locationVerified
+        ? "Submitted package"
+        : "Location unverified",
+      status: milestone.status === "planned" ? "in_progress" : milestone.status,
+      updatedAt: now,
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "createActiveBuildTimelineEvidenceAsset",
+      eventType: "active_build.evidence.created",
+      newState: JSON.stringify(args.asset),
+    });
+    return null;
+  })
+  .public();
+
+export const updateActiveBuildTimelineEvidenceAsset = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    evidenceKey: v.string(),
+    label: v.optional(v.string()),
+    tag: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    const asset = await getActiveBuildEvidenceAssetOrThrow(
+      ctx,
+      args.buildId,
+      args.evidenceKey
+    );
+    const patch = {
+      ...(args.label === undefined
+        ? {}
+        : { label: args.label.trim() || asset.label }),
+      ...(args.tag === undefined ? {} : { tag: args.tag.trim() || asset.tag }),
+      updatedAt: Date.now(),
+    };
+    await ctx.db.patch(asset._id, patch);
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "updateActiveBuildTimelineEvidenceAsset",
+      eventType: "active_build.evidence.updated",
+      newState: JSON.stringify(patch),
+      priorState: JSON.stringify(asset),
+    });
+    return null;
+  })
+  .public();
+
+export const deleteActiveBuildTimelineEvidenceAsset = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    evidenceKey: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    const asset = await getActiveBuildEvidenceAssetOrThrow(
+      ctx,
+      args.buildId,
+      args.evidenceKey
+    );
+    if (asset.storageId) {
+      await ctx.storage.delete(asset.storageId);
+    }
+    await ctx.db.delete(asset._id);
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "deleteActiveBuildTimelineEvidenceAsset",
+      eventType: "active_build.evidence.deleted",
+      priorState: JSON.stringify(asset),
+    });
+    return null;
+  })
+  .public();
+
+export const startActiveBuildMilestone = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    milestoneKey: v.string(),
+    note: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    if (isBackoffice(auth.roles)) {
+      requireBackofficeActiveBuildWrite(auth);
+    }
+    const [milestone, milestones] = await Promise.all([
+      getActiveBuildMilestoneOrThrow(ctx, args.buildId, args.milestoneKey),
+      collectByIndex(ctx, "buildMilestones", "by_build", args.buildId),
+    ]);
+    if (milestone.status === "complete") {
+      throw new Error("Completed milestones cannot be restarted.");
+    }
+    const blockers = activeBuildMilestoneDependencyBlockers(
+      milestone,
+      milestones as Doc<"buildMilestones">[]
+    );
+    if (blockers.length > 0) {
+      throw new Error(
+        `Cannot start milestone until dependencies are complete: ${blockers.join(", ")}.`
+      );
+    }
+    const currentDay = daysBetweenIso(auth.build.startDate, new Date().toISOString());
+    if (currentDay < milestone.dayStart) {
+      throw new Error("Milestone is not scheduled to start yet.");
+    }
+    if (milestone.status === "in_progress" && milestone.startedAt) {
+      return null;
+    }
+
+    const now = Date.now();
+    const patch = {
+      evidenceState:
+        milestone.evidenceState &&
+        !["draft package", "not started", "planned"].includes(
+          milestone.evidenceState.toLowerCase()
+        )
+          ? milestone.evidenceState
+          : "Work started",
+      progressPercent: Math.max(milestone.progressPercent ?? 0, 5),
+      startedAt: milestone.startedAt ?? now,
+      status: "in_progress" as const,
+      updatedAt: now,
+    };
+    await ctx.db.patch(milestone._id, patch);
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "startActiveBuildMilestone",
+      eventType: "active_build.milestone.started",
+      newState: JSON.stringify({
+        milestoneKey: milestone.key,
+        note: args.note,
+        ...patch,
+      }),
+      priorState: JSON.stringify({
+        evidenceState: milestone.evidenceState,
+        progressPercent: milestone.progressPercent,
+        startedAt: milestone.startedAt,
+        status: milestone.status,
+      }),
+      reason: args.note,
+    });
+    return null;
+  })
+  .public();
+
+export const submitActiveBuildMilestoneCompletion = authenticatedMutation
+  .input({
+    actualCostCents: v.optional(v.number()),
+    buildId: v.id("activeBuilds"),
+    completedDay: v.number(),
+    milestoneKey: v.string(),
+    note: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    const milestone = await getActiveBuildMilestoneOrThrow(
+      ctx,
+      args.buildId,
+      args.milestoneKey
+    );
+    const completionClaim = {
+      ...(args.actualCostCents === undefined
+        ? {}
+        : { actualCostCents: Math.max(0, Math.round(args.actualCostCents)) }),
+      completedDay: Math.max(0, Math.round(args.completedDay)),
+      ...(args.note ? { note: args.note } : {}),
+      submittedAt: new Date().toISOString(),
+    };
+    await ctx.db.patch(milestone._id, {
+      completionClaim,
+      evidenceState: milestone.evidenceState ?? "Completion claimed",
+      progressPercent: 100,
+      status: "in_progress",
+      updatedAt: Date.now(),
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "submitActiveBuildMilestoneCompletion",
+      eventType: "active_build.milestone_completion.submitted",
+      newState: JSON.stringify(completionClaim),
+      priorState: JSON.stringify(milestone.completionClaim),
+    });
+    return null;
+  })
+  .public();
+
+export const recordActiveBuildSiteVisit = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    milestoneKey: v.string(),
+    note: v.optional(v.string()),
+    status: v.union(v.literal("complete"), v.literal("cancelled")),
+    visitId: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    const milestone = await getActiveBuildMilestoneOrThrow(
+      ctx,
+      args.buildId,
+      args.milestoneKey
+    );
+    const visit = await ctx.db
+      .query("buildSiteVisits")
+      .withIndex("by_visit", (q) => q.eq("visitId", args.visitId))
+      .unique();
+    if (!visit || visit.buildId !== args.buildId) {
+      throw new Error("Production active-build site visit request not found.");
+    }
+    const now = Date.now();
+    const siteVisit = {
+      ...(visit.note ? { note: visit.note } : {}),
+      ...(args.note ? { recordNote: args.note } : {}),
+      completedAt:
+        args.status === "complete"
+          ? new Date(now).toISOString()
+          : visit.completedAt,
+      requestedAt: visit.requestedAt,
+      requestedDay: visit.requestedDay,
+      status: args.status,
+      tokenExpiresAt: visit.tokenExpiresAt,
+      url: visit.url,
+      visitId: visit.visitId,
+    };
+    const completionReview = {
+      ...(milestone.completionReview ?? {}),
+      reviewedAt:
+        milestone.completionReview?.reviewedAt ?? new Date(now).toISOString(),
+      siteVisit,
+      status: milestone.completionReview?.status ?? "revisionRequested",
+    };
+    await ctx.db.patch(visit._id, {
+      completedAt: siteVisit.completedAt,
+      recordNote: args.note,
+      status: args.status,
+      updatedAt: now,
+    });
+    await ctx.db.patch(milestone._id, {
+      completionReview,
+      updatedAt: now,
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "recordActiveBuildSiteVisit",
+      eventType: "active_build.site_visit.recorded",
+      newState: JSON.stringify(siteVisit),
+      priorState: JSON.stringify(visit),
+      reason: args.note,
+    });
+    return null;
+  })
+  .public();
+
+export const getActiveBuildSiteVisitByToken = publicQuery
+  .input({ buildId: v.string(), token: v.string() })
+  .returns(v.any())
+  .handler(async (ctx, args) =>
+    await getActiveBuildSiteVisitTokenState(ctx, args.buildId, args.token)
+  )
+  .public();
+
+export const generateActiveBuildSiteVisitUploadUrl = publicMutation
+  .input({ buildId: v.string(), token: v.string() })
+  .returns(v.string())
+  .handler(async (ctx, args) => {
+    const state = await getActiveBuildSiteVisitTokenState(
+      ctx,
+      args.buildId,
+      args.token
+    );
+    if (!state.available) {
+      throw new Error("Site visit token is not active.");
+    }
+    return await ctx.storage.generateUploadUrl();
+  })
+  .public();
+
+export const registerActiveBuildSiteVisitFile = publicMutation
+  .input({
+    buildId: v.string(),
+    fileName: v.string(),
+    mimeType: v.string(),
+    sizeBytes: v.number(),
+    storageId: v.id("_storage"),
+    targetMilestoneKey: v.optional(v.string()),
+    targetSubmilestoneKey: v.optional(v.string()),
+    token: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const state = await getActiveBuildSiteVisitTokenState(
+      ctx,
+      args.buildId,
+      args.token
+    );
+    if (!state.available) {
+      throw new Error("Site visit token is not active.");
+    }
+    const buildId = ctx.db.normalizeId("activeBuilds", args.buildId);
+    if (!buildId) {
+      throw new Error("Site visit token is invalid.");
+    }
+    const build = await ctx.db.get(buildId);
+    const visit = await ctx.db
+      .query("buildSiteVisits")
+      .withIndex("by_visit", (q) => q.eq("visitId", args.token))
+      .unique();
+    if (!(build && visit) || visit.buildId !== buildId) {
+      throw new Error("Site visit token is invalid.");
+    }
+    const now = Date.now();
+    await ctx.db.insert("buildEvidenceAssets", {
+      brokerageId: build.brokerageId,
+      buildId,
+      createdAt: now,
+      evidenceKey: `site-visit-${args.token}-${now}`,
+      fileName: args.fileName,
+      label: args.fileName,
+      locationVerified: true,
+      milestoneKey: args.targetMilestoneKey ?? visit.milestoneKey,
+      mimeType: args.mimeType,
+      organizationId: build.organizationId,
+      proposalId: build.proposalId,
+      sizeBytes: Math.max(0, Math.round(args.sizeBytes)),
+      source: `active_build_site_visit:${args.token}:${args.targetSubmilestoneKey ?? ""}`,
+      storageId: args.storageId,
+      tag: "Site visit evidence",
+      updatedAt: now,
+    });
+    await ctx.db.patch(visit.buildMilestoneId, {
+      evidenceState: "Site visit evidence submitted",
+      updatedAt: now,
+    });
+    return null;
+  })
+  .public();
+
+export const markActiveBuildSiteVisitTokenOpened = publicMutation
+  .input({ buildId: v.string(), token: v.string() })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const buildId = ctx.db.normalizeId("activeBuilds", args.buildId);
+    if (!buildId) {
+      return null;
+    }
+    const visit = await ctx.db
+      .query("buildSiteVisits")
+      .withIndex("by_visit", (q) => q.eq("visitId", args.token))
+      .unique();
+    if (!visit || visit.buildId !== buildId || visit.status !== "requested") {
+      return null;
+    }
+    await ctx.db.patch(visit._id, {
+      tokenOpenedAt: visit.tokenOpenedAt ?? Date.now(),
+      updatedAt: Date.now(),
+    });
+    return null;
+  })
+  .public();
+
+export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
+  .input({
+    buildId: v.string(),
+    completionObserved: v.boolean(),
+    recommendedOutcome: v.string(),
+    reportNotes: v.string(),
+    token: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const state = await getActiveBuildSiteVisitTokenState(
+      ctx,
+      args.buildId,
+      args.token
+    );
+    if (!state.available) {
+      throw new Error("Site visit token is not active.");
+    }
+    if (!args.reportNotes.trim()) {
+      throw new Error("Report notes are required.");
+    }
+    const buildId = ctx.db.normalizeId("activeBuilds", args.buildId);
+    if (!buildId) {
+      throw new Error("Site visit token is invalid.");
+    }
+    const build = await ctx.db.get(buildId);
+    const visit = await ctx.db
+      .query("buildSiteVisits")
+      .withIndex("by_visit", (q) => q.eq("visitId", args.token))
+      .unique();
+    if (!(build && visit) || visit.buildId !== buildId) {
+      throw new Error("Site visit token is invalid.");
+    }
+    const milestone = await ctx.db.get(visit.buildMilestoneId);
+    if (!milestone) {
+      throw new Error("Site visit milestone was not found.");
+    }
+    const now = Date.now();
+    const completedAt = new Date(now).toISOString();
+    const siteVisit = {
+      ...(visit.note ? { note: visit.note } : {}),
+      completedAt,
+      recordNote: args.reportNotes,
+      recommendedOutcome: args.recommendedOutcome,
+      requestedAt: visit.requestedAt,
+      requestedDay: visit.requestedDay,
+      status: args.completionObserved ? "complete" : "cancelled",
+      tokenExpiresAt: visit.tokenExpiresAt,
+      url: visit.url,
+      visitId: visit.visitId,
+    };
+    const completionReview = {
+      ...(milestone.completionReview ?? {}),
+      reviewedAt: completedAt,
+      siteVisit,
+      status:
+        args.recommendedOutcome === "approve"
+          ? "approved"
+          : "revisionRequested",
+    };
+    await ctx.db.patch(visit._id, {
+      completedAt,
+      recordNote: args.reportNotes,
+      status: args.completionObserved ? "complete" : "cancelled",
+      tokenConsumedAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.patch(milestone._id, {
+      completionReview,
+      evidenceState: "Site visit report submitted",
+      status:
+        args.completionObserved && args.recommendedOutcome === "approve"
+          ? "complete"
+          : milestone.status,
+      updatedAt: now,
+    });
+    await ctx.db.insert("auditEvents", {
+      actorRoles: ["contractor"],
+      actorWorkosUserId: "tokenized_site_visitor",
+      brokerageId: build.brokerageId,
+      command: "submitActiveBuildTokenizedSiteVisitReport",
+      createdAt: now,
+      entityId: String(build._id),
+      entityType: "activeBuild",
+      eventType: "active_build.site_visit.token_report_submitted",
+      newState: JSON.stringify(siteVisit),
+      organizationId: build.organizationId,
+      priorState: JSON.stringify(visit),
+      reason: args.reportNotes,
+      warnings: [],
+    });
+    await ctx.db.insert("eventOutbox", {
+      brokerageId: build.brokerageId,
+      createdAt: now,
+      eventType: "active_build.site_visit.token_report_submitted",
+      organizationId: build.organizationId,
+      payloadPreview: JSON.stringify(siteVisit),
+      relatedEntityId: build._id,
+      relatedEntityType: "activeBuild",
+      status: "pending",
+    });
+    return null;
+  })
+  .public();
+
+export const reviewActiveBuildEvidence = authenticatedMutation
+  .input({
+    accepted: v.boolean(),
+    buildId: v.id("activeBuilds"),
+    milestoneKey: v.string(),
+    note: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    const milestone = await getActiveBuildMilestoneOrThrow(
+      ctx,
+      args.buildId,
+      args.milestoneKey
+    );
+    const completionReview = {
+      ...(milestone.completionReview ?? {}),
+      ...(args.note ? { note: args.note } : {}),
+      reviewedAt: new Date().toISOString(),
+      status: args.accepted ? "approved" : "revisionRequested",
+    };
+    await ctx.db.patch(milestone._id, {
+      completionReview,
+      evidenceState: args.accepted ? "Accepted" : "Info requested",
+      status: args.accepted ? "complete" : "in_progress",
+      updatedAt: Date.now(),
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "reviewActiveBuildEvidence",
+      eventType: "active_build.evidence.reviewed",
+      newState: JSON.stringify(completionReview),
+      priorState: JSON.stringify(milestone.completionReview),
+      reason: args.note,
+    });
+    return null;
+  })
+  .public();
+
 export const addActiveBuildNote = authenticatedMutation
   .input({
     body: v.string(),
@@ -4054,6 +5483,112 @@ function productionDaysActive(startDate: string) {
     return 0;
   }
   return Math.max(0, Math.floor((Date.now() - startMs) / 86_400_000));
+}
+
+function daysBetweenIso(startIso: string, endIso: string) {
+  const parseDay = (value: string) => {
+    const dayPart = value.includes("T") ? value.slice(0, 10) : value;
+    const ms = Date.parse(`${dayPart}T00:00:00Z`);
+    return Number.isFinite(ms) ? ms : Date.now();
+  };
+  return Math.max(
+    0,
+    Math.round((parseDay(endIso) - parseDay(startIso)) / 86_400_000)
+  );
+}
+
+function activeBuildTimelineDrawStatus(
+  status: Doc<"plannedDrawScheduleRows">["status"]
+) {
+  if (status === "requested") {
+    return "requested" as const;
+  }
+  if (status === "approved" || status === "released") {
+    return "approved" as const;
+  }
+  if (status === "rejected") {
+    return "rejected" as const;
+  }
+  return "draft" as const;
+}
+
+function activeBuildTimelineMilestoneStatus(
+  milestone: Doc<"buildMilestones">,
+  schedule?: {
+    currentDay: number;
+    milestones: readonly Doc<"buildMilestones">[];
+  }
+) {
+  if (milestone.status === "complete") {
+    return "complete" as const;
+  }
+  if (milestone.completionClaim) {
+    return "review" as const;
+  }
+  if (milestone.status === "in_progress") {
+    return "ready" as const;
+  }
+  if (
+    schedule &&
+    schedule.currentDay >= milestone.dayStart &&
+    activeBuildMilestoneDependencyBlockers(milestone, schedule.milestones)
+      .length === 0
+  ) {
+    return "ready" as const;
+  }
+  return "upcoming" as const;
+}
+
+function activeBuildTimelineMilestoneTone(
+  milestone: Doc<"buildMilestones">,
+  status: ReturnType<typeof activeBuildTimelineMilestoneStatus>,
+  currentDay: number
+) {
+  if (status === "complete") {
+    return "complete" as const;
+  }
+  if (currentDay > milestone.dayEnd) {
+    return "warning" as const;
+  }
+  if (status === "ready" || status === "review") {
+    return "active" as const;
+  }
+  return "upcoming" as const;
+}
+
+function activeBuildMilestoneDependencyBlockers(
+  milestone: Doc<"buildMilestones">,
+  milestones: readonly Doc<"buildMilestones">[]
+) {
+  const byKey = new Map(milestones.map((row) => [row.key, row]));
+  return (milestone.dependencyKeys ?? []).filter((key) => {
+    const dependency = byKey.get(key);
+    return !dependency || dependency.status !== "complete";
+  });
+}
+
+function activeBuildSiteVisitCompletionReviewView(
+  visit?: Doc<"buildSiteVisits">
+) {
+  if (!visit) {
+    return;
+  }
+  const siteVisit = {
+    ...(visit.completedAt ? { completedAt: visit.completedAt } : {}),
+    ...(visit.note ? { note: visit.note } : {}),
+    ...(visit.recordNote ? { recordNote: visit.recordNote } : {}),
+    requestedAt: visit.requestedAt,
+    requestedDay: visit.requestedDay,
+    status: visit.status,
+    tokenExpiresAt: visit.tokenExpiresAt,
+    url: visit.url,
+    visitId: visit.visitId,
+  };
+  return {
+    reviewedAt: visit.completedAt ?? visit.requestedAt,
+    siteVisit,
+    status: "revisionRequested" as const,
+  };
 }
 
 function productionBuildDashboardStatus(
@@ -5066,6 +6601,462 @@ async function getActiveBuildMilestoneOrThrow(
     throw new Error("Production active-build milestone not found.");
   }
   return milestone;
+}
+
+async function insertActiveBuildMilestoneFromInput(
+  ctx: MutationCtx,
+  auth: {
+    brokerage: Doc<"brokerages">;
+    build: Doc<"activeBuilds">;
+    proposal: Doc<"buildProposals">;
+  },
+  milestone: {
+    budgetCents: number;
+    dayEnd: number;
+    dayStart: number;
+    dependencyKeys?: string[];
+    drawAvailabilityCents?: number;
+    durationDays: number;
+    evidenceState: string;
+    milestoneKey: string;
+    name: string;
+    order: number;
+    policyState: string;
+    submilestones?: {
+      budgetCents?: number;
+      durationDays?: number;
+      key: string;
+      name: string;
+      order: number;
+    }[];
+  }
+) {
+  const existing = await ctx.db
+    .query("buildMilestones")
+    .withIndex("by_build_key", (q) =>
+      q.eq("buildId", auth.build._id).eq("key", milestone.milestoneKey)
+    )
+    .unique();
+  if (existing) {
+    throw new Error("Production active-build milestone already exists.");
+  }
+  if (milestone.dayEnd < milestone.dayStart) {
+    throw new Error("Milestone end day must be after start day.");
+  }
+  const now = Date.now();
+  const budgetCents = Math.max(0, Math.round(milestone.budgetCents));
+  const proposalMilestoneId = await ctx.db.insert("proposalMilestones", {
+    brokerageId: auth.brokerage._id,
+    budgetCents,
+    createdAt: now,
+    dayEnd: Math.round(milestone.dayEnd),
+    dayStart: Math.round(milestone.dayStart),
+    dependencyKeys: milestone.dependencyKeys ?? [],
+    drawAvailabilityCents:
+      milestone.drawAvailabilityCents === undefined
+        ? calculateDrawAvailability(budgetCents, auth.proposal.borrowerCoPayBps)
+        : Math.max(0, Math.round(milestone.drawAvailabilityCents)),
+    durationDays: Math.max(1, Math.round(milestone.durationDays)),
+    evidenceState: milestone.evidenceState,
+    key: milestone.milestoneKey,
+    name: milestone.name.trim() || "Active build milestone",
+    order: Math.max(1, Math.round(milestone.order)),
+    organizationId: auth.build.organizationId,
+    policyState: milestone.policyState,
+    proposalId: auth.proposal._id,
+    timelineStatus: "ready",
+    tone: "active",
+    updatedAt: now,
+  });
+  const buildMilestoneId = await ctx.db.insert("buildMilestones", {
+    brokerageId: auth.brokerage._id,
+    budgetCents,
+    buildId: auth.build._id,
+    createdAt: now,
+    dayEnd: Math.round(milestone.dayEnd),
+    dayStart: Math.round(milestone.dayStart),
+    dependencyKeys: milestone.dependencyKeys ?? [],
+    drawAvailabilityCents:
+      milestone.drawAvailabilityCents === undefined
+        ? calculateDrawAvailability(budgetCents, auth.proposal.borrowerCoPayBps)
+        : Math.max(0, Math.round(milestone.drawAvailabilityCents)),
+    durationDays: Math.max(1, Math.round(milestone.durationDays)),
+    evidenceState: milestone.evidenceState,
+    key: milestone.milestoneKey,
+    name: milestone.name.trim() || "Active build milestone",
+    order: Math.max(1, Math.round(milestone.order)),
+    organizationId: auth.build.organizationId,
+    policyState: milestone.policyState,
+    progressPercent: 0,
+    proposalMilestoneId,
+    status: "planned",
+    updatedAt: now,
+  });
+  await replaceActiveBuildSubmilestones(ctx, auth, {
+    buildId: auth.build._id,
+    milestone: {
+      _id: buildMilestoneId,
+      key: milestone.milestoneKey,
+      proposalMilestoneId,
+    },
+    rows: milestone.submilestones ?? [],
+  });
+  return buildMilestoneId;
+}
+
+async function replaceActiveBuildSubmilestones(
+  ctx: MutationCtx,
+  auth: {
+    brokerage: Doc<"brokerages">;
+    build: Doc<"activeBuilds">;
+    proposal: Doc<"buildProposals">;
+  },
+  input: {
+    buildId: Id<"activeBuilds">;
+    milestone: Pick<
+      Doc<"buildMilestones">,
+      "_id" | "key" | "proposalMilestoneId"
+    >;
+    rows: {
+      budgetCents?: number;
+      durationDays?: number;
+      key: string;
+      name: string;
+      order: number;
+    }[];
+  }
+) {
+  const existing = await ctx.db
+    .query("buildSubmilestones")
+    .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", input.milestone._id))
+    .collect();
+  for (const row of existing) {
+    await ctx.db.delete(row._id);
+  }
+  const now = Date.now();
+  for (const row of [...input.rows].sort((a, b) => a.order - b.order)) {
+    const proposalSubmilestoneId = await ctx.db.insert("proposalSubmilestones", {
+      brokerageId: auth.brokerage._id,
+      budgetCents: row.budgetCents,
+      createdAt: now,
+      durationDays: row.durationDays,
+      key: row.key,
+      milestoneKey: input.milestone.key,
+      name: row.name.trim() || "Submilestone",
+      order: Math.max(1, Math.round(row.order)),
+      organizationId: auth.build.organizationId,
+      proposalId: auth.proposal._id,
+      proposalMilestoneId: input.milestone.proposalMilestoneId,
+      updatedAt: now,
+    });
+    await ctx.db.insert("buildSubmilestones", {
+      brokerageId: auth.brokerage._id,
+      buildId: input.buildId,
+      buildMilestoneId: input.milestone._id,
+      budgetCents: row.budgetCents,
+      createdAt: now,
+      durationDays: row.durationDays,
+      key: row.key,
+      milestoneKey: input.milestone.key,
+      name: row.name.trim() || "Submilestone",
+      order: Math.max(1, Math.round(row.order)),
+      organizationId: auth.build.organizationId,
+      proposalSubmilestoneId,
+      status: "planned",
+      updatedAt: now,
+    });
+  }
+}
+
+async function deleteActiveBuildMilestoneCascade(
+  ctx: MutationCtx,
+  buildId: Id<"activeBuilds">,
+  milestone: Doc<"buildMilestones">
+) {
+  const submilestones = await ctx.db
+    .query("buildSubmilestones")
+    .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", milestone._id))
+    .collect();
+  for (const row of submilestones) {
+    await ctx.db.delete(row._id);
+  }
+  const evidenceAssets = await ctx.db
+    .query("buildEvidenceAssets")
+    .withIndex("by_build_milestone", (q) =>
+      q.eq("buildId", buildId).eq("milestoneKey", milestone.key)
+    )
+    .collect();
+  for (const asset of evidenceAssets) {
+    if (asset.storageId) {
+      await ctx.storage.delete(asset.storageId);
+    }
+    await ctx.db.delete(asset._id);
+  }
+  const draws = await collectByIndex(
+    ctx,
+    "plannedDrawScheduleRows",
+    "by_build",
+    buildId
+  );
+  for (const draw of draws.filter(
+    (row: any) => row.milestoneKey === milestone.key
+  )) {
+    await ctx.db.delete(draw._id);
+  }
+  const siteVisits = await ctx.db
+    .query("buildSiteVisits")
+    .withIndex("by_build_milestone", (q) =>
+      q.eq("buildId", buildId).eq("milestoneKey", milestone.key)
+    )
+    .collect();
+  for (const visit of siteVisits) {
+    await ctx.db.delete(visit._id);
+  }
+  await ctx.db.delete(milestone._id);
+}
+
+async function recalculateActiveBuildBudget(
+  ctx: MutationCtx,
+  buildId: Id<"activeBuilds">
+) {
+  const milestones = await collectByIndex(
+    ctx,
+    "buildMilestones",
+    "by_build",
+    buildId
+  );
+  const totalBudgetCents = milestones.reduce(
+    (total: number, milestone: any) => total + milestone.budgetCents,
+    0
+  );
+  await ctx.db.patch(buildId, {
+    totalBudgetCents,
+    updatedAt: Date.now(),
+  });
+}
+
+function addDaysIso(startIso: string, days: number) {
+  const startMs = Date.parse(`${startIso.slice(0, 10)}T00:00:00Z`);
+  const safeStartMs = Number.isFinite(startMs) ? startMs : Date.now();
+  return new Date(safeStartMs + Math.round(days) * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+}
+
+async function insertActiveBuildCapitalEvent(
+  ctx: MutationCtx,
+  auth: {
+    brokerage: Doc<"brokerages">;
+    build: Doc<"activeBuilds">;
+  },
+  input: {
+    amountCents: number;
+    capitalEventKey: string;
+    eventKind: "cashInfusion" | "cost";
+    label: string;
+    x: number;
+  }
+) {
+  const existing = (
+    await collectByIndex(ctx, "capitalEvents", "by_build", auth.build._id)
+  ).find((event: any) => event.capitalEventKey === input.capitalEventKey);
+  if (existing) {
+    throw new Error("Production active-build capital event already exists.");
+  }
+  await ctx.db.insert("capitalEvents", {
+    amountCents: Math.max(0, Math.round(input.amountCents)),
+    brokerageId: auth.brokerage._id,
+    buildId: auth.build._id,
+    capitalEventKey: input.capitalEventKey,
+    createdAt: Date.now(),
+    eventDate: addDaysIso(auth.build.startDate, input.x),
+    eventType: input.eventKind === "cashInfusion" ? "borrower_copay" : "cost",
+    label:
+      input.label.trim() ||
+      (input.eventKind === "cashInfusion" ? "Cash infusion" : "Capital spike"),
+    organizationId: auth.build.organizationId,
+  });
+}
+
+async function getActiveBuildCapitalEventOrThrow(
+  ctx: QueryCtx | MutationCtx,
+  buildId: Id<"activeBuilds">,
+  capitalEventKey: string
+) {
+  const event = (
+    await collectByIndex(ctx, "capitalEvents", "by_build", buildId)
+  ).find(
+    (row: any) =>
+      row.capitalEventKey === capitalEventKey || String(row._id) === capitalEventKey
+  );
+  if (!event) {
+    throw new Error("Production active-build capital event not found.");
+  }
+  return event as Doc<"capitalEvents">;
+}
+
+async function getActiveBuildEvidenceAssetOrThrow(
+  ctx: QueryCtx | MutationCtx,
+  buildId: Id<"activeBuilds">,
+  evidenceKey: string
+) {
+  const asset = await ctx.db
+    .query("buildEvidenceAssets")
+    .withIndex("by_build_key", (q) =>
+      q.eq("buildId", buildId).eq("evidenceKey", evidenceKey)
+    )
+    .unique();
+  if (!asset) {
+    throw new Error("Production active-build evidence asset not found.");
+  }
+  return asset;
+}
+
+async function getActiveBuildSiteVisitTokenState(
+  ctx: QueryCtx | MutationCtx,
+  buildIdValue: string,
+  token: string
+) {
+  const buildId = ctx.db.normalizeId("activeBuilds", buildIdValue);
+  if (!buildId) {
+    return {
+      available: false,
+      build: null,
+      files: [],
+      reason: "not_found",
+      status: "invalid",
+      targets: [],
+      visit: null,
+    };
+  }
+  const build = await ctx.db.get(buildId);
+  if (!build) {
+    return {
+      available: false,
+      build: null,
+      files: [],
+      reason: "not_found",
+      status: "invalid",
+      targets: [],
+      visit: null,
+    };
+  }
+  const visit = await ctx.db
+    .query("buildSiteVisits")
+    .withIndex("by_visit", (q) => q.eq("visitId", token))
+    .unique();
+  const buildView = {
+    key: String(build._id),
+    name: build.buildName,
+    subtitle: build.location,
+  };
+  if (!visit || visit.buildId !== buildId) {
+    return {
+      available: false,
+      build: buildView,
+      files: [],
+      reason: "not_found",
+      status: "invalid",
+      targets: [],
+      visit: null,
+    };
+  }
+  const [milestone, submilestones, evidenceAssets] = await Promise.all([
+    ctx.db.get(visit.buildMilestoneId),
+    ctx.db
+      .query("buildSubmilestones")
+      .withIndex("by_milestone", (q) =>
+        q.eq("buildMilestoneId", visit.buildMilestoneId)
+      )
+      .collect(),
+    ctx.db
+      .query("buildEvidenceAssets")
+      .withIndex("by_build_milestone", (q) =>
+        q.eq("buildId", buildId).eq("milestoneKey", visit.milestoneKey)
+      )
+      .collect(),
+  ]);
+  const files = await Promise.all(
+    evidenceAssets
+      .filter((asset) =>
+        asset.source.startsWith(`active_build_site_visit:${token}`)
+      )
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map(async (asset) => ({
+        _id: String(asset._id),
+        fileName: asset.fileName,
+        mimeType: asset.mimeType,
+        sizeBytes: asset.sizeBytes,
+        targetMilestoneKey: asset.milestoneKey,
+        uploadedAt: asset.createdAt,
+        url: asset.storageId ? await ctx.storage.getUrl(asset.storageId) : null,
+      }))
+  );
+  const targets = milestone
+    ? [
+        {
+          _id: String(milestone._id),
+          guidance: {
+            cameraAngles: [
+              "Wide shot of the requested scope.",
+              "Close-up of work quality and visible completion details.",
+              "Context photo tying the milestone to the build site.",
+            ],
+            whatToVerify: [
+              `${milestone.name} work appears complete enough for reimbursement review.`,
+              "Evidence location and site context are visible.",
+              "Any exceptions or incomplete work are noted in the report.",
+            ],
+          },
+          milestoneKey: milestone.key,
+          milestoneName: milestone.name,
+          milestoneOrder: milestone.order,
+          submilestones: submilestones
+            .sort((a, b) => a.order - b.order)
+            .map((submilestone) => submilestone.name),
+        },
+      ]
+    : [];
+  const visitView = {
+    completedAt: visit.completedAt ? Date.parse(visit.completedAt) : undefined,
+    createdAt: visit.createdAt,
+    milestoneKey: visit.milestoneKey,
+    recommendedOutcome: milestone?.completionReview?.siteVisit?.recommendedOutcome,
+    requestReason: visit.note,
+    status: visit.status,
+    tokenConsumedAt: visit.tokenConsumedAt,
+    tokenExpiresAt: visit.tokenExpiresAt,
+  };
+  const now = Date.now();
+  if (visit.tokenConsumedAt || visit.status !== "requested") {
+    return {
+      available: false,
+      build: buildView,
+      files,
+      reason: "consumed",
+      status: "completed",
+      targets,
+      visit: visitView,
+    };
+  }
+  if (visit.tokenExpiresAt <= now) {
+    return {
+      available: false,
+      build: buildView,
+      files,
+      reason: "expired",
+      status: "expired",
+      targets,
+      visit: visitView,
+    };
+  }
+  return {
+    available: true,
+    build: buildView,
+    files,
+    targets,
+    visit: visitView,
+  };
 }
 
 async function withBuildDocumentStorageUrls(

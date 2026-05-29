@@ -38,6 +38,15 @@ import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Checkbox } from "#/components/ui/checkbox.tsx";
 import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "#/components/ui/dialog.tsx";
+import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
@@ -53,6 +62,7 @@ import {
 } from "#/components/ui/empty.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
+import { Label } from "#/components/ui/label.tsx";
 import {
   Pagination,
   PaginationContent,
@@ -96,6 +106,7 @@ import {
   PROPOSAL_STATUS_ORDER,
   type ProposalStatus,
   STAGE_META,
+  type UnprovisionedBuilder,
 } from "./-builder-roster-types";
 
 export interface BuilderRosterHandlers {
@@ -104,6 +115,11 @@ export interface BuilderRosterHandlers {
     builderProfileId: string;
     role: "owner" | "staff";
     workosUserId: string;
+  }) => Promise<void>;
+  onProvisionBuilder: (input: {
+    displayName: string;
+    ownerWorkosUserId: string;
+    workosOrganizationId: string;
   }) => Promise<void>;
   onSetProfileStatus: (input: {
     builderProfileId: string;
@@ -116,6 +132,7 @@ interface BuilderRosterSurfaceProps extends BuilderRosterHandlers {
   brokerages: BrokerageOption[];
   builders: BuilderRow[] | undefined;
   pending: boolean;
+  unprovisionedBuilders: UnprovisionedBuilder[] | undefined;
 }
 
 type StatusFilter = "all" | "active" | "inactive";
@@ -156,9 +173,11 @@ export function BuilderRosterSurface({
   builders,
   onInviteBuilder,
   onLinkAccount,
+  onProvisionBuilder,
   onSetProfileStatus,
   onUnlinkAccount,
   pending,
+  unprovisionedBuilders,
 }: BuilderRosterSurfaceProps): ReactElement {
   const rows = useMemo(() => builders ?? [], [builders]);
   const [sorting, setSorting] = useState<SortingState>([
@@ -399,6 +418,12 @@ export function BuilderRosterSurface({
             />
           </FramePanel>
         </Frame>
+
+        <UnprovisionedBuildersPanel
+          candidates={unprovisionedBuilders}
+          onProvision={onProvisionBuilder}
+          pending={pending}
+        />
       </div>
 
       <BuilderDetailDrawer
@@ -414,6 +439,180 @@ export function BuilderRosterSurface({
         open={openBuilder !== null}
       />
     </TooltipProvider>
+  );
+}
+
+function UnprovisionedBuildersPanel({
+  candidates,
+  onProvision,
+  pending,
+}: {
+  candidates: UnprovisionedBuilder[] | undefined;
+  onProvision: BuilderRosterHandlers["onProvisionBuilder"];
+  pending: boolean;
+}): ReactElement | null {
+  // Hide entirely once loaded and empty: nothing to provision.
+  if (!pending && (!candidates || candidates.length === 0)) {
+    return null;
+  }
+  return (
+    <Frame>
+      <FramePanel className="flex flex-col gap-3 p-4">
+        <div className="flex items-center gap-2">
+          <HardHat aria-hidden className="size-4 text-warning-foreground" />
+          <h2 className="font-medium text-sm">Builders awaiting a profile</h2>
+          {candidates && candidates.length > 0 ? (
+            <Badge size="sm" variant="outline">
+              {candidates.length}
+            </Badge>
+          ) : null}
+        </div>
+        <p className="text-muted-foreground text-sm">
+          These users hold a builder role but have no builder profile yet.
+          Provision one to start underwriting their proposals.
+        </p>
+        {pending && !candidates ? (
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+          </div>
+        ) : (
+          <ul className="flex flex-col divide-y rounded-lg border">
+            {candidates?.map((candidate) => (
+              <li
+                className="flex items-center justify-between gap-3 p-3"
+                key={candidate.workosMembershipId}
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <Avatar className="size-8">
+                    {candidate.profilePictureUrl ? (
+                      <AvatarImage alt="" src={candidate.profilePictureUrl} />
+                    ) : null}
+                    <AvatarFallback className="text-[0.7rem]">
+                      {initials(candidate.name, candidate.email)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0">
+                    <div className="truncate font-medium text-sm">
+                      {candidate.name ??
+                        candidate.email ??
+                        candidate.workosUserId}
+                    </div>
+                    <div className="truncate text-muted-foreground text-xs">
+                      {candidate.email ?? candidate.workosUserId}
+                      {candidate.brokerageDisplayName
+                        ? ` \u00b7 ${candidate.brokerageDisplayName}`
+                        : ""}
+                    </div>
+                  </div>
+                </div>
+                <ProvisionBuilderDialog
+                  candidate={candidate}
+                  onProvision={onProvision}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function ProvisionBuilderDialog({
+  candidate,
+  onProvision,
+}: {
+  candidate: UnprovisionedBuilder;
+  onProvision: BuilderRosterHandlers["onProvisionBuilder"];
+}): ReactElement {
+  const [open, setOpen] = useState(false);
+  // Default the company name to the owner's name, then email local part, per
+  // the convention that builders fall back to their owner's identity.
+  const ownerFallback =
+    candidate.name?.trim() ||
+    candidate.email?.split("@")[0]?.trim() ||
+    candidate.workosUserId;
+  const [name, setName] = useState(ownerFallback);
+  const [saving, setSaving] = useState(false);
+  const trimmed = name.trim();
+  const brokerageName = candidate.brokerageDisplayName?.trim().toLowerCase();
+  const mirrorsBrokerage =
+    brokerageName !== undefined && trimmed.toLowerCase() === brokerageName;
+  const invalid = trimmed.length === 0 || mirrorsBrokerage;
+
+  return (
+    <Dialog
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) {
+          setName(ownerFallback);
+        }
+      }}
+      open={open}
+    >
+      <Button onClick={() => setOpen(true)} size="sm" variant="outline">
+        <UserPlus className="size-3.5" />
+        Create profile
+      </Button>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Create builder profile</DialogTitle>
+          <DialogDescription>
+            Provision a builder profile for{" "}
+            {candidate.name ?? candidate.email ?? candidate.workosUserId} and
+            link them as the owner account.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-2 py-1">
+          <Label htmlFor="builder-company-name">Builder company name</Label>
+          <Input
+            autoFocus
+            id="builder-company-name"
+            onChange={(event) => setName(event.target.value)}
+            placeholder="e.g. Northwind Custom Homes"
+            value={name}
+          />
+          {mirrorsBrokerage ? (
+            <p className="text-destructive text-xs">
+              The builder name must differ from the brokerage name.
+            </p>
+          ) : (
+            <p className="text-muted-foreground text-xs">
+              Defaults to the owner's name. Edit to use the real company name.
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <DialogClose
+            render={
+              <Button type="button" variant="ghost">
+                Cancel
+              </Button>
+            }
+          />
+          <Button
+            disabled={invalid || saving}
+            onClick={async () => {
+              setSaving(true);
+              try {
+                await onProvision({
+                  displayName: trimmed,
+                  ownerWorkosUserId: candidate.workosUserId,
+                  workosOrganizationId: candidate.workosOrganizationId,
+                });
+                setOpen(false);
+              } finally {
+                setSaving(false);
+              }
+            }}
+            type="button"
+          >
+            {saving ? "Creating..." : "Create profile"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

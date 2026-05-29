@@ -70,6 +70,9 @@ import type {
 const BROKER_ROLES = ["principle-broker", "broker", "broker-staff"];
 const BUILDER_ROLES = ["builder", "builder-staff"];
 
+// Per-column skeleton widths matching the Person/Roles/Orgs/Profiles/Status ramp.
+const SKELETON_CELL_WIDTHS = ["11rem", "6rem", "8rem", "7rem", "4rem"];
+
 type StatusFilter = "all" | "active" | "inactive" | "missing-profile";
 
 export function UserManagementSurface({
@@ -640,8 +643,8 @@ function DirectoryPanel({
       aria-label="People"
       className="flex flex-col gap-3 rounded-xl border bg-card/40"
     >
-      <div className="flex flex-wrap items-center gap-3 border-b px-3.5 py-3">
-        <div className="relative min-w-0 flex-1 sm:max-w-sm">
+      <div className="flex flex-col gap-3 border-b px-3.5 py-3 sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="relative min-w-0 sm:max-w-sm sm:flex-1">
           <Search
             aria-hidden
             className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
@@ -656,53 +659,51 @@ function DirectoryPanel({
             value={query}
           />
         </div>
-        <div className="flex items-center gap-1.5">
-          <label
-            className="text-muted-foreground text-xs"
-            htmlFor="filter-role"
-          >
-            Role
-          </label>
-          <NativeSelect
-            aria-label="Role filter"
-            id="filter-role"
-            onChange={(event) => onRoleFilter(event.target.value)}
-            value={roleFilter}
-          >
-            <NativeSelectOption value="all">All roles</NativeSelectOption>
-            {roleOptions.map((role) => (
-              <NativeSelectOption key={role} value={role}>
-                {role}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:flex-initial">
+            <label className="text-foreground text-xs" htmlFor="filter-role">
+              Role
+            </label>
+            <NativeSelect
+              aria-label="Role filter"
+              className="min-w-0 flex-1 sm:flex-initial"
+              id="filter-role"
+              onChange={(event) => onRoleFilter(event.target.value)}
+              value={roleFilter}
+            >
+              <NativeSelectOption value="all">All roles</NativeSelectOption>
+              {roleOptions.map((role) => (
+                <NativeSelectOption key={role} value={role}>
+                  {role}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          </div>
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:flex-initial">
+            <label className="text-foreground text-xs" htmlFor="filter-status">
+              Status
+            </label>
+            <NativeSelect
+              aria-label="Status filter"
+              className="min-w-0 flex-1 sm:flex-initial"
+              id="filter-status"
+              onChange={(event) =>
+                onStatusFilter(event.target.value as StatusFilter)
+              }
+              value={statusFilter}
+            >
+              <NativeSelectOption value="all">All</NativeSelectOption>
+              <NativeSelectOption value="active">Active</NativeSelectOption>
+              <NativeSelectOption value="inactive">Inactive</NativeSelectOption>
+              <NativeSelectOption value="missing-profile">
+                Missing profile
               </NativeSelectOption>
-            ))}
-          </NativeSelect>
+            </NativeSelect>
+          </div>
+          <p className="text-muted-foreground text-xs tabular-nums sm:ms-auto">
+            {filtered.length} of {total}
+          </p>
         </div>
-        <div className="flex items-center gap-1.5">
-          <label
-            className="text-muted-foreground text-xs"
-            htmlFor="filter-status"
-          >
-            Status
-          </label>
-          <NativeSelect
-            aria-label="Status filter"
-            id="filter-status"
-            onChange={(event) =>
-              onStatusFilter(event.target.value as StatusFilter)
-            }
-            value={statusFilter}
-          >
-            <NativeSelectOption value="all">All</NativeSelectOption>
-            <NativeSelectOption value="active">Active</NativeSelectOption>
-            <NativeSelectOption value="inactive">Inactive</NativeSelectOption>
-            <NativeSelectOption value="missing-profile">
-              Missing profile
-            </NativeSelectOption>
-          </NativeSelect>
-        </div>
-        <p className="ms-auto text-muted-foreground text-xs tabular-nums">
-          {filtered.length} of {total}
-        </p>
       </div>
 
       <div className="overflow-x-auto">
@@ -764,15 +765,8 @@ function PersonRow({
 
   return (
     <TableRow
-      className="cursor-pointer transition-colors hover:bg-accent/40 focus-visible:bg-accent/40"
+      className="cursor-pointer transition-colors hover:bg-accent/40 has-[button[data-row-trigger]:focus-visible]:bg-accent/40"
       onClick={onClick}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onClick();
-        }
-      }}
-      tabIndex={0}
     >
       <TableCell>
         <div className="flex min-w-0 items-center gap-3">
@@ -782,7 +776,18 @@ function PersonRow({
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0">
-            <p className="truncate font-medium text-sm">{displayName}</p>
+            <button
+              aria-label={`Manage ${displayName}`}
+              className="block min-w-0 max-w-full truncate rounded-sm text-left font-medium text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-row-trigger
+              onClick={(event) => {
+                event.stopPropagation();
+                onClick();
+              }}
+              type="button"
+            >
+              {displayName}
+            </button>
             <p className="truncate text-muted-foreground text-xs">
               {user.email ?? user.workosUserId}
             </p>
@@ -800,7 +805,12 @@ function PersonRow({
               </Badge>
             ))}
             {distinctRoles.length > 3 ? (
-              <Badge variant="outline">+{distinctRoles.length - 3}</Badge>
+              <Badge
+                title={distinctRoles.slice(3).join(", ")}
+                variant="outline"
+              >
+                +{distinctRoles.length - 3}
+              </Badge>
             ) : null}
           </div>
         )}
@@ -820,7 +830,17 @@ function PersonRow({
               </li>
             ))}
             {orgsForUser.length > 2 ? (
-              <li className="text-muted-foreground text-xs">
+              <li
+                className="text-muted-foreground text-xs"
+                title={orgsForUser
+                  .slice(2)
+                  .map(
+                    (membership) =>
+                      organizationsById.get(membership.workosOrganizationId)
+                        ?.name ?? membership.workosOrganizationId
+                  )
+                  .join(", ")}
+              >
                 +{orgsForUser.length - 2} more
               </li>
             ) : null}
@@ -891,7 +911,10 @@ function PlaceholderRows({
           {Array.from({ length: columnCount }, (_, cellIndex) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: skeleton cells
             <TableCell key={cellIndex}>
-              <div className="h-4 w-32 animate-pulse rounded bg-muted" />
+              <div
+                className="h-4 max-w-full animate-pulse rounded bg-muted"
+                style={{ width: SKELETON_CELL_WIDTHS[cellIndex] ?? "5rem" }}
+              />
             </TableCell>
           ))}
         </TableRow>

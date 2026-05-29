@@ -279,7 +279,7 @@ export const provisionFairLendBrokerage = userManagementWriteMutation
 
 export const provisionBuilderProfile = userManagementWriteMutation
   .input({
-    displayName: v.optional(v.string()),
+    displayName: v.string(),
     ownerWorkosUserId: v.optional(v.string()),
     workosOrganizationId: v.string(),
   })
@@ -303,19 +303,43 @@ export const provisionBuilderProfile = userManagementWriteMutation
         "Provision a brokerage profile for this organization before adding a builder profile."
       );
     }
+    // A builder's display name is the borrower company, supplied explicitly. It
+    // must never fall back to the brokerage or its (shared) WorkOS organization
+    // name, or the lender's name leaks onto builder rows. Builders are
+    // provisioned into the lender's org, so the org name is the lender's, not
+    // the builder's.
+    const displayName = args.displayName.trim();
+    if (!displayName) {
+      throw new Error("A builder company name is required.");
+    }
+    if (
+      brokerage.workosOrganizationId === args.workosOrganizationId &&
+      displayName.toLowerCase() === brokerage.displayName.toLowerCase()
+    ) {
+      throw new Error(
+        "A builder profile must use the builder's own company name, not the brokerage name."
+      );
+    }
     const now = Date.now();
-    const organization = await getOrCreateWorkosOrganization(ctx, {
-      name: args.displayName?.trim() || brokerage.displayName,
+    // Ensure the org projection exists without renaming it: a builder shares the
+    // lender's organization, so its name must remain the lender's.
+    const existingOrg = await ctx.db
+      .query("workosOrganizations")
+      .withIndex("by_workos_organization_id", (q) =>
+        q.eq("workosOrganizationId", args.workosOrganizationId)
+      )
+      .unique();
+    await getOrCreateWorkosOrganization(ctx, {
+      name: existingOrg?.name ?? brokerage.displayName,
       now,
       workosOrganizationId: args.workosOrganizationId,
     });
-    const displayName =
-      args.displayName?.trim() || organization.name || brokerage.displayName;
     const existing = await ctx.db
       .query("builderProfiles")
       .withIndex("by_organization", (q) =>
         q.eq("organizationId", args.workosOrganizationId)
       )
+      .filter((q) => q.eq(q.field("displayName"), displayName))
       .first();
     let builderProfileId: Id<"builderProfiles">;
     let operation: "created" | "updated";
@@ -511,7 +535,8 @@ export const provisionNewBuilder = userManagementWriteAction
     }
     const ownerName = args.ownerName?.trim() || displayName;
     const ownerWorkosUserId =
-      args.ownerWorkosUserId?.trim() || provisionedBuilderWorkosUserId(ownerEmail);
+      args.ownerWorkosUserId?.trim() ||
+      provisionedBuilderWorkosUserId(ownerEmail);
 
     // Step 1: create the WorkOS account (invitation) for the builder owner.
     const invite: {
@@ -585,7 +610,11 @@ export const finalizeNewBuilderProvisioning = internalMutation
       now,
       workosOrganizationId: args.workosOrganizationId,
     });
-    const brokerage = await ensureBrokerage(ctx, args.workosOrganizationId, now);
+    const brokerage = await ensureBrokerage(
+      ctx,
+      args.workosOrganizationId,
+      now
+    );
 
     await ensureWorkosUserAndMembership(ctx, {
       email: args.ownerEmail,
