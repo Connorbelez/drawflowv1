@@ -69,6 +69,10 @@ const STATUS_TONE: Record<
     label: "On schedule",
     className: "bg-sky-500/15 text-sky-300 border-sky-500/30",
   },
+  ready_to_start: {
+    label: "Ready",
+    className: "bg-sky-500/15 text-sky-300 border-sky-500/30",
+  },
   in_progress_behind_schedule: {
     label: "Behind",
     className: "bg-amber-500/15 text-amber-300 border-amber-500/30",

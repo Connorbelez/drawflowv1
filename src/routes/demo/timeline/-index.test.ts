@@ -13,11 +13,13 @@ import {
   type CashflowDatum,
   densifyCashflowData,
   expandTimelineRangeForMilestones,
+  getDemoApprovalStartDate,
   getTimelineAlignedTicks,
   getDrawTimelineMarkerState,
   interpolateLinearCashOnHand,
   interpolateDrawAvailability,
   normalizeTimelineShareStateForRoute,
+  resolveDemoLiveBuildHref,
   resolveSelectedDrawDate,
 } from "./index.tsx";
 import type {
@@ -28,6 +30,24 @@ import type {
 } from "./-timeline-share-snapshot.ts";
 
 describe("timeline cash shortfall logic", () => {
+  test("builds lender approval start dates at UTC midnight", () => {
+    expect(getDemoApprovalStartDate(Date.UTC(2026, 4, 28, 17, 30))).toBe(
+      Date.UTC(2026, 4, 28),
+    );
+  });
+
+  test("resolves the durable live build link for approved demo proposals", () => {
+    expect(resolveDemoLiveBuildHref({ buildKey: "demo-timeline-abc" })).toBe(
+      "/builder/demo/dashboard/builds/demo-timeline-abc",
+    );
+    expect(
+      resolveDemoLiveBuildHref({
+        buildKey: "demo-timeline-abc",
+        liveBuildHref: "/custom/live-build",
+      }),
+    ).toBe("/custom/live-build");
+  });
+
   test("defaults item-backed draw dates from milestone completion plus review lag", () => {
     const items: TimelineItem<DemoMilestone>[] = [
       {

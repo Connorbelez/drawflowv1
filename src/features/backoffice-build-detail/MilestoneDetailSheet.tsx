@@ -1,9 +1,12 @@
 "use client";
 
+import { Play } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Button } from "#/components/ui/button.tsx";
 import { formatCents, formatDate, formatRelative, initialsFor } from "./format";
 
 export interface MilestoneSheetData {
+  canStartWork?: boolean;
   milestoneKey: string;
   name: string;
   column: string;
@@ -23,10 +26,13 @@ interface MilestoneDetailSheetProps {
   data: MilestoneSheetData | null;
   pending?: boolean;
   errorMessage?: string;
+  assignmentsSourceLabel?: string;
+  eventsSourceLabel?: string;
   onApprove: (milestoneKey: string, note?: string) => Promise<void> | void;
   onRequestInfo?: (milestoneKey: string, note: string) => void;
   onAssignVisit?: (milestoneKey: string) => void;
   onReject?: (milestoneKey: string) => void;
+  onStartWork?: (milestoneKey: string, note?: string) => Promise<void> | void;
   onClose: () => void;
 }
 
@@ -34,10 +40,13 @@ export function MilestoneDetailSheet({
   data,
   pending,
   errorMessage,
+  assignmentsSourceLabel = "demo_milestoneContractors",
+  eventsSourceLabel = "demo_timelineEvents",
   onApprove,
   onRequestInfo,
   onAssignVisit,
   onReject,
+  onStartWork,
   onClose,
 }: MilestoneDetailSheetProps) {
   const [note, setNote] = useState("");
@@ -114,7 +123,7 @@ export function MilestoneDetailSheet({
 
         <section>
           <h3 className="mb-2 text-[11px] text-muted-foreground uppercase tracking-wider">
-            Assignments · demo_milestoneContractors
+            Assignments · {assignmentsSourceLabel}
           </h3>
           {data.contractors.length === 0 ? (
             <p className="text-muted-foreground text-xs">No contractors assigned.</p>
@@ -142,7 +151,7 @@ export function MilestoneDetailSheet({
 
         <section>
           <h3 className="mb-2 text-[11px] text-muted-foreground uppercase tracking-wider">
-            Recent events · demo_timelineEvents
+            Recent events · {eventsSourceLabel}
           </h3>
           {data.recentEvents.length === 0 ? (
             <p className="text-muted-foreground text-xs">No recent events.</p>
@@ -185,6 +194,22 @@ export function MilestoneDetailSheet({
         </section>
 
         <footer className="mt-auto flex flex-col gap-2">
+          {data.canStartWork ? (
+            <Button
+              className="w-full"
+              data-testid="milestone-detail-sheet-start-work"
+              disabled={pending || !onStartWork}
+              onClick={() =>
+                onStartWork?.(data.milestoneKey, note || undefined)
+              }
+              size="sm"
+              type="button"
+              variant="default"
+            >
+              <Play className="size-4" />
+              Start work
+            </Button>
+          ) : null}
           <button
             className="rounded-md border border-primary/40 bg-primary/30 px-3 py-2 text-sm font-medium disabled:opacity-50"
             data-testid="milestone-detail-sheet-approve"

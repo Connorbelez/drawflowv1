@@ -186,7 +186,11 @@ describe("buildProposalProbeReferenceLines", () => {
     ]);
     expect(lines.drawAvailability).toHaveLength(1);
     expect(lines.drawAvailability[0]?.x).toBe(12);
-    expect(lines.drawAvailability[0]?.label).toMatch(/^Delta \$[\d,]+$/);
+    expect(lines.drawAvailability[0]?.label).toEqual([
+      expect.stringMatching(/^Delta \$[\d,]+$/),
+      expect.stringMatching(/^Interest-bearing \$[\d,]+$/),
+      expect.stringMatching(/^Total interest \$[\d,]+$/),
+    ]);
   });
 
   test("returns no probe lines when the cursor is not probing", () => {

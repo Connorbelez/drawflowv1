@@ -9,6 +9,10 @@ import { useConvexBuildWorkspace } from "#/features/build-workspace-demo/convex-
 import { BuildWorkspaceProvider } from "#/features/build-workspace-demo/workspace-adapter.tsx";
 import { ContractorsCard } from "./ContractorsCard";
 import { BuildTimelinePanel } from "./BuildTimelinePanel";
+import {
+  BuildDetailTabBar,
+  type BuildDetailSubTab,
+} from "./BuildDetailTabs";
 import { EventRail } from "./EventRail";
 import {
   type KanbanCardData,
@@ -31,8 +35,6 @@ import {
   statusChipTone,
 } from "./format";
 
-type SubTab = "details" | "timeline" | "calendar" | "gantt";
-
 type BuildDetailsPatch = {
   address?: string;
   projectStartDate?: string;
@@ -46,8 +48,8 @@ type BuildDetailsPatch = {
 
 interface BuildDetailRouteProps {
   buildKey: string;
-  tab?: SubTab;
-  onChangeTab: (tab: SubTab) => void;
+  tab?: BuildDetailSubTab;
+  onChangeTab: (tab: BuildDetailSubTab) => void;
   initialMilestoneId?: string;
   rail?: "open" | "closed";
   onChangeRail: (rail: "open" | "closed") => void;
@@ -93,8 +95,8 @@ function BuildDetailShell({
   onChangeRail,
 }: {
   buildId: Id<"demo_builds">;
-  activeTab: SubTab;
-  onChangeTab: (tab: SubTab) => void;
+  activeTab: BuildDetailSubTab;
+  onChangeTab: (tab: BuildDetailSubTab) => void;
   initialMilestoneId?: string;
   rail?: "open" | "closed";
   onChangeRail: (rail: "open" | "closed") => void;
@@ -294,7 +296,7 @@ function BuildDetailShell({
           <p className="text-muted-foreground text-sm">{build.subtitle}</p>
         </header>
 
-        <TabBar activeTab={activeTab} onChangeTab={onChangeTab} />
+        <BuildDetailTabBar activeTab={activeTab} onChangeTab={onChangeTab} />
 
         {activeTab === "details" ? (
           <DetailsTabPanel
@@ -402,46 +404,6 @@ function BreadcrumbStrip({ displayId }: { displayId: string }) {
       </a>{" "}
       / <b className="font-medium text-foreground">{displayId}</b>
     </nav>
-  );
-}
-
-function TabBar({
-  activeTab,
-  onChangeTab,
-}: {
-  activeTab: SubTab;
-  onChangeTab: (tab: SubTab) => void;
-}) {
-  const tabs: { value: SubTab; label: string }[] = [
-    { value: "details", label: "Details" },
-    { value: "timeline", label: "Timeline" },
-    { value: "calendar", label: "Calendar" },
-    { value: "gantt", label: "Gantt" },
-  ];
-  return (
-    <div
-      className="flex w-max gap-1 rounded-lg border border-border bg-card p-1"
-      data-testid="build-detail-tabbar"
-      role="tablist"
-    >
-      {tabs.map((tab) => (
-        <button
-          aria-selected={activeTab === tab.value}
-          className={
-            activeTab === tab.value
-              ? "rounded-md bg-primary/25 px-3 py-1.5 text-xs text-foreground"
-              : "rounded-md px-3 py-1.5 text-muted-foreground text-xs hover:bg-accent hover:text-foreground"
-          }
-          data-testid={`build-detail-tab-${tab.value}`}
-          key={tab.value}
-          onClick={() => onChangeTab(tab.value)}
-          role="tab"
-          type="button"
-        >
-          {tab.label}
-        </button>
-      ))}
-    </div>
   );
 }
 

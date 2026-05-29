@@ -23,10 +23,9 @@ import {
   Loader2,
   MoreHorizontal,
   Plus,
-  RefreshCw,
   Search,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactElement, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -47,8 +46,37 @@ import {
   CardHeader,
   CardTitle,
 } from "#/components/ui/card.tsx";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuGroup,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "#/components/ui/context-menu.tsx";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogTitle,
+} from "#/components/ui/dialog.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetPanel,
+  SheetTitle,
+} from "#/components/ui/sheet.tsx";
 import { Switch } from "#/components/ui/switch.tsx";
 import {
   Table,
@@ -58,30 +86,27 @@ import {
   TableHeader,
   TableRow,
 } from "#/components/ui/table.tsx";
+import { Textarea } from "#/components/ui/textarea.tsx";
+import { BACKOFFICE_BUILD_WORKSPACE_SEARCH } from "#/features/backoffice-dashboard/backoffice-build-links.ts";
 import {
   MilestoneCardDetailSheet,
   ProposalCardDetailSheet,
 } from "#/features/backoffice-dashboard/kanban-card-detail-sheet.tsx";
 import { MetricDetailSheet } from "#/features/backoffice-dashboard/metric-detail-sheet.tsx";
-import {
-  BACKOFFICE_BUILD_WORKSPACE_SEARCH,
-  backofficeBuildWorkspaceHref,
-} from "#/features/backoffice-dashboard/backoffice-build-links.ts";
 import { getMetricDrilldownItems } from "#/features/backoffice-dashboard/metric-drilldown.ts";
-import {
-  type ActiveBuild,
-  type BackofficeDashboardData,
-  type DashboardDrawRequest,
-  type DashboardKanbanColumn,
-  type DashboardMetric,
-  getExplicitMockBackofficeDashboardData,
-  type MilestoneKanbanCard,
-  type ProposalKanbanCard,
-  type QuickAction,
-  type ScheduleEvent,
+import type {
+  ActiveBuild,
+  BackofficeDashboardData,
+  DashboardKanbanColumn,
+  DashboardMetric,
+  MilestoneKanbanCard,
+  ProposalKanbanCard,
+  QuickAction,
+  ScheduleEvent,
 } from "#/features/backoffice-dashboard/mock-data.ts";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
 
 export const Route = createFileRoute("/backoffice/")({
   staticData: {
@@ -131,250 +156,176 @@ const actionIcon = {
   siteVisit: ClipboardCheck,
 } satisfies Record<QuickAction["type"], typeof FileText>;
 
-interface BackofficeDashboardQueryResult {
-  dashboard?: Omit<BackofficeDashboardData, "drawRequests" | "scheduleDate"> & {
-    drawRequests?: DashboardDrawRequest[];
-    scheduleDate: string;
-  };
-  needsSeed?: boolean;
+type ProductionDashboardQueryResult = Omit<
+  BackofficeDashboardData,
+  "scheduleDate"
+> & {
+  approvedPendingClosing?: ProposalKanbanCard[];
+  scheduleDate: string;
+  submittedProposals?: ProposalKanbanCard[];
+};
+
+type ProductionBackofficeDashboardData = BackofficeDashboardData & {
+  approvedPendingClosing: ProposalKanbanCard[];
+  submittedProposals: ProposalKanbanCard[];
+};
+
+export interface ClosingConfirmationInput {
+  buildStartDate: string;
+  reason: string;
 }
 
-interface TimelineBackofficeDrawRequestRow {
-  amountCents?: number;
-  drawKey?: string;
-  href?: string;
-  id?: string;
-  label?: string;
-  x?: number;
-}
-
-interface TimelineBackofficeRow {
-  activeMilestone?: string;
-  address: string;
-  buildId?: string;
-  buildKey?: string;
-  buildName: string;
-  buildStatus?: ActiveBuild["status"];
-  currentDay?: number;
-  builder?: string;
-  drawRequests?: TimelineBackofficeDrawRequestRow[];
-  href?: string;
-  liveStatusLabel?: string;
-  milestoneCount?: number;
-  ownerPersona?: string;
-  pendingDrawRequestCount?: number;
-  pendingModificationRequestCount?: number;
-  planId: string;
-  status: "approved" | "draft" | "submitted" | string;
-  statusLabel?: string;
-  totalBudgetCents?: number;
-}
-
-export function normalizeBackofficeDashboardQuery(
-  result: BackofficeDashboardQueryResult | null | undefined
-): BackofficeDashboardData {
-  if (!result?.dashboard || result.needsSeed) {
-    return getExplicitMockBackofficeDashboardData();
-  }
-
+export function normalizeProductionBackofficeDashboard(
+  result: ProductionDashboardQueryResult
+): ProductionBackofficeDashboardData {
   return {
-    ...result.dashboard,
-    drawRequests: result.dashboard.drawRequests ?? [],
-    scheduleDate: new Date(result.dashboard.scheduleDate),
+    ...result,
+    approvedPendingClosing: result.approvedPendingClosing ?? [],
+    scheduleDate: new Date(result.scheduleDate),
+    submittedProposals: result.submittedProposals ?? [],
   };
 }
 
 function RouteComponent() {
-  const generatedDashboard = useQuery(
-    api.demo_timeline_plans.demo_getBackofficeDashboard,
-    {}
+  const context = Route.useRouteContext();
+  const workosOrganizationId = context.organizationId as string;
+  const dashboardResult = useQuery(
+    api.production_proposals.getBackofficeDashboard,
+    { workosOrganizationId }
   );
-  const submittedTimelineProposals = useQuery(
-    api.demo_timeline_plans.demo_getSubmittedProposalsForBackoffice,
-    {}
+  const recordClosing = useMutation(
+    api.production_proposals.recordOfflineClosing
   );
-  const dashboard = useMemo(() => {
-    const normalized = normalizeBackofficeDashboardQuery(generatedDashboard);
-    return mergeTimelineRowsIntoBackofficeDashboard(
-      normalized,
-      submittedTimelineProposals ?? []
+
+  const dashboard = useMemo(
+    () =>
+      dashboardResult
+        ? normalizeProductionBackofficeDashboard(dashboardResult)
+        : null,
+    [dashboardResult]
+  );
+
+  if (!dashboard) {
+    return (
+      <main className="grid min-h-[24rem] place-items-center bg-muted/30">
+        <div className="flex items-center gap-2 rounded-lg border bg-background p-4 text-sm">
+          <Loader2 className="size-4 animate-spin" />
+          Loading production backoffice dashboard...
+        </div>
+      </main>
     );
-  }, [generatedDashboard, submittedTimelineProposals]);
+  }
 
-  return <BackofficeDashboard dashboard={dashboard} />;
-}
-
-export function mergeTimelineRowsIntoBackofficeDashboard(
-  normalized: BackofficeDashboardData,
-  timelineRows: TimelineBackofficeRow[]
-): BackofficeDashboardData {
-  const timelineProposalCards = timelineRows
-    .filter((row) => row.status === "draft" || row.status === "submitted")
-    .map((row): ProposalKanbanCard => ({
-      address: row.address,
-      buildKey: row.buildKey,
-      builder: row.ownerPersona ?? row.builder ?? "Timeline builder",
-      column: row.status === "submitted" ? "submitted" : "draft",
-      href: row.href,
-      id: String(row.planId),
-      isMockBuilder: true,
-      isMockLtv: true,
-      loanAmount: centsToCurrency(row.totalBudgetCents ?? 0),
-      ltv: 68,
-      name: row.buildName,
-      statusLabel: row.statusLabel,
-      tag: "demo",
-    }));
-  const timelineActiveBuilds = timelineRows
-    .filter((row) => row.status === "approved")
-    .map((row): ActiveBuild => ({
-      activeMilestone:
-        row.pendingDrawRequestCount || row.pendingModificationRequestCount
-          ? `${row.pendingDrawRequestCount ?? 0} draw requests; ${row.pendingModificationRequestCount ?? 0} change requests`
-          : (row.activeMilestone ?? `${row.milestoneCount ?? 0} milestones`),
-      address: row.address,
-      buildKey: row.buildKey ?? String(row.buildId),
-      builder: row.ownerPersona ?? row.builder ?? "Timeline builder",
-      daysActive: Math.max(0, Math.round(row.currentDay ?? 0)),
-      href: backofficeBuildWorkspaceHref(
-        String(row.buildKey ?? row.buildId ?? row.planId),
-      ),
-      id: String(row.buildKey ?? row.planId),
-      milestoneState:
-        row.buildStatus === "behind" ? ("inProgress" as const) : ("backlog" as const),
-      status: row.buildStatus ?? ("onTrack" as const),
-      statusLabel: row.liveStatusLabel ?? "Live timeline",
-    }));
-  const timelineDrawRequests = timelineRows.flatMap((row) =>
-    (row.drawRequests ?? []).map((request): DashboardDrawRequest => ({
-      address: row.address,
-      buildId: String(row.buildKey ?? row.buildId ?? row.planId),
-      buildKey: String(row.buildKey ?? row.buildId ?? row.planId),
-      eligibleDate: `Day ${Math.round(request.x ?? 0)}`,
-      href:
-        row.status === "approved"
-          ? backofficeBuildWorkspaceHref(
-              String(row.buildKey ?? row.buildId ?? row.planId),
-            )
-          : (request.href ?? `/demo/timeline/${row.planId}`),
-      id: String(request.drawKey ?? request.id),
-      label: request.label ?? "Timeline draw request",
-      requestedAmount: centsToCurrency(request.amountCents ?? 0),
-      statusLabel: "Requested",
-    }))
-  );
-  const generatedTimelineProposalIds = new Set(
-    timelineProposalCards.map((proposal) => String(proposal.id))
-  );
-  const retainedGeneratedProposals = normalized.proposals.filter(
-    (proposal) => !generatedTimelineProposalIds.has(String(proposal.id))
-  );
-  const proposals = [...retainedGeneratedProposals, ...timelineProposalCards];
-  const draftCount = timelineProposalCards.filter(
-    (card) => card.column === "draft"
-  ).length;
-  const submittedCount = timelineProposalCards.filter(
-    (card) => card.column === "submitted"
-  ).length;
-
-  return {
-    ...normalized,
-    activeBuilds: [...normalized.activeBuilds, ...timelineActiveBuilds],
-    drawRequests: [...normalized.drawRequests, ...timelineDrawRequests],
-    metrics: normalized.metrics.map((metric) =>
-      metric.id === "proposals"
-        ? {
-            ...metric,
-            detail: `${proposals.length} draft/submitted proposals`,
-            trend: `${draftCount} timeline drafts; ${submittedCount} submitted`,
-            value: proposals.length,
-          }
-        : metric.id === "active-builds"
-          ? {
-              ...metric,
-              detail: `${normalized.activeBuilds.length + timelineActiveBuilds.length} active builds including approved timelines`,
-              value:
-                normalized.activeBuilds.length + timelineActiveBuilds.length,
-            }
-          : metric.id === "draw-requests"
-            ? {
-                ...metric,
-                detail: `${normalized.drawRequests.length + timelineDrawRequests.length} draw requests including live timelines`,
-                trend: `${timelineDrawRequests.length} timeline draw requests`,
-                value:
-                  normalized.drawRequests.length + timelineDrawRequests.length,
-              }
-            : metric
-    ),
-    proposals,
-    proposalColumns: normalized.proposalColumns.map((column) =>
-      column.id === "submitted"
-        ? {
-            ...column,
-            description: `${submittedCount} timeline proposals waiting for review`,
-          }
-        : column.id === "draft"
-          ? {
-              ...column,
-              description: `${draftCount} timeline drafts ready to open`,
-            }
-          : column
-    ),
-  };
-}
-
-function BackofficeDashboard({
-  dashboard,
-}: {
-  dashboard: BackofficeDashboardData;
-}) {
   return (
-    <main className="grid min-h-[calc(100vh-4rem)] gap-4 bg-muted/30 p-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-      <section className="flex min-w-0 flex-col gap-4">
-        <DashboardToolbar />
-        <MetricGrid dashboard={dashboard} />
-        <ActiveBuildsCard builds={dashboard.activeBuilds} />
-        <SubmittedProposalsCard proposals={dashboard.proposals} />
-        <MilestoneKanban
-          columns={dashboard.milestoneColumns}
-          milestones={dashboard.milestones}
+    <BackofficeDashboard
+      dashboard={dashboard}
+      onRecordClosing={(proposal, input) =>
+        recordClosing({
+          buildStartDate: input.buildStartDate,
+          loanFacility: {
+            interestAnnualBps: 925,
+            principalCents: proposal.lenderDrawPolicyLimitCents ?? 0,
+          },
+          proposalId: (proposal.proposalId ??
+            proposal.id) as Id<"buildProposals">,
+          reason: input.reason,
+          workosOrganizationId,
+        })
+      }
+    />
+  );
+}
+
+export function BackofficeDashboard({
+  dashboard,
+  onRecordClosing,
+}: {
+  dashboard: ProductionBackofficeDashboardData;
+  onRecordClosing: (
+    proposal: ProposalKanbanCard,
+    input: ClosingConfirmationInput
+  ) => Promise<unknown>;
+}) {
+  const [sidebarProposal, setSidebarProposal] =
+    useState<ProposalKanbanCard | null>(null);
+  const [closingProposal, setClosingProposal] =
+    useState<ProposalKanbanCard | null>(null);
+  const [closingPending, setClosingPending] = useState(false);
+
+  const handleConfirmClosing = async (input: ClosingConfirmationInput) => {
+    if (!closingProposal) {
+      return;
+    }
+    setClosingPending(true);
+    try {
+      await onRecordClosing(closingProposal, input);
+      toast.success("Closing recorded.");
+      setClosingProposal(null);
+      setSidebarProposal(null);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to record closing."
+      );
+    } finally {
+      setClosingPending(false);
+    }
+  };
+
+  return (
+    <>
+      <main className="grid min-h-[calc(100vh-4rem)] gap-4 bg-muted/30 p-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <section className="flex min-w-0 flex-col gap-4">
+          <DashboardToolbar />
+          <MetricGrid dashboard={dashboard} />
+          <ActiveBuildsCard builds={dashboard.activeBuilds} />
+          <SubmittedProposalsCard
+            approvedPendingClosing={dashboard.approvedPendingClosing}
+            onOpenProposal={setSidebarProposal}
+            onRecordClosing={setClosingProposal}
+            submittedProposals={dashboard.submittedProposals}
+          />
+          <MilestoneKanban
+            columns={dashboard.milestoneColumns}
+            milestones={dashboard.milestones}
+          />
+          <ProposalKanban
+            columns={dashboard.proposalColumns}
+            onOpenApprovedProposal={setSidebarProposal}
+            onRecordClosing={setClosingProposal}
+            proposals={dashboard.proposals}
+          />
+        </section>
+        <ScheduleRail
+          date={dashboard.scheduleDate}
+          events={dashboard.scheduleEvents}
+          quickActions={dashboard.quickActions}
         />
-        <ProposalKanban
-          columns={dashboard.proposalColumns}
-          proposals={dashboard.proposals}
-        />
-      </section>
-      <ScheduleRail
-        date={dashboard.scheduleDate}
-        events={dashboard.scheduleEvents}
-        quickActions={dashboard.quickActions}
+      </main>
+      <ApprovedProposalSidebar
+        onOpenChange={(open) => {
+          if (!open) {
+            setSidebarProposal(null);
+          }
+        }}
+        onRecordClosing={setClosingProposal}
+        proposal={sidebarProposal}
       />
-    </main>
+      <ClosingConfirmationDialog
+        onConfirm={handleConfirmClosing}
+        onOpenChange={(open) => {
+          if (!(open || closingPending)) {
+            setClosingProposal(null);
+          }
+        }}
+        open={closingProposal !== null}
+        pending={closingPending}
+        proposal={closingProposal}
+      />
+    </>
   );
 }
 
 function DashboardToolbar() {
-  const syncTimelines = useMutation(
-    api.demo_timeline_plans.demo_syncApprovedTimelinesNow
-  );
-  const [isSyncing, setIsSyncing] = useState(false);
-
-  const runTimelineSync = async () => {
-    setIsSyncing(true);
-    try {
-      const summary = await syncTimelines({});
-      toast.success(
-        `Timeline sync complete: ${summary.plansUpdated ?? 0} plans updated, ${summary.milestonesUpdated ?? 0} milestones updated, ${summary.autoRequestedDraws ?? 0} draws requested.`
-      );
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Timeline sync failed."
-      );
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
   return (
     <Frame>
       <FramePanel className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -388,19 +339,9 @@ function DashboardToolbar() {
         <div className="flex shrink-0 flex-wrap items-center gap-2 text-muted-foreground text-sm">
           <span>Source</span>
           <span className="font-medium text-foreground">
-            Convex demo tables
+            Production Convex tables
           </span>
           <Badge variant="success">Live</Badge>
-          <Button
-            disabled={isSyncing}
-            onClick={runTimelineSync}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            {isSyncing ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-            Sync timelines
-          </Button>
         </div>
       </FramePanel>
     </Frame>
@@ -484,9 +425,9 @@ function MetricGrid({ dashboard }: { dashboard: BackofficeDashboardData }) {
 
 function openBackofficeBuildWorkspace(
   navigate: ReturnType<typeof useNavigate>,
-  build: ActiveBuild,
+  build: ActiveBuild
 ) {
-  void navigate({
+  navigate({
     params: { buildId: build.buildKey },
     search: BACKOFFICE_BUILD_WORKSPACE_SEARCH,
     to: "/backoffice/builds/$buildId",
@@ -702,44 +643,103 @@ function ActiveBuildsCard({ builds }: { builds: ActiveBuild[] }) {
   );
 }
 
-function SubmittedProposalsCard({
-  proposals,
+export function SubmittedProposalsCard({
+  approvedPendingClosing,
+  onOpenProposal,
+  onRecordClosing,
+  submittedProposals,
 }: {
-  proposals: ProposalKanbanCard[];
+  approvedPendingClosing: ProposalKanbanCard[];
+  onOpenProposal: (proposal: ProposalKanbanCard) => void;
+  onRecordClosing: (proposal: ProposalKanbanCard) => void;
+  submittedProposals: ProposalKanbanCard[];
 }) {
   const navigate = useNavigate();
-  const submitted = proposals.filter(
-    (proposal) => proposal.column === "submitted"
-  );
+  const reviewCount = submittedProposals.length;
+  const closingCount = approvedPendingClosing.length;
 
   return (
-    <Card id="milestones-kanban">
+    <Card id="submitted-proposals">
       <CardHeader className="gap-3 border-b p-4">
         <CardTitle className="text-base">Submitted Proposals</CardTitle>
         <CardDescription>
-          Lender-admin review and final approval queue
+          Lender-admin review queue and approved proposals pending closing
         </CardDescription>
         <CardAction className="row-span-1">
-          <Badge variant={submitted.length ? "warning" : "outline"}>
-            {submitted.length} submitted
+          <Badge variant={reviewCount + closingCount ? "warning" : "outline"}>
+            {reviewCount} submitted · {closingCount} closing
           </Badge>
         </CardAction>
       </CardHeader>
-      <CardContent className="p-0">
-        {submitted.length ? (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Proposal</TableHead>
-                <TableHead>Location</TableHead>
-                <TableHead>Budget</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {submitted.map((proposal) => (
-                <TableRow key={proposal.id}>
+      <CardContent className="space-y-0 p-0">
+        <ProposalQueueTable
+          emptyLabel="No submitted proposals are waiting for admin approval."
+          onPrimaryAction={(proposal) => {
+            navigate({
+              params: { planId: proposal.proposalId ?? proposal.id },
+              to: "/backoffice/proposals/$planId",
+            });
+          }}
+          primaryActionLabel="Review"
+          proposals={submittedProposals}
+          title="Submitted for lender review"
+        />
+        <ProposalQueueTable
+          emptyLabel="No approved proposals are pending closing."
+          onOpenProposal={onOpenProposal}
+          onPrimaryAction={onOpenProposal}
+          onRecordClosing={onRecordClosing}
+          primaryActionLabel="Details"
+          proposals={approvedPendingClosing}
+          title="Approved, pending closing"
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
+function ProposalQueueTable({
+  emptyLabel,
+  onOpenProposal,
+  onPrimaryAction,
+  onRecordClosing,
+  primaryActionLabel,
+  proposals,
+  title,
+}: {
+  emptyLabel: string;
+  onOpenProposal?: (proposal: ProposalKanbanCard) => void;
+  onPrimaryAction: (proposal: ProposalKanbanCard) => void;
+  onRecordClosing?: (proposal: ProposalKanbanCard) => void;
+  primaryActionLabel: string;
+  proposals: ProposalKanbanCard[];
+  title: string;
+}) {
+  return (
+    <section className="border-b last:border-b-0">
+      <div className="flex items-center justify-between gap-3 px-4 py-3">
+        <h3 className="font-medium text-sm">{title}</h3>
+        <Badge variant="outline">{proposals.length}</Badge>
+      </div>
+      {proposals.length ? (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Proposal</TableHead>
+              <TableHead>Location</TableHead>
+              <TableHead>Budget</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {proposals.map((proposal) => {
+              const row = (
+                <TableRow
+                  className={cn(onOpenProposal && "cursor-pointer")}
+                  key={proposal.id}
+                  onClick={() => onOpenProposal?.(proposal)}
+                >
                   <TableCell>
                     <div className="font-medium">{proposal.name}</div>
                     <div className="text-muted-foreground text-xs">
@@ -749,39 +749,63 @@ function SubmittedProposalsCard({
                   <TableCell>{proposal.address}</TableCell>
                   <TableCell>{proposal.loanAmount}</TableCell>
                   <TableCell>
-                    <Badge variant="warning">
+                    <Badge
+                      variant={
+                        proposal.column === "approved" ? "success" : "warning"
+                      }
+                    >
                       {proposal.statusLabel ?? "Submitted"}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
-                      {proposal.href ? (
+                      <Button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onPrimaryAction(proposal);
+                        }}
+                        size="sm"
+                        variant="outline"
+                      >
+                        {primaryActionLabel}
+                      </Button>
+                      {proposal.column === "approved" && onRecordClosing ? (
                         <Button
-                          onClick={() =>
-                            void navigate({
-                              params: { planId: proposal.id },
-                              to: "/backoffice/proposals/$planId",
-                            })
-                          }
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onRecordClosing(proposal);
+                          }}
                           size="sm"
-                          variant="outline"
                         >
-                          Review
+                          Record closing
                         </Button>
                       ) : null}
                     </div>
                   </TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        ) : (
-          <div className="p-4 text-muted-foreground text-sm">
-            No submitted proposals are waiting for admin approval.
-          </div>
-        )}
-      </CardContent>
-    </Card>
+              );
+
+              return proposal.column === "approved" && onRecordClosing ? (
+                <ApprovedProposalContextMenu
+                  key={proposal.id}
+                  onOpenProposal={onOpenProposal}
+                  onRecordClosing={onRecordClosing}
+                  proposal={proposal}
+                >
+                  {row}
+                </ApprovedProposalContextMenu>
+              ) : (
+                row
+              );
+            })}
+          </TableBody>
+        </Table>
+      ) : (
+        <div className="px-4 pb-4 text-muted-foreground text-sm">
+          {emptyLabel}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -812,7 +836,7 @@ function MilestoneKanban({
 
   return (
     <>
-      <Card id="proposals-kanban">
+      <Card id="milestones-kanban">
         <CardHeader className="gap-3 border-b p-4">
           <CardTitle className="text-base">Milestone Kanban</CardTitle>
           <CardDescription>
@@ -927,9 +951,13 @@ function MilestoneCard({
 
 function ProposalKanban({
   columns,
+  onOpenApprovedProposal,
+  onRecordClosing,
   proposals,
 }: {
   columns: DashboardKanbanColumn[];
+  onOpenApprovedProposal: (proposal: ProposalKanbanCard) => void;
+  onRecordClosing: (proposal: ProposalKanbanCard) => void;
   proposals: ProposalKanbanCard[];
 }) {
   const navigate = useNavigate();
@@ -953,7 +981,7 @@ function ProposalKanban({
 
   return (
     <>
-      <Card>
+      <Card id="proposals-kanban">
         <CardHeader className="gap-3 border-b p-4">
           <CardTitle className="text-base">Builds - Proposals</CardTitle>
           <CardDescription>Pipeline by stage</CardDescription>
@@ -1010,11 +1038,17 @@ function ProposalKanban({
                     {(card) => (
                       <ProposalCard
                         card={card}
+                        onOpenApprovedProposal={onOpenApprovedProposal}
+                        onRecordClosing={onRecordClosing}
                         onSelect={(selected) => {
+                          if (selected.column === "approved") {
+                            onOpenApprovedProposal(selected);
+                            return;
+                          }
                           if (
                             selected.href?.startsWith("/backoffice/proposals/")
                           ) {
-                            void navigate({
+                            navigate({
                               params: { planId: selected.id },
                               to: "/backoffice/proposals/$planId",
                             });
@@ -1050,17 +1084,17 @@ function ProposalKanban({
 
 function ProposalCard({
   card,
+  onOpenApprovedProposal,
+  onRecordClosing,
   onSelect,
 }: {
   card: ProposalKanbanCard;
+  onOpenApprovedProposal: (card: ProposalKanbanCard) => void;
+  onRecordClosing: (card: ProposalKanbanCard) => void;
   onSelect: (card: ProposalKanbanCard) => void;
 }) {
-  return (
-    <KanbanCard
-      {...card}
-      className="gap-3 p-3"
-      data-ixc-ref={card.tag === "demo" ? "UI-DEMO-PROPOSAL-CARD" : undefined}
-    >
+  const body = (
+    <KanbanCard {...card} className="gap-3 p-3">
       <button
         aria-label={`Open ${card.name} detail`}
         className="contents text-left"
@@ -1098,13 +1132,256 @@ function ProposalCard({
         </div>
         <div className="flex items-center justify-between border-t pt-2 text-sm">
           <span className="font-medium">{card.loanAmount}</span>
-          <span className="text-muted-foreground">
-            {card.isMockLtv ? "Mock " : ""}
-            {card.ltv}% LTV
-          </span>
+          {card.ltv ? (
+            <span className="text-muted-foreground">{card.ltv}% LTV</span>
+          ) : (
+            <span className="text-muted-foreground">Production proposal</span>
+          )}
         </div>
       </button>
     </KanbanCard>
+  );
+
+  return card.column === "approved" ? (
+    <ApprovedProposalContextMenu
+      onOpenProposal={onOpenApprovedProposal}
+      onRecordClosing={onRecordClosing}
+      proposal={card}
+    >
+      {body}
+    </ApprovedProposalContextMenu>
+  ) : (
+    body
+  );
+}
+
+function ApprovedProposalContextMenu({
+  children,
+  onOpenProposal,
+  onRecordClosing,
+  proposal,
+}: {
+  children: ReactElement;
+  onOpenProposal?: (proposal: ProposalKanbanCard) => void;
+  onRecordClosing: (proposal: ProposalKanbanCard) => void;
+  proposal: ProposalKanbanCard;
+}) {
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger render={children} />
+      <ContextMenuContent className="w-56">
+        <ContextMenuGroup>
+          <ContextMenuLabel>Approved proposal</ContextMenuLabel>
+          {onOpenProposal ? (
+            <ContextMenuItem onClick={() => onOpenProposal(proposal)}>
+              Open sidebar
+            </ContextMenuItem>
+          ) : null}
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={() => onRecordClosing(proposal)}>
+            Record closing
+          </ContextMenuItem>
+        </ContextMenuGroup>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+export function ApprovedProposalSidebar({
+  onOpenChange,
+  onRecordClosing,
+  proposal,
+}: {
+  onOpenChange: (open: boolean) => void;
+  onRecordClosing: (proposal: ProposalKanbanCard) => void;
+  proposal: ProposalKanbanCard | null;
+}) {
+  const navigate = useNavigate();
+
+  return (
+    <Sheet onOpenChange={onOpenChange} open={proposal !== null}>
+      <SheetContent className="w-full min-w-0 sm:max-w-lg">
+        {proposal ? (
+          <>
+            <SheetHeader className="border-b">
+              <SheetTitle className="pr-8">{proposal.name}</SheetTitle>
+              <SheetDescription>
+                Approved Build Proposal pending loan closing
+              </SheetDescription>
+            </SheetHeader>
+            <SheetPanel>
+              <div className="grid gap-4 text-sm">
+                <div className="grid gap-1">
+                  <span className="text-muted-foreground">Builder</span>
+                  <span className="font-medium">{proposal.builder}</span>
+                </div>
+                <div className="grid gap-1">
+                  <span className="text-muted-foreground">Location</span>
+                  <span className="font-medium">{proposal.address}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <Card className="rounded-lg shadow-none before:hidden">
+                    <CardContent className="p-3">
+                      <div className="text-muted-foreground text-xs">
+                        Total budget
+                      </div>
+                      <div className="font-semibold">{proposal.loanAmount}</div>
+                    </CardContent>
+                  </Card>
+                  <Card className="rounded-lg shadow-none before:hidden">
+                    <CardContent className="p-3">
+                      <div className="text-muted-foreground text-xs">
+                        Lender Draw Policy Limit
+                      </div>
+                      <div className="font-semibold">
+                        {centsToCurrency(
+                          proposal.lenderDrawPolicyLimitCents ?? 0
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+                <Card className="rounded-lg shadow-none before:hidden">
+                  <CardContent className="grid gap-2 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-muted-foreground">Status</span>
+                      <Badge variant="success">
+                        {proposal.statusLabel ?? "Approved - pending closing"}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-muted-foreground">Submitted</span>
+                      <span>{formatTimestamp(proposal.submittedAt)}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-muted-foreground">Approved</span>
+                      <span>{formatTimestamp(proposal.approvedAt)}</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </SheetPanel>
+            <SheetFooter>
+              <SheetClose render={<Button variant="outline" />}>
+                Close
+              </SheetClose>
+              <Button
+                onClick={() => {
+                  navigate({
+                    params: { planId: proposal.proposalId ?? proposal.id },
+                    to: "/backoffice/proposals/$planId",
+                  });
+                }}
+                variant="outline"
+              >
+                Open review
+              </Button>
+              <Button onClick={() => onRecordClosing(proposal)}>
+                Record closing
+              </Button>
+            </SheetFooter>
+          </>
+        ) : null}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+export function ClosingConfirmationDialog({
+  onConfirm,
+  onOpenChange,
+  open,
+  pending,
+  proposal,
+}: {
+  onConfirm: (input: ClosingConfirmationInput) => Promise<void>;
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+  pending: boolean;
+  proposal: ProposalKanbanCard | null;
+}) {
+  const [buildStartDate, setBuildStartDate] = useState(todayInputDate());
+  const [reason, setReason] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setBuildStartDate(todayInputDate());
+      setReason("");
+    }
+  }, [open]);
+
+  const canSubmit =
+    buildStartDate.trim().length > 0 && reason.trim().length > 0 && !pending;
+
+  return (
+    <Dialog onOpenChange={onOpenChange} open={open}>
+      <DialogContent>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (canSubmit) {
+              onConfirm({
+                buildStartDate: buildStartDate.trim(),
+                reason: reason.trim(),
+              });
+            }
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Record loan closing</DialogTitle>
+            <DialogDescription>
+              This creates the production active Build and copies proposal
+              milestones and planned reimbursement draws.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel>
+            <div className="grid gap-4">
+              <Card className="rounded-lg bg-muted/30 shadow-none before:hidden">
+                <CardContent className="p-3 text-sm">
+                  <div className="font-medium">
+                    {proposal?.name ?? "Approved proposal"}
+                  </div>
+                  <div className="text-muted-foreground">
+                    Principal:{" "}
+                    {centsToCurrency(proposal?.lenderDrawPolicyLimitCents ?? 0)}{" "}
+                    · Interest starts on funds released
+                  </div>
+                </CardContent>
+              </Card>
+              <label className="grid gap-2 text-sm" htmlFor="build-start-date">
+                <span className="font-medium">Build start date</span>
+                <Input
+                  id="build-start-date"
+                  onChange={(event) => setBuildStartDate(event.target.value)}
+                  required
+                  type="date"
+                  value={buildStartDate}
+                />
+              </label>
+              <label className="grid gap-2 text-sm" htmlFor="closing-reason">
+                <span className="font-medium">Audit reason</span>
+                <Textarea
+                  id="closing-reason"
+                  onChange={(event) => setReason(event.target.value)}
+                  placeholder="Confirm the offline loan closing and any closing notes."
+                  required
+                  value={reason}
+                />
+              </label>
+            </div>
+          </DialogPanel>
+          <DialogFooter>
+            <DialogClose render={<Button type="button" variant="outline" />}>
+              Cancel
+            </DialogClose>
+            <Button disabled={!canSubmit} type="submit">
+              {pending ? <Loader2 className="animate-spin" /> : null}
+              Confirm closing
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1271,6 +1548,21 @@ function centsToCurrency(value: number) {
     maximumFractionDigits: 0,
     style: "currency",
   }).format(value / 100);
+}
+
+function todayInputDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function formatTimestamp(value: number | undefined) {
+  if (!value) {
+    return "Not recorded";
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(value));
 }
 
 function formatMonthYear(date: Date) {

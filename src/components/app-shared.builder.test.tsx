@@ -17,9 +17,9 @@ describe("builderNavGroups", () => {
       "Live Builds",
       "Timeline Setup",
     ]);
-    expect(targets).toContain("/builder/demo/dashboard");
-    expect(targets).toContain("/builder/demo/dashboard/proposals");
-    expect(targets).toContain("/builder/demo/dashboard/builds");
+    expect(targets).toContain("/builder");
+    expect(targets).toContain("/builder/proposals");
+    expect(targets).toContain("/demo/timeline");
     expect(titles).not.toContain("Builders");
     expect(titles).not.toContain("Draws");
     expect(titles).not.toContain("Site Visits");

@@ -1228,6 +1228,337 @@ describe("production proposal foundation", () => {
     );
   });
 
+  test("materializes a full production active-build workspace with audited draw and milestone actions", async () => {
+    const { seed, t } = await seeded(["admin"], "user_admin");
+    const proposalId = await t.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Full active build workspace",
+        location: "909 Workspace Court",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
+      borrowerCoPayBps: 2_000,
+      borrowerWorkingCapitalLimitCents: 35_000_000,
+      documents: [
+        {
+          documentType: "permit",
+          fileName: "workspace-permit.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 512,
+        },
+      ],
+      lenderDrawPolicyLimitCents: 55_000_000,
+      milestones: [
+        {
+          budgetCents: 50_000_000,
+          dayEnd: 20,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 20,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+          submilestones: [
+            {
+              budgetCents: 25_000_000,
+              durationDays: 10,
+              key: "excavation",
+              name: "Excavation",
+              order: 1,
+            },
+          ],
+        },
+      ],
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+    await t.mutation((api as any).production_proposals.createProductionTimelineEvidenceAsset, {
+      asset: {
+        evidenceKey: "foundation-site-photo",
+        fileName: "foundation-site-photo.jpg",
+        label: "Foundation site photo",
+        locationVerified: true,
+        milestoneKey: "foundation",
+        mimeType: "image/jpeg",
+        sizeBytes: 2048,
+        tag: "site-photo",
+      },
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+    await t.mutation((api as any).production_proposals.submitProposal, {
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Ready for active build workspace.",
+      workosOrganizationId: ORG,
+    });
+    const closing = await t.mutation(
+      (api as any).production_proposals.recordOfflineClosing,
+      {
+        buildStartDate: "2026-08-01",
+        loanFacility: {
+          interestAnnualBps: 925,
+          principalCents: 55_000_000,
+        },
+        proposalId,
+        reason: "Loan closed offline.",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await t.mutation((api as any).production_proposals.addActiveBuildNote, {
+      body: "Internal lender note for the production workspace.",
+      buildId: closing.buildId,
+      visibility: "internal",
+      workosOrganizationId: ORG,
+    });
+    await t.mutation((api as any).production_proposals.addActiveBuildDocument, {
+      buildId: closing.buildId,
+      documentType: "supporting",
+      fileName: "inspection-scope.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      workosOrganizationId: ORG,
+    });
+    const contractorId = await t.mutation(
+      (api as any).production_proposals.createContractorProfile,
+      {
+        brokerageId: seed.brokerageId,
+        email: "site-lead@example.com",
+        name: "Site Lead Builders",
+        trades: ["foundation"],
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.attachActiveBuildContractor,
+      {
+        buildId: closing.buildId,
+        contractorId,
+        role: "Foundation contractor",
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation((api as any).production_proposals.requestActiveBuildDraw, {
+      amountCents: 40_000_000,
+      buildId: closing.buildId,
+      drawKey: "draw-01",
+      note: "Foundation reimbursement requested.",
+      workosOrganizationId: ORG,
+    });
+    await t.mutation((api as any).production_proposals.approveActiveBuildDraw, {
+      buildId: closing.buildId,
+      drawKey: "draw-01",
+      note: "Evidence and policy review complete.",
+      workosOrganizationId: ORG,
+    });
+    await t.mutation((api as any).production_proposals.releaseActiveBuildDraw, {
+      buildId: closing.buildId,
+      drawKey: "draw-01",
+      note: "Released after admin approval.",
+      releaseDate: "2026-08-24",
+      workosOrganizationId: ORG,
+    });
+    await t.mutation(
+      (api as any).production_proposals.requestActiveBuildMilestoneInfo,
+      {
+        buildId: closing.buildId,
+        milestoneKey: "foundation",
+        note: "Add final inspection card.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const siteVisit = await t.mutation(
+      (api as any).production_proposals.assignActiveBuildSiteVisit,
+      {
+        buildId: closing.buildId,
+        milestoneKey: "foundation",
+        note: "Verify footing photo location.",
+        requestedDay: 23,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(siteVisit.url).toContain("/newsitevisit/");
+    await t.mutation(
+      (api as any).production_proposals.approveActiveBuildMilestone,
+      {
+        buildId: closing.buildId,
+        milestoneKey: "foundation",
+        note: "Milestone approved from production build detail.",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const workspace = await t.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+
+    expect(workspace.sitePhotos).toEqual([
+      expect.objectContaining({
+        caption: "Foundation site photo",
+        evidenceKey: "foundation-site-photo",
+        locationVerified: true,
+      }),
+    ]);
+    expect(workspace.documents.map((doc: any) => doc.fileName)).toEqual(
+      expect.arrayContaining(["workspace-permit.pdf", "inspection-scope.pdf"]),
+    );
+    expect(workspace.notes.internal[0]).toMatchObject({
+      body: "Internal lender note for the production workspace.",
+      visibility: "internal",
+    });
+    expect(workspace.contractors[0]).toMatchObject({
+      name: "Site Lead Builders",
+      role: "Foundation contractor",
+    });
+    expect(workspace.draws[0]).toMatchObject({
+      amountCents: 40_000_000,
+      requestNote: "Foundation reimbursement requested.",
+      requestReviewNote: "Evidence and policy review complete.",
+      releaseNote: "Released after admin approval.",
+      status: "released",
+    });
+    expect(workspace.milestones[0]).toMatchObject({
+      completionReview: expect.objectContaining({
+        note: "Milestone approved from production build detail.",
+        siteVisit: expect.objectContaining({
+          note: "Verify footing photo location.",
+          requestedDay: 23,
+          status: "requested",
+        }),
+        status: "approved",
+      }),
+      evidenceState: "Approved",
+      status: "complete",
+    });
+    expect(workspace.quickActionEvents.map((event: any) => event.eventType)).toEqual(
+      expect.arrayContaining(["active_build.milestone.approved"]),
+    );
+    expect(workspace.auditEvents.map((event: any) => event.eventType)).toEqual(
+      expect.arrayContaining([
+        "active_build.created",
+        "active_build.note.created",
+        "active_build.document.created",
+        "active_build.contractor.attached",
+        "active_build.draw.requested",
+        "active_build.draw.approved",
+        "active_build.draw.released",
+        "active_build.milestone.info_requested",
+        "active_build.site_visit.requested",
+        "active_build.milestone.approved",
+      ]),
+    );
+  });
+
+  test("starts active-build milestone work explicitly with audit history", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const proposalId = await t.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Explicit work start active build",
+        location: "12 Start Work Lane",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
+      borrowerCoPayBps: 2_000,
+      borrowerWorkingCapitalLimitCents: 35_000_000,
+      documents: [
+        {
+          documentType: "permit",
+          fileName: "start-work-permit.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 512,
+        },
+      ],
+      lenderDrawPolicyLimitCents: 55_000_000,
+      milestones: [
+        {
+          budgetCents: 50_000_000,
+          dayEnd: 20,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 20,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+          submilestones: [],
+        },
+      ],
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+    await t.mutation((api as any).production_proposals.submitProposal, {
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Ready to close.",
+      workosOrganizationId: ORG,
+    });
+    const closing = await t.mutation(
+      (api as any).production_proposals.recordOfflineClosing,
+      {
+        buildStartDate: "2026-05-01",
+        loanFacility: {
+          interestAnnualBps: 925,
+          principalCents: 55_000_000,
+        },
+        proposalId,
+        reason: "Loan closed offline.",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    await builder.mutation(
+      (api as any).production_proposals.startActiveBuildMilestone,
+      {
+        buildId: closing.buildId,
+        milestoneKey: "foundation",
+        note: "Crew mobilized and site work started.",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const detail = await t.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(detail.milestones[0]).toMatchObject({
+      evidenceState: "Work started",
+      progressPercent: 5,
+      startedAt: expect.any(Number),
+      status: "in_progress",
+    });
+    expect(detail.auditEvents.map((event: any) => event.eventType)).toContain(
+      "active_build.milestone.started",
+    );
+
+    const workspace = await t.query(
+      (api as any).production_proposals.getActiveBuildTimelineWorkspace,
+      { buildId: closing.buildId, workosOrganizationId: ORG },
+    );
+    expect(workspace.milestones[0]).toMatchObject({
+      milestoneKey: "foundation",
+      status: "ready",
+      tone: "warning",
+    });
+  });
+
   test("seeds deterministic production proposal lifecycle scenarios without demo data", async () => {
     const { t } = await seeded(["admin"], "user_admin");
 
@@ -1333,7 +1664,98 @@ describe("production proposal foundation", () => {
     expect(scenarios.demoProposalDrafts).toHaveLength(0);
   });
 
-  test("filters proposal access by organization, assigned broker, broker-staff permission, and builder ownership", async () => {
+  test("projects the backoffice dashboard from production proposals and active builds only", async () => {
+    const { t } = await seeded(["admin"], "user_admin");
+
+    await t.mutation(
+      (api as any).production_proposals.dev_seedProductionProposalScenarios,
+      { workosOrganizationId: ORG },
+    );
+
+    const dashboard = await t.query(
+      (api as any).production_proposals.getBackofficeDashboard,
+      { workosOrganizationId: ORG },
+    );
+    const serialized = JSON.stringify(dashboard);
+
+    expect(serialized).not.toMatch(/demo_|demo-timeline|mock_|Mock/);
+    expect(dashboard.activeBuilds).toHaveLength(1);
+    expect(dashboard.activeBuilds[0]).toMatchObject({
+      address: "Closed Site, Toronto, ON",
+      builder: "Production Builder",
+      statusLabel: "Future start",
+    });
+    expect(dashboard.activeBuilds[0].id).not.toContain("Approved");
+    expect(dashboard.activeBuilds[0].href).toMatch(/^\/backoffice\/builds\//);
+
+    expect(dashboard.milestones).toHaveLength(2);
+    expect(
+      dashboard.milestones.map((milestone: any) => milestone.name),
+    ).toEqual(["Foundation", "Shell and Dry-In"]);
+    expect(
+      dashboard.milestones.every((milestone: any) =>
+        milestone.href.startsWith(
+          `/backoffice/builds/${dashboard.activeBuilds[0].buildKey}`,
+        ),
+      ),
+    ).toBe(true);
+
+    expect(dashboard.proposalColumns.map((column: any) => column.id)).toEqual([
+      "draft",
+      "submitted",
+      "approved",
+      "closed",
+    ]);
+    expect(dashboard.proposals.map((proposal: any) => proposal.name)).toEqual(
+      expect.arrayContaining([
+        "Seed Scenario - Approved With Permit",
+        "Seed Scenario - Approved With Waiver",
+        "Seed Scenario - Closed",
+      ]),
+    );
+
+    expect(
+      dashboard.submittedProposals.map((proposal: any) => proposal.name),
+    ).toEqual(["Seed Scenario - Submitted"]);
+    expect(
+      dashboard.approvedPendingClosing.map((proposal: any) => proposal.name),
+    ).toEqual([
+      "Seed Scenario - Approved With Permit",
+      "Seed Scenario - Approved With Waiver",
+    ]);
+    expect(dashboard.approvedPendingClosing[0]).toMatchObject({
+      lenderDrawPolicyLimitCents: 55_000_000,
+      statusLabel: "Approved - pending closing",
+    });
+    expect(
+      dashboard.activeBuilds.some((build: any) =>
+        build.id.includes("Approved With Permit"),
+      ),
+    ).toBe(false);
+  });
+
+  test("requires backoffice authorization for the production backoffice dashboard", async () => {
+    const { base, t } = await seeded(["admin"], "user_admin");
+
+    await t.mutation(
+      (api as any).production_proposals.dev_seedProductionProposalScenarios,
+      { workosOrganizationId: ORG },
+    );
+
+    await expect(
+      withIdentity(base, ["builder"], "user_builder").query(
+        (api as any).production_proposals.getBackofficeDashboard,
+        { workosOrganizationId: ORG },
+      ),
+    ).rejects.toThrow(/Forbidden: backoffice/);
+    await expect(
+      t.query((api as any).production_proposals.getBackofficeDashboard, {
+        workosOrganizationId: "org_other",
+      }),
+    ).rejects.toThrow(/Forbidden/);
+  });
+
+  test("allows brokerage proposal reads while limiting broker writes by assignment", async () => {
     const { base, seed, t } = await seeded(["admin"], "user_admin");
     const proposalId = await t.mutation(
       (api as any).production_proposals.createDraftProposal,
@@ -1345,6 +1767,30 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
+    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
+      borrowerCoPayBps: 2_000,
+      borrowerWorkingCapitalLimitCents: 40_000_000,
+      lenderDrawPolicyLimitCents: 55_000_000,
+      milestones: [
+        {
+          budgetCents: 50_000_000,
+          dayEnd: 30,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 30,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+          submilestones: [],
+        },
+      ],
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+    await t.mutation((api as any).production_proposals.submitProposal, {
+      proposalId,
+      workosOrganizationId: ORG,
+    });
 
     const broker = withIdentity(base, ["broker"], "user_broker");
     await expect(
@@ -1352,14 +1798,39 @@ describe("production proposal foundation", () => {
         proposalId,
         workosOrganizationId: ORG,
       }),
-    ).rejects.toThrow(/Forbidden/);
+    ).resolves.toMatchObject({
+      proposal: { buildName: "Scoped proposal", status: "submitted" },
+    });
     let brokerKanban = await broker.query(
       (api as any).production_proposals.listProposalKanban,
       { workosOrganizationId: ORG },
     );
-    expect(brokerKanban.columns.flatMap((column: any) => column.cards)).toHaveLength(
-      0,
+    expect(
+      brokerKanban.columns.flatMap((column: any) =>
+        column.cards.map((card: any) => card.proposalId),
+      ),
+    ).toEqual([proposalId]);
+    const brokerDashboard = await broker.query(
+      (api as any).production_proposals.getBackofficeDashboard,
+      { workosOrganizationId: ORG },
     );
+    expect(
+      brokerDashboard.submittedProposals.map(
+        (proposal: any) => proposal.proposalId,
+      ),
+    ).toEqual([proposalId]);
+    await expect(
+      broker.mutation(
+        (api as any).production_proposals.updateSubmittedProposalDrawScheduleRow,
+        {
+          drawKey: "draw-01",
+          label: "Broker unassigned edit",
+          proposalId,
+          reason: "Unassigned broker should not edit submitted draw schedule.",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/Forbidden: proposal write/);
 
     await t.run(async (ctx: any) => {
       await ctx.db.patch(ctx.db.normalizeId("buildProposals", proposalId)!, {
@@ -1374,6 +1845,18 @@ describe("production proposal foundation", () => {
     ).resolves.toMatchObject({
       proposal: { assignedBrokerWorkosUserId: "user_broker" },
     });
+    await expect(
+      broker.mutation(
+        (api as any).production_proposals.updateSubmittedProposalDrawScheduleRow,
+        {
+          drawKey: "draw-01",
+          label: "Assigned broker edit",
+          proposalId,
+          reason: "Assigned broker edits submitted draw schedule.",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).resolves.toBeNull();
 
     brokerKanban = await broker.query(
       (api as any).production_proposals.listProposalKanban,

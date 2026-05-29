@@ -6,7 +6,7 @@ import type {
 } from "#/features/backoffice-dashboard/mock-data.ts";
 
 function proposalBadgeVariant(
-  proposal: ProposalKanbanCard,
+  proposal: ProposalKanbanCard
 ): MetricDrilldownItem["badgeVariant"] {
   switch (proposal.column) {
     case "approved":
@@ -22,7 +22,7 @@ function proposalBadgeVariant(
 
 export function getMetricDrilldownItems(
   metricId: DashboardMetric["id"],
-  dashboard: BackofficeDashboardData,
+  dashboard: BackofficeDashboardData
 ): MetricDrilldownItem[] {
   switch (metricId) {
     case "draw-requests":
@@ -48,11 +48,14 @@ export function getMetricDrilldownItems(
       }));
     case "proposals":
       return dashboard.proposals.map((proposal) => ({
-        badgeLabel: proposal.statusLabel ?? proposal.closeLabel ?? proposal.column,
+        badgeLabel:
+          proposal.statusLabel ?? proposal.closeLabel ?? proposal.column,
         badgeVariant: proposalBadgeVariant(proposal),
-        context: `${proposal.loanAmount} · ${
-          proposal.isMockLtv ? "Mock " : ""
-        }${proposal.ltv}% LTV`,
+        context: proposal.isMockLtv
+          ? `${proposal.loanAmount} · Mock ${proposal.ltv}% LTV`
+          : proposal.ltv
+            ? `${proposal.loanAmount} · ${proposal.ltv}% LTV`
+            : `${proposal.loanAmount} · Production proposal`,
         href: proposal.href ?? "#proposals-kanban",
         id: proposal.id,
         subtitle: `${proposal.address} · ${proposal.builder}`,

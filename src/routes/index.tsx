@@ -4,6 +4,11 @@ import { useEffect } from "react";
 import type { CSSProperties, ReactElement, ReactNode } from "react";
 
 import Header from "#/components/Header";
+import {
+  LANDING_PRIMARY_ONBOARDING_CTA,
+  LANDING_SECONDARY_ONBOARDING_CTA,
+} from "#/features/landing/onboarding-cta";
+import { LANDING_HERO_COPY } from "#/features/landing/landing-copy";
 import { Button } from "../components/ui/button";
 import "./-landing-blueprint.css";
 
@@ -162,17 +167,17 @@ function SheetBar() {
       <span>
         <strong>Sheet A-001</strong>
         <span className="dot" />
-        Construction draw management
+        Builder-first construction finance
       </span>
       <span>
-        DrawFlow · Coupled control system · v0.4
+        DrawFlow · Broker-led draw planning · FairLend
       </span>
       <span>
         Scale 1:48
         <span className="dot" />
-        Issued 2026-05-19
+        Issued 2026-05-28
         <span className="dot" />
-        <strong>Rev 03</strong>
+        <strong>Rev 04</strong>
       </span>
     </div>
   );
@@ -215,8 +220,8 @@ function TitleBlock() {
         <dd>DrawFlow</dd>
       </div>
       <div>
-        <dt>Drawn by</dt>
-        <dd>FAIRLEND ENG.</dd>
+        <dt>Built for</dt>
+        <dd>BROKERS + BUILDERS</dd>
       </div>
       <div>
         <dt>Sheet</dt>
@@ -224,15 +229,15 @@ function TitleBlock() {
       </div>
       <div>
         <dt>Date</dt>
-        <dd>2026-05-19</dd>
+        <dd>2026-05-28</dd>
       </div>
       <div>
         <dt>Scale</dt>
-        <dd>1 : 48</dd>
+        <dd>1 : DEAL</dd>
       </div>
       <div className="rev">
         <dt>Revision</dt>
-        <dd>03 ▲</dd>
+        <dd>04 ▲</dd>
       </div>
     </aside>
   );
@@ -262,14 +267,14 @@ function ScaleBar() {
  * -------------------------------------------------------------------------- */
 
 function Hero() {
-  const HERO_PREFIX = "The construction plan and the capital release plan,";
-  const HERO_ACCENT = "modeled as one drawing.";
+  const HERO_PREFIX = LANDING_HERO_COPY.prefix;
+  const HERO_ACCENT = LANDING_HERO_COPY.accent;
   const ACCENT_START = HERO_PREFIX.replace(/ /g, "").length;
   return (
     <section className="mt-10 lg:mt-14">
       <div className="grid gap-10 lg:grid-cols-[1.05fr_1fr] lg:items-end lg:gap-14">
         <div className="space-y-7">
-          <SectionTag refLabel="A-01" label="Plan view — coupled control" />
+          <SectionTag refLabel="A-01" label="Plan view — on-demand draws" />
           <h1
             data-rv
             style={{ "--rv-d": 120 } as CSSProperties}
@@ -287,24 +292,24 @@ function Hero() {
             style={{ "--rv-d": 900 } as CSSProperties}
             className="max-w-xl text-fg-secondary text-lg leading-relaxed"
           >
-            DrawFlow turns a construction roadmap into reimbursement-based draw
-            plans, then governs execution through evidence, site visits,
-            approvals, and audit events. Builders and lender teams work the same
-            sheet, never a thread of spreadsheets.
+            {LANDING_HERO_COPY.body}
           </p>
 
           <div className="lbp-cta-row flex flex-wrap items-center gap-3 pt-2">
-            <Button render={<Link to="/demo/workos" />} size="lg">
-              Enter workspace
+            <Button
+              render={<Link to={LANDING_PRIMARY_ONBOARDING_CTA.to} />}
+              size="lg"
+            >
+              {LANDING_PRIMARY_ONBOARDING_CTA.label}
               <ArrowUpRight className="size-4" />
             </Button>
             <Button
               className="text-fg-secondary"
-              render={<Link to="/demo/timeline" />}
+              render={<Link to={LANDING_SECONDARY_ONBOARDING_CTA.to} />}
               size="lg"
               variant="ghost"
             >
-              Open detail sheet ↗
+              {LANDING_SECONDARY_ONBOARDING_CTA.label} ↗
             </Button>
           </div>
 
@@ -313,9 +318,9 @@ function Hero() {
             style={{ "--rv-d": 1100 } as CSSProperties}
             className="mt-2 grid max-w-md grid-cols-3 gap-x-6 gap-y-2 border-border border-t pt-4 text-xs lbp-meta"
           >
-            <KeyValue k="Reimburse" v="On complete" />
-            <KeyValue k="Interest" v="On release" />
-            <KeyValue k="Fees" v="Per draw" />
+            <KeyValue k="Draws" v="On demand" />
+            <KeyValue k="Schedule" v="Flexible" />
+            <KeyValue k="Experience" v="20 years" />
           </dl>
         </div>
 
@@ -373,9 +378,9 @@ function PlanViewDiagram() {
     <figure className="lbp-plate p-5 sm:p-6">
       <div className="lbp-plate-header">
         <span>
-          <span className="key">Detail A-01</span> · Coupled plan / capital release
+          <span className="key">Detail A-01</span> · On-demand draw / release map
         </span>
-        <span>4 draws / 7 milestones · 240 days</span>
+        <span>Funds follow the site</span>
       </div>
 
       <svg
@@ -398,8 +403,8 @@ function PlanViewDiagram() {
 
         {/* Lane labels */}
         <g>
-          <text x={L} y={consY - 16} className="label">A · CONSTRUCTION PLAN</text>
-          <text x={L} y={capY - 16} className="label">B · CAPITAL RELEASE PLAN</text>
+          <text x={L} y={consY - 16} className="label">A · WORK READY ON SITE</text>
+          <text x={L} y={capY - 16} className="label">B · DRAW CAPITAL AVAILABLE</text>
         </g>
 
         {/* Lane left tags (vertical sheet refs) */}
@@ -525,29 +530,29 @@ function PlanViewDiagram() {
           number="01"
           from={{ x: fx(0.07), y: consY + consH / 2 }}
           to={{ x: 830, y: 200 }}
-          title="Reimbursement"
-          body="Only after milestone completion."
+          title="Draw when needed"
+          body="Request capital when work is ready."
         />
         <Callout
           number="02"
           from={{ x: fx(0.42), y: capY + capH / 2 }}
           to={{ x: 830, y: 290 }}
-          title="Interest"
-          body="Begins at release, not commitment."
+          title="No 3-draw cage"
+          body="Flexible releases, not preset traps."
         />
         <Callout
           number="03"
           from={{ x: fx(0.62), y: consY + consH / 2 }}
           to={{ x: 830, y: 380 }}
-          title="Evidence"
-          body="Photo, document, geofence."
+          title="Proof from site"
+          body="Photos, docs, visits, geofence."
         />
         <Callout
           number="04"
           from={{ x: fx(0.95), y: capY + capH / 2 }}
           to={{ x: 830, y: 470 }}
-          title="Approval"
-          body="Lender admin alone releases."
+          title="Get unstuck"
+          body="Adjust when the build changes."
         />
 
         {/* Detail ref bubble — bottom-right corner of drawing */}
@@ -690,31 +695,31 @@ const PLAN_ROWS: {
 }[] = [
   {
     id: "P-01",
-    name: "Cheapest Feasible",
+    name: "On-Demand Draw Path",
     rationale:
-      "Minimizes total financing cost. Groups milestones to amortize draw fees, balanced against working-capital exposure.",
-    fees: 2,
-    cycle: 3,
-    wcl: 3,
+      "Requests line up with work that is actually ready, so the builder has a way to get unstuck without waiting for the next preset lender checkpoint.",
+    fees: 5,
+    cycle: 5,
+    wcl: 1,
     recommended: true,
   },
   {
     id: "P-02",
-    name: "Fastest",
+    name: "Rigid 3-Draw Schedule",
     rationale:
-      "Shortest path from break-ground to closeout. Tighter draws, more inspection events, higher fee load.",
-    fees: 5,
-    cycle: 5,
-    wcl: 2,
+      "Common in construction lending, simple on paper, hard on site: the borrower has to plan real construction around fixed draw gates.",
+    fees: 1,
+    cycle: 2,
+    wcl: 5,
   },
   {
     id: "P-03",
-    name: "Capital-Constrained",
+    name: "Rescue Flex Draw",
     rationale:
-      "Respects a hard working-capital ceiling. Stretches some sequences, may defer non-critical milestones.",
-    fees: 3,
-    cycle: 1,
-    wcl: 1,
+      "When timing changes, the next release is modeled around what keeps the trades moving instead of forcing a restart with a new lender.",
+    fees: 4,
+    cycle: 4,
+    wcl: 2,
   },
 ];
 
@@ -723,36 +728,36 @@ function PlanSchedule() {
     <section>
       <div className="flex flex-wrap items-end justify-between gap-6">
         <div className="space-y-5">
-          <SectionTag refLabel="A-02" label="Elevation — draw plan variants" />
+          <SectionTag refLabel="A-02" label="Elevation — draw flexibility" />
           <h2
             data-rv
             className="max-w-2xl font-heading font-medium text-3xl text-fg-primary leading-tight tracking-tight sm:text-4xl"
           >
-            <Draft text="Three plans, optimized across both axes. Pick one," />{" "}
+            <Draft text="The builder does not need another rate sheet." />{" "}
             <Draft
               className="lbp-accent"
               start={
-                "Three plans, optimized across both axes. Pick one,".replace(
+                "The builder does not need another rate sheet.".replace(
                   / /g,
                   "",
                 ).length
               }
-              text="the rest are stamped as alternates."
+              text="They need a way to get unstuck."
             />
           </h2>
         </div>
         <span className="lbp-stamp">
           <span className="dotpair" />
-          Issued for review
+          Issued for draw flexibility
         </span>
       </div>
 
       <div className="lbp-plate mt-10 overflow-hidden">
         <div className="lbp-plate-header">
           <span>
-            <span className="key">Schedule S-02</span> · Plan variants
+            <span className="key">Schedule S-02</span> · Draw models
           </span>
-          <span>3 ROWS · OPTIMIZED 2026-05-19</span>
+          <span>On-demand versus fixed schedule</span>
         </div>
 
         <div className="lbp-table-scroll overflow-x-auto">
@@ -760,11 +765,11 @@ function PlanSchedule() {
             <thead>
               <tr>
                 <th style={{ width: 64 }}>Ref</th>
-                <th style={{ width: 200 }}>Variant</th>
-                <th>Rationale</th>
-                <th style={{ width: 110 }}>Fees</th>
-                <th style={{ width: 110 }}>Cycle</th>
-                <th style={{ width: 110 }}>WCL strain</th>
+                <th style={{ width: 200 }}>Strategy</th>
+                <th>Why the builder cares</th>
+                <th style={{ width: 110 }}>Flex</th>
+                <th style={{ width: 110 }}>Speed</th>
+                <th style={{ width: 110 }}>Cash strain</th>
                 <th style={{ width: 90 }}>Mark</th>
               </tr>
             </thead>
@@ -774,24 +779,24 @@ function PlanSchedule() {
                   <td className="num" data-label="Ref">
                     {r.id}
                   </td>
-                  <td data-label="Variant">
+                  <td data-label="Strategy">
                     <div className="plan">{r.name}</div>
                   </td>
                   <td
                     className="text-fg-secondary"
-                    data-label="Rationale"
+                    data-label="Why the builder cares"
                     style={{ lineHeight: 1.55 }}
                   >
                     {r.rationale}
                   </td>
-                  <td data-label="Fees">
-                    <Meter level={r.fees} tone="r" />
+                  <td data-label="Flex">
+                    <Meter level={r.fees} tone="g" />
                   </td>
-                  <td data-label="Cycle">
+                  <td data-label="Speed">
                     <Meter level={r.cycle} />
                   </td>
-                  <td data-label="WCL strain">
-                    <Meter level={r.wcl} tone="g" />
+                  <td data-label="Cash strain">
+                    <Meter level={r.wcl} tone="r" />
                   </td>
                   <td data-label="Mark">
                     {r.recommended ? (
@@ -828,12 +833,12 @@ function Meter({ level, tone }: { level: number; tone?: "r" | "g" }) {
  * -------------------------------------------------------------------------- */
 
 const WORKSPACE_LAYERS = [
-  { k: "Milestone rail", v: "Card-by-card progress, dependencies, blocking state, role-aware actions." },
-  { k: "Construction roadmap", v: "Gantt-style sequencing with draw-group bounding boxes overlaid on the timeline." },
-  { k: "Evidence packages", v: "Photos, documents, geofence signals; failures route for review, never discard." },
-  { k: "Site visits", v: "Mobile capture with offline drafts, structured reports, lender-staff recommendations." },
-  { k: "Approvals", v: "Lender staff review and inspect. Lender admin holds final milestone and release authority." },
-  { k: "Audit trail", v: "Actor, role, timestamp, prior and new state, warnings, reason. Versioned budgets." },
+  { k: "Builder-first intake", v: "The file starts with how the build actually runs, not a generic mortgage checklist." },
+  { k: "On-demand draw engine", v: "Requests are shaped around completed work, cash pressure, and what gets the site moving next." },
+  { k: "Site proof workflow", v: "Photos, documents, site visits, and location signals travel with each draw request." },
+  { k: "Broker translation", v: "Brokers can explain a build file without pretending every construction loan is the same." },
+  { k: "Release workflow", v: "Clear review and approval steps keep the borrower from getting trapped between trades and lender timing." },
+  { k: "Audit history", v: "Every material change, warning, and decision stays visible when the project shifts." },
 ];
 
 function WorkspaceDetail() {
@@ -847,11 +852,11 @@ function WorkspaceDetail() {
             data-rv
             className="font-heading font-medium text-3xl text-fg-primary leading-tight tracking-tight sm:text-4xl"
           >
-            <Draft text="One control plane." />{" "}
+            <Draft text="Designed by people with" />{" "}
             <Draft
               className="lbp-accent"
-              start={"One control plane.".replace(/ /g, "").length}
-              text="Builders, lenders, the same sheet."
+              start={"Designed by people with".replace(/ /g, "").length}
+              text="20 years in building and lending."
             />
           </h2>
           <p
@@ -859,9 +864,11 @@ function WorkspaceDetail() {
             style={{ "--rv-d": 300 } as CSSProperties}
             className="max-w-md text-fg-secondary text-[15px] leading-relaxed"
           >
-            Other surfaces are subordinate: kanban queues for lender ops, focused
-            evidence review, mobile site-visit flows, approval decisions. They
-            all reconcile against this drawing.
+            The failure point is rarely the headline rate. It is the draw that
+            cannot be requested yet, the inspection condition that does not match
+            construction reality, or the cash gap that stops trades. DrawFlow
+            keeps broker, builder, and lender working from the same flexible
+            release plan.
           </p>
 
           <div className="lbp-plate mt-4 p-5">
@@ -872,9 +879,9 @@ function WorkspaceDetail() {
         <div className="lbp-plate overflow-hidden">
           <div className="lbp-plate-header">
             <span>
-              <span className="key">Detail D-03</span> · Workspace layers
+              <span className="key">Detail D-03</span> · Deal protection layers
             </span>
-            <span>06 layers · top → bottom</span>
+            <span>06 layers · broker → closeout</span>
           </div>
           <ul className="lbp-layers" data-rv>
             {WORKSPACE_LAYERS.map((l, i) => (
@@ -901,7 +908,7 @@ function WorkspaceDetail() {
 
 /* Exploded-view diagram — stacked plates, slightly offset, with leaders. */
 function ExplodedStack() {
-  const layers = ["Audit", "Approvals", "Site visits", "Evidence", "Roadmap", "Milestones"];
+  const layers = ["Audit", "Approvals", "Site visits", "Evidence", "Draws", "Roadmap"];
   return (
     <svg
       viewBox="0 0 480 300"
@@ -942,18 +949,18 @@ function ExplodedStack() {
 }
 
 /* ----------------------------------------------------------------------------
- * A-04 — Specifications: governance invariants as drafting notes.
+ * A-04 — Specifications: deal rules as drafting notes.
  * -------------------------------------------------------------------------- */
 
 const SPECS = [
-  "Reimbursement only. No proactive advance funding before work completion.",
-  "Interest begins at release, not at commitment.",
-  "Borrower working-capital limit is distinct from lender draw-policy limit.",
-  "Lender staff inspect and recommend. Lender admin alone releases.",
-  "Geofence failure never discards evidence. It routes for review.",
-  "Budgets are versioned, not overwritten.",
-  "Every override emits an audit event with reason, actor, and prior state.",
-  "Every entity is organization-scoped from day one.",
+  "Work with the builder, not against them. The goal is a finished project and a client who comes back.",
+  "A build should not be forced into a rigid three-draw schedule when the site needs a different release rhythm.",
+  "Draw timing should follow actual construction progress, working capital, and review lag.",
+  "Flexibility is not a perk. It is the thing that keeps a good builder from getting stuck.",
+  "Milestone language should not trap a builder inside an inspection sequence the city will not perform yet.",
+  "Evidence problems route to review. They do not become an excuse to lose the whole file.",
+  "The broker relationship stays protected; takeout financing is not stepped on unless the broker asks.",
+  "Every material decision is auditable: who changed what, why, when, and what it changed from.",
 ];
 
 function GovernanceSpecs() {
@@ -961,20 +968,20 @@ function GovernanceSpecs() {
     <section>
       <div className="flex flex-wrap items-end justify-between gap-6">
         <div className="space-y-5">
-          <SectionTag refLabel="A-04" label="Specifications — invariants" />
+          <SectionTag refLabel="A-04" label="Specifications — deal rules" />
           <h2
             data-rv
             className="max-w-3xl font-heading font-medium text-3xl text-fg-primary leading-tight tracking-tight sm:text-4xl"
           >
-            <Draft text="Rules the product refuses to drift on." />{" "}
+            <Draft text="The operating rules" />{" "}
             <Draft
               className="lbp-accent"
-              start={"Rules the product refuses to drift on.".replace(/ /g, "").length}
-              text="Notes are part of the drawing."
+              start={"The operating rules".replace(/ /g, "").length}
+              text="that protect the deal."
             />
           </h2>
         </div>
-        <span className="lbp-meta">General notes · GN-01 → GN-08</span>
+        <span className="lbp-meta">Broker trust notes · GN-01 → GN-08</span>
       </div>
 
       <ol className="lbp-specs mt-10" data-rv>
@@ -990,27 +997,27 @@ function GovernanceSpecs() {
 }
 
 /* ----------------------------------------------------------------------------
- * A-05 — Stack schedule. Drafted as a materials schedule.
+ * A-05 — Referral flow. Drafted as a schedule.
  * -------------------------------------------------------------------------- */
 
 const STACK_ROWS = [
-  { ref: "M-01", part: "Runtime", spec: "TanStack Start · React 19 · Bun · Vite 8" },
-  { ref: "M-02", part: "Data", spec: "Convex · fluent-convex · Zod refinements" },
-  { ref: "M-03", part: "Auth", spec: "WorkOS AuthKit · organization-scoped" },
-  { ref: "M-04", part: "Surface", spec: "Tailwind 4 · shadcn primitives · Base UI · Motion" },
+  { ref: "F-01", part: "Invite", spec: "Broker brings the builder into guided onboarding instead of sending another static quote." },
+  { ref: "F-02", part: "Map", spec: "The team maps the build, budget, permits, working capital, and where draws are likely needed." },
+  { ref: "F-03", part: "Request", spec: "The builder requests a draw when work is ready, with site evidence attached to the release path." },
+  { ref: "F-04", part: "Release", spec: "Review, approval, and release status stay visible so everyone knows what is moving and what is blocked." },
 ];
 
 function StackSchedule() {
   return (
     <section>
-      <SectionTag refLabel="A-05" label="Schedule — materials" />
+      <SectionTag refLabel="A-05" label="Schedule — referral flow" />
 
       <div className="lbp-plate mt-8 overflow-hidden">
         <div className="lbp-plate-header">
           <span>
-            <span className="key">Schedule S-05</span> · Stack
+            <span className="key">Schedule S-05</span> · What happens next
           </span>
-          <span>04 items · api-first · tenant scoped</span>
+          <span>04 steps · broker relationship protected</span>
         </div>
 
         <div className="lbp-table-scroll overflow-x-auto">
@@ -1018,8 +1025,8 @@ function StackSchedule() {
             <thead>
               <tr>
                 <th style={{ width: 80 }}>Ref</th>
-                <th style={{ width: 140 }}>Part</th>
-                <th>Specification</th>
+                <th style={{ width: 140 }}>Step</th>
+                <th>Broker outcome</th>
               </tr>
             </thead>
             <tbody data-rv>
@@ -1028,10 +1035,10 @@ function StackSchedule() {
                   <td className="num" data-label="Ref">
                     {row.ref}
                   </td>
-                  <td data-label="Part">
+                  <td data-label="Step">
                     <span className="plan" style={{ fontSize: 16 }}>{row.part}</span>
                   </td>
-                  <td className="text-fg-secondary" data-label="Specification">
+                  <td className="text-fg-secondary" data-label="Broker outcome">
                     {row.spec}
                   </td>
                 </tr>
@@ -1054,16 +1061,16 @@ function CloseStamp() {
       <div className="lbp-plate p-8 sm:p-12">
         <div className="grid gap-8 lg:grid-cols-[1fr_auto] lg:items-end lg:gap-16">
           <div className="space-y-5">
-            <SectionTag refLabel="A-06" label="For construction" />
+            <SectionTag refLabel="A-06" label="For onboarding" />
             <h2
               data-rv
               className="max-w-2xl font-heading font-medium text-3xl text-fg-primary leading-tight tracking-tight sm:text-4xl"
             >
-              <Draft text="Walk through a draw," />{" "}
+              <Draft text="Give builders the draw flexibility" />{" "}
               <Draft
                 className="lbp-accent"
-                start={"Walk through a draw,".replace(/ /g, "").length}
-                text="end to end."
+                start={"Give builders the draw flexibility".replace(/ /g, "").length}
+                text="they already wish every lender had."
               />
             </h2>
             <p
@@ -1071,29 +1078,37 @@ function CloseStamp() {
               style={{ "--rv-d": 240 } as CSSProperties}
               className="max-w-xl text-fg-secondary text-[15px] leading-relaxed"
             >
-              The timeline detail sheet is the same drawing, instrumented. Open
-              it to inspect coupled cashflow against the construction roadmap in
-              real time.
+              Start with a guided build proposal that proves you understand how
+              money actually moves through a job site. When the client does
+              their part, the process gives them a clear path to request funds,
+              attach proof, and keep the build moving.
             </p>
           </div>
 
           <div className="flex flex-col items-start gap-4 lg:items-end">
             <span className="lbp-stamp">
               <span className="dotpair" />
-              Approved 2026-05-19
+              Ready for intake
             </span>
             <div className="flex flex-wrap items-center gap-3">
-              <Button render={<Link to="/demo/workos" />} size="lg">
-                Sign in
+              <Button
+                render={<Link to={LANDING_PRIMARY_ONBOARDING_CTA.to} />}
+                size="lg"
+              >
+                {LANDING_PRIMARY_ONBOARDING_CTA.label}
                 <ArrowUpRight className="size-4" />
               </Button>
-              <Button render={<Link to="/demo/timeline" />} size="lg" variant="outline">
-                Open detail A-02 ↗
+              <Button
+                render={<Link to={LANDING_SECONDARY_ONBOARDING_CTA.to} />}
+                size="lg"
+                variant="outline"
+              >
+                {LANDING_SECONDARY_ONBOARDING_CTA.shortLabel} ↗
               </Button>
             </div>
             <span className="lbp-detail-ref">
               <span>A</span>
-              <span>02</span>
+              <span>06</span>
             </span>
           </div>
         </div>

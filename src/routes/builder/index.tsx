@@ -1,9 +1,21 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
-import { Loader2 } from "lucide-react";
+import { LifeBuoy, Loader2 } from "lucide-react";
+import { useState } from "react";
 
 import { BuilderTimelineDashboardSurface } from "#/features/builder-dashboard/BuilderTimelineDashboard.tsx";
-import { toTimelineRows } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
+import { BuilderFirstRun } from "#/features/builder-onboarding/BuilderFirstRun.tsx";
+import { resolveBuilderHomeView } from "#/features/builder-onboarding/onboarding-gate.ts";
+import {
+  Frame,
+  FrameDescription,
+  FramePanel,
+  FrameTitle,
+} from "#/components/ui/frame.tsx";
+import {
+  type ProductionKanban,
+  toTimelineRows,
+} from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
 import {
   getVisualParityKanban,
   isProductionVisualParityFixtureEnabled,
@@ -20,21 +32,50 @@ function BuilderProductionHomeRoute() {
   const navigate = useNavigate();
   const workosOrganizationId = context.organizationId as string;
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
+
+  // First-run gating: a builder with a profile but no proposals (and who has
+  // not dismissed) sees the welcome flow before the dashboard. Fixtures bypass.
+  const onboardingQuery = useQuery(
+    api.production_proposals.getBuilderOnboardingState,
+    visualFixtureEnabled ? "skip" : { workosOrganizationId },
+  );
+  const [forceDashboard, setForceDashboard] = useState(false);
+
   const kanbanQuery = useQuery(
     api.production_proposals.listProposalKanban,
     visualFixtureEnabled ? "skip" : { workosOrganizationId },
   );
   const kanban = visualFixtureEnabled ? getVisualParityKanban() : kanbanQuery;
 
-  if (!kanban) {
+  const view = resolveBuilderHomeView({
+    fixtureEnabled: visualFixtureEnabled,
+    forceDashboard,
+    state: onboardingQuery ?? undefined,
+  });
+
+  if (view === "loading") {
+    return <BuilderHomeLoading />;
+  }
+
+  if (view === "first-run") {
     return (
-      <div className="grid min-h-[24rem] place-items-center">
-        <div className="flex items-center gap-2 rounded-lg border bg-background p-4 text-sm">
-          <Loader2 className="size-4 animate-spin" />
-          Loading builder dashboard...
-        </div>
-      </div>
+      <BuilderFirstRun
+        builderName={onboardingQuery?.builderProfile?.displayName ?? "builder"}
+        onStart={() => {
+          setForceDashboard(true);
+          void navigate({ to: "/builder/proposals/new" });
+        }}
+        workosOrganizationId={workosOrganizationId}
+      />
     );
+  }
+
+  if (view === "profile-pending") {
+    return <BuilderProfilePending />;
+  }
+
+  if (!kanban) {
+    return <BuilderHomeLoading />;
   }
 
   return (
@@ -59,7 +100,49 @@ function BuilderProductionHomeRoute() {
         void navigate({ to: "/builder/proposals" });
       }}
       personaLabel="Production borrower"
-      rows={toTimelineRows(kanban.columns.flatMap((column) => column.cards))}
+      rows={toTimelineRows(
+        (kanban as ProductionKanban).columns.flatMap((column) => column.cards),
+      )}
     />
+  );
+}
+
+function BuilderHomeLoading() {
+  return (
+    <div className="grid min-h-[24rem] place-items-center">
+      <div className="flex items-center gap-2 rounded-lg border bg-background p-4 text-sm">
+        <Loader2 className="size-4 animate-spin" />
+        Loading builder dashboard...
+      </div>
+    </div>
+  );
+}
+
+function BuilderProfilePending() {
+  return (
+    <main className="grid min-h-[calc(100svh-1rem)] place-items-center bg-bg-base px-4 py-8">
+      <Frame className="w-full max-w-lg">
+        <FramePanel className="flex flex-col gap-4 p-6">
+          <span className="grid size-10 place-items-center rounded-full bg-warning/16 text-warning-foreground">
+            <LifeBuoy className="size-5" />
+          </span>
+          <div className="flex flex-col gap-1.5">
+            <FrameTitle className="text-lg">
+              Your builder workspace is almost ready
+            </FrameTitle>
+            <FrameDescription className="text-base">
+              Your account is authenticated, but it isn&rsquo;t linked to a
+              builder profile yet. Your brokerage finishes this in their
+              backoffice. Once they do, your workspace and first build appear
+              here automatically.
+            </FrameDescription>
+          </div>
+          <p className="text-muted-foreground text-sm">
+            Already expecting access? Ask your broker to confirm your builder
+            profile in DrawFlow.
+          </p>
+        </FramePanel>
+      </Frame>
+    </main>
   );
 }

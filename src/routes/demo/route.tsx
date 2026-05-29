@@ -8,7 +8,7 @@ export const Route = createFileRoute("/demo")({
 function RouteComponent() {
   return (
     <>
-      <Header />
+      <Header mode="demo" />
       <Outlet />
     </>
   );

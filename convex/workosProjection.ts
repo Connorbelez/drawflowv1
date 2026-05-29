@@ -2,7 +2,7 @@ import { v } from "convex/values";
 
 import type { Doc, TableNames } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
-import { backofficeQuery } from "./authz";
+import { authenticatedQuery, backofficeQuery } from "./authz";
 import { fluent } from "./fluent";
 
 interface WorkosEvent {
@@ -39,6 +39,15 @@ const userRow = v.object({
   roleSlugs: v.array(v.string()),
   sourceEventId: v.optional(v.string()),
   sourceEventType: v.optional(v.string()),
+});
+
+const currentUserOrganizationRow = v.object({
+  membershipId: v.string(),
+  organizationName: v.string(),
+  roleNames: v.array(v.string()),
+  roleSlug: v.optional(v.string()),
+  roleSlugs: v.array(v.string()),
+  workosOrganizationId: v.string(),
 });
 
 export const processWorkosEvent = async (
@@ -166,6 +175,70 @@ export const listUserManagement = backofficeQuery
   })
   .public();
 
+export const listCurrentUserOrganizations = authenticatedQuery
+  .returns(
+    v.object({
+      organizations: v.array(currentUserOrganizationRow),
+    })
+  )
+  .handler(async (ctx) => {
+    const memberships = await ctx.db
+      .query("workosOrganizationMemberships")
+      .withIndex("by_user", (q) => q.eq("workosUserId", ctx.viewer.subject))
+      .collect();
+    const organizations = [];
+
+    for (const membership of memberships) {
+      if (membership.status !== "active") {
+        continue;
+      }
+
+      const organization = await ctx.db
+        .query("workosOrganizations")
+        .withIndex("by_workos_organization_id", (q) =>
+          q.eq("workosOrganizationId", membership.workosOrganizationId)
+        )
+        .unique();
+      if (organization?.status === "deleted") {
+        continue;
+      }
+
+      const roleSlugs = membershipRoleSlugs(membership);
+      const roleNames = await Promise.all(
+        roleSlugs.map(async (slug) => {
+          const organizationRole = await ctx.db
+            .query("workosOrganizationRoles")
+            .withIndex("by_organization_slug", (q) =>
+              q
+                .eq("workosOrganizationId", membership.workosOrganizationId)
+                .eq("slug", slug)
+            )
+            .unique();
+          return organizationRole?.status === "active"
+            ? organizationRole.name
+            : formatRoleSlug(slug);
+        })
+      );
+
+      organizations.push({
+        membershipId: membership.workosMembershipId,
+        organizationName:
+          organization?.name?.trim() || membership.workosOrganizationId,
+        roleNames,
+        roleSlug: membership.roleSlug,
+        roleSlugs,
+        workosOrganizationId: membership.workosOrganizationId,
+      });
+    }
+
+    organizations.sort((left, right) =>
+      left.organizationName.localeCompare(right.organizationName)
+    );
+
+    return { organizations };
+  })
+  .public();
+
 export const listSyncStatus = backofficeQuery
   .returns(
     v.object({
@@ -179,6 +252,29 @@ export const listSyncStatus = backofficeQuery
       .collect(),
   }))
   .public();
+
+function membershipRoleSlugs(
+  membership: Pick<
+    Doc<"workosOrganizationMemberships">,
+    "roleSlug" | "roleSlugs"
+  >
+) {
+  return [
+    ...new Set(
+      [membership.roleSlug, ...(membership.roleSlugs ?? [])].filter(
+        (role): role is string => typeof role === "string" && role.length > 0
+      )
+    ),
+  ];
+}
+
+function formatRoleSlug(slug: string) {
+  return slug
+    .split("-")
+    .filter(Boolean)
+    .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
+    .join(" ");
+}
 
 async function applyProjection(
   ctx: MutationCtx,

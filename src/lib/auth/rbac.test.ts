@@ -142,7 +142,7 @@ describe("DrawFlow frontend RBAC policy", () => {
         }),
       {
         location:
-          "/api/auth/sign-in?returnTo=%2Fbackoffice%2Fuser-management",
+          "/api/auth/sign-in?returnPathname=%2Fbackoffice%2Fuser-management",
       }
     );
 

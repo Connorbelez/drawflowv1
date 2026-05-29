@@ -4,6 +4,7 @@ import {
   DashboardSquare01Icon,
   Building06Icon,
   UserMultipleIcon,
+  UserAdd01Icon,
   ConstructionIcon,
   BankIcon,
   ClipboardIcon,
@@ -56,6 +57,11 @@ export const navGroups: SidebarNavGroup[] = [
         to: "/backoffice/builders",
         icon: icon(UserMultipleIcon),
         matchPrefix: true,
+      },
+      {
+        title: "Onboard builder",
+        to: "/backoffice/onboard-builder",
+        icon: icon(UserAdd01Icon),
       },
       {
         title: "Contractors",
