@@ -23,6 +23,8 @@ interface MilestoneDetailSheetProps {
   data: MilestoneSheetData | null;
   pending?: boolean;
   errorMessage?: string;
+  assignmentsSourceLabel?: string;
+  eventsSourceLabel?: string;
   onApprove: (milestoneKey: string, note?: string) => Promise<void> | void;
   onRequestInfo?: (milestoneKey: string, note: string) => void;
   onAssignVisit?: (milestoneKey: string) => void;
@@ -34,6 +36,8 @@ export function MilestoneDetailSheet({
   data,
   pending,
   errorMessage,
+  assignmentsSourceLabel = "demo_milestoneContractors",
+  eventsSourceLabel = "demo_timelineEvents",
   onApprove,
   onRequestInfo,
   onAssignVisit,
@@ -114,7 +118,7 @@ export function MilestoneDetailSheet({
 
         <section>
           <h3 className="mb-2 text-[11px] text-muted-foreground uppercase tracking-wider">
-            Assignments · demo_milestoneContractors
+            Assignments · {assignmentsSourceLabel}
           </h3>
           {data.contractors.length === 0 ? (
             <p className="text-muted-foreground text-xs">No contractors assigned.</p>
@@ -142,7 +146,7 @@ export function MilestoneDetailSheet({
 
         <section>
           <h3 className="mb-2 text-[11px] text-muted-foreground uppercase tracking-wider">
-            Recent events · demo_timelineEvents
+            Recent events · {eventsSourceLabel}
           </h3>
           {data.recentEvents.length === 0 ? (
             <p className="text-muted-foreground text-xs">No recent events.</p>

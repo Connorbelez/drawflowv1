@@ -93,6 +93,14 @@ function RouteComponent() {
       replace: true,
     });
 
+  const onChangeMilestone = (milestone?: string) =>
+    navigate({
+      to: "/backoffice/builds/$buildId",
+      params: { buildId },
+      search: (prev) => ({ ...prev, milestone }),
+      replace: true,
+    });
+
   if (productionBuild === undefined) {
     return (
       <main className="grid min-h-[24rem] place-items-center bg-muted/30 p-4">
@@ -214,6 +222,8 @@ function RouteComponent() {
         actions={actions}
         activeTab={search.tab ?? "details"}
         detail={detail}
+        milestoneKey={search.milestone}
+        onChangeMilestone={onChangeMilestone}
         onChangeRail={onChangeRail}
         onChangeTab={onChangeTab}
         rail={search.rail}

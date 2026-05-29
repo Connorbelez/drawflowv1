@@ -362,7 +362,9 @@ export function ProductionBuildDetailSurface({
         quickActionEvents={detail.quickActionEvents ?? []}
       />
       <MilestoneDetailSheet
+        assignmentsSourceLabel="buildContractorAssignments"
         data={sheetData}
+        eventsSourceLabel="activeBuildAuditEvents"
         onApprove={async (milestoneKey, note) =>
           actions?.approveMilestone?.({ milestoneKey, note })
         }
@@ -1212,117 +1214,6 @@ function ProductionGanttTab({
       </FramePanel>
     </Frame>
   );
-}
-
-function ProductionActivityRail({
-  collapsed,
-  detail,
-  onToggle,
-  projection,
-}: {
-  collapsed: boolean;
-  detail: ProductionBuildDetail;
-  onToggle: () => void;
-  projection: ProductionBuildProjection;
-}) {
-  if (collapsed) {
-    return (
-      <Frame className="h-full rounded-none border-border border-l p-1">
-        <FramePanel className="flex h-full items-start justify-center p-2">
-          <button
-            aria-label="Open activity rail"
-            className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
-            onClick={onToggle}
-            type="button"
-          >
-            <PanelRightOpen className="size-4" />
-          </button>
-        </FramePanel>
-      </Frame>
-    );
-  }
-
-  return (
-    <Frame
-      className="h-full rounded-none border-border border-l p-1"
-      data-testid="production-build-activity-rail"
-    >
-      <FramePanel className="flex h-full flex-col gap-4 p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="font-semibold text-sm">Build activity</h2>
-            <p className="text-muted-foreground text-xs">
-              Production state summary
-            </p>
-          </div>
-          <button
-            aria-label="Close activity rail"
-            className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
-            onClick={onToggle}
-            type="button"
-          >
-            <PanelRightClose className="size-4" />
-          </button>
-        </div>
-        <div className="grid gap-3 text-sm">
-          <RailFact
-            icon={<CalendarDays />}
-            label="Build start"
-            value={formatDate(detail.build.startDate)}
-          />
-          <RailFact
-            icon={<Clock3 />}
-            label="Roadmap duration"
-            value={`${projection.maxDay} days`}
-          />
-          <RailFact
-            icon={<GitBranch />}
-            label="Dependencies"
-            value={`${projection.milestones.reduce(
-              (count, milestone) => count + milestone.dependencyKeys.length,
-              0,
-            )}`}
-          />
-        </div>
-      </FramePanel>
-    </Frame>
-  );
-}
-
-function RailFact({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-md border bg-background/60 p-3">
-      <span className="grid size-8 place-items-center rounded-md bg-muted text-muted-foreground [&_svg]:size-4">
-        {icon}
-      </span>
-      <div>
-        <p className="text-muted-foreground text-xs">{label}</p>
-        <p className="font-medium">{value}</p>
-      </div>
-    </div>
-  );
-}
-
-function TableHead({ children }: { children: React.ReactNode }) {
-  return <th className="px-4 py-2 text-left font-medium">{children}</th>;
-}
-
-function TableCell({
-  children,
-  className,
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return <td className={cn("px-4 py-3 align-top", className)}>{children}</td>;
 }
 
 function buildProductionKanbanCards(
