@@ -8,6 +8,7 @@ import {
   LANDING_PRIMARY_ONBOARDING_CTA,
   LANDING_SECONDARY_ONBOARDING_CTA,
 } from "#/features/landing/onboarding-cta";
+import { LANDING_HERO_COPY } from "#/features/landing/landing-copy";
 import { Button } from "../components/ui/button";
 import "./-landing-blueprint.css";
 
@@ -266,14 +267,14 @@ function ScaleBar() {
  * -------------------------------------------------------------------------- */
 
 function Hero() {
-  const HERO_PREFIX = "Win construction deals by showing builders";
-  const HERO_ACCENT = "the real cost of capital.";
+  const HERO_PREFIX = LANDING_HERO_COPY.prefix;
+  const HERO_ACCENT = LANDING_HERO_COPY.accent;
   const ACCENT_START = HERO_PREFIX.replace(/ /g, "").length;
   return (
     <section className="mt-10 lg:mt-14">
       <div className="grid gap-10 lg:grid-cols-[1.05fr_1fr] lg:items-end lg:gap-14">
         <div className="space-y-7">
-          <SectionTag refLabel="A-01" label="Plan view — coupled control" />
+          <SectionTag refLabel="A-01" label="Plan view — on-demand draws" />
           <h1
             data-rv
             style={{ "--rv-d": 120 } as CSSProperties}
@@ -291,11 +292,7 @@ function Hero() {
             style={{ "--rv-d": 900 } as CSSProperties}
             className="max-w-xl text-fg-secondary text-lg leading-relaxed"
           >
-            DrawFlow gives brokers a guided construction-finance walkthrough:
-            roadmap, working capital, draw timing, evidence, and release path in
-            one room. The conversation moves away from "what is the rate?" and
-            toward "what will this project actually cost, and will the money be
-            there when the site needs it?"
+            {LANDING_HERO_COPY.body}
           </p>
 
           <div className="lbp-cta-row flex flex-wrap items-center gap-3 pt-2">
@@ -321,9 +318,9 @@ function Hero() {
             style={{ "--rv-d": 1100 } as CSSProperties}
             className="mt-2 grid max-w-md grid-cols-3 gap-x-6 gap-y-2 border-border border-t pt-4 text-xs lbp-meta"
           >
-            <KeyValue k="Conversation" v="Total cost" />
-            <KeyValue k="Interest" v="On release" />
-            <KeyValue k="Extension" v="No reset" />
+            <KeyValue k="Draws" v="On demand" />
+            <KeyValue k="Schedule" v="Flexible" />
+            <KeyValue k="Experience" v="20 years" />
           </dl>
         </div>
 
@@ -381,9 +378,9 @@ function PlanViewDiagram() {
     <figure className="lbp-plate p-5 sm:p-6">
       <div className="lbp-plate-header">
         <span>
-          <span className="key">Detail A-01</span> · Builder cashflow / release map
+          <span className="key">Detail A-01</span> · On-demand draw / release map
         </span>
-        <span>Money moves with verified work</span>
+        <span>Funds follow the site</span>
       </div>
 
       <svg
@@ -406,8 +403,8 @@ function PlanViewDiagram() {
 
         {/* Lane labels */}
         <g>
-          <text x={L} y={consY - 16} className="label">A · JOB SITE PROGRESS</text>
-          <text x={L} y={capY - 16} className="label">B · FUNDS AVAILABLE</text>
+          <text x={L} y={consY - 16} className="label">A · WORK READY ON SITE</text>
+          <text x={L} y={capY - 16} className="label">B · DRAW CAPITAL AVAILABLE</text>
         </g>
 
         {/* Lane left tags (vertical sheet refs) */}
@@ -533,29 +530,29 @@ function PlanViewDiagram() {
           number="01"
           from={{ x: fx(0.07), y: consY + consH / 2 }}
           to={{ x: 830, y: 200 }}
-          title="No dead capital"
-          body="Borrow against work that is ready."
+          title="Draw when needed"
+          body="Request capital when work is ready."
         />
         <Callout
           number="02"
           from={{ x: fx(0.42), y: capY + capH / 2 }}
           to={{ x: 830, y: 290 }}
-          title="Interest timing"
-          body="Begins when money is released."
+          title="No 3-draw cage"
+          body="Flexible releases, not preset traps."
         />
         <Callout
           number="03"
           from={{ x: fx(0.62), y: consY + consH / 2 }}
           to={{ x: 830, y: 380 }}
-          title="Proof without delay"
+          title="Proof from site"
           body="Photos, docs, visits, geofence."
         />
         <Callout
           number="04"
           from={{ x: fx(0.95), y: capY + capH / 2 }}
           to={{ x: 830, y: 470 }}
-          title="Finish-line plan"
-          body="Handle overruns before they stall."
+          title="Get unstuck"
+          body="Adjust when the build changes."
         />
 
         {/* Detail ref bubble — bottom-right corner of drawing */}
@@ -698,31 +695,31 @@ const PLAN_ROWS: {
 }[] = [
   {
     id: "P-01",
-    name: "Cost-Efficient",
+    name: "On-Demand Draw Path",
     rationale:
-      "Groups releases around real milestone progress so the builder is not paying for money they do not need yet.",
-    fees: 2,
-    cycle: 3,
-    wcl: 3,
+      "Requests line up with work that is actually ready, so the builder has a way to get unstuck without waiting for the next preset lender checkpoint.",
+    fees: 5,
+    cycle: 5,
+    wcl: 1,
     recommended: true,
   },
   {
     id: "P-02",
-    name: "Speed-Focused",
+    name: "Rigid 3-Draw Schedule",
     rationale:
-      "Keeps the site moving when a delayed draw would cost more than another review cycle.",
-    fees: 5,
-    cycle: 5,
-    wcl: 2,
+      "Common in construction lending, simple on paper, hard on site: the borrower has to plan real construction around fixed draw gates.",
+    fees: 1,
+    cycle: 2,
+    wcl: 5,
   },
   {
     id: "P-03",
-    name: "Cash-Protected",
+    name: "Rescue Flex Draw",
     rationale:
-      "Keeps borrower cash strain inside the available working-capital limit so the project can reach the finish line.",
-    fees: 3,
-    cycle: 1,
-    wcl: 1,
+      "When timing changes, the next release is modeled around what keeps the trades moving instead of forcing a restart with a new lender.",
+    fees: 4,
+    cycle: 4,
+    wcl: 2,
   },
 ];
 
@@ -731,33 +728,36 @@ function PlanSchedule() {
     <section>
       <div className="flex flex-wrap items-end justify-between gap-6">
         <div className="space-y-5">
-          <SectionTag refLabel="A-02" label="Elevation — broker conversation" />
+          <SectionTag refLabel="A-02" label="Elevation — draw flexibility" />
           <h2
             data-rv
             className="max-w-2xl font-heading font-medium text-3xl text-fg-primary leading-tight tracking-tight sm:text-4xl"
           >
-            <Draft text="Stop sending a rate sheet." />{" "}
+            <Draft text="The builder does not need another rate sheet." />{" "}
             <Draft
               className="lbp-accent"
               start={
-                "Stop sending a rate sheet.".replace(/ /g, "").length
+                "The builder does not need another rate sheet.".replace(
+                  / /g,
+                  "",
+                ).length
               }
-              text="Put the builder in the showroom."
+              text="They need a way to get unstuck."
             />
           </h2>
         </div>
         <span className="lbp-stamp">
           <span className="dotpair" />
-          Issued for deal conversion
+          Issued for draw flexibility
         </span>
       </div>
 
       <div className="lbp-plate mt-10 overflow-hidden">
         <div className="lbp-plate-header">
           <span>
-            <span className="key">Schedule S-02</span> · Financing strategies
+            <span className="key">Schedule S-02</span> · Draw models
           </span>
-          <span>3 ways to show total project cost</span>
+          <span>On-demand versus fixed schedule</span>
         </div>
 
         <div className="lbp-table-scroll overflow-x-auto">
@@ -767,9 +767,9 @@ function PlanSchedule() {
                 <th style={{ width: 64 }}>Ref</th>
                 <th style={{ width: 200 }}>Strategy</th>
                 <th>Why the builder cares</th>
-                <th style={{ width: 110 }}>Fees</th>
-                <th style={{ width: 110 }}>Cycle</th>
-                <th style={{ width: 110 }}>WCL strain</th>
+                <th style={{ width: 110 }}>Flex</th>
+                <th style={{ width: 110 }}>Speed</th>
+                <th style={{ width: 110 }}>Cash strain</th>
                 <th style={{ width: 90 }}>Mark</th>
               </tr>
             </thead>
@@ -789,14 +789,14 @@ function PlanSchedule() {
                   >
                     {r.rationale}
                   </td>
-                  <td data-label="Fees">
-                    <Meter level={r.fees} tone="r" />
+                  <td data-label="Flex">
+                    <Meter level={r.fees} tone="g" />
                   </td>
-                  <td data-label="Cycle">
+                  <td data-label="Speed">
                     <Meter level={r.cycle} />
                   </td>
-                  <td data-label="WCL strain">
-                    <Meter level={r.wcl} tone="g" />
+                  <td data-label="Cash strain">
+                    <Meter level={r.wcl} tone="r" />
                   </td>
                   <td data-label="Mark">
                     {r.recommended ? (
@@ -833,11 +833,11 @@ function Meter({ level, tone }: { level: number; tone?: "r" | "g" }) {
  * -------------------------------------------------------------------------- */
 
 const WORKSPACE_LAYERS = [
-  { k: "Broker-led intake", v: "A real consultation, not a one-touch email with rates and fees attached." },
-  { k: "Build roadmap", v: "Budget, permits, milestones, dependencies, and schedule pressure in one place." },
-  { k: "Draw strategy", v: "Compare total cost, speed, and working-capital strain before the client shops elsewhere." },
-  { k: "Evidence path", v: "Photos, documents, site visits, and location signals tied to each release request." },
-  { k: "Release workflow", v: "Clear review and approval steps so the broker is not blamed for a stalled job site." },
+  { k: "Builder-first intake", v: "The file starts with how the build actually runs, not a generic mortgage checklist." },
+  { k: "On-demand draw engine", v: "Requests are shaped around completed work, cash pressure, and what gets the site moving next." },
+  { k: "Site proof workflow", v: "Photos, documents, site visits, and location signals travel with each draw request." },
+  { k: "Broker translation", v: "Brokers can explain a build file without pretending every construction loan is the same." },
+  { k: "Release workflow", v: "Clear review and approval steps keep the borrower from getting trapped between trades and lender timing." },
   { k: "Audit history", v: "Every material change, warning, and decision stays visible when the project shifts." },
 ];
 
@@ -852,11 +852,11 @@ function WorkspaceDetail() {
             data-rv
             className="font-heading font-medium text-3xl text-fg-primary leading-tight tracking-tight sm:text-4xl"
           >
-            <Draft text="Built by people who know" />{" "}
+            <Draft text="Designed by people with" />{" "}
             <Draft
               className="lbp-accent"
-              start={"Built by people who know".replace(/ /g, "").length}
-              text="where construction deals break."
+              start={"Designed by people with".replace(/ /g, "").length}
+              text="20 years in building and lending."
             />
           </h2>
           <p
@@ -864,10 +864,11 @@ function WorkspaceDetail() {
             style={{ "--rv-d": 300 } as CSSProperties}
             className="max-w-md text-fg-secondary text-[15px] leading-relaxed"
           >
-            The failure point is rarely the headline rate. It is a missed draw,
-            an impossible inspection condition, an over-budget month, or a fee
-            structure that benefits when the builder is stuck. DrawFlow keeps
-            broker, builder, and lender working from the same operating plan.
+            The failure point is rarely the headline rate. It is the draw that
+            cannot be requested yet, the inspection condition that does not match
+            construction reality, or the cash gap that stops trades. DrawFlow
+            keeps broker, builder, and lender working from the same flexible
+            release plan.
           </p>
 
           <div className="lbp-plate mt-4 p-5">
@@ -953,9 +954,9 @@ function ExplodedStack() {
 
 const SPECS = [
   "Work with the builder, not against them. The goal is a finished project and a client who comes back.",
-  "Interest belongs on released funds, not on money still sitting behind a holdback.",
+  "A build should not be forced into a rigid three-draw schedule when the site needs a different release rhythm.",
   "Draw timing should follow actual construction progress, working capital, and review lag.",
-  "Extension math should be visible and proportional instead of feeling like the borrower is starting over.",
+  "Flexibility is not a perk. It is the thing that keeps a good builder from getting stuck.",
   "Milestone language should not trap a builder inside an inspection sequence the city will not perform yet.",
   "Evidence problems route to review. They do not become an excuse to lose the whole file.",
   "The broker relationship stays protected; takeout financing is not stepped on unless the broker asks.",
@@ -1000,10 +1001,10 @@ function GovernanceSpecs() {
  * -------------------------------------------------------------------------- */
 
 const STACK_ROWS = [
-  { ref: "F-01", part: "Invite", spec: "Broker brings the builder into a guided onboarding instead of sending a static quote." },
-  { ref: "F-02", part: "Model", spec: "The team maps timeline, budget, permits, working capital, and expected draw requests." },
-  { ref: "F-03", part: "Compare", spec: "Draw options are compared by total cost, speed, and cash strain before terms are chosen." },
-  { ref: "F-04", part: "Execute", spec: "Evidence, review, approvals, and release status stay visible through the build." },
+  { ref: "F-01", part: "Invite", spec: "Broker brings the builder into guided onboarding instead of sending another static quote." },
+  { ref: "F-02", part: "Map", spec: "The team maps the build, budget, permits, working capital, and where draws are likely needed." },
+  { ref: "F-03", part: "Request", spec: "The builder requests a draw when work is ready, with site evidence attached to the release path." },
+  { ref: "F-04", part: "Release", spec: "Review, approval, and release status stay visible so everyone knows what is moving and what is blocked." },
 ];
 
 function StackSchedule() {
@@ -1065,11 +1066,11 @@ function CloseStamp() {
               data-rv
               className="max-w-2xl font-heading font-medium text-3xl text-fg-primary leading-tight tracking-tight sm:text-4xl"
             >
-              <Draft text="Make the next construction borrower" />{" "}
+              <Draft text="Give builders the draw flexibility" />{" "}
               <Draft
                 className="lbp-accent"
-                start={"Make the next construction borrower".replace(/ /g, "").length}
-                text="hard to lose."
+                start={"Give builders the draw flexibility".replace(/ /g, "").length}
+                text="they already wish every lender had."
               />
             </h2>
             <p
@@ -1077,10 +1078,10 @@ function CloseStamp() {
               style={{ "--rv-d": 240 } as CSSProperties}
               className="max-w-xl text-fg-secondary text-[15px] leading-relaxed"
             >
-              Start with a guided build proposal that proves you understand the
-              job site, not just the rate sheet. When the client does their part,
-              the process shows how funds, evidence, approvals, and release
-              decisions move with the work.
+              Start with a guided build proposal that proves you understand how
+              money actually moves through a job site. When the client does
+              their part, the process gives them a clear path to request funds,
+              attach proof, and keep the build moving.
             </p>
           </div>
 
