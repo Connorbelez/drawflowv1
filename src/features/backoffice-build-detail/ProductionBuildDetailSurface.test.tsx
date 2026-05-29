@@ -960,6 +960,47 @@ describe("ProductionBuildDetailSurface", () => {
     });
   });
 
+  test("preserves milestone sheet routing state for production builds", () => {
+    const onChangeMilestone = vi.fn();
+
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={detail}
+        milestoneKey="foundation"
+        onChangeMilestone={onChangeMilestone}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="open"
+      />,
+    );
+
+    expect(screen.getByTestId("milestone-detail-sheet")).toBeTruthy();
+    expect(screen.getByText("Assignments · buildContractorAssignments")).toBeTruthy();
+    expect(screen.getByText("Recent events · activeBuildAuditEvents")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("milestone-detail-sheet-close"));
+    expect(onChangeMilestone).toHaveBeenCalledWith(undefined);
+  });
+
+  test("writes clicked milestone cards back to the production route search state", () => {
+    const onChangeMilestone = vi.fn();
+
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={detail}
+        onChangeMilestone={onChangeMilestone}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="open"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("kanban-card-foundation"));
+    expect(onChangeMilestone).toHaveBeenCalledWith("foundation");
+  });
+
   test("renders the migrated production details workspace with demo-route parity regions", () => {
     render(
       <ProductionBuildDetailSurface
