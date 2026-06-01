@@ -54,6 +54,10 @@ const DEFAULT_BAR_RADIUS = 4;
 const LOADING_DATA_KEY = "loading";
 const LOADING_ANIMATION_DURATION = 2000;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object");
+}
+
 type ChartProps = ComponentProps<typeof ComposedChart>;
 type XAxisProps = ComponentProps<typeof XAxis>;
 type YAxisProps = ComponentProps<typeof YAxis>;
@@ -76,6 +80,7 @@ type AreaVariant =
   | "hatched";
 type ReferenceLineMarker = {
   label?: string | string[];
+  onClick?: () => void;
   opacity?: number;
   stroke?: string;
   strokeDasharray?: string;
@@ -225,6 +230,11 @@ type EvilComposedChartProps<
   brushHeight?: number;
   brushFormatLabel?: (value: unknown, index: number) => string;
   onBrushChange?: (range: EvilBrushRange) => void;
+  onBarClick?: (event: {
+    dataKey: string;
+    index: number;
+    payload: TData;
+  }) => void;
   // Background
   backgroundVariant?: BackgroundVariant;
 };
@@ -305,6 +315,7 @@ export function EvilComposedChart<
   brushHeight,
   brushFormatLabel,
   onBrushChange,
+  onBarClick,
   onSelectionChange,
   backgroundVariant,
 }: EvilComposedChartPropsWithCallback<
@@ -445,10 +456,10 @@ export function EvilComposedChart<
         )}
 
         {!isLoading &&
-          referenceLines.map((marker) => (
+          referenceLines.map((marker, index) => (
             <ReferenceLine
               ifOverflow="visible"
-              key={`${marker.x}-${marker.label ?? "reference-line"}`}
+              key={`${marker.x}-${marker.label ?? "reference-line"}-${index}`}
               label={
                 marker.label
                   ? {
@@ -466,6 +477,7 @@ export function EvilComposedChart<
               strokeDasharray={marker.strokeDasharray}
               strokeOpacity={marker.opacity ?? 0.4}
               strokeWidth={1.5}
+              style={marker.onClick ? { pointerEvents: "none" } : undefined}
               x={marker.x}
             />
           ))}
@@ -532,6 +544,10 @@ export function EvilComposedChart<
                 shape={(props: unknown) => {
                   const barProps = props as BarShapeProps;
                   const index = barProps.index as number;
+                  const payload =
+                    isRecord(barProps.payload) && !isLoading
+                      ? (barProps.payload as TData)
+                      : null;
 
                   const getBarOpacity = () => {
                     const clickOpacity =
@@ -560,8 +576,12 @@ export function EvilComposedChart<
                       fillOpacity={getBarOpacity()}
                       filter={getFilter()}
                       isClickable={isClickable}
+                      isDatumClickable={Boolean(onBarClick && payload)}
                       minBarWidth={minBarWidth}
                       onClick={() => {
+                        if (onBarClick && payload) {
+                          onBarClick({ dataKey, index, payload });
+                        }
                         if (!isClickable) {
                           return;
                         }
@@ -693,6 +713,21 @@ export function EvilComposedChart<
             style={{ mask: `url(#${chartId}-loading-mask)` }}
           />
         )}
+
+        {!isLoading &&
+          referenceLines.map((marker, index) =>
+            marker.onClick ? (
+              <ReferenceLine
+                ifOverflow="visible"
+                key={`${marker.x}-${marker.label ?? "reference-line"}-${index}-hit`}
+                onClick={marker.onClick}
+                stroke="transparent"
+                strokeWidth={18}
+                style={{ cursor: "pointer" }}
+                x={marker.x}
+              />
+            ) : null,
+          )}
 
         {/* ======== CHART STYLES ======== */}
         <defs>
@@ -836,6 +871,7 @@ type CustomBarProps = {
   filter?: string;
   minBarWidth?: number;
   isClickable?: boolean;
+  isDatumClickable?: boolean;
   enableHoverHighlight?: boolean;
   onClick?: () => void;
   onMouseEnter?: () => void;
@@ -855,6 +891,7 @@ const CustomBar = ({
   filter,
   minBarWidth,
   isClickable,
+  isDatumClickable,
   enableHoverHighlight,
   onClick,
   onMouseEnter,
@@ -877,7 +914,9 @@ const CustomBar = ({
   };
 
   const cursorStyle =
-    isClickable || enableHoverHighlight ? { cursor: "pointer" } : undefined;
+    isClickable || isDatumClickable || enableHoverHighlight
+      ? { cursor: "pointer" }
+      : undefined;
   const renderedWidth =
     height > 0 && minBarWidth !== undefined
       ? Math.max(width, minBarWidth)

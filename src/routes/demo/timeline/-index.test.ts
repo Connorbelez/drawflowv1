@@ -71,6 +71,7 @@ describe("timeline cash shortfall logic", () => {
       {
         amount: 80_000,
         id: "foundation-draw",
+        itemId: "foundation",
         label: "Draw 1",
         x: 38,
       },

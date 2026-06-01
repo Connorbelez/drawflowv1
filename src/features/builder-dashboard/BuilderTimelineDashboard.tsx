@@ -44,12 +44,14 @@ type BuilderDashboardNavigate = (
 
 export function BuilderTimelineDashboardSurface({
   chrome = "page",
+  liveBuildRoute = "/builder/demo/dashboard/builds/$buildId",
   onNavigate,
   personaLabel = MOCK_BUILDER_PERSONA,
   rows,
   showBuilderShellAction = false,
 }: {
   chrome?: "embedded" | "page";
+  liveBuildRoute?: string;
   onNavigate: BuilderDashboardNavigate;
   personaLabel?: string;
   rows: TimelinePlanRow[];
@@ -108,7 +110,7 @@ export function BuilderTimelineDashboardSurface({
               actionLabel="Open live build"
               rows={liveBuilds}
               onOpen={(row) =>
-                onNavigate("/builder/demo/dashboard/builds/$buildId", {
+                onNavigate(liveBuildRoute, {
                   buildId: resolveBuildKey(row),
                 })
               }
@@ -154,10 +156,12 @@ export function BuilderTimelineDashboardSurface({
 
 export function BuilderProposalListSurface({
   chrome = "embedded",
+  liveBuildRoute = "/builder/demo/dashboard/builds/$buildId",
   onNavigate,
   rows,
 }: {
   chrome?: "embedded" | "page";
+  liveBuildRoute?: string;
   onNavigate: BuilderDashboardNavigate;
   rows: TimelinePlanRow[];
 }) {
@@ -203,7 +207,7 @@ export function BuilderProposalListSurface({
               rows={rows}
               onOpen={(row) =>
                 row.status === "approved"
-                  ? onNavigate("/builder/demo/dashboard/builds/$buildId", {
+                  ? onNavigate(liveBuildRoute, {
                       buildId: resolveBuildKey(row),
                     })
                   : onNavigate("/builder/demo/dashboard/proposals/$draftId", {
@@ -224,10 +228,12 @@ export function BuilderProposalListSurface({
 
 export function BuilderLiveBuildListSurface({
   chrome = "embedded",
+  liveBuildRoute = "/builder/demo/dashboard/builds/$buildId",
   onNavigate,
   rows,
 }: {
   chrome?: "embedded" | "page";
+  liveBuildRoute?: string;
   onNavigate: BuilderDashboardNavigate;
   rows: TimelinePlanRow[];
 }) {
@@ -270,7 +276,7 @@ export function BuilderLiveBuildListSurface({
               actionLabel="Open live build"
               rows={liveRows}
               onOpen={(row) =>
-                onNavigate("/builder/demo/dashboard/builds/$buildId", {
+                onNavigate(liveBuildRoute, {
                   buildId: resolveBuildKey(row),
                 })
               }

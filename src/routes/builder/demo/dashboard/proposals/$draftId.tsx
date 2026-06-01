@@ -3,8 +3,8 @@ import { useQuery } from "convex/react";
 import { Loader2 } from "lucide-react";
 
 import { api } from "../../../../../../convex/_generated/api";
-import { convexWorkspaceToTimelineState } from "../../../../demo/timeline/-timeline-convex-adapter";
-import { TimelineDemoWorkspace } from "../../../../demo/timeline";
+import { convexWorkspaceToTimelineState } from "#/features/timeline-workspace/-timeline-convex-adapter";
+import { TimelineWorkspace } from "#/features/timeline-workspace";
 
 export const Route = createFileRoute(
   "/builder/demo/dashboard/proposals/$draftId"
@@ -32,7 +32,7 @@ function BuilderProposalWorkspaceRoute() {
   }
 
   return (
-    <TimelineDemoWorkspace
+    <TimelineWorkspace
       durableMeta={{
         backofficeHref: "/builder/demo/dashboard",
         proposalHref: `/builder/demo/dashboard/proposals/${draftId}`,
@@ -48,6 +48,7 @@ function BuilderProposalWorkspaceRoute() {
         templateTitle: workspace.plan.buildName,
         totalBudget: Math.round(workspace.plan.totalBudgetCents / 100),
       }}
+      workspaceMode="demo"
     />
   );
 }

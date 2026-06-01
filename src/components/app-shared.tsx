@@ -1,18 +1,19 @@
 import type { ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  DashboardSquare01Icon,
-  Building06Icon,
-  UserMultipleIcon,
-  UserAdd01Icon,
-  ConstructionIcon,
+  Agreement03Icon,
   BankIcon,
-  ClipboardIcon,
-  Settings01Icon,
-  UserSettings01Icon,
-  HelpCircleIcon,
   BookOpen01Icon,
+  Building06Icon,
+  ClipboardIcon,
+  ConstructionIcon,
+  DashboardSquare01Icon,
+  HelpCircleIcon,
   PresentationOnlineIcon,
+  Settings01Icon,
+  UserAdd01Icon,
+  UserMultipleIcon,
+  UserSettings01Icon,
 } from "@hugeicons/core-free-icons";
 import type { FileRoutesByTo } from "#/routeTree.gen";
 
@@ -45,6 +46,12 @@ export const navGroups: SidebarNavGroup[] = [
         title: "Dashboard",
         to: "/backoffice",
         icon: icon(DashboardSquare01Icon),
+      },
+      {
+        title: "Proposals",
+        to: "/backoffice/proposals",
+        icon: icon(Agreement03Icon),
+        matchPrefix: true,
       },
       {
         title: "Builds",

@@ -1,8 +1,18 @@
 import { Link, linkOptions } from "@tanstack/react-router";
+import { ArrowUpRightIcon, MenuIcon } from "lucide-react";
+import { useState } from "react";
 
 import ThemeToggle from "./ThemeToggle";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetPanel,
+  SheetTitle,
+  SheetTrigger,
+} from "./ui/sheet";
 import WorkOSHeader from "./workos-user.tsx";
 
 const navItems = linkOptions([
@@ -11,6 +21,8 @@ const navItems = linkOptions([
 ]);
 
 const marketingItems = linkOptions([
+  { to: "/backoffice", label: "Backoffice" },
+  { to: "/builder", label: "Builder dashboard" },
   { to: "/builder/proposals/new", label: "Builder onboarding" },
   { to: "/backoffice/onboard-builder", label: "Broker intake" },
 ]);
@@ -31,8 +43,10 @@ const demoItems = linkOptions([
 ]);
 
 export default function Header({
+  enableLandingMobileMenu = false,
   mode = "marketing",
 }: {
+  enableLandingMobileMenu?: boolean;
   mode?: "marketing" | "demo";
 }) {
   return (
@@ -106,11 +120,74 @@ export default function Header({
           </Link>
         )}
 
+        {enableLandingMobileMenu && mode === "marketing" ? (
+          <MobileLandingMenu />
+        ) : null}
+
         <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
           <WorkOSHeader />
           <ThemeToggle />
         </div>
       </nav>
     </header>
+  );
+}
+
+function MobileLandingMenu() {
+  const [open, setOpen] = useState(false);
+  const linkClassName =
+    "flex min-h-11 items-center justify-between gap-3 rounded-lg px-3 font-medium text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/30";
+
+  return (
+    <Sheet onOpenChange={setOpen} open={open}>
+      <SheetTrigger
+        aria-label="Open site navigation"
+        className="sm:hidden"
+        render={<Button size="icon-sm" variant="outline" />}
+      >
+        <MenuIcon aria-hidden="true" />
+      </SheetTrigger>
+      <SheetContent className="sm:max-w-sm" side="right">
+        <SheetHeader>
+          <SheetTitle>Site navigation</SheetTitle>
+        </SheetHeader>
+        <SheetPanel className="grid gap-5">
+          <nav aria-label="Mobile site navigation" className="grid gap-5">
+            <div className="grid gap-2">
+              <p className="px-3 font-medium text-muted-foreground text-xs uppercase tracking-[0.12em]">
+                Main
+              </p>
+              {navItems.map(({ label, ...item }) => (
+                <Link
+                  className={linkClassName}
+                  key={`main-${item.to}`}
+                  onClick={() => setOpen(false)}
+                  {...item}
+                >
+                  <span>{label}</span>
+                  <ArrowUpRightIcon aria-hidden="true" className="size-4" />
+                </Link>
+              ))}
+            </div>
+            <div className="grid gap-2 border-t pt-5">
+              <p className="px-3 font-medium text-muted-foreground text-xs uppercase tracking-[0.12em]">
+                Workspaces
+              </p>
+              {marketingItems.map(({ label, ...item }) => (
+                <Link
+                  className={linkClassName}
+                  key={`workspace-${item.to}`}
+                  onClick={() => setOpen(false)}
+                  {...item}
+                >
+                  <span>{label}</span>
+                  <ArrowUpRightIcon aria-hidden="true" className="size-4" />
+                </Link>
+              ))}
+            </div>
+          </nav>
+        </SheetPanel>
+      </SheetContent>
+    </Sheet>
   );
 }

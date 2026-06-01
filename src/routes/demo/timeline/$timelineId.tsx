@@ -4,8 +4,8 @@ import { Loader2 } from "lucide-react";
 import { createStandardSchemaV1, parseAsString } from "nuqs";
 
 import { api } from "../../../../convex/_generated/api";
-import { convexWorkspaceToTimelineState } from "./-timeline-convex-adapter";
-import { TimelineDemoWorkspace } from "./index";
+import { TimelineWorkspace } from "#/features/timeline-workspace";
+import { convexWorkspaceToTimelineState } from "#/features/timeline-workspace/-timeline-convex-adapter.ts";
 
 const durableTimelineSearchParsers = {
   proposal: parseAsString,
@@ -59,7 +59,7 @@ function DurableTimelineRoute() {
           timeline by id.
         </div>
       ) : null}
-      <TimelineDemoWorkspace
+      <TimelineWorkspace
         durableMeta={{
           backofficeHref: "/backoffice",
           proposalHref: `/demo/timeline/${timelineId}?proposal=${canonicalProposal}`,
@@ -77,6 +77,7 @@ function DurableTimelineRoute() {
           templateTitle: workspace.plan.buildName,
           totalBudget: Math.round(workspace.plan.totalBudgetCents / 100),
         }}
+        workspaceMode="demo"
       />
     </>
   );

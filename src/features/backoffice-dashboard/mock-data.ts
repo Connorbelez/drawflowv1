@@ -69,6 +69,7 @@ export interface ProposalKanbanCard extends Record<string, unknown> {
   approvedAt?: number;
   borrowerWorkingCapitalLimitCents?: number;
   builder: string;
+  builderAssigned?: boolean;
   closeLabel?: string;
   column: string;
   createdAt?: number;

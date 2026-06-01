@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 vi.mock("./ActiveBuildTimelineWorkspace", () => ({
@@ -66,9 +73,27 @@ const detail: ProductionBuildDetail = {
   loanFacility: {
     interestAnnualBps: 925,
     interestStartsOn: "funds_released",
+    paybackDate: "2027-06-01",
     principalCents: 550_000_00,
     status: "active",
   },
+  facilityChangeRequests: [
+    {
+      _id: "facility-request-01",
+      createdAt: Date.now(),
+      priorState: {
+        paybackDate: "2027-06-01",
+        principalCents: 550_000_00,
+      },
+      reason: "Material costs changed after framing bid.",
+      requestedByWorkosUserId: "user_builder",
+      requestedPayload: {
+        requestedPrincipalCents: 600_000_00,
+      },
+      requestType: "principalIncrease",
+      status: "requested",
+    },
+  ],
   milestones: [
     {
       _id: "milestone-01",
@@ -272,6 +297,51 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.getAllByText("$550,000").length).toBeGreaterThan(0);
     expect(screen.getByTestId("build-detail-kanban")).toBeTruthy();
     expect(screen.getByTestId("build-detail-draws")).toBeTruthy();
+    expect(screen.getByTestId("facility-change-requests")).toBeTruthy();
+    expect(screen.getByText("Payback date")).toBeTruthy();
+  });
+
+  test("submits and reviews active build facility change requests", async () => {
+    const requestFacilityChange = vi.fn();
+    const reviewFacilityChangeRequest = vi.fn();
+
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ requestFacilityChange, reviewFacilityChangeRequest }}
+        activeTab="details"
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="open"
+      />,
+    );
+
+    fireEvent.change(screen.getByTestId("facility-principal-input"), {
+      target: { value: "625000" },
+    });
+    fireEvent.change(screen.getByTestId("facility-change-reason"), {
+      target: { value: "New material quote." },
+    });
+    fireEvent.click(screen.getByTestId("facility-request-principal"));
+    await waitFor(() =>
+      expect(requestFacilityChange).toHaveBeenCalledWith({
+      reason: "New material quote.",
+      requestedPrincipalCents: 625_000_00,
+      requestType: "principalIncrease",
+      }),
+    );
+
+    fireEvent.change(screen.getByTestId("facility-review-note"), {
+      target: { value: "Approved after budget review." },
+    });
+    fireEvent.click(screen.getByTestId("facility-approve-facility-request-01"));
+    await waitFor(() =>
+      expect(reviewFacilityChangeRequest).toHaveBeenCalledWith({
+        note: "Approved after budget review.",
+        requestId: "facility-request-01",
+        status: "approved",
+      }),
+    );
   });
 
   test("preserves milestone sheet routing state for production builds", () => {
@@ -439,6 +509,7 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.getByTestId("build-detail-documents")).toBeTruthy();
     expect(screen.getByTestId("internal-notes")).toBeTruthy();
     expect(screen.getByTestId("public-notes")).toBeTruthy();
+    expect(screen.getByTestId("production-build-mobile-events")).toBeTruthy();
     expect(screen.getByTestId("build-detail-rail")).toBeTruthy();
     expect(screen.queryByTestId("production-build-milestones")).toBeNull();
   });

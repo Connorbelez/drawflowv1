@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { CheckCircle2, ExternalLink, Loader2, XCircle } from "lucide-react";
 import { useReducedMotion } from "motion/react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -12,7 +12,12 @@ import {
 } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
-import { Card, CardContent, CardHeader, CardTitle } from "#/components/ui/card.tsx";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "#/components/ui/card.tsx";
 import {
   Dialog,
   DialogContent,
@@ -46,20 +51,20 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import {
   MilestoneCard,
   type MilestoneCardUpdate,
-} from "../demo/timeline/-MilestoneCard.tsx";
-import { TimelineEndNodeButton } from "../demo/timeline/-TimelineEndNodeButton.tsx";
-import { getMilestoneEndX } from "../demo/timeline/-timeline-milestone-schedule.ts";
-import type { DemoMilestone } from "../demo/timeline/-timeline-share-snapshot.ts";
+} from "#/features/timeline-workspace/-MilestoneCard.tsx";
+import { TimelineEndNodeButton } from "#/features/timeline-workspace/-TimelineEndNodeButton.tsx";
+import { getMilestoneEndX } from "#/features/timeline-workspace/-timeline-milestone-schedule.ts";
+import type { DemoMilestone } from "#/features/timeline-workspace/-timeline-share-snapshot.ts";
 import {
   TimelineCashflowCompoundChart,
   type TimelineCashflowCompoundDatum,
   type TimelineCashflowReferenceLine,
-} from "../demo/timeline/-TimelineCashflowCompoundChart.tsx";
+} from "#/features/timeline-workspace/-TimelineCashflowCompoundChart.tsx";
 import {
   TimelineDrawAvailabilityChart,
   type TimelineDrawAvailabilityDatum,
   type TimelineDrawAvailabilityReferenceLine,
-} from "../demo/timeline/-TimelineDrawAvailabilityChart.tsx";
+} from "#/features/timeline-workspace/-TimelineDrawAvailabilityChart.tsx";
 
 const PROPOSAL_REVIEW_TIMELINE_SIZING = {
   cardWidth: 232,
@@ -89,9 +94,42 @@ function ProposalReviewRoute() {
   const navigate = useNavigate();
   const workosOrganizationId = context.organizationId as string;
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
+  const joinSession = useMutation(api.proposal_collaboration.joinSession);
+  const collabToken = useMemo(
+    () =>
+      typeof window === "undefined"
+        ? null
+        : new URLSearchParams(window.location.search).get("collab"),
+    []
+  );
+  const [collabJoinState, setCollabJoinState] = useState<
+    "idle" | "joined" | "joining"
+  >(collabToken ? "joining" : "joined");
+
+  useEffect(() => {
+    if (!(collabToken && collabJoinState === "joining")) {
+      return;
+    }
+    void joinSession({ shareToken: collabToken, workosOrganizationId })
+      .then(() => {
+        setCollabJoinState("joined");
+        toast.success("Joined live collaboration.");
+      })
+      .catch((error) => {
+        setCollabJoinState("idle");
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Unable to join live collaboration."
+        );
+      });
+  }, [collabJoinState, collabToken, joinSession, workosOrganizationId]);
+
   const productionDetailQuery = useQuery(
     api.production_proposals.getProposalDetailByString,
-    visualFixtureEnabled ? "skip" : { proposalId: planId, workosOrganizationId },
+    visualFixtureEnabled || collabJoinState === "joining"
+      ? "skip"
+      : { proposalId: planId, workosOrganizationId }
   );
   const productionDetail = visualFixtureEnabled
     ? getVisualParityProposalDetail(planId)
@@ -103,129 +141,159 @@ function ProposalReviewRoute() {
       : {
           proposalId: planId as Id<"buildProposals">,
           workosOrganizationId,
-        },
+        }
   );
   const productionWorkspace = visualFixtureEnabled
     ? getVisualParityTimelineWorkspace(planId)
     : productionWorkspaceQuery;
   const requestProductionChanges = useMutation(
-    api.production_proposals.requestChanges,
+    api.production_proposals.requestChanges
   );
   const rejectProductionProposal = useMutation(
-    api.production_proposals.rejectProposal,
+    api.production_proposals.rejectProposal
   );
   const approveProductionProposal = useMutation(
-    api.production_proposals.approveProposal,
+    api.production_proposals.approveProposal
   );
   const recordProductionClosing = useMutation(
-    api.production_proposals.recordOfflineClosing,
+    api.production_proposals.recordOfflineClosing
   );
   const updateProductionDrawScheduleRow = useMutation(
-    api.production_proposals.updateSubmittedProposalDrawScheduleRow,
+    api.production_proposals.updateSubmittedProposalDrawScheduleRow
   );
-  const shouldQueryDemoReview =
-    !visualFixtureEnabled && productionDetail === null;
-  const viewModel = useQuery(
-    api.demo_timeline_plans.demo_getProposalReviewViewModel,
-    shouldQueryDemoReview ? { planId } : "skip",
-  );
-  const updateMilestone = useMutation(
-    api.demo_timeline_plans.demo_adminUpdateTimelineMilestone,
-  );
-  const updateDraw = useMutation(
-    api.demo_timeline_plans.demo_adminUpdateTimelineDraw,
-  );
-  const approvePlan = useMutation(api.demo_timeline_plans.demo_approveTimelinePlan);
-  const rejectPlan = useMutation(api.demo_timeline_plans.demo_rejectTimelinePlan);
 
-  if (productionDetail && productionWorkspace) {
-    const proposalId = planId as Id<"buildProposals">;
+  if (collabJoinState === "joining") {
     return (
-      <div className="grid gap-6">
-        <ProductionTimelineWorkspace
-          backofficeHref={`/backoffice/proposals/${planId}`}
-          initialRole="lender"
-          persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
-          proposalHref={`/builder/proposals/${planId}`}
-          proposalId={proposalId}
-          workspace={productionWorkspace}
-          workosOrganizationId={workosOrganizationId}
-        />
-        <ProductionProposalReviewSurface
-          detail={productionDetail}
-          onApprove={(reason, permitWaiverReason) =>
-            void approveProductionProposal({
-              permitWaiverReason,
-              proposalId,
-              reason,
-              workosOrganizationId,
-            }).then(() => toast.success("Proposal approved."))
-          }
-          onClose={(buildStartDate, reason) =>
-            void recordProductionClosing({
-              buildStartDate,
-              loanFacility: {
-                interestAnnualBps: 925,
-                principalCents:
-                  productionDetail.proposal.lenderDrawPolicyLimitCents,
-              },
-              proposalId,
-              reason,
-              workosOrganizationId,
-            }).then((result) => {
-              toast.success("Closing recorded.");
-              void navigate({
-                params: { buildId: result.buildId },
-                to: "/backoffice/builds/$buildId",
-              });
-            })
-          }
-          onReject={(reason) =>
-            void rejectProductionProposal({
-              proposalId,
-              reason,
-              workosOrganizationId,
-            }).then(() => toast.success("Proposal rejected."))
-          }
-          onRequestChanges={(reason) =>
-            void requestProductionChanges({
-              proposalId,
-              reason,
-              workosOrganizationId,
-            }).then(() => toast.success("Changes requested."))
-          }
-          onUpdateDraw={(drawKey, patch) =>
-            void updateProductionDrawScheduleRow({
-              amountCents: patch.amountCents,
-              drawKey,
-              label: patch.label,
-              proposalId,
-              reason: patch.reason,
-              timingDay: patch.timingDay,
-              workosOrganizationId,
-            }).then(() => toast.success("Draw schedule updated."))
-          }
-        />
+      <div className="grid min-h-[24rem] place-items-center">
+        <div className="flex items-center gap-2 rounded-lg border bg-background p-4 text-sm">
+          <Loader2 className="size-4 animate-spin" />
+          Joining live collaboration...
+        </div>
       </div>
     );
   }
 
+  if (productionDetail && productionWorkspace) {
+    const proposalId = planId as Id<"buildProposals">;
+    return (
+      <ProductionProposalReviewSurface
+        detail={productionDetail}
+        timeline={
+          <ProductionTimelineWorkspace
+            backofficeHref={`/backoffice/proposals/${planId}`}
+            initialRole="lender"
+            persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
+            prejoinedCollabToken={
+              collabJoinState === "joined" ? collabToken : null
+            }
+            proposalHref={`/builder/proposals/${planId}`}
+            proposalId={proposalId}
+            workspace={productionWorkspace}
+            workosOrganizationId={workosOrganizationId}
+          />
+        }
+        onApprove={(reason, permitWaiverReason) =>
+          approveProductionProposal({
+            permitWaiverReason,
+            proposalId,
+            reason,
+            workosOrganizationId,
+          }).then(() =>
+            toast.success("Proposal approved.", {
+              description:
+                "The proposal is ready for closing. Live build controls stay locked until closing is recorded.",
+            })
+          )
+        }
+        onClose={(buildStartDate, reason) =>
+          recordProductionClosing({
+            buildStartDate,
+            loanFacility: {
+              interestAnnualBps: 925,
+              principalCents:
+                productionDetail.proposal.lenderDrawPolicyLimitCents,
+            },
+            proposalId,
+            reason,
+            workosOrganizationId,
+          }).then((result) => {
+            toast.success("Closing recorded.");
+            void navigate({
+              params: { buildId: result.buildId },
+              to: "/backoffice/builds/$buildId",
+            });
+          })
+        }
+        onReject={(reason) =>
+          rejectProductionProposal({
+            proposalId,
+            reason,
+            workosOrganizationId,
+          }).then(() => toast.success("Proposal rejected."))
+        }
+        onRequestChanges={(reason) =>
+          requestProductionChanges({
+            proposalId,
+            reason,
+            workosOrganizationId,
+          }).then(() => toast.success("Changes requested."))
+        }
+        onUpdateDraw={(drawKey, patch) =>
+          void updateProductionDrawScheduleRow({
+            amountCents: patch.amountCents,
+            drawKey,
+            label: patch.label,
+            proposalId,
+            reason: patch.reason,
+            timingDay: patch.timingDay,
+            workosOrganizationId,
+          }).then(() => toast.success("Draw schedule updated."))
+        }
+      />
+    );
+  }
+
+  if (
+    productionDetail === undefined ||
+    (productionDetail && productionWorkspace === undefined)
+  ) {
+    return (
+      <main className="grid min-h-[calc(100vh-4rem)] place-items-center bg-muted/30">
+        <div className="flex items-center gap-2 rounded-lg border bg-background p-4 text-sm">
+          <Loader2 className="size-4 animate-spin" />
+          Loading production proposal...
+        </div>
+      </main>
+    );
+  }
+
+  return <ProductionProposalNotFound planId={planId} />;
+}
+
+function ProductionProposalNotFound({ planId }: { planId: string }) {
   return (
-    <ProposalReviewSurface
-      approvePlan={approvePlan}
-      navigateToBuild={(buildKey) =>
-        void navigate({
-          params: { buildId: buildKey },
-          search: { milestone: undefined },
-          to: "/backoffice/builds/$buildId",
-        })
-      }
-      planId={planId}
-      rejectPlan={rejectPlan}
-      updateDraw={updateDraw}
-      updateMilestone={updateMilestone}
-      viewModel={viewModel}
-    />
+    <main className="min-h-[calc(100vh-4rem)] bg-muted/30 p-4">
+      <Frame className="mx-auto max-w-2xl">
+        <FramePanel className="p-6">
+          <Badge variant="outline">Production proposal</Badge>
+          <h1 className="mt-3 font-semibold text-2xl tracking-tight">
+            Proposal not found
+          </h1>
+          <p className="mt-2 text-muted-foreground text-sm">
+            No production proposal exists for {planId}. Demo proposal review is
+            isolated under the demo timeline routes.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Button render={<a href="/backoffice/proposals" />}>
+              Back to proposals
+            </Button>
+            <Button render={<a href="/demo/timeline" />} variant="outline">
+              Open demo timeline
+            </Button>
+          </div>
+        </FramePanel>
+      </Frame>
+    </main>
   );
 }
 
@@ -271,7 +339,9 @@ export function ProposalReviewSurface({
   const [startDate, setStartDate] = useState("");
   const [adminNote, setAdminNote] = useState("");
   const [rejectReason, setRejectReason] = useState("");
-  const [decisionModal, setDecisionModal] = useState<DecisionModal | null>(null);
+  const [decisionModal, setDecisionModal] = useState<DecisionModal | null>(
+    null
+  );
   const [isApproving, setIsApproving] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
   const [terminalBuild, setTerminalBuild] = useState<{
@@ -279,19 +349,22 @@ export function ProposalReviewSurface({
   } | null>(null);
 
   const chartData = useMemo(() => buildReviewChartData(viewModel), [viewModel]);
-  const timelineItems = useMemo(() => buildTimelineItems(viewModel), [viewModel]);
+  const timelineItems = useMemo(
+    () => buildTimelineItems(viewModel),
+    [viewModel]
+  );
   const timelineMarkers = useMemo(
     () => buildProposalTimelineMarkers(viewModel),
-    [viewModel],
+    [viewModel]
   );
   const startingCash = centsToDollars(viewModel?.plan?.startingCashCents ?? 0);
   const timelineRange = useMemo(
     () => ({ max: chartData.maxDay + 10, min: 0, unit: "days" as const }),
-    [chartData.maxDay],
+    [chartData.maxDay]
   );
   const xDomain = useMemo(
     () => [timelineRange.min, timelineRange.max] as [number, number],
-    [timelineRange.max, timelineRange.min],
+    [timelineRange.max, timelineRange.min]
   );
   const probeReferenceLines = useMemo(
     () =>
@@ -299,9 +372,9 @@ export function ProposalReviewSurface({
         probeValue,
         chartData.cashflow,
         chartData.drawAvailability,
-        startingCash,
+        startingCash
       ),
-    [chartData.cashflow, chartData.drawAvailability, probeValue, startingCash],
+    [chartData.cashflow, chartData.drawAvailability, probeValue, startingCash]
   );
   const snapshotMilestones = viewModel?.snapshot?.milestones ?? [];
   const workingMilestones = viewModel?.workingCopy?.milestones ?? [];
@@ -311,12 +384,14 @@ export function ProposalReviewSurface({
   const canEditTimeline = plan?.status === "submitted";
   const approvalValidation = useMemo(
     () => validateApprovalStartDate(startDate, plan?.status),
-    [plan?.status, startDate],
+    [plan?.status, startDate]
   );
   const canAttemptApproval = plan?.status === "submitted" && !terminalBuild;
 
   const openApproveModal = useCallback(() => {
-    setStartDate((current) => current || getDefaultApprovalStartDateInput(plan));
+    setStartDate(
+      (current) => current || getDefaultApprovalStartDateInput(plan)
+    );
     setDecisionModal("approve");
   }, [plan]);
 
@@ -336,7 +411,7 @@ export function ProposalReviewSurface({
       }
 
       const milestone = workingMilestones.find(
-        (row: ProposalReviewMilestone) => row.milestoneKey === milestoneKey,
+        (row: ProposalReviewMilestone) => row.milestoneKey === milestoneKey
       );
       if (!milestone) {
         return;
@@ -346,7 +421,7 @@ export function ProposalReviewSurface({
         milestone,
         milestoneKey,
         patch,
-        planId,
+        planId
       );
       if (!mutationArgs) {
         return;
@@ -358,11 +433,11 @@ export function ProposalReviewSurface({
         })
         .catch((error) => {
           toast.error(
-            error instanceof Error ? error.message : "Milestone update failed.",
+            error instanceof Error ? error.message : "Milestone update failed."
           );
         });
     },
-    [canEditTimeline, planId, updateMilestone, workingMilestones],
+    [canEditTimeline, planId, updateMilestone, workingMilestones]
   );
 
   if (viewModel === undefined) {
@@ -525,7 +600,7 @@ export function ProposalReviewSurface({
                     getItemEndValue={(item) =>
                       workingMilestones.find(
                         (row: ProposalReviewMilestone) =>
-                          row.milestoneKey === item.id,
+                          row.milestoneKey === item.id
                       )?.dayEnd ?? getMilestoneEndX(item)
                     }
                     hoverValue={probeValue}
@@ -537,7 +612,9 @@ export function ProposalReviewSurface({
                     }
                     onHoverValueChange={setProbeValue}
                     paddingX={PROPOSAL_REVIEW_TIMELINE_SIZING.paddingX}
-                    pixelsPerUnit={PROPOSAL_REVIEW_TIMELINE_SIZING.pixelsPerUnit}
+                    pixelsPerUnit={
+                      PROPOSAL_REVIEW_TIMELINE_SIZING.pixelsPerUnit
+                    }
                     range={timelineRange}
                     renderCard={(item, context) => (
                       <MilestoneCard
@@ -587,7 +664,7 @@ export function ProposalReviewSurface({
                   onCommit={(milestoneKey, patch) => {
                     const milestone = workingMilestones.find(
                       (row: ProposalReviewMilestone) =>
-                        row.milestoneKey === milestoneKey,
+                        row.milestoneKey === milestoneKey
                     );
                     if (!milestone) {
                       return;
@@ -597,7 +674,7 @@ export function ProposalReviewSurface({
                       milestone,
                       milestoneKey,
                       patch,
-                      planId,
+                      planId
                     );
                     if (!mutationArgs) {
                       return;
@@ -611,7 +688,7 @@ export function ProposalReviewSurface({
                         toast.error(
                           error instanceof Error
                             ? error.message
-                            : "Milestone update failed.",
+                            : "Milestone update failed."
                         );
                       });
                   }}
@@ -621,7 +698,7 @@ export function ProposalReviewSurface({
                   label="Draws"
                   rows={workingDraws.map((draw: any) => {
                     const frozen = snapshotDraws.find(
-                      (row: any) => row.sourceTimelineDrawId === draw._id,
+                      (row: any) => row.sourceTimelineDrawId === draw._id
                     );
                     return {
                       id: draw.drawKey,
@@ -729,7 +806,9 @@ function ProposalDecisionDialog({
                 <Input
                   data-ixc-ref="UI-START-DATE"
                   id="proposal-approval-start-date"
-                  min={getDefaultApprovalStartDateInput({ status: "submitted" })}
+                  min={getDefaultApprovalStartDateInput({
+                    status: "submitted",
+                  })}
                   onChange={(event) =>
                     onStartDateChange(event.currentTarget.value)
                   }
@@ -819,7 +898,11 @@ function ProposalDecisionDialog({
               disabled={!approvalValidation.ok || isApproving}
               onClick={onApprove}
             >
-              {isApproving ? <Loader2 className="animate-spin" /> : <CheckCircle2 />}
+              {isApproving ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <CheckCircle2 />
+              )}
               Confirm approval
             </Button>
           ) : (
@@ -868,7 +951,7 @@ function MilestoneAdjustmentsTable({
           <TableBody>
             {milestones.map((milestone) => {
               const frozen = snapshotMilestones.find(
-                (row) => row.sourceTimelineMilestoneId === milestone._id,
+                (row) => row.sourceTimelineMilestoneId === milestone._id
               );
               const workingStart = milestone.x ?? milestone.dayStart;
               const snapshotCostDiff =
@@ -880,9 +963,7 @@ function MilestoneAdjustmentsTable({
                 frozen !== undefined &&
                 frozen.durationDays !== milestone.durationDays;
               const hasDiff =
-                snapshotCostDiff ||
-                snapshotStartDiff ||
-                snapshotDurationDiff;
+                snapshotCostDiff || snapshotStartDiff || snapshotDurationDiff;
 
               return (
                 <TableRow
@@ -1065,7 +1146,7 @@ function ComparisonTable({
                       defaultValue={Math.round(row.working / 100)}
                       onBlur={(event) => {
                         const nextValue = Math.round(
-                          Number(event.currentTarget.value) * 100,
+                          Number(event.currentTarget.value) * 100
                         );
                         if (Number.isFinite(nextValue)) {
                           void row.onCommit(nextValue);
@@ -1097,7 +1178,7 @@ export function buildProposalMilestoneMutationArgs(
   milestone: ProposalReviewMilestone,
   milestoneKey: string,
   patch: MilestoneCardUpdate,
-  planId: string,
+  planId: string
 ) {
   const mutationArgs: {
     budgetCents?: number;
@@ -1155,7 +1236,7 @@ export function buildProposalTimelineMarkers(viewModel: any): TimelineMarker[] {
     ...capitalEvents
       .filter(
         (event: ProposalReviewCapitalEvent) =>
-          !isInitialBorrowerCapitalEvent(event.label),
+          !isInitialBorrowerCapitalEvent(event.label)
       )
       .map((event: ProposalReviewCapitalEvent) => ({
         id: `capital-spike-${event.capitalEventKey}`,
@@ -1171,7 +1252,7 @@ export function buildProposalTimelineMarkers(viewModel: any): TimelineMarker[] {
 }
 
 export function buildProposalTimelineItems(
-  viewModel: any,
+  viewModel: any
 ): TimelineItem<DemoMilestone>[] {
   return (viewModel?.workingCopy?.milestones ?? []).map(
     (milestone: ProposalReviewMilestone) => ({
@@ -1183,10 +1264,9 @@ export function buildProposalTimelineItems(
         icon: milestone.icon,
         name: milestone.name,
         policy: milestone.policyState,
-        status:
-          proposalMilestoneStatusMap[milestone.status] ?? "upcoming",
+        status: proposalMilestoneStatusMap[milestone.status] ?? "upcoming",
         subMilestones: (milestone.submilestoneSnapshot ?? []).map(
-          (row) => row.name,
+          (row) => row.name
         ),
       },
       eyebrow: `Milestone ${milestone.order}`,
@@ -1196,7 +1276,7 @@ export function buildProposalTimelineItems(
       markerLabel: milestone.markerLabel ?? String(milestone.order),
       tone: milestone.tone,
       x: milestone.x ?? milestone.dayStart,
-    }),
+    })
   );
 }
 
@@ -1338,7 +1418,7 @@ export function buildReviewChartData(viewModel: any) {
   const drawAvailability = availabilityEvents.map((event) => {
     totalInterestAccrued += calculateProposalDailyCompoundedInterest(
       releasedDraw + totalInterestAccrued,
-      event.day - previousAvailabilityDay,
+      event.day - previousAvailabilityDay
     );
     previousAvailabilityDay = event.day;
 
@@ -1360,7 +1440,7 @@ export function buildReviewChartData(viewModel: any) {
     30,
     ...milestones.map((row: any) => row.dayEnd),
     ...draws.map((row: any) => row.x),
-    ...capitalEvents.map((row: any) => row.x),
+    ...capitalEvents.map((row: any) => row.x)
   );
   const maxValue = Math.max(
     100_000,
@@ -1374,7 +1454,7 @@ export function buildReviewChartData(viewModel: any) {
       row.additionalAvailableDraw,
       row.interestBearingDraw,
       row.totalAvailableDraw,
-    ]),
+    ])
   );
   return {
     cashflow,
@@ -1382,7 +1462,7 @@ export function buildReviewChartData(viewModel: any) {
     maxDay,
     maxValue,
     ticks: Array.from({ length: 6 }, (_, index) =>
-      Math.round((maxDay / 5) * index),
+      Math.round((maxDay / 5) * index)
     ),
   };
 }
@@ -1391,7 +1471,7 @@ export function buildProposalProbeReferenceLines(
   probeValue: number | null,
   cashflow: TimelineCashflowCompoundDatum[],
   drawAvailability: TimelineDrawAvailabilityDatum[],
-  startingCash: number,
+  startingCash: number
 ): {
   cashflow: TimelineCashflowReferenceLine[];
   drawAvailability: TimelineDrawAvailabilityReferenceLine[];
@@ -1403,11 +1483,11 @@ export function buildProposalProbeReferenceLines(
   const probeCashOnHand = interpolateProposalCashOnHand(
     cashflow,
     probeValue,
-    startingCash,
+    startingCash
   );
   const probeDrawAvailability = interpolateProposalDrawAvailability(
     drawAvailability,
-    Math.round(probeValue),
+    Math.round(probeValue)
   );
 
   return {
@@ -1427,13 +1507,13 @@ export function buildProposalProbeReferenceLines(
       {
         label: [
           `Delta ${formatProbeMoney(
-            probeDrawAvailability.additionalAvailableDraw,
+            probeDrawAvailability.additionalAvailableDraw
           )}`,
           `Interest-bearing ${formatProbeMoney(
-            probeDrawAvailability.interestBearingDraw,
+            probeDrawAvailability.interestBearingDraw
           )}`,
           `Total interest ${formatProbeMoney(
-            probeDrawAvailability.totalInterestAccrued,
+            probeDrawAvailability.totalInterestAccrued
           )}`,
         ],
         opacity: 0.82,
@@ -1448,13 +1528,15 @@ export function buildProposalProbeReferenceLines(
 function interpolateProposalCashOnHand(
   data: TimelineCashflowCompoundDatum[],
   value: number,
-  startingCash: number,
+  startingCash: number
 ) {
   if (data.length === 0) {
     return startingCash;
   }
 
-  const sorted = [...data].sort((a, b) => a.day - b.day || a.id.localeCompare(b.id));
+  const sorted = [...data].sort(
+    (a, b) => a.day - b.day || a.id.localeCompare(b.id)
+  );
   let previous = sorted[0];
 
   if (!previous) {
@@ -1487,7 +1569,7 @@ function interpolateProposalCashOnHand(
 
 function interpolateProposalDrawAvailability(
   data: TimelineDrawAvailabilityDatum[],
-  value: number,
+  value: number
 ) {
   const fallback: TimelineDrawAvailabilityDatum = {
     additionalAvailableDraw: 0,
@@ -1519,20 +1601,22 @@ function interpolateProposalDrawAvailability(
       current.totalInterestAccrued +
       calculateProposalDailyCompoundedInterest(
         current.interestBearingDraw + current.totalInterestAccrued,
-        Math.max(0, value - current.day),
+        Math.max(0, value - current.day)
       ),
   };
 }
 
 function calculateProposalDailyCompoundedInterest(
   principal: number,
-  elapsedDays: number,
+  elapsedDays: number
 ) {
   if (principal <= 0 || elapsedDays <= 0) {
     return 0;
   }
 
-  return principal * ((1 + PROPOSAL_REVIEW_INTEREST_APR / 365) ** elapsedDays - 1);
+  return (
+    principal * ((1 + PROPOSAL_REVIEW_INTEREST_APR / 365) ** elapsedDays - 1)
+  );
 }
 
 function formatProbeMoney(value: number) {
@@ -1569,9 +1653,13 @@ export function getDefaultApprovalStartDateInput(plan?: {
 
 export function validateApprovalStartDate(
   startDate: string,
-  status?: string,
+  status?: string
 ):
-  | { message: string; ok: false; reason: "invalid_date" | "missing_date" | "not_submitted" | "past_date" }
+  | {
+      message: string;
+      ok: false;
+      reason: "invalid_date" | "missing_date" | "not_submitted" | "past_date";
+    }
   | { ok: true; parsed: number } {
   if (status !== "submitted") {
     return {

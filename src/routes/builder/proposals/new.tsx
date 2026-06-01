@@ -18,7 +18,7 @@ import {
 import {
   TimelineSetupFlow,
   type TimelineSetupResult,
-} from "#/routes/demo/timeline/-TimelineSetupFlow.tsx";
+} from "#/features/timeline-workspace/-TimelineSetupFlow.tsx";
 import { api } from "../../../../convex/_generated/api";
 
 export const Route = createFileRoute("/builder/proposals/new")({

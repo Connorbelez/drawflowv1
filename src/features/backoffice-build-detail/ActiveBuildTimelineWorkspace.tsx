@@ -6,12 +6,12 @@ import { useMemo } from "react";
 import {
   convexWorkspaceToTimelineState,
   type ConvexTimelineWorkspace,
-} from "#/routes/demo/timeline/-timeline-convex-adapter.ts";
+} from "#/features/timeline-workspace/-timeline-convex-adapter.ts";
 import {
-  TimelineDemoWorkspace,
+  TimelineWorkspace,
   type TimelineModificationRequestView,
   type TimelineWorkspacePersistence,
-} from "#/routes/demo/timeline/index.tsx";
+} from "#/features/timeline-workspace/index.tsx";
 
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -302,7 +302,7 @@ export function ActiveBuildTimelineWorkspace({
   );
 
   return (
-    <TimelineDemoWorkspace
+    <TimelineWorkspace
       allowRoleSwitching={false}
       durableMeta={{
         backofficeHref,
@@ -328,6 +328,7 @@ export function ActiveBuildTimelineWorkspace({
         ),
       }}
       timelineSettingsProjection={null}
+      workspaceMode="live"
     />
   );
 }

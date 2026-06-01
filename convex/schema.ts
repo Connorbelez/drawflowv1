@@ -217,6 +217,11 @@ const productionDocumentStatusValidator = v.union(
   v.literal("waived")
 );
 
+const siteVisitGuidanceValidator = v.object({
+  cameraAngles: v.array(v.string()),
+  whatToVerify: v.array(v.string()),
+});
+
 const productionBuildStatusValidator = v.union(
   v.literal("active"),
   v.literal("future_start")
@@ -234,6 +239,33 @@ const productionOutboxStatusValidator = v.union(
   v.literal("pending"),
   v.literal("processed"),
   v.literal("failed")
+);
+
+const proposalCollaborationSessionStatusValidator = v.union(
+  v.literal("active"),
+  v.literal("inactive")
+);
+
+const proposalCollaborationInitiatorSideValidator = v.union(
+  v.literal("broker"),
+  v.literal("builder")
+);
+
+const proposalCollaborationPermissionValidator = v.union(
+  v.literal("view"),
+  v.literal("edit")
+);
+
+const proposalCollaborationParticipantStatusValidator = v.union(
+  v.literal("invited"),
+  v.literal("joined"),
+  v.literal("revoked")
+);
+
+const proposalCollaborationParticipantSourceValidator = v.union(
+  v.literal("creator"),
+  v.literal("share-link"),
+  v.literal("invite")
 );
 
 export default defineSchema({
@@ -1298,6 +1330,7 @@ export default defineSchema({
     durationDays: v.number(),
     dependencyKeys: v.array(v.string()),
     archetypeKey: v.optional(v.string()),
+    siteVisitGuidance: v.optional(siteVisitGuidanceValidator),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -1323,14 +1356,41 @@ export default defineSchema({
     organizationId: v.string(),
     templateId: v.id("proposalTemplates"),
     scenarioKey: v.string(),
+    description: v.optional(v.string()),
+    isActive: v.optional(v.boolean()),
     name: v.string(),
     isDefault: v.boolean(),
+    sortOrder: v.optional(v.number()),
     status: v.union(v.literal("active"), v.literal("inactive")),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_template", ["templateId"])
     .index("by_template_scenario", ["templateId", "scenarioKey"]),
+  drawScheduleScenarioRows: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    templateId: v.id("proposalTemplates"),
+    scenarioKey: v.string(),
+    drawKey: v.string(),
+    label: v.string(),
+    order: v.number(),
+    amountBps: v.number(),
+    reviewNote: v.string(),
+    timingDay: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_template_scenario_order", [
+      "templateId",
+      "scenarioKey",
+      "order",
+    ])
+    .index("by_template_scenario_key", [
+      "templateId",
+      "scenarioKey",
+      "drawKey",
+    ]),
   workflowRules: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -1365,7 +1425,7 @@ export default defineSchema({
   buildProposals: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
-    builderProfileId: v.id("builderProfiles"),
+    builderProfileId: v.optional(v.id("builderProfiles")),
     assignedBrokerWorkosUserId: v.optional(v.string()),
     buildName: v.string(),
     location: v.string(),
@@ -1380,6 +1440,7 @@ export default defineSchema({
     timelineRangeMax: v.optional(v.number()),
     timelineRangeMin: v.optional(v.number()),
     timelineRouteState: v.optional(v.any()),
+    timelineMinimumCashReserveCents: v.optional(v.number()),
     timelineStartingCashCents: v.optional(v.number()),
     templateId: v.optional(v.id("proposalTemplates")),
     workflowRuleSnapshotId: v.optional(v.id("workflowRuleSnapshots")),
@@ -1394,6 +1455,11 @@ export default defineSchema({
   })
     .index("by_brokerage", ["brokerageId"])
     .index("by_brokerage_status", ["brokerageId", "status"])
+    .index("by_brokerage_status_builder", [
+      "brokerageId",
+      "status",
+      "builderProfileId",
+    ])
     .index("by_builder", ["builderProfileId"])
     .index("by_active_build", ["activeBuildId"]),
   proposalDocuments: defineTable({
@@ -1562,6 +1628,54 @@ export default defineSchema({
   })
     .index("by_proposal", ["proposalId"])
     .index("by_proposal_status", ["proposalId", "status"]),
+  proposalCollaborationSessions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    status: proposalCollaborationSessionStatusValidator,
+    initiatorSide: proposalCollaborationInitiatorSideValidator,
+    shareTokenHash: v.string(),
+    startedByWorkosUserId: v.string(),
+    startedByRoles: v.array(v.string()),
+    assignedBuilderProfileId: v.optional(v.id("builderProfiles")),
+    assignedBuilderWorkosUserId: v.optional(v.string()),
+    stoppedAt: v.optional(v.number()),
+    stoppedByWorkosUserId: v.optional(v.string()),
+    stopReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_brokerage_status", ["brokerageId", "status"])
+    .index("by_brokerage_proposal", ["brokerageId", "proposalId"])
+    .index("by_organization_proposal", ["organizationId", "proposalId"])
+    .index("by_proposal", ["proposalId"])
+    .index("by_proposal_status", ["proposalId", "status"])
+    .index("by_share_token_hash", ["shareTokenHash"]),
+  proposalCollaborationParticipants: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    sessionId: v.id("proposalCollaborationSessions"),
+    permission: proposalCollaborationPermissionValidator,
+    status: proposalCollaborationParticipantStatusValidator,
+    source: proposalCollaborationParticipantSourceValidator,
+    displayName: v.optional(v.string()),
+    inviteEmail: v.optional(v.string()),
+    invitedByWorkosUserId: v.optional(v.string()),
+    lastJoinedAt: v.optional(v.number()),
+    roleSlugs: v.array(v.string()),
+    workosUserId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_brokerage_proposal", ["brokerageId", "proposalId"])
+    .index("by_organization_proposal", ["organizationId", "proposalId"])
+    .index("by_proposal", ["proposalId"])
+    .index("by_session", ["sessionId"])
+    .index("by_session_status", ["sessionId", "status"])
+    .index("by_session_user", ["sessionId", "workosUserId"])
+    .index("by_session_invite_email", ["sessionId", "inviteEmail"])
+    .index("by_user", ["workosUserId"]),
   proposalKanbanCards: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -1646,6 +1760,7 @@ export default defineSchema({
         straightLine: v.boolean(),
       })
     ),
+    timelineMinimumCashReserveCents: v.optional(v.number()),
     timelineStartingCashCents: v.optional(v.number()),
     totalBudgetCents: v.number(),
     permitDocumentId: v.optional(v.id("proposalDocuments")),
@@ -1735,6 +1850,7 @@ export default defineSchema({
     principalCents: v.number(),
     interestAnnualBps: v.number(),
     interestStartsOn: v.literal("funds_released"),
+    paybackDate: v.optional(v.string()),
     status: v.union(v.literal("active"), v.literal("closed")),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -1755,6 +1871,34 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_build", ["buildId"])
+    .index("by_proposal", ["proposalId"]),
+  activeBuildFacilityChangeRequests: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    proposalId: v.id("buildProposals"),
+    priorState: v.any(),
+    reason: v.optional(v.string()),
+    requestedPayload: v.any(),
+    requestType: v.union(
+      v.literal("principalIncrease"),
+      v.literal("paybackExtension")
+    ),
+    reviewNote: v.optional(v.string()),
+    reviewedAt: v.optional(v.number()),
+    reviewerWorkosUserId: v.optional(v.string()),
+    requestedByWorkosUserId: v.string(),
+    status: v.union(
+      v.literal("requested"),
+      v.literal("approved"),
+      v.literal("rejected")
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_build", ["buildId"])
+    .index("by_build_status", ["buildId", "status"])
+    .index("by_brokerage_status", ["brokerageId", "status"])
     .index("by_proposal", ["proposalId"]),
   buildMilestones: defineTable({
     brokerageId: v.id("brokerages"),

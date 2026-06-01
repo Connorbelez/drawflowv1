@@ -59,7 +59,7 @@ export function EventRail({
     <aside
       aria-label="Events and audit log"
       className={cn(
-        "relative sticky top-0 h-screen shrink-0 border-l border-sidebar-border bg-sidebar",
+        "relative sticky top-0 hidden h-screen shrink-0 border-l border-sidebar-border bg-sidebar xl:block",
         "overflow-hidden transition-[width] duration-300 ease-out motion-reduce:transition-none",
         collapsed ? "w-[56px]" : "w-[360px]",
       )}

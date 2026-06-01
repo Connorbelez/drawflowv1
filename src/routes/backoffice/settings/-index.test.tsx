@@ -1,9 +1,17 @@
-import { describe, expect, test } from "vitest";
+// @vitest-environment jsdom
+
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import type {
   TimelineSettingsScenarioDraft,
   TimelineSettingsTemplateDraft,
-} from "../../demo/timeline/-timeline-demo-settings-adapter.ts";
-import { buildSettingsCashflowChartData } from "./index.tsx";
+} from "#/features/timeline-workspace/-timeline-demo-settings-adapter.ts";
+import {
+  TimelineSettingsWorkspace,
+  buildSettingsCashflowChartData,
+} from "./index.tsx";
+
+afterEach(() => cleanup());
 
 const template: TimelineSettingsTemplateDraft = {
   description: "Template",
@@ -18,6 +26,10 @@ const template: TimelineSettingsTemplateDraft = {
       name: "Foundation",
       order: 0,
       percentageBps: 2500,
+      siteVisitGuidance: {
+        cameraAngles: ["Wide foundation photo."],
+        whatToVerify: ["Foundation complete."],
+      },
       submilestones: [],
       type: "foundation",
     },
@@ -30,6 +42,10 @@ const template: TimelineSettingsTemplateDraft = {
       name: "Framing",
       order: 1,
       percentageBps: 7500,
+      siteVisitGuidance: {
+        cameraAngles: ["Wide framing photo."],
+        whatToVerify: ["Framing complete."],
+      },
       submilestones: [],
       type: "framing",
     },
@@ -84,5 +100,58 @@ describe("settings cashflow preview data", () => {
       cashOnHand: 250_000,
       event: "draw",
     });
+  });
+});
+
+describe("TimelineSettingsWorkspace", () => {
+  test("renders the full tabbed settings workspace for production data", async () => {
+    const productionTemplate: TimelineSettingsTemplateDraft = {
+      ...template,
+      scenarios: [scenario],
+    };
+    const seed = vi.fn(async () => ({ templates: [productionTemplate] }));
+    const save = vi.fn(async () => ({ templates: [productionTemplate] }));
+
+    render(
+      <TimelineSettingsWorkspace
+        labels={{
+          emptyBody: "Seed production defaults before editing templates.",
+          emptyTitle: "Production defaults needed",
+          eyebrow: "Production proposal settings",
+          loadingText: "Loading production proposal settings...",
+          sectionLabel: "Production",
+          seedButtonLabel: "Seed defaults to prod",
+          seedConfirmBody:
+            "This seeds tenant-scoped production templates and draw scenarios.",
+          seedConfirmTitle: "Seed production defaults?",
+          title: "Settings workspace",
+        }}
+        onDeleteScenario={vi.fn(async () => ({ templates: [productionTemplate] }))}
+        onResetScenario={vi.fn(async () => ({ templates: [productionTemplate] }))}
+        onResetTemplate={vi.fn(async () => ({ templates: [productionTemplate] }))}
+        onSaveTemplate={save}
+        onSeedDefaults={seed}
+        settings={{ templates: [productionTemplate] }}
+      />,
+    );
+
+    expect(screen.getByText("Production proposal settings")).toBeTruthy();
+    expect(screen.getByText("Settings workspace")).toBeTruthy();
+    expect(screen.getByText("Template settings")).toBeTruthy();
+    expect(
+      screen.getByTestId("timeline-settings-template-blueprint-table"),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Draw scenarios" }));
+    expect(
+      await screen.findByTestId("timeline-settings-scenario-header"),
+    ).toBeTruthy();
+    expect(screen.getAllByDisplayValue("Standard").length).toBeGreaterThan(0);
+    expect(screen.getByDisplayValue("Foundation complete")).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Seed defaults to prod" }),
+    );
+    expect(screen.getByText("Seed production defaults?")).toBeTruthy();
   });
 });

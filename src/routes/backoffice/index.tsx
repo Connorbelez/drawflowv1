@@ -24,6 +24,10 @@ import {
   MoreHorizontal,
   Plus,
   Search,
+  Trash2,
+  UserPlus,
+  UserRound,
+  UserRoundX,
 } from "lucide-react";
 import { type ReactElement, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -35,6 +39,15 @@ import {
   KanbanHeader,
   KanbanProvider,
 } from "#/components/kibo-ui/kanban/index.tsx";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "#/components/ui/alert-dialog.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Calendar } from "#/components/ui/calendar.tsx";
@@ -67,6 +80,13 @@ import {
 } from "#/components/ui/dialog.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "#/components/ui/select.tsx";
 import {
   Sheet,
   SheetClose,
@@ -175,6 +195,11 @@ export interface ClosingConfirmationInput {
   reason: string;
 }
 
+export interface ProductionBuilderOption {
+  _id: string;
+  displayName: string;
+}
+
 export function normalizeProductionBackofficeDashboard(
   result: ProductionDashboardQueryResult
 ): ProductionBackofficeDashboardData {
@@ -196,6 +221,15 @@ function RouteComponent() {
   const recordClosing = useMutation(
     api.production_proposals.recordOfflineClosing
   );
+  const assignBuilder = useMutation(
+    api.production_proposals.assignDraftBuilder
+  );
+  const deleteDraft = useMutation(api.production_proposals.deleteDraftProposal);
+  const buildersResult = useQuery(
+    api.production_proposals.listBrokerageBuilders,
+    { workosOrganizationId }
+  );
+  const navigate = useNavigate();
 
   const dashboard = useMemo(
     () =>
@@ -218,7 +252,26 @@ function RouteComponent() {
 
   return (
     <BackofficeDashboard
+      builders={buildersResult ?? []}
       dashboard={dashboard}
+      onAssignBuilder={(proposal, builderProfileId) =>
+        assignBuilder({
+          builderProfileId: builderProfileId as Id<"builderProfiles">,
+          proposalId: (proposal.proposalId ??
+            proposal.id) as Id<"buildProposals">,
+          workosOrganizationId,
+        })
+      }
+      onDeleteDraft={(proposal) =>
+        deleteDraft({
+          proposalId: (proposal.proposalId ??
+            proposal.id) as Id<"buildProposals">,
+          workosOrganizationId,
+        })
+      }
+      onOpenUnassignedDrafts={() =>
+        navigate({ to: "/backoffice/proposals/unassigned" })
+      }
       onRecordClosing={(proposal, input) =>
         recordClosing({
           buildStartDate: input.buildStartDate,
@@ -232,15 +285,31 @@ function RouteComponent() {
           workosOrganizationId,
         })
       }
+      onStartNewBuildWorkflow={() =>
+        navigate({ to: "/backoffice/proposals/new" })
+      }
     />
   );
 }
 
 export function BackofficeDashboard({
+  builders,
   dashboard,
+  onAssignBuilder,
+  onDeleteDraft,
+  onOpenUnassignedDrafts,
+  onStartNewBuildWorkflow,
   onRecordClosing,
 }: {
+  builders: ProductionBuilderOption[];
   dashboard: ProductionBackofficeDashboardData;
+  onAssignBuilder: (
+    proposal: ProposalKanbanCard,
+    builderProfileId: string
+  ) => Promise<unknown>;
+  onDeleteDraft: (proposal: ProposalKanbanCard) => Promise<unknown>;
+  onOpenUnassignedDrafts: () => Promise<unknown> | unknown;
+  onStartNewBuildWorkflow: () => Promise<unknown> | unknown;
   onRecordClosing: (
     proposal: ProposalKanbanCard,
     input: ClosingConfirmationInput
@@ -277,7 +346,11 @@ export function BackofficeDashboard({
         <section className="flex min-w-0 flex-col gap-4">
           <DashboardToolbar />
           <MetricGrid dashboard={dashboard} />
-          <ActiveBuildsCard builds={dashboard.activeBuilds} />
+          <ActiveBuildsCard
+            builds={dashboard.activeBuilds}
+            onOpenUnassignedDrafts={onOpenUnassignedDrafts}
+            onStartNewBuildWorkflow={onStartNewBuildWorkflow}
+          />
           <SubmittedProposalsCard
             approvedPendingClosing={dashboard.approvedPendingClosing}
             onOpenProposal={setSidebarProposal}
@@ -289,7 +362,10 @@ export function BackofficeDashboard({
             milestones={dashboard.milestones}
           />
           <ProposalKanban
+            builders={builders}
             columns={dashboard.proposalColumns}
+            onAssignBuilder={onAssignBuilder}
+            onDeleteDraft={onDeleteDraft}
             onOpenApprovedProposal={setSidebarProposal}
             onRecordClosing={setClosingProposal}
             proposals={dashboard.proposals}
@@ -434,8 +510,17 @@ function openBackofficeBuildWorkspace(
   });
 }
 
-function ActiveBuildsCard({ builds }: { builds: ActiveBuild[] }) {
+export function ActiveBuildsCard({
+  builds,
+  onOpenUnassignedDrafts,
+  onStartNewBuildWorkflow,
+}: {
+  builds: ActiveBuild[];
+  onOpenUnassignedDrafts: () => Promise<unknown> | unknown;
+  onStartNewBuildWorkflow: () => Promise<unknown> | unknown;
+}) {
   const navigate = useNavigate();
+  const [newBuildPending, setNewBuildPending] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<
     ActiveBuild["status"] | "all"
@@ -545,101 +630,143 @@ function ActiveBuildsCard({ builds }: { builds: ActiveBuild[] }) {
   });
 
   return (
-    <Card id="active-builds">
-      <div className="flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="min-w-0 shrink-0">
-          <CardTitle className="text-base">Builds - Active</CardTitle>
-          <CardDescription>
-            {filteredBuilds.length} of {builds.length} builds in view
-          </CardDescription>
-        </div>
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 lg:justify-end">
-          <div className="relative w-full min-w-48 sm:w-auto sm:max-w-xs sm:flex-1 lg:flex-none">
-            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              aria-label="Search active builds"
-              className="pl-8"
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search ID, address, builder..."
-              type="search"
-              value={search}
-            />
+    <>
+      <Card id="active-builds">
+        <div className="flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0 shrink-0">
+            <CardTitle className="text-base">Builds - Active</CardTitle>
+            <CardDescription>
+              {filteredBuilds.length} of {builds.length} builds in view
+            </CardDescription>
           </div>
-          <div className="flex max-w-full shrink-0 overflow-x-auto rounded-lg border bg-background p-0.5">
-            {(["all", "onTrack", "behind", "overBudget"] as const).map(
-              (status) => (
-                <Button
-                  aria-pressed={statusFilter === status}
-                  className={cn(
-                    "h-7 shrink-0 rounded-md px-2 text-xs",
-                    statusFilter === status && "bg-secondary"
-                  )}
-                  key={status}
-                  onClick={() => setStatusFilter(status)}
-                  variant="ghost"
-                >
-                  {formatBuildStatusFilter(status)}
-                </Button>
-              )
-            )}
-          </div>
-          <Button className="shrink-0">
-            <Plus />
-            New Build
-          </Button>
-        </div>
-      </div>
-      <CardContent className="p-0">
-        <Table>
-          <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead
-                    className={cn(header.id === "actions" && "text-right")}
-                    key={header.id}
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 lg:justify-end">
+            <div className="relative w-full min-w-48 sm:w-auto sm:max-w-xs sm:flex-1 lg:flex-none">
+              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                aria-label="Search active builds"
+                className="pl-8"
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search ID, address, builder..."
+                type="search"
+                value={search}
+              />
+            </div>
+            <div className="flex max-w-full shrink-0 overflow-x-auto rounded-lg border bg-background p-0.5">
+              {(["all", "onTrack", "behind", "overBudget"] as const).map(
+                (status) => (
+                  <Button
+                    aria-pressed={statusFilter === status}
+                    className={cn(
+                      "h-7 shrink-0 rounded-md px-2 text-xs",
+                      statusFilter === status && "bg-secondary"
+                    )}
+                    key={status}
+                    onClick={() => setStatusFilter(status)}
+                    variant="ghost"
                   >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext()
-                        )}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {table.getRowModel().rows.map((row) => (
-              <TableRow
-                className="cursor-pointer"
-                key={row.id}
-                onClick={() => {
-                  openBackofficeBuildWorkspace(navigate, row.original);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
+                    {formatBuildStatusFilter(status)}
+                  </Button>
+                )
+              )}
+            </div>
+            <Button
+              className="shrink-0"
+              onClick={async () => {
+                try {
+                  await onOpenUnassignedDrafts();
+                } catch (error) {
+                  toast.error(
+                    error instanceof Error
+                      ? error.message
+                      : "Unable to open unassigned drafts."
+                  );
+                }
+              }}
+              variant="outline"
+            >
+              <FileText />
+              Unassigned drafts
+            </Button>
+            <Button
+              className="shrink-0"
+              loading={newBuildPending}
+              onClick={async () => {
+                setNewBuildPending(true);
+                try {
+                  await onStartNewBuildWorkflow();
+                } catch (error) {
+                  toast.error(
+                    error instanceof Error
+                      ? error.message
+                      : "Unable to start new build workflow."
+                  );
+                } finally {
+                  setNewBuildPending(false);
+                }
+              }}
+            >
+              <Plus />
+              New Build
+            </Button>
+          </div>
+        </div>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              {table.getHeaderGroups().map((headerGroup) => (
+                <TableRow key={headerGroup.id}>
+                  {headerGroup.headers.map((header) => (
+                    <TableHead
+                      className={cn(header.id === "actions" && "text-right")}
+                      key={header.id}
+                    >
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(
+                            header.column.columnDef.header,
+                            header.getContext()
+                          )}
+                    </TableHead>
+                  ))}
+                </TableRow>
+              ))}
+            </TableHeader>
+            <TableBody>
+              {table.getRowModel().rows.map((row) => (
+                <TableRow
+                  className="cursor-pointer"
+                  key={row.id}
+                  onClick={() => {
                     openBackofficeBuildWorkspace(navigate, row.original);
-                  }
-                }}
-                tabIndex={0}
-              >
-                {row.getVisibleCells().map((cell) => (
-                  <TableCell
-                    className={cn(cell.column.id === "actions" && "text-right")}
-                    key={cell.id}
-                  >
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </TableCell>
-                ))}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openBackofficeBuildWorkspace(navigate, row.original);
+                    }
+                  }}
+                  tabIndex={0}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <TableCell
+                      className={cn(
+                        cell.column.id === "actions" && "text-right"
+                      )}
+                      key={cell.id}
+                    >
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext()
+                      )}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </>
   );
 }
 
@@ -949,17 +1076,32 @@ function MilestoneCard({
   );
 }
 
-function ProposalKanban({
+export function ProposalKanban({
+  builders,
   columns,
+  onAssignBuilder,
+  onDeleteDraft,
   onOpenApprovedProposal,
   onRecordClosing,
   proposals,
 }: {
+  builders: ProductionBuilderOption[];
   columns: DashboardKanbanColumn[];
+  onAssignBuilder: (
+    proposal: ProposalKanbanCard,
+    builderProfileId: string
+  ) => Promise<unknown>;
+  onDeleteDraft: (proposal: ProposalKanbanCard) => Promise<unknown>;
   onOpenApprovedProposal: (proposal: ProposalKanbanCard) => void;
   onRecordClosing: (proposal: ProposalKanbanCard) => void;
   proposals: ProposalKanbanCard[];
 }) {
+  const [assignTarget, setAssignTarget] = useState<ProposalKanbanCard | null>(
+    null
+  );
+  const [deleteTarget, setDeleteTarget] = useState<ProposalKanbanCard | null>(
+    null
+  );
   const navigate = useNavigate();
   const [cards, setCards] = useState(proposals);
   const [activeProposal, setActiveProposal] =
@@ -1038,6 +1180,8 @@ function ProposalKanban({
                     {(card) => (
                       <ProposalCard
                         card={card}
+                        onAssignRequest={() => setAssignTarget(card)}
+                        onDeleteRequest={() => setDeleteTarget(card)}
                         onOpenApprovedProposal={onOpenApprovedProposal}
                         onRecordClosing={onRecordClosing}
                         onSelect={(selected) => {
@@ -1078,21 +1222,55 @@ function ProposalKanban({
           }
         }}
       />
+      <AssignBuilderDialog
+        builders={builders}
+        card={assignTarget}
+        onAssign={onAssignBuilder}
+        onOpenChange={(open) => {
+          if (!open) {
+            setAssignTarget(null);
+          }
+        }}
+      />
+      <DeleteDraftDialog
+        card={deleteTarget}
+        onDelete={onDeleteDraft}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null);
+          }
+        }}
+      />
     </>
   );
 }
 
+function isUnassignedProposalBuilder(builder: string | undefined) {
+  if (!builder) {
+    return true;
+  }
+  const normalized = builder.trim().toLowerCase();
+  return normalized === "" || normalized === "unassigned builder";
+}
+
 function ProposalCard({
   card,
+  onAssignRequest,
+  onDeleteRequest,
   onOpenApprovedProposal,
   onRecordClosing,
   onSelect,
 }: {
   card: ProposalKanbanCard;
+  onAssignRequest: () => void;
+  onDeleteRequest: () => void;
   onOpenApprovedProposal: (card: ProposalKanbanCard) => void;
   onRecordClosing: (card: ProposalKanbanCard) => void;
   onSelect: (card: ProposalKanbanCard) => void;
 }) {
+  const isDraft = card.column === "draft";
+  const assigned =
+    card.builderAssigned ?? !isUnassignedProposalBuilder(card.builder);
   const body = (
     <KanbanCard {...card} className="gap-3 p-3">
       <button
@@ -1105,9 +1283,20 @@ function ProposalCard({
           <div className="min-w-0">
             <p className="text-muted-foreground text-xs">{card.name}</p>
             <p className="truncate font-medium text-sm">{card.address}</p>
-            <p className="truncate text-muted-foreground text-xs">
-              {card.builder}
-            </p>
+            {assigned ? (
+              <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
+                <UserRound aria-hidden className="size-3.5 shrink-0" />
+                <span className="truncate">{card.builder}</span>
+              </span>
+            ) : (
+              <span
+                className="mt-0.5 flex min-w-0 items-center gap-1.5 text-warning text-xs"
+                data-testid="proposal-card-unassigned"
+              >
+                <UserRoundX aria-hidden className="size-3.5 shrink-0" />
+                <span className="truncate font-medium">Unassigned</span>
+              </span>
+            )}
             {card.isMockAddress || card.isMockBuilder ? (
               <div className="mt-1 flex flex-wrap gap-1">
                 {card.isMockAddress ? (
@@ -1142,16 +1331,256 @@ function ProposalCard({
     </KanbanCard>
   );
 
-  return card.column === "approved" ? (
-    <ApprovedProposalContextMenu
-      onOpenProposal={onOpenApprovedProposal}
-      onRecordClosing={onRecordClosing}
+  return (
+    <ProposalContextMenu
+      onAssignRequest={onAssignRequest}
+      onDeleteRequest={onDeleteRequest}
+      onOpen={() =>
+        card.column === "approved"
+          ? onOpenApprovedProposal(card)
+          : onSelect(card)
+      }
+      onRecordClosing={() => onRecordClosing(card)}
       proposal={card}
+      showAssign={isDraft && !assigned}
+      showDelete={isDraft}
+      showRecordClosing={card.column === "approved"}
     >
       {body}
-    </ApprovedProposalContextMenu>
-  ) : (
-    body
+    </ProposalContextMenu>
+  );
+}
+
+function ProposalContextMenu({
+  children,
+  onAssignRequest,
+  onDeleteRequest,
+  onOpen,
+  onRecordClosing,
+  proposal,
+  showAssign,
+  showDelete,
+  showRecordClosing,
+}: {
+  children: ReactElement;
+  onAssignRequest: () => void;
+  onDeleteRequest: () => void;
+  onOpen: () => void;
+  onRecordClosing: () => void;
+  proposal: ProposalKanbanCard;
+  showAssign: boolean;
+  showDelete: boolean;
+  showRecordClosing: boolean;
+}) {
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger>{children}</ContextMenuTrigger>
+      <ContextMenuContent className="w-56">
+        <ContextMenuGroup>
+          <ContextMenuLabel className="truncate">
+            {proposal.name}
+          </ContextMenuLabel>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={onOpen}>
+            <FileText aria-hidden />
+            Open
+          </ContextMenuItem>
+          {showAssign ? (
+            <ContextMenuItem onClick={onAssignRequest}>
+              <UserPlus aria-hidden />
+              Assign builder
+            </ContextMenuItem>
+          ) : null}
+          {showRecordClosing ? (
+            <ContextMenuItem onClick={onRecordClosing}>
+              <ClipboardCheck aria-hidden />
+              Record closing
+            </ContextMenuItem>
+          ) : null}
+          {showDelete ? (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem onClick={onDeleteRequest} variant="destructive">
+                <Trash2 aria-hidden />
+                Delete draft
+              </ContextMenuItem>
+            </>
+          ) : null}
+        </ContextMenuGroup>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+function AssignBuilderDialog({
+  builders,
+  card,
+  onAssign,
+  onOpenChange,
+}: {
+  builders: ProductionBuilderOption[];
+  card: ProposalKanbanCard | null;
+  onAssign: (
+    proposal: ProposalKanbanCard,
+    builderProfileId: string
+  ) => Promise<unknown>;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [selected, setSelected] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const cardKey = card?.proposalId ?? card?.id ?? null;
+
+  useEffect(() => {
+    setSelected(null);
+    setError(null);
+    setPending(false);
+  }, [cardKey]);
+
+  async function handleAssign() {
+    if (!(card && selected)) {
+      return;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      await onAssign(card, selected);
+      onOpenChange(false);
+    } catch (assignError) {
+      setError(
+        assignError instanceof Error
+          ? assignError.message
+          : "Could not assign builder."
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <Dialog onOpenChange={onOpenChange} open={card !== null}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Assign builder</DialogTitle>
+          <DialogDescription>
+            {card
+              ? `Assign a builder to "${card.name}". This is only available while the proposal is an unassigned draft.`
+              : null}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel>
+          {builders.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              No active builders are available in this brokerage yet.
+            </p>
+          ) : (
+            <Select
+              onValueChange={(value) => setSelected(value as string)}
+              value={selected ?? undefined}
+            >
+              <SelectTrigger data-testid="assign-builder-select">
+                <SelectValue placeholder="Select a builder" />
+              </SelectTrigger>
+              <SelectContent>
+                {builders.map((builder) => (
+                  <SelectItem key={builder._id} value={builder._id}>
+                    {builder.displayName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {error ? (
+            <p className="mt-2 text-destructive text-sm" role="alert">
+              {error}
+            </p>
+          ) : null}
+        </DialogPanel>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline">Cancel</Button>} />
+          <Button
+            data-testid="assign-builder-confirm"
+            disabled={!selected}
+            loading={pending}
+            onClick={handleAssign}
+          >
+            Assign builder
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DeleteDraftDialog({
+  card,
+  onDelete,
+  onOpenChange,
+}: {
+  card: ProposalKanbanCard | null;
+  onDelete: (proposal: ProposalKanbanCard) => Promise<unknown>;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const cardKey = card?.proposalId ?? card?.id ?? null;
+
+  useEffect(() => {
+    setError(null);
+    setPending(false);
+  }, [cardKey]);
+
+  async function handleDelete() {
+    if (!card) {
+      return;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      await onDelete(card);
+      onOpenChange(false);
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Could not delete draft."
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <AlertDialog onOpenChange={onOpenChange} open={card !== null}>
+      <AlertDialogContent className="sm:max-w-md">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete draft proposal</AlertDialogTitle>
+          <AlertDialogDescription>
+            {card
+              ? `"${card.name}" and its draft plan will be permanently removed. This cannot be undone.`
+              : null}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {error ? (
+          <p className="px-6 text-destructive text-sm" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <AlertDialogFooter>
+          <AlertDialogClose
+            render={<Button variant="outline">Cancel</Button>}
+          />
+          <Button
+            data-testid="delete-draft-confirm"
+            loading={pending}
+            onClick={handleDelete}
+            variant="destructive"
+          >
+            Delete draft
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 

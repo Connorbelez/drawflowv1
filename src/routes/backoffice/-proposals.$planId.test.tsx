@@ -38,15 +38,15 @@ vi.mock("#/components/roadmap/AnimatedCurvedTimeline.tsx", () => ({
   ),
 }));
 
-vi.mock("../demo/timeline/-TimelineEndNodeButton.tsx", () => ({
+vi.mock("#/features/timeline-workspace/-TimelineEndNodeButton.tsx", () => ({
   TimelineEndNodeButton: () => <div data-testid="mocked-end-node" />,
 }));
 
-vi.mock("../demo/timeline/-TimelineCashflowCompoundChart.tsx", () => ({
+vi.mock("#/features/timeline-workspace/-TimelineCashflowCompoundChart.tsx", () => ({
   TimelineCashflowCompoundChart: () => <div data-testid="mocked-cashflow" />,
 }));
 
-vi.mock("../demo/timeline/-TimelineDrawAvailabilityChart.tsx", () => ({
+vi.mock("#/features/timeline-workspace/-TimelineDrawAvailabilityChart.tsx", () => ({
   TimelineDrawAvailabilityChart: () => <div data-testid="mocked-draw-chart" />,
 }));
 

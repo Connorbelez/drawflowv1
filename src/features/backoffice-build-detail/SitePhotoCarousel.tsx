@@ -47,11 +47,11 @@ export function SitePhotoCarousel({ photos }: SitePhotoCarouselProps) {
   const paint = paintFromUrl(active.url);
   return (
     <article
-      className="flex h-full flex-col gap-2 rounded-xl border border-border bg-card p-3"
+      className="flex h-full min-h-[18rem] flex-col gap-2 rounded-xl border border-border bg-card p-3"
       data-testid="build-detail-site-photos"
     >
-      <header className="flex items-baseline justify-between gap-2">
-        <h3 className="truncate font-semibold text-sm">
+      <header className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-2">
+        <h3 className="min-w-0 font-semibold text-sm">
           <span className="text-muted-foreground">Site photos · </span>
           {active.caption}
         </h3>
@@ -63,7 +63,7 @@ export function SitePhotoCarousel({ photos }: SitePhotoCarouselProps) {
       <div className="relative min-h-0 flex-1">
         <div
           aria-label={active.caption}
-          className="relative h-full min-h-[220px] w-full overflow-hidden rounded-lg border border-border"
+          className="relative h-full min-h-[200px] w-full overflow-hidden rounded-lg border border-border sm:min-h-[220px]"
           role="img"
           style={{ background: paint.background }}
         >

@@ -5,12 +5,12 @@ import type {
 import type {
   TimelineCashflowCompoundDatum,
   TimelineCashflowReferenceLine,
-} from "#/routes/demo/timeline/-TimelineCashflowCompoundChart.tsx";
+} from "#/features/timeline-workspace/-TimelineCashflowCompoundChart.tsx";
 import type {
   TimelineDrawAvailabilityDatum,
   TimelineDrawAvailabilityReferenceLine,
-} from "#/routes/demo/timeline/-TimelineDrawAvailabilityChart.tsx";
-import type { DemoMilestone } from "#/routes/demo/timeline/-timeline-share-snapshot.ts";
+} from "#/features/timeline-workspace/-TimelineDrawAvailabilityChart.tsx";
+import type { DemoMilestone } from "#/features/timeline-workspace/-timeline-share-snapshot.ts";
 
 import type { ProductionProposalDetail } from "./ProductionProposalSurfaces.tsx";
 

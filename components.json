@@ -29,6 +29,7 @@
     "@coss": "https://coss.com/ui/r/{name}.json",
     "@magicui": "https://magicui.design/r/{name}",
     "@evilcharts": "https://evilcharts.com/r/{name}.json",
-    "@eldoraui": "https://eldoraui.site/r/{name}.json"
+    "@eldoraui": "https://eldoraui.site/r/{name}.json",
+    "@ncdai": "https://chanhdai.com/r/{name}.json"
   }
 }

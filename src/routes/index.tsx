@@ -37,7 +37,7 @@ function App() {
       <BlueprintCorners />
 
       <div className="lbp-frame mx-auto max-w-6xl px-6 pt-4 pb-28 sm:px-10">
-        <Header />
+        <Header enableLandingMobileMenu />
 
         <Hero />
         <SectionRule />

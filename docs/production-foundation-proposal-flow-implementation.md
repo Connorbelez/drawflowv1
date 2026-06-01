@@ -29,9 +29,22 @@ Created: 2026-05-27
   - `/backoffice/proposals`
   - `/backoffice/proposals/$planId` with production-first detection and demo fallback
   - `/backoffice/builds/$buildId` with production active-build detection and demo fallback
-- Added the production proposal-flow settings slice to `/backoffice/settings`
-  while preserving the existing demo settings workspace below it.
+- Migrated the full timeline demo settings workspace interface into the
+  production proposal-flow settings slice in `/backoffice/settings`. The
+  production workspace now reuses the same tabbed template rail, milestone
+  worksheet, scenario editor, cashflow preview, seed confirmation, save
+  confirmation, and reset/delete controls as the demo workspace.
+- Added tenant-scoped production scenario draw rows for template defaults so
+  **Seed defaults to prod** ports the demo milestone setup, field guidance, draw
+  scenario timing, and reimbursement percentages into production tables without
+  mutating demo tables.
 - Added production proposal UI surfaces under `src/features/production-proposals/`.
+- `/backoffice/proposals/$planId` now uses a single tabbed production review
+  workspace. The default tab is the reused live timeline workspace with its
+  cashflow/roadmap/draw-availability analysis; secondary tabs hold review
+  decisions, draw schedule edits, the compact proposal packet, and closing.
+  The old duplicate full proposal package below the timeline is not rendered on
+  the production detail route.
 - `/builder/proposals/new` now reuses the demo Timeline Setup flow for the
   production proposal intake screen and maps the generated milestone worksheet
   directly into production Build Proposal rows. Builders resolve brokerage,

@@ -27,6 +27,8 @@ import type * as demo_timeline_snapshots from "../demo_timeline_snapshots.js";
 import type * as fluent from "../fluent.js";
 import type * as http from "../http.js";
 import type * as production_proposals from "../production_proposals.js";
+import type * as proposal_collaboration from "../proposal_collaboration.js";
+import type * as proposal_collaboration_model from "../proposal_collaboration_model.js";
 import type * as todos from "../todos.js";
 import type * as types from "../types.js";
 import type * as workosManagement from "../workosManagement.js";
@@ -58,6 +60,8 @@ declare const fullApi: ApiFromModules<{
   fluent: typeof fluent;
   http: typeof http;
   production_proposals: typeof production_proposals;
+  proposal_collaboration: typeof proposal_collaboration;
+  proposal_collaboration_model: typeof proposal_collaboration_model;
   todos: typeof todos;
   types: typeof types;
   workosManagement: typeof workosManagement;
@@ -92,4 +96,6 @@ export declare const internal: FilterApi<
 
 export declare const components: {
   workOSAuthKit: import("@convex-dev/workos-authkit/_generated/component.js").ComponentApi<"workOSAuthKit">;
+  presence: import("@convex-dev/presence/_generated/component.js").ComponentApi<"presence">;
+  timeline: import("convex-timeline/_generated/component.js").ComponentApi<"timeline">;
 };

@@ -5,8 +5,8 @@ import { Loader2 } from "lucide-react";
 
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-import { convexWorkspaceToTimelineState } from "#/routes/demo/timeline/-timeline-convex-adapter";
-import { TimelineDemoWorkspace } from "#/routes/demo/timeline/index";
+import { convexWorkspaceToTimelineState } from "#/features/timeline-workspace/-timeline-convex-adapter";
+import { TimelineWorkspace } from "#/features/timeline-workspace/index";
 
 interface BuildTimelinePanelProps {
   timelinePlanId: Id<"demo_timelinePlans"> | null;
@@ -52,10 +52,11 @@ export function BuildTimelinePanel({ timelinePlanId }: BuildTimelinePanelProps) 
       className="rounded-xl border border-border bg-card"
       data-testid="build-detail-timeline"
     >
-      <TimelineDemoWorkspace
+      <TimelineWorkspace
         durablePlanId={timelinePlanId}
         initialRole="lender"
         initialState={convexWorkspaceToTimelineState(workspace)}
+        workspaceMode="demo"
         planSummary={{
           includedCount: workspace.milestones.length,
           templateTitle: workspace.plan.buildName,

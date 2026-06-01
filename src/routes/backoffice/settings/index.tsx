@@ -17,7 +17,6 @@ import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Card } from "#/components/ui/card.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
-import { ProductionProposalSettingsSurface } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
 import {
   getVisualParitySettings,
   isProductionVisualParityFixtureEnabled,
@@ -60,16 +59,16 @@ import {
   type TimelineSettingsTemplateDraft,
   validateScenarioDrafts,
   validateTemplateDraft,
-} from "../../demo/timeline/-timeline-demo-settings-adapter.ts";
+} from "#/features/timeline-workspace/-timeline-demo-settings-adapter.ts";
 import {
   getCashflowCompoundExtent,
   TimelineCashflowCompoundChart,
   type TimelineCashflowCompoundDatum,
-} from "../../demo/timeline/-TimelineCashflowCompoundChart.tsx";
+} from "#/features/timeline-workspace/-TimelineCashflowCompoundChart.tsx";
 import {
   TimelineMilestoneWorksheetTable,
   type TimelineMilestoneWorksheetRow,
-} from "../../demo/timeline/-TimelineMilestoneWorksheetTable.tsx";
+} from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
 
 export const Route = createFileRoute("/backoffice/settings/")({
   component: RouteComponent,
@@ -116,7 +115,6 @@ const SETTINGS_TAB_PANEL_VARIANTS = {
 function RouteComponent() {
   const context = Route.useRouteContext();
   const workosOrganizationId = context.organizationId as string;
-  const prefersReducedMotion = useReducedMotion();
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
   const productionSettingsQuery = useQuery(
     api.production_proposals.getProductionProposalSettings,
@@ -125,8 +123,20 @@ function RouteComponent() {
   const productionSettings = visualFixtureEnabled
     ? getVisualParitySettings()
     : productionSettingsQuery;
-  const seedProductionFoundation = useMutation(
-    api.production_proposals.dev_seedProductionFoundation,
+  const seedProductionDefaultsToProd = useMutation(
+    api.production_proposals.seedProductionDefaultsToProd,
+  );
+  const saveProductionTemplate = useMutation(
+    api.production_proposals.saveProductionProposalTemplateConfiguration,
+  );
+  const deleteProductionScenario = useMutation(
+    api.production_proposals.deleteProductionDrawScenario,
+  );
+  const resetProductionTemplate = useMutation(
+    api.production_proposals.resetProductionTemplateToDefaults,
+  );
+  const resetProductionScenario = useMutation(
+    api.production_proposals.resetProductionDrawScenarioToDefaults,
   );
   const settings = useQuery(api.demo_settings.getTimelineDemoSettings, {});
   const seedDefaults = useMutation(api.demo_settings.seedTimelineDemoDefaults);
@@ -142,6 +152,187 @@ function RouteComponent() {
   const resetScenario = useMutation(
     api.demo_settings.resetTimelineDrawScenarioToDefaults,
   );
+
+  return (
+    <main className="min-h-svh bg-[radial-gradient(circle_at_12%_0%,color-mix(in_oklch,var(--primary)_12%,transparent),transparent_32rem),var(--bg-base)] px-4 py-5 text-fg-primary sm:px-6 lg:px-8">
+      <div className="mx-auto grid max-w-[1800px] gap-5">
+        <header className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+          <div>
+            <Badge variant="outline" className="mb-3 w-fit">
+              Backoffice / Settings
+            </Badge>
+            <h1 className="font-semibold text-3xl tracking-normal sm:text-4xl">
+              Settings
+            </h1>
+            <p className="mt-2 max-w-3xl text-muted-foreground text-sm leading-6">
+              Production proposal-flow settings are tenant scoped and now use
+              the same full timeline settings workspace as the demo reference.
+            </p>
+          </div>
+        </header>
+
+        <TimelineSettingsWorkspace
+          labels={{
+            emptyBody:
+              "Seed tenant-scoped production defaults to create proposal templates, milestone worksheets, draw scenarios, and workflow rules.",
+            emptyTitle: "Production defaults needed",
+            eyebrow: "Production proposal settings",
+            loadingText: "Loading production proposal settings...",
+            sectionLabel: "Production",
+            seedButtonLabel: "Seed defaults to prod",
+            seedConfirmBody:
+              "This upserts production proposal templates, milestone worksheets, draw scenario rows, and workflow rules for the current WorkOS organization.",
+            seedConfirmTitle: "Seed production defaults?",
+            title: "Settings workspace",
+          }}
+          onDeleteScenario={(template, scenario) =>
+            deleteProductionScenario({
+              scenarioKey: scenario.scenarioKey,
+              templateKey: template.templateKey,
+              workosOrganizationId,
+            })
+          }
+          onResetScenario={(template, scenarioKey) =>
+            resetProductionScenario({
+              scenarioKey,
+              templateKey: template.templateKey,
+              workosOrganizationId,
+            })
+          }
+          onResetTemplate={(template) =>
+            resetProductionTemplate({
+              templateKey: template.templateKey,
+              workosOrganizationId,
+            })
+          }
+          onSaveTemplate={(template) =>
+            saveProductionTemplate({
+              milestones: template.milestones,
+              scenarios: template.scenarios,
+              template: {
+                description: template.description,
+                isDefault: template.isDefault,
+                summary: template.summary,
+                templateKey: template.templateKey,
+                title: template.title,
+              },
+              workosOrganizationId,
+            })
+          }
+          onSeedDefaults={() =>
+            seedProductionDefaultsToProd({ workosOrganizationId })
+          }
+          seedSuccessMessage={(result) =>
+            `Seeded ${result.templates} production templates, ${result.milestones} milestones, and ${result.draws ?? 0} draw rows.`
+          }
+          settings={productionSettings}
+        />
+
+        <TimelineSettingsWorkspace
+          labels={{
+            emptyBody:
+              "Seed deletes existing timeline demo templates, worksheet rows, scenarios, and draw rows before restoring the canonical defaults.",
+            emptyTitle: "Configuration needed",
+            eyebrow: "Timeline demo",
+            loadingText: "Loading timeline demo settings...",
+            sectionLabel: "Demos",
+            seedButtonLabel: "Seed defaults",
+            seedConfirmBody:
+              "This deletes existing timeline demo templates, worksheet rows, scenarios, and draw rows before restoring the canonical defaults.",
+            seedConfirmTitle: "Reset timeline demo defaults?",
+            title: "Settings workspace",
+          }}
+          onDeleteScenario={(_template, scenario) =>
+            deleteScenarioMutation({
+              scenarioKey: scenario.scenarioKey,
+              templateKey: _template.templateKey,
+            })
+          }
+          onResetScenario={(template, scenarioKey) =>
+            resetScenario({
+              scenarioKey,
+              templateKey: template.templateKey,
+            })
+          }
+          onResetTemplate={(template) =>
+            resetTemplate({ templateKey: template.templateKey })
+          }
+          onSaveTemplate={(template) =>
+            saveTemplate({
+              milestones: template.milestones,
+              scenarios: template.scenarios,
+              template: {
+                description: template.description,
+                isDefault: template.isDefault,
+                summary: template.summary,
+                templateKey: template.templateKey,
+                title: template.title,
+              },
+            })
+          }
+          onSeedDefaults={() => seedDefaults({})}
+          seedSuccessMessage={(result) =>
+            `Seeded ${result.templates} templates, ${result.milestones} milestones, ${result.scenarios} scenarios.`
+          }
+          settings={settings}
+          traceRefs={[
+            TIMELINE_DEMO_SETTINGS_CONTRACT_REFS.worksheet,
+            TIMELINE_DEMO_SETTINGS_CONTRACT_REFS.scenario,
+          ]}
+        />
+      </div>
+    </main>
+  );
+}
+
+type TimelineSettingsWorkspaceLabels = {
+  emptyBody: string;
+  emptyTitle: string;
+  eyebrow: string;
+  loadingText: string;
+  sectionLabel: string;
+  seedButtonLabel: string;
+  seedConfirmBody: string;
+  seedConfirmTitle: string;
+  title: string;
+};
+
+type TimelineSettingsMutationResult =
+  | { settings?: unknown; [key: string]: unknown }
+  | unknown;
+
+export function TimelineSettingsWorkspace({
+  labels,
+  onDeleteScenario,
+  onResetScenario,
+  onResetTemplate,
+  onSaveTemplate,
+  onSeedDefaults,
+  seedSuccessMessage,
+  settings,
+  traceRefs = [],
+}: {
+  labels: TimelineSettingsWorkspaceLabels;
+  onDeleteScenario: (
+    template: TimelineSettingsTemplateDraft,
+    scenario: TimelineSettingsScenarioDraft,
+  ) => Promise<TimelineSettingsMutationResult>;
+  onResetScenario: (
+    template: TimelineSettingsTemplateDraft,
+    scenarioKey: string,
+  ) => Promise<TimelineSettingsMutationResult>;
+  onResetTemplate: (
+    template: TimelineSettingsTemplateDraft,
+  ) => Promise<TimelineSettingsMutationResult>;
+  onSaveTemplate: (
+    template: TimelineSettingsTemplateDraft,
+  ) => Promise<TimelineSettingsMutationResult>;
+  onSeedDefaults: () => Promise<TimelineSettingsMutationResult>;
+  seedSuccessMessage?: (result: any) => string;
+  settings: any;
+  traceRefs?: readonly (readonly string[])[];
+}) {
+  const prefersReducedMotion = useReducedMotion();
   const canonicalTemplates = useMemo(
     () => normalizeTimelineSettingsProjection(settings),
     [settings],
@@ -164,11 +355,16 @@ function RouteComponent() {
 
   useEffect(() => {
     if (canonicalTemplates.length === 0) {
+      setDrafts([]);
       return;
     }
-    setDrafts((current) => (current.length > 0 ? current : canonicalTemplates));
-    setSelectedTemplateKey(
-      (current) => current || canonicalTemplates[0].templateKey,
+    setDrafts((current) =>
+      current.length > 0 ? current : canonicalTemplates,
+    );
+    setSelectedTemplateKey((current) =>
+      canonicalTemplates.some((template) => template.templateKey === current)
+        ? current
+        : canonicalTemplates[0]?.templateKey || "",
     );
     setSelectedScenarioKeyByTemplate((current) => {
       const next = { ...current };
@@ -217,6 +413,34 @@ function RouteComponent() {
     canonicalTemplates.length === 0 ||
     (settings.completeness?.missingTemplateKeys?.length ?? 0) > 0;
 
+  function setTemplatesFromResult(result: TimelineSettingsMutationResult) {
+    const projection =
+      result && typeof result === "object" && "settings" in result
+        ? (result as { settings?: unknown }).settings
+        : result;
+    const nextTemplates = normalizeTimelineSettingsProjection(
+      projection as any,
+    );
+    setDrafts(nextTemplates);
+    setSelectedTemplateKey((current) =>
+      nextTemplates.some((template) => template.templateKey === current)
+        ? current
+        : nextTemplates[0]?.templateKey || "",
+    );
+    setSelectedScenarioKeyByTemplate(
+      Object.fromEntries(
+        nextTemplates.map((template) => [
+          template.templateKey,
+          getActiveScenario(template)?.scenarioKey ||
+            template.scenarios[0]?.scenarioKey ||
+            "",
+        ]),
+      ),
+    );
+    setDirtyTemplates({});
+    setDirtyScenarios({});
+  }
+
   function updateSelectedTemplate(
     updater: (
       template: TimelineSettingsTemplateDraft,
@@ -250,31 +474,12 @@ function RouteComponent() {
     setSaving(true);
     setActionError("");
     try {
-      const result = await seedDefaults({});
-      const nextTemplates = normalizeTimelineSettingsProjection(
-        result.settings ?? result,
-      );
+      const result = await onSeedDefaults();
+      setTemplatesFromResult(result);
       toast.success(
-        `Seeded ${result.templates} templates, ${result.milestones} milestones, ${result.scenarios} scenarios.`,
+        seedSuccessMessage?.(result) ??
+          `Seeded ${canonicalTemplates.length} templates.`,
       );
-      setDrafts(nextTemplates);
-      setSelectedTemplateKey((current) =>
-        nextTemplates.some((template) => template.templateKey === current)
-          ? current
-          : nextTemplates[0]?.templateKey || "",
-      );
-      setSelectedScenarioKeyByTemplate(
-        Object.fromEntries(
-          nextTemplates.map((template) => [
-            template.templateKey,
-            getActiveScenario(template)?.scenarioKey ||
-              template.scenarios[0]?.scenarioKey ||
-              "",
-          ]),
-        ),
-      );
-      setDirtyTemplates({});
-      setDirtyScenarios({});
       setPendingConfirmation(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Seed failed.";
@@ -295,27 +500,9 @@ function RouteComponent() {
     setSaving(true);
     setActionError("");
     try {
-      const result = await saveTemplate({
-        milestones: selectedTemplate.milestones,
-        scenarios: selectedTemplate.scenarios,
-        template: {
-          description: selectedTemplate.description,
-          isDefault: selectedTemplate.isDefault,
-          summary: selectedTemplate.summary,
-          templateKey: selectedTemplate.templateKey,
-          title: selectedTemplate.title,
-        },
-      });
+      const result = await onSaveTemplate(selectedTemplate);
       toast.success(`${selectedTemplate.title} saved.`);
-      setDrafts(normalizeTimelineSettingsProjection(result));
-      setDirtyTemplates((current) => ({
-        ...current,
-        [selectedTemplate.templateKey]: false,
-      }));
-      setDirtyScenarios((current) => ({
-        ...current,
-        [selectedTemplate.templateKey]: false,
-      }));
+      setTemplatesFromResult(result);
       setPendingConfirmation(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Save failed.";
@@ -334,13 +521,18 @@ function RouteComponent() {
       setActionError("Active scenario cannot be deleted.");
       return;
     }
-    if (scenario.isDefault) {
+    const canonicalTemplate = canonicalTemplates.find(
+      (template) => template.templateKey === selectedTemplate.templateKey,
+    );
+    const persisted = Boolean(
+      canonicalTemplate?.scenarios.some(
+        (row) => row.scenarioKey === scenario.scenarioKey,
+      ),
+    );
+    if (persisted) {
       try {
-        const result = await deleteScenarioMutation({
-          scenarioKey: scenario.scenarioKey,
-          templateKey: selectedTemplate.templateKey,
-        });
-        setDrafts(normalizeTimelineSettingsProjection(result));
+        const result = await onDeleteScenario(selectedTemplate, scenario);
+        setTemplatesFromResult(result);
         toast.success("Scenario deleted.");
       } catch (error) {
         const message =
@@ -361,292 +553,282 @@ function RouteComponent() {
     );
   }
 
+  async function handleResetTemplate() {
+    if (!selectedTemplate) {
+      return;
+    }
+    try {
+      const result = await onResetTemplate(selectedTemplate);
+      setTemplatesFromResult(result);
+      toast.success(`${selectedTemplate.title} reset.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Reset failed.";
+      setActionError(message);
+      toast.error(message);
+    }
+  }
+
+  async function handleResetScenario(scenarioKey: string) {
+    if (!selectedTemplate) {
+      return;
+    }
+    try {
+      const result = await onResetScenario(selectedTemplate, scenarioKey);
+      setTemplatesFromResult(result);
+      toast.success("Scenario reset.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Reset failed.";
+      setActionError(message);
+      toast.error(message);
+    }
+  }
+
   return (
-    <main className="min-h-svh bg-[radial-gradient(circle_at_12%_0%,color-mix(in_oklch,var(--primary)_12%,transparent),transparent_32rem),var(--bg-base)] px-4 py-5 text-fg-primary sm:px-6 lg:px-8">
-      <div className="mx-auto grid max-w-[1800px] gap-5">
-        <header className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-          <div>
-            <Badge variant="outline" className="mb-3 w-fit">
-              Backoffice / Settings
-            </Badge>
-            <h1 className="font-semibold text-3xl tracking-normal sm:text-4xl">
-              Settings
-            </h1>
-            <p className="mt-2 max-w-3xl text-muted-foreground text-sm leading-6">
-              Production proposal-flow settings are tenant scoped. Demo
-              timeline settings remain below as a public parity reference.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              onClick={() => setPendingConfirmation("seed")}
-              size="sm"
-              variant={requiresSeed ? "default" : "outline"}
-            >
-              <Database />
-              Seed defaults
-            </Button>
-            <Button
-              disabled={!selectedTemplate}
-              onClick={() => setPendingConfirmation("save")}
-              size="sm"
-            >
-              <Save />
-              Save template
-            </Button>
-          </div>
-        </header>
-
-        <ProductionProposalSettingsSurface
-          onSeed={() =>
-            void seedProductionFoundation({ workosOrganizationId }).then(() =>
-              toast.success("Production proposal foundation seeded."),
-            )
-          }
-          settings={productionSettings}
-        />
-
-        <StatusStrip settings={settings} templates={drafts} />
-
-        <section className="grid gap-3">
-          <div
-            aria-label="Settings sections"
-            className="inline-flex w-fit rounded-lg bg-muted p-1"
-            role="tablist"
+    <>
+      <StatusStrip settings={settings} templates={drafts} />
+      <section className="grid gap-3">
+        <div
+          aria-label="Settings sections"
+          className="inline-flex w-fit rounded-lg bg-muted p-1"
+          role="tablist"
+        >
+          <button
+            aria-selected="true"
+            className={tabClass(true)}
+            role="tab"
+            type="button"
           >
-            <button
-              aria-selected="true"
-              className={tabClass(true)}
-              role="tab"
-              type="button"
-            >
-              Demos
-              <Badge className="ml-2" variant="success">
-                Active
-              </Badge>
-            </button>
-          </div>
-          <Frame className="min-w-0 overflow-hidden rounded-lg">
-            <FramePanel className="overflow-hidden p-0">
-              <div className="flex flex-col gap-3 border-b bg-muted/40 px-4 py-4 xl:flex-row xl:items-center xl:justify-between">
+            {labels.sectionLabel}
+            <Badge className="ml-2" variant="success">
+              Active
+            </Badge>
+          </button>
+        </div>
+        <Frame className="min-w-0 overflow-hidden rounded-lg">
+          <FramePanel className="overflow-hidden p-0">
+            <div className="flex flex-col gap-3 border-b bg-muted/40 px-4 py-4 xl:flex-row xl:items-center xl:justify-between">
               <div>
                 <div className="text-muted-foreground text-xs uppercase tracking-[0.08em]">
-                  Timeline demo
+                  {labels.eyebrow}
                 </div>
                 <h2 className="font-semibold text-xl tracking-normal">
-                  Settings workspace
+                  {labels.title}
                 </h2>
               </div>
               <div className="flex flex-wrap items-center gap-2 text-xs">
-                <TraceBadge
-                  ids={TIMELINE_DEMO_SETTINGS_CONTRACT_REFS.worksheet}
-                />
-                <TraceBadge
-                  ids={TIMELINE_DEMO_SETTINGS_CONTRACT_REFS.scenario}
-                />
-              </div>
-              </div>
-
-              {settings === undefined ? (
-                <div className="p-6 text-muted-foreground text-sm">
-                  Loading timeline demo settings...
-                </div>
-              ) : drafts.length === 0 ? (
-                <EmptySeedState onSeed={() => setPendingConfirmation("seed")} />
-              ) : (
-                <motion.div
-                  className={cn(
-                    "grid min-h-[760px] gap-0",
-                    activeTab === "scenarios"
-                      ? "lg:grid-cols-[150px_minmax(0,1fr)]"
-                      : "lg:grid-cols-[300px_minmax(0,1fr)]",
-                  )}
-                  layout={!prefersReducedMotion}
-                  transition={tabMotionTransition}
+                {traceRefs.map((ids) => (
+                  <TraceBadge ids={ids} key={ids.join(":")} />
+                ))}
+                <Button
+                  onClick={() => setPendingConfirmation("seed")}
+                  size="sm"
+                  variant={requiresSeed ? "default" : "outline"}
                 >
-                  <TemplateRail
-                    activeTab={activeTab}
-                    dirtyScenarios={dirtyScenarios}
-                    dirtyTemplates={dirtyTemplates}
-                    onSelect={(templateKey) => {
-                      setSelectedTemplateKey(templateKey);
-                      setActionError("");
-                    }}
-                    selectedTemplateKey={selectedTemplate?.templateKey ?? ""}
-                    templates={drafts}
-                    reducedMotion={Boolean(prefersReducedMotion)}
-                  />
+                  <Database />
+                  {labels.seedButtonLabel}
+                </Button>
+                <Button
+                  disabled={!selectedTemplate}
+                  onClick={() => setPendingConfirmation("save")}
+                  size="sm"
+                >
+                  <Save />
+                  Save template
+                </Button>
+              </div>
+            </div>
 
-                  {selectedTemplate ? (
-                    <div className="min-w-0">
-                      <div className="sticky top-0 z-10 border-b bg-card/95 px-4 py-3 backdrop-blur">
-                        <div className="inline-flex w-fit rounded-lg bg-muted p-1">
-                          <button
-                            className={tabClass(activeTab === "template")}
-                            onClick={() => setActiveTab("template")}
-                            type="button"
-                          >
-                            Template settings
-                          </button>
-                          <button
-                            className={tabClass(activeTab === "scenarios")}
-                            onClick={() => setActiveTab("scenarios")}
-                            type="button"
-                          >
-                            Draw scenarios
-                          </button>
-                        </div>
+            {settings === undefined ? (
+              <div className="p-6 text-muted-foreground text-sm">
+                {labels.loadingText}
+              </div>
+            ) : drafts.length === 0 ? (
+              <EmptySeedState
+                body={labels.emptyBody}
+                onSeed={() => setPendingConfirmation("seed")}
+                seedButtonLabel={labels.seedButtonLabel}
+                title={labels.emptyTitle}
+              />
+            ) : (
+              <motion.div
+                className={cn(
+                  "grid min-h-[760px] gap-0",
+                  activeTab === "scenarios"
+                    ? "lg:grid-cols-[150px_minmax(0,1fr)]"
+                    : "lg:grid-cols-[300px_minmax(0,1fr)]",
+                )}
+                layout={!prefersReducedMotion}
+                transition={tabMotionTransition}
+              >
+                <TemplateRail
+                  activeTab={activeTab}
+                  dirtyScenarios={dirtyScenarios}
+                  dirtyTemplates={dirtyTemplates}
+                  onSelect={(templateKey) => {
+                    setSelectedTemplateKey(templateKey);
+                    setActionError("");
+                  }}
+                  selectedTemplateKey={selectedTemplate?.templateKey ?? ""}
+                  templates={drafts}
+                  reducedMotion={Boolean(prefersReducedMotion)}
+                />
+
+                {selectedTemplate ? (
+                  <div className="min-w-0">
+                    <div className="sticky top-0 z-10 border-b bg-card/95 px-4 py-3 backdrop-blur">
+                      <div className="inline-flex w-fit rounded-lg bg-muted p-1">
+                        <button
+                          className={tabClass(activeTab === "template")}
+                          onClick={() => setActiveTab("template")}
+                          type="button"
+                        >
+                          Template settings
+                        </button>
+                        <button
+                          className={tabClass(activeTab === "scenarios")}
+                          onClick={() => setActiveTab("scenarios")}
+                          type="button"
+                        >
+                          Draw scenarios
+                        </button>
                       </div>
-
-                      {actionError ? (
-                        <div className="border-b border-destructive/20 bg-destructive/10 px-4 py-3 text-destructive text-sm">
-                          {actionError}
-                        </div>
-                      ) : null}
-
-                      <AnimatePresence
-                        custom={tabMotionCustom}
-                        initial={false}
-                        mode="wait"
-                      >
-                        {activeTab === "template" ? (
-                          <motion.div
-                            animate="show"
-                            className="min-w-0 transform-gpu"
-                            custom={tabMotionCustom}
-                            exit="exit"
-                            initial="enter"
-                            key="template-settings"
-                            transition={tabMotionTransition}
-                            variants={SETTINGS_TAB_PANEL_VARIANTS}
-                          >
-                            <TemplateSettingsTab
-                              onReset={async () => {
-                                const result = await resetTemplate({
-                                  templateKey: selectedTemplate.templateKey,
-                                });
-                                setDrafts(
-                                  normalizeTimelineSettingsProjection(result),
-                                );
-                              }}
-                              onUpdate={(updater) =>
-                                updateSelectedTemplate(updater, "template")
-                              }
-                              template={selectedTemplate}
-                              validation={templateValidation}
-                            />
-                          </motion.div>
-                        ) : (
-                          <motion.div
-                            animate="show"
-                            className="min-w-0 transform-gpu"
-                            custom={tabMotionCustom}
-                            exit="exit"
-                            initial="enter"
-                            key="draw-scenarios"
-                            transition={tabMotionTransition}
-                            variants={SETTINGS_TAB_PANEL_VARIANTS}
-                          >
-                            <ScenarioSettingsTab
-                              onDelete={handleDeleteScenario}
-                              onDuplicate={() => {
-                                if (!selectedScenario) {
-                                  return;
-                                }
-                                const duplicated = duplicateScenario(
-                                  selectedScenario,
-                                  selectedTemplate.scenarios,
-                                );
-                                updateSelectedTemplate(
-                                  (template) => ({
-                                    ...template,
-                                    scenarios: [
-                                      ...template.scenarios,
-                                      duplicated,
-                                    ],
-                                  }),
-                                  "scenario",
-                                );
-                                setSelectedScenarioKeyByTemplate((current) => ({
-                                  ...current,
-                                  [selectedTemplate.templateKey]:
-                                    duplicated.scenarioKey,
-                                }));
-                              }}
-                              onNew={() => {
-                                const created = createBlankScenario(
-                                  selectedTemplate.scenarios,
-                                  selectedTemplate,
-                                );
-                                updateSelectedTemplate(
-                                  (template) => ({
-                                    ...template,
-                                    scenarios: [...template.scenarios, created],
-                                  }),
-                                  "scenario",
-                                );
-                                setSelectedScenarioKeyByTemplate((current) => ({
-                                  ...current,
-                                  [selectedTemplate.templateKey]:
-                                    created.scenarioKey,
-                                }));
-                              }}
-                              onReset={async (scenarioKey) => {
-                                const result = await resetScenario({
-                                  scenarioKey,
-                                  templateKey: selectedTemplate.templateKey,
-                                });
-                                setDrafts(
-                                  normalizeTimelineSettingsProjection(result),
-                                );
-                              }}
-                              onSelectScenario={(scenarioKey) =>
-                                setSelectedScenarioKeyByTemplate((current) => ({
-                                  ...current,
-                                  [selectedTemplate.templateKey]: scenarioKey,
-                                }))
-                              }
-                              onSetActive={() => {
-                                if (!selectedScenario) {
-                                  return;
-                                }
-                                updateSelectedTemplate(
-                                  (template) => ({
-                                    ...template,
-                                    scenarios: template.scenarios.map(
-                                      (scenario) => ({
-                                        ...scenario,
-                                        isActive:
-                                          scenario.scenarioKey ===
-                                          selectedScenario.scenarioKey,
-                                      }),
-                                    ),
-                                  }),
-                                  "scenario",
-                                );
-                              }}
-                              onUpdate={(updater) =>
-                                updateSelectedTemplate(updater, "scenario")
-                              }
-                              selectedScenario={selectedScenario}
-                              template={selectedTemplate}
-                              validation={scenarioValidation}
-                            />
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
                     </div>
-                  ) : null}
-                </motion.div>
-              )}
-            </FramePanel>
-          </Frame>
-        </section>
-      </div>
 
+                    {actionError ? (
+                      <div className="border-b border-destructive/20 bg-destructive/10 px-4 py-3 text-destructive text-sm">
+                        {actionError}
+                      </div>
+                    ) : null}
+
+                    <AnimatePresence
+                      custom={tabMotionCustom}
+                      initial={false}
+                      mode="wait"
+                    >
+                      {activeTab === "template" ? (
+                        <motion.div
+                          animate="show"
+                          className="min-w-0 transform-gpu"
+                          custom={tabMotionCustom}
+                          exit="exit"
+                          initial="enter"
+                          key="template-settings"
+                          transition={tabMotionTransition}
+                          variants={SETTINGS_TAB_PANEL_VARIANTS}
+                        >
+                          <TemplateSettingsTab
+                            onReset={() => void handleResetTemplate()}
+                            onUpdate={(updater) =>
+                              updateSelectedTemplate(updater, "template")
+                            }
+                            template={selectedTemplate}
+                            validation={templateValidation}
+                          />
+                        </motion.div>
+                      ) : (
+                        <motion.div
+                          animate="show"
+                          className="min-w-0 transform-gpu"
+                          custom={tabMotionCustom}
+                          exit="exit"
+                          initial="enter"
+                          key="draw-scenarios"
+                          transition={tabMotionTransition}
+                          variants={SETTINGS_TAB_PANEL_VARIANTS}
+                        >
+                          <ScenarioSettingsTab
+                            onDelete={handleDeleteScenario}
+                            onDuplicate={() => {
+                              if (!selectedScenario) {
+                                return;
+                              }
+                              const duplicated = duplicateScenario(
+                                selectedScenario,
+                                selectedTemplate.scenarios,
+                              );
+                              updateSelectedTemplate(
+                                (template) => ({
+                                  ...template,
+                                  scenarios: [
+                                    ...template.scenarios,
+                                    duplicated,
+                                  ],
+                                }),
+                                "scenario",
+                              );
+                              setSelectedScenarioKeyByTemplate((current) => ({
+                                ...current,
+                                [selectedTemplate.templateKey]:
+                                  duplicated.scenarioKey,
+                              }));
+                            }}
+                            onNew={() => {
+                              const created = createBlankScenario(
+                                selectedTemplate.scenarios,
+                                selectedTemplate,
+                              );
+                              updateSelectedTemplate(
+                                (template) => ({
+                                  ...template,
+                                  scenarios: [...template.scenarios, created],
+                                }),
+                                "scenario",
+                              );
+                              setSelectedScenarioKeyByTemplate((current) => ({
+                                ...current,
+                                [selectedTemplate.templateKey]:
+                                  created.scenarioKey,
+                              }));
+                            }}
+                            onReset={(scenarioKey) =>
+                              void handleResetScenario(scenarioKey)
+                            }
+                            onSelectScenario={(scenarioKey) =>
+                              setSelectedScenarioKeyByTemplate((current) => ({
+                                ...current,
+                                [selectedTemplate.templateKey]: scenarioKey,
+                              }))
+                            }
+                            onSetActive={() => {
+                              if (!selectedScenario) {
+                                return;
+                              }
+                              updateSelectedTemplate(
+                                (template) => ({
+                                  ...template,
+                                  scenarios: template.scenarios.map(
+                                    (scenario) => ({
+                                      ...scenario,
+                                      isActive:
+                                        scenario.scenarioKey ===
+                                        selectedScenario.scenarioKey,
+                                    }),
+                                  ),
+                                }),
+                                "scenario",
+                              );
+                            }}
+                            onUpdate={(updater) =>
+                              updateSelectedTemplate(updater, "scenario")
+                            }
+                            selectedScenario={selectedScenario}
+                            template={selectedTemplate}
+                            validation={scenarioValidation}
+                          />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                ) : null}
+              </motion.div>
+            )}
+          </FramePanel>
+        </Frame>
+      </section>
       <ConfirmationModal
         canSave={canSave}
         kind={pendingConfirmation}
+        labels={labels}
         onClose={() => setPendingConfirmation(null)}
         onConfirm={
           pendingConfirmation === "seed"
@@ -659,7 +841,7 @@ function RouteComponent() {
         template={selectedTemplate}
         templateValidation={templateValidation}
       />
-    </main>
+    </>
   );
 }
 
@@ -705,18 +887,27 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function EmptySeedState({ onSeed }: { onSeed: () => void }) {
+function EmptySeedState({
+  body,
+  onSeed,
+  seedButtonLabel,
+  title,
+}: {
+  body: string;
+  onSeed: () => void;
+  seedButtonLabel: string;
+  title: string;
+}) {
   return (
     <div className="grid min-h-[420px] place-items-center p-6">
       <FramePanel className="max-w-lg bg-muted/40 text-center">
         <Database className="mx-auto mb-3 size-8 text-primary" />
-        <h3 className="font-semibold text-xl">Configuration needed</h3>
+        <h3 className="font-semibold text-xl">{title}</h3>
         <p className="mt-2 text-muted-foreground text-sm leading-6">
-          Seed deletes existing timeline demo templates, worksheet rows,
-          scenarios, and draw rows before restoring the canonical defaults.
+          {body}
         </p>
         <Button className="mt-4" onClick={onSeed}>
-          Seed defaults
+          {seedButtonLabel}
         </Button>
       </FramePanel>
     </div>
@@ -1366,6 +1557,7 @@ function SettingsCashflowPreview({
 function ConfirmationModal({
   canSave,
   kind,
+  labels,
   onClose,
   onConfirm,
   saving,
@@ -1376,6 +1568,7 @@ function ConfirmationModal({
 }: {
   canSave: boolean;
   kind: PendingConfirmation;
+  labels: TimelineSettingsWorkspaceLabels;
   onClose: () => void;
   onConfirm: () => void;
   saving: boolean;
@@ -1393,18 +1586,14 @@ function ConfirmationModal({
       <FramePanel className="mx-auto grid max-h-[calc(100vh-8rem)] w-full max-w-4xl gap-4 overflow-auto bg-popover p-6 text-popover-foreground shadow-2xl">
         <div>
           <div className="text-muted-foreground text-xs uppercase tracking-[0.08em]">
-            {isSeed
-              ? "Confirm seed defaults"
-              : "Confirm timeline template save"}
+            {isSeed ? "Confirm seed defaults" : "Confirm template save"}
           </div>
           <h2 className="mt-1 font-semibold text-2xl">
-            {isSeed
-              ? "Reset timeline demo defaults?"
-              : `Save ${template?.title ?? "template"}?`}
+            {isSeed ? labels.seedConfirmTitle : `Save ${template?.title ?? "template"}?`}
           </h2>
           <p className="mt-2 text-muted-foreground text-sm leading-6">
             {isSeed
-              ? "This deletes existing timeline demo templates, worksheet rows, scenarios, and draw rows before restoring the canonical defaults."
+              ? labels.seedConfirmBody
               : "This single save commits the canonical milestone template and all draw scenario changes attached to the selected template."}
           </p>
         </div>

@@ -2,8 +2,8 @@ import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.t
 import type {
   TimelineSetupResult,
   TimelineSetupTemplate,
-} from "#/routes/demo/timeline/-TimelineSetupFlow.tsx";
-import type { DemoMilestone } from "#/routes/demo/timeline/-timeline-share-snapshot.ts";
+} from "#/features/timeline-workspace/-TimelineSetupFlow.tsx";
+import type { DemoMilestone } from "#/features/timeline-workspace/-timeline-share-snapshot.ts";
 
 import type { ProductionProposalDraftSavePayload } from "./ProductionProposalSurfaces.tsx";
 
@@ -17,6 +17,10 @@ export interface ProductionProposalTemplateProjection {
     name: string;
     order: number;
     percentageBps: number;
+    siteVisitGuidance?: {
+      cameraAngles: string[];
+      whatToVerify: string[];
+    };
     submilestones?: Array<{ key: string; name: string; order?: number }>;
   }>;
   summary?: string;
@@ -197,6 +201,7 @@ export function productionTemplatesToTimelineSetupTemplates(
         key: milestone.key,
         name: milestone.name,
         percentageBps: milestone.percentageBps,
+        siteVisitGuidance: milestone.siteVisitGuidance,
         subMilestones: [...(milestone.submilestones ?? [])]
           .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
           .map((submilestone) => submilestone.name),

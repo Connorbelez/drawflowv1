@@ -1125,6 +1125,7 @@ function TemplateStep({
 
               return (
                 <button
+                  aria-label={`${selected ? "Selected" : "Select"} ${template.title} template`}
                   aria-pressed={selected}
                   className={cn(
                     "timeline-template-card",
@@ -1230,6 +1231,7 @@ function TemplateStep({
           <p
             className="timeline-blueprint-error"
             data-testid="timeline-setup-error"
+            role="alert"
           >
             {error}
           </p>
@@ -1599,6 +1601,7 @@ function StepRail({ step }: { step: SetupStep }) {
     <ol aria-label="Timeline setup steps" className="timeline-setup-step-rail">
       {steps.map((label, index) => (
         <li
+          aria-current={index === activeIndex ? "step" : undefined}
           className={cn(
             index === activeIndex && "is-active",
             index < activeIndex && "is-complete"
