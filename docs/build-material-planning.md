@@ -25,7 +25,8 @@ and `buildSubmilestones`.
 2. Add material/equipment items from the Materials tab on the proposal detail
    route.
 3. Review the rollup in the same tab. Each item shows supplier, cost, quantity,
-   total, milestone, and relevant sub-milestones.
+   total, milestone, and relevant sub-milestones. The UI accepts cost as a
+   per-unit dollar amount while Convex stores cents.
 4. On proposal closing, material/equipment items are copied to the active build
    and displayed on the build detail Materials tab.
 

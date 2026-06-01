@@ -35,8 +35,8 @@ export function BuildDetailTabBar({
             aria-selected={activeTab === tab.value}
             className={
               activeTab === tab.value
-                ? "min-h-9 flex-1 whitespace-nowrap rounded-md bg-primary/25 px-3 py-2 text-xs text-foreground sm:flex-none sm:py-1.5"
-                : "min-h-9 flex-1 whitespace-nowrap rounded-md px-3 py-2 text-muted-foreground text-xs hover:bg-accent hover:text-foreground sm:flex-none sm:py-1.5"
+                ? "min-h-11 flex-1 whitespace-nowrap rounded-md bg-primary/25 px-3 py-2 text-xs text-foreground sm:min-h-9 sm:flex-none sm:py-1.5"
+                : "min-h-11 flex-1 whitespace-nowrap rounded-md px-3 py-2 text-muted-foreground text-xs hover:bg-accent hover:text-foreground sm:min-h-9 sm:flex-none sm:py-1.5"
             }
             data-testid={`build-detail-tab-${tab.value}`}
             key={tab.value}

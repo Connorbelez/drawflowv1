@@ -1,19 +1,7 @@
 "use client";
 
-import { useGSAP } from "@gsap/react";
-import gsap from "gsap";
-import { ScrollTrigger } from "gsap/ScrollTrigger";
-import {
-  Boxes,
-  CircleDollarSign,
-  Pencil,
-  Plus,
-  PackageCheck,
-  Trash2,
-  Wrench,
-} from "lucide-react";
-import type { ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -33,10 +21,6 @@ import {
 } from "#/components/ui/native-select.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { cn } from "#/lib/utils.ts";
-
-if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
-  gsap.registerPlugin(ScrollTrigger);
-}
 
 export type MaterialPlanningItemType = "equipment" | "material";
 
@@ -112,6 +96,12 @@ type ItemFormState = {
   title: string;
 };
 
+const TOUCH_BUTTON_CLASS = "max-sm:h-11";
+const TOUCH_INPUT_CLASS =
+  "max-sm:h-11 max-sm:[&_[data-slot=input]]:h-11 max-sm:[&_[data-slot=input]]:leading-[2.75rem]";
+const TOUCH_SELECT_CLASS =
+  "max-sm:h-11 max-sm:[&_[data-slot=native-select]]:h-11";
+
 export function MaterialPlanningTab({
   actions,
   items,
@@ -120,7 +110,6 @@ export function MaterialPlanningTab({
   readOnly = false,
   scopeLabel,
 }: MaterialPlanningTabProps) {
-  const rootRef = useRef<HTMLDivElement>(null);
   const sortedMilestones = useMemo(
     () => [...milestones].sort((a, b) => a.order - b.order),
     [milestones]
@@ -140,38 +129,6 @@ export function MaterialPlanningTab({
       setSelectedMilestoneKey(sortedMilestones[0]?.key ?? "");
     }
   }, [selectedMilestoneKey, sortedMilestones]);
-
-  useGSAP(
-    () => {
-      if (
-        !rootRef.current ||
-        typeof window === "undefined" ||
-        typeof window.matchMedia !== "function" ||
-        window.matchMedia("(prefers-reduced-motion: reduce)").matches
-      ) {
-        return;
-      }
-
-      gsap.fromTo(
-        ".material-plan-card",
-        { scale: 0.98, y: 12 },
-        {
-          clearProps: "transform",
-          duration: 0.65,
-          ease: "power3.out",
-          scale: 1,
-          stagger: 0.055,
-          y: 0,
-          scrollTrigger: {
-            end: "bottom 70%",
-            start: "top 82%",
-            trigger: rootRef.current,
-          },
-        }
-      );
-    },
-    { dependencies: [items.length, selectedMilestoneKey], scope: rootRef }
-  );
 
   const milestoneByKey = useMemo(
     () => new Map(sortedMilestones.map((milestone) => [milestone.key, milestone])),
@@ -221,13 +178,11 @@ export function MaterialPlanningTab({
     }
   }
 
-  async function runDelete(item: MaterialPlanningItem) {
+  async function runDeleteWithReason(
+    item: MaterialPlanningItem,
+    reason?: string
+  ) {
     if (!actions?.delete) return;
-    const reason =
-      typeof window === "undefined"
-        ? "Removed from material planning."
-        : window.prompt("Reason for removing this cost item")?.trim();
-    if (reason === undefined) return;
     setPending(true);
     setError("");
     try {
@@ -243,13 +198,11 @@ export function MaterialPlanningTab({
     <div
       className="grid-flow-dense grid gap-4 overflow-x-hidden"
       data-testid="material-planning-tab"
-      ref={rootRef}
     >
       <Frame>
         <FramePanel className="overflow-hidden p-0">
-          <div className="relative grid gap-5 p-4 md:p-5">
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-20 bg-[radial-gradient(circle_at_20%_0%,--theme(--color-primary/18%),transparent_42%),radial-gradient(circle_at_88%_18%,--theme(--color-success/12%),transparent_38%)]" />
-            <div className="relative flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="grid gap-5 p-4 md:p-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div className="max-w-5xl">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant="outline">{scopeLabel}</Badge>
@@ -268,7 +221,7 @@ export function MaterialPlanningTab({
               {selectedMilestone ? (
                 <NativeSelect
                   aria-label="Select milestone"
-                  className="w-full lg:w-72"
+                  className={cn("w-full lg:w-72", TOUCH_SELECT_CLASS)}
                   onChange={(event) => {
                     setSelectedMilestoneKey(event.target.value);
                     setEditingItemId(null);
@@ -284,28 +237,7 @@ export function MaterialPlanningTab({
               ) : null}
             </div>
 
-            <div className="grid-flow-dense grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <MetricCard
-                icon={<CircleDollarSign className="size-4" />}
-                label="Cost item total"
-                value={formatCents(summary.totalCents)}
-              />
-              <MetricCard
-                icon={<PackageCheck className="size-4" />}
-                label="Material lines"
-                value={String(summary.materialCount)}
-              />
-              <MetricCard
-                icon={<Wrench className="size-4" />}
-                label="Equipment lines"
-                value={String(summary.equipmentCount)}
-              />
-              <MetricCard
-                icon={<Boxes className="size-4" />}
-                label="Suppliers"
-                value={String(summary.supplierCount)}
-              />
-            </div>
+            <MaterialSummaryStrip summary={summary} />
           </div>
         </FramePanel>
       </Frame>
@@ -384,8 +316,9 @@ export function MaterialPlanningTab({
                           item={item}
                           key={item._id}
                           milestone={milestone}
-                          onDelete={() => void runDelete(item)}
+                          onDelete={(reason) => void runDeleteWithReason(item, reason)}
                           onEdit={() => setEditingItemId(item._id)}
+                          pending={pending}
                         />
                       )
                     )}
@@ -489,14 +422,14 @@ function MaterialItemEditor({
   }
 
   return (
-    <Frame className="material-plan-card">
+    <Frame>
       <FramePanel className="grid gap-4 p-4">
         <div>
           <h3 className="font-semibold text-sm">
             {item ? "Edit cost item" : "Add cost item"}
           </h3>
           <p className="mt-1 text-muted-foreground text-xs">
-            Cost is stored in cents and multiplied by quantity.
+            Enter the per-unit dollar amount. Quantity controls the total.
           </p>
         </div>
 
@@ -504,6 +437,7 @@ function MaterialItemEditor({
           <div className="grid gap-2">
             <Label htmlFor={fieldId(item, "title")}>Title</Label>
             <Input
+              className={TOUCH_INPUT_CLASS}
               id={fieldId(item, "title")}
               onChange={(event) => setField("title", event.target.value)}
               value={form.title}
@@ -521,7 +455,7 @@ function MaterialItemEditor({
             <div className="grid gap-2">
               <Label htmlFor={fieldId(item, "itemType")}>Type</Label>
               <NativeSelect
-                className="w-full"
+                className={cn("w-full", TOUCH_SELECT_CLASS)}
                 id={fieldId(item, "itemType")}
                 onChange={(event) =>
                   setField("itemType", event.target.value as MaterialPlanningItemType)
@@ -535,7 +469,7 @@ function MaterialItemEditor({
             <div className="grid gap-2">
               <Label htmlFor={fieldId(item, "milestoneKey")}>Milestone</Label>
               <NativeSelect
-                className="w-full"
+                className={cn("w-full", TOUCH_SELECT_CLASS)}
                 id={fieldId(item, "milestoneKey")}
                 onChange={(event) =>
                   setForm((current) => ({
@@ -556,27 +490,39 @@ function MaterialItemEditor({
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="grid gap-2">
-              <Label htmlFor={fieldId(item, "costCents")}>Cost</Label>
+              <Label htmlFor={fieldId(item, "costCents")}>Cost per unit (USD)</Label>
               <Input
+                aria-describedby={fieldId(item, "costHelp")}
+                className={TOUCH_INPUT_CLASS}
                 id={fieldId(item, "costCents")}
-                inputMode="numeric"
+                inputMode="decimal"
                 onChange={(event) => setField("costCents", event.target.value)}
+                placeholder="0.00"
                 value={form.costCents}
               />
+              <p className="text-muted-foreground text-xs" id={fieldId(item, "costHelp")}>
+                Must be greater than zero.
+              </p>
             </div>
             <div className="grid gap-2">
               <Label htmlFor={fieldId(item, "quantity")}>Quantity</Label>
               <Input
+                aria-describedby={fieldId(item, "quantityHelp")}
+                className={TOUCH_INPUT_CLASS}
                 id={fieldId(item, "quantity")}
                 inputMode="decimal"
                 onChange={(event) => setField("quantity", event.target.value)}
                 value={form.quantity}
               />
+              <p className="text-muted-foreground text-xs" id={fieldId(item, "quantityHelp")}>
+                Supports partial quantities.
+              </p>
             </div>
           </div>
           <div className="grid gap-2">
             <Label htmlFor={fieldId(item, "supplier")}>Supplier</Label>
             <Input
+              className={TOUCH_INPUT_CLASS}
               id={fieldId(item, "supplier")}
               onChange={(event) => setField("supplier", event.target.value)}
               value={form.supplier}
@@ -585,6 +531,7 @@ function MaterialItemEditor({
           <div className="grid gap-2">
             <Label htmlFor={fieldId(item, "reason")}>Change reason</Label>
             <Input
+              className={TOUCH_INPUT_CLASS}
               id={fieldId(item, "reason")}
               onChange={(event) => setField("reason", event.target.value)}
               placeholder="Required once a proposal is under review"
@@ -601,7 +548,7 @@ function MaterialItemEditor({
                   );
                   return (
                     <label
-                      className="flex items-center gap-2 text-sm"
+                      className="flex min-h-11 items-center gap-2 text-sm sm:min-h-8"
                       key={submilestone.key}
                     >
                       <Checkbox
@@ -625,12 +572,25 @@ function MaterialItemEditor({
 
         <div className="flex flex-wrap justify-end gap-2">
           {onCancel ? (
-            <Button onClick={onCancel} size="sm" type="button" variant="outline">
+            <Button
+              className={TOUCH_BUTTON_CLASS}
+              onClick={onCancel}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
               Cancel
             </Button>
           ) : null}
           <Button
-            disabled={!form.title.trim() || !form.milestoneKey || pending}
+            className={TOUCH_BUTTON_CLASS}
+            disabled={
+              !form.title.trim() ||
+              !form.milestoneKey ||
+              !costDollarsPositive(form.costCents) ||
+              !quantityPositive(form.quantity) ||
+              pending
+            }
             onClick={() => void onSubmit(formToPayload(form))}
             size="sm"
             type="button"
@@ -651,14 +611,18 @@ function MaterialItemCard({
   milestone,
   onDelete,
   onEdit,
+  pending,
 }: {
   canDelete: boolean;
   canEdit: boolean;
   item: MaterialPlanningItem;
   milestone: MaterialPlanningMilestone;
-  onDelete: () => void;
+  onDelete: (reason?: string) => void;
   onEdit: () => void;
+  pending?: boolean;
 }) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteReason, setDeleteReason] = useState("");
   const submilestoneByKey = new Map(
     (milestone.submilestones ?? []).map((submilestone) => [
       submilestone.key,
@@ -670,7 +634,7 @@ function MaterialItemCard({
     .filter((row): row is MaterialPlanningSubmilestone => Boolean(row));
 
   return (
-    <Card className="material-plan-card group overflow-hidden" data-testid="material-planning-item-card">
+    <Card className="overflow-hidden" data-testid="material-planning-item-card">
       <CardHeader className="gap-3 p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -715,49 +679,102 @@ function MaterialItemCard({
             </dd>
           </div>
         </dl>
-        {canEdit || canDelete ? (
-          <div className="flex justify-end gap-2 border-t pt-3">
+        {confirmingDelete ? (
+          <div className="grid gap-3 border-t pt-3">
+            <div className="grid gap-2">
+              <Label htmlFor={fieldId(item, "deleteReason")}>
+                Removal reason
+              </Label>
+              <Input
+                className={TOUCH_INPUT_CLASS}
+                id={fieldId(item, "deleteReason")}
+                onChange={(event) => setDeleteReason(event.target.value)}
+                placeholder="Required once a proposal is under review"
+                value={deleteReason}
+              />
+            </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                className={TOUCH_BUTTON_CLASS}
+                disabled={pending}
+                onClick={() => {
+                  setConfirmingDelete(false);
+                  setDeleteReason("");
+                }}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Cancel
+              </Button>
+              <Button
+                className={TOUCH_BUTTON_CLASS}
+                disabled={pending}
+                onClick={() => onDelete(optionalText(deleteReason))}
+                size="sm"
+                type="button"
+                variant="destructive"
+              >
+                <Trash2 />
+                {pending ? "Removing..." : "Remove item"}
+              </Button>
+            </div>
+          </div>
+        ) : canEdit || canDelete ? (
+          <div className="flex flex-wrap justify-end gap-2 border-t pt-3">
             {canEdit ? (
-              <Button onClick={onEdit} size="sm" type="button" variant="outline">
+              <Button
+                className={TOUCH_BUTTON_CLASS}
+                onClick={onEdit}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
                 <Pencil />
                 Edit
               </Button>
             ) : null}
             {canDelete ? (
-              <Button onClick={onDelete} size="sm" type="button" variant="destructive">
+              <Button
+                className={TOUCH_BUTTON_CLASS}
+                onClick={() => setConfirmingDelete(true)}
+                size="sm"
+                type="button"
+                variant="destructive"
+              >
                 <Trash2 />
                 Delete
               </Button>
             ) : null}
           </div>
         ) : null}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1 origin-left scale-x-0 bg-primary/50 transition-transform duration-700 group-hover:scale-x-100" />
       </CardContent>
     </Card>
   );
 }
 
-function MetricCard({
-  icon,
-  label,
-  value,
+function MaterialSummaryStrip({
+  summary,
 }: {
-  icon: ReactNode;
-  label: string;
-  value: string;
+  summary: ReturnType<typeof summarizeItems>;
 }) {
+  const stats = [
+    ["Cost item total", formatCents(summary.totalCents)],
+    ["Material lines", String(summary.materialCount)],
+    ["Equipment lines", String(summary.equipmentCount)],
+    ["Suppliers", String(summary.supplierCount)],
+  ] as const;
   return (
-    <Card className="material-plan-card overflow-hidden">
-      <CardContent className="flex items-center gap-3 p-3">
-        <span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
-          {icon}
-        </span>
-        <span className="min-w-0">
-          <span className="block text-muted-foreground text-xs">{label}</span>
-          <strong className="block truncate font-semibold text-base">{value}</strong>
-        </span>
-      </CardContent>
-    </Card>
+    <dl className="grid gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-2 xl:grid-cols-4">
+      {stats.map(([label, value]) => (
+        <div className="min-w-0 bg-background px-3 py-3" key={label}>
+          <dt className="text-muted-foreground text-xs">{label}</dt>
+          <dd className="mt-1 truncate font-semibold text-base tabular-nums">
+            {value}
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -789,7 +806,7 @@ function itemToFormState(
   milestoneKey: string
 ): ItemFormState {
   return {
-    costCents: String(item?.costCents ?? 0),
+    costCents: item ? centsToDollarsInput(item.costCents) : "",
     description: item?.description ?? "",
     itemType: item?.itemType ?? "material",
     milestoneKey: item?.milestoneKey ?? milestoneKey,
@@ -803,7 +820,7 @@ function itemToFormState(
 
 function formToPayload(form: ItemFormState): MaterialPlanningPayload {
   return {
-    costCents: numberFromInput(form.costCents),
+    costCents: dollarsInputToCents(form.costCents),
     description: optionalText(form.description),
     itemType: form.itemType,
     milestoneKey: form.milestoneKey,
@@ -818,6 +835,23 @@ function formToPayload(form: ItemFormState): MaterialPlanningPayload {
 function numberFromInput(value: string, fallback = 0) {
   const parsed = Number(value.replace(/,/g, ""));
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function dollarsInputToCents(value: string) {
+  return Math.round(numberFromInput(value) * 100);
+}
+
+function centsToDollarsInput(cents: number) {
+  const dollars = cents / 100;
+  return Number.isInteger(dollars) ? String(dollars) : dollars.toFixed(2);
+}
+
+function costDollarsPositive(value: string) {
+  return numberFromInput(value) > 0;
+}
+
+function quantityPositive(value: string) {
+  return numberFromInput(value, 0) > 0;
 }
 
 function optionalText(value: string) {

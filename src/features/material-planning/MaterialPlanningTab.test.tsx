@@ -72,8 +72,8 @@ describe("MaterialPlanningTab", () => {
     fireEvent.change(screen.getByLabelText("Title"), {
       target: { value: "Pump rental" },
     });
-    fireEvent.change(screen.getByLabelText("Cost"), {
-      target: { value: "250000" },
+    fireEvent.change(screen.getByLabelText("Cost per unit (USD)"), {
+      target: { value: "2500" },
     });
     fireEvent.change(screen.getByLabelText("Quantity"), {
       target: { value: "3" },
@@ -93,6 +93,39 @@ describe("MaterialPlanningTab", () => {
         supplier: "Rental Desk",
         title: "Pump rental",
       }),
+    );
+  });
+
+  test("collects an inline removal reason instead of using a browser prompt", () => {
+    const remove = vi.fn();
+    render(
+      <MaterialPlanningTab
+        actions={{ delete: remove }}
+        items={[
+          {
+            _id: "item-1",
+            costCents: 8_000_000,
+            itemType: "equipment",
+            milestoneKey: "foundation",
+            quantity: 1,
+            relevantSubmilestoneKeys: [],
+            title: "Pump rental",
+          },
+        ]}
+        milestones={milestones}
+        scopeLabel="Build Proposal"
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Delete"));
+    fireEvent.change(screen.getByLabelText("Removal reason"), {
+      target: { value: "Rental moved into contractor scope." },
+    });
+    fireEvent.click(screen.getByText("Remove item"));
+
+    expect(remove).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Pump rental" }),
+      "Rental moved into contractor scope.",
     );
   });
 });
