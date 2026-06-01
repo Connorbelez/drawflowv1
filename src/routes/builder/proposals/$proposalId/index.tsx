@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
 import { MaterialPlanningTab } from "#/features/material-planning/MaterialPlanningTab.tsx";
+import { ProductionContractorPlanningTab } from "#/features/production-proposals/ProductionContractorPlanningTab.tsx";
 import { ProductionTimelineWorkspace } from "#/features/production-proposals/ProductionTimelineWorkspace.tsx";
 import {
   createVisualParityCostItem,
@@ -122,6 +123,7 @@ function BuilderProductionProposalRoute() {
               variant="underline"
             >
               <TabsTab value="timeline">Timeline</TabsTab>
+              <TabsTab value="contractors">Contractors</TabsTab>
               <TabsTab value="materials">Materials</TabsTab>
             </TabsList>
           </FramePanel>
@@ -132,6 +134,15 @@ function BuilderProductionProposalRoute() {
             initialRole="builder"
             persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
             proposalHref={`/builder/proposals/${proposalId}`}
+            proposalId={typedProposalId}
+            workspace={workspace}
+            workosOrganizationId={workosOrganizationId}
+          />
+        </TabsPanel>
+        <TabsPanel value="contractors">
+          <ProductionContractorPlanningTab
+            initialRole="builder"
+            persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
             proposalId={typedProposalId}
             workspace={workspace}
             workosOrganizationId={workosOrganizationId}

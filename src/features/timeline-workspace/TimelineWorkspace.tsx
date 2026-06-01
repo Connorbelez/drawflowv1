@@ -131,7 +131,9 @@ import {
   EditDatesSheet,
   EditDrawSheet,
 } from "./MobileTimelineSheets.tsx";
+import type { ContractorPlanningModel } from "#/features/contractors/ContractorPlanningPanel.tsx";
 import { MobileTimelineDayDialWorkspace } from "./MobileTimelineWorkspace.tsx";
+import { TimelineMilestoneContractorList } from "./TimelineMilestoneContractorList.tsx";
 
 export const timelineWorkspaceSearchParsers = {
   share: parseAsString,
@@ -574,6 +576,7 @@ export type TimelineWorkspaceMode = "demo" | "live" | "proposal";
 export interface TimelineWorkspaceProps {
   allowRoleSwitching?: boolean;
   collaboration?: TimelineWorkspaceCollaboration;
+  contractorPlanning?: ContractorPlanningModel | null;
   durableMeta?: {
     backofficeHref: string;
     buildKey?: string;
@@ -724,6 +727,7 @@ function timelineMilestonePayloadToItem(
 export function TimelineWorkspace({
   allowRoleSwitching = true,
   collaboration,
+  contractorPlanning,
   durableMeta,
   durablePlanId,
   initialRole,
@@ -4150,6 +4154,7 @@ export function TimelineWorkspace({
               activePanelDraw={activePanelDraw}
               activePanelDrawItem={activePanelDrawItem}
               addEvidenceFiles={addEvidenceFiles}
+              contractorPlanning={contractorPlanning}
               draws={draws}
               items={items}
               liveExecutionEnabled={canUseLiveExecution}
@@ -4310,6 +4315,7 @@ export function TimelineWorkspace({
                       activePanelDraw={activePanelDraw}
                       activePanelDrawItem={activePanelDrawItem}
                       addEvidenceFiles={addEvidenceFiles}
+                      contractorPlanning={contractorPlanning}
                       draws={draws}
                       items={items}
                       liveExecutionEnabled={canUseLiveExecution}
@@ -6096,6 +6102,7 @@ function SelectedDrawMobileDrawer({
   activePanelDrawItem,
   addEvidenceFiles,
   activeItem,
+  contractorPlanning,
   draws,
   items,
   onOpenChange,
@@ -6123,6 +6130,7 @@ function SelectedDrawMobileDrawer({
   activePanelDrawItem: TimelineItem<DemoMilestone> | null;
   addEvidenceFiles: (itemId: string, files: File[]) => void;
   activeItem: TimelineItem<DemoMilestone> | null;
+  contractorPlanning?: ContractorPlanningModel | null;
   draws: DemoDraw[];
   items: TimelineItem<DemoMilestone>[];
   modificationRequests: TimelineModificationRequestView[];
@@ -6194,6 +6202,7 @@ function SelectedDrawMobileDrawer({
               activePanelDraw={activePanelDraw}
               activePanelDrawItem={activePanelDrawItem}
               addEvidenceFiles={addEvidenceFiles}
+              contractorPlanning={contractorPlanning}
               draws={draws}
               items={items}
               liveExecutionEnabled={liveExecutionEnabled}
@@ -6227,6 +6236,7 @@ function SelectedContextPanel({
   activePanelDrawItem,
   addEvidenceFiles,
   activeItem,
+  contractorPlanning,
   draws,
   items,
   onCompleteMilestone,
@@ -6252,6 +6262,7 @@ function SelectedContextPanel({
   activePanelDrawItem: TimelineItem<DemoMilestone> | null;
   addEvidenceFiles: (itemId: string, files: File[]) => void;
   activeItem: TimelineItem<DemoMilestone>;
+  contractorPlanning?: ContractorPlanningModel | null;
   draws: DemoDraw[];
   items: TimelineItem<DemoMilestone>[];
   modificationRequests: TimelineModificationRequestView[];
@@ -6318,6 +6329,7 @@ function SelectedContextPanel({
       <MilestonePlanSummaryPanel
         activeDraw={activeDraw}
         activeItem={activeItem}
+        contractorPlanning={contractorPlanning}
         overview={overview}
         range={range}
       />
@@ -6359,6 +6371,7 @@ function SelectedContextPanel({
         />
         <LenderMilestoneReviewPanel
           activeItem={activeItem}
+          contractorPlanning={contractorPlanning}
           items={items}
           onCreateMilestoneSiteVisit={onCreateMilestoneSiteVisit}
           onRecordMilestoneSiteVisit={onRecordMilestoneSiteVisit}
@@ -6375,6 +6388,7 @@ function SelectedContextPanel({
       activeDraw={activeDraw}
       activeItem={activeItem}
       addEvidenceFiles={addEvidenceFiles}
+      contractorPlanning={contractorPlanning}
       onCompleteMilestone={onCompleteMilestone}
       onRemoveEvidenceAsset={onRemoveEvidenceAsset}
       onUpdateEvidenceAsset={onUpdateEvidenceAsset}
@@ -6436,11 +6450,13 @@ function DrawPlanSummaryPanel({
 function MilestonePlanSummaryPanel({
   activeDraw,
   activeItem,
+  contractorPlanning,
   overview,
   range,
 }: {
   activeDraw: DemoDraw | null;
   activeItem: TimelineItem<DemoMilestone>;
+  contractorPlanning?: ContractorPlanningModel | null;
   overview: FinancialOverview;
   range: Required<TimelineRange>;
 }) {
@@ -6496,6 +6512,12 @@ function MilestonePlanSummaryPanel({
         milestoneKey={activeItem.id}
         submilestones={resolveMilestoneSubmilestones(milestone, activeItem.id)}
         testIdPrefix="timeline-selected-milestone-submilestone"
+      />
+
+      <TimelineMilestoneContractorList
+        milestoneKey={activeItem.id}
+        planning={contractorPlanning}
+        testIdPrefix="timeline-selected-milestone-contractor"
       />
 
       <FinancialOverviewCard overview={overview} />
@@ -6683,6 +6705,7 @@ function MilestoneOperationsPanel({
   activeDraw,
   addEvidenceFiles,
   activeItem,
+  contractorPlanning,
   onCompleteMilestone,
   onRemoveEvidenceAsset,
   onUpdateEvidenceAsset,
@@ -6692,6 +6715,7 @@ function MilestoneOperationsPanel({
   activeDraw: DemoDraw | null;
   addEvidenceFiles: (itemId: string, files: File[]) => void;
   activeItem: TimelineItem<DemoMilestone>;
+  contractorPlanning?: ContractorPlanningModel | null;
   onCompleteMilestone: (
     itemId: string,
     claim: TimelineCompletionClaimInput
@@ -6810,6 +6834,12 @@ function MilestoneOperationsPanel({
         testIdPrefix="timeline-selected-milestone-submilestone"
       />
 
+      <TimelineMilestoneContractorList
+        milestoneKey={activeItem.id}
+        planning={contractorPlanning}
+        testIdPrefix="timeline-selected-milestone-contractor"
+      />
+
       <CompletionClaimPanel
         activeItem={activeItem}
         evidenceCount={evidenceAssets.length}
@@ -6830,6 +6860,7 @@ function MilestoneOperationsPanel({
 
 function LenderMilestoneReviewPanel({
   activeItem,
+  contractorPlanning,
   items,
   onCreateMilestoneSiteVisit,
   onRequestMilestoneSiteVisit,
@@ -6838,6 +6869,7 @@ function LenderMilestoneReviewPanel({
   overview,
 }: {
   activeItem: TimelineItem<DemoMilestone>;
+  contractorPlanning?: ContractorPlanningModel | null;
   items: TimelineItem<DemoMilestone>[];
   onCreateMilestoneSiteVisit?: (
     itemId: string,
@@ -7084,6 +7116,12 @@ function LenderMilestoneReviewPanel({
         milestoneKey={activeItem.id}
         submilestones={resolveMilestoneSubmilestones(milestone, activeItem.id)}
         testIdPrefix="timeline-lender-milestone-submilestone"
+      />
+
+      <TimelineMilestoneContractorList
+        milestoneKey={activeItem.id}
+        planning={contractorPlanning}
+        testIdPrefix="timeline-lender-milestone-contractor"
       />
 
       <form

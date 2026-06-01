@@ -30,6 +30,7 @@ import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import { ProductionProposalReviewSurface } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
+import { ProductionContractorPlanningTab } from "#/features/production-proposals/ProductionContractorPlanningTab.tsx";
 import { ProductionTimelineWorkspace } from "#/features/production-proposals/ProductionTimelineWorkspace.tsx";
 import {
   createVisualParityCostItem,
@@ -251,6 +252,15 @@ function ProposalReviewRoute() {
                     workosOrganizationId,
                   }).then(() => toast.success("Cost item updated.")),
               }
+        }
+        contractors={
+          <ProductionContractorPlanningTab
+            initialRole="lender"
+            persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
+            proposalId={proposalId}
+            workspace={productionWorkspace}
+            workosOrganizationId={workosOrganizationId}
+          />
         }
         timeline={
           <ProductionTimelineWorkspace

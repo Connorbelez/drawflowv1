@@ -502,6 +502,41 @@ describe("ProductionProposalReviewSurface", () => {
     expect(screen.queryByText("Submit proposal")).toBeNull();
   });
 
+  test("renders contractor planning in its own review tab when provided", () => {
+    render(
+      <ProductionProposalReviewSurface
+        contractors={
+          <div data-testid="contractors-slot">Contractor planning</div>
+        }
+        detail={{
+          ...proposalDetail,
+          proposal: { ...proposalDetail.proposal, status: "submitted" },
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+        timeline={<div data-testid="timeline-slot">Timeline workspace</div>}
+      />,
+    );
+
+    const tablist = screen.getByRole("tablist", {
+      name: /proposal workspace sections/i,
+    });
+    expect(within(tablist).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "Timeline",
+      "Contractors",
+      "Review",
+      "Draw schedule",
+      "Materials",
+      "Packet",
+    ]);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Contractors" }));
+    expect(screen.getByTestId("contractors-slot")).toBeTruthy();
+    expect(screen.queryByTestId("timeline-slot")).toBeNull();
+  });
+
   test("shows approval without build creation and closing with future start date", () => {
     render(
       <ProductionProposalReviewSurface

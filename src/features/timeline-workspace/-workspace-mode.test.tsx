@@ -108,34 +108,43 @@ function timelineState({
 
 function renderWorkspace({
   collaboration,
+  contractorPlanning,
   initialRole = "builder",
   initialState = timelineState(),
   status = "approved",
   workspaceMode,
 }: {
   collaboration?: TimelineWorkspaceProps["collaboration"];
+  contractorPlanning?: TimelineWorkspaceProps["contractorPlanning"];
   initialRole?: "builder" | "lender";
   initialState?: TimelineShareState;
   status?: string;
   workspaceMode: "live" | "proposal";
 }) {
-  return render(<TimelineWorkspace {...workspaceProps({
-    collaboration,
-    initialRole,
-    initialState,
-    status,
-    workspaceMode,
-  })} />);
+  return render(
+    <TimelineWorkspace
+      {...workspaceProps({
+        collaboration,
+        contractorPlanning,
+        initialRole,
+        initialState,
+        status,
+        workspaceMode,
+      })}
+    />,
+  );
 }
 
 function workspaceProps({
   collaboration,
+  contractorPlanning,
   initialRole = "builder",
   initialState = timelineState(),
   status = "approved",
   workspaceMode,
 }: {
   collaboration?: TimelineWorkspaceProps["collaboration"];
+  contractorPlanning?: TimelineWorkspaceProps["contractorPlanning"];
   initialRole?: "builder" | "lender";
   initialState?: TimelineShareState;
   status?: string;
@@ -144,6 +153,7 @@ function workspaceProps({
   return {
     allowRoleSwitching: false,
     collaboration,
+    contractorPlanning,
     durableMeta: {
       backofficeHref: "/backoffice/proposals/proposal_123",
       proposalHref: "/builder/proposals/proposal_123",
@@ -174,6 +184,31 @@ describe("TimelineWorkspace mode split", () => {
     expect(screen.queryByText("Mark milestone complete")).toBeNull();
     expect(screen.queryByText("Request site visit")).toBeNull();
     expect(screen.queryByText("Add draw")).toBeNull();
+  });
+
+  test("shows milestone contractor assignments in the proposal sidebar", () => {
+    renderWorkspace({
+      contractorPlanning: {
+        milestoneAssignments: [
+          {
+            _id: "assign-foundation",
+            contractorId: "contractor-1",
+            contractorName: "Northstar Masonry",
+            milestoneKey: "foundation",
+            milestoneName: "Foundation",
+            role: "Concrete lead",
+            status: "planned",
+          },
+        ],
+      },
+      workspaceMode: "proposal",
+    });
+
+    expect(screen.getByText("Northstar Masonry")).toBeTruthy();
+    expect(screen.getByText("Concrete lead")).toBeTruthy();
+    expect(
+      screen.getByTestId("timeline-selected-milestone-contractor-section"),
+    ).toBeTruthy();
   });
 
   test("enables builder execution controls only in live mode", () => {

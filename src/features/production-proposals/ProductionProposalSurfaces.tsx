@@ -158,6 +158,7 @@ export interface ProductionProposalDetail {
 
 type ProductionReviewTab =
   | "closing"
+  | "contractors"
   | "draws"
   | "materials"
   | "packet"
@@ -1193,8 +1194,10 @@ export function ProductionProposalReviewSurface({
   onReject,
   onRequestChanges,
   onUpdateDraw,
+  contractors,
   timeline,
 }: {
+  contractors?: ReactNode;
   detail: ProductionProposalDetail;
   materialPlanningActions?: MaterialPlanningActions;
   onApprove: (
@@ -1240,6 +1243,9 @@ export function ProductionProposalReviewSurface({
     if (timeline) {
       nextTabs.push({ label: "Timeline", value: "timeline" });
     }
+    if (contractors) {
+      nextTabs.push({ label: "Contractors", value: "contractors" });
+    }
     nextTabs.push({ label: "Review", value: "review" });
     if (editableDraws.length > 0) {
       nextTabs.push({ label: "Draw schedule", value: "draws" });
@@ -1250,7 +1256,7 @@ export function ProductionProposalReviewSurface({
       nextTabs.push({ label: "Closing", value: "closing" });
     }
     return nextTabs;
-  }, [editableDraws.length, proposal.status, timeline]);
+  }, [contractors, editableDraws.length, proposal.status, timeline]);
   const [activeTab, setActiveTab] = useState<ProductionReviewTab>(
     timeline ? "timeline" : "review"
   );
@@ -1340,6 +1346,16 @@ export function ProductionProposalReviewSurface({
             value="timeline"
           >
             {timeline}
+          </TabsPanel>
+        ) : null}
+
+        {contractors ? (
+          <TabsPanel
+            className="min-w-0"
+            data-testid="production-proposal-contractors-tab"
+            value="contractors"
+          >
+            {contractors}
           </TabsPanel>
         ) : null}
 

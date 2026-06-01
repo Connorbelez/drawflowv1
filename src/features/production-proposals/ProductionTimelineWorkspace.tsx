@@ -39,8 +39,6 @@ import {
   type TimelineModificationRequestView,
   type TimelineWorkspacePersistence,
 } from "#/features/timeline-workspace/index.tsx";
-import { ContractorPlanningPanel } from "#/features/contractors/ContractorPlanningPanel.tsx";
-
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 
@@ -126,15 +124,6 @@ export function ProductionTimelineWorkspace({
   );
   const reviewModificationRequest = useMutation(
     api.production_proposals.reviewProductionTimelineModificationRequest
-  );
-  const attachProposalContractor = useMutation(
-    (api as any).production_proposals.attachProposalContractor
-  );
-  const createAndAttachProposalContractor = useMutation(
-    (api as any).production_proposals.createAndAttachProposalContractor
-  );
-  const assignProposalContractorToMilestone = useMutation(
-    (api as any).production_proposals.assignProposalContractorToMilestone
   );
   const collaboration = useProductionProposalCollaboration({
     enabled: persistenceMode === "convex",
@@ -363,75 +352,29 @@ export function ProductionTimelineWorkspace({
       : convexPersistence;
 
   return (
-    <div className="grid gap-4">
-      <ContractorPlanningPanel
-        canMutate={persistenceMode !== "noop" && collaborationCanEdit}
-        milestones={workspace.milestones.map((milestone: any) => ({
-          ...milestone,
-          milestoneKey: milestone.milestoneKey ?? milestone.key,
-        }))}
-        onAssignToMilestone={({
-          assignmentCost,
-          contractorId,
-          milestoneKey,
-          role,
-          submilestoneKeys,
-        }) =>
-          assignProposalContractorToMilestone({
-            agreedRateCents: assignmentCost?.agreedRateCents,
-            agreedRateUnit: assignmentCost?.agreedRateUnit,
-            contractorId,
-            estimatedCostCents: assignmentCost?.estimatedCostCents,
-            estimatedHours: assignmentCost?.estimatedHours,
-            milestoneKey,
-            proposalId,
-            role,
-            submilestoneKeys,
-            workosOrganizationId,
-          })
-        }
-        onAttachExisting={({ contractorId, role }) =>
-          attachProposalContractor({
-            contractorId,
-            proposalId,
-            role,
-            workosOrganizationId,
-          })
-        }
-        onCreateAndAttach={({ contractor, role }) =>
-          createAndAttachProposalContractor({
-            contractor,
-            proposalId,
-            role,
-            workosOrganizationId,
-          })
-        }
-        planning={workspace.contractorPlanning}
-        roleLabel={initialRole}
-      />
-      <TimelineWorkspace
-        allowRoleSwitching={false}
-        collaboration={{
-          cursors: collaboration.cursors,
-          onCursorChange: collaboration.updateCursor,
-          permission: collaboration.permission,
-          toolbar: collaboration.toolbar,
-        }}
-        durableMeta={{
-          backofficeHref,
-          proposalHref,
-          proposalSlug: String(proposalId),
-          status: durableStatus,
-        }}
-        durablePlanId={proposalId}
-        initialRole={initialRole}
-        initialState={initialState}
-        modificationRequests={workspace.modificationRequests ?? []}
-        persistence={persistence}
-        timelineSettingsProjection={null}
-        workspaceMode="proposal"
-      />
-    </div>
+    <TimelineWorkspace
+      allowRoleSwitching={false}
+      collaboration={{
+        cursors: collaboration.cursors,
+        onCursorChange: collaboration.updateCursor,
+        permission: collaboration.permission,
+        toolbar: collaboration.toolbar,
+      }}
+      contractorPlanning={workspace.contractorPlanning}
+      durableMeta={{
+        backofficeHref,
+        proposalHref,
+        proposalSlug: String(proposalId),
+        status: durableStatus,
+      }}
+      durablePlanId={proposalId}
+      initialRole={initialRole}
+      initialState={initialState}
+      modificationRequests={workspace.modificationRequests ?? []}
+      persistence={persistence}
+      timelineSettingsProjection={null}
+      workspaceMode="proposal"
+    />
   );
 }
 
