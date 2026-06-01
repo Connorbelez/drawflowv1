@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Outlet } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/backoffice/contractors")({
   staticData: {
@@ -11,5 +11,5 @@ export const Route = createFileRoute("/backoffice/contractors")({
 });
 
 function RouteComponent() {
-  return <div>Contractors</div>;
+  return <Outlet />;
 }

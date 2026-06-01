@@ -54,6 +54,9 @@ function RouteComponent() {
   const assignSiteVisit = useMutation(
     api.production_proposals.assignActiveBuildSiteVisit,
   );
+  const assignContractorToMilestone = useMutation(
+    (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+  );
   const attachContractor = useMutation(
     api.production_proposals.attachActiveBuildContractor,
   );
@@ -175,6 +178,22 @@ function RouteComponent() {
           requestedDay: 0,
           workosOrganizationId,
         }),
+      assignContractorToMilestone: ({
+        assignmentCost,
+        contractorId,
+        milestoneKey,
+        role,
+        submilestoneKeys,
+      }) =>
+        assignContractorToMilestone({
+          ...assignmentCost,
+          buildId: activeBuildId,
+          contractorId: contractorId as any,
+          milestoneKey,
+          role,
+          submilestoneKeys,
+          workosOrganizationId,
+        }),
       attachContractor: ({ contractorId, role }) =>
         attachContractor({
           buildId: activeBuildId,
@@ -194,6 +213,26 @@ function RouteComponent() {
         await attachContractor({
           buildId: activeBuildId,
           contractorId,
+          role,
+          workosOrganizationId,
+        });
+      },
+      createAndAssignContractor: async ({
+        assignmentCost,
+        contractor,
+        milestoneKey,
+        role,
+      }) => {
+        const contractorId = await createContractor({
+          ...contractor,
+          brokerageId: detail.build.brokerageId as any,
+          workosOrganizationId,
+        });
+        await assignContractorToMilestone({
+          ...assignmentCost,
+          buildId: activeBuildId,
+          contractorId,
+          milestoneKey,
           role,
           workosOrganizationId,
         });

@@ -13,6 +13,10 @@ import {
 } from "#/components/ui/card.tsx";
 import { Calendar } from "#/components/ui/calendar.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
+import {
+  ContractorQuickAddDrawer,
+  type ContractorAssignmentCostDraft,
+} from "#/features/contractors/ContractorQuickAddDrawer.tsx";
 import { cn } from "#/lib/utils.ts";
 import {
   BuildDetailTabBar,
@@ -60,6 +64,13 @@ export interface ProductionBuildDetailActions {
     milestoneKey: string;
     note?: string;
   }) => Promise<void> | void;
+  assignContractorToMilestone?: (input: {
+    assignmentCost?: ContractorAssignmentCostDraft;
+    contractorId: string;
+    milestoneKey: string;
+    role: string;
+    submilestoneKeys?: string[];
+  }) => Promise<void> | void;
   assignSiteVisit?: (input: { milestoneKey: string }) => Promise<void> | void;
   attachContractor?: (input: {
     contractorId: string;
@@ -76,6 +87,38 @@ export interface ProductionBuildDetailActions {
       phone?: string;
       email?: string;
     };
+    role: string;
+  }) => Promise<void> | void;
+  createAndAssignContractor?: (input: {
+    assignmentCost?: ContractorAssignmentCostDraft;
+    contractor: {
+      availabilityWindows?: Array<{
+        dayOfWeek: number;
+        endMinute: number;
+        startMinute: number;
+        timezone: string;
+      }>;
+      capabilities?: Array<{
+        capabilityKey: string;
+        label: string;
+        milestoneArchetypeKey?: string;
+        trade?: string;
+      }>;
+      city?: string;
+      defaultPayRateCents?: number;
+      defaultPayRateUnit?: "hour" | "day" | "fixed";
+      email?: string;
+      equipment?: Array<{
+        equipmentKey: string;
+        name: string;
+        quantity: number;
+      }>;
+      kind: "company" | "individual";
+      name: string;
+      phone?: string;
+      trades: string[];
+    };
+    milestoneKey: string;
     role: string;
   }) => Promise<void> | void;
   rejectDraw?: (draw: ProductionDraw) => Promise<void> | void;
@@ -133,6 +176,7 @@ export interface ProductionBuildDetail {
   auditEvents?: ProductionAuditEvent[];
   availableContractors?: ProductionAvailableContractor[];
   contractors?: ProductionAttachedContractor[];
+  milestoneContractorAssignments?: ProductionMilestoneContractorAssignment[];
   displayId?: string;
   documents?: ProductionDocument[];
   milestones: ProductionMilestone[];
@@ -264,18 +308,50 @@ interface ProductionAuditEvent {
 interface ProductionAttachedContractor {
   _id: string;
   contractorId?: string;
+  agreedRateCents?: number;
+  agreedRateUnit?: "hour" | "day" | "fixed";
+  city?: string;
+  defaultPayRateCents?: number;
+  defaultPayRateUnit?: "hour" | "day" | "fixed";
   email?: string;
+  hourlyRateCents?: number;
   name: string;
+  payRateCents?: number;
+  payRateUnit?: "hour" | "day" | "fixed";
   role: string;
   trades?: string[];
 }
 
 interface ProductionAvailableContractor {
   _id: string;
-  city: string;
+  city?: string;
+  defaultPayRateCents?: number;
+  defaultPayRateUnit?: "hour" | "day" | "fixed";
   name: string;
   skills?: string[];
   trades?: string[];
+}
+
+interface ProductionMilestoneContractorAssignment {
+  _id: string;
+  actualCostCents?: number;
+  actualHours?: number;
+  agreedRateCents?: number;
+  agreedRateUnit?: "hour" | "day" | "fixed";
+  contractor?: {
+    _id: string;
+    name: string;
+    trades?: string[];
+  };
+  contractorId: string;
+  costNotes?: string;
+  estimatedCostCents?: number;
+  estimatedHours?: number;
+  milestoneKey: string;
+  postHoc?: boolean;
+  role: string;
+  status: string;
+  submilestoneKey?: string;
 }
 
 interface ProductionSiteVisit {
@@ -333,6 +409,8 @@ export function ProductionBuildDetailSurface({
   const [localActiveMilestoneKey, setLocalActiveMilestoneKey] = useState<
     string | null
   >(milestoneKey ?? null);
+  const [assignContractorMilestoneKey, setAssignContractorMilestoneKey] =
+    useState<string | null>(null);
   const activeMilestoneKey = milestoneKey ?? localActiveMilestoneKey;
   const setActiveMilestoneKey = (next: string | null) => {
     setLocalActiveMilestoneKey(next);
@@ -373,6 +451,13 @@ export function ProductionBuildDetailSurface({
             actions={actions}
             currentDay={currentDay}
             detail={detail}
+            onAssignContractor={
+              actions?.assignContractorToMilestone ||
+              actions?.createAndAssignContractor
+                ? (card) =>
+                    setAssignContractorMilestoneKey(card.milestoneKey)
+                : undefined
+            }
             onCardClick={(card) => setActiveMilestoneKey(card.milestoneKey)}
             projection={projection}
           />
@@ -414,6 +499,12 @@ export function ProductionBuildDetailSurface({
         onApprove={async (milestoneKey, note) =>
           actions?.approveMilestone?.({ milestoneKey, note })
         }
+        onAssignContractor={
+          actions?.assignContractorToMilestone ||
+          actions?.createAndAssignContractor
+            ? (milestoneKey) => setAssignContractorMilestoneKey(milestoneKey)
+            : undefined
+        }
         onAssignVisit={(milestoneKey) =>
           void actions?.assignSiteVisit?.({ milestoneKey })
         }
@@ -426,6 +517,40 @@ export function ProductionBuildDetailSurface({
         }
         onStartWork={(milestoneKey, note) =>
           actions?.startMilestoneWork?.({ milestoneKey, note })
+        }
+      />
+      <ContractorQuickAddDrawer
+        availableContractors={contractorAssignmentOptions(detail)}
+        createLabel="Create and assign"
+        description="Assign an existing build contractor or create a profile and attach it to this milestone scope."
+        onAttachExisting={async ({ assignmentCost, contractorId, role }) => {
+          if (!assignContractorMilestoneKey) return;
+          await actions?.assignContractorToMilestone?.({
+            assignmentCost,
+            contractorId,
+            milestoneKey: assignContractorMilestoneKey,
+            role,
+          });
+        }}
+        onCreate={async ({ assignmentCost, contractor, role }) => {
+          if (!assignContractorMilestoneKey) return;
+          await actions?.createAndAssignContractor?.({
+            assignmentCost,
+            contractor,
+            milestoneKey: assignContractorMilestoneKey,
+            role: role ?? "Contractor",
+          });
+        }}
+        onOpenChange={(open) => {
+          if (!open) setAssignContractorMilestoneKey(null);
+        }}
+        open={Boolean(assignContractorMilestoneKey)}
+        requireRole
+        showAssignmentCost
+        title={
+          assignContractorMilestoneKey
+            ? `Assign contractor to ${assignContractorMilestoneKey}`
+            : "Assign contractor"
         }
       />
     </main>
@@ -526,12 +651,14 @@ function ProductionDetailsTab({
   actions,
   currentDay,
   detail,
+  onAssignContractor,
   onCardClick,
   projection,
 }: {
   actions?: ProductionBuildDetailActions;
   currentDay: number;
   detail: ProductionBuildDetail;
+  onAssignContractor?: (card: KanbanCardData) => void;
   onCardClick: (card: KanbanCardData) => void;
   projection: ProductionBuildProjection;
 }) {
@@ -558,6 +685,7 @@ function ProductionDetailsTab({
 
       <MilestoneKanban
         cards={kanbanCards}
+        onAssignContractor={onAssignContractor}
         onCardClick={onCardClick}
         onToggleShowCompleted={() => setShowCompletedKanban((prev) => !prev)}
         showCompleted={showCompletedKanban}
@@ -1478,10 +1606,10 @@ function buildProductionKanbanCards(
       code: milestone.key.toUpperCase(),
       column: state.column,
       contractors:
-        detail.contractors?.map((contractor) => ({
+        contractorAssignmentsForMilestone(detail, milestone.key).map((contractor) => ({
           initials: initialsFor(contractor.name),
           name: contractor.name,
-        })) ?? [],
+        })),
       drawGroupKey: draw?.drawKey ?? milestone.key,
       evidenceReviewStatus: milestone.evidenceState,
       forecastEndDate: addDaysSafe(detail.build.startDate, milestone.dayEnd),
@@ -1639,11 +1767,11 @@ function buildMilestoneSheetData(
     canStartWork: state.canStartWork,
     column: state.column,
     contractors:
-      detail.contractors?.map((contractor) => ({
+      contractorAssignmentsForMilestone(detail, milestone.key).map((contractor) => ({
         initials: initialsFor(contractor.name),
         name: contractor.name,
         role: contractor.role,
-      })) ?? [],
+      })),
     drawGroupKey: draw?.drawKey ?? milestone.key,
     milestoneKey: milestone.key,
     name: milestone.name,
@@ -1792,4 +1920,90 @@ function drawBadgeVariant(
   if (status === "approved") return "info";
   if (status === "rejected") return "destructive";
   return "outline";
+}
+
+function contractorAssignmentsForMilestone(
+  detail: ProductionBuildDetail,
+  milestoneKey: string,
+) {
+  const profileById = new Map<string, { name: string; trades?: string[] }>();
+  for (const contractor of detail.contractors ?? []) {
+    profileById.set(contractor.contractorId ?? contractor._id, contractor);
+  }
+  for (const contractor of detail.availableContractors ?? []) {
+    profileById.set(contractor._id, contractor);
+  }
+
+  return (detail.milestoneContractorAssignments ?? [])
+    .filter((assignment) => assignment.milestoneKey === milestoneKey)
+    .map((assignment) => {
+      const profile =
+        assignment.contractor ?? profileById.get(String(assignment.contractorId));
+      const submilestoneName = assignment.submilestoneKey
+        ? submilestoneNameFor(detail, milestoneKey, assignment.submilestoneKey)
+        : undefined;
+      return {
+        name: profile?.name ?? "Assigned contractor",
+        role: submilestoneName
+          ? `${assignment.role} · ${submilestoneName}`
+          : assignment.role,
+      };
+    });
+}
+
+function submilestoneNameFor(
+  detail: ProductionBuildDetail,
+  milestoneKey: string,
+  submilestoneKey: string,
+) {
+  return (
+    detail.submilestones.find(
+      (submilestone) =>
+        submilestone.milestoneKey === milestoneKey &&
+        submilestone.key === submilestoneKey,
+    )?.name ?? submilestoneKey
+  );
+}
+
+function contractorAssignmentOptions(detail: ProductionBuildDetail) {
+  const byId = new Map<
+    string,
+    {
+      _id: string;
+      city?: string;
+      defaultPayRateCents?: number;
+      defaultPayRateUnit?: "hour" | "day" | "fixed";
+      name: string;
+      trades?: string[];
+    }
+  >();
+  for (const contractor of detail.contractors ?? []) {
+    const id = contractor.contractorId ?? contractor._id;
+    byId.set(id, {
+      _id: id,
+      city: contractor.city,
+      defaultPayRateCents:
+        contractor.payRateCents ??
+        contractor.agreedRateCents ??
+        contractor.defaultPayRateCents ??
+        contractor.hourlyRateCents,
+      defaultPayRateUnit:
+        contractor.payRateUnit ??
+        contractor.agreedRateUnit ??
+        contractor.defaultPayRateUnit,
+      name: contractor.name,
+      trades: contractor.trades,
+    });
+  }
+  for (const contractor of detail.availableContractors ?? []) {
+    byId.set(contractor._id, {
+      _id: contractor._id,
+      city: contractor.city,
+      defaultPayRateCents: contractor.defaultPayRateCents,
+      defaultPayRateUnit: contractor.defaultPayRateUnit,
+      name: contractor.name,
+      trades: contractor.trades,
+    });
+  }
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
 }

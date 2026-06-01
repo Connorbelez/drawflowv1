@@ -2,6 +2,7 @@
 
 import { CalendarDays, CheckCircle2, Circle, Loader2, MapPin } from "lucide-react";
 import type { ReactNode } from "react";
+import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { formatCents, formatDate } from "./format";
 
 export type KanbanColumn =
@@ -42,18 +43,18 @@ export interface KanbanCardData {
 }
 
 const COLUMNS: { key: KanbanColumn; label: string; accent: string }[] = [
-  { key: "Backlog", label: "Backlog", accent: "border-l-muted" },
-  { key: "InProgress", label: "In Progress", accent: "border-l-sky-500/60" },
+  { key: "Backlog", label: "Backlog", accent: "bg-muted/20" },
+  { key: "InProgress", label: "In Progress", accent: "bg-info/8" },
   {
     key: "MarkedComplete",
     label: "Marked Complete",
-    accent: "border-l-emerald-500/60",
+    accent: "bg-success/8",
   },
-  { key: "SiteVisit", label: "Site Visit", accent: "border-l-violet-500/60" },
+  { key: "SiteVisit", label: "Site Visit", accent: "bg-primary/8" },
   {
     key: "NeedsApproval",
     label: "Needs Approval",
-    accent: "border-l-amber-500/60",
+    accent: "bg-warning/8",
   },
 ];
 
@@ -93,6 +94,7 @@ const STATUS_TONE: Record<
 
 interface MilestoneKanbanProps {
   cards: KanbanCardData[];
+  onAssignContractor?: (card: KanbanCardData) => void;
   onCardClick: (card: KanbanCardData) => void;
   showCompleted?: boolean;
   onToggleShowCompleted?: () => void;
@@ -100,6 +102,7 @@ interface MilestoneKanbanProps {
 
 export function MilestoneKanban({
   cards,
+  onAssignContractor,
   onCardClick,
   showCompleted = false,
   onToggleShowCompleted,
@@ -116,12 +119,12 @@ export function MilestoneKanban({
     byColumn.set(card.column, arr);
   }
   return (
-    <section
-      className="rounded-xl border border-border bg-card p-3 sm:p-4"
+    <Frame
       data-ixc-ref="UI-KANBAN"
       data-testid="build-detail-kanban"
       id="kanban"
     >
+      <FramePanel className="p-3 sm:p-4">
       <header className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="font-semibold text-sm">Milestone Kanban</h3>
@@ -170,6 +173,11 @@ export function MilestoneKanban({
                       card={card}
                       columnAccent={col.accent}
                       key={card.milestoneId}
+                      onAssign={
+                        onAssignContractor
+                          ? () => onAssignContractor(card)
+                          : undefined
+                      }
                       onClick={() => onCardClick(card)}
                     />
                   ))}
@@ -179,17 +187,20 @@ export function MilestoneKanban({
           })}
         </div>
       </div>
-    </section>
+      </FramePanel>
+    </Frame>
   );
 }
 
 function MilestoneCard({
   card,
   columnAccent,
+  onAssign,
   onClick,
 }: {
   card: KanbanCardData;
   columnAccent: string;
+  onAssign?: () => void;
   onClick: () => void;
 }) {
   const tone = STATUS_TONE[card.status];
@@ -198,14 +209,21 @@ function MilestoneCard({
   const submilestoneTotal = card.submilestones.length;
   const previewSubmilestones = card.submilestones.slice(0, 3);
   return (
-    <button
+    <article
       aria-controls="milestone-detail-sheet"
       aria-haspopup="dialog"
-      className={`group relative w-full overflow-hidden rounded-lg border border-border ${columnAccent} border-l-4 bg-card p-3 text-left shadow-sm transition hover:border-foreground/30 hover:bg-accent focus-visible:outline-2 focus-visible:outline-primary`}
+      className={`group relative w-full overflow-hidden rounded-lg border border-border ${columnAccent} p-3 text-left shadow-sm transition hover:border-foreground/30 hover:bg-accent focus-visible:outline-2 focus-visible:outline-primary`}
       data-milestone-key={card.milestoneKey}
       data-testid={`kanban-card-${card.milestoneKey}`}
       onClick={onClick}
-      type="button"
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onClick();
+        }
+      }}
+      role="button"
+      tabIndex={0}
     >
       <header className="flex items-start justify-between gap-2">
         <div className="min-w-0">
@@ -329,6 +347,19 @@ function MilestoneCard({
           </span>
         )}
         <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+          {onAssign ? (
+            <button
+              className="rounded-md border border-border bg-card px-2 py-1 font-medium text-[10px] text-foreground hover:bg-background"
+              data-testid={`kanban-card-assign-contractor-${card.milestoneKey}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                onAssign();
+              }}
+              type="button"
+            >
+              Assign contractor
+            </button>
+          ) : null}
           {card.requiresSiteVisit ? (
             <span
               className="inline-flex items-center gap-0.5 rounded-full bg-violet-500/15 px-1.5 py-0.5 text-violet-300"
@@ -346,7 +377,7 @@ function MilestoneCard({
           ) : null}
         </div>
       </footer>
-    </button>
+    </article>
   );
 }
 

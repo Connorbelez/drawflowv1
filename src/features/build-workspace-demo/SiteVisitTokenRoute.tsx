@@ -51,6 +51,7 @@ const tokenConvex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL);
 
 type VisitTarget = {
   _id: string;
+  contractors?: VisitTargetContractor[];
   guidance?: {
     cameraAngles?: string[];
     whatToVerify?: string[];
@@ -58,7 +59,22 @@ type VisitTarget = {
   milestoneKey: string;
   milestoneName: string;
   milestoneOrder: number;
-  submilestones: string[];
+  submilestones: VisitSubmilestone[];
+};
+
+type VisitSubmilestone =
+  | string
+  | {
+      key: string;
+      name: string;
+    };
+
+type VisitTargetContractor = {
+  _id: string;
+  assignmentId?: string;
+  name: string;
+  role?: string;
+  submilestoneKey?: string;
 };
 
 type VisitFile = {
@@ -230,6 +246,7 @@ function SiteVisitTokenRouteContent({
   const [reportNotes, setReportNotes] = useState(DEFAULT_REPORT_NOTES);
   const [completionObserved, setCompletionObserved] = useState(true);
   const [recommendedOutcome, setRecommendedOutcome] = useState("approve");
+  const [qualityRating, setQualityRating] = useState("");
   const [stagedItems, setStagedItems] = useState<StagedItem[]>([]);
   const [uploadingCount, setUploadingCount] = useState(0);
   const [drawer, setDrawer] = useState<DrawerKey | null>(null);
@@ -363,8 +380,14 @@ function SiteVisitTokenRouteContent({
   }
 
   const { build, files, targets, visit } = visitState;
-  const selectedMilestoneKey =
-    selectedTarget === "visit-wide" ? undefined : selectedTarget;
+  const selectedScope = parseSelectedVisitTarget(selectedTarget);
+  const selectedMilestoneKey = selectedScope.milestoneKey;
+  const selectedSubmilestoneKey = selectedScope.submilestoneKey;
+  const qualityRatingTargets = contractorRatingTargetsForScope(
+    targets,
+    selectedMilestoneKey,
+    selectedSubmilestoneKey,
+  );
   const uploadedBytes = files.reduce((sum, file) => sum + file.sizeBytes, 0);
   const stagedBytes = packageTotalBytes(
     stagedItems.map((item) => item.evidence)
@@ -389,6 +412,7 @@ function SiteVisitTokenRouteContent({
         name: file.name,
         sizeBytes: file.size,
         targetMilestoneKey: selectedMilestoneKey,
+        targetSubmilestoneKey: selectedSubmilestoneKey,
       }),
       file,
     }));
@@ -419,7 +443,19 @@ function SiteVisitTokenRouteContent({
         generateUploadUrl,
         onUploadedItem: () =>
           setUploadingCount((current) => Math.max(0, current - 1)),
-        registerFile,
+        registerFile: (input) => {
+          if (source !== "production") {
+            return registerFile(input);
+          }
+          return registerFile({
+            ...input,
+            contractorIds: contractorIdsForEvidenceTarget(
+              targets,
+              input.targetMilestoneKey,
+              input.targetSubmilestoneKey,
+            ),
+          });
+        },
         stagedItems,
         token: siteVisitToken,
         upload: async (url, file, mimeType) =>
@@ -450,13 +486,24 @@ function SiteVisitTokenRouteContent({
       if (stagedCount > 0) {
         await uploadStagedFiles();
       }
-      await submitReport({
+      const rating = parseQualityRating(qualityRating);
+      const reportPayload: Record<string, unknown> = {
         buildId,
         completionObserved,
         recommendedOutcome,
         reportNotes,
         token: siteVisitToken,
-      });
+      };
+      if (source === "production" && rating !== undefined) {
+        reportPayload.contractorRatings = qualityRatingTargets.map((target) => ({
+          contractorId: target._id,
+          milestoneKey: target.milestoneKey,
+          note: reportNotes,
+          rating,
+          submilestoneKey: target.submilestoneKey,
+        }));
+      }
+      await submitReport(reportPayload);
       setSubmittedSummary({
         completedAt: Date.now(),
         fileCount: files.length + stagedCount,
@@ -567,6 +614,28 @@ function SiteVisitTokenRouteContent({
                     type="checkbox"
                   />
                   Completion observed on site
+                </label>
+                <label className="grid gap-2 text-sm">
+                  Work quality
+                  <select
+                    className="h-10 rounded-md border bg-background px-3"
+                    onChange={(event) => setQualityRating(event.target.value)}
+                    value={qualityRating}
+                  >
+                    <option value="">Not rated</option>
+                    <option value="5">5 · Excellent</option>
+                    <option value="4">4 · Good</option>
+                    <option value="3">3 · Acceptable</option>
+                    <option value="2">2 · Needs rework</option>
+                    <option value="1">1 · Deficient</option>
+                  </select>
+                  <span className="text-muted-foreground text-xs">
+                    {qualityRatingTargets.length > 0
+                      ? `${qualityRatingTargets.length} assigned contractor scope${
+                          qualityRatingTargets.length === 1 ? "" : "s"
+                        }`
+                      : "No contractor assignment on this scope"}
+                  </span>
                 </label>
                 <label className="grid gap-2 text-sm">
                   Field note
@@ -790,15 +859,37 @@ function SiteVisitCapturePanel({
           >
             Visit-wide
           </TargetButton>
-          {targets.map((target, index) => (
-            <TargetButton
-              active={selectedTarget === target.milestoneKey}
-              key={target._id}
-              onClick={() => setSelectedTarget(target.milestoneKey)}
-            >
-              {targetCode(target, index)} {target.milestoneName}
-            </TargetButton>
-          ))}
+          {targets.map((target, index) => {
+            const milestoneTarget = encodeMilestoneVisitTarget(
+              target.milestoneKey,
+            );
+            return (
+              <TargetButton
+                active={selectedTarget === milestoneTarget}
+                key={target._id}
+                onClick={() => setSelectedTarget(milestoneTarget)}
+              >
+                {targetCode(target, index)} {target.milestoneName}
+              </TargetButton>
+            );
+          })}
+          {targets.flatMap((target, targetIndex) =>
+            visitSubmilestones(target).slice(0, 6).map((submilestone, subIndex) => {
+              const subTarget = encodeSubmilestoneVisitTarget(
+                target.milestoneKey,
+                submilestone.key,
+              );
+              return (
+                <TargetButton
+                  active={selectedTarget === subTarget}
+                  key={`${target._id}-${submilestone.key}`}
+                  onClick={() => setSelectedTarget(subTarget)}
+                >
+                  {subCode(target, subIndex, targetIndex)} {submilestone.name}
+                </TargetButton>
+              );
+            }),
+          )}
         </div>
       </div>
 
@@ -990,7 +1081,11 @@ function EvidenceGrid({
             )}
             <div className="absolute inset-x-2 top-2 flex flex-wrap gap-1">
               <Badge variant="secondary">
-                {targetLabel(targets, file.targetMilestoneKey)}
+                {targetLabel(
+                  targets,
+                  file.targetMilestoneKey,
+                  file.targetSubmilestoneKey,
+                )}
               </Badge>
               <Badge variant="outline">
                 {variant === "uploaded" ? "Stored" : "Ready"}
@@ -1370,23 +1465,29 @@ function ScopePanel({ targets }: { targets: VisitTarget[] }) {
               </div>
             </header>
             <div className="divide-y">
-              {(target.submilestones.length
-                ? target.submilestones
+              {(visitSubmilestones(target).length
+                ? visitSubmilestones(target)
                 : [
-                    "Exterior wall framing & sheathing",
-                    "Roof trusses set & strapped",
+                    {
+                      key: "exterior-wall-framing",
+                      name: "Exterior wall framing & sheathing",
+                    },
+                    {
+                      key: "roof-trusses",
+                      name: "Roof trusses set & strapped",
+                    },
                   ]
               )
                 .slice(0, 4)
                 .map((submilestone, subIndex) => (
                   <div
                     className="grid grid-cols-[3rem_1fr_auto] gap-3 p-3 text-sm"
-                    key={submilestone}
+                    key={submilestone.key}
                   >
                     <span className="font-medium text-primary">
                       {subCode(target, subIndex)}
                     </span>
-                    <span>{submilestone}</span>
+                    <span>{submilestone.name}</span>
                     <span className="text-muted-foreground">
                       {subIndex > 1 ? "OBS" : "REQ"}
                     </span>
@@ -1539,8 +1640,8 @@ function normalizedGuidance(target: VisitTarget) {
       "Wide shot showing the full milestone work area.",
       "Close-up of the highest-risk connection, fixture, or finish.",
     ],
-    whatToVerify: (target.submilestones.length
-      ? target.submilestones
+    whatToVerify: (visitSubmilestones(target).length
+      ? visitSubmilestones(target).map((submilestone) => submilestone.name)
       : [target.milestoneName]
     )
       .slice(0, 4)
@@ -1566,12 +1667,128 @@ function subCode(target: VisitTarget, index: number) {
   )}`;
 }
 
-function targetLabel(targets: VisitTarget[], milestoneKey?: string) {
+function targetLabel(
+  targets: VisitTarget[],
+  milestoneKey?: string,
+  submilestoneKey?: string,
+) {
   if (!milestoneKey) {
     return "Visit-wide";
   }
   const target = targets.find((item) => item.milestoneKey === milestoneKey);
-  return target ? targetCode(target) : milestoneKey;
+  if (!target) {
+    return milestoneKey;
+  }
+  if (!submilestoneKey) {
+    return targetCode(target);
+  }
+  const submilestone = visitSubmilestones(target).find(
+    (item) => item.key === submilestoneKey,
+  );
+  return submilestone
+    ? `${targetCode(target)} · ${submilestone.name}`
+    : `${targetCode(target)} · ${submilestoneKey}`;
+}
+
+function visitSubmilestones(target: VisitTarget): Array<{ key: string; name: string }> {
+  return target.submilestones.map((submilestone) =>
+    typeof submilestone === "string"
+      ? { key: slugifyTargetKey(submilestone), name: submilestone }
+      : submilestone,
+  );
+}
+
+function encodeMilestoneVisitTarget(milestoneKey: string) {
+  return `milestone:${milestoneKey}`;
+}
+
+function encodeSubmilestoneVisitTarget(
+  milestoneKey: string,
+  submilestoneKey: string,
+) {
+  return `submilestone:${milestoneKey}:${submilestoneKey}`;
+}
+
+function parseSelectedVisitTarget(value: string) {
+  if (value.startsWith("milestone:")) {
+    return { milestoneKey: value.slice("milestone:".length) };
+  }
+  if (value.startsWith("submilestone:")) {
+    const rest = value.slice("submilestone:".length);
+    const [milestoneKey, ...subParts] = rest.split(":");
+    return {
+      milestoneKey: milestoneKey || undefined,
+      submilestoneKey: subParts.join(":") || undefined,
+    };
+  }
+  return value === "visit-wide" ? {} : { milestoneKey: value };
+}
+
+function contractorRatingTargetsForScope(
+  targets: VisitTarget[],
+  milestoneKey?: string,
+  submilestoneKey?: string,
+) {
+  const matches = targets.flatMap((target) => {
+    if (milestoneKey && target.milestoneKey !== milestoneKey) {
+      return [];
+    }
+    return (target.contractors ?? [])
+      .filter(
+        (contractor) =>
+          !submilestoneKey ||
+          contractor.submilestoneKey === submilestoneKey ||
+          !contractor.submilestoneKey,
+      )
+      .map((contractor) => ({
+        ...contractor,
+        milestoneKey: target.milestoneKey,
+        submilestoneKey: contractor.submilestoneKey ?? submilestoneKey,
+      }));
+  });
+  const seen = new Set<string>();
+  return matches.filter((target) => {
+    const key = `${target._id}:${target.milestoneKey}:${
+      target.submilestoneKey ?? ""
+    }`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function contractorIdsForEvidenceTarget(
+  targets: VisitTarget[],
+  milestoneKey?: string,
+  submilestoneKey?: string,
+) {
+  return contractorRatingTargetsForScope(targets, milestoneKey, submilestoneKey)
+    .map((target) => target._id)
+    .filter((id, index, ids) => ids.indexOf(id) === index);
+}
+
+function parseQualityRating(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) {
+    return undefined;
+  }
+  return Math.max(1, Math.min(5, Math.round(parsed)));
+}
+
+function slugifyTargetKey(value: string) {
+  return (
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || "scope"
+  );
 }
 
 function tokenTail(token: string) {
