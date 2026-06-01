@@ -79,13 +79,25 @@ const draw: DemoDraw = {
   x: 21,
 };
 
-function timelineState(): TimelineShareState {
+function timelineState({
+  milestoneAmount = 120_000,
+}: {
+  milestoneAmount?: number;
+} = {}): TimelineShareState {
   return {
     activeSelection: { itemId: "foundation", phase: "inProgress" },
     capitalSpikes: [],
     currentDay: 0,
     draws: [draw],
-    items: [milestone],
+    items: [
+      {
+        ...milestone,
+        data: {
+          ...milestone.data,
+          amount: milestoneAmount,
+        },
+      },
+    ],
     progressValue: 0,
     range: { max: 60, min: 0, unit: "days" },
     selectedPanelOpen: true,
@@ -97,37 +109,59 @@ function timelineState(): TimelineShareState {
 function renderWorkspace({
   collaboration,
   initialRole = "builder",
+  initialState = timelineState(),
   status = "approved",
   workspaceMode,
 }: {
   collaboration?: TimelineWorkspaceProps["collaboration"];
   initialRole?: "builder" | "lender";
+  initialState?: TimelineShareState;
   status?: string;
   workspaceMode: "live" | "proposal";
 }) {
-  return render(
-    <TimelineWorkspace
-      allowRoleSwitching={false}
-      durableMeta={{
-        backofficeHref: "/backoffice/proposals/proposal_123",
-        proposalHref: "/builder/proposals/proposal_123",
-        proposalSlug: "proposal_123",
-        status,
-      }}
-      durablePlanId="proposal_123"
-      initialRole={initialRole}
-      initialState={timelineState()}
-      planSummary={{
-        address: "Toronto, ON",
-        includedCount: 1,
-        templateTitle: "Single Family Full Build",
-        totalBudget: 120_000,
-      }}
-      timelineSettingsProjection={null}
-      collaboration={collaboration}
-      workspaceMode={workspaceMode}
-    />
-  );
+  return render(<TimelineWorkspace {...workspaceProps({
+    collaboration,
+    initialRole,
+    initialState,
+    status,
+    workspaceMode,
+  })} />);
+}
+
+function workspaceProps({
+  collaboration,
+  initialRole = "builder",
+  initialState = timelineState(),
+  status = "approved",
+  workspaceMode,
+}: {
+  collaboration?: TimelineWorkspaceProps["collaboration"];
+  initialRole?: "builder" | "lender";
+  initialState?: TimelineShareState;
+  status?: string;
+  workspaceMode: "live" | "proposal";
+}): TimelineWorkspaceProps {
+  return {
+    allowRoleSwitching: false,
+    collaboration,
+    durableMeta: {
+      backofficeHref: "/backoffice/proposals/proposal_123",
+      proposalHref: "/builder/proposals/proposal_123",
+      proposalSlug: "proposal_123",
+      status,
+    },
+    durablePlanId: "proposal_123",
+    initialRole,
+    initialState,
+    planSummary: {
+      address: "Toronto, ON",
+      includedCount: 1,
+      templateTitle: "Single Family Full Build",
+      totalBudget: 120_000,
+    },
+    timelineSettingsProjection: null,
+    workspaceMode,
+  };
 }
 
 describe("TimelineWorkspace mode split", () => {
@@ -167,6 +201,32 @@ describe("TimelineWorkspace mode split", () => {
 
     expect(await screen.findByTestId("selected-draw-mobile-drawer")).toBeTruthy();
     expect(screen.queryByTestId("mobile-focus-view")).toBeNull();
+  });
+
+  test("hydrates fresh durable timeline state after another collaborator edits a milestone", () => {
+    const view = renderWorkspace({
+      initialState: timelineState({ milestoneAmount: 120_000 }),
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    expect(
+      screen.getByTestId("selected-milestone-plan-summary").textContent,
+    ).toContain("$120,000");
+
+    view.rerender(
+      <TimelineWorkspace
+        {...workspaceProps({
+          initialState: timelineState({ milestoneAmount: 250_000 }),
+          status: "draft",
+          workspaceMode: "proposal",
+        })}
+      />,
+    );
+
+    expect(
+      screen.getByTestId("selected-milestone-plan-summary").textContent,
+    ).toContain("$250,000");
   });
 
   test("renders remote collaborator cursors with the shared pointer shape", () => {

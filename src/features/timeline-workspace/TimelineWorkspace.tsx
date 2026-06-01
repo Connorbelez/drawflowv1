@@ -848,6 +848,12 @@ export function TimelineWorkspace({
           ),
     [initialState]
   );
+  const incomingTimelineStateSignature = useMemo(
+    () =>
+      initialState ? timelineShareStateSignature(workspaceInitialState) : null,
+    [initialState, workspaceInitialState]
+  );
+  const appliedTimelineStateSignature = useRef<string | null>(null);
   const [items, setItems] = useState<TimelineItem<DemoMilestone>[]>(
     () => workspaceInitialState.items
   );
@@ -1356,6 +1362,44 @@ export function TimelineWorkspace({
     drawInsertionCount.current = countManualDraws(hydratedState.draws);
     capitalSpikeInsertionCount.current = hydratedState.capitalSpikes.length;
   }, []);
+
+  useEffect(() => {
+    if (!(initialState && incomingTimelineStateSignature)) {
+      appliedTimelineStateSignature.current = null;
+      return;
+    }
+
+    if (appliedTimelineStateSignature.current === null) {
+      appliedTimelineStateSignature.current = incomingTimelineStateSignature;
+      if (!setupComplete) {
+        setSetupBaseline(initialState);
+        setSetupComplete(true);
+        applyTimelineState(workspaceInitialState);
+      }
+      return;
+    }
+
+    if (
+      appliedTimelineStateSignature.current === incomingTimelineStateSignature
+    ) {
+      return;
+    }
+
+    appliedTimelineStateSignature.current = incomingTimelineStateSignature;
+    setSetupBaseline(initialState);
+    setSetupComplete(true);
+    applyTimelineState(workspaceInitialState);
+  }, [
+    applyTimelineState,
+    incomingTimelineStateSignature,
+    initialState,
+    setupComplete,
+    workspaceInitialState,
+  ]);
+
+  useEffect(() => {
+    setModificationRequests(initialModificationRequests);
+  }, [initialModificationRequests]);
 
   const completeTimelineSetup = useCallback(
     (result: TimelineSetupResult) => {
@@ -5911,6 +5955,10 @@ function countInsertedTimelineItems(
 
 function countManualDraws(draws: DemoDraw[]): number {
   return draws.filter((draw) => draw.id.startsWith("manual-draw-")).length;
+}
+
+function timelineShareStateSignature(state: TimelineShareState): string {
+  return JSON.stringify(state);
 }
 
 function buildTimelineShareUrl(snapshotId: string): string {

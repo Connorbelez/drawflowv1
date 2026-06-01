@@ -276,6 +276,42 @@ function SiteVisitTokenRouteContent({
     );
   }
 
+  if (submittedSummary) {
+    const submittedBuild = visitState.build ?? initialVisitState?.build ?? null;
+    return (
+      <MobileShell
+        build={submittedBuild}
+        buildCode={deriveBuildCode(buildId, submittedBuild)}
+        status="complete"
+        statusText="Complete"
+        timeText={`Submitted ${formatVisitTime(submittedSummary.completedAt)}`}
+      >
+        <OutcomeCard
+          body={`Your report and ${submittedSummary.fileCount} evidence files are now visible to the lender admin. This token has been consumed.`}
+          detailItems={[
+            ["Visit ID", `SVT_${submittedSummary.visitId}`],
+            [
+              "Submitted",
+              `${formatVisitTime(submittedSummary.completedAt)} · ${formatVisitDay(
+                submittedSummary.completedAt
+              )}`,
+            ],
+            ["Recommendation", submittedSummary.recommendation],
+            [
+              "Files stored",
+              `${submittedSummary.fileCount} · ${formatSiteVisitBytes(
+                submittedSummary.totalBytes
+              )}`,
+            ],
+          ]}
+          icon={<Check className="size-6" />}
+          title="Site visit recorded"
+          tone="success"
+        />
+      </MobileShell>
+    );
+  }
+
   if (!visitState.available) {
     const copy = resolveSiteVisitUnavailableCopy(visitState);
     const build = visitState.build ?? null;
@@ -436,41 +472,6 @@ function SiteVisitTokenRouteContent({
       );
     }
   };
-
-  if (submittedSummary) {
-    return (
-      <MobileShell
-        build={build}
-        buildCode={deriveBuildCode(buildId, build)}
-        status="complete"
-        statusText="Complete"
-        timeText={`Submitted ${formatVisitTime(submittedSummary.completedAt)}`}
-      >
-        <OutcomeCard
-          body={`Your report and ${submittedSummary.fileCount} evidence files are now visible to the lender admin. This token has been consumed.`}
-          detailItems={[
-            ["Visit ID", `SVT_${submittedSummary.visitId}`],
-            [
-              "Submitted",
-              `${formatVisitTime(submittedSummary.completedAt)} · ${formatVisitDay(
-                submittedSummary.completedAt
-              )}`,
-            ],
-            ["Recommendation", submittedSummary.recommendation],
-            [
-              "Files stored",
-              `${submittedSummary.fileCount} · ${formatSiteVisitBytes(
-                submittedSummary.totalBytes
-              )}`,
-            ],
-          ]}
-          icon={<Check className="size-6" />}
-          title="Site visit recorded"
-          tone="success"
-        />
-      </MobileShell>
-    );
-  }
 
   return (
     <MobileShell
