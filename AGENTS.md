@@ -1,6 +1,6 @@
 # Agent Guide
 
-DrawFlow is a FairLend construction draw-management product, not a generic TanStack demo app. Treat `docs/draw_flow_prd.md` as the product source of truth.
+DrawFlow is a FairLend construction draw-management product, not a generic TanStack demo app. Treat `docs/draw_flow_prd.md` as the product source of truth
 
 ## Product Context
 
