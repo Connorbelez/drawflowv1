@@ -214,6 +214,273 @@ describe("contractors v1", () => {
     ]);
   });
 
+  test("plans proposal contractors, projects scheduling intelligence, and copies assignments forward at closing", async () => {
+    const { seed, t } = await seeded();
+    const proposalId = await t.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Brick contractor planning build",
+        location: "42 Masonry Plan Ave",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
+      borrowerCoPayBps: 2_000,
+      borrowerWorkingCapitalLimitCents: 35_000_000,
+      documents: [
+        {
+          documentType: "permit",
+          fileName: "brick-siding-masonry-building-permit.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 2048,
+        },
+      ],
+      lenderDrawPolicyLimitCents: 90_000_000,
+      milestones: [
+        {
+          budgetCents: 58_000_000,
+          dayEnd: 24,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 24,
+          key: "exterior",
+          name: "Exterior masonry and brick siding",
+          order: 1,
+          submilestones: [
+            {
+              budgetCents: 24_000_000,
+              durationDays: 12,
+              key: "brick-siding",
+              name: "Brick siding",
+              order: 1,
+            },
+          ],
+        },
+      ],
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+
+    const contractorId = await t.mutation(
+      (api as any).production_proposals.createContractorProfile,
+      {
+        availabilityWindows: [
+          {
+            dayOfWeek: 1,
+            endMinute: 960,
+            startMinute: 420,
+            timezone: "America/Toronto",
+          },
+          {
+            dayOfWeek: 2,
+            endMinute: 960,
+            startMinute: 420,
+            timezone: "America/Toronto",
+          },
+        ],
+        brokerageId: seed.brokerageId,
+        capabilities: [
+          {
+            capabilityKey: "brick-siding",
+            label: "Brick siding",
+            milestoneArchetypeKey: "exterior",
+            trade: "masonry",
+          },
+        ],
+        city: "Toronto, ON",
+        defaultPayRateCents: 9_500,
+        defaultPayRateUnit: "hour",
+        equipment: [
+          {
+            equipmentKey: "telehandler",
+            name: "Telehandler",
+            quantity: 1,
+          },
+        ],
+        kind: "company",
+        name: "Northstar Planning Masonry",
+        trades: ["masonry", "brick"],
+        workosOrganizationId: ORG,
+      },
+    );
+    const linkedContractorId = await t.mutation(
+      (api as any).production_proposals.createContractorProfile,
+      {
+        brokerageId: seed.brokerageId,
+        name: "Northstar Masonry Partner Profile",
+        trades: ["masonry"],
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const proposalAssignmentId = await t.mutation(
+      (api as any).production_proposals.attachProposalContractor,
+      {
+        contractorId,
+        proposalId,
+        role: "Masonry lead",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(proposalAssignmentId).toBeTruthy();
+
+    const assignmentIds = await t.mutation(
+      (api as any).production_proposals.assignProposalContractorToMilestone,
+      {
+        contractorId,
+        estimatedHours: 120,
+        milestoneKey: "exterior",
+        proposalId,
+        role: "Brick siding lead",
+        submilestoneKeys: ["brick-siding"],
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(assignmentIds).toHaveLength(1);
+
+    const workspace = await t.query(
+      (api as any).production_proposals.getProductionTimelineWorkspace,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(workspace.contractorPlanning.proposalContractors[0]).toMatchObject({
+      contractorId,
+      name: "Northstar Planning Masonry",
+      role: "Masonry lead",
+    });
+    expect(workspace.contractorPlanning.materialSignals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "brick" }),
+        expect.objectContaining({ key: "masonry" }),
+      ]),
+    );
+    expect(workspace.contractorPlanning.recommendations[0]).toMatchObject({
+      contractorId,
+      name: "Northstar Planning Masonry",
+    });
+    expect(workspace.contractorPlanning.utilization[0]).toMatchObject({
+      contractorId,
+      scheduledHours: 120,
+    });
+
+    await t.mutation((api as any).production_proposals.updateContractorProfile, {
+      availabilityWindows: [
+        {
+          dayOfWeek: 3,
+          endMinute: 1020,
+          startMinute: 420,
+          timezone: "America/Toronto",
+        },
+      ],
+      capabilities: [
+        {
+          capabilityKey: "masonry-envelope",
+          label: "Masonry envelope",
+          milestoneArchetypeKey: "exterior",
+          trade: "masonry",
+        },
+      ],
+      city: "Hamilton, ON",
+      contractorId,
+      defaultPayRateCents: 10_100,
+      defaultPayRateUnit: "hour",
+      equipment: [
+        {
+          equipmentKey: "scaffold",
+          name: "Scaffold",
+          quantity: 2,
+        },
+      ],
+      kind: "company",
+      name: "Northstar Planning Masonry Updated",
+      trades: ["masonry", "envelope"],
+      workosOrganizationId: ORG,
+    });
+    await t.mutation((api as any).production_proposals.linkContractorIdentity, {
+      confidence: 0.88,
+      linkedContractorId,
+      primaryContractorId: contractorId,
+      reason: "Same company with a linked external brokerage profile.",
+      status: "verified",
+      workosOrganizationId: ORG,
+    });
+
+    await t.mutation((api as any).production_proposals.submitProposal, {
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Proposal contractor plan is ready.",
+      workosOrganizationId: ORG,
+    });
+    const closing = await t.mutation(
+      (api as any).production_proposals.recordOfflineClosing,
+      {
+        buildStartDate: "2026-09-01",
+        loanFacility: {
+          interestAnnualBps: 925,
+          principalCents: 90_000_000,
+        },
+        proposalId,
+        reason: "Closing copies proposal contractor plan.",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const buildDetail = await t.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(buildDetail.contractors[0]).toMatchObject({
+      contractorId,
+      name: "Northstar Planning Masonry Updated",
+      role: "Masonry lead",
+    });
+    expect(buildDetail.milestoneContractorAssignments[0]).toMatchObject({
+      contractorId,
+      estimatedCostCents: 1_140_000,
+      estimatedHours: 120,
+      milestoneKey: "exterior",
+      role: "Brick siding lead",
+      submilestoneKey: "brick-siding",
+    });
+
+    const detail = await t.query(
+      (api as any).production_proposals.getContractorDetail,
+      { contractorId, workosOrganizationId: ORG },
+    );
+    expect(detail.identityLinks[0]).toMatchObject({
+      peerContractorId: linkedContractorId,
+      status: "verified",
+    });
+    expect(detail.profile).toMatchObject({
+      city: "Hamilton, ON",
+      defaultPayRateCents: 10_100,
+      name: "Northstar Planning Masonry Updated",
+    });
+    expect(detail.intelligence).toMatchObject({
+      activeBuildAssignmentCount: 1,
+      scheduledHours: 120,
+    });
+
+    await t.mutation((api as any).production_proposals.setContractorProfileStatus, {
+      contractorId,
+      reason: "Testing inactive profile management.",
+      status: "inactive",
+      workosOrganizationId: ORG,
+    });
+    const inactiveList = await t.query(
+      (api as any).production_proposals.listContractors,
+      { includeInactive: true, workosOrganizationId: ORG },
+    );
+    expect(
+      inactiveList.contractors.find((contractor: any) => contractor._id === contractorId),
+    ).toMatchObject({ status: "inactive" });
+  });
+
   test("assigns build contractors to milestone and submilestone work, records quality ratings, and filters work-history photos to tagged work", async () => {
     const { seed, t } = await seeded();
     const { buildId } = await createActiveBuild(t, seed);

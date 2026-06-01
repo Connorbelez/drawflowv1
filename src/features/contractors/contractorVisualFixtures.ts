@@ -115,6 +115,34 @@ export function getVisualContractorDetail(contractorId: string) {
     },
   ];
   return {
+    identityLinks: [
+      {
+        _id: "identity-link-visual-masonry",
+        confidence: 0.92,
+        peerBrokerageId: "brokerage_visual_partner",
+        peerContractorId: "contractor_partner_masonry",
+        peerName: "Northstar Masonry / Partner Brokerage",
+        reason: "Shared account email and matching masonry capability profile.",
+        status: "verified",
+      },
+    ],
+    intelligence: {
+      activeBuildAssignmentCount: 1,
+      capabilityPerformance: [
+        {
+          averageRating: 4,
+          capabilityKey: "brick-siding",
+          label: "Brick siding",
+          ratingCount: 1,
+          totalActualCostCents: 612_000,
+          totalEstimatedCostCents: 620_500,
+        },
+      ],
+      plannedAssignmentCount: 1,
+      scheduledHours: 184,
+      utilizationPercent: 72,
+      weeklyWindowHours: 64,
+    },
     performance: {
       averageQualityRating: 4,
       assignmentCount: 1,

@@ -49,6 +49,7 @@ import { Route as DemoDrawflowBuilderDashboardRouteImport } from './routes/demo/
 import { Route as DemoDrawflowAdminBuildDashboardRouteImport } from './routes/demo/drawflow/admin-build-dashboard'
 import { Route as DemoDrawflowActiveRouteImport } from './routes/demo/drawflow/active'
 import { Route as BuilderProposalsNewRouteImport } from './routes/builder/proposals/new'
+import { Route as BuilderContractorsContractorIdRouteImport } from './routes/builder/contractors/$contractorId'
 import { Route as BackofficeProposalsUnassignedRouteImport } from './routes/backoffice/proposals/unassigned'
 import { Route as BackofficeProposalsNewRouteImport } from './routes/backoffice/proposals/new'
 import { Route as BackofficeProposalsPlanIdRouteImport } from './routes/backoffice/proposals.$planId'
@@ -282,6 +283,12 @@ const BuilderProposalsNewRoute = BuilderProposalsNewRouteImport.update({
   path: '/new',
   getParentRoute: () => BuilderProposalsRouteRoute,
 } as any)
+const BuilderContractorsContractorIdRoute =
+  BuilderContractorsContractorIdRouteImport.update({
+    id: '/contractors/$contractorId',
+    path: '/contractors/$contractorId',
+    getParentRoute: () => BuilderRouteRoute,
+  } as any)
 const BackofficeProposalsUnassignedRoute =
   BackofficeProposalsUnassignedRouteImport.update({
     id: '/unassigned',
@@ -441,6 +448,7 @@ export interface FileRoutesByFullPath {
   '/backoffice/proposals/$planId': typeof BackofficeProposalsPlanIdRoute
   '/backoffice/proposals/new': typeof BackofficeProposalsNewRoute
   '/backoffice/proposals/unassigned': typeof BackofficeProposalsUnassignedRoute
+  '/builder/contractors/$contractorId': typeof BuilderContractorsContractorIdRoute
   '/builder/proposals/new': typeof BuilderProposalsNewRoute
   '/demo/drawflow/active': typeof DemoDrawflowActiveRoute
   '/demo/drawflow/admin-build-dashboard': typeof DemoDrawflowAdminBuildDashboardRoute
@@ -494,6 +502,7 @@ export interface FileRoutesByTo {
   '/backoffice/proposals/$planId': typeof BackofficeProposalsPlanIdRoute
   '/backoffice/proposals/new': typeof BackofficeProposalsNewRoute
   '/backoffice/proposals/unassigned': typeof BackofficeProposalsUnassignedRoute
+  '/builder/contractors/$contractorId': typeof BuilderContractorsContractorIdRoute
   '/builder/proposals/new': typeof BuilderProposalsNewRoute
   '/demo/drawflow/active': typeof DemoDrawflowActiveRoute
   '/demo/drawflow/admin-build-dashboard': typeof DemoDrawflowAdminBuildDashboardRoute
@@ -556,6 +565,7 @@ export interface FileRoutesById {
   '/backoffice/proposals/$planId': typeof BackofficeProposalsPlanIdRoute
   '/backoffice/proposals/new': typeof BackofficeProposalsNewRoute
   '/backoffice/proposals/unassigned': typeof BackofficeProposalsUnassignedRoute
+  '/builder/contractors/$contractorId': typeof BuilderContractorsContractorIdRoute
   '/builder/proposals/new': typeof BuilderProposalsNewRoute
   '/demo/drawflow/active': typeof DemoDrawflowActiveRoute
   '/demo/drawflow/admin-build-dashboard': typeof DemoDrawflowAdminBuildDashboardRoute
@@ -621,6 +631,7 @@ export interface FileRouteTypes {
     | '/backoffice/proposals/$planId'
     | '/backoffice/proposals/new'
     | '/backoffice/proposals/unassigned'
+    | '/builder/contractors/$contractorId'
     | '/builder/proposals/new'
     | '/demo/drawflow/active'
     | '/demo/drawflow/admin-build-dashboard'
@@ -674,6 +685,7 @@ export interface FileRouteTypes {
     | '/backoffice/proposals/$planId'
     | '/backoffice/proposals/new'
     | '/backoffice/proposals/unassigned'
+    | '/builder/contractors/$contractorId'
     | '/builder/proposals/new'
     | '/demo/drawflow/active'
     | '/demo/drawflow/admin-build-dashboard'
@@ -735,6 +747,7 @@ export interface FileRouteTypes {
     | '/backoffice/proposals/$planId'
     | '/backoffice/proposals/new'
     | '/backoffice/proposals/unassigned'
+    | '/builder/contractors/$contractorId'
     | '/builder/proposals/new'
     | '/demo/drawflow/active'
     | '/demo/drawflow/admin-build-dashboard'
@@ -1058,6 +1071,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/builder/proposals/new'
       preLoaderRoute: typeof BuilderProposalsNewRouteImport
       parentRoute: typeof BuilderProposalsRouteRoute
+    }
+    '/builder/contractors/$contractorId': {
+      id: '/builder/contractors/$contractorId'
+      path: '/contractors/$contractorId'
+      fullPath: '/builder/contractors/$contractorId'
+      preLoaderRoute: typeof BuilderContractorsContractorIdRouteImport
+      parentRoute: typeof BuilderRouteRoute
     }
     '/backoffice/proposals/unassigned': {
       id: '/backoffice/proposals/unassigned'
@@ -1441,6 +1461,7 @@ interface BuilderRouteRouteChildren {
   BuilderDemoRouteRoute: typeof BuilderDemoRouteRouteWithChildren
   BuilderProposalsRouteRoute: typeof BuilderProposalsRouteRouteWithChildren
   BuilderIndexRoute: typeof BuilderIndexRoute
+  BuilderContractorsContractorIdRoute: typeof BuilderContractorsContractorIdRoute
   BuilderBuildsBuildIdIndexRoute: typeof BuilderBuildsBuildIdIndexRoute
 }
 
@@ -1448,6 +1469,7 @@ const BuilderRouteRouteChildren: BuilderRouteRouteChildren = {
   BuilderDemoRouteRoute: BuilderDemoRouteRouteWithChildren,
   BuilderProposalsRouteRoute: BuilderProposalsRouteRouteWithChildren,
   BuilderIndexRoute: BuilderIndexRoute,
+  BuilderContractorsContractorIdRoute: BuilderContractorsContractorIdRoute,
   BuilderBuildsBuildIdIndexRoute: BuilderBuildsBuildIdIndexRoute,
 }
 

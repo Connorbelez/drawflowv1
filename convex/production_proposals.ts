@@ -183,6 +183,12 @@ const contractorQualityRatingInput = v.object({
   submilestoneKey: v.optional(v.string()),
 });
 
+const contractorIdentityLinkStatusInput = v.union(
+  v.literal("suggested"),
+  v.literal("verified"),
+  v.literal("rejected")
+);
+
 const activeBuildNoteVisibility = v.union(
   v.literal("internal"),
   v.literal("public")
@@ -2348,6 +2354,11 @@ export const recordOfflineClosing = authenticatedMutation
       string,
       Id<"buildMilestones">
     >();
+    const milestoneIdByKey = new Map<string, Id<"buildMilestones">>();
+    const submilestoneIdByProposalSubmilestone = new Map<
+      string,
+      Id<"buildSubmilestones">
+    >();
     const milestones = await collectByIndex(
       ctx,
       "proposalMilestones",
@@ -2381,6 +2392,7 @@ export const recordOfflineClosing = authenticatedMutation
         updatedAt: now,
       });
       milestoneIdByProposalMilestone.set(milestone._id, buildMilestoneId);
+      milestoneIdByKey.set(milestone.key, buildMilestoneId);
     }
 
     const submilestones = await collectByIndex(
@@ -2396,7 +2408,7 @@ export const recordOfflineClosing = authenticatedMutation
       if (!buildMilestoneId) {
         continue;
       }
-      await ctx.db.insert("buildSubmilestones", {
+      const buildSubmilestoneId = await ctx.db.insert("buildSubmilestones", {
         brokerageId: auth.brokerage._id,
         budgetCents: submilestone.budgetCents,
         buildId,
@@ -2412,6 +2424,10 @@ export const recordOfflineClosing = authenticatedMutation
         status: "planned",
         updatedAt: now,
       });
+      submilestoneIdByProposalSubmilestone.set(
+        submilestone._id,
+        buildSubmilestoneId
+      );
     }
 
     const draws = await collectByIndex(
@@ -2442,6 +2458,116 @@ export const recordOfflineClosing = authenticatedMutation
         reviewedAt: draw.reviewedAt,
         status: activeBuildDrawStatusFromProposal(draw.requestStatus),
         timingDay: draw.timingDay,
+        updatedAt: now,
+      });
+    }
+    const proposalContractors = await collectByIndex(
+      ctx,
+      "proposalContractorAssignments",
+      "by_proposal",
+      args.proposalId
+    );
+    const buildContractorAssignmentByProposalAssignment = new Map<
+      string,
+      Id<"buildContractorAssignments">
+    >();
+    for (const assignment of proposalContractors) {
+      if (assignment.status !== "active") {
+        continue;
+      }
+      const contractor = (await ctx.db.get(
+        assignment.contractorId
+      )) as Doc<"contractorProfiles"> | null;
+      if (
+        !contractor ||
+        contractor.brokerageId !== auth.brokerage._id ||
+        contractor.status !== "active"
+      ) {
+        continue;
+      }
+      const buildContractorAssignmentId = await ctx.db.insert(
+        "buildContractorAssignments",
+        {
+          agreedRateCents:
+            assignment.agreedRateCents ?? contractor.defaultPayRateCents,
+          agreedRateUnit:
+            assignment.agreedRateUnit ??
+            contractor.defaultPayRateUnit ??
+            "hour",
+          brokerageId: auth.brokerage._id,
+          buildId,
+          contractorId: assignment.contractorId,
+          createdAt: now,
+          endDate: undefined,
+          notes: assignment.notes,
+          organizationId: args.workosOrganizationId,
+          role: assignment.role,
+          startDate: args.buildStartDate,
+          status: "active",
+          updatedAt: now,
+        }
+      );
+      buildContractorAssignmentByProposalAssignment.set(
+        String(assignment._id),
+        buildContractorAssignmentId
+      );
+    }
+    const proposalMilestoneContractors = await collectByIndex(
+      ctx,
+      "proposalMilestoneContractorAssignments",
+      "by_proposal",
+      args.proposalId
+    );
+    for (const assignment of proposalMilestoneContractors) {
+      if (assignment.status === "removed") {
+        continue;
+      }
+      const buildMilestoneId =
+        milestoneIdByProposalMilestone.get(String(assignment.proposalMilestoneId)) ??
+        milestoneIdByKey.get(assignment.milestoneKey);
+      if (!buildMilestoneId) {
+        continue;
+      }
+      const buildContractorAssignmentId =
+        buildContractorAssignmentByProposalAssignment.get(
+          String(assignment.proposalContractorAssignmentId)
+        );
+      if (!buildContractorAssignmentId) {
+        continue;
+      }
+      await ctx.db.insert("milestoneContractorAssignments", {
+        actualCostCents: undefined,
+        actualHours: undefined,
+        agreedRateCents: assignment.agreedRateCents,
+        agreedRateUnit: assignment.agreedRateUnit,
+        assignedAt: now,
+        assignedByWorkosUserId: assignment.assignedByWorkosUserId,
+        brokerageId: auth.brokerage._id,
+        buildContractorAssignmentId,
+        buildId,
+        buildMilestoneId,
+        buildSubmilestoneId: assignment.proposalSubmilestoneId
+          ? submilestoneIdByProposalSubmilestone.get(
+              String(assignment.proposalSubmilestoneId)
+            )
+          : undefined,
+        contractorId: assignment.contractorId,
+        costNotes: assignment.note,
+        createdAt: now,
+        estimatedCostCents: assignment.estimatedCostCents,
+        estimatedHours: assignment.estimatedHours,
+        milestoneKey: assignment.milestoneKey,
+        note: assignment.note,
+        organizationId: args.workosOrganizationId,
+        postHoc: false,
+        role: assignment.role,
+        status:
+          assignment.status === "completed"
+            ? "completed"
+            : new Date(`${args.buildStartDate}T00:00:00Z`).getTime() > now
+              ? "planned"
+              : "active",
+        submilestoneKey: assignment.submilestoneKey,
         updatedAt: now,
       });
     }
@@ -2592,6 +2718,200 @@ export const createContractorProfile = authenticatedMutation
   })
   .public();
 
+export const updateContractorProfile = authenticatedMutation
+  .input({
+    accountWorkosUserId: v.optional(v.string()),
+    availabilityWindows: v.array(contractorAvailabilityWindowInput),
+    capabilities: v.array(contractorCapabilityInput),
+    city: v.optional(v.string()),
+    contractorId: v.id("contractorProfiles"),
+    defaultPayRateCents: v.optional(v.number()),
+    defaultPayRateUnit: v.optional(contractorPayRateUnitInput),
+    email: v.optional(v.string()),
+    equipment: v.array(contractorEquipmentInput),
+    kind: v.optional(contractorKindInput),
+    name: v.string(),
+    phone: v.optional(v.string()),
+    trades: v.array(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+    const contractor = await getScopedContractorOrThrow(
+      ctx,
+      args.contractorId,
+      auth.brokerage._id
+    );
+    const now = Date.now();
+    await ctx.db.patch(args.contractorId, {
+      accountWorkosUserId: normalizeOptionalString(args.accountWorkosUserId),
+      city: normalizeOptionalString(args.city),
+      defaultPayRateCents:
+        args.defaultPayRateCents === undefined
+          ? undefined
+          : Math.max(0, Math.round(args.defaultPayRateCents)),
+      defaultPayRateUnit: args.defaultPayRateUnit,
+      email: normalizeOptionalString(args.email),
+      kind: args.kind ?? contractor.kind ?? "company",
+      name: args.name.trim() || contractor.name,
+      onboardingStatus: args.accountWorkosUserId
+        ? "account_linked"
+        : contractor.onboardingStatus,
+      phone: normalizeOptionalString(args.phone),
+      trades: args.trades.map((trade) => trade.trim()).filter(Boolean),
+      updatedAt: now,
+    });
+    await replaceContractorOperatingRows(ctx, {
+      availabilityWindows: args.availabilityWindows,
+      brokerageId: auth.brokerage._id,
+      capabilities: args.capabilities,
+      contractorId: args.contractorId,
+      equipment: args.equipment,
+      now,
+      organizationId: args.workosOrganizationId,
+    });
+    await writeContractorProfileEvent(ctx, {
+      auth,
+      command: "updateContractorProfile",
+      contractorId: args.contractorId,
+      eventType: "contractor.profile.updated",
+      newState: JSON.stringify({
+        capabilities: args.capabilities.length,
+        equipment: args.equipment.length,
+        name: args.name,
+        trades: args.trades,
+      }),
+      organizationId: args.workosOrganizationId,
+      priorState: JSON.stringify({
+        accountWorkosUserId: contractor.accountWorkosUserId,
+        city: contractor.city,
+        defaultPayRateCents: contractor.defaultPayRateCents,
+        defaultPayRateUnit: contractor.defaultPayRateUnit,
+        email: contractor.email,
+        name: contractor.name,
+        phone: contractor.phone,
+        trades: contractor.trades,
+      }),
+    });
+    return null;
+  })
+  .public();
+
+export const setContractorProfileStatus = authenticatedMutation
+  .input({
+    contractorId: v.id("contractorProfiles"),
+    reason: v.optional(v.string()),
+    status: v.union(v.literal("active"), v.literal("inactive")),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+    const contractor = await getScopedContractorOrThrow(
+      ctx,
+      args.contractorId,
+      auth.brokerage._id
+    );
+    await ctx.db.patch(args.contractorId, {
+      status: args.status,
+      updatedAt: Date.now(),
+    });
+    await writeContractorProfileEvent(ctx, {
+      auth,
+      command: "setContractorProfileStatus",
+      contractorId: args.contractorId,
+      eventType:
+        args.status === "active"
+          ? "contractor.profile.activated"
+          : "contractor.profile.deactivated",
+      newState: JSON.stringify({ status: args.status }),
+      organizationId: args.workosOrganizationId,
+      priorState: JSON.stringify({ status: contractor.status }),
+      reason: args.reason,
+    });
+    return null;
+  })
+  .public();
+
+export const linkContractorIdentity = authenticatedMutation
+  .input({
+    confidence: v.optional(v.number()),
+    linkedContractorId: v.id("contractorProfiles"),
+    primaryContractorId: v.id("contractorProfiles"),
+    reason: v.optional(v.string()),
+    status: contractorIdentityLinkStatusInput,
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.id("contractorIdentityLinks"))
+  .handler(async (ctx, args) => {
+    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    requireAnyRole(auth.roles, APPROVER_ROLES);
+    if (args.primaryContractorId === args.linkedContractorId) {
+      throw new Error("Contractor identity links require two profiles.");
+    }
+    const primary = await ctx.db.get(args.primaryContractorId);
+    const linked = await ctx.db.get(args.linkedContractorId);
+    if (!primary || !linked) {
+      throw new Error("Contractor profile not found for identity link.");
+    }
+    if (primary.brokerageId !== auth.brokerage._id) {
+      throw new Error("Forbidden: primary contractor brokerage scope");
+    }
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("contractorIdentityLinks")
+      .withIndex("by_primary_linked", (q) =>
+        q
+          .eq("primaryContractorId", args.primaryContractorId)
+          .eq("linkedContractorId", args.linkedContractorId)
+      )
+      .unique();
+    const row = {
+      confidence:
+        args.confidence === undefined
+          ? undefined
+          : Math.max(0, Math.min(1, args.confidence)),
+      linkedBrokerageId: linked.brokerageId,
+      linkedContractorId: args.linkedContractorId,
+      linkedOrganizationId: linked.organizationId,
+      organizationId: args.workosOrganizationId,
+      primaryBrokerageId: primary.brokerageId,
+      primaryContractorId: args.primaryContractorId,
+      primaryOrganizationId: primary.organizationId,
+      reason: normalizeOptionalString(args.reason),
+      status: args.status,
+      updatedAt: now,
+    };
+    const linkId = existing
+      ? existing._id
+      : await ctx.db.insert("contractorIdentityLinks", {
+          ...row,
+          createdAt: now,
+          createdByWorkosUserId: auth.subject,
+        });
+    if (existing) {
+      await ctx.db.patch(existing._id, row);
+    }
+    await writeContractorProfileEvent(ctx, {
+      auth,
+      command: "linkContractorIdentity",
+      contractorId: args.primaryContractorId,
+      eventType: "contractor.identity.linked",
+      newState: JSON.stringify({
+        linkedContractorId: args.linkedContractorId,
+        linkedBrokerageId: linked.brokerageId,
+        status: args.status,
+      }),
+      organizationId: args.workosOrganizationId,
+      reason: args.reason,
+    });
+    return linkId;
+  })
+  .public();
+
 export const linkContractorProfileToWorkosUser = authenticatedMutation
   .input({
     contractorId: v.id("contractorProfiles"),
@@ -2731,16 +3051,38 @@ export const getContractorDetail = authenticatedQuery
       .query("milestoneContractorAssignments")
       .withIndex("by_contractor", (q) => q.eq("contractorId", args.contractorId))
       .collect();
+    const proposalAssignments = await ctx.db
+      .query("proposalMilestoneContractorAssignments")
+      .withIndex("by_contractor", (q) => q.eq("contractorId", args.contractorId))
+      .collect();
+    const openProposalAssignments = [];
+    for (const assignment of proposalAssignments) {
+      const proposal = await ctx.db.get(assignment.proposalId);
+      if (proposal?.status !== "closed") {
+        openProposalAssignments.push(assignment);
+      }
+    }
     const ratings = await ctx.db
       .query("contractorQualityRatings")
       .withIndex("by_contractor", (q) => q.eq("contractorId", args.contractorId))
       .collect();
+    const identityLinks = await contractorIdentityLinkViews(ctx, {
+      brokerageId: auth.brokerage._id,
+      contractorId: args.contractorId,
+    });
     const workHistory = await contractorWorkHistory(ctx, {
       assignments,
       brokerageId: auth.brokerage._id,
       contractorId: args.contractorId,
     });
     return {
+      identityLinks,
+      intelligence: contractorDetailIntelligence({
+        assignments,
+        profile,
+        proposalAssignments: openProposalAssignments,
+        ratings,
+      }),
       performance: contractorPerformanceSummary(ratings, assignments),
       profile,
       ratings: ratings
@@ -2757,6 +3099,309 @@ export const getContractorDetail = authenticatedQuery
         })),
       workHistory,
     };
+  })
+  .public();
+
+export const attachProposalContractor = authenticatedMutation
+  .input({
+    agreedRateCents: v.optional(v.number()),
+    agreedRateUnit: v.optional(contractorPayRateUnitInput),
+    contractorId: v.id("contractorProfiles"),
+    endDay: v.optional(v.number()),
+    notes: v.optional(v.string()),
+    proposalId: v.id("buildProposals"),
+    role: v.string(),
+    startDay: v.optional(v.number()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.id("proposalContractorAssignments"))
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
+    await requireProposalContractorPlanningWrite(ctx, auth);
+    const contractor = await getScopedContractorOrThrow(
+      ctx,
+      args.contractorId,
+      auth.brokerage._id
+    );
+    if (contractor.status !== "active") {
+      throw new Error("Production contractor is inactive.");
+    }
+    const assignmentId = await ensureProposalContractorAssignment(ctx, {
+      agreedRateCents:
+        normalizeOptionalMoneyCents(args.agreedRateCents) ??
+        contractor.defaultPayRateCents,
+      agreedRateUnit:
+        args.agreedRateUnit ?? contractor.defaultPayRateUnit ?? "hour",
+      auth,
+      contractorId: args.contractorId,
+      endDay: args.endDay,
+      notes: args.notes,
+      proposalId: args.proposalId,
+      role: args.role,
+      startDay: args.startDay,
+      workosOrganizationId: args.workosOrganizationId,
+    });
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "attachProposalContractor",
+      eventType: "proposal.contractor.attached",
+      newState: JSON.stringify({
+        contractorId: args.contractorId,
+        proposalContractorAssignmentId: assignmentId,
+        role: args.role,
+      }),
+      proposalId: args.proposalId,
+      reason: args.notes,
+    });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
+    return assignmentId;
+  })
+  .public();
+
+export const createAndAttachProposalContractor = authenticatedMutation
+  .input({
+    contractor: v.object({
+      availabilityWindows: v.optional(v.array(contractorAvailabilityWindowInput)),
+      capabilities: v.optional(v.array(contractorCapabilityInput)),
+      city: v.optional(v.string()),
+      defaultPayRateCents: v.optional(v.number()),
+      defaultPayRateUnit: v.optional(contractorPayRateUnitInput),
+      email: v.optional(v.string()),
+      equipment: v.optional(v.array(contractorEquipmentInput)),
+      kind: v.optional(contractorKindInput),
+      name: v.string(),
+      phone: v.optional(v.string()),
+      trades: v.array(v.string()),
+    }),
+    proposalId: v.id("buildProposals"),
+    role: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(
+    v.object({
+      contractorId: v.id("contractorProfiles"),
+      proposalContractorAssignmentId: v.id("proposalContractorAssignments"),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
+    await requireProposalContractorPlanningWrite(ctx, auth);
+    const now = Date.now();
+    const contractorId = await ctx.db.insert("contractorProfiles", {
+      brokerageId: auth.brokerage._id,
+      city: normalizeOptionalString(args.contractor.city),
+      createdAt: now,
+      defaultPayRateCents:
+        args.contractor.defaultPayRateCents === undefined
+          ? undefined
+          : Math.max(0, Math.round(args.contractor.defaultPayRateCents)),
+      defaultPayRateUnit: args.contractor.defaultPayRateUnit,
+      email: normalizeOptionalString(args.contractor.email),
+      kind: args.contractor.kind ?? "company",
+      name: args.contractor.name.trim(),
+      onboardingStatus: "profile_only",
+      organizationId: args.workosOrganizationId,
+      phone: normalizeOptionalString(args.contractor.phone),
+      status: "active",
+      trades: args.contractor.trades.map((trade) => trade.trim()).filter(Boolean),
+      updatedAt: now,
+    });
+    await replaceContractorOperatingRows(ctx, {
+      availabilityWindows: args.contractor.availabilityWindows ?? [],
+      brokerageId: auth.brokerage._id,
+      capabilities: args.contractor.capabilities ?? [],
+      contractorId,
+      equipment: args.contractor.equipment ?? [],
+      now,
+      organizationId: args.workosOrganizationId,
+    });
+    const role =
+      normalizeOptionalString(args.role) ??
+      args.contractor.trades[0] ??
+      "Contractor";
+    const proposalContractorAssignmentId =
+      await ensureProposalContractorAssignment(ctx, {
+        agreedRateCents: args.contractor.defaultPayRateCents,
+        agreedRateUnit: args.contractor.defaultPayRateUnit ?? "hour",
+        auth,
+        contractorId,
+        proposalId: args.proposalId,
+        role,
+        workosOrganizationId: args.workosOrganizationId,
+      });
+    await writeContractorProfileEvent(ctx, {
+      auth,
+      command: "createAndAttachProposalContractor",
+      contractorId,
+      eventType: "contractor.profile.created",
+      newState: JSON.stringify({
+        capabilities: args.contractor.capabilities?.length ?? 0,
+        createdFromProposalId: args.proposalId,
+        equipment: args.contractor.equipment?.length ?? 0,
+        name: args.contractor.name,
+      }),
+      organizationId: args.workosOrganizationId,
+    });
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "createAndAttachProposalContractor",
+      eventType: "proposal.contractor.created_attached",
+      newState: JSON.stringify({
+        contractorId,
+        proposalContractorAssignmentId,
+        role,
+      }),
+      proposalId: args.proposalId,
+    });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
+    return { contractorId, proposalContractorAssignmentId };
+  })
+  .public();
+
+export const assignProposalContractorToMilestone = authenticatedMutation
+  .input({
+    agreedRateCents: v.optional(v.number()),
+    agreedRateUnit: v.optional(contractorPayRateUnitInput),
+    contractorId: v.id("contractorProfiles"),
+    estimatedCostCents: v.optional(v.number()),
+    estimatedHours: v.optional(v.number()),
+    milestoneKey: v.string(),
+    note: v.optional(v.string()),
+    proposalId: v.id("buildProposals"),
+    role: v.string(),
+    status: v.optional(
+      v.union(
+        v.literal("planned"),
+        v.literal("active"),
+        v.literal("completed"),
+        v.literal("removed")
+      )
+    ),
+    submilestoneKeys: v.optional(v.array(v.string())),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.array(v.id("proposalMilestoneContractorAssignments")))
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
+    await requireProposalContractorPlanningWrite(ctx, auth);
+    const contractor = await getScopedContractorOrThrow(
+      ctx,
+      args.contractorId,
+      auth.brokerage._id
+    );
+    if (contractor.status !== "active") {
+      throw new Error("Production contractor is inactive.");
+    }
+    const milestone = await getProductionMilestoneOrThrow(
+      ctx,
+      args.proposalId,
+      args.milestoneKey
+    );
+    const proposalContractorAssignmentId =
+      await ensureProposalContractorAssignment(ctx, {
+        agreedRateCents: args.agreedRateCents ?? contractor.defaultPayRateCents,
+        agreedRateUnit:
+          args.agreedRateUnit ?? contractor.defaultPayRateUnit ?? "hour",
+        auth,
+        contractorId: args.contractorId,
+        proposalId: args.proposalId,
+        preserveExistingRole: true,
+        role: args.role,
+        workosOrganizationId: args.workosOrganizationId,
+      });
+    const submilestoneKeys = [...new Set(args.submilestoneKeys ?? [])];
+    const targetSubmilestones = await resolveProposalAssignmentSubmilestones(ctx, {
+      milestoneKey: args.milestoneKey,
+      proposalId: args.proposalId,
+      submilestoneKeys,
+    });
+    const targets =
+      targetSubmilestones.length > 0
+        ? targetSubmilestones
+        : [{ id: undefined, key: undefined }];
+    const now = Date.now();
+    const assignmentIds: Id<"proposalMilestoneContractorAssignments">[] = [];
+    const agreedRateCents =
+      normalizeOptionalMoneyCents(args.agreedRateCents) ??
+      contractor.defaultPayRateCents;
+    const agreedRateUnit =
+      args.agreedRateUnit ?? contractor.defaultPayRateUnit ?? "hour";
+    const estimatedHours = normalizeOptionalHours(args.estimatedHours);
+    const estimatedCostCents =
+      normalizeOptionalMoneyCents(args.estimatedCostCents) ??
+      deriveContractorAssignmentCost({
+        hours: estimatedHours,
+        rateCents: agreedRateCents,
+        rateUnit: agreedRateUnit,
+      });
+    for (const target of targets) {
+      const existing = await findProposalMilestoneContractorAssignment(ctx, {
+        contractorId: args.contractorId,
+        milestoneKey: args.milestoneKey,
+        proposalId: args.proposalId,
+        submilestoneKey: target.key,
+      });
+      const row = {
+        agreedRateCents,
+        agreedRateUnit,
+        assignedAt: now,
+        assignedByWorkosUserId: auth.subject,
+        contractorId: args.contractorId,
+        estimatedCostCents,
+        estimatedHours,
+        milestoneKey: args.milestoneKey,
+        note: normalizeOptionalString(args.note),
+        proposalContractorAssignmentId,
+        proposalMilestoneId: milestone._id,
+        proposalSubmilestoneId: target.id,
+        role: args.role.trim() || "Contractor",
+        status: args.status ?? "planned",
+        submilestoneKey: target.key,
+        updatedAt: now,
+      };
+      if (existing) {
+        await ctx.db.patch(existing._id, row);
+        assignmentIds.push(existing._id);
+      } else {
+        assignmentIds.push(
+          await ctx.db.insert("proposalMilestoneContractorAssignments", {
+            ...row,
+            brokerageId: auth.brokerage._id,
+            createdAt: now,
+            organizationId: args.workosOrganizationId,
+            proposalId: args.proposalId,
+          })
+        );
+      }
+    }
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "assignProposalContractorToMilestone",
+      eventType: "proposal.contractor.milestone_assigned",
+      newState: JSON.stringify({
+        assignmentIds,
+        contractorId: args.contractorId,
+        estimatedCostCents,
+        milestoneKey: args.milestoneKey,
+        submilestoneKeys,
+      }),
+      proposalId: args.proposalId,
+      reason: args.note,
+    });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
+    return assignmentIds;
   })
   .public();
 
@@ -3004,6 +3649,7 @@ export const getProductionTimelineWorkspace = authenticatedQuery
       submilestones,
       drawRows,
       capitalEventRows,
+      documentRows,
       evidenceRows,
       modificationRequests,
       permitWaiver,
@@ -3027,6 +3673,7 @@ export const getProductionTimelineWorkspace = authenticatedQuery
         "by_proposal",
         args.proposalId
       ),
+      collectByIndex(ctx, "proposalDocuments", "by_proposal", args.proposalId),
       collectByIndex(
         ctx,
         "proposalEvidenceAssets",
@@ -3095,9 +3742,16 @@ export const getProductionTimelineWorkspace = authenticatedQuery
             capitalEventKey: event.capitalEventKey,
             eventKind: event.eventKind,
             label: event.label,
-            x: event.x,
-          })),
+          x: event.x,
+        })),
       ],
+      contractorPlanning: await proposalContractorPlanningProjection(ctx, {
+        auth,
+        documents: documentRows,
+        milestones,
+        proposalId: args.proposalId,
+        submilestones,
+      }),
       draws: draws.map((draw) => ({
         amountCents: draw.amountCents,
         customDate: draw.customDate ?? draw.source === "manual",
@@ -7752,6 +8406,595 @@ function contractorPerformanceSummary(
         ? totalActualCostCents - totalEstimatedCostCents
         : 0,
     ratingCount: ratings.length,
+  };
+}
+
+async function requireProposalContractorPlanningWrite(
+  ctx: QueryCtx | MutationCtx,
+  auth: {
+    proposal: Doc<"buildProposals">;
+    roles: RoleSlug[];
+    subject: string;
+  }
+) {
+  if (auth.proposal.status === "closed") {
+    throw new Error("Closed proposals no longer accept planning contractors.");
+  }
+  if (isBackoffice(auth.roles)) {
+    requireBackofficeProposalWrite(auth, auth.proposal);
+  }
+  await assertProposalCollaborationEditAllowed(ctx, auth);
+}
+
+async function ensureProposalContractorAssignment(
+  ctx: MutationCtx,
+  input: {
+    agreedRateCents?: number;
+    agreedRateUnit?: "hour" | "day" | "fixed";
+    auth: {
+      brokerage: Doc<"brokerages">;
+      proposal: Doc<"buildProposals">;
+    };
+    contractorId: Id<"contractorProfiles">;
+    endDay?: number;
+    notes?: string;
+    proposalId: Id<"buildProposals">;
+    preserveExistingRole?: boolean;
+    role: string;
+    startDay?: number;
+    workosOrganizationId: string;
+  }
+) {
+  const existing = await ctx.db
+    .query("proposalContractorAssignments")
+    .withIndex("by_proposal_contractor", (q) =>
+      q.eq("proposalId", input.proposalId).eq("contractorId", input.contractorId)
+    )
+    .unique();
+  const now = Date.now();
+  const patch = {
+    agreedRateCents: normalizeOptionalMoneyCents(input.agreedRateCents),
+    agreedRateUnit: input.agreedRateUnit,
+    endDay:
+      input.endDay === undefined ? undefined : Math.max(0, Math.round(input.endDay)),
+    notes: normalizeOptionalString(input.notes),
+    role: input.role.trim() || "Contractor",
+    startDay:
+      input.startDay === undefined
+        ? undefined
+        : Math.max(0, Math.round(input.startDay)),
+    status: "active" as const,
+    updatedAt: now,
+  };
+  if (existing) {
+    await ctx.db.patch(existing._id, patch);
+    if (input.preserveExistingRole) {
+      await ctx.db.patch(existing._id, { role: existing.role });
+    }
+    return existing._id;
+  }
+  return await ctx.db.insert("proposalContractorAssignments", {
+    ...patch,
+    brokerageId: input.auth.brokerage._id,
+    contractorId: input.contractorId,
+    createdAt: now,
+    organizationId: input.workosOrganizationId,
+    proposalId: input.proposalId,
+  });
+}
+
+async function resolveProposalAssignmentSubmilestones(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    milestoneKey: string;
+    proposalId: Id<"buildProposals">;
+    submilestoneKeys: string[];
+  }
+) {
+  if (input.submilestoneKeys.length === 0) {
+    return [];
+  }
+  const submilestones = await ctx.db
+    .query("proposalSubmilestones")
+    .withIndex("by_proposal", (q) => q.eq("proposalId", input.proposalId))
+    .filter((q) => q.eq(q.field("milestoneKey"), input.milestoneKey))
+    .collect();
+  return input.submilestoneKeys.map((key) => {
+    const submilestone = submilestones.find((row) => row.key === key);
+    if (!submilestone) {
+      throw new Error(`Proposal submilestone not found: ${key}`);
+    }
+    return { id: submilestone._id, key: submilestone.key };
+  });
+}
+
+async function findProposalMilestoneContractorAssignment(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    contractorId: Id<"contractorProfiles">;
+    milestoneKey: string;
+    proposalId: Id<"buildProposals">;
+    submilestoneKey?: string;
+  }
+) {
+  const assignments = await ctx.db
+    .query("proposalMilestoneContractorAssignments")
+    .withIndex("by_contractor_proposal", (q) =>
+      q
+        .eq("contractorId", input.contractorId)
+        .eq("proposalId", input.proposalId)
+    )
+    .collect();
+  return (
+    assignments.find(
+      (assignment) =>
+        assignment.milestoneKey === input.milestoneKey &&
+        assignment.submilestoneKey === input.submilestoneKey
+    ) ?? null
+  );
+}
+
+async function proposalContractorPlanningProjection(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    auth: {
+      brokerage: Doc<"brokerages">;
+      proposal: Doc<"buildProposals">;
+      roles: RoleSlug[];
+      subject: string;
+    };
+    documents: Doc<"proposalDocuments">[];
+    milestones: Doc<"proposalMilestones">[];
+    proposalId: Id<"buildProposals">;
+    submilestones: Doc<"proposalSubmilestones">[];
+  }
+) {
+  const [proposalContractors, milestoneAssignments, contractorProfiles] =
+    await Promise.all([
+      collectByIndex(
+        ctx,
+        "proposalContractorAssignments",
+        "by_proposal",
+        input.proposalId
+      ),
+      collectByIndex(
+        ctx,
+        "proposalMilestoneContractorAssignments",
+        "by_proposal",
+        input.proposalId
+      ),
+      ctx.db
+        .query("contractorProfiles")
+        .withIndex("by_brokerage", (q) =>
+          q.eq("brokerageId", input.auth.brokerage._id)
+        )
+        .collect(),
+    ]);
+  const proposalContractorRows =
+    proposalContractors as Doc<"proposalContractorAssignments">[];
+  const milestoneAssignmentRows =
+    milestoneAssignments as Doc<"proposalMilestoneContractorAssignments">[];
+  const hydrated = await hydrateContractorProfiles(ctx, contractorProfiles);
+  const contractorById = new Map(
+    hydrated.map((contractor: any) => [String(contractor._id), contractor])
+  );
+  const attachedIds = new Set(
+    proposalContractorRows.map((assignment) => String(assignment.contractorId))
+  );
+  const milestoneByKey = new Map(
+    input.milestones.map((milestone) => [milestone.key, milestone])
+  );
+  const submilestoneByComposite = new Map(
+    input.submilestones.map((submilestone) => [
+      `${submilestone.milestoneKey}:${submilestone.key}`,
+      submilestone,
+    ])
+  );
+  const permitSignals = extractPermitMaterialSignals({
+    documents: input.documents,
+    milestones: input.milestones,
+    submilestones: input.submilestones,
+  });
+  const assignmentViews = milestoneAssignmentRows
+    .map((assignment) => {
+      const contractor = contractorById.get(String(assignment.contractorId));
+      const milestone = milestoneByKey.get(assignment.milestoneKey);
+      if (!contractor || !milestone) return null;
+      const submilestone = assignment.submilestoneKey
+        ? submilestoneByComposite.get(
+            `${assignment.milestoneKey}:${assignment.submilestoneKey}`
+          )
+        : null;
+      return {
+        _id: assignment._id,
+        contractorId: assignment.contractorId,
+        contractorName: contractor.name,
+        dayEnd: milestone.dayEnd,
+        dayStart: milestone.dayStart,
+        estimatedCostCents: assignment.estimatedCostCents,
+        estimatedHours: assignment.estimatedHours,
+        milestoneKey: assignment.milestoneKey,
+        milestoneName: milestone.name,
+        role: assignment.role,
+        status: assignment.status,
+        submilestoneKey: assignment.submilestoneKey,
+        submilestoneName: submilestone?.name,
+      };
+    })
+    .filter(Boolean);
+  const allocationCalendar = assignmentViews.map((assignment: any) => ({
+    assignmentId: assignment._id,
+    contractorId: assignment.contractorId,
+    contractorName: assignment.contractorName,
+    dayEnd: assignment.dayEnd,
+    dayStart: assignment.dayStart,
+    label: `${assignment.milestoneName} / ${assignment.role}`,
+    milestoneKey: assignment.milestoneKey,
+  }));
+  const equipmentSchedule = assignmentViews.flatMap((assignment: any) => {
+    const contractor = contractorById.get(String(assignment.contractorId));
+    return (contractor?.equipment ?? []).map((equipment: any) => ({
+      assignmentId: assignment._id,
+      contractorId: assignment.contractorId,
+      contractorName: assignment.contractorName,
+      dayEnd: assignment.dayEnd,
+      dayStart: assignment.dayStart,
+      equipmentKey: equipment.equipmentKey,
+      name: equipment.name,
+      quantity: equipment.quantity,
+    }));
+  });
+  const conflicts = detectAssignmentWindowConflicts(allocationCalendar);
+  return {
+    allocationCalendar,
+    availableContractors: hydrated
+      .filter(
+        (contractor: any) =>
+          contractor.status === "active" && !attachedIds.has(String(contractor._id))
+      )
+      .map(contractorOptionView),
+    conflicts,
+    equipmentSchedule,
+    materialSignals: permitSignals,
+    milestoneAssignments: assignmentViews,
+    proposalContractors: proposalContractorRows
+      .map((assignment) => {
+        const contractor = contractorById.get(String(assignment.contractorId));
+        if (!contractor) return null;
+        return {
+          _id: assignment._id,
+          agreedRateCents:
+            assignment.agreedRateCents ?? contractor.defaultPayRateCents,
+          agreedRateUnit:
+            assignment.agreedRateUnit ??
+            contractor.defaultPayRateUnit ??
+            "hour",
+          city: contractor.city,
+          contractorId: assignment.contractorId,
+          defaultPayRateCents: contractor.defaultPayRateCents,
+          defaultPayRateUnit: contractor.defaultPayRateUnit ?? "hour",
+          endDay: assignment.endDay,
+          name: contractor.name,
+          role: assignment.role,
+          startDay: assignment.startDay,
+          status: assignment.status,
+          trades: contractor.trades,
+        };
+      })
+      .filter(Boolean),
+    recommendations: rankContractorsForPermitSignals({
+      contractors: hydrated.filter((contractor: any) => contractor.status === "active"),
+      conflicts,
+      permitSignals,
+    }),
+    utilization: contractorUtilizationSummary({
+      assignments: assignmentViews as any[],
+      contractorProfiles: hydrated,
+      proposalContractors: proposalContractorRows,
+    }),
+  };
+}
+
+function contractorOptionView(contractor: any) {
+  return {
+    _id: contractor._id,
+    city: contractor.city,
+    defaultPayRateCents: contractor.defaultPayRateCents,
+    defaultPayRateUnit: contractor.defaultPayRateUnit ?? "hour",
+    name: contractor.name,
+    trades: contractor.trades,
+  };
+}
+
+function extractPermitMaterialSignals(input: {
+  documents: Array<{ fileName: string; documentType?: string }>;
+  milestones: Array<{ key: string; name: string }>;
+  submilestones: Array<{ key: string; name: string }>;
+}) {
+  const haystack = [
+    ...input.documents
+      .filter((document) => document.documentType === "permit")
+      .map((document) => document.fileName),
+    ...input.milestones.flatMap((milestone) => [milestone.key, milestone.name]),
+    ...input.submilestones.flatMap((submilestone) => [
+      submilestone.key,
+      submilestone.name,
+    ]),
+  ]
+    .join(" ")
+    .toLowerCase();
+  const keywords = [
+    ["brick", "Brick siding"],
+    ["masonry", "Masonry"],
+    ["siding", "Siding"],
+    ["stone", "Stone veneer"],
+    ["stucco", "Stucco"],
+    ["roof", "Roofing"],
+    ["frame", "Framing"],
+    ["foundation", "Foundation"],
+    ["concrete", "Concrete"],
+    ["plumbing", "Plumbing"],
+    ["electrical", "Electrical"],
+  ] as const;
+  return keywords
+    .filter(([key]) => haystack.includes(key))
+    .map(([key, label]) => ({ key, label, source: "permit_and_roadmap" }));
+}
+
+function rankContractorsForPermitSignals(input: {
+  contractors: any[];
+  conflicts: Array<{ contractorId: unknown }>;
+  permitSignals: Array<{ key: string; label: string }>;
+}) {
+  const conflictIds = new Set(
+    input.conflicts.map((conflict) => String(conflict.contractorId))
+  );
+  return input.contractors
+    .map((contractor) => {
+      const searchable = [
+        contractor.name,
+        ...(contractor.trades ?? []),
+        ...(contractor.capabilities ?? []).flatMap((capability: any) => [
+          capability.capabilityKey,
+          capability.label,
+          capability.trade,
+          capability.milestoneArchetypeKey,
+        ]),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const matches = input.permitSignals.filter((signal) =>
+        searchable.includes(signal.key)
+      );
+      const score =
+        matches.length * 35 +
+        (contractor.defaultPayRateCents ? 10 : 0) -
+        (conflictIds.has(String(contractor._id)) ? 30 : 0);
+      return {
+        contractorId: contractor._id,
+        matchedSignals: matches,
+        name: contractor.name,
+        rateCents: contractor.defaultPayRateCents,
+        score,
+        trades: contractor.trades ?? [],
+      };
+    })
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+    .slice(0, 6);
+}
+
+function contractorUtilizationSummary(input: {
+  assignments: Array<{
+    contractorId: unknown;
+    dayEnd?: number;
+    dayStart?: number;
+    estimatedHours?: number;
+  }>;
+  contractorProfiles: any[];
+  proposalContractors: Array<{ contractorId: unknown }>;
+}) {
+  const profileById = new Map(
+    input.contractorProfiles.map((profile) => [String(profile._id), profile])
+  );
+  return input.proposalContractors.map((proposalContractor) => {
+    const contractorId = String(proposalContractor.contractorId);
+    const profile = profileById.get(contractorId);
+    const assignments = input.assignments.filter(
+      (assignment) => String(assignment.contractorId) === contractorId
+    );
+    const assignedDays = assignments.reduce(
+      (sum, assignment) =>
+        sum +
+        Math.max(
+          1,
+          Math.round((assignment.dayEnd ?? 0) - (assignment.dayStart ?? 0))
+        ),
+      0
+    );
+    const scheduledHours = assignments.reduce(
+      (sum, assignment) => sum + (assignment.estimatedHours ?? 0),
+      0
+    );
+    const weeklyWindowHours = (profile?.availabilityWindows ?? []).reduce(
+      (sum: number, window: any) =>
+        sum + Math.max(0, window.endMinute - window.startMinute) / 60,
+      0
+    );
+    const capacityHours = Math.max(weeklyWindowHours, 1) * 4;
+    return {
+      assignedDays,
+      contractorId: proposalContractor.contractorId,
+      name: profile?.name ?? "Contractor",
+      scheduledHours,
+      utilizationPercent: Math.min(
+        100,
+        Math.round((scheduledHours / capacityHours) * 100)
+      ),
+      weeklyWindowHours,
+    };
+  });
+}
+
+function detectAssignmentWindowConflicts(
+  assignments: Array<{
+    assignmentId: unknown;
+    contractorId: unknown;
+    contractorName: string;
+    dayEnd: number;
+    dayStart: number;
+    label: string;
+  }>
+) {
+  const conflicts = [];
+  for (let i = 0; i < assignments.length; i += 1) {
+    for (let j = i + 1; j < assignments.length; j += 1) {
+      const left = assignments[i];
+      const right = assignments[j];
+      if (String(left.contractorId) !== String(right.contractorId)) continue;
+      if (left.dayStart <= right.dayEnd && right.dayStart <= left.dayEnd) {
+        conflicts.push({
+          contractorId: left.contractorId,
+          contractorName: left.contractorName,
+          leftAssignmentId: left.assignmentId,
+          leftLabel: left.label,
+          overlapEndDay: Math.min(left.dayEnd, right.dayEnd),
+          overlapStartDay: Math.max(left.dayStart, right.dayStart),
+          rightAssignmentId: right.assignmentId,
+          rightLabel: right.label,
+          severity: "conflict" as const,
+        });
+      }
+    }
+  }
+  return conflicts;
+}
+
+async function contractorIdentityLinkViews(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    brokerageId: Id<"brokerages">;
+    contractorId: Id<"contractorProfiles">;
+  }
+) {
+  const [primaryLinks, linkedLinks] = await Promise.all([
+    ctx.db
+      .query("contractorIdentityLinks")
+      .withIndex("by_primary", (q) =>
+        q.eq("primaryContractorId", input.contractorId)
+      )
+      .collect(),
+    ctx.db
+      .query("contractorIdentityLinks")
+      .withIndex("by_linked", (q) =>
+        q.eq("linkedContractorId", input.contractorId)
+      )
+      .collect(),
+  ]);
+  const rows = [...primaryLinks, ...linkedLinks].filter(
+    (row, index, all) =>
+      all.findIndex((candidate) => candidate._id === row._id) === index
+  );
+  return await Promise.all(
+    rows.map(async (row) => {
+      const isPrimary = row.primaryContractorId === input.contractorId;
+      const peerId = isPrimary ? row.linkedContractorId : row.primaryContractorId;
+      const peer = (await ctx.db.get(peerId)) as Doc<"contractorProfiles"> | null;
+      return {
+        _id: row._id,
+        confidence: row.confidence,
+        direction: isPrimary ? "primary" : "linked",
+        peerBrokerageId: isPrimary ? row.linkedBrokerageId : row.primaryBrokerageId,
+        peerContractorId: peerId,
+        peerName: peer?.name ?? "Linked contractor",
+        reason: row.reason,
+        status: row.status,
+        updatedAt: row.updatedAt,
+      };
+    })
+  );
+}
+
+function contractorDetailIntelligence(input: {
+  assignments: Doc<"milestoneContractorAssignments">[];
+  profile: any;
+  proposalAssignments: Doc<"proposalMilestoneContractorAssignments">[];
+  ratings: Doc<"contractorQualityRatings">[];
+}) {
+  const activeBuildAssignmentCount = input.assignments.filter(
+    (assignment) => assignment.status !== "removed"
+  ).length;
+  const plannedAssignmentCount = input.proposalAssignments.filter(
+    (assignment) => assignment.status === "planned"
+  ).length;
+  const scheduledHours =
+    input.assignments.reduce(
+      (sum, assignment) => sum + (assignment.estimatedHours ?? 0),
+      0
+    ) +
+    input.proposalAssignments.reduce(
+      (sum, assignment) => sum + (assignment.estimatedHours ?? 0),
+      0
+    );
+  const weeklyWindowHours = (input.profile.availabilityWindows ?? []).reduce(
+    (sum: number, window: any) =>
+      sum + Math.max(0, window.endMinute - window.startMinute) / 60,
+    0
+  );
+  const capabilityPerformance = (input.profile.capabilities ?? []).map(
+    (capability: any) => {
+      const searchable = [
+        capability.capabilityKey,
+        capability.label,
+        capability.trade,
+        capability.milestoneArchetypeKey,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const matchingAssignments = input.assignments.filter((assignment) =>
+        searchable.includes(assignment.milestoneKey.toLowerCase())
+      );
+      const matchingRatings = input.ratings.filter((rating) =>
+        matchingAssignments.some(
+          (assignment) =>
+            assignment.buildId === rating.buildId &&
+            assignment.milestoneKey === rating.milestoneKey
+        )
+      );
+      return {
+        averageRating:
+          matchingRatings.length === 0
+            ? null
+            : Math.round(
+                (matchingRatings.reduce((sum, rating) => sum + rating.rating, 0) /
+                  matchingRatings.length) *
+                  10
+              ) / 10,
+        capabilityKey: capability.capabilityKey,
+        label: capability.label,
+        ratingCount: matchingRatings.length,
+        totalActualCostCents: matchingAssignments.reduce(
+          (sum, assignment) => sum + (assignment.actualCostCents ?? 0),
+          0
+        ),
+        totalEstimatedCostCents: matchingAssignments.reduce(
+          (sum, assignment) => sum + (assignment.estimatedCostCents ?? 0),
+          0
+        ),
+      };
+    }
+  );
+  return {
+    activeBuildAssignmentCount,
+    capabilityPerformance,
+    plannedAssignmentCount,
+    scheduledHours: Math.round(scheduledHours * 100) / 100,
+    utilizationPercent:
+      weeklyWindowHours > 0
+        ? Math.min(100, Math.round((scheduledHours / (weeklyWindowHours * 4)) * 100))
+        : null,
+    weeklyWindowHours,
   };
 }
 

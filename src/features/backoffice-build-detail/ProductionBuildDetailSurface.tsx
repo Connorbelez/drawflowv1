@@ -16,6 +16,7 @@ import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import {
   ContractorQuickAddDrawer,
   type ContractorAssignmentCostDraft,
+  type ContractorProfileDraft,
 } from "#/features/contractors/ContractorQuickAddDrawer.tsx";
 import { cn } from "#/lib/utils.ts";
 import {
@@ -77,16 +78,7 @@ export interface ProductionBuildDetailActions {
     role: string;
   }) => Promise<void> | void;
   createAndAttachContractor?: (input: {
-    contractor: {
-      name: string;
-      kind: "company" | "individual";
-      hourlyRateCents: number;
-      city: string;
-      trades: string[];
-      skills: string[];
-      phone?: string;
-      email?: string;
-    };
+    contractor: ContractorProfileDraft;
     role: string;
   }) => Promise<void> | void;
   createAndAssignContractor?: (input: {
@@ -379,6 +371,7 @@ export function ProductionBuildDetailSurface({
   actions,
   activeBuildId,
   activeTab,
+  contractorDetailHrefFor,
   detail,
   milestoneKey,
   onChangeMilestone,
@@ -386,11 +379,13 @@ export function ProductionBuildDetailSurface({
   onChangeTab,
   rail,
   timelineWorkspace,
+  viewerRole = "lender",
   workosOrganizationId,
 }: {
   activeTab: BuildDetailSubTab;
   activeBuildId?: string;
   actions?: ProductionBuildDetailActions;
+  contractorDetailHrefFor?: (contractorId: string) => string;
   detail: ProductionBuildDetail;
   milestoneKey?: string;
   onChangeMilestone?: (milestoneKey?: string) => void;
@@ -398,6 +393,7 @@ export function ProductionBuildDetailSurface({
   onChangeTab: (tab: BuildDetailSubTab) => void;
   rail?: "open" | "closed";
   timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null;
+  viewerRole?: "builder" | "lender";
   workosOrganizationId?: string;
 }) {
   const projection = useMemo(
@@ -449,6 +445,7 @@ export function ProductionBuildDetailSurface({
         {activeTab === "details" ? (
           <ProductionDetailsTab
             actions={actions}
+            contractorDetailHrefFor={contractorDetailHrefFor}
             currentDay={currentDay}
             detail={detail}
             onAssignContractor={
@@ -467,6 +464,7 @@ export function ProductionBuildDetailSurface({
             activeBuildId={activeBuildId}
             detail={detail}
             timelineWorkspace={timelineWorkspace}
+            viewerRole={viewerRole}
             workosOrganizationId={workosOrganizationId}
           />
         ) : null}
@@ -649,6 +647,7 @@ function ProductionMobileEventDigest({
 
 function ProductionDetailsTab({
   actions,
+  contractorDetailHrefFor,
   currentDay,
   detail,
   onAssignContractor,
@@ -656,6 +655,7 @@ function ProductionDetailsTab({
   projection,
 }: {
   actions?: ProductionBuildDetailActions;
+  contractorDetailHrefFor?: (contractorId: string) => string;
   currentDay: number;
   detail: ProductionBuildDetail;
   onAssignContractor?: (card: KanbanCardData) => void;
@@ -700,6 +700,7 @@ function ProductionDetailsTab({
           }}
           availableContractors={detail.availableContractors ?? []}
           buildId={detail.build._id}
+          contractorDetailHrefFor={contractorDetailHrefFor}
           contractors={detail.contractors ?? []}
         />
         <ProductionDocumentsCard
@@ -1446,11 +1447,13 @@ function ProductionTimelineTab({
   activeBuildId,
   detail,
   timelineWorkspace,
+  viewerRole,
   workosOrganizationId,
 }: {
   activeBuildId?: string;
   detail: ProductionBuildDetail;
   timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null;
+  viewerRole: "builder" | "lender";
   workosOrganizationId?: string;
 }) {
   if (!activeBuildId || !workosOrganizationId || timelineWorkspace === undefined) {
@@ -1477,7 +1480,7 @@ function ProductionTimelineTab({
         backofficeHref="/backoffice"
         buildHref={`/backoffice/builds/${detail.build._id}`}
         buildId={activeBuildId as any}
-        initialRole="lender"
+        initialRole={viewerRole}
         workspace={timelineWorkspace}
         workosOrganizationId={workosOrganizationId}
       />

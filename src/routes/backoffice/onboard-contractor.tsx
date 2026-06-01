@@ -14,7 +14,6 @@ import {
   CardTitle,
 } from "#/components/ui/card.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
-import { Input } from "#/components/ui/input.tsx";
 import {
   NativeSelect,
   NativeSelectOption,
@@ -23,6 +22,11 @@ import {
   ContractorQuickAddDrawer,
   type ContractorProfileDraft,
 } from "#/features/contractors/ContractorQuickAddDrawer.tsx";
+import {
+  buildWorkosUserOptions,
+  VISUAL_WORKOS_USER_OPTIONS,
+  WorkosUserAutocomplete,
+} from "#/features/contractors/WorkosUserAutocomplete.tsx";
 import {
   getVisualContractorList,
   isProductionVisualParityFixtureEnabled,
@@ -61,7 +65,18 @@ function RouteComponent() {
           workosOrganizationId,
         },
   );
+  const workosProjection = useQuery(
+    api.workosProjection.listUserManagement,
+    visualFixture ? "skip" : {},
+  );
   const result = visualFixture ? getVisualContractorList() : liveResult;
+  const workosUserOptions = useMemo(
+    () =>
+      visualFixture
+        ? VISUAL_WORKOS_USER_OPTIONS
+        : buildWorkosUserOptions(workosProjection, workosOrganizationId),
+    [visualFixture, workosProjection, workosOrganizationId],
+  );
   const createContractor = useMutation(contractorApi.createContractorProfile);
   const linkAccount = useMutation(contractorApi.linkContractorProfileToWorkosUser);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -229,19 +244,12 @@ function RouteComponent() {
               </CardHeader>
               <CardContent className="grid gap-3 p-4 pt-0">
                 <form className="grid gap-3" onSubmit={submitLink}>
-                  <label className="grid gap-1.5 text-sm">
-                    <span className="font-medium text-muted-foreground text-xs uppercase">
-                      WorkOS user ID
-                    </span>
-                    <Input
-                      nativeInput
-                      onChange={(event) =>
-                        setWorkosUserId(event.currentTarget.value)
-                      }
-                      placeholder="user_..."
-                      value={workosUserId}
-                    />
-                  </label>
+                  <WorkosUserAutocomplete
+                    disabled={pending}
+                    onValueChange={setWorkosUserId}
+                    options={workosUserOptions}
+                    value={workosUserId}
+                  />
                   {error ? (
                     <p className="text-destructive text-xs">{error}</p>
                   ) : null}

@@ -441,6 +441,27 @@ describe("ProductionBuildDetailSurface", () => {
     );
   });
 
+  test("links attached contractors to the provided detail route", () => {
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        contractorDetailHrefFor={(contractorId) =>
+          `/builder/contractors/${contractorId}`
+        }
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="open"
+      />,
+    );
+
+    expect(
+      screen
+        .getByTestId("build-detail-contractor-link-contractor-01")
+        .getAttribute("href"),
+    ).toBe("/builder/contractors/contractor-01");
+  });
+
   test("derives scheduled ready milestones out of backlog without marking work started", () => {
     render(
       <ProductionBuildDetailSurface

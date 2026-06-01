@@ -1,7 +1,7 @@
 "use client";
 
 import { Building2, Link2, Plus, Search, UserRound } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -73,6 +73,7 @@ type ContractorQuickAddDrawerProps = {
   availableContractors?: ContractorDrawerAvailableContractor[];
   createLabel?: string;
   description?: string;
+  initialDraft?: Partial<ContractorProfileDraft>;
   onAttachExisting?: (input: {
     assignmentCost?: ContractorAssignmentCostDraft;
     contractorId: string;
@@ -144,6 +145,7 @@ export function ContractorQuickAddDrawer({
   availableContractors = [],
   createLabel = "Create contractor",
   description = "Create the profile once, then attach it to builds and milestone work as needed.",
+  initialDraft,
   onAttachExisting,
   onCreate,
   onOpenChange,
@@ -155,7 +157,7 @@ export function ContractorQuickAddDrawer({
   const [mode, setMode] = useState<"new" | "existing">(
     onAttachExisting && availableContractors.length > 0 ? "existing" : "new",
   );
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [form, setForm] = useState(() => formFromInitialDraft(initialDraft));
   const [selectedExistingId, setSelectedExistingId] = useState("");
   const [query, setQuery] = useState("");
   const [pending, setPending] = useState(false);
@@ -203,12 +205,18 @@ export function ContractorQuickAddDrawer({
     !pending;
 
   const reset = () => {
-    setForm(EMPTY_FORM);
+    setForm(formFromInitialDraft(initialDraft));
     setSelectedExistingId("");
     setQuery("");
     setError("");
     setMode(onAttachExisting && availableContractors.length > 0 ? "existing" : "new");
   };
+
+  useEffect(() => {
+    if (!open) return;
+    setForm(formFromInitialDraft(initialDraft));
+    setMode(onAttachExisting && availableContractors.length > 0 ? "existing" : "new");
+  }, [availableContractors.length, initialDraft, onAttachExisting, open]);
 
   const submitNew = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -848,4 +856,51 @@ function titleCase(value: string) {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function formFromInitialDraft(
+  draft?: Partial<ContractorProfileDraft>,
+): ContractorQuickAddForm {
+  if (!draft) return { ...EMPTY_FORM };
+  const availability = draft.availabilityWindows?.[0];
+  return {
+    ...EMPTY_FORM,
+    availabilityDay:
+      availability?.dayOfWeek === undefined
+        ? EMPTY_FORM.availabilityDay
+        : String(availability.dayOfWeek),
+    availabilityEnd:
+      availability?.endMinute === undefined
+        ? EMPTY_FORM.availabilityEnd
+        : minuteToTime(availability.endMinute),
+    availabilityStart:
+      availability?.startMinute === undefined
+        ? EMPTY_FORM.availabilityStart
+        : minuteToTime(availability.startMinute),
+    capabilities: (draft.capabilities ?? [])
+      .map((capability) => capability.label)
+      .join(", "),
+    city: draft.city ?? "",
+    email: draft.email ?? "",
+    equipment: (draft.equipment ?? [])
+      .map((equipment) => equipment.name)
+      .join(", "),
+    kind: draft.kind ?? "company",
+    name: draft.name ?? "",
+    payRate:
+      draft.defaultPayRateCents === undefined
+        ? ""
+        : centsToMoney(draft.defaultPayRateCents),
+    payRateUnit: draft.defaultPayRateUnit ?? "hour",
+    phone: draft.phone ?? "",
+    timezone: availability?.timezone ?? EMPTY_FORM.timezone,
+    trades: (draft.trades ?? []).join(", "),
+  };
+}
+
+function minuteToTime(value: number) {
+  const clamped = Math.max(0, Math.min(24 * 60, Math.round(value)));
+  const hour = Math.floor(clamped / 60);
+  const minute = clamped % 60;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
