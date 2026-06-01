@@ -25,11 +25,7 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import {
-  AnimatePresence,
-  motion,
-  useReducedMotion,
-} from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { parseAsString, useQueryStates } from "nuqs";
 import { QRCodeSVG } from "qrcode.react";
 import {
@@ -88,6 +84,7 @@ import { cn } from "#/lib/utils.ts";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { MilestoneCard, type MilestoneCardUpdate } from "./-MilestoneCard.tsx";
+import "./timeline-route-header.css";
 import { TimelineCashflowCompoundChart } from "./-TimelineCashflowCompoundChart.tsx";
 import { TimelineDrawAvailabilityChart } from "./-TimelineDrawAvailabilityChart.tsx";
 import { TimelineEndNodeButton } from "./-TimelineEndNodeButton.tsx";
@@ -134,9 +131,7 @@ import {
   EditDatesSheet,
   EditDrawSheet,
 } from "./MobileTimelineSheets.tsx";
-import {
-  MobileTimelineDayDialWorkspace,
-} from "./MobileTimelineWorkspace.tsx";
+import { MobileTimelineDayDialWorkspace } from "./MobileTimelineWorkspace.tsx";
 
 export const timelineWorkspaceSearchParsers = {
   share: parseAsString,
@@ -154,16 +149,6 @@ interface CapitalSpikeEditDraft {
 }
 
 type TimelineDemoRole = "builder" | "lender";
-type SubmittedTimelineTab = "cashflow" | "draws" | "timeline";
-
-export const SUBMITTED_TIMELINE_TABS = [
-  { key: "timeline", label: "Timeline" },
-  { key: "cashflow", label: "Cashflow" },
-  { key: "draws", label: "Draw availability" },
-] as const satisfies ReadonlyArray<{
-  key: SubmittedTimelineTab;
-  label: string;
-}>;
 
 interface PendingNormalizedInsertSelection {
   itemId: string;
@@ -199,8 +184,8 @@ export interface DrawAvailabilityDatum {
   day: number;
   interestBearingDraw: number;
   name: string;
-  totalInterestAccrued: number;
   totalAvailableDraw: number;
+  totalInterestAccrued: number;
   [key: string]: unknown;
 }
 
@@ -587,6 +572,7 @@ function getTimelineResponsiveSizing(
 export type TimelineWorkspaceMode = "demo" | "live" | "proposal";
 
 export interface TimelineWorkspaceProps {
+  allowRoleSwitching?: boolean;
   collaboration?: TimelineWorkspaceCollaboration;
   durableMeta?: {
     backofficeHref: string;
@@ -599,14 +585,7 @@ export interface TimelineWorkspaceProps {
   durablePlanId?: string;
   initialRole?: TimelineDemoRole;
   initialState?: TimelineShareState;
-  allowRoleSwitching?: boolean;
   modificationRequests?: TimelineModificationRequestView[];
-  planSummary?: {
-    address?: string;
-    includedCount: number;
-    templateTitle: string;
-    totalBudget: number;
-  };
   persistence?: TimelineWorkspacePersistence;
   timelineSettingsProjection?: unknown;
   workspaceMode?: TimelineWorkspaceMode;
@@ -649,14 +628,14 @@ export interface TimelineWorkspacePersistence {
   deleteEvidenceAsset?: (input: any) => Promise<unknown>;
   deleteMilestone?: (input: any) => Promise<unknown>;
   generateEvidenceUploadUrl?: () => Promise<string>;
-  requestModification?: (input: any) => Promise<unknown>;
+  recordMilestoneSiteVisit?: (input: any) => Promise<unknown>;
   requestMilestoneSiteVisit?: (
     input: any
   ) => Promise<TimelineSiteVisitRequestInput | void>;
+  requestModification?: (input: any) => Promise<unknown>;
   reviewDrawRequest?: (input: any) => Promise<unknown>;
   reviewMilestoneCompletion?: (input: any) => Promise<unknown>;
   reviewModificationRequest?: (input: any) => Promise<unknown>;
-  recordMilestoneSiteVisit?: (input: any) => Promise<unknown>;
   submitDrawRequest?: (input: any) => Promise<unknown>;
   submitMilestoneCompletion?: (input: any) => Promise<unknown>;
   submitPlan?: () => Promise<unknown>;
@@ -725,7 +704,9 @@ function timelineMilestonePayloadToItem(
       name: milestone.name ?? "Requested milestone",
       policy: milestone.policyState ?? "Admin approval required",
       status: approved ? "ready" : "review",
-      subMilestones: submilestoneDetails.map((submilestone) => submilestone.name),
+      subMilestones: submilestoneDetails.map(
+        (submilestone) => submilestone.name
+      ),
       submilestoneDetails,
     },
     disabled: !approved,
@@ -749,7 +730,6 @@ export function TimelineWorkspace({
   initialState,
   modificationRequests:
     initialModificationRequests = EMPTY_TIMELINE_MODIFICATION_REQUESTS,
-  planSummary,
   persistence,
   timelineSettingsProjection,
   workspaceMode = "demo",
@@ -913,8 +893,6 @@ export function TimelineWorkspace({
   const [selectedPanelOpen, setSelectedPanelOpen] = useState(true);
   const [mobileDetailDrawerRequested, setMobileDetailDrawerRequested] =
     useState(false);
-  const [submittedTimelineTab, setSubmittedTimelineTab] =
-    useState<SubmittedTimelineTab>("timeline");
   const [modificationRequests, setModificationRequests] = useState<
     TimelineModificationRequestView[]
   >(initialModificationRequests);
@@ -943,7 +921,6 @@ export function TimelineWorkspace({
     (!durableMeta || planStatus === "draft" || liveBuildMode);
   const canEditPlanStructure =
     !collaborationViewOnly && (!durableMeta || planStatus === "draft");
-  const showSubmittedTimelineTabs = Boolean(durableMeta && statusReadOnly);
   const canUseLiveExecution = liveBuildMode && !collaborationViewOnly;
   const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
   const [submitPending, setSubmitPending] = useState(false);
@@ -1002,12 +979,6 @@ export function TimelineWorkspace({
     setSelectedPanelOpen(false);
     setMobileDetailDrawerRequested(false);
   }, [isMobileDrawerLayout]);
-  const [timelinePlanSummary, setTimelinePlanSummary] = useState({
-    address: planSummary?.address,
-    includedCount: planSummary?.includedCount ?? INITIAL_ITEMS.length,
-    templateTitle: planSummary?.templateTitle ?? "Elm Street build",
-    totalBudget: planSummary?.totalBudget ?? INITIAL_TOTAL_BUDGET,
-  });
   const activeItemId = activeSelection.itemId;
   const activeItem =
     items.find((item) => item.id === activeItemId) ?? items[0] ?? null;
@@ -1448,12 +1419,6 @@ export function TimelineWorkspace({
         straightLine: true,
       };
 
-      setTimelinePlanSummary({
-        address: result.projectAddress,
-        includedCount: result.includedCount,
-        templateTitle: result.templateTitle,
-        totalBudget: result.totalBudget,
-      });
       setSetupBaseline(nextState);
       applyTimelineState(nextState);
       setSetupComplete(true);
@@ -1827,7 +1792,7 @@ export function TimelineWorkspace({
             {
               label: isPhoneLayout
                 ? undefined
-                : [`Viewing day`, `Day ${Math.round(selectedDay)}`],
+                : ["Viewing day", `Day ${Math.round(selectedDay)}`],
               opacity: 0.92,
               stroke: "oklch(0.841 0.238 128.85)",
               strokeDasharray: "1 0",
@@ -1861,25 +1826,24 @@ export function TimelineWorkspace({
     ]
   );
   const drawAvailabilityReferenceLines = useMemo(
-    () =>
-      [
-        ...drawAvailabilityHotspotReferenceLines,
-        ...(isMobileDrawerLayout
-          ? [
-              {
-                label: isPhoneLayout
-                  ? undefined
-                  : [`Viewing day`, `Day ${Math.round(selectedDay)}`],
-                opacity: 0.92,
-                stroke: "oklch(0.841 0.238 128.85)",
-                strokeDasharray: "1 0",
-                x: selectedDay,
-              },
-            ]
-          : []),
-        ...(probeValue === null
-          ? []
-          : [
+    () => [
+      ...drawAvailabilityHotspotReferenceLines,
+      ...(isMobileDrawerLayout
+        ? [
+            {
+              label: isPhoneLayout
+                ? undefined
+                : ["Viewing day", `Day ${Math.round(selectedDay)}`],
+              opacity: 0.92,
+              stroke: "oklch(0.841 0.238 128.85)",
+              strokeDasharray: "1 0",
+              x: selectedDay,
+            },
+          ]
+        : []),
+      ...(probeValue === null
+        ? []
+        : [
             {
               label: [
                 `Delta ${money(
@@ -1898,7 +1862,7 @@ export function TimelineWorkspace({
               x: probeValue,
             },
           ]),
-      ],
+    ],
     [
       drawAvailabilityHotspotReferenceLines,
       isMobileDrawerLayout,
@@ -2033,7 +1997,11 @@ export function TimelineWorkspace({
         name: `Field change ${count}`,
         policy: "Needs sequencing",
         status: "ready",
-        subMilestones: ["Scope estimate", "Schedule alignment", "Draw planning"],
+        subMilestones: [
+          "Scope estimate",
+          "Schedule alignment",
+          "Draw planning",
+        ],
       },
       eyebrow: "Inserted milestone",
       id: `inserted-${Date.now()}-${count}`,
@@ -2121,9 +2089,7 @@ export function TimelineWorkspace({
           amountCents: dollarsToCents(nextDraw.amount),
           customDate: true,
           drawKey: nextDraw.id,
-          ...(nextDraw.itemId
-            ? { itemMilestoneKey: nextDraw.itemId }
-            : {}),
+          ...(nextDraw.itemId ? { itemMilestoneKey: nextDraw.itemId } : {}),
           label: nextDraw.label,
           order: draws.length + 1,
           x: nextDraw.x,
@@ -3107,15 +3073,12 @@ export function TimelineWorkspace({
     },
     [canWriteLiveTimeline, draws, liveBuildMode]
   );
-  const handleMobileOpenCapitalEvent = useCallback(
-    (capitalSpikeId: string) => {
-      setActiveCapitalSpikeId(capitalSpikeId);
-      setActiveDrawId(null);
-      setMobileDetailDrawerRequested(true);
-      setSelectedPanelOpen(true);
-    },
-    []
-  );
+  const handleMobileOpenCapitalEvent = useCallback((capitalSpikeId: string) => {
+    setActiveCapitalSpikeId(capitalSpikeId);
+    setActiveDrawId(null);
+    setMobileDetailDrawerRequested(true);
+    setSelectedPanelOpen(true);
+  }, []);
   const handleMobileOpenMilestoneDrawer = useCallback((itemId: string) => {
     setActiveDrawId(null);
     setActiveCapitalSpikeId(null);
@@ -3197,10 +3160,15 @@ export function TimelineWorkspace({
   }
 
   return (
-    <main className="min-h-svh overflow-x-clip bg-[radial-gradient(circle_at_top_left,color-mix(in_oklch,var(--primary)_14%,transparent),transparent_34%),linear-gradient(180deg,var(--background),var(--bg-base))] px-0 py-0 sm:px-6 sm:py-8 lg:px-8">
+    <main
+      className={cn(
+        "min-h-svh min-w-0 bg-[radial-gradient(circle_at_top_left,color-mix(in_oklch,var(--primary)_14%,transparent),transparent_34%),linear-gradient(180deg,var(--background),var(--bg-base))]",
+        workspaceMode === "live" ? "px-0 py-0" : "px-0 py-0 sm:px-2 sm:py-1"
+      )}
+    >
       <motion.div
         animate="show"
-        className="relative mx-auto flex max-w-full flex-col gap-3 sm:gap-6"
+        className="relative mx-auto flex max-w-full flex-col gap-1 sm:gap-6"
         data-testid="timeline-workspace-root"
         initial={prefersReducedMotion ? false : "hidden"}
         variants={{
@@ -3218,7 +3186,7 @@ export function TimelineWorkspace({
         {durableMeta && readOnly ? (
           <div
             aria-label={`Timeline proposal is locked in ${planStatus} status`}
-            className="rounded-lg border border-amber-300/60 bg-amber-100/80 p-4 text-amber-950 shadow-sm dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-50"
+            className="rounded-lg border border-amber-300/60 bg-amber-100/80 p-2 text-amber-950 shadow-sm sm:p-4 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-50"
             data-ixc-ref={
               planStatus === "approved"
                 ? "UI-APPROVED-BANNER"
@@ -3238,7 +3206,7 @@ export function TimelineWorkspace({
                       ? "Proposal approved"
                       : proposalMode && planStatus === "closed"
                         ? "Proposal moved to live build"
-                    : "Submitted for lender review"}
+                        : "Submitted for lender review"}
                 </p>
                 <p className="mt-1 text-sm">
                   {proposalMode && planStatus === "approved"
@@ -3253,12 +3221,11 @@ export function TimelineWorkspace({
           </div>
         ) : null}
         <motion.section
-          className="flex flex-col gap-3 sm:gap-4 lg:flex-row lg:items-end lg:justify-between"
+          className="timeline-route-header"
           variants={routeSectionVariants}
         >
-          <div className="max-w-3xl">
-            <div className="mb-2 flex items-center gap-2 overflow-x-auto pb-1 sm:mb-3 sm:flex-wrap sm:overflow-visible sm:pb-0">
-              <Badge variant="outline">DrawFlow Roadmap</Badge>
+          <div className="timeline-route-header__meta max-w-3xl">
+            <div className="mb-1 flex items-center gap-2 overflow-x-auto pb-0.5 sm:mb-3 sm:flex-wrap sm:overflow-visible sm:pb-0">
               <Badge variant="success">
                 {liveBuildMode
                   ? "Live build"
@@ -3268,10 +3235,6 @@ export function TimelineWorkspace({
               </Badge>
               {durableMeta ? (
                 <>
-                  <Badge data-ixc-ref="UI-DURABLE-BADGE" variant="success">
-                    <ShieldCheck />
-                    Durable Convex plan
-                  </Badge>
                   <Badge
                     data-ixc-ref="UI-PROPOSAL-SHORT-LINK"
                     variant="outline"
@@ -3305,24 +3268,8 @@ export function TimelineWorkspace({
                 share={share}
               />
             </div>
-            <h1 className="text-balance font-semibold text-2xl text-foreground tracking-normal sm:text-4xl">
-              {timelinePlanSummary.templateTitle} draw roadmap
-            </h1>
-            {timelinePlanSummary.address ? (
-              <p
-                className="mt-1 text-muted-foreground text-sm sm:mt-2"
-                data-testid="timeline-roadmap-address"
-              >
-                {timelinePlanSummary.address}
-              </p>
-            ) : null}
-            <p className="mt-2 line-clamp-2 max-w-2xl text-muted-foreground text-xs leading-5 sm:mt-3 sm:line-clamp-none sm:text-sm sm:leading-6">
-              {timelinePlanSummary.includedCount} reimbursement milestones
-              staged against {money(timelinePlanSummary.totalBudget)} in lender
-              policy, evidence review, and borrower working-capital exposure.
-            </p>
           </div>
-          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+          <div className="timeline-route-header__actions">
             {collaboration?.toolbar}
             {allowRoleSwitching ? (
               <TimelineRoleSwitcher
@@ -3360,9 +3307,9 @@ export function TimelineWorkspace({
               <>
                 {planStatus === "draft" ? (
                   <Button
-                    disabled={collaborationViewOnly}
                     data-ixc-ref="UI-SUBMIT-CTA"
                     data-testid="timeline-submit-proposal"
+                    disabled={collaborationViewOnly}
                     onClick={() => {
                       setSubmitError("");
                       setSubmitConfirmOpen(true);
@@ -3526,7 +3473,7 @@ export function TimelineWorkspace({
                 ? "minmax(0, 1fr) 0px"
                 : "minmax(0, 1fr) 320px",
           }}
-          className="grid min-w-0 gap-y-6 lg:items-start"
+          className="grid min-w-0 gap-y-1 sm:gap-y-6 lg:items-start"
           data-testid="timeline-workspace-grid"
           style={{
             columnGap: isCompactLayout || !selectedPanelOpen ? 0 : 20,
@@ -3538,33 +3485,21 @@ export function TimelineWorkspace({
           variants={routeSectionVariants}
         >
           <div
-            className="grid min-w-0 gap-3 sm:gap-6"
+            className="grid min-w-0 gap-1 overflow-x-clip"
             data-testid="timeline-workspace-main"
           >
-            {showSubmittedTimelineTabs ? (
-              <SubmittedTimelineTabs
-                activeTab={submittedTimelineTab}
-                onTabChange={setSubmittedTimelineTab}
-              />
-            ) : null}
             <motion.section
-              className="min-w-0 rounded-none border border-x-0 border-border bg-background/92 p-1 shadow-sm backdrop-blur sm:rounded-lg sm:border-x sm:p-4"
+              className="min-w-0 rounded-none border border-border border-x-0 bg-background/92 p-0 shadow-sm backdrop-blur sm:rounded-lg sm:border-x sm:px-4 sm:pt-4 sm:pb-1"
               data-ixc-ref={
-                showSubmittedTimelineTabs
-                  ? "UI-SUBMITTED-PANEL-CASHFLOW"
-                  : undefined
+                statusReadOnly ? "UI-SUBMITTED-PANEL-CASHFLOW" : undefined
               }
               data-testid="timeline-cashflow-chart"
-              hidden={
-                showSubmittedTimelineTabs && submittedTimelineTab !== "cashflow"
-              }
               id="timeline-submitted-panel-cashflow"
-              role={showSubmittedTimelineTabs ? "tabpanel" : undefined}
               variants={routeSectionVariants}
             >
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <div className="mb-2 flex flex-wrap items-center gap-2">
+              <div className="flex min-w-0 flex-col gap-1 sm:gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
+                  <div className="mb-1 flex flex-wrap items-center gap-2 sm:mb-2">
                     <Badge variant="outline">Controlled graph</Badge>
                     <span className="h-2 w-2 rounded-full bg-emerald-500" />
                     <span
@@ -3584,15 +3519,9 @@ export function TimelineWorkspace({
                   <h2 className="font-semibold text-lg sm:text-xl">
                     Cash requirement vs draw recovery
                   </h2>
-                  <p className="mt-1 hidden max-w-2xl text-muted-foreground text-sm leading-6 sm:block">
-                    Costs pull borrower cash down as milestone work progresses;
-                    draw capacity unlocks at completion and releases replenish
-                    cash on their scheduled dates. Capital spikes model
-                    unexpected planning costs.
-                  </p>
                 </div>
-                <div className="grid w-full gap-3 lg:w-auto lg:min-w-[560px]">
-                  <div className="rounded-md border border-primary/25 bg-primary/10 px-2.5 py-2 sm:hidden">
+                <div className="grid w-full min-w-0 max-w-full gap-1 sm:gap-3 lg:ml-auto lg:w-full lg:max-w-xl xl:max-w-2xl">
+                  <div className="rounded-md border border-primary/25 bg-primary/10 px-2 py-1.5 sm:hidden">
                     <p className="font-medium text-[10px] text-muted-foreground uppercase">
                       Initial cash on hand
                     </p>
@@ -3600,7 +3529,7 @@ export function TimelineWorkspace({
                       {money(startingCash)}
                     </p>
                   </div>
-                  <div className="rounded-md border border-amber-500/25 bg-amber-500/10 px-2.5 py-2 sm:hidden">
+                  <div className="rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-1.5 sm:hidden">
                     <p className="font-medium text-[10px] text-muted-foreground uppercase">
                       Minimum cash reserve
                     </p>
@@ -3610,7 +3539,10 @@ export function TimelineWorkspace({
                   </div>
                   <div className="hidden gap-2 sm:ml-auto sm:grid sm:grid-cols-2">
                     <div className="grid gap-1.5">
-                      <Label className="text-xs" htmlFor="timeline-starting-cash">
+                      <Label
+                        className="text-xs"
+                        htmlFor="timeline-starting-cash"
+                      >
                         Initial cash on hand
                       </Label>
                       <Input
@@ -3667,13 +3599,13 @@ export function TimelineWorkspace({
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-1.5 text-xs sm:grid-cols-2 sm:gap-2 sm:text-sm md:grid-cols-3 xl:grid-cols-6">
-                    <div className="min-w-0 rounded-md border border-border bg-muted/30 px-2 py-1.5 sm:px-3 sm:py-2">
-                      <p className="font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
+                  <div className="grid min-w-0 grid-cols-6 gap-1.5 text-xs sm:gap-2 sm:text-sm">
+                    <div className="min-w-0 overflow-hidden rounded-md border border-border bg-muted/30 px-2 py-1.5 sm:px-3 sm:py-2">
+                      <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
                         Probe
                       </p>
                       <p
-                        className="mt-0.5 font-semibold text-foreground text-sm sm:mt-1 sm:text-base"
+                        className="mt-0.5 truncate font-semibold text-foreground text-xs sm:mt-1 sm:text-sm"
                         data-testid="timeline-cashflow-probe-day"
                       >
                         {probeValue === null
@@ -3681,12 +3613,12 @@ export function TimelineWorkspace({
                           : `Day ${Math.round(probeValue)}`}
                       </p>
                     </div>
-                    <div className="min-w-0 rounded-md border border-border bg-muted/30 px-2 py-1.5 sm:px-3 sm:py-2">
-                      <p className="font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
+                    <div className="min-w-0 overflow-hidden rounded-md border border-border bg-muted/30 px-2 py-1.5 sm:px-3 sm:py-2">
+                      <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
                         Cash
                       </p>
                       <p
-                        className="mt-0.5 font-semibold text-foreground text-sm tabular-nums sm:mt-1 sm:text-base"
+                        className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
                         data-testid="timeline-cashflow-probe-cash"
                       >
                         {probeCashOnHand === null
@@ -3694,23 +3626,23 @@ export function TimelineWorkspace({
                           : money(probeCashOnHand)}
                       </p>
                     </div>
-                    <div className="min-w-0 rounded-md border border-border bg-muted/30 px-2 py-1.5 sm:px-3 sm:py-2">
-                      <p className="font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
+                    <div className="min-w-0 overflow-hidden rounded-md border border-border bg-muted/30 px-2 py-1.5 sm:px-3 sm:py-2">
+                      <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
                         Ending cash
                       </p>
                       <p
-                        className="mt-0.5 font-semibold text-foreground text-sm tabular-nums sm:mt-1 sm:text-base"
+                        className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
                         data-testid="timeline-cashflow-ending-cash"
                       >
                         {money(endingCashOnHand)}
                       </p>
                     </div>
-                    <div className="min-w-0 rounded-md border border-violet-500/25 bg-violet-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
-                      <p className="font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
+                    <div className="min-w-0 overflow-hidden rounded-md border border-violet-500/25 bg-violet-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
+                      <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
                         Interest paid
                       </p>
                       <p
-                        className="mt-0.5 font-semibold text-foreground text-sm tabular-nums sm:mt-1 sm:text-base"
+                        className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
                         data-testid="timeline-cashflow-probe-interest-paid"
                       >
                         {probeInterestPaid === null
@@ -3718,12 +3650,12 @@ export function TimelineWorkspace({
                           : money(probeInterestPaid)}
                       </p>
                     </div>
-                    <div className="min-w-0 rounded-md border border-violet-500/25 bg-violet-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
-                      <p className="font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
+                    <div className="min-w-0 overflow-hidden rounded-md border border-violet-500/25 bg-violet-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
+                      <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
                         Total interest
                       </p>
                       <p
-                        className="mt-0.5 font-semibold text-foreground text-sm tabular-nums sm:mt-1 sm:text-base"
+                        className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
                         data-testid="timeline-cashflow-total-interest-paid"
                       >
                         {money(endingAvailability.totalInterestAccrued)}
@@ -3731,17 +3663,17 @@ export function TimelineWorkspace({
                     </div>
                     <div
                       className={cn(
-                        "min-w-0 rounded-md border px-2 py-1.5 sm:px-3 sm:py-2",
+                        "min-w-0 overflow-hidden rounded-md border px-2 py-1.5 sm:px-3 sm:py-2",
                         cashShortfalls.length > 0
                           ? "border-rose-500/30 bg-rose-500/10"
                           : "border-border bg-muted/30"
                       )}
                       data-testid="timeline-cashflow-risk-summary"
                     >
-                      <p className="font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
+                      <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
                         Cash risk
                       </p>
-                      <p className="mt-0.5 font-semibold text-foreground text-sm tabular-nums sm:mt-1 sm:text-base">
+                      <p className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm">
                         {cashShortfalls.length > 0
                           ? `${cashShortfalls.length} flagged`
                           : `Above ${money(minimumCashReserve)}`}
@@ -3751,7 +3683,7 @@ export function TimelineWorkspace({
                 </div>
               </div>
               {cashShortfalls.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-1 flex flex-wrap gap-1 sm:mt-3 sm:gap-2">
                   {cashShortfalls.slice(0, 4).map((point) => (
                     <div
                       className="inline-flex max-w-full items-center gap-2 rounded-md border border-rose-500/25 bg-rose-500/10 px-2.5 py-1.5 text-rose-700 text-xs dark:text-rose-100"
@@ -3769,35 +3701,27 @@ export function TimelineWorkspace({
                   ))}
                 </div>
               )}
-              {showSubmittedTimelineTabs &&
-              submittedTimelineTab !== "cashflow" ? null : (
-                <TimelineCashflowCompoundChart
-                  barSize={timelineSizing.barSize}
-                  data={cashflowChartData}
-                  onHotspotDaySelect={handleChartHotspotDaySelect}
-                  onProbeChange={setProbeValue}
-                  referenceLines={cashflowReferenceLines}
-                  xDomain={[resolvedRange.min, resolvedRange.max]}
-                  xTicks={cashflowTicks}
-                  yAxisWidth={timelineSizing.yAxisWidth}
-                  yDomain={[cashflowExtent.min, cashflowExtent.max]}
-                />
-              )}
+              <TimelineCashflowCompoundChart
+                barSize={timelineSizing.barSize}
+                data={cashflowChartData}
+                onHotspotDaySelect={handleChartHotspotDaySelect}
+                onProbeChange={setProbeValue}
+                referenceLines={cashflowReferenceLines}
+                xDomain={[resolvedRange.min, resolvedRange.max]}
+                xTicks={cashflowTicks}
+                yAxisWidth={timelineSizing.yAxisWidth}
+                yDomain={[cashflowExtent.min, cashflowExtent.max]}
+              />
             </motion.section>
 
             <motion.section
               className="relative z-30 min-w-0 overflow-visible"
               data-ixc-ref={
-                showSubmittedTimelineTabs
-                  ? "UI-SUBMITTED-PANEL-TIMELINE"
-                  : undefined
+                statusReadOnly ? "UI-SUBMITTED-PANEL-TIMELINE" : undefined
               }
               data-testid="timeline-roadmap-grid"
-              hidden={
-                showSubmittedTimelineTabs && submittedTimelineTab !== "timeline"
-              }
               id="timeline-submitted-panel-timeline"
-              role={showSubmittedTimelineTabs ? "tabpanel" : undefined}
+              role={statusReadOnly ? "tabpanel" : undefined}
               variants={routeSectionVariants}
             >
               {isMobileDrawerLayout ? (
@@ -3832,371 +3756,390 @@ export function TimelineWorkspace({
                 />
               ) : (
                 <>
-                  <DrawStateLegend />
                   <AnimatedCurvedTimeline<DemoMilestone>
-                activeItemId={activeItemId}
-                activeItemPhase={
-                  activeSelection.phase === "complete" ? "end" : "start"
-                }
-                cardWidth={timelineSizing.cardWidth}
-                className="min-w-0"
-                endCardWidth={timelineSizing.endCardWidth}
-                focusedMarkerId={
-                  activeDrawId
-                    ? `draw-${activeDrawId}`
-                    : activeCapitalSpikeId
-                      ? `capital-spike-${activeCapitalSpikeId}`
-                      : null
-                }
-                formatValue={(value) => `Day ${Math.round(value)}`}
-                getItemEndValue={getMilestoneEndX}
-                hoverValue={probeValue}
-                insertion={
-                  canWriteLiveTimeline
-                    ? {
-                        actions: [
-                          ...(liveBuildMode
-                            ? [
-                                {
-                                  icon: (
-                                    <Flag className="size-4 text-amber-500" />
-                                  ),
-                                  id: "request-milestone",
-                                  label: "Request milestone",
-                                  onSelect: ({ requestedX }) =>
-                                    requestMilestoneCreation(requestedX),
-                                },
-                              ]
-                            : []),
-                          {
-                            icon: (
-                              <CircleDollarSign className="size-4 text-rose-500" />
-                            ),
-                            id: "add-draw",
-                            label: "Add draw",
-                            onSelect: ({ requestedX }) =>
-                              addManualDraw(requestedX),
-                          },
-                          {
-                            icon: (
-                              <AlertTriangle className="size-4 text-amber-500" />
-                            ),
-                            id: "add-capital-spike",
-                            label: "Add capital spike",
-                            onSelect: ({ requestedX }) =>
-                              addCapitalSpike(requestedX),
-                          },
-                          {
-                            icon: (
-                              <Banknote className="size-4 text-emerald-600" />
-                            ),
-                            id: "add-cash-infusion",
-                            label: "Add cash infusion",
-                            onSelect: ({ requestedX }) =>
-                              addCashInfusion(requestedX),
-                          },
-                        ],
-                        createItem: canEditPlanStructure
-                          ? createInsertedMilestoneItem
-                          : undefined,
-                        label: liveBuildMode
-                          ? "Request milestone"
-                          : "Add milestone",
-                        minGap: 14,
-                        step: 1,
+                    activeItemId={activeItemId}
+                    activeItemPhase={
+                      activeSelection.phase === "complete" ? "end" : "start"
+                    }
+                    cardWidth={timelineSizing.cardWidth}
+                    className="min-w-0"
+                    endCardWidth={timelineSizing.endCardWidth}
+                    focusedMarkerId={
+                      activeDrawId
+                        ? `draw-${activeDrawId}`
+                        : activeCapitalSpikeId
+                          ? `capital-spike-${activeCapitalSpikeId}`
+                          : null
+                    }
+                    formatValue={(value) => `Day ${Math.round(value)}`}
+                    getItemEndValue={getMilestoneEndX}
+                    hoverValue={probeValue}
+                    insertion={
+                      canWriteLiveTimeline
+                        ? {
+                            actions: [
+                              ...(liveBuildMode
+                                ? [
+                                    {
+                                      icon: (
+                                        <Flag className="size-4 text-amber-500" />
+                                      ),
+                                      id: "request-milestone",
+                                      label: "Request milestone",
+                                      onSelect: ({ requestedX }) =>
+                                        requestMilestoneCreation(requestedX),
+                                    },
+                                  ]
+                                : []),
+                              {
+                                icon: (
+                                  <CircleDollarSign className="size-4 text-rose-500" />
+                                ),
+                                id: "add-draw",
+                                label: "Add draw",
+                                onSelect: ({ requestedX }) =>
+                                  addManualDraw(requestedX),
+                              },
+                              {
+                                icon: (
+                                  <AlertTriangle className="size-4 text-amber-500" />
+                                ),
+                                id: "add-capital-spike",
+                                label: "Add capital spike",
+                                onSelect: ({ requestedX }) =>
+                                  addCapitalSpike(requestedX),
+                              },
+                              {
+                                icon: (
+                                  <Banknote className="size-4 text-emerald-600" />
+                                ),
+                                id: "add-cash-infusion",
+                                label: "Add cash infusion",
+                                onSelect: ({ requestedX }) =>
+                                  addCashInfusion(requestedX),
+                              },
+                            ],
+                            createItem: canEditPlanStructure
+                              ? createInsertedMilestoneItem
+                              : undefined,
+                            label: liveBuildMode
+                              ? "Request milestone"
+                              : "Add milestone",
+                            minGap: 14,
+                            step: 1,
+                          }
+                        : undefined
+                    }
+                    items={timelineItemsForRender}
+                    markerStackProximityPx={88}
+                    markers={markers}
+                    minInlineNodeSpacingPx={72}
+                    minNodeSpacingPx={timelineSizing.minNodeSpacingPx}
+                    onActiveItemChange={(item) => {
+                      setActiveDrawId(null);
+                      setActiveCapitalSpikeId(null);
+                      setActiveSelection({
+                        itemId: item.id,
+                        phase: "inProgress",
+                      });
+                    }}
+                    onEndNodeClick={(item) => {
+                      setActiveDrawId(null);
+                      setActiveCapitalSpikeId(null);
+                      setActiveSelection({
+                        itemId: item.id,
+                        phase: "complete",
+                      });
+                      setProgressValue(getMilestoneEndX(item));
+                      setSelectedPanelOpen(true);
+                    }}
+                    onHoverValueChange={setProbeValue}
+                    onItemsChange={(nextItems, details) => {
+                      if (!canEditPlanStructure) {
+                        return;
                       }
-                    : undefined
-                }
-                items={timelineItemsForRender}
-                markerStackProximityPx={88}
-                markers={markers}
-                minInlineNodeSpacingPx={72}
-                minNodeSpacingPx={timelineSizing.minNodeSpacingPx}
-                onActiveItemChange={(item) => {
-                  setActiveDrawId(null);
-                  setActiveCapitalSpikeId(null);
-                  setActiveSelection({ itemId: item.id, phase: "inProgress" });
-                }}
-                onEndNodeClick={(item) => {
-                  setActiveDrawId(null);
-                  setActiveCapitalSpikeId(null);
-                  setActiveSelection({ itemId: item.id, phase: "complete" });
-                  setProgressValue(getMilestoneEndX(item));
-                  setSelectedPanelOpen(true);
-                }}
-                onHoverValueChange={setProbeValue}
-                onItemsChange={(nextItems, details) => {
-                  if (!canEditPlanStructure) {
-                    return;
-                  }
-                  const normalizedItems =
-                    normalizeMilestoneTimelineItems(nextItems);
-                  const expandedRange = expandTimelineRangeForMilestones(
-                    normalizedItems,
-                    details.range
-                  );
-                  const normalizedInsertedItem =
-                    details.type === "insert"
-                      ? normalizedItems.find(
-                          (item) => item.id === details.insertedItem.id
-                        )
-                      : null;
-
-                  if (normalizedInsertedItem) {
-                    pendingNormalizedInsertSelection.current = {
-                      itemId: normalizedInsertedItem.id,
-                      x: normalizedInsertedItem.x,
-                    };
-                    setSelectedPanelOpen(true);
-                  }
-
-                  pendingExpandedRange.current = expandedRange;
-                  setItems(normalizedItems);
-                  setDraws((currentDraws) =>
-                    syncDemoDrawsWithItems(
-                      currentDraws,
-                      normalizedItems,
-                      expandedRange
-                    )
-                  );
-                  if (durablePlanId) {
-                    if (normalizedInsertedItem) {
-                      runDurableMutation(
-                        persistCreateMilestone({
-                          milestone: timelineItemToMilestoneMutationInput(
-                            normalizedInsertedItem,
-                            normalizedItems.findIndex(
-                              (item) => item.id === normalizedInsertedItem.id
-                            ) + 1
-                          ),
-                        }),
-                        "milestone creation"
+                      const normalizedItems =
+                        normalizeMilestoneTimelineItems(nextItems);
+                      const expandedRange = expandTimelineRangeForMilestones(
+                        normalizedItems,
+                        details.range
                       );
-                    } else {
-                      for (const [index, item] of normalizedItems.entries()) {
-                        runDurableMutation(
-                          persistUpdateMilestone({
-                            ...timelineItemToMilestoneMutationInput(
-                              item,
-                              index + 1
-                            ),
-                          }),
-                          "milestone position"
-                        );
+                      const normalizedInsertedItem =
+                        details.type === "insert"
+                          ? normalizedItems.find(
+                              (item) => item.id === details.insertedItem.id
+                            )
+                          : null;
+
+                      if (normalizedInsertedItem) {
+                        pendingNormalizedInsertSelection.current = {
+                          itemId: normalizedInsertedItem.id,
+                          x: normalizedInsertedItem.x,
+                        };
+                        setSelectedPanelOpen(true);
                       }
-                    }
-                  }
-                }}
-                onProgressValueChange={(value, item) => {
-                  const pendingSelection =
-                    pendingNormalizedInsertSelection.current;
 
-                  if (
-                    pendingSelection &&
-                    item?.id === pendingSelection.itemId
-                  ) {
-                    setActiveSelection({
-                      itemId: pendingSelection.itemId,
-                      phase: "inProgress",
-                    });
-                    setProgressValue(pendingSelection.x);
-                    pendingNormalizedInsertSelection.current = null;
-                    return;
-                  }
+                      pendingExpandedRange.current = expandedRange;
+                      setItems(normalizedItems);
+                      setDraws((currentDraws) =>
+                        syncDemoDrawsWithItems(
+                          currentDraws,
+                          normalizedItems,
+                          expandedRange
+                        )
+                      );
+                      if (durablePlanId) {
+                        if (normalizedInsertedItem) {
+                          runDurableMutation(
+                            persistCreateMilestone({
+                              milestone: timelineItemToMilestoneMutationInput(
+                                normalizedInsertedItem,
+                                normalizedItems.findIndex(
+                                  (item) =>
+                                    item.id === normalizedInsertedItem.id
+                                ) + 1
+                              ),
+                            }),
+                            "milestone creation"
+                          );
+                        } else {
+                          for (const [
+                            index,
+                            item,
+                          ] of normalizedItems.entries()) {
+                            runDurableMutation(
+                              persistUpdateMilestone({
+                                ...timelineItemToMilestoneMutationInput(
+                                  item,
+                                  index + 1
+                                ),
+                              }),
+                              "milestone position"
+                            );
+                          }
+                        }
+                      }
+                    }}
+                    onProgressValueChange={(value, item) => {
+                      const pendingSelection =
+                        pendingNormalizedInsertSelection.current;
 
-                  setProgressValue(value);
-                }}
-                onRangeChange={(nextRange) => {
-                  if (!canEditPlanStructure) {
-                    return;
-                  }
-                  const expandedRange = pendingExpandedRange.current;
-                  pendingExpandedRange.current = null;
-                  setRange(
-                    expandedRange ??
-                      expandTimelineRangeForMilestones(items, nextRange)
-                  );
-                }}
-                paddingX={timelineSizing.paddingX}
-                pixelsPerUnit={timelineSizing.pixelsPerUnit}
-                progressValue={progressValue}
-                range={range}
-                renderCard={(item, context) => (
-                  <TimelineDeleteContextMenu
-                    canDelete={canEditPlanStructure || liveBuildMode}
-                    deleteDescription={
-                      liveBuildMode
-                        ? "Create an admin-reviewed deletion request"
-                        : "Delete this milestone"
-                    }
-                    deleteDisabledReason={
-                      liveBuildMode
-                        ? "Request deletion for admin approval."
-                        : "Proposal structure is locked after submission."
-                    }
-                    deleteLabel={
-                      liveBuildMode ? "Request deletion" : "Remove milestone"
-                    }
-                    kind="milestone"
-                    onDelete={() => deleteMilestone(item.id)}
-                  >
-                    <div className="relative">
-                      <MilestoneRequestBadges
-                        currentAmount={item.data?.amount}
-                        deleteRequested={requestedDeletionByMilestone.has(
-                          item.id
-                        )}
-                        isRequestedCreate={item.id.startsWith("requested-")}
-                        requestedAmount={requestedBudgetByMilestone.get(
-                          item.id
-                        )}
-                      />
-                      <MilestoneCard
+                      if (
+                        pendingSelection &&
+                        item?.id === pendingSelection.itemId
+                      ) {
+                        setActiveSelection({
+                          itemId: pendingSelection.itemId,
+                          phase: "inProgress",
+                        });
+                        setProgressValue(pendingSelection.x);
+                        pendingNormalizedInsertSelection.current = null;
+                        return;
+                      }
+
+                      setProgressValue(value);
+                    }}
+                    onRangeChange={(nextRange) => {
+                      if (!canEditPlanStructure) {
+                        return;
+                      }
+                      const expandedRange = pendingExpandedRange.current;
+                      pendingExpandedRange.current = null;
+                      setRange(
+                        expandedRange ??
+                          expandTimelineRangeForMilestones(items, nextRange)
+                      );
+                    }}
+                    paddingX={timelineSizing.paddingX}
+                    pixelsPerUnit={timelineSizing.pixelsPerUnit}
+                    progressValue={progressValue}
+                    range={range}
+                    renderCard={(item, context) => (
+                      <TimelineDeleteContextMenu
+                        canDelete={canEditPlanStructure || liveBuildMode}
+                        deleteDescription={
+                          liveBuildMode
+                            ? "Create an admin-reviewed deletion request"
+                            : "Delete this milestone"
+                        }
+                        deleteDisabledReason={
+                          liveBuildMode
+                            ? "Request deletion for admin approval."
+                            : "Proposal structure is locked after submission."
+                        }
+                        deleteLabel={
+                          liveBuildMode
+                            ? "Request deletion"
+                            : "Remove milestone"
+                        }
+                        kind="milestone"
+                        onDelete={() => deleteMilestone(item.id)}
+                      >
+                        <div className="relative">
+                          <MilestoneRequestBadges
+                            currentAmount={item.data?.amount}
+                            deleteRequested={requestedDeletionByMilestone.has(
+                              item.id
+                            )}
+                            isRequestedCreate={item.id.startsWith("requested-")}
+                            requestedAmount={requestedBudgetByMilestone.get(
+                              item.id
+                            )}
+                          />
+                          <MilestoneCard
+                            active={context.active}
+                            complete={hasCompletionClaim(item)}
+                            item={item}
+                            onUpdate={updateMilestone}
+                            readOnly={!canWriteLiveTimeline || item.disabled}
+                            reducedMotion={Boolean(prefersReducedMotion)}
+                          />
+                        </div>
+                      </TimelineDeleteContextMenu>
+                    )}
+                    renderEndNode={(item, context) => (
+                      <TimelineEndNodeButton
                         active={context.active}
                         complete={hasCompletionClaim(item)}
                         item={item}
-                        onUpdate={updateMilestone}
-                        readOnly={!canWriteLiveTimeline || item.disabled}
+                        onClick={() => {
+                          context.activate();
+                          setActiveDrawId(null);
+                          setActiveCapitalSpikeId(null);
+                          setSelectedPanelOpen(true);
+                        }}
                         reducedMotion={Boolean(prefersReducedMotion)}
                       />
-                    </div>
-                  </TimelineDeleteContextMenu>
-                )}
-                renderEndNode={(item, context) => (
-                  <TimelineEndNodeButton
-                    active={context.active}
-                    complete={hasCompletionClaim(item)}
-                    item={item}
-                    onClick={() => {
-                      context.activate();
-                      setActiveDrawId(null);
-                      setActiveCapitalSpikeId(null);
-                      setSelectedPanelOpen(true);
-                    }}
-                    reducedMotion={Boolean(prefersReducedMotion)}
-                  />
-                )}
-                renderMarker={(marker) => {
-                  const drawId = marker.id.startsWith("draw-")
-                    ? marker.id.slice("draw-".length)
-                    : null;
-                  const capitalSpikeId = marker.id.startsWith("capital-spike-")
-                    ? marker.id.slice("capital-spike-".length)
-                    : null;
-                  const draw = drawId
-                    ? draws.find((candidate) => candidate.id === drawId)
-                    : null;
-                  const capitalSpike = capitalSpikeId
-                    ? capitalSpikes.find(
-                        (candidate) => candidate.id === capitalSpikeId
+                    )}
+                    renderMarker={(marker) => {
+                      const drawId = marker.id.startsWith("draw-")
+                        ? marker.id.slice("draw-".length)
+                        : null;
+                      const capitalSpikeId = marker.id.startsWith(
+                        "capital-spike-"
                       )
-                    : null;
+                        ? marker.id.slice("capital-spike-".length)
+                        : null;
+                      const draw = drawId
+                        ? draws.find((candidate) => candidate.id === drawId)
+                        : null;
+                      const capitalSpike = capitalSpikeId
+                        ? capitalSpikes.find(
+                            (candidate) => candidate.id === capitalSpikeId
+                          )
+                        : null;
 
-                  if (!draw) {
-                    if (capitalSpike) {
+                      if (!draw) {
+                        if (capitalSpike) {
+                          return (
+                            <TimelineDeleteContextMenu
+                              canDelete={canWriteLiveTimeline}
+                              deleteDisabledReason="Timeline is locked in this status."
+                              deleteLabel={
+                                capitalSpike.eventKind === "cashInfusion"
+                                  ? "Remove cash infusion"
+                                  : "Remove capital cost"
+                              }
+                              kind="capitalSpike"
+                              onDelete={() =>
+                                deleteCapitalSpike(capitalSpike.id)
+                              }
+                            >
+                              <CapitalSpikeTimelineMarker
+                                active={
+                                  capitalSpike.id === activeCapitalSpikeId
+                                }
+                                draft={capitalSpikeEditDraft}
+                                onApply={applyCapitalSpikeEdit}
+                                onCancel={() => setActiveCapitalSpikeId(null)}
+                                onDraftChange={setCapitalSpikeEditDraft}
+                                onOpen={() => {
+                                  if (canWriteLiveTimeline) {
+                                    openCapitalSpikeEditor(capitalSpike);
+                                  }
+                                }}
+                                reducedMotion={Boolean(prefersReducedMotion)}
+                                spike={capitalSpike}
+                              />
+                            </TimelineDeleteContextMenu>
+                          );
+                        }
+                        return <TimelineMarkerBadge marker={marker} />;
+                      }
+
                       return (
                         <TimelineDeleteContextMenu
-                          canDelete={canWriteLiveTimeline}
-                          deleteDisabledReason="Timeline is locked in this status."
-                          deleteLabel={
-                            capitalSpike.eventKind === "cashInfusion"
-                              ? "Remove cash infusion"
-                              : "Remove capital cost"
+                          canDelete={
+                            canWriteLiveTimeline &&
+                            draw.requestStatus !== "approved"
                           }
-                          kind="capitalSpike"
-                          onDelete={() => deleteCapitalSpike(capitalSpike.id)}
+                          deleteDescription="Delete this draw marker"
+                          deleteDisabledReason={
+                            canWriteLiveTimeline
+                              ? "Approved reimbursement draws cannot be deleted."
+                              : "Timeline is locked in this status."
+                          }
+                          kind="draw"
+                          onDelete={() => deleteDraw(draw.id)}
                         >
-                          <CapitalSpikeTimelineMarker
-                            active={capitalSpike.id === activeCapitalSpikeId}
-                            draft={capitalSpikeEditDraft}
-                            onApply={applyCapitalSpikeEdit}
-                            onCancel={() => setActiveCapitalSpikeId(null)}
-                            onDraftChange={setCapitalSpikeEditDraft}
-                            onOpen={() => {
-                              if (canWriteLiveTimeline) {
-                                openCapitalSpikeEditor(capitalSpike);
-                              }
-                            }}
+                          <DrawTimelineMarker
+                            active={draw.id === activeDrawId}
+                            currentDay={currentDay}
+                            draft={drawEditDraft}
+                            draw={draw}
+                            inlineEditorEnabled={!liveBuildMode}
+                            onApply={applyDrawEdit}
+                            onCancel={() => setActiveDrawId(null)}
+                            onDraftChange={setDrawEditDraft}
+                            onOpen={() => openDrawEditor(draw)}
                             reducedMotion={Boolean(prefersReducedMotion)}
-                            spike={capitalSpike}
                           />
                         </TimelineDeleteContextMenu>
                       );
-                    }
-                    return <TimelineMarkerBadge marker={marker} />;
-                  }
-
-                  return (
-                    <TimelineDeleteContextMenu
-                      canDelete={
-                        canWriteLiveTimeline &&
-                        draw.requestStatus !== "approved"
-                      }
-                      deleteDescription="Delete this draw marker"
-                      deleteDisabledReason={
-                        canWriteLiveTimeline
-                          ? "Approved reimbursement draws cannot be deleted."
-                          : "Timeline is locked in this status."
-                      }
-                      kind="draw"
-                      onDelete={() => deleteDraw(draw.id)}
-                    >
-                      <DrawTimelineMarker
-                        active={draw.id === activeDrawId}
-                        currentDay={currentDay}
-                        draft={drawEditDraft}
-                        draw={draw}
-                        inlineEditorEnabled={!liveBuildMode}
-                        onApply={applyDrawEdit}
-                        onCancel={() => setActiveDrawId(null)}
-                        onDraftChange={setDrawEditDraft}
-                        onOpen={() => openDrawEditor(draw)}
-                        reducedMotion={Boolean(prefersReducedMotion)}
-                      />
-                    </TimelineDeleteContextMenu>
-                  );
-                }}
-                renderNode={(item, context) => (
-                  <TimelineDeleteContextMenu
-                    canDelete={canEditPlanStructure || liveBuildMode}
-                    deleteDescription={
-                      liveBuildMode
-                        ? "Create an admin-reviewed deletion request"
-                        : "Delete this milestone"
-                    }
-                    deleteDisabledReason={
-                      liveBuildMode
-                        ? "Request deletion for admin approval."
-                        : "Proposal structure is locked after submission."
-                    }
-                    deleteLabel={
-                      liveBuildMode ? "Request deletion" : "Remove milestone"
-                    }
-                    kind="milestone"
-                    onDelete={() => deleteMilestone(item.id)}
-                  >
-                    <TimelineNodeButton
-                      active={context.active}
-                      complete={hasCompletionClaim(item)}
-                      item={item}
-                      onClick={() => {
-                        context.activate();
-                        setActiveDrawId(null);
-                        setActiveCapitalSpikeId(null);
-                        setActiveSelection({
-                          itemId: item.id,
-                          phase: "inProgress",
-                        });
-                        setProgressValue(item.x);
-                        setSelectedPanelOpen(true);
-                      }}
-                      onDoubleClick={() => setSelectedPanelOpen(false)}
-                      reducedMotion={Boolean(prefersReducedMotion)}
-                    />
-                  </TimelineDeleteContextMenu>
-                )}
-                straightLine={straightLine}
-              />
+                    }}
+                    renderNode={(item, context) => (
+                      <TimelineDeleteContextMenu
+                        canDelete={canEditPlanStructure || liveBuildMode}
+                        deleteDescription={
+                          liveBuildMode
+                            ? "Create an admin-reviewed deletion request"
+                            : "Delete this milestone"
+                        }
+                        deleteDisabledReason={
+                          liveBuildMode
+                            ? "Request deletion for admin approval."
+                            : "Proposal structure is locked after submission."
+                        }
+                        deleteLabel={
+                          liveBuildMode
+                            ? "Request deletion"
+                            : "Remove milestone"
+                        }
+                        kind="milestone"
+                        onDelete={() => deleteMilestone(item.id)}
+                      >
+                        <TimelineNodeButton
+                          active={context.active}
+                          complete={hasCompletionClaim(item)}
+                          item={item}
+                          onClick={() => {
+                            context.activate();
+                            setActiveDrawId(null);
+                            setActiveCapitalSpikeId(null);
+                            setActiveSelection({
+                              itemId: item.id,
+                              phase: "inProgress",
+                            });
+                            setProgressValue(item.x);
+                            setSelectedPanelOpen(true);
+                          }}
+                          onDoubleClick={() => setSelectedPanelOpen(false)}
+                          reducedMotion={Boolean(prefersReducedMotion)}
+                        />
+                      </TimelineDeleteContextMenu>
+                    )}
+                    straightLine={straightLine}
+                  />
                 </>
               )}
             </motion.section>
@@ -4209,6 +4152,7 @@ export function TimelineWorkspace({
               addEvidenceFiles={addEvidenceFiles}
               draws={draws}
               items={items}
+              liveExecutionEnabled={canUseLiveExecution}
               modificationRequests={modificationRequests}
               onCompleteMilestone={completeMilestone}
               onCreateMilestoneSiteVisit={createMilestoneSiteVisit}
@@ -4227,7 +4171,6 @@ export function TimelineWorkspace({
               onSubmitDrawRequest={submitDrawRequest}
               onUpdateEvidenceAsset={updateEvidenceAsset}
               onUpdatePlannedDraw={updatePlannedDraw}
-              liveExecutionEnabled={canUseLiveExecution}
               open={
                 Boolean(activeItem) &&
                 selectedPanelOpen &&
@@ -4282,22 +4225,16 @@ export function TimelineWorkspace({
             />
 
             <motion.section
-              className="relative z-0 min-w-0 rounded-none border border-x-0 border-border bg-background/92 p-1 shadow-sm backdrop-blur sm:rounded-lg sm:border-x sm:p-4"
+              className="relative z-0 min-w-0 rounded-none border border-border border-x-0 bg-background/92 p-0 shadow-sm backdrop-blur sm:rounded-lg sm:border-x sm:px-4 sm:pt-1 sm:pb-4"
               data-ixc-ref={
-                showSubmittedTimelineTabs
-                  ? "UI-SUBMITTED-PANEL-DRAWS"
-                  : undefined
+                statusReadOnly ? "UI-SUBMITTED-PANEL-DRAWS" : undefined
               }
               data-testid="timeline-draw-availability-chart"
-              hidden={
-                showSubmittedTimelineTabs && submittedTimelineTab !== "draws"
-              }
               id="timeline-submitted-panel-draws"
-              role={showSubmittedTimelineTabs ? "tabpanel" : undefined}
               variants={routeSectionVariants}
             >
-              <div className="flex flex-col gap-3">
-                <div className="mb-2 flex flex-wrap items-center gap-2">
+              <div className="flex flex-col gap-0.5">
+                <div className="mb-1 flex flex-wrap items-center gap-2 sm:mb-2">
                   <Badge variant="outline">Draw availability</Badge>
                   <span className="h-2 w-2 rounded-full bg-violet-500" />
                   <span
@@ -4322,20 +4259,17 @@ export function TimelineWorkspace({
               </p>*/}
                 </div>
               </div>
-              {showSubmittedTimelineTabs &&
-              submittedTimelineTab !== "draws" ? null : (
-                <TimelineDrawAvailabilityChart
-                  data={drawAvailabilityChartData}
-                  formatMoney={formatCompactMoney}
-                  formatTimelineDay={formatTimelineDay}
-                  onProbeChange={setProbeValue}
-                  referenceLines={drawAvailabilityReferenceLines}
-                  xDomain={[resolvedRange.min, resolvedRange.max]}
-                  xTicks={cashflowTicks}
-                  yAxisWidth={timelineSizing.yAxisWidth}
-                  yDomain={[0, drawAvailabilityExtent.max]}
-                />
-              )}
+              <TimelineDrawAvailabilityChart
+                data={drawAvailabilityChartData}
+                formatMoney={formatCompactMoney}
+                formatTimelineDay={formatTimelineDay}
+                onProbeChange={setProbeValue}
+                referenceLines={drawAvailabilityReferenceLines}
+                xDomain={[resolvedRange.min, resolvedRange.max]}
+                xTicks={cashflowTicks}
+                yAxisWidth={timelineSizing.yAxisWidth}
+                yDomain={[0, drawAvailabilityExtent.max]}
+              />
               <DrawAvailabilityMetrics
                 endingAvailability={endingAvailability}
                 probeDrawAvailability={probeDrawAvailability}
@@ -4352,22 +4286,16 @@ export function TimelineWorkspace({
                 animate={{
                   filter: "blur(0px)",
                   opacity: 1,
-                  scale: 1,
-                  x: 0,
                 }}
-                className="sticky top-5 h-[calc(100svh-2.5rem)] min-w-0 overflow-hidden rounded-lg border border-border bg-background/94 shadow-sm backdrop-blur"
+                className="sticky top-14 z-20 h-[calc(100svh-3.5rem-1rem)] max-h-[calc(100svh-3.5rem-1rem)] min-w-0 self-start overflow-hidden rounded-lg border border-border bg-background/94 shadow-sm backdrop-blur supports-[height:100dvh]:h-[calc(100dvh-3.5rem-1rem)] supports-[height:100dvh]:max-h-[calc(100dvh-3.5rem-1rem)]"
                 data-testid="selected-draw-panel"
                 exit={{
                   filter: "blur(4px)",
                   opacity: 0,
-                  scale: 0.96,
-                  x: 24,
                 }}
                 initial={{
                   filter: "blur(4px)",
                   opacity: 0,
-                  scale: 0.96,
-                  x: 24,
                 }}
                 transition={{
                   duration: 0.24,
@@ -4384,6 +4312,7 @@ export function TimelineWorkspace({
                       addEvidenceFiles={addEvidenceFiles}
                       draws={draws}
                       items={items}
+                      liveExecutionEnabled={canUseLiveExecution}
                       modificationRequests={modificationRequests}
                       onCompleteMilestone={completeMilestone}
                       onCreateMilestoneSiteVisit={createMilestoneSiteVisit}
@@ -4396,7 +4325,6 @@ export function TimelineWorkspace({
                       onSubmitDrawRequest={submitDrawRequest}
                       onUpdateEvidenceAsset={updateEvidenceAsset}
                       onUpdatePlannedDraw={updatePlannedDraw}
-                      liveExecutionEnabled={canUseLiveExecution}
                       overview={financialOverview}
                       range={resolvedRange}
                       requiresApprovedDrawMilestones={liveBuildMode}
@@ -4419,7 +4347,9 @@ function TimelineRemoteCursors({
   cursors: TimelineWorkspaceRemoteCursor[];
 }) {
   const activeCursors = cursors.filter(
-    (cursor): cursor is TimelineWorkspaceRemoteCursor & {
+    (
+      cursor
+    ): cursor is TimelineWorkspaceRemoteCursor & {
       cursor: { x: number; y: number };
     } => Boolean(cursor.cursor)
   );
@@ -4481,7 +4411,7 @@ function TimelineRemoteCursorMarker({
         <CursorPointer />
       </div>
       <div
-        className="absolute left-[18px] top-4 rounded-lg px-2 py-1 font-medium text-[11px] text-white shadow-lg"
+        className="absolute top-4 left-[18px] rounded-lg px-2 py-1 font-medium text-[11px] text-white shadow-lg"
         data-testid="timeline-remote-cursor-label"
         style={{ backgroundColor: color }}
       >
@@ -4511,10 +4441,11 @@ interface UseTimelineSnapshotSharingArgs {
   draws: DemoDraw[];
   insertionCount: CounterRef;
   items: TimelineItem<DemoMilestone>[];
+  minimumCashReserve: number;
+  minimumCashReserve: number;
   progressValue: number;
   resolvedRange: Required<TimelineRange>;
   selectedPanelOpen: boolean;
-  minimumCashReserve: number;
   setActiveCapitalSpikeId: (value: string | null) => void;
   setActiveDrawId: (value: string | null) => void;
   setActiveSelection: (value: ActiveMilestoneSelection) => void;
@@ -4524,15 +4455,14 @@ interface UseTimelineSnapshotSharingArgs {
   setDrawEditDraft: (value: DrawEditDraft) => void;
   setDraws: (value: DemoDraw[]) => void;
   setItems: (value: TimelineItem<DemoMilestone>[]) => void;
+  setMinimumCashReserve: (value: number) => void;
   setProbeValue: (value: number | null) => void;
   setProgressValue: (value: number) => void;
   setRange: (value: TimelineRange) => void;
   setSelectedDay: (value: number) => void;
   setSelectedPanelOpen: (value: boolean) => void;
-  setMinimumCashReserve: (value: number) => void;
   setStartingCash: (value: number) => void;
   setStraightLine: (value: boolean) => void;
-  minimumCashReserve: number;
   startingCash: number;
   straightLine: boolean;
 }
@@ -4589,40 +4519,6 @@ function ShareStatusBadges({
   }
 
   return null;
-}
-
-export function SubmittedTimelineTabs({
-  activeTab,
-  onTabChange,
-}: {
-  activeTab: SubmittedTimelineTab;
-  onTabChange: (tab: SubmittedTimelineTab) => void;
-}) {
-  return (
-    <div
-      aria-label="Submitted proposal view tabs"
-      className="flex flex-wrap gap-2 rounded-lg border border-border bg-background/92 p-2 shadow-sm"
-      data-ixc-ref="UI-SUBMITTED-TABS"
-      data-testid="timeline-submitted-tabs"
-      role="tablist"
-    >
-      {SUBMITTED_TIMELINE_TABS.map((tab) => (
-        <Button
-          aria-controls={`timeline-submitted-panel-${tab.key}`}
-          aria-selected={activeTab === tab.key}
-          data-ixc-ref={`UI-SUBMITTED-TAB-${tab.key.toUpperCase()}`}
-          data-testid={`timeline-submitted-tab-${tab.key}`}
-          key={tab.key}
-          onClick={() => onTabChange(tab.key)}
-          role="tab"
-          size="sm"
-          variant={activeTab === tab.key ? "secondary" : "ghost"}
-        >
-          {tab.label}
-        </Button>
-      ))}
-    </div>
-  );
 }
 
 function useTimelineSnapshotSharing({
@@ -6300,6 +6196,7 @@ function SelectedDrawMobileDrawer({
               addEvidenceFiles={addEvidenceFiles}
               draws={draws}
               items={items}
+              liveExecutionEnabled={liveExecutionEnabled}
               modificationRequests={modificationRequests}
               onCompleteMilestone={onCompleteMilestone}
               onCreateMilestoneSiteVisit={onCreateMilestoneSiteVisit}
@@ -6312,7 +6209,6 @@ function SelectedDrawMobileDrawer({
               onSubmitDrawRequest={onSubmitDrawRequest}
               onUpdateEvidenceAsset={onUpdateEvidenceAsset}
               onUpdatePlannedDraw={onUpdatePlannedDraw}
-              liveExecutionEnabled={liveExecutionEnabled}
               overview={overview}
               range={range}
               requiresApprovedDrawMilestones={requiresApprovedDrawMilestones}
@@ -6465,8 +6361,8 @@ function SelectedContextPanel({
           activeItem={activeItem}
           items={items}
           onCreateMilestoneSiteVisit={onCreateMilestoneSiteVisit}
-          onRequestMilestoneSiteVisit={onRequestMilestoneSiteVisit}
           onRecordMilestoneSiteVisit={onRecordMilestoneSiteVisit}
+          onRequestMilestoneSiteVisit={onRequestMilestoneSiteVisit}
           onReviewMilestoneCompletion={onReviewMilestoneCompletion}
           overview={overview}
         />
@@ -7075,7 +6971,7 @@ function LenderMilestoneReviewPanel({
     }
   };
   const recordSiteVisitComplete = async () => {
-    if (!siteVisit?.visitId || !onRecordMilestoneSiteVisit) {
+    if (!(siteVisit?.visitId && onRecordMilestoneSiteVisit)) {
       return;
     }
     setSiteVisitError("");
@@ -7936,7 +7832,9 @@ async function requestDemoTimelineSiteVisit({
     await seedDemo({});
   }
   const result = await requestSiteVisit({
-    includedMilestoneKeys: includedItemIds.map(resolveTimelineSiteVisitMilestoneKey),
+    includedMilestoneKeys: includedItemIds.map(
+      resolveTimelineSiteVisitMilestoneKey
+    ),
     milestoneKey: resolveTimelineSiteVisitMilestoneKey(activeItem.id),
     persona: "lender_admin",
     reason:
@@ -8584,30 +8482,6 @@ function MilestoneRequestBadges({
             : `${money(currentAmount)} -> ${money(requestedAmount)}`}
         </Badge>
       )}
-    </div>
-  );
-}
-
-function DrawStateLegend() {
-  const states = [
-    { className: "bg-emerald-500", label: "Happened" },
-    { className: "bg-amber-500", label: "Requested" },
-    { className: "bg-sky-500", label: "Planned" },
-    { className: "bg-rose-400", label: "Rejected" },
-  ];
-
-  return (
-    <div
-      className="mb-3 flex flex-wrap items-center gap-2 text-muted-foreground text-xs"
-      data-testid="timeline-draw-state-legend"
-    >
-      <Badge variant="outline">Draw states</Badge>
-      {states.map((state) => (
-        <span className="inline-flex items-center gap-1.5" key={state.label}>
-          <span className={cn("size-2 rounded-full", state.className)} />
-          <span>{state.label}</span>
-        </span>
-      ))}
     </div>
   );
 }

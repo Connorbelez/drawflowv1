@@ -312,6 +312,59 @@ describe("production proposal foundation", () => {
     });
     expect(buildDetail.build.totalBudgetCents).toBe(70_000_000);
     expect(buildDetail.submilestones).toHaveLength(1);
+
+    const addedItemId = await t.mutation(
+      (api as any).production_proposals.createActiveBuildCostItem,
+      {
+        buildId: closing.buildId,
+        costCents: 1_500_000,
+        itemType: "equipment",
+        milestoneKey: "foundation",
+        quantity: 1,
+        relevantSubmilestoneKeys: [],
+        supplier: "Rental Desk",
+        title: "Pump rental",
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation((api as any).production_proposals.updateActiveBuildCostItem, {
+      buildId: closing.buildId,
+      costCents: 1_750_000,
+      itemId: addedItemId,
+      reason: "Rental quote revised.",
+      workosOrganizationId: ORG,
+    });
+    const buildDetailAfterUpdate = await t.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(buildDetailAfterUpdate.costItems).toHaveLength(2);
+    expect(buildDetailAfterUpdate.costItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          costCents: 8_000_000,
+          title: "Foundation material package",
+        }),
+        expect.objectContaining({
+          costCents: 1_750_000,
+          title: "Pump rental",
+        }),
+      ]),
+    );
+    expect(buildDetailAfterUpdate.build.totalBudgetCents).toBe(71_750_000);
+
+    await t.mutation((api as any).production_proposals.deleteActiveBuildCostItem, {
+      buildId: closing.buildId,
+      itemId: addedItemId,
+      reason: "Rental moved into contractor scope.",
+      workosOrganizationId: ORG,
+    });
+    const buildDetailAfterDelete = await t.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(buildDetailAfterDelete.costItems).toHaveLength(1);
+    expect(buildDetailAfterDelete.build.totalBudgetCents).toBe(70_000_000);
   });
 
   test("persists an unassigned broker draft after the setup workflow", async () => {

@@ -1,10 +1,11 @@
 "use client";
 
-import { MapPin } from "lucide-react";
+import { MapPin, ScrollText } from "lucide-react";
 import type * as React from "react";
 import { useMemo, useState } from "react";
 
 import { Badge } from "#/components/ui/badge.tsx";
+import { Button } from "#/components/ui/button.tsx";
 import {
   Card,
   CardContent,
@@ -20,6 +21,7 @@ import {
 } from "#/features/contractors/ContractorQuickAddDrawer.tsx";
 import {
   MaterialPlanningTab,
+  type MaterialPlanningActions,
   type MaterialPlanningItem,
 } from "#/features/material-planning/MaterialPlanningTab.tsx";
 import { cn } from "#/lib/utils.ts";
@@ -30,7 +32,7 @@ import {
   type ActiveBuildTimelineWorkspaceProps,
 } from "./ActiveBuildTimelineWorkspace";
 import { ContractorsCard } from "./ContractorsCard";
-import { EventRail } from "./EventRail";
+import { EventRailSheet } from "./EventRail";
 import {
   type KanbanCardData,
   type KanbanColumn,
@@ -137,6 +139,7 @@ export interface ProductionBuildDetailActions {
     milestoneKey: string;
     note?: string;
   }) => Promise<void> | void;
+  materialPlanning?: MaterialPlanningActions;
 }
 
 export interface ProductionBuildDetail {
@@ -411,7 +414,9 @@ export function ProductionBuildDetailSurface({
     [detail]
   );
   const currentDay = resolveProductionCurrentDay(detail, timelineWorkspace);
-  const railCollapsed = rail === "closed";
+  const eventsOpen = rail === "open";
+  const eventCount =
+    (detail.auditEvents?.length ?? 0) + (detail.quickActionEvents?.length ?? 0);
   const [localActiveMilestoneKey, setLocalActiveMilestoneKey] = useState<
     string | null
   >(milestoneKey ?? null);
@@ -437,27 +442,20 @@ export function ProductionBuildDetailSurface({
 
   return (
     <main
-      className={cn(
-        "grid min-h-[calc(100vh-4rem)] overflow-x-hidden bg-muted/30",
-        railCollapsed
-          ? "xl:grid-cols-[minmax(0,1fr)_56px]"
-          : "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px]"
-      )}
+      className="min-h-[calc(100vh-4rem)] min-w-0 bg-muted/30"
       data-testid="production-build-detail-route"
     >
-      <section className="flex min-w-0 flex-col gap-3 px-2 py-3 sm:gap-4 sm:p-4 md:gap-5 md:p-6">
+      <section className="flex min-w-0 flex-col gap-3 px-0 py-3 sm:gap-4 sm:py-4 md:gap-5 md:py-0">
         <ProductionBuildHeader
           breadcrumbRootHref={breadcrumbRootHref}
           breadcrumbRootLabel={breadcrumbRootLabel}
           breadcrumbSectionHref={breadcrumbSectionHref}
           breadcrumbSectionLabel={breadcrumbSectionLabel}
           detail={detail}
+          eventCount={eventCount}
+          onOpenEvents={() => onChangeRail("open")}
         />
         <BuildDetailTabBar activeTab={activeTab} onChangeTab={onChangeTab} />
-        <ProductionMobileEventDigest
-          auditEvents={detail.auditEvents ?? []}
-          quickActionEvents={detail.quickActionEvents ?? []}
-        />
         {activeTab === "details" ? (
           <ProductionDetailsTab
             actions={actions}
@@ -484,7 +482,10 @@ export function ProductionBuildDetailSurface({
           />
         ) : null}
         {activeTab === "materials" ? (
-          <ProductionBuildMaterialsTab detail={detail} />
+          <ProductionBuildMaterialsTab
+            actions={actions?.materialPlanning}
+            detail={detail}
+          />
         ) : null}
         {activeTab === "calendar" ? (
           <ProductionCalendarTab detail={detail} projection={projection} />
@@ -498,14 +499,12 @@ export function ProductionBuildDetailSurface({
           />
         ) : null}
       </section>
-      <EventRail
+      <EventRailSheet
         auditEvents={detail.auditEvents ?? []}
-        collapsed={railCollapsed}
+        onOpenChange={(open) => onChangeRail(open ? "open" : "closed")}
         onResolve={(_event) => {}}
-        onToggleCollapsed={() =>
-          onChangeRail(railCollapsed ? "open" : "closed")
-        }
         onView={(_event) => {}}
+        open={eventsOpen}
         quickActionEvents={detail.quickActionEvents ?? []}
       />
       <MilestoneDetailSheet
@@ -579,12 +578,16 @@ function ProductionBuildHeader({
   breadcrumbSectionHref,
   breadcrumbSectionLabel,
   detail,
+  eventCount,
+  onOpenEvents,
 }: {
   breadcrumbRootHref: string;
   breadcrumbRootLabel: string;
   breadcrumbSectionHref: string;
   breadcrumbSectionLabel: string;
   detail: ProductionBuildDetail;
+  eventCount: number;
+  onOpenEvents: () => void;
 }) {
   return (
     <Frame>
@@ -620,15 +623,38 @@ function ProductionBuildHeader({
             </span>
           </p>
         </div>
-        <div className="grid w-full grid-cols-2 gap-2 text-sm md:min-w-72 md:max-w-sm">
-          <HeaderStat
-            label="Start"
-            value={formatDate(detail.build.startDate)}
-          />
-          <HeaderStat
-            label="Budget"
-            value={formatCents(detail.build.totalBudgetCents)}
-          />
+        <div className="flex w-full flex-col gap-3 md:min-w-72 md:max-w-sm">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button
+              data-testid="build-detail-events-trigger"
+              onClick={onOpenEvents}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <ScrollText aria-hidden="true" className="size-4" />
+              Events
+              {eventCount > 0 ? (
+                <Badge
+                  className="ml-1 tabular-nums"
+                  size="sm"
+                  variant="secondary"
+                >
+                  {eventCount}
+                </Badge>
+              ) : null}
+            </Button>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <HeaderStat
+              label="Start"
+              value={formatDate(detail.build.startDate)}
+            />
+            <HeaderStat
+              label="Budget"
+              value={formatCents(detail.build.totalBudgetCents)}
+            />
+          </div>
         </div>
       </FramePanel>
     </Frame>
@@ -641,40 +667,6 @@ function HeaderStat({ label, value }: { label: string; value: string }) {
       <p className="text-muted-foreground text-xs">{label}</p>
       <p className="truncate font-medium tabular-nums">{value}</p>
     </div>
-  );
-}
-
-function ProductionMobileEventDigest({
-  auditEvents,
-  quickActionEvents,
-}: {
-  auditEvents: ProductionAuditEvent[];
-  quickActionEvents: ProductionRailEvent[];
-}) {
-  const latestEvent = quickActionEvents[0] ?? auditEvents[0];
-
-  return (
-    <Card className="xl:hidden" data-testid="production-build-mobile-events">
-      <CardHeader className="flex flex-row items-center justify-between gap-3 p-3 pb-2">
-        <CardTitle className="text-sm">Events</CardTitle>
-        <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] text-foreground tabular-nums">
-          {quickActionEvents.length + auditEvents.length}
-        </span>
-      </CardHeader>
-      <CardContent className="p-3 pt-0">
-        {latestEvent ? (
-          <p className="line-clamp-2 text-muted-foreground text-xs">
-            {"payloadPreview" in latestEvent
-              ? latestEvent.payloadPreview
-              : (latestEvent.afterSummary ??
-                latestEvent.entityLabel ??
-                latestEvent.eventType)}
-          </p>
-        ) : (
-          <p className="text-muted-foreground text-xs">No events yet.</p>
-        )}
-      </CardContent>
-    </Card>
   );
 }
 
@@ -1561,8 +1553,10 @@ function ProductionTimelineTab({
 }
 
 function ProductionBuildMaterialsTab({
+  actions,
   detail,
 }: {
+  actions?: MaterialPlanningActions;
   detail: ProductionBuildDetail;
 }) {
   const submilestonesByMilestone = new Map<string, ProductionSubmilestone[]>();
@@ -1592,10 +1586,11 @@ function ProductionBuildMaterialsTab({
 
   return (
     <MaterialPlanningTab
+      actions={actions}
       items={detail.costItems ?? []}
       panelLayout="stacked"
       milestones={milestones}
-      readOnly
+      readOnly={!actions}
       scopeLabel="Active Build"
     />
   );

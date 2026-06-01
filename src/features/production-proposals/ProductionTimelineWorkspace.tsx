@@ -54,12 +54,6 @@ export interface ProductionTimelineWorkspaceProps {
   workspace: ConvexTimelineWorkspace & {
     contractorPlanning?: any;
     modificationRequests?: TimelineModificationRequestView[];
-    planSummary?: {
-      address?: string;
-      includedCount: number;
-      templateTitle: string;
-      totalBudget: number;
-    };
     proposal: {
       buildName: string;
       location: string;
@@ -83,64 +77,64 @@ export function ProductionTimelineWorkspace({
 }: ProductionTimelineWorkspaceProps) {
   const submitProposal = useMutation(api.production_proposals.submitProposal);
   const updatePlanState = useMutation(
-    api.production_proposals.updateProductionTimelinePlanState,
+    api.production_proposals.updateProductionTimelinePlanState
   );
   const createMilestone = useMutation(
-    api.production_proposals.createProductionTimelineMilestone,
+    api.production_proposals.createProductionTimelineMilestone
   );
   const updateMilestone = useMutation(
-    api.production_proposals.updateProductionTimelineMilestone,
+    api.production_proposals.updateProductionTimelineMilestone
   );
   const deleteMilestone = useMutation(
-    api.production_proposals.deleteProductionTimelineMilestone,
+    api.production_proposals.deleteProductionTimelineMilestone
   );
   const createDraw = useMutation(
-    api.production_proposals.createProductionTimelineDraw,
+    api.production_proposals.createProductionTimelineDraw
   );
   const updateDraw = useMutation(
-    api.production_proposals.updateProductionTimelineDraw,
+    api.production_proposals.updateProductionTimelineDraw
   );
   const deleteDraw = useMutation(
-    api.production_proposals.deleteProductionTimelineDraw,
+    api.production_proposals.deleteProductionTimelineDraw
   );
   const createCapitalEvent = useMutation(
-    api.production_proposals.createProductionTimelineCapitalEvent,
+    api.production_proposals.createProductionTimelineCapitalEvent
   );
   const createCashInfusion = useMutation(
-    api.production_proposals.createProductionTimelineCashInfusion,
+    api.production_proposals.createProductionTimelineCashInfusion
   );
   const updateCapitalEvent = useMutation(
-    api.production_proposals.updateProductionTimelineCapitalEvent,
+    api.production_proposals.updateProductionTimelineCapitalEvent
   );
   const deleteCapitalEvent = useMutation(
-    api.production_proposals.deleteProductionTimelineCapitalEvent,
+    api.production_proposals.deleteProductionTimelineCapitalEvent
   );
   const generateEvidenceUploadUrl = useMutation(
-    api.production_proposals.generateProductionEvidenceUploadUrl,
+    api.production_proposals.generateProductionEvidenceUploadUrl
   );
   const createEvidenceAsset = useMutation(
-    api.production_proposals.createProductionTimelineEvidenceAsset,
+    api.production_proposals.createProductionTimelineEvidenceAsset
   );
   const updateEvidenceAsset = useMutation(
-    api.production_proposals.updateProductionTimelineEvidenceAsset,
+    api.production_proposals.updateProductionTimelineEvidenceAsset
   );
   const deleteEvidenceAsset = useMutation(
-    api.production_proposals.deleteProductionTimelineEvidenceAsset,
+    api.production_proposals.deleteProductionTimelineEvidenceAsset
   );
   const requestModification = useMutation(
-    api.production_proposals.requestProductionTimelineModification,
+    api.production_proposals.requestProductionTimelineModification
   );
   const reviewModificationRequest = useMutation(
-    api.production_proposals.reviewProductionTimelineModificationRequest,
+    api.production_proposals.reviewProductionTimelineModificationRequest
   );
   const attachProposalContractor = useMutation(
-    (api as any).production_proposals.attachProposalContractor,
+    (api as any).production_proposals.attachProposalContractor
   );
   const createAndAttachProposalContractor = useMutation(
-    (api as any).production_proposals.createAndAttachProposalContractor,
+    (api as any).production_proposals.createAndAttachProposalContractor
   );
   const assignProposalContractorToMilestone = useMutation(
-    (api as any).production_proposals.assignProposalContractorToMilestone,
+    (api as any).production_proposals.assignProposalContractorToMilestone
   );
   const collaboration = useProductionProposalCollaboration({
     enabled: persistenceMode === "convex",
@@ -151,7 +145,7 @@ export function ProductionTimelineWorkspace({
 
   const initialState = useMemo(
     () => convexWorkspaceToTimelineState(workspace),
-    [workspace],
+    [workspace]
   );
   const collaborationCanEdit = collaboration.canEdit;
   const durableStatus = productionTimelineStatus(workspace.proposal);
@@ -164,7 +158,9 @@ export function ProductionTimelineWorkspace({
               proposalId,
               workosOrganizationId,
             })
-          : Promise.reject(new Error("Collaboration participant is view-only.")),
+          : Promise.reject(
+              new Error("Collaboration participant is view-only.")
+            ),
       createCashInfusion: (input) =>
         collaborationCanEdit
           ? createCashInfusion({
@@ -172,7 +168,9 @@ export function ProductionTimelineWorkspace({
               proposalId,
               workosOrganizationId,
             })
-          : Promise.reject(new Error("Collaboration participant is view-only.")),
+          : Promise.reject(
+              new Error("Collaboration participant is view-only.")
+            ),
       createDraw: (input) =>
         collaborationCanEdit
           ? createDraw({
@@ -180,7 +178,9 @@ export function ProductionTimelineWorkspace({
               proposalId,
               workosOrganizationId,
             })
-          : Promise.reject(new Error("Collaboration participant is view-only.")),
+          : Promise.reject(
+              new Error("Collaboration participant is view-only.")
+            ),
       createEvidenceAsset: (input) =>
         collaborationCanEdit
           ? createEvidenceAsset({
@@ -189,7 +189,9 @@ export function ProductionTimelineWorkspace({
               proposalId,
               workosOrganizationId,
             })
-          : Promise.reject(new Error("Collaboration participant is view-only.")),
+          : Promise.reject(
+              new Error("Collaboration participant is view-only.")
+            ),
       createMilestone: (input) =>
         collaborationCanEdit
           ? createMilestone({
@@ -197,7 +199,9 @@ export function ProductionTimelineWorkspace({
               proposalId,
               workosOrganizationId,
             })
-          : Promise.reject(new Error("Collaboration participant is view-only.")),
+          : Promise.reject(
+              new Error("Collaboration participant is view-only.")
+            ),
       deleteCapitalEvent: (input) =>
         collaborationCanEdit
           ? deleteCapitalEvent({
@@ -205,7 +209,9 @@ export function ProductionTimelineWorkspace({
               proposalId,
               workosOrganizationId,
             })
-          : Promise.reject(new Error("Collaboration participant is view-only.")),
+          : Promise.reject(
+              new Error("Collaboration participant is view-only.")
+            ),
       deleteDraw: (input) =>
         collaborationCanEdit
           ? deleteDraw({
@@ -213,7 +219,9 @@ export function ProductionTimelineWorkspace({
               proposalId,
               workosOrganizationId,
             })
-          : Promise.reject(new Error("Collaboration participant is view-only.")),
+          : Promise.reject(
+              new Error("Collaboration participant is view-only.")
+            ),
       deleteEvidenceAsset: (input) =>
         collaborationCanEdit
           ? deleteEvidenceAsset({
@@ -221,7 +229,9 @@ export function ProductionTimelineWorkspace({
               proposalId,
               workosOrganizationId,
             })
-          : Promise.reject(new Error("Collaboration participant is view-only.")),
+          : Promise.reject(
+              new Error("Collaboration participant is view-only.")
+            ),
       deleteMilestone: (input) =>
         collaborationCanEdit
           ? deleteMilestone({
@@ -229,14 +239,18 @@ export function ProductionTimelineWorkspace({
               proposalId,
               workosOrganizationId,
             })
-          : Promise.reject(new Error("Collaboration participant is view-only.")),
+          : Promise.reject(
+              new Error("Collaboration participant is view-only.")
+            ),
       generateEvidenceUploadUrl: () =>
         collaborationCanEdit
           ? generateEvidenceUploadUrl({
               proposalId,
               workosOrganizationId,
             })
-          : Promise.reject(new Error("Collaboration participant is view-only.")),
+          : Promise.reject(
+              new Error("Collaboration participant is view-only.")
+            ),
       requestModification: (input) =>
         collaborationCanEdit
           ? requestModification({
@@ -244,22 +258,29 @@ export function ProductionTimelineWorkspace({
               proposalId,
               workosOrganizationId,
             })
-          : Promise.reject(new Error("Collaboration participant is view-only.")),
+          : Promise.reject(
+              new Error("Collaboration participant is view-only.")
+            ),
       reviewModificationRequest: (input) =>
         collaborationCanEdit
           ? reviewModificationRequest({
               ...input,
-              requestId: input.requestId as Id<"proposalTimelineModificationRequests">,
+              requestId:
+                input.requestId as Id<"proposalTimelineModificationRequests">,
               workosOrganizationId,
             })
-          : Promise.reject(new Error("Collaboration participant is view-only.")),
+          : Promise.reject(
+              new Error("Collaboration participant is view-only.")
+            ),
       submitPlan: () =>
         collaborationCanEdit
           ? submitProposal({
               proposalId,
               workosOrganizationId,
             })
-          : Promise.reject(new Error("Collaboration participant is view-only.")),
+          : Promise.reject(
+              new Error("Collaboration participant is view-only.")
+            ),
       updateCapitalEvent: (input) =>
         collaborationCanEdit
           ? updateCapitalEvent({
@@ -267,7 +288,9 @@ export function ProductionTimelineWorkspace({
               proposalId,
               workosOrganizationId,
             })
-          : Promise.reject(new Error("Collaboration participant is view-only.")),
+          : Promise.reject(
+              new Error("Collaboration participant is view-only.")
+            ),
       updateDraw: (input) =>
         collaborationCanEdit
           ? updateDraw({
@@ -275,7 +298,9 @@ export function ProductionTimelineWorkspace({
               proposalId,
               workosOrganizationId,
             })
-          : Promise.reject(new Error("Collaboration participant is view-only.")),
+          : Promise.reject(
+              new Error("Collaboration participant is view-only.")
+            ),
       updateEvidenceAsset: (input) =>
         collaborationCanEdit
           ? updateEvidenceAsset({
@@ -283,7 +308,9 @@ export function ProductionTimelineWorkspace({
               proposalId,
               workosOrganizationId,
             })
-          : Promise.reject(new Error("Collaboration participant is view-only.")),
+          : Promise.reject(
+              new Error("Collaboration participant is view-only.")
+            ),
       updateMilestone: (input) =>
         collaborationCanEdit
           ? updateMilestone({
@@ -291,7 +318,9 @@ export function ProductionTimelineWorkspace({
               proposalId,
               workosOrganizationId,
             })
-          : Promise.reject(new Error("Collaboration participant is view-only.")),
+          : Promise.reject(
+              new Error("Collaboration participant is view-only.")
+            ),
       updatePlanState: (input) =>
         collaborationCanEdit
           ? updatePlanState({
@@ -299,7 +328,9 @@ export function ProductionTimelineWorkspace({
               proposalId,
               workosOrganizationId,
             })
-          : Promise.reject(new Error("Collaboration participant is view-only.")),
+          : Promise.reject(
+              new Error("Collaboration participant is view-only.")
+            ),
     }),
     [
       collaborationCanEdit,
@@ -323,7 +354,7 @@ export function ProductionTimelineWorkspace({
       updateMilestone,
       updatePlanState,
       workosOrganizationId,
-    ],
+    ]
   );
 
   const persistence =
@@ -339,7 +370,13 @@ export function ProductionTimelineWorkspace({
           ...milestone,
           milestoneKey: milestone.milestoneKey ?? milestone.key,
         }))}
-        onAssignToMilestone={({ assignmentCost, contractorId, milestoneKey, role, submilestoneKeys }) =>
+        onAssignToMilestone={({
+          assignmentCost,
+          contractorId,
+          milestoneKey,
+          role,
+          submilestoneKeys,
+        }) =>
           assignProposalContractorToMilestone({
             agreedRateCents: assignmentCost?.agreedRateCents,
             agreedRateUnit: assignmentCost?.agreedRateUnit,
@@ -391,17 +428,6 @@ export function ProductionTimelineWorkspace({
         initialState={initialState}
         modificationRequests={workspace.modificationRequests ?? []}
         persistence={persistence}
-        planSummary={{
-          address: workspace.planSummary?.address ?? workspace.proposal.location,
-          includedCount:
-            workspace.planSummary?.includedCount ?? workspace.milestones.length,
-          templateTitle:
-            workspace.planSummary?.templateTitle ?? workspace.proposal.buildName,
-          totalBudget: centsToDollars(
-            workspace.planSummary?.totalBudget ??
-              workspace.proposal.totalBudgetCents,
-          ),
-        }}
         timelineSettingsProjection={null}
         workspaceMode="proposal"
       />
@@ -472,41 +498,45 @@ function useProductionProposalCollaboration({
 
   const sessionState = useQuery(
     api.proposal_collaboration.getSession,
-    enabled ? { proposalId, workosOrganizationId } : "skip",
+    enabled ? { proposalId, workosOrganizationId } : "skip"
   );
   const activeSession = sessionState?.activeSession ?? null;
   const roomId = sessionState?.roomId as string | undefined;
   const historyStatus = useQuery(
     api.proposal_collaboration.getTimelineHistoryStatus,
-    enabled && activeSession ? { proposalId, workosOrganizationId } : "skip",
+    enabled && activeSession ? { proposalId, workosOrganizationId } : "skip"
   );
   const presenceRows = useQuery(
     api.proposal_collaboration.listPresence,
-    roomToken ? { roomToken } : "skip",
+    roomToken ? { roomToken } : "skip"
   ) as PresenceRow[] | undefined;
 
   const startSession = useMutation(api.proposal_collaboration.startSession);
   const stopSession = useMutation(api.proposal_collaboration.stopSession);
   const joinSession = useMutation(api.proposal_collaboration.joinSession);
   const inviteParticipant = useMutation(
-    api.proposal_collaboration.inviteParticipant,
+    api.proposal_collaboration.inviteParticipant
   );
   const setParticipantPermission = useMutation(
-    api.proposal_collaboration.setParticipantPermission,
+    api.proposal_collaboration.setParticipantPermission
   );
   const assignSessionToBuilder = useMutation(
-    api.proposal_collaboration.assignSessionToBuilder,
+    api.proposal_collaboration.assignSessionToBuilder
   );
-  const undoTimeline = useMutation(api.proposal_collaboration.undoProposalTimeline);
-  const redoTimeline = useMutation(api.proposal_collaboration.redoProposalTimeline);
+  const undoTimeline = useMutation(
+    api.proposal_collaboration.undoProposalTimeline
+  );
+  const redoTimeline = useMutation(
+    api.proposal_collaboration.redoProposalTimeline
+  );
   const presenceHeartbeat = useMutation(
-    api.proposal_collaboration.presenceHeartbeat,
+    api.proposal_collaboration.presenceHeartbeat
   );
   const presenceDisconnect = useMutation(
-    api.proposal_collaboration.presenceDisconnect,
+    api.proposal_collaboration.presenceDisconnect
   );
   const updatePresenceData = useMutation(
-    api.proposal_collaboration.updatePresenceData,
+    api.proposal_collaboration.updatePresenceData
   );
 
   useEffect(() => {
@@ -523,7 +553,9 @@ function useProductionProposalCollaboration({
     if (!enabled || typeof window === "undefined") {
       return;
     }
-    const shareToken = new URLSearchParams(window.location.search).get("collab");
+    const shareToken = new URLSearchParams(window.location.search).get(
+      "collab"
+    );
     if (!shareToken || joinedShareToken.current === shareToken) {
       return;
     }
@@ -536,7 +568,9 @@ function useProductionProposalCollaboration({
   }, [enabled, joinSession, workosOrganizationId]);
 
   useEffect(() => {
-    if (!(enabled && activeSession && roomId && sessionState?.currentPermission)) {
+    if (
+      !(enabled && activeSession && roomId && sessionState?.currentPermission)
+    ) {
       return;
     }
     let cancelled = false;
@@ -601,14 +635,14 @@ function useProductionProposalCollaboration({
           console.error("Collaboration cursor update failed", error);
         });
       }, 90),
-    [activeSession, roomId, updatePresenceData, workosOrganizationId],
+    [activeSession, roomId, updatePresenceData, workosOrganizationId]
   );
 
   useEffect(
     () => () => {
       throttledCursorUpdate.cancel();
     },
-    [throttledCursorUpdate],
+    [throttledCursorUpdate]
   );
 
   const runToolbarAction = useCallback(
@@ -623,7 +657,7 @@ function useProductionProposalCollaboration({
         setBusyAction(null);
       }
     },
-    [],
+    []
   );
 
   const handleStart = useCallback(
@@ -631,12 +665,15 @@ function useProductionProposalCollaboration({
       runToolbarAction(
         "start",
         async () => {
-          const result = await startSession({ proposalId, workosOrganizationId });
+          const result = await startSession({
+            proposalId,
+            workosOrganizationId,
+          });
           setShareUrl(buildCollaborationShareUrl(result.shareToken));
         },
-        "Live collaboration started.",
+        "Live collaboration started."
       ),
-    [proposalId, runToolbarAction, startSession, workosOrganizationId],
+    [proposalId, runToolbarAction, startSession, workosOrganizationId]
   );
 
   const handleStop = useCallback(
@@ -646,14 +683,15 @@ function useProductionProposalCollaboration({
             "stop",
             () =>
               stopSession({
-                reason: "Live collaboration toggled off from proposal timeline.",
+                reason:
+                  "Live collaboration toggled off from proposal timeline.",
                 sessionId: activeSession._id,
                 workosOrganizationId,
               }),
-            "Live collaboration stopped.",
+            "Live collaboration stopped."
           )
         : undefined,
-    [activeSession, runToolbarAction, stopSession, workosOrganizationId],
+    [activeSession, runToolbarAction, stopSession, workosOrganizationId]
   );
 
   const handleCopyShareUrl = useCallback(async () => {
@@ -681,7 +719,7 @@ function useProductionProposalCollaboration({
           sessionId: activeSession._id,
           workosOrganizationId,
         }),
-      "Participant invited.",
+      "Participant invited."
     ).then(() => setInviteTarget(""));
   }, [
     activeSession,
@@ -706,7 +744,7 @@ function useProductionProposalCollaboration({
           name: row.name ?? row.userId,
           userId: row.userId,
         })),
-    [currentWorkosUserId, presenceRows],
+    [currentWorkosUserId, presenceRows]
   );
   const activeCollaborators = useMemo(
     () =>
@@ -716,7 +754,7 @@ function useProductionProposalCollaboration({
           name: row.name ?? row.userId,
           userId: row.userId,
         })),
-    [presenceRows],
+    [presenceRows]
   );
   const onlineCount = activeCollaborators.length;
   const permission = (sessionState?.currentPermission ?? null) as
@@ -738,7 +776,7 @@ function useProductionProposalCollaboration({
                 sessionId: activeSession._id,
                 workosOrganizationId,
               }),
-            "Timeline change undone.",
+            "Timeline change undone."
           )
         : Promise.resolve(),
     [
@@ -747,7 +785,7 @@ function useProductionProposalCollaboration({
       runToolbarAction,
       undoTimeline,
       workosOrganizationId,
-    ],
+    ]
   );
   const performRedo = useCallback(
     () =>
@@ -761,7 +799,7 @@ function useProductionProposalCollaboration({
                 sessionId: activeSession._id,
                 workosOrganizationId,
               }),
-            "Timeline change redone.",
+            "Timeline change redone."
           )
         : Promise.resolve(),
     [
@@ -770,7 +808,7 @@ function useProductionProposalCollaboration({
       redoTimeline,
       runToolbarAction,
       workosOrganizationId,
-    ],
+    ]
   );
 
   useEffect(() => {
@@ -904,8 +942,7 @@ function useProductionProposalCollaboration({
               </Button>
               <Button
                 disabled={
-                  !activeSession ||
-                  (!shareUrl && !sessionState?.canManage)
+                  !activeSession || (!shareUrl && !sessionState?.canManage)
                 }
                 onClick={handleCopyShareUrl}
                 size="sm"
@@ -929,9 +966,7 @@ function useProductionProposalCollaboration({
       </Popover>
       {activeSession && sessionState?.canManage ? (
         <Popover>
-          <PopoverTrigger
-            render={<Button size="sm" variant="outline" />}
-          >
+          <PopoverTrigger render={<Button size="sm" variant="outline" />}>
             <UserPlus />
             Access
           </PopoverTrigger>
@@ -940,7 +975,8 @@ function useProductionProposalCollaboration({
               <div>
                 <h2 className="font-semibold text-sm">Manage access</h2>
                 <p className="mt-1 text-muted-foreground text-xs">
-                  View-only collaborators can inspect presence and cursors but cannot change the proposal.
+                  View-only collaborators can inspect presence and cursors but
+                  cannot change the proposal.
                 </p>
               </div>
               <div className="flex gap-2">
@@ -971,11 +1007,14 @@ function useProductionProposalCollaboration({
                           "Invited participant"}
                       </p>
                       <p className="truncate text-muted-foreground text-xs">
-                        {participant.status} · {(participant.roleSlugs ?? []).join(", ") || "invite"}
+                        {participant.status} ·{" "}
+                        {(participant.roleSlugs ?? []).join(", ") || "invite"}
                       </p>
                     </div>
                     <Select
-                      disabled={participant.workosUserId === currentWorkosUserId}
+                      disabled={
+                        participant.workosUserId === currentWorkosUserId
+                      }
                       onValueChange={(value) => {
                         void runToolbarAction(
                           `permission-${participant._id}`,
@@ -991,11 +1030,12 @@ function useProductionProposalCollaboration({
                                       participant._id as Id<"proposalCollaborationParticipants">,
                                   }),
                               permission: value as "edit" | "view",
-                              reason: "Permission changed from proposal timeline.",
+                              reason:
+                                "Permission changed from proposal timeline.",
                               sessionId: activeSession._id,
                               workosOrganizationId,
                             }),
-                          "Permission updated.",
+                          "Permission updated."
                         );
                       }}
                       value={participant.permission}
@@ -1021,10 +1061,11 @@ function useProductionProposalCollaboration({
                               assignSessionToBuilder({
                                 reason: "Assigned from live collaboration.",
                                 sessionId: activeSession._id,
-                                targetWorkosUserId: participant.workosUserId as string,
+                                targetWorkosUserId:
+                                  participant.workosUserId as string,
                                 workosOrganizationId,
                               }),
-                            "Assigned to builder.",
+                            "Assigned to builder."
                           );
                         }}
                         size="sm"
@@ -1075,7 +1116,7 @@ export function buildCollaborationShareUrl(shareToken: string) {
 }
 
 function productionTimelineStatus(
-  proposal: ProductionTimelineWorkspaceProps["workspace"]["proposal"],
+  proposal: ProductionTimelineWorkspaceProps["workspace"]["proposal"]
 ) {
   if (proposal.reviewOutcome === "rejected") {
     return "rejected";
@@ -1091,7 +1132,10 @@ function normalizeProductionMilestoneInput(input: any) {
   const durationDays = Math.max(1, Math.round(input.durationDays ?? 1));
   return {
     budgetCents: Math.max(0, Math.round(input.budgetCents ?? 0)),
-    dayEnd: Math.max(dayStart, Math.round(input.dayEnd ?? dayStart + durationDays)),
+    dayEnd: Math.max(
+      dayStart,
+      Math.round(input.dayEnd ?? dayStart + durationDays)
+    ),
     dayStart,
     dependencyKeys: input.dependencyKeys ?? [],
     drawAvailabilityCents:
@@ -1167,8 +1211,4 @@ function normalizeEvidenceAssetInput(input: any) {
     storageId: input.storageId as Id<"_storage"> | undefined,
     tag: input.tag,
   };
-}
-
-function centsToDollars(value: number) {
-  return Math.round(value / 100);
 }

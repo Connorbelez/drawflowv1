@@ -23,12 +23,6 @@ export interface ActiveBuildTimelineWorkspaceProps {
   initialRole?: "builder" | "lender";
   workspace: ConvexTimelineWorkspace & {
     modificationRequests?: TimelineModificationRequestView[];
-    planSummary?: {
-      address?: string;
-      includedCount: number;
-      templateTitle: string;
-      totalBudget: number;
-    };
     proposal: {
       buildName: string;
       location: string;
@@ -316,17 +310,6 @@ export function ActiveBuildTimelineWorkspace({
       initialState={initialState}
       modificationRequests={workspace.modificationRequests ?? []}
       persistence={persistence}
-      planSummary={{
-        address: workspace.planSummary?.address ?? workspace.proposal.location,
-        includedCount:
-          workspace.planSummary?.includedCount ?? workspace.milestones.length,
-        templateTitle:
-          workspace.planSummary?.templateTitle ?? workspace.proposal.buildName,
-        totalBudget: centsToDollars(
-          workspace.planSummary?.totalBudget ??
-            workspace.proposal.totalBudgetCents,
-        ),
-      }}
       timelineSettingsProjection={null}
       workspaceMode="live"
     />

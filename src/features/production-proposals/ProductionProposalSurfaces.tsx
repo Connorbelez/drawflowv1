@@ -1303,7 +1303,7 @@ export function ProductionProposalReviewSurface({
 
   return (
     <section
-      className="min-w-0 bg-muted/30 p-3 md:p-5"
+      className="flex min-h-[calc(100vh-4rem)] min-w-0 flex-1 flex-col bg-muted/30 p-0 md:p-5"
       data-testid="production-proposal-review-tabs"
     >
       <Tabs

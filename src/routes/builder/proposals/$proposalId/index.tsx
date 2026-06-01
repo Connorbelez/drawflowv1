@@ -112,7 +112,7 @@ function BuilderProductionProposalRoute() {
   }
 
   return (
-    <section className="min-w-0 bg-muted/30 p-3 md:p-5">
+    <section className="min-w-0 bg-muted/30 p-0 md:p-5">
       <Tabs className="gap-4" defaultValue="timeline">
         <Frame>
           <FramePanel className="p-3">

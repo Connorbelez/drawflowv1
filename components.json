@@ -30,6 +30,7 @@
     "@magicui": "https://magicui.design/r/{name}",
     "@evilcharts": "https://evilcharts.com/r/{name}.json",
     "@eldoraui": "https://eldoraui.site/r/{name}.json",
-    "@ncdai": "https://chanhdai.com/r/{name}.json"
+    "@ncdai": "https://chanhdai.com/r/{name}.json",
+    "@react-bits": "https://reactbits.dev/r/{name}.json"
   }
 }

@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
+import { toast } from "sonner";
 
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import type { BuildDetailSubTab } from "#/features/backoffice-build-detail/BuildDetailTabs.tsx";
@@ -97,6 +98,15 @@ function RouteComponent() {
   );
   const startMilestoneWork = useMutation(
     api.production_proposals.startActiveBuildMilestone
+  );
+  const createActiveBuildCostItem = useMutation(
+    api.production_proposals.createActiveBuildCostItem,
+  );
+  const updateActiveBuildCostItem = useMutation(
+    api.production_proposals.updateActiveBuildCostItem,
+  );
+  const deleteActiveBuildCostItem = useMutation(
+    api.production_proposals.deleteActiveBuildCostItem,
   );
   const productionBuildQuery = useQuery(
     api.production_proposals.getActiveBuildDetailByString,
@@ -317,6 +327,30 @@ function RouteComponent() {
           note,
           workosOrganizationId,
         }),
+      materialPlanning: visualFixtureEnabled
+        ? undefined
+        : {
+            create: (payload) =>
+              createActiveBuildCostItem({
+                ...payload,
+                buildId: activeBuildId,
+                workosOrganizationId,
+              }).then(() => toast.success("Cost item added.")),
+            delete: (item, reason) =>
+              deleteActiveBuildCostItem({
+                buildId: activeBuildId,
+                itemId: item._id as any,
+                reason,
+                workosOrganizationId,
+              }).then(() => toast.success("Cost item removed.")),
+            update: (item, payload) =>
+              updateActiveBuildCostItem({
+                ...payload,
+                buildId: activeBuildId,
+                itemId: item._id as any,
+                workosOrganizationId,
+              }).then(() => toast.success("Cost item updated.")),
+          },
     };
     return (
       <ProductionBuildDetailSurface

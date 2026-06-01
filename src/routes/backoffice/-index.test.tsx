@@ -29,6 +29,7 @@ import {
   ClosingConfirmationDialog,
   normalizeProductionBackofficeDashboard,
   ProposalKanban,
+  ScheduleRail,
   SubmittedProposalsCard,
   type ClosingConfirmationInput,
   type ProductionBuilderOption,
@@ -443,5 +444,60 @@ describe("ProposalKanban context menu", () => {
     await waitFor(() =>
       expect(onDeleteDraft).toHaveBeenCalledWith(unassignedDraft)
     );
+  });
+});
+
+describe("ScheduleRail", () => {
+  function renderScheduleRail(collapsed = false) {
+    const onCollapsedChange = vi.fn();
+    const view = render(
+      <ScheduleRail
+        collapsed={collapsed}
+        date={new Date("2026-06-15T12:00:00.000Z")}
+        events={[
+          {
+            date: "2026-06-18T14:00:00.000Z",
+            id: "event-1",
+            kind: "siteVisit",
+            label: "Site visit",
+          },
+        ]}
+        onCollapsedChange={onCollapsedChange}
+        quickActions={[
+          {
+            actionLabel: "Review",
+            address: "12 King St",
+            buildId: "build-1",
+            dueLabel: "Today",
+            id: "action-1",
+            title: "Draw review",
+            type: "drawRequest",
+          },
+        ]}
+      />
+    );
+
+    return { onCollapsedChange, ...view };
+  }
+
+  test("collapses to a calendar icon and requests collapse", () => {
+    const { onCollapsedChange } = renderScheduleRail(false);
+
+    expect(
+      screen.getByTestId("backoffice-schedule-rail-expanded")
+    ).toBeTruthy();
+    fireEvent.click(screen.getByTestId("backoffice-schedule-calendar-collapse"));
+
+    expect(onCollapsedChange).toHaveBeenCalledWith(true);
+  });
+
+  test("expands from the calendar icon and shows quick-action count", () => {
+    renderScheduleRail(true);
+
+    expect(
+      screen.getByTestId("backoffice-schedule-rail-collapsed")
+    ).toBeTruthy();
+    expect(screen.getByText("1")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("backoffice-schedule-calendar-expand"));
   });
 });

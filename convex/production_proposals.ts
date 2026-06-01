@@ -262,6 +262,19 @@ const productionCostItemUpdateInput = {
   title: v.optional(v.string()),
 };
 
+const productionBuildCostItemUpdateInput = {
+  costCents: v.optional(v.number()),
+  description: v.optional(v.string()),
+  itemId: v.id("buildCostItems"),
+  itemType: v.optional(productionCostItemType),
+  milestoneKey: v.optional(v.string()),
+  quantity: v.optional(v.number()),
+  reason: v.optional(v.string()),
+  relevantSubmilestoneKeys: v.optional(v.array(v.string())),
+  supplier: v.optional(v.string()),
+  title: v.optional(v.string()),
+};
+
 export const dev_seedProductionFoundation = authenticatedMutation
   .input({ workosOrganizationId: v.string() })
   .returns(v.any())
@@ -1477,6 +1490,214 @@ export const deleteProposalCostItem = authenticatedMutation
       warnings: proposalCostItemAuditWarnings(auth.proposal),
     });
     await pushProposalPlanningSnapshot(ctx, args.proposalId);
+    return null;
+  })
+  .public();
+
+export const createActiveBuildCostItem = authenticatedMutation
+  .input({
+    ...productionCostItemCreateInput,
+    buildId: v.id("activeBuilds"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.id("buildCostItems"))
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildCostItemWrite(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId,
+      args.reason,
+      { requireReason: false }
+    );
+    const milestone = await getActiveBuildMilestoneOrThrow(
+      ctx,
+      args.buildId,
+      args.milestoneKey
+    );
+    const relevantSubmilestoneKeys = await validateBuildCostItemSubmilestones(
+      ctx,
+      args.buildId,
+      milestone,
+      args.relevantSubmilestoneKeys
+    );
+    const now = Date.now();
+    const costCents = normalizeCostItemCost(args.costCents);
+    const quantity = normalizeCostItemQuantity(args.quantity);
+    const item = {
+      brokerageId: auth.brokerage._id,
+      buildId: args.buildId,
+      buildMilestoneId: milestone._id,
+      costCents,
+      createdAt: now,
+      createdByWorkosUserId: auth.subject,
+      description: normalizeOptionalText(args.description),
+      itemKey: await nextBuildCostItemKey(ctx, args.buildId, args.title, now),
+      itemType: args.itemType,
+      milestoneKey: milestone.key,
+      organizationId: args.workosOrganizationId,
+      proposalId: auth.proposal._id,
+      quantity,
+      relevantSubmilestoneKeys,
+      supplier: normalizeOptionalText(args.supplier),
+      title: normalizeRequiredText(args.title, "Cost item title"),
+      updatedAt: now,
+      updatedByWorkosUserId: auth.subject,
+    };
+    const itemId = await ctx.db.insert("buildCostItems", item);
+    await applyActiveBuildCostItemBudgetDelta(ctx, auth, {
+      buildId: args.buildId,
+      deltaCents: costItemTotalCents(item),
+      milestone,
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "createActiveBuildCostItem",
+      eventType: "active_build.cost_item.created",
+      newState: JSON.stringify({ ...item, _id: itemId }),
+      reason: args.reason,
+    });
+    return itemId;
+  })
+  .public();
+
+export const updateActiveBuildCostItem = authenticatedMutation
+  .input({
+    ...productionBuildCostItemUpdateInput,
+    buildId: v.id("activeBuilds"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildCostItemWrite(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId,
+      args.reason
+    );
+    const item = await getBuildCostItemOrThrow(ctx, args.buildId, args.itemId);
+    const milestone =
+      args.milestoneKey === undefined || args.milestoneKey === item.milestoneKey
+        ? await ctx.db.get(item.buildMilestoneId)
+        : await getActiveBuildMilestoneOrThrow(
+            ctx,
+            args.buildId,
+            args.milestoneKey
+          );
+    if (!milestone) {
+      throw new Error("Production active-build milestone not found.");
+    }
+    const milestoneChanged = milestone._id !== item.buildMilestoneId;
+    const relevantSubmilestoneKeys =
+      args.relevantSubmilestoneKeys === undefined && !milestoneChanged
+        ? item.relevantSubmilestoneKeys
+        : await validateBuildCostItemSubmilestones(
+            ctx,
+            args.buildId,
+            milestone,
+            args.relevantSubmilestoneKeys ?? []
+          );
+    const now = Date.now();
+    const patch = {
+      ...(args.costCents === undefined
+        ? {}
+        : { costCents: normalizeCostItemCost(args.costCents) }),
+      ...(args.description === undefined
+        ? {}
+        : { description: normalizeOptionalText(args.description) }),
+      ...(args.itemType === undefined ? {} : { itemType: args.itemType }),
+      ...(!milestoneChanged
+        ? {}
+        : {
+            buildMilestoneId: milestone._id,
+            milestoneKey: milestone.key,
+          }),
+      ...(args.quantity === undefined
+        ? {}
+        : { quantity: normalizeCostItemQuantity(args.quantity) }),
+      relevantSubmilestoneKeys,
+      ...(args.supplier === undefined
+        ? {}
+        : { supplier: normalizeOptionalText(args.supplier) }),
+      ...(args.title === undefined
+        ? {}
+        : { title: normalizeRequiredText(args.title, "Cost item title") }),
+      updatedAt: now,
+      updatedByWorkosUserId: auth.subject,
+    };
+    const nextItem = { ...item, ...patch };
+    await ctx.db.patch(item._id, patch);
+    const priorTotal = costItemTotalCents(item);
+    const nextTotal = costItemTotalCents(nextItem);
+    if (!milestoneChanged) {
+      await applyActiveBuildCostItemBudgetDelta(ctx, auth, {
+        buildId: args.buildId,
+        deltaCents: nextTotal - priorTotal,
+        milestone,
+      });
+    } else {
+      const priorMilestone = await ctx.db.get(item.buildMilestoneId);
+      if (!priorMilestone) {
+        throw new Error("Production active-build milestone not found.");
+      }
+      await applyActiveBuildCostItemBudgetDelta(ctx, auth, {
+        buildId: args.buildId,
+        deltaCents: -priorTotal,
+        milestone: priorMilestone,
+      });
+      await applyActiveBuildCostItemBudgetDelta(ctx, auth, {
+        buildId: args.buildId,
+        deltaCents: nextTotal,
+        milestone,
+      });
+    }
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "updateActiveBuildCostItem",
+      eventType: "active_build.cost_item.updated",
+      newState: JSON.stringify(nextItem),
+      priorState: JSON.stringify(item),
+      reason: args.reason,
+    });
+    return null;
+  })
+  .public();
+
+export const deleteActiveBuildCostItem = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    itemId: v.id("buildCostItems"),
+    reason: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildCostItemWrite(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId,
+      args.reason
+    );
+    const item = await getBuildCostItemOrThrow(ctx, args.buildId, args.itemId);
+    const milestone = await ctx.db.get(item.buildMilestoneId);
+    if (!milestone) {
+      throw new Error("Production active-build milestone not found.");
+    }
+    await ctx.db.delete(item._id);
+    await applyActiveBuildCostItemBudgetDelta(ctx, auth, {
+      buildId: args.buildId,
+      deltaCents: -costItemTotalCents(item),
+      milestone,
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "deleteActiveBuildCostItem",
+      eventType: "active_build.cost_item.deleted",
+      priorState: JSON.stringify(item),
+      reason: args.reason,
+    });
     return null;
   })
   .public();
@@ -10965,6 +11186,144 @@ async function deleteActiveBuildMilestoneCascade(
     await ctx.db.delete(visit._id);
   }
   await ctx.db.delete(milestone._id);
+}
+
+async function authorizeActiveBuildCostItemWrite(
+  ctx: (QueryCtx | MutationCtx) & { viewer: AuthorizedViewer },
+  buildId: Id<"activeBuilds">,
+  workosOrganizationId: string,
+  reason?: string,
+  options?: { requireReason?: boolean }
+) {
+  const auth = await authorizeActiveBuildOrThrow(ctx, buildId, workosOrganizationId);
+  requireBackofficeActiveBuildWrite(auth);
+  if (options?.requireReason ?? true) {
+    requireReason(reason ?? "");
+  }
+  return auth;
+}
+
+async function validateBuildCostItemSubmilestones(
+  ctx: QueryCtx | MutationCtx,
+  buildId: Id<"activeBuilds">,
+  milestone: Pick<Doc<"buildMilestones">, "_id" | "key">,
+  relevantSubmilestoneKeys: string[]
+) {
+  const available = await ctx.db
+    .query("buildSubmilestones")
+    .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", milestone._id))
+    .collect();
+  const availableKeys = new Set(available.map((row) => row.key));
+  const normalized = [
+    ...new Set(
+      relevantSubmilestoneKeys
+        .map((key) => key.trim())
+        .filter((key) => key.length > 0)
+    ),
+  ];
+  const invalid = normalized.filter((key) => !availableKeys.has(key));
+  if (invalid.length > 0) {
+    throw new Error(
+      `Relevant sub-milestones must belong to ${milestone.key}: ${invalid.join(", ")}.`
+    );
+  }
+  return normalized;
+}
+
+async function nextBuildCostItemKey(
+  ctx: QueryCtx | MutationCtx,
+  buildId: Id<"activeBuilds">,
+  title: string,
+  now: number
+) {
+  const base = slugifyKey(title) || "cost-item";
+  let candidate = `${base}-${now.toString(36)}`;
+  let attempt = 1;
+  while (
+    await ctx.db
+      .query("buildCostItems")
+      .withIndex("by_build_key", (q) =>
+        q.eq("buildId", buildId).eq("itemKey", candidate)
+      )
+      .unique()
+  ) {
+    attempt += 1;
+    candidate = `${base}-${now.toString(36)}-${attempt}`;
+  }
+  return candidate;
+}
+
+async function getBuildCostItemOrThrow(
+  ctx: QueryCtx | MutationCtx,
+  buildId: Id<"activeBuilds">,
+  itemId: Id<"buildCostItems">
+) {
+  const item = await ctx.db.get(itemId);
+  if (!item || item.buildId !== buildId) {
+    throw new Error("Active build cost item not found.");
+  }
+  return item;
+}
+
+async function activeBuildBorrowerCoPayBps(
+  ctx: QueryCtx | MutationCtx,
+  buildId: Id<"activeBuilds">,
+  proposal: Doc<"buildProposals">
+) {
+  const capitalPlan = (
+    await collectByIndex(ctx, "buildCapitalPlans", "by_build", buildId)
+  )[0] as Doc<"buildCapitalPlans"> | undefined;
+  return capitalPlan?.borrowerCoPayBps ?? proposal.borrowerCoPayBps;
+}
+
+async function applyActiveBuildCostItemBudgetDelta(
+  ctx: MutationCtx,
+  auth: {
+    build: Doc<"activeBuilds">;
+    proposal: Doc<"buildProposals">;
+  },
+  input: {
+    buildId: Id<"activeBuilds">;
+    deltaCents: number;
+    milestone: Doc<"buildMilestones">;
+  }
+) {
+  if (input.deltaCents === 0) {
+    return;
+  }
+  const now = Date.now();
+  const borrowerCoPayBps = await activeBuildBorrowerCoPayBps(
+    ctx,
+    input.buildId,
+    auth.proposal
+  );
+  const nextMilestoneBudgetCents = Math.max(
+    0,
+    input.milestone.budgetCents + input.deltaCents
+  );
+  const nextDrawAvailabilityCents = calculateDrawAvailability(
+    nextMilestoneBudgetCents,
+    borrowerCoPayBps
+  );
+  await ctx.db.patch(input.milestone._id, {
+    budgetCents: nextMilestoneBudgetCents,
+    drawAvailabilityCents: nextDrawAvailabilityCents,
+    updatedAt: now,
+  });
+  const drawRows = (await collectByIndex(
+    ctx,
+    "plannedDrawScheduleRows",
+    "by_build",
+    input.buildId
+  )) as Doc<"plannedDrawScheduleRows">[];
+  const draw = drawRows.find((row) => row.milestoneKey === input.milestone.key);
+  if (draw) {
+    await ctx.db.patch(draw._id, {
+      amountCents: nextDrawAvailabilityCents,
+      updatedAt: now,
+    });
+  }
+  await recalculateActiveBuildBudget(ctx, input.buildId);
 }
 
 async function recalculateActiveBuildBudget(

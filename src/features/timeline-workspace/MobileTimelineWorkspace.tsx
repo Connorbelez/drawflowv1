@@ -68,8 +68,13 @@ const money = (value: number) =>
     style: "currency",
   }).format(value);
 const MOBILE_EVENT_ID_PREFIX_RE = /^(capital|draw|milestone)-/;
-const MOBILE_DAY_WHEEL_OPTION_ITEM_HEIGHT = 34;
+const MOBILE_DAY_WHEEL_OPTION_ITEM_HEIGHT = 32;
+/** Wheel viewport height; overrides the library default of 104px at visibleCount 12. */
+const MOBILE_DAY_WHEEL_HEIGHT_PX = 150;
+/** Extra inset for the centered highlight row vs scrolling options. */
+const MOBILE_DAY_WHEEL_ACTIVE_INSET = "0.625rem";
 const MOBILE_DAY_EVENT_CARD_STEP_PX = 82;
+const MOBILE_DAY_WHEEL_VISIBLE_COUNT = 14;
 const WHEEL_TRANSLATE_Y_RE = /translateY\((-?\d+(?:\.\d+)?)px\)/;
 const WHEEL_MATRIX_RE = /matrix\(([^)]+)\)/;
 const WHEEL_MATRIX_3D_RE = /matrix3d\(([^)]+)\)/;
@@ -802,8 +807,8 @@ export function MobileTimelineDayDialWorkspace({
           className={cn(
             "grid min-h-[22rem] gap-0 px-0 py-4",
             dialOnRight
-              ? "grid-cols-[minmax(0,1fr)_4.5rem] sm:grid-cols-[minmax(0,1fr)_5rem]"
-              : "grid-cols-[4.5rem_minmax(0,1fr)] sm:grid-cols-[5rem_minmax(0,1fr)]"
+              ? "grid-cols-[minmax(0,1fr)_3.5rem] sm:grid-cols-[minmax(0,1fr)_3.75rem]"
+              : "grid-cols-[3.5rem_minmax(0,1fr)] sm:grid-cols-[3.75rem_minmax(0,1fr)]"
           )}
           data-dial-side={dialSide}
           data-testid="mobile-day-layout"
@@ -915,7 +920,7 @@ function MobileDayEventRail({
         <div
           className={cn(
             "absolute grid gap-2 transition-transform duration-300 ease-out will-change-transform",
-            side === "left" ? "right-0 left-2" : "right-2 left-0"
+            side === "left" ? "right-0 left-2 mr-[7px]" : "right-2 left-0"
           )}
           data-active-index={rail.activeIndex}
           data-testid="mobile-day-event-stack"
@@ -1074,14 +1079,14 @@ function MobileDayDial({
         label: (
           <span
             className={cn(
-              "inline-flex w-full items-center gap-2 tabular-nums",
+              "inline-flex w-full items-center gap-1 tabular-nums",
               side === "right" ? "justify-start" : "justify-end"
             )}
           >
             {side === "right" ? <>D{day}</> : null}
             <span
               aria-hidden="true"
-              className="h-px w-4 rounded-full bg-current opacity-35"
+              className="h-px w-2.5 shrink-0 rounded-full bg-current opacity-35"
             />
             {side === "left" ? <>D{day}</> : null}
           </span>
@@ -1172,10 +1177,10 @@ function MobileDayDial({
       />
       <div
         className={cn(
-          "pointer-events-none absolute top-3 bottom-3 w-[8.75rem] border bg-muted/45",
+          "pointer-events-none absolute top-3 bottom-3 w-[7rem] border bg-muted/45",
           side === "right"
-            ? "right-[-4.25rem] rounded-l-full"
-            : "left-[-4.25rem] rounded-r-full"
+            ? "right-[-3.25rem] rounded-l-full"
+            : "left-[-3.25rem] rounded-r-full"
         )}
       />
       <div className="pointer-events-none absolute top-1/2 right-0 left-0 h-px -translate-y-1/2 bg-primary/75" />
@@ -1186,13 +1191,19 @@ function MobileDayDial({
         )}
       >
         <div
-          className="relative w-[4.5rem] sm:w-[5rem]"
+          className="relative w-[3.5rem] **:data-rwp:h-(--mobile-day-wheel-height)! sm:w-[3.75rem]"
           data-testid="mobile-day-wheel"
           ref={wheelRootRef}
+          style={
+            {
+              "--mobile-day-wheel-active-inset": MOBILE_DAY_WHEEL_ACTIVE_INSET,
+              "--mobile-day-wheel-height": `${MOBILE_DAY_WHEEL_HEIGHT_PX}px`,
+            } as CSSProperties
+          }
         >
           <WheelPickerWrapper
             className={cn(
-              "w-full border bg-background/70 px-0 py-2 shadow-none backdrop-blur",
+              "w-full border bg-background/70 px-0 py-1 shadow-none backdrop-blur",
               side === "right"
                 ? "rounded-r-none rounded-l-full border-r-0"
                 : "rounded-r-full rounded-l-none border-l-0"
@@ -1202,31 +1213,33 @@ function MobileDayDial({
               classNames={{
                 highlightItem:
                   side === "right"
-                    ? "justify-start pl-4 font-semibold text-foreground text-sm"
-                    : "justify-end pr-4 font-semibold text-foreground text-sm",
+                    ? "justify-start pl-[calc(0.375rem+var(--mobile-day-wheel-active-inset))] pr-0.5 font-semibold text-foreground text"
+                    : "justify-end pr-[calc(0.375rem+var(--mobile-day-wheel-active-inset))] pl-0.5 font-semibold text-foreground text-sm",
                 highlightWrapper:
                   side === "right"
-                    ? "rounded-l-full border border-primary/45 bg-background/95 shadow-xs"
-                    : "rounded-r-full border border-primary/45 bg-background/95 shadow-xs",
+                    ? "ml-[var(--mobile-day-wheel-active-inset)] rounded-l-full border border-primary/45 bg-background/95 shadow-xs"
+                    : "mr-[var(--mobile-day-wheel-active-inset)] rounded-r-full border border-primary/45 bg-background/95 shadow-xs",
                 optionItem:
                   side === "right"
-                    ? "justify-start pl-4 font-medium text-muted-foreground/70 text-[11px]"
-                    : "justify-end pr-4 font-medium text-muted-foreground/70 text-[11px]",
+                    ? "justify-start pl-1.5 pr-0.5 font-medium text-muted-foreground/70 text-[16px] leading-none"
+                    : "justify-end pr-1.5 pl-0.5 font-medium text-muted-foreground/70 text-[16px] leading-none",
               }}
               dragSensitivity={3}
               infinite={false}
               onValueChange={(day) => onDayChange(clampDay(day))}
-              optionItemHeight={34}
+              optionItemHeight={MOBILE_DAY_WHEEL_OPTION_ITEM_HEIGHT}
               options={dayOptions}
               scrollSensitivity={4}
               value={selectedDay}
-              visibleCount={12}
+              visibleCount={MOBILE_DAY_WHEEL_VISIBLE_COUNT}
             />
           </WheelPickerWrapper>
           <div
             className={cn(
               "pointer-events-none absolute top-1/2 -translate-y-1/2 rounded-full border bg-background p-1 shadow-xs",
-              side === "right" ? "left-1" : "right-1"
+              side === "right"
+                ? "left-[calc(0.125rem+var(--mobile-day-wheel-active-inset))]"
+                : "right-[calc(0.125rem+var(--mobile-day-wheel-active-inset))]"
             )}
           >
             <div className="grid size-6 place-items-center rounded-full bg-primary text-[10px] text-primary-foreground tabular-nums">

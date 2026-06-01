@@ -231,7 +231,7 @@ interface TimelineInsertMenuProps<TData = unknown> {
   top: number;
 }
 
-const DEFAULT_HEIGHT = 560;
+const DEFAULT_HEIGHT = 520;
 const DEFAULT_BASELINE_Y = 164;
 const DEFAULT_CARD_TOP = 236;
 const DEFAULT_CARD_WIDTH = 224;

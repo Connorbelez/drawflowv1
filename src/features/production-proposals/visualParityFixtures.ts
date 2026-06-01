@@ -638,12 +638,6 @@ export function getVisualParityTimelineWorkspace(
   proposalId = VISUAL_PARITY_PROPOSAL_ID
 ): ConvexTimelineWorkspace & {
   modificationRequests: any[];
-  planSummary: {
-    address: string;
-    includedCount: number;
-    templateTitle: string;
-    totalBudget: number;
-  };
   proposal: NonNullable<ProductionProposalDetail["proposal"]>;
 } {
   const detail = getVisualParityProposalDetail(proposalId);
@@ -853,12 +847,6 @@ export function getVisualParityTimelineWorkspace(
         straightLine: true,
       },
       startingCashCents: detail.proposal.borrowerWorkingCapitalLimitCents,
-    },
-    planSummary: {
-      address: detail.proposal.location,
-      includedCount: milestones.length,
-      templateTitle: detail.proposal.buildName,
-      totalBudget: detail.proposal.totalBudgetCents,
     },
     proposal: detail.proposal,
   };
