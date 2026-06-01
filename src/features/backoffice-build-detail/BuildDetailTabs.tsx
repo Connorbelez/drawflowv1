@@ -1,11 +1,17 @@
 "use client";
 
-export type BuildDetailSubTab = "details" | "timeline" | "calendar" | "gantt";
+export type BuildDetailSubTab =
+  | "calendar"
+  | "details"
+  | "gantt"
+  | "materials"
+  | "timeline";
 
 export const BUILD_DETAIL_TABS: { value: BuildDetailSubTab; label: string }[] =
   [
     { value: "details", label: "Details" },
     { value: "timeline", label: "Timeline" },
+    { value: "materials", label: "Materials" },
     { value: "calendar", label: "Calendar" },
     { value: "gantt", label: "Gantt" },
   ];

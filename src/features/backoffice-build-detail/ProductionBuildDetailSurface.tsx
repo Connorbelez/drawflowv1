@@ -18,11 +18,12 @@ import {
   type ContractorAssignmentCostDraft,
   type ContractorProfileDraft,
 } from "#/features/contractors/ContractorQuickAddDrawer.tsx";
-import { cn } from "#/lib/utils.ts";
 import {
-  BuildDetailTabBar,
-  type BuildDetailSubTab,
-} from "./BuildDetailTabs";
+  MaterialPlanningTab,
+  type MaterialPlanningItem,
+} from "#/features/material-planning/MaterialPlanningTab.tsx";
+import { cn } from "#/lib/utils.ts";
+import { BuildDetailTabBar, type BuildDetailSubTab } from "./BuildDetailTabs";
 import { ActiveBuildGanttWorkspace } from "./ActiveBuildGanttWorkspace";
 import {
   ActiveBuildTimelineWorkspace,
@@ -169,6 +170,7 @@ export interface ProductionBuildDetail {
   availableContractors?: ProductionAvailableContractor[];
   contractors?: ProductionAttachedContractor[];
   milestoneContractorAssignments?: ProductionMilestoneContractorAssignment[];
+  costItems?: MaterialPlanningItem[];
   displayId?: string;
   documents?: ProductionDocument[];
   milestones: ProductionMilestone[];
@@ -372,6 +374,10 @@ export function ProductionBuildDetailSurface({
   activeBuildId,
   activeTab,
   contractorDetailHrefFor,
+  breadcrumbRootHref = "/backoffice",
+  breadcrumbRootLabel = "Backoffice",
+  breadcrumbSectionHref = "/backoffice/builds",
+  breadcrumbSectionLabel = "Builds",
   detail,
   milestoneKey,
   onChangeMilestone,
@@ -387,6 +393,10 @@ export function ProductionBuildDetailSurface({
   actions?: ProductionBuildDetailActions;
   contractorDetailHrefFor?: (contractorId: string) => string;
   detail: ProductionBuildDetail;
+  breadcrumbRootHref?: string;
+  breadcrumbRootLabel?: string;
+  breadcrumbSectionHref?: string;
+  breadcrumbSectionLabel?: string;
   milestoneKey?: string;
   onChangeMilestone?: (milestoneKey?: string) => void;
   onChangeRail: (rail: "open" | "closed") => void;
@@ -398,7 +408,7 @@ export function ProductionBuildDetailSurface({
 }) {
   const projection = useMemo(
     () => buildProductionBuildProjection(detail),
-    [detail],
+    [detail]
   );
   const currentDay = resolveProductionCurrentDay(detail, timelineWorkspace);
   const railCollapsed = rail === "closed";
@@ -419,10 +429,10 @@ export function ProductionBuildDetailSurface({
             detail,
             projection,
             activeMilestoneKey,
-            currentDay,
+            currentDay
           )
         : null,
-    [activeMilestoneKey, currentDay, detail, projection],
+    [activeMilestoneKey, currentDay, detail, projection]
   );
 
   return (
@@ -431,12 +441,18 @@ export function ProductionBuildDetailSurface({
         "grid min-h-[calc(100vh-4rem)] overflow-x-hidden bg-muted/30",
         railCollapsed
           ? "xl:grid-cols-[minmax(0,1fr)_56px]"
-          : "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px]",
+          : "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px]"
       )}
       data-testid="production-build-detail-route"
     >
       <section className="flex min-w-0 flex-col gap-3 px-2 py-3 sm:gap-4 sm:p-4 md:gap-5 md:p-6">
-        <ProductionBuildHeader detail={detail} />
+        <ProductionBuildHeader
+          breadcrumbRootHref={breadcrumbRootHref}
+          breadcrumbRootLabel={breadcrumbRootLabel}
+          breadcrumbSectionHref={breadcrumbSectionHref}
+          breadcrumbSectionLabel={breadcrumbSectionLabel}
+          detail={detail}
+        />
         <BuildDetailTabBar activeTab={activeTab} onChangeTab={onChangeTab} />
         <ProductionMobileEventDigest
           auditEvents={detail.auditEvents ?? []}
@@ -451,8 +467,7 @@ export function ProductionBuildDetailSurface({
             onAssignContractor={
               actions?.assignContractorToMilestone ||
               actions?.createAndAssignContractor
-                ? (card) =>
-                    setAssignContractorMilestoneKey(card.milestoneKey)
+                ? (card) => setAssignContractorMilestoneKey(card.milestoneKey)
                 : undefined
             }
             onCardClick={(card) => setActiveMilestoneKey(card.milestoneKey)}
@@ -467,6 +482,9 @@ export function ProductionBuildDetailSurface({
             viewerRole={viewerRole}
             workosOrganizationId={workosOrganizationId}
           />
+        ) : null}
+        {activeTab === "materials" ? (
+          <ProductionBuildMaterialsTab detail={detail} />
         ) : null}
         {activeTab === "calendar" ? (
           <ProductionCalendarTab detail={detail} projection={projection} />
@@ -555,7 +573,19 @@ export function ProductionBuildDetailSurface({
   );
 }
 
-function ProductionBuildHeader({ detail }: { detail: ProductionBuildDetail }) {
+function ProductionBuildHeader({
+  breadcrumbRootHref,
+  breadcrumbRootLabel,
+  breadcrumbSectionHref,
+  breadcrumbSectionLabel,
+  detail,
+}: {
+  breadcrumbRootHref: string;
+  breadcrumbRootLabel: string;
+  breadcrumbSectionHref: string;
+  breadcrumbSectionLabel: string;
+  detail: ProductionBuildDetail;
+}) {
   return (
     <Frame>
       <FramePanel className="flex flex-col gap-4 p-3 sm:p-4 md:flex-row md:items-end md:justify-between">
@@ -564,12 +594,12 @@ function ProductionBuildHeader({ detail }: { detail: ProductionBuildDetail }) {
             aria-label="Breadcrumbs"
             className="mb-3 flex min-w-0 items-center gap-2 overflow-x-auto text-muted-foreground text-xs"
           >
-            <a className="hover:text-foreground" href="/backoffice">
-              Backoffice
+            <a className="hover:text-foreground" href={breadcrumbRootHref}>
+              {breadcrumbRootLabel}
             </a>
             <span>/</span>
-            <a className="hover:text-foreground" href="/backoffice/builds">
-              Builds
+            <a className="hover:text-foreground" href={breadcrumbSectionHref}>
+              {breadcrumbSectionLabel}
             </a>
           </nav>
           <div className="flex flex-wrap items-center gap-2">
@@ -591,7 +621,10 @@ function ProductionBuildHeader({ detail }: { detail: ProductionBuildDetail }) {
           </p>
         </div>
         <div className="grid w-full grid-cols-2 gap-2 text-sm md:min-w-72 md:max-w-sm">
-          <HeaderStat label="Start" value={formatDate(detail.build.startDate)} />
+          <HeaderStat
+            label="Start"
+            value={formatDate(detail.build.startDate)}
+          />
           <HeaderStat
             label="Budget"
             value={formatCents(detail.build.totalBudgetCents)}
@@ -633,9 +666,9 @@ function ProductionMobileEventDigest({
           <p className="line-clamp-2 text-muted-foreground text-xs">
             {"payloadPreview" in latestEvent
               ? latestEvent.payloadPreview
-              : latestEvent.afterSummary ??
+              : (latestEvent.afterSummary ??
                 latestEvent.entityLabel ??
-                latestEvent.eventType}
+                latestEvent.eventType)}
           </p>
         ) : (
           <p className="text-muted-foreground text-xs">No events yet.</p>
@@ -665,7 +698,7 @@ function ProductionDetailsTab({
   const [showCompletedKanban, setShowCompletedKanban] = useState(false);
   const kanbanCards = useMemo(
     () => buildProductionKanbanCards(detail, projection, currentDay),
-    [currentDay, detail, projection],
+    [currentDay, detail, projection]
   );
 
   return (
@@ -737,7 +770,7 @@ function ProductionBuildDetailsCard({
   projection: ProductionBuildProjection;
 }) {
   const completed = projection.milestones.filter(
-    (milestone) => milestone.status === "complete",
+    (milestone) => milestone.status === "complete"
   ).length;
   const percentComplete =
     projection.milestones.length > 0
@@ -748,11 +781,11 @@ function ProductionBuildDetailsCard({
     .reduce((sum, draw) => sum + draw.amountCents, 0);
   const drawAvailableCents = projection.milestones.reduce(
     (sum, milestone) => sum + milestone.drawAvailabilityCents,
-    0,
+    0
   );
-  const siteVisitsOpen = detail.siteVisits?.filter(
-    (visit) => visit.status === "requested",
-  ).length ?? 0;
+  const siteVisitsOpen =
+    detail.siteVisits?.filter((visit) => visit.status === "requested").length ??
+    0;
   const openWarnings =
     projection.draws.filter((draw) => draw.status === "rejected").length +
     (detail.sitePhotos?.filter((photo) => photo.locationVerified === false)
@@ -775,7 +808,9 @@ function ProductionBuildDetailsCard({
           <Label>Address</Label>
           <dd className="min-w-0 break-words">{detail.build.location}</dd>
           <Label>Project start</Label>
-          <dd className="min-w-0 break-words">{formatDate(detail.build.startDate)}</dd>
+          <dd className="min-w-0 break-words">
+            {formatDate(detail.build.startDate)}
+          </dd>
           <Label>Roadmap end</Label>
           <dd className="min-w-0 break-words">
             {formatDate(addDaysSafe(detail.build.startDate, projection.maxDay))}
@@ -806,7 +841,7 @@ function ProductionBuildDetailsCard({
           <Label>Working capital limit</Label>
           <span className="min-w-0 break-words">
             {formatCents(
-              detail.capitalPlan?.borrowerWorkingCapitalLimitCents ?? 0,
+              detail.capitalPlan?.borrowerWorkingCapitalLimitCents ?? 0
             )}
           </span>
           <Label>Lender policy limit</Label>
@@ -814,12 +849,16 @@ function ProductionBuildDetailsCard({
             {formatCents(detail.capitalPlan?.lenderDrawPolicyLimitCents ?? 0)}
           </span>
           <Label>Approved principal</Label>
-          <span className="min-w-0 break-words">{formatCents(detail.loanFacility?.principalCents ?? 0)}</span>
+          <span className="min-w-0 break-words">
+            {formatCents(detail.loanFacility?.principalCents ?? 0)}
+          </span>
           <Label>Payback date</Label>
           <span className="min-w-0 break-words">
             {detail.loanFacility?.paybackDate
               ? formatDate(detail.loanFacility.paybackDate)
-              : formatDate(addDaysSafe(detail.build.startDate, projection.maxDay))}
+              : formatDate(
+                  addDaysSafe(detail.build.startDate, projection.maxDay)
+                )}
           </span>
           <Label>Draw availability</Label>
           <span className="min-w-0 break-words">
@@ -862,7 +901,7 @@ function ProductionDrawsTable({
 
   const run = async (
     draw: ProductionDraw,
-    fn?: (draw: ProductionDraw) => Promise<void> | void,
+    fn?: (draw: ProductionDraw) => Promise<void> | void
   ) => {
     if (!fn || pendingDraw) return;
     setPendingDraw(draw.drawKey);
@@ -920,7 +959,9 @@ function ProductionDrawsTable({
                         : "-"}
                     </Td>
                     <Td>
-                      {formatDate(addDaysSafe(detail.build.startDate, draw.timingDay))}
+                      {formatDate(
+                        addDaysSafe(detail.build.startDate, draw.timingDay)
+                      )}
                     </Td>
                     <Td>
                       {draw.releaseDate ? formatDate(draw.releaseDate) : "-"}
@@ -1018,17 +1059,19 @@ function FacilityChangeRequestsCard({
   detail: ProductionBuildDetail;
 }) {
   const [principalText, setPrincipalText] = useState(
-    String(Math.round((detail.loanFacility?.principalCents ?? 0) / 100)),
+    String(Math.round((detail.loanFacility?.principalCents ?? 0) / 100))
   );
   const [paybackDate, setPaybackDate] = useState(
-    detail.loanFacility?.paybackDate ?? detail.build.startDate,
+    detail.loanFacility?.paybackDate ?? detail.build.startDate
   );
   const [reason, setReason] = useState("");
   const [reviewNote, setReviewNote] = useState("");
   const [pending, setPending] = useState("");
   const [error, setError] = useState("");
   const requests = detail.facilityChangeRequests ?? [];
-  const pendingRequests = requests.filter((request) => request.status === "requested");
+  const pendingRequests = requests.filter(
+    (request) => request.status === "requested"
+  );
 
   const run = async (key: string, fn?: () => Promise<void> | void) => {
     if (!fn || pending) return;
@@ -1052,7 +1095,7 @@ function FacilityChangeRequestsCard({
         reason: reason.trim() || undefined,
         requestedPrincipalCents: Math.round(Number(principalText) * 100),
         requestType: "principalIncrease",
-      }),
+      })
     );
   const requestPayback = () =>
     run("request-payback", () =>
@@ -1060,18 +1103,18 @@ function FacilityChangeRequestsCard({
         reason: reason.trim() || undefined,
         requestedPaybackDate: paybackDate,
         requestType: "paybackExtension",
-      }),
+      })
     );
   const review = (
     request: ProductionFacilityChangeRequest,
-    status: "approved" | "rejected",
+    status: "approved" | "rejected"
   ) =>
     run(`${status}-${request._id}`, () =>
       actions?.reviewFacilityChangeRequest?.({
         note: reviewNote.trim() || undefined,
         requestId: request._id,
         status,
-      }),
+      })
     );
 
   return (
@@ -1135,13 +1178,21 @@ function FacilityChangeRequestsCard({
           <div className="mt-2 flex flex-wrap gap-2">
             <DrawActionButton
               disabled={!actions?.requestFacilityChange || Boolean(pending)}
-              label={pending === "request-principal" ? "Requesting..." : "Request principal"}
+              label={
+                pending === "request-principal"
+                  ? "Requesting..."
+                  : "Request principal"
+              }
               onClick={requestPrincipal}
               testId="facility-request-principal"
             />
             <DrawActionButton
               disabled={!actions?.requestFacilityChange || Boolean(pending)}
-              label={pending === "request-payback" ? "Requesting..." : "Request extension"}
+              label={
+                pending === "request-payback"
+                  ? "Requesting..."
+                  : "Request extension"
+              }
               onClick={requestPayback}
               testId="facility-request-payback"
             />
@@ -1183,18 +1234,26 @@ function FacilityChangeRequestsCard({
                     <StatusPill status={request.status} />
                   </div>
                   {request.reason ? (
-                    <p className="mt-2 text-muted-foreground">{request.reason}</p>
+                    <p className="mt-2 text-muted-foreground">
+                      {request.reason}
+                    </p>
                   ) : null}
                   {request.status === "requested" ? (
                     <div className="mt-2 flex flex-wrap gap-2">
                       <DrawActionButton
-                        disabled={!actions?.reviewFacilityChangeRequest || Boolean(pending)}
+                        disabled={
+                          !actions?.reviewFacilityChangeRequest ||
+                          Boolean(pending)
+                        }
                         label="Approve"
                         onClick={() => review(request, "approved")}
                         testId={`facility-approve-${request._id}`}
                       />
                       <DrawActionButton
-                        disabled={!actions?.reviewFacilityChangeRequest || Boolean(pending)}
+                        disabled={
+                          !actions?.reviewFacilityChangeRequest ||
+                          Boolean(pending)
+                        }
                         label="Deny"
                         onClick={() => review(request, "rejected")}
                         testId={`facility-deny-${request._id}`}
@@ -1223,16 +1282,20 @@ function FacilityChangeRequestsCard({
 function facilityRequestLabel(request: ProductionFacilityChangeRequest) {
   if (request.requestType === "principalIncrease") {
     return `Principal increase to ${formatCents(
-      request.requestedPayload.requestedPrincipalCents ?? 0,
+      request.requestedPayload.requestedPrincipalCents ?? 0
     )}`;
   }
   return `Payback extension to ${formatDate(
-    request.requestedPayload.requestedPaybackDate ?? "",
+    request.requestedPayload.requestedPaybackDate ?? ""
   )}`;
 }
 
 function StatusPill({ status }: { status: string }) {
-  return <Badge variant={status === "approved" ? "default" : "outline"}>{status}</Badge>;
+  return (
+    <Badge variant={status === "approved" ? "default" : "outline"}>
+      {status}
+    </Badge>
+  );
 }
 
 function Th({ children }: { children: React.ReactNode }) {
@@ -1250,7 +1313,9 @@ function Td({
 }
 
 function StatusChip({ status }: { status: ProductionDrawStatus }) {
-  return <Badge variant={drawBadgeVariant(status)}>{drawStatusLabel(status)}</Badge>;
+  return (
+    <Badge variant={drawBadgeVariant(status)}>{drawStatusLabel(status)}</Badge>
+  );
 }
 
 function ProductionDocumentsCard({
@@ -1261,9 +1326,9 @@ function ProductionDocumentsCard({
   documents: ProductionDocument[];
 }) {
   const [name, setName] = useState("");
-  const [kind, setKind] = useState<
-    "permit" | "budget" | "plan" | "supporting"
-  >("supporting");
+  const [kind, setKind] = useState<"permit" | "budget" | "plan" | "supporting">(
+    "supporting"
+  );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
@@ -1401,7 +1466,10 @@ function ProductionNotesCard({
           ) : (
             <ul className="space-y-2 text-xs">
               {notes.map((note) => (
-                <li data-testid={`${testIdPrefix}-item-${note._id}`} key={note._id}>
+                <li
+                  data-testid={`${testIdPrefix}-item-${note._id}`}
+                  key={note._id}
+                >
                   <p className="text-[11px] text-muted-foreground">
                     {formatDate(note.createdAt)} - {note.authorPersona}
                   </p>
@@ -1456,7 +1524,11 @@ function ProductionTimelineTab({
   viewerRole: "builder" | "lender";
   workosOrganizationId?: string;
 }) {
-  if (!activeBuildId || !workosOrganizationId || timelineWorkspace === undefined) {
+  if (
+    !activeBuildId ||
+    !workosOrganizationId ||
+    timelineWorkspace === undefined
+  ) {
     return (
       <Frame data-testid="production-build-timeline-loading">
         <FramePanel className="grid min-h-[28rem] place-items-center p-6 text-muted-foreground text-sm">
@@ -1485,6 +1557,47 @@ function ProductionTimelineTab({
         workosOrganizationId={workosOrganizationId}
       />
     </div>
+  );
+}
+
+function ProductionBuildMaterialsTab({
+  detail,
+}: {
+  detail: ProductionBuildDetail;
+}) {
+  const submilestonesByMilestone = new Map<string, ProductionSubmilestone[]>();
+  for (const submilestone of detail.submilestones) {
+    const next = submilestonesByMilestone.get(submilestone.milestoneKey) ?? [];
+    next.push(submilestone);
+    submilestonesByMilestone.set(submilestone.milestoneKey, next);
+  }
+  const milestones = detail.milestones
+    .slice()
+    .sort((a, b) => a.order - b.order)
+    .map((milestone) => ({
+      budgetCents: milestone.budgetCents,
+      key: milestone.key,
+      name: milestone.name,
+      order: milestone.order,
+      submilestones: (submilestonesByMilestone.get(milestone.key) ?? [])
+        .slice()
+        .sort((a, b) => a.order - b.order)
+        .map((submilestone) => ({
+          key: submilestone.key,
+          milestoneKey: submilestone.milestoneKey,
+          name: submilestone.name,
+          order: submilestone.order,
+        })),
+    }));
+
+  return (
+    <MaterialPlanningTab
+      items={detail.costItems ?? []}
+      panelLayout="stacked"
+      milestones={milestones}
+      readOnly
+      scopeLabel="Active Build"
+    />
   );
 }
 
@@ -1522,9 +1635,13 @@ function ProductionCalendarTab({
               <div className="min-w-0">
                 <p className="truncate font-medium">{milestone.name}</p>
                 <p className="text-muted-foreground text-xs">
-                  {formatDate(addDaysSafe(detail.build.startDate, milestone.dayStart))}{" "}
+                  {formatDate(
+                    addDaysSafe(detail.build.startDate, milestone.dayStart)
+                  )}{" "}
                   to{" "}
-                  {formatDate(addDaysSafe(detail.build.startDate, milestone.dayEnd))}
+                  {formatDate(
+                    addDaysSafe(detail.build.startDate, milestone.dayEnd)
+                  )}
                 </p>
               </div>
               <Badge variant={milestoneBadgeVariant(milestone.status)}>
@@ -1549,7 +1666,11 @@ function ProductionGanttTab({
   timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null;
   workosOrganizationId?: string;
 }) {
-  if (!activeBuildId || !workosOrganizationId || timelineWorkspace === undefined) {
+  if (
+    !activeBuildId ||
+    !workosOrganizationId ||
+    timelineWorkspace === undefined
+  ) {
     return (
       <Frame data-testid="production-build-gantt-loading">
         <FramePanel className="grid min-h-[28rem] place-items-center p-6 text-muted-foreground text-sm">
@@ -1573,12 +1694,12 @@ function ProductionGanttTab({
 function buildProductionKanbanCards(
   detail: ProductionBuildDetail,
   projection: ProductionBuildProjection,
-  currentDay: number,
+  currentDay: number
 ): KanbanCardData[] {
   const drawByMilestone = new Map(
     projection.draws
       .filter((draw) => draw.milestoneKey)
-      .map((draw) => [draw.milestoneKey as string, draw]),
+      .map((draw) => [draw.milestoneKey as string, draw])
   );
   return projection.milestones.map((milestone) => {
     const draw = drawByMilestone.get(milestone.key);
@@ -1588,16 +1709,16 @@ function buildProductionKanbanCards(
       typeof milestone.progressPercent === "number"
         ? clampPercent(milestone.progressPercent)
         : submilestones.length > 0
-        ? Math.round(
-            (submilestones.filter((sub) => sub.status === "complete").length /
-              submilestones.length) *
-              100,
-          )
-        : milestone.status === "complete"
-          ? 100
-          : milestone.status === "in_progress"
-            ? 50
-            : 0;
+          ? Math.round(
+              (submilestones.filter((sub) => sub.status === "complete").length /
+                submilestones.length) *
+                100
+            )
+          : milestone.status === "complete"
+            ? 100
+            : milestone.status === "in_progress"
+              ? 50
+              : 0;
     const state = resolveProductionMilestoneKanbanState({
       currentDay,
       draw,
@@ -1608,15 +1729,19 @@ function buildProductionKanbanCards(
       approvedValueCents: milestone.drawAvailabilityCents,
       code: milestone.key.toUpperCase(),
       column: state.column,
-      contractors:
-        contractorAssignmentsForMilestone(detail, milestone.key).map((contractor) => ({
+      contractors: contractorAssignmentsForMilestone(detail, milestone.key).map(
+        (contractor) => ({
           initials: initialsFor(contractor.name),
           name: contractor.name,
-        })),
+        })
+      ),
       drawGroupKey: draw?.drawKey ?? milestone.key,
       evidenceReviewStatus: milestone.evidenceState,
       forecastEndDate: addDaysSafe(detail.build.startDate, milestone.dayEnd),
-      forecastStartDate: addDaysSafe(detail.build.startDate, milestone.dayStart),
+      forecastStartDate: addDaysSafe(
+        detail.build.startDate,
+        milestone.dayStart
+      ),
       milestoneId: milestone._id,
       milestoneKey: milestone.key,
       name: milestone.name,
@@ -1669,7 +1794,10 @@ function resolveProductionMilestoneKanbanState({
   if (milestone.completionReview?.siteVisit?.status === "requested") {
     return { canStartWork: false, column: "SiteVisit", status: "review" };
   }
-  if (draw?.status === "requested" || milestone.evidenceState === "Info requested") {
+  if (
+    draw?.status === "requested" ||
+    milestone.evidenceState === "Info requested"
+  ) {
     return { canStartWork: false, column: "NeedsApproval", status: "review" };
   }
   if (milestone.status === "complete") {
@@ -1681,7 +1809,7 @@ function resolveProductionMilestoneKanbanState({
   }
   const dependenciesReady = productionMilestoneDependenciesSatisfied(
     milestone,
-    projection,
+    projection
   );
   const hasStarted = productionMilestoneHasStartedWorkflow(milestone, draw);
   const isPastEnd = currentDay > milestone.dayEnd;
@@ -1713,17 +1841,17 @@ function resolveProductionMilestoneKanbanState({
 
 function productionMilestoneDependenciesSatisfied(
   milestone: ProductionMilestone,
-  projection: ProductionBuildProjection,
+  projection: ProductionBuildProjection
 ) {
   const byKey = new Map(projection.milestones.map((row) => [row.key, row]));
   return (milestone.dependencyKeys ?? []).every(
-    (key) => byKey.get(key)?.status === "complete",
+    (key) => byKey.get(key)?.status === "complete"
   );
 }
 
 function productionMilestoneHasStartedWorkflow(
   milestone: ProductionMilestone,
-  draw?: ProductionDraw,
+  draw?: ProductionDraw
 ) {
   if (milestone.status === "in_progress") return true;
   if (milestone.completionClaim) return true;
@@ -1738,7 +1866,7 @@ function productionMilestoneHasStartedWorkflow(
   const evidenceState = String(milestone.evidenceState ?? "").toLowerCase();
   return Boolean(
     evidenceState &&
-      !["draft package", "not started", "planned"].includes(evidenceState),
+      !["draft package", "not started", "planned"].includes(evidenceState)
   );
 }
 
@@ -1746,11 +1874,15 @@ function buildMilestoneSheetData(
   detail: ProductionBuildDetail,
   projection: ProductionBuildProjection,
   milestoneKey: string,
-  currentDay: number,
+  currentDay: number
 ): MilestoneSheetData | null {
-  const milestone = projection.milestones.find((row) => row.key === milestoneKey);
+  const milestone = projection.milestones.find(
+    (row) => row.key === milestoneKey
+  );
   if (!milestone) return null;
-  const draw = projection.draws.find((row) => row.milestoneKey === milestoneKey);
+  const draw = projection.draws.find(
+    (row) => row.milestoneKey === milestoneKey
+  );
   const state = resolveProductionMilestoneKanbanState({
     currentDay,
     draw,
@@ -1769,12 +1901,13 @@ function buildMilestoneSheetData(
   return {
     canStartWork: state.canStartWork,
     column: state.column,
-    contractors:
-      contractorAssignmentsForMilestone(detail, milestone.key).map((contractor) => ({
+    contractors: contractorAssignmentsForMilestone(detail, milestone.key).map(
+      (contractor) => ({
         initials: initialsFor(contractor.name),
         name: contractor.name,
         role: contractor.role,
-      })),
+      })
+    ),
     drawGroupKey: draw?.drawKey ?? milestone.key,
     milestoneKey: milestone.key,
     name: milestone.name,
@@ -1786,7 +1919,7 @@ function buildMilestoneSheetData(
 
 function resolveProductionCurrentDay(
   detail: ProductionBuildDetail,
-  timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null,
+  timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null
 ) {
   const timelineDay = timelineWorkspace?.plan?.currentDay;
   if (typeof timelineDay === "number" && Number.isFinite(timelineDay)) {
@@ -1794,7 +1927,7 @@ function resolveProductionCurrentDay(
   }
   return daysBetweenProductionDates(
     detail.build.startDate,
-    new Date().toISOString(),
+    new Date().toISOString()
   );
 }
 
@@ -1806,7 +1939,7 @@ function daysBetweenProductionDates(startIso: string, endIso: string) {
   };
   return Math.max(
     0,
-    Math.round((parseDay(endIso) - parseDay(startIso)) / 86_400_000),
+    Math.round((parseDay(endIso) - parseDay(startIso)) / 86_400_000)
   );
 }
 
@@ -1815,12 +1948,12 @@ function clampPercent(value: number) {
 }
 
 function buildProductionBuildProjection(
-  detail: ProductionBuildDetail,
+  detail: ProductionBuildDetail
 ): ProductionBuildProjection {
   const milestones = [...detail.milestones].sort((a, b) => a.order - b.order);
   const draws = [...detail.draws].sort((a, b) => a.order - b.order);
   const submilestones = [...detail.submilestones].sort(
-    (a, b) => a.order - b.order,
+    (a, b) => a.order - b.order
   );
   const submilestonesByMilestone = new Map<string, ProductionSubmilestone[]>();
   for (const submilestone of submilestones) {
@@ -1831,11 +1964,13 @@ function buildProductionBuildProjection(
   const maxDay = Math.max(
     60,
     ...milestones.map((milestone) => milestone.dayEnd + 14),
-    ...draws.map((draw) => draw.timingDay + 14),
+    ...draws.map((draw) => draw.timingDay + 14)
   );
   const calendarIsoDates = new Set<string>();
   for (const milestone of milestones) {
-    calendarIsoDates.add(addDaysSafe(detail.build.startDate, milestone.dayStart));
+    calendarIsoDates.add(
+      addDaysSafe(detail.build.startDate, milestone.dayStart)
+    );
     calendarIsoDates.add(addDaysSafe(detail.build.startDate, milestone.dayEnd));
   }
   for (const draw of draws) {
@@ -1900,7 +2035,7 @@ function drawStatusLabel(status: ProductionDrawStatus): string {
 }
 
 function statusBadgeVariant(
-  status: ProductionBuildStatus,
+  status: ProductionBuildStatus
 ): React.ComponentProps<typeof Badge>["variant"] {
   if (status === "completed") return "success";
   if (status === "paused") return "warning";
@@ -1908,7 +2043,7 @@ function statusBadgeVariant(
 }
 
 function milestoneBadgeVariant(
-  status: ProductionMilestoneStatus,
+  status: ProductionMilestoneStatus
 ): React.ComponentProps<typeof Badge>["variant"] {
   if (status === "complete") return "success";
   if (status === "in_progress") return "warning";
@@ -1916,7 +2051,7 @@ function milestoneBadgeVariant(
 }
 
 function drawBadgeVariant(
-  status: ProductionDrawStatus,
+  status: ProductionDrawStatus
 ): React.ComponentProps<typeof Badge>["variant"] {
   if (status === "released") return "success";
   if (status === "requested") return "warning";
@@ -1927,7 +2062,7 @@ function drawBadgeVariant(
 
 function contractorAssignmentsForMilestone(
   detail: ProductionBuildDetail,
-  milestoneKey: string,
+  milestoneKey: string
 ) {
   const profileById = new Map<string, { name: string; trades?: string[] }>();
   for (const contractor of detail.contractors ?? []) {
@@ -1941,7 +2076,8 @@ function contractorAssignmentsForMilestone(
     .filter((assignment) => assignment.milestoneKey === milestoneKey)
     .map((assignment) => {
       const profile =
-        assignment.contractor ?? profileById.get(String(assignment.contractorId));
+        assignment.contractor ??
+        profileById.get(String(assignment.contractorId));
       const submilestoneName = assignment.submilestoneKey
         ? submilestoneNameFor(detail, milestoneKey, assignment.submilestoneKey)
         : undefined;
@@ -1957,13 +2093,13 @@ function contractorAssignmentsForMilestone(
 function submilestoneNameFor(
   detail: ProductionBuildDetail,
   milestoneKey: string,
-  submilestoneKey: string,
+  submilestoneKey: string
 ) {
   return (
     detail.submilestones.find(
       (submilestone) =>
         submilestone.milestoneKey === milestoneKey &&
-        submilestone.key === submilestoneKey,
+        submilestone.key === submilestoneKey
     )?.name ?? submilestoneKey
   );
 }

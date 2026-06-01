@@ -32,6 +32,10 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "#/components/ui/sidebar.tsx";
+import {
+  VISUAL_PARITY_ORGANIZATION_ID,
+  isProductionVisualParityFixtureEnabled,
+} from "#/features/production-proposals/visualParityFixtures.ts";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../convex/_generated/api";
 
@@ -55,25 +59,33 @@ export function NavUser({
 }) {
   const { isMobile } = useSidebar();
   const router = useRouter();
-  const {
-    organizationId,
-    role,
-    roles,
-    signOut,
-    switchToOrganization,
-  } = useAuth();
+  const { organizationId, role, roles, signOut, switchToOrganization } =
+    useAuth();
   const hasAuthenticatedUser = Boolean(user.email.trim());
+  const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
   const organizationResult = useQuery(
     api.workosProjection.listCurrentUserOrganizations,
-    hasAuthenticatedUser ? {} : "skip"
+    hasAuthenticatedUser && !visualFixtureEnabled ? {} : "skip"
   );
   const [switchingOrganizationId, setSwitchingOrganizationId] = useState<
     string | null
   >(null);
 
   const organizations = useMemo(
-    () => organizationResult?.organizations ?? [],
-    [organizationResult]
+    () =>
+      visualFixtureEnabled
+        ? [
+            {
+              membershipId: "membership_visual_parity",
+              organizationName: "FairLend Capital",
+              roleNames: ["Admin", "Builder", "Broker"],
+              roleSlug: "admin",
+              roleSlugs: ["admin", "builder", "broker"],
+              workosOrganizationId: VISUAL_PARITY_ORGANIZATION_ID,
+            },
+          ]
+        : (organizationResult?.organizations ?? []),
+    [organizationResult, visualFixtureEnabled]
   );
   const activeOrganization = organizations.find(
     (organization) => organization.workosOrganizationId === organizationId
@@ -174,7 +186,7 @@ export function NavUser({
               <DropdownMenuLabel className="px-2 pb-1">
                 Switch organization
               </DropdownMenuLabel>
-              {organizationResult === undefined ? (
+              {!visualFixtureEnabled && organizationResult === undefined ? (
                 <DropdownMenuItem disabled>
                   <Loader2 className="animate-spin" />
                   Loading organizations
@@ -240,9 +252,11 @@ export function NavUser({
 
 function roleNamesFromAuth(role?: string, roles?: string[]) {
   return [
-    ...new Set([role, ...(roles ?? [])].filter((value): value is string =>
-      Boolean(value?.trim())
-    )),
+    ...new Set(
+      [role, ...(roles ?? [])].filter((value): value is string =>
+        Boolean(value?.trim())
+      )
+    ),
   ].map(formatRoleSlug);
 }
 
@@ -255,10 +269,7 @@ function formatRoleSlug(slug: string) {
 }
 
 function initialsFor(value: string) {
-  const parts = value
-    .split(/\s+|@/)
-    .filter(Boolean)
-    .slice(0, 2);
+  const parts = value.split(/\s+|@/).filter(Boolean).slice(0, 2);
   return (
     parts.map((part) => part[0]?.toUpperCase()).join("") ||
     value[0]?.toUpperCase() ||

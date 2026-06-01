@@ -232,6 +232,36 @@ const productionTimelineMilestoneInput = v.object({
   x: v.number(),
 });
 
+const productionCostItemType = v.union(
+  v.literal("material"),
+  v.literal("equipment")
+);
+
+const productionCostItemCreateInput = {
+  costCents: v.number(),
+  description: v.optional(v.string()),
+  itemType: productionCostItemType,
+  milestoneKey: v.string(),
+  quantity: v.number(),
+  reason: v.optional(v.string()),
+  relevantSubmilestoneKeys: v.array(v.string()),
+  supplier: v.optional(v.string()),
+  title: v.string(),
+};
+
+const productionCostItemUpdateInput = {
+  costCents: v.optional(v.number()),
+  description: v.optional(v.string()),
+  itemId: v.id("proposalCostItems"),
+  itemType: v.optional(productionCostItemType),
+  milestoneKey: v.optional(v.string()),
+  quantity: v.optional(v.number()),
+  reason: v.optional(v.string()),
+  relevantSubmilestoneKeys: v.optional(v.array(v.string())),
+  supplier: v.optional(v.string()),
+  title: v.optional(v.string()),
+};
+
 export const dev_seedProductionFoundation = authenticatedMutation
   .input({ workosOrganizationId: v.string() })
   .returns(v.any())
@@ -1224,6 +1254,227 @@ export const deleteProductionTimelineMilestone = authenticatedMutation
       eventType: "proposal.milestone.deleted",
       priorState: JSON.stringify(milestone),
       proposalId: args.proposalId,
+    });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
+    return null;
+  })
+  .public();
+
+export const createProposalCostItem = authenticatedMutation
+  .input({
+    ...productionCostItemCreateInput,
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.id("proposalCostItems"))
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposalCostItemWrite(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+      args.reason
+    );
+    const milestone = await getProductionMilestoneOrThrow(
+      ctx,
+      args.proposalId,
+      args.milestoneKey
+    );
+    const relevantSubmilestoneKeys =
+      await validateProposalCostItemSubmilestones(
+        ctx,
+        milestone,
+        args.relevantSubmilestoneKeys
+      );
+    const now = Date.now();
+    const costCents = normalizeCostItemCost(args.costCents);
+    const quantity = normalizeCostItemQuantity(args.quantity);
+    const item = {
+      brokerageId: auth.brokerage._id,
+      costCents,
+      createdAt: now,
+      createdByWorkosUserId: auth.subject,
+      description: normalizeOptionalText(args.description),
+      itemKey: await nextProposalCostItemKey(
+        ctx,
+        args.proposalId,
+        args.title,
+        now
+      ),
+      itemType: args.itemType,
+      milestoneKey: milestone.key,
+      organizationId: args.workosOrganizationId,
+      proposalId: args.proposalId,
+      proposalMilestoneId: milestone._id,
+      quantity,
+      relevantSubmilestoneKeys,
+      supplier: normalizeOptionalText(args.supplier),
+      title: normalizeRequiredText(args.title, "Cost item title"),
+      updatedAt: now,
+      updatedByWorkosUserId: auth.subject,
+    };
+    const itemId = await ctx.db.insert("proposalCostItems", item);
+    await applyProposalCostItemBudgetDelta(ctx, auth, {
+      deltaCents: costItemTotalCents(item),
+      milestone,
+      proposalId: args.proposalId,
+    });
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "createProposalCostItem",
+      eventType: "proposal.cost_item.created",
+      newState: JSON.stringify({ ...item, _id: itemId }),
+      proposalId: args.proposalId,
+      reason: args.reason,
+      warnings: proposalCostItemAuditWarnings(auth.proposal),
+    });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
+    return itemId;
+  })
+  .public();
+
+export const updateProposalCostItem = authenticatedMutation
+  .input({
+    ...productionCostItemUpdateInput,
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposalCostItemWrite(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+      args.reason
+    );
+    const item = await getProposalCostItemOrThrow(
+      ctx,
+      args.proposalId,
+      args.itemId
+    );
+    const milestone =
+      args.milestoneKey === undefined || args.milestoneKey === item.milestoneKey
+        ? await getProposalMilestoneByIdOrThrow(ctx, item.proposalMilestoneId)
+        : await getProductionMilestoneOrThrow(
+            ctx,
+            args.proposalId,
+            args.milestoneKey
+          );
+    const milestoneChanged = milestone._id !== item.proposalMilestoneId;
+    const relevantSubmilestoneKeys =
+      args.relevantSubmilestoneKeys === undefined && !milestoneChanged
+        ? item.relevantSubmilestoneKeys
+        : await validateProposalCostItemSubmilestones(
+            ctx,
+            milestone,
+            args.relevantSubmilestoneKeys ?? []
+          );
+    const now = Date.now();
+    const patch = {
+      ...(args.costCents === undefined
+        ? {}
+        : { costCents: normalizeCostItemCost(args.costCents) }),
+      ...(args.description === undefined
+        ? {}
+        : { description: normalizeOptionalText(args.description) }),
+      ...(args.itemType === undefined ? {} : { itemType: args.itemType }),
+      ...(!milestoneChanged
+        ? {}
+        : {
+            milestoneKey: milestone.key,
+            proposalMilestoneId: milestone._id,
+          }),
+      ...(args.quantity === undefined
+        ? {}
+        : { quantity: normalizeCostItemQuantity(args.quantity) }),
+      relevantSubmilestoneKeys,
+      ...(args.supplier === undefined
+        ? {}
+        : { supplier: normalizeOptionalText(args.supplier) }),
+      ...(args.title === undefined
+        ? {}
+        : { title: normalizeRequiredText(args.title, "Cost item title") }),
+      updatedAt: now,
+      updatedByWorkosUserId: auth.subject,
+    };
+    const nextItem = { ...item, ...patch };
+    await ctx.db.patch(item._id, patch);
+    const priorTotal = costItemTotalCents(item);
+    const nextTotal = costItemTotalCents(nextItem);
+    if (!milestoneChanged) {
+      await applyProposalCostItemBudgetDelta(ctx, auth, {
+        deltaCents: nextTotal - priorTotal,
+        milestone,
+        proposalId: args.proposalId,
+      });
+    } else {
+      const priorMilestone = await getProposalMilestoneByIdOrThrow(
+        ctx,
+        item.proposalMilestoneId
+      );
+      await applyProposalCostItemBudgetDelta(ctx, auth, {
+        deltaCents: -priorTotal,
+        milestone: priorMilestone,
+        proposalId: args.proposalId,
+      });
+      await applyProposalCostItemBudgetDelta(ctx, auth, {
+        deltaCents: nextTotal,
+        milestone,
+        proposalId: args.proposalId,
+      });
+    }
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "updateProposalCostItem",
+      eventType: "proposal.cost_item.updated",
+      newState: JSON.stringify(nextItem),
+      priorState: JSON.stringify(item),
+      proposalId: args.proposalId,
+      reason: args.reason,
+      warnings: proposalCostItemAuditWarnings(auth.proposal),
+    });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
+    return null;
+  })
+  .public();
+
+export const deleteProposalCostItem = authenticatedMutation
+  .input({
+    itemId: v.id("proposalCostItems"),
+    proposalId: v.id("buildProposals"),
+    reason: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposalCostItemWrite(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+      args.reason
+    );
+    const item = await getProposalCostItemOrThrow(
+      ctx,
+      args.proposalId,
+      args.itemId
+    );
+    const milestone = await getProposalMilestoneByIdOrThrow(
+      ctx,
+      item.proposalMilestoneId
+    );
+    await ctx.db.delete(item._id);
+    await applyProposalCostItemBudgetDelta(ctx, auth, {
+      deltaCents: -costItemTotalCents(item),
+      milestone,
+      proposalId: args.proposalId,
+    });
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "deleteProposalCostItem",
+      eventType: "proposal.cost_item.deleted",
+      priorState: JSON.stringify(item),
+      proposalId: args.proposalId,
+      reason: args.reason,
+      warnings: proposalCostItemAuditWarnings(auth.proposal),
     });
     await pushProposalPlanningSnapshot(ctx, args.proposalId);
     return null;
@@ -2523,8 +2774,9 @@ export const recordOfflineClosing = authenticatedMutation
         continue;
       }
       const buildMilestoneId =
-        milestoneIdByProposalMilestone.get(String(assignment.proposalMilestoneId)) ??
-        milestoneIdByKey.get(assignment.milestoneKey);
+        milestoneIdByProposalMilestone.get(
+          String(assignment.proposalMilestoneId)
+        ) ?? milestoneIdByKey.get(assignment.milestoneKey);
       if (!buildMilestoneId) {
         continue;
       }
@@ -3014,8 +3266,8 @@ export const listContractors = authenticatedQuery
         capabilityKeys: [
           ...new Set(
             enriched.flatMap((contractor) =>
-              contractor.capabilities.map((capability: any) =>
-                capability.capabilityKey
+              contractor.capabilities.map(
+                (capability: any) => capability.capabilityKey
               )
             )
           ),
@@ -3049,11 +3301,15 @@ export const getContractorDetail = authenticatedQuery
     const [profile] = await hydrateContractorProfiles(ctx, [contractor]);
     const assignments = await ctx.db
       .query("milestoneContractorAssignments")
-      .withIndex("by_contractor", (q) => q.eq("contractorId", args.contractorId))
+      .withIndex("by_contractor", (q) =>
+        q.eq("contractorId", args.contractorId)
+      )
       .collect();
     const proposalAssignments = await ctx.db
       .query("proposalMilestoneContractorAssignments")
-      .withIndex("by_contractor", (q) => q.eq("contractorId", args.contractorId))
+      .withIndex("by_contractor", (q) =>
+        q.eq("contractorId", args.contractorId)
+      )
       .collect();
     const openProposalAssignments = [];
     for (const assignment of proposalAssignments) {
@@ -3064,7 +3320,9 @@ export const getContractorDetail = authenticatedQuery
     }
     const ratings = await ctx.db
       .query("contractorQualityRatings")
-      .withIndex("by_contractor", (q) => q.eq("contractorId", args.contractorId))
+      .withIndex("by_contractor", (q) =>
+        q.eq("contractorId", args.contractorId)
+      )
       .collect();
     const identityLinks = await contractorIdentityLinkViews(ctx, {
       brokerageId: auth.brokerage._id,
@@ -3165,7 +3423,9 @@ export const attachProposalContractor = authenticatedMutation
 export const createAndAttachProposalContractor = authenticatedMutation
   .input({
     contractor: v.object({
-      availabilityWindows: v.optional(v.array(contractorAvailabilityWindowInput)),
+      availabilityWindows: v.optional(
+        v.array(contractorAvailabilityWindowInput)
+      ),
       capabilities: v.optional(v.array(contractorCapabilityInput)),
       city: v.optional(v.string()),
       defaultPayRateCents: v.optional(v.number()),
@@ -3211,7 +3471,9 @@ export const createAndAttachProposalContractor = authenticatedMutation
       organizationId: args.workosOrganizationId,
       phone: normalizeOptionalString(args.contractor.phone),
       status: "active",
-      trades: args.contractor.trades.map((trade) => trade.trim()).filter(Boolean),
+      trades: args.contractor.trades
+        .map((trade) => trade.trim())
+        .filter(Boolean),
       updatedAt: now,
     });
     await replaceContractorOperatingRows(ctx, {
@@ -3322,11 +3584,14 @@ export const assignProposalContractorToMilestone = authenticatedMutation
         workosOrganizationId: args.workosOrganizationId,
       });
     const submilestoneKeys = [...new Set(args.submilestoneKeys ?? [])];
-    const targetSubmilestones = await resolveProposalAssignmentSubmilestones(ctx, {
-      milestoneKey: args.milestoneKey,
-      proposalId: args.proposalId,
-      submilestoneKeys,
-    });
+    const targetSubmilestones = await resolveProposalAssignmentSubmilestones(
+      ctx,
+      {
+        milestoneKey: args.milestoneKey,
+        proposalId: args.proposalId,
+        submilestoneKeys,
+      }
+    );
     const targets =
       targetSubmilestones.length > 0
         ? targetSubmilestones
@@ -3559,6 +3824,7 @@ export const getProposalDetail = authenticatedQuery
       documents,
       milestones,
       submilestones,
+      costItems,
       draws,
       events,
       auditEvents,
@@ -3572,6 +3838,7 @@ export const getProposalDetail = authenticatedQuery
         "by_proposal",
         args.proposalId
       ),
+      collectByIndex(ctx, "proposalCostItems", "by_proposal", args.proposalId),
       collectByIndex(
         ctx,
         "proposalDrawScheduleRows",
@@ -3620,6 +3887,7 @@ export const getProposalDetail = authenticatedQuery
       auditEvents,
       buildMilestones,
       buildSubmilestones,
+      costItems,
       documents: await withDocumentStorageUrls(ctx, documents),
       events,
       milestones,
@@ -3647,6 +3915,7 @@ export const getProductionTimelineWorkspace = authenticatedQuery
     const [
       milestoneRows,
       submilestones,
+      costItemRows,
       drawRows,
       capitalEventRows,
       documentRows,
@@ -3661,6 +3930,7 @@ export const getProductionTimelineWorkspace = authenticatedQuery
         "by_proposal",
         args.proposalId
       ),
+      collectByIndex(ctx, "proposalCostItems", "by_proposal", args.proposalId),
       collectByIndex(
         ctx,
         "proposalDrawScheduleRows",
@@ -3742,8 +4012,8 @@ export const getProductionTimelineWorkspace = authenticatedQuery
             capitalEventKey: event.capitalEventKey,
             eventKind: event.eventKind,
             label: event.label,
-          x: event.x,
-        })),
+            x: event.x,
+          })),
       ],
       contractorPlanning: await proposalContractorPlanningProjection(ctx, {
         auth,
@@ -3752,6 +4022,26 @@ export const getProductionTimelineWorkspace = authenticatedQuery
         proposalId: args.proposalId,
         submilestones,
       }),
+      costItems: [...costItemRows]
+        .sort(
+          (a, b) =>
+            a.milestoneKey.localeCompare(b.milestoneKey) ||
+            a.createdAt - b.createdAt
+        )
+        .map((item) => ({
+          _id: item._id,
+          costCents: item.costCents,
+          description: item.description,
+          itemKey: item.itemKey,
+          itemType: item.itemType,
+          milestoneKey: item.milestoneKey,
+          quantity: item.quantity,
+          relevantSubmilestoneKeys: item.relevantSubmilestoneKeys,
+          supplier: item.supplier,
+          title: item.title,
+          totalCents: costItemTotalCents(item),
+          updatedAt: item.updatedAt,
+        })),
       draws: draws.map((draw) => ({
         amountCents: draw.amountCents,
         customDate: draw.customDate ?? draw.source === "manual",
@@ -3919,6 +4209,7 @@ export const getProposalDetailByString = authenticatedQuery
       documents,
       milestones,
       submilestones,
+      costItems,
       draws,
       events,
       auditEvents,
@@ -3927,6 +4218,7 @@ export const getProposalDetailByString = authenticatedQuery
       collectByIndex(ctx, "proposalDocuments", "by_proposal", proposalId),
       collectByIndex(ctx, "proposalMilestones", "by_proposal", proposalId),
       collectByIndex(ctx, "proposalSubmilestones", "by_proposal", proposalId),
+      collectByIndex(ctx, "proposalCostItems", "by_proposal", proposalId),
       collectByIndex(
         ctx,
         "proposalDrawScheduleRows",
@@ -3975,6 +4267,7 @@ export const getProposalDetailByString = authenticatedQuery
       auditEvents,
       buildMilestones,
       buildSubmilestones,
+      costItems,
       documents: await withDocumentStorageUrls(ctx, documents),
       draws,
       events,
@@ -4707,21 +5000,23 @@ export const getActiveBuildDetailByString = authenticatedQuery
       capitalPlans,
       milestones,
       submilestones,
+      costItems,
       draws,
       facilityChangeRequests,
     ] = await Promise.all([
-        collectByIndex(ctx, "loanFacilities", "by_build", buildId),
-        collectByIndex(ctx, "buildCapitalPlans", "by_build", buildId),
-        collectByIndex(ctx, "buildMilestones", "by_build", buildId),
-        collectByIndex(ctx, "buildSubmilestones", "by_build", buildId),
-        collectByIndex(ctx, "plannedDrawScheduleRows", "by_build", buildId),
-        collectByIndex(
-          ctx,
-          "activeBuildFacilityChangeRequests",
-          "by_build",
-          buildId
-        ),
-      ]);
+      collectByIndex(ctx, "loanFacilities", "by_build", buildId),
+      collectByIndex(ctx, "buildCapitalPlans", "by_build", buildId),
+      collectByIndex(ctx, "buildMilestones", "by_build", buildId),
+      collectByIndex(ctx, "buildSubmilestones", "by_build", buildId),
+      collectByIndex(ctx, "buildCostItems", "by_build", buildId),
+      collectByIndex(ctx, "plannedDrawScheduleRows", "by_build", buildId),
+      collectByIndex(
+        ctx,
+        "activeBuildFacilityChangeRequests",
+        "by_build",
+        buildId
+      ),
+    ]);
     const [
       documents,
       evidenceAssets,
@@ -4736,7 +5031,12 @@ export const getActiveBuildDetailByString = authenticatedQuery
       collectByIndex(ctx, "buildEvidenceAssets", "by_build", buildId),
       collectByIndex(ctx, "buildNotes", "by_build", buildId),
       collectByIndex(ctx, "buildContractorAssignments", "by_build", buildId),
-      collectByIndex(ctx, "milestoneContractorAssignments", "by_build", buildId),
+      collectByIndex(
+        ctx,
+        "milestoneContractorAssignments",
+        "by_build",
+        buildId
+      ),
       collectByIndex(ctx, "buildSiteVisits", "by_build", buildId),
       ctx.db
         .query("auditEvents")
@@ -4788,7 +5088,9 @@ export const getActiveBuildDetailByString = authenticatedQuery
       displayId: productionBuildDisplayId(build),
       documents: await withBuildDocumentStorageUrls(ctx, buildDocuments),
       draws,
-      facilityChangeRequests: (facilityChangeRequests as Doc<"activeBuildFacilityChangeRequests">[])
+      facilityChangeRequests: (
+        facilityChangeRequests as Doc<"activeBuildFacilityChangeRequests">[]
+      )
         .sort((a, b) => b.createdAt - a.createdAt)
         .map((request) => ({
           _id: request._id,
@@ -4905,6 +5207,7 @@ export const getActiveBuildDetailByString = authenticatedQuery
       ),
       siteVisits: buildSiteVisits,
       submilestones,
+      costItems,
     };
   })
   .public();
@@ -5376,7 +5679,10 @@ export const reviewActiveBuildFacilityChangeRequest = authenticatedMutation
           paybackDate: requestedPaybackDate,
           updatedAt: Date.now(),
         });
-        const newEndDay = daysBetweenIso(auth.build.startDate, requestedPaybackDate);
+        const newEndDay = daysBetweenIso(
+          auth.build.startDate,
+          requestedPaybackDate
+        );
         if (newEndDay > (auth.build.timelineRangeMax ?? 0)) {
           await ctx.db.patch(auth.build._id, {
             timelineRangeMax: newEndDay,
@@ -5386,7 +5692,10 @@ export const reviewActiveBuildFacilityChangeRequest = authenticatedMutation
         newState = {
           ...newState,
           paybackDate: requestedPaybackDate,
-          timelineRangeMax: Math.max(auth.build.timelineRangeMax ?? 0, newEndDay),
+          timelineRangeMax: Math.max(
+            auth.build.timelineRangeMax ?? 0,
+            newEndDay
+          ),
         };
       }
     }
@@ -6896,7 +7205,9 @@ export const assignActiveBuildContractorToMilestone = authenticatedMutation
         note: normalizeOptionalString(args.note),
         postHoc: Boolean(args.postHoc),
         role: args.role.trim() || "Contractor",
-        status: args.status ?? (milestone.status === "complete" ? "completed" : "active"),
+        status:
+          args.status ??
+          (milestone.status === "complete" ? "completed" : "active"),
         submilestoneKey: target.key,
         updatedAt: now,
       };
@@ -8063,8 +8374,18 @@ async function replaceContractorOperatingRows(
   }
 ) {
   const [capabilities, equipment, windows] = await Promise.all([
-    collectByIndex(ctx, "contractorCapabilities", "by_contractor", input.contractorId),
-    collectByIndex(ctx, "contractorEquipment", "by_contractor", input.contractorId),
+    collectByIndex(
+      ctx,
+      "contractorCapabilities",
+      "by_contractor",
+      input.contractorId
+    ),
+    collectByIndex(
+      ctx,
+      "contractorEquipment",
+      "by_contractor",
+      input.contractorId
+    ),
     collectByIndex(
       ctx,
       "contractorAvailabilityWindows",
@@ -8140,8 +8461,18 @@ async function hydrateContractorProfiles(
   return await Promise.all(
     profiles.map(async (profile) => {
       const [capabilities, equipment, availabilityWindows] = await Promise.all([
-        collectByIndex(ctx, "contractorCapabilities", "by_contractor", profile._id),
-        collectByIndex(ctx, "contractorEquipment", "by_contractor", profile._id),
+        collectByIndex(
+          ctx,
+          "contractorCapabilities",
+          "by_contractor",
+          profile._id
+        ),
+        collectByIndex(
+          ctx,
+          "contractorEquipment",
+          "by_contractor",
+          profile._id
+        ),
         collectByIndex(
           ctx,
           "contractorAvailabilityWindows",
@@ -8276,7 +8607,9 @@ async function assertContractorDetailReadAllowed(
       q.eq("contractorId", input.contractor._id)
     )
     .collect();
-  if (!assignments.some((assignment) => buildIds.has(String(assignment.buildId)))) {
+  if (
+    !assignments.some((assignment) => buildIds.has(String(assignment.buildId)))
+  ) {
     throw new Error("Forbidden: contractor detail");
   }
 }
@@ -8304,7 +8637,9 @@ async function contractorWorkHistory(
     const evidenceAssets = await ctx.db
       .query("buildEvidenceAssets")
       .withIndex("by_build_milestone", (q) =>
-        q.eq("buildId", assignment.buildId).eq("milestoneKey", assignment.milestoneKey)
+        q
+          .eq("buildId", assignment.buildId)
+          .eq("milestoneKey", assignment.milestoneKey)
       )
       .collect();
     const evidencePhotos = await Promise.all(
@@ -8321,7 +8656,9 @@ async function contractorWorkHistory(
           fileName: asset.fileName,
           label: asset.label,
           milestoneKey: asset.milestoneKey,
-          previewUrl: asset.storageId ? await ctx.storage.getUrl(asset.storageId) : null,
+          previewUrl: asset.storageId
+            ? await ctx.storage.getUrl(asset.storageId)
+            : null,
           source: asset.source,
           submilestoneKey: asset.submilestoneKey,
           tag: asset.tag,
@@ -8388,19 +8725,21 @@ function contractorPerformanceSummary(
       (assignment) => assignment.status === "completed"
     ).length,
     totalActualCostCents,
-    totalActualHours: Math.round(
-      assignments.reduce(
-        (sum, assignment) => sum + (assignment.actualHours ?? 0),
-        0
-      ) * 100
-    ) / 100,
+    totalActualHours:
+      Math.round(
+        assignments.reduce(
+          (sum, assignment) => sum + (assignment.actualHours ?? 0),
+          0
+        ) * 100
+      ) / 100,
     totalEstimatedCostCents,
-    totalEstimatedHours: Math.round(
-      assignments.reduce(
-        (sum, assignment) => sum + (assignment.estimatedHours ?? 0),
-        0
-      ) * 100
-    ) / 100,
+    totalEstimatedHours:
+      Math.round(
+        assignments.reduce(
+          (sum, assignment) => sum + (assignment.estimatedHours ?? 0),
+          0
+        ) * 100
+      ) / 100,
     totalVarianceCents:
       totalActualCostCents || totalEstimatedCostCents
         ? totalActualCostCents - totalEstimatedCostCents
@@ -8448,7 +8787,9 @@ async function ensureProposalContractorAssignment(
   const existing = await ctx.db
     .query("proposalContractorAssignments")
     .withIndex("by_proposal_contractor", (q) =>
-      q.eq("proposalId", input.proposalId).eq("contractorId", input.contractorId)
+      q
+        .eq("proposalId", input.proposalId)
+        .eq("contractorId", input.contractorId)
     )
     .unique();
   const now = Date.now();
@@ -8456,7 +8797,9 @@ async function ensureProposalContractorAssignment(
     agreedRateCents: normalizeOptionalMoneyCents(input.agreedRateCents),
     agreedRateUnit: input.agreedRateUnit,
     endDay:
-      input.endDay === undefined ? undefined : Math.max(0, Math.round(input.endDay)),
+      input.endDay === undefined
+        ? undefined
+        : Math.max(0, Math.round(input.endDay)),
     notes: normalizeOptionalString(input.notes),
     role: input.role.trim() || "Contractor",
     startDay:
@@ -8650,7 +8993,8 @@ async function proposalContractorPlanningProjection(
     availableContractors: hydrated
       .filter(
         (contractor: any) =>
-          contractor.status === "active" && !attachedIds.has(String(contractor._id))
+          contractor.status === "active" &&
+          !attachedIds.has(String(contractor._id))
       )
       .map(contractorOptionView),
     conflicts,
@@ -8683,7 +9027,9 @@ async function proposalContractorPlanningProjection(
       })
       .filter(Boolean),
     recommendations: rankContractorsForPermitSignals({
-      contractors: hydrated.filter((contractor: any) => contractor.status === "active"),
+      contractors: hydrated.filter(
+        (contractor: any) => contractor.status === "active"
+      ),
       conflicts,
       permitSignals,
     }),
@@ -8898,13 +9244,19 @@ async function contractorIdentityLinkViews(
   return await Promise.all(
     rows.map(async (row) => {
       const isPrimary = row.primaryContractorId === input.contractorId;
-      const peerId = isPrimary ? row.linkedContractorId : row.primaryContractorId;
-      const peer = (await ctx.db.get(peerId)) as Doc<"contractorProfiles"> | null;
+      const peerId = isPrimary
+        ? row.linkedContractorId
+        : row.primaryContractorId;
+      const peer = (await ctx.db.get(
+        peerId
+      )) as Doc<"contractorProfiles"> | null;
       return {
         _id: row._id,
         confidence: row.confidence,
         direction: isPrimary ? "primary" : "linked",
-        peerBrokerageId: isPrimary ? row.linkedBrokerageId : row.primaryBrokerageId,
+        peerBrokerageId: isPrimary
+          ? row.linkedBrokerageId
+          : row.primaryBrokerageId,
         peerContractorId: peerId,
         peerName: peer?.name ?? "Linked contractor",
         reason: row.reason,
@@ -8967,7 +9319,10 @@ function contractorDetailIntelligence(input: {
           matchingRatings.length === 0
             ? null
             : Math.round(
-                (matchingRatings.reduce((sum, rating) => sum + rating.rating, 0) /
+                (matchingRatings.reduce(
+                  (sum, rating) => sum + rating.rating,
+                  0
+                ) /
                   matchingRatings.length) *
                   10
               ) / 10,
@@ -8992,7 +9347,10 @@ function contractorDetailIntelligence(input: {
     scheduledHours: Math.round(scheduledHours * 100) / 100,
     utilizationPercent:
       weeklyWindowHours > 0
-        ? Math.min(100, Math.round((scheduledHours / (weeklyWindowHours * 4)) * 100))
+        ? Math.min(
+            100,
+            Math.round((scheduledHours / (weeklyWindowHours * 4)) * 100)
+          )
         : null,
     weeklyWindowHours,
   };
@@ -9437,6 +9795,203 @@ async function requireProductionTimelineDraftStructureWrite(
   await assertProposalCollaborationEditAllowed(ctx, auth);
 }
 
+async function authorizeProposalCostItemWrite(
+  ctx: (QueryCtx | MutationCtx) & { viewer: AuthorizedViewer },
+  proposalId: Id<"buildProposals">,
+  workosOrganizationId: string,
+  reason?: string
+) {
+  const auth = await authorizeProposal(ctx, proposalId, workosOrganizationId);
+  if (auth.proposal.status === "closed") {
+    throw new Error("Closed proposals cannot be edited.");
+  }
+  if (auth.proposal.status === "draft") {
+    if (isBackoffice(auth.roles)) {
+      requireBackofficeProposalWrite(auth, auth.proposal);
+    } else {
+      await assertBuilderOwnership(
+        ctx,
+        assignedBuilderProfileIdOrThrow(auth.proposal),
+        auth.subject
+      );
+    }
+    await assertProposalCollaborationEditAllowed(ctx, auth);
+    return auth;
+  }
+  requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+  requireBackofficeProposalWrite(auth, auth.proposal);
+  requireReason(reason ?? "");
+  await assertProposalCollaborationEditAllowed(ctx, auth);
+  return auth;
+}
+
+function normalizeRequiredText(value: string, label: string) {
+  const text = value.trim();
+  if (!text) {
+    throw new Error(`${label} is required.`);
+  }
+  return text;
+}
+
+function normalizeOptionalText(value: string | undefined) {
+  const text = value?.trim();
+  return text ? text : undefined;
+}
+
+function normalizeCostItemCost(value: number) {
+  if (!Number.isFinite(value)) {
+    throw new Error("Cost item cost must be finite.");
+  }
+  return Math.max(0, Math.round(value));
+}
+
+function normalizeCostItemQuantity(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error("Cost item quantity must be greater than zero.");
+  }
+  return Math.round(value * 1000) / 1000;
+}
+
+function costItemTotalCents(
+  item: Pick<Doc<"proposalCostItems">, "costCents" | "quantity">
+) {
+  return Math.round(item.costCents * item.quantity);
+}
+
+function proposalCostItemAuditWarnings(proposal: Doc<"buildProposals">) {
+  return proposal.status === "draft"
+    ? []
+    : [`proposal-state:${proposal.status}`];
+}
+
+async function validateProposalCostItemSubmilestones(
+  ctx: QueryCtx | MutationCtx,
+  milestone: Pick<Doc<"proposalMilestones">, "_id" | "key">,
+  relevantSubmilestoneKeys: string[]
+) {
+  const available = await ctx.db
+    .query("proposalSubmilestones")
+    .withIndex("by_milestone", (q) =>
+      q.eq("proposalMilestoneId", milestone._id)
+    )
+    .collect();
+  const availableKeys = new Set(available.map((row) => row.key));
+  const normalized = [
+    ...new Set(
+      relevantSubmilestoneKeys
+        .map((key) => key.trim())
+        .filter((key) => key.length > 0)
+    ),
+  ];
+  const invalid = normalized.filter((key) => !availableKeys.has(key));
+  if (invalid.length > 0) {
+    throw new Error(
+      `Relevant sub-milestones must belong to ${milestone.key}: ${invalid.join(", ")}.`
+    );
+  }
+  return normalized;
+}
+
+async function nextProposalCostItemKey(
+  ctx: QueryCtx | MutationCtx,
+  proposalId: Id<"buildProposals">,
+  title: string,
+  now: number
+) {
+  const base = slugifyKey(title) || "cost-item";
+  let candidate = `${base}-${now.toString(36)}`;
+  let attempt = 1;
+  while (
+    await ctx.db
+      .query("proposalCostItems")
+      .withIndex("by_proposal_key", (q) =>
+        q.eq("proposalId", proposalId).eq("itemKey", candidate)
+      )
+      .unique()
+  ) {
+    attempt += 1;
+    candidate = `${base}-${now.toString(36)}-${attempt}`;
+  }
+  return candidate;
+}
+
+function slugifyKey(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+}
+
+async function getProposalCostItemOrThrow(
+  ctx: QueryCtx | MutationCtx,
+  proposalId: Id<"buildProposals">,
+  itemId: Id<"proposalCostItems">
+) {
+  const item = await ctx.db.get(itemId);
+  if (!item || item.proposalId !== proposalId) {
+    throw new Error("Proposal cost item not found.");
+  }
+  return item;
+}
+
+async function getProposalMilestoneByIdOrThrow(
+  ctx: QueryCtx | MutationCtx,
+  milestoneId: Id<"proposalMilestones">
+) {
+  const milestone = await ctx.db.get(milestoneId);
+  if (!milestone) {
+    throw new Error("Production milestone not found.");
+  }
+  return milestone;
+}
+
+async function applyProposalCostItemBudgetDelta(
+  ctx: MutationCtx,
+  auth: {
+    proposal: Doc<"buildProposals">;
+    subject: string;
+  },
+  input: {
+    deltaCents: number;
+    milestone: Doc<"proposalMilestones">;
+    proposalId: Id<"buildProposals">;
+  }
+) {
+  if (input.deltaCents === 0) {
+    return;
+  }
+  const now = Date.now();
+  const nextMilestoneBudgetCents = Math.max(
+    0,
+    input.milestone.budgetCents + input.deltaCents
+  );
+  const nextDrawAvailabilityCents = calculateDrawAvailability(
+    nextMilestoneBudgetCents,
+    auth.proposal.borrowerCoPayBps
+  );
+  await ctx.db.patch(input.milestone._id, {
+    budgetCents: nextMilestoneBudgetCents,
+    drawAvailabilityCents: nextDrawAvailabilityCents,
+    updatedAt: now,
+  });
+  const drawRows = (await collectByIndex(
+    ctx,
+    "proposalDrawScheduleRows",
+    "by_proposal",
+    input.proposalId
+  )) as Doc<"proposalDrawScheduleRows">[];
+  const draw = drawRows.find((row) => row.milestoneKey === input.milestone.key);
+  if (draw) {
+    await ctx.db.patch(draw._id, {
+      amountCents: nextDrawAvailabilityCents,
+      updatedAt: now,
+    });
+  }
+  await recalculateProposalBudget(ctx, auth, input.proposalId);
+}
+
 async function requireProductionTimelineLiveWrite(
   ctx: QueryCtx | MutationCtx,
   auth: {
@@ -9599,6 +10154,15 @@ async function deleteProductionMilestoneCascade(
     .collect();
   for (const row of submilestones) {
     await ctx.db.delete(row._id);
+  }
+  const costItems = await ctx.db
+    .query("proposalCostItems")
+    .withIndex("by_milestone", (q) =>
+      q.eq("proposalMilestoneId", milestone._id)
+    )
+    .collect();
+  for (const item of costItems) {
+    await ctx.db.delete(item._id);
   }
   const evidenceAssets = await ctx.db
     .query("proposalEvidenceAssets")
@@ -9825,6 +10389,7 @@ async function deleteProposalPlanChildren(
     "proposalTimelineModificationRequests",
     "proposalEvidenceAssets",
     "proposalCapitalEvents",
+    "proposalCostItems",
     "proposalDrawScheduleRows",
     "proposalSubmilestones",
     "proposalMilestones",
@@ -10041,15 +10606,29 @@ async function copyProposalOperationalRowsToActiveBuild(
     proposalId: Id<"buildProposals">;
   }
 ) {
-  const [documents, evidenceAssets] = await Promise.all([
-    collectByIndex(ctx, "proposalDocuments", "by_proposal", input.proposalId),
-    collectByIndex(
-      ctx,
-      "proposalEvidenceAssets",
-      "by_proposal",
-      input.proposalId
-    ),
-  ]);
+  const [documents, evidenceAssets, costItems, buildMilestones] =
+    (await Promise.all([
+      collectByIndex(ctx, "proposalDocuments", "by_proposal", input.proposalId),
+      collectByIndex(
+        ctx,
+        "proposalEvidenceAssets",
+        "by_proposal",
+        input.proposalId
+      ),
+      collectByIndex(ctx, "proposalCostItems", "by_proposal", input.proposalId),
+      collectByIndex(ctx, "buildMilestones", "by_build", input.buildId),
+    ])) as [
+      Doc<"proposalDocuments">[],
+      Doc<"proposalEvidenceAssets">[],
+      Doc<"proposalCostItems">[],
+      Doc<"buildMilestones">[],
+    ];
+  const buildMilestoneByProposalId = new Map(
+    buildMilestones.map((milestone) => [
+      String(milestone.proposalMilestoneId),
+      milestone,
+    ])
+  );
   for (const document of documents) {
     await ctx.db.insert("buildDocuments", {
       brokerageId: input.auth.brokerage._id,
@@ -10085,6 +10664,35 @@ async function copyProposalOperationalRowsToActiveBuild(
       storageId: asset.storageId,
       tag: asset.tag,
       updatedAt: input.now,
+    });
+  }
+  for (const item of costItems) {
+    const buildMilestone = buildMilestoneByProposalId.get(
+      String(item.proposalMilestoneId)
+    );
+    if (!buildMilestone) {
+      continue;
+    }
+    await ctx.db.insert("buildCostItems", {
+      brokerageId: input.auth.brokerage._id,
+      buildId: input.buildId,
+      buildMilestoneId: buildMilestone._id,
+      costCents: item.costCents,
+      createdAt: input.now,
+      createdByWorkosUserId: item.createdByWorkosUserId,
+      description: item.description,
+      itemKey: item.itemKey,
+      itemType: item.itemType,
+      milestoneKey: item.milestoneKey,
+      organizationId: input.organizationId,
+      proposalCostItemId: item._id,
+      proposalId: input.proposalId,
+      quantity: item.quantity,
+      relevantSubmilestoneKeys: item.relevantSubmilestoneKeys,
+      supplier: item.supplier,
+      title: item.title,
+      updatedAt: input.now,
+      updatedByWorkosUserId: item.updatedByWorkosUserId,
     });
   }
 }
@@ -10317,6 +10925,13 @@ async function deleteActiveBuildMilestoneCascade(
   for (const row of submilestones) {
     await ctx.db.delete(row._id);
   }
+  const costItems = await ctx.db
+    .query("buildCostItems")
+    .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", milestone._id))
+    .collect();
+  for (const item of costItems) {
+    await ctx.db.delete(item._id);
+  }
   const evidenceAssets = await ctx.db
     .query("buildEvidenceAssets")
     .withIndex("by_build_milestone", (q) =>
@@ -10499,29 +11114,32 @@ async function getActiveBuildSiteVisitTokenState(
       visit: null,
     };
   }
-  const [milestone, submilestones, evidenceAssets, contractorAssignments] = await Promise.all([
-    ctx.db.get(visit.buildMilestoneId),
-    ctx.db
-      .query("buildSubmilestones")
-      .withIndex("by_milestone", (q) =>
-        q.eq("buildMilestoneId", visit.buildMilestoneId)
-      )
-      .collect(),
-    ctx.db
-      .query("buildEvidenceAssets")
-      .withIndex("by_build_milestone", (q) =>
-        q.eq("buildId", buildId).eq("milestoneKey", visit.milestoneKey)
-      )
-      .collect(),
-    ctx.db
-      .query("milestoneContractorAssignments")
-      .withIndex("by_build_milestone", (q) =>
-        q.eq("buildId", buildId).eq("milestoneKey", visit.milestoneKey)
-      )
-      .collect(),
-  ]);
+  const [milestone, submilestones, evidenceAssets, contractorAssignments] =
+    await Promise.all([
+      ctx.db.get(visit.buildMilestoneId),
+      ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_milestone", (q) =>
+          q.eq("buildMilestoneId", visit.buildMilestoneId)
+        )
+        .collect(),
+      ctx.db
+        .query("buildEvidenceAssets")
+        .withIndex("by_build_milestone", (q) =>
+          q.eq("buildId", buildId).eq("milestoneKey", visit.milestoneKey)
+        )
+        .collect(),
+      ctx.db
+        .query("milestoneContractorAssignments")
+        .withIndex("by_build_milestone", (q) =>
+          q.eq("buildId", buildId).eq("milestoneKey", visit.milestoneKey)
+        )
+        .collect(),
+    ]);
   const assignedContractorProfiles = await Promise.all(
-    contractorAssignments.map((assignment) => ctx.db.get(assignment.contractorId))
+    contractorAssignments.map((assignment) =>
+      ctx.db.get(assignment.contractorId)
+    )
   );
   const contractorById = new Map(
     assignedContractorProfiles
@@ -13357,7 +13975,10 @@ async function seedCloseProposal(
     interestAnnualBps: input.loanFacility.interestAnnualBps,
     interestStartsOn: "funds_released",
     organizationId: input.organizationId,
-    paybackDate: addDaysIso(input.buildStartDate, proposal.timelineRangeMax ?? 365),
+    paybackDate: addDaysIso(
+      input.buildStartDate,
+      proposal.timelineRangeMax ?? 365
+    ),
     principalCents: input.loanFacility.principalCents,
     proposalId: input.proposalId,
     status: "active",

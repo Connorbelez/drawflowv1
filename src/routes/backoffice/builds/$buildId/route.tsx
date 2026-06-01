@@ -17,7 +17,7 @@ import { api } from "../../../../../convex/_generated/api";
 
 type BuildDetailSearch = {
   milestone?: string;
-  tab?: "details" | "timeline" | "calendar" | "gantt";
+  tab?: "calendar" | "details" | "gantt" | "materials" | "timeline";
   rail?: "open" | "closed";
 };
 
@@ -25,6 +25,7 @@ export const Route = createFileRoute("/backoffice/builds/$buildId")({
   validateSearch: (search: Record<string, unknown>): BuildDetailSearch => {
     const tab =
       search.tab === "timeline" ||
+      search.tab === "materials" ||
       search.tab === "calendar" ||
       search.tab === "gantt" ||
       search.tab === "details"
@@ -51,72 +52,79 @@ function RouteComponent() {
   const search = Route.useSearch();
   const navigate = useNavigate();
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
-  const addDocument = useMutation(api.production_proposals.addActiveBuildDocument);
+  const addDocument = useMutation(
+    api.production_proposals.addActiveBuildDocument
+  );
   const addNote = useMutation(api.production_proposals.addActiveBuildNote);
-  const approveDraw = useMutation(api.production_proposals.approveActiveBuildDraw);
+  const approveDraw = useMutation(
+    api.production_proposals.approveActiveBuildDraw
+  );
   const approveMilestone = useMutation(
-    api.production_proposals.approveActiveBuildMilestone,
+    api.production_proposals.approveActiveBuildMilestone
   );
   const assignSiteVisit = useMutation(
-    api.production_proposals.assignActiveBuildSiteVisit,
+    api.production_proposals.assignActiveBuildSiteVisit
   );
   const assignContractorToMilestone = useMutation(
-    (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+    (api as any).production_proposals.assignActiveBuildContractorToMilestone
   );
   const attachContractor = useMutation(
-    api.production_proposals.attachActiveBuildContractor,
+    api.production_proposals.attachActiveBuildContractor
   );
   const createContractor = useMutation(
-    api.production_proposals.createContractorProfile,
+    api.production_proposals.createContractorProfile
   );
-  const rejectDraw = useMutation(api.production_proposals.rejectActiveBuildDraw);
+  const rejectDraw = useMutation(
+    api.production_proposals.rejectActiveBuildDraw
+  );
   const rejectMilestone = useMutation(
-    api.production_proposals.rejectActiveBuildMilestone,
+    api.production_proposals.rejectActiveBuildMilestone
   );
-  const releaseDraw = useMutation(api.production_proposals.releaseActiveBuildDraw);
+  const releaseDraw = useMutation(
+    api.production_proposals.releaseActiveBuildDraw
+  );
   const requestFacilityChange = useMutation(
-    (api as any).production_proposals.requestActiveBuildFacilityChange,
+    (api as any).production_proposals.requestActiveBuildFacilityChange
   );
-  const requestDraw = useMutation(api.production_proposals.requestActiveBuildDraw);
+  const requestDraw = useMutation(
+    api.production_proposals.requestActiveBuildDraw
+  );
   const requestMilestoneInfo = useMutation(
-    api.production_proposals.requestActiveBuildMilestoneInfo,
+    api.production_proposals.requestActiveBuildMilestoneInfo
   );
   const reviewFacilityChangeRequest = useMutation(
-    (api as any).production_proposals.reviewActiveBuildFacilityChangeRequest,
+    (api as any).production_proposals.reviewActiveBuildFacilityChangeRequest
   );
   const startMilestoneWork = useMutation(
-    api.production_proposals.startActiveBuildMilestone,
+    api.production_proposals.startActiveBuildMilestone
   );
-  const productionBuild = useQuery(
+  const productionBuildQuery = useQuery(
     api.production_proposals.getActiveBuildDetailByString,
     visualFixtureEnabled
       ? "skip"
       : {
           buildId,
           workosOrganizationId: context.organizationId as string,
-        },
+        }
   );
-  const visualBuild = visualFixtureEnabled
-    ? getVisualParityActiveBuildDetail(buildId)
-    : null;
   const effectiveProductionBuild = visualFixtureEnabled
-    ? visualBuild
-    : productionBuild;
+    ? getVisualParityActiveBuildDetail(buildId)
+    : productionBuildQuery;
   const activeBuildIdForWorkspace = effectiveProductionBuild?.build?._id as any;
-  const timelineWorkspace = useQuery(
+  const timelineWorkspaceQuery = useQuery(
     (api as any).production_proposals.getActiveBuildTimelineWorkspace,
     visualFixtureEnabled
       ? "skip"
       : effectiveProductionBuild
-      ? {
-          buildId: activeBuildIdForWorkspace,
-          workosOrganizationId: context.organizationId as string,
-        }
-      : "skip",
+        ? {
+            buildId: activeBuildIdForWorkspace,
+            workosOrganizationId: context.organizationId as string,
+          }
+        : "skip"
   );
   const effectiveTimelineWorkspace = visualFixtureEnabled
     ? getVisualParityActiveBuildTimelineWorkspace(buildId)
-    : timelineWorkspace;
+    : timelineWorkspaceQuery;
 
   const onChangeTab = (tab: BuildDetailSubTab) =>
     navigate({

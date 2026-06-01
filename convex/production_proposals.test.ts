@@ -169,6 +169,151 @@ describe("production proposal foundation", () => {
     expect(demoCounts.demoProposalDrafts).toHaveLength(0);
   });
 
+  test("adds material and equipment cost items without turning them into submilestones", async () => {
+    const { seed, t } = await seeded(["admin"], "user_admin");
+
+    const proposalId = await t.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Material planning proposal",
+        location: "900 Supply Road",
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
+      borrowerCoPayBps: 2_000,
+      borrowerWorkingCapitalLimitCents: 40_000_000,
+      lenderDrawPolicyLimitCents: 80_000_000,
+      milestones: [
+        {
+          budgetCents: 50_000_000,
+          dayEnd: 30,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 30,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+          submilestones: [
+            {
+              budgetCents: 20_000_000,
+              durationDays: 12,
+              key: "forms",
+              name: "Forms and pour",
+              order: 1,
+            },
+          ],
+        },
+      ],
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+
+    const materialItemId = await t.mutation(
+      (api as any).production_proposals.createProposalCostItem,
+      {
+        costCents: 7_500_000,
+        description: "Concrete and rebar package.",
+        itemType: "material",
+        milestoneKey: "foundation",
+        proposalId,
+        quantity: 2,
+        relevantSubmilestoneKeys: ["forms"],
+        supplier: "Apex Supply",
+        title: "Foundation material package",
+        workosOrganizationId: ORG,
+      },
+    );
+    const equipmentItemId = await t.mutation(
+      (api as any).production_proposals.createProposalCostItem,
+      {
+        costCents: 2_000_000,
+        itemType: "equipment",
+        milestoneKey: "foundation",
+        proposalId,
+        quantity: 1,
+        relevantSubmilestoneKeys: [],
+        supplier: "Rental Desk",
+        title: "Pump rental",
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation((api as any).production_proposals.deleteProposalCostItem, {
+      itemId: equipmentItemId,
+      proposalId,
+      reason: "Rental moved into contractor scope.",
+      workosOrganizationId: ORG,
+    });
+    await t.mutation((api as any).production_proposals.updateProposalCostItem, {
+      costCents: 8_000_000,
+      itemId: materialItemId,
+      proposalId,
+      quantity: 2.5,
+      reason: "Supplier quote revised.",
+      workosOrganizationId: ORG,
+    });
+
+    const detail = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(detail.costItems).toHaveLength(1);
+    expect(detail.costItems[0]).toMatchObject({
+      itemType: "material",
+      milestoneKey: "foundation",
+      quantity: 2.5,
+      relevantSubmilestoneKeys: ["forms"],
+      supplier: "Apex Supply",
+      title: "Foundation material package",
+    });
+    expect(detail.submilestones).toHaveLength(1);
+    expect(detail.proposal.totalBudgetCents).toBe(70_000_000);
+    expect(detail.milestones[0]).toMatchObject({
+      budgetCents: 70_000_000,
+      drawAvailabilityCents: 56_000_000,
+    });
+    expect(detail.draws[0]).toMatchObject({ amountCents: 56_000_000 });
+
+    await t.mutation((api as any).production_proposals.submitProposal, {
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      permitWaiverReason: "Permit packet pending municipality upload.",
+      proposalId,
+      reason: "Material planning detail reviewed.",
+      workosOrganizationId: ORG,
+    });
+    const closing = await t.mutation(
+      (api as any).production_proposals.recordOfflineClosing,
+      {
+        buildStartDate: "2026-08-15",
+        loanFacility: {
+          interestAnnualBps: 925,
+          principalCents: 80_000_000,
+        },
+        proposalId,
+        reason: "Loan closed offline.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const buildDetail = await t.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(buildDetail.costItems).toHaveLength(1);
+    expect(buildDetail.costItems[0]).toMatchObject({
+      costCents: 8_000_000,
+      itemType: "material",
+      quantity: 2.5,
+      relevantSubmilestoneKeys: ["forms"],
+    });
+    expect(buildDetail.build.totalBudgetCents).toBe(70_000_000);
+    expect(buildDetail.submilestones).toHaveLength(1);
+  });
+
   test("persists an unassigned broker draft after the setup workflow", async () => {
     const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
     const broker = withIdentity(base, ["broker"], "user_broker");
