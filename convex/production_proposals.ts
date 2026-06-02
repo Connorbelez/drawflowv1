@@ -19,8 +19,10 @@ import {
 import { publicMutation, publicQuery } from "./fluent";
 import {
   assertProposalCollaborationEditAllowed,
+  generateShareToken,
   hasActiveCollaborationParticipant,
   pushProposalPlanningSnapshot,
+  shareTokenHash,
 } from "./proposal_collaboration_model";
 
 type ProductionSettingsSiteVisitGuidanceInput = Parameters<
@@ -636,6 +638,7 @@ export const createDraftProposal = authenticatedMutation
       builderProfileId: args.builderProfileId,
       createdAt: now,
       createdByWorkosUserId: auth.subject,
+      interestAnnualBps: 925,
       lenderDrawPolicyLimitCents: 0,
       location: args.location,
       organizationId: args.workosOrganizationId,
@@ -677,6 +680,7 @@ export const createBrokerDraftProposal = authenticatedMutation
       buildName: args.buildName?.trim() || "Unassigned broker draft",
       createdAt: now,
       createdByWorkosUserId: auth.subject,
+      interestAnnualBps: 925,
       lenderDrawPolicyLimitCents: 0,
       location: args.location?.trim() || "Unassigned site",
       organizationId: args.workosOrganizationId,
@@ -2598,6 +2602,122 @@ export const updateProductionTimelinePlanState = authenticatedMutation
   })
   .public();
 
+export const updateProductionProposalCoPayAmount = authenticatedMutation
+  .input({
+    borrowerCoPayCents: v.number(),
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
+    await requireProductionProposalPreLiveCapitalWrite(ctx, auth);
+    const totalBudgetCents = await recalculateProposalBudget(
+      ctx,
+      auth,
+      args.proposalId
+    );
+    if (totalBudgetCents <= 0) {
+      throw new Error("Add proposal budget before editing co-pay amount.");
+    }
+    const borrowerCoPayCents = Math.max(
+      0,
+      Math.min(totalBudgetCents, Math.round(args.borrowerCoPayCents))
+    );
+    const borrowerCoPayBps = Math.max(
+      0,
+      Math.min(
+        10_000,
+        Math.round((borrowerCoPayCents * 10_000) / totalBudgetCents)
+      )
+    );
+    const approvedAmountCents = calculateDrawAvailability(
+      totalBudgetCents,
+      borrowerCoPayBps
+    );
+    const priorState = JSON.stringify({
+      borrowerCoPayBps: auth.proposal.borrowerCoPayBps,
+      borrowerCoPayCents: Math.round(
+        (totalBudgetCents * auth.proposal.borrowerCoPayBps) / 10_000
+      ),
+      lenderDrawPolicyLimitCents: auth.proposal.lenderDrawPolicyLimitCents,
+      totalBudgetCents,
+    });
+    const now = Date.now();
+
+    await ctx.db.patch(args.proposalId, {
+      borrowerCoPayBps,
+      lenderDrawPolicyLimitCents: approvedAmountCents,
+      updatedAt: now,
+      updatedByWorkosUserId: auth.subject,
+    });
+    await refreshProposalMilestoneDrawAvailability(ctx, args.proposalId, {
+      borrowerCoPayBps,
+      updatedAt: now,
+    });
+    await upsertKanbanCard(ctx, args.proposalId, now);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "updateProductionProposalCoPayAmount",
+      eventType: "proposal.borrower_copay.updated",
+      newState: JSON.stringify({
+        approvedAmountCents,
+        borrowerCoPayBps,
+        borrowerCoPayCents,
+        totalBudgetCents,
+      }),
+      priorState,
+      proposalId: args.proposalId,
+    });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
+    return null;
+  })
+  .public();
+
+export const updateProductionProposalInterestRate = authenticatedMutation
+  .input({
+    interestAnnualBps: v.number(),
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
+    await requireProductionProposalPreLiveCapitalWrite(ctx, auth);
+    const interestAnnualBps = Math.max(
+      0,
+      Math.min(10_000, Math.round(args.interestAnnualBps))
+    );
+    const now = Date.now();
+    await ctx.db.patch(args.proposalId, {
+      interestAnnualBps,
+      updatedAt: now,
+      updatedByWorkosUserId: auth.subject,
+    });
+    await upsertKanbanCard(ctx, args.proposalId, now);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "updateProductionProposalInterestRate",
+      eventType: "proposal.interest_rate.updated",
+      newState: JSON.stringify({ interestAnnualBps }),
+      priorState: JSON.stringify({
+        interestAnnualBps: auth.proposal.interestAnnualBps ?? 925,
+      }),
+      proposalId: args.proposalId,
+    });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
+    return null;
+  })
+  .public();
+
 export const createProductionTimelineCapitalEvent = authenticatedMutation
   .input({
     amountCents: v.number(),
@@ -2626,6 +2746,7 @@ export const createProductionTimelineCapitalEvent = authenticatedMutation
       proposalId: args.proposalId,
       x: args.x,
     });
+    await recalculateProposalBudget(ctx, auth, args.proposalId);
     await writeProposalEvent(ctx, {
       auth,
       command: "createProductionTimelineCapitalEvent",
@@ -2714,6 +2835,7 @@ export const updateProductionTimelineCapitalEvent = authenticatedMutation
       updatedAt: Date.now(),
     };
     await ctx.db.patch(event._id, patch);
+    await recalculateProposalBudget(ctx, auth, args.proposalId);
     await writeProposalEvent(ctx, {
       auth,
       command: "updateProductionTimelineCapitalEvent",
@@ -2747,6 +2869,7 @@ export const deleteProductionTimelineCapitalEvent = authenticatedMutation
       args.capitalEventKey
     );
     await ctx.db.delete(event._id);
+    await recalculateProposalBudget(ctx, auth, args.proposalId);
     await writeProposalEvent(ctx, {
       auth,
       command: "deleteProductionTimelineCapitalEvent",
@@ -4557,6 +4680,214 @@ export const dismissBuilderOnboarding = authenticatedMutation
   })
   .public();
 
+export const createDraftProposalClaimLink = authenticatedMutation
+  .input({
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(
+    v.object({
+      claimPath: v.string(),
+      claimToken: v.string(),
+      expiresAt: v.number(),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
+    requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+    requireBackofficeProposalWrite(auth, auth.proposal);
+    if (auth.proposal.status !== "draft") {
+      throw new Error("Only draft proposals can receive builder claim links.");
+    }
+    if (auth.proposal.builderProfileId) {
+      throw new Error("Proposal is already assigned to a builder.");
+    }
+
+    const now = Date.now();
+    const activeLinks = await ctx.db
+      .query("proposalClaimLinks")
+      .withIndex("by_proposal_status", (q) =>
+        q.eq("proposalId", args.proposalId).eq("status", "active")
+      )
+      .collect();
+    for (const link of activeLinks) {
+      await ctx.db.patch(link._id, {
+        status: "revoked",
+        updatedAt: now,
+      });
+    }
+
+    const claimToken = generateShareToken();
+    const expiresAt = now + 1000 * 60 * 60 * 24 * 30;
+    await ctx.db.insert("proposalClaimLinks", {
+      brokerageId: auth.brokerage._id,
+      createdAt: now,
+      createdByWorkosUserId: auth.subject,
+      expiresAt,
+      organizationId: args.workosOrganizationId,
+      proposalId: args.proposalId,
+      shareTokenHash: await shareTokenHash(claimToken),
+      status: "active",
+      updatedAt: now,
+    });
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "createDraftProposalClaimLink",
+      eventType: "proposal.claim_link_created",
+      newState: JSON.stringify({ expiresAt }),
+      proposalId: args.proposalId,
+    });
+
+    return {
+      claimPath: `/proposal-claim/${claimToken}`,
+      claimToken,
+      expiresAt,
+    };
+  })
+  .public();
+
+export const getProposalClaimPreview = publicQuery
+  .input({ claimToken: v.string() })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const link = await getProposalClaimLinkByToken(ctx, args.claimToken);
+    if (!link) {
+      return null;
+    }
+    const proposal = await ctx.db.get(link.proposalId);
+    const brokerage = await ctx.db.get(link.brokerageId);
+    if (!proposal || !brokerage) {
+      return null;
+    }
+
+    const now = Date.now();
+    const expired = Boolean(link.expiresAt && link.expiresAt < now);
+    const milestones = await collectByIndex(
+      ctx,
+      "proposalMilestones",
+      "by_proposal",
+      proposal._id
+    );
+    const draws = await collectByIndex(
+      ctx,
+      "proposalDrawScheduleRows",
+      "by_proposal",
+      proposal._id
+    );
+
+    return {
+      brokerage: {
+        displayName: brokerage.displayName,
+        legalName: brokerage.legalName,
+        workosOrganizationId: brokerage.workosOrganizationId,
+      },
+      claimStatus: expired ? "expired" : link.status,
+      createdAt: link.createdAt,
+      drawCount: draws.length,
+      expiresAt: link.expiresAt ?? null,
+      milestoneCount: milestones.length,
+      proposal: {
+        borrowerCoPayBps: proposal.borrowerCoPayBps,
+        borrowerWorkingCapitalLimitCents:
+          proposal.borrowerWorkingCapitalLimitCents,
+        buildName: proposal.buildName,
+        lenderDrawPolicyLimitCents: proposal.lenderDrawPolicyLimitCents,
+        location: proposal.location,
+        status: proposal.status,
+        totalBudgetCents: proposal.totalBudgetCents,
+      },
+      workosOrganizationId: link.organizationId,
+    };
+  })
+  .public();
+
+export const claimDraftProposalLink = authenticatedMutation
+  .input({
+    claimToken: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(
+    v.object({
+      builderProfileId: v.id("builderProfiles"),
+      proposalId: v.id("buildProposals"),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    if (!canClaimDraftProposal(auth.roles)) {
+      throw new Error("Sign in with a builder account to claim this proposal.");
+    }
+
+    const link = await getProposalClaimLinkByToken(ctx, args.claimToken);
+    if (!link || link.organizationId !== args.workosOrganizationId) {
+      throw new Error("Proposal claim link was not found.");
+    }
+    if (link.status !== "active") {
+      throw new Error("Proposal claim link is no longer active.");
+    }
+    if (link.expiresAt && link.expiresAt < Date.now()) {
+      throw new Error("Proposal claim link has expired.");
+    }
+    if (link.brokerageId !== auth.brokerage._id) {
+      throw new Error("Forbidden: proposal claim scope");
+    }
+
+    const proposal = await ctx.db.get(link.proposalId);
+    if (!proposal || proposal.brokerageId !== auth.brokerage._id) {
+      throw new Error("Proposal claim link was not found.");
+    }
+    if (proposal.status !== "draft") {
+      throw new Error("Only draft proposals can be claimed.");
+    }
+    if (proposal.builderProfileId) {
+      throw new Error("Proposal is already assigned to a builder.");
+    }
+
+    const now = Date.now();
+    const builderProfile = await getOrCreateClaimantBuilderProfile(ctx, {
+      auth,
+      now,
+      proposal,
+      workosOrganizationId: args.workosOrganizationId,
+    });
+    await ensureBuilderRoleProjection(ctx, {
+      now,
+      workosOrganizationId: args.workosOrganizationId,
+      workosUserId: auth.subject,
+    });
+    await ctx.db.patch(proposal._id, {
+      builderProfileId: builderProfile._id,
+      updatedAt: now,
+      updatedByWorkosUserId: auth.subject,
+    });
+    await ctx.db.patch(link._id, {
+      claimedAt: now,
+      claimedBuilderProfileId: builderProfile._id,
+      claimedByWorkosUserId: auth.subject,
+      status: "claimed",
+      updatedAt: now,
+    });
+    await upsertKanbanCard(ctx, proposal._id, now);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "claimDraftProposalLink",
+      eventType: "proposal.builder_claimed",
+      newState: JSON.stringify({ builderProfileId: builderProfile._id }),
+      priorState: JSON.stringify({ assignment: "unassigned" }),
+      proposalId: proposal._id,
+    });
+
+    return {
+      builderProfileId: builderProfile._id,
+      proposalId: proposal._id,
+    };
+  })
+  .public();
+
 export const getProposalDetail = authenticatedQuery
   .input({
     proposalId: v.id("buildProposals"),
@@ -4633,6 +4964,11 @@ export const getProposalDetail = authenticatedQuery
 
     return {
       activeBuild,
+      assignment: await buildProposalIdentityProjection(
+        ctx,
+        auth.proposal,
+        auth.brokerage
+      ),
       auditEvents,
       buildMilestones,
       buildSubmilestones,
@@ -6562,6 +6898,11 @@ export const getProposalDetailByString = authenticatedQuery
 
     return {
       activeBuild,
+      assignment: await buildProposalIdentityProjection(
+        ctx,
+        auth.proposal,
+        auth.brokerage
+      ),
       auditEvents,
       buildMilestones,
       buildSubmilestones,
@@ -6902,6 +7243,8 @@ export const listBrokerageBuilders = authenticatedQuery
       v.object({
         _id: v.id("builderProfiles"),
         displayName: v.string(),
+        email: v.optional(v.string()),
+        workosUserIds: v.array(v.string()),
       })
     )
   )
@@ -6913,12 +7256,20 @@ export const listBrokerageBuilders = authenticatedQuery
       .withIndex("by_brokerage", (q) => q.eq("brokerageId", auth.brokerage._id))
       .filter((q) => q.eq(q.field("status"), "active"))
       .collect();
-    return builders
-      .map((builder) => ({
+    const options = [];
+    for (const builder of builders) {
+      const accounts = await builderAccountSummaries(ctx, builder._id);
+      const email =
+        accounts.find((account) => account.role === "owner")?.email ??
+        accounts[0]?.email;
+      options.push({
         _id: builder._id,
         displayName: builder.displayName,
-      }))
-      .sort((a, b) => a.displayName.localeCompare(b.displayName));
+        ...(email ? { email } : {}),
+        workosUserIds: accounts.map((account) => account.workosUserId),
+      });
+    }
+    return options.sort((a, b) => a.displayName.localeCompare(b.displayName));
   })
   .public();
 
@@ -10198,6 +10549,235 @@ async function getOwnedBuilderProfile(
   return null;
 }
 
+async function getWorkosUserById(
+  ctx: QueryCtx | MutationCtx,
+  workosUserId: string
+) {
+  return await ctx.db
+    .query("users")
+    .withIndex("by_workos_user_id", (q) => q.eq("workosUserId", workosUserId))
+    .first();
+}
+
+async function getProposalClaimLinkByToken(
+  ctx: QueryCtx | MutationCtx,
+  claimToken: string
+) {
+  const trimmed = claimToken.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const hashedToken = await shareTokenHash(trimmed);
+  return await ctx.db
+    .query("proposalClaimLinks")
+    .withIndex("by_share_token_hash", (q) =>
+      q.eq("shareTokenHash", hashedToken)
+    )
+    .unique();
+}
+
+function canClaimDraftProposal(roles: readonly RoleSlug[]) {
+  return (
+    roles.length === 0 ||
+    roles.includes("member") ||
+    roles.includes("admin") ||
+    roles.some((role) => (BUILDER_ROLES as readonly RoleSlug[]).includes(role))
+  );
+}
+
+async function getOrCreateClaimantBuilderProfile(
+  ctx: MutationCtx,
+  input: {
+    auth: {
+      brokerage: Doc<"brokerages">;
+      subject: string;
+    };
+    now: number;
+    proposal: Doc<"buildProposals">;
+    workosOrganizationId: string;
+  }
+) {
+  const existing = await getOwnedBuilderProfile(
+    ctx,
+    input.auth.brokerage._id,
+    input.auth.subject
+  );
+  if (existing) {
+    return existing;
+  }
+
+  const user = await getWorkosUserById(ctx, input.auth.subject);
+  const displayName = claimBuilderDisplayName(user, input.proposal);
+  const builderProfileId = await ctx.db.insert("builderProfiles", {
+    brokerageId: input.auth.brokerage._id,
+    createdAt: input.now,
+    displayName,
+    legalName: displayName,
+    organizationId: input.workosOrganizationId,
+    status: "active",
+    updatedAt: input.now,
+  });
+  await ctx.db.insert("builderAccountLinks", {
+    brokerageId: input.auth.brokerage._id,
+    builderProfileId,
+    createdAt: input.now,
+    role: "owner",
+    status: "active",
+    updatedAt: input.now,
+    workosUserId: input.auth.subject,
+  });
+  const builderProfile = await ctx.db.get(builderProfileId);
+  if (!builderProfile) {
+    throw new Error("Builder profile creation failed.");
+  }
+  return builderProfile;
+}
+
+function claimBuilderDisplayName(
+  user: Doc<"users"> | null,
+  proposal: Doc<"buildProposals">
+) {
+  const name = user?.name?.trim();
+  if (name && name !== user?.email) {
+    return name;
+  }
+  const email = user?.email?.trim();
+  if (email) {
+    return email.split("@")[0] || email;
+  }
+  return `${proposal.buildName} builder`;
+}
+
+async function ensureBuilderRoleProjection(
+  ctx: MutationCtx,
+  input: {
+    now: number;
+    workosOrganizationId: string;
+    workosUserId: string;
+  }
+) {
+  const memberships = await ctx.db
+    .query("workosOrganizationMemberships")
+    .withIndex("by_user", (q) => q.eq("workosUserId", input.workosUserId))
+    .collect();
+  const membership = memberships.find(
+    (row) => row.workosOrganizationId === input.workosOrganizationId
+  );
+  if (!membership) {
+    return;
+  }
+  const roleSlugs = new Set(membership.roleSlugs ?? []);
+  roleSlugs.add("builder");
+  const roleSlug =
+    !membership.roleSlug || membership.roleSlug === "member"
+      ? "builder"
+      : membership.roleSlug;
+  await ctx.db.patch(membership._id, {
+    roleSlug,
+    roleSlugs: [...roleSlugs],
+    updatedAt: input.now,
+  });
+}
+
+async function builderAccountSummaries(
+  ctx: QueryCtx | MutationCtx,
+  builderProfileId: Id<"builderProfiles">
+) {
+  const links = await ctx.db
+    .query("builderAccountLinks")
+    .withIndex("by_builder", (q) => q.eq("builderProfileId", builderProfileId))
+    .collect();
+  const activeLinks = links.filter((link) => link.status === "active");
+  const summaries = [];
+  for (const link of activeLinks) {
+    const user = await getWorkosUserById(ctx, link.workosUserId);
+    summaries.push({
+      ...(user?.email ? { email: user.email } : {}),
+      ...(user?.name ? { name: user.name } : {}),
+      role: link.role,
+      workosUserId: link.workosUserId,
+    });
+  }
+  return summaries;
+}
+
+function workosUserSummary(
+  workosUserId: string | undefined,
+  user: Doc<"users"> | null
+) {
+  if (!workosUserId) {
+    return null;
+  }
+  return {
+    ...(user?.email ? { email: user.email } : {}),
+    ...(user?.name ? { name: user.name } : {}),
+    workosUserId,
+  };
+}
+
+async function buildProposalIdentityProjection(
+  ctx: QueryCtx | MutationCtx,
+  proposal: Doc<"buildProposals">,
+  brokerage: Doc<"brokerages">
+) {
+  const builderProfile = proposal.builderProfileId
+    ? await ctx.db.get(proposal.builderProfileId)
+    : null;
+  const builderAccounts = builderProfile
+    ? await builderAccountSummaries(ctx, builderProfile._id)
+    : [];
+  const assignedBrokerUser = proposal.assignedBrokerWorkosUserId
+    ? await getWorkosUserById(ctx, proposal.assignedBrokerWorkosUserId)
+    : null;
+  const createdByUser = await getWorkosUserById(
+    ctx,
+    proposal.createdByWorkosUserId
+  );
+  const activeClaimLink = await ctx.db
+    .query("proposalClaimLinks")
+    .withIndex("by_proposal_status", (q) =>
+      q.eq("proposalId", proposal._id).eq("status", "active")
+    )
+    .first();
+  const claimLinkActive = Boolean(
+    activeClaimLink &&
+      (!activeClaimLink.expiresAt || activeClaimLink.expiresAt >= Date.now())
+  );
+  const builderOwnerEmail =
+    builderAccounts.find((account) => account.role === "owner")?.email ??
+    builderAccounts[0]?.email;
+
+  return {
+    broker: workosUserSummary(
+      proposal.assignedBrokerWorkosUserId,
+      assignedBrokerUser
+    ),
+    brokerage: {
+      _id: brokerage._id,
+      displayName: brokerage.displayName,
+      legalName: brokerage.legalName,
+      workosOrganizationId: brokerage.workosOrganizationId,
+    },
+    builder: builderProfile
+      ? {
+          _id: builderProfile._id,
+          accounts: builderAccounts,
+          displayName: builderProfile.displayName,
+          ...(builderProfile.legalName
+            ? { legalName: builderProfile.legalName }
+            : {}),
+          ...(builderOwnerEmail ? { ownerEmail: builderOwnerEmail } : {}),
+          status: builderProfile.status,
+        }
+      : null,
+    builderAssigned: Boolean(builderProfile),
+    claimLinkActive,
+    createdBy: workosUserSummary(proposal.createdByWorkosUserId, createdByUser),
+    initiatedFromBackoffice:
+      !proposal.builderProfileId && Boolean(proposal.assignedBrokerWorkosUserId),
+  };
+}
+
 function isBackoffice(roles: readonly RoleSlug[]) {
   return roles.some((role) =>
     (BACKOFFICE_ROLES as readonly RoleSlug[]).includes(role)
@@ -12191,6 +12771,42 @@ async function requireProductionTimelineEditable(
   throw new Error("Timeline is locked in this proposal state.");
 }
 
+async function requireProductionProposalPreLiveCapitalWrite(
+  ctx: QueryCtx | MutationCtx,
+  auth: {
+    proposal: Doc<"buildProposals">;
+    roles: RoleSlug[];
+    subject: string;
+  }
+) {
+  if (auth.proposal.activeBuildId) {
+    throw new Error("Co-pay amount is locked after the build goes live.");
+  }
+  if (auth.proposal.status === "draft") {
+    if (isBackoffice(auth.roles)) {
+      requireBackofficeProposalWrite(auth, auth.proposal);
+    } else {
+      await assertBuilderOwnership(
+        ctx,
+        assignedBuilderProfileIdOrThrow(auth.proposal),
+        auth.subject
+      );
+    }
+    await assertProposalCollaborationEditAllowed(ctx, auth);
+    return;
+  }
+  if (
+    (auth.proposal.status === "submitted" ||
+      auth.proposal.status === "approved") &&
+    isBackoffice(auth.roles)
+  ) {
+    requireBackofficeProposalWrite(auth, auth.proposal);
+    await assertProposalCollaborationEditAllowed(ctx, auth);
+    return;
+  }
+  throw new Error("Co-pay amount is locked in this proposal state.");
+}
+
 async function requireProductionTimelineDraftStructureWrite(
   ctx: QueryCtx | MutationCtx,
   auth: {
@@ -12605,25 +13221,89 @@ async function deleteProductionMilestoneCascade(
 
 async function recalculateProposalBudget(
   ctx: MutationCtx,
-  auth: { subject: string },
+  auth: { proposal?: Doc<"buildProposals">; subject: string },
   proposalId: Id<"buildProposals">
 ) {
+  const proposal = auth.proposal ?? (await ctx.db.get(proposalId));
+  if (!proposal) {
+    throw new Error("Production proposal not found.");
+  }
   const milestones = await collectByIndex(
     ctx,
     "proposalMilestones",
     "by_proposal",
     proposalId
   );
-  const totalBudgetCents = milestones.reduce(
+  const capitalEvents = await collectByIndex(
+    ctx,
+    "proposalCapitalEvents",
+    "by_proposal",
+    proposalId
+  );
+  const milestoneBudgetCents = milestones.reduce(
     (total: number, milestone: any) => total + milestone.budgetCents,
     0
   );
+  const capitalSpikeBudgetCents = capitalEvents.reduce(
+    (total: number, event: any) =>
+      event.eventKind === "cost" ? total + event.amountCents : total,
+    0
+  );
+  const totalBudgetCents = milestoneBudgetCents + capitalSpikeBudgetCents;
+  const lenderDrawPolicyLimitCents = calculateDrawAvailability(
+    totalBudgetCents,
+    proposal.borrowerCoPayBps
+  );
   await ctx.db.patch(proposalId, {
+    lenderDrawPolicyLimitCents,
     totalBudgetCents,
     updatedAt: Date.now(),
     updatedByWorkosUserId: auth.subject,
   });
   await upsertKanbanCard(ctx, proposalId, Date.now());
+  return totalBudgetCents;
+}
+
+async function refreshProposalMilestoneDrawAvailability(
+  ctx: MutationCtx,
+  proposalId: Id<"buildProposals">,
+  input: { borrowerCoPayBps: number; updatedAt: number }
+) {
+  const milestones = (await collectByIndex(
+    ctx,
+    "proposalMilestones",
+    "by_proposal",
+    proposalId
+  )) as Doc<"proposalMilestones">[];
+  const draws = (await collectByIndex(
+    ctx,
+    "proposalDrawScheduleRows",
+    "by_proposal",
+    proposalId
+  )) as Doc<"proposalDrawScheduleRows">[];
+  const drawByMilestoneKey = new Map(
+    draws
+      .filter((draw) => draw.milestoneKey)
+      .map((draw) => [draw.milestoneKey as string, draw])
+  );
+
+  for (const milestone of milestones) {
+    const drawAvailabilityCents = calculateDrawAvailability(
+      milestone.budgetCents,
+      input.borrowerCoPayBps
+    );
+    await ctx.db.patch(milestone._id, {
+      drawAvailabilityCents,
+      updatedAt: input.updatedAt,
+    });
+    const draw = drawByMilestoneKey.get(milestone.key);
+    if (draw) {
+      await ctx.db.patch(draw._id, {
+        amountCents: drawAvailabilityCents,
+        updatedAt: input.updatedAt,
+      });
+    }
+  }
 }
 
 async function applyProductionTimelineModificationRequest(
@@ -16576,6 +17256,7 @@ async function ensureSeedScenarioProposal(
     builderProfileId: input.builderProfileId,
     createdAt: input.now,
     createdByWorkosUserId: "user_builder",
+    interestAnnualBps: 925,
     lenderDrawPolicyLimitCents: 55_000_000,
     location: `${input.buildName.replace("Seed Scenario - ", "")} Site, Toronto, ON`,
     organizationId: input.organizationId,

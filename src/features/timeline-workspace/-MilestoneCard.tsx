@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
-import { InlineEditNumber } from "#/components/ui/inline-edit.tsx";
+import { EditableNumberChip } from "#/components/ui/editable-chip.tsx";
 import { cn } from "#/lib/utils.ts";
 import {
   Expandable,
@@ -241,17 +241,15 @@ export function MilestoneCard({
                             Planned cost
                           </p>
                           <div className="mt-1 flex items-center justify-between gap-3">
-                            <InlineEditNumber
-                              affordance="glint"
+                            <EditableNumberChip
                               ariaLabel={`${milestone.name} planned cost`}
-                              className="text-foreground"
                               disabled={readOnly}
                               formatDisplay={(value) => money(value)}
-                              inputWidth="6.35rem"
+                              inputWidth="5.75rem"
                               min={0}
                               onCommit={(amount) => onUpdate(item.id, { amount })}
                               prefix="$"
-                              reserveWidth="8.7rem"
+                              reserveWidth="8.25rem"
                               size="money-lg"
                               step={1000}
                               testId={`timeline-card-cost-${item.id}`}
@@ -306,7 +304,7 @@ export function MilestoneCard({
                           x: 4,
                           y: 2,
                         }}
-                        className="absolute top-[-12px] left-[52px] grid size-40 shrink-0 place-items-center"
+                        className="absolute top-[7px] left-[50px] grid size-40 shrink-0 place-items-center"
                         layout
                         layoutId={`timeline-card-icon-${item.id}`}
                         transition={
@@ -369,16 +367,16 @@ export function MilestoneCard({
                   overflowVisible
                   preset="fade"
                 >
-                  <div className="grid grid-cols-[4.25rem_4.5rem_5.1rem_5.5rem] gap-x-2.5 gap-y-4">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-4">
                     <ExpandedFadeIn index={0} reducedMotion={reducedMotion}>
                       <InlineEditableMetric
                         disabled={readOnly}
-                        inputWidth="1.6rem"
+                        inputWidth="2.75rem"
                         label="Start date"
                         min={0}
                         onCommit={(x) => onUpdate(item.id, { x })}
                         prefix="Day"
-                        reserveWidth="4.25rem"
+                        reserveWidth="5.8rem"
                         testId={`timeline-card-start-date-${item.id}`}
                         value={schedule.startX}
                       />
@@ -386,13 +384,13 @@ export function MilestoneCard({
                     <ExpandedFadeIn index={1} reducedMotion={reducedMotion}>
                       <InlineEditableMetric
                         disabled={readOnly}
-                        inputWidth="1.45rem"
+                        inputWidth="2.75rem"
                         label="Duration"
                         min={1}
                         onCommit={(durationDays) =>
                           onUpdate(item.id, { durationDays })
                         }
-                        reserveWidth="4.5rem"
+                        reserveWidth="6.75rem"
                         suffix="days"
                         testId={`timeline-card-duration-${item.id}`}
                         value={schedule.durationDays}
@@ -402,7 +400,7 @@ export function MilestoneCard({
                       <InlineEditableMetric
                         disabled={readOnly}
                         formatDisplay={(value) => money(value)}
-                        inputWidth="4.85rem"
+                        inputWidth="5.5rem"
                         label="Down Payment"
                         max={schedule.totalAmount}
                         min={0}
@@ -410,7 +408,7 @@ export function MilestoneCard({
                           onUpdate(item.id, { initialPaymentAmount })
                         }
                         prefix="$"
-                        reserveWidth="6.75rem"
+                        reserveWidth="7.5rem"
                         step={1000}
                         testId={`timeline-card-initial-payment-${item.id}`}
                         value={schedule.initialPaymentAmount}
@@ -577,8 +575,7 @@ function EditableNumberInput({
   value: number;
 }) {
   return (
-    <InlineEditNumber
-      affordance="glint"
+    <EditableNumberChip
       ariaLabel={testId}
       className={className}
       disabled={disabled}

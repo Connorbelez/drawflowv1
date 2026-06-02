@@ -245,11 +245,19 @@ export function buildTimelineItemsFromSettings(
         a.order - b.order || a.milestoneKey.localeCompare(b.milestoneKey)
     )
     .map((row, index) => {
-      const amount = Math.round(
-        (projectBudgetCents * row.percentageBps) / TOTAL_BPS / 100
+      const milestoneBudgetCents = Math.round(
+        (projectBudgetCents * row.percentageBps) / TOTAL_BPS
       );
+      const amount = Math.round(milestoneBudgetCents / 100);
       const startDay = cursor;
       const status = index === 0 ? "ready" : "upcoming";
+      const submilestones = [...row.submilestones].sort(
+        (a, b) => a.order - b.order
+      );
+      const submilestoneBudgetCents = allocateWeightedBudgetCents(
+        milestoneBudgetCents,
+        submilestones
+      );
       cursor += row.durationDays + TIMELINE_DEMO_SETTINGS_HANDOFF_GAP_DAYS;
       return {
         data: {
@@ -271,9 +279,15 @@ export function buildTimelineItemsFromSettings(
           policy: status === "ready" ? "Planning handoff" : "Upcoming",
           siteVisitGuidance: row.siteVisitGuidance,
           status,
-          subMilestones: row.submilestones
-            .sort((a, b) => a.order - b.order)
-            .map((subRow) => subRow.name),
+          subMilestones: submilestones.map((subRow) => subRow.name),
+          submilestoneDetails: submilestones.map((subRow, subIndex) => ({
+            budgetCents: submilestoneBudgetCents?.[subIndex],
+            description: subRow.description,
+            durationDays: subRow.durationDays,
+            key: subRow.submilestoneKey,
+            name: subRow.name,
+            order: subIndex + 1,
+          })),
         },
         eyebrow: `Milestone ${index + 1}`,
         id: row.milestoneKey,
@@ -286,6 +300,45 @@ export function buildTimelineItemsFromSettings(
     });
 
   return normalizeMilestoneTimelineItems(items);
+}
+
+function allocateWeightedBudgetCents(
+  totalCents: number,
+  rows: Array<{ percentageBps?: number }>
+) {
+  const totalBps = rows.reduce(
+    (sum, row) => sum + Math.max(0, Math.round(row.percentageBps ?? 0)),
+    0
+  );
+  if (totalBps <= 0) {
+    return;
+  }
+
+  const roundedTotal = Math.max(0, Math.round(totalCents));
+  const allocations = rows.map((row, order) => {
+    const raw = roundedTotal * Math.max(0, Math.round(row.percentageBps ?? 0));
+    return {
+      cents: Math.floor(raw / totalBps),
+      order,
+      remainder: raw % totalBps,
+    };
+  });
+  let remainderCents =
+    roundedTotal -
+    allocations.reduce((sum, allocation) => sum + allocation.cents, 0);
+  const byRemainder = [...allocations].sort(
+    (a, b) => b.remainder - a.remainder || a.order - b.order
+  );
+  for (const allocation of byRemainder) {
+    if (remainderCents <= 0) {
+      break;
+    }
+    allocation.cents += 1;
+    remainderCents -= 1;
+  }
+  return allocations
+    .sort((a, b) => a.order - b.order)
+    .map((allocation) => allocation.cents);
 }
 
 function validateScenarioDrawTiming(

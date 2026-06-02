@@ -78,7 +78,9 @@ export function buildProductionRoadmapProjection(
     drawAvailability: buildDrawAvailabilityProjection(
       milestones,
       draws,
-      detail.loanFacility?.interestAnnualBps ?? DEFAULT_INTEREST_ANNUAL_BPS,
+      detail.loanFacility?.interestAnnualBps ??
+        detail.proposal.interestAnnualBps ??
+        DEFAULT_INTEREST_ANNUAL_BPS,
       xDomain,
       xTicks,
     ),

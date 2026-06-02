@@ -81,8 +81,10 @@ const draw: DemoDraw = {
 
 function timelineState({
   milestoneAmount = 120_000,
+  withSubmilestoneBudgets = false,
 }: {
   milestoneAmount?: number;
+  withSubmilestoneBudgets?: boolean;
 } = {}): TimelineShareState {
   return {
     activeSelection: { itemId: "foundation", phase: "inProgress" },
@@ -95,6 +97,26 @@ function timelineState({
         data: {
           ...milestone.data,
           amount: milestoneAmount,
+          ...(withSubmilestoneBudgets
+            ? {
+                submilestoneDetails: [
+                  {
+                    budgetCents: 37_000_00,
+                    durationDays: 1,
+                    key: "dc-ed",
+                    name: "DC/ED",
+                    order: 1,
+                  },
+                  {
+                    budgetCents: 91_000_00,
+                    durationDays: 2,
+                    key: "permits",
+                    name: "Permits",
+                    order: 2,
+                  },
+                ],
+              }
+            : {}),
         },
       },
     ],
@@ -111,6 +133,7 @@ function renderWorkspace({
   contractorPlanning,
   initialRole = "builder",
   initialState = timelineState(),
+  persistence,
   status = "approved",
   workspaceMode,
 }: {
@@ -118,6 +141,7 @@ function renderWorkspace({
   contractorPlanning?: TimelineWorkspaceProps["contractorPlanning"];
   initialRole?: "builder" | "lender";
   initialState?: TimelineShareState;
+  persistence?: TimelineWorkspaceProps["persistence"];
   status?: string;
   workspaceMode: "live" | "proposal";
 }) {
@@ -128,6 +152,7 @@ function renderWorkspace({
         contractorPlanning,
         initialRole,
         initialState,
+        persistence,
         status,
         workspaceMode,
       })}
@@ -140,6 +165,7 @@ function workspaceProps({
   contractorPlanning,
   initialRole = "builder",
   initialState = timelineState(),
+  persistence,
   status = "approved",
   workspaceMode,
 }: {
@@ -147,6 +173,7 @@ function workspaceProps({
   contractorPlanning?: TimelineWorkspaceProps["contractorPlanning"];
   initialRole?: "builder" | "lender";
   initialState?: TimelineShareState;
+  persistence?: TimelineWorkspaceProps["persistence"];
   status?: string;
   workspaceMode: "live" | "proposal";
 }): TimelineWorkspaceProps {
@@ -163,6 +190,7 @@ function workspaceProps({
     durablePlanId: "proposal_123",
     initialRole,
     initialState,
+    persistence,
     planSummary: {
       address: "Toronto, ON",
       includedCount: 1,
@@ -209,6 +237,64 @@ describe("TimelineWorkspace mode split", () => {
     expect(
       screen.getByTestId("timeline-selected-milestone-contractor-section"),
     ).toBeTruthy();
+  });
+
+  test("shows sub-milestone budget chips in the proposal sidebar when available", () => {
+    renderWorkspace({
+      initialState: timelineState({ withSubmilestoneBudgets: true }),
+      workspaceMode: "proposal",
+    });
+
+    expect(
+      screen
+        .getByTestId("timeline-selected-milestone-submilestone-chip-dc-ed")
+        .textContent?.includes("DC/ED")
+    ).toBe(true);
+    expect(
+      screen
+        .getByTestId("timeline-selected-milestone-submilestone-budget-dc-ed")
+        .textContent?.includes("$37,000")
+    ).toBe(true);
+    expect(
+      screen
+        .getByTestId("timeline-selected-milestone-submilestone-budget-permits")
+        .textContent?.includes("$91,000")
+    ).toBe(true);
+  });
+
+  test("rolls editable sub-milestone budget changes into the parent milestone", () => {
+    const updateMilestone = vi.fn().mockResolvedValue(undefined);
+    renderWorkspace({
+      initialState: timelineState({ withSubmilestoneBudgets: true }),
+      persistence: { updateMilestone },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    const budgetChip = screen.getByRole("button", { name: "DC/ED budget" });
+    fireEvent.click(budgetChip);
+    const budgetInput = screen
+      .getAllByLabelText("DC/ED budget")
+      .find((element) => element instanceof HTMLInputElement);
+    expect(budgetInput).toBeTruthy();
+    fireEvent.change(budgetInput, { target: { value: "42000" } });
+    fireEvent.keyDown(budgetInput, { key: "Enter" });
+
+    expect(screen.getByTestId("selected-milestone-plan-summary").textContent).toContain(
+      "$125,000"
+    );
+    expect(updateMilestone).toHaveBeenCalledWith(
+      expect.objectContaining({
+        budgetCents: 12_500_000,
+        milestoneKey: "foundation",
+        submilestones: expect.arrayContaining([
+          expect.objectContaining({
+            budgetCents: 4_200_000,
+            key: "dc-ed",
+          }),
+        ]),
+      })
+    );
   });
 
   test("enables builder execution controls only in live mode", () => {

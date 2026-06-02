@@ -63,6 +63,7 @@ const proposalDetail = {
     buildName: "Elm Street Build",
     borrowerCoPayBps: 2_000,
     borrowerWorkingCapitalLimitCents: 400_000_00,
+    interestAnnualBps: 925,
     lenderDrawPolicyLimitCents: 550_000_00,
     location: "123 Elm Street",
     status: "draft",
@@ -468,6 +469,204 @@ describe("ProductionProposalSettingsSurface", () => {
 });
 
 describe("ProductionProposalReviewSurface", () => {
+  test("renders builder, broker, and brokerage identity on the review tab", () => {
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          assignment: {
+            broker: {
+              email: "river@fairlend.example",
+              name: "River Han",
+              workosUserId: "user_broker",
+            },
+            brokerage: {
+              displayName: "FairLend Brokerage",
+              legalName: "FairLend Brokerage LLC",
+              workosOrganizationId: "org_fairlend",
+            },
+            builder: {
+              _id: "builder_1",
+              displayName: "Northline Homes",
+              ownerEmail: "owner@northline.example",
+            },
+            builderAssigned: true,
+          },
+          proposal: { ...proposalDetail.proposal, status: "submitted" },
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Parties & assignment")).toBeTruthy();
+    expect(screen.getByText("Northline Homes")).toBeTruthy();
+    expect(screen.getByText("owner@northline.example")).toBeTruthy();
+    expect(screen.getByText("River Han")).toBeTruthy();
+    expect(screen.getByText("FairLend Brokerage")).toBeTruthy();
+  });
+
+  test("shows header budget totals and saves editable proposal terms before live build", async () => {
+    const onUpdateCoPayAmount = vi.fn().mockResolvedValue(undefined);
+    const onUpdateInterestRate = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          activeBuild: null,
+          proposal: {
+            ...proposalDetail.proposal,
+            status: "submitted",
+            totalBudgetCents: 1_250_000_00,
+          },
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+        onUpdateCoPayAmount={onUpdateCoPayAmount}
+        onUpdateInterestRate={onUpdateInterestRate}
+      />,
+    );
+
+    expect(screen.getAllByText("Total budget").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("$1,250,000").length).toBeGreaterThan(0);
+    expect(screen.getByText("Total approved")).toBeTruthy();
+    expect(screen.getByText("$1,000,000")).toBeTruthy();
+    expect(screen.getByText("Interest rate")).toBeTruthy();
+    expect(screen.getByText("9.25%")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Co-pay amount" }));
+    const coPayInput = await waitFor(() => {
+      const input = document.querySelector<HTMLInputElement>(
+        'input[aria-label="Co-pay amount"]'
+      );
+      expect(input).toBeTruthy();
+      return input;
+    });
+    expect((coPayInput as HTMLInputElement).value).toBe("250000");
+    fireEvent.change(coPayInput, { target: { value: "300000" } });
+    fireEvent.keyDown(coPayInput, { key: "Enter" });
+
+    await waitFor(() =>
+      expect(onUpdateCoPayAmount).toHaveBeenCalledWith(30_000_000),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Interest rate" }));
+    const interestInput = await waitFor(() => {
+      const input = document.querySelector<HTMLInputElement>(
+        'input[aria-label="Interest rate"]'
+      );
+      expect(input).toBeTruthy();
+      return input;
+    });
+    expect((interestInput as HTMLInputElement).value).toBe("9.25");
+    fireEvent.change(interestInput, { target: { value: "10.5" } });
+    fireEvent.keyDown(interestInput, { key: "Enter" });
+
+    await waitFor(() =>
+      expect(onUpdateInterestRate).toHaveBeenCalledWith(1050),
+    );
+  });
+
+  test("assigns an unassigned broker draft through builder autocomplete", async () => {
+    const onAssignBuilder = vi.fn();
+    render(
+      <ProductionProposalReviewSurface
+        builders={[
+          {
+            _id: "builder_northline",
+            displayName: "Northline Homes",
+            email: "owner@northline.example",
+          },
+          {
+            _id: "builder_cedar",
+            displayName: "Cedarpoint Builders",
+            email: "ops@cedarpoint.example",
+          },
+        ]}
+        detail={{
+          ...proposalDetail,
+          assignment: {
+            broker: { name: "River Han", workosUserId: "user_broker" },
+            brokerage: { displayName: "FairLend Brokerage" },
+            builder: null,
+            builderAssigned: false,
+            initiatedFromBackoffice: true,
+          },
+          proposal: { ...proposalDetail.proposal, status: "draft" },
+        }}
+        onApprove={vi.fn()}
+        onAssignBuilder={onAssignBuilder}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+      />,
+    );
+
+    const input = screen.getByRole("combobox", { name: "Builder assignee" });
+    fireEvent.click(input);
+    expect(await screen.findByText("Northline Homes")).toBeTruthy();
+    expect(screen.getByText("Cedarpoint Builders")).toBeTruthy();
+    fireEvent.change(input, { target: { value: "northline" } });
+    fireEvent.click(await screen.findByText("Northline Homes"));
+    fireEvent.click(screen.getByRole("button", { name: "Assign builder" }));
+
+    await waitFor(() =>
+      expect(onAssignBuilder).toHaveBeenCalledWith("builder_northline"),
+    );
+  });
+
+  test("creates and copies a builder claim link for an unassigned broker draft", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const onCreateClaimLink = vi.fn().mockResolvedValue({
+      claimPath: "/proposal-claim/token_123",
+      claimToken: "token_123",
+      expiresAt: Date.UTC(2026, 5, 30, 12, 0, 0),
+    });
+
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          assignment: {
+            broker: { name: "River Han", workosUserId: "user_broker" },
+            brokerage: { displayName: "FairLend Brokerage" },
+            builder: null,
+            builderAssigned: false,
+            initiatedFromBackoffice: true,
+          },
+          proposal: { ...proposalDetail.proposal, status: "draft" },
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onCreateClaimLink={onCreateClaimLink}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create claim link" }),
+    );
+
+    await waitFor(() => expect(onCreateClaimLink).toHaveBeenCalledTimes(1));
+    const linkInput = await screen.findByDisplayValue(
+      /\/proposal-claim\/token_123/,
+    );
+    expect(linkInput).toBeTruthy();
+    expect(writeText).toHaveBeenCalledWith(
+      expect.stringContaining("/proposal-claim/token_123"),
+    );
+  });
+
   test("uses the existing timeline workspace as the default production review tab", () => {
     render(
       <ProductionProposalReviewSurface
@@ -488,6 +687,7 @@ describe("ProductionProposalReviewSurface", () => {
     });
     expect(within(tablist).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
       "Timeline",
+      "Milestones",
       "Calendar",
       "Review",
       "Draw schedule",
@@ -526,6 +726,7 @@ describe("ProductionProposalReviewSurface", () => {
     });
     expect(within(tablist).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
       "Timeline",
+      "Milestones",
       "Calendar",
       "Contractors",
       "Review",

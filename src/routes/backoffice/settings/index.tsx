@@ -1563,10 +1563,17 @@ function SettingsCashflowPreview({
   scenario: TimelineSettingsScenarioDraft;
   template: TimelineSettingsTemplateDraft;
 }) {
-  const startingCash = useMemo(
+  const defaultStartingCash = useMemo(
     () => getSettingsStartingCashDollars(template),
     [template],
   );
+  const [startingCashText, setStartingCashText] = useState(() =>
+    formatDollarInputValue(defaultStartingCash),
+  );
+  const parsedStartingCash = parseDollarInputToDollars(startingCashText);
+  const startingCash = Number.isFinite(parsedStartingCash)
+    ? parsedStartingCash
+    : defaultStartingCash;
   const data = useMemo(
     () => buildSettingsCashflowChartData(template, scenario, startingCash),
     [scenario, startingCash, template],
@@ -1574,6 +1581,10 @@ function SettingsCashflowPreview({
   const extent = getCashflowCompoundExtent(data);
   const maxDay = Math.max(30, ...data.map((row) => row.day));
   const ticks = buildCashflowTicks(maxDay);
+
+  useEffect(() => {
+    setStartingCashText(formatDollarInputValue(defaultStartingCash));
+  }, [defaultStartingCash, template.templateKey]);
 
   return (
     <FramePanel className="overflow-hidden p-0">
@@ -1591,9 +1602,36 @@ function SettingsCashflowPreview({
             Sample budget:{" "}
             {formatCompactDollarLabel(SETTINGS_SAMPLE_PROJECT_BUDGET_DOLLARS)}
           </Badge>
-          <Badge variant="warning">
-            Starting cash: {formatCompactDollarLabel(startingCash)}
-          </Badge>
+          <label className="inline-flex min-h-6 items-center gap-1.5 rounded-full border border-warning/35 bg-warning/10 px-2 py-1 font-medium text-[11px] text-warning-foreground">
+            <span>Starting cash:</span>
+            <Input
+              aria-label="Preview starting cash"
+              className="h-6 w-24 rounded-md border-warning/35 bg-background/80 text-xs shadow-none"
+              data-testid="timeline-settings-preview-starting-cash"
+              inputMode="decimal"
+              nativeInput
+              onBlur={() => {
+                setStartingCashText(formatDollarInputValue(startingCash));
+              }}
+              onChange={(event) => {
+                const nextStartingCash = parseDollarInputToDollars(
+                  event.target.value,
+                );
+                setStartingCashText(
+                  Number.isFinite(nextStartingCash)
+                    ? formatDollarInputValue(nextStartingCash)
+                    : event.target.value,
+                );
+              }}
+              value={startingCashText}
+            />
+            <span
+              className="text-warning-foreground/75"
+              data-testid="timeline-settings-preview-starting-cash-compact"
+            >
+              {formatCompactDollarLabel(startingCash)}
+            </span>
+          </label>
         </div>
       </div>
       <TimelineCashflowCompoundChart
@@ -1856,6 +1894,23 @@ function getSettingsStartingCashDollars(
           TOTAL_BPS,
       )
     : 0;
+}
+
+function parseDollarInputToDollars(value: string) {
+  const normalized = value.replace(/[$,\s]/g, "");
+  if (!normalized) {
+    return 0;
+  }
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : Number.NaN;
+}
+
+function formatDollarInputValue(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    currency: "USD",
+    maximumFractionDigits: 0,
+    style: "currency",
+  }).format(Math.max(0, Math.round(value)));
 }
 
 function formatCompactDollarLabel(value: number) {

@@ -1814,6 +1814,173 @@ describe("production proposal foundation", () => {
     );
   });
 
+  test("keeps proposal budget and approved amount aligned during pre-live planning edits", async () => {
+    const { seed, t } = await seeded(["admin"], "user_admin");
+    const proposalId = await t.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Pre-live budget planning",
+        location: "22 Budget Lane",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
+      borrowerCoPayBps: 2_000,
+      borrowerWorkingCapitalLimitCents: 30_000_000,
+      documents: [
+        {
+          documentType: "permit",
+          fileName: "permit.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 512,
+        },
+      ],
+      lenderDrawPolicyLimitCents: 32_000_000,
+      milestones: [
+        {
+          budgetCents: 40_000_000,
+          dayEnd: 20,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 20,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+          submilestones: [],
+        },
+      ],
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+
+    await t.mutation(
+      (api as any).production_proposals.updateProductionTimelineMilestone,
+      {
+        budgetCents: 45_000_000,
+        milestoneKey: "foundation",
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.createProductionTimelineMilestone,
+      {
+        milestone: {
+          budgetCents: 10_000_000,
+          dayEnd: 36,
+          dayStart: 22,
+          durationDays: 14,
+          evidenceState: "Draft package",
+          milestoneKey: "framing",
+          name: "Framing",
+          order: 2,
+          policyState: "Draft proposal policy",
+          status: "ready",
+          submilestones: [],
+          x: 22,
+        },
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.createProductionTimelineCapitalEvent,
+      {
+        amountCents: 5_000_000,
+        capitalEventKey: "utility-overrun",
+        eventKind: "cost",
+        label: "Utility overrun",
+        proposalId,
+        workosOrganizationId: ORG,
+        x: 18,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.createProductionTimelineCashInfusion,
+      {
+        amountCents: 6_000_000,
+        cashInfusionKey: "owner-cash",
+        label: "Owner cash infusion",
+        proposalId,
+        workosOrganizationId: ORG,
+        x: 19,
+      },
+    );
+
+    let detail = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(detail.proposal.totalBudgetCents).toBe(60_000_000);
+    expect(detail.proposal.lenderDrawPolicyLimitCents).toBe(48_000_000);
+
+    await t.mutation(
+      (api as any).production_proposals.updateProductionProposalCoPayAmount,
+      {
+        borrowerCoPayCents: 15_000_000,
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    detail = await t.query((api as any).production_proposals.getProposalDetail, {
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+    expect(detail.proposal.borrowerCoPayBps).toBe(2_500);
+    expect(detail.proposal.lenderDrawPolicyLimitCents).toBe(45_000_000);
+    expect(detail.milestones[0].drawAvailabilityCents).toBe(33_750_000);
+    expect(detail.draws[0].amountCents).toBe(33_750_000);
+
+    await t.mutation(
+      (api as any).production_proposals.updateProductionProposalInterestRate,
+      {
+        interestAnnualBps: 1_050,
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    detail = await t.query((api as any).production_proposals.getProposalDetail, {
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+    expect(detail.proposal.interestAnnualBps).toBe(1_050);
+
+    await t.mutation(
+      (api as any).production_proposals.updateProductionTimelineCapitalEvent,
+      {
+        amountCents: 7_000_000,
+        capitalEventKey: "utility-overrun",
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    detail = await t.query((api as any).production_proposals.getProposalDetail, {
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+    expect(detail.proposal.totalBudgetCents).toBe(62_000_000);
+    expect(detail.proposal.lenderDrawPolicyLimitCents).toBe(46_500_000);
+
+    await t.mutation(
+      (api as any).production_proposals.updateProductionTimelineCapitalEvent,
+      {
+        capitalEventKey: "utility-overrun",
+        eventKind: "cashInfusion",
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    detail = await t.query((api as any).production_proposals.getProposalDetail, {
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+    expect(detail.proposal.totalBudgetCents).toBe(55_000_000);
+    expect(detail.proposal.lenderDrawPolicyLimitCents).toBe(41_250_000);
+  });
+
   test("supports audited draft timeline edits and approved live-build modification requests", async () => {
     const { base, seed, t } = await seeded(["admin"], "user_admin");
     const proposalId = await t.mutation(
@@ -2992,6 +3159,86 @@ describe("draft builder assignment and deletion", () => {
     expect(
       detail.auditEvents.map((event: any) => event.eventType),
     ).toContain("proposal.builder_assigned");
+  });
+
+  test("creates a builder claim link and claims an unassigned draft into a builder profile", async () => {
+    const { base, t: admin } = await seeded(["admin"], "user_admin");
+    const broker = withIdentity(base, ["broker"], "user_broker");
+    const claimant = withIdentity(base, ["member"], "user_claimant");
+
+    await admin.run(async (ctx: any) => {
+      await ctx.db.insert("users", {
+        authId: "user_claimant",
+        createdAt: Date.now(),
+        email: "claimant.builder@example.com",
+        name: "Claimant Builder",
+        sourceEventId: "test_claimant",
+        sourceEventType: "test",
+        status: "active",
+        updatedAt: Date.now(),
+        workosUserId: "user_claimant",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        createdAt: Date.now(),
+        directoryManaged: false,
+        roleSlug: "member",
+        roleSlugs: ["member"],
+        sourceEventId: "test_claimant_membership",
+        sourceEventType: "test",
+        status: "active",
+        updatedAt: Date.now(),
+        workosMembershipId: "membership_claimant",
+        workosOrganizationId: ORG,
+        workosUserId: "user_claimant",
+      });
+    });
+
+    const proposalId = await broker.mutation(
+      (api as any).production_proposals.createBrokerDraftProposal,
+      { buildName: "Unclaimed proposal", workosOrganizationId: ORG },
+    );
+    const link = await admin.mutation(
+      (api as any).production_proposals.createDraftProposalClaimLink,
+      { proposalId, workosOrganizationId: ORG },
+    );
+
+    expect(link.claimPath).toContain("/proposal-claim/");
+    const preview = await base.query(
+      (api as any).production_proposals.getProposalClaimPreview,
+      { claimToken: link.claimToken },
+    );
+    expect(preview).toMatchObject({
+      claimStatus: "active",
+      milestoneCount: 0,
+      proposal: { buildName: "Unclaimed proposal" },
+      workosOrganizationId: ORG,
+    });
+
+    const claimed = await claimant.mutation(
+      (api as any).production_proposals.claimDraftProposalLink,
+      { claimToken: link.claimToken, workosOrganizationId: ORG },
+    );
+    expect(claimed.proposalId).toBe(proposalId);
+
+    const claimantDetail = await claimant.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(claimantDetail.proposal.builderProfileId).toBe(
+      claimed.builderProfileId,
+    );
+    expect(claimantDetail.assignment.builder.displayName).toBe(
+      "Claimant Builder",
+    );
+    expect(claimantDetail.assignment.builder.ownerEmail).toBe(
+      "claimant.builder@example.com",
+    );
+
+    const claimedPreview = await base.query(
+      (api as any).production_proposals.getProposalClaimPreview,
+      { claimToken: link.claimToken },
+    );
+    expect(claimedPreview.claimStatus).toBe("claimed");
   });
 
   test("rejects assigning a builder to an already-assigned draft", async () => {

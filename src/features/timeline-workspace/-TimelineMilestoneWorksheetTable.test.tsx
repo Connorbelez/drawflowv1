@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { type ComponentProps, useState } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -157,6 +163,7 @@ function ControlledWorksheet({
   contractorOptions = [],
   initialRows = worksheetRows,
   mode = "setup",
+  onComplete = vi.fn(),
   onRowsChange = vi.fn(),
   targetBudgetCents = 200_000_00,
 }: {
@@ -166,6 +173,9 @@ function ControlledWorksheet({
   >["contractorOptions"];
   initialRows?: TimelineMilestoneWorksheetRow[];
   mode?: "settings" | "setup";
+  onComplete?: ComponentProps<
+    typeof TimelineMilestoneWorksheetTable
+  >["onComplete"];
   onRowsChange?: (rows: TimelineMilestoneWorksheetRow[]) => void;
   targetBudgetCents?: number;
 }) {
@@ -179,6 +189,7 @@ function ControlledWorksheet({
       contractorOptions={contractorOptions}
       mode={mode}
       onCascadeBudgetEditsChange={setCascadeEnabled}
+      onComplete={onComplete}
       onRowsChange={(nextRows) => {
         setRows(nextRows);
         onRowsChange(nextRows);
@@ -259,6 +270,70 @@ describe("TimelineMilestoneWorksheetTable", () => {
         }),
       ])
     );
+  });
+
+  test("hides demo-only durable routing and proposal review reason fields in setup mode", () => {
+    const onComplete = vi.fn();
+    render(<ControlledWorksheet onComplete={onComplete} />);
+
+    expect(
+      screen.queryByTestId("timeline-setup-durable-route-toggle")
+    ).toBeNull();
+    expect(
+      screen.queryByLabelText("Open durable Convex route after generating")
+    ).toBeNull();
+    expect(screen.queryByLabelText("Change reason")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("timeline-setup-complete"));
+
+    expect(onComplete).toHaveBeenCalledWith({
+      redirectToDurableRoute: false,
+    });
+  });
+
+  test("opens the contractor autocomplete with existing contractors before typing", async () => {
+    render(
+      <ControlledWorksheet
+        contractorOptions={[
+          {
+            city: "Hamilton",
+            contractorId: "contractor-ledger",
+            name: "Ledger Frame Co.",
+            trades: ["Framing"],
+          },
+          {
+            city: "Toronto",
+            contractorId: "contractor-apex",
+            name: "Apex Concrete",
+            trades: ["Foundation"],
+          },
+        ]}
+      />
+    );
+
+    const contractorInput = screen.getByRole("combobox", {
+      name: "Contractor",
+    });
+
+    fireEvent.click(contractorInput);
+
+    expect(await screen.findByText("Ledger Frame Co.")).toBeTruthy();
+    expect(screen.getByText("Apex Concrete")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Ledger Frame Co."));
+
+    await waitFor(() =>
+      expect((contractorInput as HTMLInputElement).value).toBe(
+        "Ledger Frame Co."
+      )
+    );
+    expect(
+      (
+        screen.getByTestId(
+          "timeline-setup-contractor-role-site-prep-foundation"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("Framing");
   });
 
   test("adds optional contractor and material planning to an expanded setup row", () => {

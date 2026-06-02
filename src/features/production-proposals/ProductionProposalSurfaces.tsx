@@ -1,9 +1,12 @@
 import {
   CalendarClock,
   CheckCircle2,
+  Copy,
   Database,
   FileText,
+  Link2,
   Send,
+  Search,
   Trash2,
   UserPlus,
   UserRound,
@@ -27,8 +30,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "#/components/ui/alert-dialog.tsx";
+import {
+  Autocomplete,
+  AutocompleteEmpty,
+  AutocompleteInput,
+  AutocompleteItem,
+  AutocompleteList,
+  AutocompletePopup,
+} from "#/components/ui/autocomplete.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
+import { EditableNumberChip } from "#/components/ui/editable-chip.tsx";
 import {
   Card,
   CardContent,
@@ -102,6 +114,7 @@ import {
   TimelineMilestoneWorksheetTable,
 } from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
 import type { IsometricIconKey } from "#/features/timeline-workspace/-timeline-share-snapshot.ts";
+import { useCopyToClipboard } from "#/hooks/use-copy-to-clipboard.ts";
 
 export type ProductionProposalStatus =
   | "draft"
@@ -110,13 +123,43 @@ export type ProductionProposalStatus =
   | "closed";
 
 interface ProductionProposal {
+  _id?: string;
   borrowerCoPayBps: number;
   borrowerWorkingCapitalLimitCents: number;
   buildName: string;
+  interestAnnualBps?: number;
   lenderDrawPolicyLimitCents: number;
   location: string;
   status: ProductionProposalStatus;
   totalBudgetCents: number;
+}
+
+interface ProductionProposalIdentity {
+  email?: string;
+  name?: string;
+  workosUserId: string;
+}
+
+interface ProductionProposalAssignment {
+  broker?: ProductionProposalIdentity | null;
+  brokerage?: {
+    _id?: string;
+    displayName: string;
+    legalName?: string;
+    workosOrganizationId?: string;
+  } | null;
+  builder?: {
+    _id: string;
+    accounts?: Array<ProductionProposalIdentity & { role?: string }>;
+    displayName: string;
+    legalName?: string;
+    ownerEmail?: string;
+    status?: string;
+  } | null;
+  builderAssigned?: boolean;
+  claimLinkActive?: boolean;
+  createdBy?: ProductionProposalIdentity | null;
+  initiatedFromBackoffice?: boolean;
 }
 
 interface ProductionMilestone {
@@ -133,6 +176,8 @@ interface ProductionMilestone {
 
 interface ProductionSubmilestone {
   _id?: string;
+  budgetCents?: number;
+  durationDays?: number;
   key: string;
   milestoneKey: string;
   name: string;
@@ -159,6 +204,7 @@ interface ProductionDocument {
 
 export interface ProductionProposalDetail {
   activeBuild?: { _id?: string; startDate?: string } | null;
+  assignment?: ProductionProposalAssignment | null;
   costItems?: MaterialPlanningItem[];
   documents?: ProductionDocument[];
   draws?: ProductionDraw[];
@@ -175,6 +221,7 @@ type ProductionReviewTab =
   | "closing"
   | "contractors"
   | "draws"
+  | "milestones"
   | "materials"
   | "packet"
   | "review"
@@ -196,6 +243,8 @@ export interface ProductionKanbanCard {
 export interface ProductionBuilderOption {
   _id: string;
   displayName: string;
+  email?: string;
+  workosUserIds?: string[];
 }
 
 export interface ProductionKanbanColumn {
@@ -1221,6 +1270,7 @@ export function ProductionProposalSettingsSurface({
 }
 
 export function ProductionProposalReviewSurface({
+  builders = [],
   calendarAdapterActions,
   calendarTimeframe,
   calendarWorkspace,
@@ -1236,11 +1286,16 @@ export function ProductionProposalReviewSurface({
   onRecordExternalCalendarSyncChange,
   onReject,
   onRequestChanges,
+  onAssignBuilder,
+  onUpdateCoPayAmount,
+  onUpdateInterestRate,
   onSaveCalendarView,
+  onCreateClaimLink,
   onUpdateDraw,
   contractors,
   timeline,
 }: {
+  builders?: ProductionBuilderOption[];
   contractors?: ReactNode;
   calendarAdapterActions?: ProposalCalendarAdapterActions;
   calendarTimeframe?: CalendarTimeframe;
@@ -1270,6 +1325,12 @@ export function ProductionProposalReviewSurface({
   }) => Promise<unknown> | unknown;
   onReject: (reason: string) => Promise<unknown> | unknown;
   onRequestChanges: (reason: string) => Promise<unknown> | unknown;
+  onAssignBuilder?: (builderProfileId: string) => Promise<unknown> | unknown;
+  onUpdateCoPayAmount?: (borrowerCoPayCents: number) => Promise<unknown> | unknown;
+  onUpdateInterestRate?: (interestAnnualBps: number) => Promise<unknown> | unknown;
+  onCreateClaimLink?: () =>
+    | Promise<{ claimPath: string; claimToken: string; expiresAt: number }>
+    | { claimPath: string; claimToken: string; expiresAt: number };
   onSaveCalendarView?: (input: {
     filters: CalendarFilters;
     isDefault?: boolean;
@@ -1302,9 +1363,17 @@ export function ProductionProposalReviewSurface({
   >(null);
   const proposal = detail.proposal;
   const permit = detail.documents?.find((doc) => doc.documentType === "permit");
+  const canEditCoPayAmount =
+    Boolean(onUpdateCoPayAmount) &&
+    !detail.activeBuild &&
+    proposal.status !== "closed";
   const reviewReason = reason.trim();
   const permitWaiverReviewReason = permitWaiverReason.trim();
   const editableDraws = detail.draws ?? [];
+  const milestoneRows = useMemo(
+    () => productionProposalDetailToWorksheetRows(detail),
+    [detail]
+  );
   const canEditDraws =
     !!onUpdateDraw &&
     (proposal.status === "submitted" || proposal.status === "approved") &&
@@ -1314,6 +1383,7 @@ export function ProductionProposalReviewSurface({
     if (timeline) {
       nextTabs.push({ label: "Timeline", value: "timeline" });
     }
+    nextTabs.push({ label: "Milestones", value: "milestones" });
     nextTabs.push({ label: "Calendar", value: "calendar" });
     if (contractors) {
       nextTabs.push({ label: "Contractors", value: "contractors" });
@@ -1451,12 +1521,12 @@ export function ProductionProposalReviewSurface({
                 </TabsTab>
               ))}
             </TabsList>
-            <div className="flex min-w-0 flex-wrap items-center gap-2 text-muted-foreground text-xs">
-              <Badge variant="outline">{statusLabel(proposal.status)}</Badge>
-              <span className="truncate">{proposal.buildName}</span>
-              <span aria-hidden>·</span>
-              <span className="truncate">{proposal.location}</span>
-            </div>
+            <ProposalReviewHeaderSummary
+              canEditCoPayAmount={canEditCoPayAmount}
+              onUpdateCoPayAmount={onUpdateCoPayAmount}
+              onUpdateInterestRate={onUpdateInterestRate}
+              proposal={proposal}
+            />
           </FramePanel>
         </Frame>
 
@@ -1469,6 +1539,26 @@ export function ProductionProposalReviewSurface({
             {timeline}
           </TabsPanel>
         ) : null}
+
+        <TabsPanel
+          className="min-w-0"
+          data-testid="production-proposal-milestones-tab"
+          value="milestones"
+        >
+          <TimelineMilestoneWorksheetTable
+            footerExtra={
+              <div className="timeline-blueprint-metric">
+                <span>Proposal budget</span>
+                <strong>{formatCents(proposal.totalBudgetCents)}</strong>
+              </div>
+            }
+            mode="setup"
+            onRowsChange={() => undefined}
+            rows={milestoneRows}
+            showHeading
+            templateTitle={proposal.buildName}
+          />
+        </TabsPanel>
 
         {contractors ? (
           <TabsPanel
@@ -1611,6 +1701,14 @@ export function ProductionProposalReviewSurface({
             )}
 
             <div className="grid gap-4">
+              <BuilderAssignmentSection
+                assignment={detail.assignment}
+                builders={builders}
+                onAssignBuilder={onAssignBuilder}
+                onCreateClaimLink={onCreateClaimLink}
+                proposal={proposal}
+              />
+
               <Section title="Review snapshot">
                 <DetailGrid
                   rows={[
@@ -1774,6 +1872,551 @@ function productionProposalActionErrorMessage(error: unknown) {
   return uncaughtMatch?.[1]?.trim() || message;
 }
 
+function ProposalReviewHeaderSummary({
+  canEditCoPayAmount,
+  onUpdateCoPayAmount,
+  onUpdateInterestRate,
+  proposal,
+}: {
+  canEditCoPayAmount: boolean;
+  onUpdateCoPayAmount?: (borrowerCoPayCents: number) => Promise<unknown> | unknown;
+  onUpdateInterestRate?: (interestAnnualBps: number) => Promise<unknown> | unknown;
+  proposal: ProductionProposal;
+}) {
+  const coPayCents = calculateProposalCoPayCents(proposal);
+  const approvedAmountCents = calculateProposalApprovedAmountCents(proposal);
+  const coPayDollars = Math.round(coPayCents / 100);
+  const interestAnnualBps = proposal.interestAnnualBps ?? 925;
+  const [coPayPending, setCoPayPending] = useState(false);
+  const [interestPending, setInterestPending] = useState(false);
+  const canEditInterestRate =
+    Boolean(onUpdateInterestRate) && canEditCoPayAmount;
+
+  async function saveCoPayAmount(nextCoPayDollars: number) {
+    if (!onUpdateCoPayAmount) {
+      return;
+    }
+    const nextCoPayCents = Math.max(0, Math.round(nextCoPayDollars * 100));
+    if (!Number.isFinite(nextCoPayCents)) {
+      toast.error("Enter a valid co-pay amount.");
+      return;
+    }
+    setCoPayPending(true);
+    try {
+      await onUpdateCoPayAmount(nextCoPayCents);
+      toast.success("Co-pay amount updated.");
+    } catch (error) {
+      toast.error(productionProposalActionErrorMessage(error));
+    } finally {
+      setCoPayPending(false);
+    }
+  }
+
+  async function saveInterestRate(nextInterestAnnualBps: number) {
+    if (!onUpdateInterestRate) {
+      return;
+    }
+    if (!Number.isFinite(nextInterestAnnualBps)) {
+      toast.error("Enter a valid interest rate.");
+      return;
+    }
+    setInterestPending(true);
+    try {
+      await onUpdateInterestRate(nextInterestAnnualBps);
+      toast.success("Interest rate updated.");
+    } catch (error) {
+      toast.error(productionProposalActionErrorMessage(error));
+    } finally {
+      setInterestPending(false);
+    }
+  }
+
+  return (
+    <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 text-muted-foreground text-xs lg:justify-end">
+      <Badge variant="outline">{statusLabel(proposal.status)}</Badge>
+      <span className="max-w-48 truncate">{proposal.buildName}</span>
+      <span aria-hidden>·</span>
+      <span className="max-w-48 truncate">{proposal.location}</span>
+      <HeaderFinancialMetric
+        label="Total budget"
+        value={formatCents(proposal.totalBudgetCents)}
+      />
+      <HeaderFinancialMetric
+        label="Total approved"
+        value={formatCents(approvedAmountCents)}
+      />
+      {canEditCoPayAmount ? (
+        <HeaderEditableMetric
+          label="Co-pay amount"
+          pending={coPayPending}
+          value={
+            <EditableNumberChip
+              ariaLabel="Co-pay amount"
+              disabled={coPayPending}
+              formatDisplay={(value) => formatCents(value * 100)}
+              inputWidth="5.6rem"
+              min={0}
+              onCommit={(value) => void saveCoPayAmount(value)}
+              reserveWidth="7rem"
+              size="metric-sm"
+              step={10_000}
+              testId="proposal-header-copay-chip"
+              value={coPayDollars}
+              weight="semibold"
+            />
+          }
+        />
+      ) : (
+        <HeaderFinancialMetric
+          label="Co-pay amount"
+          value={formatCents(coPayCents)}
+        />
+      )}
+      {canEditInterestRate ? (
+        <HeaderEditableMetric
+          label="Interest rate"
+          pending={interestPending}
+          value={
+            <EditableNumberChip
+              ariaLabel="Interest rate"
+              disabled={interestPending}
+              formatDisplay={(value) => formatInterestAnnualBps(value)}
+              formatDraft={(value) => formatInterestRateDraft(value)}
+              inputMode="decimal"
+              inputWidth="3.5rem"
+              min={0}
+              onCommit={(value) => void saveInterestRate(value)}
+              parseCommit={parseInterestRateDraftToBps}
+              reserveWidth="4.8rem"
+              size="metric-sm"
+              step={0.25}
+              testId="proposal-header-interest-rate-chip"
+              value={interestAnnualBps}
+              weight="semibold"
+            />
+          }
+        />
+      ) : (
+        <HeaderFinancialMetric
+          label="Interest rate"
+          value={formatInterestAnnualBps(interestAnnualBps)}
+        />
+      )}
+    </div>
+  );
+}
+
+function HeaderEditableMetric({
+  label,
+  pending,
+  value,
+}: {
+  label: string;
+  pending?: boolean;
+  value: ReactNode;
+}) {
+  return (
+    <span className="inline-flex min-w-0 flex-wrap items-center gap-1.5">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="shrink-0">{value}</span>
+      {pending ? (
+        <span className="shrink-0 text-muted-foreground text-[10px]">
+          Saving
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function HeaderFinancialMetric({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <span className="inline-flex min-h-9 items-center gap-1.5 rounded-md border bg-background px-2 py-1 shadow-xs/5">
+      <span className="text-muted-foreground">{label}</span>
+      <strong className="font-semibold text-foreground tabular-nums">
+        {value}
+      </strong>
+    </span>
+  );
+}
+
+function BuilderAssignmentSection({
+  assignment,
+  builders,
+  onAssignBuilder,
+  onCreateClaimLink,
+  proposal,
+}: {
+  assignment?: ProductionProposalAssignment | null;
+  builders: ProductionBuilderOption[];
+  onAssignBuilder?: (builderProfileId: string) => Promise<unknown> | unknown;
+  onCreateClaimLink?: () =>
+    | Promise<{ claimPath: string; claimToken: string; expiresAt: number }>
+    | { claimPath: string; claimToken: string; expiresAt: number };
+  proposal: ProductionProposal;
+}) {
+  const builderAssigned = assignment?.builderAssigned ?? Boolean(assignment?.builder);
+  const [selectedBuilderId, setSelectedBuilderId] = useState("");
+  const [assigning, setAssigning] = useState(false);
+  const [creatingLink, setCreatingLink] = useState(false);
+  const [claimLink, setClaimLink] = useState("");
+  const [claimExpiresAt, setClaimExpiresAt] = useState<number | null>(null);
+  const { copyToClipboard, isCopied } = useCopyToClipboard({
+    onCopy: () => toast.success("Builder claim link copied."),
+  });
+  const canManageAssignment =
+    proposal.status === "draft" &&
+    !builderAssigned &&
+    Boolean(onAssignBuilder || onCreateClaimLink);
+
+  useEffect(() => {
+    if (builderAssigned) {
+      setSelectedBuilderId("");
+      setClaimLink("");
+      setClaimExpiresAt(null);
+    }
+  }, [builderAssigned]);
+
+  async function handleAssignBuilder() {
+    if (!(onAssignBuilder && selectedBuilderId)) {
+      return;
+    }
+    setAssigning(true);
+    try {
+      await onAssignBuilder(selectedBuilderId);
+      toast.success("Builder assigned.");
+      setSelectedBuilderId("");
+    } catch (error) {
+      toast.error(productionProposalActionErrorMessage(error));
+    } finally {
+      setAssigning(false);
+    }
+  }
+
+  async function handleCreateClaimLink() {
+    if (!onCreateClaimLink) {
+      return;
+    }
+    setCreatingLink(true);
+    try {
+      const result = await onCreateClaimLink();
+      const url = buildAbsoluteClaimUrl(result.claimPath);
+      setClaimLink(url);
+      setClaimExpiresAt(result.expiresAt);
+      copyToClipboard(url);
+      toast.success("Builder claim link created.");
+    } catch (error) {
+      toast.error(productionProposalActionErrorMessage(error));
+    } finally {
+      setCreatingLink(false);
+    }
+  }
+
+  return (
+    <Section title="Parties & assignment">
+      <div className="grid gap-4">
+        <dl className="grid gap-3 text-sm">
+          <AssignmentIdentityRow
+            label="Builder"
+            value={
+              assignment?.builder
+                ? assignment.builder.displayName
+                : "Unassigned"
+            }
+            secondary={assignment?.builder?.ownerEmail}
+          />
+          <AssignmentIdentityRow
+            label="Broker"
+            value={formatProposalIdentity(assignment?.broker)}
+            secondary={assignment?.broker?.email}
+          />
+          <AssignmentIdentityRow
+            label="Brokerage"
+            value={
+              assignment?.brokerage?.displayName ??
+              assignment?.brokerage?.legalName ??
+              "Unknown brokerage"
+            }
+            secondary={assignment?.brokerage?.workosOrganizationId}
+          />
+        </dl>
+
+        {canManageAssignment ? (
+          <div className="grid gap-3 border-t pt-4">
+            {onAssignBuilder ? (
+              <>
+                <div className="grid gap-1">
+                  <Label htmlFor="production-builder-assignee">
+                    Assign to onboarded builder
+                  </Label>
+                  <BuilderProfileAutocomplete
+                    disabled={assigning}
+                    id="production-builder-assignee"
+                    onValueChange={setSelectedBuilderId}
+                    options={builders}
+                    value={selectedBuilderId}
+                  />
+                </div>
+                <Button
+                  disabled={!selectedBuilderId}
+                  loading={assigning}
+                  onClick={handleAssignBuilder}
+                  size="sm"
+                >
+                  <UserPlus aria-hidden />
+                  Assign builder
+                </Button>
+              </>
+            ) : null}
+            {onCreateClaimLink ? (
+              <div
+                className={
+                  onAssignBuilder ? "grid gap-2 border-t pt-3" : "grid gap-2"
+                }
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Label>Unclaimed builder link</Label>
+                  {assignment?.claimLinkActive && !claimLink ? (
+                    <Badge variant="outline">Active link exists</Badge>
+                  ) : null}
+                </div>
+                <Button
+                  disabled={!onCreateClaimLink}
+                  loading={creatingLink}
+                  onClick={handleCreateClaimLink}
+                  size="sm"
+                  variant="outline"
+                >
+                  <Link2 aria-hidden />
+                  {assignment?.claimLinkActive || claimLink
+                    ? "Regenerate claim link"
+                    : "Create claim link"}
+                </Button>
+                {claimLink ? (
+                  <div className="grid gap-2">
+                    <div className="flex gap-2">
+                      <Input readOnly value={claimLink} />
+                      <Button
+                        aria-label="Copy builder claim link"
+                        onClick={() => copyToClipboard(claimLink)}
+                        size="icon"
+                        variant="outline"
+                      >
+                        <Copy aria-hidden />
+                      </Button>
+                    </div>
+                    <p className="text-muted-foreground text-xs">
+                      {isCopied ? "Copied. " : ""}
+                      {claimExpiresAt
+                        ? `Expires ${formatDateTime(claimExpiresAt)}.`
+                        : "No expiration recorded."}
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </Section>
+  );
+}
+
+function AssignmentIdentityRow({
+  label,
+  secondary,
+  value,
+}: {
+  label: string;
+  secondary?: string | null;
+  value: string;
+}) {
+  return (
+    <div className="grid gap-1">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="min-w-0">
+        <span className="block truncate font-medium">{value}</span>
+        {secondary ? (
+          <span className="block truncate text-muted-foreground text-xs">
+            {secondary}
+          </span>
+        ) : null}
+      </dd>
+    </div>
+  );
+}
+
+function BuilderProfileAutocomplete({
+  disabled,
+  id,
+  onValueChange,
+  options,
+  value,
+}: {
+  disabled?: boolean;
+  id: string;
+  onValueChange: (value: string) => void;
+  options: ProductionBuilderOption[];
+  value: string;
+}) {
+  const selectedOption = useMemo(
+    () => options.find((option) => option._id === value),
+    [options, value]
+  );
+  const [query, setQuery] = useState(() =>
+    selectedOption ? formatBuilderOptionInputValue(selectedOption) : ""
+  );
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    setQuery(selectedOption ? formatBuilderOptionInputValue(selectedOption) : "");
+  }, [selectedOption]);
+
+  const filteredOptions = useMemo(
+    () => filterBuilderOptions(options, query),
+    [options, query]
+  );
+
+  function selectOption(option: ProductionBuilderOption) {
+    onValueChange(option._id);
+    setQuery(formatBuilderOptionInputValue(option));
+    setOpen(false);
+  }
+
+  function handleInputValueChange(nextQuery: string) {
+    setQuery(nextQuery);
+    if (!nextQuery.trim()) {
+      onValueChange("");
+    } else if (
+      selectedOption &&
+      nextQuery !== formatBuilderOptionInputValue(selectedOption)
+    ) {
+      onValueChange("");
+    }
+    setOpen(!disabled);
+  }
+
+  return (
+    <Autocomplete
+      autoHighlight="always"
+      filter={null}
+      itemToStringValue={formatBuilderOptionInputValue}
+      items={filteredOptions}
+      keepHighlight
+      modal={false}
+      onOpenChange={(nextOpen) => setOpen(nextOpen && !disabled)}
+      onValueChange={handleInputValueChange}
+      open={open && !disabled}
+      openOnInputClick
+      value={query}
+    >
+      <AutocompleteInput
+        aria-label="Builder assignee"
+        disabled={disabled}
+        id={id}
+        onClick={() => setOpen(!disabled)}
+        onFocus={() => setOpen(!disabled)}
+        placeholder="Search builder name or email..."
+        showClear
+        showTrigger
+        startAddon={<Search aria-hidden />}
+      />
+      <AutocompletePopup>
+        <AutocompleteEmpty>
+          {options.length === 0
+            ? "No active builders are available in this brokerage."
+            : "No builders match this search."}
+        </AutocompleteEmpty>
+        <AutocompleteList>
+          {(option: ProductionBuilderOption) => (
+            <AutocompleteItem
+              className="grid min-h-12 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-2.5 py-2"
+              key={option._id}
+              onClick={() => selectOption(option)}
+              value={option}
+            >
+              <span className="min-w-0">
+                <span className="block truncate font-medium">
+                  {option.displayName}
+                </span>
+                <span className="block truncate text-muted-foreground text-xs">
+                  {option.email ?? option.workosUserIds?.[0] ?? "Builder profile"}
+                </span>
+              </span>
+              <Badge className="max-w-28 truncate" variant="outline">
+                Builder
+              </Badge>
+            </AutocompleteItem>
+          )}
+        </AutocompleteList>
+      </AutocompletePopup>
+    </Autocomplete>
+  );
+}
+
+function filterBuilderOptions(
+  options: ProductionBuilderOption[],
+  query: string
+) {
+  const terms = normalizeSearch(query).split(" ").filter(Boolean);
+  if (terms.length === 0) {
+    return options;
+  }
+  return options.filter((option) => {
+    const haystack = normalizeSearch(
+      [
+        option.displayName,
+        option.email,
+        ...(option.workosUserIds ?? []),
+      ]
+        .filter(Boolean)
+        .join(" ")
+    );
+    return terms.every((term) => haystack.includes(term));
+  });
+}
+
+function formatBuilderOptionInputValue(option: ProductionBuilderOption) {
+  return option.email
+    ? `${option.displayName} (${option.email})`
+    : option.displayName;
+}
+
+function formatProposalIdentity(
+  identity: ProductionProposalIdentity | null | undefined
+) {
+  if (!identity) {
+    return "Unassigned";
+  }
+  return identity.name?.trim() || identity.email?.trim() || identity.workosUserId;
+}
+
+function buildAbsoluteClaimUrl(claimPath: string) {
+  if (/^https?:\/\//i.test(claimPath)) {
+    return claimPath;
+  }
+  if (typeof window === "undefined") {
+    return claimPath;
+  }
+  return `${window.location.origin}${claimPath.startsWith("/") ? "" : "/"}${claimPath}`;
+}
+
+function formatDateTime(value: number) {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+function normalizeSearch(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
 function materialPlanningMilestones(detail: ProductionProposalDetail) {
   const submilestonesByMilestone = new Map<string, ProductionSubmilestone[]>();
   for (const submilestone of detail.submilestones ?? []) {
@@ -1789,12 +2432,93 @@ function materialPlanningMilestones(detail: ProductionProposalDetail) {
     submilestones: (submilestonesByMilestone.get(milestone.key) ?? [])
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
       .map((submilestone) => ({
+        budgetCents: submilestone.budgetCents,
+        durationDays: submilestone.durationDays,
         key: submilestone.key,
         milestoneKey: submilestone.milestoneKey,
         name: submilestone.name,
         order: submilestone.order,
       })),
   }));
+}
+
+function productionProposalDetailToWorksheetRows(
+  detail: ProductionProposalDetail
+): TimelineMilestoneWorksheetRow[] {
+  const submilestonesByMilestone = new Map<string, ProductionSubmilestone[]>();
+  for (const submilestone of detail.submilestones ?? []) {
+    const next = submilestonesByMilestone.get(submilestone.milestoneKey) ?? [];
+    next.push(submilestone);
+    submilestonesByMilestone.set(submilestone.milestoneKey, next);
+  }
+  const totalBudgetCents = Math.max(1, detail.proposal.totalBudgetCents);
+
+  return (detail.milestones ?? [])
+    .slice()
+    .sort((a, b) => a.order - b.order || a.key.localeCompare(b.key))
+    .map((milestone) => {
+      const submilestones = (submilestonesByMilestone.get(milestone.key) ?? [])
+        .slice()
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.key.localeCompare(b.key));
+      const fallbackBudgets = allocateEvenlyCents(
+        milestone.budgetCents,
+        submilestones.length
+      );
+      const durationDays =
+        milestone.durationDays ??
+        Math.max(1, Math.round(milestone.dayEnd - milestone.dayStart));
+      const percentageBps = Math.round(
+        (milestone.budgetCents / totalBudgetCents) * 10_000
+      );
+
+      return {
+        baseItemId: milestone.key,
+        budgetText: formatCents(milestone.budgetCents),
+        contractorAssignments: [],
+        costItems: [],
+        dependencyKeys: milestone.dependencyKeys ?? [],
+        durationDays,
+        durationText: String(durationDays),
+        excluded: false,
+        icon: milestone.icon ?? iconForMilestoneKey(milestone.key, milestone.name),
+        key: milestone.key,
+        name: milestone.name,
+        order: milestone.order,
+        percentageBps,
+        percentageText: formatBps(percentageBps),
+        subMilestoneDetails: submilestones.map((submilestone, index) => {
+          const budgetCents =
+            submilestone.budgetCents ?? fallbackBudgets[index] ?? 0;
+          const subPercentageBps = Math.round(
+            (budgetCents / totalBudgetCents) * 10_000
+          );
+          return {
+            budgetText: formatCents(budgetCents),
+            description: "",
+            durationText: String(submilestone.durationDays ?? 1),
+            id: submilestone.key,
+            name: submilestone.name,
+            percentageBps: subPercentageBps,
+            percentageText: formatBps(subPercentageBps),
+          };
+        }),
+        subMilestones: submilestones.map((submilestone) => submilestone.name),
+        type: milestone.key,
+      };
+    });
+}
+
+function allocateEvenlyCents(totalCents: number, count: number) {
+  if (count <= 0) {
+    return [];
+  }
+  const base = Math.floor(Math.max(0, Math.round(totalCents)) / count);
+  let remainder = Math.max(0, Math.round(totalCents)) - base * count;
+  return Array.from({ length: count }, () => {
+    const extra = remainder > 0 ? 1 : 0;
+    remainder -= extra;
+    return base + extra;
+  });
 }
 
 function ApprovedProposalConfirmation({
@@ -2300,6 +3024,33 @@ function formatCents(cents: number) {
 
 function formatBps(bps: number) {
   return `${(bps / 100).toFixed(2)}% / ${bps} bps`;
+}
+
+function calculateProposalCoPayCents(proposal: ProductionProposal) {
+  return Math.round((proposal.totalBudgetCents * proposal.borrowerCoPayBps) / 10_000);
+}
+
+function calculateProposalApprovedAmountCents(proposal: ProductionProposal) {
+  return Math.max(0, proposal.totalBudgetCents - calculateProposalCoPayCents(proposal));
+}
+
+function formatInterestAnnualBps(value: number) {
+  return `${(value / 100).toFixed(value % 100 === 0 ? 0 : 2)}%`;
+}
+
+function formatInterestRateDraft(value: number) {
+  return (value / 100).toFixed(value % 100 === 0 ? 0 : 2);
+}
+
+function parseInterestRateDraftToBps(value: string, fallback: number) {
+  const normalized = value.replace(/[%\s]/g, "");
+  if (!normalized) {
+    return 0;
+  }
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed)
+    ? Math.max(0, Math.min(10_000, Math.round(parsed * 100)))
+    : fallback;
 }
 
 function parseInteger(value: string) {

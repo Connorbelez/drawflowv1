@@ -87,6 +87,7 @@ interface MaterialPlanningTabProps {
   panelLayout?: "auto" | "stacked";
   readOnly?: boolean;
   scopeLabel: string;
+  showChangeReason?: boolean;
   variant?: "embedded" | "full";
 }
 
@@ -115,6 +116,7 @@ export function MaterialPlanningTab({
   milestones,
   readOnly = false,
   scopeLabel,
+  showChangeReason = true,
   variant = "full",
 }: MaterialPlanningTabProps) {
   const embedded = variant === "embedded";
@@ -344,6 +346,7 @@ export function MaterialPlanningTab({
                           onCancel={() => setEditingItemId(null)}
                           onSubmit={(payload) => runUpdate(item, payload)}
                           pending={pending}
+                          showChangeReason={showChangeReason}
                           submitLabel="Save item"
                         />
                       ) : (
@@ -381,6 +384,7 @@ export function MaterialPlanningTab({
               onSubmit={runCreate}
               pending={pending}
               selectedMilestoneKey={selectedMilestone.key}
+              showChangeReason={showChangeReason}
               submitLabel="Add item"
             />
           ) : (
@@ -430,6 +434,7 @@ function MaterialItemEditor({
   onSubmit,
   pending,
   selectedMilestoneKey,
+  showChangeReason,
   submitLabel,
 }: {
   item?: MaterialPlanningItem;
@@ -438,6 +443,7 @@ function MaterialItemEditor({
   onSubmit: (payload: MaterialPlanningPayload) => Promise<unknown> | unknown;
   pending?: boolean;
   selectedMilestoneKey?: string;
+  showChangeReason: boolean;
   submitLabel: string;
 }) {
   const [form, setForm] = useState<ItemFormState>(() =>
@@ -593,16 +599,18 @@ function MaterialItemEditor({
               value={form.supplier}
             />
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor={fieldId(item, "reason")}>Change reason</Label>
-            <Input
-              className={TOUCH_INPUT_CLASS}
-              id={fieldId(item, "reason")}
-              onChange={(event) => setField("reason", event.target.value)}
-              placeholder="Required once a proposal is under review"
-              value={form.reason}
-            />
-          </div>
+          {showChangeReason ? (
+            <div className="grid gap-2">
+              <Label htmlFor={fieldId(item, "reason")}>Change reason</Label>
+              <Input
+                className={TOUCH_INPUT_CLASS}
+                id={fieldId(item, "reason")}
+                onChange={(event) => setField("reason", event.target.value)}
+                placeholder="Required once a proposal is under review"
+                value={form.reason}
+              />
+            </div>
+          ) : null}
           <div className="grid gap-2">
             <Label>Relevant sub-milestones</Label>
             <div className="grid gap-2 rounded-lg border bg-background/70 p-2">

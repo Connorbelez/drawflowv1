@@ -113,6 +113,7 @@ import {
 import {
   mapSubmilestoneSnapshotRows,
   resolveMilestoneSubmilestones,
+  submilestoneNames,
 } from "./-timeline-milestone-submilestones.ts";
 import {
   applyTimelineShareSnapshotV2,
@@ -670,16 +671,24 @@ function timelineMilestonePayloadToItem(
       (milestone.submilestones ?? []).map(
         (
           submilestone: {
+            budgetCents?: number;
             description?: string;
+            durationDays?: number;
             key?: string;
             name: string;
             order?: number;
           },
           index: number
         ) => ({
+          ...(submilestone.budgetCents === undefined
+            ? {}
+            : { budgetCents: submilestone.budgetCents }),
           ...(submilestone.description
             ? { description: submilestone.description }
             : {}),
+          ...(submilestone.durationDays === undefined
+            ? {}
+            : { durationDays: submilestone.durationDays }),
           key: submilestone.key,
           name: submilestone.name,
           order: submilestone.order ?? index + 1,
@@ -2374,6 +2383,94 @@ export function TimelineWorkspace({
     }
   };
 
+  const updateSubmilestoneBudget = (
+    itemId: string,
+    submilestoneKey: string,
+    budgetCents: number
+  ) => {
+    if (!(canWriteLiveTimeline && !liveBuildMode)) {
+      return;
+    }
+    const targetItem = items.find((item) => item.id === itemId);
+
+    if (!targetItem?.data) {
+      return;
+    }
+
+    const currentSubmilestones = resolveMilestoneSubmilestones(
+      targetItem.data,
+      itemId
+    );
+    const targetSubmilestone = currentSubmilestones.find(
+      (submilestone) => submilestone.key === submilestoneKey
+    );
+
+    if (!targetSubmilestone) {
+      return;
+    }
+
+    const nextBudgetCents = Math.max(0, Math.round(budgetCents));
+    const priorBudgetCents = Math.max(
+      0,
+      Math.round(targetSubmilestone.budgetCents ?? 0)
+    );
+    const deltaAmount = (nextBudgetCents - priorBudgetCents) / 100;
+    const currentAmount = Math.max(0, Math.round(targetItem.data.amount));
+    const currentDrawAvailability = getMilestoneDrawAvailabilityAmount(
+      targetItem.data
+    );
+    const drawAvailabilityRatio =
+      currentAmount > 0 ? currentDrawAvailability / currentAmount : 0;
+    const nextAmount = Math.max(0, Math.round(currentAmount + deltaAmount));
+    const nextDrawAvailabilityAmount = Math.max(
+      0,
+      Math.round(nextAmount * drawAvailabilityRatio)
+    );
+    const nextSubmilestones = currentSubmilestones.map((submilestone) =>
+      submilestone.key === submilestoneKey
+        ? { ...submilestone, budgetCents: nextBudgetCents }
+        : submilestone
+    );
+    const nextItems = normalizeMilestoneTimelineItems(
+      items.map((item) =>
+        item.id === itemId && item.data
+          ? {
+              ...item,
+              data: {
+                ...item.data,
+                amount: nextAmount,
+                drawAvailabilityAmount: nextDrawAvailabilityAmount,
+                subMilestones: submilestoneNames(nextSubmilestones),
+                submilestoneDetails: nextSubmilestones,
+              },
+            }
+          : item
+      )
+    );
+    const nextRange = expandTimelineRangeForMilestones(nextItems, range);
+
+    setItems(nextItems);
+    setRange(nextRange);
+    setDraws((currentDraws) =>
+      syncDemoDrawsWithItems(currentDraws, nextItems, nextRange)
+    );
+
+    if (durablePlanId) {
+      const nextItem = nextItems.find((item) => item.id === itemId);
+      if (nextItem) {
+        runDurableMutation(
+          persistUpdateMilestone({
+            ...timelineItemToMilestoneMutationInput(
+              nextItem,
+              nextItems.findIndex((item) => item.id === itemId) + 1
+            ),
+          }),
+          "sub-milestone budget update"
+        );
+      }
+    }
+  };
+
   const completeMilestone = (
     itemId: string,
     claim: TimelineCompletionClaimInput
@@ -2671,7 +2768,7 @@ export function TimelineWorkspace({
 
     const formData = new FormData(event.currentTarget);
     const nextAmount = Math.max(
-      0,
+      1,
       Math.round(Number(formData.get("drawAmount") ?? drawEditDraft.amount))
     );
     const nextX = Math.max(
@@ -4159,6 +4256,11 @@ export function TimelineWorkspace({
               items={items}
               liveExecutionEnabled={canUseLiveExecution}
               modificationRequests={modificationRequests}
+              onUpdateSubmilestoneBudget={
+                canWriteLiveTimeline && !liveBuildMode
+                  ? updateSubmilestoneBudget
+                  : undefined
+              }
               onCompleteMilestone={completeMilestone}
               onCreateMilestoneSiteVisit={createMilestoneSiteVisit}
               onOpenChange={(open) => {
@@ -4320,6 +4422,11 @@ export function TimelineWorkspace({
                       items={items}
                       liveExecutionEnabled={canUseLiveExecution}
                       modificationRequests={modificationRequests}
+                      onUpdateSubmilestoneBudget={
+                        canWriteLiveTimeline && !liveBuildMode
+                          ? updateSubmilestoneBudget
+                          : undefined
+                      }
                       onCompleteMilestone={completeMilestone}
                       onCreateMilestoneSiteVisit={createMilestoneSiteVisit}
                       onRecordMilestoneSiteVisit={recordMilestoneSiteVisit}
@@ -4870,10 +4977,20 @@ function timelineItemToMilestoneMutationInput(
     order,
     policyState: milestone?.policy ?? "Needs sequencing",
     status: milestone?.status,
-    submilestones: (milestone?.subMilestones ?? []).map((name, index) => ({
-      key: `${item.id}-sub-${index + 1}`,
-      name,
-      order: index + 1,
+    submilestones: resolveMilestoneSubmilestones(
+      milestone ?? { subMilestones: [], submilestoneDetails: [] },
+      item.id
+    ).map((submilestone) => ({
+      ...(submilestone.budgetCents === undefined
+        ? {}
+        : { budgetCents: submilestone.budgetCents }),
+      ...(submilestone.description ? { description: submilestone.description } : {}),
+      ...(submilestone.durationDays === undefined
+        ? {}
+        : { durationDays: submilestone.durationDays }),
+      key: submilestone.key,
+      name: submilestone.name,
+      order: submilestone.order,
     })),
     tone: item.tone,
     type: "timeline_demo",
@@ -6118,6 +6235,7 @@ function SelectedDrawMobileDrawer({
   onSubmitDrawRequest,
   onUpdateEvidenceAsset,
   onUpdatePlannedDraw,
+  onUpdateSubmilestoneBudget,
   liveExecutionEnabled,
   open,
   overview,
@@ -6176,6 +6294,11 @@ function SelectedDrawMobileDrawer({
     itemId: string,
     assetId: string,
     patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>
+  ) => void;
+  onUpdateSubmilestoneBudget?: (
+    itemId: string,
+    submilestoneKey: string,
+    budgetCents: number
   ) => void;
   liveExecutionEnabled: boolean;
   open: boolean;
@@ -6251,6 +6374,7 @@ function SelectedContextPanel({
   onSubmitDrawRequest,
   onUpdateEvidenceAsset,
   onUpdatePlannedDraw,
+  onUpdateSubmilestoneBudget,
   liveExecutionEnabled,
   overview,
   range,
@@ -6330,6 +6454,7 @@ function SelectedContextPanel({
         activeDraw={activeDraw}
         activeItem={activeItem}
         contractorPlanning={contractorPlanning}
+        onUpdateSubmilestoneBudget={onUpdateSubmilestoneBudget}
         overview={overview}
         range={range}
       />
@@ -6392,6 +6517,7 @@ function SelectedContextPanel({
       onCompleteMilestone={onCompleteMilestone}
       onRemoveEvidenceAsset={onRemoveEvidenceAsset}
       onUpdateEvidenceAsset={onUpdateEvidenceAsset}
+      onUpdateSubmilestoneBudget={onUpdateSubmilestoneBudget}
       overview={overview}
       range={range}
     />
@@ -6451,12 +6577,18 @@ function MilestonePlanSummaryPanel({
   activeDraw,
   activeItem,
   contractorPlanning,
+  onUpdateSubmilestoneBudget,
   overview,
   range,
 }: {
   activeDraw: DemoDraw | null;
   activeItem: TimelineItem<DemoMilestone>;
   contractorPlanning?: ContractorPlanningModel | null;
+  onUpdateSubmilestoneBudget?: (
+    itemId: string,
+    submilestoneKey: string,
+    budgetCents: number
+  ) => void;
   overview: FinancialOverview;
   range: Required<TimelineRange>;
 }) {
@@ -6509,7 +6641,18 @@ function MilestonePlanSummaryPanel({
       </dl>
 
       <TimelineMilestoneSubmilestoneList
+        fallbackBudgetCents={dollarsToCents(milestone.amount)}
         milestoneKey={activeItem.id}
+        onUpdateBudget={
+          onUpdateSubmilestoneBudget
+            ? (submilestoneKey, budgetCents) =>
+                onUpdateSubmilestoneBudget(
+                  activeItem.id,
+                  submilestoneKey,
+                  budgetCents
+                )
+            : undefined
+        }
         submilestones={resolveMilestoneSubmilestones(milestone, activeItem.id)}
         testIdPrefix="timeline-selected-milestone-submilestone"
       />
@@ -6709,6 +6852,7 @@ function MilestoneOperationsPanel({
   onCompleteMilestone,
   onRemoveEvidenceAsset,
   onUpdateEvidenceAsset,
+  onUpdateSubmilestoneBudget,
   overview,
   range,
 }: {
@@ -6725,6 +6869,11 @@ function MilestoneOperationsPanel({
     itemId: string,
     assetId: string,
     patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>
+  ) => void;
+  onUpdateSubmilestoneBudget?: (
+    itemId: string,
+    submilestoneKey: string,
+    budgetCents: number
   ) => void;
   overview: FinancialOverview;
   range: Required<TimelineRange>;
@@ -6829,7 +6978,18 @@ function MilestoneOperationsPanel({
       </dl>
 
       <TimelineMilestoneSubmilestoneList
+        fallbackBudgetCents={dollarsToCents(milestone.amount)}
         milestoneKey={activeItem.id}
+        onUpdateBudget={
+          onUpdateSubmilestoneBudget
+            ? (submilestoneKey, budgetCents) =>
+                onUpdateSubmilestoneBudget(
+                  activeItem.id,
+                  submilestoneKey,
+                  budgetCents
+                )
+            : undefined
+        }
         submilestones={resolveMilestoneSubmilestones(milestone, activeItem.id)}
         testIdPrefix="timeline-selected-milestone-submilestone"
       />
@@ -7113,6 +7273,7 @@ function LenderMilestoneReviewPanel({
       </dl>
 
       <TimelineMilestoneSubmilestoneList
+        fallbackBudgetCents={dollarsToCents(milestone.amount)}
         milestoneKey={activeItem.id}
         submilestones={resolveMilestoneSubmilestones(milestone, activeItem.id)}
         testIdPrefix="timeline-lender-milestone-submilestone"
@@ -8666,7 +8827,7 @@ function DrawTimelineMarker({
                 </Label>
                 <Input
                   id={amountInputId}
-                  min={0}
+                  min={1}
                   name="drawAmount"
                   nativeInput
                   onChange={(event) =>
@@ -8676,7 +8837,7 @@ function DrawTimelineMarker({
                     })
                   }
                   size="sm"
-                  step={1000}
+                  step={10000}
                   type="number"
                   value={draft.amount}
                 />

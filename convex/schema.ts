@@ -1539,6 +1539,7 @@ export default defineSchema({
     borrowerWorkingCapitalLimitCents: v.number(),
     lenderDrawPolicyLimitCents: v.number(),
     borrowerCoPayBps: v.number(),
+    interestAnnualBps: v.optional(v.number()),
     timelineCurrentDay: v.optional(v.number()),
     timelineProgressValue: v.optional(v.number()),
     timelineRangeMax: v.optional(v.number()),
@@ -1830,6 +1831,27 @@ export default defineSchema({
     .index("by_proposal", ["proposalId"])
     .index("by_proposal_status", ["proposalId", "status"])
     .index("by_share_token_hash", ["shareTokenHash"]),
+  proposalClaimLinks: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    shareTokenHash: v.string(),
+    status: v.union(
+      v.literal("active"),
+      v.literal("claimed"),
+      v.literal("revoked")
+    ),
+    createdByWorkosUserId: v.string(),
+    claimedByWorkosUserId: v.optional(v.string()),
+    claimedBuilderProfileId: v.optional(v.id("builderProfiles")),
+    claimedAt: v.optional(v.number()),
+    expiresAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_share_token_hash", ["shareTokenHash"])
+    .index("by_proposal_status", ["proposalId", "status"])
+    .index("by_brokerage_status", ["brokerageId", "status"]),
   proposalCollaborationParticipants: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),

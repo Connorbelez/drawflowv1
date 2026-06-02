@@ -18,6 +18,7 @@ import { Route as BackofficeRouteRouteImport } from './routes/backoffice/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as BuilderIndexRouteImport } from './routes/builder/index'
 import { Route as BackofficeIndexRouteImport } from './routes/backoffice/index'
+import { Route as ProposalClaimClaimTokenRouteImport } from './routes/proposal-claim.$claimToken'
 import { Route as DemoWorkosRouteImport } from './routes/demo/workos'
 import { Route as DemoTanstackQueryRouteImport } from './routes/demo/tanstack-query'
 import { Route as DemoConvexRouteImport } from './routes/demo/convex'
@@ -116,6 +117,11 @@ const BackofficeIndexRoute = BackofficeIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => BackofficeRouteRoute,
+} as any)
+const ProposalClaimClaimTokenRoute = ProposalClaimClaimTokenRouteImport.update({
+  id: '/proposal-claim/$claimToken',
+  path: '/proposal-claim/$claimToken',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const DemoWorkosRoute = DemoWorkosRouteImport.update({
   id: '/workos',
@@ -436,6 +442,7 @@ export interface FileRoutesByFullPath {
   '/demo/convex': typeof DemoConvexRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/demo/workos': typeof DemoWorkosRoute
+  '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/backoffice/': typeof BackofficeIndexRoute
   '/builder/': typeof BuilderIndexRoute
   '/backoffice/builds/$buildId': typeof BackofficeBuildsBuildIdRouteRouteWithChildren
@@ -493,6 +500,7 @@ export interface FileRoutesByTo {
   '/demo/convex': typeof DemoConvexRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/demo/workos': typeof DemoWorkosRoute
+  '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/backoffice': typeof BackofficeIndexRoute
   '/builder': typeof BuilderIndexRoute
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
@@ -553,6 +561,7 @@ export interface FileRoutesById {
   '/demo/convex': typeof DemoConvexRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/demo/workos': typeof DemoWorkosRoute
+  '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/backoffice/': typeof BackofficeIndexRoute
   '/builder/': typeof BuilderIndexRoute
   '/backoffice/builds/$buildId': typeof BackofficeBuildsBuildIdRouteRouteWithChildren
@@ -619,6 +628,7 @@ export interface FileRouteTypes {
     | '/demo/convex'
     | '/demo/tanstack-query'
     | '/demo/workos'
+    | '/proposal-claim/$claimToken'
     | '/backoffice/'
     | '/builder/'
     | '/backoffice/builds/$buildId'
@@ -676,6 +686,7 @@ export interface FileRouteTypes {
     | '/demo/convex'
     | '/demo/tanstack-query'
     | '/demo/workos'
+    | '/proposal-claim/$claimToken'
     | '/backoffice'
     | '/builder'
     | '/api/auth/sign-in'
@@ -735,6 +746,7 @@ export interface FileRouteTypes {
     | '/demo/convex'
     | '/demo/tanstack-query'
     | '/demo/workos'
+    | '/proposal-claim/$claimToken'
     | '/backoffice/'
     | '/builder/'
     | '/backoffice/builds/$buildId'
@@ -785,6 +797,7 @@ export interface RootRouteChildren {
   AboutRoute: typeof AboutRoute
   CallbackRoute: typeof CallbackRoute
   ProtectedAccessRoute: typeof ProtectedAccessRoute
+  ProposalClaimClaimTokenRoute: typeof ProposalClaimClaimTokenRoute
   ApiAuthSignInRoute: typeof ApiAuthSignInRoute
   ApiAuthSignUpRoute: typeof ApiAuthSignUpRoute
   NewsitevisitBuildIdSiteVisitTokenRoute: typeof NewsitevisitBuildIdSiteVisitTokenRoute
@@ -854,6 +867,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/backoffice/'
       preLoaderRoute: typeof BackofficeIndexRouteImport
       parentRoute: typeof BackofficeRouteRoute
+    }
+    '/proposal-claim/$claimToken': {
+      id: '/proposal-claim/$claimToken'
+      path: '/proposal-claim/$claimToken'
+      fullPath: '/proposal-claim/$claimToken'
+      preLoaderRoute: typeof ProposalClaimClaimTokenRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/demo/workos': {
       id: '/demo/workos'
@@ -1519,6 +1539,7 @@ const rootRouteChildren: RootRouteChildren = {
   AboutRoute: AboutRoute,
   CallbackRoute: CallbackRoute,
   ProtectedAccessRoute: ProtectedAccessRoute,
+  ProposalClaimClaimTokenRoute: ProposalClaimClaimTokenRoute,
   ApiAuthSignInRoute: ApiAuthSignInRoute,
   ApiAuthSignUpRoute: ApiAuthSignUpRoute,
   NewsitevisitBuildIdSiteVisitTokenRoute:

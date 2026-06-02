@@ -157,6 +157,19 @@ describe("TimelineSettingsWorkspace", () => {
     ).toBeTruthy();
     expect(screen.getAllByDisplayValue("Standard").length).toBeGreaterThan(0);
     expect(screen.getByDisplayValue("Foundation complete")).toBeTruthy();
+    const previewStartingCashInput = screen.getByLabelText(
+      "Preview starting cash",
+    ) as HTMLInputElement;
+    expect(previewStartingCashInput.value).toBe("$250,000");
+    fireEvent.change(previewStartingCashInput, {
+      target: { value: "100000" },
+    });
+    expect(
+      screen.getByTestId("timeline-settings-preview-starting-cash-compact")
+        .textContent,
+    ).toBe("$100K");
+    fireEvent.blur(previewStartingCashInput);
+    expect(previewStartingCashInput.value).toBe("$100,000");
 
     fireEvent.click(
       screen.getByRole("button", { name: "Seed defaults to prod" }),

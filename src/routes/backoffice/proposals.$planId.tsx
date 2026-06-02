@@ -239,8 +239,20 @@ function ProposalReviewRoute() {
           workosOrganizationId,
         }
   );
+  const buildersQuery = useQuery(
+    api.production_proposals.listBrokerageBuilders,
+    visualFixtureEnabled || !productionDetail
+      ? "skip"
+      : { workosOrganizationId }
+  );
   const requestProductionChanges = useMutation(
     api.production_proposals.requestChanges
+  );
+  const assignDraftBuilder = useMutation(
+    api.production_proposals.assignDraftBuilder
+  );
+  const createDraftProposalClaimLink = useMutation(
+    api.production_proposals.createDraftProposalClaimLink
   );
   const rejectProductionProposal = useMutation(
     api.production_proposals.rejectProposal
@@ -262,6 +274,12 @@ function ProposalReviewRoute() {
   );
   const updateProductionDrawScheduleRow = useMutation(
     api.production_proposals.updateSubmittedProposalDrawScheduleRow
+  );
+  const updateProductionProposalCoPayAmount = useMutation(
+    api.production_proposals.updateProductionProposalCoPayAmount
+  );
+  const updateProductionProposalInterestRate = useMutation(
+    api.production_proposals.updateProductionProposalInterestRate
   );
   const reviseProposalMilestoneSchedule = useMutation(
     (api as any).production_proposals.reviseProposalMilestoneSchedule
@@ -331,6 +349,7 @@ function ProposalReviewRoute() {
     });
     return (
       <ProductionProposalReviewSurface
+        builders={buildersQuery ?? []}
         calendarAdapterActions={calendarAdapterActions}
         calendarTimeframe={search.timeframe}
         calendarWorkspace={productionCalendarWorkspaceQuery as any}
@@ -402,7 +421,8 @@ function ProposalReviewRoute() {
           recordProductionClosing({
             buildStartDate,
             loanFacility: {
-              interestAnnualBps: 925,
+              interestAnnualBps:
+                productionDetail.proposal.interestAnnualBps ?? 925,
               principalCents:
                 productionDetail.proposal.lenderDrawPolicyLimitCents,
             },
@@ -423,6 +443,33 @@ function ProposalReviewRoute() {
             reason,
             workosOrganizationId,
           }).then(() => toast.success("Proposal rejected."))
+        }
+        onAssignBuilder={(builderProfileId) =>
+          assignDraftBuilder({
+            builderProfileId: builderProfileId as Id<"builderProfiles">,
+            proposalId,
+            workosOrganizationId,
+          })
+        }
+        onCreateClaimLink={() =>
+          createDraftProposalClaimLink({
+            proposalId,
+            workosOrganizationId,
+          })
+        }
+        onUpdateCoPayAmount={(borrowerCoPayCents) =>
+          updateProductionProposalCoPayAmount({
+            borrowerCoPayCents,
+            proposalId,
+            workosOrganizationId,
+          })
+        }
+        onUpdateInterestRate={(interestAnnualBps) =>
+          updateProductionProposalInterestRate({
+            interestAnnualBps,
+            proposalId,
+            workosOrganizationId,
+          })
         }
         onRequestChanges={(reason) =>
           requestProductionChanges({

@@ -1,6 +1,9 @@
 import { CheckCircle2, Circle, Loader2 } from "lucide-react";
 
-import { cn } from "#/lib/utils";
+import {
+  EditableFilterChip,
+  EditableNumberChip,
+} from "#/components/ui/editable-chip.tsx";
 import type { DemoSubmilestone } from "./-timeline-milestone-submilestones.ts";
 
 const money = (value: number) =>
@@ -38,11 +41,8 @@ function SubmilestoneStatusIcon({
   );
 }
 
-function formatSubmilestoneMeta(submilestone: DemoSubmilestone) {
+function formatSubmilestoneSupplementalMeta(submilestone: DemoSubmilestone) {
   const parts: string[] = [];
-  if (submilestone.budgetCents !== undefined) {
-    parts.push(money(submilestone.budgetCents / 100));
-  }
   if (submilestone.durationDays !== undefined) {
     parts.push(
       `${submilestone.durationDays} day${submilestone.durationDays === 1 ? "" : "s"}`
@@ -52,11 +52,17 @@ function formatSubmilestoneMeta(submilestone: DemoSubmilestone) {
 }
 
 export function TimelineMilestoneSubmilestoneList({
+  disabled = false,
+  fallbackBudgetCents,
   milestoneKey,
+  onUpdateBudget,
   submilestones,
   testIdPrefix = "timeline-milestone-submilestone",
 }: {
+  disabled?: boolean;
+  fallbackBudgetCents?: number;
   milestoneKey: string;
+  onUpdateBudget?: (submilestoneKey: string, budgetCents: number) => void;
   submilestones: DemoSubmilestone[];
   testIdPrefix?: string;
 }) {
@@ -94,41 +100,69 @@ export function TimelineMilestoneSubmilestoneList({
       </div>
       <ul className="mt-2 grid gap-2">
         {submilestones.map((submilestone) => {
-          const meta = formatSubmilestoneMeta(submilestone);
+          const fallbackSubmilestoneBudgetCents = allocateFallbackBudgetCents(
+            fallbackBudgetCents,
+            submilestones.length,
+            submilestone.order - 1
+          );
+          const budgetCents =
+            submilestone.budgetCents ?? fallbackSubmilestoneBudgetCents ?? 0;
+          const supplementalMeta =
+            formatSubmilestoneSupplementalMeta(submilestone);
+          const budgetDollars = Math.round(budgetCents / 100);
+          const canEditBudget = Boolean(onUpdateBudget);
           return (
             <li
-              className="rounded-md border border-border bg-muted/25 px-2.5 py-2"
               data-testid={`${testIdPrefix}-${submilestone.key}`}
               key={submilestone.key}
             >
-              <div className="flex items-start gap-2">
-                {submilestone.status ? (
-                  <SubmilestoneStatusIcon status={submilestone.status} />
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+                <EditableFilterChip
+                  Icon={
+                    submilestone.status ? (
+                      <SubmilestoneStatusIcon status={submilestone.status} />
+                    ) : undefined
+                  }
+                  className="w-full justify-start"
+                  labelKey={submilestone.name}
+                  testId={`${testIdPrefix}-chip-${submilestone.key}`}
+                  tone={budgetCents <= 0 ? "neutral" : "accent"}
+                  type="value"
+                />
+                <EditableNumberChip
+                  ariaLabel={`${submilestone.name} budget`}
+                  disabled={disabled || !canEditBudget}
+                  formatDisplay={(value) => money(value)}
+                  inputWidth="4.6rem"
+                  min={0}
+                  onCommit={(value) =>
+                    onUpdateBudget?.(submilestone.key, Math.round(value * 100))
+                  }
+                  prefix="$"
+                  reserveWidth="6.9rem"
+                  size="metric-sm"
+                  step={1000}
+                  testId={`${testIdPrefix}-budget-${submilestone.key}`}
+                  value={budgetDollars}
+                  weight="semibold"
+                />
+                {(submilestone.description || supplementalMeta) ? (
+                  <div className="col-span-2 min-w-0 px-2.5">
+                    {submilestone.description ? (
+                      <p
+                        className="text-muted-foreground text-xs leading-relaxed"
+                        data-testid={`${testIdPrefix}-description-${submilestone.key}`}
+                      >
+                        {submilestone.description}
+                      </p>
+                    ) : null}
+                    {supplementalMeta ? (
+                      <p className="mt-0.5 text-muted-foreground text-xs tabular-nums">
+                        {supplementalMeta}
+                      </p>
+                    ) : null}
+                  </div>
                 ) : null}
-                <div className="min-w-0 flex-1">
-                  <p
-                    className={cn(
-                      "font-medium text-sm leading-snug",
-                      submilestone.status === "done" &&
-                        "text-muted-foreground line-through"
-                    )}
-                  >
-                    {submilestone.name}
-                  </p>
-                  {submilestone.description ? (
-                    <p
-                      className="mt-0.5 text-muted-foreground text-xs leading-relaxed"
-                      data-testid={`${testIdPrefix}-description-${submilestone.key}`}
-                    >
-                      {submilestone.description}
-                    </p>
-                  ) : null}
-                  {meta ? (
-                    <p className="mt-0.5 text-muted-foreground text-xs tabular-nums">
-                      {meta}
-                    </p>
-                  ) : null}
-                </div>
               </div>
             </li>
           );
@@ -136,4 +170,18 @@ export function TimelineMilestoneSubmilestoneList({
       </ul>
     </section>
   );
+}
+
+function allocateFallbackBudgetCents(
+  totalCents: number | undefined,
+  count: number,
+  index: number
+) {
+  if (totalCents === undefined || count <= 0 || index < 0) {
+    return;
+  }
+  const roundedTotal = Math.max(0, Math.round(totalCents));
+  const base = Math.floor(roundedTotal / count);
+  const remainder = roundedTotal - base * count;
+  return base + (index < remainder ? 1 : 0);
 }

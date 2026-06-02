@@ -35,9 +35,11 @@ import {
 } from "#/components/reui/sortable.tsx";
 import {
   Autocomplete,
+  AutocompleteEmpty,
   AutocompleteGroup,
   AutocompleteGroupLabel,
   AutocompleteInput,
+  AutocompleteItem,
   AutocompleteList,
   AutocompletePopup,
 } from "#/components/ui/autocomplete.tsx";
@@ -252,7 +254,6 @@ export function TimelineMilestoneWorksheetTable({
       ? { [rows[0].key]: rows[0].subMilestoneDetails[0].id }
       : {}
   );
-  const [redirectToDurableRoute, setRedirectToDurableRoute] = useState(false);
   const [customMilestoneName, setCustomMilestoneName] = useState("");
   const keyboardInstructionsId = useId();
   const rowsRef = useRef(rows);
@@ -857,22 +858,12 @@ export function TimelineMilestoneWorksheetTable({
               >
                 Back to templates
               </Button>
-              <div className="timeline-durable-route-toggle">
-                <span>
-                  <strong>Open durable route</strong>
-                  <small>Redirect after generation</small>
-                </span>
-                <Switch
-                  aria-label="Open durable Convex route after generating"
-                  checked={redirectToDurableRoute}
-                  data-testid="timeline-setup-durable-route-toggle"
-                  onCheckedChange={setRedirectToDurableRoute}
-                />
-              </div>
               <Button
                 className="timeline-setup-primary"
                 data-testid="timeline-setup-complete"
-                onClick={() => onComplete?.({ redirectToDurableRoute })}
+                onClick={() =>
+                  onComplete?.({ redirectToDurableRoute: false })
+                }
               >
                 Generate timeline
                 <ChevronRight />
@@ -1604,6 +1595,7 @@ function MilestonePlanningExtrasEditor({
             milestones={[worksheetRowToMaterialMilestone(row)]}
             panelLayout="stacked"
             scopeLabel="Milestone"
+            showChangeReason={false}
             variant="embedded"
           />
         </div>
@@ -1625,17 +1617,35 @@ function ContractorAssignmentEditor({
   onRemoveAssignment: (assignmentId: string) => void;
   row: TimelineMilestoneWorksheetRow;
 }) {
-  const datalistId = `timeline-contractors-${row.key}`;
   const [contractorName, setContractorName] = useState("");
+  const [contractorPickerOpen, setContractorPickerOpen] = useState(false);
   const [estimatedCostText, setEstimatedCostText] = useState("");
   const [estimatedHoursText, setEstimatedHoursText] = useState("");
   const [role, setRole] = useState("");
   const [subMilestoneIds, setSubMilestoneIds] = useState<string[]>([]);
   const assignments = row.contractorAssignments ?? [];
+  const normalizedContractorQuery = contractorName.trim().toLowerCase();
+  const visibleContractorOptions = useMemo(
+    () =>
+      contractorOptions.filter((option) => {
+        if (!normalizedContractorQuery) {
+          return true;
+        }
+        return [
+          option.name,
+          option.city ?? "",
+          ...(option.trades ?? []),
+        ].some((value) =>
+          value.trim().toLowerCase().includes(normalizedContractorQuery)
+        );
+      }),
+    [contractorOptions, normalizedContractorQuery]
+  );
   const selectedContractor = contractorOptions.find(
     (option) =>
       option.name.trim().toLowerCase() === contractorName.trim().toLowerCase()
   );
+  const hasContractorOptions = contractorOptions.length > 0;
 
   const toggleSubMilestone = (subMilestoneId: string, checked: boolean) => {
     setSubMilestoneIds((current) =>
@@ -1667,6 +1677,16 @@ function ContractorAssignmentEditor({
     setSubMilestoneIds([]);
   };
 
+  const selectContractorOption = (
+    option: TimelineMilestoneWorksheetContractorOption
+  ) => {
+    setContractorName(option.name);
+    if (!role.trim()) {
+      setRole(option.trades?.[0]?.trim() ?? "Contractor");
+    }
+    setContractorPickerOpen(false);
+  };
+
   return (
     <section
       aria-label={`${row.name} contractor assignments`}
@@ -1692,19 +1712,72 @@ function ContractorAssignmentEditor({
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="grid gap-1.5 text-sm">
             <span className="font-medium">Contractor</span>
-            <input
-              className="timeline-blueprint-input"
-              data-testid={`timeline-setup-contractor-name-${row.key}`}
-              list={datalistId}
-              onChange={(event) => setContractorName(event.currentTarget.value)}
-              placeholder="Company or crew name"
-              value={contractorName}
-            />
-            <datalist id={datalistId}>
-              {contractorOptions.map((option) => (
-                <option key={option.contractorId} value={option.name} />
-              ))}
-            </datalist>
+            <div className="timeline-contractor-autocomplete">
+              <Autocomplete
+                autoHighlight="always"
+                filter={null}
+                itemToStringValue={(
+                  option: TimelineMilestoneWorksheetContractorOption
+                ) => option.name}
+                items={visibleContractorOptions}
+                keepHighlight
+                modal={false}
+                onOpenChange={(nextOpen) =>
+                  setContractorPickerOpen(nextOpen && hasContractorOptions)
+                }
+                onValueChange={(nextQuery) => {
+                  setContractorName(nextQuery);
+                  setContractorPickerOpen(hasContractorOptions);
+                }}
+                open={contractorPickerOpen && hasContractorOptions}
+                openOnInputClick
+                value={contractorName}
+              >
+                <AutocompleteInput
+                  aria-label="Contractor"
+                  className="timeline-blueprint-input timeline-contractor-autocomplete-input"
+                  data-testid={`timeline-setup-contractor-name-${row.key}`}
+                  onClick={() =>
+                    setContractorPickerOpen(hasContractorOptions)
+                  }
+                  onFocus={() =>
+                    setContractorPickerOpen(hasContractorOptions)
+                  }
+                  placeholder="Company or crew name"
+                  showClear={Boolean(contractorName.trim())}
+                  showTrigger={hasContractorOptions}
+                  size="sm"
+                />
+                <AutocompletePopup className="timeline-contractor-autocomplete-popup">
+                  <AutocompleteEmpty className="timeline-contractor-autocomplete-empty">
+                    No contractors match this search.
+                  </AutocompleteEmpty>
+                  <AutocompleteList className="timeline-contractor-autocomplete-list">
+                    {(
+                      option: TimelineMilestoneWorksheetContractorOption
+                    ) => (
+                      <AutocompleteItem
+                        className="timeline-contractor-autocomplete-item"
+                        key={option.contractorId}
+                        onClick={() => selectContractorOption(option)}
+                        value={option}
+                      >
+                        <span>
+                          <strong>{option.name}</strong>
+                          <small>
+                            {option.trades?.length
+                              ? option.trades.join(", ")
+                              : "Contractor"}
+                            {option.city ? ` / ${option.city}` : ""}
+                          </small>
+                        </span>
+                        <em>{option.trades?.[0] ?? "Crew"}</em>
+                      </AutocompleteItem>
+                    )}
+                  </AutocompleteList>
+                </AutocompletePopup>
+              </Autocomplete>
+            </div>
           </label>
           <label className="grid gap-1.5 text-sm">
             <span className="font-medium">Role / trade</span>

@@ -1762,6 +1762,99 @@
   padding: 12px;
 }
 
+.timeline-contractor-autocomplete {
+  min-width: 0;
+}
+
+.timeline-contractor-autocomplete [data-slot="autocomplete-input-group"] {
+  width: 100%;
+}
+
+.timeline-contractor-autocomplete-input {
+  width: 100% !important;
+}
+
+.timeline-contractor-autocomplete-popup {
+  overflow: hidden;
+  border-color: light-dark(oklch(0.400 0.120 240 / 0.34), oklch(0.72 0.1 240 / 0.34));
+  background:
+    linear-gradient(180deg, light-dark(oklch(0.985 0.010 235), oklch(0.105 0.022 255)), light-dark(oklch(0.985 0.010 235), oklch(0.065 0.016 258))),
+    linear-gradient(to right, light-dark(oklch(0.400 0.120 240 / 0.06), oklch(0.72 0.09 240 / 0.06)) 1px, transparent 1px);
+  background-size: auto, 24px 24px;
+  color: light-dark(oklch(0.220 0.020 258), oklch(0.9 0.018 260));
+  box-shadow:
+    0 22px 54px light-dark(oklch(0.18 0.03 258 / 0.275), oklch(0.02 0.012 258 / 0.5)),
+    inset 0 1px 0 light-dark(oklch(0.180 0.022 258 / 0.06), oklch(0.95 0.04 238 / 0.06));
+}
+
+.timeline-contractor-autocomplete-list {
+  min-width: min(380px, var(--anchor-width));
+  max-width: min(520px, var(--available-width));
+}
+
+.timeline-contractor-autocomplete-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  border-radius: 6px;
+  color: light-dark(oklch(0.220 0.020 258), oklch(0.9 0.018 260));
+  padding: 8px 10px;
+  text-align: left;
+  transition:
+    background-color var(--setup-fast) var(--setup-ease),
+    color var(--setup-fast) var(--setup-ease),
+    box-shadow var(--setup-fast) var(--setup-ease);
+}
+
+.timeline-contractor-autocomplete-item[data-highlighted] {
+  background: light-dark(oklch(0.400 0.120 240 / 0.16), oklch(0.72 0.12 238 / 0.16));
+  color: light-dark(oklch(0.180 0.022 258), oklch(0.96 0.012 260));
+  box-shadow: inset 0 0 0 1px light-dark(oklch(0.400 0.160 236 / 0.28), oklch(0.74 0.11 240 / 0.28));
+}
+
+.timeline-contractor-autocomplete-item span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.timeline-contractor-autocomplete-item strong {
+  overflow: hidden;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-contractor-autocomplete-item small {
+  overflow: hidden;
+  color: light-dark(oklch(0.420 0.040 258), oklch(0.66 0.035 260));
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-contractor-autocomplete-item em {
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.2), oklch(0.72 0.08 240 / 0.2));
+  border-radius: 5px;
+  color: light-dark(oklch(0.400 0.160 236), oklch(0.74 0.1 245));
+  font-style: normal;
+  font-size: 11px;
+  padding: 3px 6px;
+  white-space: nowrap;
+}
+
+.timeline-contractor-autocomplete-empty {
+  color: light-dark(oklch(0.420 0.040 258), oklch(0.64 0.033 260));
+  font-size: 12px;
+  padding: 12px;
+}
+
 .timeline-submilestone-card {
   position: relative;
   display: grid;
