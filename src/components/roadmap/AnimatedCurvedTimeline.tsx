@@ -1224,7 +1224,7 @@ export function AnimatedCurvedTimeline<TData = unknown>({
                   )}
                   {renderCard && (
                     <motion.div
-                      className="absolute z-10"
+                      className="timeline-card-layer absolute z-10"
                       initial={false}
                       layout="position"
                       style={{

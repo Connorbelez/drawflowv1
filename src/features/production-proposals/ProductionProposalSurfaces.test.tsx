@@ -703,6 +703,41 @@ describe("ProductionProposalReviewSurface", () => {
     expect(screen.queryByText("Submit proposal")).toBeNull();
   });
 
+  test("reuses the milestone budget worksheet in the production milestones tab", () => {
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          proposal: {
+            ...proposalDetail.proposal,
+            status: "submitted",
+          },
+          submilestones: [
+            {
+              budgetCents: 12_500_00,
+              durationDays: 2,
+              key: "forms",
+              milestoneKey: "foundation",
+              name: "Forms and pour",
+            },
+          ],
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+        timeline={<div data-testid="timeline-slot">Timeline workspace</div>}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Milestones" }));
+
+    expect(screen.getByTestId("production-proposal-milestones-tab")).toBeTruthy();
+    expect(screen.getByTestId("timeline-setup-budget-screen")).toBeTruthy();
+    expect(screen.getAllByText("Forms and pour").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("$12,500").length).toBeGreaterThan(0);
+  });
+
   test("renders contractor planning in its own review tab when provided", () => {
     render(
       <ProductionProposalReviewSurface
