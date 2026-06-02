@@ -22,6 +22,7 @@ import { Route as DemoWorkosRouteImport } from './routes/demo/workos'
 import { Route as DemoTanstackQueryRouteImport } from './routes/demo/tanstack-query'
 import { Route as DemoConvexRouteImport } from './routes/demo/convex'
 import { Route as BackofficeUserManagementRouteImport } from './routes/backoffice/user-management'
+import { Route as BackofficeOnboardContractorRouteImport } from './routes/backoffice/onboard-contractor'
 import { Route as BackofficeOnboardBuilderRouteImport } from './routes/backoffice/onboard-builder'
 import { Route as BuilderProposalsRouteRouteImport } from './routes/builder/proposals/route'
 import { Route as BuilderDemoRouteRouteImport } from './routes/builder/demo/route'
@@ -38,6 +39,7 @@ import { Route as DemoDrawflowIndexRouteImport } from './routes/demo/drawflow/in
 import { Route as BuilderProposalsIndexRouteImport } from './routes/builder/proposals/index'
 import { Route as BackofficeSettingsIndexRouteImport } from './routes/backoffice/settings/index'
 import { Route as BackofficeProposalsIndexRouteImport } from './routes/backoffice/proposals/index'
+import { Route as BackofficeContractorsIndexRouteImport } from './routes/backoffice/contractors/index'
 import { Route as BackofficeBuildersIndexRouteImport } from './routes/backoffice/builders/index'
 import { Route as NewsitevisitBuildIdSiteVisitTokenRouteImport } from './routes/newsitevisit.$buildId.$siteVisitToken'
 import { Route as DemoTimelineTimelineIdRouteImport } from './routes/demo/timeline/$timelineId'
@@ -47,10 +49,11 @@ import { Route as DemoDrawflowBuilderDashboardRouteImport } from './routes/demo/
 import { Route as DemoDrawflowAdminBuildDashboardRouteImport } from './routes/demo/drawflow/admin-build-dashboard'
 import { Route as DemoDrawflowActiveRouteImport } from './routes/demo/drawflow/active'
 import { Route as BuilderProposalsNewRouteImport } from './routes/builder/proposals/new'
+import { Route as BuilderContractorsContractorIdRouteImport } from './routes/builder/contractors/$contractorId'
 import { Route as BackofficeProposalsUnassignedRouteImport } from './routes/backoffice/proposals/unassigned'
 import { Route as BackofficeProposalsNewRouteImport } from './routes/backoffice/proposals/new'
 import { Route as BackofficeProposalsPlanIdRouteImport } from './routes/backoffice/proposals.$planId'
-import { Route as BackofficeContractorsContractorIdRouteImport } from './routes/backoffice/contractors/contractorId'
+import { Route as BackofficeContractorsContractorIdRouteImport } from './routes/backoffice/contractors/$contractorId'
 import { Route as BackofficeBuildersBuilderIdRouteImport } from './routes/backoffice/builders/builderId'
 import { Route as ApiAuthSignUpRouteImport } from './routes/api/auth/sign-up'
 import { Route as ApiAuthSignInRouteImport } from './routes/api/auth/sign-in'
@@ -133,6 +136,12 @@ const BackofficeUserManagementRoute =
   BackofficeUserManagementRouteImport.update({
     id: '/user-management',
     path: '/user-management',
+    getParentRoute: () => BackofficeRouteRoute,
+  } as any)
+const BackofficeOnboardContractorRoute =
+  BackofficeOnboardContractorRouteImport.update({
+    id: '/onboard-contractor',
+    path: '/onboard-contractor',
     getParentRoute: () => BackofficeRouteRoute,
   } as any)
 const BackofficeOnboardBuilderRoute =
@@ -220,6 +229,12 @@ const BackofficeProposalsIndexRoute =
     path: '/',
     getParentRoute: () => BackofficeProposalsRouteRoute,
   } as any)
+const BackofficeContractorsIndexRoute =
+  BackofficeContractorsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => BackofficeContractorsRouteRoute,
+  } as any)
 const BackofficeBuildersIndexRoute = BackofficeBuildersIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -268,6 +283,12 @@ const BuilderProposalsNewRoute = BuilderProposalsNewRouteImport.update({
   path: '/new',
   getParentRoute: () => BuilderProposalsRouteRoute,
 } as any)
+const BuilderContractorsContractorIdRoute =
+  BuilderContractorsContractorIdRouteImport.update({
+    id: '/contractors/$contractorId',
+    path: '/contractors/$contractorId',
+    getParentRoute: () => BuilderRouteRoute,
+  } as any)
 const BackofficeProposalsUnassignedRoute =
   BackofficeProposalsUnassignedRouteImport.update({
     id: '/unassigned',
@@ -287,8 +308,8 @@ const BackofficeProposalsPlanIdRoute =
   } as any)
 const BackofficeContractorsContractorIdRoute =
   BackofficeContractorsContractorIdRouteImport.update({
-    id: '/contractorId',
-    path: '/contractorId',
+    id: '/$contractorId',
+    path: '/$contractorId',
     getParentRoute: () => BackofficeContractorsRouteRoute,
   } as any)
 const BackofficeBuildersBuilderIdRoute =
@@ -410,6 +431,7 @@ export interface FileRoutesByFullPath {
   '/builder/demo': typeof BuilderDemoRouteRouteWithChildren
   '/builder/proposals': typeof BuilderProposalsRouteRouteWithChildren
   '/backoffice/onboard-builder': typeof BackofficeOnboardBuilderRoute
+  '/backoffice/onboard-contractor': typeof BackofficeOnboardContractorRoute
   '/backoffice/user-management': typeof BackofficeUserManagementRoute
   '/demo/convex': typeof DemoConvexRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
@@ -422,10 +444,11 @@ export interface FileRoutesByFullPath {
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
   '/api/auth/sign-up': typeof ApiAuthSignUpRoute
   '/backoffice/builders/builderId': typeof BackofficeBuildersBuilderIdRoute
-  '/backoffice/contractors/contractorId': typeof BackofficeContractorsContractorIdRoute
+  '/backoffice/contractors/$contractorId': typeof BackofficeContractorsContractorIdRoute
   '/backoffice/proposals/$planId': typeof BackofficeProposalsPlanIdRoute
   '/backoffice/proposals/new': typeof BackofficeProposalsNewRoute
   '/backoffice/proposals/unassigned': typeof BackofficeProposalsUnassignedRoute
+  '/builder/contractors/$contractorId': typeof BuilderContractorsContractorIdRoute
   '/builder/proposals/new': typeof BuilderProposalsNewRoute
   '/demo/drawflow/active': typeof DemoDrawflowActiveRoute
   '/demo/drawflow/admin-build-dashboard': typeof DemoDrawflowAdminBuildDashboardRoute
@@ -435,6 +458,7 @@ export interface FileRoutesByFullPath {
   '/demo/timeline/$timelineId': typeof DemoTimelineTimelineIdRoute
   '/newsitevisit/$buildId/$siteVisitToken': typeof NewsitevisitBuildIdSiteVisitTokenRoute
   '/backoffice/builders/': typeof BackofficeBuildersIndexRoute
+  '/backoffice/contractors/': typeof BackofficeContractorsIndexRoute
   '/backoffice/proposals/': typeof BackofficeProposalsIndexRoute
   '/backoffice/settings/': typeof BackofficeSettingsIndexRoute
   '/builder/proposals/': typeof BuilderProposalsIndexRoute
@@ -460,11 +484,11 @@ export interface FileRoutesByTo {
   '/callback': typeof CallbackRoute
   '/protected-access': typeof ProtectedAccessRoute
   '/backoffice/builds': typeof BackofficeBuildsRouteRouteWithChildren
-  '/backoffice/contractors': typeof BackofficeContractorsRouteRouteWithChildren
   '/backoffice/draws': typeof BackofficeDrawsRouteRoute
   '/backoffice/site-visits': typeof BackofficeSiteVisitsRouteRoute
   '/builder/demo': typeof BuilderDemoRouteRouteWithChildren
   '/backoffice/onboard-builder': typeof BackofficeOnboardBuilderRoute
+  '/backoffice/onboard-contractor': typeof BackofficeOnboardContractorRoute
   '/backoffice/user-management': typeof BackofficeUserManagementRoute
   '/demo/convex': typeof DemoConvexRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
@@ -474,10 +498,11 @@ export interface FileRoutesByTo {
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
   '/api/auth/sign-up': typeof ApiAuthSignUpRoute
   '/backoffice/builders/builderId': typeof BackofficeBuildersBuilderIdRoute
-  '/backoffice/contractors/contractorId': typeof BackofficeContractorsContractorIdRoute
+  '/backoffice/contractors/$contractorId': typeof BackofficeContractorsContractorIdRoute
   '/backoffice/proposals/$planId': typeof BackofficeProposalsPlanIdRoute
   '/backoffice/proposals/new': typeof BackofficeProposalsNewRoute
   '/backoffice/proposals/unassigned': typeof BackofficeProposalsUnassignedRoute
+  '/builder/contractors/$contractorId': typeof BuilderContractorsContractorIdRoute
   '/builder/proposals/new': typeof BuilderProposalsNewRoute
   '/demo/drawflow/active': typeof DemoDrawflowActiveRoute
   '/demo/drawflow/admin-build-dashboard': typeof DemoDrawflowAdminBuildDashboardRoute
@@ -487,6 +512,7 @@ export interface FileRoutesByTo {
   '/demo/timeline/$timelineId': typeof DemoTimelineTimelineIdRoute
   '/newsitevisit/$buildId/$siteVisitToken': typeof NewsitevisitBuildIdSiteVisitTokenRoute
   '/backoffice/builders': typeof BackofficeBuildersIndexRoute
+  '/backoffice/contractors': typeof BackofficeContractorsIndexRoute
   '/backoffice/proposals': typeof BackofficeProposalsIndexRoute
   '/backoffice/settings': typeof BackofficeSettingsIndexRoute
   '/builder/proposals': typeof BuilderProposalsIndexRoute
@@ -522,6 +548,7 @@ export interface FileRoutesById {
   '/builder/demo': typeof BuilderDemoRouteRouteWithChildren
   '/builder/proposals': typeof BuilderProposalsRouteRouteWithChildren
   '/backoffice/onboard-builder': typeof BackofficeOnboardBuilderRoute
+  '/backoffice/onboard-contractor': typeof BackofficeOnboardContractorRoute
   '/backoffice/user-management': typeof BackofficeUserManagementRoute
   '/demo/convex': typeof DemoConvexRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
@@ -534,10 +561,11 @@ export interface FileRoutesById {
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
   '/api/auth/sign-up': typeof ApiAuthSignUpRoute
   '/backoffice/builders/builderId': typeof BackofficeBuildersBuilderIdRoute
-  '/backoffice/contractors/contractorId': typeof BackofficeContractorsContractorIdRoute
+  '/backoffice/contractors/$contractorId': typeof BackofficeContractorsContractorIdRoute
   '/backoffice/proposals/$planId': typeof BackofficeProposalsPlanIdRoute
   '/backoffice/proposals/new': typeof BackofficeProposalsNewRoute
   '/backoffice/proposals/unassigned': typeof BackofficeProposalsUnassignedRoute
+  '/builder/contractors/$contractorId': typeof BuilderContractorsContractorIdRoute
   '/builder/proposals/new': typeof BuilderProposalsNewRoute
   '/demo/drawflow/active': typeof DemoDrawflowActiveRoute
   '/demo/drawflow/admin-build-dashboard': typeof DemoDrawflowAdminBuildDashboardRoute
@@ -547,6 +575,7 @@ export interface FileRoutesById {
   '/demo/timeline/$timelineId': typeof DemoTimelineTimelineIdRoute
   '/newsitevisit/$buildId/$siteVisitToken': typeof NewsitevisitBuildIdSiteVisitTokenRoute
   '/backoffice/builders/': typeof BackofficeBuildersIndexRoute
+  '/backoffice/contractors/': typeof BackofficeContractorsIndexRoute
   '/backoffice/proposals/': typeof BackofficeProposalsIndexRoute
   '/backoffice/settings/': typeof BackofficeSettingsIndexRoute
   '/builder/proposals/': typeof BuilderProposalsIndexRoute
@@ -585,6 +614,7 @@ export interface FileRouteTypes {
     | '/builder/demo'
     | '/builder/proposals'
     | '/backoffice/onboard-builder'
+    | '/backoffice/onboard-contractor'
     | '/backoffice/user-management'
     | '/demo/convex'
     | '/demo/tanstack-query'
@@ -597,10 +627,11 @@ export interface FileRouteTypes {
     | '/api/auth/sign-in'
     | '/api/auth/sign-up'
     | '/backoffice/builders/builderId'
-    | '/backoffice/contractors/contractorId'
+    | '/backoffice/contractors/$contractorId'
     | '/backoffice/proposals/$planId'
     | '/backoffice/proposals/new'
     | '/backoffice/proposals/unassigned'
+    | '/builder/contractors/$contractorId'
     | '/builder/proposals/new'
     | '/demo/drawflow/active'
     | '/demo/drawflow/admin-build-dashboard'
@@ -610,6 +641,7 @@ export interface FileRouteTypes {
     | '/demo/timeline/$timelineId'
     | '/newsitevisit/$buildId/$siteVisitToken'
     | '/backoffice/builders/'
+    | '/backoffice/contractors/'
     | '/backoffice/proposals/'
     | '/backoffice/settings/'
     | '/builder/proposals/'
@@ -635,11 +667,11 @@ export interface FileRouteTypes {
     | '/callback'
     | '/protected-access'
     | '/backoffice/builds'
-    | '/backoffice/contractors'
     | '/backoffice/draws'
     | '/backoffice/site-visits'
     | '/builder/demo'
     | '/backoffice/onboard-builder'
+    | '/backoffice/onboard-contractor'
     | '/backoffice/user-management'
     | '/demo/convex'
     | '/demo/tanstack-query'
@@ -649,10 +681,11 @@ export interface FileRouteTypes {
     | '/api/auth/sign-in'
     | '/api/auth/sign-up'
     | '/backoffice/builders/builderId'
-    | '/backoffice/contractors/contractorId'
+    | '/backoffice/contractors/$contractorId'
     | '/backoffice/proposals/$planId'
     | '/backoffice/proposals/new'
     | '/backoffice/proposals/unassigned'
+    | '/builder/contractors/$contractorId'
     | '/builder/proposals/new'
     | '/demo/drawflow/active'
     | '/demo/drawflow/admin-build-dashboard'
@@ -662,6 +695,7 @@ export interface FileRouteTypes {
     | '/demo/timeline/$timelineId'
     | '/newsitevisit/$buildId/$siteVisitToken'
     | '/backoffice/builders'
+    | '/backoffice/contractors'
     | '/backoffice/proposals'
     | '/backoffice/settings'
     | '/builder/proposals'
@@ -696,6 +730,7 @@ export interface FileRouteTypes {
     | '/builder/demo'
     | '/builder/proposals'
     | '/backoffice/onboard-builder'
+    | '/backoffice/onboard-contractor'
     | '/backoffice/user-management'
     | '/demo/convex'
     | '/demo/tanstack-query'
@@ -708,10 +743,11 @@ export interface FileRouteTypes {
     | '/api/auth/sign-in'
     | '/api/auth/sign-up'
     | '/backoffice/builders/builderId'
-    | '/backoffice/contractors/contractorId'
+    | '/backoffice/contractors/$contractorId'
     | '/backoffice/proposals/$planId'
     | '/backoffice/proposals/new'
     | '/backoffice/proposals/unassigned'
+    | '/builder/contractors/$contractorId'
     | '/builder/proposals/new'
     | '/demo/drawflow/active'
     | '/demo/drawflow/admin-build-dashboard'
@@ -721,6 +757,7 @@ export interface FileRouteTypes {
     | '/demo/timeline/$timelineId'
     | '/newsitevisit/$buildId/$siteVisitToken'
     | '/backoffice/builders/'
+    | '/backoffice/contractors/'
     | '/backoffice/proposals/'
     | '/backoffice/settings/'
     | '/builder/proposals/'
@@ -846,6 +883,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BackofficeUserManagementRouteImport
       parentRoute: typeof BackofficeRouteRoute
     }
+    '/backoffice/onboard-contractor': {
+      id: '/backoffice/onboard-contractor'
+      path: '/onboard-contractor'
+      fullPath: '/backoffice/onboard-contractor'
+      preLoaderRoute: typeof BackofficeOnboardContractorRouteImport
+      parentRoute: typeof BackofficeRouteRoute
+    }
     '/backoffice/onboard-builder': {
       id: '/backoffice/onboard-builder'
       path: '/onboard-builder'
@@ -958,6 +1002,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BackofficeProposalsIndexRouteImport
       parentRoute: typeof BackofficeProposalsRouteRoute
     }
+    '/backoffice/contractors/': {
+      id: '/backoffice/contractors/'
+      path: '/'
+      fullPath: '/backoffice/contractors/'
+      preLoaderRoute: typeof BackofficeContractorsIndexRouteImport
+      parentRoute: typeof BackofficeContractorsRouteRoute
+    }
     '/backoffice/builders/': {
       id: '/backoffice/builders/'
       path: '/'
@@ -1021,6 +1072,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BuilderProposalsNewRouteImport
       parentRoute: typeof BuilderProposalsRouteRoute
     }
+    '/builder/contractors/$contractorId': {
+      id: '/builder/contractors/$contractorId'
+      path: '/contractors/$contractorId'
+      fullPath: '/builder/contractors/$contractorId'
+      preLoaderRoute: typeof BuilderContractorsContractorIdRouteImport
+      parentRoute: typeof BuilderRouteRoute
+    }
     '/backoffice/proposals/unassigned': {
       id: '/backoffice/proposals/unassigned'
       path: '/unassigned'
@@ -1042,10 +1100,10 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BackofficeProposalsPlanIdRouteImport
       parentRoute: typeof BackofficeProposalsRouteRoute
     }
-    '/backoffice/contractors/contractorId': {
-      id: '/backoffice/contractors/contractorId'
-      path: '/contractorId'
-      fullPath: '/backoffice/contractors/contractorId'
+    '/backoffice/contractors/$contractorId': {
+      id: '/backoffice/contractors/$contractorId'
+      path: '/$contractorId'
+      fullPath: '/backoffice/contractors/$contractorId'
       preLoaderRoute: typeof BackofficeContractorsContractorIdRouteImport
       parentRoute: typeof BackofficeContractorsRouteRoute
     }
@@ -1217,12 +1275,14 @@ const BackofficeBuildsRouteRouteWithChildren =
 
 interface BackofficeContractorsRouteRouteChildren {
   BackofficeContractorsContractorIdRoute: typeof BackofficeContractorsContractorIdRoute
+  BackofficeContractorsIndexRoute: typeof BackofficeContractorsIndexRoute
 }
 
 const BackofficeContractorsRouteRouteChildren: BackofficeContractorsRouteRouteChildren =
   {
     BackofficeContractorsContractorIdRoute:
       BackofficeContractorsContractorIdRoute,
+    BackofficeContractorsIndexRoute: BackofficeContractorsIndexRoute,
   }
 
 const BackofficeContractorsRouteRouteWithChildren =
@@ -1273,6 +1333,7 @@ interface BackofficeRouteRouteChildren {
   BackofficeSettingsRouteRoute: typeof BackofficeSettingsRouteRouteWithChildren
   BackofficeSiteVisitsRouteRoute: typeof BackofficeSiteVisitsRouteRoute
   BackofficeOnboardBuilderRoute: typeof BackofficeOnboardBuilderRoute
+  BackofficeOnboardContractorRoute: typeof BackofficeOnboardContractorRoute
   BackofficeUserManagementRoute: typeof BackofficeUserManagementRoute
   BackofficeIndexRoute: typeof BackofficeIndexRoute
 }
@@ -1286,6 +1347,7 @@ const BackofficeRouteRouteChildren: BackofficeRouteRouteChildren = {
   BackofficeSettingsRouteRoute: BackofficeSettingsRouteRouteWithChildren,
   BackofficeSiteVisitsRouteRoute: BackofficeSiteVisitsRouteRoute,
   BackofficeOnboardBuilderRoute: BackofficeOnboardBuilderRoute,
+  BackofficeOnboardContractorRoute: BackofficeOnboardContractorRoute,
   BackofficeUserManagementRoute: BackofficeUserManagementRoute,
   BackofficeIndexRoute: BackofficeIndexRoute,
 }
@@ -1399,6 +1461,7 @@ interface BuilderRouteRouteChildren {
   BuilderDemoRouteRoute: typeof BuilderDemoRouteRouteWithChildren
   BuilderProposalsRouteRoute: typeof BuilderProposalsRouteRouteWithChildren
   BuilderIndexRoute: typeof BuilderIndexRoute
+  BuilderContractorsContractorIdRoute: typeof BuilderContractorsContractorIdRoute
   BuilderBuildsBuildIdIndexRoute: typeof BuilderBuildsBuildIdIndexRoute
 }
 
@@ -1406,6 +1469,7 @@ const BuilderRouteRouteChildren: BuilderRouteRouteChildren = {
   BuilderDemoRouteRoute: BuilderDemoRouteRouteWithChildren,
   BuilderProposalsRouteRoute: BuilderProposalsRouteRouteWithChildren,
   BuilderIndexRoute: BuilderIndexRoute,
+  BuilderContractorsContractorIdRoute: BuilderContractorsContractorIdRoute,
   BuilderBuildsBuildIdIndexRoute: BuilderBuildsBuildIdIndexRoute,
 }
 

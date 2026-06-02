@@ -235,6 +235,36 @@ const productionBuildDrawStatusValidator = v.union(
   v.literal("released")
 );
 
+const contractorKindValidator = v.union(
+  v.literal("company"),
+  v.literal("individual")
+);
+
+const contractorPayRateUnitValidator = v.union(
+  v.literal("hour"),
+  v.literal("day"),
+  v.literal("fixed")
+);
+
+const contractorOnboardingStatusValidator = v.union(
+  v.literal("profile_only"),
+  v.literal("invited"),
+  v.literal("account_linked")
+);
+
+const milestoneContractorAssignmentStatusValidator = v.union(
+  v.literal("planned"),
+  v.literal("active"),
+  v.literal("completed"),
+  v.literal("removed")
+);
+
+const contractorQualityRatingSourceValidator = v.union(
+  v.literal("builder_evidence"),
+  v.literal("site_visit"),
+  v.literal("backoffice")
+);
+
 const productionOutboxStatusValidator = v.union(
   v.literal("pending"),
   v.literal("processed"),
@@ -1285,16 +1315,87 @@ export default defineSchema({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
     name: v.string(),
+    kind: v.optional(contractorKindValidator),
+    city: v.optional(v.string()),
     email: v.optional(v.string()),
     phone: v.optional(v.string()),
     trades: v.array(v.string()),
+    defaultPayRateCents: v.optional(v.number()),
+    defaultPayRateUnit: v.optional(contractorPayRateUnitValidator),
     accountWorkosUserId: v.optional(v.string()),
+    onboardingStatus: v.optional(contractorOnboardingStatusValidator),
     status: v.union(v.literal("active"), v.literal("inactive")),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_brokerage", ["brokerageId"])
     .index("by_account_user", ["accountWorkosUserId"]),
+  contractorCapabilities: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    contractorId: v.id("contractorProfiles"),
+    capabilityKey: v.string(),
+    label: v.string(),
+    trade: v.optional(v.string()),
+    milestoneArchetypeKey: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_contractor", ["contractorId"])
+    .index("by_brokerage_capability", ["brokerageId", "capabilityKey"])
+    .index("by_brokerage_archetype", ["brokerageId", "milestoneArchetypeKey"]),
+  contractorEquipment: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    contractorId: v.id("contractorProfiles"),
+    equipmentKey: v.string(),
+    name: v.string(),
+    quantity: v.number(),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_contractor", ["contractorId"])
+    .index("by_brokerage_equipment", ["brokerageId", "equipmentKey"]),
+  contractorAvailabilityWindows: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    contractorId: v.id("contractorProfiles"),
+    dayOfWeek: v.number(),
+    startMinute: v.number(),
+    endMinute: v.number(),
+    timezone: v.string(),
+    effectiveStartDate: v.optional(v.string()),
+    effectiveEndDate: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_contractor", ["contractorId"])
+    .index("by_brokerage_weekday", ["brokerageId", "dayOfWeek"]),
+  contractorIdentityLinks: defineTable({
+    organizationId: v.string(),
+    primaryBrokerageId: v.id("brokerages"),
+    primaryContractorId: v.id("contractorProfiles"),
+    primaryOrganizationId: v.string(),
+    linkedBrokerageId: v.id("brokerages"),
+    linkedContractorId: v.id("contractorProfiles"),
+    linkedOrganizationId: v.string(),
+    status: v.union(
+      v.literal("suggested"),
+      v.literal("verified"),
+      v.literal("rejected")
+    ),
+    confidence: v.optional(v.number()),
+    reason: v.optional(v.string()),
+    createdByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_primary", ["primaryContractorId"])
+    .index("by_linked", ["linkedContractorId"])
+    .index("by_primary_linked", ["primaryContractorId", "linkedContractorId"])
+    .index("by_primary_brokerage", ["primaryBrokerageId"]),
   milestoneArchetypes: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -1534,6 +1635,52 @@ export default defineSchema({
   })
     .index("by_proposal", ["proposalId"])
     .index("by_milestone", ["proposalMilestoneId"]),
+  proposalContractorAssignments: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    contractorId: v.id("contractorProfiles"),
+    role: v.string(),
+    status: v.union(v.literal("active"), v.literal("inactive")),
+    startDay: v.optional(v.number()),
+    endDay: v.optional(v.number()),
+    agreedRateCents: v.optional(v.number()),
+    agreedRateUnit: v.optional(contractorPayRateUnitValidator),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_proposal", ["proposalId"])
+    .index("by_proposal_contractor", ["proposalId", "contractorId"])
+    .index("by_contractor", ["contractorId"])
+    .index("by_brokerage", ["brokerageId"]),
+  proposalMilestoneContractorAssignments: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    contractorId: v.id("contractorProfiles"),
+    proposalContractorAssignmentId: v.id("proposalContractorAssignments"),
+    proposalMilestoneId: v.id("proposalMilestones"),
+    milestoneKey: v.string(),
+    proposalSubmilestoneId: v.optional(v.id("proposalSubmilestones")),
+    submilestoneKey: v.optional(v.string()),
+    role: v.string(),
+    status: milestoneContractorAssignmentStatusValidator,
+    agreedRateCents: v.optional(v.number()),
+    agreedRateUnit: v.optional(contractorPayRateUnitValidator),
+    estimatedHours: v.optional(v.number()),
+    estimatedCostCents: v.optional(v.number()),
+    note: v.optional(v.string()),
+    assignedByWorkosUserId: v.string(),
+    assignedAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_proposal", ["proposalId"])
+    .index("by_proposal_milestone", ["proposalId", "milestoneKey"])
+    .index("by_contractor", ["contractorId"])
+    .index("by_contractor_proposal", ["contractorId", "proposalId"])
+    .index("by_submilestone", ["proposalId", "milestoneKey", "submilestoneKey"]),
   proposalDrawScheduleRows: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -1593,6 +1740,8 @@ export default defineSchema({
     sizeBytes: v.number(),
     storageId: v.optional(v.id("_storage")),
     tag: v.string(),
+    submilestoneKey: v.optional(v.string()),
+    contractorIds: v.optional(v.array(v.id("contractorProfiles"))),
     locationVerified: v.boolean(),
     source: v.string(),
     createdAt: v.number(),
@@ -1800,6 +1949,8 @@ export default defineSchema({
     sizeBytes: v.number(),
     storageId: v.optional(v.id("_storage")),
     tag: v.string(),
+    submilestoneKey: v.optional(v.string()),
+    contractorIds: v.optional(v.array(v.id("contractorProfiles"))),
     locationVerified: v.boolean(),
     source: v.string(),
     createdAt: v.number(),
@@ -1827,11 +1978,69 @@ export default defineSchema({
     buildId: v.id("activeBuilds"),
     contractorId: v.id("contractorProfiles"),
     role: v.string(),
+    status: v.optional(v.union(v.literal("active"), v.literal("inactive"))),
+    startDate: v.optional(v.string()),
+    endDate: v.optional(v.string()),
+    agreedRateCents: v.optional(v.number()),
+    agreedRateUnit: v.optional(contractorPayRateUnitValidator),
+    notes: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_build", ["buildId"])
     .index("by_build_contractor", ["buildId", "contractorId"]),
+  milestoneContractorAssignments: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    contractorId: v.id("contractorProfiles"),
+    buildContractorAssignmentId: v.id("buildContractorAssignments"),
+    buildMilestoneId: v.id("buildMilestones"),
+    milestoneKey: v.string(),
+    buildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
+    submilestoneKey: v.optional(v.string()),
+    role: v.string(),
+    status: milestoneContractorAssignmentStatusValidator,
+    postHoc: v.boolean(),
+    agreedRateCents: v.optional(v.number()),
+    agreedRateUnit: v.optional(contractorPayRateUnitValidator),
+    estimatedHours: v.optional(v.number()),
+    actualHours: v.optional(v.number()),
+    estimatedCostCents: v.optional(v.number()),
+    actualCostCents: v.optional(v.number()),
+    costNotes: v.optional(v.string()),
+    note: v.optional(v.string()),
+    assignedByWorkosUserId: v.string(),
+    assignedAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_build", ["buildId"])
+    .index("by_build_milestone", ["buildId", "milestoneKey"])
+    .index("by_contractor", ["contractorId"])
+    .index("by_contractor_build", ["contractorId", "buildId"])
+    .index("by_submilestone", ["buildId", "milestoneKey", "submilestoneKey"]),
+  contractorQualityRatings: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    contractorId: v.id("contractorProfiles"),
+    buildMilestoneId: v.id("buildMilestones"),
+    milestoneKey: v.string(),
+    buildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
+    submilestoneKey: v.optional(v.string()),
+    rating: v.number(),
+    source: contractorQualityRatingSourceValidator,
+    note: v.optional(v.string()),
+    sourceEvidenceKey: v.optional(v.string()),
+    sourceVisitId: v.optional(v.string()),
+    createdByWorkosUserId: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_contractor", ["contractorId"])
+    .index("by_contractor_build", ["contractorId", "buildId"])
+    .index("by_build", ["buildId"])
+    .index("by_milestone", ["buildId", "milestoneKey"]),
   buildBrokerAssignments: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),

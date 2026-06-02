@@ -62,9 +62,10 @@ export function NavUser({
     signOut,
     switchToOrganization,
   } = useAuth();
+  const hasAuthenticatedUser = Boolean(user.email.trim());
   const organizationResult = useQuery(
     api.workosProjection.listCurrentUserOrganizations,
-    {}
+    hasAuthenticatedUser ? {} : "skip"
   );
   const [switchingOrganizationId, setSwitchingOrganizationId] = useState<
     string | null

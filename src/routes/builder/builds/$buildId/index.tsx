@@ -8,6 +8,11 @@ import {
   type ProductionBuildDetailActions,
 } from "#/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx";
 import type { BuildDetailSubTab } from "#/features/backoffice-build-detail/BuildDetailTabs.tsx";
+import {
+  getVisualParityActiveBuildDetail,
+  getVisualParityActiveBuildTimelineWorkspace,
+  isProductionVisualParityFixtureEnabled,
+} from "#/features/production-proposals/visualParityFixtures.ts";
 import { api } from "../../../../../convex/_generated/api";
 
 type BuilderBuildSearch = {
@@ -46,23 +51,37 @@ function BuilderBuildRoute() {
   const search = Route.useSearch();
   const navigate = useNavigate();
   const workosOrganizationId = context.organizationId as string;
+  const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
   const productionBuild = useQuery(
     api.production_proposals.getActiveBuildDetailByString,
-    {
-      buildId,
-      workosOrganizationId,
-    },
+    visualFixtureEnabled
+      ? "skip"
+      : {
+          buildId,
+          workosOrganizationId,
+        },
   );
-  const activeBuildIdForWorkspace = productionBuild?.build?._id as any;
+  const visualBuild = visualFixtureEnabled
+    ? getVisualParityActiveBuildDetail(buildId)
+    : null;
+  const effectiveProductionBuild = visualFixtureEnabled
+    ? visualBuild
+    : productionBuild;
+  const activeBuildIdForWorkspace = effectiveProductionBuild?.build?._id as any;
   const timelineWorkspace = useQuery(
     (api as any).production_proposals.getActiveBuildTimelineWorkspace,
-    productionBuild
+    visualFixtureEnabled
+      ? "skip"
+      : effectiveProductionBuild
       ? {
           buildId: activeBuildIdForWorkspace,
           workosOrganizationId,
         }
       : "skip",
   );
+  const effectiveTimelineWorkspace = visualFixtureEnabled
+    ? getVisualParityActiveBuildTimelineWorkspace(buildId)
+    : timelineWorkspace;
   const requestDraw = useMutation(api.production_proposals.requestActiveBuildDraw);
   const requestFacilityChange = useMutation(
     (api as any).production_proposals.requestActiveBuildFacilityChange,
@@ -93,7 +112,7 @@ function BuilderBuildRoute() {
       to: "/builder/builds/$buildId",
     });
 
-  if (productionBuild === undefined) {
+  if (effectiveProductionBuild === undefined) {
     return (
       <main className="grid min-h-[24rem] place-items-center bg-muted/30 p-4">
         <Frame>
@@ -103,7 +122,7 @@ function BuilderBuildRoute() {
     );
   }
 
-  if (!productionBuild) {
+  if (!effectiveProductionBuild) {
     return (
       <main className="grid min-h-[24rem] place-items-center bg-muted/30 p-4">
         <Frame>
@@ -119,7 +138,7 @@ function BuilderBuildRoute() {
     );
   }
 
-  const detail = productionBuild as ProductionBuildDetail;
+  const detail = effectiveProductionBuild as ProductionBuildDetail;
   const activeBuildId = detail.build._id as any;
   const actions: ProductionBuildDetailActions = {
     requestDraw: (draw) =>
@@ -137,12 +156,22 @@ function BuilderBuildRoute() {
         workosOrganizationId,
       }),
     startMilestoneWork: () => undefined,
-    submitMilestoneCompletion: ({ milestoneKey, note }: any) =>
+    submitMilestoneCompletion: ({
+      actualCostCents,
+      completedDay,
+      milestoneKey,
+      note,
+      qualityNote,
+      qualityRating,
+    }: any) =>
       submitMilestoneCompletion({
-        actualCostCents: 0,
+        actualCostCents,
         buildId: activeBuildId,
+        completedDay: completedDay ?? 0,
         milestoneKey,
         note,
+        qualityNote,
+        qualityRating,
         workosOrganizationId,
       }),
   } as ProductionBuildDetailActions;
@@ -152,13 +181,17 @@ function BuilderBuildRoute() {
       actions={actions}
       activeBuildId={activeBuildId}
       activeTab={search.tab ?? "details"}
+      contractorDetailHrefFor={(contractorId) =>
+        `/builder/contractors/${contractorId}`
+      }
       detail={detail}
       milestoneKey={search.milestone}
       onChangeMilestone={onChangeMilestone}
       onChangeRail={onChangeRail}
       onChangeTab={onChangeTab}
       rail={search.rail}
-      timelineWorkspace={timelineWorkspace as any}
+      timelineWorkspace={effectiveTimelineWorkspace as any}
+      viewerRole="builder"
       workosOrganizationId={workosOrganizationId}
     />
   );

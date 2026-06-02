@@ -71,6 +71,11 @@ export const navGroups: SidebarNavGroup[] = [
         icon: icon(UserAdd01Icon),
       },
       {
+        title: "Onboard contractor",
+        to: "/backoffice/onboard-contractor",
+        icon: icon(UserAdd01Icon),
+      },
+      {
         title: "Contractors",
         to: "/backoffice/contractors",
         icon: icon(ConstructionIcon),

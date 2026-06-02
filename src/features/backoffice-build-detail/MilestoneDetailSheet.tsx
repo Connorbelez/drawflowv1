@@ -29,6 +29,7 @@ interface MilestoneDetailSheetProps {
   assignmentsSourceLabel?: string;
   eventsSourceLabel?: string;
   onApprove: (milestoneKey: string, note?: string) => Promise<void> | void;
+  onAssignContractor?: (milestoneKey: string) => void;
   onRequestInfo?: (milestoneKey: string, note: string) => void;
   onAssignVisit?: (milestoneKey: string) => void;
   onReject?: (milestoneKey: string) => void;
@@ -43,6 +44,7 @@ export function MilestoneDetailSheet({
   assignmentsSourceLabel = "demo_milestoneContractors",
   eventsSourceLabel = "demo_timelineEvents",
   onApprove,
+  onAssignContractor,
   onRequestInfo,
   onAssignVisit,
   onReject,
@@ -222,6 +224,16 @@ export function MilestoneDetailSheet({
             {pending ? "Approving…" : "Approve milestone"}
           </button>
           <div className="flex flex-col gap-2 sm:flex-row">
+            {onAssignContractor ? (
+              <button
+                className="flex-1 rounded-md border border-border bg-card px-3 py-2 text-xs hover:bg-accent"
+                data-testid="milestone-detail-sheet-assign-contractor"
+                onClick={() => onAssignContractor(data.milestoneKey)}
+                type="button"
+              >
+                Assign contractor
+              </button>
+            ) : null}
             <button
               className="flex-1 rounded-md border border-border bg-card px-3 py-2 text-xs hover:bg-accent"
               data-testid="milestone-detail-sheet-request-info"

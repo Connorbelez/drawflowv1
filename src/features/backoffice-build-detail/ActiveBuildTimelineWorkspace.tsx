@@ -398,6 +398,7 @@ function normalizeSubmilestoneInput(input: any, index: number) {
 
 function normalizeEvidenceAssetInput(input: any) {
   return {
+    contractorIds: input.contractorIds,
     evidenceKey: input.evidenceKey,
     fileName: input.fileName,
     label: input.label,
@@ -407,6 +408,7 @@ function normalizeEvidenceAssetInput(input: any) {
     sizeBytes: input.sizeBytes,
     source: input.source,
     storageId: input.storageId as Id<"_storage"> | undefined,
+    submilestoneKey: input.submilestoneKey,
     tag: input.tag,
   };
 }

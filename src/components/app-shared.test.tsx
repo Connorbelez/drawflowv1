@@ -16,6 +16,7 @@ describe("navGroups", () => {
       "Builds",
       "Builders",
       "Onboard builder",
+      "Onboard contractor",
       "Contractors",
       "Draws",
       "Site Visits",

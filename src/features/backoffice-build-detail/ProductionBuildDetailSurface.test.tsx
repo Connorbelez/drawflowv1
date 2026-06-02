@@ -385,6 +385,83 @@ describe("ProductionBuildDetailSurface", () => {
     expect(onChangeMilestone).toHaveBeenCalledWith("foundation");
   });
 
+  test("captures assignment cost data from the milestone contractor drawer", async () => {
+    const assignContractorToMilestone = vi.fn();
+
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ assignContractorToMilestone }}
+        activeTab="details"
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="open"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("kanban-card-assign-contractor-foundation"));
+    expect(screen.getByText("Cost tracking")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Available Concrete"));
+    fireEvent.change(screen.getByPlaceholderText("Foundation lead"), {
+      target: { value: "Concrete lead" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("90.00"), {
+      target: { value: "95" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("48"), {
+      target: { value: "42.5" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("4185.00"), {
+      target: { value: "4010" },
+    });
+    fireEvent.change(
+      screen.getByPlaceholderText("Crew finished early; no lift rental needed."),
+      {
+        target: { value: "Crew finished under estimate." },
+      },
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Attach contractor/i }));
+
+    await waitFor(() =>
+      expect(assignContractorToMilestone).toHaveBeenCalledWith({
+        assignmentCost: {
+          actualCostCents: 401_000,
+          actualHours: undefined,
+          agreedRateCents: 9_500,
+          agreedRateUnit: "hour",
+          costNotes: "Crew finished under estimate.",
+          estimatedCostCents: undefined,
+          estimatedHours: 42.5,
+        },
+        contractorId: "contractor-available-01",
+        milestoneKey: "foundation",
+        role: "Concrete lead",
+      }),
+    );
+  });
+
+  test("links attached contractors to the provided detail route", () => {
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        contractorDetailHrefFor={(contractorId) =>
+          `/builder/contractors/${contractorId}`
+        }
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="open"
+      />,
+    );
+
+    expect(
+      screen
+        .getByTestId("build-detail-contractor-link-contractor-01")
+        .getAttribute("href"),
+    ).toBe("/builder/contractors/contractor-01");
+  });
+
   test("derives scheduled ready milestones out of backlog without marking work started", () => {
     render(
       <ProductionBuildDetailSurface

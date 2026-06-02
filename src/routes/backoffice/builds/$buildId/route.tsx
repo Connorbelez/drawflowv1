@@ -8,6 +8,11 @@ import {
   type ProductionBuildDetail,
   type ProductionBuildDetailActions,
 } from "#/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx";
+import {
+  getVisualParityActiveBuildDetail,
+  getVisualParityActiveBuildTimelineWorkspace,
+  isProductionVisualParityFixtureEnabled,
+} from "#/features/production-proposals/visualParityFixtures.ts";
 import { api } from "../../../../../convex/_generated/api";
 
 type BuildDetailSearch = {
@@ -45,6 +50,7 @@ function RouteComponent() {
   const context = Route.useRouteContext();
   const search = Route.useSearch();
   const navigate = useNavigate();
+  const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
   const addDocument = useMutation(api.production_proposals.addActiveBuildDocument);
   const addNote = useMutation(api.production_proposals.addActiveBuildNote);
   const approveDraw = useMutation(api.production_proposals.approveActiveBuildDraw);
@@ -53,6 +59,9 @@ function RouteComponent() {
   );
   const assignSiteVisit = useMutation(
     api.production_proposals.assignActiveBuildSiteVisit,
+  );
+  const assignContractorToMilestone = useMutation(
+    (api as any).production_proposals.assignActiveBuildContractorToMilestone,
   );
   const attachContractor = useMutation(
     api.production_proposals.attachActiveBuildContractor,
@@ -80,21 +89,34 @@ function RouteComponent() {
   );
   const productionBuild = useQuery(
     api.production_proposals.getActiveBuildDetailByString,
-    {
-      buildId,
-      workosOrganizationId: context.organizationId as string,
-    },
+    visualFixtureEnabled
+      ? "skip"
+      : {
+          buildId,
+          workosOrganizationId: context.organizationId as string,
+        },
   );
-  const activeBuildIdForWorkspace = productionBuild?.build?._id as any;
+  const visualBuild = visualFixtureEnabled
+    ? getVisualParityActiveBuildDetail(buildId)
+    : null;
+  const effectiveProductionBuild = visualFixtureEnabled
+    ? visualBuild
+    : productionBuild;
+  const activeBuildIdForWorkspace = effectiveProductionBuild?.build?._id as any;
   const timelineWorkspace = useQuery(
     (api as any).production_proposals.getActiveBuildTimelineWorkspace,
-    productionBuild
+    visualFixtureEnabled
+      ? "skip"
+      : effectiveProductionBuild
       ? {
           buildId: activeBuildIdForWorkspace,
           workosOrganizationId: context.organizationId as string,
         }
       : "skip",
   );
+  const effectiveTimelineWorkspace = visualFixtureEnabled
+    ? getVisualParityActiveBuildTimelineWorkspace(buildId)
+    : timelineWorkspace;
 
   const onChangeTab = (tab: BuildDetailSubTab) =>
     navigate({
@@ -120,7 +142,7 @@ function RouteComponent() {
       replace: true,
     });
 
-  if (productionBuild === undefined) {
+  if (effectiveProductionBuild === undefined) {
     return (
       <main className="grid min-h-[24rem] place-items-center bg-muted/30 p-4">
         <Frame>
@@ -132,8 +154,8 @@ function RouteComponent() {
     );
   }
 
-  if (productionBuild) {
-    const detail = productionBuild as ProductionBuildDetail;
+  if (effectiveProductionBuild) {
+    const detail = effectiveProductionBuild as ProductionBuildDetail;
     const activeBuildId = detail.build._id as any;
     const workosOrganizationId = context.organizationId as string;
     const actions: ProductionBuildDetailActions = {
@@ -175,6 +197,22 @@ function RouteComponent() {
           requestedDay: 0,
           workosOrganizationId,
         }),
+      assignContractorToMilestone: ({
+        assignmentCost,
+        contractorId,
+        milestoneKey,
+        role,
+        submilestoneKeys,
+      }) =>
+        assignContractorToMilestone({
+          ...assignmentCost,
+          buildId: activeBuildId,
+          contractorId: contractorId as any,
+          milestoneKey,
+          role,
+          submilestoneKeys,
+          workosOrganizationId,
+        }),
       attachContractor: ({ contractorId, role }) =>
         attachContractor({
           buildId: activeBuildId,
@@ -184,16 +222,33 @@ function RouteComponent() {
         }),
       createAndAttachContractor: async ({ contractor, role }) => {
         const contractorId = await createContractor({
+          ...contractor,
           brokerageId: detail.build.brokerageId as any,
-          email: contractor.email,
-          name: contractor.name,
-          phone: contractor.phone,
-          trades: contractor.trades,
           workosOrganizationId,
         });
         await attachContractor({
           buildId: activeBuildId,
           contractorId,
+          role,
+          workosOrganizationId,
+        });
+      },
+      createAndAssignContractor: async ({
+        assignmentCost,
+        contractor,
+        milestoneKey,
+        role,
+      }) => {
+        const contractorId = await createContractor({
+          ...contractor,
+          brokerageId: detail.build.brokerageId as any,
+          workosOrganizationId,
+        });
+        await assignContractorToMilestone({
+          ...assignmentCost,
+          buildId: activeBuildId,
+          contractorId,
+          milestoneKey,
           role,
           workosOrganizationId,
         });
@@ -260,13 +315,16 @@ function RouteComponent() {
         actions={actions}
         activeBuildId={activeBuildId}
         activeTab={search.tab ?? "details"}
+        contractorDetailHrefFor={(contractorId) =>
+          `/backoffice/contractors/${contractorId}`
+        }
         detail={detail}
         milestoneKey={search.milestone}
         onChangeMilestone={onChangeMilestone}
         onChangeRail={onChangeRail}
         onChangeTab={onChangeTab}
         rail={search.rail}
-        timelineWorkspace={timelineWorkspace as any}
+        timelineWorkspace={effectiveTimelineWorkspace as any}
         workosOrganizationId={workosOrganizationId}
       />
     );

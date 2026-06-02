@@ -106,6 +106,8 @@ export interface DemoCompletionClaim {
   actualCost?: number;
   completedDay: number;
   note?: string;
+  qualityNote?: string;
+  qualityRating?: number;
   submittedAt: string;
 }
 
@@ -481,6 +483,11 @@ function normalizeCompletionClaim(
       ? undefined
       : Math.max(0, Math.round(normalizeNumber(claim.actualCost, 0)));
   const note = claim.note?.trim();
+  const qualityNote = claim.qualityNote?.trim();
+  const qualityRating =
+    claim.qualityRating === undefined
+      ? undefined
+      : Math.max(1, Math.min(5, Math.round(normalizeNumber(claim.qualityRating, 0))));
 
   return {
     ...(actualCost === undefined ? {} : { actualCost }),
@@ -489,6 +496,8 @@ function normalizeCompletionClaim(
       Math.round(normalizeNumber(claim.completedDay, 0))
     ),
     ...(note ? { note } : {}),
+    ...(qualityNote ? { qualityNote } : {}),
+    ...(qualityRating === undefined ? {} : { qualityRating }),
     submittedAt: claim.submittedAt.trim() || new Date(0).toISOString(),
   };
 }

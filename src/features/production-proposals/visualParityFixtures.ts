@@ -3,6 +3,7 @@ import type {
   ProductionProposalDetail,
   ProductionProposalSettings,
 } from "./ProductionProposalSurfaces.tsx";
+import type { ProductionBuildDetail } from "#/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx";
 import type { ProductionProposalTemplateProjection } from "./timelineSetupAdapter.ts";
 import type { ConvexTimelineWorkspace } from "#/features/timeline-workspace/-timeline-convex-adapter.ts";
 
@@ -11,6 +12,7 @@ export const VISUAL_PARITY_PROPOSAL_ID = "proposal_visual_parity";
 export const VISUAL_PARITY_SUBMITTED_PROPOSAL_ID = "proposal_visual_submitted";
 export const VISUAL_PARITY_APPROVED_PROPOSAL_ID = "proposal_visual_approved";
 export const VISUAL_PARITY_CLOSED_PROPOSAL_ID = "proposal_visual_closed";
+export const VISUAL_PARITY_ACTIVE_BUILD_ID = "build_visual_hamilton";
 
 type VisualParityProposalStatus = "approved" | "closed" | "draft" | "submitted";
 
@@ -328,6 +330,97 @@ export function getVisualParityTimelineWorkspace(
         x: 32,
       },
     ],
+    contractorPlanning: {
+      allocationCalendar: [
+        {
+          assignmentId: "proposal-assign-visual-exterior",
+          contractorId: "contractor_visual_masonry",
+          contractorName: "Northstar Masonry",
+          dayEnd: 88,
+          dayStart: 72,
+          label: "Exterior envelope / Masonry lead",
+          milestoneKey: "exterior",
+        },
+      ],
+      availableContractors: [
+        {
+          _id: "contractor_visual_framing",
+          city: "Hamilton, ON",
+          defaultPayRateCents: 8_900,
+          defaultPayRateUnit: "hour",
+          name: "Ironline Framing Co.",
+          trades: ["framing", "carpentry"],
+        },
+      ],
+      conflicts: [],
+      equipmentSchedule: [
+        {
+          contractorName: "Northstar Masonry",
+          dayEnd: 88,
+          dayStart: 72,
+          equipmentKey: "telehandler",
+          name: "Telehandler",
+          quantity: 1,
+        },
+      ],
+      materialSignals: [
+        { key: "brick", label: "Brick siding", source: "permit_and_roadmap" },
+        { key: "masonry", label: "Masonry", source: "permit_and_roadmap" },
+      ],
+      milestoneAssignments: [
+        {
+          _id: "proposal-assign-visual-exterior",
+          contractorId: "contractor_visual_masonry",
+          contractorName: "Northstar Masonry",
+          estimatedCostCents: 138_000_00,
+          estimatedHours: 184,
+          milestoneKey: "exterior",
+          milestoneName: "Exterior envelope",
+          role: "Masonry lead",
+          status: "planned",
+          submilestoneKey: "brick-veneer",
+          submilestoneName: "Brick veneer",
+        },
+      ],
+      proposalContractors: [
+        {
+          _id: "proposal-contractor-visual-masonry",
+          agreedRateCents: 9_500,
+          agreedRateUnit: "hour",
+          city: "Toronto, ON",
+          contractorId: "contractor_visual_masonry",
+          defaultPayRateCents: 9_500,
+          defaultPayRateUnit: "hour",
+          name: "Northstar Masonry",
+          role: "Masonry lead",
+          status: "active",
+          trades: ["masonry", "brick"],
+        },
+      ],
+      recommendations: [
+        {
+          contractorId: "contractor_visual_masonry",
+          matchedSignals: [
+            { key: "brick", label: "Brick siding" },
+            { key: "masonry", label: "Masonry" },
+          ],
+          name: "Northstar Masonry",
+          rateCents: 9_500,
+          score: 80,
+          trades: ["masonry", "brick"],
+        },
+      ],
+      utilization: [
+        {
+          assignedDays: 16,
+          contractorId: "contractor_visual_masonry",
+          name: "Northstar Masonry",
+          scheduledHours: 184,
+          utilizationPercent: 72,
+          weeklyWindowHours: 64,
+        },
+      ],
+    },
     draws: draws.map((draw) => ({
       amountCents: draw.amountCents,
       customDate: true,
@@ -422,6 +515,198 @@ export function getVisualParityTimelineWorkspace(
     },
     proposal: detail.proposal,
   };
+}
+
+export function getVisualParityActiveBuildDetail(
+  buildId = VISUAL_PARITY_ACTIVE_BUILD_ID,
+): ProductionBuildDetail | null {
+  if (!buildId.includes("visual")) {
+    return null;
+  }
+
+  const detail = getVisualParityProposalDetail(VISUAL_PARITY_CLOSED_PROPOSAL_ID);
+  const workspace = getVisualParityTimelineWorkspace(
+    VISUAL_PARITY_CLOSED_PROPOSAL_ID,
+  );
+  const now = Date.UTC(2026, 4, 27, 14, 30);
+
+  return {
+    auditEvents: [
+      {
+        _id: "active-build-audit-visual-1",
+        actorPersona: "FairLend Principal Broker",
+        afterSummary: "Proposal contractors copied forward at offline closing.",
+        createdAt: now - 86_400_000,
+        entityLabel: "Hamilton Infill Build",
+        entityType: "activeBuild",
+        eventType: "active_build.contractors.copied_forward",
+      },
+    ],
+    availableContractors:
+      workspace.contractorPlanning?.availableContractors?.map((contractor) => ({
+        _id: contractor._id,
+        city: contractor.city,
+        defaultPayRateCents: contractor.defaultPayRateCents,
+        defaultPayRateUnit: contractor.defaultPayRateUnit,
+        name: contractor.name,
+        trades: contractor.trades,
+      })) ?? [],
+    build: {
+      _id: buildId,
+      brokerageId: "brokerage_visual_parity",
+      buildName: detail.proposal.buildName,
+      createdAt: now - 259_200_000,
+      location: detail.proposal.location,
+      startDate: "2026-06-03",
+      status: "active",
+      totalBudgetCents: detail.proposal.totalBudgetCents,
+      updatedAt: now,
+    },
+    capitalPlan: {
+      borrowerCoPayBps: detail.proposal.borrowerCoPayBps,
+      borrowerWorkingCapitalLimitCents:
+        detail.proposal.borrowerWorkingCapitalLimitCents,
+      lenderDrawPolicyLimitCents: detail.proposal.lenderDrawPolicyLimitCents,
+      version: 1,
+    },
+    contractors:
+      workspace.contractorPlanning?.proposalContractors?.map((contractor) => ({
+        _id: `active-assignment-${contractor.contractorId}`,
+        agreedRateCents: contractor.agreedRateCents,
+        agreedRateUnit: contractor.agreedRateUnit,
+        city: contractor.city,
+        contractorId: contractor.contractorId,
+        defaultPayRateCents: contractor.defaultPayRateCents,
+        defaultPayRateUnit: contractor.defaultPayRateUnit,
+        name: contractor.name,
+        role: contractor.role,
+        trades: contractor.trades,
+      })) ?? [],
+    displayId: "B-VISUAL-HAM",
+    documents: detail.documents.map((document) => ({
+      _id: `active-doc-${document.storageId}`,
+      documentType: document.documentType,
+      fileName: document.fileName,
+      kind: document.documentType,
+      name: document.fileName,
+      sizeBytes: document.sizeBytes,
+    })),
+    draws: detail.draws.map((draw, index) => ({
+      _id: `active-${draw.drawKey}`,
+      amountCents: draw.amountCents,
+      drawKey: draw.drawKey,
+      label: draw.label,
+      milestoneKey: draw.milestoneKey,
+      order: index + 1,
+      requestedAt: index === 0 ? "2026-06-17T14:30:00.000Z" : undefined,
+      status: index === 0 ? "approved" : "planned",
+      timingDay: draw.timingDay,
+    })),
+    facilityChangeRequests: [],
+    loanFacility: {
+      interestAnnualBps: 925,
+      interestStartsOn: "funds_released",
+      paybackDate: "2027-06-03",
+      principalCents: detail.proposal.lenderDrawPolicyLimitCents,
+      status: "active",
+    },
+    milestoneContractorAssignments:
+      workspace.contractorPlanning?.milestoneAssignments?.map((assignment) => ({
+        _id: `active-${assignment._id}`,
+        agreedRateCents: 9_500,
+        agreedRateUnit: "hour",
+        contractor: {
+          _id: assignment.contractorId,
+          name: assignment.contractorName,
+          trades: ["masonry", "brick"],
+        },
+        contractorId: assignment.contractorId,
+        estimatedCostCents: assignment.estimatedCostCents,
+        estimatedHours: assignment.estimatedHours,
+        milestoneKey: assignment.milestoneKey,
+        role: assignment.role,
+        status: "assigned",
+        submilestoneKey: assignment.submilestoneKey,
+      })) ?? [],
+    milestones: detail.milestones.map((milestone, index) => ({
+      _id: `active-milestone-${milestone.key}`,
+      budgetCents: milestone.budgetCents,
+      dayEnd: milestone.dayEnd,
+      dayStart: milestone.dayStart,
+      dependencyKeys: [],
+      drawAvailabilityCents:
+        detail.draws.find((draw) => draw.milestoneKey === milestone.key)
+          ?.amountCents ?? milestone.budgetCents,
+      durationDays: milestone.durationDays,
+      evidenceState: index === 0 ? "Submitted package" : "Draft package",
+      key: milestone.key,
+      name: milestone.name,
+      order: milestone.order,
+      progressPercent: index === 0 ? 100 : index === 1 ? 35 : 0,
+      status: index === 0 ? "complete" : index === 1 ? "in_progress" : "planned",
+      updatedAt: now - index * 43_200_000,
+    })),
+    notes: {
+      internal: [
+        {
+          _id: "active-note-internal-visual",
+          authorPersona: "FairLend Principal Broker",
+          body: "Northstar retained for brick veneer scope after permit review.",
+          createdAt: now - 43_200_000,
+          visibility: "internal",
+        },
+      ],
+      public: [
+        {
+          _id: "active-note-public-visual",
+          authorPersona: "FairLend Principal Broker",
+          body: "Closing complete. First reimbursement package is active.",
+          createdAt: now - 21_600_000,
+          visibility: "public",
+        },
+      ],
+    },
+    quickActionEvents: [
+      {
+        _id: "active-quick-visual",
+        createdAt: now,
+        eventType: "active_build.contractor.assigned",
+        payloadPreview: "Northstar Masonry assigned to exterior brick veneer.",
+      },
+    ],
+    sitePhotos: [
+      {
+        caption: "Brick veneer mockup and weather barrier tie-in.",
+        evidenceKey: "ev_visual_brick_1",
+        locationVerified: true,
+        takenAt: "2026-06-18",
+        url: "production-evidence://ev_visual_brick_1",
+      },
+    ],
+    siteVisits: [],
+    submilestones: (detail.submilestones ?? []).map((submilestone, index) => ({
+      _id: `active-submilestone-${submilestone.key}`,
+      budgetCents:
+        detail.milestones.find(
+          (milestone) => milestone.key === submilestone.milestoneKey,
+        )?.budgetCents ?? undefined,
+      durationDays: 2,
+      key: submilestone.key,
+      milestoneKey: submilestone.milestoneKey,
+      name: submilestone.name,
+      order: index + 1,
+      status: index < 3 ? "complete" : index < 6 ? "in_progress" : "planned",
+    })),
+  };
+}
+
+export function getVisualParityActiveBuildTimelineWorkspace(
+  buildId = VISUAL_PARITY_ACTIVE_BUILD_ID,
+) {
+  if (!buildId.includes("visual")) {
+    return null;
+  }
+  return getVisualParityTimelineWorkspace(VISUAL_PARITY_CLOSED_PROPOSAL_ID);
 }
 
 function getVisualParityProposalStatus(

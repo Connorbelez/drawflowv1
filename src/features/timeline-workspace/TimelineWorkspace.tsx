@@ -72,6 +72,10 @@ import {
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import {
+  NativeSelect,
+  NativeSelectOption,
+} from "#/components/ui/native-select.tsx";
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -661,6 +665,14 @@ export interface TimelineWorkspacePersistence {
   updateEvidenceAsset?: (input: any) => Promise<unknown>;
   updateMilestone?: (input: any) => Promise<unknown>;
   updatePlanState?: (input: any) => Promise<unknown>;
+}
+
+interface TimelineCompletionClaimInput {
+  actualCost?: number;
+  completedDay: number;
+  note?: string;
+  qualityNote?: string;
+  qualityRating?: number;
 }
 
 const EMPTY_TIMELINE_MODIFICATION_REQUESTS: TimelineModificationRequestView[] =
@@ -2394,11 +2406,7 @@ export function TimelineWorkspace({
 
   const completeMilestone = (
     itemId: string,
-    claim: {
-      actualCost?: number;
-      completedDay: number;
-      note?: string;
-    }
+    claim: TimelineCompletionClaimInput
   ) => {
     setItems((currentItems) =>
       currentItems.map((item) =>
@@ -2413,6 +2421,10 @@ export function TimelineWorkspace({
                     : { actualCost: claim.actualCost }),
                   completedDay: claim.completedDay,
                   ...(claim.note ? { note: claim.note } : {}),
+                  ...(claim.qualityNote ? { qualityNote: claim.qualityNote } : {}),
+                  ...(claim.qualityRating === undefined
+                    ? {}
+                    : { qualityRating: claim.qualityRating }),
                   submittedAt: new Date().toISOString(),
                 },
                 evidence:
@@ -2435,6 +2447,8 @@ export function TimelineWorkspace({
           completedDay: claim.completedDay,
           milestoneKey: itemId,
           note: claim.note,
+          qualityNote: claim.qualityNote,
+          qualityRating: claim.qualityRating,
         }),
         "milestone completion"
       );
@@ -6219,7 +6233,7 @@ function SelectedDrawMobileDrawer({
   onOpenChange: (open: boolean) => void;
   onCompleteMilestone: (
     itemId: string,
-    claim: { actualCost?: number; completedDay: number; note?: string }
+    claim: TimelineCompletionClaimInput
   ) => void;
   onCreateMilestoneSiteVisit?: (
     itemId: string,
@@ -6347,7 +6361,7 @@ function SelectedContextPanel({
   modificationRequests: TimelineModificationRequestView[];
   onCompleteMilestone: (
     itemId: string,
-    claim: { actualCost?: number; completedDay: number; note?: string }
+    claim: TimelineCompletionClaimInput
   ) => void;
   onCreateMilestoneSiteVisit?: (
     itemId: string,
@@ -6784,7 +6798,7 @@ function MilestoneOperationsPanel({
   activeItem: TimelineItem<DemoMilestone>;
   onCompleteMilestone: (
     itemId: string,
-    claim: { actualCost?: number; completedDay: number; note?: string }
+    claim: TimelineCompletionClaimInput
   ) => void;
   onRemoveEvidenceAsset: (itemId: string, assetId: string) => void;
   onUpdateEvidenceAsset: (
@@ -7945,7 +7959,7 @@ function CompletionClaimPanel({
   evidenceCount: number;
   onCompleteMilestone: (
     itemId: string,
-    claim: { actualCost?: number; completedDay: number; note?: string }
+    claim: TimelineCompletionClaimInput
   ) => void;
 }) {
   const milestone = activeItem.data;
@@ -7968,6 +7982,11 @@ function CompletionClaimPanel({
       actualCostRaw.length === 0
         ? undefined
         : Math.max(0, Math.round(Number(actualCostRaw)));
+    const qualityRatingRaw = String(formData.get("qualityRating") ?? "").trim();
+    const qualityRating =
+      qualityRatingRaw.length === 0
+        ? undefined
+        : Math.max(1, Math.min(5, Math.round(Number(qualityRatingRaw))));
     const note = String(formData.get("completionNote") ?? "").trim();
 
     if (!Number.isFinite(completedDay)) {
@@ -7978,10 +7997,16 @@ function CompletionClaimPanel({
       return;
     }
 
+    if (qualityRating !== undefined && !Number.isFinite(qualityRating)) {
+      return;
+    }
+
     onCompleteMilestone(activeItem.id, {
       ...(actualCost === undefined ? {} : { actualCost }),
       completedDay,
       ...(note ? { note } : {}),
+      ...(qualityRating === undefined ? {} : { qualityRating }),
+      ...(qualityRating !== undefined && note ? { qualityNote: note } : {}),
     });
   };
 
@@ -8016,7 +8041,7 @@ function CompletionClaimPanel({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <label className="grid gap-1.5">
           <span className="font-medium text-[10px] text-muted-foreground uppercase">
             Completion day
@@ -8049,6 +8074,28 @@ function CompletionClaimPanel({
             step={1000}
             type="number"
           />
+        </label>
+        <label className="grid gap-1.5">
+          <span className="font-medium text-[10px] text-muted-foreground uppercase">
+            Work quality
+          </span>
+          <NativeSelect
+            data-testid={`selected-draw-quality-rating-${activeItem.id}`}
+            defaultValue={
+              claim?.qualityRating === undefined
+                ? ""
+                : String(claim.qualityRating)
+            }
+            name="qualityRating"
+            size="sm"
+          >
+            <NativeSelectOption value="">Not rated</NativeSelectOption>
+            <NativeSelectOption value="5">5 · Excellent</NativeSelectOption>
+            <NativeSelectOption value="4">4 · Good</NativeSelectOption>
+            <NativeSelectOption value="3">3 · Acceptable</NativeSelectOption>
+            <NativeSelectOption value="2">2 · Needs rework</NativeSelectOption>
+            <NativeSelectOption value="1">1 · Deficient</NativeSelectOption>
+          </NativeSelect>
         </label>
       </div>
 

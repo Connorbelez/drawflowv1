@@ -118,6 +118,7 @@ const productionSettingsScenarioInput = v.object({
 });
 
 const evidenceAssetInput = v.object({
+  contractorIds: v.optional(v.array(v.id("contractorProfiles"))),
   evidenceKey: v.string(),
   fileName: v.string(),
   label: v.string(),
@@ -127,8 +128,66 @@ const evidenceAssetInput = v.object({
   sizeBytes: v.number(),
   source: v.optional(v.string()),
   storageId: v.optional(v.id("_storage")),
+  submilestoneKey: v.optional(v.string()),
   tag: v.string(),
 });
+
+const contractorKindInput = v.union(
+  v.literal("company"),
+  v.literal("individual")
+);
+
+const contractorPayRateUnitInput = v.union(
+  v.literal("hour"),
+  v.literal("day"),
+  v.literal("fixed")
+);
+
+const contractorCapabilityInput = v.object({
+  capabilityKey: v.string(),
+  label: v.string(),
+  milestoneArchetypeKey: v.optional(v.string()),
+  notes: v.optional(v.string()),
+  trade: v.optional(v.string()),
+});
+
+const contractorEquipmentInput = v.object({
+  equipmentKey: v.string(),
+  name: v.string(),
+  notes: v.optional(v.string()),
+  quantity: v.number(),
+});
+
+const contractorAvailabilityWindowInput = v.object({
+  dayOfWeek: v.number(),
+  effectiveEndDate: v.optional(v.string()),
+  effectiveStartDate: v.optional(v.string()),
+  endMinute: v.number(),
+  startMinute: v.number(),
+  timezone: v.string(),
+});
+
+const contractorQualityRatingSourceInput = v.union(
+  v.literal("builder_evidence"),
+  v.literal("site_visit"),
+  v.literal("backoffice")
+);
+
+const contractorQualityRatingInput = v.object({
+  contractorId: v.id("contractorProfiles"),
+  milestoneKey: v.optional(v.string()),
+  note: v.optional(v.string()),
+  rating: v.number(),
+  sourceEvidenceKey: v.optional(v.string()),
+  sourceVisitId: v.optional(v.string()),
+  submilestoneKey: v.optional(v.string()),
+});
+
+const contractorIdentityLinkStatusInput = v.union(
+  v.literal("suggested"),
+  v.literal("verified"),
+  v.literal("rejected")
+);
 
 const activeBuildNoteVisibility = v.union(
   v.literal("internal"),
@@ -2295,6 +2354,11 @@ export const recordOfflineClosing = authenticatedMutation
       string,
       Id<"buildMilestones">
     >();
+    const milestoneIdByKey = new Map<string, Id<"buildMilestones">>();
+    const submilestoneIdByProposalSubmilestone = new Map<
+      string,
+      Id<"buildSubmilestones">
+    >();
     const milestones = await collectByIndex(
       ctx,
       "proposalMilestones",
@@ -2328,6 +2392,7 @@ export const recordOfflineClosing = authenticatedMutation
         updatedAt: now,
       });
       milestoneIdByProposalMilestone.set(milestone._id, buildMilestoneId);
+      milestoneIdByKey.set(milestone.key, buildMilestoneId);
     }
 
     const submilestones = await collectByIndex(
@@ -2343,7 +2408,7 @@ export const recordOfflineClosing = authenticatedMutation
       if (!buildMilestoneId) {
         continue;
       }
-      await ctx.db.insert("buildSubmilestones", {
+      const buildSubmilestoneId = await ctx.db.insert("buildSubmilestones", {
         brokerageId: auth.brokerage._id,
         budgetCents: submilestone.budgetCents,
         buildId,
@@ -2359,6 +2424,10 @@ export const recordOfflineClosing = authenticatedMutation
         status: "planned",
         updatedAt: now,
       });
+      submilestoneIdByProposalSubmilestone.set(
+        submilestone._id,
+        buildSubmilestoneId
+      );
     }
 
     const draws = await collectByIndex(
@@ -2389,6 +2458,116 @@ export const recordOfflineClosing = authenticatedMutation
         reviewedAt: draw.reviewedAt,
         status: activeBuildDrawStatusFromProposal(draw.requestStatus),
         timingDay: draw.timingDay,
+        updatedAt: now,
+      });
+    }
+    const proposalContractors = await collectByIndex(
+      ctx,
+      "proposalContractorAssignments",
+      "by_proposal",
+      args.proposalId
+    );
+    const buildContractorAssignmentByProposalAssignment = new Map<
+      string,
+      Id<"buildContractorAssignments">
+    >();
+    for (const assignment of proposalContractors) {
+      if (assignment.status !== "active") {
+        continue;
+      }
+      const contractor = (await ctx.db.get(
+        assignment.contractorId
+      )) as Doc<"contractorProfiles"> | null;
+      if (
+        !contractor ||
+        contractor.brokerageId !== auth.brokerage._id ||
+        contractor.status !== "active"
+      ) {
+        continue;
+      }
+      const buildContractorAssignmentId = await ctx.db.insert(
+        "buildContractorAssignments",
+        {
+          agreedRateCents:
+            assignment.agreedRateCents ?? contractor.defaultPayRateCents,
+          agreedRateUnit:
+            assignment.agreedRateUnit ??
+            contractor.defaultPayRateUnit ??
+            "hour",
+          brokerageId: auth.brokerage._id,
+          buildId,
+          contractorId: assignment.contractorId,
+          createdAt: now,
+          endDate: undefined,
+          notes: assignment.notes,
+          organizationId: args.workosOrganizationId,
+          role: assignment.role,
+          startDate: args.buildStartDate,
+          status: "active",
+          updatedAt: now,
+        }
+      );
+      buildContractorAssignmentByProposalAssignment.set(
+        String(assignment._id),
+        buildContractorAssignmentId
+      );
+    }
+    const proposalMilestoneContractors = await collectByIndex(
+      ctx,
+      "proposalMilestoneContractorAssignments",
+      "by_proposal",
+      args.proposalId
+    );
+    for (const assignment of proposalMilestoneContractors) {
+      if (assignment.status === "removed") {
+        continue;
+      }
+      const buildMilestoneId =
+        milestoneIdByProposalMilestone.get(String(assignment.proposalMilestoneId)) ??
+        milestoneIdByKey.get(assignment.milestoneKey);
+      if (!buildMilestoneId) {
+        continue;
+      }
+      const buildContractorAssignmentId =
+        buildContractorAssignmentByProposalAssignment.get(
+          String(assignment.proposalContractorAssignmentId)
+        );
+      if (!buildContractorAssignmentId) {
+        continue;
+      }
+      await ctx.db.insert("milestoneContractorAssignments", {
+        actualCostCents: undefined,
+        actualHours: undefined,
+        agreedRateCents: assignment.agreedRateCents,
+        agreedRateUnit: assignment.agreedRateUnit,
+        assignedAt: now,
+        assignedByWorkosUserId: assignment.assignedByWorkosUserId,
+        brokerageId: auth.brokerage._id,
+        buildContractorAssignmentId,
+        buildId,
+        buildMilestoneId,
+        buildSubmilestoneId: assignment.proposalSubmilestoneId
+          ? submilestoneIdByProposalSubmilestone.get(
+              String(assignment.proposalSubmilestoneId)
+            )
+          : undefined,
+        contractorId: assignment.contractorId,
+        costNotes: assignment.note,
+        createdAt: now,
+        estimatedCostCents: assignment.estimatedCostCents,
+        estimatedHours: assignment.estimatedHours,
+        milestoneKey: assignment.milestoneKey,
+        note: assignment.note,
+        organizationId: args.workosOrganizationId,
+        postHoc: false,
+        role: assignment.role,
+        status:
+          assignment.status === "completed"
+            ? "completed"
+            : new Date(`${args.buildStartDate}T00:00:00Z`).getTime() > now
+              ? "planned"
+              : "active",
+        submilestoneKey: assignment.submilestoneKey,
         updatedAt: now,
       });
     }
@@ -2469,8 +2648,15 @@ export const recordOfflineClosing = authenticatedMutation
 export const createContractorProfile = authenticatedMutation
   .input({
     accountWorkosUserId: v.optional(v.string()),
+    availabilityWindows: v.optional(v.array(contractorAvailabilityWindowInput)),
     brokerageId: v.id("brokerages"),
+    capabilities: v.optional(v.array(contractorCapabilityInput)),
+    city: v.optional(v.string()),
+    defaultPayRateCents: v.optional(v.number()),
+    defaultPayRateUnit: v.optional(contractorPayRateUnitInput),
     email: v.optional(v.string()),
+    equipment: v.optional(v.array(contractorEquipmentInput)),
+    kind: v.optional(contractorKindInput),
     name: v.string(),
     phone: v.optional(v.string()),
     trades: v.array(v.string()),
@@ -2484,18 +2670,738 @@ export const createContractorProfile = authenticatedMutation
       throw new Error("Forbidden: brokerage scope");
     }
     const now = Date.now();
-    return await ctx.db.insert("contractorProfiles", {
+    const contractorId = await ctx.db.insert("contractorProfiles", {
       accountWorkosUserId: args.accountWorkosUserId,
       brokerageId: auth.brokerage._id,
+      city: normalizeOptionalString(args.city),
       createdAt: now,
+      defaultPayRateCents:
+        args.defaultPayRateCents === undefined
+          ? undefined
+          : Math.max(0, Math.round(args.defaultPayRateCents)),
+      defaultPayRateUnit: args.defaultPayRateUnit,
       email: args.email,
+      kind: args.kind ?? "company",
       name: args.name,
+      onboardingStatus: args.accountWorkosUserId
+        ? "account_linked"
+        : "profile_only",
       organizationId: args.workosOrganizationId,
       phone: args.phone,
       status: "active",
       trades: args.trades,
       updatedAt: now,
     });
+    await replaceContractorOperatingRows(ctx, {
+      availabilityWindows: args.availabilityWindows ?? [],
+      brokerageId: auth.brokerage._id,
+      capabilities: args.capabilities ?? [],
+      contractorId,
+      equipment: args.equipment ?? [],
+      now,
+      organizationId: args.workosOrganizationId,
+    });
+    await writeContractorProfileEvent(ctx, {
+      auth,
+      command: "createContractorProfile",
+      contractorId,
+      eventType: "contractor.profile.created",
+      newState: JSON.stringify({
+        accountLinked: Boolean(args.accountWorkosUserId),
+        capabilities: args.capabilities?.length ?? 0,
+        equipment: args.equipment?.length ?? 0,
+        name: args.name,
+      }),
+      organizationId: args.workosOrganizationId,
+    });
+    return contractorId;
+  })
+  .public();
+
+export const updateContractorProfile = authenticatedMutation
+  .input({
+    accountWorkosUserId: v.optional(v.string()),
+    availabilityWindows: v.array(contractorAvailabilityWindowInput),
+    capabilities: v.array(contractorCapabilityInput),
+    city: v.optional(v.string()),
+    contractorId: v.id("contractorProfiles"),
+    defaultPayRateCents: v.optional(v.number()),
+    defaultPayRateUnit: v.optional(contractorPayRateUnitInput),
+    email: v.optional(v.string()),
+    equipment: v.array(contractorEquipmentInput),
+    kind: v.optional(contractorKindInput),
+    name: v.string(),
+    phone: v.optional(v.string()),
+    trades: v.array(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+    const contractor = await getScopedContractorOrThrow(
+      ctx,
+      args.contractorId,
+      auth.brokerage._id
+    );
+    const now = Date.now();
+    await ctx.db.patch(args.contractorId, {
+      accountWorkosUserId: normalizeOptionalString(args.accountWorkosUserId),
+      city: normalizeOptionalString(args.city),
+      defaultPayRateCents:
+        args.defaultPayRateCents === undefined
+          ? undefined
+          : Math.max(0, Math.round(args.defaultPayRateCents)),
+      defaultPayRateUnit: args.defaultPayRateUnit,
+      email: normalizeOptionalString(args.email),
+      kind: args.kind ?? contractor.kind ?? "company",
+      name: args.name.trim() || contractor.name,
+      onboardingStatus: args.accountWorkosUserId
+        ? "account_linked"
+        : contractor.onboardingStatus,
+      phone: normalizeOptionalString(args.phone),
+      trades: args.trades.map((trade) => trade.trim()).filter(Boolean),
+      updatedAt: now,
+    });
+    await replaceContractorOperatingRows(ctx, {
+      availabilityWindows: args.availabilityWindows,
+      brokerageId: auth.brokerage._id,
+      capabilities: args.capabilities,
+      contractorId: args.contractorId,
+      equipment: args.equipment,
+      now,
+      organizationId: args.workosOrganizationId,
+    });
+    await writeContractorProfileEvent(ctx, {
+      auth,
+      command: "updateContractorProfile",
+      contractorId: args.contractorId,
+      eventType: "contractor.profile.updated",
+      newState: JSON.stringify({
+        capabilities: args.capabilities.length,
+        equipment: args.equipment.length,
+        name: args.name,
+        trades: args.trades,
+      }),
+      organizationId: args.workosOrganizationId,
+      priorState: JSON.stringify({
+        accountWorkosUserId: contractor.accountWorkosUserId,
+        city: contractor.city,
+        defaultPayRateCents: contractor.defaultPayRateCents,
+        defaultPayRateUnit: contractor.defaultPayRateUnit,
+        email: contractor.email,
+        name: contractor.name,
+        phone: contractor.phone,
+        trades: contractor.trades,
+      }),
+    });
+    return null;
+  })
+  .public();
+
+export const setContractorProfileStatus = authenticatedMutation
+  .input({
+    contractorId: v.id("contractorProfiles"),
+    reason: v.optional(v.string()),
+    status: v.union(v.literal("active"), v.literal("inactive")),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+    const contractor = await getScopedContractorOrThrow(
+      ctx,
+      args.contractorId,
+      auth.brokerage._id
+    );
+    await ctx.db.patch(args.contractorId, {
+      status: args.status,
+      updatedAt: Date.now(),
+    });
+    await writeContractorProfileEvent(ctx, {
+      auth,
+      command: "setContractorProfileStatus",
+      contractorId: args.contractorId,
+      eventType:
+        args.status === "active"
+          ? "contractor.profile.activated"
+          : "contractor.profile.deactivated",
+      newState: JSON.stringify({ status: args.status }),
+      organizationId: args.workosOrganizationId,
+      priorState: JSON.stringify({ status: contractor.status }),
+      reason: args.reason,
+    });
+    return null;
+  })
+  .public();
+
+export const linkContractorIdentity = authenticatedMutation
+  .input({
+    confidence: v.optional(v.number()),
+    linkedContractorId: v.id("contractorProfiles"),
+    primaryContractorId: v.id("contractorProfiles"),
+    reason: v.optional(v.string()),
+    status: contractorIdentityLinkStatusInput,
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.id("contractorIdentityLinks"))
+  .handler(async (ctx, args) => {
+    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    requireAnyRole(auth.roles, APPROVER_ROLES);
+    if (args.primaryContractorId === args.linkedContractorId) {
+      throw new Error("Contractor identity links require two profiles.");
+    }
+    const primary = await ctx.db.get(args.primaryContractorId);
+    const linked = await ctx.db.get(args.linkedContractorId);
+    if (!primary || !linked) {
+      throw new Error("Contractor profile not found for identity link.");
+    }
+    if (primary.brokerageId !== auth.brokerage._id) {
+      throw new Error("Forbidden: primary contractor brokerage scope");
+    }
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("contractorIdentityLinks")
+      .withIndex("by_primary_linked", (q) =>
+        q
+          .eq("primaryContractorId", args.primaryContractorId)
+          .eq("linkedContractorId", args.linkedContractorId)
+      )
+      .unique();
+    const row = {
+      confidence:
+        args.confidence === undefined
+          ? undefined
+          : Math.max(0, Math.min(1, args.confidence)),
+      linkedBrokerageId: linked.brokerageId,
+      linkedContractorId: args.linkedContractorId,
+      linkedOrganizationId: linked.organizationId,
+      organizationId: args.workosOrganizationId,
+      primaryBrokerageId: primary.brokerageId,
+      primaryContractorId: args.primaryContractorId,
+      primaryOrganizationId: primary.organizationId,
+      reason: normalizeOptionalString(args.reason),
+      status: args.status,
+      updatedAt: now,
+    };
+    const linkId = existing
+      ? existing._id
+      : await ctx.db.insert("contractorIdentityLinks", {
+          ...row,
+          createdAt: now,
+          createdByWorkosUserId: auth.subject,
+        });
+    if (existing) {
+      await ctx.db.patch(existing._id, row);
+    }
+    await writeContractorProfileEvent(ctx, {
+      auth,
+      command: "linkContractorIdentity",
+      contractorId: args.primaryContractorId,
+      eventType: "contractor.identity.linked",
+      newState: JSON.stringify({
+        linkedContractorId: args.linkedContractorId,
+        linkedBrokerageId: linked.brokerageId,
+        status: args.status,
+      }),
+      organizationId: args.workosOrganizationId,
+      reason: args.reason,
+    });
+    return linkId;
+  })
+  .public();
+
+export const linkContractorProfileToWorkosUser = authenticatedMutation
+  .input({
+    contractorId: v.id("contractorProfiles"),
+    workosOrganizationId: v.string(),
+    workosUserId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+    const contractor = await getScopedContractorOrThrow(
+      ctx,
+      args.contractorId,
+      auth.brokerage._id
+    );
+    const now = Date.now();
+    await ctx.db.patch(args.contractorId, {
+      accountWorkosUserId: args.workosUserId,
+      onboardingStatus: "account_linked",
+      updatedAt: now,
+    });
+    await addContractorRoleToExistingMembership(ctx, {
+      now,
+      workosOrganizationId: args.workosOrganizationId,
+      workosUserId: args.workosUserId,
+    });
+    await writeContractorProfileEvent(ctx, {
+      auth,
+      command: "linkContractorProfileToWorkosUser",
+      contractorId: args.contractorId,
+      eventType: "contractor.profile.account_linked",
+      newState: JSON.stringify({ workosUserId: args.workosUserId }),
+      organizationId: args.workosOrganizationId,
+      priorState: JSON.stringify({
+        accountWorkosUserId: contractor.accountWorkosUserId,
+      }),
+    });
+    return null;
+  })
+  .public();
+
+export const listContractors = authenticatedQuery
+  .input({
+    capabilityKey: v.optional(v.string()),
+    includeInactive: v.optional(v.boolean()),
+    search: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+    const profiles = await ctx.db
+      .query("contractorProfiles")
+      .withIndex("by_brokerage", (q) => q.eq("brokerageId", auth.brokerage._id))
+      .collect();
+    const enriched = await hydrateContractorProfiles(
+      ctx,
+      profiles.filter((profile) =>
+        args.includeInactive ? true : profile.status === "active"
+      )
+    );
+    const search = args.search?.trim().toLowerCase();
+    const contractors = enriched
+      .filter((contractor) =>
+        args.capabilityKey
+          ? contractor.capabilities.some(
+              (capability: any) =>
+                capability.capabilityKey === args.capabilityKey
+            )
+          : true
+      )
+      .filter((contractor) =>
+        search
+          ? [
+              contractor.name,
+              contractor.city,
+              contractor.email,
+              ...(contractor.trades ?? []),
+              ...contractor.capabilities.map(
+                (capability: any) => capability.label
+              ),
+              ...contractor.equipment.map((equipment: any) => equipment.name),
+            ]
+              .filter(Boolean)
+              .join(" ")
+              .toLowerCase()
+              .includes(search)
+          : true
+      )
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    return {
+      brokerage: auth.brokerage,
+      contractors,
+      summary: {
+        activeCount: contractors.filter(
+          (contractor) => contractor.status === "active"
+        ).length,
+        capabilityKeys: [
+          ...new Set(
+            enriched.flatMap((contractor) =>
+              contractor.capabilities.map((capability: any) =>
+                capability.capabilityKey
+              )
+            )
+          ),
+        ].sort(),
+        totalCount: contractors.length,
+      },
+    };
+  })
+  .public();
+
+export const getContractorDetail = authenticatedQuery
+  .input({
+    contractorId: v.id("contractorProfiles"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    const contractor = await getScopedContractorOrThrow(
+      ctx,
+      args.contractorId,
+      auth.brokerage._id
+    );
+    if (!isBackoffice(auth.roles)) {
+      await assertContractorDetailReadAllowed(ctx, {
+        contractor,
+        roles: auth.roles,
+        subject: auth.subject,
+      });
+    }
+    const [profile] = await hydrateContractorProfiles(ctx, [contractor]);
+    const assignments = await ctx.db
+      .query("milestoneContractorAssignments")
+      .withIndex("by_contractor", (q) => q.eq("contractorId", args.contractorId))
+      .collect();
+    const proposalAssignments = await ctx.db
+      .query("proposalMilestoneContractorAssignments")
+      .withIndex("by_contractor", (q) => q.eq("contractorId", args.contractorId))
+      .collect();
+    const openProposalAssignments = [];
+    for (const assignment of proposalAssignments) {
+      const proposal = await ctx.db.get(assignment.proposalId);
+      if (proposal?.status !== "closed") {
+        openProposalAssignments.push(assignment);
+      }
+    }
+    const ratings = await ctx.db
+      .query("contractorQualityRatings")
+      .withIndex("by_contractor", (q) => q.eq("contractorId", args.contractorId))
+      .collect();
+    const identityLinks = await contractorIdentityLinkViews(ctx, {
+      brokerageId: auth.brokerage._id,
+      contractorId: args.contractorId,
+    });
+    const workHistory = await contractorWorkHistory(ctx, {
+      assignments,
+      brokerageId: auth.brokerage._id,
+      contractorId: args.contractorId,
+    });
+    return {
+      identityLinks,
+      intelligence: contractorDetailIntelligence({
+        assignments,
+        profile,
+        proposalAssignments: openProposalAssignments,
+        ratings,
+      }),
+      performance: contractorPerformanceSummary(ratings, assignments),
+      profile,
+      ratings: ratings
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .map((rating) => ({
+          _id: rating._id,
+          buildId: rating.buildId,
+          createdAt: rating.createdAt,
+          milestoneKey: rating.milestoneKey,
+          note: rating.note,
+          rating: rating.rating,
+          source: rating.source,
+          submilestoneKey: rating.submilestoneKey,
+        })),
+      workHistory,
+    };
+  })
+  .public();
+
+export const attachProposalContractor = authenticatedMutation
+  .input({
+    agreedRateCents: v.optional(v.number()),
+    agreedRateUnit: v.optional(contractorPayRateUnitInput),
+    contractorId: v.id("contractorProfiles"),
+    endDay: v.optional(v.number()),
+    notes: v.optional(v.string()),
+    proposalId: v.id("buildProposals"),
+    role: v.string(),
+    startDay: v.optional(v.number()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.id("proposalContractorAssignments"))
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
+    await requireProposalContractorPlanningWrite(ctx, auth);
+    const contractor = await getScopedContractorOrThrow(
+      ctx,
+      args.contractorId,
+      auth.brokerage._id
+    );
+    if (contractor.status !== "active") {
+      throw new Error("Production contractor is inactive.");
+    }
+    const assignmentId = await ensureProposalContractorAssignment(ctx, {
+      agreedRateCents:
+        normalizeOptionalMoneyCents(args.agreedRateCents) ??
+        contractor.defaultPayRateCents,
+      agreedRateUnit:
+        args.agreedRateUnit ?? contractor.defaultPayRateUnit ?? "hour",
+      auth,
+      contractorId: args.contractorId,
+      endDay: args.endDay,
+      notes: args.notes,
+      proposalId: args.proposalId,
+      role: args.role,
+      startDay: args.startDay,
+      workosOrganizationId: args.workosOrganizationId,
+    });
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "attachProposalContractor",
+      eventType: "proposal.contractor.attached",
+      newState: JSON.stringify({
+        contractorId: args.contractorId,
+        proposalContractorAssignmentId: assignmentId,
+        role: args.role,
+      }),
+      proposalId: args.proposalId,
+      reason: args.notes,
+    });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
+    return assignmentId;
+  })
+  .public();
+
+export const createAndAttachProposalContractor = authenticatedMutation
+  .input({
+    contractor: v.object({
+      availabilityWindows: v.optional(v.array(contractorAvailabilityWindowInput)),
+      capabilities: v.optional(v.array(contractorCapabilityInput)),
+      city: v.optional(v.string()),
+      defaultPayRateCents: v.optional(v.number()),
+      defaultPayRateUnit: v.optional(contractorPayRateUnitInput),
+      email: v.optional(v.string()),
+      equipment: v.optional(v.array(contractorEquipmentInput)),
+      kind: v.optional(contractorKindInput),
+      name: v.string(),
+      phone: v.optional(v.string()),
+      trades: v.array(v.string()),
+    }),
+    proposalId: v.id("buildProposals"),
+    role: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(
+    v.object({
+      contractorId: v.id("contractorProfiles"),
+      proposalContractorAssignmentId: v.id("proposalContractorAssignments"),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
+    await requireProposalContractorPlanningWrite(ctx, auth);
+    const now = Date.now();
+    const contractorId = await ctx.db.insert("contractorProfiles", {
+      brokerageId: auth.brokerage._id,
+      city: normalizeOptionalString(args.contractor.city),
+      createdAt: now,
+      defaultPayRateCents:
+        args.contractor.defaultPayRateCents === undefined
+          ? undefined
+          : Math.max(0, Math.round(args.contractor.defaultPayRateCents)),
+      defaultPayRateUnit: args.contractor.defaultPayRateUnit,
+      email: normalizeOptionalString(args.contractor.email),
+      kind: args.contractor.kind ?? "company",
+      name: args.contractor.name.trim(),
+      onboardingStatus: "profile_only",
+      organizationId: args.workosOrganizationId,
+      phone: normalizeOptionalString(args.contractor.phone),
+      status: "active",
+      trades: args.contractor.trades.map((trade) => trade.trim()).filter(Boolean),
+      updatedAt: now,
+    });
+    await replaceContractorOperatingRows(ctx, {
+      availabilityWindows: args.contractor.availabilityWindows ?? [],
+      brokerageId: auth.brokerage._id,
+      capabilities: args.contractor.capabilities ?? [],
+      contractorId,
+      equipment: args.contractor.equipment ?? [],
+      now,
+      organizationId: args.workosOrganizationId,
+    });
+    const role =
+      normalizeOptionalString(args.role) ??
+      args.contractor.trades[0] ??
+      "Contractor";
+    const proposalContractorAssignmentId =
+      await ensureProposalContractorAssignment(ctx, {
+        agreedRateCents: args.contractor.defaultPayRateCents,
+        agreedRateUnit: args.contractor.defaultPayRateUnit ?? "hour",
+        auth,
+        contractorId,
+        proposalId: args.proposalId,
+        role,
+        workosOrganizationId: args.workosOrganizationId,
+      });
+    await writeContractorProfileEvent(ctx, {
+      auth,
+      command: "createAndAttachProposalContractor",
+      contractorId,
+      eventType: "contractor.profile.created",
+      newState: JSON.stringify({
+        capabilities: args.contractor.capabilities?.length ?? 0,
+        createdFromProposalId: args.proposalId,
+        equipment: args.contractor.equipment?.length ?? 0,
+        name: args.contractor.name,
+      }),
+      organizationId: args.workosOrganizationId,
+    });
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "createAndAttachProposalContractor",
+      eventType: "proposal.contractor.created_attached",
+      newState: JSON.stringify({
+        contractorId,
+        proposalContractorAssignmentId,
+        role,
+      }),
+      proposalId: args.proposalId,
+    });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
+    return { contractorId, proposalContractorAssignmentId };
+  })
+  .public();
+
+export const assignProposalContractorToMilestone = authenticatedMutation
+  .input({
+    agreedRateCents: v.optional(v.number()),
+    agreedRateUnit: v.optional(contractorPayRateUnitInput),
+    contractorId: v.id("contractorProfiles"),
+    estimatedCostCents: v.optional(v.number()),
+    estimatedHours: v.optional(v.number()),
+    milestoneKey: v.string(),
+    note: v.optional(v.string()),
+    proposalId: v.id("buildProposals"),
+    role: v.string(),
+    status: v.optional(
+      v.union(
+        v.literal("planned"),
+        v.literal("active"),
+        v.literal("completed"),
+        v.literal("removed")
+      )
+    ),
+    submilestoneKeys: v.optional(v.array(v.string())),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.array(v.id("proposalMilestoneContractorAssignments")))
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
+    await requireProposalContractorPlanningWrite(ctx, auth);
+    const contractor = await getScopedContractorOrThrow(
+      ctx,
+      args.contractorId,
+      auth.brokerage._id
+    );
+    if (contractor.status !== "active") {
+      throw new Error("Production contractor is inactive.");
+    }
+    const milestone = await getProductionMilestoneOrThrow(
+      ctx,
+      args.proposalId,
+      args.milestoneKey
+    );
+    const proposalContractorAssignmentId =
+      await ensureProposalContractorAssignment(ctx, {
+        agreedRateCents: args.agreedRateCents ?? contractor.defaultPayRateCents,
+        agreedRateUnit:
+          args.agreedRateUnit ?? contractor.defaultPayRateUnit ?? "hour",
+        auth,
+        contractorId: args.contractorId,
+        proposalId: args.proposalId,
+        preserveExistingRole: true,
+        role: args.role,
+        workosOrganizationId: args.workosOrganizationId,
+      });
+    const submilestoneKeys = [...new Set(args.submilestoneKeys ?? [])];
+    const targetSubmilestones = await resolveProposalAssignmentSubmilestones(ctx, {
+      milestoneKey: args.milestoneKey,
+      proposalId: args.proposalId,
+      submilestoneKeys,
+    });
+    const targets =
+      targetSubmilestones.length > 0
+        ? targetSubmilestones
+        : [{ id: undefined, key: undefined }];
+    const now = Date.now();
+    const assignmentIds: Id<"proposalMilestoneContractorAssignments">[] = [];
+    const agreedRateCents =
+      normalizeOptionalMoneyCents(args.agreedRateCents) ??
+      contractor.defaultPayRateCents;
+    const agreedRateUnit =
+      args.agreedRateUnit ?? contractor.defaultPayRateUnit ?? "hour";
+    const estimatedHours = normalizeOptionalHours(args.estimatedHours);
+    const estimatedCostCents =
+      normalizeOptionalMoneyCents(args.estimatedCostCents) ??
+      deriveContractorAssignmentCost({
+        hours: estimatedHours,
+        rateCents: agreedRateCents,
+        rateUnit: agreedRateUnit,
+      });
+    for (const target of targets) {
+      const existing = await findProposalMilestoneContractorAssignment(ctx, {
+        contractorId: args.contractorId,
+        milestoneKey: args.milestoneKey,
+        proposalId: args.proposalId,
+        submilestoneKey: target.key,
+      });
+      const row = {
+        agreedRateCents,
+        agreedRateUnit,
+        assignedAt: now,
+        assignedByWorkosUserId: auth.subject,
+        contractorId: args.contractorId,
+        estimatedCostCents,
+        estimatedHours,
+        milestoneKey: args.milestoneKey,
+        note: normalizeOptionalString(args.note),
+        proposalContractorAssignmentId,
+        proposalMilestoneId: milestone._id,
+        proposalSubmilestoneId: target.id,
+        role: args.role.trim() || "Contractor",
+        status: args.status ?? "planned",
+        submilestoneKey: target.key,
+        updatedAt: now,
+      };
+      if (existing) {
+        await ctx.db.patch(existing._id, row);
+        assignmentIds.push(existing._id);
+      } else {
+        assignmentIds.push(
+          await ctx.db.insert("proposalMilestoneContractorAssignments", {
+            ...row,
+            brokerageId: auth.brokerage._id,
+            createdAt: now,
+            organizationId: args.workosOrganizationId,
+            proposalId: args.proposalId,
+          })
+        );
+      }
+    }
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "assignProposalContractorToMilestone",
+      eventType: "proposal.contractor.milestone_assigned",
+      newState: JSON.stringify({
+        assignmentIds,
+        contractorId: args.contractorId,
+        estimatedCostCents,
+        milestoneKey: args.milestoneKey,
+        submilestoneKeys,
+      }),
+      proposalId: args.proposalId,
+      reason: args.note,
+    });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
+    return assignmentIds;
   })
   .public();
 
@@ -2743,6 +3649,7 @@ export const getProductionTimelineWorkspace = authenticatedQuery
       submilestones,
       drawRows,
       capitalEventRows,
+      documentRows,
       evidenceRows,
       modificationRequests,
       permitWaiver,
@@ -2766,6 +3673,7 @@ export const getProductionTimelineWorkspace = authenticatedQuery
         "by_proposal",
         args.proposalId
       ),
+      collectByIndex(ctx, "proposalDocuments", "by_proposal", args.proposalId),
       collectByIndex(
         ctx,
         "proposalEvidenceAssets",
@@ -2834,9 +3742,16 @@ export const getProductionTimelineWorkspace = authenticatedQuery
             capitalEventKey: event.capitalEventKey,
             eventKind: event.eventKind,
             label: event.label,
-            x: event.x,
-          })),
+          x: event.x,
+        })),
       ],
+      contractorPlanning: await proposalContractorPlanningProjection(ctx, {
+        auth,
+        documents: documentRows,
+        milestones,
+        proposalId: args.proposalId,
+        submilestones,
+      }),
       draws: draws.map((draw) => ({
         amountCents: draw.amountCents,
         customDate: draw.customDate ?? draw.source === "manual",
@@ -2863,6 +3778,7 @@ export const getProductionTimelineWorkspace = authenticatedQuery
               ? await ctx.storage.getUrl(asset.storageId)
               : null,
             sizeBytes: asset.sizeBytes,
+            submilestoneKey: asset.submilestoneKey,
             tag: asset.tag,
           }))
       ),
@@ -3811,6 +4727,7 @@ export const getActiveBuildDetailByString = authenticatedQuery
       evidenceAssets,
       notes,
       assignments,
+      milestoneAssignments,
       siteVisits,
       auditEvents,
       contractorProfiles,
@@ -3819,6 +4736,7 @@ export const getActiveBuildDetailByString = authenticatedQuery
       collectByIndex(ctx, "buildEvidenceAssets", "by_build", buildId),
       collectByIndex(ctx, "buildNotes", "by_build", buildId),
       collectByIndex(ctx, "buildContractorAssignments", "by_build", buildId),
+      collectByIndex(ctx, "milestoneContractorAssignments", "by_build", buildId),
       collectByIndex(ctx, "buildSiteVisits", "by_build", buildId),
       ctx.db
         .query("auditEvents")
@@ -3838,6 +4756,8 @@ export const getActiveBuildDetailByString = authenticatedQuery
     const buildNotes = notes as Doc<"buildNotes">[];
     const buildContractorAssignments =
       assignments as Doc<"buildContractorAssignments">[];
+    const buildMilestoneContractorAssignments =
+      milestoneAssignments as Doc<"milestoneContractorAssignments">[];
     const buildSiteVisits = siteVisits as Doc<"buildSiteVisits">[];
     const contractorById = new Map(
       contractorProfiles.map((contractor) => [
@@ -3891,7 +4811,9 @@ export const getActiveBuildDetailByString = authenticatedQuery
         )
         .map((contractor) => ({
           _id: contractor._id,
-          city: "",
+          city: contractor.city,
+          defaultPayRateCents: contractor.defaultPayRateCents,
+          defaultPayRateUnit: contractor.defaultPayRateUnit ?? "hour",
           name: contractor.name,
           skills: contractor.trades,
           trades: contractor.trades,
@@ -3906,11 +4828,54 @@ export const getActiveBuildDetailByString = authenticatedQuery
           }
           return {
             _id: String(assignment._id),
+            agreedRateCents:
+              assignment.agreedRateCents ?? contractor.defaultPayRateCents,
+            agreedRateUnit:
+              assignment.agreedRateUnit ??
+              contractor.defaultPayRateUnit ??
+              "hour",
             contractorId: contractor._id,
+            city: contractor.city,
             email: contractor.email,
+            hourlyRateCents: contractor.defaultPayRateCents,
+            payRateCents:
+              assignment.agreedRateCents ?? contractor.defaultPayRateCents,
+            payRateUnit:
+              assignment.agreedRateUnit ??
+              contractor.defaultPayRateUnit ??
+              "hour",
             name: contractor.name,
             role: assignment.role,
             trades: contractor.trades,
+          };
+        })
+        .filter(Boolean),
+      milestoneContractorAssignments: buildMilestoneContractorAssignments
+        .map((assignment) => {
+          const contractor = contractorById.get(
+            String(assignment.contractorId)
+          );
+          if (!contractor) return null;
+          return {
+            _id: assignment._id,
+            actualCostCents: assignment.actualCostCents,
+            actualHours: assignment.actualHours,
+            agreedRateCents: assignment.agreedRateCents,
+            agreedRateUnit: assignment.agreedRateUnit,
+            contractorId: assignment.contractorId,
+            contractor: {
+              _id: contractor._id,
+              name: contractor.name,
+              trades: contractor.trades,
+            },
+            costNotes: assignment.costNotes,
+            estimatedCostCents: assignment.estimatedCostCents,
+            estimatedHours: assignment.estimatedHours,
+            milestoneKey: assignment.milestoneKey,
+            postHoc: assignment.postHoc,
+            role: assignment.role,
+            status: assignment.status,
+            submilestoneKey: assignment.submilestoneKey,
           };
         })
         .filter(Boolean),
@@ -5023,6 +5988,7 @@ export const createActiveBuildTimelineEvidenceAsset = authenticatedMutation
     await ctx.db.insert("buildEvidenceAssets", {
       brokerageId: auth.brokerage._id,
       buildId: args.buildId,
+      contractorIds: args.asset.contractorIds,
       createdAt: now,
       evidenceKey: args.asset.evidenceKey,
       fileName: args.asset.fileName,
@@ -5035,6 +6001,7 @@ export const createActiveBuildTimelineEvidenceAsset = authenticatedMutation
       sizeBytes: Math.max(0, Math.round(args.asset.sizeBytes)),
       source: args.asset.source ?? "active_build_timeline_upload",
       storageId: args.asset.storageId,
+      submilestoneKey: args.asset.submilestoneKey,
       tag: args.asset.tag.trim() || milestone.name,
       updatedAt: now,
     });
@@ -5217,6 +6184,8 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
     completedDay: v.number(),
     milestoneKey: v.string(),
     note: v.optional(v.string()),
+    qualityNote: v.optional(v.string()),
+    qualityRating: v.optional(v.number()),
     workosOrganizationId: v.string(),
   })
   .returns(v.null())
@@ -5237,6 +6206,10 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
         : { actualCostCents: Math.max(0, Math.round(args.actualCostCents)) }),
       completedDay: Math.max(0, Math.round(args.completedDay)),
       ...(args.note ? { note: args.note } : {}),
+      ...(args.qualityRating === undefined
+        ? {}
+        : { qualityRating: normalizeQualityRating(args.qualityRating) }),
+      ...(args.qualityNote ? { qualityNote: args.qualityNote } : {}),
       submittedAt: new Date().toISOString(),
     };
     await ctx.db.patch(milestone._id, {
@@ -5254,6 +6227,17 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
       newState: JSON.stringify(completionClaim),
       priorState: JSON.stringify(milestone.completionClaim),
     });
+    if (args.qualityRating !== undefined) {
+      await recordQualityRatingForMilestoneAssignments(ctx, {
+        auth,
+        buildId: args.buildId,
+        milestone,
+        note: args.qualityNote ?? args.note,
+        rating: args.qualityRating,
+        source: "builder_evidence",
+        workosOrganizationId: args.workosOrganizationId,
+      });
+    }
     return null;
   })
   .public();
@@ -5360,6 +6344,7 @@ export const generateActiveBuildSiteVisitUploadUrl = publicMutation
 export const registerActiveBuildSiteVisitFile = publicMutation
   .input({
     buildId: v.string(),
+    contractorIds: v.optional(v.array(v.id("contractorProfiles"))),
     fileName: v.string(),
     mimeType: v.string(),
     sizeBytes: v.number(),
@@ -5394,6 +6379,7 @@ export const registerActiveBuildSiteVisitFile = publicMutation
     await ctx.db.insert("buildEvidenceAssets", {
       brokerageId: build.brokerageId,
       buildId,
+      contractorIds: args.contractorIds,
       createdAt: now,
       evidenceKey: `site-visit-${args.token}-${now}`,
       fileName: args.fileName,
@@ -5406,6 +6392,7 @@ export const registerActiveBuildSiteVisitFile = publicMutation
       sizeBytes: Math.max(0, Math.round(args.sizeBytes)),
       source: `active_build_site_visit:${args.token}:${args.targetSubmilestoneKey ?? ""}`,
       storageId: args.storageId,
+      submilestoneKey: args.targetSubmilestoneKey,
       tag: "Site visit evidence",
       updatedAt: now,
     });
@@ -5444,6 +6431,7 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
   .input({
     buildId: v.string(),
     completionObserved: v.boolean(),
+    contractorRatings: v.optional(v.array(contractorQualityRatingInput)),
     recommendedOutcome: v.string(),
     reportNotes: v.string(),
     token: v.string(),
@@ -5516,6 +6504,28 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
           : milestone.status,
       updatedAt: now,
     });
+    const tokenAuth = {
+      brokerage: { _id: build.brokerageId },
+      build,
+      proposal: { _id: build.proposalId },
+      roles: ["contractor"] as RoleSlug[],
+      subject: "tokenized_site_visitor",
+    };
+    for (const rating of args.contractorRatings ?? []) {
+      await insertContractorQualityRating(ctx, {
+        auth: tokenAuth as any,
+        buildId,
+        contractorId: rating.contractorId,
+        milestoneKey: rating.milestoneKey ?? visit.milestoneKey,
+        note: rating.note,
+        rating: rating.rating,
+        source: "site_visit",
+        sourceEvidenceKey: rating.sourceEvidenceKey,
+        sourceVisitId: rating.sourceVisitId ?? visit.visitId,
+        submilestoneKey: rating.submilestoneKey,
+        workosOrganizationId: build.organizationId,
+      });
+    }
     await ctx.db.insert("auditEvents", {
       actorRoles: ["contractor"],
       actorWorkosUserId: "tokenized_site_visitor",
@@ -5691,9 +6701,14 @@ export const addActiveBuildDocument = authenticatedMutation
 
 export const attachActiveBuildContractor = authenticatedMutation
   .input({
+    agreedRateCents: v.optional(v.number()),
+    agreedRateUnit: v.optional(contractorPayRateUnitInput),
     buildId: v.id("activeBuilds"),
     contractorId: v.id("contractorProfiles"),
+    endDate: v.optional(v.string()),
+    notes: v.optional(v.string()),
     role: v.string(),
+    startDate: v.optional(v.string()),
     workosOrganizationId: v.string(),
   })
   .returns(v.null())
@@ -5719,9 +6734,20 @@ export const attachActiveBuildContractor = authenticatedMutation
       )
       .unique();
     const now = Date.now();
+    const agreedRateCents =
+      normalizeOptionalMoneyCents(args.agreedRateCents) ??
+      contractor.defaultPayRateCents;
+    const agreedRateUnit =
+      args.agreedRateUnit ?? contractor.defaultPayRateUnit ?? "hour";
     if (existing) {
       await ctx.db.patch(existing._id, {
+        agreedRateCents,
+        agreedRateUnit,
+        endDate: args.endDate,
+        notes: args.notes,
         role: args.role.trim() || existing.role,
+        startDate: args.startDate,
+        status: "active",
         updatedAt: now,
       });
     } else {
@@ -5730,8 +6756,14 @@ export const attachActiveBuildContractor = authenticatedMutation
         buildId: args.buildId,
         contractorId: args.contractorId,
         createdAt: now,
+        agreedRateCents,
+        agreedRateUnit,
+        endDate: args.endDate,
+        notes: args.notes,
         organizationId: args.workosOrganizationId,
         role: args.role.trim() || "Contractor",
+        startDate: args.startDate,
+        status: "active",
         updatedAt: now,
       });
     }
@@ -5746,6 +6778,212 @@ export const attachActiveBuildContractor = authenticatedMutation
       }),
     });
     return null;
+  })
+  .public();
+
+export const assignActiveBuildContractorToMilestone = authenticatedMutation
+  .input({
+    actualCostCents: v.optional(v.number()),
+    actualHours: v.optional(v.number()),
+    agreedRateCents: v.optional(v.number()),
+    agreedRateUnit: v.optional(contractorPayRateUnitInput),
+    buildId: v.id("activeBuilds"),
+    costNotes: v.optional(v.string()),
+    contractorId: v.id("contractorProfiles"),
+    estimatedCostCents: v.optional(v.number()),
+    estimatedHours: v.optional(v.number()),
+    milestoneKey: v.string(),
+    note: v.optional(v.string()),
+    postHoc: v.optional(v.boolean()),
+    role: v.string(),
+    status: v.optional(
+      v.union(
+        v.literal("planned"),
+        v.literal("active"),
+        v.literal("completed"),
+        v.literal("removed")
+      )
+    ),
+    submilestoneKeys: v.optional(v.array(v.string())),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.array(v.id("milestoneContractorAssignments")))
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    const contractor = await getScopedContractorOrThrow(
+      ctx,
+      args.contractorId,
+      auth.brokerage._id
+    );
+    if (contractor.status !== "active") {
+      throw new Error("Production contractor is inactive.");
+    }
+    const milestone = await getActiveBuildMilestoneOrThrow(
+      ctx,
+      args.buildId,
+      args.milestoneKey
+    );
+    const buildAssignmentId = await ensureBuildContractorAssignment(ctx, {
+      agreedRateCents: args.agreedRateCents ?? contractor.defaultPayRateCents,
+      agreedRateUnit:
+        args.agreedRateUnit ?? contractor.defaultPayRateUnit ?? "hour",
+      auth,
+      buildId: args.buildId,
+      contractorId: args.contractorId,
+      role: args.role,
+      workosOrganizationId: args.workosOrganizationId,
+    });
+    const submilestoneKeys = [...new Set(args.submilestoneKeys ?? [])];
+    const targetSubmilestones = await resolveAssignmentSubmilestones(ctx, {
+      buildId: args.buildId,
+      milestoneKey: args.milestoneKey,
+      submilestoneKeys,
+    });
+    const targets =
+      targetSubmilestones.length > 0
+        ? targetSubmilestones
+        : [{ id: undefined, key: undefined }];
+    const now = Date.now();
+    const assignmentIds: Id<"milestoneContractorAssignments">[] = [];
+    const agreedRateCents =
+      normalizeOptionalMoneyCents(args.agreedRateCents) ??
+      contractor.defaultPayRateCents;
+    const agreedRateUnit =
+      args.agreedRateUnit ?? contractor.defaultPayRateUnit ?? "hour";
+    const estimatedHours = normalizeOptionalHours(args.estimatedHours);
+    const actualHours = normalizeOptionalHours(args.actualHours);
+    const estimatedCostCents =
+      normalizeOptionalMoneyCents(args.estimatedCostCents) ??
+      deriveContractorAssignmentCost({
+        hours: estimatedHours,
+        rateCents: agreedRateCents,
+        rateUnit: agreedRateUnit,
+      });
+    const actualCostCents =
+      normalizeOptionalMoneyCents(args.actualCostCents) ??
+      deriveContractorAssignmentCost({
+        hours: actualHours,
+        rateCents: agreedRateCents,
+        rateUnit: agreedRateUnit,
+      });
+    for (const target of targets) {
+      const existing = await findMilestoneContractorAssignment(ctx, {
+        buildId: args.buildId,
+        contractorId: args.contractorId,
+        milestoneKey: args.milestoneKey,
+        submilestoneKey: target.key,
+      });
+      const row = {
+        actualCostCents,
+        actualHours,
+        assignedAt: now,
+        assignedByWorkosUserId: auth.subject,
+        agreedRateCents,
+        agreedRateUnit,
+        buildContractorAssignmentId: buildAssignmentId,
+        buildMilestoneId: milestone._id,
+        buildSubmilestoneId: target.id,
+        contractorId: args.contractorId,
+        costNotes: normalizeOptionalString(args.costNotes),
+        estimatedCostCents,
+        estimatedHours,
+        milestoneKey: args.milestoneKey,
+        note: normalizeOptionalString(args.note),
+        postHoc: Boolean(args.postHoc),
+        role: args.role.trim() || "Contractor",
+        status: args.status ?? (milestone.status === "complete" ? "completed" : "active"),
+        submilestoneKey: target.key,
+        updatedAt: now,
+      };
+      if (existing) {
+        await ctx.db.patch(existing._id, row);
+        assignmentIds.push(existing._id);
+      } else {
+        assignmentIds.push(
+          await ctx.db.insert("milestoneContractorAssignments", {
+            ...row,
+            brokerageId: auth.brokerage._id,
+            buildId: args.buildId,
+            createdAt: now,
+            organizationId: args.workosOrganizationId,
+          })
+        );
+      }
+    }
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "assignActiveBuildContractorToMilestone",
+      eventType: "active_build.contractor.milestone_assigned",
+      newState: JSON.stringify({
+        assignmentIds,
+        contractorId: args.contractorId,
+        estimatedCostCents,
+        actualCostCents,
+        milestoneKey: args.milestoneKey,
+        postHoc: Boolean(args.postHoc),
+        submilestoneKeys,
+      }),
+      reason: args.note,
+    });
+    return assignmentIds;
+  })
+  .public();
+
+export const recordContractorQualityRating = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    contractorId: v.id("contractorProfiles"),
+    milestoneKey: v.string(),
+    note: v.optional(v.string()),
+    rating: v.number(),
+    source: contractorQualityRatingSourceInput,
+    sourceEvidenceKey: v.optional(v.string()),
+    sourceVisitId: v.optional(v.string()),
+    submilestoneKey: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.id("contractorQualityRatings"))
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    const ratingId = await insertContractorQualityRating(ctx, {
+      auth,
+      buildId: args.buildId,
+      contractorId: args.contractorId,
+      milestoneKey: args.milestoneKey,
+      note: args.note,
+      rating: args.rating,
+      source: args.source,
+      sourceEvidenceKey: args.sourceEvidenceKey,
+      sourceVisitId: args.sourceVisitId,
+      submilestoneKey: args.submilestoneKey,
+      workosOrganizationId: args.workosOrganizationId,
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "recordContractorQualityRating",
+      eventType: "active_build.contractor.quality_rated",
+      newState: JSON.stringify({
+        contractorId: args.contractorId,
+        milestoneKey: args.milestoneKey,
+        rating: normalizeQualityRating(args.rating),
+        source: args.source,
+        submilestoneKey: args.submilestoneKey,
+      }),
+      reason: args.note,
+    });
+    return ratingId;
   })
   .public();
 
@@ -6734,6 +7972,1246 @@ function requireAnyRole(
   const allowedRoles: readonly string[] = allowed;
   if (!actual.some((role) => allowedRoles.includes(role))) {
     throw new Error("Forbidden: role");
+  }
+}
+
+function normalizeOptionalString(value?: string) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function normalizeOptionalMoneyCents(value?: number) {
+  if (value === undefined) return undefined;
+  if (!Number.isFinite(value)) {
+    throw new Error("Contractor cost value must be a finite number.");
+  }
+  return Math.max(0, Math.round(value));
+}
+
+function normalizeOptionalHours(value?: number) {
+  if (value === undefined) return undefined;
+  if (!Number.isFinite(value)) {
+    throw new Error("Contractor hours value must be a finite number.");
+  }
+  return Math.max(0, Math.round(value * 100) / 100);
+}
+
+function deriveContractorAssignmentCost(input: {
+  hours?: number;
+  rateCents?: number;
+  rateUnit?: "hour" | "day" | "fixed";
+}) {
+  if (input.rateCents === undefined) return undefined;
+  if (input.rateUnit === "fixed") return input.rateCents;
+  if (input.rateUnit === "hour" && input.hours !== undefined) {
+    return Math.round(input.rateCents * input.hours);
+  }
+  return undefined;
+}
+
+function normalizeQualityRating(value: number) {
+  if (!Number.isFinite(value)) {
+    throw new Error("Contractor quality rating must be a finite number.");
+  }
+  const rounded = Math.round(value);
+  if (rounded < 1 || rounded > 5) {
+    throw new Error("Contractor quality rating must be between 1 and 5.");
+  }
+  return rounded;
+}
+
+async function getScopedContractorOrThrow(
+  ctx: QueryCtx | MutationCtx,
+  contractorId: Id<"contractorProfiles">,
+  brokerageId: Id<"brokerages">
+) {
+  const contractor = await ctx.db.get(contractorId);
+  if (!contractor || contractor.brokerageId !== brokerageId) {
+    throw new Error("Production contractor not found.");
+  }
+  return contractor;
+}
+
+async function replaceContractorOperatingRows(
+  ctx: MutationCtx,
+  input: {
+    availabilityWindows: Array<{
+      dayOfWeek: number;
+      effectiveEndDate?: string;
+      effectiveStartDate?: string;
+      endMinute: number;
+      startMinute: number;
+      timezone: string;
+    }>;
+    brokerageId: Id<"brokerages">;
+    capabilities: Array<{
+      capabilityKey: string;
+      label: string;
+      milestoneArchetypeKey?: string;
+      notes?: string;
+      trade?: string;
+    }>;
+    contractorId: Id<"contractorProfiles">;
+    equipment: Array<{
+      equipmentKey: string;
+      name: string;
+      notes?: string;
+      quantity: number;
+    }>;
+    now: number;
+    organizationId: string;
+  }
+) {
+  const [capabilities, equipment, windows] = await Promise.all([
+    collectByIndex(ctx, "contractorCapabilities", "by_contractor", input.contractorId),
+    collectByIndex(ctx, "contractorEquipment", "by_contractor", input.contractorId),
+    collectByIndex(
+      ctx,
+      "contractorAvailabilityWindows",
+      "by_contractor",
+      input.contractorId
+    ),
+  ]);
+  for (const row of capabilities) await ctx.db.delete(row._id);
+  for (const row of equipment) await ctx.db.delete(row._id);
+  for (const row of windows) await ctx.db.delete(row._id);
+
+  for (const capability of input.capabilities) {
+    const key = capability.capabilityKey.trim();
+    const label = capability.label.trim();
+    if (!(key && label)) continue;
+    await ctx.db.insert("contractorCapabilities", {
+      brokerageId: input.brokerageId,
+      capabilityKey: key,
+      contractorId: input.contractorId,
+      createdAt: input.now,
+      label,
+      milestoneArchetypeKey: normalizeOptionalString(
+        capability.milestoneArchetypeKey
+      ),
+      notes: normalizeOptionalString(capability.notes),
+      organizationId: input.organizationId,
+      trade: normalizeOptionalString(capability.trade),
+      updatedAt: input.now,
+    });
+  }
+
+  for (const row of input.equipment) {
+    const key = row.equipmentKey.trim();
+    const name = row.name.trim();
+    if (!(key && name)) continue;
+    await ctx.db.insert("contractorEquipment", {
+      brokerageId: input.brokerageId,
+      contractorId: input.contractorId,
+      createdAt: input.now,
+      equipmentKey: key,
+      name,
+      notes: normalizeOptionalString(row.notes),
+      organizationId: input.organizationId,
+      quantity: Math.max(0, Math.round(row.quantity)),
+      updatedAt: input.now,
+    });
+  }
+
+  for (const window of input.availabilityWindows) {
+    await ctx.db.insert("contractorAvailabilityWindows", {
+      brokerageId: input.brokerageId,
+      contractorId: input.contractorId,
+      createdAt: input.now,
+      dayOfWeek: Math.max(0, Math.min(6, Math.round(window.dayOfWeek))),
+      effectiveEndDate: normalizeOptionalString(window.effectiveEndDate),
+      effectiveStartDate: normalizeOptionalString(window.effectiveStartDate),
+      endMinute: Math.max(0, Math.min(24 * 60, Math.round(window.endMinute))),
+      organizationId: input.organizationId,
+      startMinute: Math.max(
+        0,
+        Math.min(24 * 60, Math.round(window.startMinute))
+      ),
+      timezone: window.timezone.trim() || "UTC",
+      updatedAt: input.now,
+    });
+  }
+}
+
+async function hydrateContractorProfiles(
+  ctx: QueryCtx | MutationCtx,
+  profiles: Doc<"contractorProfiles">[]
+) {
+  return await Promise.all(
+    profiles.map(async (profile) => {
+      const [capabilities, equipment, availabilityWindows] = await Promise.all([
+        collectByIndex(ctx, "contractorCapabilities", "by_contractor", profile._id),
+        collectByIndex(ctx, "contractorEquipment", "by_contractor", profile._id),
+        collectByIndex(
+          ctx,
+          "contractorAvailabilityWindows",
+          "by_contractor",
+          profile._id
+        ),
+      ]);
+      return {
+        ...profile,
+        availabilityWindows: availabilityWindows.sort(
+          (a: any, b: any) =>
+            a.dayOfWeek - b.dayOfWeek || a.startMinute - b.startMinute
+        ),
+        capabilities: capabilities.sort((a: any, b: any) =>
+          a.capabilityKey.localeCompare(b.capabilityKey)
+        ),
+        defaultPayRateUnit: profile.defaultPayRateUnit ?? "hour",
+        equipment: equipment.sort((a: any, b: any) =>
+          a.equipmentKey.localeCompare(b.equipmentKey)
+        ),
+        kind: profile.kind ?? "company",
+        onboardingStatus:
+          profile.onboardingStatus ??
+          (profile.accountWorkosUserId ? "account_linked" : "profile_only"),
+      };
+    })
+  );
+}
+
+async function addContractorRoleToExistingMembership(
+  ctx: MutationCtx,
+  input: {
+    now: number;
+    workosOrganizationId: string;
+    workosUserId: string;
+  }
+) {
+  const membership = await ctx.db
+    .query("workosOrganizationMemberships")
+    .withIndex("by_user", (q) => q.eq("workosUserId", input.workosUserId))
+    .filter((q) =>
+      q.eq(q.field("workosOrganizationId"), input.workosOrganizationId)
+    )
+    .first();
+  if (!membership) {
+    return;
+  }
+  const roleSlugs = [...new Set([...membership.roleSlugs, "contractor"])];
+  await ctx.db.patch(membership._id, {
+    roleSlug: membership.roleSlug ?? "contractor",
+    roleSlugs,
+    updatedAt: input.now,
+  });
+}
+
+async function writeContractorProfileEvent(
+  ctx: MutationCtx,
+  input: {
+    auth: { brokerage: Doc<"brokerages">; roles: RoleSlug[]; subject: string };
+    command: string;
+    contractorId: Id<"contractorProfiles">;
+    eventType: string;
+    newState?: string;
+    organizationId: string;
+    priorState?: string;
+    reason?: string;
+    warnings?: string[];
+  }
+) {
+  const now = Date.now();
+  await ctx.db.insert("auditEvents", {
+    actorRoles: input.auth.roles,
+    actorWorkosUserId: input.auth.subject,
+    brokerageId: input.auth.brokerage._id,
+    command: input.command,
+    createdAt: now,
+    entityId: String(input.contractorId),
+    entityType: "contractorProfile",
+    eventType: input.eventType,
+    newState: input.newState,
+    organizationId: input.organizationId,
+    priorState: input.priorState,
+    reason: input.reason,
+    warnings: input.warnings ?? [],
+  });
+  await ctx.db.insert("eventOutbox", {
+    brokerageId: input.auth.brokerage._id,
+    createdAt: now,
+    eventType: input.eventType,
+    organizationId: input.organizationId,
+    payloadPreview: JSON.stringify({
+      contractorId: input.contractorId,
+      newState: input.newState,
+    }),
+    relatedEntityId: input.contractorId,
+    relatedEntityType: "contractorProfile",
+    status: "pending",
+  });
+}
+
+async function assertContractorDetailReadAllowed(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    contractor: Doc<"contractorProfiles">;
+    roles: readonly RoleSlug[];
+    subject: string;
+  }
+) {
+  if (input.contractor.accountWorkosUserId === input.subject) {
+    return;
+  }
+  requireAnyRole(input.roles, BUILDER_ROLES);
+  const builderProfile = await getOwnedBuilderProfile(
+    ctx,
+    input.contractor.brokerageId,
+    input.subject
+  );
+  if (!builderProfile) {
+    throw new Error("Forbidden: contractor detail");
+  }
+  const builds = await ctx.db
+    .query("activeBuilds")
+    .withIndex("by_brokerage", (q) =>
+      q.eq("brokerageId", input.contractor.brokerageId)
+    )
+    .filter((q) => q.eq(q.field("builderProfileId"), builderProfile._id))
+    .collect();
+  const buildIds = new Set(builds.map((build) => String(build._id)));
+  const assignments = await ctx.db
+    .query("milestoneContractorAssignments")
+    .withIndex("by_contractor", (q) =>
+      q.eq("contractorId", input.contractor._id)
+    )
+    .collect();
+  if (!assignments.some((assignment) => buildIds.has(String(assignment.buildId)))) {
+    throw new Error("Forbidden: contractor detail");
+  }
+}
+
+async function contractorWorkHistory(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    assignments: Doc<"milestoneContractorAssignments">[];
+    brokerageId: Id<"brokerages">;
+    contractorId: Id<"contractorProfiles">;
+  }
+) {
+  const rows = [];
+  for (const assignment of input.assignments) {
+    const [build, milestone, submilestone] = await Promise.all([
+      ctx.db.get(assignment.buildId),
+      ctx.db.get(assignment.buildMilestoneId),
+      assignment.buildSubmilestoneId
+        ? ctx.db.get(assignment.buildSubmilestoneId)
+        : Promise.resolve(null),
+    ]);
+    if (!build || build.brokerageId !== input.brokerageId || !milestone) {
+      continue;
+    }
+    const evidenceAssets = await ctx.db
+      .query("buildEvidenceAssets")
+      .withIndex("by_build_milestone", (q) =>
+        q.eq("buildId", assignment.buildId).eq("milestoneKey", assignment.milestoneKey)
+      )
+      .collect();
+    const evidencePhotos = await Promise.all(
+      evidenceAssets
+        .filter((asset) => asset.mimeType.startsWith("image/"))
+        .filter((asset) =>
+          assignment.submilestoneKey
+            ? asset.submilestoneKey === assignment.submilestoneKey
+            : asset.milestoneKey === assignment.milestoneKey
+        )
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .map(async (asset) => ({
+          evidenceKey: asset.evidenceKey,
+          fileName: asset.fileName,
+          label: asset.label,
+          milestoneKey: asset.milestoneKey,
+          previewUrl: asset.storageId ? await ctx.storage.getUrl(asset.storageId) : null,
+          source: asset.source,
+          submilestoneKey: asset.submilestoneKey,
+          tag: asset.tag,
+        }))
+    );
+    rows.push({
+      _id: assignment._id,
+      buildId: build._id,
+      buildName: build.buildName,
+      buildStatus: build.status,
+      evidencePhotos,
+      actualCostCents: assignment.actualCostCents,
+      actualHours: assignment.actualHours,
+      agreedRateCents: assignment.agreedRateCents,
+      agreedRateUnit: assignment.agreedRateUnit,
+      costNotes: assignment.costNotes,
+      estimatedCostCents: assignment.estimatedCostCents,
+      estimatedHours: assignment.estimatedHours,
+      location: build.location,
+      milestoneKey: assignment.milestoneKey,
+      milestoneName: milestone.name,
+      postHoc: assignment.postHoc,
+      role: assignment.role,
+      status: assignment.status,
+      submilestones: submilestone
+        ? [
+            {
+              key: submilestone.key,
+              name: submilestone.name,
+              status: submilestone.status,
+            },
+          ]
+        : [],
+      updatedAt: assignment.updatedAt,
+    });
+  }
+  return rows.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+function contractorPerformanceSummary(
+  ratings: Doc<"contractorQualityRatings">[],
+  assignments: Doc<"milestoneContractorAssignments">[] = []
+) {
+  const averageQualityRating =
+    ratings.length === 0
+      ? null
+      : Math.round(
+          (ratings.reduce((sum, rating) => sum + rating.rating, 0) /
+            ratings.length) *
+            10
+        ) / 10;
+  const totalEstimatedCostCents = assignments.reduce(
+    (sum, assignment) => sum + (assignment.estimatedCostCents ?? 0),
+    0
+  );
+  const totalActualCostCents = assignments.reduce(
+    (sum, assignment) => sum + (assignment.actualCostCents ?? 0),
+    0
+  );
+  return {
+    averageQualityRating,
+    assignmentCount: assignments.length,
+    completedAssignmentCount: assignments.filter(
+      (assignment) => assignment.status === "completed"
+    ).length,
+    totalActualCostCents,
+    totalActualHours: Math.round(
+      assignments.reduce(
+        (sum, assignment) => sum + (assignment.actualHours ?? 0),
+        0
+      ) * 100
+    ) / 100,
+    totalEstimatedCostCents,
+    totalEstimatedHours: Math.round(
+      assignments.reduce(
+        (sum, assignment) => sum + (assignment.estimatedHours ?? 0),
+        0
+      ) * 100
+    ) / 100,
+    totalVarianceCents:
+      totalActualCostCents || totalEstimatedCostCents
+        ? totalActualCostCents - totalEstimatedCostCents
+        : 0,
+    ratingCount: ratings.length,
+  };
+}
+
+async function requireProposalContractorPlanningWrite(
+  ctx: QueryCtx | MutationCtx,
+  auth: {
+    proposal: Doc<"buildProposals">;
+    roles: RoleSlug[];
+    subject: string;
+  }
+) {
+  if (auth.proposal.status === "closed") {
+    throw new Error("Closed proposals no longer accept planning contractors.");
+  }
+  if (isBackoffice(auth.roles)) {
+    requireBackofficeProposalWrite(auth, auth.proposal);
+  }
+  await assertProposalCollaborationEditAllowed(ctx, auth);
+}
+
+async function ensureProposalContractorAssignment(
+  ctx: MutationCtx,
+  input: {
+    agreedRateCents?: number;
+    agreedRateUnit?: "hour" | "day" | "fixed";
+    auth: {
+      brokerage: Doc<"brokerages">;
+      proposal: Doc<"buildProposals">;
+    };
+    contractorId: Id<"contractorProfiles">;
+    endDay?: number;
+    notes?: string;
+    proposalId: Id<"buildProposals">;
+    preserveExistingRole?: boolean;
+    role: string;
+    startDay?: number;
+    workosOrganizationId: string;
+  }
+) {
+  const existing = await ctx.db
+    .query("proposalContractorAssignments")
+    .withIndex("by_proposal_contractor", (q) =>
+      q.eq("proposalId", input.proposalId).eq("contractorId", input.contractorId)
+    )
+    .unique();
+  const now = Date.now();
+  const patch = {
+    agreedRateCents: normalizeOptionalMoneyCents(input.agreedRateCents),
+    agreedRateUnit: input.agreedRateUnit,
+    endDay:
+      input.endDay === undefined ? undefined : Math.max(0, Math.round(input.endDay)),
+    notes: normalizeOptionalString(input.notes),
+    role: input.role.trim() || "Contractor",
+    startDay:
+      input.startDay === undefined
+        ? undefined
+        : Math.max(0, Math.round(input.startDay)),
+    status: "active" as const,
+    updatedAt: now,
+  };
+  if (existing) {
+    await ctx.db.patch(existing._id, patch);
+    if (input.preserveExistingRole) {
+      await ctx.db.patch(existing._id, { role: existing.role });
+    }
+    return existing._id;
+  }
+  return await ctx.db.insert("proposalContractorAssignments", {
+    ...patch,
+    brokerageId: input.auth.brokerage._id,
+    contractorId: input.contractorId,
+    createdAt: now,
+    organizationId: input.workosOrganizationId,
+    proposalId: input.proposalId,
+  });
+}
+
+async function resolveProposalAssignmentSubmilestones(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    milestoneKey: string;
+    proposalId: Id<"buildProposals">;
+    submilestoneKeys: string[];
+  }
+) {
+  if (input.submilestoneKeys.length === 0) {
+    return [];
+  }
+  const submilestones = await ctx.db
+    .query("proposalSubmilestones")
+    .withIndex("by_proposal", (q) => q.eq("proposalId", input.proposalId))
+    .filter((q) => q.eq(q.field("milestoneKey"), input.milestoneKey))
+    .collect();
+  return input.submilestoneKeys.map((key) => {
+    const submilestone = submilestones.find((row) => row.key === key);
+    if (!submilestone) {
+      throw new Error(`Proposal submilestone not found: ${key}`);
+    }
+    return { id: submilestone._id, key: submilestone.key };
+  });
+}
+
+async function findProposalMilestoneContractorAssignment(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    contractorId: Id<"contractorProfiles">;
+    milestoneKey: string;
+    proposalId: Id<"buildProposals">;
+    submilestoneKey?: string;
+  }
+) {
+  const assignments = await ctx.db
+    .query("proposalMilestoneContractorAssignments")
+    .withIndex("by_contractor_proposal", (q) =>
+      q
+        .eq("contractorId", input.contractorId)
+        .eq("proposalId", input.proposalId)
+    )
+    .collect();
+  return (
+    assignments.find(
+      (assignment) =>
+        assignment.milestoneKey === input.milestoneKey &&
+        assignment.submilestoneKey === input.submilestoneKey
+    ) ?? null
+  );
+}
+
+async function proposalContractorPlanningProjection(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    auth: {
+      brokerage: Doc<"brokerages">;
+      proposal: Doc<"buildProposals">;
+      roles: RoleSlug[];
+      subject: string;
+    };
+    documents: Doc<"proposalDocuments">[];
+    milestones: Doc<"proposalMilestones">[];
+    proposalId: Id<"buildProposals">;
+    submilestones: Doc<"proposalSubmilestones">[];
+  }
+) {
+  const [proposalContractors, milestoneAssignments, contractorProfiles] =
+    await Promise.all([
+      collectByIndex(
+        ctx,
+        "proposalContractorAssignments",
+        "by_proposal",
+        input.proposalId
+      ),
+      collectByIndex(
+        ctx,
+        "proposalMilestoneContractorAssignments",
+        "by_proposal",
+        input.proposalId
+      ),
+      ctx.db
+        .query("contractorProfiles")
+        .withIndex("by_brokerage", (q) =>
+          q.eq("brokerageId", input.auth.brokerage._id)
+        )
+        .collect(),
+    ]);
+  const proposalContractorRows =
+    proposalContractors as Doc<"proposalContractorAssignments">[];
+  const milestoneAssignmentRows =
+    milestoneAssignments as Doc<"proposalMilestoneContractorAssignments">[];
+  const hydrated = await hydrateContractorProfiles(ctx, contractorProfiles);
+  const contractorById = new Map(
+    hydrated.map((contractor: any) => [String(contractor._id), contractor])
+  );
+  const attachedIds = new Set(
+    proposalContractorRows.map((assignment) => String(assignment.contractorId))
+  );
+  const milestoneByKey = new Map(
+    input.milestones.map((milestone) => [milestone.key, milestone])
+  );
+  const submilestoneByComposite = new Map(
+    input.submilestones.map((submilestone) => [
+      `${submilestone.milestoneKey}:${submilestone.key}`,
+      submilestone,
+    ])
+  );
+  const permitSignals = extractPermitMaterialSignals({
+    documents: input.documents,
+    milestones: input.milestones,
+    submilestones: input.submilestones,
+  });
+  const assignmentViews = milestoneAssignmentRows
+    .map((assignment) => {
+      const contractor = contractorById.get(String(assignment.contractorId));
+      const milestone = milestoneByKey.get(assignment.milestoneKey);
+      if (!contractor || !milestone) return null;
+      const submilestone = assignment.submilestoneKey
+        ? submilestoneByComposite.get(
+            `${assignment.milestoneKey}:${assignment.submilestoneKey}`
+          )
+        : null;
+      return {
+        _id: assignment._id,
+        contractorId: assignment.contractorId,
+        contractorName: contractor.name,
+        dayEnd: milestone.dayEnd,
+        dayStart: milestone.dayStart,
+        estimatedCostCents: assignment.estimatedCostCents,
+        estimatedHours: assignment.estimatedHours,
+        milestoneKey: assignment.milestoneKey,
+        milestoneName: milestone.name,
+        role: assignment.role,
+        status: assignment.status,
+        submilestoneKey: assignment.submilestoneKey,
+        submilestoneName: submilestone?.name,
+      };
+    })
+    .filter(Boolean);
+  const allocationCalendar = assignmentViews.map((assignment: any) => ({
+    assignmentId: assignment._id,
+    contractorId: assignment.contractorId,
+    contractorName: assignment.contractorName,
+    dayEnd: assignment.dayEnd,
+    dayStart: assignment.dayStart,
+    label: `${assignment.milestoneName} / ${assignment.role}`,
+    milestoneKey: assignment.milestoneKey,
+  }));
+  const equipmentSchedule = assignmentViews.flatMap((assignment: any) => {
+    const contractor = contractorById.get(String(assignment.contractorId));
+    return (contractor?.equipment ?? []).map((equipment: any) => ({
+      assignmentId: assignment._id,
+      contractorId: assignment.contractorId,
+      contractorName: assignment.contractorName,
+      dayEnd: assignment.dayEnd,
+      dayStart: assignment.dayStart,
+      equipmentKey: equipment.equipmentKey,
+      name: equipment.name,
+      quantity: equipment.quantity,
+    }));
+  });
+  const conflicts = detectAssignmentWindowConflicts(allocationCalendar);
+  return {
+    allocationCalendar,
+    availableContractors: hydrated
+      .filter(
+        (contractor: any) =>
+          contractor.status === "active" && !attachedIds.has(String(contractor._id))
+      )
+      .map(contractorOptionView),
+    conflicts,
+    equipmentSchedule,
+    materialSignals: permitSignals,
+    milestoneAssignments: assignmentViews,
+    proposalContractors: proposalContractorRows
+      .map((assignment) => {
+        const contractor = contractorById.get(String(assignment.contractorId));
+        if (!contractor) return null;
+        return {
+          _id: assignment._id,
+          agreedRateCents:
+            assignment.agreedRateCents ?? contractor.defaultPayRateCents,
+          agreedRateUnit:
+            assignment.agreedRateUnit ??
+            contractor.defaultPayRateUnit ??
+            "hour",
+          city: contractor.city,
+          contractorId: assignment.contractorId,
+          defaultPayRateCents: contractor.defaultPayRateCents,
+          defaultPayRateUnit: contractor.defaultPayRateUnit ?? "hour",
+          endDay: assignment.endDay,
+          name: contractor.name,
+          role: assignment.role,
+          startDay: assignment.startDay,
+          status: assignment.status,
+          trades: contractor.trades,
+        };
+      })
+      .filter(Boolean),
+    recommendations: rankContractorsForPermitSignals({
+      contractors: hydrated.filter((contractor: any) => contractor.status === "active"),
+      conflicts,
+      permitSignals,
+    }),
+    utilization: contractorUtilizationSummary({
+      assignments: assignmentViews as any[],
+      contractorProfiles: hydrated,
+      proposalContractors: proposalContractorRows,
+    }),
+  };
+}
+
+function contractorOptionView(contractor: any) {
+  return {
+    _id: contractor._id,
+    city: contractor.city,
+    defaultPayRateCents: contractor.defaultPayRateCents,
+    defaultPayRateUnit: contractor.defaultPayRateUnit ?? "hour",
+    name: contractor.name,
+    trades: contractor.trades,
+  };
+}
+
+function extractPermitMaterialSignals(input: {
+  documents: Array<{ fileName: string; documentType?: string }>;
+  milestones: Array<{ key: string; name: string }>;
+  submilestones: Array<{ key: string; name: string }>;
+}) {
+  const haystack = [
+    ...input.documents
+      .filter((document) => document.documentType === "permit")
+      .map((document) => document.fileName),
+    ...input.milestones.flatMap((milestone) => [milestone.key, milestone.name]),
+    ...input.submilestones.flatMap((submilestone) => [
+      submilestone.key,
+      submilestone.name,
+    ]),
+  ]
+    .join(" ")
+    .toLowerCase();
+  const keywords = [
+    ["brick", "Brick siding"],
+    ["masonry", "Masonry"],
+    ["siding", "Siding"],
+    ["stone", "Stone veneer"],
+    ["stucco", "Stucco"],
+    ["roof", "Roofing"],
+    ["frame", "Framing"],
+    ["foundation", "Foundation"],
+    ["concrete", "Concrete"],
+    ["plumbing", "Plumbing"],
+    ["electrical", "Electrical"],
+  ] as const;
+  return keywords
+    .filter(([key]) => haystack.includes(key))
+    .map(([key, label]) => ({ key, label, source: "permit_and_roadmap" }));
+}
+
+function rankContractorsForPermitSignals(input: {
+  contractors: any[];
+  conflicts: Array<{ contractorId: unknown }>;
+  permitSignals: Array<{ key: string; label: string }>;
+}) {
+  const conflictIds = new Set(
+    input.conflicts.map((conflict) => String(conflict.contractorId))
+  );
+  return input.contractors
+    .map((contractor) => {
+      const searchable = [
+        contractor.name,
+        ...(contractor.trades ?? []),
+        ...(contractor.capabilities ?? []).flatMap((capability: any) => [
+          capability.capabilityKey,
+          capability.label,
+          capability.trade,
+          capability.milestoneArchetypeKey,
+        ]),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const matches = input.permitSignals.filter((signal) =>
+        searchable.includes(signal.key)
+      );
+      const score =
+        matches.length * 35 +
+        (contractor.defaultPayRateCents ? 10 : 0) -
+        (conflictIds.has(String(contractor._id)) ? 30 : 0);
+      return {
+        contractorId: contractor._id,
+        matchedSignals: matches,
+        name: contractor.name,
+        rateCents: contractor.defaultPayRateCents,
+        score,
+        trades: contractor.trades ?? [],
+      };
+    })
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+    .slice(0, 6);
+}
+
+function contractorUtilizationSummary(input: {
+  assignments: Array<{
+    contractorId: unknown;
+    dayEnd?: number;
+    dayStart?: number;
+    estimatedHours?: number;
+  }>;
+  contractorProfiles: any[];
+  proposalContractors: Array<{ contractorId: unknown }>;
+}) {
+  const profileById = new Map(
+    input.contractorProfiles.map((profile) => [String(profile._id), profile])
+  );
+  return input.proposalContractors.map((proposalContractor) => {
+    const contractorId = String(proposalContractor.contractorId);
+    const profile = profileById.get(contractorId);
+    const assignments = input.assignments.filter(
+      (assignment) => String(assignment.contractorId) === contractorId
+    );
+    const assignedDays = assignments.reduce(
+      (sum, assignment) =>
+        sum +
+        Math.max(
+          1,
+          Math.round((assignment.dayEnd ?? 0) - (assignment.dayStart ?? 0))
+        ),
+      0
+    );
+    const scheduledHours = assignments.reduce(
+      (sum, assignment) => sum + (assignment.estimatedHours ?? 0),
+      0
+    );
+    const weeklyWindowHours = (profile?.availabilityWindows ?? []).reduce(
+      (sum: number, window: any) =>
+        sum + Math.max(0, window.endMinute - window.startMinute) / 60,
+      0
+    );
+    const capacityHours = Math.max(weeklyWindowHours, 1) * 4;
+    return {
+      assignedDays,
+      contractorId: proposalContractor.contractorId,
+      name: profile?.name ?? "Contractor",
+      scheduledHours,
+      utilizationPercent: Math.min(
+        100,
+        Math.round((scheduledHours / capacityHours) * 100)
+      ),
+      weeklyWindowHours,
+    };
+  });
+}
+
+function detectAssignmentWindowConflicts(
+  assignments: Array<{
+    assignmentId: unknown;
+    contractorId: unknown;
+    contractorName: string;
+    dayEnd: number;
+    dayStart: number;
+    label: string;
+  }>
+) {
+  const conflicts = [];
+  for (let i = 0; i < assignments.length; i += 1) {
+    for (let j = i + 1; j < assignments.length; j += 1) {
+      const left = assignments[i];
+      const right = assignments[j];
+      if (String(left.contractorId) !== String(right.contractorId)) continue;
+      if (left.dayStart <= right.dayEnd && right.dayStart <= left.dayEnd) {
+        conflicts.push({
+          contractorId: left.contractorId,
+          contractorName: left.contractorName,
+          leftAssignmentId: left.assignmentId,
+          leftLabel: left.label,
+          overlapEndDay: Math.min(left.dayEnd, right.dayEnd),
+          overlapStartDay: Math.max(left.dayStart, right.dayStart),
+          rightAssignmentId: right.assignmentId,
+          rightLabel: right.label,
+          severity: "conflict" as const,
+        });
+      }
+    }
+  }
+  return conflicts;
+}
+
+async function contractorIdentityLinkViews(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    brokerageId: Id<"brokerages">;
+    contractorId: Id<"contractorProfiles">;
+  }
+) {
+  const [primaryLinks, linkedLinks] = await Promise.all([
+    ctx.db
+      .query("contractorIdentityLinks")
+      .withIndex("by_primary", (q) =>
+        q.eq("primaryContractorId", input.contractorId)
+      )
+      .collect(),
+    ctx.db
+      .query("contractorIdentityLinks")
+      .withIndex("by_linked", (q) =>
+        q.eq("linkedContractorId", input.contractorId)
+      )
+      .collect(),
+  ]);
+  const rows = [...primaryLinks, ...linkedLinks].filter(
+    (row, index, all) =>
+      all.findIndex((candidate) => candidate._id === row._id) === index
+  );
+  return await Promise.all(
+    rows.map(async (row) => {
+      const isPrimary = row.primaryContractorId === input.contractorId;
+      const peerId = isPrimary ? row.linkedContractorId : row.primaryContractorId;
+      const peer = (await ctx.db.get(peerId)) as Doc<"contractorProfiles"> | null;
+      return {
+        _id: row._id,
+        confidence: row.confidence,
+        direction: isPrimary ? "primary" : "linked",
+        peerBrokerageId: isPrimary ? row.linkedBrokerageId : row.primaryBrokerageId,
+        peerContractorId: peerId,
+        peerName: peer?.name ?? "Linked contractor",
+        reason: row.reason,
+        status: row.status,
+        updatedAt: row.updatedAt,
+      };
+    })
+  );
+}
+
+function contractorDetailIntelligence(input: {
+  assignments: Doc<"milestoneContractorAssignments">[];
+  profile: any;
+  proposalAssignments: Doc<"proposalMilestoneContractorAssignments">[];
+  ratings: Doc<"contractorQualityRatings">[];
+}) {
+  const activeBuildAssignmentCount = input.assignments.filter(
+    (assignment) => assignment.status !== "removed"
+  ).length;
+  const plannedAssignmentCount = input.proposalAssignments.filter(
+    (assignment) => assignment.status === "planned"
+  ).length;
+  const scheduledHours =
+    input.assignments.reduce(
+      (sum, assignment) => sum + (assignment.estimatedHours ?? 0),
+      0
+    ) +
+    input.proposalAssignments.reduce(
+      (sum, assignment) => sum + (assignment.estimatedHours ?? 0),
+      0
+    );
+  const weeklyWindowHours = (input.profile.availabilityWindows ?? []).reduce(
+    (sum: number, window: any) =>
+      sum + Math.max(0, window.endMinute - window.startMinute) / 60,
+    0
+  );
+  const capabilityPerformance = (input.profile.capabilities ?? []).map(
+    (capability: any) => {
+      const searchable = [
+        capability.capabilityKey,
+        capability.label,
+        capability.trade,
+        capability.milestoneArchetypeKey,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const matchingAssignments = input.assignments.filter((assignment) =>
+        searchable.includes(assignment.milestoneKey.toLowerCase())
+      );
+      const matchingRatings = input.ratings.filter((rating) =>
+        matchingAssignments.some(
+          (assignment) =>
+            assignment.buildId === rating.buildId &&
+            assignment.milestoneKey === rating.milestoneKey
+        )
+      );
+      return {
+        averageRating:
+          matchingRatings.length === 0
+            ? null
+            : Math.round(
+                (matchingRatings.reduce((sum, rating) => sum + rating.rating, 0) /
+                  matchingRatings.length) *
+                  10
+              ) / 10,
+        capabilityKey: capability.capabilityKey,
+        label: capability.label,
+        ratingCount: matchingRatings.length,
+        totalActualCostCents: matchingAssignments.reduce(
+          (sum, assignment) => sum + (assignment.actualCostCents ?? 0),
+          0
+        ),
+        totalEstimatedCostCents: matchingAssignments.reduce(
+          (sum, assignment) => sum + (assignment.estimatedCostCents ?? 0),
+          0
+        ),
+      };
+    }
+  );
+  return {
+    activeBuildAssignmentCount,
+    capabilityPerformance,
+    plannedAssignmentCount,
+    scheduledHours: Math.round(scheduledHours * 100) / 100,
+    utilizationPercent:
+      weeklyWindowHours > 0
+        ? Math.min(100, Math.round((scheduledHours / (weeklyWindowHours * 4)) * 100))
+        : null,
+    weeklyWindowHours,
+  };
+}
+
+async function ensureBuildContractorAssignment(
+  ctx: MutationCtx,
+  input: {
+    agreedRateCents?: number;
+    agreedRateUnit?: "hour" | "day" | "fixed";
+    auth: {
+      brokerage: Doc<"brokerages">;
+      build: Doc<"activeBuilds">;
+      proposal: Doc<"buildProposals">;
+      roles: RoleSlug[];
+      subject: string;
+    };
+    buildId: Id<"activeBuilds">;
+    contractorId: Id<"contractorProfiles">;
+    role: string;
+    workosOrganizationId: string;
+  }
+) {
+  const existing = await ctx.db
+    .query("buildContractorAssignments")
+    .withIndex("by_build_contractor", (q) =>
+      q.eq("buildId", input.buildId).eq("contractorId", input.contractorId)
+    )
+    .unique();
+  const now = Date.now();
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      agreedRateCents:
+        normalizeOptionalMoneyCents(input.agreedRateCents) ??
+        existing.agreedRateCents,
+      agreedRateUnit: input.agreedRateUnit ?? existing.agreedRateUnit,
+      role: input.role.trim() || existing.role,
+      status: "active",
+      updatedAt: now,
+    });
+    return existing._id;
+  }
+  return await ctx.db.insert("buildContractorAssignments", {
+    brokerageId: input.auth.brokerage._id,
+    buildId: input.buildId,
+    contractorId: input.contractorId,
+    createdAt: now,
+    agreedRateCents: normalizeOptionalMoneyCents(input.agreedRateCents),
+    agreedRateUnit: input.agreedRateUnit,
+    organizationId: input.workosOrganizationId,
+    role: input.role.trim() || "Contractor",
+    status: "active",
+    updatedAt: now,
+  });
+}
+
+async function resolveAssignmentSubmilestones(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    buildId: Id<"activeBuilds">;
+    milestoneKey: string;
+    submilestoneKeys: string[];
+  }
+) {
+  if (input.submilestoneKeys.length === 0) {
+    return [];
+  }
+  const submilestones = await ctx.db
+    .query("buildSubmilestones")
+    .withIndex("by_build", (q) => q.eq("buildId", input.buildId))
+    .filter((q) => q.eq(q.field("milestoneKey"), input.milestoneKey))
+    .collect();
+  return input.submilestoneKeys.map((key) => {
+    const submilestone = submilestones.find((row) => row.key === key);
+    if (!submilestone) {
+      throw new Error(`Submilestone not found: ${key}`);
+    }
+    return { id: submilestone._id, key: submilestone.key };
+  });
+}
+
+async function findMilestoneContractorAssignment(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    buildId: Id<"activeBuilds">;
+    contractorId: Id<"contractorProfiles">;
+    milestoneKey: string;
+    submilestoneKey?: string;
+  }
+) {
+  const assignments = await ctx.db
+    .query("milestoneContractorAssignments")
+    .withIndex("by_contractor_build", (q) =>
+      q.eq("contractorId", input.contractorId).eq("buildId", input.buildId)
+    )
+    .collect();
+  return (
+    assignments.find(
+      (assignment) =>
+        assignment.milestoneKey === input.milestoneKey &&
+        assignment.submilestoneKey === input.submilestoneKey
+    ) ?? null
+  );
+}
+
+async function insertContractorQualityRating(
+  ctx: MutationCtx,
+  input: {
+    auth: {
+      brokerage: Pick<Doc<"brokerages">, "_id">;
+      build: Doc<"activeBuilds">;
+      proposal: Pick<Doc<"buildProposals">, "_id">;
+      roles: RoleSlug[];
+      subject: string;
+    };
+    buildId: Id<"activeBuilds">;
+    contractorId: Id<"contractorProfiles">;
+    milestoneKey: string;
+    note?: string;
+    rating: number;
+    source: "builder_evidence" | "site_visit" | "backoffice";
+    sourceEvidenceKey?: string;
+    sourceVisitId?: string;
+    submilestoneKey?: string;
+    workosOrganizationId: string;
+  }
+) {
+  const contractor = await getScopedContractorOrThrow(
+    ctx,
+    input.contractorId,
+    input.auth.brokerage._id as Id<"brokerages">
+  );
+  if (contractor.status !== "active") {
+    throw new Error("Production contractor is inactive.");
+  }
+  const milestone = await getActiveBuildMilestoneOrThrow(
+    ctx,
+    input.buildId,
+    input.milestoneKey
+  );
+  const submilestone = input.submilestoneKey
+    ? (
+        await resolveAssignmentSubmilestones(ctx, {
+          buildId: input.buildId,
+          milestoneKey: input.milestoneKey,
+          submilestoneKeys: [input.submilestoneKey],
+        })
+      )[0]
+    : undefined;
+  const assignment = await findMilestoneContractorAssignment(ctx, {
+    buildId: input.buildId,
+    contractorId: input.contractorId,
+    milestoneKey: input.milestoneKey,
+    submilestoneKey: input.submilestoneKey,
+  });
+  if (!assignment) {
+    throw new Error("Contractor must be assigned before quality is rated.");
+  }
+  return await ctx.db.insert("contractorQualityRatings", {
+    brokerageId: input.auth.brokerage._id as Id<"brokerages">,
+    buildId: input.buildId,
+    buildMilestoneId: milestone._id,
+    buildSubmilestoneId: submilestone?.id,
+    contractorId: input.contractorId,
+    createdAt: Date.now(),
+    createdByWorkosUserId: input.auth.subject,
+    milestoneKey: input.milestoneKey,
+    note: normalizeOptionalString(input.note),
+    organizationId: input.workosOrganizationId,
+    rating: normalizeQualityRating(input.rating),
+    source: input.source,
+    sourceEvidenceKey: normalizeOptionalString(input.sourceEvidenceKey),
+    sourceVisitId: normalizeOptionalString(input.sourceVisitId),
+    submilestoneKey: normalizeOptionalString(input.submilestoneKey),
+  });
+}
+
+async function recordQualityRatingForMilestoneAssignments(
+  ctx: MutationCtx,
+  input: {
+    auth: {
+      brokerage: Doc<"brokerages">;
+      build: Doc<"activeBuilds">;
+      proposal: Doc<"buildProposals">;
+      roles: RoleSlug[];
+      subject: string;
+    };
+    buildId: Id<"activeBuilds">;
+    milestone: Doc<"buildMilestones">;
+    note?: string;
+    rating: number;
+    source: "builder_evidence" | "site_visit" | "backoffice";
+    workosOrganizationId: string;
+  }
+) {
+  const assignments = await ctx.db
+    .query("milestoneContractorAssignments")
+    .withIndex("by_build_milestone", (q) =>
+      q.eq("buildId", input.buildId).eq("milestoneKey", input.milestone.key)
+    )
+    .collect();
+  const seen = new Set<string>();
+  for (const assignment of assignments) {
+    const key = `${assignment.contractorId}:${assignment.submilestoneKey ?? ""}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    await insertContractorQualityRating(ctx, {
+      auth: input.auth,
+      buildId: input.buildId,
+      contractorId: assignment.contractorId,
+      milestoneKey: input.milestone.key,
+      note: input.note,
+      rating: input.rating,
+      source: input.source,
+      submilestoneKey: assignment.submilestoneKey,
+      workosOrganizationId: input.workosOrganizationId,
+    });
   }
 }
 
@@ -8021,7 +10499,7 @@ async function getActiveBuildSiteVisitTokenState(
       visit: null,
     };
   }
-  const [milestone, submilestones, evidenceAssets] = await Promise.all([
+  const [milestone, submilestones, evidenceAssets, contractorAssignments] = await Promise.all([
     ctx.db.get(visit.buildMilestoneId),
     ctx.db
       .query("buildSubmilestones")
@@ -8035,7 +10513,21 @@ async function getActiveBuildSiteVisitTokenState(
         q.eq("buildId", buildId).eq("milestoneKey", visit.milestoneKey)
       )
       .collect(),
+    ctx.db
+      .query("milestoneContractorAssignments")
+      .withIndex("by_build_milestone", (q) =>
+        q.eq("buildId", buildId).eq("milestoneKey", visit.milestoneKey)
+      )
+      .collect(),
   ]);
+  const assignedContractorProfiles = await Promise.all(
+    contractorAssignments.map((assignment) => ctx.db.get(assignment.contractorId))
+  );
+  const contractorById = new Map(
+    assignedContractorProfiles
+      .filter((contractor) => contractor !== null)
+      .map((contractor) => [String(contractor!._id), contractor!])
+  );
   const files = await Promise.all(
     evidenceAssets
       .filter((asset) =>
@@ -8048,6 +10540,7 @@ async function getActiveBuildSiteVisitTokenState(
         mimeType: asset.mimeType,
         sizeBytes: asset.sizeBytes,
         targetMilestoneKey: asset.milestoneKey,
+        targetSubmilestoneKey: asset.submilestoneKey,
         uploadedAt: asset.createdAt,
         url: asset.storageId ? await ctx.storage.getUrl(asset.storageId) : null,
       }))
@@ -8071,9 +10564,27 @@ async function getActiveBuildSiteVisitTokenState(
           milestoneKey: milestone.key,
           milestoneName: milestone.name,
           milestoneOrder: milestone.order,
+          contractors: contractorAssignments
+            .map((assignment) => {
+              const contractor = contractorById.get(
+                String(assignment.contractorId)
+              );
+              if (!contractor) return null;
+              return {
+                _id: String(contractor._id),
+                assignmentId: String(assignment._id),
+                name: contractor.name,
+                role: assignment.role,
+                submilestoneKey: assignment.submilestoneKey,
+              };
+            })
+            .filter(Boolean),
           submilestones: submilestones
             .sort((a, b) => a.order - b.order)
-            .map((submilestone) => submilestone.name),
+            .map((submilestone) => ({
+              key: submilestone.key,
+              name: submilestone.name,
+            })),
         },
       ]
     : [];
@@ -8482,10 +10993,14 @@ async function collectByIndex<TableName extends keyof any>(
   indexName: string,
   id: string
 ) {
+  const fieldName =
+    indexName === "by_build"
+      ? "buildId"
+      : indexName === "by_contractor"
+        ? "contractorId"
+        : "proposalId";
   return await (ctx.db.query(table as never) as any)
-    .withIndex(indexName, (q: any) =>
-      q.eq(indexName === "by_build" ? "buildId" : "proposalId", id)
-    )
+    .withIndex(indexName, (q: any) => q.eq(fieldName, id))
     .collect();
 }
 
