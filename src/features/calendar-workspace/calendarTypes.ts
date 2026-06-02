@@ -29,7 +29,6 @@ export type CalendarEventKind =
   | "siteVisit"
   | "review"
   | "adminDecision"
-  | "workingCapital"
   | "loan"
   | "budgetRevision"
   | "contractor";
@@ -95,7 +94,6 @@ export interface DrawFlowCalendarEvent {
   warnings: CalendarEventWarning[];
   metrics?: {
     amountCents?: number;
-    exposureCents?: number;
     budgetCents?: number;
     progressPercent?: number;
   };

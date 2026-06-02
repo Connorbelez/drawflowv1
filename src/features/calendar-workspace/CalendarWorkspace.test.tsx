@@ -88,7 +88,7 @@ const workspace: DrawFlowCalendarWorkspaceData = {
   warnings: [{ label: "Depends on permit", severity: "warning" }],
 };
 
-const workspaceWithAuditEvent: DrawFlowCalendarWorkspaceData = {
+const workspaceWithSuppressedEvents: DrawFlowCalendarWorkspaceData = {
   ...workspace,
   events: [
     ...workspace.events,
@@ -116,6 +116,31 @@ const workspaceWithAuditEvent: DrawFlowCalendarWorkspaceData = {
       timeBucket: "endOfDay",
       timezone: "America/Toronto",
       title: "build.site_visit.scheduled",
+      warnings: [],
+    } as unknown as DrawFlowCalendarWorkspaceData["events"][number],
+    {
+      allDay: true,
+      auditRequired: false,
+      editable: {
+        canChangeAssignee: false,
+        canChangeStatus: false,
+        canMove: false,
+        canResizeEnd: false,
+        canResizeStart: false,
+        requiredReason: "none",
+      },
+      entity: { id: "proposal-1", type: "proposal" },
+      id: "proposal:workingCapital:window",
+      kind: "workingCapital",
+      organizationId: "org-test",
+      relatedEntityIds: ["proposal-1"],
+      startsAt: "2026-06-01",
+      status: "planned",
+      subtitle: "Borrower Working Capital Limit exposure window",
+      surface: "proposal",
+      timeBucket: "allDay",
+      timezone: "America/Toronto",
+      title: "Borrower working-capital exposure",
       warnings: [],
     } as unknown as DrawFlowCalendarWorkspaceData["events"][number],
   ],
@@ -182,15 +207,20 @@ describe("CalendarWorkspace", () => {
     expect(screen.getByText("Open detail")).toBeTruthy();
   });
 
-  test("does not render audit history as calendar events", () => {
-    render(<CalendarWorkspace workspace={workspaceWithAuditEvent} />);
+  test("does not render audit history or borrower exposure as calendar events", () => {
+    render(<CalendarWorkspace workspace={workspaceWithSuppressedEvents} />);
 
     expect(screen.queryByText("build.site_visit.scheduled")).toBeNull();
+    expect(screen.queryByText("Borrower working-capital exposure")).toBeNull();
 
     fireEvent.change(screen.getByPlaceholderText("Search calendar"), {
       target: { value: "site_visit" },
     });
     expect(screen.queryByText("build.site_visit.scheduled")).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText("Search calendar"), {
+      target: { value: "working-capital" },
+    });
+    expect(screen.queryByText("Borrower working-capital exposure")).toBeNull();
   });
 
   test("previews and commits editable schedule changes with audit reason", async () => {

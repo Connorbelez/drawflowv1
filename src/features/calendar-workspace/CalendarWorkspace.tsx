@@ -682,7 +682,7 @@ function calendarManagerTags(events: DrawFlowCalendarEvent[]): string[] {
 function calendarColorForEvent(event: DrawFlowCalendarEvent): string {
   if (event.status === "blocked" || event.status === "overdue") return "red";
   if (event.kind === "draw" || event.kind === "drawGroup") return "emerald";
-  if (event.kind === "workingCapital" || event.kind === "loan") return "emerald";
+  if (event.kind === "loan") return "emerald";
   if (event.kind === "siteVisit") return "cyan";
   if (event.kind === "review" || event.kind === "adminDecision") return "violet";
   if (event.kind === "evidence" || event.warnings.length > 0) return "amber";
@@ -881,7 +881,7 @@ function ImpactCard({ request }: { request: CalendarEditRequest }) {
           <span className="text-muted-foreground">Affected</span>
           <span>
             Milestone dates, draw timing, site visit/review/admin targets, and
-            working-capital exposure are re-projected after commit.
+            capital-release timing are re-projected after commit.
           </span>
         </div>
         {event.warnings.length > 0 ? (

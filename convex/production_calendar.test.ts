@@ -126,14 +126,15 @@ describe("production calendar workspace", () => {
           status: "proposed",
           timeBucket: "endOfDay",
         }),
-        expect.objectContaining({
-          kind: "workingCapital",
-          status: "planned",
-          timeBucket: "allDay",
-        }),
       ])
     );
     expect(workspace.events.some((event: any) => event.kind === "audit")).toBe(false);
+    expect(workspace.events.some((event: any) => event.kind === "workingCapital")).toBe(false);
+    expect(
+      workspace.events.some((event: any) =>
+        /borrower working[-\s]capital exposure/i.test(event.title)
+      )
+    ).toBe(false);
     expect(workspace.savedViews.map((view: any) => view.id)).toEqual(
       expect.arrayContaining(["proposal-feasibility", "capital-release"])
     );
@@ -208,6 +209,7 @@ describe("production calendar workspace", () => {
       ])
     );
     expect(workspace.events.some((event: any) => event.kind === "audit")).toBe(false);
+    expect(workspace.events.some((event: any) => event.kind === "workingCapital")).toBe(false);
     expect(workspace.auditEvents.map((event: any) => event.eventType)).toEqual(
       expect.arrayContaining(["active_build.milestone.schedule_revised"])
     );

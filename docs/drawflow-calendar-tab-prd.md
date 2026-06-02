@@ -13,7 +13,7 @@
 
 ## 1. Purpose
 
-Stakeholders asked for a calendar view on build and proposal detail routes. In DrawFlow, that cannot be a generic date picker or project-management calendar. The calendar must become a reusable time-control workspace for construction lending: milestone timing, draw eligibility, evidence deadlines, site visits, review windows, admin decisions, working-capital pressure, and capital release.
+Stakeholders asked for a calendar view on build and proposal detail routes. In DrawFlow, that cannot be a generic date picker or project-management calendar. The calendar must become a reusable time-control workspace for construction lending: milestone timing, draw eligibility, evidence deadlines, site visits, review windows, admin decisions, and capital release.
 
 This PRD defines one reusable calendar component system used by both Build Proposal and Active Build routes. The shared component is domain-agnostic enough to render any DrawFlow calendar event, but domain-aware enough to expose reimbursement, evidence, site visit, approval, and draw-release actions through decoupled action providers.
 
@@ -29,10 +29,10 @@ The calendar must support all three operating modes:
 
 The DrawFlow calendar answers four questions:
 
-1. **What is happening when?** Milestones, submilestones, evidence, site visits, reviews, decisions, draw readiness, releases, payback dates, and working-capital pressure.
+1. **What is happening when?** Milestones, submilestones, evidence, site visits, reviews, decisions, draw readiness, releases, and payback dates.
 2. **What needs action now?** Overdue work, blocked dependencies, expiring review windows, missing evidence, unscheduled site visits, ready-for-admin decisions, and ready-to-release draws.
 3. **What can I change?** Dates and assignments that are still planned/proposed, plus revision workflows for material schedule changes.
-4. **What does this change affect?** Draw timing, borrower working-capital exposure, site visit queues, review SLAs, audit history, and reimbursement readiness.
+4. **What does this change affect?** Draw timing, capital-release timing, site visit queues, review SLAs, audit history, and reimbursement readiness.
 
 The calendar is not a replacement for the Gantt or timeline. The Gantt explains sequence and dependencies. The timeline explains construction and capital flow. The calendar explains operational days: who needs to do what, on which date, roughly when during that day, and before what reimbursement or review consequence.
 
@@ -56,7 +56,7 @@ Relevant existing primitives and patterns:
 1. DrawFlow v1 remains reimbursement-only. The calendar must never imply advance funding before work is completed, evidenced, reviewed, approved, and released.
 2. Interest begins only after funds are released. Release dates may be shown as interest-relevant dates; proposed draw timing may not be labelled as released capital.
 3. Proposed/planned schedule dates may be edited. Actual evidence, approval, release, and audit timestamps are immutable. Corrections create new audit/revision records.
-4. Borrower Working Capital Limit remains distinct from Lender Draw Policy Limit. The calendar must show both impacts separately where relevant.
+4. Borrower Working Capital Limit remains distinct from Lender Draw Policy Limit. Borrower working-capital exposure is financial context outside the calendar and must not be rendered as standalone calendar events or event metrics.
 5. Geofence failure must not discard evidence. Location-unverified evidence remains on the calendar and routes to review.
 6. Builder, broker, backoffice, principal broker, contractor, and site visitor authority boundaries must be explicit. Calendar actions are hidden or disabled based on capability, but server-side authorization remains authoritative.
 7. Material calendar changes require audit events with actor, role, timestamp, prior state, new state, reason, warnings, and affected entities.
@@ -126,7 +126,6 @@ Must show:
 - Proposed milestone and submilestone spans.
 - Dependency relationships and dependency violations.
 - Proposed draw timing and draw availability windows.
-- Borrower working-capital pressure periods.
 - Lender draw policy limit warnings.
 - Evidence requirements and assumed evidence submission dates.
 - Estimated review/site-visit/admin lag where policy requires it.
@@ -167,7 +166,7 @@ Must show:
 - Staff review SLA dates.
 - Admin decision dates.
 - Draw group readiness, draw request, approval, release, and receipt events.
-- Working-capital pressure and draw recovery windows.
+- Draw recovery windows and release timing.
 - Loan payback date and interest-relevant release dates.
 - Budget revision and schedule variance events.
 - Schedule revision records that materially change dates. Audit history is accessible from related-event actions and detail surfaces, not rendered as standalone calendar rows.
@@ -249,7 +248,6 @@ export type CalendarEventKind =
   | "siteVisit"
   | "review"
   | "adminDecision"
-  | "workingCapital"
   | "loan"
   | "budgetRevision"
   | "contractor";
@@ -299,7 +297,6 @@ export interface DrawFlowCalendarEvent {
   warnings: CalendarEventWarning[];
   metrics?: {
     amountCents?: number;
-    exposureCents?: number;
     budgetCents?: number;
     progressPercent?: number;
   };
@@ -365,7 +362,7 @@ Required timeframes:
 - **Day:** one day with time bands for site visits, review windows, admin decisions, and timed actions.
 - **Week:** seven-day operational planner, default for backoffice coordination and site-visit scheduling.
 - **Month:** high-density day stream or grid showing every day, event count, highest-risk events, draw/release markers, and milestone ranges.
-- **Quarter / Roadmap:** long-range planning view for milestone spans, draw groups, working-capital pressure, and proposal feasibility.
+- **Quarter / Roadmap:** long-range planning view for milestone spans, draw groups, release timing, and proposal feasibility.
 - **Agenda:** list-first timeframe, default for mobile and for "needs my action" triage.
 
 The selected timeframe persists in the route search params and per-user saved view preferences.
@@ -431,7 +428,7 @@ Long-range view for planning and capital timing.
 
 Requirements:
 
-- Show milestone spans, draw groups, working-capital pressure, and proposed/released draw timing over multiple months.
+- Show milestone spans, draw groups, and proposed/released draw timing over multiple months.
 - Highlight dependency chain and critical reimbursement path.
 - Make date density glanceable without requiring exact per-day detail.
 - Links back to existing timeline/Gantt tab with selected milestone/draw context.
@@ -557,7 +554,7 @@ Before committing a material edit, show an impact preview:
 - Affected milestone dates.
 - Affected dependency dates.
 - Draw timing changes.
-- Working-capital exposure change.
+- Capital-release timing change.
 - Site visit/review/admin dates shifted or left unchanged.
 - Warnings for compressed schedule, policy limit, missing evidence, or impossible release.
 - Whether audit reason is required.
@@ -648,7 +645,7 @@ The calendar must derive:
 - Admin decision due after review/site visit completion.
 - Draw ready date when all included milestones are approved.
 - Draw release target date after approval and readiness.
-- Working-capital pressure window where unreimbursed exposure approaches/exceeds limit.
+- Draw ready date and release target date when reimbursement eligibility is met.
 - Interest-relevant date when funds are released.
 
 Derived events must be labelled as derived. Editing a derived event must either edit its source object or open a workflow to create an explicit target date.
@@ -690,8 +687,8 @@ Required drawer sections:
 - Header: title, status, date range, entity link.
 - Schedule: start/end, timezone, edit affordances where allowed.
 - Domain context: milestone/draw/site visit/evidence summary.
-- Financial context where relevant: amount, exposure, budget, draw availability, interest relevance.
-- Warnings: blocked dependencies, overdue, policy, working capital, geofence, missing evidence.
+- Financial context where relevant: amount, budget, draw availability, interest relevance.
+- Warnings: blocked dependencies, overdue, policy, geofence, missing evidence.
 - Actions: same action model as context menus.
 - Audit trail: material changes for this event/entity.
 
@@ -861,7 +858,7 @@ Do not create a parallel generic `calendarEvents` table as the source of truth f
 
 ### 22.1 Unit Tests
 
-- Proposal event projection from milestones, draws, dependencies, and working-capital assumptions. Audit history remains metadata and is not projected as calendar events.
+- Proposal event projection from milestones, draws, dependencies, documents, and permits. Audit history and borrower working-capital exposure remain metadata/context outside projected calendar events.
 - Active build event projection from milestones, evidence, site visits, draw releases, and loan facility. Audit history remains metadata and is not projected as calendar events.
 - Action availability by role and event state.
 - Impact preview calculations.
@@ -898,7 +895,7 @@ Deliver:
 - Shared `CalendarWorkspace` adapter shell.
 - Proposal and active build calendar adapters.
 - Day, week, month, quarter/roadmap, and agenda timeframes.
-- Event projections for milestones, draws, evidence, site visits, review, admin decisions, working capital, loan, and budget revisions. Audit events are available through audit-history actions, not rendered as calendar events.
+- Event projections for milestones, draws, evidence, site visits, review, admin decisions, loan, and budget revisions. Audit events and borrower working-capital exposure are available through detail/context surfaces where appropriate, not rendered as calendar events.
 - Filters and saved views.
 - Event detail drawer.
 - Context menu shell with non-mutating actions: open detail, view audit, copy link, jump to timeline/Gantt/materials/draws.

@@ -83,9 +83,7 @@ export function CalendarAgendaRail({
                         {bucketLabel(group.bucket)}
                       </p>
                       {group.events.map((event) => {
-                        const amount = formatCentsCompact(
-                          event.metrics?.amountCents ?? event.metrics?.exposureCents,
-                        );
+                        const amount = formatCentsCompact(event.metrics?.amountCents);
                         return (
                           <div
                             className={cn(

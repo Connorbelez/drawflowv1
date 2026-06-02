@@ -197,10 +197,6 @@ export function CalendarEventDetailDrawer({
                       value={formatCentsCompact(event.metrics?.amountCents) ?? "None"}
                     />
                     <DetailRow
-                      label="Exposure"
-                      value={formatCentsCompact(event.metrics?.exposureCents) ?? "None"}
-                    />
-                    <DetailRow
                       label="Budget"
                       value={formatCentsCompact(event.metrics?.budgetCents) ?? "None"}
                     />

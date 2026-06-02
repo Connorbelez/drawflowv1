@@ -152,42 +152,6 @@ export function buildProposalCalendarWorkspaceFromDetail(
     );
   }
 
-  if (milestones.length > 0) {
-    events.push(
-      normalizeCalendarEvent({
-        allDay: true,
-        auditRequired: false,
-        editable: {
-          canChangeAssignee: false,
-          canChangeStatus: false,
-          canMove: false,
-          canResizeEnd: false,
-          canResizeStart: false,
-          requiredReason: "none",
-        },
-        endsAt: addDaysIso(baseDate, Math.max(...milestones.map((milestone: any) => milestone.dayEnd ?? 0))),
-        entity: { id: String(proposal._id ?? ""), type: "proposal" },
-        id: "proposal:workingCapital:window",
-        kind: "workingCapital",
-        metrics: { exposureCents: proposal.borrowerWorkingCapitalLimitCents },
-        organizationId,
-        relatedEntityIds: [String(proposal._id ?? "")],
-        startsAt: addDaysIso(baseDate, Math.min(...milestones.map((milestone: any) => milestone.dayStart ?? 0))),
-        status: "planned",
-        subtitle: "Borrower Working Capital Limit exposure window",
-        surface: "proposal",
-        timeBucket: "allDay",
-        timezone: "America/Toronto",
-        title: "Borrower working-capital exposure",
-        warnings:
-          proposal.borrowerWorkingCapitalLimitCents &&
-          Math.max(...draws.map((draw: any) => draw.amountCents ?? 0), 0) > proposal.borrowerWorkingCapitalLimitCents
-            ? [{ label: "Working-capital pressure" }]
-            : [],
-      }),
-    );
-  }
-
   for (const document of detail.documents ?? []) {
     events.push(
       normalizeCalendarEvent({
@@ -340,7 +304,7 @@ function defaultCalendarSavedViews(): CalendarSavedView[] {
   return [
     { filters: { surface: "proposal" } as any, id: "proposal-feasibility", isDefault: true, label: "Proposal feasibility", timeframe: "month" },
     { filters: { needsAction: true }, id: "my-week", isDefault: false, label: "My week", timeframe: "week" },
-    { filters: { eventKinds: ["draw", "drawGroup", "workingCapital"] }, id: "capital-release", isDefault: false, label: "Capital release", timeframe: "month" },
+    { filters: { eventKinds: ["draw", "drawGroup", "loan"] }, id: "capital-release", isDefault: false, label: "Capital release", timeframe: "month" },
     { filters: { eventKinds: ["evidence", "review", "adminDecision"] }, id: "evidence-review", isDefault: false, label: "Evidence and review", timeframe: "agenda" },
     { filters: { statuses: ["overdue", "blocked"] }, id: "overdue-blocked", isDefault: false, label: "Overdue and blocked", timeframe: "agenda" },
   ];

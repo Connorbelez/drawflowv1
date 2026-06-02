@@ -53,13 +53,12 @@ const kindRank: Record<CalendarEventKind, number> = {
   evidence: 3,
   draw: 4,
   drawGroup: 5,
-  workingCapital: 6,
-  milestone: 7,
-  submilestone: 8,
-  contractor: 9,
-  loan: 10,
-  budgetRevision: 11,
-  dependency: 12,
+  milestone: 6,
+  submilestone: 7,
+  contractor: 8,
+  loan: 9,
+  budgetRevision: 10,
+  dependency: 11,
 };
 
 export function bucketLabel(bucket: CalendarTimeBucket): string {
@@ -92,9 +91,19 @@ export function normalizeCalendarEvents(
   events: DrawFlowCalendarEvent[] | undefined,
 ): DrawFlowCalendarEvent[] {
   return (events ?? [])
-    .filter((event) => (event as { kind?: string }).kind !== "audit")
+    .filter((event) => !isSuppressedCalendarEvent(event))
     .map(normalizeCalendarEvent)
     .sort(compareCalendarEvents);
+}
+
+function isSuppressedCalendarEvent(event: DrawFlowCalendarEvent): boolean {
+  const legacyKind = (event as { kind?: string }).kind;
+  if (legacyKind === "audit" || legacyKind === "workingCapital") {
+    return true;
+  }
+  return /borrower\s+working[-\s]capital\s+exposure/i.test(
+    `${event.title} ${event.subtitle ?? ""}`,
+  );
 }
 
 export function compareCalendarEvents(
@@ -174,10 +183,8 @@ export function eventIsCapitalAffecting(event: DrawFlowCalendarEvent): boolean {
   return (
     event.kind === "draw" ||
     event.kind === "drawGroup" ||
-    event.kind === "workingCapital" ||
     event.kind === "loan" ||
-    event.metrics?.amountCents !== undefined ||
-    event.metrics?.exposureCents !== undefined
+    event.metrics?.amountCents !== undefined
   );
 }
 

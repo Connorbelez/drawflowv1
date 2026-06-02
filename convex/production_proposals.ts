@@ -5010,19 +5010,6 @@ function calendarStatusForActiveMilestone(
   return "planned";
 }
 
-function calendarTimeBucketForDay(day: number) {
-  if (day <= 0) {
-    return "morning";
-  }
-  if (day % 3 === 0) {
-    return "morning";
-  }
-  if (day % 3 === 1) {
-    return "midday";
-  }
-  return "afternoon";
-}
-
 function defaultCalendarSavedViews(surface: "activeBuild" | "proposal") {
   const base = [
     {
@@ -5033,7 +5020,7 @@ function defaultCalendarSavedViews(surface: "activeBuild" | "proposal") {
       timeframe: "week",
     },
     {
-      filters: { eventKinds: ["draw", "drawGroup", "workingCapital"] },
+      filters: { eventKinds: ["draw", "drawGroup", "loan"] },
       id: "capital-release",
       isDefault: false,
       label: "Capital release",
@@ -5304,7 +5291,6 @@ export const getProposalCalendarWorkspace = authenticatedQuery
       milestones,
       submilestones,
       draws,
-      capitalEvents,
       evidenceAssets,
       contractorAssignments,
       targetDates,
@@ -5319,12 +5305,6 @@ export const getProposalCalendarWorkspace = authenticatedQuery
       collectByIndex(
         ctx,
         "proposalDrawScheduleRows",
-        "by_proposal",
-        args.proposalId
-      ),
-      collectByIndex(
-        ctx,
-        "proposalCapitalEvents",
         "by_proposal",
         args.proposalId
       ),
@@ -5399,51 +5379,7 @@ export const getProposalCalendarWorkspace = authenticatedQuery
         proposalCalendarDrawEvent({ baseDate, draw, proposal: auth.proposal })
       );
     }
-    if (sortedMilestones.length > 0) {
-      events.push({
-        allDay: true,
-        auditRequired: false,
-        editable: {
-          canChangeAssignee: false,
-          canChangeStatus: false,
-          canMove: false,
-          canResizeEnd: false,
-          canResizeStart: false,
-          requiredReason: "none",
-        },
-        endsAt: addDaysIso(
-          baseDate,
-          Math.max(...sortedMilestones.map((milestone) => milestone.dayEnd))
-        ),
-        entity: { id: String(args.proposalId), type: "proposal" },
-        id: calendarEventId("proposal", "workingCapital", args.proposalId),
-        kind: "workingCapital",
-        metrics: {
-          exposureCents: auth.proposal.borrowerWorkingCapitalLimitCents,
-        },
-        organizationId: auth.proposal.organizationId,
-        relatedEntityIds: [String(args.proposalId)],
-        startsAt: addDaysIso(
-          baseDate,
-          Math.min(...sortedMilestones.map((milestone) => milestone.dayStart))
-        ),
-        status: "planned",
-        subtitle: "Borrower Working Capital Limit exposure window",
-        surface: "proposal",
-        timeBucket: "allDay",
-        timezone: "America/Toronto",
-        title: "Borrower working-capital exposure",
-        warnings:
-          auth.proposal.borrowerWorkingCapitalLimitCents <
-          Math.max(
-            ...draws.map((draw: Doc<"proposalDrawScheduleRows">) => draw.amountCents),
-            0
-          )
-            ? ["Working-capital pressure"]
-            : [],
-      });
-    }
-    for (const event of [...capitalEvents, ...evidenceAssets]) {
+    for (const event of evidenceAssets) {
       events.push({
         allDay: false,
         auditRequired: false,
@@ -5457,21 +5393,19 @@ export const getProposalCalendarWorkspace = authenticatedQuery
         },
         entity: { id: String(event._id), type: "proposal" },
         id: calendarEventId("proposal", "supporting", String(event._id)),
-        kind: "evidenceKey" in event ? "evidence" : "workingCapital",
-        milestoneKey: "milestoneKey" in event ? event.milestoneKey : undefined,
+        kind: "evidence",
+        milestoneKey: event.milestoneKey,
         organizationId: event.organizationId,
         relatedEntityIds: [String(args.proposalId)],
-        startsAt: addDaysIso(baseDate, Math.round("x" in event ? event.x : 0)),
+        startsAt: baseDate,
         status: "planned",
-        subtitle: "label" in event ? event.label : event.fileName,
+        subtitle: event.label,
         surface: "proposal",
-        timeBucket: calendarTimeBucketForDay(
-          Math.round("x" in event ? event.x : 0)
-        ),
+        timeBucket: "midday",
         timezone: "America/Toronto",
-        title: "label" in event ? event.label : event.fileName,
+        title: event.fileName,
         warnings:
-          "locationVerified" in event && !event.locationVerified
+          !event.locationVerified
             ? ["Location unverified"]
             : [],
       });
