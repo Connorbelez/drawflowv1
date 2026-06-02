@@ -332,6 +332,26 @@ const getWidth = (
 
 export const getGanttRangeWidth = getWidth;
 
+export const getGanttFeatureDragResolution = ({
+  context,
+  endAt,
+  pixelDelta,
+  startAt,
+}: {
+  context: GanttContextProps;
+  endAt: Date | null;
+  pixelDelta: number;
+  startAt: Date;
+}) => {
+  const deltaDays = getDayDeltaByPixelDelta(context, startAt, pixelDelta);
+
+  return {
+    deltaDays,
+    endAt: endAt ? addDays(endAt, deltaDays) : null,
+    startAt: addDays(startAt, deltaDays),
+  };
+};
+
 const calculateInnerOffset = (
   date: Date,
   range: Range,
@@ -1048,6 +1068,7 @@ export type GanttFeatureItemProps = GanttFeature & {
   batchMoveIds?: string[];
   onBatchMove?: (deltaDays: number) => void;
   onBatchPreviewChange?: (preview: { deltaDays: number } | null) => void;
+  onPreviewChange?: (preview: { deltaDays: number } | null) => void;
   children?: ReactNode;
   className?: string;
 };
@@ -1059,6 +1080,7 @@ export const GanttFeatureItem: FC<GanttFeatureItemProps> = ({
   batchMoveIds,
   onBatchMove,
   onBatchPreviewChange,
+  onPreviewChange,
   children,
   className,
   ...feature
@@ -1110,25 +1132,24 @@ export const GanttFeatureItem: FC<GanttFeatureItemProps> = ({
 
   const handleItemDragMove = useCallback(
     (event: { delta: { x: number } }) => {
-      const delta = getDayDeltaByPixelDelta(
-        gantt,
-        previousStartAt,
-        event.delta.x,
-      );
-      const newStartDate = addDays(previousStartAt, delta);
-      const newEndDate = previousEndAt ? addDays(previousEndAt, delta) : null;
-
-      setStartAt(newStartDate);
-      setEndAt(newEndDate);
-      setDragDeltaDays(delta);
+      const preview = getGanttFeatureDragResolution({
+        context: gantt,
+        endAt: previousEndAt,
+        pixelDelta: event.delta.x,
+        startAt: previousStartAt,
+      });
+      setDragDeltaDays(preview.deltaDays);
       if (batchDragEnabled) {
-        onBatchPreviewChange?.({ deltaDays: delta });
+        onBatchPreviewChange?.({ deltaDays: preview.deltaDays });
+        return;
       }
+      onPreviewChange?.({ deltaDays: preview.deltaDays });
     },
     [
       batchDragEnabled,
       gantt,
       onBatchPreviewChange,
+      onPreviewChange,
       previousStartAt,
       previousEndAt,
     ],
@@ -1136,17 +1157,30 @@ export const GanttFeatureItem: FC<GanttFeatureItemProps> = ({
 
   const onItemDragEnd = useCallback(
     (event?: { delta: { x: number } }) => {
-      const finalDeltaDays = event?.delta
-        ? getDayDeltaByPixelDelta(gantt, previousStartAt, event.delta.x)
-        : dragDeltaDays;
+      const finalPreview = event?.delta
+        ? getGanttFeatureDragResolution({
+            context: gantt,
+            endAt: previousEndAt,
+            pixelDelta: event.delta.x,
+            startAt: previousStartAt,
+          })
+        : {
+            deltaDays: dragDeltaDays,
+            endAt: previousEndAt ? addDays(previousEndAt, dragDeltaDays) : null,
+            startAt: addDays(previousStartAt, dragDeltaDays),
+          };
       onBatchPreviewChange?.(null);
       if (batchDragEnabled) {
-        if (finalDeltaDays !== 0) {
-          onBatchMove?.(finalDeltaDays);
+        if (finalPreview.deltaDays !== 0) {
+          onBatchMove?.(finalPreview.deltaDays);
         }
         return;
       }
-      onMove?.(feature.id, startAt, endAt);
+      onPreviewChange?.(null);
+      if (finalPreview.deltaDays === 0) {
+        return;
+      }
+      onMove?.(feature.id, finalPreview.startAt, finalPreview.endAt);
     },
     [
       batchDragEnabled,
@@ -1156,22 +1190,24 @@ export const GanttFeatureItem: FC<GanttFeatureItemProps> = ({
       onBatchMove,
       onBatchPreviewChange,
       onMove,
+      onPreviewChange,
       previousStartAt,
-      startAt,
-      endAt,
+      previousEndAt,
     ],
   );
 
   const onResizeDragEnd = useCallback(() => {
     onBatchPreviewChange?.(null);
+    onPreviewChange?.(null);
     onMove?.(feature.id, startAt, endAt);
-  }, [feature.id, onBatchPreviewChange, onMove, startAt, endAt]);
+  }, [feature.id, onBatchPreviewChange, onMove, onPreviewChange, startAt, endAt]);
 
   const onDragCancel = useCallback(() => {
     onBatchPreviewChange?.(null);
+    onPreviewChange?.(null);
     setStartAt(feature.startAt);
     setEndAt(feature.endAt);
-  }, [feature.startAt, feature.endAt, onBatchPreviewChange]);
+  }, [feature.startAt, feature.endAt, onBatchPreviewChange, onPreviewChange]);
 
   const handleLeftDragMove = useCallback(() => {
     const ganttRect = gantt.ref?.current?.getBoundingClientRect();
@@ -1295,6 +1331,10 @@ export type GanttFeatureRowProps = {
     featureId: string,
     preview: { deltaDays: number } | null,
   ) => void;
+  onPreviewChange?: (
+    featureId: string,
+    preview: { deltaDays: number } | null,
+  ) => void;
   children?: (feature: GanttFeature) => ReactNode;
   className?: string;
 };
@@ -1307,6 +1347,7 @@ export const GanttFeatureRow: FC<GanttFeatureRowProps> = ({
   batchMoveIds,
   onBatchMove,
   onBatchPreviewChange,
+  onPreviewChange,
   children,
   className,
 }) => {
@@ -1370,6 +1411,9 @@ export const GanttFeatureRow: FC<GanttFeatureRowProps> = ({
               onBatchPreviewChange?.(feature.id, preview)
             }
             onMove={onMove}
+            onPreviewChange={(preview) =>
+              onPreviewChange?.(feature.id, preview)
+            }
             selected={selectedIds?.has(feature.id)}
           >
             {children ? (

@@ -54,6 +54,7 @@ const submilestoneInput = v.object({
   key: v.string(),
   name: v.string(),
   order: v.number(),
+  startDay: v.optional(v.number()),
 });
 
 const milestoneInput = v.object({
@@ -80,6 +81,15 @@ const documentInput = v.object({
   mimeType: v.string(),
   sizeBytes: v.number(),
   storageId: v.optional(v.id("_storage")),
+});
+
+const proposalDraftDrawInput = v.object({
+  amountCents: v.number(),
+  drawKey: v.string(),
+  label: v.string(),
+  milestoneKey: v.optional(v.string()),
+  order: v.optional(v.number()),
+  timingDay: v.number(),
 });
 
 const productionSettingsSiteVisitGuidanceFieldInput = v.union(
@@ -717,6 +727,7 @@ export const saveDraftProposalPackage = authenticatedMutation
     ),
     costItems: v.optional(v.array(proposalDraftCostItemInput)),
     documents: v.optional(v.array(documentInput)),
+    draws: v.optional(v.array(proposalDraftDrawInput)),
     lenderDrawPolicyLimitCents: v.number(),
     location: v.optional(v.string()),
     milestones: v.array(milestoneInput),
@@ -755,6 +766,7 @@ export const saveDraftProposalPackage = authenticatedMutation
     const planRows = await insertDraftProposalPlanRows(ctx, {
       auth,
       borrowerCoPayBps: args.borrowerCoPayBps,
+      draws: args.draws,
       milestones: args.milestones,
       now,
       proposalId: args.proposalId,
@@ -863,6 +875,7 @@ interface DraftProposalSubmilestoneInput {
   key: string;
   name: string;
   order: number;
+  startDay?: number;
 }
 
 interface DraftProposalMilestoneInput {
@@ -876,6 +889,80 @@ interface DraftProposalMilestoneInput {
   name: string;
   order: number;
   submilestones: DraftProposalSubmilestoneInput[];
+}
+
+type ProductionSubmilestoneScheduleInput = {
+  budgetCents?: number;
+  durationDays?: number;
+  key: string;
+  name: string;
+  order: number;
+  startDay?: number;
+};
+
+function normalizeProductionMilestoneSchedule<
+  T extends {
+    dayEnd?: number;
+    dayStart?: number;
+    durationDays?: number;
+    submilestones?: ProductionSubmilestoneScheduleInput[];
+  },
+>(milestone: T) {
+  const dayStart = Math.max(0, Math.round(milestone.dayStart ?? 0));
+  const fallbackEnd = Math.max(
+    dayStart,
+    Math.round(
+      milestone.dayEnd ?? dayStart + Math.max(1, milestone.durationDays ?? 1),
+    ),
+  );
+  const requestedDurationDays = Math.max(
+    1,
+    Math.round(milestone.durationDays ?? fallbackEnd - dayStart),
+  );
+  let cursor = dayStart;
+  let largestSubmilestoneEnd = dayStart;
+  const submilestones = [...(milestone.submilestones ?? [])]
+    .sort(
+      (left, right) => left.order - right.order || left.key.localeCompare(right.key),
+    )
+    .map((submilestone, index) => {
+      const startDay = Math.max(
+        0,
+        Math.round(submilestone.startDay ?? cursor),
+      );
+      const durationDays = Math.max(
+        1,
+        Math.round(submilestone.durationDays ?? 1),
+      );
+      const endDay = startDay + durationDays;
+      cursor = endDay;
+      largestSubmilestoneEnd = Math.max(largestSubmilestoneEnd, endDay);
+      return {
+        ...submilestone,
+        durationDays,
+        order: Math.max(1, Math.round(submilestone.order ?? index + 1)),
+        startDay,
+      };
+    });
+  const durationDays = Math.max(
+    requestedDurationDays,
+    largestSubmilestoneEnd - dayStart,
+  );
+  return {
+    dayEnd: dayStart + durationDays,
+    dayStart,
+    durationDays,
+    submilestones,
+  };
+}
+
+interface DraftProposalDrawInput {
+  amountCents: number;
+  drawKey: string;
+  label: string;
+  milestoneKey?: string;
+  order?: number;
+  timingDay: number;
 }
 
 interface DraftProposalCostItemInput {
@@ -918,6 +1005,7 @@ async function insertDraftProposalPlanRows(
   input: {
     auth: DraftProposalSaveAuth;
     borrowerCoPayBps: number;
+    draws?: DraftProposalDrawInput[];
     milestones: DraftProposalMilestoneInput[];
     now: number;
     proposalId: Id<"buildProposals">;
@@ -931,7 +1019,12 @@ async function insertDraftProposalPlanRows(
     totalBudgetCents: 0,
   };
 
-  for (const row of [...input.milestones].sort((a, b) => a.order - b.order)) {
+  for (const rawRow of [...input.milestones].sort((a, b) => a.order - b.order)) {
+    const schedule = normalizeProductionMilestoneSchedule(rawRow);
+    const row = {
+      ...rawRow,
+      ...schedule,
+    };
     const drawAvailabilityCents = calculateDrawAvailability(
       row.budgetCents,
       input.borrowerCoPayBps,
@@ -958,12 +1051,18 @@ async function insertDraftProposalPlanRows(
         submilestoneId,
       );
     }
-    const drawId = await insertDraftProposalMilestoneDraw(ctx, input, {
-      drawAvailabilityCents,
-      milestoneId,
-      row,
-    });
-    planRows.drawIdByMilestoneKey.set(row.key, drawId);
+    if (input.draws === undefined) {
+      const drawId = await insertDraftProposalMilestoneDraw(ctx, input, {
+        drawAvailabilityCents,
+        milestoneId,
+        row,
+      });
+      planRows.drawIdByMilestoneKey.set(row.key, drawId);
+    }
+  }
+
+  if (input.draws !== undefined) {
+    await insertDraftProposalDrawRows(ctx, input, planRows);
   }
 
   return planRows;
@@ -1027,6 +1126,7 @@ async function insertDraftProposalSubmilestone(
     organizationId: input.workosOrganizationId,
     proposalId: input.proposalId,
     proposalMilestoneId: milestone.milestoneId,
+    startDay: milestone.submilestone.startDay,
     updatedAt: input.now,
   });
 }
@@ -1060,6 +1160,54 @@ async function insertDraftProposalMilestoneDraw(
     timingDay: milestone.row.dayEnd,
     updatedAt: input.now,
   });
+}
+
+async function insertDraftProposalDrawRows(
+  ctx: MutationCtx,
+  input: {
+    auth: DraftProposalSaveAuth;
+    draws?: DraftProposalDrawInput[];
+    now: number;
+    proposalId: Id<"buildProposals">;
+    workosOrganizationId: string;
+  },
+  planRows: DraftProposalPlanRows,
+) {
+  const draws = [...(input.draws ?? [])].sort(
+    (a, b) =>
+      (a.order ?? 0) - (b.order ?? 0) ||
+      a.timingDay - b.timingDay ||
+      a.drawKey.localeCompare(b.drawKey),
+  );
+  for (const [index, draw] of draws.entries()) {
+    const milestoneKey = draw.milestoneKey?.trim();
+    const milestone = milestoneKey
+      ? planRows.milestoneByKey.get(milestoneKey)
+      : undefined;
+    if (milestoneKey && !milestone) {
+      throw new Error(`Draw ${draw.drawKey} references missing milestone ${milestoneKey}.`);
+    }
+    const drawId = await ctx.db.insert("proposalDrawScheduleRows", {
+      amountCents: Math.max(0, Math.round(draw.amountCents)),
+      brokerageId: input.auth.brokerage._id,
+      createdAt: input.now,
+      drawKey: draw.drawKey.trim() || `draw-${String(index + 1).padStart(2, "0")}`,
+      label:
+        draw.label.trim() ||
+        `${milestone?.key ?? `Draw ${index + 1}`} reimbursement draw`,
+      milestoneKey: milestone?.key,
+      order: draw.order ?? index + 1,
+      organizationId: input.workosOrganizationId,
+      proposalId: input.proposalId,
+      proposalMilestoneId: milestone?._id,
+      source: "milestone",
+      timingDay: Math.max(0, Math.round(draw.timingDay)),
+      updatedAt: input.now,
+    });
+    if (milestone) {
+      planRows.drawIdByMilestoneKey.set(milestone.key, drawId);
+    }
+  }
 }
 
 async function insertDraftProposalCostItems(
@@ -1172,13 +1320,6 @@ async function applyDraftProposalCostItemDeltas(
       drawAvailabilityCents: nextDrawAvailabilityCents,
       updatedAt: input.now,
     });
-    const drawId = input.planRows.drawIdByMilestoneKey.get(milestoneKey);
-    if (drawId) {
-      await ctx.db.patch(drawId, {
-        amountCents: nextDrawAvailabilityCents,
-        updatedAt: input.now,
-      });
-    }
     totalDeltaCents += deltaCents;
   }
   return totalDeltaCents;
@@ -1649,7 +1790,24 @@ export const createProductionTimelineMilestone = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireProductionTimelineDraftStructureWrite(ctx, auth);
-    await insertProductionMilestoneFromInput(ctx, auth, args.milestone);
+    const milestoneId = await insertProductionMilestoneFromInput(
+      ctx,
+      auth,
+      args.milestone,
+    );
+    const milestone = await ctx.db.get(milestoneId);
+    if (milestone) {
+      await upsertProposalMilestoneDrawAvailability(ctx, auth, {
+        amountCents: milestone.drawAvailabilityCents,
+        drawKey: args.milestone.drawKey,
+        milestone,
+        proposalId: args.proposalId,
+        timingDay: Math.max(
+          Math.round(args.milestone.dayEnd),
+          Math.round(args.milestone.dayStart),
+        ),
+      });
+    }
     await recalculateProposalBudget(ctx, auth, args.proposalId);
     await writeProposalEvent(ctx, {
       auth,
@@ -1698,16 +1856,63 @@ export const updateProductionTimelineMilestone = authenticatedMutation
       args.proposalId,
       args.milestoneKey,
     );
-    const nextDayStart = args.dayStart ?? milestone.dayStart;
-    const nextDayEnd = args.dayEnd ?? milestone.dayEnd;
-    if (nextDayEnd < nextDayStart) {
+    const nextDayStart = Math.round(args.dayStart ?? milestone.dayStart);
+    const existingDurationDays = Math.max(
+      1,
+      Math.round(milestone.durationDays ?? milestone.dayEnd - milestone.dayStart),
+    );
+    const nextRequestedDurationDays =
+      args.durationDays ??
+      (args.dayStart !== undefined && args.dayEnd === undefined
+        ? existingDurationDays
+        : undefined);
+    const nextDayEnd = Math.round(
+      args.dayEnd ??
+        (nextRequestedDurationDays === undefined
+          ? milestone.dayEnd
+          : nextDayStart + nextRequestedDurationDays),
+    );
+    if (nextDayEnd < nextDayStart && nextRequestedDurationDays === undefined) {
       throw new Error("Milestone end day must be after start day.");
     }
+    const dayStartDelta = nextDayStart - Math.round(milestone.dayStart);
+    const existingSubmilestones = (await ctx.db
+      .query("proposalSubmilestones")
+      .withIndex("by_milestone", (q) =>
+        q.eq("proposalMilestoneId", milestone._id),
+      )
+      .collect()) as Doc<"proposalSubmilestones">[];
+    const schedule = normalizeProductionMilestoneSchedule({
+      dayEnd: nextDayEnd,
+      dayStart: nextDayStart,
+      durationDays: nextRequestedDurationDays,
+      submilestones:
+        args.submilestones === undefined
+          ? existingSubmilestones.map((submilestone) => ({
+              budgetCents: submilestone.budgetCents,
+              durationDays: submilestone.durationDays,
+              key: submilestone.key,
+              name: submilestone.name,
+              order: submilestone.order,
+              startDay:
+                submilestone.startDay === undefined
+                  ? undefined
+                  : Math.max(0, Math.round(submilestone.startDay + dayStartDelta)),
+            }))
+          : args.submilestones,
+    });
     const nextBudgetCents =
       args.budgetCents === undefined
         ? milestone.budgetCents
         : Math.max(0, Math.round(args.budgetCents));
     const now = Date.now();
+    const nextDrawAvailabilityCents =
+      args.drawAvailabilityCents === undefined
+        ? calculateDrawAvailability(
+            nextBudgetCents,
+            auth.proposal.borrowerCoPayBps,
+          )
+        : Math.max(0, Math.round(args.drawAvailabilityCents));
     const patch = {
       ...(args.budgetCents === undefined
         ? {}
@@ -1722,15 +1927,7 @@ export const updateProductionTimelineMilestone = authenticatedMutation
       ...(args.drawAvailabilityCents === undefined &&
       args.budgetCents === undefined
         ? {}
-        : {
-            drawAvailabilityCents:
-              args.drawAvailabilityCents === undefined
-                ? calculateDrawAvailability(
-                    nextBudgetCents,
-                    auth.proposal.borrowerCoPayBps,
-                  )
-                : Math.max(0, Math.round(args.drawAvailabilityCents)),
-          }),
+        : { drawAvailabilityCents: nextDrawAvailabilityCents }),
       ...(args.durationDays === undefined
         ? {}
         : { durationDays: Math.max(1, Math.round(args.durationDays)) }),
@@ -1755,12 +1952,17 @@ export const updateProductionTimelineMilestone = authenticatedMutation
       ...(args.tone === undefined ? {} : { tone: args.tone }),
       updatedAt: now,
     };
+    Object.assign(patch, {
+      dayEnd: schedule.dayEnd,
+      dayStart: schedule.dayStart,
+      durationDays: schedule.durationDays,
+    });
     await ctx.db.patch(milestone._id, patch);
-    if (args.submilestones !== undefined) {
+    if (args.submilestones !== undefined || dayStartDelta !== 0) {
       await replaceProductionSubmilestones(ctx, auth, {
         milestone,
         proposalId: args.proposalId,
-        rows: args.submilestones,
+        rows: schedule.submilestones,
       });
     }
     await recalculateProposalBudget(ctx, auth, args.proposalId);
@@ -3640,6 +3842,7 @@ export const recordOfflineClosing = authenticatedMutation
         order: submilestone.order,
         organizationId: args.workosOrganizationId,
         proposalSubmilestoneId: submilestone._id,
+        startDay: submilestone.startDay,
         status: "planned",
         updatedAt: now,
       });
@@ -5281,8 +5484,8 @@ export const getProductionTimelineWorkspace = authenticatedQuery
             milestone.completionReview ??
               milestone.completionClaim?.completionReview,
           ),
-          drawAvailabilityCents:
-            draw?.amountCents ?? milestone.drawAvailabilityCents,
+          dependencyKeys: milestone.dependencyKeys ?? [],
+          drawAvailabilityCents: milestone.drawAvailabilityCents,
           drawKey: draw?.label ?? "Reimbursement draw",
           durationDays: milestone.durationDays,
           evidenceState,
@@ -5322,6 +5525,9 @@ export const getProductionTimelineWorkspace = authenticatedQuery
               key: submilestone.key,
               name: submilestone.name,
               order: submilestone.order,
+              ...(submilestone.startDay === undefined
+                ? {}
+                : { startDay: submilestone.startDay }),
             })),
           tone: productionTimelineToneForMilestone(
             index,
@@ -7634,6 +7840,97 @@ export const saveProductionProposalTemplateConfiguration = authenticatedMutation
   })
   .public();
 
+export const createProductionProposalTemplate = authenticatedMutation
+  .input({
+    milestones: v.array(productionSettingsMilestoneInput),
+    scenarios: v.array(productionSettingsScenarioInput),
+    template: v.object({
+      description: v.string(),
+      isDefault: v.boolean(),
+      summary: v.string(),
+      templateKey: v.string(),
+      title: v.string(),
+    }),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProductionSettingsMutation(
+      ctx,
+      args.workosOrganizationId,
+    );
+    const templateKey = normalizeProductionTemplateKey(
+      args.template.templateKey,
+    );
+    if (templateKey !== args.template.templateKey.trim()) {
+      throw new Error(
+        "Template key must be a lowercase slug using letters, numbers, and hyphens.",
+      );
+    }
+    if (!args.template.title.trim()) {
+      throw new Error("Template title is required.");
+    }
+    validateProductionTemplateRows(args.milestones);
+    validateProductionScenarios(args.scenarios, args.milestones);
+
+    const existing = await getProductionSettingsTemplate(
+      ctx,
+      auth.brokerage._id,
+      templateKey,
+    );
+    if (existing) {
+      throw new Error("Production template key already exists.");
+    }
+
+    const priorState = JSON.stringify({
+      templateCount: (await collectProposalTemplateDetails(
+        ctx,
+        auth.brokerage._id,
+      )).length,
+    });
+    const now = Date.now();
+    const templateId = await upsertProductionSettingsTemplate(ctx, {
+      brokerageId: auth.brokerage._id,
+      description: args.template.description,
+      isDefault: args.template.isDefault,
+      now,
+      organizationId: args.workosOrganizationId,
+      summary: args.template.summary,
+      templateKey,
+      title: args.template.title,
+    });
+    await replaceProductionSettingsMilestones(ctx, {
+      brokerageId: auth.brokerage._id,
+      milestones: args.milestones,
+      now,
+      organizationId: args.workosOrganizationId,
+      templateId,
+    });
+    await replaceProductionSettingsScenarios(ctx, {
+      brokerageId: auth.brokerage._id,
+      now,
+      organizationId: args.workosOrganizationId,
+      scenarios: args.scenarios,
+      templateId,
+    });
+    await writeProductionSettingsEvent(ctx, {
+      auth,
+      command: "createProductionProposalTemplate",
+      entityId: templateKey,
+      eventType: "production_settings.template_created",
+      newState: JSON.stringify({
+        milestoneCount: args.milestones.filter((row) => row.included).length,
+        scenarioCount: args.scenarios.length,
+        templateKey,
+        title: args.template.title.trim(),
+      }),
+      organizationId: args.workosOrganizationId,
+      priorState,
+    });
+    return await buildProductionSettingsProjection(ctx, auth.brokerage);
+  })
+  .public();
+
 export const deleteProductionDrawScenario = authenticatedMutation
   .input({
     scenarioKey: v.string(),
@@ -8132,19 +8429,36 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
             x: daysBetweenIso(build.startDate, event.eventDate),
           })),
       ],
-      draws: sortedDraws.map((draw) => ({
-        amountCents: draw.amountCents,
-        customDate: false,
-        drawKey: draw.drawKey,
-        itemMilestoneKey: draw.milestoneKey,
-        label: draw.label,
-        requestNote: draw.requestNote,
-        requestReviewNote: draw.requestReviewNote ?? draw.releaseNote,
-        requestStatus: activeBuildTimelineDrawStatus(draw.status),
-        reviewedAt: draw.reviewedAt ?? draw.releasedAt,
-        requestedAt: draw.requestedAt,
-        x: draw.timingDay,
-      })),
+      draws: sortedDraws.map((draw) => {
+        const drawMilestone = draw.milestoneKey
+          ? sortedMilestones.find(
+              (milestone) => milestone.key === draw.milestoneKey,
+            )
+          : undefined;
+        const amountCents =
+          draw.status === "planned" && drawMilestone
+            ? Math.min(
+                draw.amountCents,
+                activeBuildMilestoneEffectiveDrawAvailabilityCents(
+                  drawMilestone as Doc<"buildMilestones">,
+                ),
+              )
+            : draw.amountCents;
+
+        return {
+          amountCents,
+          customDate: false,
+          drawKey: draw.drawKey,
+          itemMilestoneKey: draw.milestoneKey,
+          label: draw.label,
+          requestNote: draw.requestNote,
+          requestReviewNote: draw.requestReviewNote ?? draw.releaseNote,
+          requestStatus: activeBuildTimelineDrawStatus(draw.status),
+          reviewedAt: draw.reviewedAt ?? draw.releasedAt,
+          requestedAt: draw.requestedAt,
+          x: draw.timingDay,
+        };
+      }),
       evidenceAssets: await Promise.all(
         [...evidenceAssets]
           .sort((a, b) => a.createdAt - b.createdAt)
@@ -8179,8 +8493,7 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
           completionReview:
             completionReview ??
             activeBuildSiteVisitCompletionReviewView(visits.at(-1)),
-          drawAvailabilityCents:
-            draw?.amountCents ?? milestone.drawAvailabilityCents,
+          drawAvailabilityCents: milestone.drawAvailabilityCents,
           drawKey: draw?.label ?? "Reimbursement draw",
           durationDays: milestone.durationDays,
           evidenceState:
@@ -8213,6 +8526,9 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
               key: submilestone.key,
               name: submilestone.name,
               order: submilestone.order,
+              ...(submilestone.startDay === undefined
+                ? {}
+                : { startDay: submilestone.startDay }),
             })),
           tone: activeBuildTimelineMilestoneTone(milestone, status, currentDay),
           x: milestone.dayStart,
@@ -8594,11 +8910,51 @@ export const updateActiveBuildTimelineMilestone = authenticatedMutation
       args.buildId,
       args.milestoneKey,
     );
-    const nextDayStart = args.dayStart ?? milestone.dayStart;
-    const nextDayEnd = args.dayEnd ?? milestone.dayEnd;
-    if (nextDayEnd < nextDayStart) {
+    const nextDayStart = Math.round(args.dayStart ?? milestone.dayStart);
+    const existingDurationDays = Math.max(
+      1,
+      Math.round(milestone.durationDays ?? milestone.dayEnd - milestone.dayStart),
+    );
+    const nextRequestedDurationDays =
+      args.durationDays ??
+      (args.dayStart !== undefined && args.dayEnd === undefined
+        ? existingDurationDays
+        : undefined);
+    const nextDayEnd = Math.round(
+      args.dayEnd ??
+        (nextRequestedDurationDays === undefined
+          ? milestone.dayEnd
+          : nextDayStart + nextRequestedDurationDays),
+    );
+    if (nextDayEnd < nextDayStart && nextRequestedDurationDays === undefined) {
       throw new Error("Milestone end day must be after start day.");
     }
+    const dayStartDelta = nextDayStart - Math.round(milestone.dayStart);
+    const existingSubmilestones = (await ctx.db
+      .query("buildSubmilestones")
+      .withIndex("by_milestone", (q) =>
+        q.eq("buildMilestoneId", milestone._id),
+      )
+      .collect()) as Doc<"buildSubmilestones">[];
+    const schedule = normalizeProductionMilestoneSchedule({
+      dayEnd: nextDayEnd,
+      dayStart: nextDayStart,
+      durationDays: nextRequestedDurationDays,
+      submilestones:
+        args.submilestones === undefined
+          ? existingSubmilestones.map((submilestone) => ({
+              budgetCents: submilestone.budgetCents,
+              durationDays: submilestone.durationDays,
+              key: submilestone.key,
+              name: submilestone.name,
+              order: submilestone.order,
+              startDay:
+                submilestone.startDay === undefined
+                  ? undefined
+                  : Math.max(0, Math.round(submilestone.startDay + dayStartDelta)),
+            }))
+          : args.submilestones,
+    });
     const nextBudgetCents =
       args.budgetCents === undefined
         ? milestone.budgetCents
@@ -8657,12 +9013,17 @@ export const updateActiveBuildTimelineMilestone = authenticatedMutation
       ...(args.status === undefined ? {} : { status: args.status }),
       updatedAt: Date.now(),
     };
+    Object.assign(patch, {
+      dayEnd: schedule.dayEnd,
+      dayStart: schedule.dayStart,
+      durationDays: schedule.durationDays,
+    });
     await ctx.db.patch(milestone._id, patch);
-    if (args.submilestones !== undefined) {
+    if (args.submilestones !== undefined || dayStartDelta !== 0) {
       await replaceActiveBuildSubmilestones(ctx, auth, {
         buildId: args.buildId,
         milestone,
-        rows: args.submilestones,
+        rows: schedule.submilestones,
       });
     }
     await recalculateActiveBuildBudget(ctx, args.buildId);
@@ -10127,8 +10488,17 @@ export const requestActiveBuildDraw = authenticatedMutation
       args.buildId,
       args.drawKey,
     );
+    const availableLimitCents =
+      await calculateActiveBuildDrawAvailableLimitCents(
+        ctx,
+        args.buildId,
+        draw,
+      );
     const patch = {
-      amountCents: Math.max(0, Math.round(args.amountCents)),
+      amountCents: Math.min(
+        Math.max(0, Math.round(args.amountCents)),
+        availableLimitCents,
+      ),
       requestNote: args.note,
       requestedAt: new Date().toISOString(),
       status: "requested" as const,
@@ -10168,6 +10538,17 @@ export const approveActiveBuildDraw = authenticatedMutation
       args.buildId,
       args.drawKey,
     );
+    const availableLimitCents =
+      await calculateActiveBuildDrawAvailableLimitCents(
+        ctx,
+        args.buildId,
+        draw,
+      );
+    if (Math.max(0, Math.round(draw.amountCents)) > availableLimitCents) {
+      throw new Error(
+        `Requested draw exceeds the available draw limit of ${availableLimitCents} cents.`,
+      );
+    }
     const patch = {
       requestReviewNote: args.note,
       reviewedAt: new Date().toISOString(),
@@ -13222,19 +13603,6 @@ async function applyProposalCostItemBudgetDelta(
     drawAvailabilityCents: nextDrawAvailabilityCents,
     updatedAt: now,
   });
-  const drawRows = (await collectByIndex(
-    ctx,
-    "proposalDrawScheduleRows",
-    "by_proposal",
-    input.proposalId,
-  )) as Doc<"proposalDrawScheduleRows">[];
-  const draw = drawRows.find((row) => row.milestoneKey === input.milestone.key);
-  if (draw) {
-    await ctx.db.patch(draw._id, {
-      amountCents: nextDrawAvailabilityCents,
-      updatedAt: now,
-    });
-  }
   await recalculateProposalBudget(ctx, auth, input.proposalId);
 }
 
@@ -13285,6 +13653,7 @@ async function insertProductionMilestoneFromInput(
       key: string;
       name: string;
       order: number;
+      startDay?: number;
     }[];
     tone?: string;
     x: number;
@@ -13299,23 +13668,21 @@ async function insertProductionMilestoneFromInput(
   if (existing) {
     throw new Error("Production milestone already exists.");
   }
-  if (milestone.dayEnd < milestone.dayStart) {
-    throw new Error("Milestone end day must be after start day.");
-  }
+  const schedule = normalizeProductionMilestoneSchedule(milestone);
   const now = Date.now();
   const budgetCents = Math.max(0, Math.round(milestone.budgetCents));
   const milestoneId = await ctx.db.insert("proposalMilestones", {
     brokerageId: auth.brokerage._id,
     budgetCents,
     createdAt: now,
-    dayEnd: Math.round(milestone.dayEnd),
-    dayStart: Math.round(milestone.dayStart),
+    dayEnd: schedule.dayEnd,
+    dayStart: schedule.dayStart,
     dependencyKeys: milestone.dependencyKeys ?? [],
     drawAvailabilityCents:
       milestone.drawAvailabilityCents === undefined
         ? calculateDrawAvailability(budgetCents, auth.proposal.borrowerCoPayBps)
         : Math.max(0, Math.round(milestone.drawAvailabilityCents)),
-    durationDays: Math.max(1, Math.round(milestone.durationDays)),
+    durationDays: schedule.durationDays,
     evidenceState: milestone.evidenceState,
     icon: milestone.icon,
     key: milestone.milestoneKey,
@@ -13336,7 +13703,7 @@ async function insertProductionMilestoneFromInput(
       key: milestone.milestoneKey,
     },
     proposalId: auth.proposal._id,
-    rows: milestone.submilestones ?? [],
+    rows: schedule.submilestones,
   });
   return milestoneId;
 }
@@ -13356,6 +13723,7 @@ async function replaceProductionSubmilestones(
       key: string;
       name: string;
       order: number;
+      startDay?: number;
     }[];
   },
 ) {
@@ -13382,9 +13750,82 @@ async function replaceProductionSubmilestones(
       organizationId: auth.proposal.organizationId,
       proposalId: input.proposalId,
       proposalMilestoneId: input.milestone._id,
+      startDay: row.startDay,
       updatedAt: now,
     });
   }
+}
+
+async function upsertProposalMilestoneDrawAvailability(
+  ctx: MutationCtx,
+  auth: {
+    brokerage: Doc<"brokerages">;
+    proposal: Doc<"buildProposals">;
+  },
+  input: {
+    amountCents: number;
+    drawKey?: string;
+    milestone: Pick<
+      Doc<"proposalMilestones">,
+      "_id" | "key" | "name" | "organizationId"
+    >;
+    proposalId: Id<"buildProposals">;
+    timingDay: number;
+  },
+) {
+  const amountCents = Math.max(0, Math.round(input.amountCents));
+  const now = Date.now();
+  const drawRows = (await collectByIndex(
+    ctx,
+    "proposalDrawScheduleRows",
+    "by_proposal",
+    input.proposalId,
+  )) as Doc<"proposalDrawScheduleRows">[];
+  const requestedDrawKey = normalizeProposalTimelineDrawKey(
+    input.drawKey,
+    input.milestone.key,
+  );
+  const existing =
+    drawRows.find((row) => row.milestoneKey === input.milestone.key) ??
+    drawRows.find((row) => row.drawKey === requestedDrawKey);
+
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      amountCents,
+      milestoneKey: input.milestone.key,
+      proposalMilestoneId: input.milestone._id,
+      updatedAt: now,
+    });
+    return;
+  }
+
+  await ctx.db.insert("proposalDrawScheduleRows", {
+    amountCents,
+    brokerageId: auth.brokerage._id,
+    createdAt: now,
+    customDate: false,
+    drawKey: requestedDrawKey,
+    label: `${input.milestone.name} reimbursement draw`,
+    milestoneKey: input.milestone.key,
+    order: drawRows.length + 1,
+    organizationId: input.milestone.organizationId,
+    proposalId: input.proposalId,
+    proposalMilestoneId: input.milestone._id,
+    source: "milestone",
+    timingDay: Math.max(0, Math.round(input.timingDay)),
+    updatedAt: now,
+  });
+}
+
+function normalizeProposalTimelineDrawKey(
+  drawKey: string | undefined,
+  milestoneKey: string,
+) {
+  const trimmedDrawKey = drawKey?.trim();
+  if (trimmedDrawKey && !/^draw\s+\d+$/i.test(trimmedDrawKey)) {
+    return trimmedDrawKey;
+  }
+  return `${milestoneKey}-draw`;
 }
 
 async function deleteProductionMilestoneCascade(
@@ -13467,9 +13908,13 @@ async function recalculateProposalBudget(
     0,
   );
   const totalBudgetCents = milestoneBudgetCents + capitalSpikeBudgetCents;
-  const lenderDrawPolicyLimitCents = calculateDrawAvailability(
-    totalBudgetCents,
-    proposal.borrowerCoPayBps,
+  const totalDrawAmountCents = await sumProposalDrawScheduleAmountCents(
+    ctx,
+    proposalId,
+  );
+  const lenderDrawPolicyLimitCents = Math.max(
+    Math.max(0, Math.round(proposal.lenderDrawPolicyLimitCents)),
+    totalDrawAmountCents,
   );
   await ctx.db.patch(proposalId, {
     lenderDrawPolicyLimitCents,
@@ -13492,17 +13937,6 @@ async function refreshProposalMilestoneDrawAvailability(
     "by_proposal",
     proposalId,
   )) as Doc<"proposalMilestones">[];
-  const draws = (await collectByIndex(
-    ctx,
-    "proposalDrawScheduleRows",
-    "by_proposal",
-    proposalId,
-  )) as Doc<"proposalDrawScheduleRows">[];
-  const drawByMilestoneKey = new Map(
-    draws
-      .filter((draw) => draw.milestoneKey)
-      .map((draw) => [draw.milestoneKey as string, draw]),
-  );
 
   for (const milestone of milestones) {
     const drawAvailabilityCents = calculateDrawAvailability(
@@ -13513,13 +13947,6 @@ async function refreshProposalMilestoneDrawAvailability(
       drawAvailabilityCents,
       updatedAt: input.updatedAt,
     });
-    const draw = drawByMilestoneKey.get(milestone.key);
-    if (draw) {
-      await ctx.db.patch(draw._id, {
-        amountCents: drawAvailabilityCents,
-        updatedAt: input.updatedAt,
-      });
-    }
   }
 }
 
@@ -14054,6 +14481,94 @@ async function getActiveBuildMilestoneOrThrow(
   return milestone;
 }
 
+function activeBuildMilestoneEffectiveDrawAvailabilityCents(
+  milestone: Doc<"buildMilestones">,
+) {
+  const approvedBudgetCents = Math.max(0, Math.round(milestone.budgetCents));
+  const approvedDrawAvailabilityCents = Math.max(
+    0,
+    Math.round(milestone.drawAvailabilityCents),
+  );
+  const actualCostCents = (milestone.completionClaim as
+    | { actualCostCents?: number }
+    | undefined)?.actualCostCents;
+
+  if (actualCostCents === undefined || !Number.isFinite(actualCostCents)) {
+    return approvedDrawAvailabilityCents;
+  }
+
+  if (approvedBudgetCents <= 0) {
+    return 0;
+  }
+
+  const reimbursableBasisCents = Math.min(
+    approvedBudgetCents,
+    Math.max(0, Math.round(actualCostCents)),
+  );
+
+  return Math.min(
+    approvedDrawAvailabilityCents,
+    Math.round(
+      (approvedDrawAvailabilityCents * reimbursableBasisCents) /
+        approvedBudgetCents,
+    ),
+  );
+}
+
+function activeBuildMilestoneEffectiveCompletionDay(
+  milestone: Doc<"buildMilestones">,
+) {
+  const completedDay = (milestone.completionClaim as
+    | { completedDay?: number }
+    | undefined)?.completedDay;
+
+  if (completedDay !== undefined && Number.isFinite(completedDay)) {
+    return Math.max(0, Math.round(completedDay));
+  }
+
+  return Math.round(milestone.dayEnd);
+}
+
+async function calculateActiveBuildDrawAvailableLimitCents(
+  ctx: QueryCtx | MutationCtx,
+  buildId: Id<"activeBuilds">,
+  targetDraw: Doc<"plannedDrawScheduleRows">,
+) {
+  const drawDay = Math.round(targetDraw.timingDay);
+  const [milestones, draws] = await Promise.all([
+    collectByIndex(ctx, "buildMilestones", "by_build", buildId),
+    collectByIndex(ctx, "plannedDrawScheduleRows", "by_build", buildId),
+  ]);
+  const totalUnlockedCents = (
+    milestones as Doc<"buildMilestones">[]
+  ).reduce((total, milestone) => {
+    if (activeBuildMilestoneEffectiveCompletionDay(milestone) > drawDay) {
+      return total;
+    }
+
+    return total + activeBuildMilestoneEffectiveDrawAvailabilityCents(milestone);
+  }, 0);
+  const alreadyDrawnCents = (draws as Doc<"plannedDrawScheduleRows">[]).reduce(
+    (total, draw) => {
+      if (draw._id === targetDraw._id || draw.timingDay > drawDay) {
+        return total;
+      }
+
+      if (
+        draw.timingDay === drawDay &&
+        draw.drawKey.localeCompare(targetDraw.drawKey) > 0
+      ) {
+        return total;
+      }
+
+      return total + Math.max(0, Math.round(draw.amountCents));
+    },
+    0,
+  );
+
+  return Math.max(0, totalUnlockedCents - alreadyDrawnCents);
+}
+
 async function insertActiveBuildMilestoneFromInput(
   ctx: MutationCtx,
   auth: {
@@ -14079,6 +14594,7 @@ async function insertActiveBuildMilestoneFromInput(
       key: string;
       name: string;
       order: number;
+      startDay?: number;
     }[];
   },
 ) {
@@ -14091,23 +14607,21 @@ async function insertActiveBuildMilestoneFromInput(
   if (existing) {
     throw new Error("Production active-build milestone already exists.");
   }
-  if (milestone.dayEnd < milestone.dayStart) {
-    throw new Error("Milestone end day must be after start day.");
-  }
+  const schedule = normalizeProductionMilestoneSchedule(milestone);
   const now = Date.now();
   const budgetCents = Math.max(0, Math.round(milestone.budgetCents));
   const proposalMilestoneId = await ctx.db.insert("proposalMilestones", {
     brokerageId: auth.brokerage._id,
     budgetCents,
     createdAt: now,
-    dayEnd: Math.round(milestone.dayEnd),
-    dayStart: Math.round(milestone.dayStart),
+    dayEnd: schedule.dayEnd,
+    dayStart: schedule.dayStart,
     dependencyKeys: milestone.dependencyKeys ?? [],
     drawAvailabilityCents:
       milestone.drawAvailabilityCents === undefined
         ? calculateDrawAvailability(budgetCents, auth.proposal.borrowerCoPayBps)
         : Math.max(0, Math.round(milestone.drawAvailabilityCents)),
-    durationDays: Math.max(1, Math.round(milestone.durationDays)),
+    durationDays: schedule.durationDays,
     evidenceState: milestone.evidenceState,
     key: milestone.milestoneKey,
     name: milestone.name.trim() || "Active build milestone",
@@ -14124,14 +14638,14 @@ async function insertActiveBuildMilestoneFromInput(
     budgetCents,
     buildId: auth.build._id,
     createdAt: now,
-    dayEnd: Math.round(milestone.dayEnd),
-    dayStart: Math.round(milestone.dayStart),
+    dayEnd: schedule.dayEnd,
+    dayStart: schedule.dayStart,
     dependencyKeys: milestone.dependencyKeys ?? [],
     drawAvailabilityCents:
       milestone.drawAvailabilityCents === undefined
         ? calculateDrawAvailability(budgetCents, auth.proposal.borrowerCoPayBps)
         : Math.max(0, Math.round(milestone.drawAvailabilityCents)),
-    durationDays: Math.max(1, Math.round(milestone.durationDays)),
+    durationDays: schedule.durationDays,
     evidenceState: milestone.evidenceState,
     key: milestone.milestoneKey,
     name: milestone.name.trim() || "Active build milestone",
@@ -14150,7 +14664,7 @@ async function insertActiveBuildMilestoneFromInput(
       key: milestone.milestoneKey,
       proposalMilestoneId,
     },
-    rows: milestone.submilestones ?? [],
+    rows: schedule.submilestones,
   });
   return buildMilestoneId;
 }
@@ -14174,6 +14688,7 @@ async function replaceActiveBuildSubmilestones(
       key: string;
       name: string;
       order: number;
+      startDay?: number;
     }[];
   },
 ) {
@@ -14202,6 +14717,7 @@ async function replaceActiveBuildSubmilestones(
         organizationId: auth.build.organizationId,
         proposalId: auth.proposal._id,
         proposalMilestoneId: input.milestone.proposalMilestoneId,
+        startDay: row.startDay,
         updatedAt: now,
       },
     );
@@ -14218,6 +14734,7 @@ async function replaceActiveBuildSubmilestones(
       order: Math.max(1, Math.round(row.order)),
       organizationId: auth.build.organizationId,
       proposalSubmilestoneId,
+      startDay: row.startDay,
       status: "planned",
       updatedAt: now,
     });
@@ -14403,19 +14920,6 @@ async function applyActiveBuildCostItemBudgetDelta(
     drawAvailabilityCents: nextDrawAvailabilityCents,
     updatedAt: now,
   });
-  const drawRows = (await collectByIndex(
-    ctx,
-    "plannedDrawScheduleRows",
-    "by_build",
-    input.buildId,
-  )) as Doc<"plannedDrawScheduleRows">[];
-  const draw = drawRows.find((row) => row.milestoneKey === input.milestone.key);
-  if (draw) {
-    await ctx.db.patch(draw._id, {
-      amountCents: nextDrawAvailabilityCents,
-      updatedAt: now,
-    });
-  }
   await recalculateActiveBuildBudget(ctx, input.buildId);
 }
 
@@ -16337,6 +16841,16 @@ function productionTemplateSortOrder(templateKey: string) {
   return index === -1 ? Number.MAX_SAFE_INTEGER : index;
 }
 
+function normalizeProductionTemplateKey(value: string) {
+  return (
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || "template"
+  );
+}
+
 async function authorizeProductionSettingsMutation(
   ctx: MutationCtx & { viewer: AuthorizedViewer },
   workosOrganizationId: string,
@@ -17713,6 +18227,7 @@ async function seedProposalPackage(
           key: "forms-and-pour",
           name: "Forms and pour",
           order: 1,
+          startDay: 0,
         },
         {
           budgetCents: 16_000_000,
@@ -17720,6 +18235,7 @@ async function seedProposalPackage(
           key: "waterproofing",
           name: "Waterproofing and backfill",
           order: 2,
+          startDay: 12,
         },
       ],
     },
@@ -17738,6 +18254,7 @@ async function seedProposalPackage(
         key: string;
         name: string;
         order: number;
+        startDay: number;
       }[],
     },
   ];
@@ -17777,6 +18294,7 @@ async function seedProposalPackage(
         organizationId: input.organizationId,
         proposalId: input.proposalId,
         proposalMilestoneId,
+        startDay: submilestone.startDay,
         updatedAt: input.now,
       });
     }
@@ -18082,6 +18600,7 @@ async function seedCloseProposal(
       order: submilestone.order,
       organizationId: input.organizationId,
       proposalSubmilestoneId: submilestone._id,
+      startDay: submilestone.startDay,
       status: "planned",
       updatedAt: input.now,
     });

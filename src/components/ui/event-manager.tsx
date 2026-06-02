@@ -118,67 +118,67 @@ interface EventColor {
 
 const defaultColors: EventColor[] = [
   {
-    accent: "bg-blue-500",
-    bg: "bg-blue-50",
-    border: "border-blue-200",
+    accent: "bg-blue-500 dark:bg-blue-300",
+    bg: "bg-blue-50 dark:bg-blue-950/55",
+    border: "border-blue-200 dark:border-blue-700/70",
     name: "Blue",
-    text: "text-blue-950",
+    text: "text-blue-950 dark:text-blue-100",
     value: "blue",
   },
   {
-    accent: "bg-emerald-500",
-    bg: "bg-emerald-50",
-    border: "border-emerald-200",
+    accent: "bg-emerald-500 dark:bg-emerald-300",
+    bg: "bg-emerald-50 dark:bg-emerald-950/55",
+    border: "border-emerald-200 dark:border-emerald-700/70",
     name: "Emerald",
-    text: "text-emerald-950",
+    text: "text-emerald-950 dark:text-emerald-100",
     value: "emerald",
   },
   {
-    accent: "bg-violet-500",
-    bg: "bg-violet-50",
-    border: "border-violet-200",
+    accent: "bg-violet-500 dark:bg-violet-300",
+    bg: "bg-violet-50 dark:bg-violet-950/55",
+    border: "border-violet-200 dark:border-violet-700/70",
     name: "Violet",
-    text: "text-violet-950",
+    text: "text-violet-950 dark:text-violet-100",
     value: "violet",
   },
   {
-    accent: "bg-amber-500",
-    bg: "bg-amber-50",
-    border: "border-amber-200",
+    accent: "bg-amber-500 dark:bg-amber-300",
+    bg: "bg-amber-50 dark:bg-amber-950/55",
+    border: "border-amber-200 dark:border-amber-700/70",
     name: "Amber",
-    text: "text-amber-950",
+    text: "text-amber-950 dark:text-amber-100",
     value: "amber",
   },
   {
-    accent: "bg-rose-500",
-    bg: "bg-rose-50",
-    border: "border-rose-200",
+    accent: "bg-rose-500 dark:bg-rose-300",
+    bg: "bg-rose-50 dark:bg-rose-950/55",
+    border: "border-rose-200 dark:border-rose-700/70",
     name: "Rose",
-    text: "text-rose-950",
+    text: "text-rose-950 dark:text-rose-100",
     value: "rose",
   },
   {
-    accent: "bg-cyan-500",
-    bg: "bg-cyan-50",
-    border: "border-cyan-200",
+    accent: "bg-cyan-500 dark:bg-cyan-300",
+    bg: "bg-cyan-50 dark:bg-cyan-950/55",
+    border: "border-cyan-200 dark:border-cyan-700/70",
     name: "Cyan",
-    text: "text-cyan-950",
+    text: "text-cyan-950 dark:text-cyan-100",
     value: "cyan",
   },
   {
-    accent: "bg-slate-500",
-    bg: "bg-slate-50",
-    border: "border-slate-200",
+    accent: "bg-slate-500 dark:bg-slate-300",
+    bg: "bg-slate-50 dark:bg-slate-900/65",
+    border: "border-slate-200 dark:border-slate-600/70",
     name: "Slate",
-    text: "text-slate-950",
+    text: "text-slate-950 dark:text-slate-100",
     value: "slate",
   },
   {
-    accent: "bg-red-500",
-    bg: "bg-red-50",
-    border: "border-red-200",
+    accent: "bg-red-500 dark:bg-red-300",
+    bg: "bg-red-50 dark:bg-red-950/55",
+    border: "border-red-200 dark:border-red-700/70",
     name: "Red",
-    text: "text-red-950",
+    text: "text-red-950 dark:text-red-100",
     value: "red",
   },
 ];
@@ -838,7 +838,7 @@ function MonthView({
                 className={cn(
                   "min-h-[9rem] border-r border-b p-2 last:border-r-0",
                   day.getMonth() !== currentDate.getMonth() && "bg-muted/30 text-muted-foreground",
-                  isToday(day) && "bg-blue-50/70",
+                  isToday(day) && "bg-blue-50/70 dark:bg-blue-950/35",
                   selectedDate === key && "ring-2 ring-primary ring-inset",
                 )}
                 date={day}
@@ -927,7 +927,7 @@ function WeekView({
                 className={cn(
                   "border-r p-2 text-left last:border-r-0",
                   selectedDate === key && "bg-primary/10",
-                  isToday(day) && "bg-blue-50",
+                  isToday(day) && "bg-blue-50 dark:bg-blue-950/35",
                 )}
                 key={key}
                 onClick={() => onSelectDate(day)}
@@ -1255,7 +1255,7 @@ function QuarterView({
                   className={cn(
                     "grid min-h-12 grid-cols-[2.25rem_1fr] gap-2 rounded-md border p-1.5",
                     selectedDate === key && "ring-2 ring-primary",
-                    isToday(day) && "bg-blue-50",
+                    isToday(day) && "bg-blue-50 dark:bg-blue-950/35",
                   )}
                   date={day}
                   events={events}
@@ -1483,11 +1483,12 @@ function EventTile({
   const canResizeStart = domain?.editable.canResizeStart ?? false;
   const canResizeEnd = domain?.editable.canResizeEnd ?? false;
   const immutableReason = domain?.editable.immutableReason;
+  const ariaLabel = buildEventTileAriaLabel(event);
   const content = (
     <div
-      aria-label={`${event.title} ${formatEventTime(event)}`}
+      aria-label={ariaLabel}
       className={cn(
-        "group relative flex min-w-0 cursor-pointer gap-2 rounded-md border px-2 py-1.5 text-left text-xs transition hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-primary",
+        "group relative flex min-w-0 cursor-pointer gap-2 rounded-md border px-2 py-1.5 text-left text-xs transition hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-primary dark:hover:brightness-110",
         color.bg,
         color.text,
         color.border,
@@ -1518,7 +1519,7 @@ function EventTile({
         <div className="flex min-w-0 items-center gap-1">
           <span className="truncate font-medium">{event.title}</span>
           {domain?.warnings.length ? (
-            <AlertTriangle className="size-3 shrink-0 text-amber-600" />
+            <AlertTriangle className="size-3 shrink-0 text-amber-700 dark:text-amber-200" />
           ) : null}
           {immutableReason ? <Lock className="size-3 shrink-0" /> : null}
         </div>
@@ -1538,7 +1539,7 @@ function EventTile({
           <div className="mt-1 flex flex-wrap gap-1">
             {event.tags.slice(0, 3).map((tag) => (
               <span
-                className="rounded-sm bg-background/60 px-1 py-0.5 text-[0.65rem]"
+                className="rounded-sm bg-background/60 px-1 py-0.5 text-[0.65rem] dark:bg-background/20"
                 key={tag}
               >
                 {tag}
@@ -1620,6 +1621,22 @@ function EventTile({
       {content}
     </CalendarContextMenu>
   );
+}
+
+function buildEventTileAriaLabel(event: Event): string {
+  const domain = event.drawFlowEvent;
+  return [
+    event.title,
+    formatEventTime(event),
+    event.dateMarker ? dateMarkerLabel(event.dateMarker) : undefined,
+    domain?.kind,
+    domain?.status,
+    domain?.warnings.length
+      ? `${domain.warnings.length} warning${domain.warnings.length === 1 ? "" : "s"}`
+      : undefined,
+  ]
+    .filter(Boolean)
+    .join(", ");
 }
 
 interface CalendarBoardProps {

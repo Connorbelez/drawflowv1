@@ -21,8 +21,11 @@ import type {
   WorkspaceIssue,
   WorkspaceRole,
 } from "#/features/build-workspace-demo/types.ts";
+import {
+  contractorPlanningFromProductionDetail,
+  parseGanttMilestoneScopeId,
+} from "#/features/build-workspace-demo/build-workspace-contractor-planning.ts";
 import { BuildWorkspaceProvider } from "#/features/build-workspace-demo/workspace-adapter.tsx";
-
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { ProductionBuildDetail } from "./ProductionBuildDetailSurface";
@@ -78,6 +81,11 @@ export function ActiveBuildGanttWorkspace({
   const requestSiteVisit = useMutation(productionApi.assignActiveBuildSiteVisit);
   const recordSiteVisit = useMutation(productionApi.recordActiveBuildSiteVisit);
   const reviewEvidence = useMutation(productionApi.reviewActiveBuildEvidence);
+  const assignContractorToMilestone = useMutation(
+    productionApi.assignActiveBuildContractorToMilestone,
+  );
+  const attachContractor = useMutation(productionApi.attachActiveBuildContractor);
+  const createContractor = useMutation(productionApi.createContractorProfile);
   const createDraw = useMutation(productionApi.createActiveBuildTimelineDraw);
   const updateDraw = useMutation(productionApi.updateActiveBuildTimelineDraw);
   const deleteDraw = useMutation(productionApi.deleteActiveBuildTimelineDraw);
@@ -112,12 +120,67 @@ export function ActiveBuildGanttWorkspace({
   const selectedId = selectedMilestoneId || mapped.selectedMilestoneId;
   const dependencies = mapped.dependencies;
 
+  const contractorPlanning = useMemo(
+    () => contractorPlanningFromProductionDetail(detail),
+    [detail],
+  );
+
   const adapter = useMemo<BuildWorkspaceAdapter>(
     () => ({
       ...mapped,
       activePlanId,
+      assignContractorToMilestone: async ({
+        assignmentCost,
+        contractorId,
+        milestoneId,
+        role,
+        submilestoneKeys,
+      }) => {
+        const scope = parseGanttMilestoneScopeId(milestoneId);
+        await assignContractorToMilestone({
+          ...assignmentCost,
+          buildId,
+          contractorId: contractorId as Id<"contractors">,
+          milestoneKey: scope.milestoneKey,
+          role,
+          submilestoneKeys: submilestoneKeys ?? scope.submilestoneKeys,
+          workosOrganizationId,
+        });
+      },
+      contractorPlanning,
+      createAndAssignContractor: async ({
+        assignmentCost,
+        contractor,
+        milestoneId,
+        role,
+        submilestoneKeys,
+      }) => {
+        const scope = parseGanttMilestoneScopeId(milestoneId);
+        const contractorId = await createContractor({
+          ...contractor,
+          brokerageId: detail.build.brokerageId as Id<"brokerages">,
+          workosOrganizationId,
+        });
+        await attachContractor({
+          buildId,
+          contractorId,
+          role,
+          workosOrganizationId,
+        });
+        await assignContractorToMilestone({
+          ...assignmentCost,
+          buildId,
+          contractorId,
+          milestoneKey: scope.milestoneKey,
+          role,
+          submilestoneKeys: submilestoneKeys ?? scope.submilestoneKeys,
+          workosOrganizationId,
+        });
+      },
       isLoading: false,
       mode: "active",
+      resolveContractorMilestoneKey: (milestoneId) =>
+        parseGanttMilestoneScopeId(milestoneId).milestoneKey,
       needsSeed: false,
       role,
       selectedMilestoneId: selectedId,
@@ -501,7 +564,11 @@ export function ActiveBuildGanttWorkspace({
     [
       activePlanId,
       approveMilestone,
+      assignContractorToMilestone,
+      attachContractor,
       buildId,
+      contractorPlanning,
+      createContractor,
       createDraw,
       createEvidenceMutation,
       createMilestoneMutation,
@@ -736,6 +803,7 @@ function mapActiveBuildWorkspace({
       issues: issues.filter((issue) => issue.drawGroupIds.includes(draw.drawKey)),
       label: draw.label,
       order: draw.order,
+      plannedAt: dateFromDay(detail.build.startDate, draw.timingDay),
       rowIndex: Math.max(0, firstOrder),
       rowSpan: Math.max(1, scopedMilestones.length || 1),
       startAt: dateFromDay(

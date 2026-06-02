@@ -19,6 +19,7 @@ Quick reference for agents after PRD split. Each row gives file location, sectio
 | `draw_flow_production_prd.md` | 11 | MVP Acceptance Criteria | 748 |
 | `draw_flow_production_prd.md` | 12 | Open Product Decisions | 770 |
 | `draw_flow_prd.md` | — | DrawFlow PRD | 1 |
+| `production-proposal-gantt-workspace.md` | — | Production Proposal Gantt Workspace | 1 |
 | `draw_flow_prd.md` | 1 | Executive Summary | 14 |
 | `draw_flow_prd.md` | 2 | Product Positioning | 28 |
 | `draw_flow_prd.md` | 2.1 | FairLend Module First | 30 |

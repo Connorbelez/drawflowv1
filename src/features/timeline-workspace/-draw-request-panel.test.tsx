@@ -65,4 +65,60 @@ describe("DrawRequestPanel", () => {
     });
     expect(onSubmitDrawRequest).not.toHaveBeenCalled();
   });
+
+  test("clamps submitted draw request to actual-cost-adjusted availability", () => {
+    const onSubmitDrawRequest = vi.fn();
+    const onUpdatePlannedDraw = vi.fn();
+    const draw: DemoDraw = {
+      amount: 90_000,
+      id: "draw-01",
+      label: "Draw 01",
+      x: 16,
+    };
+    const items: TimelineItem<DemoMilestone>[] = [
+      {
+        data: {
+          amount: 120_000,
+          completionClaim: {
+            actualCost: 80_000,
+            completedDay: 10,
+            submittedAt: "2026-06-02T00:00:00.000Z",
+          },
+          draw: "Draw 01",
+          durationDays: 12,
+          evidence: "Submitted",
+          icon: "foundation",
+          name: "Foundation",
+          policy: "Pending",
+          status: "complete",
+          subMilestones: ["Footings"],
+        },
+        id: "foundation",
+        x: 0,
+      },
+    ];
+
+    render(
+      <DrawRequestPanel
+        draw={draw}
+        drawItem={items[0] ?? null}
+        draws={[draw]}
+        items={items}
+        onSubmitDrawRequest={onSubmitDrawRequest}
+        onUpdatePlannedDraw={onUpdatePlannedDraw}
+        requiresApprovedMilestones={false}
+      />
+    );
+
+    fireEvent.change(
+      screen.getByTestId("selected-draw-request-amount-input-draw-01"),
+      { target: { value: "90000" } }
+    );
+    fireEvent.submit(screen.getByTestId("selected-draw-request-form-draw-01"));
+
+    expect(onSubmitDrawRequest).toHaveBeenCalledWith("draw-01", {
+      amount: 64_000,
+      x: 16,
+    });
+  });
 });

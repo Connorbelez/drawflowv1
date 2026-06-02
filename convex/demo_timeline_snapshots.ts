@@ -38,6 +38,27 @@ const timelineToneValidator = v.optional(
   )
 );
 
+const timelineSubmilestoneStatusValidator = v.union(
+  v.literal("todo"),
+  v.literal("in_progress"),
+  v.literal("done")
+);
+
+const timelineSubmilestoneValidator = v.object({
+  budgetCents: v.optional(v.number()),
+  description: v.optional(v.string()),
+  durationDays: v.optional(v.number()),
+  key: v.string(),
+  name: v.string(),
+  order: v.number(),
+  status: v.optional(timelineSubmilestoneStatusValidator),
+});
+
+const timelineSiteVisitGuidanceValidator = v.object({
+  cameraAngles: v.string(),
+  whatToVerify: v.string(),
+});
+
 const timelineMilestoneDataValidator = v.object({
   amount: v.number(),
   completionClaim: v.optional(
@@ -45,6 +66,8 @@ const timelineMilestoneDataValidator = v.object({
       actualCost: v.optional(v.number()),
       completedDay: v.number(),
       note: v.optional(v.string()),
+      qualityNote: v.optional(v.string()),
+      qualityRating: v.optional(v.number()),
       submittedAt: v.string(),
     })
   ),
@@ -55,15 +78,21 @@ const timelineMilestoneDataValidator = v.object({
       reviewedAt: v.string(),
       siteVisit: v.optional(
         v.object({
+          includedItemIds: v.optional(v.array(v.string())),
           note: v.optional(v.string()),
           requestedAt: v.string(),
           requestedDay: v.number(),
+          status: v.optional(v.string()),
+          tokenExpiresAt: v.optional(v.number()),
+          url: v.optional(v.string()),
+          visitId: v.optional(v.string()),
         })
       ),
       status: v.union(v.literal("approved"), v.literal("revisionRequested")),
     })
   ),
   draw: v.string(),
+  drawAvailabilityAmount: v.optional(v.number()),
   drawX: v.optional(v.number()),
   durationDays: v.number(),
   evidence: v.string(),
@@ -75,6 +104,7 @@ const timelineMilestoneDataValidator = v.object({
           id: v.string(),
           label: v.string(),
           mimeType: v.string(),
+          previewUrl: v.optional(v.string()),
           size: v.number(),
           tag: v.string(),
         })
@@ -85,8 +115,10 @@ const timelineMilestoneDataValidator = v.object({
   initialPaymentAmount: v.optional(v.number()),
   name: v.string(),
   policy: v.string(),
+  siteVisitGuidance: v.optional(timelineSiteVisitGuidanceValidator),
   status: timelineStatusValidator,
   subMilestones: v.optional(v.array(v.string())),
+  submilestoneDetails: v.optional(v.array(timelineSubmilestoneValidator)),
 });
 
 const timelineItemValidator = v.object({
@@ -124,6 +156,7 @@ const timelineDrawValidator = v.object({
 
 const timelineCapitalSpikeValidator = v.object({
   amount: v.number(),
+  eventKind: v.optional(v.union(v.literal("cashInfusion"), v.literal("cost"))),
   id: v.string(),
   label: v.string(),
   x: v.number(),
@@ -142,10 +175,12 @@ const activeMilestoneSelectionValidator = v.object({
 
 const timelineSnapshotValidator = v.object({
   activeSelection: activeMilestoneSelectionValidator,
+  approvedDrawLimit: v.optional(v.number()),
   capitalSpikes: v.array(timelineCapitalSpikeValidator),
   currentDay: v.number(),
   draws: v.array(timelineDrawValidator),
   items: v.array(timelineItemValidator),
+  minimumCashReserve: v.optional(v.number()),
   payloadVersion: v.literal(2),
   progressValue: v.number(),
   range: timelineRangeValidator,

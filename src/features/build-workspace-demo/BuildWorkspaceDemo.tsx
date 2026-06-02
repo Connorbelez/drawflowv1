@@ -36,6 +36,7 @@ import {
   ShieldCheck,
   Unlock,
   Upload,
+  UserPlus,
 } from "lucide-react";
 import type { ComponentType, CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -90,6 +91,9 @@ import {
 } from "#/components/ui/sheet.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { cn } from "#/lib/utils.ts";
+import { ContractorQuickAddDrawer } from "#/features/contractors/ContractorQuickAddDrawer.tsx";
+import { TimelineMilestoneContractorList } from "#/features/timeline-workspace/TimelineMilestoneContractorList.tsx";
+import { parseGanttMilestoneScopeId } from "./build-workspace-contractor-planning.ts";
 import { SortableMilestoneRailRow } from "./SortableMilestoneRailRow";
 import type {
   DependencyHardness,
@@ -114,6 +118,10 @@ type BatchShiftPreview = {
   lockedMilestoneIds: string[];
   source: "selection" | "drawGroup";
   sourceId?: string;
+} | null;
+type SingleMilestoneShiftPreview = {
+  deltaDays: number;
+  milestoneId: string;
 } | null;
 
 const resolutionOptions: { label: string; value: GanttResolution }[] = [
@@ -1088,6 +1096,8 @@ function GanttRoadmap({
     useState<SelectedMilestoneIds>(() => new Set());
   const [batchShiftPreview, setBatchShiftPreview] =
     useState<BatchShiftPreview>(null);
+  const [singleMilestoneShiftPreview, setSingleMilestoneShiftPreview] =
+    useState<SingleMilestoneShiftPreview>(null);
   const proposalSubmitted =
     workspace.mode === "proposal" &&
     workspace.build.proposalStatus === "submitted";
@@ -1136,6 +1146,27 @@ function GanttRoadmap({
         }
       : milestoneToFeature(milestone)
   );
+  const singleMilestoneGhostFeature = singleMilestoneShiftPreview
+    ? workspace.milestones.find(
+        (milestone) => milestone.id === singleMilestoneShiftPreview.milestoneId
+      )
+    : null;
+  const singleMilestoneGhost = singleMilestoneGhostFeature
+    ? {
+        feature: milestoneToFeature({
+          ...singleMilestoneGhostFeature,
+          startAt: addDays(
+            singleMilestoneGhostFeature.startAt,
+            singleMilestoneShiftPreview?.deltaDays ?? 0
+          ),
+          endAt: addDays(
+            singleMilestoneGhostFeature.endAt,
+            singleMilestoneShiftPreview?.deltaDays ?? 0
+          ),
+        }),
+        milestone: singleMilestoneGhostFeature,
+      }
+    : null;
   const focusedMilestone = workspace.milestones.find(
     (milestone) => milestone.id === focusedMilestoneId
   );
@@ -1226,6 +1257,7 @@ function GanttRoadmap({
     ) => {
       if (deltaDays === 0 || proposalSubmitted) {
         setBatchShiftPreview(null);
+        setSingleMilestoneShiftPreview(null);
         return;
       }
       const moves = workspace.milestones
@@ -1239,6 +1271,7 @@ function GanttRoadmap({
           endAt: addDays(milestone.endAt, deltaDays),
         }));
       setBatchShiftPreview(null);
+      setSingleMilestoneShiftPreview(null);
       if (moves.length === 0) {
         return;
       }
@@ -1441,10 +1474,13 @@ function GanttRoadmap({
         {drawOverlays.map((draw) => (
           <GanttMarker
             className="bg-cyan-300 text-cyan-950 shadow-cyan-500/30"
-            date={draw.eligibleAt}
+            date={draw.plannedAt ?? draw.eligibleAt}
             detail={
               <span className="flex flex-col items-start gap-0.5 leading-tight">
-                <span>{format(draw.eligibleAt, "MMM dd, yyyy")}</span>
+                <span>
+                  Planned draw date:{" "}
+                  {format(draw.plannedAt ?? draw.eligibleAt, "MMM dd, yyyy")}
+                </span>
                 <span>Draw value: {money(draw.amount)}</span>
                 <span>Total exposure: {money(draw.totalExposure)}</span>
                 <span>
@@ -1454,23 +1490,23 @@ function GanttRoadmap({
                 <span>Incurred cost: {money(draw.incurredCost)}</span>
               </span>
             }
-            detailTestId={`draw-eligible-${draw.id}-detail`}
-            id={`draw-eligible-${draw.id}`}
-            key={`draw-eligible-${draw.id}`}
-            label={`${draw.label} eligible`}
+            detailTestId={`draw-planned-${draw.id}-detail`}
+            id={`draw-planned-${draw.id}`}
+            key={`draw-planned-${draw.id}`}
+            label={`${draw.label} planned`}
             labelClassName="items-start text-left"
-            testId={`draw-eligible-${draw.id}`}
+            testId={`draw-planned-${draw.id}`}
           />
         ))}
         {drawGroupGhostOverlays.map((draw) => (
           <GanttMarker
             className="bg-cyan-100 text-cyan-950 shadow-cyan-500/40 ring-2 ring-cyan-300/40"
             containerClassName="z-30 opacity-80"
-            date={draw.eligibleAt}
-            id={`ghost-draw-eligible-${draw.id}`}
-            key={`ghost-draw-eligible-${draw.id}`}
-            label={`${draw.label} drop eligible`}
-            testId={`draw-ghost-eligible-${draw.id}`}
+            date={draw.plannedAt ?? draw.eligibleAt}
+            id={`ghost-draw-planned-${draw.id}`}
+            key={`ghost-draw-planned-${draw.id}`}
+            label={`${draw.label} drop planned`}
+            testId={`draw-ghost-planned-${draw.id}`}
           />
         ))}
         {focusedMilestone && (
@@ -1531,6 +1567,16 @@ function GanttRoadmap({
                   });
                 }}
                 onMove={workspace.moveMilestoneDates}
+                onPreviewChange={(featureId, preview) => {
+                  if (!preview || preview.deltaDays === 0) {
+                    setSingleMilestoneShiftPreview(null);
+                    return;
+                  }
+                  setSingleMilestoneShiftPreview({
+                    deltaDays: preview.deltaDays,
+                    milestoneId: featureId,
+                  });
+                }}
                 selectedIds={selectedMilestoneIds}
               >
                 {(item) => (
@@ -1571,6 +1617,28 @@ function GanttRoadmap({
                 </GanttFeatureRow>
               );
             })}
+          </GanttFeatureList>
+        ) : null}
+        {singleMilestoneGhost ? (
+          <GanttFeatureList className="pointer-events-none z-[5]">
+            {features.map((feature) => (
+              <GanttFeatureRow
+                className="border-transparent border-b"
+                features={
+                  feature.id === singleMilestoneGhost.feature.id
+                    ? [singleMilestoneGhost.feature]
+                    : []
+                }
+                key={`single-ghost-${feature.id}`}
+              >
+                {(item) => (
+                  <MilestoneGhostBlock
+                    feature={item}
+                    milestone={singleMilestoneGhost.milestone}
+                  />
+                )}
+              </GanttFeatureRow>
+            ))}
           </GanttFeatureList>
         ) : null}
       </GanttTimeline>
@@ -2062,6 +2130,26 @@ function MilestoneDetailSheet({
   );
   const [dependencyHardness, setDependencyHardnessDraft] =
     useState<DependencyHardness>("hard");
+  const [assignContractorOpen, setAssignContractorOpen] = useState(false);
+
+  const contractorMilestoneKey =
+    workspace.resolveContractorMilestoneKey?.(milestone.id) ??
+    parseGanttMilestoneScopeId(milestone.id).milestoneKey;
+  const contractorScope = parseGanttMilestoneScopeId(milestone.id);
+  const canAssignContractor = Boolean(
+    workspace.assignContractorToMilestone || workspace.createAndAssignContractor,
+  );
+  const contractorOptions =
+    workspace.contractorPlanning?.availableContractors ??
+    workspace.contractorPlanning?.proposalContractors?.map((contractor) => ({
+      _id: contractor.contractorId,
+      city: contractor.city,
+      defaultPayRateCents: contractor.defaultPayRateCents,
+      defaultPayRateUnit: contractor.defaultPayRateUnit,
+      name: contractor.name,
+      trades: contractor.trades,
+    })) ??
+    [];
 
   useEffect(() => {
     setDraft({
@@ -2079,6 +2167,7 @@ function MilestoneDetailSheet({
     setDependencyTarget(
       workspace.milestones.find((item) => item.id !== milestone.id)?.id ?? ""
     );
+    setAssignContractorOpen(false);
   }, [milestone, workspace.milestones]);
 
   const incoming = workspace.dependencies.filter(
@@ -2350,6 +2439,35 @@ function MilestoneDetailSheet({
               </Button>
             </div>
           </Panel>
+
+          {workspace.contractorPlanning || canAssignContractor ? (
+            <Panel title="Contractors">
+              {workspace.contractorPlanning ? (
+                <TimelineMilestoneContractorList
+                  milestoneKey={contractorMilestoneKey}
+                  planning={workspace.contractorPlanning}
+                  testIdPrefix="milestone-detail-contractor"
+                />
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  No contractors assigned to this milestone yet.
+                </p>
+              )}
+              {canAssignContractor ? (
+                <div className="flex justify-end">
+                  <Button
+                    data-testid="milestone-detail-assign-contractor"
+                    onClick={() => setAssignContractorOpen(true)}
+                    size="sm"
+                    variant="outline"
+                  >
+                    <UserPlus />
+                    Assign contractor
+                  </Button>
+                </div>
+              ) : null}
+            </Panel>
+          ) : null}
 
           {workspace.mode === "proposal" ? (
             <Panel title="Draw Group Controls">
@@ -2658,6 +2776,34 @@ function MilestoneDetailSheet({
           </Panel>
         </div>
       </SheetContent>
+      <ContractorQuickAddDrawer
+        availableContractors={contractorOptions}
+        createLabel="Create and assign"
+        description="Assign an existing build contractor or create a profile and attach it to this milestone scope."
+        onAttachExisting={async ({ assignmentCost, contractorId, role }) => {
+          await workspace.assignContractorToMilestone?.({
+            assignmentCost,
+            contractorId,
+            milestoneId: milestone.id,
+            role,
+            submilestoneKeys: contractorScope.submilestoneKeys,
+          });
+        }}
+        onCreate={async ({ assignmentCost, contractor, role }) => {
+          await workspace.createAndAssignContractor?.({
+            assignmentCost,
+            contractor,
+            milestoneId: milestone.id,
+            role: role ?? "Contractor",
+            submilestoneKeys: contractorScope.submilestoneKeys,
+          });
+        }}
+        onOpenChange={setAssignContractorOpen}
+        open={assignContractorOpen}
+        requireRole
+        showAssignmentCost
+        title={`Assign contractor to ${milestone.name}`}
+      />
     </Sheet>
   );
 }
@@ -3170,14 +3316,16 @@ function getDrawOverlays(milestones: Milestone[], drawGroups: DrawGroup[]) {
       const incurredCost = milestones
         .filter((milestone) => milestone.endAt.getTime() <= endAt.getTime())
         .reduce((sum, milestone) => sum + milestone.estimatedCost, 0);
+      const plannedAt = drawGroup.plannedAt ?? drawGroup.eligibleAt ?? endAt;
 
       return {
         ...drawGroup,
         amount,
         duration: formatDistanceStrict(startAt, endAt),
         endAt,
-        eligibleAt: endAt,
+        eligibleAt: plannedAt,
         incurredCost,
+        plannedAt,
         rowIndex,
         rowSpan: lastRowIndex - rowIndex + 1,
         startAt,

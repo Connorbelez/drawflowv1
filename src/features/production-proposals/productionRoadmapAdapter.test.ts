@@ -61,6 +61,33 @@ const detail = {
 } satisfies ProductionProposalDetail;
 
 describe("buildProductionRoadmapProjection", () => {
+  test("uses milestone draw availability instead of scheduled draw amount", () => {
+    const projection = buildProductionRoadmapProjection({
+      ...detail,
+      draws: [
+        {
+          ...detail.draws[0],
+          amountCents: 18_000_000,
+        },
+      ],
+      milestones: [
+        {
+          ...detail.milestones[0],
+          drawAvailabilityCents: 27_000_000,
+        },
+        detail.milestones[1],
+      ],
+    });
+
+    expect(projection.items[0]?.data.drawAvailabilityAmount).toBe(270_000);
+    expect(
+      projection.drawAvailability.data.find((row) => row.day === 30),
+    ).toMatchObject({
+      additionalAvailableDraw: 270_000,
+      totalAvailableDraw: 270_000,
+    });
+  });
+
   test("adapts proposal milestones to curved timeline items", () => {
     const projection = buildProductionRoadmapProjection(detail);
 

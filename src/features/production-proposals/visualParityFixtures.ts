@@ -577,6 +577,7 @@ export function getVisualParityActiveBuildDetail(
       milestoneKey: submilestone.milestoneKey,
       name: submilestone.name,
       order: index + 1,
+      startDay: submilestone.startDay,
       status: index < 3 ? "complete" : index < 6 ? "in_progress" : "planned",
     })),
   };
@@ -844,6 +845,7 @@ export function getVisualParityTimelineWorkspace(
           key: submilestone.key,
           name: submilestone.name,
           order: subIndex + 1,
+          startDay: submilestone.startDay,
         })),
       tone: index === 0 ? "complete" : index === 1 ? "active" : "upcoming",
       x: milestone.dayStart,
@@ -915,6 +917,7 @@ export function getVisualParitySettings(): ProductionProposalSettings {
           durationDays: submilestone.durationDays,
           key: submilestone.key,
           name: submilestone.name,
+          startDay: submilestone.startDay,
         })),
         type: milestone.archetypeKey,
       })),

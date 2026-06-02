@@ -17,6 +17,10 @@ import type {
 } from "./-timeline-share-snapshot.ts";
 
 const mediaQueryMockState = vi.hoisted(() => ({ isMobile: false }));
+const timelineSearchMockState = vi.hoisted(() => ({
+  setTimelineSearch: vi.fn(),
+  share: null as string | null,
+}));
 
 vi.mock("convex/react", () => ({
   useMutation: () => vi.fn(),
@@ -25,7 +29,10 @@ vi.mock("convex/react", () => ({
 
 vi.mock("nuqs", () => ({
   parseAsString: {},
-  useQueryStates: () => [{ share: null }, vi.fn()],
+  useQueryStates: () => [
+    { share: timelineSearchMockState.share },
+    timelineSearchMockState.setTimelineSearch,
+  ],
 }));
 
 vi.mock("#/hooks/use-media-query.ts", () => ({
@@ -64,6 +71,9 @@ vi.mock("./-TimelineDrawAvailabilityChart.tsx", () => ({
 
 afterEach(() => {
   mediaQueryMockState.isMobile = false;
+  timelineSearchMockState.share = null;
+  timelineSearchMockState.setTimelineSearch.mockReset();
+  window.history.pushState(null, "", "/");
   cleanup();
 });
 
@@ -115,6 +125,33 @@ test("cash use summary separates lender draws from builder cash exposure", () =>
     builderCashUsed: 39_000,
     lenderCashUsed: 96_000,
     totalPlannedSpend: 135_000,
+  });
+});
+
+test("cash use summary uses actual milestone spend when completion cost is filed", () => {
+  expect(
+    buildCashUseSummary(
+      [
+        {
+          ...milestone,
+          data: {
+            ...milestone.data,
+            completionClaim: {
+              actualCost: 90_000,
+              completedDay: 14,
+              submittedAt: "2026-06-02T00:00:00.000Z",
+            },
+            status: "complete",
+          },
+        },
+      ],
+      [draw],
+      [],
+    ),
+  ).toEqual({
+    builderCashUsed: 0,
+    lenderCashUsed: 96_000,
+    totalPlannedSpend: 90_000,
   });
 });
 
@@ -173,6 +210,7 @@ function renderWorkspace({
   initialRole = "builder",
   initialState = timelineState(),
   persistence,
+  shareUrlPath,
   status = "approved",
   workspaceMode,
 }: {
@@ -181,6 +219,7 @@ function renderWorkspace({
   initialRole?: "builder" | "lender";
   initialState?: TimelineShareState;
   persistence?: TimelineWorkspaceProps["persistence"];
+  shareUrlPath?: string;
   status?: string;
   workspaceMode: "live" | "proposal";
 }) {
@@ -192,6 +231,7 @@ function renderWorkspace({
         initialRole,
         initialState,
         persistence,
+        shareUrlPath,
         status,
         workspaceMode,
       })}
@@ -205,6 +245,7 @@ function workspaceProps({
   initialRole = "builder",
   initialState = timelineState(),
   persistence,
+  shareUrlPath,
   status = "approved",
   workspaceMode,
 }: {
@@ -213,6 +254,7 @@ function workspaceProps({
   initialRole?: "builder" | "lender";
   initialState?: TimelineShareState;
   persistence?: TimelineWorkspaceProps["persistence"];
+  shareUrlPath?: string;
   status?: string;
   workspaceMode: "live" | "proposal";
 }): TimelineWorkspaceProps {
@@ -230,6 +272,7 @@ function workspaceProps({
     initialRole,
     initialState,
     persistence,
+    shareUrlPath,
     planSummary: {
       address: "Toronto, ON",
       includedCount: 1,
@@ -334,6 +377,89 @@ describe("TimelineWorkspace mode split", () => {
         ]),
       }),
     );
+  });
+
+  test("edits milestone draw availability from the proposal sidebar", () => {
+    const updateMilestone = vi.fn().mockResolvedValue(undefined);
+    renderWorkspace({
+      persistence: { updateMilestone },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    expect(
+      screen.getByTestId("selected-milestone-plan-summary").textContent,
+    ).toContain("Draw availability unlocked");
+    expect(
+      screen.getByTestId("timeline-cashflow-lender-cash-used").textContent,
+    ).toContain("$96,000");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Draw availability unlocked" }),
+    );
+    const availabilityInput = screen
+      .getAllByLabelText("Draw availability unlocked")
+      .find((element) => element instanceof HTMLInputElement);
+    expect(availabilityInput).toBeTruthy();
+    fireEvent.change(availabilityInput, { target: { value: "105000" } });
+    fireEvent.keyDown(availabilityInput, { key: "Enter" });
+
+    expect(
+      screen.getByTestId("timeline-cashflow-lender-cash-used").textContent,
+    ).toContain("$96,000");
+    expect(updateMilestone).toHaveBeenCalledWith(
+      expect.objectContaining({
+        drawAvailabilityCents: 10_500_000,
+        milestoneKey: "foundation",
+      }),
+    );
+  });
+
+  test("ignores preview share query params on production proposal routes", () => {
+    timelineSearchMockState.share = "snapshot_123";
+    window.history.pushState(
+      null,
+      "",
+      "/backoffice/proposals/proposal_123?share=snapshot_123",
+    );
+
+    renderWorkspace({
+      shareUrlPath: "/proposal-preview",
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    expect(screen.queryByText("Loading shared snapshot")).toBeNull();
+    expect(screen.queryByText("Shared fork")).toBeNull();
+    expect(screen.getByText("Proposal mode")).toBeTruthy();
+  });
+
+  test("renders embedded proposal previews as read-only timeline sections", () => {
+    render(
+      <TimelineWorkspace
+        allowRoleSwitching={false}
+        embedded
+        initialRole="builder"
+        initialState={timelineState({ withSubmilestoneBudgets: true })}
+        readOnly
+        showWorkspaceHeader={false}
+        timelineSettingsProjection={null}
+        workspaceMode="proposal"
+      />,
+    );
+
+    expect(screen.getByText("Cash requirement vs draw recovery")).toBeTruthy();
+    expect(screen.getByTestId("timeline-workspace-root").parentElement?.tagName)
+      .toBe("SECTION");
+    expect(screen.queryByText("Proposal mode")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Share" })).toBeNull();
+    expect(screen.queryByText("Reset")).toBeNull();
+    expect(screen.queryByText("Add draw")).toBeNull();
+    expect(
+      (screen.getByRole("button", {
+        name: "DC/ED budget",
+      }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   test("enables builder execution controls only in live mode", () => {

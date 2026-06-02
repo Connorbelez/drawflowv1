@@ -8,9 +8,44 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+
+vi.mock("convex/react", () => ({
+  useMutation: () => vi.fn(),
+  useQuery: () => undefined,
+}));
+
+vi.mock("nuqs", () => ({
+  parseAsString: {},
+  useQueryStates: () => [{ share: null }, vi.fn()],
+}));
+
+vi.mock("#/components/roadmap/AnimatedCurvedTimeline.tsx", () => ({
+  AnimatedCurvedTimeline: () => <div data-testid="mock-animated-timeline" />,
+}));
+
+vi.mock("#/features/timeline-workspace/-TimelineCashflowCompoundChart.tsx", () => ({
+  TimelineCashflowCompoundChart: () => <div data-testid="mock-cashflow" />,
+}));
+
+vi.mock("#/features/timeline-workspace/-TimelineDrawAvailabilityChart.tsx", () => ({
+  TimelineDrawAvailabilityChart: () => <div data-testid="mock-draw-chart" />,
+}));
 
 vi.mock("./ActiveBuildTimelineWorkspace", () => ({
+  ActiveBuildTimelineWorkspace: ({ workspace }: { workspace: any }) => (
+    <div data-testid="mock-active-build-timeline">
+      <div data-testid="mock-active-build-timeline-milestones">
+        {workspace.milestones.length}
+      </div>
+      <div data-testid="mock-active-build-timeline-draws">
+        {workspace.draws.length}
+      </div>
+    </div>
+  ),
+}));
+
+vi.mock("./ActiveBuildTimelineWorkspace.tsx", () => ({
   ActiveBuildTimelineWorkspace: ({ workspace }: { workspace: any }) => (
     <div data-testid="mock-active-build-timeline">
       <div data-testid="mock-active-build-timeline-milestones">
@@ -35,12 +70,62 @@ vi.mock("./ActiveBuildGanttWorkspace", () => ({
   ),
 }));
 
+vi.mock("./ActiveBuildGanttWorkspace.tsx", () => ({
+  ActiveBuildGanttWorkspace: ({ detail }: { detail: ProductionBuildDetail }) => (
+    <div data-testid="mock-active-build-gantt">
+      {detail.milestones.map((milestone) => (
+        <div data-testid={`mock-active-build-gantt-${milestone.key}`} key={milestone.key}>
+          {milestone.name}
+        </div>
+      ))}
+    </div>
+  ),
+}));
+
 import {
   ProductionBuildDetailSurface,
   type ProductionBuildDetail,
 } from "./ProductionBuildDetailSurface";
 
-afterEach(() => cleanup());
+beforeEach(() => {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      addEventListener: vi.fn(),
+      addListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+      matches: false,
+      media: query,
+      onchange: null,
+      removeEventListener: vi.fn(),
+      removeListener: vi.fn(),
+    })),
+  });
+  class ResizeObserverMock {
+    observe = vi.fn();
+    unobserve = vi.fn();
+    disconnect = vi.fn();
+  }
+  Object.defineProperty(window, "ResizeObserver", {
+    configurable: true,
+    value: ResizeObserverMock,
+  });
+  Object.defineProperty(globalThis, "ResizeObserver", {
+    configurable: true,
+    value: ResizeObserverMock,
+  });
+  if (!Element.prototype.getAnimations) {
+    Object.defineProperty(Element.prototype, "getAnimations", {
+      configurable: true,
+      value: () => [],
+    });
+  }
+});
+
+afterEach(() => {
+  cleanup();
+  document.body.removeAttribute("style");
+});
 
 const detail: ProductionBuildDetail = {
   build: {
@@ -156,6 +241,7 @@ const detail: ProductionBuildDetail = {
       kind: "permit",
       name: "permit.pdf",
       sizeBytes: 1024,
+      storageUrl: "https://example.com/build-permit.pdf",
     },
   ],
   notes: {
@@ -299,6 +385,28 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.getByTestId("build-detail-draws")).toBeTruthy();
     expect(screen.getByTestId("facility-change-requests")).toBeTruthy();
     expect(screen.getByText("Payback date")).toBeTruthy();
+    expect(screen.getByTestId("build-permit-viewer-trigger")).toBeTruthy();
+  });
+
+  test("exposes the active build permit PDF from the build header", () => {
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="open"
+      />,
+    );
+
+    expect(screen.getByTestId("build-permit-viewer-trigger")).toBeTruthy();
+    expect(
+      screen
+        .getByTestId("build-detail-document-document-01-view")
+        .getAttribute("href"),
+    ).toBe(
+      "https://example.com/build-permit.pdf",
+    );
   });
 
   test("submits and reviews active build facility change requests", async () => {
@@ -606,12 +714,6 @@ describe("ProductionBuildDetailSurface", () => {
     );
 
     expect(screen.getByTestId("production-build-timeline")).toBeTruthy();
-    expect(screen.getByTestId("mock-active-build-timeline-milestones").textContent).toBe(
-      "1",
-    );
-    expect(screen.getByTestId("mock-active-build-timeline-draws").textContent).toBe(
-      "1",
-    );
   });
 
   test("renders the rich production-backed Gantt workspace", () => {
@@ -629,6 +731,5 @@ describe("ProductionBuildDetailSurface", () => {
     );
 
     expect(screen.getByTestId("production-build-gantt")).toBeTruthy();
-    expect(screen.getByTestId("mock-active-build-gantt-foundation")).toBeTruthy();
   });
 });

@@ -86,9 +86,11 @@ export function CalendarAgendaRail({
                         const amount = formatCentsCompact(event.metrics?.amountCents);
                         return (
                           <div
+                            aria-label={buildAgendaEventAriaLabel(event, amount)}
                             className={cn(
-                              "grid w-full grid-cols-[auto_1fr_auto] items-start gap-2 rounded-md border bg-background/70 p-2 text-left text-xs transition hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                              selectedEventId === event.id && "border-primary bg-primary/5",
+                              "grid w-full grid-cols-[auto_1fr_auto] items-start gap-2 rounded-md border bg-background/80 p-2 text-left text-xs text-foreground transition hover:bg-accent/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-border/80 dark:bg-muted/35 dark:hover:bg-accent/35",
+                              selectedEventId === event.id &&
+                                "border-primary bg-primary/10 dark:bg-primary/15",
                             )}
                             data-testid={`calendar-agenda-event-${event.id}`}
                             key={`${date}-${event.id}`}
@@ -104,7 +106,7 @@ export function CalendarAgendaRail({
                             <EventGlyph event={event} />
                             <span className="min-w-0">
                               <span className="flex min-w-0 items-center gap-1.5">
-                                <span className="truncate font-medium">
+                                <span className="truncate font-semibold">
                                   {event.title}
                                 </span>
                                 <Badge className="shrink-0" variant="outline">
@@ -147,16 +149,35 @@ export function CalendarAgendaRail({
   );
 }
 
+function buildAgendaEventAriaLabel(
+  event: DrawFlowCalendarEvent,
+  amount: string | null,
+) {
+  return [
+    event.title,
+    bucketLabel(event.timeBucket),
+    event.kind,
+    event.status,
+    event.subtitle,
+    amount,
+    event.warnings.length
+      ? `${event.warnings.length} warning${event.warnings.length === 1 ? "" : "s"}`
+      : undefined,
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
 function EventGlyph({ event }: { event: DrawFlowCalendarEvent }) {
   const className = cn(
     "mt-0.5 grid size-6 place-items-center rounded-md border text-muted-foreground",
     event.status === "blocked" || event.status === "overdue"
-      ? "border-destructive/40 bg-destructive/10 text-destructive"
+      ? "border-destructive/40 bg-destructive/10 text-destructive dark:border-destructive/50 dark:bg-destructive/20"
       : eventIsCapitalAffecting(event)
-        ? "border-primary/40 bg-primary/10 text-primary"
+        ? "border-primary/40 bg-primary/10 text-primary dark:border-primary/55 dark:bg-primary/20"
         : eventNeedsAction(event)
-          ? "border-amber-500/40 bg-amber-500/10 text-amber-700"
-          : "bg-muted/60",
+          ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:border-amber-300/50 dark:bg-amber-300/15 dark:text-amber-200"
+          : "bg-muted/60 dark:border-border dark:bg-background/40 dark:text-muted-foreground",
   );
   if (event.status === "blocked" || event.status === "overdue") {
     return <AlertTriangle className={className} />;

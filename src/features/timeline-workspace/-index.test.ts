@@ -28,6 +28,7 @@ import type {
   DemoMilestone,
   TimelineShareState,
 } from "./-timeline-share-snapshot.ts";
+import { getMilestoneDrawAvailabilityAmount } from "./-timeline-share-snapshot.ts";
 
 describe("timeline cash shortfall logic", () => {
   test("builds lender approval start dates at UTC midnight", () => {
@@ -469,6 +470,121 @@ describe("timeline cash shortfall logic", () => {
     ]);
   });
 
+  test("actual cost lowers milestone spend and unlocked draw capacity", () => {
+    const items: TimelineItem<DemoMilestone>[] = [
+      {
+        data: {
+          amount: 300_000,
+          completionClaim: {
+            actualCost: 280_000,
+            completedDay: 30,
+            submittedAt: "2026-06-02T00:00:00.000Z",
+          },
+          draw: "Draw 1",
+          durationDays: 30,
+          evidence: "Submitted",
+          icon: "foundation",
+          name: "Foundation",
+          policy: "Review",
+          status: "complete",
+          subMilestones: ["Forms and pour"],
+        },
+        id: "foundation",
+        x: 0,
+      },
+    ];
+
+    const cashflow = buildTimelineCashflowData(
+      items,
+      [],
+      [],
+      { max: 40, min: 0, unit: "days" },
+      400_000,
+    );
+
+    expect(cashflow).toMatchObject([
+      { cashOnHand: 400_000, day: 0, event: "start" },
+      {
+        budget: 0,
+        cashOnHand: 400_000,
+        day: 0,
+        id: "foundation-initial-payment",
+      },
+      {
+        budget: 280_000,
+        cashOnHand: 120_000,
+        day: 30,
+        drawCapacityUnlocked: 224_000,
+        id: "foundation-completion-payment",
+      },
+    ]);
+    expect(getMilestoneDrawAvailabilityAmount(items[0]?.data)).toBe(224_000);
+
+    expect(
+      buildCashflowChartData(
+        cashflow,
+        items,
+        { max: 40, min: 0, unit: "days" },
+        400_000,
+      ).find((point) => point.day === 0),
+    ).toMatchObject({
+      budget: 280_000,
+      cashOnHand: 400_000,
+      event: "milestone",
+    });
+  });
+
+  test("over-budget actual cost lowers cash without increasing draw capacity", () => {
+    const items: TimelineItem<DemoMilestone>[] = [
+      {
+        data: {
+          amount: 300_000,
+          completionClaim: {
+            actualCost: 320_000,
+            completedDay: 30,
+            submittedAt: "2026-06-02T00:00:00.000Z",
+          },
+          draw: "Draw 1",
+          durationDays: 30,
+          evidence: "Submitted",
+          icon: "foundation",
+          name: "Foundation",
+          policy: "Review",
+          status: "complete",
+          subMilestones: ["Forms and pour"],
+        },
+        id: "foundation",
+        x: 0,
+      },
+    ];
+
+    expect(
+      buildTimelineCashflowData(
+        items,
+        [],
+        [],
+        { max: 40, min: 0, unit: "days" },
+        400_000,
+      ),
+    ).toMatchObject([
+      { cashOnHand: 400_000, day: 0, event: "start" },
+      {
+        budget: 0,
+        cashOnHand: 400_000,
+        day: 0,
+        id: "foundation-initial-payment",
+      },
+      {
+        budget: 320_000,
+        cashOnHand: 80_000,
+        day: 30,
+        drawCapacityUnlocked: 240_000,
+        id: "foundation-completion-payment",
+      },
+    ]);
+    expect(getMilestoneDrawAvailabilityAmount(items[0]?.data)).toBe(240_000);
+  });
+
   test("early completion claim unlocks draw capacity before planned end", () => {
     const cashflow = buildTimelineCashflowData(
       [
@@ -655,6 +771,43 @@ describe("timeline cash shortfall logic", () => {
         totalAvailableDraw: 100_000,
       },
     ]);
+  });
+
+  test("draw availability shows approved headroom above scheduled draws", () => {
+    const availability = buildDrawAvailabilityData(
+      [
+        cashflowPoint({
+          cashOnHand: 100_000,
+          day: 0,
+          event: "start",
+          id: "start",
+          name: "Starting cash",
+        }),
+        cashflowPoint({
+          cashOnHand: 100_000,
+          day: 10,
+          drawCapacityUnlocked: 60_000,
+          event: "milestone",
+          id: "foundation-complete",
+          name: "Foundation complete",
+        }),
+        cashflowPoint({
+          cashOnHand: 160_000,
+          day: 14,
+          drawAmount: 60_000,
+          event: "draw",
+          id: "foundation-draw",
+          name: "Draw 1",
+        }),
+      ],
+      70_000,
+    );
+
+    expect(availability.at(-1)).toMatchObject({
+      additionalAvailableDraw: 10_000,
+      interestBearingDraw: 60_000,
+      totalAvailableDraw: 70_000,
+    });
   });
 
   test("draw availability accrues released principal interest with daily compounding", () => {

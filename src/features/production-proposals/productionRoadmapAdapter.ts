@@ -11,6 +11,7 @@ import type {
   TimelineDrawAvailabilityReferenceLine,
 } from "#/features/timeline-workspace/-TimelineDrawAvailabilityChart.tsx";
 import type { DemoMilestone } from "#/features/timeline-workspace/-timeline-share-snapshot.ts";
+import { calculateDrawAvailabilityAmount } from "#/features/timeline-workspace/-timeline-share-snapshot.ts";
 
 import type { ProductionProposalDetail } from "./ProductionProposalSurfaces.tsx";
 
@@ -78,6 +79,7 @@ export function buildProductionRoadmapProjection(
     drawAvailability: buildDrawAvailabilityProjection(
       milestones,
       draws,
+      detail.proposal.borrowerCoPayBps,
       detail.loanFacility?.interestAnnualBps ??
         detail.proposal.interestAnnualBps ??
         DEFAULT_INTEREST_ANNUAL_BPS,
@@ -88,9 +90,9 @@ export function buildProductionRoadmapProjection(
       data: {
         amount: centsToDollars(milestone.budgetCents),
         draw: drawByMilestoneKey.get(milestone.key)?.label ?? "Planned draw",
-        drawAvailabilityAmount: centsToDollars(
-          drawByMilestoneKey.get(milestone.key)?.amountCents ??
-            milestone.budgetCents,
+        drawAvailabilityAmount: milestoneDrawAvailabilityDollars(
+          milestone,
+          detail.proposal.borrowerCoPayBps,
         ),
         drawX:
           drawByMilestoneKey.get(milestone.key)?.timingDay ??
@@ -239,9 +241,27 @@ function buildCashflowProjection(
   };
 }
 
+function milestoneDrawAvailabilityDollars(
+  milestone: {
+    budgetCents: number;
+    drawAvailabilityCents?: number;
+  },
+  borrowerCoPayBps: number | undefined,
+) {
+  if (milestone.drawAvailabilityCents !== undefined) {
+    return centsToDollars(milestone.drawAvailabilityCents);
+  }
+
+  return calculateDrawAvailabilityAmount(
+    centsToDollars(milestone.budgetCents),
+    borrowerCoPayBps,
+  );
+}
+
 function buildDrawAvailabilityProjection(
   milestones: NonNullable<ProductionProposalDetail["milestones"]>,
   draws: NonNullable<ProductionProposalDetail["draws"]>,
+  borrowerCoPayBps: number | undefined,
   interestAnnualBps: number,
   xDomain: [number, number],
   xTicks: number[],
@@ -261,17 +281,9 @@ function buildDrawAvailabilityProjection(
     },
   ];
 
-  const drawByMilestoneKey = new Map(
-    draws
-      .filter((draw) => draw.milestoneKey)
-      .map((draw) => [draw.milestoneKey as string, draw]),
-  );
   const events = [
     ...milestones.map((milestone) => ({
-      amount: centsToDollars(
-        drawByMilestoneKey.get(milestone.key)?.amountCents ??
-          milestone.budgetCents,
-      ),
+      amount: milestoneDrawAvailabilityDollars(milestone, borrowerCoPayBps),
       day: milestone.dayEnd,
       id: `unlock:${milestone.key}`,
       name: `${milestone.name} draw capacity`,

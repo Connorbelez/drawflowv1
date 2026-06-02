@@ -1,6 +1,6 @@
 "use client";
 
-import { MapPin, ScrollText } from "lucide-react";
+import { ExternalLink, MapPin, ScrollText } from "lucide-react";
 import type * as React from "react";
 import { useMemo, useState } from "react";
 
@@ -13,6 +13,10 @@ import {
   CardTitle,
 } from "#/components/ui/card.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
+import {
+  BuildPermitViewerDrawer,
+  firstPermitDocument,
+} from "#/features/build-permit-viewer/BuildPermitViewerDrawer.tsx";
 import { CalendarWorkspace } from "#/features/calendar-workspace/CalendarWorkspace.tsx";
 import {
   buildActiveBuildCalendarActions,
@@ -303,6 +307,7 @@ interface ProductionSubmilestone {
   order: number;
   budgetCents?: number;
   durationDays?: number;
+  startDay?: number;
   status: ProductionMilestoneStatus;
 }
 
@@ -358,8 +363,12 @@ interface ProductionDocument {
   documentType?: string;
   fileName?: string;
   kind?: string;
+  mimeType?: string;
   name?: string;
   sizeBytes?: number;
+  storageId?: string;
+  storageUrl?: string | null;
+  url?: string | null;
 }
 
 interface ProductionNote {
@@ -509,6 +518,7 @@ export function ProductionBuildDetailSurface({
   const eventsOpen = rail === "open";
   const eventCount =
     (detail.auditEvents?.length ?? 0) + (detail.quickActionEvents?.length ?? 0);
+  const permit = firstPermitDocument(detail.documents);
   const [localActiveMilestoneKey, setLocalActiveMilestoneKey] = useState<
     string | null
   >(milestoneKey ?? null);
@@ -546,6 +556,7 @@ export function ProductionBuildDetailSurface({
           detail={detail}
           eventCount={eventCount}
           onOpenEvents={() => onChangeRail("open")}
+          permit={permit}
         />
         <BuildDetailTabBar activeTab={activeTab} onChangeTab={onChangeTab} />
         {activeTab === "details" ? (
@@ -680,6 +691,7 @@ function ProductionBuildHeader({
   detail,
   eventCount,
   onOpenEvents,
+  permit,
 }: {
   breadcrumbRootHref: string;
   breadcrumbRootLabel: string;
@@ -688,6 +700,7 @@ function ProductionBuildHeader({
   detail: ProductionBuildDetail;
   eventCount: number;
   onOpenEvents: () => void;
+  permit: ReturnType<typeof firstPermitDocument>;
 }) {
   return (
     <Frame>
@@ -725,6 +738,7 @@ function ProductionBuildHeader({
         </div>
         <div className="flex w-full flex-col gap-3 md:min-w-72 md:max-w-sm">
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <BuildPermitViewerDrawer permit={permit} size="sm" />
             <Button
               data-testid="build-detail-events-trigger"
               onClick={onOpenEvents}
@@ -1507,12 +1521,33 @@ function ProductionDocumentsCard({
                 <span className="truncate">
                   {document.name ?? document.fileName}
                 </span>
-                <span className="shrink-0 text-[11px] text-muted-foreground sm:ml-2">
-                  {document.kind ?? document.documentType}
-                  {document.sizeBytes
-                    ? ` - ${Math.round(document.sizeBytes / 1024)}KB`
-                    : ""}
-                </span>
+                <div className="flex shrink-0 items-center gap-2 sm:ml-2">
+                  <span className="text-[11px] text-muted-foreground">
+                    {document.kind ?? document.documentType}
+                    {document.sizeBytes
+                      ? ` - ${Math.round(document.sizeBytes / 1024)}KB`
+                      : ""}
+                  </span>
+                  {(document.kind === "permit" ||
+                    document.documentType === "permit") &&
+                  (document.storageUrl || document.url) ? (
+                    <Button
+                      render={
+                        <a
+                          data-testid={`build-detail-document-${document._id}-view`}
+                          href={document.storageUrl ?? document.url ?? ""}
+                          rel="noreferrer"
+                          target="_blank"
+                        />
+                      }
+                      size="xs"
+                      variant="outline"
+                    >
+                      <ExternalLink />
+                      View
+                    </Button>
+                  ) : null}
+                </div>
               </li>
             ))}
           </ul>
@@ -1919,6 +1954,7 @@ function buildProductionKanbanCards(
         key: submilestone.key,
         name: submilestone.name,
         order: submilestone.order,
+        startDay: submilestone.startDay,
         status:
           submilestone.status === "complete"
             ? "done"

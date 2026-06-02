@@ -1,3 +1,10 @@
+import type { ContractorPlanningModel } from "#/features/contractors/ContractorPlanningPanel.tsx";
+
+import type {
+  BuildWorkspaceAssignContractorInput,
+  BuildWorkspaceCreateAndAssignContractorInput,
+} from "./build-workspace-contractor-planning.ts";
+
 export type WorkspaceMode = "active" | "proposal";
 
 export type WorkspaceRole = "builderLead" | "lenderAdmin" | "siteVisitor";
@@ -199,6 +206,7 @@ export interface DrawGroup {
   issues: WorkspaceIssue[];
   label: string;
   order: number;
+  plannedAt?: Date;
   rowIndex: number;
   rowSpan: number;
   startAt: Date;
@@ -382,6 +390,13 @@ export interface BuildWorkspaceActions {
     file: File,
     geofencePassed: boolean
   ) => Promise<void>;
+  assignContractorToMilestone?: (
+    input: BuildWorkspaceAssignContractorInput
+  ) => Promise<void>;
+  createAndAssignContractor?: (
+    input: BuildWorkspaceCreateAndAssignContractorInput
+  ) => Promise<void>;
+  resolveContractorMilestoneKey?: (milestoneId: string) => string;
 }
 
 export interface BuildWorkspaceState {
@@ -405,6 +420,7 @@ export interface BuildWorkspaceState {
   terminalMessage?: string;
   validationErrors: string[];
   validationWarnings: string[];
+  contractorPlanning?: ContractorPlanningModel | null;
 }
 
 export type BuildWorkspaceAdapter = BuildWorkspaceState & BuildWorkspaceActions;

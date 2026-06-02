@@ -22,6 +22,7 @@ import {
   isProductionVisualParityFixtureEnabled,
 } from "#/features/production-proposals/visualParityFixtures.ts";
 import { Input } from "#/components/ui/input.tsx";
+import { Label } from "#/components/ui/label.tsx";
 import {
   Select,
   SelectItem,
@@ -29,6 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "#/components/ui/select.tsx";
+import { Switch } from "#/components/ui/switch.tsx";
 import {
   Table,
   TableBody,
@@ -37,6 +39,7 @@ import {
   TableHeader,
   TableRow,
 } from "#/components/ui/table.tsx";
+import { Textarea } from "#/components/ui/textarea.tsx";
 import { coerceSiteVisitGuidance } from "#/lib/site-visit-guidance.ts";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../../convex/_generated/api";
@@ -116,6 +119,14 @@ const SETTINGS_TAB_PANEL_VARIANTS = {
 function RouteComponent() {
   const context = Route.useRouteContext();
   const workosOrganizationId = context.organizationId as string;
+  const roleSlugs = [context.role, ...(context.roles ?? [])].filter(
+    (role): role is string => typeof role === "string",
+  );
+  const canCreateProductionTemplate = roleSlugs.some((role) =>
+    ["admin", "principle-broker", "principal-broker"].includes(
+      role.trim().toLowerCase(),
+    ),
+  );
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
   const productionSettingsQuery = useQuery(
     api.production_proposals.getProductionProposalSettings,
@@ -129,6 +140,9 @@ function RouteComponent() {
   );
   const saveProductionTemplate = useMutation(
     api.production_proposals.saveProductionProposalTemplateConfiguration,
+  );
+  const createProductionTemplate = useMutation(
+    api.production_proposals.createProductionProposalTemplate,
   );
   const deleteProductionScenario = useMutation(
     api.production_proposals.deleteProductionDrawScenario,
@@ -205,6 +219,23 @@ function RouteComponent() {
               templateKey: template.templateKey,
               workosOrganizationId,
             })
+          }
+          onCreateTemplate={
+            canCreateProductionTemplate
+              ? (template) =>
+                  createProductionTemplate({
+                    milestones: template.milestones,
+                    scenarios: template.scenarios,
+                    template: {
+                      description: template.description,
+                      isDefault: template.isDefault,
+                      summary: template.summary,
+                      templateKey: template.templateKey,
+                      title: template.title,
+                    },
+                    workosOrganizationId,
+                  })
+              : undefined
           }
           onSaveTemplate={(template) =>
             saveProductionTemplate({
@@ -304,6 +335,7 @@ type TimelineSettingsMutationResult =
 
 export function TimelineSettingsWorkspace({
   labels,
+  onCreateTemplate,
   onDeleteScenario,
   onResetScenario,
   onResetTemplate,
@@ -314,6 +346,9 @@ export function TimelineSettingsWorkspace({
   traceRefs = [],
 }: {
   labels: TimelineSettingsWorkspaceLabels;
+  onCreateTemplate?: (
+    template: TimelineSettingsTemplateDraft,
+  ) => Promise<TimelineSettingsMutationResult>;
   onDeleteScenario: (
     template: TimelineSettingsTemplateDraft,
     scenario: TimelineSettingsScenarioDraft,
@@ -393,14 +428,26 @@ export function TimelineSettingsWorkspace({
       selectedTemplate.scenarios[0] ??
       null)
     : null;
+  const selectedTemplatePersisted = Boolean(
+    selectedTemplate &&
+      canonicalTemplates.some(
+        (template) => template.templateKey === selectedTemplate.templateKey,
+      ),
+  );
   const templateValidation = selectedTemplate
     ? validateTemplateDraft(selectedTemplate)
     : { errors: {}, ok: false, warnings: [] };
+  const metadataValidation = selectedTemplate
+    ? validateTemplateMetadata(selectedTemplate, drafts)
+    : { errors: {}, ok: false };
   const scenarioValidation = selectedTemplate
     ? validateScenarioDrafts(selectedTemplate.scenarios, selectedTemplate)
     : { errors: {}, ok: false, warnings: [] };
   const canSave = Boolean(
-    selectedTemplate && templateValidation.ok && scenarioValidation.ok,
+    selectedTemplate &&
+      metadataValidation.ok &&
+      templateValidation.ok &&
+      scenarioValidation.ok,
   );
   const tabMotionCustom = {
     direction: activeTab === "scenarios" ? 1 : -1,
@@ -451,24 +498,64 @@ export function TimelineSettingsWorkspace({
     if (!selectedTemplate) {
       return;
     }
+    const currentKey = selectedTemplate.templateKey;
+    const nextTemplate = updater(selectedTemplate);
     setDrafts((current) =>
       current.map((template) =>
-        template.templateKey === selectedTemplate.templateKey
-          ? updater(template)
-          : template,
+        template.templateKey === currentKey ? nextTemplate : template,
       ),
     );
+    if (nextTemplate.templateKey !== currentKey) {
+      setSelectedTemplateKey(nextTemplate.templateKey);
+      setSelectedScenarioKeyByTemplate((current) => {
+        const next = { ...current };
+        next[nextTemplate.templateKey] =
+          next[currentKey] ||
+          getActiveScenario(nextTemplate)?.scenarioKey ||
+          nextTemplate.scenarios[0]?.scenarioKey ||
+          "";
+        delete next[currentKey];
+        return next;
+      });
+    }
     if (dirtyKind === "template") {
       setDirtyTemplates((current) => ({
-        ...current,
-        [selectedTemplate.templateKey]: true,
+        ...Object.fromEntries(
+          Object.entries(current).filter(([key]) => key !== currentKey),
+        ),
+        [nextTemplate.templateKey]: true,
       }));
     } else {
       setDirtyScenarios((current) => ({
-        ...current,
-        [selectedTemplate.templateKey]: true,
+        ...Object.fromEntries(
+          Object.entries(current).filter(([key]) => key !== currentKey),
+        ),
+        [nextTemplate.templateKey]: true,
       }));
     }
+  }
+
+  function handleCreateTemplateDraft() {
+    const created = createNewTemplateDraft(drafts, selectedTemplate);
+    setDrafts((current) => [...current, created]);
+    setSelectedTemplateKey(created.templateKey);
+    setSelectedScenarioKeyByTemplate((current) => ({
+      ...current,
+      [created.templateKey]:
+        getActiveScenario(created)?.scenarioKey ||
+        created.scenarios[0]?.scenarioKey ||
+        "",
+    }));
+    setDirtyTemplates((current) => ({
+      ...current,
+      [created.templateKey]: true,
+    }));
+    setDirtyScenarios((current) => ({
+      ...current,
+      [created.templateKey]: true,
+    }));
+    setActiveTab("template");
+    setActionError("");
   }
 
   async function handleSeedDefaults() {
@@ -494,15 +581,23 @@ export function TimelineSettingsWorkspace({
   async function handleSaveTemplate() {
     if (!selectedTemplate || !canSave) {
       setActionError(
-        "Resolve worksheet and scenario validation before saving.",
+        "Resolve template, worksheet, and scenario validation before saving.",
       );
       return;
     }
     setSaving(true);
     setActionError("");
     try {
-      const result = await onSaveTemplate(selectedTemplate);
-      toast.success(`${selectedTemplate.title} saved.`);
+      const persisted = canonicalTemplates.some(
+        (template) => template.templateKey === selectedTemplate.templateKey,
+      );
+      const result =
+        !persisted && onCreateTemplate
+          ? await onCreateTemplate(selectedTemplate)
+          : await onSaveTemplate(selectedTemplate);
+      toast.success(
+        `${selectedTemplate.title} ${persisted || !onCreateTemplate ? "saved" : "created"}.`,
+      );
       setTemplatesFromResult(result);
       setPendingConfirmation(null);
     } catch (error) {
@@ -620,6 +715,17 @@ export function TimelineSettingsWorkspace({
                 {traceRefs.map((ids) => (
                   <TraceBadge ids={ids} key={ids.join(":")} />
                 ))}
+                {onCreateTemplate ? (
+                  <Button
+                    disabled={settings === undefined}
+                    onClick={handleCreateTemplateDraft}
+                    size="sm"
+                    variant="outline"
+                  >
+                    <Plus />
+                    New template
+                  </Button>
+                ) : null}
                 <Button
                   onClick={() => setPendingConfirmation("seed")}
                   size="sm"
@@ -634,7 +740,9 @@ export function TimelineSettingsWorkspace({
                   size="sm"
                 >
                   <Save />
-                  Save template
+                  {selectedTemplate && !selectedTemplatePersisted
+                    ? "Create template"
+                    : "Save template"}
                 </Button>
               </div>
             </div>
@@ -669,6 +777,9 @@ export function TimelineSettingsWorkspace({
                     setSelectedTemplateKey(templateKey);
                     setActionError("");
                   }}
+                  persistedTemplateKeys={canonicalTemplates.map(
+                    (template) => template.templateKey,
+                  )}
                   selectedTemplateKey={selectedTemplate?.templateKey ?? ""}
                   templates={drafts}
                   reducedMotion={Boolean(prefersReducedMotion)}
@@ -718,6 +829,14 @@ export function TimelineSettingsWorkspace({
                           variants={SETTINGS_TAB_PANEL_VARIANTS}
                         >
                           <TemplateSettingsTab
+                            isNewTemplate={
+                              !canonicalTemplates.some(
+                                (template) =>
+                                  template.templateKey ===
+                                  selectedTemplate.templateKey,
+                              )
+                            }
+                            metadataValidation={metadataValidation}
                             onReset={() => void handleResetTemplate()}
                             onUpdate={(updater) =>
                               updateSelectedTemplate(updater, "template")
@@ -828,6 +947,7 @@ export function TimelineSettingsWorkspace({
       </section>
       <ConfirmationModal
         canSave={canSave}
+        isCreate={Boolean(selectedTemplate && !selectedTemplatePersisted)}
         kind={pendingConfirmation}
         labels={labels}
         onClose={() => setPendingConfirmation(null)}
@@ -840,6 +960,7 @@ export function TimelineSettingsWorkspace({
         scenario={selectedScenario}
         scenarioValidation={scenarioValidation}
         template={selectedTemplate}
+        metadataValidation={metadataValidation}
         templateValidation={templateValidation}
       />
     </>
@@ -888,6 +1009,173 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function validateTemplateMetadata(
+  template: TimelineSettingsTemplateDraft,
+  templates: TimelineSettingsTemplateDraft[],
+) {
+  const errors: Record<string, string> = {};
+  const templateKey = template.templateKey.trim();
+  if (!template.title.trim()) {
+    errors.title = "Template title is required.";
+  }
+  if (!template.summary.trim()) {
+    errors.summary = "Template summary is required.";
+  }
+  if (!templateKey) {
+    errors.templateKey = "Template key is required.";
+  } else if (templateKey !== slugTemplateKey(templateKey)) {
+    errors.templateKey =
+      "Template key must use lowercase letters, numbers, and hyphens.";
+  } else if (
+    templates.filter((row) => row.templateKey === template.templateKey).length >
+    1
+  ) {
+    errors.templateKey = "Template key must be unique.";
+  }
+  return { errors, ok: Object.keys(errors).length === 0 };
+}
+
+function createNewTemplateDraft(
+  existing: TimelineSettingsTemplateDraft[],
+  source: TimelineSettingsTemplateDraft | null,
+): TimelineSettingsTemplateDraft {
+  const title = source ? `${source.title} Custom` : "New Production Template";
+  const templateKey = uniqueTemplateKey(slugTemplateKey(title), existing);
+  if (source) {
+    return {
+      ...source,
+      description: `Custom template based on ${source.title}.`,
+      isDefault: false,
+      milestones: source.milestones.map((milestone) => ({
+        ...milestone,
+        dependencyKeys: [...milestone.dependencyKeys],
+        siteVisitGuidance: { ...milestone.siteVisitGuidance },
+        submilestones: milestone.submilestones.map((submilestone) => ({
+          ...submilestone,
+        })),
+      })),
+      scenarios: source.scenarios.map((scenario) => ({
+        ...scenario,
+        draws: scenario.draws.map((draw) => ({ ...draw })),
+        isDefault: false,
+      })),
+      summary: `Custom template based on ${source.summary || source.title}.`,
+      templateKey,
+      title,
+    };
+  }
+
+  return {
+    description:
+      "Custom production proposal template created from Backoffice Settings.",
+    isDefault: false,
+    milestones: [
+      {
+        dependencyKeys: [],
+        durationDays: 10,
+        icon: "foundation",
+        included: true,
+        milestoneKey: "foundation",
+        name: "Foundation",
+        order: 0,
+        percentageBps: 5000,
+        siteVisitGuidance: {
+          cameraAngles:
+            "<ul><li>Wide shot showing the full foundation work area.</li><li>Close-up of forms, pour, and waterproofing details.</li></ul>",
+          whatToVerify:
+            "<ul><li>Foundation scope is complete and consistent with the approved draw plan.</li></ul>",
+        },
+        submilestones: [
+          {
+            description: "Confirm foundation scope, evidence, and acceptance.",
+            durationDays: 5,
+            name: "Foundation completion",
+            order: 0,
+            percentageBps: 5000,
+            submilestoneKey: "foundation-completion",
+          },
+        ],
+        type: "foundation",
+      },
+      {
+        dependencyKeys: ["foundation"],
+        durationDays: 12,
+        icon: "framing",
+        included: true,
+        milestoneKey: "framing",
+        name: "Framing",
+        order: 1,
+        percentageBps: 5000,
+        siteVisitGuidance: {
+          cameraAngles:
+            "<ul><li>Wide shot showing framing progress across the structure.</li><li>Close-up of primary load paths and connection details.</li></ul>",
+          whatToVerify:
+            "<ul><li>Framing scope is complete and ready for reimbursement review.</li></ul>",
+        },
+        submilestones: [
+          {
+            description: "Confirm framing scope, evidence, and acceptance.",
+            durationDays: 6,
+            name: "Framing completion",
+            order: 0,
+            percentageBps: 5000,
+            submilestoneKey: "framing-completion",
+          },
+        ],
+        type: "framing",
+      },
+    ],
+    scenarios: [
+      {
+        description: "Default reimbursement timing for this custom template.",
+        draws: [
+          {
+            amountBps: TOTAL_BPS,
+            drawKey: "draw-01",
+            label: "Draw 01",
+            order: 0,
+            reviewNote: "Foundation completion verified.",
+            timingDay: 12,
+          },
+        ],
+        isActive: true,
+        isDefault: false,
+        name: "Standard reimbursement",
+        scenarioKey: "standard-reimbursement",
+        sortOrder: 0,
+      },
+    ],
+    summary: "Custom production template with editable milestones and draws.",
+    templateKey,
+    title,
+  };
+}
+
+function uniqueTemplateKey(
+  baseKey: string,
+  existing: TimelineSettingsTemplateDraft[],
+) {
+  const existingKeys = new Set(existing.map((template) => template.templateKey));
+  if (!existingKeys.has(baseKey)) {
+    return baseKey;
+  }
+  let suffix = 2;
+  while (existingKeys.has(`${baseKey}-${suffix}`)) {
+    suffix += 1;
+  }
+  return `${baseKey}-${suffix}`;
+}
+
+function slugTemplateKey(value: string) {
+  return (
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || "template"
+  );
+}
+
 function EmptySeedState({
   body,
   onSeed,
@@ -920,6 +1208,7 @@ function TemplateRail({
   dirtyScenarios,
   dirtyTemplates,
   onSelect,
+  persistedTemplateKeys,
   reducedMotion,
   selectedTemplateKey,
   templates,
@@ -928,10 +1217,12 @@ function TemplateRail({
   dirtyScenarios: Record<string, boolean>;
   dirtyTemplates: Record<string, boolean>;
   onSelect: (templateKey: string) => void;
+  persistedTemplateKeys: string[];
   reducedMotion: boolean;
   selectedTemplateKey: string;
   templates: TimelineSettingsTemplateDraft[];
 }) {
+  const persistedTemplateKeySet = new Set(persistedTemplateKeys);
   return (
     <motion.aside
       className="border-b bg-muted/20 p-3 lg:border-b-0 lg:border-r"
@@ -949,6 +1240,7 @@ function TemplateRail({
           const dirty =
             dirtyTemplates[template.templateKey] ||
             dirtyScenarios[template.templateKey];
+          const persisted = persistedTemplateKeySet.has(template.templateKey);
           return (
             <Card
               className={cn(
@@ -968,6 +1260,11 @@ function TemplateRail({
                 {dirty ? (
                   <Badge className="shrink-0" variant="warning">
                     Unsaved
+                  </Badge>
+                ) : null}
+                {!persisted ? (
+                  <Badge className="shrink-0" variant="outline">
+                    Draft
                   </Badge>
                 ) : null}
               </div>
@@ -1003,11 +1300,15 @@ function TemplateRail({
 }
 
 function TemplateSettingsTab({
+  isNewTemplate,
+  metadataValidation,
   onReset,
   onUpdate,
   template,
   validation,
 }: {
+  isNewTemplate: boolean;
+  metadataValidation: ReturnType<typeof validateTemplateMetadata>;
   onReset: () => void;
   onUpdate: (
     updater: (
@@ -1024,22 +1325,138 @@ function TemplateSettingsTab({
   const activeScenario = getActiveScenario(template);
 
   return (
-    <TimelineMilestoneWorksheetTable
-      error={validationError}
-      footerExtra={
-        <div className="timeline-blueprint-metric">
-          <span>Active scenario</span>
-          <strong>{activeScenario?.name ?? "Missing"}</strong>
+    <div className="grid gap-4 p-4">
+      <TemplateIdentityPanel
+        isNewTemplate={isNewTemplate}
+        metadataValidation={metadataValidation}
+        onUpdate={onUpdate}
+        template={template}
+      />
+      <TimelineMilestoneWorksheetTable
+        error={validationError}
+        footerExtra={
+          <div className="timeline-blueprint-metric">
+            <span>Active scenario</span>
+            <strong>{activeScenario?.name ?? "Missing"}</strong>
+          </div>
+        }
+        mode="settings"
+        onReset={onReset}
+        onRowsChange={(nextRows) =>
+          onUpdate((current) => worksheetRowsToTemplate(current, nextRows))
+        }
+        rows={rows}
+        templateTitle={template.title}
+      />
+    </div>
+  );
+}
+
+function TemplateIdentityPanel({
+  isNewTemplate,
+  metadataValidation,
+  onUpdate,
+  template,
+}: {
+  isNewTemplate: boolean;
+  metadataValidation: ReturnType<typeof validateTemplateMetadata>;
+  onUpdate: (
+    updater: (
+      template: TimelineSettingsTemplateDraft,
+    ) => TimelineSettingsTemplateDraft,
+  ) => void;
+  template: TimelineSettingsTemplateDraft;
+}) {
+  return (
+    <FramePanel className="grid gap-4 p-4">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="text-muted-foreground text-xs uppercase tracking-[0.08em]">
+            Template identity
+          </div>
+          <h3 className="font-semibold text-lg">{template.title}</h3>
         </div>
-      }
-      mode="settings"
-      onReset={onReset}
-      onRowsChange={(nextRows) =>
-        onUpdate((current) => worksheetRowsToTemplate(current, nextRows))
-      }
-      rows={rows}
-      templateTitle={template.title}
-    />
+        <Label className="min-h-8 rounded-lg border bg-background px-3 py-2 text-sm">
+          <Switch
+            aria-label="Default template"
+            checked={template.isDefault}
+            onCheckedChange={(checked) =>
+              onUpdate((current) => ({ ...current, isDefault: checked }))
+            }
+          />
+          Default
+        </Label>
+      </div>
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <label className="grid gap-1 text-sm">
+          <span className="font-medium">Title</span>
+          <Input
+            aria-invalid={metadataValidation.errors.title ? true : undefined}
+            aria-label="Template title"
+            onChange={(event) => {
+              const title = event.target.value;
+              onUpdate((current) => ({
+                ...current,
+                title,
+                ...(isNewTemplate
+                  ? { templateKey: slugTemplateKey(title) }
+                  : {}),
+              }));
+            }}
+            value={template.title}
+          />
+        </label>
+        <label className="grid gap-1 text-sm">
+          <span className="font-medium">Template key</span>
+          <Input
+            aria-invalid={
+              metadataValidation.errors.templateKey ? true : undefined
+            }
+            aria-label="Template key"
+            disabled={!isNewTemplate}
+            onChange={(event) =>
+              onUpdate((current) => ({
+                ...current,
+                templateKey: slugTemplateKey(event.target.value),
+              }))
+            }
+            value={template.templateKey}
+          />
+        </label>
+      </div>
+      <label className="grid gap-1 text-sm">
+        <span className="font-medium">Summary</span>
+        <Input
+          aria-invalid={metadataValidation.errors.summary ? true : undefined}
+          aria-label="Template summary"
+          onChange={(event) =>
+            onUpdate((current) => ({
+              ...current,
+              summary: event.target.value,
+            }))
+          }
+          value={template.summary}
+        />
+      </label>
+      <label className="grid gap-1 text-sm">
+        <span className="font-medium">Description</span>
+        <Textarea
+          aria-label="Template description"
+          onChange={(event) =>
+            onUpdate((current) => ({
+              ...current,
+              description: event.target.value,
+            }))
+          }
+          value={template.description}
+        />
+      </label>
+      {Object.values(metadataValidation.errors).length > 0 ? (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-destructive text-sm">
+          {Object.values(metadataValidation.errors)[0]}
+        </div>
+      ) : null}
+    </FramePanel>
   );
 }
 
@@ -1650,8 +2067,10 @@ function SettingsCashflowPreview({
 
 function ConfirmationModal({
   canSave,
+  isCreate,
   kind,
   labels,
+  metadataValidation,
   onClose,
   onConfirm,
   saving,
@@ -1661,8 +2080,10 @@ function ConfirmationModal({
   templateValidation,
 }: {
   canSave: boolean;
+  isCreate: boolean;
   kind: PendingConfirmation;
   labels: TimelineSettingsWorkspaceLabels;
+  metadataValidation: ReturnType<typeof validateTemplateMetadata>;
   onClose: () => void;
   onConfirm: () => void;
   saving: boolean;
@@ -1675,20 +2096,25 @@ function ConfirmationModal({
     return null;
   }
   const isSeed = kind === "seed";
+  const actionLabel = isCreate ? "Create" : "Save";
   return (
     <div className="fixed inset-0 z-50 grid place-items-start bg-black/60 p-6 pt-24 backdrop-blur-sm">
       <FramePanel className="mx-auto grid max-h-[calc(100vh-8rem)] w-full max-w-4xl gap-4 overflow-auto bg-popover p-6 text-popover-foreground shadow-2xl">
         <div>
           <div className="text-muted-foreground text-xs uppercase tracking-[0.08em]">
-            {isSeed ? "Confirm seed defaults" : "Confirm template save"}
+            {isSeed
+              ? "Confirm seed defaults"
+              : `Confirm template ${actionLabel.toLowerCase()}`}
           </div>
           <h2 className="mt-1 font-semibold text-2xl">
-            {isSeed ? labels.seedConfirmTitle : `Save ${template?.title ?? "template"}?`}
+            {isSeed
+              ? labels.seedConfirmTitle
+              : `${actionLabel} ${template?.title ?? "template"}?`}
           </h2>
           <p className="mt-2 text-muted-foreground text-sm leading-6">
             {isSeed
               ? labels.seedConfirmBody
-              : "This single save commits the canonical milestone template and all draw scenario changes attached to the selected template."}
+              : `This single ${actionLabel.toLowerCase()} commits the canonical milestone template and all draw scenario changes attached to the selected template.`}
           </p>
         </div>
         {!isSeed && template ? (
@@ -1747,7 +2173,8 @@ function ConfirmationModal({
         ) : null}
         {!isSeed && (!canSave || !scenarioValidation.ok) ? (
           <FramePanel className="border-destructive/30 bg-destructive/10 p-3 text-destructive text-sm">
-            {Object.values(templateValidation.errors)[0] ??
+            {Object.values(metadataValidation.errors)[0] ??
+              Object.values(templateValidation.errors)[0] ??
               Object.values(scenarioValidation.errors)[0] ??
               "Resolve validation before saving."}
           </FramePanel>
@@ -1760,7 +2187,11 @@ function ConfirmationModal({
             disabled={saving || (!isSeed && !canSave)}
             onClick={onConfirm}
           >
-            {saving ? "Working..." : isSeed ? "Confirm seed" : "Confirm save"}
+            {saving
+              ? "Working..."
+              : isSeed
+                ? "Confirm seed"
+                : `Confirm ${actionLabel.toLowerCase()}`}
           </Button>
         </div>
       </FramePanel>

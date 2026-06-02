@@ -29,6 +29,7 @@ vi.mock("sonner", () => ({
 
 afterEach(() => {
   cleanup();
+  document.body.removeAttribute("style");
   vi.clearAllMocks();
 });
 
@@ -38,6 +39,7 @@ const proposalDetail = {
       documentType: "permit",
       fileName: "permit.pdf",
       status: "uploaded",
+      storageUrl: "https://example.com/permit.pdf",
     },
   ],
   draws: [
@@ -97,7 +99,9 @@ describe("ProductionProposalPackageSurface", () => {
     expect(screen.getByText("Submit proposal")).toBeTruthy();
     expect(screen.getByText("Approved amount")).toBeTruthy();
     expect(screen.queryByText("Borrower co-pay")).toBeNull();
+    expect(screen.getByTestId("build-permit-viewer-trigger")).toBeTruthy();
   });
+
 });
 
 describe("ProductionProposalDraftEditorSurface", () => {
@@ -126,7 +130,7 @@ describe("ProductionProposalDraftEditorSurface", () => {
       target: { value: "60000000" },
     });
     fireEvent.click(screen.getByText("Save draft"));
-    fireEvent.click(screen.getByText("Submit proposal"));
+    fireEvent.click(screen.getAllByText("Submit proposal")[0]!);
 
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -137,6 +141,14 @@ describe("ProductionProposalDraftEditorSurface", () => {
           expect.objectContaining({
             budgetCents: 60_000_000,
             key: "foundation",
+          }),
+        ],
+        draws: [
+          expect.objectContaining({
+            amountCents: 45_000_000,
+            drawKey: "draw-01",
+            milestoneKey: "foundation",
+            timingDay: 30,
           }),
         ],
       }),
@@ -514,7 +526,11 @@ describe("ProductionProposalReviewSurface", () => {
   });
 
   test("shows header budget totals and saves editable proposal terms before live build", async () => {
-    const onUpdateApprovedAmount = vi.fn().mockResolvedValue(undefined);
+    let resolveApprovedAmountSave: () => void = () => {};
+    const approvedAmountSave = new Promise<void>((resolve) => {
+      resolveApprovedAmountSave = resolve;
+    });
+    const onUpdateApprovedAmount = vi.fn(() => approvedAmountSave);
     const onUpdateInterestRate = vi.fn().mockResolvedValue(undefined);
 
     render(
@@ -566,9 +582,13 @@ describe("ProductionProposalReviewSurface", () => {
     fireEvent.change(approvedAmountInput, { target: { value: "873080" } });
     fireEvent.keyDown(approvedAmountInput, { key: "Enter" });
 
+    expect(screen.getAllByText("$873,080").length).toBeGreaterThan(0);
+    expect(screen.getByText("Saving")).toBeTruthy();
     await waitFor(() =>
       expect(onUpdateApprovedAmount).toHaveBeenCalledWith(87_308_000),
     );
+    resolveApprovedAmountSave();
+    await waitFor(() => expect(screen.queryByText("Saving")).toBeNull());
 
     fireEvent.click(screen.getByRole("button", { name: "Interest rate" }));
     const interestInput = await waitFor(() => {
@@ -899,14 +919,24 @@ describe("ProductionProposalReviewSurface", () => {
     );
 
     fireEvent.click(screen.getByRole("tab", { name: "Draw schedule" }));
-    expect(screen.getByText("Save draw row").hasAttribute("disabled")).toBe(
+    const saveDrawRow = screen.getByText("Save draw row");
+    expect(saveDrawRow.hasAttribute("disabled")).toBe(
       true,
+    );
+    fireEvent.change(screen.getByLabelText("draw-01 label"), {
+      target: { value: "Foundation verified reimbursement" },
+    });
+    expect(saveDrawRow.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(saveDrawRow);
+    expect(onUpdateDraw).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith(
+      "Draw edit reason required.",
+      expect.objectContaining({
+        description: expect.stringContaining("change reason"),
+      }),
     );
     fireEvent.change(screen.getByLabelText("Change reason"), {
       target: { value: "Adjusted after lender review." },
-    });
-    fireEvent.change(screen.getByLabelText("draw-01 label"), {
-      target: { value: "Foundation verified reimbursement" },
     });
     const amountInput = screen.getByLabelText(
       "Amount dollars",
@@ -918,13 +948,43 @@ describe("ProductionProposalReviewSurface", () => {
     fireEvent.change(screen.getByLabelText("Timing day"), {
       target: { value: "28" },
     });
-    fireEvent.click(screen.getByText("Save draw row"));
+    fireEvent.click(saveDrawRow);
 
     expect(onUpdateDraw).toHaveBeenCalledWith("draw-01", {
       amountCents: 35_000_025,
       label: "Foundation verified reimbursement",
       reason: "Adjusted after lender review.",
       timingDay: 28,
+    });
+  });
+
+  test("edits draft draw schedule rows without requiring an audit reason", () => {
+    const onUpdateDraw = vi.fn();
+    render(
+      <ProductionProposalReviewSurface
+        detail={proposalDetail}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+        onUpdateDraw={onUpdateDraw}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Draw schedule" }));
+    const saveDrawRow = screen.getByText("Save draw row");
+    fireEvent.change(screen.getByLabelText("draw-01 label"), {
+      target: { value: "Draft foundation reimbursement" },
+    });
+    expect(saveDrawRow.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(saveDrawRow);
+
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(onUpdateDraw).toHaveBeenCalledWith("draw-01", {
+      amountCents: 40_000_000,
+      label: "Draft foundation reimbursement",
+      reason: "Draft draw schedule edit.",
+      timingDay: 30,
     });
   });
 });

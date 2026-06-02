@@ -70,6 +70,7 @@ export interface MilestoneCardProps {
 
 export interface MilestoneCardUpdate {
   amount?: number;
+  drawAvailabilityAmount?: number;
   durationDays?: number;
   initialPaymentAmount?: number;
   x?: number;

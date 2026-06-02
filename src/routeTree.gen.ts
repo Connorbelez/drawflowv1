@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ProtectedAccessRouteImport } from './routes/protected-access'
+import { Route as ProposalPreviewRouteImport } from './routes/proposal-preview'
 import { Route as CallbackRouteImport } from './routes/callback'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as DemoRouteRouteImport } from './routes/demo/route'
@@ -76,6 +77,11 @@ import { Route as BuilderDemoDashboardBuildsBuildIdRouteImport } from './routes/
 const ProtectedAccessRoute = ProtectedAccessRouteImport.update({
   id: '/protected-access',
   path: '/protected-access',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProposalPreviewRoute = ProposalPreviewRouteImport.update({
+  id: '/proposal-preview',
+  path: '/proposal-preview',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CallbackRoute = CallbackRouteImport.update({
@@ -426,6 +432,7 @@ export interface FileRoutesByFullPath {
   '/demo': typeof DemoRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/callback': typeof CallbackRoute
+  '/proposal-preview': typeof ProposalPreviewRoute
   '/protected-access': typeof ProtectedAccessRoute
   '/backoffice/builders': typeof BackofficeBuildersRouteRouteWithChildren
   '/backoffice/builds': typeof BackofficeBuildsRouteRouteWithChildren
@@ -489,6 +496,7 @@ export interface FileRoutesByTo {
   '/demo': typeof DemoRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/callback': typeof CallbackRoute
+  '/proposal-preview': typeof ProposalPreviewRoute
   '/protected-access': typeof ProtectedAccessRoute
   '/backoffice/builds': typeof BackofficeBuildsRouteRouteWithChildren
   '/backoffice/draws': typeof BackofficeDrawsRouteRoute
@@ -545,6 +553,7 @@ export interface FileRoutesById {
   '/demo': typeof DemoRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/callback': typeof CallbackRoute
+  '/proposal-preview': typeof ProposalPreviewRoute
   '/protected-access': typeof ProtectedAccessRoute
   '/backoffice/builders': typeof BackofficeBuildersRouteRouteWithChildren
   '/backoffice/builds': typeof BackofficeBuildsRouteRouteWithChildren
@@ -612,6 +621,7 @@ export interface FileRouteTypes {
     | '/demo'
     | '/about'
     | '/callback'
+    | '/proposal-preview'
     | '/protected-access'
     | '/backoffice/builders'
     | '/backoffice/builds'
@@ -675,6 +685,7 @@ export interface FileRouteTypes {
     | '/demo'
     | '/about'
     | '/callback'
+    | '/proposal-preview'
     | '/protected-access'
     | '/backoffice/builds'
     | '/backoffice/draws'
@@ -730,6 +741,7 @@ export interface FileRouteTypes {
     | '/demo'
     | '/about'
     | '/callback'
+    | '/proposal-preview'
     | '/protected-access'
     | '/backoffice/builders'
     | '/backoffice/builds'
@@ -796,6 +808,7 @@ export interface RootRouteChildren {
   DemoRouteRoute: typeof DemoRouteRouteWithChildren
   AboutRoute: typeof AboutRoute
   CallbackRoute: typeof CallbackRoute
+  ProposalPreviewRoute: typeof ProposalPreviewRoute
   ProtectedAccessRoute: typeof ProtectedAccessRoute
   ProposalClaimClaimTokenRoute: typeof ProposalClaimClaimTokenRoute
   ApiAuthSignInRoute: typeof ApiAuthSignInRoute
@@ -810,6 +823,13 @@ declare module '@tanstack/react-router' {
       path: '/protected-access'
       fullPath: '/protected-access'
       preLoaderRoute: typeof ProtectedAccessRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/proposal-preview': {
+      id: '/proposal-preview'
+      path: '/proposal-preview'
+      fullPath: '/proposal-preview'
+      preLoaderRoute: typeof ProposalPreviewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/callback': {
@@ -1538,6 +1558,7 @@ const rootRouteChildren: RootRouteChildren = {
   DemoRouteRoute: DemoRouteRouteWithChildren,
   AboutRoute: AboutRoute,
   CallbackRoute: CallbackRoute,
+  ProposalPreviewRoute: ProposalPreviewRoute,
   ProtectedAccessRoute: ProtectedAccessRoute,
   ProposalClaimClaimTokenRoute: ProposalClaimClaimTokenRoute,
   ApiAuthSignInRoute: ApiAuthSignInRoute,

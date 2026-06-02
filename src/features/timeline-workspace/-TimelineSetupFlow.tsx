@@ -21,6 +21,10 @@ import {
 import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
+  BuildPermitViewerDrawer,
+  firstPermitDocument,
+} from "#/features/build-permit-viewer/BuildPermitViewerDrawer.tsx";
+import {
   allocateBudgetCents,
   formatCurrency,
   parseCurrencyToCents,
@@ -544,6 +548,7 @@ export interface TimelineSetupResult {
   currentDay: number;
   includedCount: number;
   items: TimelineItem<DemoMilestone>[];
+  permitFiles: File[];
   projectAddress: string;
   redirectToDurableRoute: boolean;
   reimbursableBudgetCents: number;
@@ -1756,6 +1761,7 @@ function BudgetStep({
   onComplete,
   onRowsChange,
   projectAddress,
+  permitFiles,
   rows,
   targetBudgetCents,
   templateTitle,
@@ -1768,6 +1774,7 @@ function BudgetStep({
   onCascadeBudgetEditsChange: (enabled: boolean) => void;
   onComplete: (options: { redirectToDurableRoute: boolean }) => void;
   onRowsChange: (rows: TimelineSetupMilestoneRow[]) => void;
+  permitFiles: File[];
   projectAddress: string;
   rows: TimelineSetupMilestoneRow[];
   targetBudgetCents: number;
@@ -1779,7 +1786,22 @@ function BudgetStep({
       cashText={cashText}
       contractorOptions={contractorOptions}
       error={error}
-      leadingContent={<ProposalProgressSection step="budget" />}
+      leadingContent={
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <ProposalProgressSection step="budget" />
+          <BuildPermitViewerDrawer
+            permit={firstPermitDocument(
+              permitFiles.map((file) => ({
+                documentType: "permit",
+                file,
+                fileName: file.name,
+                mimeType: file.type || "application/pdf",
+              })),
+            )}
+            size="sm"
+          />
+        </div>
+      }
       mode="setup"
       onBack={onBack}
       onCascadeBudgetEditsChange={onCascadeBudgetEditsChange}
@@ -2017,6 +2039,7 @@ export function TimelineSetupFlow({
       currentDay: GENERATED_TIMELINE_CURRENT_DAY,
       includedCount: items.length,
       items,
+      permitFiles,
       costItems: planningPayload.costItems,
       projectAddress: resolveTimelineSetupAddress(projectAddress),
       redirectToDurableRoute,
@@ -2105,6 +2128,7 @@ export function TimelineSetupFlow({
               setRows(nextRows);
               setError("");
             }}
+            permitFiles={permitFiles}
             projectAddress={projectAddress}
             rows={rows}
             targetBudgetCents={validCurrencyCents(budgetText)}

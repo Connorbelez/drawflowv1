@@ -90,6 +90,21 @@ export function calculateDrawAvailabilityAmount(
   );
 }
 
+export function getMilestoneEffectiveCashSpendAmount(
+  milestone: DemoMilestone | undefined
+) {
+  if (!milestone) {
+    return 0;
+  }
+
+  const actualCost = milestone.completionClaim?.actualCost;
+  if (actualCost !== undefined && Number.isFinite(actualCost)) {
+    return Math.max(0, Math.round(actualCost));
+  }
+
+  return Math.max(0, Math.round(milestone.amount));
+}
+
 export function getMilestoneDrawAvailabilityAmount(
   milestone: DemoMilestone | undefined
 ) {
@@ -97,13 +112,33 @@ export function getMilestoneDrawAvailabilityAmount(
     return 0;
   }
 
-  if (Number.isFinite(milestone.drawAvailabilityAmount)) {
-    return Math.max(0, Math.round(milestone.drawAvailabilityAmount ?? 0));
+  const approvedBudget = Math.max(0, Math.round(milestone.amount));
+  const approvedDrawAvailability = Number.isFinite(
+    milestone.drawAvailabilityAmount
+  )
+    ? Math.max(0, Math.round(milestone.drawAvailabilityAmount ?? 0))
+    : calculateDrawAvailabilityAmount(
+        approvedBudget,
+        DEFAULT_BORROWER_CO_PAY_BPS
+      );
+
+  const actualCost = milestone.completionClaim?.actualCost;
+  if (actualCost === undefined || !Number.isFinite(actualCost)) {
+    return approvedDrawAvailability;
   }
 
-  return calculateDrawAvailabilityAmount(
-    milestone.amount,
-    DEFAULT_BORROWER_CO_PAY_BPS
+  if (approvedBudget <= 0) {
+    return 0;
+  }
+
+  const reimbursableBasis = Math.min(
+    approvedBudget,
+    Math.max(0, Math.round(actualCost))
+  );
+
+  return Math.min(
+    approvedDrawAvailability,
+    Math.round((approvedDrawAvailability * reimbursableBasis) / approvedBudget)
   );
 }
 
@@ -179,6 +214,7 @@ export type DemoTimelineSnapshotItem = Omit<
 
 export interface TimelineShareSnapshotV2 {
   activeSelection: ActiveMilestoneSelection;
+  approvedDrawLimit?: number;
   capitalSpikes: DemoCapitalSpike[];
   currentDay: number;
   draws: DemoDraw[];
@@ -196,6 +232,7 @@ export interface TimelineShareSnapshotV2 {
 
 export interface TimelineShareSnapshotInput {
   activeSelection: ActiveMilestoneSelection;
+  approvedDrawLimit?: number;
   capitalSpikes: DemoCapitalSpike[];
   currentDay: number;
   draws: DemoDraw[];
@@ -211,6 +248,7 @@ export interface TimelineShareSnapshotInput {
 
 export interface TimelineShareState {
   activeSelection: ActiveMilestoneSelection;
+  approvedDrawLimit?: number;
   capitalSpikes: DemoCapitalSpike[];
   currentDay: number;
   draws: DemoDraw[];
@@ -249,9 +287,13 @@ export function buildTimelineShareSnapshotV2(
     Math.round(normalizeNumber(input.minimumCashReserve, 0))
   );
   const title = (input.title ?? DEFAULT_TITLE).trim() || DEFAULT_TITLE;
+  const approvedDrawLimit = normalizeOptionalNonNegativeNumber(
+    input.approvedDrawLimit
+  );
 
   return {
     activeSelection,
+    ...(approvedDrawLimit === undefined ? {} : { approvedDrawLimit }),
     capitalSpikes,
     currentDay,
     draws,
@@ -307,6 +349,7 @@ export function applyTimelineShareSnapshotV2(
 
   return {
     activeSelection,
+    ...normalizeApprovedDrawLimitState(candidate, fallbackState),
     capitalSpikes,
     currentDay: normalizeNumber(candidate.currentDay, fallbackState.currentDay),
     draws,
@@ -345,10 +388,16 @@ export function initialTimelineShareState(
   selectedPanelOpen: boolean,
   startingCash: number,
   straightLine: boolean,
-  minimumCashReserve = 0
+  minimumCashReserve = 0,
+  approvedDrawLimit?: number
 ): TimelineShareState {
+  const normalizedApprovedDrawLimit =
+    normalizeOptionalNonNegativeNumber(approvedDrawLimit);
   return {
     activeSelection,
+    ...(normalizedApprovedDrawLimit === undefined
+      ? {}
+      : { approvedDrawLimit: normalizedApprovedDrawLimit }),
     capitalSpikes,
     currentDay,
     draws,
@@ -370,6 +419,7 @@ function normalizeTimelineShareState(
 
   return {
     activeSelection: resolveActiveSelection(state.activeSelection, items),
+    ...normalizeApprovedDrawLimitState(state),
     capitalSpikes: normalizeShareCapitalSpikes(state.capitalSpikes),
     currentDay: normalizeNumber(state.currentDay, range.min),
     draws: normalizeShareDraws(state.draws),
@@ -387,6 +437,28 @@ function normalizeTimelineShareState(
     ),
     straightLine: state.straightLine,
   };
+}
+
+function normalizeApprovedDrawLimitState(
+  candidate: { approvedDrawLimit?: unknown },
+  fallback?: TimelineShareState
+) {
+  const approvedDrawLimit = normalizeOptionalNonNegativeNumber(
+    candidate.approvedDrawLimit
+  );
+  if (approvedDrawLimit !== undefined) {
+    return { approvedDrawLimit };
+  }
+  return fallback?.approvedDrawLimit === undefined
+    ? {}
+    : { approvedDrawLimit: fallback.approvedDrawLimit };
+}
+
+function normalizeOptionalNonNegativeNumber(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return Math.max(0, Math.round(value));
 }
 
 function normalizeShareItems(

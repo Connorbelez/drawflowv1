@@ -11,7 +11,14 @@ import {
   Users,
   WifiOff,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 
 import { Badge } from "#/components/ui/badge.tsx";
@@ -44,6 +51,7 @@ import type { Id } from "../../../convex/_generated/dataModel";
 
 export interface ProductionTimelineWorkspaceProps {
   backofficeHref: string;
+  headerActions?: ReactNode;
   initialRole?: "builder" | "lender";
   persistenceMode?: "convex" | "noop";
   prejoinedCollabToken?: string | null;
@@ -55,6 +63,7 @@ export interface ProductionTimelineWorkspaceProps {
     proposal: {
       buildName: string;
       location: string;
+      lenderDrawPolicyLimitCents?: number;
       reviewOutcome?: string;
       status: string;
       totalBudgetCents: number;
@@ -65,6 +74,7 @@ export interface ProductionTimelineWorkspaceProps {
 
 export function ProductionTimelineWorkspace({
   backofficeHref,
+  headerActions,
   initialRole = "builder",
   persistenceMode = "convex",
   prejoinedCollabToken = null,
@@ -368,10 +378,12 @@ export function ProductionTimelineWorkspace({
         status: durableStatus,
       }}
       durablePlanId={proposalId}
+      headerActions={headerActions}
       initialRole={initialRole}
       initialState={initialState}
       modificationRequests={workspace.modificationRequests ?? []}
       persistence={persistence}
+      shareUrlPath="/proposal-preview"
       timelineSettingsProjection={null}
       workspaceMode="proposal"
     />
@@ -1138,6 +1150,9 @@ function normalizeSubmilestoneInput(input: any, index: number) {
     key: input.key ?? `sub-${index + 1}`,
     name: input.name ?? "Submilestone",
     order: Math.max(1, Math.round(input.order ?? index + 1)),
+    ...(input.startDay === undefined
+      ? {}
+      : { startDay: Math.max(0, Math.round(input.startDay)) }),
   };
 }
 

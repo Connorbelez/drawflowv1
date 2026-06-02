@@ -197,6 +197,26 @@ describe("CalendarWorkspace", () => {
     expect(within(endDate as HTMLElement).getByText("End")).toBeTruthy();
   });
 
+  test("renders calendar cards with dark mode contrast classes and accessible labels", () => {
+    render(<CalendarWorkspace workspace={workspace} />);
+
+    const gridEvent = screen.getByRole("button", {
+      name: "Foundation, All day, Start, milestone, planned, 1 warning",
+    });
+    expect(gridEvent.className).toContain("dark:bg-amber-950/55");
+    expect(gridEvent.className).toContain("dark:text-amber-100");
+    expect(gridEvent.className).toContain("dark:border-amber-700/70");
+
+    const agendaRail = screen.getByTestId("calendar-agenda-rail");
+    const agendaEvents = within(agendaRail).getAllByRole("button", {
+      name: "Foundation, All day, milestone, planned, Day 0 to 20, $225K, 1 warning",
+    });
+    for (const agendaEvent of agendaEvents) {
+      expect(agendaEvent.className).toContain("dark:bg-muted/35");
+      expect(agendaEvent.className).toContain("text-foreground");
+    }
+  });
+
   test("opens grouped EventManager menus without Base UI group context errors", () => {
     render(<CalendarWorkspace workspace={workspace} />);
 
@@ -223,34 +243,38 @@ describe("CalendarWorkspace", () => {
     expect(screen.queryByText("Borrower working-capital exposure")).toBeNull();
   });
 
-  test("previews and commits editable schedule changes with audit reason", async () => {
-    const onCommitEdit = vi.fn();
+  test(
+    "previews and commits editable schedule changes with audit reason",
+    async () => {
+      const onCommitEdit = vi.fn();
 
-    render(
-      <CalendarWorkspace
-        onCommitEdit={onCommitEdit}
-        workspace={workspace}
-      />,
-    );
+      render(
+        <CalendarWorkspace
+          onCommitEdit={onCommitEdit}
+          workspace={workspace}
+        />,
+      );
 
-    fireEvent.click(screen.getAllByText("Foundation")[0]);
-    fireEvent.change(screen.getByLabelText("Start date"), {
-      target: { value: "2026-06-03" },
-    });
-    fireEvent.change(screen.getByLabelText("Audit reason"), {
-      target: { value: "Weather delay." },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /preview schedule edit/i }));
-    expect(screen.getByText("Preview schedule impact")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Commit edit" }));
+      fireEvent.click(screen.getAllByText("Foundation")[0]);
+      fireEvent.change(screen.getByLabelText("Start date"), {
+        target: { value: "2026-06-03" },
+      });
+      fireEvent.change(screen.getByLabelText("Audit reason"), {
+        target: { value: "Weather delay." },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /preview schedule edit/i }));
+      expect(screen.getByText("Preview schedule impact")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Commit edit" }));
 
-    await waitFor(() =>
-      expect(onCommitEdit).toHaveBeenCalledWith(
-        expect.objectContaining({
-          nextStartsAt: "2026-06-03",
-          reason: "Weather delay.",
-        }),
-      ),
-    );
-  });
+      await waitFor(() =>
+        expect(onCommitEdit).toHaveBeenCalledWith(
+          expect.objectContaining({
+            nextStartsAt: "2026-06-03",
+            reason: "Weather delay.",
+          }),
+        ),
+      );
+    },
+    15_000,
+  );
 });

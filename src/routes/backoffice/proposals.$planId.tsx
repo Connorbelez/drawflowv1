@@ -36,6 +36,7 @@ import {
 } from "#/features/calendar-workspace/adapters/proposalCalendarAdapter.ts";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import { ProductionContractorPlanningTab } from "#/features/production-proposals/ProductionContractorPlanningTab.tsx";
+import { ProductionProposalTimelineGanttWorkspace } from "#/features/production-proposals/ProductionProposalGanttWorkspace.tsx";
 import { ProductionTimelineWorkspace } from "#/features/production-proposals/ProductionTimelineWorkspace.tsx";
 import {
   createVisualParityCostItem,
@@ -93,6 +94,7 @@ type ProposalReviewSearch = {
     | "closing"
     | "contractors"
     | "draws"
+    | "gantt"
     | "materials"
     | "packet"
     | "review"
@@ -102,12 +104,19 @@ type ProposalReviewSearch = {
 
 export const Route = createFileRoute("/backoffice/proposals/$planId")({
   ssr: false,
+  staticData: {
+    breadcrumb: {
+      label: ({ params }) => params.planId,
+      to: "/backoffice/proposals/$planId",
+    },
+  },
   validateSearch: (search: Record<string, unknown>): ProposalReviewSearch => {
     const tab =
       search.tab === "calendar" ||
       search.tab === "closing" ||
       search.tab === "contractors" ||
       search.tab === "draws" ||
+      search.tab === "gantt" ||
       search.tab === "materials" ||
       search.tab === "packet" ||
       search.tab === "review" ||
@@ -278,6 +287,9 @@ function ProposalReviewRoute() {
   const updateProductionDrawScheduleRow = useMutation(
     api.production_proposals.updateSubmittedProposalDrawScheduleRow,
   );
+  const updateProductionTimelineDraw = useMutation(
+    api.production_proposals.updateProductionTimelineDraw,
+  );
   const updateProductionProposalApprovedAmount = useMutation(
     api.production_proposals.updateProductionProposalApprovedAmount,
   );
@@ -393,6 +405,14 @@ function ProposalReviewRoute() {
             workosOrganizationId={workosOrganizationId}
           />
         }
+        gantt={
+          <ProductionProposalTimelineGanttWorkspace
+            persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
+            proposalId={proposalId}
+            workspace={productionWorkspace}
+            workosOrganizationId={workosOrganizationId}
+          />
+        }
         timeline={
           <ProductionTimelineWorkspace
             backofficeHref={`/backoffice/proposals/${planId}`}
@@ -482,15 +502,25 @@ function ProposalReviewRoute() {
           }).then(() => toast.success("Changes requested."))
         }
         onUpdateDraw={(drawKey, patch) =>
-          void updateProductionDrawScheduleRow({
-            amountCents: patch.amountCents,
-            drawKey,
-            label: patch.label,
-            proposalId,
-            reason: patch.reason,
-            timingDay: patch.timingDay,
-            workosOrganizationId,
-          }).then(() => toast.success("Draw schedule updated."))
+          (productionDetail.proposal.status === "draft"
+            ? updateProductionTimelineDraw({
+                amountCents: patch.amountCents,
+                drawKey,
+                label: patch.label,
+                proposalId,
+                workosOrganizationId,
+                x: patch.timingDay,
+              })
+            : updateProductionDrawScheduleRow({
+                amountCents: patch.amountCents,
+                drawKey,
+                label: patch.label,
+                proposalId,
+                reason: patch.reason,
+                timingDay: patch.timingDay,
+                workosOrganizationId,
+              })
+          ).then(() => toast.success("Draw schedule updated."))
         }
         onChangeCalendarTimeframe={(timeframe) =>
           void navigate({

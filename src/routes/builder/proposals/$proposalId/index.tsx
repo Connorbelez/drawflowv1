@@ -6,6 +6,10 @@ import { toast } from "sonner";
 
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
+import {
+  BuildPermitViewerDrawer,
+  firstPermitDocument,
+} from "#/features/build-permit-viewer/BuildPermitViewerDrawer.tsx";
 import { MaterialPlanningTab } from "#/features/material-planning/MaterialPlanningTab.tsx";
 import { CalendarWorkspace } from "#/features/calendar-workspace/CalendarWorkspace.tsx";
 import {
@@ -16,6 +20,7 @@ import {
 } from "#/features/calendar-workspace/adapters/proposalCalendarAdapter.ts";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import { ProductionContractorPlanningTab } from "#/features/production-proposals/ProductionContractorPlanningTab.tsx";
+import { ProductionProposalTimelineGanttWorkspace } from "#/features/production-proposals/ProductionProposalGanttWorkspace.tsx";
 import { ProductionTimelineWorkspace } from "#/features/production-proposals/ProductionTimelineWorkspace.tsx";
 import {
   createVisualParityCostItem,
@@ -27,7 +32,7 @@ import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
 type BuilderProposalSearch = {
-  tab?: "calendar" | "contractors" | "materials" | "timeline";
+  tab?: "calendar" | "contractors" | "gantt" | "materials" | "timeline";
   timeframe?: CalendarTimeframe;
 };
 
@@ -37,6 +42,7 @@ export const Route = createFileRoute("/builder/proposals/$proposalId/")({
     const tab =
       search.tab === "calendar" ||
       search.tab === "contractors" ||
+      search.tab === "gantt" ||
       search.tab === "materials" ||
       search.tab === "timeline"
         ? (search.tab as BuilderProposalSearch["tab"])
@@ -212,6 +218,7 @@ function BuilderProductionProposalRoute() {
     actions: calendarAdapterActions,
     baseDate: detail.activeBuild?.startDate ?? "2026-06-01",
   });
+  const permit = firstPermitDocument(detail.documents);
 
   return (
     <section className="min-w-0 bg-muted/30 p-0 md:p-5">
@@ -231,17 +238,19 @@ function BuilderProductionProposalRoute() {
         value={search.tab ?? "timeline"}
       >
         <Frame>
-          <FramePanel className="p-3">
+          <FramePanel className="flex flex-wrap items-center justify-between gap-3 p-3">
             <TabsList
               aria-label="Builder proposal sections"
               className="justify-start overflow-x-auto"
               variant="underline"
             >
               <TabsTab value="timeline">Timeline</TabsTab>
+              <TabsTab value="gantt">Gantt</TabsTab>
               <TabsTab value="calendar">Calendar</TabsTab>
               <TabsTab value="contractors">Contractors</TabsTab>
               <TabsTab value="materials">Materials</TabsTab>
             </TabsList>
+            <BuildPermitViewerDrawer permit={permit} size="sm" />
           </FramePanel>
         </Frame>
         <TabsPanel value="timeline">
@@ -250,6 +259,14 @@ function BuilderProductionProposalRoute() {
             initialRole="builder"
             persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
             proposalHref={`/builder/proposals/${proposalId}`}
+            proposalId={typedProposalId}
+            workspace={workspace}
+            workosOrganizationId={workosOrganizationId}
+          />
+        </TabsPanel>
+        <TabsPanel value="gantt">
+          <ProductionProposalTimelineGanttWorkspace
+            persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
             proposalId={typedProposalId}
             workspace={workspace}
             workosOrganizationId={workosOrganizationId}

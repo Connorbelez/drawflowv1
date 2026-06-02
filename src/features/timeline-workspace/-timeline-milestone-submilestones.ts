@@ -9,6 +9,7 @@ export interface DemoSubmilestone {
   key: string;
   name: string;
   order: number;
+  startDay?: number;
   status?: DemoSubmilestoneStatus;
 }
 
@@ -19,6 +20,7 @@ export interface TimelineSubmilestoneSnapshotRow {
   key?: string;
   name: string;
   order?: number;
+  startDay?: number;
   status?: DemoSubmilestoneStatus;
 }
 
@@ -38,6 +40,7 @@ export function mapSubmilestoneSnapshotRows(
       key: row.key ?? `${milestoneKey}-sub-${String(index + 1).padStart(2, "0")}`,
       name: row.name.trim(),
       order: row.order ?? index + 1,
+      ...(row.startDay === undefined ? {} : { startDay: row.startDay }),
       ...(row.status ? { status: row.status } : {}),
     }))
     .filter((row) => row.name.length > 0)

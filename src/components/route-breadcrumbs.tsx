@@ -11,11 +11,27 @@ import {
 } from "./ui/breadcrumb";
 
 type BreadcrumbTo = keyof FileRoutesByTo;
+type BreadcrumbRouteMatch = {
+  params: Record<string, string | undefined>;
+};
+type BreadcrumbLabel =
+  | string
+  | ((match: BreadcrumbRouteMatch) => string | null | undefined);
 
 export interface RouteBreadcrumb {
-  label: string;
+  label: BreadcrumbLabel;
   to: BreadcrumbTo;
 }
+
+type RouteMatchWithBreadcrumb = BreadcrumbRouteMatch & {
+  staticData: {
+    breadcrumb?: RouteBreadcrumb;
+  };
+};
+
+type ResolvedRouteBreadcrumb = Omit<RouteBreadcrumb, "label"> & {
+  label: string;
+};
 
 declare module "@tanstack/react-router" {
   interface StaticDataRouteOption {
@@ -24,14 +40,17 @@ declare module "@tanstack/react-router" {
 }
 
 export function RouteBreadcrumbs(): ReactElement | null {
-  const breadcrumbs = useRouterState({
+  const routeBreadcrumbs = useRouterState({
     select: (state) =>
       state.matches
-        .map((match) => match.staticData.breadcrumb)
-        .filter((breadcrumb): breadcrumb is RouteBreadcrumb =>
-          Boolean(breadcrumb)
+        .map((match) =>
+          resolveRouteBreadcrumb(match as RouteMatchWithBreadcrumb)
         ),
   });
+  const breadcrumbs = routeBreadcrumbs.filter(
+    (breadcrumb): breadcrumb is ResolvedRouteBreadcrumb =>
+    Boolean(breadcrumb)
+  );
 
   if (breadcrumbs.length === 0) {
     return null;
@@ -72,4 +91,28 @@ export function RouteBreadcrumbs(): ReactElement | null {
       </BreadcrumbList>
     </Breadcrumb>
   );
+}
+
+export function resolveRouteBreadcrumb(
+  match: RouteMatchWithBreadcrumb
+): ResolvedRouteBreadcrumb | null {
+  const breadcrumb = match.staticData.breadcrumb;
+
+  if (!breadcrumb) {
+    return null;
+  }
+
+  const label =
+    typeof breadcrumb.label === "function"
+      ? breadcrumb.label(match)
+      : breadcrumb.label;
+
+  if (!label) {
+    return null;
+  }
+
+  return {
+    ...breadcrumb,
+    label,
+  };
 }

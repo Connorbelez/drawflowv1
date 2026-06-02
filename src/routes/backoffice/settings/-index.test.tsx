@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type {
   TimelineSettingsScenarioDraft,
@@ -107,7 +107,15 @@ describe("TimelineSettingsWorkspace", () => {
   test("renders the full tabbed settings workspace for production data", async () => {
     const productionTemplate: TimelineSettingsTemplateDraft = {
       ...template,
-      scenarios: [scenario],
+      scenarios: [
+        {
+          ...scenario,
+          draws: scenario.draws.map((draw) => ({
+            ...draw,
+            amountBps: 10_000,
+          })),
+        },
+      ],
     };
     const fourPlexTemplate: TimelineSettingsTemplateDraft = {
       ...template,
@@ -118,6 +126,9 @@ describe("TimelineSettingsWorkspace", () => {
     };
     const seed = vi.fn(async () => ({
       settings: { templates: [productionTemplate, fourPlexTemplate] },
+    }));
+    const create = vi.fn(async (createdTemplate: TimelineSettingsTemplateDraft) => ({
+      templates: [productionTemplate, createdTemplate],
     }));
     const save = vi.fn(async () => ({ templates: [productionTemplate] }));
 
@@ -135,6 +146,7 @@ describe("TimelineSettingsWorkspace", () => {
           seedConfirmTitle: "Seed production defaults?",
           title: "Settings workspace",
         }}
+        onCreateTemplate={create}
         onDeleteScenario={vi.fn(async () => ({ templates: [productionTemplate] }))}
         onResetScenario={vi.fn(async () => ({ templates: [productionTemplate] }))}
         onResetTemplate={vi.fn(async () => ({ templates: [productionTemplate] }))}
@@ -180,6 +192,76 @@ describe("TimelineSettingsWorkspace", () => {
     expect(seed).toHaveBeenCalledTimes(1);
     expect(await screen.findByText("4-plex")).toBeTruthy();
     expect(await screen.findByText("2 loaded")).toBeTruthy();
+  });
+
+  test("creates a draft template from settings and submits it through the create handler", async () => {
+    const productionTemplate: TimelineSettingsTemplateDraft = {
+      ...template,
+      scenarios: [
+        {
+          ...scenario,
+          draws: scenario.draws.map((draw) => ({
+            ...draw,
+            amountBps: 10_000,
+          })),
+        },
+      ],
+    };
+    const create = vi.fn(async (createdTemplate: TimelineSettingsTemplateDraft) => ({
+      templates: [productionTemplate, createdTemplate],
+    }));
+
+    render(
+      <TimelineSettingsWorkspace
+        labels={{
+          emptyBody: "Seed production defaults before editing templates.",
+          emptyTitle: "Production defaults needed",
+          eyebrow: "Production proposal settings",
+          loadingText: "Loading production proposal settings...",
+          sectionLabel: "Production",
+          seedButtonLabel: "Seed defaults to prod",
+          seedConfirmBody:
+            "This seeds tenant-scoped production templates and draw scenarios.",
+          seedConfirmTitle: "Seed production defaults?",
+          title: "Settings workspace",
+        }}
+        onCreateTemplate={create}
+        onDeleteScenario={vi.fn(async () => ({ templates: [productionTemplate] }))}
+        onResetScenario={vi.fn(async () => ({ templates: [productionTemplate] }))}
+        onResetTemplate={vi.fn(async () => ({ templates: [productionTemplate] }))}
+        onSaveTemplate={vi.fn(async () => ({ templates: [productionTemplate] }))}
+        onSeedDefaults={vi.fn(async () => ({ templates: [productionTemplate] }))}
+        settings={{ templates: [productionTemplate] }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "New template" }));
+    expect(screen.getAllByText("Draft").length).toBeGreaterThan(0);
+    const templateTitleInput = await screen.findByLabelText("Template title");
+    fireEvent.change(templateTitleInput, {
+      target: { value: "Urban Infill Rowhouse" },
+    });
+    expect(
+      (screen.getByLabelText("Template key") as HTMLInputElement).value,
+    ).toBe("urban-infill-rowhouse");
+    fireEvent.change(screen.getByLabelText("Template summary"), {
+      target: { value: "Custom urban infill template." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create template" }));
+    expect(screen.getByText("Create Urban Infill Rowhouse?")).toBeTruthy();
+    const confirmCreate = screen.getByRole("button", {
+      name: "Confirm create",
+    }) as HTMLButtonElement;
+    await waitFor(() => expect(confirmCreate.disabled).toBe(false));
+    fireEvent.click(confirmCreate);
+
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    expect(create.mock.calls[0]?.[0]).toMatchObject({
+      isDefault: false,
+      summary: "Custom urban infill template.",
+      templateKey: "urban-infill-rowhouse",
+      title: "Urban Infill Rowhouse",
+    });
   });
 
   test("lists draw timing conflicts with milestones and nearest valid days", async () => {

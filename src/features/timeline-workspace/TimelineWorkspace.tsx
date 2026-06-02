@@ -71,6 +71,7 @@ import {
   NativeSelect,
   NativeSelectOption,
 } from "#/components/ui/native-select.tsx";
+import { EditableNumberChip } from "#/components/ui/editable-chip.tsx";
 import {
   Popover,
   PopoverContent,
@@ -123,6 +124,7 @@ import {
   type DemoEvidenceAsset,
   type DemoMilestone,
   getMilestoneDrawAvailabilityAmount,
+  getMilestoneEffectiveCashSpendAmount,
   initialTimelineShareState,
   type TimelineShareState,
 } from "./-timeline-share-snapshot.ts";
@@ -230,7 +232,8 @@ const GENERATED_TIMELINE_CURRENT_DAY = 0;
 const TIMELINE_END_PADDING_DAYS = 5;
 const INITIAL_CAPITAL_SPIKES: DemoCapitalSpike[] = [];
 const INITIAL_COMPLETION_SUBMITTED_AT = "2026-05-01T14:00:00.000Z";
-const LOCAL_TIMELINE_SHARE_PREFIX = "local-timeline-";
+export const LOCAL_TIMELINE_SHARE_PREFIX = "local-timeline-";
+const DEFAULT_TIMELINE_SHARE_PATH = "/demo/timeline";
 const TIMELINE_TO_DEMO_MILESTONE_KEY: Record<string, string> = {
   closeout: "aluminum_windows",
   drywall: "aluminum_windows",
@@ -587,10 +590,15 @@ export interface TimelineWorkspaceProps {
     status: string;
   };
   durablePlanId?: string;
+  embedded?: boolean;
+  headerActions?: ReactNode;
   initialRole?: TimelineDemoRole;
   initialState?: TimelineShareState;
   modificationRequests?: TimelineModificationRequestView[];
   persistence?: TimelineWorkspacePersistence;
+  readOnly?: boolean;
+  shareUrlPath?: string;
+  showWorkspaceHeader?: boolean;
   timelineSettingsProjection?: unknown;
   workspaceMode?: TimelineWorkspaceMode;
 }
@@ -739,11 +747,16 @@ export function TimelineWorkspace({
   contractorPlanning,
   durableMeta,
   durablePlanId,
+  embedded = false,
+  headerActions,
   initialRole,
   initialState,
   modificationRequests:
     initialModificationRequests = EMPTY_TIMELINE_MODIFICATION_REQUESTS,
   persistence,
+  readOnly: forcedReadOnly = false,
+  shareUrlPath = DEFAULT_TIMELINE_SHARE_PATH,
+  showWorkspaceHeader = true,
   timelineSettingsProjection,
   workspaceMode = "demo",
 }: TimelineWorkspaceProps = {}) {
@@ -874,6 +887,9 @@ export function TimelineWorkspace({
   const [minimumCashReserve, setMinimumCashReserve] = useState(
     workspaceInitialState.minimumCashReserve,
   );
+  const [approvedDrawLimit, setApprovedDrawLimit] = useState(
+    workspaceInitialState.approvedDrawLimit,
+  );
   const [currentDay, setCurrentDay] = useState(
     workspaceInitialState.currentDay,
   );
@@ -928,13 +944,15 @@ export function TimelineWorkspace({
     ((proposalMode && planStatus !== "draft") ||
       (demoMode && planStatus !== "draft" && !liveBuildMode)),
   );
-  const readOnly = Boolean(statusReadOnly || collaborationViewOnly);
+  const readOnly = Boolean(
+    forcedReadOnly || statusReadOnly || collaborationViewOnly,
+  );
   const canWriteLiveTimeline =
-    !collaborationViewOnly &&
+    !readOnly &&
     (!durableMeta || planStatus === "draft" || liveBuildMode);
   const canEditPlanStructure =
-    !collaborationViewOnly && (!durableMeta || planStatus === "draft");
-  const canUseLiveExecution = liveBuildMode && !collaborationViewOnly;
+    !readOnly && (!durableMeta || planStatus === "draft");
+  const canUseLiveExecution = liveBuildMode && !readOnly;
   const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
   const [submitPending, setSubmitPending] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -1302,6 +1320,7 @@ export function TimelineWorkspace({
     share,
   } = useTimelineSnapshotSharing({
     activeSelection,
+    approvedDrawLimit,
     capitalSpikeInsertionCount,
     capitalSpikes,
     drawInsertionCount,
@@ -1312,6 +1331,7 @@ export function TimelineWorkspace({
     progressValue,
     resolvedRange,
     selectedPanelOpen,
+    shareUrlPath,
     setActiveCapitalSpikeId,
     setActiveDrawId,
     setActiveSelection,
@@ -1326,6 +1346,7 @@ export function TimelineWorkspace({
     setRange,
     setSelectedDay,
     setSelectedPanelOpen,
+    setApprovedDrawLimit,
     setMinimumCashReserve,
     setStartingCash,
     setStraightLine,
@@ -1353,6 +1374,7 @@ export function TimelineWorkspace({
     setSelectedPanelOpen(hydratedState.selectedPanelOpen);
     setMinimumCashReserve(hydratedState.minimumCashReserve);
     setStartingCash(hydratedState.startingCash);
+    setApprovedDrawLimit(hydratedState.approvedDrawLimit);
     setStraightLine(hydratedState.straightLine);
     insertionCount.current = countInsertedTimelineItems(hydratedState.items);
     drawInsertionCount.current = countManualDraws(hydratedState.draws);
@@ -1662,8 +1684,8 @@ export function TimelineWorkspace({
     [cashflowData, items, resolvedRange, startingCash],
   );
   const drawAvailabilityData = useMemo(
-    () => buildDrawAvailabilityData(cashflowData),
-    [cashflowData],
+    () => buildDrawAvailabilityData(cashflowData, approvedDrawLimit),
+    [approvedDrawLimit, cashflowData],
   );
   const drawAvailabilityChartData = useMemo(
     () => densifyDrawAvailabilityData(drawAvailabilityData, resolvedRange),
@@ -2342,6 +2364,12 @@ export function TimelineWorkspace({
                     ...(patch.amount === undefined
                       ? {}
                       : { amount: patch.amount }),
+                    ...(patch.drawAvailabilityAmount === undefined
+                      ? {}
+                      : {
+                          drawAvailabilityAmount:
+                            patch.drawAvailabilityAmount,
+                        }),
                     ...(patch.durationDays === undefined
                       ? {}
                       : { durationDays: patch.durationDays }),
@@ -3266,11 +3294,20 @@ export function TimelineWorkspace({
     );
   }
 
+  const WorkspaceRoot = embedded ? "section" : "main";
+
   return (
-    <main
+    <WorkspaceRoot
+      aria-label={embedded ? "Proposal timeline preview" : undefined}
       className={cn(
-        "min-h-svh min-w-0 bg-[radial-gradient(circle_at_top_left,color-mix(in_oklch,var(--primary)_14%,transparent),transparent_34%),linear-gradient(180deg,var(--background),var(--bg-base))]",
-        workspaceMode === "live" ? "px-0 py-0" : "px-0 py-0 sm:px-2 sm:py-1",
+        "min-w-0",
+        embedded
+          ? "bg-transparent px-0 py-0"
+          : "min-h-svh bg-[radial-gradient(circle_at_top_left,color-mix(in_oklch,var(--primary)_14%,transparent),transparent_34%),linear-gradient(180deg,var(--background),var(--bg-base))]",
+        !embedded &&
+          (workspaceMode === "live"
+            ? "px-0 py-0"
+            : "px-0 py-0 sm:px-2 sm:py-1"),
       )}
     >
       <motion.div
@@ -3327,196 +3364,199 @@ export function TimelineWorkspace({
             </div>
           </div>
         ) : null}
-        <motion.section
-          className="timeline-route-header"
-          variants={routeSectionVariants}
-        >
-          <div className="timeline-route-header__meta max-w-3xl">
-            <div className="mb-1 flex items-center gap-2 overflow-x-auto pb-0.5 sm:mb-3 sm:flex-wrap sm:overflow-visible sm:pb-0">
-              <Badge variant="success">
-                {liveBuildMode
-                  ? "Live build"
-                  : proposalMode
-                    ? "Proposal mode"
-                    : "Capital schedule"}
-              </Badge>
+        {showWorkspaceHeader ? (
+          <motion.section
+            className="timeline-route-header"
+            variants={routeSectionVariants}
+          >
+            <div className="timeline-route-header__meta max-w-3xl">
+              <div className="mb-1 flex items-center gap-2 overflow-x-auto pb-0.5 sm:mb-3 sm:flex-wrap sm:overflow-visible sm:pb-0">
+                <Badge variant="success">
+                  {liveBuildMode
+                    ? "Live build"
+                    : proposalMode
+                      ? "Proposal mode"
+                      : "Capital schedule"}
+                </Badge>
+                {durableMeta ? (
+                  <>
+                    <Badge
+                      data-ixc-ref="UI-PROPOSAL-SHORT-LINK"
+                      variant="outline"
+                    >
+                      ?proposal={durableMeta.proposalSlug}
+                    </Badge>
+                    <Badge variant="secondary">{durableMeta.status}</Badge>
+                    <Badge
+                      data-testid="timeline-durable-save-status"
+                      variant={
+                        durableSaveStatus === "error"
+                          ? "destructive"
+                          : durableSavePendingCount > 0
+                            ? "warning"
+                            : "outline"
+                      }
+                    >
+                      {durableSavePendingCount > 0
+                        ? "Saving"
+                        : durableSaveStatus === "error"
+                          ? "Save failed"
+                          : durableSaveStatus === "saved"
+                            ? "Saved"
+                            : "Ready"}
+                    </Badge>
+                  </>
+                ) : null}
+                <ShareStatusBadges
+                  loading={sharedSnapshotLoading}
+                  missing={sharedSnapshotMissing}
+                  share={share}
+                />
+              </div>
+            </div>
+            <div className="timeline-route-header__actions">
+              {headerActions}
+              {collaboration?.toolbar}
+              {allowRoleSwitching ? (
+                <TimelineRoleSwitcher
+                  onRoleChange={setTimelineRole}
+                  role={timelineRole}
+                />
+              ) : null}
+              {showLenderApproveCta ? (
+                <Button
+                  data-testid="timeline-lender-approve-close"
+                  disabled={lenderApprovalPending}
+                  onClick={() => void approveAndCloseFromLenderDemo()}
+                  size="sm"
+                >
+                  {lenderApprovalPending ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <ShieldCheck />
+                  )}
+                  Approve proposal and close deal
+                </Button>
+              ) : null}
+              {showLenderLiveBuildLink && lenderLiveBuildHref ? (
+                <Button
+                  data-testid="timeline-lender-live-build-link"
+                  render={<a href={lenderLiveBuildHref} />}
+                  size="sm"
+                  variant="secondary"
+                >
+                  <ExternalLink />
+                  Open live build
+                </Button>
+              ) : null}
               {durableMeta ? (
                 <>
-                  <Badge
-                    data-ixc-ref="UI-PROPOSAL-SHORT-LINK"
+                  {planStatus === "draft" ? (
+                    <Button
+                      data-ixc-ref="UI-SUBMIT-CTA"
+                      data-testid="timeline-submit-proposal"
+                      disabled={readOnly}
+                      onClick={() => {
+                        setSubmitError("");
+                        setSubmitConfirmOpen(true);
+                      }}
+                      size="sm"
+                    >
+                      <ShieldCheck />
+                      Submit Proposal
+                    </Button>
+                  ) : liveBuildMode ? (
+                    <Button
+                      aria-disabled="true"
+                      disabled
+                      size="sm"
+                      variant="outline"
+                    >
+                      Active build
+                    </Button>
+                  ) : proposalMode && planStatus === "approved" ? (
+                    <Button
+                      aria-disabled="true"
+                      disabled
+                      size="sm"
+                      variant="outline"
+                    >
+                      Approved proposal
+                    </Button>
+                  ) : proposalMode && planStatus === "closed" ? (
+                    <Button
+                      aria-disabled="true"
+                      disabled
+                      size="sm"
+                      variant="outline"
+                    >
+                      Closed proposal
+                    </Button>
+                  ) : (
+                    <Button
+                      aria-disabled="true"
+                      data-ixc-ref="UI-LOCKED-SUBMIT"
+                      disabled
+                      size="sm"
+                      variant="outline"
+                    >
+                      Submitted
+                    </Button>
+                  )}
+                  <Button
+                    render={<a href={durableMeta.backofficeHref} />}
+                    size="sm"
                     variant="outline"
                   >
-                    ?proposal={durableMeta.proposalSlug}
-                  </Badge>
-                  <Badge variant="secondary">{durableMeta.status}</Badge>
-                  <Badge
-                    data-testid="timeline-durable-save-status"
-                    variant={
-                      durableSaveStatus === "error"
-                        ? "destructive"
-                        : durableSavePendingCount > 0
-                          ? "warning"
-                          : "outline"
-                    }
+                    <ExternalLink />
+                    Backoffice
+                  </Button>
+                  <Button
+                    data-ixc-ref="UI-PROPOSAL-SHORT-LINK"
+                    render={<a href={durableMeta.proposalHref} />}
+                    size="sm"
                   >
-                    {durableSavePendingCount > 0
-                      ? "Saving"
-                      : durableSaveStatus === "error"
-                        ? "Save failed"
-                        : durableSaveStatus === "saved"
-                          ? "Saved"
-                          : "Ready"}
-                  </Badge>
+                    {liveBuildMode
+                      ? "Build timeline link"
+                      : proposalMode
+                        ? "Builder proposal link"
+                        : "Live proposal link"}
+                  </Button>
                 </>
               ) : null}
-              <ShareStatusBadges
-                loading={sharedSnapshotLoading}
-                missing={sharedSnapshotMissing}
-                share={share}
-              />
-            </div>
-          </div>
-          <div className="timeline-route-header__actions">
-            {collaboration?.toolbar}
-            {allowRoleSwitching ? (
-              <TimelineRoleSwitcher
-                onRoleChange={setTimelineRole}
-                role={timelineRole}
-              />
-            ) : null}
-            {showLenderApproveCta ? (
-              <Button
-                data-testid="timeline-lender-approve-close"
-                disabled={lenderApprovalPending}
-                onClick={() => void approveAndCloseFromLenderDemo()}
-                size="sm"
-              >
-                {lenderApprovalPending ? (
-                  <Loader2 className="animate-spin" />
-                ) : (
-                  <ShieldCheck />
-                )}
-                Approve proposal and close deal
-              </Button>
-            ) : null}
-            {showLenderLiveBuildLink && lenderLiveBuildHref ? (
-              <Button
-                data-testid="timeline-lender-live-build-link"
-                render={<a href={lenderLiveBuildHref} />}
-                size="sm"
-                variant="secondary"
-              >
-                <ExternalLink />
-                Open live build
-              </Button>
-            ) : null}
-            {durableMeta ? (
-              <>
-                {planStatus === "draft" ? (
-                  <Button
-                    data-ixc-ref="UI-SUBMIT-CTA"
-                    data-testid="timeline-submit-proposal"
-                    disabled={collaborationViewOnly}
-                    onClick={() => {
-                      setSubmitError("");
-                      setSubmitConfirmOpen(true);
-                    }}
-                    size="sm"
-                  >
-                    <ShieldCheck />
-                    Submit Proposal
-                  </Button>
-                ) : liveBuildMode ? (
-                  <Button
-                    aria-disabled="true"
-                    disabled
-                    size="sm"
-                    variant="outline"
-                  >
-                    Active build
-                  </Button>
-                ) : proposalMode && planStatus === "approved" ? (
-                  <Button
-                    aria-disabled="true"
-                    disabled
-                    size="sm"
-                    variant="outline"
-                  >
-                    Approved proposal
-                  </Button>
-                ) : proposalMode && planStatus === "closed" ? (
-                  <Button
-                    aria-disabled="true"
-                    disabled
-                    size="sm"
-                    variant="outline"
-                  >
-                    Closed proposal
-                  </Button>
-                ) : (
-                  <Button
-                    aria-disabled="true"
-                    data-ixc-ref="UI-LOCKED-SUBMIT"
-                    disabled
-                    size="sm"
-                    variant="outline"
-                  >
-                    Submitted
-                  </Button>
-                )}
+              <ShareTimelineMenu {...shareMenuProps} />
+              {share || durableMeta ? null : (
                 <Button
-                  render={<a href={durableMeta.backofficeHref} />}
+                  data-testid="timeline-reconfigure-plan"
+                  onClick={() => setSetupComplete(false)}
                   size="sm"
                   variant="outline"
                 >
-                  <ExternalLink />
-                  Backoffice
+                  <ReceiptText />
+                  Reconfigure budget
                 </Button>
-                <Button
-                  data-ixc-ref="UI-PROPOSAL-SHORT-LINK"
-                  render={<a href={durableMeta.proposalHref} />}
-                  size="sm"
-                >
-                  {liveBuildMode
-                    ? "Build timeline link"
-                    : proposalMode
-                      ? "Builder proposal link"
-                      : "Live proposal link"}
-                </Button>
-              </>
-            ) : null}
-            <ShareTimelineMenu {...shareMenuProps} />
-            {share || durableMeta ? null : (
+              )}
               <Button
-                data-testid="timeline-reconfigure-plan"
-                onClick={() => setSetupComplete(false)}
+                aria-disabled={!canEditPlanStructure}
+                disabled={!canEditPlanStructure}
+                onClick={resetCurrentTimeline}
                 size="sm"
                 variant="outline"
               >
-                <ReceiptText />
-                Reconfigure budget
+                <RotateCcw />
+                Reset
               </Button>
-            )}
-            <Button
-              aria-disabled={!canEditPlanStructure}
-              disabled={!canEditPlanStructure}
-              onClick={resetCurrentTimeline}
-              size="sm"
-              variant="outline"
-            >
-              <RotateCcw />
-              Reset
-            </Button>
-            <div className="flex h-8 items-center gap-2 rounded-lg border border-border bg-background px-3 text-sm shadow-xs">
-              <Switch
-                checked={straightLine}
-                disabled={readOnly}
-                onCheckedChange={setStraightLine}
-              />
-              Straight line
+              <div className="flex h-8 items-center gap-2 rounded-lg border border-border bg-background px-3 text-sm shadow-xs">
+                <Switch
+                  checked={straightLine}
+                  disabled={readOnly}
+                  onCheckedChange={setStraightLine}
+                />
+                Straight line
+              </div>
             </div>
-          </div>
-        </motion.section>
+          </motion.section>
+        ) : null}
 
         {submitConfirmOpen ? (
           <div
@@ -4289,6 +4329,14 @@ export function TimelineWorkspace({
                   ? updateSubmilestoneBudget
                   : undefined
               }
+              onUpdateMilestoneDrawAvailability={
+                canWriteLiveTimeline && !liveBuildMode
+                  ? (itemId, amount) =>
+                      updateMilestone(itemId, {
+                        drawAvailabilityAmount: amount,
+                      })
+                  : undefined
+              }
               onCompleteMilestone={completeMilestone}
               onCreateMilestoneSiteVisit={createMilestoneSiteVisit}
               onOpenChange={(open) => {
@@ -4455,6 +4503,14 @@ export function TimelineWorkspace({
                           ? updateSubmilestoneBudget
                           : undefined
                       }
+                      onUpdateMilestoneDrawAvailability={
+                        canWriteLiveTimeline && !liveBuildMode
+                          ? (itemId, amount) =>
+                              updateMilestone(itemId, {
+                                drawAvailabilityAmount: amount,
+                              })
+                          : undefined
+                      }
                       onCompleteMilestone={completeMilestone}
                       onCreateMilestoneSiteVisit={createMilestoneSiteVisit}
                       onRecordMilestoneSiteVisit={recordMilestoneSiteVisit}
@@ -4478,7 +4534,7 @@ export function TimelineWorkspace({
           </AnimatePresence>
         </motion.div>
       </motion.div>
-    </main>
+    </WorkspaceRoot>
   );
 }
 
@@ -4575,6 +4631,7 @@ interface CounterRef {
 
 interface UseTimelineSnapshotSharingArgs {
   activeSelection: ActiveMilestoneSelection;
+  approvedDrawLimit?: number;
   capitalSpikeInsertionCount: CounterRef;
   capitalSpikes: DemoCapitalSpike[];
   currentDay: number;
@@ -4583,10 +4640,10 @@ interface UseTimelineSnapshotSharingArgs {
   insertionCount: CounterRef;
   items: TimelineItem<DemoMilestone>[];
   minimumCashReserve: number;
-  minimumCashReserve: number;
   progressValue: number;
   resolvedRange: Required<TimelineRange>;
   selectedPanelOpen: boolean;
+  shareUrlPath: string;
   setActiveCapitalSpikeId: (value: string | null) => void;
   setActiveDrawId: (value: string | null) => void;
   setActiveSelection: (value: ActiveMilestoneSelection) => void;
@@ -4602,6 +4659,7 @@ interface UseTimelineSnapshotSharingArgs {
   setRange: (value: TimelineRange) => void;
   setSelectedDay: (value: number) => void;
   setSelectedPanelOpen: (value: boolean) => void;
+  setApprovedDrawLimit: (value: number | undefined) => void;
   setStartingCash: (value: number) => void;
   setStraightLine: (value: boolean) => void;
   startingCash: number;
@@ -4664,6 +4722,7 @@ function ShareStatusBadges({
 
 function useTimelineSnapshotSharing({
   activeSelection,
+  approvedDrawLimit,
   capitalSpikeInsertionCount,
   capitalSpikes,
   currentDay,
@@ -4674,6 +4733,7 @@ function useTimelineSnapshotSharing({
   progressValue,
   resolvedRange,
   selectedPanelOpen,
+  shareUrlPath,
   setActiveCapitalSpikeId,
   setActiveDrawId,
   setActiveSelection,
@@ -4688,6 +4748,7 @@ function useTimelineSnapshotSharing({
   setRange,
   setSelectedDay,
   setSelectedPanelOpen,
+  setApprovedDrawLimit,
   setMinimumCashReserve,
   setStartingCash,
   setStraightLine,
@@ -4698,13 +4759,15 @@ function useTimelineSnapshotSharing({
   const [{ share }, setTimelineSearch] = useQueryStates(
     timelineWorkspaceSearchParsers,
   );
+  const shareHydrationEnabled = isCurrentTimelineSharePath(shareUrlPath);
+  const hydratedShare = shareHydrationEnabled ? share : null;
   const createTimelineSnapshot = useMutation(
     api.demo_timeline_snapshots.demo_createTimelineSnapshot,
   );
   const sharedSnapshot = useQuery(
     api.demo_timeline_snapshots.demo_getTimelineSnapshot,
-    share && !share.startsWith(LOCAL_TIMELINE_SHARE_PREFIX)
-      ? { snapshotId: share }
+    hydratedShare && !hydratedShare.startsWith(LOCAL_TIMELINE_SHARE_PREFIX)
+      ? { snapshotId: hydratedShare }
       : "skip",
   );
   const hydratedShareId = useRef<string | null>(null);
@@ -4749,6 +4812,7 @@ function useTimelineSnapshotSharing({
       setDrawEditDraft({ amount: "", x: "" });
       setCapitalSpikeEditDraft({ amount: "", label: "", x: "" });
       setSelectedPanelOpen(hydratedState.selectedPanelOpen);
+      setApprovedDrawLimit(hydratedState.approvedDrawLimit);
       setMinimumCashReserve(hydratedState.minimumCashReserve);
       setStartingCash(hydratedState.startingCash);
       setStraightLine(hydratedState.straightLine);
@@ -4774,6 +4838,7 @@ function useTimelineSnapshotSharing({
       setRange,
       setSelectedDay,
       setSelectedPanelOpen,
+      setApprovedDrawLimit,
       setMinimumCashReserve,
       setStartingCash,
       setStraightLine,
@@ -4781,56 +4846,62 @@ function useTimelineSnapshotSharing({
   );
 
   useEffect(() => {
-    if (!share) {
+    if (!hydratedShare) {
       hydratedShareId.current = null;
       return;
     }
 
-    setShareUrl(buildTimelineShareUrl(share));
-  }, [share]);
+    setShareUrl(buildTimelineShareUrl(hydratedShare, shareUrlPath));
+  }, [hydratedShare, shareUrlPath]);
 
   useEffect(() => {
     if (
       !(
-        share?.startsWith(LOCAL_TIMELINE_SHARE_PREFIX) &&
-        hydratedShareId.current !== share
+        hydratedShare?.startsWith(LOCAL_TIMELINE_SHARE_PREFIX) &&
+        hydratedShareId.current !== hydratedShare
       )
     ) {
       return;
     }
 
-    const storedSnapshot = readLocalTimelineSnapshot(share);
+    const storedSnapshot = readLocalTimelineSnapshot(hydratedShare);
     if (storedSnapshot) {
       applyShareState(
         applyTimelineShareSnapshotV2(storedSnapshot, initialShareState),
       );
-      hydratedShareId.current = share;
+      hydratedShareId.current = hydratedShare;
     }
-  }, [applyShareState, initialShareState, share]);
+  }, [applyShareState, hydratedShare, initialShareState]);
 
   useEffect(() => {
-    if (!(share && sharedSnapshot && hydratedShareId.current !== share)) {
+    if (
+      !(
+        hydratedShare &&
+        sharedSnapshot &&
+        hydratedShareId.current !== hydratedShare
+      )
+    ) {
       return;
     }
 
     applyShareState(
       applyTimelineShareSnapshotV2(sharedSnapshot, initialShareState),
     );
-    hydratedShareId.current = share;
-  }, [applyShareState, initialShareState, share, sharedSnapshot]);
+    hydratedShareId.current = hydratedShare;
+  }, [applyShareState, hydratedShare, initialShareState, sharedSnapshot]);
 
   const resetTimeline = useCallback(() => {
-    const localSnapshot = share?.startsWith(LOCAL_TIMELINE_SHARE_PREFIX)
-      ? readLocalTimelineSnapshot(share)
+    const localSnapshot = hydratedShare?.startsWith(LOCAL_TIMELINE_SHARE_PREFIX)
+      ? readLocalTimelineSnapshot(hydratedShare)
       : null;
     const nextState = localSnapshot
       ? applyTimelineShareSnapshotV2(localSnapshot, initialShareState)
-      : share && sharedSnapshot
+      : hydratedShare && sharedSnapshot
         ? applyTimelineShareSnapshotV2(sharedSnapshot, initialShareState)
         : initialShareState;
 
     applyShareState(nextState);
-  }, [applyShareState, initialShareState, share, sharedSnapshot]);
+  }, [applyShareState, hydratedShare, initialShareState, sharedSnapshot]);
 
   const createShareSnapshot = useCallback(async () => {
     setShareOpen(true);
@@ -4841,6 +4912,7 @@ function useTimelineSnapshotSharing({
     try {
       const snapshot = buildTimelineShareSnapshotV2({
         activeSelection,
+        approvedDrawLimit,
         capitalSpikes,
         currentDay,
         draws,
@@ -4853,13 +4925,16 @@ function useTimelineSnapshotSharing({
         straightLine,
       });
       const snapshotId = await createTimelineSnapshot({ snapshot });
-      const nextShareUrl = buildTimelineShareUrl(snapshotId);
+      const nextShareUrl = buildTimelineShareUrl(snapshotId, shareUrlPath);
 
-      await setTimelineSearch({ share: snapshotId });
+      if (shareHydrationEnabled) {
+        await setTimelineSearch({ share: snapshotId });
+      }
       setShareUrl(nextShareUrl);
     } catch {
       const snapshot = buildTimelineShareSnapshotV2({
         activeSelection,
+        approvedDrawLimit,
         capitalSpikes,
         currentDay,
         draws,
@@ -4875,14 +4950,17 @@ function useTimelineSnapshotSharing({
         36,
       )}`;
       writeLocalTimelineSnapshot(localShareId, snapshot);
-      await setTimelineSearch({ share: localShareId });
-      setShareUrl(buildTimelineShareUrl(localShareId));
+      if (shareHydrationEnabled) {
+        await setTimelineSearch({ share: localShareId });
+      }
+      setShareUrl(buildTimelineShareUrl(localShareId, shareUrlPath));
       setShareError(null);
     } finally {
       setShareCreating(false);
     }
   }, [
     activeSelection,
+    approvedDrawLimit,
     capitalSpikes,
     createTimelineSnapshot,
     currentDay,
@@ -4892,6 +4970,8 @@ function useTimelineSnapshotSharing({
     resolvedRange,
     selectedPanelOpen,
     setTimelineSearch,
+    shareUrlPath,
+    shareHydrationEnabled,
     minimumCashReserve,
     startingCash,
     straightLine,
@@ -4914,15 +4994,15 @@ function useTimelineSnapshotSharing({
 
   return {
     resetTimeline,
-    share,
+    share: hydratedShare,
     sharedSnapshotLoading: Boolean(
-      share &&
-      !share.startsWith(LOCAL_TIMELINE_SHARE_PREFIX) &&
+      hydratedShare &&
+      !hydratedShare.startsWith(LOCAL_TIMELINE_SHARE_PREFIX) &&
       sharedSnapshot === undefined,
     ),
     sharedSnapshotMissing: Boolean(
-      share &&
-      !share.startsWith(LOCAL_TIMELINE_SHARE_PREFIX) &&
+      hydratedShare &&
+      !hydratedShare.startsWith(LOCAL_TIMELINE_SHARE_PREFIX) &&
       sharedSnapshot === null,
     ),
     shareMenuProps: {
@@ -4936,6 +5016,22 @@ function useTimelineSnapshotSharing({
       shareUrl,
     } satisfies ShareTimelineMenuProps,
   };
+}
+
+export function isCurrentTimelineSharePath(shareUrlPath: string) {
+  if (typeof window === "undefined") {
+    return true;
+  }
+  return (
+    normalizeSharePath(window.location.pathname) ===
+    normalizeSharePath(shareUrlPath)
+  );
+}
+
+function normalizeSharePath(path: string) {
+  const parsed = new URL(path, "http://drawflow.local");
+  const pathname = parsed.pathname.replace(/\/+$/, "");
+  return pathname || "/";
 }
 
 export function buildDemoDraws(
@@ -5720,6 +5816,7 @@ export function groupCashflowPointsByDay(data: CashflowDatum[]) {
 
 export function buildDrawAvailabilityData(
   cashflowData: CashflowDatum[],
+  approvedDrawLimit?: number,
 ): DrawAvailabilityDatum[] {
   const sortedCashflowData = [...cashflowData].sort(
     (a, b) => a.day - b.day || a.id.localeCompare(b.id),
@@ -5729,7 +5826,7 @@ export function buildDrawAvailabilityData(
   let totalInterestAccrued = 0;
   let previousDay = sortedCashflowData[0]?.day ?? 0;
 
-  return sortedCashflowData.map((point) => {
+  const baseAvailability = sortedCashflowData.map((point) => {
     const day = Math.max(previousDay, point.day);
     totalInterestAccrued += calculateDailyCompoundedInterest(
       releasedDraw + totalInterestAccrued,
@@ -5750,6 +5847,56 @@ export function buildDrawAvailabilityData(
       name: point.name,
       totalInterestAccrued,
       totalAvailableDraw: interestBearingDraw + additionalAvailableDraw,
+    };
+  });
+
+  const normalizedApprovedDrawLimit =
+    typeof approvedDrawLimit === "number" && Number.isFinite(approvedDrawLimit)
+      ? Math.max(0, Math.round(approvedDrawLimit))
+      : undefined;
+  if (normalizedApprovedDrawLimit === undefined) {
+    return baseAvailability;
+  }
+
+  const baseTopLine = Math.max(
+    0,
+    ...baseAvailability.map((point) => point.totalAvailableDraw),
+  );
+  const approvedHeadroom = Math.max(
+    0,
+    normalizedApprovedDrawLimit - baseTopLine,
+  );
+  if (approvedHeadroom <= 0) {
+    return baseAvailability;
+  }
+
+  if (baseTopLine <= 0) {
+    return baseAvailability.map((point, index) => {
+      const additionalAvailableDraw =
+        index === baseAvailability.length - 1
+          ? point.additionalAvailableDraw + approvedHeadroom
+          : point.additionalAvailableDraw;
+
+      return {
+        ...point,
+        additionalAvailableDraw,
+        totalAvailableDraw: point.interestBearingDraw + additionalAvailableDraw,
+      };
+    });
+  }
+
+  return baseAvailability.map((point) => {
+    const approvedLimitShare =
+      point.totalAvailableDraw >= baseTopLine
+        ? approvedHeadroom
+        : Math.round((approvedHeadroom * point.totalAvailableDraw) / baseTopLine);
+    const additionalAvailableDraw =
+      point.additionalAvailableDraw + approvedLimitShare;
+
+    return {
+      ...point,
+      additionalAvailableDraw,
+      totalAvailableDraw: point.interestBearingDraw + additionalAvailableDraw,
     };
   });
 }
@@ -6053,18 +6200,21 @@ function timelineShareStateSignature(state: TimelineShareState): string {
   return JSON.stringify(state);
 }
 
-function buildTimelineShareUrl(snapshotId: string): string {
+function buildTimelineShareUrl(
+  snapshotId: string,
+  shareUrlPath = DEFAULT_TIMELINE_SHARE_PATH,
+): string {
   if (typeof window === "undefined") {
-    return "";
+    return `${shareUrlPath}?share=${encodeURIComponent(snapshotId)}`;
   }
 
-  const url = new URL("/demo/timeline", window.location.origin);
+  const url = new URL(shareUrlPath, window.location.origin);
   url.searchParams.set("share", snapshotId);
 
   return url.toString();
 }
 
-function readLocalTimelineSnapshot(snapshotId: string): unknown {
+export function readLocalTimelineSnapshot(snapshotId: string): unknown {
   if (typeof window === "undefined") {
     return null;
   }
@@ -6293,6 +6443,7 @@ function SelectedDrawMobileDrawer({
   onReviewMilestoneCompletion,
   onSubmitDrawRequest,
   onUpdateEvidenceAsset,
+  onUpdateMilestoneDrawAvailability,
   onUpdatePlannedDraw,
   onUpdateSubmilestoneBudget,
   liveExecutionEnabled,
@@ -6354,6 +6505,10 @@ function SelectedDrawMobileDrawer({
     assetId: string,
     patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>,
   ) => void;
+  onUpdateMilestoneDrawAvailability?: (
+    itemId: string,
+    amount: number,
+  ) => void;
   onUpdateSubmilestoneBudget?: (
     itemId: string,
     submilestoneKey: string,
@@ -6399,7 +6554,11 @@ function SelectedDrawMobileDrawer({
               onReviewModificationRequest={onReviewModificationRequest}
               onSubmitDrawRequest={onSubmitDrawRequest}
               onUpdateEvidenceAsset={onUpdateEvidenceAsset}
+              onUpdateMilestoneDrawAvailability={
+                onUpdateMilestoneDrawAvailability
+              }
               onUpdatePlannedDraw={onUpdatePlannedDraw}
+              onUpdateSubmilestoneBudget={onUpdateSubmilestoneBudget}
               overview={overview}
               range={range}
               requiresApprovedDrawMilestones={requiresApprovedDrawMilestones}
@@ -6432,6 +6591,7 @@ function SelectedContextPanel({
   onReviewMilestoneCompletion,
   onSubmitDrawRequest,
   onUpdateEvidenceAsset,
+  onUpdateMilestoneDrawAvailability,
   onUpdatePlannedDraw,
   onUpdateSubmilestoneBudget,
   liveExecutionEnabled,
@@ -6491,6 +6651,15 @@ function SelectedContextPanel({
     assetId: string,
     patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>,
   ) => void;
+  onUpdateMilestoneDrawAvailability?: (
+    itemId: string,
+    amount: number,
+  ) => void;
+  onUpdateSubmilestoneBudget?: (
+    itemId: string,
+    submilestoneKey: string,
+    budgetCents: number,
+  ) => void;
   liveExecutionEnabled: boolean;
   overview: FinancialOverview;
   range: Required<TimelineRange>;
@@ -6513,6 +6682,7 @@ function SelectedContextPanel({
         activeDraw={activeDraw}
         activeItem={activeItem}
         contractorPlanning={contractorPlanning}
+        onUpdateMilestoneDrawAvailability={onUpdateMilestoneDrawAvailability}
         onUpdateSubmilestoneBudget={onUpdateSubmilestoneBudget}
         overview={overview}
         range={range}
@@ -6636,6 +6806,7 @@ function MilestonePlanSummaryPanel({
   activeDraw,
   activeItem,
   contractorPlanning,
+  onUpdateMilestoneDrawAvailability,
   onUpdateSubmilestoneBudget,
   overview,
   range,
@@ -6643,6 +6814,10 @@ function MilestonePlanSummaryPanel({
   activeDraw: DemoDraw | null;
   activeItem: TimelineItem<DemoMilestone>;
   contractorPlanning?: ContractorPlanningModel | null;
+  onUpdateMilestoneDrawAvailability?: (
+    itemId: string,
+    amount: number,
+  ) => void;
   onUpdateSubmilestoneBudget?: (
     itemId: string,
     submilestoneKey: string,
@@ -6656,6 +6831,7 @@ function MilestonePlanSummaryPanel({
   if (!milestone) {
     return null;
   }
+  const drawAvailabilityAmount = getMilestoneDrawAvailabilityAmount(milestone);
 
   return (
     <div className="grid gap-4" data-testid="selected-milestone-plan-summary">
@@ -6681,6 +6857,30 @@ function MilestonePlanSummaryPanel({
           <dt className="text-muted-foreground">Milestone cost</dt>
           <dd className="font-semibold tabular-nums">
             {money(milestone.amount)}
+          </dd>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-muted-foreground">
+            Draw availability unlocked
+          </dt>
+          <dd className="font-semibold tabular-nums">
+            <EditableNumberChip
+              ariaLabel="Draw availability unlocked"
+              disabled={!onUpdateMilestoneDrawAvailability}
+              formatDisplay={(value) => money(value)}
+              inputWidth="5.75rem"
+              min={0}
+              onCommit={(amount) =>
+                onUpdateMilestoneDrawAvailability?.(activeItem.id, amount)
+              }
+              prefix="$"
+              reserveWidth="7.25rem"
+              size="metric-sm"
+              step={1000}
+              testId={`timeline-selected-milestone-draw-availability-${activeItem.id}`}
+              value={drawAvailabilityAmount}
+              weight="semibold"
+            />
           </dd>
         </div>
         <div className="flex items-center justify-between gap-3">
@@ -6946,6 +7146,9 @@ function MilestoneOperationsPanel({
   const evidenceAssets = milestone.evidencePackage?.assets ?? [];
   const completionClaim = milestone.completionClaim;
   const completed = Boolean(completionClaim);
+  const effectiveCost = getMilestoneEffectiveCashSpendAmount(milestone);
+  const approvedBudget = Math.max(0, Math.round(milestone.amount));
+  const costAdjusted = completionClaim && effectiveCost !== approvedBudget;
 
   return (
     <div className="grid gap-4" data-testid="selected-draw-details">
@@ -7005,11 +7208,21 @@ function MilestoneOperationsPanel({
           </dd>
         </div>
         <div className="flex items-center justify-between gap-3">
-          <dt className="text-muted-foreground">Milestone cost</dt>
+          <dt className="text-muted-foreground">
+            {costAdjusted ? "Effective cost" : "Milestone cost"}
+          </dt>
           <dd className="font-semibold tabular-nums">
-            {money(milestone.amount)}
+            {money(costAdjusted ? effectiveCost : approvedBudget)}
           </dd>
         </div>
+        {costAdjusted ? (
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">Approved budget</dt>
+            <dd className="font-medium tabular-nums">
+              {money(approvedBudget)}
+            </dd>
+          </div>
+        ) : null}
         {completionClaim ? (
           <>
             <div className="flex items-center justify-between gap-3">
@@ -7131,6 +7344,9 @@ function LenderMilestoneReviewPanel({
   const claim = milestone.completionClaim;
   const review = milestone.completionReview;
   const siteVisit = review?.siteVisit;
+  const effectiveCost = getMilestoneEffectiveCashSpendAmount(milestone);
+  const approvedBudget = Math.max(0, Math.round(milestone.amount));
+  const costAdjusted = claim && effectiveCost !== approvedBudget;
   const liveSiteVisit = findLiveSiteVisit(workspace, siteVisit?.visitId);
   const liveStatus = normalizeTimelineSiteVisitStatus(
     liveSiteVisit?.status ?? siteVisit?.status,
@@ -7301,11 +7517,21 @@ function LenderMilestoneReviewPanel({
 
       <dl className="grid gap-2 border-border border-t pt-3 text-sm">
         <div className="flex items-center justify-between gap-3">
-          <dt className="text-muted-foreground">Milestone cost</dt>
+          <dt className="text-muted-foreground">
+            {costAdjusted ? "Effective cost" : "Milestone cost"}
+          </dt>
           <dd className="font-semibold tabular-nums">
-            {money(milestone.amount)}
+            {money(costAdjusted ? effectiveCost : approvedBudget)}
           </dd>
         </div>
+        {costAdjusted ? (
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">Approved budget</dt>
+            <dd className="font-medium tabular-nums">
+              {money(approvedBudget)}
+            </dd>
+          </div>
+        ) : null}
         <div className="flex items-center justify-between gap-3">
           <dt className="text-muted-foreground">Claimed complete</dt>
           <dd
@@ -7679,8 +7905,16 @@ export function DrawRequestPanel({
       return;
     }
 
+    const requestedDraw = { ...draw, x: requestedX };
+    const requestLimit = requiresApprovedMilestones
+      ? calculateApprovedDrawRequestLimit(requestedDraw, items, draws)
+      : calculateDrawRequestLimit(requestedDraw, items, draws);
+
     onSubmitDrawRequest(draw.id, {
-      amount: requestedAmount,
+      amount: Math.min(
+        Math.max(0, requestedAmount),
+        requestLimit.availableLimit,
+      ),
       ...(note ? { note } : {}),
       x: requestedX,
     });

@@ -3,6 +3,7 @@ import type {
   TimelineSetupResult,
   TimelineSetupTemplate,
 } from "#/features/timeline-workspace/-TimelineSetupFlow.tsx";
+import { resolveMilestoneSubmilestones } from "#/features/timeline-workspace/-timeline-milestone-submilestones.ts";
 import type { DemoMilestone } from "#/features/timeline-workspace/-timeline-share-snapshot.ts";
 
 import type { ProductionProposalDraftSavePayload } from "./ProductionProposalSurfaces.tsx";
@@ -255,13 +256,20 @@ export function timelineSetupResultToDraftPackage(
         key: item.id,
         name: item.data.name,
         order: index + 1,
-        submilestones: (item.data.submilestoneDetails ?? []).map(
+        submilestones: resolveMilestoneSubmilestones(item.data, item.id).map(
           (submilestone) => ({
-            budgetCents: submilestone.budgetCents,
-            durationDays: submilestone.durationDays,
+            ...(submilestone.budgetCents === undefined
+              ? {}
+              : { budgetCents: submilestone.budgetCents }),
+            ...(submilestone.durationDays === undefined
+              ? {}
+              : { durationDays: submilestone.durationDays }),
             key: submilestone.key,
             name: submilestone.name,
             order: submilestone.order,
+            ...(submilestone.startDay === undefined
+              ? {}
+              : { startDay: submilestone.startDay }),
           })
         ),
       };

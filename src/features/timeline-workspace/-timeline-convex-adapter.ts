@@ -52,6 +52,7 @@ export interface ConvexTimelineWorkspace {
     budgetCents: number;
     completionClaim?: DemoMilestone["completionClaim"];
     completionReview?: DemoMilestone["completionReview"];
+    dependencyKeys?: string[];
     drawAvailabilityCents?: number;
     drawKey?: string;
     durationDays: number;
@@ -82,6 +83,9 @@ export interface ConvexTimelineWorkspace {
     };
     minimumCashReserveCents?: number;
     startingCashCents: number;
+  };
+  proposal?: {
+    lenderDrawPolicyLimitCents?: number;
   };
 }
 
@@ -182,6 +186,10 @@ export function convexWorkspaceToTimelineState(
       itemId: activeMilestoneKey,
       phase: "inProgress",
     },
+    approvedDrawLimit:
+      workspace.proposal?.lenderDrawPolicyLimitCents === undefined
+        ? undefined
+        : centsToDollars(workspace.proposal.lenderDrawPolicyLimitCents),
     capitalSpikes: workspace.capitalEvents
       .filter((event) => !isInitialBorrowerCapitalEvent(event.label))
       .map(

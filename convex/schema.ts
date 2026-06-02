@@ -32,6 +32,27 @@ const demoTimelineToneValidator = v.optional(
   ),
 );
 
+const demoTimelineSnapshotSubmilestoneStatusValidator = v.union(
+  v.literal("todo"),
+  v.literal("in_progress"),
+  v.literal("done"),
+);
+
+const demoTimelineSnapshotSubmilestoneValidator = v.object({
+  budgetCents: v.optional(v.number()),
+  description: v.optional(v.string()),
+  durationDays: v.optional(v.number()),
+  key: v.string(),
+  name: v.string(),
+  order: v.number(),
+  status: v.optional(demoTimelineSnapshotSubmilestoneStatusValidator),
+});
+
+const demoTimelineSnapshotSiteVisitGuidanceValidator = v.object({
+  cameraAngles: v.string(),
+  whatToVerify: v.string(),
+});
+
 const demoTimelineMilestoneDataValidator = v.object({
   amount: v.number(),
   completionClaim: v.optional(
@@ -39,6 +60,8 @@ const demoTimelineMilestoneDataValidator = v.object({
       actualCost: v.optional(v.number()),
       completedDay: v.number(),
       note: v.optional(v.string()),
+      qualityNote: v.optional(v.string()),
+      qualityRating: v.optional(v.number()),
       submittedAt: v.string(),
     }),
   ),
@@ -49,15 +72,21 @@ const demoTimelineMilestoneDataValidator = v.object({
       reviewedAt: v.string(),
       siteVisit: v.optional(
         v.object({
+          includedItemIds: v.optional(v.array(v.string())),
           note: v.optional(v.string()),
           requestedAt: v.string(),
           requestedDay: v.number(),
+          status: v.optional(v.string()),
+          tokenExpiresAt: v.optional(v.number()),
+          url: v.optional(v.string()),
+          visitId: v.optional(v.string()),
         }),
       ),
       status: v.union(v.literal("approved"), v.literal("revisionRequested")),
     }),
   ),
   draw: v.string(),
+  drawAvailabilityAmount: v.optional(v.number()),
   drawX: v.optional(v.number()),
   durationDays: v.number(),
   evidence: v.string(),
@@ -69,6 +98,7 @@ const demoTimelineMilestoneDataValidator = v.object({
           id: v.string(),
           label: v.string(),
           mimeType: v.string(),
+          previewUrl: v.optional(v.string()),
           size: v.number(),
           tag: v.string(),
         }),
@@ -79,8 +109,14 @@ const demoTimelineMilestoneDataValidator = v.object({
   initialPaymentAmount: v.optional(v.number()),
   name: v.string(),
   policy: v.string(),
+  siteVisitGuidance: v.optional(
+    demoTimelineSnapshotSiteVisitGuidanceValidator,
+  ),
   status: demoTimelineStatusValidator,
   subMilestones: v.optional(v.array(v.string())),
+  submilestoneDetails: v.optional(
+    v.array(demoTimelineSnapshotSubmilestoneValidator),
+  ),
 });
 
 const demoTimelineItemValidator = v.object({
@@ -118,6 +154,7 @@ const demoTimelineDrawValidator = v.object({
 
 const demoTimelineCapitalSpikeValidator = v.object({
   amount: v.number(),
+  eventKind: v.optional(v.union(v.literal("cashInfusion"), v.literal("cost"))),
   id: v.string(),
   label: v.string(),
   x: v.number(),
@@ -635,11 +672,13 @@ export default defineSchema({
     .index("by_scenario", ["scenario"]),
   demo_timelineSnapshots: defineTable({
     activeSelection: demoActiveMilestoneSelectionValidator,
+    approvedDrawLimit: v.optional(v.number()),
     capitalSpikes: v.optional(v.array(demoTimelineCapitalSpikeValidator)),
     createdAt: v.number(),
     currentDay: v.optional(v.number()),
     draws: v.array(demoTimelineDrawValidator),
     items: v.array(demoTimelineItemValidator),
+    minimumCashReserve: v.optional(v.number()),
     payloadVersion: v.literal(2),
     progressValue: v.number(),
     range: demoTimelineRangeValidator,
@@ -1637,6 +1676,7 @@ export default defineSchema({
     name: v.string(),
     order: v.number(),
     budgetCents: v.optional(v.number()),
+    startDay: v.optional(v.number()),
     durationDays: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -2317,6 +2357,7 @@ export default defineSchema({
     name: v.string(),
     order: v.number(),
     budgetCents: v.optional(v.number()),
+    startDay: v.optional(v.number()),
     durationDays: v.optional(v.number()),
     status: v.union(
       v.literal("planned"),
