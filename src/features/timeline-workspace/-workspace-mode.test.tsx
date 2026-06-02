@@ -33,7 +33,7 @@ vi.mock("#/hooks/use-media-query.ts", () => ({
 }));
 
 vi.mock("#/components/roadmap/AnimatedCurvedTimeline.tsx", () => ({
-  AnimatedCurvedTimeline: ({ insertion }: any) => (
+  AnimatedCurvedTimeline: ({ insertion, markers = [], renderMarker }: any) => (
     <div data-testid="mock-animated-timeline">
       {insertion?.actions?.map((action: { id: string; label: string }) => (
         <button key={action.id} type="button">
@@ -41,6 +41,15 @@ vi.mock("#/components/roadmap/AnimatedCurvedTimeline.tsx", () => ({
         </button>
       ))}
       {insertion?.label ? <span>{insertion.label}</span> : null}
+      {markers.map((marker: any) => (
+        <div data-testid={`mock-marker-${marker.id}`} key={marker.id}>
+          {renderMarker?.(marker, {
+            marker,
+            range: { max: 60, min: 0, unit: "days" },
+            x: marker.x,
+          })}
+        </div>
+      ))}
     </div>
   ),
 }));
@@ -341,6 +350,36 @@ describe("TimelineWorkspace mode split", () => {
 
     expect(screen.getByText("Live build")).toBeTruthy();
     expect(screen.getByText("Request site visit")).toBeTruthy();
+  });
+
+  test("accepts any positive draw amount in the inline draw editor", () => {
+    const updateDraw = vi.fn().mockResolvedValue(undefined);
+    renderWorkspace({
+      persistence: { updateDraw },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit Draw 01 date and amount",
+      }),
+    );
+
+    const amountInput = screen.getByLabelText(
+      "Draw amount",
+    ) as HTMLInputElement;
+    expect(amountInput.step).toBe("any");
+    fireEvent.change(amountInput, { target: { value: "87965" } });
+    expect(amountInput.validity.valid).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(updateDraw).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amountCents: 8_796_500,
+        drawKey: "draw-01",
+      }),
+    );
   });
 
   test("opens mobile milestone cards in the existing drawer", async () => {

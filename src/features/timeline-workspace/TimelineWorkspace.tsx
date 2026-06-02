@@ -8896,7 +8896,7 @@ function DrawTimelineMarker({
                     })
                   }
                   size="sm"
-                  step={10000}
+                  step="any"
                   type="number"
                   value={draft.amount}
                 />
