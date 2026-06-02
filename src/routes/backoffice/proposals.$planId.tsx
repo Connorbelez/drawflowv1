@@ -222,6 +222,7 @@ function ProposalReviewRoute() {
     );
   }
 
+//ToDo: BIG CODESMELL 
   if (productionDetail && productionWorkspace) {
     const proposalId = planId as Id<"buildProposals">;
     return (

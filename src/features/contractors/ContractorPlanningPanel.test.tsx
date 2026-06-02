@@ -110,16 +110,18 @@ describe("ContractorPlanningPanel", () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Select Northstar Masonry" }));
     fireEvent.click(
       screen.getByTestId("proposal-milestone-assign-contractor-exterior"),
     );
-    fireEvent.change(screen.getByLabelText("Estimated hours"), {
-      target: { value: "72" },
-    });
+
+    await screen.findByTestId("assign-contractor-dialog");
+    const hoursInput = screen.getByLabelText("Estimated hours");
+    fireEvent.change(hoursInput, { target: { value: "72" } });
     fireEvent.change(screen.getByLabelText("Estimated cost"), {
       target: { value: "6840" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Attach contractor" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm assignment" }));
 
     await waitFor(() =>
       expect(onAssignToMilestone).toHaveBeenCalledWith({

@@ -1258,7 +1258,8 @@ export function ProductionProposalReviewSurface({
     return nextTabs;
   }, [contractors, editableDraws.length, proposal.status, timeline]);
   const [activeTab, setActiveTab] = useState<ProductionReviewTab>(
-    timeline ? "timeline" : "review"
+    //ToDo: Change this back to timeline and review
+    timeline ? "contractors" : "contractors"
   );
 
   useEffect(() => {
