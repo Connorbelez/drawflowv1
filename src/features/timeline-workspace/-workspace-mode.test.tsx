@@ -4,8 +4,13 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
-import { TimelineWorkspace, type TimelineWorkspaceProps } from "./index.tsx";
+import {
+  buildCashUseSummary,
+  TimelineWorkspace,
+  type TimelineWorkspaceProps,
+} from "./index.tsx";
 import type {
+  DemoCapitalSpike,
   DemoDraw,
   DemoMilestone,
   TimelineShareState,
@@ -78,6 +83,31 @@ const draw: DemoDraw = {
   label: "Draw 01",
   x: 21,
 };
+
+test("cash use summary separates lender draws from builder cash exposure", () => {
+  const costSpike: DemoCapitalSpike = {
+    amount: 15_000,
+    eventKind: "cost",
+    id: "cost-spike",
+    label: "Unplanned utility cost",
+    x: 8,
+  };
+  const cashInfusion: DemoCapitalSpike = {
+    amount: 50_000,
+    eventKind: "cashInfusion",
+    id: "cash-infusion",
+    label: "Builder cash infusion",
+    x: 9,
+  };
+
+  expect(
+    buildCashUseSummary([milestone], [draw], [costSpike, cashInfusion]),
+  ).toEqual({
+    builderCashUsed: 39_000,
+    lenderCashUsed: 96_000,
+    totalPlannedSpend: 135_000,
+  });
+});
 
 function timelineState({
   milestoneAmount = 120_000,
@@ -248,17 +278,17 @@ describe("TimelineWorkspace mode split", () => {
     expect(
       screen
         .getByTestId("timeline-selected-milestone-submilestone-chip-dc-ed")
-        .textContent?.includes("DC/ED")
+        .textContent?.includes("DC/ED"),
     ).toBe(true);
     expect(
       screen
         .getByTestId("timeline-selected-milestone-submilestone-budget-dc-ed")
-        .textContent?.includes("$37,000")
+        .textContent?.includes("$37,000"),
     ).toBe(true);
     expect(
       screen
         .getByTestId("timeline-selected-milestone-submilestone-budget-permits")
-        .textContent?.includes("$91,000")
+        .textContent?.includes("$91,000"),
     ).toBe(true);
   });
 
@@ -280,9 +310,9 @@ describe("TimelineWorkspace mode split", () => {
     fireEvent.change(budgetInput, { target: { value: "42000" } });
     fireEvent.keyDown(budgetInput, { key: "Enter" });
 
-    expect(screen.getByTestId("selected-milestone-plan-summary").textContent).toContain(
-      "$125,000"
-    );
+    expect(
+      screen.getByTestId("selected-milestone-plan-summary").textContent,
+    ).toContain("$125,000");
     expect(updateMilestone).toHaveBeenCalledWith(
       expect.objectContaining({
         budgetCents: 12_500_000,
@@ -293,7 +323,7 @@ describe("TimelineWorkspace mode split", () => {
             key: "dc-ed",
           }),
         ]),
-      })
+      }),
     );
   });
 
@@ -318,9 +348,13 @@ describe("TimelineWorkspace mode split", () => {
     renderWorkspace({ workspaceMode: "live" });
 
     expect(screen.getByTestId("mobile-timeline-workspace")).toBeTruthy();
-    fireEvent.click(screen.getByTestId("mobile-day-event-milestone-foundation"));
+    fireEvent.click(
+      screen.getByTestId("mobile-day-event-milestone-foundation"),
+    );
 
-    expect(await screen.findByTestId("selected-draw-mobile-drawer")).toBeTruthy();
+    expect(
+      await screen.findByTestId("selected-draw-mobile-drawer"),
+    ).toBeTruthy();
     expect(screen.queryByTestId("mobile-focus-view")).toBeNull();
   });
 
@@ -372,9 +406,9 @@ describe("TimelineWorkspace mode split", () => {
     });
 
     expect(screen.getByTestId("timeline-remote-cursors")).toBeTruthy();
-    expect(screen.getAllByTestId("timeline-remote-cursor-pointer")).toHaveLength(
-      1,
-    );
+    expect(
+      screen.getAllByTestId("timeline-remote-cursor-pointer"),
+    ).toHaveLength(1);
     expect(screen.getByTestId("timeline-remote-cursor-label").textContent).toBe(
       "Alex Builder",
     );

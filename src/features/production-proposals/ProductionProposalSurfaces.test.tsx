@@ -241,7 +241,9 @@ describe("ProductionProposalKanbanSurface", () => {
       />,
     );
     expect(screen.getByText("Northline Homes")).toBeTruthy();
-    expect(screen.queryByTestId("production-kanban-card-unassigned")).toBeNull();
+    expect(
+      screen.queryByTestId("production-kanban-card-unassigned"),
+    ).toBeNull();
 
     rerender(
       <ProductionProposalKanbanSurface
@@ -422,9 +424,7 @@ describe("ProductionProposalSettingsSurface", () => {
                   key: "foundation",
                   name: "Foundation",
                   percentageBps: 2_500,
-                  submilestones: [
-                    { key: "forms", name: "Forms and pour" },
-                  ],
+                  submilestones: [{ key: "forms", name: "Forms and pour" }],
                 },
               ],
               scenarios: [
@@ -457,13 +457,17 @@ describe("ProductionProposalSettingsSurface", () => {
 
     expect(screen.getByText("Production proposal settings")).toBeTruthy();
     expect(screen.getByText("Single Family Full Build")).toBeTruthy();
-    expect(screen.getByTestId("timeline-settings-template-blueprint-table")).toBeTruthy();
+    expect(
+      screen.getByTestId("timeline-settings-template-blueprint-table"),
+    ).toBeTruthy();
     expect(screen.getByDisplayValue("Foundation")).toBeTruthy();
     expect(screen.getByDisplayValue("25.00% / 2500 bps")).toBeTruthy();
     expect(screen.getByText("Cheapest Feasible")).toBeTruthy();
     expect(screen.getByText("Interest starts on funds_released")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Seed defaults to prod" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Seed defaults to prod" }),
+    );
     expect(seed).toHaveBeenCalledTimes(1);
   });
 });
@@ -519,8 +523,10 @@ describe("ProductionProposalReviewSurface", () => {
           activeBuild: null,
           proposal: {
             ...proposalDetail.proposal,
+            borrowerCoPayBps: 1_999,
+            borrowerCoPayCents: 21_040_000,
             status: "submitted",
-            totalBudgetCents: 1_250_000_00,
+            totalBudgetCents: 1_052_000_00,
           },
         }}
         onApprove={vi.fn()}
@@ -533,32 +539,32 @@ describe("ProductionProposalReviewSurface", () => {
     );
 
     expect(screen.getAllByText("Total budget").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("$1,250,000").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("$1,052,000").length).toBeGreaterThan(0);
     expect(screen.getByText("Total approved")).toBeTruthy();
-    expect(screen.getByText("$1,000,000")).toBeTruthy();
+    expect(screen.getByText("$841,600")).toBeTruthy();
     expect(screen.getByText("Interest rate")).toBeTruthy();
     expect(screen.getByText("9.25%")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Co-pay amount" }));
     const coPayInput = await waitFor(() => {
       const input = document.querySelector<HTMLInputElement>(
-        'input[aria-label="Co-pay amount"]'
+        'input[aria-label="Co-pay amount"]',
       );
       expect(input).toBeTruthy();
       return input;
     });
-    expect((coPayInput as HTMLInputElement).value).toBe("250000");
-    fireEvent.change(coPayInput, { target: { value: "300000" } });
+    expect((coPayInput as HTMLInputElement).value).toBe("210400");
+    fireEvent.change(coPayInput, { target: { value: "211111" } });
     fireEvent.keyDown(coPayInput, { key: "Enter" });
 
     await waitFor(() =>
-      expect(onUpdateCoPayAmount).toHaveBeenCalledWith(30_000_000),
+      expect(onUpdateCoPayAmount).toHaveBeenCalledWith(21_111_100),
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Interest rate" }));
     const interestInput = await waitFor(() => {
       const input = document.querySelector<HTMLInputElement>(
-        'input[aria-label="Interest rate"]'
+        'input[aria-label="Interest rate"]',
       );
       expect(input).toBeTruthy();
       return input;
@@ -653,9 +659,7 @@ describe("ProductionProposalReviewSurface", () => {
       />,
     );
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Create claim link" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Create claim link" }));
 
     await waitFor(() => expect(onCreateClaimLink).toHaveBeenCalledTimes(1));
     const linkInput = await screen.findByDisplayValue(
@@ -685,7 +689,11 @@ describe("ProductionProposalReviewSurface", () => {
     const tablist = screen.getByRole("tablist", {
       name: /proposal workspace sections/i,
     });
-    expect(within(tablist).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+    expect(
+      within(tablist)
+        .getAllByRole("tab")
+        .map((tab) => tab.textContent),
+    ).toEqual([
       "Timeline",
       "Milestones",
       "Calendar",
@@ -695,9 +703,9 @@ describe("ProductionProposalReviewSurface", () => {
       "Packet",
     ]);
     expect(
-      screen.getByRole("tab", { name: "Timeline" }).getAttribute(
-        "aria-selected",
-      ),
+      screen
+        .getByRole("tab", { name: "Timeline" })
+        .getAttribute("aria-selected"),
     ).toBe("true");
     expect(screen.getByTestId("timeline-slot")).toBeTruthy();
     expect(screen.queryByText("Submit proposal")).toBeNull();
@@ -732,7 +740,9 @@ describe("ProductionProposalReviewSurface", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Milestones" }));
 
-    expect(screen.getByTestId("production-proposal-milestones-tab")).toBeTruthy();
+    expect(
+      screen.getByTestId("production-proposal-milestones-tab"),
+    ).toBeTruthy();
     expect(screen.getByTestId("timeline-setup-budget-screen")).toBeTruthy();
     expect(screen.getAllByText("Forms and pour").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$12,500").length).toBeGreaterThan(0);
@@ -759,7 +769,11 @@ describe("ProductionProposalReviewSurface", () => {
     const tablist = screen.getByRole("tablist", {
       name: /proposal workspace sections/i,
     });
-    expect(within(tablist).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+    expect(
+      within(tablist)
+        .getAllByRole("tab")
+        .map((tab) => tab.textContent),
+    ).toEqual([
       "Timeline",
       "Milestones",
       "Calendar",
@@ -828,11 +842,13 @@ describe("ProductionProposalReviewSurface", () => {
   });
 
   test("reports rejected review mutations with a concise toast error", async () => {
-    const onApprove = vi.fn().mockRejectedValue(
-      new Error(
-        "5/29/2026, 4:33:49 PM [CONVEX M(production_proposals:approveProposal)] Uncaught Error: A reason is required.\n    at requireReason",
-      ),
-    );
+    const onApprove = vi
+      .fn()
+      .mockRejectedValue(
+        new Error(
+          "5/29/2026, 4:33:49 PM [CONVEX M(production_proposals:approveProposal)] Uncaught Error: A reason is required.\n    at requireReason",
+        ),
+      );
     render(
       <ProductionProposalReviewSurface
         detail={{

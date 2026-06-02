@@ -125,6 +125,7 @@ export type ProductionProposalStatus =
 interface ProductionProposal {
   _id?: string;
   borrowerCoPayBps: number;
+  borrowerCoPayCents?: number;
   borrowerWorkingCapitalLimitCents: number;
   buildName: string;
   interestAnnualBps?: number;
@@ -371,17 +372,17 @@ export function ProductionProposalDraftEditorSurface({
   const [buildName, setBuildName] = useState(proposal.buildName);
   const [location, setLocation] = useState(proposal.location);
   const [borrowerCoPayBps, setBorrowerCoPayBps] = useState(
-    String(proposal.borrowerCoPayBps)
+    String(proposal.borrowerCoPayBps),
   );
   const [
     borrowerWorkingCapitalLimitCents,
     setBorrowerWorkingCapitalLimitCents,
   ] = useState(String(proposal.borrowerWorkingCapitalLimitCents));
   const [lenderDrawPolicyLimitCents, setLenderDrawPolicyLimitCents] = useState(
-    String(proposal.lenderDrawPolicyLimitCents)
+    String(proposal.lenderDrawPolicyLimitCents),
   );
   const [milestoneBudgetCents, setMilestoneBudgetCents] = useState(
-    String(initialMilestone.budgetCents)
+    String(initialMilestone.budgetCents),
   );
   const [documentType, setDocumentType] = useState<
     "permit" | "budget" | "plan" | "supporting"
@@ -396,7 +397,7 @@ export function ProductionProposalDraftEditorSurface({
         mimeType: document.mimeType ?? "application/octet-stream",
         sizeBytes: document.sizeBytes ?? 0,
         storageId: document.storageId,
-      })) ?? []
+      })) ?? [],
   );
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
@@ -405,7 +406,7 @@ export function ProductionProposalDraftEditorSurface({
     onSave({
       borrowerCoPayBps: parseInteger(borrowerCoPayBps),
       borrowerWorkingCapitalLimitCents: parseInteger(
-        borrowerWorkingCapitalLimitCents
+        borrowerWorkingCapitalLimitCents,
       ),
       buildName,
       documents,
@@ -458,7 +459,7 @@ export function ProductionProposalDraftEditorSurface({
       ]);
     } catch (error) {
       setUploadError(
-        error instanceof Error ? error.message : "Document upload failed."
+        error instanceof Error ? error.message : "Document upload failed.",
       );
     } finally {
       setIsUploading(false);
@@ -799,16 +800,16 @@ export function ProductionProposalKanbanSurface({
   kanban: ProductionKanban;
   onAssignBuilder?: (
     card: ProductionKanbanCard,
-    builderProfileId: string
+    builderProfileId: string,
   ) => Promise<unknown> | unknown;
   onDeleteDraft?: (card: ProductionKanbanCard) => Promise<unknown> | unknown;
   onOpen?: (card: ProductionKanbanCard) => void;
 }) {
   const [assignCard, setAssignCard] = useState<ProductionKanbanCard | null>(
-    null
+    null,
   );
   const [deleteCard, setDeleteCard] = useState<ProductionKanbanCard | null>(
-    null
+    null,
   );
 
   return (
@@ -974,7 +975,7 @@ function AssignBuilderDialog({
   card: ProductionKanbanCard | null;
   onAssign?: (
     card: ProductionKanbanCard,
-    builderProfileId: string
+    builderProfileId: string,
   ) => Promise<unknown> | unknown;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -1001,7 +1002,7 @@ function AssignBuilderDialog({
       setError(
         assignError instanceof Error
           ? assignError.message
-          : "Could not assign builder."
+          : "Could not assign builder.",
       );
     } finally {
       setPending(false);
@@ -1093,7 +1094,7 @@ function DeleteDraftDialog({
       setError(
         deleteError instanceof Error
           ? deleteError.message
-          : "Could not delete draft."
+          : "Could not delete draft.",
       );
     } finally {
       setPending(false);
@@ -1150,11 +1151,11 @@ export function ProductionProposalSettingsSurface({
   const template = settings?.templates[0];
   const workflowRule = settings?.workflowRules[0];
   const activeScenario = template?.scenarios.find(
-    (scenario) => scenario.isDefault
+    (scenario) => scenario.isDefault,
   );
   const worksheetRows = useMemo(
     () => productionTemplateToWorksheetRows(template),
-    [template]
+    [template],
   );
   const [productionRows, setProductionRows] = useState(worksheetRows);
 
@@ -1306,16 +1307,21 @@ export function ProductionProposalReviewSurface({
   onChangeReviewTab?: (tab: ProductionReviewTab) => void;
   onApprove: (
     reason: string,
-    permitWaiverReason?: string
+    permitWaiverReason?: string,
   ) => Promise<unknown> | unknown;
   onClose: (startDate: string, reason: string) => Promise<unknown> | unknown;
-  onCommitCalendarEdit?: (request: CalendarEditRequest) => Promise<unknown> | unknown;
+  onCommitCalendarEdit?: (
+    request: CalendarEditRequest,
+  ) => Promise<unknown> | unknown;
   onCreateCalendarSyncSubscription?: (input: {
     direction: "bidirectional" | "outbound";
     filters: CalendarFilters;
     provider: "google" | "ics" | "outlook";
     surface: "activeBuild" | "proposal";
-  }) => Promise<CalendarSyncSubscriptionResult> | CalendarSyncSubscriptionResult | void;
+  }) =>
+    | Promise<CalendarSyncSubscriptionResult>
+    | CalendarSyncSubscriptionResult
+    | void;
   onRecordExternalCalendarSyncChange?: (input: {
     changeKey: string;
     externalEventId?: string;
@@ -1326,8 +1332,12 @@ export function ProductionProposalReviewSurface({
   onReject: (reason: string) => Promise<unknown> | unknown;
   onRequestChanges: (reason: string) => Promise<unknown> | unknown;
   onAssignBuilder?: (builderProfileId: string) => Promise<unknown> | unknown;
-  onUpdateCoPayAmount?: (borrowerCoPayCents: number) => Promise<unknown> | unknown;
-  onUpdateInterestRate?: (interestAnnualBps: number) => Promise<unknown> | unknown;
+  onUpdateCoPayAmount?: (
+    borrowerCoPayCents: number,
+  ) => Promise<unknown> | unknown;
+  onUpdateInterestRate?: (
+    interestAnnualBps: number,
+  ) => Promise<unknown> | unknown;
   onCreateClaimLink?: () =>
     | Promise<{ claimPath: string; claimToken: string; expiresAt: number }>
     | { claimPath: string; claimToken: string; expiresAt: number };
@@ -1345,7 +1355,7 @@ export function ProductionProposalReviewSurface({
       label: string;
       reason: string;
       timingDay: number;
-    }
+    },
   ) => void;
   timeline?: ReactNode;
   initialActiveTab?: ProductionReviewTab;
@@ -1356,7 +1366,7 @@ export function ProductionProposalReviewSurface({
   const [drawAmounts, setDrawAmounts] = useState<Record<string, string>>({});
   const [drawLabels, setDrawLabels] = useState<Record<string, string>>({});
   const [drawTimingDays, setDrawTimingDays] = useState<Record<string, string>>(
-    {}
+    {},
   );
   const [pendingDecision, setPendingDecision] = useState<
     "approve" | "reject" | "requestChanges" | null
@@ -1372,7 +1382,7 @@ export function ProductionProposalReviewSurface({
   const editableDraws = detail.draws ?? [];
   const milestoneRows = useMemo(
     () => productionProposalDetailToWorksheetRows(detail),
-    [detail]
+    [detail],
   );
   const canEditDraws =
     !!onUpdateDraw &&
@@ -1402,32 +1412,32 @@ export function ProductionProposalReviewSurface({
   const proposalCalendarActions = useMemo<ProposalCalendarAdapterActions>(
     () => ({
       ...calendarAdapterActions,
-      reviseDrawTiming: calendarAdapterActions?.reviseDrawTiming ?? (onUpdateDraw
-        ? (input) => {
-            const draw = editableDraws.find(
-              (candidate) => candidate.drawKey === input.drawKey
-            );
-            if (!draw) return;
-            onUpdateDraw(input.drawKey, {
-              amountCents: draw.amountCents,
-              label: draw.label,
-              reason: input.reason ?? "Calendar draw timing edit.",
-              timingDay: input.timingDay,
-            });
-          }
-        : undefined),
+      reviseDrawTiming:
+        calendarAdapterActions?.reviseDrawTiming ??
+        (onUpdateDraw
+          ? (input) => {
+              const draw = editableDraws.find(
+                (candidate) => candidate.drawKey === input.drawKey,
+              );
+              if (!draw) return;
+              onUpdateDraw(input.drawKey, {
+                amountCents: draw.amountCents,
+                label: draw.label,
+                reason: input.reason ?? "Calendar draw timing edit.",
+                timingDay: input.timingDay,
+              });
+            }
+          : undefined),
     }),
-    [calendarAdapterActions, editableDraws, onUpdateDraw]
+    [calendarAdapterActions, editableDraws, onUpdateDraw],
   );
   const effectiveCalendarWorkspace = useMemo(
-    () =>
-      calendarWorkspace ??
-      buildProposalCalendarWorkspaceFromDetail(detail),
-    [calendarWorkspace, detail]
+    () => calendarWorkspace ?? buildProposalCalendarWorkspaceFromDetail(detail),
+    [calendarWorkspace, detail],
   );
   const effectiveCalendarActions = useMemo(
     () => buildProposalCalendarActions(proposalCalendarActions),
-    [proposalCalendarActions]
+    [proposalCalendarActions],
   );
   const fallbackCalendarEdit = useMemo(
     () =>
@@ -1435,10 +1445,10 @@ export function ProductionProposalReviewSurface({
         actions: proposalCalendarActions,
         baseDate: detail.activeBuild?.startDate ?? "2026-06-01",
       }),
-    [detail.activeBuild?.startDate, proposalCalendarActions]
+    [detail.activeBuild?.startDate, proposalCalendarActions],
   );
   const [activeTab, setActiveTab] = useState<ProductionReviewTab>(
-    initialActiveTab ?? (timeline ? "timeline" : "review")
+    initialActiveTab ?? (timeline ? "timeline" : "review"),
   );
 
   useEffect(() => {
@@ -1447,13 +1457,16 @@ export function ProductionProposalReviewSurface({
     }
   }, [activeTab, tabs]);
   useEffect(() => {
-    if (initialActiveTab && tabs.some((tab) => tab.value === initialActiveTab)) {
+    if (
+      initialActiveTab &&
+      tabs.some((tab) => tab.value === initialActiveTab)
+    ) {
       setActiveTab(initialActiveTab);
     }
   }, [initialActiveTab, tabs]);
 
   const runReviewDecision = async (
-    decision: "approve" | "reject" | "requestChanges"
+    decision: "approve" | "reject" | "requestChanges",
   ) => {
     if (proposal.status !== "submitted") {
       toast.error("This proposal is no longer awaiting review.");
@@ -1879,8 +1892,12 @@ function ProposalReviewHeaderSummary({
   proposal,
 }: {
   canEditCoPayAmount: boolean;
-  onUpdateCoPayAmount?: (borrowerCoPayCents: number) => Promise<unknown> | unknown;
-  onUpdateInterestRate?: (interestAnnualBps: number) => Promise<unknown> | unknown;
+  onUpdateCoPayAmount?: (
+    borrowerCoPayCents: number,
+  ) => Promise<unknown> | unknown;
+  onUpdateInterestRate?: (
+    interestAnnualBps: number,
+  ) => Promise<unknown> | unknown;
   proposal: ProductionProposal;
 }) {
   const coPayCents = calculateProposalCoPayCents(proposal);
@@ -2060,7 +2077,8 @@ function BuilderAssignmentSection({
     | { claimPath: string; claimToken: string; expiresAt: number };
   proposal: ProductionProposal;
 }) {
-  const builderAssigned = assignment?.builderAssigned ?? Boolean(assignment?.builder);
+  const builderAssigned =
+    assignment?.builderAssigned ?? Boolean(assignment?.builder);
   const [selectedBuilderId, setSelectedBuilderId] = useState("");
   const [assigning, setAssigning] = useState(false);
   const [creatingLink, setCreatingLink] = useState(false);
@@ -2266,20 +2284,22 @@ function BuilderProfileAutocomplete({
 }) {
   const selectedOption = useMemo(
     () => options.find((option) => option._id === value),
-    [options, value]
+    [options, value],
   );
   const [query, setQuery] = useState(() =>
-    selectedOption ? formatBuilderOptionInputValue(selectedOption) : ""
+    selectedOption ? formatBuilderOptionInputValue(selectedOption) : "",
   );
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    setQuery(selectedOption ? formatBuilderOptionInputValue(selectedOption) : "");
+    setQuery(
+      selectedOption ? formatBuilderOptionInputValue(selectedOption) : "",
+    );
   }, [selectedOption]);
 
   const filteredOptions = useMemo(
     () => filterBuilderOptions(options, query),
-    [options, query]
+    [options, query],
   );
 
   function selectOption(option: ProductionBuilderOption) {
@@ -2345,7 +2365,9 @@ function BuilderProfileAutocomplete({
                   {option.displayName}
                 </span>
                 <span className="block truncate text-muted-foreground text-xs">
-                  {option.email ?? option.workosUserIds?.[0] ?? "Builder profile"}
+                  {option.email ??
+                    option.workosUserIds?.[0] ??
+                    "Builder profile"}
                 </span>
               </span>
               <Badge className="max-w-28 truncate" variant="outline">
@@ -2361,7 +2383,7 @@ function BuilderProfileAutocomplete({
 
 function filterBuilderOptions(
   options: ProductionBuilderOption[],
-  query: string
+  query: string,
 ) {
   const terms = normalizeSearch(query).split(" ").filter(Boolean);
   if (terms.length === 0) {
@@ -2369,13 +2391,9 @@ function filterBuilderOptions(
   }
   return options.filter((option) => {
     const haystack = normalizeSearch(
-      [
-        option.displayName,
-        option.email,
-        ...(option.workosUserIds ?? []),
-      ]
+      [option.displayName, option.email, ...(option.workosUserIds ?? [])]
         .filter(Boolean)
-        .join(" ")
+        .join(" "),
     );
     return terms.every((term) => haystack.includes(term));
   });
@@ -2388,12 +2406,14 @@ function formatBuilderOptionInputValue(option: ProductionBuilderOption) {
 }
 
 function formatProposalIdentity(
-  identity: ProductionProposalIdentity | null | undefined
+  identity: ProductionProposalIdentity | null | undefined,
 ) {
   if (!identity) {
     return "Unassigned";
   }
-  return identity.name?.trim() || identity.email?.trim() || identity.workosUserId;
+  return (
+    identity.name?.trim() || identity.email?.trim() || identity.workosUserId
+  );
 }
 
 function buildAbsoluteClaimUrl(claimPath: string) {
@@ -2443,7 +2463,7 @@ function materialPlanningMilestones(detail: ProductionProposalDetail) {
 }
 
 function productionProposalDetailToWorksheetRows(
-  detail: ProductionProposalDetail
+  detail: ProductionProposalDetail,
 ): TimelineMilestoneWorksheetRow[] {
   const submilestonesByMilestone = new Map<string, ProductionSubmilestone[]>();
   for (const submilestone of detail.submilestones ?? []) {
@@ -2459,16 +2479,19 @@ function productionProposalDetailToWorksheetRows(
     .map((milestone) => {
       const submilestones = (submilestonesByMilestone.get(milestone.key) ?? [])
         .slice()
-        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.key.localeCompare(b.key));
+        .sort(
+          (a, b) =>
+            (a.order ?? 0) - (b.order ?? 0) || a.key.localeCompare(b.key),
+        );
       const fallbackBudgets = allocateEvenlyCents(
         milestone.budgetCents,
-        submilestones.length
+        submilestones.length,
       );
       const durationDays =
         milestone.durationDays ??
         Math.max(1, Math.round(milestone.dayEnd - milestone.dayStart));
       const percentageBps = Math.round(
-        (milestone.budgetCents / totalBudgetCents) * 10_000
+        (milestone.budgetCents / totalBudgetCents) * 10_000,
       );
 
       return {
@@ -2480,7 +2503,8 @@ function productionProposalDetailToWorksheetRows(
         durationDays,
         durationText: String(durationDays),
         excluded: false,
-        icon: milestone.icon ?? iconForMilestoneKey(milestone.key, milestone.name),
+        icon:
+          milestone.icon ?? iconForMilestoneKey(milestone.key, milestone.name),
         key: milestone.key,
         name: milestone.name,
         order: milestone.order,
@@ -2490,7 +2514,7 @@ function productionProposalDetailToWorksheetRows(
           const budgetCents =
             submilestone.budgetCents ?? fallbackBudgets[index] ?? 0;
           const subPercentageBps = Math.round(
-            (budgetCents / totalBudgetCents) * 10_000
+            (budgetCents / totalBudgetCents) * 10_000,
           );
           return {
             budgetText: formatCents(budgetCents),
@@ -2646,7 +2670,7 @@ function DrawScheduleEditor({
   onAmountChange: (drawKey: string, value: string) => void;
   onCommit: (
     drawKey: string,
-    patch: { amountCents: number; label: string; timingDay: number }
+    patch: { amountCents: number; label: string; timingDay: number },
   ) => void;
   onLabelChange: (drawKey: string, value: string) => void;
   onTimingChange: (drawKey: string, value: string) => void;
@@ -2850,7 +2874,7 @@ function ProposalPacketSnapshot({
 }
 
 export function toTimelineRows(
-  cards: ProductionKanbanCard[]
+  cards: ProductionKanbanCard[],
 ): TimelinePlanRow[] {
   return cards.map((card) => ({
     buildName: card.title,
@@ -2865,7 +2889,7 @@ export function toTimelineRows(
 }
 
 function productionTemplateToWorksheetRows(
-  template: ProductionProposalSettings["templates"][number] | undefined
+  template: ProductionProposalSettings["templates"][number] | undefined,
 ): TimelineMilestoneWorksheetRow[] {
   if (!template) {
     return [];
@@ -2903,7 +2927,7 @@ function productionTemplateToWorksheetRows(
         name: submilestone.name,
       })),
       subMilestones: milestone.submilestones.map(
-        (submilestone) => submilestone.name
+        (submilestone) => submilestone.name,
       ),
       type,
     };
@@ -3027,11 +3051,25 @@ function formatBps(bps: number) {
 }
 
 function calculateProposalCoPayCents(proposal: ProductionProposal) {
-  return Math.round((proposal.totalBudgetCents * proposal.borrowerCoPayBps) / 10_000);
+  if (Number.isFinite(proposal.borrowerCoPayCents)) {
+    return Math.max(
+      0,
+      Math.min(
+        proposal.totalBudgetCents,
+        Math.round(proposal.borrowerCoPayCents ?? 0),
+      ),
+    );
+  }
+  return Math.round(
+    (proposal.totalBudgetCents * proposal.borrowerCoPayBps) / 10_000,
+  );
 }
 
 function calculateProposalApprovedAmountCents(proposal: ProductionProposal) {
-  return Math.max(0, proposal.totalBudgetCents - calculateProposalCoPayCents(proposal));
+  return Math.max(
+    0,
+    proposal.totalBudgetCents - calculateProposalCoPayCents(proposal),
+  );
 }
 
 function formatInterestAnnualBps(value: number) {
@@ -3059,7 +3097,7 @@ function parseInteger(value: string) {
 }
 
 function normalizeDocumentType(
-  value: string
+  value: string,
 ): "permit" | "budget" | "plan" | "supporting" {
   if (
     value === "permit" ||

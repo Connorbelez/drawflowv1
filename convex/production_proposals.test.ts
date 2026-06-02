@@ -113,42 +113,45 @@ describe("production proposal foundation", () => {
       },
     );
 
-    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
-      borrowerCoPayBps: 2_000,
-      borrowerWorkingCapitalLimitCents: 40_000_000,
-      documents: [
-        {
-          documentType: "permit",
-          fileName: "permit.pdf",
-          mimeType: "application/pdf",
-          sizeBytes: 1024,
-        },
-      ],
-      lenderDrawPolicyLimitCents: 55_000_000,
-      milestones: [
-        {
-          budgetCents: 50_000_000,
-          dayEnd: 30,
-          dayStart: 0,
-          dependencyKeys: [],
-          durationDays: 30,
-          key: "foundation",
-          name: "Foundation",
-          order: 1,
-          submilestones: [
-            {
-              budgetCents: 20_000_000,
-              durationDays: 12,
-              key: "forms",
-              name: "Forms and pour",
-              order: 1,
-            },
-          ],
-        },
-      ],
-      proposalId,
-      workosOrganizationId: ORG,
-    });
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerWorkingCapitalLimitCents: 40_000_000,
+        documents: [
+          {
+            documentType: "permit",
+            fileName: "permit.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 1024,
+          },
+        ],
+        lenderDrawPolicyLimitCents: 55_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 30,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 30,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [
+              {
+                budgetCents: 20_000_000,
+                durationDays: 12,
+                key: "forms",
+                name: "Forms and pour",
+                order: 1,
+              },
+            ],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
 
     await t.mutation((api as any).production_proposals.submitProposal, {
       proposalId,
@@ -236,34 +239,37 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
-    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
-      borrowerCoPayBps: 2_000,
-      borrowerWorkingCapitalLimitCents: 40_000_000,
-      lenderDrawPolicyLimitCents: 80_000_000,
-      milestones: [
-        {
-          budgetCents: 50_000_000,
-          dayEnd: 30,
-          dayStart: 0,
-          dependencyKeys: [],
-          durationDays: 30,
-          key: "foundation",
-          name: "Foundation",
-          order: 1,
-          submilestones: [
-            {
-              budgetCents: 20_000_000,
-              durationDays: 12,
-              key: "forms",
-              name: "Forms and pour",
-              order: 1,
-            },
-          ],
-        },
-      ],
-      proposalId,
-      workosOrganizationId: ORG,
-    });
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerWorkingCapitalLimitCents: 40_000_000,
+        lenderDrawPolicyLimitCents: 80_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 30,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 30,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [
+              {
+                budgetCents: 20_000_000,
+                durationDays: 12,
+                key: "forms",
+                name: "Forms and pour",
+                order: 1,
+              },
+            ],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
 
     const materialItemId = await t.mutation(
       (api as any).production_proposals.createProposalCostItem,
@@ -381,13 +387,16 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
-    await t.mutation((api as any).production_proposals.updateActiveBuildCostItem, {
-      buildId: closing.buildId,
-      costCents: 1_750_000,
-      itemId: addedItemId,
-      reason: "Rental quote revised.",
-      workosOrganizationId: ORG,
-    });
+    await t.mutation(
+      (api as any).production_proposals.updateActiveBuildCostItem,
+      {
+        buildId: closing.buildId,
+        costCents: 1_750_000,
+        itemId: addedItemId,
+        reason: "Rental quote revised.",
+        workosOrganizationId: ORG,
+      },
+    );
     const buildDetailAfterUpdate = await t.query(
       (api as any).production_proposals.getActiveBuildDetailByString,
       { buildId: String(closing.buildId), workosOrganizationId: ORG },
@@ -407,12 +416,15 @@ describe("production proposal foundation", () => {
     );
     expect(buildDetailAfterUpdate.build.totalBudgetCents).toBe(71_750_000);
 
-    await t.mutation((api as any).production_proposals.deleteActiveBuildCostItem, {
-      buildId: closing.buildId,
-      itemId: addedItemId,
-      reason: "Rental moved into contractor scope.",
-      workosOrganizationId: ORG,
-    });
+    await t.mutation(
+      (api as any).production_proposals.deleteActiveBuildCostItem,
+      {
+        buildId: closing.buildId,
+        itemId: addedItemId,
+        reason: "Rental moved into contractor scope.",
+        workosOrganizationId: ORG,
+      },
+    );
     const buildDetailAfterDelete = await t.query(
       (api as any).production_proposals.getActiveBuildDetailByString,
       { buildId: String(closing.buildId), workosOrganizationId: ORG },
@@ -435,56 +447,60 @@ describe("production proposal foundation", () => {
       },
     );
 
-    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
-      borrowerCoPayBps: 2_000,
-      borrowerWorkingCapitalLimitCents: 40_000_000,
-      contractorAssignments: [
-        {
-          contractorName: "Apex Concrete Works",
-          estimatedCostCents: 3_000_000,
-          estimatedHours: 24,
-          milestoneKey: "foundation",
-          role: "Foundation contractor",
-          submilestoneKeys: ["forms"],
-        },
-      ],
-      costItems: [
-        {
-          costCents: 7_500_000,
-          description: '<p>Concrete and rebar package.</p><img src="data:image/png;base64,abc" alt="site detail" />',
-          itemType: "material",
-          milestoneKey: "foundation",
-          quantity: 2,
-          relevantSubmilestoneKeys: ["forms"],
-          supplier: "Apex Supply",
-          title: "Foundation material package",
-        },
-      ],
-      lenderDrawPolicyLimitCents: 80_000_000,
-      milestones: [
-        {
-          budgetCents: 50_000_000,
-          dayEnd: 30,
-          dayStart: 0,
-          dependencyKeys: [],
-          durationDays: 30,
-          key: "foundation",
-          name: "Foundation",
-          order: 1,
-          submilestones: [
-            {
-              budgetCents: 20_000_000,
-              durationDays: 12,
-              key: "forms",
-              name: "Forms and pour",
-              order: 1,
-            },
-          ],
-        },
-      ],
-      proposalId,
-      workosOrganizationId: ORG,
-    });
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerWorkingCapitalLimitCents: 40_000_000,
+        contractorAssignments: [
+          {
+            contractorName: "Apex Concrete Works",
+            estimatedCostCents: 3_000_000,
+            estimatedHours: 24,
+            milestoneKey: "foundation",
+            role: "Foundation contractor",
+            submilestoneKeys: ["forms"],
+          },
+        ],
+        costItems: [
+          {
+            costCents: 7_500_000,
+            description:
+              '<p>Concrete and rebar package.</p><img src="data:image/png;base64,abc" alt="site detail" />',
+            itemType: "material",
+            milestoneKey: "foundation",
+            quantity: 2,
+            relevantSubmilestoneKeys: ["forms"],
+            supplier: "Apex Supply",
+            title: "Foundation material package",
+          },
+        ],
+        lenderDrawPolicyLimitCents: 80_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 30,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 30,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [
+              {
+                budgetCents: 20_000_000,
+                durationDays: 12,
+                key: "forms",
+                name: "Forms and pour",
+                order: 1,
+              },
+            ],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
 
     const detail = await t.query(
       (api as any).production_proposals.getProposalDetail,
@@ -574,7 +590,7 @@ describe("production proposal foundation", () => {
     });
     expect(detail.proposal.builderProfileId).toBeUndefined();
     expect(detail.auditEvents.map((event: any) => event.eventType)).toContain(
-        "proposal.created",
+      "proposal.created",
     );
 
     const unassignedDrafts = await broker.query(
@@ -621,26 +637,29 @@ describe("production proposal foundation", () => {
       },
     );
 
-    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
-      borrowerCoPayBps: 1_500,
-      borrowerWorkingCapitalLimitCents: 25_000_000,
-      lenderDrawPolicyLimitCents: 30_000_000,
-      milestones: [
-        {
-          budgetCents: 20_000_000,
-          dayEnd: 15,
-          dayStart: 0,
-          dependencyKeys: [],
-          durationDays: 15,
-          key: "mobilization",
-          name: "Mobilization",
-          order: 1,
-          submilestones: [],
-        },
-      ],
-      proposalId,
-      workosOrganizationId: ORG,
-    });
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 1_500,
+        borrowerWorkingCapitalLimitCents: 25_000_000,
+        lenderDrawPolicyLimitCents: 30_000_000,
+        milestones: [
+          {
+            budgetCents: 20_000_000,
+            dayEnd: 15,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 15,
+            key: "mobilization",
+            name: "Mobilization",
+            order: 1,
+            submilestones: [],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
     await t.mutation((api as any).production_proposals.submitProposal, {
       proposalId,
       workosOrganizationId: ORG,
@@ -676,10 +695,13 @@ describe("production proposal foundation", () => {
       workosOrganizationId: ORG,
     });
 
-    detail = await t.query((api as any).production_proposals.getProposalDetail, {
-      proposalId,
-      workosOrganizationId: ORG,
-    });
+    detail = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      {
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
     expect(detail.permitWaiver).toMatchObject({
       reason: "Permit issued after closing by municipal process.",
     });
@@ -705,28 +727,31 @@ describe("production proposal foundation", () => {
       },
     );
 
-    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
-      borrowerCoPayBps: 2_500,
-      borrowerWorkingCapitalLimitCents: 45_000_000,
-      buildName: "Updated proposal",
-      lenderDrawPolicyLimitCents: 60_000_000,
-      location: "Updated location",
-      milestones: [
-        {
-          budgetCents: 40_000_000,
-          dayEnd: 20,
-          dayStart: 0,
-          dependencyKeys: [],
-          durationDays: 20,
-          key: "sitework",
-          name: "Sitework",
-          order: 1,
-          submilestones: [],
-        },
-      ],
-      proposalId,
-      workosOrganizationId: ORG,
-    });
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_500,
+        borrowerWorkingCapitalLimitCents: 45_000_000,
+        buildName: "Updated proposal",
+        lenderDrawPolicyLimitCents: 60_000_000,
+        location: "Updated location",
+        milestones: [
+          {
+            budgetCents: 40_000_000,
+            dayEnd: 20,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 20,
+            key: "sitework",
+            name: "Sitework",
+            order: 1,
+            submilestones: [],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
 
     const detail = await t.query(
       (api as any).production_proposals.getProposalDetail,
@@ -761,34 +786,37 @@ describe("production proposal foundation", () => {
     );
     expect(uploadUrl).toContain("http");
 
-    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
-      borrowerCoPayBps: 1_000,
-      borrowerWorkingCapitalLimitCents: 12_000_000,
-      documents: [
-        {
-          documentType: "supporting",
-          fileName: "scope.pdf",
-          mimeType: "application/pdf",
-          sizeBytes: 512,
-        },
-      ],
-      lenderDrawPolicyLimitCents: 20_000_000,
-      milestones: [
-        {
-          budgetCents: 10_000_000,
-          dayEnd: 10,
-          dayStart: 0,
-          dependencyKeys: [],
-          durationDays: 10,
-          key: "scope",
-          name: "Scope",
-          order: 1,
-          submilestones: [],
-        },
-      ],
-      proposalId,
-      workosOrganizationId: ORG,
-    });
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 1_000,
+        borrowerWorkingCapitalLimitCents: 12_000_000,
+        documents: [
+          {
+            documentType: "supporting",
+            fileName: "scope.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 512,
+          },
+        ],
+        lenderDrawPolicyLimitCents: 20_000_000,
+        milestones: [
+          {
+            budgetCents: 10_000_000,
+            dayEnd: 10,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 10,
+            key: "scope",
+            name: "Scope",
+            order: 1,
+            submilestones: [],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
 
     const detail = await t.query(
       (api as any).production_proposals.getProposalDetail,
@@ -813,34 +841,37 @@ describe("production proposal foundation", () => {
       },
     );
 
-    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
-      borrowerCoPayBps: 2_000,
-      borrowerWorkingCapitalLimitCents: 30_000_000,
-      documents: [
-        {
-          documentType: "permit",
-          fileName: "permit.pdf",
-          mimeType: "application/pdf",
-          sizeBytes: 2048,
-        },
-      ],
-      lenderDrawPolicyLimitCents: 40_000_000,
-      milestones: [
-        {
-          budgetCents: 50_000_000,
-          dayEnd: 30,
-          dayStart: 0,
-          dependencyKeys: [],
-          durationDays: 30,
-          key: "foundation",
-          name: "Foundation",
-          order: 1,
-          submilestones: [],
-        },
-      ],
-      proposalId,
-      workosOrganizationId: ORG,
-    });
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerWorkingCapitalLimitCents: 30_000_000,
+        documents: [
+          {
+            documentType: "permit",
+            fileName: "permit.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 2048,
+          },
+        ],
+        lenderDrawPolicyLimitCents: 40_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 30,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 30,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
     await t.mutation((api as any).production_proposals.submitProposal, {
       proposalId,
       workosOrganizationId: ORG,
@@ -848,7 +879,8 @@ describe("production proposal foundation", () => {
 
     await expect(
       withIdentity(base, ["builder"], "user_builder").mutation(
-        (api as any).production_proposals.updateSubmittedProposalDrawScheduleRow,
+        (api as any).production_proposals
+          .updateSubmittedProposalDrawScheduleRow,
         {
           amountCents: 35_000_000,
           drawKey: "draw-01",
@@ -961,11 +993,9 @@ describe("production proposal foundation", () => {
       "shell",
     ]);
     expect(settings.templates).toHaveLength(1);
-    expect(settings.templates[0].milestones.map((row: any) => row.key)).toEqual([
-      "foundation",
-      "shell-dry-in",
-      "interior-finish",
-    ]);
+    expect(settings.templates[0].milestones.map((row: any) => row.key)).toEqual(
+      ["foundation", "shell-dry-in", "interior-finish"],
+    );
     expect(settings.templates[0].milestones[0].submilestones).toHaveLength(2);
     expect(
       settings.templates[0].scenarios.map((row: any) => row.scenarioKey).sort(),
@@ -1113,7 +1143,9 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.getProductionProposalSettings,
       { workosOrganizationId: ORG },
     );
-    expect(settings.templates.map((template: any) => template.templateKey)).toEqual([
+    expect(
+      settings.templates.map((template: any) => template.templateKey),
+    ).toEqual([
       "single-family-full-build",
       "single-family-renovation",
       "multiplex-build",
@@ -1139,15 +1171,17 @@ describe("production proposal foundation", () => {
       name: "Standard reimbursement",
       scenarioKey: "standard-reimbursement",
     });
-    expect(fullBuild.milestones.map((milestone: any) => milestone.key)).toEqual([
-      "site-prep",
-      "framing",
-      "rough-in",
-      "exterior",
-      "drywall",
-      "finishes",
-      "closeout",
-    ]);
+    expect(fullBuild.milestones.map((milestone: any) => milestone.key)).toEqual(
+      [
+        "site-prep",
+        "framing",
+        "rough-in",
+        "exterior",
+        "drywall",
+        "finishes",
+        "closeout",
+      ],
+    );
     expect(fullBuild.milestones[0]).toMatchObject({
       durationDays: 14,
       name: "Site prep & foundation",
@@ -1174,19 +1208,22 @@ describe("production proposal foundation", () => {
       (template: any) => template.templateKey === "4-plex",
     );
     expect(fourPlex).toMatchObject({
-      summary: "8 milestones, 36 budget line items, 100.00% PoC, 160 field days",
+      summary:
+        "8 milestones, 36 budget line items, 100.00% PoC, 160 field days",
       title: "4-plex",
     });
-    expect(fourPlex.milestones.map((milestone: any) => milestone.name)).toEqual([
-      "Draw/Milestone 1 - Permits, demo & foundation",
-      "Draw/Milestone 2 - Underground, framing & roof",
-      "Draw/Milestone 3 - Service upgrade & envelope",
-      "Draw/Milestone 4 - MEP rough-ins",
-      "Draw/Milestone 5 - Insulation, drywall & stairs",
-      "Draw/Milestone 6 - Tile, flooring & trim",
-      "Draw/Milestone 7 - Kitchen, appliances, paint & labour",
-      "Draw/Milestone 8 - Landscaping, misc, insurance & management",
-    ]);
+    expect(fourPlex.milestones.map((milestone: any) => milestone.name)).toEqual(
+      [
+        "Draw/Milestone 1 - Permits, demo & foundation",
+        "Draw/Milestone 2 - Underground, framing & roof",
+        "Draw/Milestone 3 - Service upgrade & envelope",
+        "Draw/Milestone 4 - MEP rough-ins",
+        "Draw/Milestone 5 - Insulation, drywall & stairs",
+        "Draw/Milestone 6 - Tile, flooring & trim",
+        "Draw/Milestone 7 - Kitchen, appliances, paint & labour",
+        "Draw/Milestone 8 - Landscaping, misc, insurance & management",
+      ],
+    );
     expect(
       fourPlex.milestones.reduce(
         (total: number, milestone: any) => total + milestone.percentageBps,
@@ -1203,7 +1240,9 @@ describe("production proposal foundation", () => {
         return subTotal === milestone.percentageBps;
       }),
     ).toBe(true);
-    expect(fourPlex.milestones[0].submilestones.map((row: any) => row.name)).toEqual([
+    expect(
+      fourPlex.milestones[0].submilestones.map((row: any) => row.name),
+    ).toEqual([
       "DC/ED",
       "PERMITS",
       "DRAWINGS",
@@ -1297,8 +1336,7 @@ describe("production proposal foundation", () => {
     );
     expect(
       secondSettings.templates.find(
-        (template: any) =>
-          template.templateKey === "single-family-full-build",
+        (template: any) => template.templateKey === "single-family-full-build",
       ).milestones,
     ).toHaveLength(7);
   });
@@ -1319,33 +1357,37 @@ describe("production proposal foundation", () => {
     const [standardScenario, ...otherScenarios] = fullBuild.scenarios;
 
     await t.mutation(
-      (api as any).production_proposals.saveProductionProposalTemplateConfiguration,
+      (api as any).production_proposals
+        .saveProductionProposalTemplateConfiguration,
       {
-        milestones: fullBuild.milestones.map((milestone: any, index: number) => ({
-          dependencyKeys: milestone.dependencyKeys,
-          durationDays: milestone.key === "site-prep" ? 15 : milestone.durationDays,
-          icon: milestone.icon,
-          included: true,
-          milestoneKey: milestone.key,
-          name:
-            milestone.key === "site-prep"
-              ? "Site prep, utilities & foundation"
-              : milestone.name,
-          order: index,
-          percentageBps: milestone.percentageBps,
-          siteVisitGuidance: milestone.siteVisitGuidance,
-          submilestones: milestone.submilestones.map(
-            (submilestone: any, subIndex: number) => ({
-              description: submilestone.description,
-              durationDays: submilestone.durationDays,
-              name: submilestone.name,
-              order: subIndex,
-              percentageBps: submilestone.percentageBps,
-              submilestoneKey: submilestone.key,
-            }),
-          ),
-          type: milestone.archetypeKey,
-        })),
+        milestones: fullBuild.milestones.map(
+          (milestone: any, index: number) => ({
+            dependencyKeys: milestone.dependencyKeys,
+            durationDays:
+              milestone.key === "site-prep" ? 15 : milestone.durationDays,
+            icon: milestone.icon,
+            included: true,
+            milestoneKey: milestone.key,
+            name:
+              milestone.key === "site-prep"
+                ? "Site prep, utilities & foundation"
+                : milestone.name,
+            order: index,
+            percentageBps: milestone.percentageBps,
+            siteVisitGuidance: milestone.siteVisitGuidance,
+            submilestones: milestone.submilestones.map(
+              (submilestone: any, subIndex: number) => ({
+                description: submilestone.description,
+                durationDays: submilestone.durationDays,
+                name: submilestone.name,
+                order: subIndex,
+                percentageBps: submilestone.percentageBps,
+                submilestoneKey: submilestone.key,
+              }),
+            ),
+            type: milestone.archetypeKey,
+          }),
+        ),
         scenarios: [
           {
             description: "Backoffice-reviewed reimbursement cadence.",
@@ -1478,53 +1520,56 @@ describe("production proposal foundation", () => {
       },
     );
 
-    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
-      borrowerCoPayBps: 2_000,
-      borrowerWorkingCapitalLimitCents: 25_000_000,
-      lenderDrawPolicyLimitCents: 90_000_000,
-      milestones: [
-        {
-          budgetCents: 50_000_000,
-          dayEnd: 20,
-          dayStart: 0,
-          dependencyKeys: [],
-          durationDays: 20,
-          key: "foundation",
-          name: "Foundation",
-          order: 1,
-          submilestones: [
-            {
-              budgetCents: 20_000_000,
-              durationDays: 8,
-              key: "forms",
-              name: "Forms and pour",
-              order: 1,
-            },
-          ],
-        },
-        {
-          budgetCents: 75_000_000,
-          dayEnd: 48,
-          dayStart: 24,
-          dependencyKeys: ["foundation"],
-          durationDays: 24,
-          key: "framing",
-          name: "Framing",
-          order: 2,
-          submilestones: [
-            {
-              budgetCents: 30_000_000,
-              durationDays: 10,
-              key: "walls",
-              name: "Wall framing",
-              order: 1,
-            },
-          ],
-        },
-      ],
-      proposalId,
-      workosOrganizationId: ORG,
-    });
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerWorkingCapitalLimitCents: 25_000_000,
+        lenderDrawPolicyLimitCents: 90_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 20,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 20,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [
+              {
+                budgetCents: 20_000_000,
+                durationDays: 8,
+                key: "forms",
+                name: "Forms and pour",
+                order: 1,
+              },
+            ],
+          },
+          {
+            budgetCents: 75_000_000,
+            dayEnd: 48,
+            dayStart: 24,
+            dependencyKeys: ["foundation"],
+            durationDays: 24,
+            key: "framing",
+            name: "Framing",
+            order: 2,
+            submilestones: [
+              {
+                budgetCents: 30_000_000,
+                durationDays: 10,
+                key: "walls",
+                name: "Wall framing",
+                order: 1,
+              },
+            ],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
 
     const workspace = await t.query(
       (api as any).production_proposals.getProductionTimelineWorkspace,
@@ -1597,34 +1642,37 @@ describe("production proposal foundation", () => {
       },
     );
 
-    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
-      borrowerCoPayBps: 2_000,
-      borrowerWorkingCapitalLimitCents: 30_000_000,
-      documents: [
-        {
-          documentType: "permit",
-          fileName: "permit.pdf",
-          mimeType: "application/pdf",
-          sizeBytes: 512,
-        },
-      ],
-      lenderDrawPolicyLimitCents: 100_000_000,
-      milestones: [
-        {
-          budgetCents: 50_000_000,
-          dayEnd: 20,
-          dayStart: 0,
-          dependencyKeys: [],
-          durationDays: 20,
-          key: "foundation",
-          name: "Foundation",
-          order: 1,
-          submilestones: [],
-        },
-      ],
-      proposalId,
-      workosOrganizationId: ORG,
-    });
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerWorkingCapitalLimitCents: 30_000_000,
+        documents: [
+          {
+            documentType: "permit",
+            fileName: "permit.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 512,
+          },
+        ],
+        lenderDrawPolicyLimitCents: 100_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 20,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 20,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
     await t.mutation((api as any).production_proposals.submitProposal, {
       proposalId,
       workosOrganizationId: ORG,
@@ -1827,34 +1875,37 @@ describe("production proposal foundation", () => {
       },
     );
 
-    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
-      borrowerCoPayBps: 2_000,
-      borrowerWorkingCapitalLimitCents: 30_000_000,
-      documents: [
-        {
-          documentType: "permit",
-          fileName: "permit.pdf",
-          mimeType: "application/pdf",
-          sizeBytes: 512,
-        },
-      ],
-      lenderDrawPolicyLimitCents: 32_000_000,
-      milestones: [
-        {
-          budgetCents: 40_000_000,
-          dayEnd: 20,
-          dayStart: 0,
-          dependencyKeys: [],
-          durationDays: 20,
-          key: "foundation",
-          name: "Foundation",
-          order: 1,
-          submilestones: [],
-        },
-      ],
-      proposalId,
-      workosOrganizationId: ORG,
-    });
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerWorkingCapitalLimitCents: 30_000_000,
+        documents: [
+          {
+            documentType: "permit",
+            fileName: "permit.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 512,
+          },
+        ],
+        lenderDrawPolicyLimitCents: 32_000_000,
+        milestones: [
+          {
+            budgetCents: 40_000_000,
+            dayEnd: 20,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 20,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
 
     await t.mutation(
       (api as any).production_proposals.updateProductionTimelineMilestone,
@@ -1925,14 +1976,46 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
-    detail = await t.query((api as any).production_proposals.getProposalDetail, {
-      proposalId,
-      workosOrganizationId: ORG,
-    });
+    detail = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      {
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
     expect(detail.proposal.borrowerCoPayBps).toBe(2_500);
+    expect(detail.proposal.borrowerCoPayCents).toBe(15_000_000);
     expect(detail.proposal.lenderDrawPolicyLimitCents).toBe(45_000_000);
     expect(detail.milestones[0].drawAvailabilityCents).toBe(33_750_000);
     expect(detail.draws[0].amountCents).toBe(33_750_000);
+
+    await t.mutation(
+      (api as any).production_proposals.updateProductionProposalCoPayAmount,
+      {
+        borrowerCoPayCents: 12_345_678,
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    detail = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      {
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(detail.proposal.borrowerCoPayBps).toBe(2_058);
+    expect(detail.proposal.borrowerCoPayCents).toBe(12_345_678);
+    expect(detail.proposal.lenderDrawPolicyLimitCents).toBe(47_652_000);
+
+    await t.mutation(
+      (api as any).production_proposals.updateProductionProposalCoPayAmount,
+      {
+        borrowerCoPayCents: 15_000_000,
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
 
     await t.mutation(
       (api as any).production_proposals.updateProductionProposalInterestRate,
@@ -1942,10 +2025,13 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
-    detail = await t.query((api as any).production_proposals.getProposalDetail, {
-      proposalId,
-      workosOrganizationId: ORG,
-    });
+    detail = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      {
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
     expect(detail.proposal.interestAnnualBps).toBe(1_050);
 
     await t.mutation(
@@ -1957,10 +2043,13 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
-    detail = await t.query((api as any).production_proposals.getProposalDetail, {
-      proposalId,
-      workosOrganizationId: ORG,
-    });
+    detail = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      {
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
     expect(detail.proposal.totalBudgetCents).toBe(62_000_000);
     expect(detail.proposal.lenderDrawPolicyLimitCents).toBe(46_500_000);
 
@@ -1973,10 +2062,13 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
-    detail = await t.query((api as any).production_proposals.getProposalDetail, {
-      proposalId,
-      workosOrganizationId: ORG,
-    });
+    detail = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      {
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
     expect(detail.proposal.totalBudgetCents).toBe(55_000_000);
     expect(detail.proposal.lenderDrawPolicyLimitCents).toBe(41_250_000);
   });
@@ -1994,34 +2086,37 @@ describe("production proposal foundation", () => {
       },
     );
 
-    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
-      borrowerCoPayBps: 2_000,
-      borrowerWorkingCapitalLimitCents: 35_000_000,
-      documents: [
-        {
-          documentType: "permit",
-          fileName: "permit.pdf",
-          mimeType: "application/pdf",
-          sizeBytes: 512,
-        },
-      ],
-      lenderDrawPolicyLimitCents: 110_000_000,
-      milestones: [
-        {
-          budgetCents: 40_000_000,
-          dayEnd: 20,
-          dayStart: 0,
-          dependencyKeys: [],
-          durationDays: 20,
-          key: "foundation",
-          name: "Foundation",
-          order: 1,
-          submilestones: [],
-        },
-      ],
-      proposalId,
-      workosOrganizationId: ORG,
-    });
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerWorkingCapitalLimitCents: 35_000_000,
+        documents: [
+          {
+            documentType: "permit",
+            fileName: "permit.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 512,
+          },
+        ],
+        lenderDrawPolicyLimitCents: 110_000_000,
+        milestones: [
+          {
+            budgetCents: 40_000_000,
+            dayEnd: 20,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 20,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
 
     await t.mutation(
       (api as any).production_proposals.updateProductionTimelineMilestone,
@@ -2096,10 +2191,9 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.getProductionTimelineWorkspace,
       { proposalId, workosOrganizationId: ORG },
     );
-    expect(workspace.milestones.map((milestone: any) => milestone.milestoneKey)).toEqual([
-      "foundation",
-      "framing",
-    ]);
+    expect(
+      workspace.milestones.map((milestone: any) => milestone.milestoneKey),
+    ).toEqual(["foundation", "framing"]);
     expect(workspace.milestones[0]).toMatchObject({
       budgetCents: 42_000_000,
       name: "Foundation revised",
@@ -2117,11 +2211,14 @@ describe("production proposal foundation", () => {
       ]),
     );
 
-    await t.mutation((api as any).production_proposals.deleteProductionTimelineDraw, {
-      drawKey: "manual-draw-framing",
-      proposalId,
-      workosOrganizationId: ORG,
-    });
+    await t.mutation(
+      (api as any).production_proposals.deleteProductionTimelineDraw,
+      {
+        drawKey: "manual-draw-framing",
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
     await t.mutation(
       (api as any).production_proposals.deleteProductionTimelineMilestone,
       {
@@ -2134,9 +2231,9 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.getProductionTimelineWorkspace,
       { proposalId, workosOrganizationId: ORG },
     );
-    expect(workspace.milestones.map((milestone: any) => milestone.milestoneKey)).toEqual([
-      "foundation",
-    ]);
+    expect(
+      workspace.milestones.map((milestone: any) => milestone.milestoneKey),
+    ).toEqual(["foundation"]);
     expect(workspace.draws.map((draw: any) => draw.drawKey)).not.toContain(
       "manual-draw-framing",
     );
@@ -2180,7 +2277,9 @@ describe("production proposal foundation", () => {
             order: 2,
             policyState: "Admin approval required",
             status: "ready",
-            submilestones: [{ key: "porch-scope", name: "Porch scope", order: 1 }],
+            submilestones: [
+              { key: "porch-scope", name: "Porch scope", order: 1 },
+            ],
             x: 30,
           },
         },
@@ -2189,7 +2288,8 @@ describe("production proposal foundation", () => {
       },
     );
     await t.mutation(
-      (api as any).production_proposals.reviewProductionTimelineModificationRequest,
+      (api as any).production_proposals
+        .reviewProductionTimelineModificationRequest,
       {
         note: "Approved as buyer-paid change order.",
         requestId: request.requestId,
@@ -2205,9 +2305,9 @@ describe("production proposal foundation", () => {
       reviewNote: "Approved as buyer-paid change order.",
       status: "approved",
     });
-    expect(workspace.milestones.map((milestone: any) => milestone.milestoneKey)).toContain(
-      "porch",
-    );
+    expect(
+      workspace.milestones.map((milestone: any) => milestone.milestoneKey),
+    ).toContain("porch");
 
     const detail = await t.query(
       (api as any).production_proposals.getProposalDetail,
@@ -2241,56 +2341,62 @@ describe("production proposal foundation", () => {
       },
     );
 
-    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
-      borrowerCoPayBps: 2_000,
-      borrowerWorkingCapitalLimitCents: 35_000_000,
-      documents: [
-        {
-          documentType: "permit",
-          fileName: "workspace-permit.pdf",
-          mimeType: "application/pdf",
-          sizeBytes: 512,
-        },
-      ],
-      lenderDrawPolicyLimitCents: 55_000_000,
-      milestones: [
-        {
-          budgetCents: 50_000_000,
-          dayEnd: 20,
-          dayStart: 0,
-          dependencyKeys: [],
-          durationDays: 20,
-          key: "foundation",
-          name: "Foundation",
-          order: 1,
-          submilestones: [
-            {
-              budgetCents: 25_000_000,
-              durationDays: 10,
-              key: "excavation",
-              name: "Excavation",
-              order: 1,
-            },
-          ],
-        },
-      ],
-      proposalId,
-      workosOrganizationId: ORG,
-    });
-    await t.mutation((api as any).production_proposals.createProductionTimelineEvidenceAsset, {
-      asset: {
-        evidenceKey: "foundation-site-photo",
-        fileName: "foundation-site-photo.jpg",
-        label: "Foundation site photo",
-        locationVerified: true,
-        milestoneKey: "foundation",
-        mimeType: "image/jpeg",
-        sizeBytes: 2048,
-        tag: "site-photo",
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerWorkingCapitalLimitCents: 35_000_000,
+        documents: [
+          {
+            documentType: "permit",
+            fileName: "workspace-permit.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 512,
+          },
+        ],
+        lenderDrawPolicyLimitCents: 55_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 20,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 20,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [
+              {
+                budgetCents: 25_000_000,
+                durationDays: 10,
+                key: "excavation",
+                name: "Excavation",
+                order: 1,
+              },
+            ],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
       },
-      proposalId,
-      workosOrganizationId: ORG,
-    });
+    );
+    await t.mutation(
+      (api as any).production_proposals.createProductionTimelineEvidenceAsset,
+      {
+        asset: {
+          evidenceKey: "foundation-site-photo",
+          fileName: "foundation-site-photo.jpg",
+          label: "Foundation site photo",
+          locationVerified: true,
+          milestoneKey: "foundation",
+          mimeType: "image/jpeg",
+          sizeBytes: 2048,
+          tag: "site-photo",
+        },
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
     await t.mutation((api as any).production_proposals.submitProposal, {
       proposalId,
       workosOrganizationId: ORG,
@@ -2326,7 +2432,8 @@ describe("production proposal foundation", () => {
     );
     await expect(
       builder.mutation(
-        (api as any).production_proposals.reviewActiveBuildFacilityChangeRequest,
+        (api as any).production_proposals
+          .reviewActiveBuildFacilityChangeRequest,
         {
           requestId: principalRequestId,
           status: "approved",
@@ -2505,9 +2612,9 @@ describe("production proposal foundation", () => {
       evidenceState: "Approved",
       status: "complete",
     });
-    expect(workspace.quickActionEvents.map((event: any) => event.eventType)).toEqual(
-      expect.arrayContaining(["active_build.milestone.approved"]),
-    );
+    expect(
+      workspace.quickActionEvents.map((event: any) => event.eventType),
+    ).toEqual(expect.arrayContaining(["active_build.milestone.approved"]));
     expect(workspace.auditEvents.map((event: any) => event.eventType)).toEqual(
       expect.arrayContaining([
         "active_build.created",
@@ -2539,34 +2646,37 @@ describe("production proposal foundation", () => {
       },
     );
 
-    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
-      borrowerCoPayBps: 2_000,
-      borrowerWorkingCapitalLimitCents: 35_000_000,
-      documents: [
-        {
-          documentType: "permit",
-          fileName: "start-work-permit.pdf",
-          mimeType: "application/pdf",
-          sizeBytes: 512,
-        },
-      ],
-      lenderDrawPolicyLimitCents: 55_000_000,
-      milestones: [
-        {
-          budgetCents: 50_000_000,
-          dayEnd: 20,
-          dayStart: 0,
-          dependencyKeys: [],
-          durationDays: 20,
-          key: "foundation",
-          name: "Foundation",
-          order: 1,
-          submilestones: [],
-        },
-      ],
-      proposalId,
-      workosOrganizationId: ORG,
-    });
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerWorkingCapitalLimitCents: 35_000_000,
+        documents: [
+          {
+            documentType: "permit",
+            fileName: "start-work-permit.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 512,
+          },
+        ],
+        lenderDrawPolicyLimitCents: 55_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 20,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 20,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
     await t.mutation((api as any).production_proposals.submitProposal, {
       proposalId,
       workosOrganizationId: ORG,
@@ -2683,18 +2793,24 @@ describe("production proposal foundation", () => {
       reviewOutcome: "none",
       status: "submitted",
     });
-    expect(scenarios.byName["Seed Scenario - Approved With Permit"]).toMatchObject({
+    expect(
+      scenarios.byName["Seed Scenario - Approved With Permit"],
+    ).toMatchObject({
       reviewOutcome: "approved",
       status: "approved",
     });
-    expect(scenarios.byName["Seed Scenario - Approved With Waiver"]).toMatchObject({
+    expect(
+      scenarios.byName["Seed Scenario - Approved With Waiver"],
+    ).toMatchObject({
       reviewOutcome: "approved",
       status: "approved",
     });
-    expect(scenarios.byName["Seed Scenario - Requested Changes"]).toMatchObject({
-      reviewOutcome: "requested_changes",
-      status: "draft",
-    });
+    expect(scenarios.byName["Seed Scenario - Requested Changes"]).toMatchObject(
+      {
+        reviewOutcome: "requested_changes",
+        status: "draft",
+      },
+    );
     expect(scenarios.byName["Seed Scenario - Rejected"]).toMatchObject({
       reviewOutcome: "rejected",
       status: "submitted",
@@ -2713,9 +2829,7 @@ describe("production proposal foundation", () => {
     expect(scenarios.contractors[0]).toMatchObject({
       name: "Seed Scenario Contractor LLC",
     });
-    expect(
-      scenarios.events.map((event: any) => event.eventType),
-    ).toEqual(
+    expect(scenarios.events.map((event: any) => event.eventType)).toEqual(
       expect.arrayContaining([
         "proposal.submitted",
         "proposal.approved",
@@ -2724,9 +2838,9 @@ describe("production proposal foundation", () => {
         "proposal.closed",
       ]),
     );
-    expect(
-      scenarios.outbox.map((event: any) => event.eventType),
-    ).toContain("active_build.created");
+    expect(scenarios.outbox.map((event: any) => event.eventType)).toContain(
+      "active_build.created",
+    );
     expect(scenarios.demoBuilds).toHaveLength(0);
     expect(scenarios.demoProposalDrafts).toHaveLength(0);
   });
@@ -2830,13 +2944,16 @@ describe("production proposal foundation", () => {
       }),
     ]);
 
-    await t.mutation((api as any).production_proposals.assignActiveBuildSiteVisit, {
-      buildId,
-      milestoneKey: "foundation",
-      note: "Verify completion claim.",
-      requestedDay: 31,
-      workosOrganizationId: ORG,
-    });
+    await t.mutation(
+      (api as any).production_proposals.assignActiveBuildSiteVisit,
+      {
+        buildId,
+        milestoneKey: "foundation",
+        note: "Verify completion claim.",
+        requestedDay: 31,
+        workosOrganizationId: ORG,
+      },
+    );
 
     const dashboardAfterSiteVisit = await t.query(
       (api as any).production_proposals.getBackofficeDashboard,
@@ -2884,26 +3001,29 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
-    await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
-      borrowerCoPayBps: 2_000,
-      borrowerWorkingCapitalLimitCents: 40_000_000,
-      lenderDrawPolicyLimitCents: 55_000_000,
-      milestones: [
-        {
-          budgetCents: 50_000_000,
-          dayEnd: 30,
-          dayStart: 0,
-          dependencyKeys: [],
-          durationDays: 30,
-          key: "foundation",
-          name: "Foundation",
-          order: 1,
-          submilestones: [],
-        },
-      ],
-      proposalId,
-      workosOrganizationId: ORG,
-    });
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerWorkingCapitalLimitCents: 40_000_000,
+        lenderDrawPolicyLimitCents: 55_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 30,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 30,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
     await t.mutation((api as any).production_proposals.submitProposal, {
       proposalId,
       workosOrganizationId: ORG,
@@ -2938,7 +3058,8 @@ describe("production proposal foundation", () => {
     ).toEqual([proposalId]);
     await expect(
       broker.mutation(
-        (api as any).production_proposals.updateSubmittedProposalDrawScheduleRow,
+        (api as any).production_proposals
+          .updateSubmittedProposalDrawScheduleRow,
         {
           drawKey: "draw-01",
           label: "Broker unassigned edit",
@@ -2964,7 +3085,8 @@ describe("production proposal foundation", () => {
     });
     await expect(
       broker.mutation(
-        (api as any).production_proposals.updateSubmittedProposalDrawScheduleRow,
+        (api as any).production_proposals
+          .updateSubmittedProposalDrawScheduleRow,
         {
           drawKey: "draw-01",
           label: "Assigned broker edit",
@@ -3132,14 +3254,11 @@ describe("draft builder assignment and deletion", () => {
       builderName: "Unassigned builder",
     });
 
-    await admin.mutation(
-      (api as any).production_proposals.assignDraftBuilder,
-      {
-        builderProfileId: seed.builderProfileId,
-        proposalId,
-        workosOrganizationId: ORG,
-      },
-    );
+    await admin.mutation((api as any).production_proposals.assignDraftBuilder, {
+      builderProfileId: seed.builderProfileId,
+      proposalId,
+      workosOrganizationId: ORG,
+    });
 
     const after = await admin.query(
       (api as any).production_proposals.listProposalKanban,
@@ -3156,9 +3275,9 @@ describe("draft builder assignment and deletion", () => {
       { proposalId, workosOrganizationId: ORG },
     );
     expect(detail.proposal.builderProfileId).toBe(seed.builderProfileId);
-    expect(
-      detail.auditEvents.map((event: any) => event.eventType),
-    ).toContain("proposal.builder_assigned");
+    expect(detail.auditEvents.map((event: any) => event.eventType)).toContain(
+      "proposal.builder_assigned",
+    );
   });
 
   test("creates a builder claim link and claims an unassigned draft into a builder profile", async () => {
