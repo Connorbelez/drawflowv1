@@ -2034,6 +2034,54 @@ describe("production proposal foundation", () => {
     );
     expect(detail.proposal.interestAnnualBps).toBe(1_050);
 
+    const drawAmountBeforeApprovedEdit = detail.draws[0].amountCents;
+    await t.mutation(
+      (api as any).production_proposals.updateProductionProposalApprovedAmount,
+      {
+        approvedAmountCents: 30_000_000,
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    detail = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      {
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(detail.proposal.lenderDrawPolicyLimitCents).toBe(
+      drawAmountBeforeApprovedEdit,
+    );
+    expect(detail.draws[0].amountCents).toBe(drawAmountBeforeApprovedEdit);
+
+    await t.mutation(
+      (api as any).production_proposals.updateProductionProposalApprovedAmount,
+      {
+        approvedAmountCents: 50_000_000,
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    detail = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      {
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(detail.proposal.lenderDrawPolicyLimitCents).toBe(50_000_000);
+    expect(detail.draws[0].amountCents).toBe(drawAmountBeforeApprovedEdit);
+
+    await t.mutation(
+      (api as any).production_proposals.updateProductionProposalCoPayAmount,
+      {
+        borrowerCoPayCents: 15_000_000,
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+
     await t.mutation(
       (api as any).production_proposals.updateProductionTimelineCapitalEvent,
       {

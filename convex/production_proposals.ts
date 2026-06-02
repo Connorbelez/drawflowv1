@@ -741,11 +741,13 @@ export const saveDraftProposalPackage = authenticatedMutation
         auth.subject,
       );
     }
-    if (args.borrowerCoPayBps < 0 || args.borrowerCoPayBps > 10_000) {
-      throw new Error("Borrower co-pay bps must be between 0 and 10000.");
-    }
     if (args.milestones.length === 0) {
       throw new Error("At least one milestone is required.");
+    }
+    if (args.borrowerCoPayBps < 0 || args.borrowerCoPayBps > 10_000) {
+      throw new Error(
+        "Proposal capital share must be between 0 and 10000 bps.",
+      );
     }
 
     const now = Date.now();
@@ -1611,6 +1613,10 @@ export const updateSubmittedProposalDrawScheduleRow = authenticatedMutation
       updatedAt: now,
       updatedByWorkosUserId: auth.subject,
     });
+    await ensureProposalApprovedAmountCoversDrawSchedule(ctx, auth.proposal, {
+      updatedAt: now,
+      updatedByWorkosUserId: auth.subject,
+    });
     await writeProposalEvent(ctx, {
       auth,
       command: "updateSubmittedProposalDrawScheduleRow",
@@ -2293,6 +2299,10 @@ export const createProductionTimelineDraw = authenticatedMutation
       timingDay: Math.max(0, Math.round(args.x)),
       updatedAt: now,
     });
+    await ensureProposalApprovedAmountCoversDrawSchedule(ctx, auth.proposal, {
+      updatedAt: now,
+      updatedByWorkosUserId: auth.subject,
+    });
     await writeProposalEvent(ctx, {
       auth,
       command: "createProductionTimelineDraw",
@@ -2338,6 +2348,7 @@ export const updateProductionTimelineDraw = authenticatedMutation
             args.proposalId,
             args.itemMilestoneKey,
           );
+    const now = Date.now();
     const patch = {
       ...(args.amountCents === undefined
         ? {}
@@ -2358,9 +2369,13 @@ export const updateProductionTimelineDraw = authenticatedMutation
       ...(args.x === undefined
         ? {}
         : { customDate: true, timingDay: Math.max(0, Math.round(args.x)) }),
-      updatedAt: Date.now(),
+      updatedAt: now,
     };
     await ctx.db.patch(draw._id, patch);
+    await ensureProposalApprovedAmountCoversDrawSchedule(ctx, auth.proposal, {
+      updatedAt: now,
+      updatedByWorkosUserId: auth.subject,
+    });
     await writeProposalEvent(ctx, {
       auth,
       command: "updateProductionTimelineDraw",
@@ -2396,7 +2411,12 @@ export const deleteProductionTimelineDraw = authenticatedMutation
     if (draw.requestStatus === "approved") {
       throw new Error("Approved reimbursement draws cannot be deleted.");
     }
+    const now = Date.now();
     await ctx.db.delete(draw._id);
+    await ensureProposalApprovedAmountCoversDrawSchedule(ctx, auth.proposal, {
+      updatedAt: now,
+      updatedByWorkosUserId: auth.subject,
+    });
     await writeProposalEvent(ctx, {
       auth,
       command: "deleteProductionTimelineDraw",
@@ -2627,7 +2647,7 @@ export const updateProductionProposalCoPayAmount = authenticatedMutation
       args.proposalId,
     );
     if (totalBudgetCents <= 0) {
-      throw new Error("Add proposal budget before editing co-pay amount.");
+      throw new Error("Add proposal budget before editing approved amount.");
     }
     const borrowerCoPayCents = Math.max(
       0,
@@ -2676,6 +2696,83 @@ export const updateProductionProposalCoPayAmount = authenticatedMutation
         borrowerCoPayBps,
         borrowerCoPayCents,
         totalBudgetCents,
+      }),
+      priorState,
+      proposalId: args.proposalId,
+    });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
+    return null;
+  })
+  .public();
+
+export const updateProductionProposalApprovedAmount = authenticatedMutation
+  .input({
+    approvedAmountCents: v.number(),
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    await requireProductionProposalPreLiveCapitalWrite(ctx, auth);
+    const totalBudgetCents = await recalculateProposalBudget(
+      ctx,
+      auth,
+      args.proposalId,
+    );
+    if (totalBudgetCents <= 0) {
+      throw new Error("Add proposal budget before editing approved amount.");
+    }
+    const totalDrawAmountCents = await sumProposalDrawScheduleAmountCents(
+      ctx,
+      args.proposalId,
+    );
+    const approvedAmountCents = normalizeProposalApprovedAmountCents({
+      requestedApprovedAmountCents: args.approvedAmountCents,
+      totalDrawAmountCents,
+    });
+    const borrowerCoPayCents = Math.max(
+      0,
+      totalBudgetCents - approvedAmountCents,
+    );
+    const borrowerCoPayBps = Math.max(
+      0,
+      Math.min(
+        10_000,
+        Math.round((borrowerCoPayCents * 10_000) / totalBudgetCents),
+      ),
+    );
+    const priorState = JSON.stringify({
+      approvedAmountCents: auth.proposal.lenderDrawPolicyLimitCents,
+      borrowerCoPayBps: auth.proposal.borrowerCoPayBps,
+      borrowerCoPayCents: auth.proposal.borrowerCoPayCents,
+      totalBudgetCents,
+      totalDrawAmountCents,
+    });
+    const now = Date.now();
+
+    await ctx.db.patch(args.proposalId, {
+      borrowerCoPayBps,
+      borrowerCoPayCents,
+      lenderDrawPolicyLimitCents: approvedAmountCents,
+      updatedAt: now,
+      updatedByWorkosUserId: auth.subject,
+    });
+    await upsertKanbanCard(ctx, args.proposalId, now);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "updateProductionProposalApprovedAmount",
+      eventType: "proposal.approved_amount.updated",
+      newState: JSON.stringify({
+        approvedAmountCents,
+        borrowerCoPayBps,
+        borrowerCoPayCents,
+        totalBudgetCents,
+        totalDrawAmountCents,
       }),
       priorState,
       proposalId: args.proposalId,
@@ -12650,6 +12747,62 @@ function calculateDrawAvailability(
   return Math.round((budgetCents * (10_000 - borrowerCoPayBps)) / 10_000);
 }
 
+function normalizeProposalApprovedAmountCents(input: {
+  requestedApprovedAmountCents: number;
+  totalDrawAmountCents: number;
+}) {
+  const requestedApprovedAmountCents = Math.max(
+    0,
+    Math.round(input.requestedApprovedAmountCents),
+  );
+  return Math.max(
+    Math.max(0, Math.round(input.totalDrawAmountCents)),
+    requestedApprovedAmountCents,
+  );
+}
+
+async function ensureProposalApprovedAmountCoversDrawSchedule(
+  ctx: MutationCtx,
+  proposal: Doc<"buildProposals">,
+  input: { updatedAt: number; updatedByWorkosUserId: string },
+) {
+  const totalDrawAmountCents = await sumProposalDrawScheduleAmountCents(
+    ctx,
+    proposal._id,
+  );
+  const nextApprovedAmountCents = Math.max(
+    proposal.lenderDrawPolicyLimitCents,
+    totalDrawAmountCents,
+  );
+
+  if (nextApprovedAmountCents === proposal.lenderDrawPolicyLimitCents) {
+    return;
+  }
+
+  await ctx.db.patch(proposal._id, {
+    lenderDrawPolicyLimitCents: nextApprovedAmountCents,
+    updatedAt: input.updatedAt,
+    updatedByWorkosUserId: input.updatedByWorkosUserId,
+  });
+}
+
+async function sumProposalDrawScheduleAmountCents(
+  ctx: QueryCtx | MutationCtx,
+  proposalId: Id<"buildProposals">,
+) {
+  const draws = await collectByIndex(
+    ctx,
+    "proposalDrawScheduleRows",
+    "by_proposal",
+    proposalId,
+  );
+  return draws.reduce(
+    (total: number, draw: Doc<"proposalDrawScheduleRows">) =>
+      total + Math.max(0, Math.round(draw.amountCents)),
+    0,
+  );
+}
+
 function firstActiveMilestoneForWorkspace(
   milestones: Doc<"proposalMilestones">[],
 ) {
@@ -12842,7 +12995,9 @@ async function requireProductionProposalPreLiveCapitalWrite(
   },
 ) {
   if (auth.proposal.activeBuildId) {
-    throw new Error("Co-pay amount is locked after the build goes live.");
+    throw new Error(
+      "Proposal capital terms are locked after the build goes live.",
+    );
   }
   if (auth.proposal.status === "draft") {
     if (isBackoffice(auth.roles)) {
@@ -12866,7 +13021,7 @@ async function requireProductionProposalPreLiveCapitalWrite(
     await assertProposalCollaborationEditAllowed(ctx, auth);
     return;
   }
-  throw new Error("Co-pay amount is locked in this proposal state.");
+  throw new Error("Proposal capital terms are locked in this proposal state.");
 }
 
 async function requireProductionTimelineDraftStructureWrite(

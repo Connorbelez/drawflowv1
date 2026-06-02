@@ -79,7 +79,7 @@ const proposalDetail = {
 };
 
 describe("ProductionProposalPackageSurface", () => {
-  test("renders all proposal package sections and bps co-pay semantics", () => {
+  test("renders all proposal package sections with approved amount semantics", () => {
     render(
       <ProductionProposalPackageSurface
         detail={proposalDetail}
@@ -95,7 +95,8 @@ describe("ProductionProposalPackageSurface", () => {
     expect(screen.getByText("Draw schedule")).toBeTruthy();
     expect(screen.getByText("Readiness warnings")).toBeTruthy();
     expect(screen.getByText("Submit proposal")).toBeTruthy();
-    expect(screen.getByText("20.00% / 2000 bps")).toBeTruthy();
+    expect(screen.getByText("Approved amount")).toBeTruthy();
+    expect(screen.queryByText("Borrower co-pay")).toBeNull();
   });
 });
 
@@ -118,8 +119,8 @@ describe("ProductionProposalDraftEditorSurface", () => {
     fireEvent.change(screen.getByLabelText("Build location"), {
       target: { value: "456 Updated Street" },
     });
-    fireEvent.change(screen.getByLabelText("Borrower co-pay bps"), {
-      target: { value: "2500" },
+    fireEvent.change(screen.getByLabelText("Approved amount cents"), {
+      target: { value: "45000000" },
     });
     fireEvent.change(screen.getByLabelText("Foundation budget"), {
       target: { value: "60000000" },
@@ -513,7 +514,7 @@ describe("ProductionProposalReviewSurface", () => {
   });
 
   test("shows header budget totals and saves editable proposal terms before live build", async () => {
-    const onUpdateCoPayAmount = vi.fn().mockResolvedValue(undefined);
+    const onUpdateApprovedAmount = vi.fn().mockResolvedValue(undefined);
     const onUpdateInterestRate = vi.fn().mockResolvedValue(undefined);
 
     render(
@@ -521,10 +522,17 @@ describe("ProductionProposalReviewSurface", () => {
         detail={{
           ...proposalDetail,
           activeBuild: null,
+          draws: [
+            {
+              ...proposalDetail.draws[0],
+              amountCents: 80_000_500,
+            },
+          ],
           proposal: {
             ...proposalDetail.proposal,
             borrowerCoPayBps: 1_999,
             borrowerCoPayCents: 21_040_000,
+            lenderDrawPolicyLimitCents: 75_997_600,
             status: "submitted",
             totalBudgetCents: 1_052_000_00,
           },
@@ -533,7 +541,7 @@ describe("ProductionProposalReviewSurface", () => {
         onClose={vi.fn()}
         onReject={vi.fn()}
         onRequestChanges={vi.fn()}
-        onUpdateCoPayAmount={onUpdateCoPayAmount}
+        onUpdateApprovedAmount={onUpdateApprovedAmount}
         onUpdateInterestRate={onUpdateInterestRate}
       />,
     );
@@ -541,24 +549,25 @@ describe("ProductionProposalReviewSurface", () => {
     expect(screen.getAllByText("Total budget").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$1,052,000").length).toBeGreaterThan(0);
     expect(screen.getByText("Total approved")).toBeTruthy();
-    expect(screen.getByText("$841,600")).toBeTruthy();
+    expect(screen.getAllByText("$800,005").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Co-pay amount")).toBeNull();
     expect(screen.getByText("Interest rate")).toBeTruthy();
     expect(screen.getByText("9.25%")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Co-pay amount" }));
-    const coPayInput = await waitFor(() => {
+    fireEvent.click(screen.getByRole("button", { name: "Total approved" }));
+    const approvedAmountInput = await waitFor(() => {
       const input = document.querySelector<HTMLInputElement>(
-        'input[aria-label="Co-pay amount"]',
+        'input[aria-label="Total approved"]',
       );
       expect(input).toBeTruthy();
       return input;
     });
-    expect((coPayInput as HTMLInputElement).value).toBe("210400");
-    fireEvent.change(coPayInput, { target: { value: "211111" } });
-    fireEvent.keyDown(coPayInput, { key: "Enter" });
+    expect((approvedAmountInput as HTMLInputElement).value).toBe("800005");
+    fireEvent.change(approvedAmountInput, { target: { value: "873080" } });
+    fireEvent.keyDown(approvedAmountInput, { key: "Enter" });
 
     await waitFor(() =>
-      expect(onUpdateCoPayAmount).toHaveBeenCalledWith(21_111_100),
+      expect(onUpdateApprovedAmount).toHaveBeenCalledWith(87_308_000),
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Interest rate" }));
@@ -899,8 +908,12 @@ describe("ProductionProposalReviewSurface", () => {
     fireEvent.change(screen.getByLabelText("draw-01 label"), {
       target: { value: "Foundation verified reimbursement" },
     });
-    fireEvent.change(screen.getByLabelText("Amount cents"), {
-      target: { value: "35000000" },
+    const amountInput = screen.getByLabelText(
+      "Amount dollars",
+    ) as HTMLInputElement;
+    expect(amountInput.value).toBe("400000");
+    fireEvent.change(amountInput, {
+      target: { value: "$350,000.25" },
     });
     fireEvent.change(screen.getByLabelText("Timing day"), {
       target: { value: "28" },
@@ -908,7 +921,7 @@ describe("ProductionProposalReviewSurface", () => {
     fireEvent.click(screen.getByText("Save draw row"));
 
     expect(onUpdateDraw).toHaveBeenCalledWith("draw-01", {
-      amountCents: 35_000_000,
+      amountCents: 35_000_025,
       label: "Foundation verified reimbursement",
       reason: "Adjusted after lender review.",
       timingDay: 28,

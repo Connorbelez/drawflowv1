@@ -371,9 +371,6 @@ export function ProductionProposalDraftEditorSurface({
   };
   const [buildName, setBuildName] = useState(proposal.buildName);
   const [location, setLocation] = useState(proposal.location);
-  const [borrowerCoPayBps, setBorrowerCoPayBps] = useState(
-    String(proposal.borrowerCoPayBps),
-  );
   const [
     borrowerWorkingCapitalLimitCents,
     setBorrowerWorkingCapitalLimitCents,
@@ -403,18 +400,23 @@ export function ProductionProposalDraftEditorSurface({
   const [uploadError, setUploadError] = useState("");
 
   function save() {
+    const nextTotalBudgetCents = parseInteger(milestoneBudgetCents);
+    const nextApprovedAmountCents = parseInteger(lenderDrawPolicyLimitCents);
     onSave({
-      borrowerCoPayBps: parseInteger(borrowerCoPayBps),
+      borrowerCoPayBps: calculateUnapprovedBudgetBps(
+        nextTotalBudgetCents,
+        nextApprovedAmountCents,
+      ),
       borrowerWorkingCapitalLimitCents: parseInteger(
         borrowerWorkingCapitalLimitCents,
       ),
       buildName,
       documents,
-      lenderDrawPolicyLimitCents: parseInteger(lenderDrawPolicyLimitCents),
+      lenderDrawPolicyLimitCents: nextApprovedAmountCents,
       location,
       milestones: [
         {
-          budgetCents: parseInteger(milestoneBudgetCents),
+          budgetCents: nextTotalBudgetCents,
           dayEnd: initialMilestone.dayEnd,
           dayStart: initialMilestone.dayStart,
           dependencyKeys: initialMilestone.dependencyKeys ?? [],
@@ -510,19 +512,13 @@ export function ProductionProposalDraftEditorSurface({
           <div className="grid gap-3">
             <LabeledInput
               inputMode="numeric"
-              label="Borrower co-pay bps"
-              onChange={setBorrowerCoPayBps}
-              value={borrowerCoPayBps}
-            />
-            <LabeledInput
-              inputMode="numeric"
               label="Builder working capital cents"
               onChange={setBorrowerWorkingCapitalLimitCents}
               value={borrowerWorkingCapitalLimitCents}
             />
             <LabeledInput
               inputMode="numeric"
-              label="Lender draw policy limit cents"
+              label="Approved amount cents"
               onChange={setLenderDrawPolicyLimitCents}
               value={lenderDrawPolicyLimitCents}
             />
@@ -538,8 +534,8 @@ export function ProductionProposalDraftEditorSurface({
         </Section>
         <Section title="Draw schedule">
           <p className="text-muted-foreground text-sm">
-            Draw availability recalculates from milestone budget and borrower
-            co-pay bps on save.
+            Draw availability recalculates from the milestone budget and
+            approved amount on save.
           </p>
         </Section>
         <Section title="Documents">
@@ -747,10 +743,14 @@ export function ProductionProposalPackageSurface({
                   formatCents(proposal.borrowerWorkingCapitalLimitCents),
                 ],
                 [
-                  "Lender draw policy limit",
-                  formatCents(proposal.lenderDrawPolicyLimitCents),
+                  "Approved amount",
+                  formatCents(
+                    calculateProposalApprovedAmountCents(
+                      proposal,
+                      detail.draws,
+                    ),
+                  ),
                 ],
-                ["Borrower co-pay", formatBps(proposal.borrowerCoPayBps)],
               ]}
             />
           </Section>
@@ -1288,7 +1288,7 @@ export function ProductionProposalReviewSurface({
   onReject,
   onRequestChanges,
   onAssignBuilder,
-  onUpdateCoPayAmount,
+  onUpdateApprovedAmount,
   onUpdateInterestRate,
   onSaveCalendarView,
   onCreateClaimLink,
@@ -1332,8 +1332,8 @@ export function ProductionProposalReviewSurface({
   onReject: (reason: string) => Promise<unknown> | unknown;
   onRequestChanges: (reason: string) => Promise<unknown> | unknown;
   onAssignBuilder?: (builderProfileId: string) => Promise<unknown> | unknown;
-  onUpdateCoPayAmount?: (
-    borrowerCoPayCents: number,
+  onUpdateApprovedAmount?: (
+    approvedAmountCents: number,
   ) => Promise<unknown> | unknown;
   onUpdateInterestRate?: (
     interestAnnualBps: number,
@@ -1373,13 +1373,19 @@ export function ProductionProposalReviewSurface({
   >(null);
   const proposal = detail.proposal;
   const permit = detail.documents?.find((doc) => doc.documentType === "permit");
-  const canEditCoPayAmount =
-    Boolean(onUpdateCoPayAmount) &&
-    !detail.activeBuild &&
-    proposal.status !== "closed";
+  const canEditProposalCapitalTerms =
+    !detail.activeBuild && proposal.status !== "closed";
+  const canEditApprovedAmount =
+    Boolean(onUpdateApprovedAmount) && canEditProposalCapitalTerms;
+  const canEditInterestRate =
+    Boolean(onUpdateInterestRate) && canEditProposalCapitalTerms;
   const reviewReason = reason.trim();
   const permitWaiverReviewReason = permitWaiverReason.trim();
   const editableDraws = detail.draws ?? [];
+  const headerApprovedAmountCents = calculateProposalApprovedAmountCents(
+    proposal,
+    editableDraws,
+  );
   const milestoneRows = useMemo(
     () => productionProposalDetailToWorksheetRows(detail),
     [detail],
@@ -1535,8 +1541,10 @@ export function ProductionProposalReviewSurface({
               ))}
             </TabsList>
             <ProposalReviewHeaderSummary
-              canEditCoPayAmount={canEditCoPayAmount}
-              onUpdateCoPayAmount={onUpdateCoPayAmount}
+              approvedAmountCents={headerApprovedAmountCents}
+              canEditApprovedAmount={canEditApprovedAmount}
+              canEditInterestRate={canEditInterestRate}
+              onUpdateApprovedAmount={onUpdateApprovedAmount}
               onUpdateInterestRate={onUpdateInterestRate}
               proposal={proposal}
             />
@@ -1731,10 +1739,14 @@ export function ProductionProposalReviewSurface({
                       formatCents(proposal.borrowerWorkingCapitalLimitCents),
                     ],
                     [
-                      "Lender draw policy limit",
-                      formatCents(proposal.lenderDrawPolicyLimitCents),
+                      "Approved amount",
+                      formatCents(
+                        calculateProposalApprovedAmountCents(
+                          proposal,
+                          detail.draws,
+                        ),
+                      ),
                     ],
-                    ["Borrower co-pay", formatBps(proposal.borrowerCoPayBps)],
                   ]}
                 />
               </Section>
@@ -1886,46 +1898,49 @@ function productionProposalActionErrorMessage(error: unknown) {
 }
 
 function ProposalReviewHeaderSummary({
-  canEditCoPayAmount,
-  onUpdateCoPayAmount,
+  approvedAmountCents,
+  canEditApprovedAmount,
+  canEditInterestRate,
+  onUpdateApprovedAmount,
   onUpdateInterestRate,
   proposal,
 }: {
-  canEditCoPayAmount: boolean;
-  onUpdateCoPayAmount?: (
-    borrowerCoPayCents: number,
+  approvedAmountCents: number;
+  canEditApprovedAmount: boolean;
+  canEditInterestRate: boolean;
+  onUpdateApprovedAmount?: (
+    approvedAmountCents: number,
   ) => Promise<unknown> | unknown;
   onUpdateInterestRate?: (
     interestAnnualBps: number,
   ) => Promise<unknown> | unknown;
   proposal: ProductionProposal;
 }) {
-  const coPayCents = calculateProposalCoPayCents(proposal);
-  const approvedAmountCents = calculateProposalApprovedAmountCents(proposal);
-  const coPayDollars = Math.round(coPayCents / 100);
+  const approvedAmountDollars = approvedAmountCents / 100;
   const interestAnnualBps = proposal.interestAnnualBps ?? 925;
-  const [coPayPending, setCoPayPending] = useState(false);
+  const [approvedAmountPending, setApprovedAmountPending] = useState(false);
   const [interestPending, setInterestPending] = useState(false);
-  const canEditInterestRate =
-    Boolean(onUpdateInterestRate) && canEditCoPayAmount;
 
-  async function saveCoPayAmount(nextCoPayDollars: number) {
-    if (!onUpdateCoPayAmount) {
+  async function saveApprovedAmount(nextApprovedAmountDollars: number) {
+    if (!onUpdateApprovedAmount) {
       return;
     }
-    const nextCoPayCents = Math.max(0, Math.round(nextCoPayDollars * 100));
-    if (!Number.isFinite(nextCoPayCents)) {
-      toast.error("Enter a valid co-pay amount.");
+    const nextApprovedAmountCents = Math.max(
+      0,
+      Math.round(nextApprovedAmountDollars * 100),
+    );
+    if (!Number.isFinite(nextApprovedAmountCents)) {
+      toast.error("Enter a valid approved amount.");
       return;
     }
-    setCoPayPending(true);
+    setApprovedAmountPending(true);
     try {
-      await onUpdateCoPayAmount(nextCoPayCents);
-      toast.success("Co-pay amount updated.");
+      await onUpdateApprovedAmount(nextApprovedAmountCents);
+      toast.success("Approved amount updated.");
     } catch (error) {
       toast.error(productionProposalActionErrorMessage(error));
     } finally {
-      setCoPayPending(false);
+      setApprovedAmountPending(false);
     }
   }
 
@@ -1958,35 +1973,33 @@ function ProposalReviewHeaderSummary({
         label="Total budget"
         value={formatCents(proposal.totalBudgetCents)}
       />
-      <HeaderFinancialMetric
-        label="Total approved"
-        value={formatCents(approvedAmountCents)}
-      />
-      {canEditCoPayAmount ? (
+      {canEditApprovedAmount ? (
         <HeaderEditableMetric
-          label="Co-pay amount"
-          pending={coPayPending}
+          label="Total approved"
+          pending={approvedAmountPending}
           value={
             <EditableNumberChip
-              ariaLabel="Co-pay amount"
-              disabled={coPayPending}
+              ariaLabel="Total approved"
+              disabled={approvedAmountPending}
               formatDisplay={(value) => formatCents(value * 100)}
-              inputWidth="5.6rem"
+              formatDraft={(value) => String(Math.round(value * 100) / 100)}
+              inputMode="decimal"
+              inputWidth="5.8rem"
               min={0}
-              onCommit={(value) => void saveCoPayAmount(value)}
-              reserveWidth="7rem"
+              onCommit={(value) => void saveApprovedAmount(value)}
+              reserveWidth="7.4rem"
               size="metric-sm"
-              step={10_000}
-              testId="proposal-header-copay-chip"
-              value={coPayDollars}
+              step={1000}
+              testId="proposal-header-approved-amount-chip"
+              value={approvedAmountDollars}
               weight="semibold"
             />
           }
         />
       ) : (
         <HeaderFinancialMetric
-          label="Co-pay amount"
-          value={formatCents(coPayCents)}
+          label="Total approved"
+          value={formatCents(approvedAmountCents)}
         />
       )}
       {canEditInterestRate ? (
@@ -2687,7 +2700,8 @@ function DrawScheduleEditor({
     <div className="grid gap-4">
       {draws.map((draw) => {
         const amountValue =
-          drawAmounts[draw.drawKey] ?? String(draw.amountCents);
+          drawAmounts[draw.drawKey] ??
+          centsToDollarInputValue(draw.amountCents);
         const labelValue = drawLabels[draw.drawKey] ?? draw.label;
         const timingValue =
           drawTimingDays[draw.drawKey] ?? String(draw.timingDay);
@@ -2713,14 +2727,15 @@ function DrawScheduleEditor({
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="grid gap-2">
                 <Label htmlFor={`draw-amount-${draw.drawKey}`}>
-                  Amount cents
+                  Amount dollars
                 </Label>
                 <Input
                   id={`draw-amount-${draw.drawKey}`}
-                  inputMode="numeric"
+                  inputMode="decimal"
                   onChange={(event) =>
                     onAmountChange(draw.drawKey, event.target.value)
                   }
+                  placeholder="$0"
                   value={amountValue}
                 />
               </div>
@@ -2743,7 +2758,7 @@ function DrawScheduleEditor({
                 disabled={!canEditDraws}
                 onClick={() =>
                   onCommit(draw.drawKey, {
-                    amountCents: parseInteger(amountValue),
+                    amountCents: parseDollarAmountToCents(amountValue),
                     label: labelValue,
                     timingDay: parseInteger(timingValue),
                   })
@@ -2842,10 +2857,11 @@ function ProposalPacketSnapshot({
                 formatCents(proposal.borrowerWorkingCapitalLimitCents),
               ],
               [
-                "Lender draw policy limit",
-                formatCents(proposal.lenderDrawPolicyLimitCents),
+                "Approved amount",
+                formatCents(
+                  calculateProposalApprovedAmountCents(proposal, detail.draws),
+                ),
               ],
-              ["Borrower co-pay", formatBps(proposal.borrowerCoPayBps)],
             ]}
           />
         </Section>
@@ -3046,30 +3062,30 @@ function formatCents(cents: number) {
   }).format(cents / 100);
 }
 
+function centsToDollarInputValue(cents: number) {
+  const dollars = cents / 100;
+  return Number.isInteger(dollars) ? String(dollars) : dollars.toFixed(2);
+}
+
+function parseDollarAmountToCents(value: string) {
+  const normalized = value.replace(/[$,\s]/g, "");
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed * 100)) : 0;
+}
+
 function formatBps(bps: number) {
   return `${(bps / 100).toFixed(2)}% / ${bps} bps`;
 }
 
-function calculateProposalCoPayCents(proposal: ProductionProposal) {
-  if (Number.isFinite(proposal.borrowerCoPayCents)) {
-    return Math.max(
-      0,
-      Math.min(
-        proposal.totalBudgetCents,
-        Math.round(proposal.borrowerCoPayCents ?? 0),
-      ),
-    );
-  }
-  return Math.round(
-    (proposal.totalBudgetCents * proposal.borrowerCoPayBps) / 10_000,
-  );
-}
-
-function calculateProposalApprovedAmountCents(proposal: ProductionProposal) {
-  return Math.max(
+function calculateProposalApprovedAmountCents(
+  proposal: ProductionProposal,
+  draws: ProductionDraw[] = [],
+) {
+  const totalDrawnCents = draws.reduce(
+    (total, draw) => total + Math.max(0, Math.round(draw.amountCents)),
     0,
-    proposal.totalBudgetCents - calculateProposalCoPayCents(proposal),
   );
+  return Math.max(0, proposal.lenderDrawPolicyLimitCents, totalDrawnCents);
 }
 
 function formatInterestAnnualBps(value: number) {
@@ -3094,6 +3110,29 @@ function parseInterestRateDraftToBps(value: string, fallback: number) {
 function parseInteger(value: string) {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function calculateUnapprovedBudgetBps(
+  totalBudgetCents: number,
+  approvedAmountCents: number,
+) {
+  if (totalBudgetCents <= 0) {
+    return 0;
+  }
+  const normalizedApprovedAmountCents = Math.max(
+    0,
+    Math.min(totalBudgetCents, approvedAmountCents),
+  );
+  return Math.max(
+    0,
+    Math.min(
+      10_000,
+      Math.round(
+        ((totalBudgetCents - normalizedApprovedAmountCents) * 10_000) /
+          totalBudgetCents,
+      ),
+    ),
+  );
 }
 
 function normalizeDocumentType(
