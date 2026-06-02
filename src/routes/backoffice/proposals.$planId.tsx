@@ -30,6 +30,11 @@ import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import { ProductionProposalReviewSurface } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
+import {
+  createProposalCalendarEditHandler,
+  type ProposalCalendarAdapterActions,
+} from "#/features/calendar-workspace/adapters/proposalCalendarAdapter.ts";
+import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import { ProductionContractorPlanningTab } from "#/features/production-proposals/ProductionContractorPlanningTab.tsx";
 import { ProductionTimelineWorkspace } from "#/features/production-proposals/ProductionTimelineWorkspace.tsx";
 import {
@@ -82,8 +87,46 @@ const proposalMilestoneStatusMap = {
   upcoming: "upcoming",
 } as const satisfies Record<string, DemoMilestone["status"]>;
 
+type ProposalReviewSearch = {
+  tab?:
+    | "calendar"
+    | "closing"
+    | "contractors"
+    | "draws"
+    | "materials"
+    | "packet"
+    | "review"
+    | "timeline";
+  timeframe?: CalendarTimeframe;
+};
+
 export const Route = createFileRoute("/backoffice/proposals/$planId")({
   ssr: false,
+  validateSearch: (search: Record<string, unknown>): ProposalReviewSearch => {
+    const tab =
+      search.tab === "calendar" ||
+      search.tab === "closing" ||
+      search.tab === "contractors" ||
+      search.tab === "draws" ||
+      search.tab === "materials" ||
+      search.tab === "packet" ||
+      search.tab === "review" ||
+      search.tab === "timeline"
+        ? (search.tab as ProposalReviewSearch["tab"])
+        : undefined;
+    const timeframe =
+      search.timeframe === "day" ||
+      search.timeframe === "week" ||
+      search.timeframe === "month" ||
+      search.timeframe === "quarter" ||
+      search.timeframe === "agenda"
+        ? (search.timeframe as CalendarTimeframe)
+        : undefined;
+    return {
+      ...(tab ? { tab } : {}),
+      ...(timeframe ? { timeframe } : {}),
+    };
+  },
   component: ProposalReviewRoute,
 });
 
@@ -92,6 +135,7 @@ type DecisionModal = "approve" | "reject";
 
 function ProposalReviewRoute() {
   const { planId } = Route.useParams();
+  const search = Route.useSearch();
   const context = Route.useRouteContext();
   const navigate = useNavigate();
   const workosOrganizationId = context.organizationId as string;
@@ -186,6 +230,15 @@ function ProposalReviewRoute() {
   const productionWorkspace = visualFixtureEnabled
     ? getVisualParityTimelineWorkspace(planId)
     : productionWorkspaceQuery;
+  const productionCalendarWorkspaceQuery = useQuery(
+    (api as any).production_proposals.getProposalCalendarWorkspace,
+    visualFixtureEnabled || !productionDetail
+      ? "skip"
+      : {
+          proposalId: planId as Id<"buildProposals">,
+          workosOrganizationId,
+        }
+  );
   const requestProductionChanges = useMutation(
     api.production_proposals.requestChanges
   );
@@ -210,6 +263,27 @@ function ProposalReviewRoute() {
   const updateProductionDrawScheduleRow = useMutation(
     api.production_proposals.updateSubmittedProposalDrawScheduleRow
   );
+  const reviseProposalMilestoneSchedule = useMutation(
+    (api as any).production_proposals.reviseProposalMilestoneSchedule
+  );
+  const reviseProposalDrawTiming = useMutation(
+    (api as any).production_proposals.reviseProposalDrawTiming
+  );
+  const setEvidenceDueDate = useMutation(
+    (api as any).production_proposals.setEvidenceDueDate
+  );
+  const setReviewTargetDate = useMutation(
+    (api as any).production_proposals.setReviewTargetDate
+  );
+  const saveCalendarView = useMutation(
+    (api as any).production_proposals.saveCalendarView
+  );
+  const createCalendarSyncSubscription = useMutation(
+    (api as any).production_proposals.createCalendarSyncSubscription
+  );
+  const recordExternalCalendarSyncChange = useMutation(
+    (api as any).production_proposals.recordExternalCalendarSyncChange
+  );
 
   if (collabJoinState === "joining") {
     return (
@@ -225,9 +299,43 @@ function ProposalReviewRoute() {
 //ToDo: BIG CODESMELL 
   if (productionDetail && productionWorkspace) {
     const proposalId = planId as Id<"buildProposals">;
+    const calendarAdapterActions: ProposalCalendarAdapterActions = {
+      addEvidenceDueDate: (input) =>
+        setEvidenceDueDate({
+          ...input,
+          proposalId,
+          workosOrganizationId,
+        }).then(() => toast.success("Evidence due date set.")),
+      addReviewTargetDate: (input) =>
+        setReviewTargetDate({
+          ...input,
+          proposalId,
+          workosOrganizationId,
+        }).then(() => toast.success("Review target date set.")),
+      reviseDrawTiming: (input) =>
+        reviseProposalDrawTiming({
+          ...input,
+          proposalId,
+          workosOrganizationId,
+        }).then(() => toast.success("Draw timing revised.")),
+      reviseMilestoneSchedule: (input) =>
+        reviseProposalMilestoneSchedule({
+          ...input,
+          proposalId,
+          workosOrganizationId,
+        }).then(() => toast.success("Milestone schedule revised.")),
+    };
+    const commitCalendarEdit = createProposalCalendarEditHandler({
+      actions: calendarAdapterActions,
+      baseDate: productionDetail.activeBuild?.startDate ?? "2026-06-01",
+    });
     return (
       <ProductionProposalReviewSurface
+        calendarAdapterActions={calendarAdapterActions}
+        calendarTimeframe={search.timeframe}
+        calendarWorkspace={productionCalendarWorkspaceQuery as any}
         detail={productionDetail}
+        initialActiveTab={search.tab}
         materialPlanningActions={
           visualFixtureEnabled
             ? visualMaterialPlanningActions
@@ -333,6 +441,42 @@ function ProposalReviewRoute() {
             timingDay: patch.timingDay,
             workosOrganizationId,
           }).then(() => toast.success("Draw schedule updated."))
+        }
+        onChangeCalendarTimeframe={(timeframe) =>
+          void navigate({
+            params: { planId },
+            replace: true,
+            search: { ...search, timeframe },
+            to: "/backoffice/proposals/$planId",
+          })
+        }
+        onChangeReviewTab={(tab) =>
+          void navigate({
+            params: { planId },
+            replace: true,
+            search: { ...search, tab },
+            to: "/backoffice/proposals/$planId",
+          })
+        }
+        onCommitCalendarEdit={commitCalendarEdit}
+        onCreateCalendarSyncSubscription={(input) =>
+          createCalendarSyncSubscription({
+            ...input,
+            workosOrganizationId,
+          })
+        }
+        onRecordExternalCalendarSyncChange={(input) =>
+          recordExternalCalendarSyncChange({
+            ...input,
+            workosOrganizationId,
+          })
+        }
+        onSaveCalendarView={(input) =>
+          saveCalendarView({
+            ...input,
+            surface: "proposal",
+            workosOrganizationId,
+          })
         }
       />
     );
@@ -1446,7 +1590,7 @@ export function buildReviewChartData(viewModel: any) {
     })),
   ].sort((a, b) => a.day - b.day || a.sort - b.sort);
   let cashOnHand = startingCash;
-  const cashflow = [
+  const cashflow: TimelineCashflowCompoundDatum[] = [
     {
       budget: 0,
       capitalSpikeAmount: 0,

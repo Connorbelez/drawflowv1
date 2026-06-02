@@ -1308,8 +1308,8 @@ describe("durable timeline plan helpers", () => {
       submilestones: ["Forms", "Pour"],
     });
     expect(visit.targets[0].guidance).toMatchObject({
-      cameraAngles: ["Wide footing overview", "Close-up of form pins"],
-      whatToVerify: ["Forms match approved footing layout"],
+      cameraAngles: expect.stringContaining("Wide footing overview"),
+      whatToVerify: expect.stringContaining("Forms match approved footing layout"),
     });
   });
 });

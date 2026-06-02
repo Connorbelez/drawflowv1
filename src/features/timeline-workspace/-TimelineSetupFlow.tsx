@@ -20,13 +20,18 @@ import {
 } from "react";
 import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
 import { Button } from "#/components/ui/button.tsx";
-import { cn } from "#/lib/utils.ts";
 import {
   allocateBudgetCents,
   formatCurrency,
   parseCurrencyToCents,
 } from "#/features/builder-proposal-demo/template-helpers.ts";
-import { TimelineMilestoneWorksheetTable } from "./-TimelineMilestoneWorksheetTable.tsx";
+import { cn } from "#/lib/utils.ts";
+import {
+  type TimelineMilestoneWorksheetContractorAssignment,
+  type TimelineMilestoneWorksheetContractorOption,
+  type TimelineMilestoneWorksheetCostItem,
+  TimelineMilestoneWorksheetTable,
+} from "./-TimelineMilestoneWorksheetTable.tsx";
 import { normalizeMilestoneTimelineItems } from "./-timeline-milestone-schedule.ts";
 import { mapSubmilestoneSnapshotRows } from "./-timeline-milestone-submilestones.ts";
 import type {
@@ -461,7 +466,8 @@ export const SUB_MILESTONE_BANK: SubMilestoneBankItem[] = [
 const TEMPLATE_THUMBNAILS: Record<string, string> = {
   multiplex_build:
     "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
-  "multiplex-build": "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
+  "multiplex-build":
+    "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
   single_family_full_build:
     "/drawflow-template-thumbnails/single-family-full-build-blueprint.png",
   "single-family-full-build":
@@ -492,8 +498,8 @@ export interface TimelineSetupPreset {
   name: string;
   percentageBps: number;
   siteVisitGuidance?: {
-    cameraAngles: string[];
-    whatToVerify: string[];
+    cameraAngles: string;
+    whatToVerify: string;
   };
   subMilestones: string[];
   type: string;
@@ -501,6 +507,8 @@ export interface TimelineSetupPreset {
 
 export interface TimelineSetupMilestoneRow extends TimelineSetupPreset {
   budgetText: string;
+  contractorAssignments?: TimelineMilestoneWorksheetContractorAssignment[];
+  costItems?: TimelineMilestoneWorksheetCostItem[];
   durationText: string;
   excluded: boolean;
   order: number;
@@ -519,6 +527,8 @@ export interface TimelineSetupResult {
   activeItemId: string;
   borrowerCoPayBps: number;
   borrowerCoPayCents: number;
+  contractorAssignments: TimelineSetupContractorAssignment[];
+  costItems: TimelineSetupCostItem[];
   currentDay: number;
   includedCount: number;
   items: TimelineItem<DemoMilestone>[];
@@ -534,8 +544,30 @@ export interface TimelineSetupResult {
 
 export interface TimelineSetupFlowProps {
   baseItems: TimelineItem<DemoMilestone>[];
+  contractorOptions?: TimelineMilestoneWorksheetContractorOption[];
   onComplete: (result: TimelineSetupResult) => void;
   settingsTemplates?: TimelineSetupTemplate[];
+}
+
+export interface TimelineSetupContractorAssignment {
+  contractorId?: string;
+  contractorName: string;
+  estimatedCostCents?: number;
+  estimatedHours?: number;
+  milestoneKey: string;
+  role: string;
+  submilestoneKeys: string[];
+}
+
+export interface TimelineSetupCostItem {
+  costCents: number;
+  description?: string;
+  itemType: "equipment" | "material";
+  milestoneKey: string;
+  quantity: number;
+  relevantSubmilestoneKeys: string[];
+  supplier?: string;
+  title: string;
 }
 
 function rowBudgetCents(row: TimelineSetupMilestoneRow) {
@@ -698,6 +730,8 @@ export function createCustomMilestoneRow({
   return withSubMilestoneDetails(
     {
       budgetText: DEFAULT_NEW_MILESTONE_BUDGET_TEXT,
+      contractorAssignments: [],
+      costItems: [],
       dependencyKeys: [],
       durationDays: Number(DEFAULT_NEW_MILESTONE_DURATION_TEXT),
       durationText: DEFAULT_NEW_MILESTONE_DURATION_TEXT,
@@ -937,6 +971,8 @@ function createRowsFromTemplate(
     return {
       ...row,
       budgetText: formatCurrency(budgetCents),
+      contractorAssignments: [],
+      costItems: [],
       durationText: String(row.durationDays),
       excluded: false,
       order,
@@ -1049,6 +1085,103 @@ export function buildTimelineItemsFromSetupRows(
       return item;
     })
   );
+}
+
+export function buildPlanningPayloadFromSetupRows(
+  rows: TimelineSetupMilestoneRow[]
+): {
+  contractorAssignments: TimelineSetupContractorAssignment[];
+  costItems: TimelineSetupCostItem[];
+} {
+  const includedRows = rows.filter((row) => !row.excluded);
+  return {
+    contractorAssignments: includedRows.flatMap(
+      setupRowContractorAssignmentsToPayload
+    ),
+    costItems: includedRows.flatMap(setupRowCostItemsToPayload),
+  };
+}
+
+function setupRowContractorAssignmentsToPayload(
+  row: TimelineSetupMilestoneRow
+) {
+  const availableSubmilestoneKeys = setupRowSubmilestoneKeys(row);
+  return (row.contractorAssignments ?? [])
+    .map((assignment) =>
+      setupContractorAssignmentToPayload(
+        row,
+        availableSubmilestoneKeys,
+        assignment
+      )
+    )
+    .filter((assignment): assignment is TimelineSetupContractorAssignment =>
+      Boolean(assignment)
+    );
+}
+
+function setupContractorAssignmentToPayload(
+  row: TimelineSetupMilestoneRow,
+  availableSubmilestoneKeys: Set<string>,
+  assignment: TimelineMilestoneWorksheetContractorAssignment
+): TimelineSetupContractorAssignment | null {
+  const contractorName = assignment.contractorName.trim();
+  const role = assignment.role.trim();
+  if (!(contractorName && role)) {
+    return null;
+  }
+  return {
+    ...(assignment.contractorId
+      ? { contractorId: assignment.contractorId }
+      : {}),
+    contractorName,
+    ...(assignment.estimatedCostCents === undefined
+      ? {}
+      : { estimatedCostCents: assignment.estimatedCostCents }),
+    ...(assignment.estimatedHours === undefined
+      ? {}
+      : { estimatedHours: assignment.estimatedHours }),
+    milestoneKey: row.key,
+    role,
+    submilestoneKeys: assignment.subMilestoneIds.filter((key) =>
+      availableSubmilestoneKeys.has(key)
+    ),
+  };
+}
+
+function setupRowCostItemsToPayload(row: TimelineSetupMilestoneRow) {
+  const availableSubmilestoneKeys = setupRowSubmilestoneKeys(row);
+  return (row.costItems ?? [])
+    .map((item) => setupCostItemToPayload(row, availableSubmilestoneKeys, item))
+    .filter((item): item is TimelineSetupCostItem => Boolean(item));
+}
+
+function setupCostItemToPayload(
+  row: TimelineSetupMilestoneRow,
+  availableSubmilestoneKeys: Set<string>,
+  item: TimelineMilestoneWorksheetCostItem
+): TimelineSetupCostItem | null {
+  const title = item.title.trim();
+  if (!title || item.costCents <= 0 || item.quantity <= 0) {
+    return null;
+  }
+  return {
+    costCents: item.costCents,
+    ...(item.description?.trim()
+      ? { description: item.description.trim() }
+      : {}),
+    itemType: item.itemType,
+    milestoneKey: row.key,
+    quantity: item.quantity,
+    relevantSubmilestoneKeys: item.relevantSubMilestoneIds.filter((key) =>
+      availableSubmilestoneKeys.has(key)
+    ),
+    ...(item.supplier?.trim() ? { supplier: item.supplier.trim() } : {}),
+    title,
+  };
+}
+
+function setupRowSubmilestoneKeys(row: TimelineSetupMilestoneRow) {
+  return new Set(row.subMilestoneDetails.map((detail) => detail.id));
 }
 
 function TemplateStep({
@@ -1546,6 +1679,7 @@ function BlueprintPermitUploader({
 function BudgetStep({
   cascadeBudgetEdits,
   cashText,
+  contractorOptions,
   error,
   onBack,
   onCascadeBudgetEditsChange,
@@ -1558,6 +1692,7 @@ function BudgetStep({
 }: {
   cascadeBudgetEdits: boolean;
   cashText: string;
+  contractorOptions: TimelineMilestoneWorksheetContractorOption[];
   error: string;
   onBack: () => void;
   onCascadeBudgetEditsChange: (enabled: boolean) => void;
@@ -1572,6 +1707,7 @@ function BudgetStep({
     <TimelineMilestoneWorksheetTable
       cascadeBudgetEdits={cascadeBudgetEdits}
       cashText={cashText}
+      contractorOptions={contractorOptions}
       error={error}
       leadingContent={<ProposalProgressSection step="budget" />}
       mode="setup"
@@ -1628,6 +1764,7 @@ function CornerMarker({
 
 export function TimelineSetupFlow({
   baseItems,
+  contractorOptions = [],
   onComplete,
   settingsTemplates,
 }: TimelineSetupFlowProps) {
@@ -1798,6 +1935,7 @@ export function TimelineSetupFlow({
       (budgetCents * reimbursementBps) / TOTAL_REIMBURSEMENT_BPS
     );
     const items = buildTimelineItemsFromSetupRows(rows, borrowerCoPayBps);
+    const planningPayload = buildPlanningPayloadFromSetupRows(rows);
     const activeItem = items[0];
 
     setError("");
@@ -1805,9 +1943,11 @@ export function TimelineSetupFlow({
       activeItemId: activeItem?.id ?? "",
       borrowerCoPayBps,
       borrowerCoPayCents,
+      contractorAssignments: planningPayload.contractorAssignments,
       currentDay: GENERATED_TIMELINE_CURRENT_DAY,
       includedCount: items.length,
       items,
+      costItems: planningPayload.costItems,
       projectAddress: resolveTimelineSetupAddress(projectAddress),
       redirectToDurableRoute,
       reimbursableBudgetCents,
@@ -1886,6 +2026,7 @@ export function TimelineSetupFlow({
           <BudgetStep
             cascadeBudgetEdits={cascadeBudgetEdits}
             cashText={cashText}
+            contractorOptions={contractorOptions}
             error={error}
             onBack={() => setStep("template")}
             onCascadeBudgetEditsChange={setCascadeBudgetEdits}

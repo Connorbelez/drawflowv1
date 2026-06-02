@@ -9,6 +9,25 @@ import {
   type TimelineMilestoneWorksheetRow,
 } from "./-TimelineMilestoneWorksheetTable.tsx";
 
+vi.mock("#/components/rich-text/field-rich-text.tsx", () => ({
+  FieldRichTextEditor: ({
+    onChange,
+    testId,
+    value,
+  }: {
+    onChange: (value: string) => void;
+    testId?: string;
+    value: string;
+  }) => (
+    <textarea
+      data-testid={testId}
+      onChange={(event) => onChange(`<p>${event.currentTarget.value}</p>`)}
+      value={value.replace(/<[^>]+>/g, "")}
+    />
+  ),
+  FieldRichTextPreview: () => null,
+}));
+
 afterEach(() => cleanup());
 
 const worksheetRows: TimelineMilestoneWorksheetRow[] = [
@@ -245,7 +264,7 @@ describe("TimelineMilestoneWorksheetTable", () => {
       screen.getByTestId(
         "timeline-settings-guidance-verify-site-prep-foundation"
       ),
-      { target: { value: "Verify footing pins\nConfirm anchor bolts" } }
+      { target: { value: "Verify footing pins" } }
     );
 
     expect(onRowsChange).toHaveBeenLastCalledWith(
@@ -253,7 +272,7 @@ describe("TimelineMilestoneWorksheetTable", () => {
         expect.objectContaining({
           key: "site-prep-foundation",
           siteVisitGuidance: expect.objectContaining({
-            whatToVerify: ["Verify footing pins", "Confirm anchor bolts"],
+            whatToVerify: expect.stringContaining("Verify footing pins"),
           }),
         }),
       ])

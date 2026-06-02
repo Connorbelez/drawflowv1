@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import type { BuildDetailSubTab } from "#/features/backoffice-build-detail/BuildDetailTabs.tsx";
+import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import {
   ProductionBuildDetailSurface,
   type ProductionBuildDetail,
@@ -17,6 +18,7 @@ import {
 import { api } from "../../../../../convex/_generated/api";
 
 type BuildDetailSearch = {
+  timeframe?: CalendarTimeframe;
   milestone?: string;
   tab?: "calendar" | "details" | "gantt" | "materials" | "timeline";
   rail?: "open" | "closed";
@@ -38,10 +40,19 @@ export const Route = createFileRoute("/backoffice/builds/$buildId")({
       search.rail === "closed" || search.rail === "open"
         ? (search.rail as BuildDetailSearch["rail"])
         : undefined;
+    const timeframe =
+      search.timeframe === "day" ||
+      search.timeframe === "week" ||
+      search.timeframe === "month" ||
+      search.timeframe === "quarter" ||
+      search.timeframe === "agenda"
+        ? (search.timeframe as CalendarTimeframe)
+        : undefined;
     const out: BuildDetailSearch = {};
     if (milestone !== undefined) out.milestone = milestone;
     if (tab !== undefined) out.tab = tab;
     if (rail !== undefined) out.rail = rail;
+    if (timeframe !== undefined) out.timeframe = timeframe;
     return out;
   },
   component: RouteComponent,
@@ -108,6 +119,42 @@ function RouteComponent() {
   const deleteActiveBuildCostItem = useMutation(
     api.production_proposals.deleteActiveBuildCostItem,
   );
+  const reviseActiveBuildMilestoneSchedule = useMutation(
+    (api as any).production_proposals.reviseActiveBuildMilestoneSchedule
+  );
+  const setEvidenceDueDate = useMutation(
+    (api as any).production_proposals.setEvidenceDueDate
+  );
+  const setReviewTargetDate = useMutation(
+    (api as any).production_proposals.setReviewTargetDate
+  );
+  const setAdminDecisionTargetDate = useMutation(
+    (api as any).production_proposals.setAdminDecisionTargetDate
+  );
+  const setDrawReleaseTargetDate = useMutation(
+    (api as any).production_proposals.setDrawReleaseTargetDate
+  );
+  const scheduleActiveBuildSiteVisit = useMutation(
+    (api as any).production_proposals.scheduleActiveBuildSiteVisit
+  );
+  const rescheduleActiveBuildSiteVisit = useMutation(
+    (api as any).production_proposals.rescheduleActiveBuildSiteVisit
+  );
+  const cancelActiveBuildSiteVisit = useMutation(
+    (api as any).production_proposals.cancelActiveBuildSiteVisit
+  );
+  const requestLoanFacilityDateChange = useMutation(
+    (api as any).production_proposals.requestLoanFacilityDateChange
+  );
+  const saveCalendarView = useMutation(
+    (api as any).production_proposals.saveCalendarView
+  );
+  const createCalendarSyncSubscription = useMutation(
+    (api as any).production_proposals.createCalendarSyncSubscription
+  );
+  const recordExternalCalendarSyncChange = useMutation(
+    (api as any).production_proposals.recordExternalCalendarSyncChange
+  );
   const productionBuildQuery = useQuery(
     api.production_proposals.getActiveBuildDetailByString,
     visualFixtureEnabled
@@ -135,12 +182,23 @@ function RouteComponent() {
   const effectiveTimelineWorkspace = visualFixtureEnabled
     ? getVisualParityActiveBuildTimelineWorkspace(buildId)
     : timelineWorkspaceQuery;
+  const calendarWorkspaceQuery = useQuery(
+    (api as any).production_proposals.getActiveBuildCalendarWorkspace,
+    visualFixtureEnabled
+      ? "skip"
+      : effectiveProductionBuild
+        ? {
+            buildId: activeBuildIdForWorkspace,
+            workosOrganizationId: context.organizationId as string,
+          }
+        : "skip"
+  );
 
   const onChangeTab = (tab: BuildDetailSubTab) =>
     navigate({
       to: "/backoffice/builds/$buildId",
       params: { buildId },
-      search: (prev) => ({ ...prev, tab }),
+      search: { ...search, tab },
       replace: true,
     });
 
@@ -148,7 +206,7 @@ function RouteComponent() {
     navigate({
       to: "/backoffice/builds/$buildId",
       params: { buildId },
-      search: (prev) => ({ ...prev, rail }),
+      search: { ...search, rail },
       replace: true,
     });
 
@@ -156,7 +214,14 @@ function RouteComponent() {
     navigate({
       to: "/backoffice/builds/$buildId",
       params: { buildId },
-      search: (prev) => ({ ...prev, milestone }),
+      search: { ...search, milestone },
+      replace: true,
+    });
+  const onChangeCalendarTimeframe = (timeframe: CalendarTimeframe) =>
+    navigate({
+      to: "/backoffice/builds/$buildId",
+      params: { buildId },
+      search: { ...search, timeframe },
       replace: true,
     });
 
@@ -293,6 +358,76 @@ function RouteComponent() {
           releaseDate: new Date().toISOString().slice(0, 10),
           workosOrganizationId,
         }),
+      reviseMilestoneSchedule: (input) =>
+        reviseActiveBuildMilestoneSchedule({
+          ...input,
+          buildId: activeBuildId,
+          workosOrganizationId,
+        }).then(() => toast.success("Milestone schedule revised.")),
+      setEvidenceDueDate: (input) =>
+        setEvidenceDueDate({
+          ...input,
+          buildId: activeBuildId,
+          workosOrganizationId,
+        }).then(() => toast.success("Evidence due date set.")),
+      setReviewTargetDate: (input) =>
+        setReviewTargetDate({
+          ...input,
+          buildId: activeBuildId,
+          workosOrganizationId,
+        }).then(() => toast.success("Review target date set.")),
+      setAdminDecisionTargetDate: (input) =>
+        setAdminDecisionTargetDate({
+          ...input,
+          buildId: activeBuildId,
+          workosOrganizationId,
+        }).then(() => toast.success("Admin decision target set.")),
+      setDrawReleaseTargetDate: (input) =>
+        setDrawReleaseTargetDate({
+          ...input,
+          buildId: activeBuildId,
+          workosOrganizationId,
+        }).then(() => toast.success("Draw release target set.")),
+      scheduleSiteVisit: (input) =>
+        scheduleActiveBuildSiteVisit({
+          ...input,
+          buildId: activeBuildId,
+          workosOrganizationId,
+        }).then(() => toast.success("Site visit scheduled.")),
+      rescheduleSiteVisit: (input) =>
+        rescheduleActiveBuildSiteVisit({
+          ...input,
+          buildId: activeBuildId,
+          workosOrganizationId,
+        }).then(() => toast.success("Site visit rescheduled.")),
+      cancelSiteVisit: (input) =>
+        cancelActiveBuildSiteVisit({
+          ...input,
+          buildId: activeBuildId,
+          workosOrganizationId,
+        }).then(() => toast.success("Site visit cancelled.")),
+      requestLoanFacilityDateChange: (input) =>
+        requestLoanFacilityDateChange({
+          ...input,
+          buildId: activeBuildId,
+          workosOrganizationId,
+        }).then(() => toast.success("Facility date change requested.")),
+      saveCalendarView: (input) =>
+        saveCalendarView({
+          ...input,
+          surface: "activeBuild",
+          workosOrganizationId,
+        }),
+      createCalendarSyncSubscription: (input) =>
+        createCalendarSyncSubscription({
+          ...input,
+          workosOrganizationId,
+        }),
+      recordExternalCalendarSyncChange: (input) =>
+        recordExternalCalendarSyncChange({
+          ...input,
+          workosOrganizationId,
+        }),
       requestFacilityChange: (input) =>
         requestFacilityChange({
           ...input,
@@ -357,12 +492,15 @@ function RouteComponent() {
         actions={actions}
         activeBuildId={activeBuildId}
         activeTab={search.tab ?? "details"}
+        calendarTimeframe={search.timeframe}
+        calendarWorkspace={calendarWorkspaceQuery as any}
         contractorDetailHrefFor={(contractorId) =>
           `/backoffice/contractors/${contractorId}`
         }
         detail={detail}
         milestoneKey={search.milestone}
         onChangeMilestone={onChangeMilestone}
+        onChangeCalendarTimeframe={onChangeCalendarTimeframe}
         onChangeRail={onChangeRail}
         onChangeTab={onChangeTab}
         rail={search.rail}

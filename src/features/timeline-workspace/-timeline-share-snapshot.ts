@@ -3,6 +3,11 @@ import type {
   TimelineRange,
 } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
 import {
+  coerceSiteVisitGuidance,
+  isSiteVisitGuidanceHtmlEmpty,
+  type SiteVisitGuidanceHtml,
+} from "#/lib/site-visit-guidance.ts";
+import {
   type ActiveMilestoneSelection,
   DEFAULT_MILESTONE_DURATION_DAYS,
   normalizeMilestoneSchedule,
@@ -51,8 +56,8 @@ export interface DemoMilestone {
   name: string;
   policy: string;
   siteVisitGuidance?: {
-    cameraAngles: string[];
-    whatToVerify: string[];
+    cameraAngles: string | string[];
+    whatToVerify: string | string[];
   };
   status: DemoStatus;
   subMilestones: string[];
@@ -651,30 +656,15 @@ function normalizeShareSubMilestones(
 
 function normalizeSiteVisitGuidance(
   guidance: DemoMilestone["siteVisitGuidance"] | undefined
-) {
+): SiteVisitGuidanceHtml | undefined {
   if (!guidance) {
     return undefined;
   }
-  const cameraAngles = normalizeTextList(guidance.cameraAngles);
-  const whatToVerify = normalizeTextList(guidance.whatToVerify);
-  if (cameraAngles.length === 0 && whatToVerify.length === 0) {
+  const normalized = coerceSiteVisitGuidance(guidance);
+  if (isSiteVisitGuidanceHtmlEmpty(normalized)) {
     return undefined;
   }
-  return { cameraAngles, whatToVerify };
-}
-
-function normalizeTextList(value: string[] | undefined) {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const item of value ?? []) {
-    const text = item.trim();
-    if (!text || seen.has(text.toLowerCase())) {
-      continue;
-    }
-    seen.add(text.toLowerCase());
-    result.push(text);
-  }
-  return result;
+  return normalized;
 }
 
 function normalizeShareRange(range: TimelineRange): TimelineRange {

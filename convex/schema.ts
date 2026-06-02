@@ -217,9 +217,11 @@ const productionDocumentStatusValidator = v.union(
   v.literal("waived")
 );
 
+const siteVisitGuidanceFieldValidator = v.union(v.string(), v.array(v.string()));
+
 const siteVisitGuidanceValidator = v.object({
-  cameraAngles: v.array(v.string()),
-  whatToVerify: v.array(v.string()),
+  cameraAngles: siteVisitGuidanceFieldValidator,
+  whatToVerify: siteVisitGuidanceFieldValidator,
 });
 
 const productionBuildStatusValidator = v.union(
@@ -1914,6 +1916,115 @@ export default defineSchema({
   })
     .index("by_brokerage_status", ["brokerageId", "status"])
     .index("by_entity", ["relatedEntityType", "relatedEntityId"]),
+  calendarSavedViews: defineTable({
+    brokerageId: v.id("brokerages"),
+    createdAt: v.number(),
+    filters: v.any(),
+    isDefault: v.boolean(),
+    label: v.string(),
+    organizationId: v.string(),
+    surface: v.union(v.literal("proposal"), v.literal("activeBuild")),
+    timeframe: v.union(
+      v.literal("day"),
+      v.literal("week"),
+      v.literal("month"),
+      v.literal("quarter"),
+      v.literal("agenda")
+    ),
+    updatedAt: v.number(),
+    viewKey: v.string(),
+    workosUserId: v.string(),
+  })
+    .index("by_user_surface", ["organizationId", "workosUserId", "surface"])
+    .index("by_view_key", ["organizationId", "workosUserId", "viewKey"]),
+  calendarTargetDates: defineTable({
+    brokerageId: v.id("brokerages"),
+    buildId: v.optional(v.id("activeBuilds")),
+    createdAt: v.number(),
+    dateKind: v.union(
+      v.literal("evidenceDue"),
+      v.literal("reviewTarget"),
+      v.literal("adminDecisionTarget"),
+      v.literal("drawReleaseTarget")
+    ),
+    drawKey: v.optional(v.string()),
+    entityKey: v.string(),
+    entityType: v.string(),
+    milestoneKey: v.optional(v.string()),
+    organizationId: v.string(),
+    proposalId: v.optional(v.id("buildProposals")),
+    reason: v.optional(v.string()),
+    targetDate: v.string(),
+    targetTime: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_build", ["buildId"])
+    .index("by_proposal", ["proposalId"])
+    .index("by_entity", ["entityType", "entityKey", "dateKind"]),
+  calendarSyncSubscriptions: defineTable({
+    brokerageId: v.id("brokerages"),
+    createdAt: v.number(),
+    direction: v.union(v.literal("outbound"), v.literal("bidirectional")),
+    filters: v.any(),
+    organizationId: v.string(),
+    provider: v.union(
+      v.literal("ics"),
+      v.literal("google"),
+      v.literal("outlook")
+    ),
+    status: v.union(
+      v.literal("active"),
+      v.literal("paused"),
+      v.literal("revoked")
+    ),
+    subscriptionKey: v.string(),
+    surface: v.union(v.literal("proposal"), v.literal("activeBuild")),
+    updatedAt: v.number(),
+    workosUserId: v.string(),
+  })
+    .index("by_subscription_key", ["subscriptionKey"])
+    .index("by_user_surface", ["organizationId", "workosUserId", "surface"]),
+  calendarSyncChanges: defineTable({
+    brokerageId: v.id("brokerages"),
+    changeKey: v.string(),
+    createdAt: v.number(),
+    externalEventId: v.optional(v.string()),
+    organizationId: v.string(),
+    payload: v.any(),
+    provider: v.union(
+      v.literal("ics"),
+      v.literal("google"),
+      v.literal("outlook")
+    ),
+    status: v.union(
+      v.literal("pendingReview"),
+      v.literal("applied"),
+      v.literal("rejected")
+    ),
+    subscriptionId: v.optional(v.id("calendarSyncSubscriptions")),
+    updatedAt: v.number(),
+    workosUserId: v.string(),
+  })
+    .index("by_change_key", ["changeKey"])
+    .index("by_status", ["organizationId", "status"]),
+  scheduleRevisionRecords: defineTable({
+    brokerageId: v.id("brokerages"),
+    buildId: v.optional(v.id("activeBuilds")),
+    createdAt: v.number(),
+    entityKey: v.string(),
+    entityType: v.string(),
+    newState: v.any(),
+    organizationId: v.string(),
+    priorState: v.any(),
+    proposalId: v.optional(v.id("buildProposals")),
+    reason: v.string(),
+    revisionType: v.string(),
+    revisedByWorkosUserId: v.string(),
+    warnings: v.array(v.string()),
+  })
+    .index("by_build", ["buildId"])
+    .index("by_proposal", ["proposalId"])
+    .index("by_entity", ["entityType", "entityKey"]),
   activeBuilds: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),

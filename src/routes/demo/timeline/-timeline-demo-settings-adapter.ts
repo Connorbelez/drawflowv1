@@ -2,6 +2,10 @@ import type {
   TimelineItem,
   TimelineRange,
 } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
+import {
+  coerceSiteVisitGuidance,
+  guidanceLinesToHtml,
+} from "#/lib/site-visit-guidance.ts";
 import type { TimelineSetupTemplate } from "./-TimelineSetupFlow.tsx";
 import { normalizeMilestoneTimelineItems } from "./-timeline-milestone-schedule.ts";
 import { ISOMETRIC_ICON_KEYS } from "./-timeline-share-snapshot.ts";
@@ -44,8 +48,8 @@ export interface TimelineSettingsSubmilestoneDraft {
 }
 
 export interface TimelineSettingsSiteVisitGuidanceDraft {
-  cameraAngles: string[];
-  whatToVerify: string[];
+  cameraAngles: string;
+  whatToVerify: string;
 }
 
 export interface TimelineSettingsMilestoneDraft {
@@ -503,13 +507,13 @@ export function createCustomMilestone(
     order: existing.length,
     percentageBps: 0,
     siteVisitGuidance: {
-      cameraAngles: [
+      cameraAngles: guidanceLinesToHtml([
         "Wide shot showing the full custom milestone work area.",
         "Close-up of the primary completion detail.",
-      ],
-      whatToVerify: [
+      ]),
+      whatToVerify: guidanceLinesToHtml([
         "Custom milestone scope is complete and consistent with the approved draw plan.",
-      ],
+      ]),
     },
     submilestones: [
       {
@@ -619,7 +623,7 @@ function normalizeGuidanceItems(
         stringValue(a.kind).localeCompare(stringValue(b.kind)) ||
         numberValue(a.order, 0) - numberValue(b.order, 0)
     );
-  const guidance = {
+  const guidance = coerceSiteVisitGuidance({
     cameraAngles: sorted
       .filter((row) => stringValue(row.kind) === "cameraAngle")
       .map((row) => stringValue(row.text).trim())
@@ -628,12 +632,12 @@ function normalizeGuidanceItems(
       .filter((row) => stringValue(row.kind) === "whatToVerify")
       .map((row) => stringValue(row.text).trim())
       .filter(Boolean),
-  };
-  if (guidance.cameraAngles.length || guidance.whatToVerify.length) {
+  });
+  if (guidance.cameraAngles || guidance.whatToVerify) {
     return guidance;
   }
   const name = stringValue(milestone.name) || "Milestone";
-  return {
+  return coerceSiteVisitGuidance({
     cameraAngles: [
       "Wide shot showing the full milestone work area.",
       "Close-up of the highest-risk connection, fixture, or finish.",
@@ -648,7 +652,7 @@ function normalizeGuidanceItems(
         (checkpoint) =>
           `${checkpoint} is complete, visible, and consistent with the approved scope.`
       ),
-  };
+  });
 }
 
 function normalizeSubmilestone(

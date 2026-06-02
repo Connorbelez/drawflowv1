@@ -27,8 +27,8 @@ const template: TimelineSettingsTemplateDraft = {
       order: 0,
       percentageBps: 2500,
       siteVisitGuidance: {
-        cameraAngles: ["Wide foundation photo."],
-        whatToVerify: ["Foundation complete."],
+        cameraAngles: "<ul><li>Wide foundation photo.</li></ul>",
+        whatToVerify: "<ul><li>Foundation complete.</li></ul>",
       },
       submilestones: [],
       type: "foundation",
@@ -43,8 +43,8 @@ const template: TimelineSettingsTemplateDraft = {
       order: 1,
       percentageBps: 7500,
       siteVisitGuidance: {
-        cameraAngles: ["Wide framing photo."],
-        whatToVerify: ["Framing complete."],
+        cameraAngles: "<ul><li>Wide framing photo.</li></ul>",
+        whatToVerify: "<ul><li>Framing complete.</li></ul>",
       },
       submilestones: [],
       type: "framing",

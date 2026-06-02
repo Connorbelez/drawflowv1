@@ -12,8 +12,20 @@ import {
   CardHeader,
   CardTitle,
 } from "#/components/ui/card.tsx";
-import { Calendar } from "#/components/ui/calendar.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
+import { CalendarWorkspace } from "#/features/calendar-workspace/CalendarWorkspace.tsx";
+import {
+  buildActiveBuildCalendarActions,
+  buildActiveBuildCalendarWorkspaceFromDetail,
+  createActiveBuildCalendarEditHandler,
+  type ActiveBuildCalendarAdapterActions,
+} from "#/features/calendar-workspace/adapters/activeBuildCalendarAdapter.ts";
+import type {
+  CalendarFilters,
+  CalendarSyncSubscriptionResult,
+  CalendarTimeframe,
+  DrawFlowCalendarWorkspaceData,
+} from "#/features/calendar-workspace/calendarTypes.ts";
 import {
   ContractorQuickAddDrawer,
   type ContractorAssignmentCostDraft,
@@ -58,32 +70,32 @@ export interface ProductionBuildDetailActions {
   addDocument?: (input: {
     documentType: "permit" | "budget" | "plan" | "supporting";
     fileName: string;
-  }) => Promise<void> | void;
+  }) => Promise<unknown> | unknown;
   addNote?: (input: {
     body: string;
     visibility: "internal" | "public";
-  }) => Promise<void> | void;
-  approveDraw?: (draw: ProductionDraw) => Promise<void> | void;
+  }) => Promise<unknown> | unknown;
+  approveDraw?: (draw: ProductionDraw) => Promise<unknown> | unknown;
   approveMilestone?: (input: {
     milestoneKey: string;
     note?: string;
-  }) => Promise<void> | void;
+  }) => Promise<unknown> | unknown;
   assignContractorToMilestone?: (input: {
     assignmentCost?: ContractorAssignmentCostDraft;
     contractorId: string;
     milestoneKey: string;
     role: string;
     submilestoneKeys?: string[];
-  }) => Promise<void> | void;
-  assignSiteVisit?: (input: { milestoneKey: string }) => Promise<void> | void;
+  }) => Promise<unknown> | unknown;
+  assignSiteVisit?: (input: { milestoneKey: string }) => Promise<unknown> | unknown;
   attachContractor?: (input: {
     contractorId: string;
     role: string;
-  }) => Promise<void> | void;
+  }) => Promise<unknown> | unknown;
   createAndAttachContractor?: (input: {
     contractor: ContractorProfileDraft;
     role: string;
-  }) => Promise<void> | void;
+  }) => Promise<unknown> | unknown;
   createAndAssignContractor?: (input: {
     assignmentCost?: ContractorAssignmentCostDraft;
     contractor: {
@@ -115,30 +127,104 @@ export interface ProductionBuildDetailActions {
     };
     milestoneKey: string;
     role: string;
-  }) => Promise<void> | void;
-  rejectDraw?: (draw: ProductionDraw) => Promise<void> | void;
-  rejectMilestone?: (input: { milestoneKey: string }) => Promise<void> | void;
-  releaseDraw?: (draw: ProductionDraw) => Promise<void> | void;
+  }) => Promise<unknown> | unknown;
+  rejectDraw?: (draw: ProductionDraw) => Promise<unknown> | unknown;
+  rejectMilestone?: (input: { milestoneKey: string }) => Promise<unknown> | unknown;
+  releaseDraw?: (draw: ProductionDraw) => Promise<unknown> | unknown;
+  cancelSiteVisit?: (input: {
+    reason: string;
+    visitId: string;
+  }) => Promise<unknown> | unknown;
+  createCalendarSyncSubscription?: (input: {
+    direction: "bidirectional" | "outbound";
+    filters: CalendarFilters;
+    provider: "google" | "ics" | "outlook";
+    surface: "activeBuild" | "proposal";
+  }) => Promise<CalendarSyncSubscriptionResult> | CalendarSyncSubscriptionResult | void;
+  recordExternalCalendarSyncChange?: (input: {
+    changeKey: string;
+    externalEventId?: string;
+    payload: unknown;
+    provider: "google" | "ics" | "outlook";
+    subscriptionKey?: string;
+  }) => Promise<unknown> | unknown;
+  rescheduleSiteVisit?: (input: {
+    reason: string;
+    requestedDay: number;
+    requestedTime?: string;
+    visitId: string;
+  }) => Promise<unknown> | unknown;
+  reviseMilestoneSchedule?: (input: {
+    dayEnd: number;
+    dayStart: number;
+    milestoneKey: string;
+    reason: string;
+  }) => Promise<unknown> | unknown;
   requestFacilityChange?: (input: {
     reason?: string;
     requestedPaybackDate?: string;
     requestedPrincipalCents?: number;
     requestType: "principalIncrease" | "paybackExtension";
-  }) => Promise<void> | void;
-  requestDraw?: (draw: ProductionDraw) => Promise<void> | void;
+  }) => Promise<unknown> | unknown;
+  requestDraw?: (draw: ProductionDraw) => Promise<unknown> | unknown;
+  requestLoanFacilityDateChange?: (input: {
+    reason: string;
+    requestedPaybackDate: string;
+  }) => Promise<unknown> | unknown;
   reviewFacilityChangeRequest?: (input: {
     note?: string;
     requestId: string;
     status: "approved" | "rejected";
-  }) => Promise<void> | void;
+  }) => Promise<unknown> | unknown;
   requestMilestoneInfo?: (input: {
     milestoneKey: string;
     note: string;
-  }) => Promise<void> | void;
+  }) => Promise<unknown> | unknown;
+  saveCalendarView?: (input: {
+    filters: CalendarFilters;
+    isDefault?: boolean;
+    label: string;
+    timeframe: CalendarTimeframe;
+    viewKey: string;
+  }) => Promise<unknown> | unknown;
+  scheduleSiteVisit?: (input: {
+    milestoneKey: string;
+    note?: string;
+    requestedDay: number;
+    requestedTime?: string;
+  }) => Promise<unknown> | unknown;
+  setAdminDecisionTargetDate?: (input: {
+    drawKey?: string;
+    milestoneKey?: string;
+    reason?: string;
+    targetDate: string;
+    targetTime?: string;
+  }) => Promise<unknown> | unknown;
+  setDrawReleaseTargetDate?: (input: {
+    drawKey?: string;
+    milestoneKey?: string;
+    reason?: string;
+    targetDate: string;
+    targetTime?: string;
+  }) => Promise<unknown> | unknown;
+  setEvidenceDueDate?: (input: {
+    drawKey?: string;
+    milestoneKey?: string;
+    reason?: string;
+    targetDate: string;
+    targetTime?: string;
+  }) => Promise<unknown> | unknown;
+  setReviewTargetDate?: (input: {
+    drawKey?: string;
+    milestoneKey?: string;
+    reason?: string;
+    targetDate: string;
+    targetTime?: string;
+  }) => Promise<unknown> | unknown;
   startMilestoneWork?: (input: {
     milestoneKey: string;
     note?: string;
-  }) => Promise<void> | void;
+  }) => Promise<unknown> | unknown;
   materialPlanning?: MaterialPlanningActions;
 }
 
@@ -376,6 +462,8 @@ export function ProductionBuildDetailSurface({
   actions,
   activeBuildId,
   activeTab,
+  calendarTimeframe,
+  calendarWorkspace,
   contractorDetailHrefFor,
   breadcrumbRootHref = "/backoffice",
   breadcrumbRootLabel = "Backoffice",
@@ -384,6 +472,7 @@ export function ProductionBuildDetailSurface({
   detail,
   milestoneKey,
   onChangeMilestone,
+  onChangeCalendarTimeframe,
   onChangeRail,
   onChangeTab,
   rail,
@@ -394,6 +483,8 @@ export function ProductionBuildDetailSurface({
   activeTab: BuildDetailSubTab;
   activeBuildId?: string;
   actions?: ProductionBuildDetailActions;
+  calendarTimeframe?: CalendarTimeframe;
+  calendarWorkspace?: DrawFlowCalendarWorkspaceData | null;
   contractorDetailHrefFor?: (contractorId: string) => string;
   detail: ProductionBuildDetail;
   breadcrumbRootHref?: string;
@@ -401,6 +492,7 @@ export function ProductionBuildDetailSurface({
   breadcrumbSectionHref?: string;
   breadcrumbSectionLabel?: string;
   milestoneKey?: string;
+  onChangeCalendarTimeframe?: (timeframe: CalendarTimeframe) => void;
   onChangeMilestone?: (milestoneKey?: string) => void;
   onChangeRail: (rail: "open" | "closed") => void;
   onChangeTab: (tab: BuildDetailSubTab) => void;
@@ -488,7 +580,15 @@ export function ProductionBuildDetailSurface({
           />
         ) : null}
         {activeTab === "calendar" ? (
-          <ProductionCalendarTab detail={detail} projection={projection} />
+          <ProductionCalendarTab
+            actions={actions}
+            calendarTimeframe={calendarTimeframe}
+            calendarWorkspace={calendarWorkspace}
+            detail={detail}
+            onChangeCalendarTimeframe={onChangeCalendarTimeframe}
+            onChangeTab={onChangeTab}
+            workosOrganizationId={workosOrganizationId}
+          />
         ) : null}
         {activeTab === "gantt" ? (
           <ProductionGanttTab
@@ -511,9 +611,9 @@ export function ProductionBuildDetailSurface({
         assignmentsSourceLabel="buildContractorAssignments"
         data={sheetData}
         eventsSourceLabel="activeBuildAuditEvents"
-        onApprove={async (milestoneKey, note) =>
-          actions?.approveMilestone?.({ milestoneKey, note })
-        }
+        onApprove={async (milestoneKey, note) => {
+          await actions?.approveMilestone?.({ milestoneKey, note });
+        }}
         onAssignContractor={
           actions?.assignContractorToMilestone ||
           actions?.createAndAssignContractor
@@ -530,9 +630,9 @@ export function ProductionBuildDetailSurface({
         onRequestInfo={(milestoneKey, note) =>
           void actions?.requestMilestoneInfo?.({ milestoneKey, note })
         }
-        onStartWork={(milestoneKey, note) =>
-          actions?.startMilestoneWork?.({ milestoneKey, note })
-        }
+        onStartWork={(milestoneKey, note) => {
+          void actions?.startMilestoneWork?.({ milestoneKey, note });
+        }}
       />
       <ContractorQuickAddDrawer
         availableContractors={contractorAssignmentOptions(detail)}
@@ -719,8 +819,16 @@ function ProductionDetailsTab({
       <section className="grid gap-3 sm:gap-4 xl:grid-cols-2">
         <ContractorsCard
           actions={{
-            onAttachExisting: actions?.attachContractor,
-            onCreateAndAttach: actions?.createAndAttachContractor,
+            onAttachExisting: actions?.attachContractor
+              ? (input) => {
+                  void actions.attachContractor?.(input);
+                }
+              : undefined,
+            onCreateAndAttach: actions?.createAndAttachContractor
+              ? (input) => {
+                  void actions.createAndAttachContractor?.(input);
+                }
+              : undefined,
             sourceLabel: "production_contractors",
           }}
           availableContractors={detail.availableContractors ?? []}
@@ -893,7 +1001,7 @@ function ProductionDrawsTable({
 
   const run = async (
     draw: ProductionDraw,
-    fn?: (draw: ProductionDraw) => Promise<void> | void
+    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
   ) => {
     if (!fn || pendingDraw) return;
     setPendingDraw(draw.drawKey);
@@ -1065,7 +1173,7 @@ function FacilityChangeRequestsCard({
     (request) => request.status === "requested"
   );
 
-  const run = async (key: string, fn?: () => Promise<void> | void) => {
+  const run = async (key: string, fn?: () => Promise<unknown> | unknown) => {
     if (!fn || pending) return;
     setPending(key);
     setError("");
@@ -1494,15 +1602,6 @@ function ProductionNotesCard({
   );
 }
 
-function DescriptionRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-border border-b pb-2 last:border-b-0 last:pb-0">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="text-right font-medium tabular-nums">{value}</span>
-    </div>
-  );
-}
-
 function ProductionTimelineTab({
   activeBuildId,
   detail,
@@ -1597,55 +1696,116 @@ function ProductionBuildMaterialsTab({
 }
 
 function ProductionCalendarTab({
+  actions,
+  calendarTimeframe,
+  calendarWorkspace,
   detail,
-  projection,
+  onChangeCalendarTimeframe,
+  onChangeTab,
+  workosOrganizationId,
 }: {
+  actions?: ProductionBuildDetailActions;
+  calendarTimeframe?: CalendarTimeframe;
+  calendarWorkspace?: DrawFlowCalendarWorkspaceData | null;
   detail: ProductionBuildDetail;
-  projection: ProductionBuildProjection;
+  onChangeCalendarTimeframe?: (timeframe: CalendarTimeframe) => void;
+  onChangeTab: (tab: BuildDetailSubTab) => void;
+  workosOrganizationId?: string;
 }) {
+  const drawByKey = useMemo(
+    () => new Map(detail.draws.map((draw) => [draw.drawKey, draw])),
+    [detail.draws]
+  );
+  const adapterActions = useMemo<ActiveBuildCalendarAdapterActions>(
+    () => ({
+      approveDraw: (drawKey) => {
+        const draw = drawByKey.get(drawKey);
+        if (draw) return actions?.approveDraw?.(draw);
+      },
+      approveMilestone: (milestoneKey) =>
+        actions?.approveMilestone?.({ milestoneKey }),
+      assignSiteVisit: (milestoneKey) =>
+        actions?.assignSiteVisit?.({ milestoneKey }),
+      cancelSiteVisit: actions?.cancelSiteVisit,
+      releaseDraw: (drawKey) => {
+        const draw = drawByKey.get(drawKey);
+        if (draw) return actions?.releaseDraw?.(draw);
+      },
+      requestDraw: (drawKey) => {
+        const draw = drawByKey.get(drawKey);
+        if (draw) return actions?.requestDraw?.(draw);
+      },
+      requestLoanFacilityDateChange:
+        actions?.requestLoanFacilityDateChange ??
+        ((input) =>
+          actions?.requestFacilityChange?.({
+            reason: input.reason,
+            requestedPaybackDate: input.requestedPaybackDate,
+            requestType: "paybackExtension",
+          })),
+      requestMilestoneInfo: actions?.requestMilestoneInfo,
+      rescheduleSiteVisit: actions?.rescheduleSiteVisit,
+      reviseMilestoneSchedule: actions?.reviseMilestoneSchedule,
+      scheduleSiteVisit:
+        actions?.scheduleSiteVisit ??
+        ((input) =>
+          actions?.assignSiteVisit?.({ milestoneKey: input.milestoneKey })),
+      setAdminDecisionTargetDate: actions?.setAdminDecisionTargetDate,
+      setDrawReleaseTargetDate: actions?.setDrawReleaseTargetDate,
+      setEvidenceDueDate: actions?.setEvidenceDueDate,
+      setReviewTargetDate: actions?.setReviewTargetDate,
+      startMilestoneWork: (milestoneKey) =>
+        actions?.startMilestoneWork?.({
+          milestoneKey,
+          note: "Started from calendar workspace.",
+        }),
+    }),
+    [actions, drawByKey]
+  );
+  const effectiveWorkspace = useMemo(
+    () =>
+      calendarWorkspace ??
+      buildActiveBuildCalendarWorkspaceFromDetail(detail, {
+        organizationId: workosOrganizationId,
+      }),
+    [calendarWorkspace, detail, workosOrganizationId]
+  );
+  const calendarActions = useMemo(
+    () =>
+      buildActiveBuildCalendarActions(adapterActions, {
+        baseDate: detail.build.startDate,
+      }),
+    [adapterActions, detail.build.startDate]
+  );
+  const commitEdit = useMemo(
+    () =>
+      createActiveBuildCalendarEditHandler({
+        actions: adapterActions,
+        baseDate: detail.build.startDate,
+      }),
+    [adapterActions, detail.build.startDate]
+  );
+
   return (
-    <div
-      className="grid gap-4 xl:grid-cols-[auto_1fr]"
-      data-testid="production-build-calendar"
-    >
-      <Frame>
-        <FramePanel className="p-4">
-          <Calendar
-            mode="multiple"
-            selected={projection.calendarDates}
-            showOutsideDays
-          />
-        </FramePanel>
-      </Frame>
-      <Card>
-        <CardHeader className="p-4">
-          <CardTitle className="text-base">Calendar milestones</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3 p-4 pt-0">
-          {projection.milestones.map((milestone) => (
-            <div
-              className="grid gap-3 rounded-md border bg-background/60 p-3 text-sm md:grid-cols-[1fr_auto]"
-              key={milestone._id}
-            >
-              <div className="min-w-0">
-                <p className="truncate font-medium">{milestone.name}</p>
-                <p className="text-muted-foreground text-xs">
-                  {formatDate(
-                    addDaysSafe(detail.build.startDate, milestone.dayStart)
-                  )}{" "}
-                  to{" "}
-                  {formatDate(
-                    addDaysSafe(detail.build.startDate, milestone.dayEnd)
-                  )}
-                </p>
-              </div>
-              <Badge variant={milestoneBadgeVariant(milestone.status)}>
-                {milestoneStatusLabel(milestone.status)}
-              </Badge>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+    <div data-testid="production-build-calendar">
+      <CalendarWorkspace
+        actions={calendarActions}
+        initialTimeframe={calendarTimeframe ?? effectiveWorkspace.defaultTimeframe}
+        onCommitEdit={commitEdit}
+        onCreateSyncSubscription={actions?.createCalendarSyncSubscription}
+        onRecordExternalSyncChange={actions?.recordExternalCalendarSyncChange}
+        onSaveView={actions?.saveCalendarView}
+        onTimeframeChange={onChangeCalendarTimeframe}
+        workspace={effectiveWorkspace}
+      />
+      <div className="sr-only">
+        <button onClick={() => onChangeTab("timeline")} type="button">
+          Jump to timeline
+        </button>
+        <button onClick={() => onChangeTab("gantt")} type="button">
+          Jump to Gantt
+        </button>
+      </div>
     </div>
   );
 }
@@ -2003,17 +2163,6 @@ function statusLabel(status: ProductionBuildStatus): string {
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function milestoneStatusLabel(status: ProductionMilestoneStatus): string {
-  switch (status) {
-    case "in_progress":
-      return "In progress";
-    case "complete":
-      return "Complete";
-    default:
-      return "Planned";
-  }
-}
-
 function drawStatusLabel(status: ProductionDrawStatus): string {
   switch (status) {
     case "approved":
@@ -2035,14 +2184,6 @@ function statusBadgeVariant(
   if (status === "completed") return "success";
   if (status === "paused") return "warning";
   return "info";
-}
-
-function milestoneBadgeVariant(
-  status: ProductionMilestoneStatus
-): React.ComponentProps<typeof Badge>["variant"] {
-  if (status === "complete") return "success";
-  if (status === "in_progress") return "warning";
-  return "outline";
 }
 
 function drawBadgeVariant(

@@ -624,7 +624,7 @@ describe("MobileTimelineDayDialWorkspace", () => {
       .getByTestId("mobile-day-wheel")
       .querySelector<HTMLElement>("[data-rwp-highlight-list]");
     expect(highlightList).toBeTruthy();
-    highlightList?.setAttribute("style", "transform: translateY(-196px);");
+    highlightList?.setAttribute("style", "transform: translateY(-224px);");
 
     await waitFor(() => expect(onDayChange).toHaveBeenCalledWith(7));
   });

@@ -8,11 +8,15 @@ import {
 } from "./fluent";
 import { DEMO_PERSONAS } from "./demo_personas";
 import {
+  coerceSiteVisitGuidanceInput,
   defaultSiteVisitGuidance,
+  guidanceHtmlExceedsMaxLength,
   guidanceItemsToGuidance,
   guidanceToItems,
   normalizeSiteVisitGuidance,
+  SITE_VISIT_GUIDANCE_HTML_MAX_LENGTH,
   type SiteVisitGuidance,
+  type SiteVisitGuidanceField,
 } from "./demo_site_visit_guidance";
 import type { DatabaseReader, DatabaseWriter, Doc } from "./types";
 
@@ -21,6 +25,11 @@ const TOTAL_BPS = 10_000;
 const TIMELINE_DEMO_SETTINGS_HANDOFF_GAP_DAYS = 5;
 const TIMELINE_DEMO_SETTINGS_DRAW_OFFSET_DAYS = 2;
 const NOW = Date.parse("2026-05-20T18:34:00.000Z");
+
+type DemoSettingsSiteVisitGuidanceInput = {
+  cameraAngles: SiteVisitGuidanceField;
+  whatToVerify: SiteVisitGuidanceField;
+};
 
 const iconValidator = v.union(
   v.literal("change"),
@@ -45,9 +54,14 @@ const scenarioDrawInputValidator = v.object({
   timingDay: v.number(),
 });
 
+const siteVisitGuidanceFieldInputValidator = v.union(
+  v.string(),
+  v.array(v.string())
+);
+
 const siteVisitGuidanceInputValidator = v.object({
-  cameraAngles: v.array(v.string()),
-  whatToVerify: v.array(v.string()),
+  cameraAngles: siteVisitGuidanceFieldInputValidator,
+  whatToVerify: siteVisitGuidanceFieldInputValidator,
 });
 
 const milestoneInputValidator = v.object({
@@ -157,6 +171,19 @@ type MilestoneInput = {
   submilestones: (SeedSubmilestone & { order: number })[];
   type: string;
 };
+
+type MilestoneInputDraft = Omit<MilestoneInput, "siteVisitGuidance"> & {
+  siteVisitGuidance?: DemoSettingsSiteVisitGuidanceInput;
+};
+
+function normalizeMilestoneInputs(rows: MilestoneInputDraft[]): MilestoneInput[] {
+  return rows.map((row) => ({
+    ...row,
+    siteVisitGuidance: row.siteVisitGuidance
+      ? coerceSiteVisitGuidanceInput(row.siteVisitGuidance)
+      : undefined,
+  }));
+}
 type ScenarioInput = {
   description: string;
   draws: (SeedDraw & { order: number })[];
@@ -349,10 +376,11 @@ export const saveTimelineTemplateConfiguration = publicMutation
   })
   .returns(v.any())
   .handler(async (ctx, args) => {
-    validateTemplateRows(args.milestones);
-    validateScenarios(args.scenarios, args.milestones);
+    const milestones = normalizeMilestoneInputs(args.milestones);
+    validateTemplateRows(milestones);
+    validateScenarios(args.scenarios, milestones);
     await upsertTemplate(ctx, args.template, 0, true);
-    await replaceTemplateMilestones(ctx, args.template.templateKey, args.milestones);
+    await replaceTemplateMilestones(ctx, args.template.templateKey, milestones);
     for (const scenarioRow of args.scenarios) {
       await upsertScenario(ctx, args.template.templateKey, scenarioRow, true);
       await replaceScenarioDraws(
@@ -373,7 +401,7 @@ export const saveTimelineTemplateConfiguration = publicMutation
       entityType: "timelineTemplate",
       eventType: "template_configuration_saved",
       newState: JSON.stringify({
-        milestoneCount: args.milestones.length,
+        milestoneCount: milestones.length,
         scenarioCount: args.scenarios.length,
       }),
       warnings: [],
@@ -390,8 +418,9 @@ export const saveTimelineTemplateWorksheet = publicMutation
   })
   .returns(v.any())
   .handler(async (ctx, args) => {
-    validateTemplateRows(args.milestones);
-    await replaceTemplateMilestones(ctx, args.templateKey, args.milestones);
+    const milestones = normalizeMilestoneInputs(args.milestones);
+    validateTemplateRows(milestones);
+    await replaceTemplateMilestones(ctx, args.templateKey, milestones);
     await insertEvent(ctx, {
       command: "saveTimelineTemplateWorksheet",
       entityKey: args.templateKey,
@@ -1422,7 +1451,7 @@ function validateTemplateRows(
     name: string;
     order: number;
     percentageBps: number;
-    siteVisitGuidance?: SiteVisitGuidance;
+    siteVisitGuidance?: DemoSettingsSiteVisitGuidanceInput;
     submilestones: { name: string }[];
   }[]
 ) {
@@ -1444,11 +1473,10 @@ function validateTemplateRows(
       throw new Error("Sub-milestones require names.");
     }
     const guidance = normalizeSiteVisitGuidance(row.siteVisitGuidance);
-    if (
-      guidance.whatToVerify.some((item) => item.length > 280) ||
-      guidance.cameraAngles.some((item) => item.length > 280)
-    ) {
-      throw new Error("Field guidance items must be 280 characters or less.");
+    if (guidanceHtmlExceedsMaxLength(guidance)) {
+      throw new Error(
+        `Field guidance must be ${SITE_VISIT_GUIDANCE_HTML_MAX_LENGTH} characters or less per section.`
+      );
     }
   }
   validateMilestoneHandoffGaps(rows);

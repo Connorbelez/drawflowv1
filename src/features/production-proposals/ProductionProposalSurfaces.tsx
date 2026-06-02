@@ -77,11 +77,25 @@ import {
   TableRow,
 } from "#/components/ui/table.tsx";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
+import { CalendarWorkspace } from "#/features/calendar-workspace/CalendarWorkspace.tsx";
+import {
+  buildProposalCalendarActions,
+  buildProposalCalendarWorkspaceFromDetail,
+  createProposalCalendarEditHandler,
+  type ProposalCalendarAdapterActions,
+} from "#/features/calendar-workspace/adapters/proposalCalendarAdapter.ts";
+import type {
+  CalendarEditRequest,
+  CalendarFilters,
+  CalendarSyncSubscriptionResult,
+  CalendarTimeframe,
+  DrawFlowCalendarWorkspaceData,
+} from "#/features/calendar-workspace/calendarTypes.ts";
 import type { TimelinePlanRow } from "#/features/builder-dashboard/BuilderTimelineDashboard.tsx";
 import {
-  MaterialPlanningTab,
   type MaterialPlanningActions,
   type MaterialPlanningItem,
+  MaterialPlanningTab,
 } from "#/features/material-planning/MaterialPlanningTab.tsx";
 import {
   type TimelineMilestoneWorksheetRow,
@@ -145,10 +159,10 @@ interface ProductionDocument {
 
 export interface ProductionProposalDetail {
   activeBuild?: { _id?: string; startDate?: string } | null;
+  costItems?: MaterialPlanningItem[];
   documents?: ProductionDocument[];
   draws?: ProductionDraw[];
   loanFacility?: { interestAnnualBps?: number; principalCents?: number } | null;
-  costItems?: MaterialPlanningItem[];
   milestones?: ProductionMilestone[];
   permitWaiver?: { reason: string } | null;
   plannedDraws?: ProductionDraw[];
@@ -157,6 +171,7 @@ export interface ProductionProposalDetail {
 }
 
 type ProductionReviewTab =
+  | "calendar"
   | "closing"
   | "contractors"
   | "draws"
@@ -207,8 +222,8 @@ export interface ProductionProposalSettings {
       name: string;
       percentageBps: number;
       siteVisitGuidance?: {
-        cameraAngles: string[];
-        whatToVerify: string[];
+        cameraAngles: string;
+        whatToVerify: string;
       };
       submilestones: Array<{
         budgetCents?: number;
@@ -236,6 +251,25 @@ export interface ProductionProposalDraftSavePayload {
   borrowerCoPayBps: number;
   borrowerWorkingCapitalLimitCents: number;
   buildName: string;
+  contractorAssignments?: Array<{
+    contractorId?: string;
+    contractorName: string;
+    estimatedCostCents?: number;
+    estimatedHours?: number;
+    milestoneKey: string;
+    role: string;
+    submilestoneKeys: string[];
+  }>;
+  costItems?: Array<{
+    costCents: number;
+    description?: string;
+    itemType: "equipment" | "material";
+    milestoneKey: string;
+    quantity: number;
+    relevantSubmilestoneKeys: string[];
+    supplier?: string;
+    title: string;
+  }>;
   documents?: Array<{
     documentType: "permit" | "budget" | "plan" | "supporting";
     fileName: string;
@@ -717,8 +751,8 @@ export function ProductionProposalKanbanSurface({
   onAssignBuilder?: (
     card: ProductionKanbanCard,
     builderProfileId: string
-  ) => Promise<void> | void;
-  onDeleteDraft?: (card: ProductionKanbanCard) => Promise<void> | void;
+  ) => Promise<unknown> | unknown;
+  onDeleteDraft?: (card: ProductionKanbanCard) => Promise<unknown> | unknown;
   onOpen?: (card: ProductionKanbanCard) => void;
 }) {
   const [assignCard, setAssignCard] = useState<ProductionKanbanCard | null>(
@@ -892,7 +926,7 @@ function AssignBuilderDialog({
   onAssign?: (
     card: ProductionKanbanCard,
     builderProfileId: string
-  ) => Promise<void> | void;
+  ) => Promise<unknown> | unknown;
   onOpenChange: (open: boolean) => void;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
@@ -986,7 +1020,7 @@ function DeleteDraftDialog({
   onOpenChange,
 }: {
   card: ProductionKanbanCard | null;
-  onDelete?: (card: ProductionKanbanCard) => Promise<void> | void;
+  onDelete?: (card: ProductionKanbanCard) => Promise<unknown> | unknown;
   onOpenChange: (open: boolean) => void;
 }) {
   const [pending, setPending] = useState(false);
@@ -1187,26 +1221,62 @@ export function ProductionProposalSettingsSurface({
 }
 
 export function ProductionProposalReviewSurface({
+  calendarAdapterActions,
+  calendarTimeframe,
+  calendarWorkspace,
   detail,
+  initialActiveTab,
   materialPlanningActions,
+  onChangeCalendarTimeframe,
+  onChangeReviewTab,
   onApprove,
   onClose,
+  onCommitCalendarEdit,
+  onCreateCalendarSyncSubscription,
+  onRecordExternalCalendarSyncChange,
   onReject,
   onRequestChanges,
+  onSaveCalendarView,
   onUpdateDraw,
   contractors,
   timeline,
 }: {
   contractors?: ReactNode;
+  calendarAdapterActions?: ProposalCalendarAdapterActions;
+  calendarTimeframe?: CalendarTimeframe;
+  calendarWorkspace?: DrawFlowCalendarWorkspaceData | null;
   detail: ProductionProposalDetail;
   materialPlanningActions?: MaterialPlanningActions;
+  onChangeCalendarTimeframe?: (timeframe: CalendarTimeframe) => void;
+  onChangeReviewTab?: (tab: ProductionReviewTab) => void;
   onApprove: (
     reason: string,
     permitWaiverReason?: string
   ) => Promise<unknown> | unknown;
   onClose: (startDate: string, reason: string) => Promise<unknown> | unknown;
+  onCommitCalendarEdit?: (request: CalendarEditRequest) => Promise<unknown> | unknown;
+  onCreateCalendarSyncSubscription?: (input: {
+    direction: "bidirectional" | "outbound";
+    filters: CalendarFilters;
+    provider: "google" | "ics" | "outlook";
+    surface: "activeBuild" | "proposal";
+  }) => Promise<CalendarSyncSubscriptionResult> | CalendarSyncSubscriptionResult | void;
+  onRecordExternalCalendarSyncChange?: (input: {
+    changeKey: string;
+    externalEventId?: string;
+    payload: unknown;
+    provider: "google" | "ics" | "outlook";
+    subscriptionKey?: string;
+  }) => Promise<unknown> | unknown;
   onReject: (reason: string) => Promise<unknown> | unknown;
   onRequestChanges: (reason: string) => Promise<unknown> | unknown;
+  onSaveCalendarView?: (input: {
+    filters: CalendarFilters;
+    isDefault?: boolean;
+    label: string;
+    timeframe: CalendarTimeframe;
+    viewKey: string;
+  }) => Promise<unknown> | unknown;
   onUpdateDraw?: (
     drawKey: string,
     patch: {
@@ -1217,6 +1287,7 @@ export function ProductionProposalReviewSurface({
     }
   ) => void;
   timeline?: ReactNode;
+  initialActiveTab?: ProductionReviewTab;
 }) {
   const [reason, setReason] = useState("");
   const [permitWaiverReason, setPermitWaiverReason] = useState("");
@@ -1243,6 +1314,7 @@ export function ProductionProposalReviewSurface({
     if (timeline) {
       nextTabs.push({ label: "Timeline", value: "timeline" });
     }
+    nextTabs.push({ label: "Calendar", value: "calendar" });
     if (contractors) {
       nextTabs.push({ label: "Contractors", value: "contractors" });
     }
@@ -1257,9 +1329,46 @@ export function ProductionProposalReviewSurface({
     }
     return nextTabs;
   }, [contractors, editableDraws.length, proposal.status, timeline]);
+  const proposalCalendarActions = useMemo<ProposalCalendarAdapterActions>(
+    () => ({
+      ...calendarAdapterActions,
+      reviseDrawTiming: calendarAdapterActions?.reviseDrawTiming ?? (onUpdateDraw
+        ? (input) => {
+            const draw = editableDraws.find(
+              (candidate) => candidate.drawKey === input.drawKey
+            );
+            if (!draw) return;
+            onUpdateDraw(input.drawKey, {
+              amountCents: draw.amountCents,
+              label: draw.label,
+              reason: input.reason ?? "Calendar draw timing edit.",
+              timingDay: input.timingDay,
+            });
+          }
+        : undefined),
+    }),
+    [calendarAdapterActions, editableDraws, onUpdateDraw]
+  );
+  const effectiveCalendarWorkspace = useMemo(
+    () =>
+      calendarWorkspace ??
+      buildProposalCalendarWorkspaceFromDetail(detail),
+    [calendarWorkspace, detail]
+  );
+  const effectiveCalendarActions = useMemo(
+    () => buildProposalCalendarActions(proposalCalendarActions),
+    [proposalCalendarActions]
+  );
+  const fallbackCalendarEdit = useMemo(
+    () =>
+      createProposalCalendarEditHandler({
+        actions: proposalCalendarActions,
+        baseDate: detail.activeBuild?.startDate ?? "2026-06-01",
+      }),
+    [detail.activeBuild?.startDate, proposalCalendarActions]
+  );
   const [activeTab, setActiveTab] = useState<ProductionReviewTab>(
-    //ToDo: Change this back to timeline and review
-    timeline ? "contractors" : "contractors"
+    initialActiveTab ?? (timeline ? "timeline" : "review")
   );
 
   useEffect(() => {
@@ -1267,6 +1376,11 @@ export function ProductionProposalReviewSurface({
       setActiveTab(tabs[0]?.value ?? "review");
     }
   }, [activeTab, tabs]);
+  useEffect(() => {
+    if (initialActiveTab && tabs.some((tab) => tab.value === initialActiveTab)) {
+      setActiveTab(initialActiveTab);
+    }
+  }, [initialActiveTab, tabs]);
 
   const runReviewDecision = async (
     decision: "approve" | "reject" | "requestChanges"
@@ -1282,14 +1396,16 @@ export function ProductionProposalReviewSurface({
       });
       return;
     }
-    if (decision === "approve" && !(permit || detail.permitWaiver)) {
-      if (!permitWaiverReviewReason) {
-        toast.error("Permit waiver reason required.", {
-          description:
-            "No permit PDF is linked, so approval needs a recorded waiver reason.",
-        });
-        return;
-      }
+    if (
+      decision === "approve" &&
+      !(permit || detail.permitWaiver) &&
+      !permitWaiverReviewReason
+    ) {
+      toast.error("Permit waiver reason required.", {
+        description:
+          "No permit PDF is linked, so approval needs a recorded waiver reason.",
+      });
+      return;
     }
 
     setPendingDecision(decision);
@@ -1315,7 +1431,11 @@ export function ProductionProposalReviewSurface({
     >
       <Tabs
         className="mx-auto max-w-full gap-4"
-        onValueChange={(value) => setActiveTab(value as ProductionReviewTab)}
+        onValueChange={(value) => {
+          const next = value as ProductionReviewTab;
+          setActiveTab(next);
+          onChangeReviewTab?.(next);
+        }}
         value={activeTab}
       >
         <Frame>
@@ -1359,6 +1479,25 @@ export function ProductionProposalReviewSurface({
             {contractors}
           </TabsPanel>
         ) : null}
+
+        <TabsPanel
+          className="min-w-0"
+          data-testid="production-proposal-calendar-tab"
+          value="calendar"
+        >
+          <CalendarWorkspace
+            actions={effectiveCalendarActions}
+            initialTimeframe={
+              calendarTimeframe ?? effectiveCalendarWorkspace.defaultTimeframe
+            }
+            onCommitEdit={onCommitCalendarEdit ?? fallbackCalendarEdit}
+            onCreateSyncSubscription={onCreateCalendarSyncSubscription}
+            onRecordExternalSyncChange={onRecordExternalCalendarSyncChange}
+            onSaveView={onSaveCalendarView}
+            onTimeframeChange={onChangeCalendarTimeframe}
+            workspace={effectiveCalendarWorkspace}
+          />
+        </TabsPanel>
 
         <TabsPanel
           className="min-w-0"
@@ -1406,7 +1545,9 @@ export function ProductionProposalReviewSurface({
                         size="sm"
                         variant="destructive"
                       >
-                        {pendingDecision === "reject" ? "Rejecting..." : "Reject"}
+                        {pendingDecision === "reject"
+                          ? "Rejecting..."
+                          : "Reject"}
                       </Button>
                       <Button
                         disabled={
@@ -1416,7 +1557,9 @@ export function ProductionProposalReviewSurface({
                         onClick={() => void runReviewDecision("approve")}
                         size="sm"
                       >
-                        {pendingDecision === "approve" ? "Approving..." : "Approve"}
+                        {pendingDecision === "approve"
+                          ? "Approving..."
+                          : "Approve"}
                       </Button>
                     </div>
                   </div>
@@ -1670,7 +1813,7 @@ function ApprovedProposalConfirmation({
         data-testid="approved-proposal-confirmation"
       >
         <div className="mx-auto grid size-16 place-items-center rounded-full bg-success/10 text-success ring-1 ring-success/25">
-          <CheckCircle2 className="size-8" aria-hidden />
+          <CheckCircle2 aria-hidden className="size-8" />
         </div>
         <div className="mx-auto grid max-w-2xl gap-2">
           <Badge className="mx-auto" variant="success">

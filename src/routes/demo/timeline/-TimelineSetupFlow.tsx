@@ -492,8 +492,8 @@ export interface TimelineSetupPreset {
   name: string;
   percentageBps: number;
   siteVisitGuidance?: {
-    cameraAngles: string[];
-    whatToVerify: string[];
+    cameraAngles: string;
+    whatToVerify: string;
   };
   subMilestones: string[];
   type: string;

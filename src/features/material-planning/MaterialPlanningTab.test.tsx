@@ -58,6 +58,33 @@ describe("MaterialPlanningTab", () => {
     expect(screen.getByText("$80,000 x 2.5")).toBeTruthy();
   });
 
+  test("renders rich description images in material item previews", () => {
+    render(
+      <MaterialPlanningTab
+        items={[
+          {
+            _id: "item-1",
+            costCents: 8_000_000,
+            description:
+              '<p>Concrete and rebar package.</p><img src="data:image/png;base64,abc" alt="site detail" />',
+            itemType: "material",
+            milestoneKey: "foundation",
+            quantity: 1,
+            relevantSubmilestoneKeys: [],
+            title: "Foundation material package",
+          },
+        ]}
+        milestones={milestones}
+        readOnly
+        scopeLabel="Build Proposal"
+      />,
+    );
+
+    expect(screen.getByAltText("site detail").getAttribute("src")).toBe(
+      "data:image/png;base64,abc",
+    );
+  });
+
   test("submits a cost item payload without creating a submilestone", () => {
     const create = vi.fn();
     render(

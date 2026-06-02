@@ -40,6 +40,10 @@ const TOTAL_REIMBURSEMENT_BPS = 10_000;
 const DEFAULT_BORROWER_CO_PAY_BPS = 2000;
 const TOKEN_TTL_MS = 60 * 60 * 1000;
 const SHORT_LINK_PATTERN = /^[a-z]+-[a-z]+-[a-z0-9]{4}$/;
+
+type DemoTimelineSiteVisitGuidanceInput = Parameters<
+  typeof normalizeSiteVisitGuidance
+>[0];
 const drawflowBackofficeDashboardQuery = makeFunctionReference<"query">(
   "demo_drawflow:demo_getBackofficeDashboard"
 );
@@ -164,9 +168,14 @@ function toSubmilestoneSnapshot(
   }));
 }
 
+const siteVisitGuidanceFieldInputValidator = v.union(
+  v.string(),
+  v.array(v.string())
+);
+
 const siteVisitGuidanceInputValidator = v.object({
-  cameraAngles: v.array(v.string()),
-  whatToVerify: v.array(v.string()),
+  cameraAngles: siteVisitGuidanceFieldInputValidator,
+  whatToVerify: siteVisitGuidanceFieldInputValidator,
 });
 
 const setupMilestoneInputValidator = v.object({
@@ -374,7 +383,7 @@ export function normalizeSetupPayload(input: {
     order?: number;
     policyState?: string;
     status?: string;
-    siteVisitGuidance?: SiteVisitGuidance;
+    siteVisitGuidance?: DemoTimelineSiteVisitGuidanceInput;
     submilestones?: {
       budgetCents?: number;
       description?: string;
@@ -2840,7 +2849,7 @@ async function insertTimelineMilestoneFromInput(
     order: number;
     policyState: string;
     status?: string;
-    siteVisitGuidance?: SiteVisitGuidance;
+    siteVisitGuidance?: DemoTimelineSiteVisitGuidanceInput;
     submilestones?: {
       budgetCents?: number;
       description?: string;

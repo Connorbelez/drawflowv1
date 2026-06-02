@@ -1,15 +1,15 @@
-import type {
-  ProductionKanban,
-  ProductionProposalDetail,
-  ProductionProposalSettings,
-} from "./ProductionProposalSurfaces.tsx";
 import type { ProductionBuildDetail } from "#/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx";
 import type {
   MaterialPlanningItem,
   MaterialPlanningPayload,
 } from "#/features/material-planning/MaterialPlanningTab.tsx";
-import type { ProductionProposalTemplateProjection } from "./timelineSetupAdapter.ts";
 import type { ConvexTimelineWorkspace } from "#/features/timeline-workspace/-timeline-convex-adapter.ts";
+import type {
+  ProductionKanban,
+  ProductionProposalDetail,
+  ProductionProposalSettings,
+} from "./ProductionProposalSurfaces.tsx";
+import type { ProductionProposalTemplateProjection } from "./timelineSetupAdapter.ts";
 
 export const VISUAL_PARITY_ORGANIZATION_ID = "org_visual_parity_workos";
 export const VISUAL_PARITY_PROPOSAL_ID = "proposal_visual_parity";
@@ -39,6 +39,24 @@ export function getVisualParityCreateContext() {
       companyName: "Northline Homes",
       status: "active",
     },
+    availableContractors: [
+      {
+        city: "Hamilton",
+        contractorId: "contractor_visual_framing",
+        defaultPayRateCents: 12_500,
+        defaultPayRateUnit: "hour" as const,
+        name: "Ledger Frame Co.",
+        trades: ["Framing", "Rough carpentry"],
+      },
+      {
+        city: "Burlington",
+        contractorId: "contractor_visual_concrete",
+        defaultPayRateCents: 9500,
+        defaultPayRateUnit: "hour" as const,
+        name: "Apex Concrete Works",
+        trades: ["Foundation", "Concrete"],
+      },
+    ],
     templates: VISUAL_PARITY_TEMPLATES,
   };
 }
@@ -55,7 +73,7 @@ export function getVisualParityKanban(): ProductionKanban {
             proposalId: VISUAL_PARITY_PROPOSAL_ID,
             subtitle: "Hamilton, ON - package in progress",
             title: "Hamilton Infill Build",
-            totalBudgetCents: 1_250_000_00,
+            totalBudgetCents: 125_000_000,
             updatedAt: now,
           },
         ],
@@ -70,7 +88,7 @@ export function getVisualParityKanban(): ProductionKanban {
             proposalId: "proposal_visual_submitted",
             subtitle: "Permit linked - ready for broker review",
             title: "King Street Townhomes",
-            totalBudgetCents: 1_480_000_00,
+            totalBudgetCents: 148_000_000,
             updatedAt: now - 86_400_000,
           },
         ],
@@ -85,7 +103,7 @@ export function getVisualParityKanban(): ProductionKanban {
             proposalId: "proposal_visual_approved",
             subtitle: "Approved - waiting on offline closing",
             title: "Cedarpoint Duplex",
-            totalBudgetCents: 980_000_00,
+            totalBudgetCents: 98_000_000,
             updatedAt: now - 172_800_000,
           },
         ],
@@ -100,7 +118,7 @@ export function getVisualParityKanban(): ProductionKanban {
             proposalId: "proposal_visual_closed",
             subtitle: "Active build created from closed proposal",
             title: "Wentworth Garden Suites",
-            totalBudgetCents: 1_110_000_00,
+            totalBudgetCents: 111_000_000,
             updatedAt: now - 259_200_000,
           },
         ],
@@ -146,49 +164,49 @@ export function getVisualParityProposalDetail(
     ],
     draws: [
       {
-        amountCents: 100_000_00,
+        amountCents: 10_000_000,
         drawKey: "draw-site-prep",
         label: "Draw 1 - site prep",
         milestoneKey: "site-prep",
         timingDay: 16,
       },
       {
-        amountCents: 128_000_00,
+        amountCents: 12_800_000,
         drawKey: "draw-framing",
         label: "Draw 2 - framing",
         milestoneKey: "framing",
         timingDay: 43,
       },
       {
-        amountCents: 196_000_00,
+        amountCents: 19_600_000,
         drawKey: "draw-rough-in",
         label: "Draw 3 - rough-in",
         milestoneKey: "rough-in",
         timingDay: 68,
       },
       {
-        amountCents: 168_000_00,
+        amountCents: 16_800_000,
         drawKey: "draw-exterior",
         label: "Draw 4 - exterior",
         milestoneKey: "exterior",
         timingDay: 92,
       },
       {
-        amountCents: 152_000_00,
+        amountCents: 15_200_000,
         drawKey: "draw-drywall",
         label: "Draw 5 - drywall",
         milestoneKey: "drywall",
         timingDay: 116,
       },
       {
-        amountCents: 128_000_00,
+        amountCents: 12_800_000,
         drawKey: "draw-finishes",
         label: "Draw 6 - finishes",
         milestoneKey: "finishes",
         timingDay: 138,
       },
       {
-        amountCents: 128_000_00,
+        amountCents: 12_800_000,
         drawKey: "draw-closeout",
         label: "Draw 7 - closeout",
         milestoneKey: "closeout",
@@ -197,7 +215,7 @@ export function getVisualParityProposalDetail(
     ],
     milestones: [
       {
-        budgetCents: 125_000_00,
+        budgetCents: 12_500_000,
         dayEnd: 14,
         dayStart: 0,
         durationDays: 14,
@@ -206,7 +224,7 @@ export function getVisualParityProposalDetail(
         order: 1,
       },
       {
-        budgetCents: 160_000_00,
+        budgetCents: 16_000_000,
         dayEnd: 39,
         dayStart: 19,
         durationDays: 20,
@@ -215,7 +233,7 @@ export function getVisualParityProposalDetail(
         order: 2,
       },
       {
-        budgetCents: 245_000_00,
+        budgetCents: 24_500_000,
         dayEnd: 64,
         dayStart: 44,
         durationDays: 20,
@@ -225,7 +243,7 @@ export function getVisualParityProposalDetail(
         order: 3,
       },
       {
-        budgetCents: 210_000_00,
+        budgetCents: 21_000_000,
         dayEnd: 88,
         dayStart: 69,
         durationDays: 19,
@@ -234,7 +252,7 @@ export function getVisualParityProposalDetail(
         order: 4,
       },
       {
-        budgetCents: 190_000_00,
+        budgetCents: 19_000_000,
         dayEnd: 112,
         dayStart: 93,
         durationDays: 19,
@@ -243,7 +261,7 @@ export function getVisualParityProposalDetail(
         order: 5,
       },
       {
-        budgetCents: 160_000_00,
+        budgetCents: 16_000_000,
         dayEnd: 136,
         dayStart: 117,
         durationDays: 19,
@@ -253,7 +271,7 @@ export function getVisualParityProposalDetail(
         order: 6,
       },
       {
-        budgetCents: 160_000_00,
+        budgetCents: 16_000_000,
         dayEnd: 156,
         dayStart: 141,
         durationDays: 15,
@@ -265,12 +283,12 @@ export function getVisualParityProposalDetail(
     permitWaiver: null,
     proposal: {
       borrowerCoPayBps: 2000,
-      borrowerWorkingCapitalLimitCents: 250_000_00,
+      borrowerWorkingCapitalLimitCents: 25_000_000,
       buildName: "Hamilton Infill Build",
-      lenderDrawPolicyLimitCents: 1_000_000_00,
+      lenderDrawPolicyLimitCents: 100_000_000,
       location: "Hamilton, ON",
       status: proposalStatus,
-      totalBudgetCents: 1_250_000_00,
+      totalBudgetCents: 125_000_000,
     },
     costItems: getVisualParityCostItems(),
     submilestones: [
@@ -462,7 +480,7 @@ export function getVisualParityActiveBuildDetail(
     milestoneContractorAssignments:
       workspace.contractorPlanning?.milestoneAssignments?.map((assignment) => ({
         _id: `active-${assignment._id}`,
-        agreedRateCents: 9_500,
+        agreedRateCents: 9500,
         agreedRateUnit: "hour",
         contractor: {
           _id: assignment.contractorId,
@@ -588,7 +606,7 @@ function getVisualParityCostItems(): MaterialPlanningItem[] {
   return [
     {
       _id: "proposal-cost-visual-lumber",
-      costCents: 14_500_00,
+      costCents: 1_450_000,
       description:
         "Engineered lumber package staged ahead of wall framing and roof truss work.",
       itemKey: "cost-framing-lumber",
@@ -598,12 +616,12 @@ function getVisualParityCostItems(): MaterialPlanningItem[] {
       relevantSubmilestoneKeys: ["wall-framing", "roof-trusses"],
       supplier: "Hamilton Structural Supply",
       title: "Framing lumber package",
-      totalCents: 14_500_00,
+      totalCents: 1_450_000,
       updatedAt: Date.UTC(2026, 4, 27, 14, 30),
     },
     {
       _id: "proposal-cost-visual-scissor-lift",
-      costCents: 2_200_00,
+      costCents: 220_000,
       description:
         "Four-week lift rental reserved for exterior window install and weather barrier work.",
       itemKey: "cost-exterior-lift",
@@ -613,12 +631,12 @@ function getVisualParityCostItems(): MaterialPlanningItem[] {
       relevantSubmilestoneKeys: ["windows", "weather-barrier"],
       supplier: "Great Lakes Equipment Rental",
       title: "Scissor lift rental",
-      totalCents: 8_800_00,
+      totalCents: 880_000,
       updatedAt: Date.UTC(2026, 4, 27, 14, 30),
     },
     {
       _id: "proposal-cost-visual-cabinets",
-      costCents: 23_750_00,
+      costCents: 2_375_000,
       description:
         "Cabinetry package ordered as a cost-only planning line, not a construction task.",
       itemKey: "cost-finish-cabinets",
@@ -628,7 +646,7 @@ function getVisualParityCostItems(): MaterialPlanningItem[] {
       relevantSubmilestoneKeys: ["cabinetry"],
       supplier: "Northline Millwork",
       title: "Cabinetry deposit",
-      totalCents: 23_750_00,
+      totalCents: 2_375_000,
       updatedAt: Date.UTC(2026, 4, 27, 14, 30),
     },
   ];
@@ -657,14 +675,14 @@ export function getVisualParityTimelineWorkspace(
         x: 0,
       },
       {
-        amountCents: 48_000_00,
+        amountCents: 4_800_000,
         capitalEventKey: "cash-infusion-drywall",
         eventKind: "cashInfusion",
         label: "Drywall cash infusion",
         x: 93,
       },
       {
-        amountCents: 36_000_00,
+        amountCents: 3_600_000,
         capitalEventKey: "material-spike-framing",
         eventKind: "cost",
         label: "Framing material spike",
@@ -687,7 +705,7 @@ export function getVisualParityTimelineWorkspace(
         {
           _id: "contractor_visual_framing",
           city: "Hamilton, ON",
-          defaultPayRateCents: 8_900,
+          defaultPayRateCents: 8900,
           defaultPayRateUnit: "hour",
           name: "Ironline Framing Co.",
           trades: ["framing", "carpentry"],
@@ -713,7 +731,7 @@ export function getVisualParityTimelineWorkspace(
           _id: "proposal-assign-visual-exterior",
           contractorId: "contractor_visual_masonry",
           contractorName: "Northstar Masonry",
-          estimatedCostCents: 138_000_00,
+          estimatedCostCents: 13_800_000,
           estimatedHours: 184,
           milestoneKey: "exterior",
           milestoneName: "Exterior envelope",
@@ -726,11 +744,11 @@ export function getVisualParityTimelineWorkspace(
       proposalContractors: [
         {
           _id: "proposal-contractor-visual-masonry",
-          agreedRateCents: 9_500,
+          agreedRateCents: 9500,
           agreedRateUnit: "hour",
           city: "Toronto, ON",
           contractorId: "contractor_visual_masonry",
-          defaultPayRateCents: 9_500,
+          defaultPayRateCents: 9500,
           defaultPayRateUnit: "hour",
           name: "Northstar Masonry",
           role: "Masonry lead",
@@ -746,7 +764,7 @@ export function getVisualParityTimelineWorkspace(
             { key: "masonry", label: "Masonry" },
           ],
           name: "Northstar Masonry",
-          rateCents: 9_500,
+          rateCents: 9500,
           score: 80,
           trades: ["masonry", "brick"],
         },

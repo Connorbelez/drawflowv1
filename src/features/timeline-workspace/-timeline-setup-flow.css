@@ -1265,6 +1265,246 @@
   background: light-dark(oklch(0.985 0.010 235), oklch(0.07 0.016 258));
 }
 
+.timeline-blueprint-planning-extras {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  min-height: 280px;
+  overflow: hidden;
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.24), oklch(0.72 0.08 240 / 0.24));
+  background:
+    linear-gradient(90deg, light-dark(oklch(0.985 0.010 235), oklch(0.09 0.018 255)), light-dark(oklch(0.985 0.010 235), oklch(0.075 0.016 258))),
+    linear-gradient(to right, light-dark(oklch(0.400 0.120 240 / 0.08), oklch(0.72 0.09 240 / 0.08)) 1px, transparent 1px);
+  background-size: auto, 32px 32px;
+  animation: timeline-submilestone-reveal 220ms var(--setup-ease) both;
+}
+
+.timeline-blueprint-planning-pane {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  min-width: 0;
+  padding: 18px;
+}
+
+.timeline-blueprint-planning-pane-contractors {
+  border-right: 1px solid light-dark(oklch(0.400 0.120 240 / 0.2), oklch(0.72 0.08 240 / 0.2));
+}
+
+.timeline-blueprint-planning-pane-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 16px;
+}
+
+.timeline-blueprint-planning-pane-heading > div {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.timeline-blueprint-planning-pane-heading strong {
+  color: light-dark(oklch(0.220 0.020 258), oklch(0.94 0.012 260));
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.timeline-blueprint-planning-pane-heading p {
+  max-width: 54ch;
+  color: light-dark(oklch(0.420 0.040 258), oklch(0.64 0.032 260));
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.timeline-blueprint-planning-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.24), oklch(0.72 0.08 240 / 0.24));
+  border-radius: 999px;
+  background: light-dark(oklch(0.985 0.010 235 / 0.72), oklch(0.1 0.018 258 / 0.72));
+  color: light-dark(oklch(0.420 0.040 258), oklch(0.68 0.032 260));
+  font-size: 11px;
+  font-weight: 760;
+  letter-spacing: 0.04em;
+  padding: 0 10px;
+  text-transform: uppercase;
+}
+
+.timeline-blueprint-planning-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid light-dark(oklch(0.400 0.160 236 / 0.28), oklch(0.74 0.1 238 / 0.28));
+  border-radius: 7px;
+  background:
+    linear-gradient(180deg, light-dark(oklch(0.985 0.010 235 / 0.9), oklch(0.15 0.026 252 / 0.9)), light-dark(oklch(0.985 0.010 235 / 0.94), oklch(0.08 0.018 258 / 0.94))),
+    linear-gradient(135deg, light-dark(oklch(0.400 0.120 240 / 0.12), oklch(0.72 0.1 238 / 0.12)), transparent);
+  color: light-dark(oklch(0.400 0.160 236), oklch(0.82 0.11 238));
+  font-size: 12px;
+  font-weight: 760;
+  padding: 8px 10px;
+  transition:
+    border-color 150ms var(--setup-ease),
+    box-shadow 150ms var(--setup-ease),
+    color 150ms var(--setup-ease),
+    transform 150ms var(--setup-ease);
+}
+
+.timeline-blueprint-planning-action:hover,
+.timeline-blueprint-planning-action:focus-visible {
+  border-color: light-dark(oklch(0.450 0.200 145 / 0.68), oklch(0.82 0.16 145 / 0.68));
+  color: light-dark(oklch(0.450 0.200 145), oklch(0.86 0.18 145));
+  outline: none;
+  box-shadow: 0 0 18px light-dark(oklch(0.420 0.180 145 / 0.12), oklch(0.72 0.16 145 / 0.12));
+  transform: translateY(-1px);
+}
+
+.timeline-blueprint-planning-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none;
+}
+
+.timeline-blueprint-planning-action svg {
+  width: 14px;
+  height: 14px;
+}
+
+.timeline-blueprint-planning-scope-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.22), oklch(0.72 0.08 240 / 0.22));
+  border-radius: 7px;
+  background:
+    linear-gradient(180deg, light-dark(oklch(0.985 0.010 235 / 0.82), oklch(0.12 0.022 254 / 0.82)), light-dark(oklch(0.985 0.010 235 / 0.9), oklch(0.075 0.018 258 / 0.9)));
+  color: light-dark(oklch(0.220 0.020 258), oklch(0.9 0.018 260));
+  font-size: 12px;
+  padding: 0 10px;
+}
+
+.timeline-blueprint-planning-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.22), oklch(0.72 0.08 240 / 0.22));
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, light-dark(oklch(0.985 0.010 235 / 0.82), oklch(0.12 0.022 254 / 0.82)), light-dark(oklch(0.985 0.010 235 / 0.9), oklch(0.075 0.018 258 / 0.9))),
+    linear-gradient(90deg, light-dark(oklch(0.400 0.120 240 / 0.08), oklch(0.72 0.12 238 / 0.08)), transparent 60%);
+  padding: 12px;
+}
+
+.timeline-blueprint-planning-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.timeline-blueprint-planning-card-header strong {
+  display: block;
+  color: light-dark(oklch(0.220 0.020 258), oklch(0.94 0.012 260));
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.timeline-blueprint-planning-card-header small {
+  display: block;
+  margin-top: 4px;
+  color: light-dark(oklch(0.420 0.040 258), oklch(0.62 0.033 260));
+  font-size: 11px;
+}
+
+.timeline-blueprint-planning-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.timeline-blueprint-planning-card-meta span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.2), oklch(0.72 0.08 240 / 0.2));
+  border-radius: 999px;
+  background: light-dark(oklch(0.985 0.010 235 / 0.5), oklch(0.08 0.018 258 / 0.5));
+  color: light-dark(oklch(0.420 0.040 258), oklch(0.68 0.032 260));
+  font-size: 11px;
+  font-weight: 700;
+  padding: 0 8px;
+}
+
+.timeline-blueprint-planning-empty {
+  border: 1px dashed light-dark(oklch(0.400 0.120 240 / 0.28), oklch(0.72 0.08 240 / 0.28));
+  border-radius: 8px;
+  background: light-dark(oklch(0.985 0.010 235 / 0.42), oklch(0.08 0.018 258 / 0.42));
+  color: light-dark(oklch(0.420 0.040 258), oklch(0.64 0.033 260));
+  font-size: 12px;
+  padding: 12px;
+}
+
+.timeline-blueprint-field-guidance {
+  display: grid;
+  gap: 16px;
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.24), oklch(0.72 0.08 240 / 0.24));
+  background:
+    linear-gradient(180deg, light-dark(oklch(0.985 0.010 235 / 0.78), oklch(0.13 0.018 258 / 0.78)), light-dark(oklch(0.985 0.010 235 / 0.82), oklch(0.1 0.016 258 / 0.82))),
+    linear-gradient(to right, light-dark(oklch(0.400 0.120 240 / 0.035), oklch(0.72 0.09 240 / 0.035)) 1px, transparent 1px);
+  background-size: auto, 32px 32px;
+  padding: 18px;
+}
+
+.timeline-blueprint-field-guidance-grid {
+  display: grid;
+  gap: 14px;
+}
+
+@media (min-width: 768px) {
+  .timeline-blueprint-field-guidance-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.timeline-blueprint-material-planning [data-slot="frame"] {
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.timeline-blueprint-material-planning [data-slot="frame-panel"] {
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.22), oklch(0.72 0.08 240 / 0.22));
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, light-dark(oklch(0.985 0.010 235 / 0.82), oklch(0.12 0.022 254 / 0.82)), light-dark(oklch(0.985 0.010 235 / 0.9), oklch(0.075 0.018 258 / 0.9))),
+    linear-gradient(90deg, light-dark(oklch(0.400 0.120 240 / 0.08), oklch(0.72 0.12 238 / 0.08)), transparent 60%);
+  box-shadow: none;
+  padding: 12px;
+}
+
+.timeline-blueprint-material-planning [data-slot="frame-panel"]::before {
+  display: none;
+}
+
+.timeline-blueprint-material-planning h3 {
+  color: light-dark(oklch(0.220 0.020 258), oklch(0.94 0.012 260));
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.timeline-blueprint-material-planning p {
+  color: light-dark(oklch(0.420 0.040 258), oklch(0.62 0.033 260));
+}
+
+.timeline-blueprint-material-planning [data-slot="badge"] {
+  border-color: light-dark(oklch(0.400 0.120 240 / 0.24), oklch(0.72 0.08 240 / 0.24));
+  background: light-dark(oklch(0.985 0.010 235 / 0.5), oklch(0.08 0.018 258 / 0.5));
+  color: light-dark(oklch(0.420 0.040 258), oklch(0.68 0.032 260));
+}
+
 .timeline-submilestone-editor {
   display: grid;
   grid-template-columns: minmax(360px, 0.94fr) minmax(420px, 1.06fr);
@@ -1730,6 +1970,10 @@
   resize: vertical;
 }
 
+.timeline-field-rich-text-field > span + * {
+  width: 100%;
+}
+
 .timeline-submilestone-detail-field input:focus-visible,
 .timeline-submilestone-detail-field textarea:focus-visible {
   border-color: light-dark(oklch(0.400 0.160 236 / 0.84), oklch(0.83 0.15 235 / 0.84));
@@ -1955,11 +2199,13 @@
     grid-template-columns: 1fr;
   }
 
-  .timeline-submilestone-editor {
+  .timeline-submilestone-editor,
+  .timeline-blueprint-planning-extras {
     grid-template-columns: 1fr;
   }
 
-  .timeline-submilestone-list-pane {
+  .timeline-submilestone-list-pane,
+  .timeline-blueprint-planning-pane-contractors {
     border-right: 0;
     border-bottom: 1px solid light-dark(oklch(0.400 0.120 240 / 0.2), oklch(0.72 0.08 240 / 0.2));
   }
@@ -2081,6 +2327,7 @@
   .timeline-submilestone-card-main,
   .timeline-submilestone-card-metrics,
   .timeline-submilestone-detail-body,
+  .timeline-blueprint-field-guidance-grid,
   .timeline-submilestone-detail-grid,
   .timeline-blueprint-type-cell {
     grid-template-columns: 1fr;

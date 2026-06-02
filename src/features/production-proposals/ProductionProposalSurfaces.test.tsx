@@ -488,6 +488,7 @@ describe("ProductionProposalReviewSurface", () => {
     });
     expect(within(tablist).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
       "Timeline",
+      "Calendar",
       "Review",
       "Draw schedule",
       "Materials",
@@ -525,6 +526,7 @@ describe("ProductionProposalReviewSurface", () => {
     });
     expect(within(tablist).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
       "Timeline",
+      "Calendar",
       "Contractors",
       "Review",
       "Draw schedule",

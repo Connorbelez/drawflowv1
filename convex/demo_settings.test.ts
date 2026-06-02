@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 
 import { api } from "./_generated/api";
 import { MOCK_BUILDER_PERSONA, MOCK_STAFF_PERSONA } from "./demo_personas";
+import { coerceGuidanceField } from "./demo_site_visit_guidance";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -216,12 +217,12 @@ describe("timeline demo settings Convex functions", () => {
         expect.objectContaining({
           kind: "whatToVerify",
           milestoneKey: "framing",
-          text: "Custom shear wall verification",
+          text: expect.stringContaining("Custom shear wall verification"),
         }),
         expect.objectContaining({
           kind: "cameraAngle",
           milestoneKey: "framing",
-          text: "Custom north elevation",
+          text: expect.stringContaining("Custom north elevation"),
         }),
       ])
     );
@@ -382,8 +383,16 @@ function toMilestoneInputs(template: any) {
     order: row.order,
     percentageBps: row.percentageBps,
     siteVisitGuidance: {
-      cameraAngles: guidanceItems(template, row.milestoneKey, "cameraAngle"),
-      whatToVerify: guidanceItems(template, row.milestoneKey, "whatToVerify"),
+      cameraAngles: guidanceFieldHtml(
+        template,
+        row.milestoneKey,
+        "cameraAngle"
+      ),
+      whatToVerify: guidanceFieldHtml(
+        template,
+        row.milestoneKey,
+        "whatToVerify"
+      ),
     },
     submilestones: template.submilestones
       .filter((subRow: any) => subRow.milestoneKey === row.milestoneKey)
@@ -406,4 +415,8 @@ function guidanceItems(template: any, milestoneKey: string, kind: string) {
     )
     .sort((a: any, b: any) => a.order - b.order)
     .map((row: any) => row.text);
+}
+
+function guidanceFieldHtml(template: any, milestoneKey: string, kind: string) {
+  return coerceGuidanceField(guidanceItems(template, milestoneKey, kind));
 }

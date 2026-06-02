@@ -3,6 +3,7 @@
 import type { Editor, Range } from "@tiptap/core";
 import { mergeAttributes, Node } from "@tiptap/core";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+import Image from "@tiptap/extension-image";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
 import Subscript from "@tiptap/extension-subscript";
 import Superscript from "@tiptap/extension-superscript";
@@ -80,6 +81,7 @@ import {
   Heading1Icon,
   Heading2Icon,
   Heading3Icon,
+  ImageIcon,
   ItalicIcon,
   ListIcon,
   ListOrderedIcon,
@@ -207,6 +209,25 @@ export const defaultSlashSuggestions: SuggestionOptions<SuggestionItem>["items"]
           .deleteRange(range)
           .setNode("heading", { level: 3 })
           .run();
+      },
+    },
+    {
+      title: "Image",
+      description: "Embed an image from a URL.",
+      searchTerms: ["image", "photo", "picture", "media"],
+      icon: ImageIcon,
+      command: ({ editor, range }) => {
+        const src =
+          typeof window === "undefined"
+            ? ""
+            : window.prompt("Image URL")?.trim();
+
+        if (src) {
+          editor.chain().focus().deleteRange(range).setImage({ src }).run();
+          return;
+        }
+
+        editor.chain().focus().deleteRange(range).run();
       },
     },
     {
@@ -598,6 +619,14 @@ export const EditorProvider = ({
     }),
     Superscript,
     Subscript,
+    Image.configure({
+      allowBase64: true,
+      HTMLAttributes: {
+        class: cn(
+          "my-3 max-h-72 max-w-full rounded-md border object-contain"
+        ),
+      },
+    }),
     Slash.configure({
       suggestion: {
         items: async ({ editor, query }) => {
@@ -1369,6 +1398,126 @@ export const EditorLinkSelector = ({
             </Button>
           )}
         </form>
+      </PopoverContent>
+    </Popover>
+  );
+};
+
+export type EditorImageSelectorProps = {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+};
+
+export const EditorImageSelector = ({
+  open,
+  onOpenChange,
+}: EditorImageSelectorProps) => {
+  const [alt, setAlt] = useState("");
+  const [src, setSrc] = useState("");
+  const inputReference = useRef<HTMLInputElement>(null);
+  const fileInputReference = useRef<HTMLInputElement>(null);
+  const { editor } = useCurrentEditor();
+
+  useEffect(() => {
+    inputReference.current?.focus();
+  }, []);
+
+  if (!editor) {
+    return null;
+  }
+
+  const insertImage = (nextSrc: string, nextAlt = alt) => {
+    const trimmedSrc = nextSrc.trim();
+    if (!trimmedSrc) {
+      return;
+    }
+
+    editor
+      .chain()
+      .focus()
+      .setImage({
+        alt: nextAlt.trim() || undefined,
+        src: trimmedSrc,
+      })
+      .run();
+    setAlt("");
+    setSrc("");
+    onOpenChange?.(false);
+  };
+
+  const handleSubmit: FormEventHandler<HTMLFormElement> = (event) => {
+    event.preventDefault();
+    insertImage(src);
+  };
+
+  return (
+    <Popover modal onOpenChange={onOpenChange} open={open}>
+      <PopoverTrigger
+        render={
+          <Button
+            className="gap-2 rounded-none border-none"
+            size="sm"
+            type="button"
+            variant="ghost"
+          />
+        }
+      >
+        <ImageIcon size={12} />
+        <span className="text-xs">Image</span>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="grid w-72 gap-2 p-2" sideOffset={10}>
+        <form className="grid gap-2" onSubmit={handleSubmit}>
+          <input
+            aria-label="Image URL"
+            className="rounded-md border bg-background px-2 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onChange={(event) => setSrc(event.target.value)}
+            placeholder="https://..."
+            ref={inputReference}
+            type="url"
+            value={src}
+          />
+          <input
+            aria-label="Image alt text"
+            className="rounded-md border bg-background px-2 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onChange={(event) => setAlt(event.target.value)}
+            placeholder="Alt text"
+            type="text"
+            value={alt}
+          />
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              onClick={() => fileInputReference.current?.click()}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Upload
+            </Button>
+            <Button disabled={!src.trim()} size="sm" type="submit">
+              Insert
+            </Button>
+          </div>
+        </form>
+        <input
+          accept="image/*"
+          className="sr-only"
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            if (!file) {
+              return;
+            }
+            const reader = new FileReader();
+            reader.addEventListener("load", () => {
+              if (typeof reader.result === "string") {
+                insertImage(reader.result, alt || file.name);
+              }
+            });
+            reader.readAsDataURL(file);
+            event.currentTarget.value = "";
+          }}
+          ref={fileInputReference}
+          type="file"
+        />
       </PopoverContent>
     </Popover>
   );

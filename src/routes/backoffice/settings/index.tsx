@@ -37,6 +37,7 @@ import {
   TableHeader,
   TableRow,
 } from "#/components/ui/table.tsx";
+import { coerceSiteVisitGuidance } from "#/lib/site-visit-guidance.ts";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../../convex/_generated/api";
 import {
@@ -1100,10 +1101,7 @@ function worksheetRowsToTemplate(
       name: row.name,
       order,
       percentageBps: finiteBps(row.percentageBps),
-      siteVisitGuidance: {
-        cameraAngles: guidanceLines(row.siteVisitGuidance?.cameraAngles),
-        whatToVerify: guidanceLines(row.siteVisitGuidance?.whatToVerify),
-      },
+      siteVisitGuidance: coerceSiteVisitGuidance(row.siteVisitGuidance),
       submilestones: row.subMilestoneDetails.map((submilestone, subOrder) => ({
         description: submilestone.description,
         durationDays: positiveInteger(submilestone.durationText, 1),
@@ -1836,8 +1834,4 @@ function positiveInteger(value: string, fallback: number) {
 
 function finiteBps(value: number) {
   return Number.isFinite(value) ? value : 0;
-}
-
-function guidanceLines(value: string[] | undefined) {
-  return (value ?? []).map((line) => line.trim()).filter(Boolean);
 }

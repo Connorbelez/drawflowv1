@@ -24,6 +24,7 @@ import {
 import { type ChangeEvent, useEffect, useRef, useState } from "react";
 
 import { api } from "../../../convex/_generated/api";
+import { FieldRichTextPreview } from "#/components/rich-text/field-rich-text.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Card } from "#/components/ui/card.tsx";
@@ -35,6 +36,11 @@ import {
 } from "#/components/ui/drawer.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
+import {
+  coerceSiteVisitGuidance,
+  guidanceLinesToHtml,
+  type SiteVisitGuidanceHtml,
+} from "#/lib/site-visit-guidance.ts";
 import {
   assertPackageWithinCap,
   buildStagedEvidence,
@@ -53,8 +59,8 @@ type VisitTarget = {
   _id: string;
   contractors?: VisitTargetContractor[];
   guidance?: {
-    cameraAngles?: string[];
-    whatToVerify?: string[];
+    cameraAngles?: string | string[];
+    whatToVerify?: string | string[];
   };
   milestoneKey: string;
   milestoneName: string;
@@ -142,32 +148,37 @@ type SubmittedSummary = {
 const DEFAULT_REPORT_NOTES =
   "Observed requested milestone scope on site. Evidence package attached for lender admin review.";
 
-const FALLBACK_GUIDE_SECTIONS = [
+type GuideSection = {
+  html: string;
+  title: string;
+};
+
+const FALLBACK_GUIDE_SECTIONS: GuideSection[] = [
   {
-    items: [
+    html: guidanceLinesToHtml([
       "All exterior load-bearing walls erected, sheathed, and braced.",
       "Roof trusses set on bearing walls with hurricane strapping visible.",
       "Interior partition layout matches stamped plan revision.",
       "No daylight visible at sheathing seams or plate connections.",
-    ],
+    ]),
     title: "M-04 · Framing — What to verify",
   },
   {
-    items: [
+    html: guidanceLinesToHtml([
       "Wide shot per elevation showing full frame.",
       "Close-up of straps, hold-downs, or hardware called out on plan.",
       "Header or king-stud detail at large openings.",
       "Roof from interior showing truss bottom chords and bridging.",
-    ],
+    ]),
     title: "Required photo angles",
   },
   {
-    items: [
+    html: guidanceLinesToHtml([
       "Plumbing supply lines pressurized; gauge holding at test stub.",
       "DWV vent stack runs through to roof penetration.",
       "Electrical boxes set plumb at code-correct heights.",
       "No mechanical conflicts at chase intersections.",
-    ],
+    ]),
     title: "M-05 · Rough-in — What to verify",
   },
 ];
@@ -1510,13 +1521,12 @@ function GuidePanel({ targets }: { targets: VisitTarget[] }) {
           <h3 className="font-semibold text-primary text-sm uppercase tracking-[0.18em]">
             {section.title}
           </h3>
-          <ul className="mt-3 grid gap-2 pl-5 text-muted-foreground text-sm">
-            {section.items.map((item) => (
-              <li className="list-disc" key={item}>
-                {item}
-              </li>
-            ))}
-          </ul>
+          <div className="mt-3">
+            <FieldRichTextPreview
+              ariaLabel={section.title}
+              value={section.html}
+            />
+          </div>
         </section>
       ))}
     </div>
@@ -1609,51 +1619,48 @@ function targetCode(target: VisitTarget, fallbackIndex = 0) {
   return `M-${String(target.milestoneOrder || fallbackIndex + 1).padStart(2, "0")}`;
 }
 
-function guidanceSectionsForTargets(targets: VisitTarget[]) {
+function guidanceSectionsForTargets(targets: VisitTarget[]): GuideSection[] {
   const sections = targets.flatMap((target, index) => {
     const code = targetCode(target, index);
     const label = shortMilestoneLabel(target.milestoneName);
     const guidance = normalizedGuidance(target);
     return [
       {
-        items: guidance.whatToVerify,
+        html: guidance.whatToVerify,
         title: `${code} · ${label} — What to verify`,
       },
       {
-        items: guidance.cameraAngles,
+        html: guidance.cameraAngles,
         title: `${code} · ${label} — Required photo angles`,
       },
-    ].filter((section) => section.items.length > 0);
+    ].filter((section) => section.html.trim().length > 0);
   });
 
   return sections.length > 0 ? sections : FALLBACK_GUIDE_SECTIONS;
 }
 
-function normalizedGuidance(target: VisitTarget) {
-  const whatToVerify = normalizeGuidanceList(target.guidance?.whatToVerify);
-  const cameraAngles = normalizeGuidanceList(target.guidance?.cameraAngles);
-  if (whatToVerify.length > 0 || cameraAngles.length > 0) {
-    return { cameraAngles, whatToVerify };
+function normalizedGuidance(target: VisitTarget): SiteVisitGuidanceHtml {
+  const guidance = coerceSiteVisitGuidance(target.guidance);
+  if (guidance.whatToVerify || guidance.cameraAngles) {
+    return guidance;
   }
   return {
-    cameraAngles: [
+    cameraAngles: guidanceLinesToHtml([
       "Wide shot showing the full milestone work area.",
       "Close-up of the highest-risk connection, fixture, or finish.",
-    ],
-    whatToVerify: (visitSubmilestones(target).length
-      ? visitSubmilestones(target).map((submilestone) => submilestone.name)
-      : [target.milestoneName]
-    )
-      .slice(0, 4)
-      .map(
-        (checkpoint) =>
-          `${checkpoint} is complete, visible, and consistent with the approved scope.`
-      ),
+    ]),
+    whatToVerify: guidanceLinesToHtml(
+      (visitSubmilestones(target).length
+        ? visitSubmilestones(target).map((submilestone) => submilestone.name)
+        : [target.milestoneName]
+      )
+        .slice(0, 4)
+        .map(
+          (checkpoint) =>
+            `${checkpoint} is complete, visible, and consistent with the approved scope.`
+        )
+    ),
   };
-}
-
-function normalizeGuidanceList(items: string[] | undefined) {
-  return (items ?? []).map((item) => item.trim()).filter(Boolean);
 }
 
 function shortMilestoneLabel(value: string) {

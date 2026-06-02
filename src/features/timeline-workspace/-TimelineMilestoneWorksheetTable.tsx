@@ -26,6 +26,9 @@ import {
 } from "react";
 
 import {
+  FieldRichTextEditor,
+} from "#/components/rich-text/field-rich-text.tsx";
+import {
   Sortable,
   SortableItem,
   SortableItemHandle,
@@ -52,11 +55,22 @@ import {
   TableRow,
 } from "#/components/ui/table.tsx";
 import { Toggle } from "#/components/ui/toggle.tsx";
-import { cn } from "#/lib/utils.ts";
 import {
   formatCurrency,
   parseCurrencyToCents,
 } from "#/features/builder-proposal-demo/template-helpers.ts";
+import {
+  type MaterialPlanningItem,
+  type MaterialPlanningMilestone,
+  type MaterialPlanningPayload,
+  MaterialPlanningTab,
+} from "#/features/material-planning/MaterialPlanningTab.tsx";
+import {
+  coerceSiteVisitGuidance,
+  guidanceLinesToHtml,
+  type SiteVisitGuidanceHtml,
+} from "#/lib/site-visit-guidance.ts";
+import { cn } from "#/lib/utils.ts";
 import {
   ISOMETRIC_ICON_KEYS,
   type IsometricIconKey,
@@ -136,9 +150,41 @@ export interface TimelineMilestoneWorksheetSubMilestone {
   percentageText?: string;
 }
 
+export interface TimelineMilestoneWorksheetContractorOption {
+  city?: string;
+  contractorId: string;
+  defaultPayRateCents?: number;
+  defaultPayRateUnit?: "day" | "fixed" | "hour";
+  name: string;
+  trades?: string[];
+}
+
+export interface TimelineMilestoneWorksheetContractorAssignment {
+  contractorId?: string;
+  contractorName: string;
+  estimatedCostCents?: number;
+  estimatedHours?: number;
+  id: string;
+  role: string;
+  subMilestoneIds: string[];
+}
+
+export interface TimelineMilestoneWorksheetCostItem {
+  costCents: number;
+  description?: string;
+  id: string;
+  itemType: "equipment" | "material";
+  quantity: number;
+  relevantSubMilestoneIds: string[];
+  supplier?: string;
+  title: string;
+}
+
 export interface TimelineMilestoneWorksheetRow {
   baseItemId?: string;
   budgetText: string;
+  contractorAssignments?: TimelineMilestoneWorksheetContractorAssignment[];
+  costItems?: TimelineMilestoneWorksheetCostItem[];
   dependencyKeys: string[];
   durationDays: number;
   durationText: string;
@@ -149,10 +195,7 @@ export interface TimelineMilestoneWorksheetRow {
   order: number;
   percentageBps: number;
   percentageText?: string;
-  siteVisitGuidance?: {
-    cameraAngles: string[];
-    whatToVerify: string[];
-  };
+  siteVisitGuidance?: SiteVisitGuidanceHtml;
   subMilestoneDetails: TimelineMilestoneWorksheetSubMilestone[];
   subMilestones: string[];
   type: string;
@@ -164,6 +207,7 @@ export function TimelineMilestoneWorksheetTable({
   cascadeBudgetEdits = false,
   cashText,
   className,
+  contractorOptions = [],
   error,
   footerExtra,
   leadingContent,
@@ -182,6 +226,7 @@ export function TimelineMilestoneWorksheetTable({
   cascadeBudgetEdits?: boolean;
   cashText?: string;
   className?: string;
+  contractorOptions?: TimelineMilestoneWorksheetContractorOption[];
   error?: string;
   footerExtra?: ReactNode;
   leadingContent?: ReactNode;
@@ -323,6 +368,79 @@ export function TimelineMilestoneWorksheetTable({
       ...current,
       [rowKey]: nextActiveSubMilestoneId,
     }));
+  };
+
+  const addContractorAssignment = (
+    rowKey: string,
+    assignment: Omit<TimelineMilestoneWorksheetContractorAssignment, "id">
+  ) => {
+    updateRows(
+      rows.map((row) =>
+        row.key === rowKey
+          ? {
+              ...row,
+              contractorAssignments: [
+                ...(row.contractorAssignments ?? []),
+                {
+                  ...assignment,
+                  id: makeWorksheetId(`${rowKey}-contractor`),
+                },
+              ],
+            }
+          : row
+      )
+    );
+  };
+
+  const removeContractorAssignment = (rowKey: string, assignmentId: string) => {
+    updateRow(rowKey, {
+      contractorAssignments: (
+        rows.find((row) => row.key === rowKey)?.contractorAssignments ?? []
+      ).filter((assignment) => assignment.id !== assignmentId),
+    });
+  };
+
+  const createCostItem = (rowKey: string, payload: MaterialPlanningPayload) => {
+    const row = rows.find((candidate) => candidate.key === rowKey);
+    if (!row) {
+      return;
+    }
+    updateRow(rowKey, {
+      costItems: [
+        ...(row.costItems ?? []),
+        materialPayloadToWorksheetCostItem(rowKey, payload),
+      ],
+    });
+  };
+
+  const updateCostItem = (
+    rowKey: string,
+    itemId: string,
+    payload: MaterialPlanningPayload
+  ) => {
+    const row = rows.find((candidate) => candidate.key === rowKey);
+    if (!row) {
+      return;
+    }
+    updateRow(rowKey, {
+      costItems: (row.costItems ?? []).map((item) =>
+        item.id === itemId
+          ? {
+              ...materialPayloadToWorksheetCostItem(rowKey, payload, item.id),
+            }
+          : item
+      ),
+    });
+  };
+
+  const deleteCostItem = (rowKey: string, itemId: string) => {
+    const row = rows.find((candidate) => candidate.key === rowKey);
+    if (!row) {
+      return;
+    }
+    updateRow(rowKey, {
+      costItems: (row.costItems ?? []).filter((item) => item.id !== itemId),
+    });
   };
 
   const addCustomMilestone = () => {
@@ -656,6 +774,33 @@ export function TimelineMilestoneWorksheetTable({
                         }
                         row={row.original}
                       />
+                      {mode === "setup" ? (
+                        <MilestonePlanningExtrasEditor
+                          contractorOptions={contractorOptions}
+                          onAddContractorAssignment={(assignment) =>
+                            addContractorAssignment(
+                              row.original.key,
+                              assignment
+                            )
+                          }
+                          onCreateCostItem={(payload) =>
+                            createCostItem(row.original.key, payload)
+                          }
+                          onDeleteCostItem={(itemId) =>
+                            deleteCostItem(row.original.key, itemId)
+                          }
+                          onRemoveContractorAssignment={(assignmentId) =>
+                            removeContractorAssignment(
+                              row.original.key,
+                              assignmentId
+                            )
+                          }
+                          onUpdateCostItem={(itemId, payload) =>
+                            updateCostItem(row.original.key, itemId, payload)
+                          }
+                          row={row.original}
+                        />
+                      ) : null}
                       <FieldGuidanceEditor
                         onUpdate={(siteVisitGuidance) =>
                           updateRow(row.original.key, { siteVisitGuidance })
@@ -1400,60 +1545,363 @@ function SubMilestoneEditor({
   );
 }
 
+function MilestonePlanningExtrasEditor({
+  contractorOptions,
+  onAddContractorAssignment,
+  onCreateCostItem,
+  onDeleteCostItem,
+  onRemoveContractorAssignment,
+  onUpdateCostItem,
+  row,
+}: {
+  contractorOptions: TimelineMilestoneWorksheetContractorOption[];
+  onAddContractorAssignment: (
+    assignment: Omit<TimelineMilestoneWorksheetContractorAssignment, "id">
+  ) => void;
+  onCreateCostItem: (payload: MaterialPlanningPayload) => void;
+  onDeleteCostItem: (itemId: string) => void;
+  onRemoveContractorAssignment: (assignmentId: string) => void;
+  onUpdateCostItem: (itemId: string, payload: MaterialPlanningPayload) => void;
+  row: TimelineMilestoneWorksheetRow;
+}) {
+  const costItemCount = (row.costItems ?? []).length;
+
+  return (
+    <div className="timeline-blueprint-planning-extras">
+      <ContractorAssignmentEditor
+        contractorOptions={contractorOptions}
+        onAddAssignment={onAddContractorAssignment}
+        onRemoveAssignment={onRemoveContractorAssignment}
+        row={row}
+      />
+      <section
+        aria-label={`${row.name} materials and equipment`}
+        className="timeline-blueprint-planning-pane timeline-blueprint-planning-pane-materials"
+      >
+        <div className="timeline-blueprint-planning-pane-heading">
+          <div>
+            <Badge className="timeline-blueprint-mini-badge" variant="outline">
+              Materials
+            </Badge>
+            <strong>Build materials and equipment</strong>
+            <p>
+              Cost-only entries stay attached to this milestone and its
+              sub-milestones.
+            </p>
+          </div>
+          <span className="timeline-blueprint-planning-count">
+            {costItemCount} item{costItemCount === 1 ? "" : "s"}
+          </span>
+        </div>
+        <div className="timeline-blueprint-material-planning">
+          <MaterialPlanningTab
+            actions={{
+              create: onCreateCostItem,
+              delete: (item) => onDeleteCostItem(item._id),
+              update: (item, payload) => onUpdateCostItem(item._id, payload),
+            }}
+            items={worksheetCostItemsToMaterialItems(row)}
+            milestones={[worksheetRowToMaterialMilestone(row)]}
+            panelLayout="stacked"
+            scopeLabel="Milestone"
+            variant="embedded"
+          />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ContractorAssignmentEditor({
+  contractorOptions,
+  onAddAssignment,
+  onRemoveAssignment,
+  row,
+}: {
+  contractorOptions: TimelineMilestoneWorksheetContractorOption[];
+  onAddAssignment: (
+    assignment: Omit<TimelineMilestoneWorksheetContractorAssignment, "id">
+  ) => void;
+  onRemoveAssignment: (assignmentId: string) => void;
+  row: TimelineMilestoneWorksheetRow;
+}) {
+  const datalistId = `timeline-contractors-${row.key}`;
+  const [contractorName, setContractorName] = useState("");
+  const [estimatedCostText, setEstimatedCostText] = useState("");
+  const [estimatedHoursText, setEstimatedHoursText] = useState("");
+  const [role, setRole] = useState("");
+  const [subMilestoneIds, setSubMilestoneIds] = useState<string[]>([]);
+  const assignments = row.contractorAssignments ?? [];
+  const selectedContractor = contractorOptions.find(
+    (option) =>
+      option.name.trim().toLowerCase() === contractorName.trim().toLowerCase()
+  );
+
+  const toggleSubMilestone = (subMilestoneId: string, checked: boolean) => {
+    setSubMilestoneIds((current) =>
+      checked
+        ? [...new Set([...current, subMilestoneId])]
+        : current.filter((id) => id !== subMilestoneId)
+    );
+  };
+
+  const addAssignment = () => {
+    const normalizedName = contractorName.trim();
+    if (!normalizedName) {
+      return;
+    }
+    const normalizedRole =
+      role.trim() || selectedContractor?.trades?.[0]?.trim() || "Contractor";
+    onAddAssignment({
+      contractorId: selectedContractor?.contractorId,
+      contractorName: selectedContractor?.name ?? normalizedName,
+      estimatedCostCents: parseOptionalCurrencyCents(estimatedCostText),
+      estimatedHours: parseOptionalHours(estimatedHoursText),
+      role: normalizedRole,
+      subMilestoneIds,
+    });
+    setContractorName("");
+    setEstimatedCostText("");
+    setEstimatedHoursText("");
+    setRole("");
+    setSubMilestoneIds([]);
+  };
+
+  return (
+    <section
+      aria-label={`${row.name} contractor assignments`}
+      className="timeline-blueprint-planning-pane timeline-blueprint-planning-pane-contractors"
+    >
+      <div className="timeline-blueprint-planning-pane-heading">
+        <div>
+          <Badge className="timeline-blueprint-mini-badge" variant="outline">
+            Contractors
+          </Badge>
+          <strong>Milestone crew planning</strong>
+          <p>
+            Assign an existing contractor or type a guest contractor name.
+          </p>
+        </div>
+        <span className="timeline-blueprint-planning-count">
+          {assignments.length} assignment
+          {assignments.length === 1 ? "" : "s"}
+        </span>
+      </div>
+
+      <div className="grid gap-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="grid gap-1.5 text-sm">
+            <span className="font-medium">Contractor</span>
+            <input
+              className="timeline-blueprint-input"
+              data-testid={`timeline-setup-contractor-name-${row.key}`}
+              list={datalistId}
+              onChange={(event) => setContractorName(event.currentTarget.value)}
+              placeholder="Company or crew name"
+              value={contractorName}
+            />
+            <datalist id={datalistId}>
+              {contractorOptions.map((option) => (
+                <option key={option.contractorId} value={option.name} />
+              ))}
+            </datalist>
+          </label>
+          <label className="grid gap-1.5 text-sm">
+            <span className="font-medium">Role / trade</span>
+            <input
+              className="timeline-blueprint-input"
+              data-testid={`timeline-setup-contractor-role-${row.key}`}
+              onChange={(event) => setRole(event.currentTarget.value)}
+              placeholder={selectedContractor?.trades?.[0] ?? "Contractor"}
+              value={role}
+            />
+          </label>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="grid gap-1.5 text-sm">
+            <span className="font-medium">Estimated cost</span>
+            <input
+              className="timeline-blueprint-input"
+              data-testid={`timeline-setup-contractor-cost-${row.key}`}
+              inputMode="decimal"
+              onChange={(event) =>
+                setEstimatedCostText(event.currentTarget.value)
+              }
+              placeholder="$0"
+              value={estimatedCostText}
+            />
+          </label>
+          <label className="grid gap-1.5 text-sm">
+            <span className="font-medium">Estimated hours</span>
+            <input
+              className="timeline-blueprint-input"
+              data-testid={`timeline-setup-contractor-hours-${row.key}`}
+              inputMode="decimal"
+              onChange={(event) =>
+                setEstimatedHoursText(event.currentTarget.value)
+              }
+              placeholder="0"
+              value={estimatedHoursText}
+            />
+          </label>
+        </div>
+        <div className="grid gap-2">
+          <p className="font-medium text-sm">Sub-milestone scope</p>
+          <div className="flex flex-wrap gap-2">
+            {row.subMilestoneDetails.length > 0 ? (
+              row.subMilestoneDetails.map((subMilestone) => {
+                const checked = subMilestoneIds.includes(subMilestone.id);
+                return (
+                  <label
+                    className="timeline-blueprint-planning-scope-chip"
+                    key={subMilestone.id}
+                  >
+                    <input
+                      checked={checked}
+                      onChange={(event) =>
+                        toggleSubMilestone(
+                          subMilestone.id,
+                          event.currentTarget.checked
+                        )
+                      }
+                      type="checkbox"
+                    />
+                    <span>{sanitizeSubMilestoneName(subMilestone.name)}</span>
+                  </label>
+                );
+              })
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                No sub-milestones are defined for this milestone.
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="flex justify-end">
+          <button
+            className="timeline-blueprint-planning-action"
+            data-testid={`timeline-setup-add-contractor-${row.key}`}
+            disabled={!contractorName.trim()}
+            onClick={addAssignment}
+            type="button"
+          >
+            <Plus aria-hidden="true" />
+            Add contractor
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-2">
+        {assignments.length > 0 ? (
+          assignments.map((assignment) => (
+            <article
+              className="timeline-blueprint-planning-card"
+              data-testid={`timeline-setup-contractor-assignment-${assignment.id}`}
+              key={assignment.id}
+            >
+              <div className="timeline-blueprint-planning-card-header">
+                <div>
+                  <strong>{assignment.contractorName}</strong>
+                  <small>{assignment.role}</small>
+                </div>
+                <button
+                  aria-label={`Remove ${assignment.contractorName}`}
+                  className="timeline-submilestone-remove"
+                  onClick={() => onRemoveAssignment(assignment.id)}
+                  type="button"
+                >
+                  <Trash2 aria-hidden="true" />
+                </button>
+              </div>
+              <div className="timeline-blueprint-planning-card-meta">
+                <span>
+                  {assignment.subMilestoneIds.length > 0
+                    ? assignment.subMilestoneIds
+                        .map((id) => subMilestoneNameById(row, id))
+                        .join(", ")
+                    : "Milestone-level"}
+                </span>
+                {assignment.estimatedCostCents ? (
+                  <span>{formatCurrency(assignment.estimatedCostCents)}</span>
+                ) : null}
+                {assignment.estimatedHours ? (
+                  <span>
+                    {assignment.estimatedHours} hr
+                    {assignment.estimatedHours === 1 ? "" : "s"}
+                  </span>
+                ) : null}
+              </div>
+            </article>
+          ))
+        ) : (
+          <p className="timeline-blueprint-planning-empty">
+            No contractors assigned yet.
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function FieldGuidanceEditor({
   onUpdate,
   row,
 }: {
-  onUpdate: (guidance: {
-    cameraAngles: string[];
-    whatToVerify: string[];
-  }) => void;
+  onUpdate: (guidance: SiteVisitGuidanceHtml) => void;
   row: TimelineMilestoneWorksheetRow;
 }) {
-  const guidance = row.siteVisitGuidance ?? defaultGuidanceForRow(row);
+  const guidance = coerceSiteVisitGuidance(
+    row.siteVisitGuidance,
+    defaultGuidanceForRow(row)
+  );
   return (
     <section
       aria-label={`${row.name} field guidance`}
-      className="rounded-xl border bg-background/70 p-4"
+      className="timeline-blueprint-field-guidance"
       data-testid={`timeline-settings-field-guidance-${row.key}`}
     >
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="timeline-blueprint-planning-pane-heading">
         <div>
           <Badge className="timeline-blueprint-mini-badge" variant="outline">
             Field Guidance
           </Badge>
-          <p className="mt-1 text-muted-foreground text-sm">
-            Configure the site visitor checklist for this milestone.
-          </p>
+          <strong>Site visitor checklist</strong>
+          <p>Configure what the lender team should verify on site.</p>
         </div>
       </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <label className="grid gap-2 text-sm">
-          <span className="font-medium">What to verify</span>
-          <textarea
-            className="min-h-32 rounded-md border bg-background p-3 text-sm"
-            data-testid={`timeline-settings-guidance-verify-${row.key}`}
-            onChange={(event) =>
+      <div className="timeline-blueprint-field-guidance-grid">
+        <label className="timeline-submilestone-detail-field is-wide timeline-field-rich-text-field">
+          <span>What to verify</span>
+          <FieldRichTextEditor
+            ariaLabel={`${row.name} what to verify`}
+            editorMinHeightClass="[&_.ProseMirror]:min-h-[4.5rem]"
+            imageMaxHeightClass="[&_.ProseMirror_img]:max-h-40"
+            onChange={(whatToVerify) =>
               onUpdate({
                 ...guidance,
-                whatToVerify: linesToGuidanceItems(event.currentTarget.value),
+                whatToVerify,
               })
             }
-            value={guidance.whatToVerify.join("\n")}
+            placeholder="Verification checklist, notes, and reference photos..."
+            testId={`timeline-settings-guidance-verify-${row.key}`}
+            value={guidance.whatToVerify}
           />
         </label>
-        <label className="grid gap-2 text-sm">
-          <span className="font-medium">Required photo angles</span>
-          <textarea
-            className="min-h-32 rounded-md border bg-background p-3 text-sm"
-            data-testid={`timeline-settings-guidance-camera-${row.key}`}
-            onChange={(event) =>
+        <label className="timeline-submilestone-detail-field is-wide timeline-field-rich-text-field">
+          <span>Required photo angles</span>
+          <FieldRichTextEditor
+            ariaLabel={`${row.name} required photo angles`}
+            editorMinHeightClass="[&_.ProseMirror]:min-h-[4.5rem]"
+            imageMaxHeightClass="[&_.ProseMirror_img]:max-h-40"
+            onChange={(cameraAngles) =>
               onUpdate({
                 ...guidance,
-                cameraAngles: linesToGuidanceItems(event.currentTarget.value),
+                cameraAngles,
               })
             }
-            value={guidance.cameraAngles.join("\n")}
+            placeholder="Required angles, framing notes, and example photos..."
+            testId={`timeline-settings-guidance-camera-${row.key}`}
+            value={guidance.cameraAngles}
           />
         </label>
       </div>
@@ -1696,6 +2144,8 @@ function createCustomMilestoneRow({
   return withSubMilestoneDetails(
     {
       budgetText: DEFAULT_NEW_MILESTONE_BUDGET_TEXT,
+      contractorAssignments: [],
+      costItems: [],
       dependencyKeys: [],
       durationDays: Number(DEFAULT_NEW_MILESTONE_DURATION_TEXT),
       durationText: DEFAULT_NEW_MILESTONE_DURATION_TEXT,
@@ -1707,13 +2157,13 @@ function createCustomMilestoneRow({
       percentageBps: 0,
       percentageText: "0.00%",
       siteVisitGuidance: {
-        cameraAngles: [
+        cameraAngles: guidanceLinesToHtml([
           "Wide shot showing the full custom milestone work area.",
           "Close-up of the primary completion detail.",
-        ],
-        whatToVerify: [
+        ]),
+        whatToVerify: guidanceLinesToHtml([
           "Custom milestone scope is complete and consistent with the approved draw plan.",
-        ],
+        ]),
       },
       subMilestoneDetails,
       subMilestones: [],
@@ -1727,8 +2177,25 @@ function withSubMilestoneDetails(
   row: TimelineMilestoneWorksheetRow,
   subMilestoneDetails: TimelineMilestoneWorksheetSubMilestone[]
 ): TimelineMilestoneWorksheetRow {
+  const availableSubMilestoneIds = new Set(
+    subMilestoneDetails.map((detail) => detail.id)
+  );
   return {
     ...row,
+    contractorAssignments: (row.contractorAssignments ?? []).map(
+      (assignment) => ({
+        ...assignment,
+        subMilestoneIds: assignment.subMilestoneIds.filter((id) =>
+          availableSubMilestoneIds.has(id)
+        ),
+      })
+    ),
+    costItems: (row.costItems ?? []).map((item) => ({
+      ...item,
+      relevantSubMilestoneIds: item.relevantSubMilestoneIds.filter((id) =>
+        availableSubMilestoneIds.has(id)
+      ),
+    })),
     subMilestoneDetails,
     subMilestones: subMilestoneDetails.map((detail) =>
       sanitizeSubMilestoneName(detail.name)
@@ -1736,26 +2203,107 @@ function withSubMilestoneDetails(
   };
 }
 
-function defaultGuidanceForRow(row: TimelineMilestoneWorksheetRow) {
+function worksheetRowToMaterialMilestone(
+  row: TimelineMilestoneWorksheetRow
+): MaterialPlanningMilestone {
+  const budgetCents = rowBudgetCents(row);
   return {
-    cameraAngles: [
-      "Wide shot showing the full milestone work area.",
-      "Close-up of the highest-risk connection, fixture, or finish.",
-    ],
-    whatToVerify: (row.subMilestones.length ? row.subMilestones : [row.name])
-      .slice(0, 4)
-      .map(
-        (checkpoint) =>
-          `${checkpoint} is complete, visible, and consistent with the approved scope.`
-      ),
+    budgetCents: Number.isFinite(budgetCents) ? Math.max(0, budgetCents) : 0,
+    key: row.key,
+    name: row.name,
+    order: row.order,
+    submilestones: row.subMilestoneDetails.map((subMilestone, index) => ({
+      key: subMilestone.id,
+      milestoneKey: row.key,
+      name: sanitizeSubMilestoneName(subMilestone.name),
+      order: index + 1,
+    })),
   };
 }
 
-function linesToGuidanceItems(value: string) {
-  return value
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
+function worksheetCostItemsToMaterialItems(
+  row: TimelineMilestoneWorksheetRow
+): MaterialPlanningItem[] {
+  return (row.costItems ?? []).map((item) => ({
+    _id: item.id,
+    costCents: item.costCents,
+    description: item.description,
+    itemType: item.itemType,
+    milestoneKey: row.key,
+    quantity: item.quantity,
+    relevantSubmilestoneKeys: item.relevantSubMilestoneIds,
+    supplier: item.supplier,
+    title: item.title,
+    totalCents: Math.round(item.costCents * item.quantity),
+  }));
+}
+
+function materialPayloadToWorksheetCostItem(
+  rowKey: string,
+  payload: MaterialPlanningPayload,
+  existingId?: string
+): TimelineMilestoneWorksheetCostItem {
+  return {
+    costCents: payload.costCents,
+    description: payload.description,
+    id: existingId ?? makeWorksheetId(`${rowKey}-cost-item`),
+    itemType: payload.itemType,
+    quantity: payload.quantity,
+    relevantSubMilestoneIds: payload.relevantSubmilestoneKeys,
+    supplier: payload.supplier,
+    title: payload.title,
+  };
+}
+
+function parseOptionalCurrencyCents(value: string) {
+  if (!value.trim()) {
+    return;
+  }
+  const cents = parseCurrencyToCents(value);
+  return Number.isFinite(cents) && cents > 0 ? Math.round(cents) : undefined;
+}
+
+function parseOptionalHours(value: string) {
+  if (!value.trim()) {
+    return;
+  }
+  const parsed = Number(value.replace(/,/g, ""));
+  return Number.isFinite(parsed) && parsed > 0
+    ? Math.round(parsed * 100) / 100
+    : undefined;
+}
+
+function subMilestoneNameById(
+  row: TimelineMilestoneWorksheetRow,
+  subMilestoneId: string
+) {
+  return (
+    row.subMilestoneDetails.find((detail) => detail.id === subMilestoneId)
+      ?.name ?? subMilestoneId
+  );
+}
+
+function makeWorksheetId(prefix: string) {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+}
+
+function defaultGuidanceForRow(row: TimelineMilestoneWorksheetRow): SiteVisitGuidanceHtml {
+  return {
+    cameraAngles: guidanceLinesToHtml([
+      "Wide shot showing the full milestone work area.",
+      "Close-up of the highest-risk connection, fixture, or finish.",
+    ]),
+    whatToVerify: guidanceLinesToHtml(
+      (row.subMilestones.length ? row.subMilestones : [row.name])
+        .slice(0, 4)
+        .map(
+          (checkpoint) =>
+            `${checkpoint} is complete, visible, and consistent with the approved scope.`
+        )
+    ),
+  };
 }
 
 function makeUniqueRowKey(name: string, rows: TimelineMilestoneWorksheetRow[]) {

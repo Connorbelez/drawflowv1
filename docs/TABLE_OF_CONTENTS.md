@@ -6,6 +6,7 @@ Quick reference for agents after PRD split. Each row gives file location, sectio
 |---|---:|---|---:|
 | `build-material-planning.md` | — | Build Material Planning | 1 |
 | `contractors-v1.md` | — | Contractors v1 Implementation Notes | 1 |
+| `drawflow-calendar-tab-prd.md` | — | DrawFlow Calendar Tab PRD | 1 |
 | `draw_flow_production_prd.md` | — | DrawFlow Production PRD | 1 |
 | `draw_flow_production_prd.md` | 1 | Purpose | 12 |
 | `draw_flow_production_prd.md` | 3 | Tenancy and Organization Model | 45 |
