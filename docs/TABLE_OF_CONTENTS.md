@@ -4,6 +4,7 @@ Quick reference for agents after PRD split. Each row gives file location, sectio
 
 | File | Section / ID | Title | Line |
 |---|---:|---|---:|
+| `build-material-planning.md` | — | Build Material Planning | 1 |
 | `contractors-v1.md` | — | Contractors v1 Implementation Notes | 1 |
 | `draw_flow_production_prd.md` | — | DrawFlow Production PRD | 1 |
 | `draw_flow_production_prd.md` | 1 | Purpose | 12 |

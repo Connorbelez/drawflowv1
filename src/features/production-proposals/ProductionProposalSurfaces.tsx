@@ -79,6 +79,11 @@ import {
 import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
 import type { TimelinePlanRow } from "#/features/builder-dashboard/BuilderTimelineDashboard.tsx";
 import {
+  MaterialPlanningTab,
+  type MaterialPlanningActions,
+  type MaterialPlanningItem,
+} from "#/features/material-planning/MaterialPlanningTab.tsx";
+import {
   type TimelineMilestoneWorksheetRow,
   TimelineMilestoneWorksheetTable,
 } from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
@@ -113,9 +118,11 @@ interface ProductionMilestone {
 }
 
 interface ProductionSubmilestone {
+  _id?: string;
   key: string;
   milestoneKey: string;
   name: string;
+  order?: number;
 }
 
 interface ProductionDraw {
@@ -141,6 +148,7 @@ export interface ProductionProposalDetail {
   documents?: ProductionDocument[];
   draws?: ProductionDraw[];
   loanFacility?: { interestAnnualBps?: number; principalCents?: number } | null;
+  costItems?: MaterialPlanningItem[];
   milestones?: ProductionMilestone[];
   permitWaiver?: { reason: string } | null;
   plannedDraws?: ProductionDraw[];
@@ -151,6 +159,7 @@ export interface ProductionProposalDetail {
 type ProductionReviewTab =
   | "closing"
   | "draws"
+  | "materials"
   | "packet"
   | "review"
   | "timeline";
@@ -1178,6 +1187,7 @@ export function ProductionProposalSettingsSurface({
 
 export function ProductionProposalReviewSurface({
   detail,
+  materialPlanningActions,
   onApprove,
   onClose,
   onReject,
@@ -1186,6 +1196,7 @@ export function ProductionProposalReviewSurface({
   timeline,
 }: {
   detail: ProductionProposalDetail;
+  materialPlanningActions?: MaterialPlanningActions;
   onApprove: (
     reason: string,
     permitWaiverReason?: string
@@ -1233,6 +1244,7 @@ export function ProductionProposalReviewSurface({
     if (editableDraws.length > 0) {
       nextTabs.push({ label: "Draw schedule", value: "draws" });
     }
+    nextTabs.push({ label: "Materials", value: "materials" });
     nextTabs.push({ label: "Packet", value: "packet" });
     if (proposal.status === "approved" || proposal.status === "closed") {
       nextTabs.push({ label: "Closing", value: "closing" });
@@ -1291,7 +1303,7 @@ export function ProductionProposalReviewSurface({
 
   return (
     <section
-      className="min-w-0 bg-muted/30 p-3 md:p-5"
+      className="flex min-h-[calc(100vh-4rem)] min-w-0 flex-1 flex-col bg-muted/30 p-0 md:p-5"
       data-testid="production-proposal-review-tabs"
     >
       <Tabs
@@ -1525,6 +1537,20 @@ export function ProductionProposalReviewSurface({
 
         <TabsPanel
           className="min-w-0"
+          data-testid="production-proposal-materials-tab"
+          value="materials"
+        >
+          <MaterialPlanningTab
+            actions={materialPlanningActions}
+            items={detail.costItems ?? []}
+            milestones={materialPlanningMilestones(detail)}
+            readOnly={!materialPlanningActions}
+            scopeLabel="Build Proposal"
+          />
+        </TabsPanel>
+
+        <TabsPanel
+          className="min-w-0"
           data-testid="production-proposal-packet-tab"
           value="packet"
         >
@@ -1586,6 +1612,29 @@ function productionProposalActionErrorMessage(error: unknown) {
   }
   const uncaughtMatch = message.match(/Uncaught Error:\s*([^\n]+)/);
   return uncaughtMatch?.[1]?.trim() || message;
+}
+
+function materialPlanningMilestones(detail: ProductionProposalDetail) {
+  const submilestonesByMilestone = new Map<string, ProductionSubmilestone[]>();
+  for (const submilestone of detail.submilestones ?? []) {
+    const next = submilestonesByMilestone.get(submilestone.milestoneKey) ?? [];
+    next.push(submilestone);
+    submilestonesByMilestone.set(submilestone.milestoneKey, next);
+  }
+  return (detail.milestones ?? []).map((milestone) => ({
+    budgetCents: milestone.budgetCents,
+    key: milestone.key,
+    name: milestone.name,
+    order: milestone.order,
+    submilestones: (submilestonesByMilestone.get(milestone.key) ?? [])
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      .map((submilestone) => ({
+        key: submilestone.key,
+        milestoneKey: submilestone.milestoneKey,
+        name: submilestone.name,
+        order: submilestone.order,
+      })),
+  }));
 }
 
 function ApprovedProposalConfirmation({

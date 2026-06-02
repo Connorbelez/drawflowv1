@@ -1,11 +1,17 @@
 "use client";
 
-export type BuildDetailSubTab = "details" | "timeline" | "calendar" | "gantt";
+export type BuildDetailSubTab =
+  | "calendar"
+  | "details"
+  | "gantt"
+  | "materials"
+  | "timeline";
 
 export const BUILD_DETAIL_TABS: { value: BuildDetailSubTab; label: string }[] =
   [
     { value: "details", label: "Details" },
     { value: "timeline", label: "Timeline" },
+    { value: "materials", label: "Materials" },
     { value: "calendar", label: "Calendar" },
     { value: "gantt", label: "Gantt" },
   ];
@@ -29,8 +35,8 @@ export function BuildDetailTabBar({
             aria-selected={activeTab === tab.value}
             className={
               activeTab === tab.value
-                ? "min-h-9 flex-1 whitespace-nowrap rounded-md bg-primary/25 px-3 py-2 text-xs text-foreground sm:flex-none sm:py-1.5"
-                : "min-h-9 flex-1 whitespace-nowrap rounded-md px-3 py-2 text-muted-foreground text-xs hover:bg-accent hover:text-foreground sm:flex-none sm:py-1.5"
+                ? "min-h-11 flex-1 whitespace-nowrap rounded-md bg-primary/25 px-3 py-2 text-xs text-foreground sm:min-h-9 sm:flex-none sm:py-1.5"
+                : "min-h-11 flex-1 whitespace-nowrap rounded-md px-3 py-2 text-muted-foreground text-xs hover:bg-accent hover:text-foreground sm:min-h-9 sm:flex-none sm:py-1.5"
             }
             data-testid={`build-detail-tab-${tab.value}`}
             key={tab.value}

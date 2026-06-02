@@ -586,7 +586,7 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.getByTestId("build-detail-documents")).toBeTruthy();
     expect(screen.getByTestId("internal-notes")).toBeTruthy();
     expect(screen.getByTestId("public-notes")).toBeTruthy();
-    expect(screen.getByTestId("production-build-mobile-events")).toBeTruthy();
+    expect(screen.getByTestId("build-detail-events-trigger")).toBeTruthy();
     expect(screen.getByTestId("build-detail-rail")).toBeTruthy();
     expect(screen.queryByTestId("production-build-milestones")).toBeNull();
   });

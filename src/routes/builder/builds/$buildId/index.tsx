@@ -17,7 +17,7 @@ import { api } from "../../../../../convex/_generated/api";
 
 type BuilderBuildSearch = {
   milestone?: string;
-  tab?: "details" | "timeline" | "calendar" | "gantt";
+  tab?: "calendar" | "details" | "gantt" | "materials" | "timeline";
   rail?: "open" | "closed";
 };
 
@@ -25,6 +25,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
   validateSearch: (search: Record<string, unknown>): BuilderBuildSearch => {
     const tab =
       search.tab === "timeline" ||
+      search.tab === "materials" ||
       search.tab === "calendar" ||
       search.tab === "gantt" ||
       search.tab === "details"
@@ -52,42 +53,41 @@ function BuilderBuildRoute() {
   const navigate = useNavigate();
   const workosOrganizationId = context.organizationId as string;
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
-  const productionBuild = useQuery(
+  const productionBuildQuery = useQuery(
     api.production_proposals.getActiveBuildDetailByString,
     visualFixtureEnabled
       ? "skip"
       : {
           buildId,
           workosOrganizationId,
-        },
+        }
   );
-  const visualBuild = visualFixtureEnabled
-    ? getVisualParityActiveBuildDetail(buildId)
-    : null;
   const effectiveProductionBuild = visualFixtureEnabled
-    ? visualBuild
-    : productionBuild;
+    ? getVisualParityActiveBuildDetail(buildId)
+    : productionBuildQuery;
   const activeBuildIdForWorkspace = effectiveProductionBuild?.build?._id as any;
-  const timelineWorkspace = useQuery(
+  const timelineWorkspaceQuery = useQuery(
     (api as any).production_proposals.getActiveBuildTimelineWorkspace,
     visualFixtureEnabled
       ? "skip"
       : effectiveProductionBuild
-      ? {
-          buildId: activeBuildIdForWorkspace,
-          workosOrganizationId,
-        }
-      : "skip",
+        ? {
+            buildId: activeBuildIdForWorkspace,
+            workosOrganizationId,
+          }
+        : "skip"
   );
   const effectiveTimelineWorkspace = visualFixtureEnabled
     ? getVisualParityActiveBuildTimelineWorkspace(buildId)
-    : timelineWorkspace;
-  const requestDraw = useMutation(api.production_proposals.requestActiveBuildDraw);
+    : timelineWorkspaceQuery;
+  const requestDraw = useMutation(
+    api.production_proposals.requestActiveBuildDraw
+  );
   const requestFacilityChange = useMutation(
-    (api as any).production_proposals.requestActiveBuildFacilityChange,
+    (api as any).production_proposals.requestActiveBuildFacilityChange
   );
   const submitMilestoneCompletion = useMutation(
-    (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
+    (api as any).production_proposals.submitActiveBuildMilestoneCompletion
   );
 
   const onChangeTab = (tab: BuildDetailSubTab) =>
@@ -116,7 +116,9 @@ function BuilderBuildRoute() {
     return (
       <main className="grid min-h-[24rem] place-items-center bg-muted/30 p-4">
         <Frame>
-          <FramePanel className="p-4 text-sm">Loading build detail...</FramePanel>
+          <FramePanel className="p-4 text-sm">
+            Loading build detail...
+          </FramePanel>
         </Frame>
       </main>
     );
@@ -181,6 +183,10 @@ function BuilderBuildRoute() {
       actions={actions}
       activeBuildId={activeBuildId}
       activeTab={search.tab ?? "details"}
+      breadcrumbRootHref="/builder"
+      breadcrumbRootLabel="Builder"
+      breadcrumbSectionHref="/builder/proposals"
+      breadcrumbSectionLabel="Live Builds"
       contractorDetailHrefFor={(contractorId) =>
         `/builder/contractors/${contractorId}`
       }

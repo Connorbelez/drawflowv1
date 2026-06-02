@@ -71,12 +71,6 @@ function DurableTimelineRoute() {
         durablePlanId={timelineId}
         initialState={convexWorkspaceToTimelineState(workspace)}
         modificationRequests={workspace.modificationRequests}
-        planSummary={{
-          address: workspace.plan.address,
-          includedCount: workspace.milestones.length,
-          templateTitle: workspace.plan.buildName,
-          totalBudget: Math.round(workspace.plan.totalBudgetCents / 100),
-        }}
         workspaceMode="demo"
       />
     </>

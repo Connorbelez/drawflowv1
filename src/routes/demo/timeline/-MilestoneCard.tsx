@@ -285,7 +285,7 @@ export function MilestoneCard({
                       </motion.div>
                     </motion.div>
                   ) : (
-                    <div className="relative h-[178px]">
+                    <div className="relative h-[138px]">
                       <motion.h3
                         animate={{
                           fontSize: collapsedTitleFontSize,
@@ -306,7 +306,7 @@ export function MilestoneCard({
                           x: 4,
                           y: 2,
                         }}
-                        className="absolute top-[24px] -right-4 grid size-40 shrink-0 place-items-center"
+                        className="absolute top-[-12px] left-[52px] grid size-40 shrink-0 place-items-center"
                         layout
                         layoutId={`timeline-card-icon-${item.id}`}
                         transition={

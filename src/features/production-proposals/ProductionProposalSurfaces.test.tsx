@@ -490,6 +490,7 @@ describe("ProductionProposalReviewSurface", () => {
       "Timeline",
       "Review",
       "Draw schedule",
+      "Materials",
       "Packet",
     ]);
     expect(

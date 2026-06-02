@@ -57,11 +57,6 @@ export function BuildTimelinePanel({ timelinePlanId }: BuildTimelinePanelProps) 
         initialRole="lender"
         initialState={convexWorkspaceToTimelineState(workspace)}
         workspaceMode="demo"
-        planSummary={{
-          includedCount: workspace.milestones.length,
-          templateTitle: workspace.plan.buildName,
-          totalBudget: Math.round(workspace.plan.totalBudgetCents / 100),
-        }}
       />
     </div>
   );

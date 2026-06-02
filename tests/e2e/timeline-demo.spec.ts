@@ -313,14 +313,6 @@ test("timeline setup selects a template, edits the blueprint budget table, and g
   await page.getByTestId("timeline-setup-complete").click();
 
   await expect(page.getByTestId("animated-curved-timeline")).toBeVisible();
-  await expect(
-    page.getByRole("heading", {
-      name: /Single Family Full Build draw roadmap/,
-    }),
-  ).toBeVisible();
-  await expect(page.getByTestId("timeline-roadmap-address")).toHaveText(
-    "Toronto, ON",
-  );
   await expect(page.getByTestId("timeline-card-framing")).toContainText(
     /Milestone 1/i,
   );

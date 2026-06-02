@@ -13,7 +13,7 @@ import {
   BuildDetailTabBar,
   type BuildDetailSubTab,
 } from "./BuildDetailTabs";
-import { EventRail } from "./EventRail";
+import { EventRailSheet } from "./EventRail";
 import {
   type KanbanCardData,
   type KanbanColumn,
@@ -126,7 +126,7 @@ function BuildDetailShell({
   const [publicNoteDraft, setPublicNoteDraft] = useState("");
   const [showCompletedKanban, setShowCompletedKanban] = useState(false);
 
-  const railCollapsed = rail === "closed";
+  const eventsOpen = rail === "open";
 
   const kanbanCards: KanbanCardData[] = useMemo(() => {
     if (!vm || vm.needsSeed) return [];
@@ -277,23 +277,27 @@ function BuildDetailShell({
   };
 
   return (
-    <main
-      className="grid min-h-screen"
-      data-testid="build-detail-route"
-      style={{
-        gridTemplateColumns: railCollapsed ? "1fr 56px" : "1fr 360px",
-      }}
-    >
+    <main className="min-h-screen" data-testid="build-detail-route">
       <section className="flex flex-col gap-5 p-6">
         <BreadcrumbStrip displayId={displayId} />
-        <header className="flex flex-col gap-1">
-          <h1 className="font-semibold text-2xl tracking-tight">
-            <span className="font-normal text-muted-foreground text-lg">
-              {displayId} —{" "}
-            </span>
-            {build.name}
-          </h1>
-          <p className="text-muted-foreground text-sm">{build.subtitle}</p>
+        <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="font-semibold text-2xl tracking-tight">
+              <span className="font-normal text-muted-foreground text-lg">
+                {displayId} —{" "}
+              </span>
+              {build.name}
+            </h1>
+            <p className="text-muted-foreground text-sm">{build.subtitle}</p>
+          </div>
+          <button
+            className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-border bg-background px-3 font-medium text-sm hover:bg-accent"
+            data-testid="build-detail-events-trigger"
+            onClick={() => onChangeRail("open")}
+            type="button"
+          >
+            Events
+          </button>
         </header>
 
         <BuildDetailTabBar activeTab={activeTab} onChangeTab={onChangeTab} />
@@ -340,14 +344,12 @@ function BuildDetailShell({
         ) : null}
       </section>
 
-      <EventRail
+      <EventRailSheet
         auditEvents={vm.auditEvents}
-        collapsed={railCollapsed}
+        onOpenChange={(open) => onChangeRail(open ? "open" : "closed")}
         onResolve={(_event) => {}}
-        onToggleCollapsed={() =>
-          onChangeRail(railCollapsed ? "open" : "closed")
-        }
         onView={(_event) => {}}
+        open={eventsOpen}
         quickActionEvents={vm.quickActionEvents}
       />
 

@@ -19,7 +19,7 @@ const screens = [
     waitFor: async (page) => {
       await waitForWorkspace(page);
       await page.getByTestId("timeline-submit-proposal").waitFor();
-      await page.getByTestId("timeline-draw-state-legend").waitFor();
+      await page.getByTestId("timeline-roadmap-grid").waitFor();
     },
   },
   {
@@ -38,7 +38,9 @@ const screens = [
     waitFor: async (page) => {
       await waitForWorkspace(page);
       await page.getByTestId("timeline-locked-banner").waitFor();
-      await page.getByTestId("timeline-submitted-tabs").waitFor();
+      await page.getByTestId("timeline-roadmap-grid").waitFor();
+      await page.getByTestId("timeline-cashflow-chart").waitFor();
+      await page.getByTestId("timeline-draw-availability-chart").waitFor();
     },
   },
   {

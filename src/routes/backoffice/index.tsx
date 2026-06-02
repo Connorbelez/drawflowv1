@@ -13,8 +13,10 @@ import { useMutation, useQuery } from "convex/react";
 import {
   ArrowUpDown,
   CalendarClock,
+  CalendarDays,
   CheckCircle2,
   ChevronDown,
+  PanelRightClose,
   CircleAlert,
   ClipboardCheck,
   Eye,
@@ -320,6 +322,8 @@ export function BackofficeDashboard({
   const [closingProposal, setClosingProposal] =
     useState<ProposalKanbanCard | null>(null);
   const [closingPending, setClosingPending] = useState(false);
+  const [scheduleCalendarCollapsed, setScheduleCalendarCollapsed] =
+    useState(false);
 
   const handleConfirmClosing = async (input: ClosingConfirmationInput) => {
     if (!closingProposal) {
@@ -342,7 +346,16 @@ export function BackofficeDashboard({
 
   return (
     <>
-      <main className="grid min-h-[calc(100vh-4rem)] gap-4 bg-muted/30 p-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <main
+        className={cn(
+          "grid min-h-[calc(100vh-4rem)] gap-4 bg-muted/30 p-4",
+          scheduleCalendarCollapsed
+            ? "lg:grid-cols-[minmax(0,1fr)_2.75rem]"
+            : "lg:grid-cols-[minmax(0,1fr)_20rem]"
+        )}
+        data-schedule-calendar-collapsed={scheduleCalendarCollapsed}
+        data-testid="backoffice-dashboard-grid"
+      >
         <section className="flex min-w-0 flex-col gap-4">
           <DashboardToolbar />
           <MetricGrid dashboard={dashboard} />
@@ -372,8 +385,10 @@ export function BackofficeDashboard({
           />
         </section>
         <ScheduleRail
+          collapsed={scheduleCalendarCollapsed}
           date={dashboard.scheduleDate}
           events={dashboard.scheduleEvents}
+          onCollapsedChange={setScheduleCalendarCollapsed}
           quickActions={dashboard.quickActions}
         />
       </main>
@@ -1814,13 +1829,17 @@ export function ClosingConfirmationDialog({
   );
 }
 
-function ScheduleRail({
+export function ScheduleRail({
+  collapsed,
   date,
   events,
+  onCollapsedChange,
   quickActions,
 }: {
+  collapsed: boolean;
   date: Date;
   events: ScheduleEvent[];
+  onCollapsedChange: (collapsed: boolean) => void;
   quickActions: QuickAction[];
 }) {
   const eventDays = useMemo(
@@ -1828,16 +1847,60 @@ function ScheduleRail({
     [events]
   );
 
+  if (collapsed) {
+    return (
+      <aside
+        className="flex min-w-0 flex-col items-center gap-2"
+        data-testid="backoffice-schedule-rail-collapsed"
+      >
+        <Button
+          aria-label="Expand schedule calendar"
+          className="relative size-11 shrink-0"
+          data-testid="backoffice-schedule-calendar-expand"
+          onClick={() => onCollapsedChange(false)}
+          size="icon"
+          title="Show schedule"
+          variant="outline"
+        >
+          <CalendarDays className="size-5" />
+          {quickActions.length > 0 ? (
+            <Badge
+              className="absolute -top-1 -right-1 min-w-5 px-1 text-[10px]"
+              variant="warning"
+            >
+              {quickActions.length}
+            </Badge>
+          ) : null}
+        </Button>
+      </aside>
+    );
+  }
+
   return (
-    <aside className="flex min-w-0 flex-col gap-4">
+    <aside
+      className="flex min-w-0 flex-col gap-4"
+      data-testid="backoffice-schedule-rail-expanded"
+    >
       <Card>
         <CardHeader className="border-b p-4">
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
               <CardTitle className="text-base">Schedule</CardTitle>
               <CardDescription>{formatMonthYear(date)}</CardDescription>
             </div>
-            <CalendarClock className="size-5 text-muted-foreground" />
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                aria-label="Collapse schedule calendar"
+                data-testid="backoffice-schedule-calendar-collapse"
+                onClick={() => onCollapsedChange(true)}
+                size="icon-sm"
+                title="Collapse schedule"
+                variant="ghost"
+              >
+                <PanelRightClose className="size-4" />
+              </Button>
+              <CalendarClock className="size-5 text-muted-foreground" />
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4 p-4">

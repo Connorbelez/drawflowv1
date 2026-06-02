@@ -43,11 +43,6 @@ function BuilderProposalWorkspaceRoute() {
       initialRole="builder"
       initialState={convexWorkspaceToTimelineState(workspace)}
       modificationRequests={workspace.modificationRequests}
-      planSummary={{
-        includedCount: workspace.milestones.length,
-        templateTitle: workspace.plan.buildName,
-        totalBudget: Math.round(workspace.plan.totalBudgetCents / 100),
-      }}
       workspaceMode="demo"
     />
   );

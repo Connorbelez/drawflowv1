@@ -32,6 +32,7 @@ import { Label } from "#/components/ui/label.tsx";
 import { ProductionProposalReviewSurface } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
 import { ProductionTimelineWorkspace } from "#/features/production-proposals/ProductionTimelineWorkspace.tsx";
 import {
+  createVisualParityCostItem,
   getVisualParityProposalDetail,
   getVisualParityTimelineWorkspace,
   isProductionVisualParityFixtureEnabled,
@@ -94,6 +95,44 @@ function ProposalReviewRoute() {
   const navigate = useNavigate();
   const workosOrganizationId = context.organizationId as string;
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
+  const visualProposalDetail = useMemo(
+    () => getVisualParityProposalDetail(planId),
+    [planId]
+  );
+  const [visualCostItems, setVisualCostItems] = useState(
+    () => visualProposalDetail.costItems ?? []
+  );
+  useEffect(() => {
+    setVisualCostItems(visualProposalDetail.costItems ?? []);
+  }, [visualProposalDetail]);
+  const visualMaterialPlanningActions = useMemo(
+    () => ({
+      create: (payload: Parameters<typeof createVisualParityCostItem>[0]) => {
+        setVisualCostItems((current) => [
+          ...current,
+          createVisualParityCostItem(payload, `${current.length + 1}`),
+        ]);
+      },
+      delete: (item: { _id: string }) => {
+        setVisualCostItems((current) =>
+          current.filter((candidate) => candidate._id !== item._id)
+        );
+      },
+      update: (
+        item: { _id: string },
+        payload: Parameters<typeof createVisualParityCostItem>[0]
+      ) => {
+        setVisualCostItems((current) =>
+          current.map((candidate) =>
+            candidate._id === item._id
+              ? { ...createVisualParityCostItem(payload, candidate._id), _id: item._id }
+              : candidate
+          )
+        );
+      },
+    }),
+    []
+  );
   const joinSession = useMutation(api.proposal_collaboration.joinSession);
   const collabToken = useMemo(
     () =>
@@ -132,7 +171,7 @@ function ProposalReviewRoute() {
       : { proposalId: planId, workosOrganizationId }
   );
   const productionDetail = visualFixtureEnabled
-    ? getVisualParityProposalDetail(planId)
+    ? { ...visualProposalDetail, costItems: visualCostItems }
     : productionDetailQuery;
   const productionWorkspaceQuery = useQuery(
     api.production_proposals.getProductionTimelineWorkspace,
@@ -158,6 +197,15 @@ function ProposalReviewRoute() {
   const recordProductionClosing = useMutation(
     api.production_proposals.recordOfflineClosing
   );
+  const createProposalCostItem = useMutation(
+    api.production_proposals.createProposalCostItem
+  );
+  const updateProposalCostItem = useMutation(
+    api.production_proposals.updateProposalCostItem
+  );
+  const deleteProposalCostItem = useMutation(
+    api.production_proposals.deleteProposalCostItem
+  );
   const updateProductionDrawScheduleRow = useMutation(
     api.production_proposals.updateSubmittedProposalDrawScheduleRow
   );
@@ -178,6 +226,32 @@ function ProposalReviewRoute() {
     return (
       <ProductionProposalReviewSurface
         detail={productionDetail}
+        materialPlanningActions={
+          visualFixtureEnabled
+            ? visualMaterialPlanningActions
+            : {
+                create: (payload) =>
+                  createProposalCostItem({
+                    ...payload,
+                    proposalId,
+                    workosOrganizationId,
+                  }).then(() => toast.success("Cost item added.")),
+                delete: (item, reason) =>
+                  deleteProposalCostItem({
+                    itemId: item._id as any,
+                    proposalId,
+                    reason,
+                    workosOrganizationId,
+                  }).then(() => toast.success("Cost item removed.")),
+                update: (item, payload) =>
+                  updateProposalCostItem({
+                    ...payload,
+                    itemId: item._id as any,
+                    proposalId,
+                    workosOrganizationId,
+                  }).then(() => toast.success("Cost item updated.")),
+              }
+        }
         timeline={
           <ProductionTimelineWorkspace
             backofficeHref={`/backoffice/proposals/${planId}`}

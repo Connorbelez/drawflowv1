@@ -265,6 +265,11 @@ const contractorQualityRatingSourceValidator = v.union(
   v.literal("backoffice")
 );
 
+const productionCostItemTypeValidator = v.union(
+  v.literal("material"),
+  v.literal("equipment")
+);
+
 const productionOutboxStatusValidator = v.union(
   v.literal("pending"),
   v.literal("processed"),
@@ -1482,11 +1487,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_template_scenario_order", [
-      "templateId",
-      "scenarioKey",
-      "order",
-    ])
+    .index("by_template_scenario_order", ["templateId", "scenarioKey", "order"])
     .index("by_template_scenario_key", [
       "templateId",
       "scenarioKey",
@@ -1680,7 +1681,34 @@ export default defineSchema({
     .index("by_proposal_milestone", ["proposalId", "milestoneKey"])
     .index("by_contractor", ["contractorId"])
     .index("by_contractor_proposal", ["contractorId", "proposalId"])
-    .index("by_submilestone", ["proposalId", "milestoneKey", "submilestoneKey"]),
+    .index("by_submilestone", [
+      "proposalId",
+      "milestoneKey",
+      "submilestoneKey",
+    ]),
+  proposalCostItems: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    proposalMilestoneId: v.id("proposalMilestones"),
+    milestoneKey: v.string(),
+    itemKey: v.string(),
+    itemType: productionCostItemTypeValidator,
+    title: v.string(),
+    description: v.optional(v.string()),
+    costCents: v.number(),
+    quantity: v.number(),
+    supplier: v.optional(v.string()),
+    relevantSubmilestoneKeys: v.array(v.string()),
+    createdByWorkosUserId: v.string(),
+    updatedByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_proposal", ["proposalId"])
+    .index("by_proposal_key", ["proposalId", "itemKey"])
+    .index("by_proposal_milestone", ["proposalId", "milestoneKey"])
+    .index("by_milestone", ["proposalMilestoneId"]),
   proposalDrawScheduleRows: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -2130,7 +2158,11 @@ export default defineSchema({
     policyState: v.optional(v.string()),
     progressPercent: v.optional(v.number()),
     startedAt: v.optional(v.number()),
-    status: v.union(v.literal("planned"), v.literal("in_progress"), v.literal("complete")),
+    status: v.union(
+      v.literal("planned"),
+      v.literal("in_progress"),
+      v.literal("complete")
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -2149,12 +2181,42 @@ export default defineSchema({
     order: v.number(),
     budgetCents: v.optional(v.number()),
     durationDays: v.optional(v.number()),
-    status: v.union(v.literal("planned"), v.literal("in_progress"), v.literal("complete")),
+    status: v.union(
+      v.literal("planned"),
+      v.literal("in_progress"),
+      v.literal("complete")
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_build", ["buildId"])
     .index("by_milestone", ["buildMilestoneId"]),
+  buildCostItems: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    proposalId: v.id("buildProposals"),
+    buildMilestoneId: v.id("buildMilestones"),
+    proposalCostItemId: v.optional(v.id("proposalCostItems")),
+    milestoneKey: v.string(),
+    itemKey: v.string(),
+    itemType: productionCostItemTypeValidator,
+    title: v.string(),
+    description: v.optional(v.string()),
+    costCents: v.number(),
+    quantity: v.number(),
+    supplier: v.optional(v.string()),
+    relevantSubmilestoneKeys: v.array(v.string()),
+    createdByWorkosUserId: v.string(),
+    updatedByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_build", ["buildId"])
+    .index("by_build_key", ["buildId", "itemKey"])
+    .index("by_build_milestone", ["buildId", "milestoneKey"])
+    .index("by_milestone", ["buildMilestoneId"])
+    .index("by_proposal", ["proposalId"]),
   plannedDrawScheduleRows: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -2212,7 +2274,11 @@ export default defineSchema({
     organizationId: v.string(),
     buildId: v.id("activeBuilds"),
     capitalEventKey: v.optional(v.string()),
-    eventType: v.union(v.literal("borrower_copay"), v.literal("draw_release"), v.literal("cost")),
+    eventType: v.union(
+      v.literal("borrower_copay"),
+      v.literal("draw_release"),
+      v.literal("cost")
+    ),
     label: v.string(),
     amountCents: v.number(),
     eventDate: v.string(),
