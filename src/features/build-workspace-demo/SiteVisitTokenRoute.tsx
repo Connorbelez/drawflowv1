@@ -1297,13 +1297,12 @@ function DesktopGuidePanel({ targets }: { targets: VisitTarget[] }) {
               <h3 className="font-semibold text-primary text-xs uppercase tracking-[0.14em]">
                 {section.title}
               </h3>
-              <ul className="mt-2 grid gap-1.5 pl-4 text-muted-foreground text-xs leading-relaxed">
-                {section.items.slice(0, 3).map((item) => (
-                  <li className="list-disc" key={item}>
-                    {item}
-                  </li>
-                ))}
-              </ul>
+              <FieldRichTextPreview
+                ariaLabel={section.title}
+                className="mt-2 border-0 bg-transparent text-xs [&_.ProseMirror]:max-h-24 [&_.ProseMirror]:overflow-hidden [&_.ProseMirror]:px-0 [&_.ProseMirror]:py-0"
+                imageMaxHeightClass="[&_.ProseMirror_img]:max-h-16"
+                value={section.html}
+              />
             </section>
           ))}
         </div>
