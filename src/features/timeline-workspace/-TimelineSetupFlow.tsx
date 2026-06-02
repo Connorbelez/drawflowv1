@@ -464,6 +464,8 @@ export const SUB_MILESTONE_BANK: SubMilestoneBankItem[] = [
   },
 ];
 const TEMPLATE_THUMBNAILS: Record<string, string> = {
+  "4-plex": "/drawflow-template-thumbnails/four-plex-blueprint.svg",
+  four_plex: "/drawflow-template-thumbnails/four-plex-blueprint.svg",
   multiplex_build:
     "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
   "multiplex-build":
@@ -501,8 +503,18 @@ export interface TimelineSetupPreset {
     cameraAngles: string;
     whatToVerify: string;
   };
+  subMilestoneDetails?: TimelineSetupPresetSubMilestone[];
   subMilestones: string[];
   type: string;
+}
+
+export interface TimelineSetupPresetSubMilestone {
+  description?: string;
+  durationDays?: number;
+  key?: string;
+  name: string;
+  order?: number;
+  percentageBps?: number;
 }
 
 export interface TimelineSetupMilestoneRow extends TimelineSetupPreset {
@@ -648,14 +660,64 @@ function slugifySubMilestone(value: string) {
   );
 }
 
+function allocateWeightedBudgetCents(
+  totalCents: number,
+  rows: Array<{ percentageBps?: number }>
+) {
+  const totalBps = rows.reduce(
+    (sum, row) => sum + Math.max(0, Math.round(row.percentageBps ?? 0)),
+    0
+  );
+  if (totalBps <= 0) {
+    return;
+  }
+
+  const roundedTotal = Math.round(totalCents);
+  const allocations = rows.map((row, order) => {
+    const raw = roundedTotal * Math.max(0, Math.round(row.percentageBps ?? 0));
+    return {
+      cents: Math.floor(raw / totalBps),
+      order,
+      remainder: raw % totalBps,
+    };
+  });
+  let remainderCents =
+    roundedTotal -
+    allocations.reduce((sum, allocation) => sum + allocation.cents, 0);
+  const byRemainder = [...allocations].sort(
+    (a, b) => b.remainder - a.remainder || a.order - b.order
+  );
+  for (const allocation of byRemainder) {
+    if (remainderCents <= 0) {
+      break;
+    }
+    allocation.cents += 1;
+    remainderCents -= 1;
+  }
+  return allocations
+    .sort((a, b) => a.order - b.order)
+    .map((allocation) => allocation.cents);
+}
+
 function buildSubMilestoneDetails(
   row: TimelineSetupPreset,
   budgetCents: number,
   durationDays: number
 ): TimelineSetupSubMilestone[] {
-  const names =
-    row.subMilestones.length > 0 ? row.subMilestones : ["Initial scope"];
-  const count = Math.max(1, names.length);
+  const presets: TimelineSetupPresetSubMilestone[] =
+    row.subMilestoneDetails && row.subMilestoneDetails.length > 0
+      ? [...row.subMilestoneDetails]
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+          .map((detail) => ({
+            ...detail,
+            name: sanitizeSubMilestoneName(detail.name),
+          }))
+      : (row.subMilestones.length > 0
+          ? row.subMilestones
+          : ["Initial scope"]
+        ).map((name) => ({ name: sanitizeSubMilestoneName(name) }));
+  const count = Math.max(1, presets.length);
+  const weightedBudgetCents = allocateWeightedBudgetCents(budgetCents, presets);
   const baseBudgetCents = Math.floor(Math.max(0, budgetCents) / count);
   const budgetRemainderCents =
     Math.max(0, budgetCents) - baseBudgetCents * count;
@@ -663,17 +725,25 @@ function buildSubMilestoneDetails(
   const durationRemainderDays =
     Math.max(1, durationDays) - baseDurationDays * count;
 
-  return names.map((name, index) => ({
+  return presets.map((preset, index) => ({
     budgetText: formatCurrency(
-      baseBudgetCents + (index < budgetRemainderCents ? 1 : 0)
+      weightedBudgetCents?.[index] ??
+        baseBudgetCents + (index < budgetRemainderCents ? 1 : 0)
     ),
     description:
+      preset.description ??
       subMilestoneDescriptions[index % subMilestoneDescriptions.length],
     durationText: String(
-      Math.max(1, baseDurationDays + (index < durationRemainderDays ? 1 : 0))
+      Math.max(
+        1,
+        Math.round(
+          preset.durationDays ??
+            baseDurationDays + (index < durationRemainderDays ? 1 : 0)
+        )
+      )
     ),
-    id: `${row.key}-${slugifySubMilestone(name)}-${index}`,
-    name,
+    id: preset.key ?? `${row.key}-${slugifySubMilestone(preset.name)}-${index}`,
+    name: preset.name,
   }));
 }
 
@@ -959,7 +1029,7 @@ function preset(
   };
 }
 
-function createRowsFromTemplate(
+export function createRowsFromTemplate(
   template: TimelineSetupTemplate,
   budgetCents: number
 ): TimelineSetupMilestoneRow[] {

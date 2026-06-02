@@ -26,6 +26,7 @@ import {
 type ProductionSettingsSiteVisitGuidanceInput = Parameters<
   typeof coerceSiteVisitGuidanceInput
 >[0];
+
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const PROPOSAL_COLUMNS = ["draft", "submitted", "approved", "closed"] as const;
@@ -14788,6 +14789,309 @@ const PRODUCTION_DEFAULT_TEMPLATES: ProductionDefaultTemplate[] = [
     templateKey: "multiplex-build",
     title: "Multi-plex Build",
   },
+  {
+    description:
+      "Luverne 4-plex budget template with exact draw/milestone and line-item breakdown from the 25 Luverne budget.",
+    isDefault: false,
+    milestones: [
+      productionBudgetMilestone(
+        "four-plex-draw-01",
+        "Draw/Milestone 1 - Permits, demo & foundation",
+        1100,
+        21,
+        "foundation",
+        [
+          productionBudgetSubmilestone("four-plex-draw-01", "DC/ED", 37, 1),
+          productionBudgetSubmilestone("four-plex-draw-01", "PERMITS", 91, 2),
+          productionBudgetSubmilestone("four-plex-draw-01", "DRAWINGS", 156, 3),
+          productionBudgetSubmilestone("four-plex-draw-01", "DEMO EX", 458, 4),
+          productionBudgetSubmilestone("four-plex-draw-01", "TEMP FENCE", 23, 1),
+          productionBudgetSubmilestone("four-plex-draw-01", "TREE PROTECTION", 14, 1),
+          productionBudgetSubmilestone("four-plex-draw-01", "FOUNDATION", 321, 9),
+        ],
+        fourPlexGuidance(
+          [
+            "Permits and drawings: confirm DC/ED, permits, and construction drawings are uploaded and match the 25 Luverne 4-plex scope.",
+            "Site controls: temporary fence and tree protection are installed before exterior demolition or excavation value is counted.",
+            "Demolition: demo exterior scope is complete, debris is staged or removed, and any unsafe exposed condition is documented.",
+            "Foundation: excavation, forms, reinforcing, concrete placement, anchor points, waterproofing readiness, and survey dimensions align with approved drawings.",
+            "Exclusions: do not reimburse staged formwork, unpoured concrete, or permit/drawing fees without documentary evidence.",
+          ],
+          [
+            "Required wide angle: full frontage from street showing fence, tree protection, demo limits, and foundation work area.",
+            "Required side angle: left and right property-line views showing excavation/foundation relation to setbacks and adjacent structures.",
+            "Required close-up: permits/drawings or permit card, foundation forms/rebar/anchors, and any waterproofing or drainage detail.",
+            "Required context: photo tying DC/ED, permits, drawings, demo, fence, tree protection, and foundation areas to the same address.",
+          ]
+        )
+      ),
+      productionBudgetMilestone(
+        "four-plex-draw-02",
+        "Draw/Milestone 2 - Underground, framing & roof",
+        1329,
+        28,
+        "framing",
+        [
+          productionBudgetSubmilestone("four-plex-draw-02", "UNDERGROUND PIB", 64, 4),
+          productionBudgetSubmilestone("four-plex-draw-02", "FRAMING", 458, 7),
+          productionBudgetSubmilestone("four-plex-draw-02", "LUMBER", 413, 4),
+          productionBudgetSubmilestone("four-plex-draw-02", "CONCRETE", 110, 4),
+          productionBudgetSubmilestone("four-plex-draw-02", "WATER/SEWER", 101, 3),
+          productionBudgetSubmilestone("four-plex-draw-02", "ROOF FLAT/SHINGLES", 183, 6),
+        ],
+        fourPlexGuidance(
+          [
+            "Underground: verify underground PIB, water/sewer, sleeves, trenches, bedding, and backfill are complete before cover-up.",
+            "Framing: verify wall, floor, roof, party-wall, opening, and lateral bracing conditions against stamped drawings.",
+            "Lumber: count installed framing value only; staged lumber should be photographed but not treated as completed work.",
+            "Concrete: confirm any slab, cap, porch, or formed concrete scope is poured, cured enough for inspection, and tied to the approved plan.",
+            "Roof: flat roof and shingle areas are dried in with underlayment, flashing, and drainage paths visible.",
+          ],
+          [
+            "Required wide angle: front and rear elevations showing full framed massing and roof planes.",
+            "Required side angle: each side elevation showing floor lines, party-wall/shaft alignment, and water/sewer trench locations.",
+            "Required close-up: structural connectors, headers, sheathing nailing, roof flashing, underground pipe bedding, and concrete edges.",
+            "Required overhead/interior angle: roof or upper-floor view showing roof flat/shingle transition and framing continuity.",
+          ]
+        )
+      ),
+      productionBudgetMilestone(
+        "four-plex-draw-03",
+        "Draw/Milestone 3 - Service upgrade & envelope",
+        1118,
+        21,
+        "exterior",
+        [
+          productionBudgetSubmilestone("four-plex-draw-03", "400 AMP UPGRADE", 229, 4),
+          productionBudgetSubmilestone("four-plex-draw-03", "UTILITIES CONNECTION", 46, 2),
+          productionBudgetSubmilestone("four-plex-draw-03", "WINDOWS/DOORS", 321, 6),
+          productionBudgetSubmilestone("four-plex-draw-03", "STUCCO/BRICK", 366, 6),
+          productionBudgetSubmilestone("four-plex-draw-03", "ALUM", 156, 3),
+        ],
+        fourPlexGuidance(
+          [
+            "Electrical service: verify 400 amp upgrade equipment, meter base, panel/service location, grounding, and utility coordination status.",
+            "Utility connection: verify completed connections or inspected rough connection points; note any utility-owned work still pending.",
+            "Openings: windows and doors are installed, shimmed, fastened, flashed, and protected from water intrusion.",
+            "Envelope: stucco/brick and aluminum work are installed in claimed areas with weather barrier, flashing, weeps, and terminations visible.",
+            "Unit coverage: inspect representative front, rear, side, and unit-specific envelope conditions so one finished elevation does not mask incomplete areas.",
+          ],
+          [
+            "Required wide angle: all four elevations showing windows/doors and cladding progress.",
+            "Required service angle: meter, panel, service mast or conduit route, and utility connection point with address context.",
+            "Required close-up: window flashing sill/head/jamb, door threshold, stucco/brick transition, aluminum trim, and penetrations.",
+            "Required defect angle: any unflashed opening, missing cladding section, damaged unit, or temporary utility condition.",
+          ]
+        )
+      ),
+      productionBudgetMilestone(
+        "four-plex-draw-04",
+        "Draw/Milestone 4 - MEP rough-ins",
+        1283,
+        24,
+        "roughIn",
+        [
+          productionBudgetSubmilestone("four-plex-draw-04", "HVAC", 596, 8),
+          productionBudgetSubmilestone("four-plex-draw-04", "PLUMBING", 366, 7),
+          productionBudgetSubmilestone("four-plex-draw-04", "PLUMBING SUPPLIES", 0, 1),
+          productionBudgetSubmilestone("four-plex-draw-04", "ELECTRICAL", 321, 8),
+        ],
+        fourPlexGuidance(
+          [
+            "HVAC: verify duct runs, equipment rough locations, exhaust routes, fire/smoke separations, and shaft penetrations for each unit.",
+            "Plumbing: verify supply, DWV, venting, fixture rough locations, test caps/gauges, and floor/wall penetrations before cover-up.",
+            "Electrical: verify panel rough-in, homeruns, box layout, smoke/CO locations, exterior circuits, and common-area feeds.",
+            "Coordination: document clashes, notched framing, missing firestopping, unsupported pipes/ducts, or rough-in work outside approved locations.",
+            "Plumbing supplies: this line is zero budget in the source budget; mark any visible supplies as context only unless moved into an approved revision.",
+          ],
+          [
+            "Required wide angle: representative mechanical/electrical/plumbing rough-in view in every unit and common/service area.",
+            "Required close-up: pressure gauge or test cap, panel and box rough layout, duct supports, firestopping, and penetrations.",
+            "Required vertical angle: stacked wet wall or shaft view showing alignment across floors/units.",
+            "Required exception angle: any failed inspection tag, conflict, unprotected penetration, or missing rough-in area.",
+          ]
+        )
+      ),
+      productionBudgetMilestone(
+        "four-plex-draw-05",
+        "Draw/Milestone 5 - Insulation, drywall & stairs",
+        1099,
+        14,
+        "drywall",
+        [
+          productionBudgetSubmilestone("four-plex-draw-05", "INSULATION/DRYWALL/TAPING", 916, 10),
+          productionBudgetSubmilestone("four-plex-draw-05", "STAIRS", 183, 4),
+        ],
+        fourPlexGuidance(
+          [
+            "Inspection prerequisite: rough-in, insulation, and fire separation inspections are complete or documented before drywall/taping reimbursement.",
+            "Insulation: verify insulation type, coverage, vapor control, acoustic/fire assemblies, and continuity at exterior walls and demising walls.",
+            "Drywall/taping: verify board, taping, corner bead, fire-rated assemblies, ceilings, shafts, and wet-area board match scope.",
+            "Stairs: verify stair framing/install, guard/blocking readiness, landings, headroom, and secure temporary protection.",
+            "Incomplete areas: identify rooms, units, ceilings, or stair sections not ready for finish work.",
+          ],
+          [
+            "Required wide angle: each unit interior showing drywall/taping progress and stair placement.",
+            "Required close-up: insulation/vapor barrier before board where still visible, tape joints, fire-rated board labels, and stair connections.",
+            "Required document angle: inspection sticker, report, or deficiency tag tied to the milestone.",
+            "Required unit context: one photo per unit entrance or room label to prevent duplicate-room ambiguity.",
+          ]
+        )
+      ),
+      productionBudgetMilestone(
+        "four-plex-draw-06",
+        "Draw/Milestone 6 - Tile, flooring & trim",
+        815,
+        18,
+        "finishes",
+        [
+          productionBudgetSubmilestone("four-plex-draw-06", "TILES LABOUR", 137, 4),
+          productionBudgetSubmilestone("four-plex-draw-06", "TILES SUPPLY", 137, 2),
+          productionBudgetSubmilestone("four-plex-draw-06", "FLOORING", 220, 6),
+          productionBudgetSubmilestone("four-plex-draw-06", "TRIM CARPENTRY", 321, 6),
+        ],
+        fourPlexGuidance(
+          [
+            "Tile labour: verify installed tile in claimed wet areas, cuts, grout, slopes, waterproofing transitions, and incomplete edges.",
+            "Tile supply: materials must be delivered to site, matched to installed areas, and protected; staged supply alone should be noted separately.",
+            "Flooring: verify installed flooring by unit/room, transitions, stair nosings where applicable, and protected finished surfaces.",
+            "Trim carpentry: verify casing, base, doors, shelving/blocking, hardware prep, and continuity through each unit.",
+            "Quality exceptions: document cracked tile, missing grout, damaged flooring, incomplete trim, or units skipped.",
+          ],
+          [
+            "Required wide angle: each unit main living area showing flooring and trim coverage.",
+            "Required wet-area angle: bathrooms/kitchens showing tile install, corners, slopes, and transitions.",
+            "Required close-up: flooring transitions, base/casing joints, tile cuts, grout lines, and protected material labels.",
+            "Required comparison angle: at least one completed and one incomplete room if progress differs by unit.",
+          ]
+        )
+      ),
+      productionBudgetMilestone(
+        "four-plex-draw-07",
+        "Draw/Milestone 7 - Kitchen, appliances, paint & labour",
+        1283,
+        20,
+        "finishes",
+        [
+          productionBudgetSubmilestone("four-plex-draw-07", "KITCHEN", 366, 6),
+          productionBudgetSubmilestone("four-plex-draw-07", "APPLIANCES", 257, 3),
+          productionBudgetSubmilestone("four-plex-draw-07", "PAINT", 110, 4),
+          productionBudgetSubmilestone("four-plex-draw-07", "GENERAL LABOUR", 550, 7),
+        ],
+        fourPlexGuidance(
+          [
+            "Kitchen: verify cabinets, counters, sink rough/fixture readiness, millwork alignment, and unit-by-unit installation status.",
+            "Appliances: verify delivered and installed appliances by unit; staged appliances must be matched to serial/model evidence and protected location.",
+            "Paint: verify primer/finish coats, trim touch-ups, ceilings, closets, common areas, and any areas held back for repairs.",
+            "General labour: verify reimbursable labour produced completed physical work and is tied to visible milestone progress.",
+            "Punch context: document missing doors, panels, fixtures, appliance gaps, paint deficiencies, or labour-only claims with no visible output.",
+          ],
+          [
+            "Required wide angle: each unit kitchen from entry and opposite corner.",
+            "Required appliance angle: appliance install/delivery evidence with unit context and model/serial tags where visible.",
+            "Required close-up: cabinet fit, counter seams, sink/fixture area, paint finish, and trim touch-ups.",
+            "Required punch angle: any incomplete kitchen, missing appliance, paint defect, or labour repair area.",
+          ]
+        )
+      ),
+      productionBudgetMilestone(
+        "four-plex-draw-08",
+        "Draw/Milestone 8 - Landscaping, misc, insurance & management",
+        1973,
+        14,
+        "closeout",
+        [
+          productionBudgetSubmilestone("four-plex-draw-08", "LANDSCAPING", 165, 4),
+          productionBudgetSubmilestone("four-plex-draw-08", "MISCELLANEOUS", 367, 3),
+          productionBudgetSubmilestone("four-plex-draw-08", "INSURANCE", 137, 1),
+          productionBudgetSubmilestone("four-plex-draw-08", "MANAGEMENT FEE", 1304, 6),
+        ],
+        fourPlexGuidance(
+          [
+            "Landscaping: verify grading, drainage, hardscape/softscape, exterior cleanup, and safe access for all units.",
+            "Miscellaneous: require itemized support; tie each miscellaneous cost to visible work, invoice, approved change, or closeout deficiency.",
+            "Insurance: verify policy or invoice evidence before reimbursing this soft-cost line.",
+            "Management fee: verify fee calculation, approved agreement, and alignment with completed project status before final draw release.",
+            "Final readiness: confirm no unresolved site safety, access, occupancy, evidence, or admin exceptions remain before final reimbursement.",
+          ],
+          [
+            "Required wide angle: front, rear, and both side yards showing final grading, landscaping, and safe access.",
+            "Required close-up: drainage swales, walkways/steps, exterior deficiencies, and any remaining punch-list items.",
+            "Required document angle: insurance invoice/policy, management fee support, and miscellaneous backup in the closeout package.",
+            "Required final context: completed exterior plus one representative finished interior per unit for final release readiness.",
+          ]
+        )
+      ),
+    ],
+    scenarios: [
+      productionDefaultScenario(
+        "four-plex-standard",
+        "4-plex",
+        true,
+        [
+          productionDefaultDraw(
+            "draw-01",
+            "Draw/Milestone 1",
+            23,
+            1100,
+            "Permits, demo, temporary controls, tree protection, and foundation verified"
+          ),
+          productionDefaultDraw(
+            "draw-02",
+            "Draw/Milestone 2",
+            56,
+            1329,
+            "Underground PIB, framing, lumber, concrete, water/sewer, and roof verified"
+          ),
+          productionDefaultDraw(
+            "draw-03",
+            "Draw/Milestone 3",
+            82,
+            1118,
+            "Service upgrade, utility connection, windows/doors, stucco/brick, and aluminum verified"
+          ),
+          productionDefaultDraw(
+            "draw-04",
+            "Draw/Milestone 4",
+            111,
+            1283,
+            "HVAC, plumbing, plumbing supplies context, and electrical rough-ins verified"
+          ),
+          productionDefaultDraw(
+            "draw-05",
+            "Draw/Milestone 5",
+            130,
+            1099,
+            "Insulation, drywall, taping, and stairs verified"
+          ),
+          productionDefaultDraw(
+            "draw-06",
+            "Draw/Milestone 6",
+            153,
+            815,
+            "Tile labour, tile supply, flooring, and trim carpentry verified"
+          ),
+          productionDefaultDraw(
+            "draw-07",
+            "Draw/Milestone 7",
+            178,
+            1283,
+            "Kitchen, appliances, paint, and general labour verified"
+          ),
+          productionDefaultDraw(
+            "draw-08",
+            "Draw/Milestone 8",
+            197,
+            1973,
+            "Landscaping, miscellaneous, insurance, and management fee closeout verified"
+          ),
+        ]
+      ),
+    ],
+    summary: "8 milestones, 36 budget line items, 100.00% PoC, 160 field days",
+    templateKey: "4-plex",
+    title: "4-plex",
+  },
 ];
 
 function productionDefaultScenario(
@@ -14847,6 +15151,53 @@ function productionDefaultMilestone(
     percentageBps,
     siteVisitGuidance: productionDefaultGuidance(key, name, submilestoneNames),
     submilestones,
+  };
+}
+
+function productionBudgetMilestone(
+  key: string,
+  name: string,
+  percentageBps: number,
+  durationDays: number,
+  archetypeKey: string,
+  submilestones: ProductionDefaultMilestone["submilestones"],
+  siteVisitGuidance: SiteVisitGuidance
+): ProductionDefaultMilestone {
+  return {
+    archetypeDescription:
+      archetypeDescriptionForProductionDefault(archetypeKey),
+    archetypeKey,
+    dependencyKeys: [],
+    durationDays,
+    key,
+    name,
+    percentageBps,
+    siteVisitGuidance,
+    submilestones,
+  };
+}
+
+function productionBudgetSubmilestone(
+  milestoneKey: string,
+  name: string,
+  percentageBps: number,
+  durationDays: number
+): ProductionDefaultMilestone["submilestones"][number] {
+  return {
+    durationDays,
+    key: `${milestoneKey}-${slug(name)}`,
+    name,
+    percentageBps,
+  };
+}
+
+function fourPlexGuidance(
+  whatToVerify: string[],
+  cameraAngles: string[]
+): SiteVisitGuidance {
+  return {
+    cameraAngles: guidanceLinesToHtml(cameraAngles),
+    whatToVerify: guidanceLinesToHtml(whatToVerify),
   };
 }
 
@@ -15351,7 +15702,7 @@ function validateProductionScenarioDrawRows(
   const windows = buildProductionMilestoneDrawWindows(milestones);
   if (windows.length === 0) {
     throw new Error(
-      "Draw timing requires at least two included milestones to create a reimbursement window."
+      "Draw timing requires at least one included milestone to create a reimbursement window."
     );
   }
   for (const row of rows) {
@@ -15361,11 +15712,85 @@ function validateProductionScenarioDrawRows(
         row.timingDay < window.beforeMilestoneStartDay
     );
     if (!inWindow) {
-      throw new Error(
-        `Draw "${row.label}" must happen between the end of one milestone and the start of another.`
-      );
+      throw new Error(formatProductionDrawTimingWindowError(row, windows));
     }
   }
+}
+
+type ProductionMilestoneDrawWindow = {
+  afterMilestoneEndDay: number;
+  afterMilestoneKey: string;
+  afterMilestoneName: string;
+  beforeMilestoneKey: string;
+  beforeMilestoneName?: string;
+  beforeMilestoneStartDay: number;
+};
+
+function formatProductionDrawTimingWindowError(
+  draw: { label: string; timingDay: number },
+  windows: ProductionMilestoneDrawWindow[]
+) {
+  const nearest = findNearestProductionDrawTimingWindow(
+    draw.timingDay,
+    windows
+  );
+  const label = draw.label.trim() || "Unnamed draw";
+
+  if (!nearest) {
+    return `${label}, day ${draw.timingDay}: no valid handoff window exists. Include at least one milestone before saving draw timing.`;
+  }
+
+  const { firstValidDay, lastValidDay, nearestValidDay, window } = nearest;
+  const validWindow =
+    firstValidDay === lastValidDay
+      ? `day ${firstValidDay}`
+      : `days ${firstValidDay}-${lastValidDay}`;
+  const beforeMilestoneText = window.beforeMilestoneName
+    ? ` and ${window.beforeMilestoneName} (starts day ${window.beforeMilestoneStartDay})`
+    : "";
+  const windowLabel = window.beforeMilestoneName
+    ? "Valid window"
+    : "Valid final draw window";
+
+  return `${label}, day ${draw.timingDay}: conflicts with ${window.afterMilestoneName} (ends day ${window.afterMilestoneEndDay})${beforeMilestoneText}. ${windowLabel}: ${validWindow}. Nearest valid day: ${nearestValidDay}.`;
+}
+
+function findNearestProductionDrawTimingWindow(
+  timingDay: number,
+  windows: ProductionMilestoneDrawWindow[]
+) {
+  let nearest: {
+    distance: number;
+    firstValidDay: number;
+    lastValidDay: number;
+    nearestValidDay: number;
+    window: ProductionMilestoneDrawWindow;
+  } | null = null;
+
+  for (const window of windows) {
+    const firstValidDay = window.afterMilestoneEndDay + 1;
+    const lastValidDay = window.beforeMilestoneStartDay - 1;
+    if (firstValidDay > lastValidDay) {
+      continue;
+    }
+    const nearestValidDay = Math.min(
+      Math.max(timingDay, firstValidDay),
+      lastValidDay
+    );
+    const distance = Math.abs(timingDay - nearestValidDay);
+
+    if (!nearest || distance < nearest.distance) {
+      nearest = {
+        distance,
+        firstValidDay,
+        lastValidDay,
+        nearestValidDay,
+        window,
+      };
+    }
+  }
+
+  return nearest;
 }
 
 function validateProductionMilestoneHandoffGaps(
@@ -15373,6 +15798,7 @@ function validateProductionMilestoneHandoffGaps(
     durationDays: number;
     included: boolean;
     milestoneKey: string;
+    name: string;
     order: number;
   }>
 ) {
@@ -15394,11 +15820,12 @@ function buildProductionMilestoneDrawWindows(
     durationDays: number;
     included: boolean;
     milestoneKey: string;
+    name: string;
     order: number;
   }>
-) {
+): ProductionMilestoneDrawWindow[] {
   const included = sortedProductionIncludedMilestones(rows);
-  const windows = [];
+  const windows: ProductionMilestoneDrawWindow[] = [];
   for (let index = 0; index < included.length - 1; index += 1) {
     const current = included[index];
     const next = included[index + 1];
@@ -15408,8 +15835,22 @@ function buildProductionMilestoneDrawWindows(
     windows.push({
       afterMilestoneEndDay: productionMilestoneEndDay(included, index),
       afterMilestoneKey: current.milestoneKey,
+      afterMilestoneName: current.name,
       beforeMilestoneKey: next.milestoneKey,
+      beforeMilestoneName: next.name,
       beforeMilestoneStartDay: productionMilestoneStartDay(included, index + 1),
+    });
+  }
+  const final = included.at(-1);
+  if (final) {
+    const finalIndex = included.length - 1;
+    const finalEndDay = productionMilestoneEndDay(included, finalIndex);
+    windows.push({
+      afterMilestoneEndDay: finalEndDay,
+      afterMilestoneKey: final.milestoneKey,
+      afterMilestoneName: final.name,
+      beforeMilestoneKey: "final-closeout",
+      beforeMilestoneStartDay: finalEndDay + PRODUCTION_SETTINGS_HANDOFF_GAP_DAYS,
     });
   }
   return windows;
@@ -15420,6 +15861,7 @@ function sortedProductionIncludedMilestones(
     durationDays: number;
     included: boolean;
     milestoneKey: string;
+    name: string;
     order: number;
   }>
 ) {
@@ -15453,6 +15895,34 @@ function productionMilestoneEndDay(
     productionMilestoneStartDay(rows, index) + (rows[index]?.durationDays ?? 0)
   );
 }
+
+function assertHardCodedProductionDefaultTemplatesConform() {
+  for (const template of PRODUCTION_DEFAULT_TEMPLATES) {
+    const milestones = template.milestones.map((milestone, order) => ({
+      durationDays: milestone.durationDays,
+      included: true,
+      milestoneKey: milestone.key,
+      name: milestone.name,
+      order,
+      percentageBps: milestone.percentageBps,
+      siteVisitGuidance: milestone.siteVisitGuidance,
+      submilestones: milestone.submilestones.map((submilestone) => ({
+        name: submilestone.name,
+      })),
+    }));
+    validateProductionTemplateRows(milestones);
+    validateProductionScenarios(
+      template.scenarios.map((scenario) => ({
+        draws: scenario.draws,
+        isActive: scenario.isActive,
+        name: scenario.name,
+      })),
+      milestones
+    );
+  }
+}
+
+assertHardCodedProductionDefaultTemplatesConform();
 
 function requiredProductionDefaultTemplate(templateKey: string) {
   const seed = PRODUCTION_DEFAULT_TEMPLATES.find(

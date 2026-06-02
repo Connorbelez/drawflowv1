@@ -101,6 +101,15 @@ export interface TimelineSettingsValidationResult {
   warnings: string[];
 }
 
+interface MilestoneDrawWindow {
+  afterMilestoneEndDay: number;
+  afterMilestoneKey: string;
+  afterMilestoneName: string;
+  beforeMilestoneKey: string;
+  beforeMilestoneName?: string;
+  beforeMilestoneStartDay: number;
+}
+
 export interface TimelineSettingsProjection {
   completeness?: {
     missingTemplateKeys: string[];
@@ -207,6 +216,7 @@ export function validateScenarioDrafts(
         `Draw total must equal 100.00%; currently ${formatBps(drawTotal)}.`;
     }
     validateScenarioDrawTiming(
+      scenario.scenarioKey,
       scenario.draws,
       drawWindows,
       Boolean(template),
@@ -279,21 +289,24 @@ export function buildTimelineItemsFromSettings(
 }
 
 function validateScenarioDrawTiming(
+  scenarioKey: string,
   draws: TimelineSettingsDrawDraft[],
-  windows: ReturnType<typeof buildMilestoneDrawWindows>,
+  windows: MilestoneDrawWindow[],
   requireMilestoneWindow: boolean,
   errors: Record<string, string>
 ) {
   for (const draw of draws) {
     if (!draw.label.trim()) {
-      errors[`draw:${draw.drawKey}:label`] = "Draw label is required.";
+      errors[`scenario:${scenarioKey}:draw:${draw.drawKey}:label`] =
+        "Draw label is required.";
     }
     if (draw.timingDay < 0) {
-      errors[`draw:${draw.drawKey}:timingDay`] =
+      errors[`scenario:${scenarioKey}:draw:${draw.drawKey}:timingDay`] =
         "Timing day must be non-negative.";
     }
     if (draw.amountBps <= 0) {
-      errors[`draw:${draw.drawKey}:amount`] = "Draw amount must be positive.";
+      errors[`scenario:${scenarioKey}:draw:${draw.drawKey}:amount`] =
+        "Draw amount must be positive.";
     }
     if (
       requireMilestoneWindow &&
@@ -303,10 +316,75 @@ function validateScenarioDrawTiming(
           draw.timingDay < window.beforeMilestoneStartDay
       )
     ) {
-      errors[`draw:${draw.drawKey}:timingDayWindow`] =
-        "Draw timing must fall between the end of one milestone and the start of another.";
+      errors[`scenario:${scenarioKey}:draw:${draw.drawKey}:timingDayWindow`] =
+        formatDrawTimingWindowError(draw, windows);
     }
   }
+}
+
+function formatDrawTimingWindowError(
+  draw: TimelineSettingsDrawDraft,
+  windows: MilestoneDrawWindow[]
+) {
+  const nearest = findNearestDrawTimingWindow(draw.timingDay, windows);
+  const label = draw.label.trim() || "Unnamed draw";
+
+  if (!nearest) {
+    return `${label}, day ${draw.timingDay}: no valid handoff window exists. Include at least one milestone before saving draw timing.`;
+  }
+
+  const { firstValidDay, lastValidDay, nearestValidDay, window } = nearest;
+  const validWindow =
+    firstValidDay === lastValidDay
+      ? `day ${firstValidDay}`
+      : `days ${firstValidDay}-${lastValidDay}`;
+
+  const beforeMilestoneText = window.beforeMilestoneName
+    ? ` and ${window.beforeMilestoneName} (starts day ${window.beforeMilestoneStartDay})`
+    : "";
+  const windowLabel = window.beforeMilestoneName
+    ? "Valid window"
+    : "Valid final draw window";
+
+  return `${label}, day ${draw.timingDay}: conflicts with ${window.afterMilestoneName} (ends day ${window.afterMilestoneEndDay})${beforeMilestoneText}. ${windowLabel}: ${validWindow}. Nearest valid day: ${nearestValidDay}.`;
+}
+
+function findNearestDrawTimingWindow(
+  timingDay: number,
+  windows: MilestoneDrawWindow[]
+) {
+  let nearest: {
+    distance: number;
+    firstValidDay: number;
+    lastValidDay: number;
+    nearestValidDay: number;
+    window: MilestoneDrawWindow;
+  } | null = null;
+
+  for (const window of windows) {
+    const firstValidDay = window.afterMilestoneEndDay + 1;
+    const lastValidDay = window.beforeMilestoneStartDay - 1;
+    if (firstValidDay > lastValidDay) {
+      continue;
+    }
+    const nearestValidDay = Math.min(
+      Math.max(timingDay, firstValidDay),
+      lastValidDay
+    );
+    const distance = Math.abs(timingDay - nearestValidDay);
+
+    if (!nearest || distance < nearest.distance) {
+      nearest = {
+        distance,
+        firstValidDay,
+        lastValidDay,
+        nearestValidDay,
+        window,
+      };
+    }
+  }
+
+  return nearest;
 }
 
 export function buildTimelineSetupTemplatesFromSettings(
@@ -464,7 +542,7 @@ export function createBlankScenario(
 
 export function buildMilestoneDrawWindows(
   template: TimelineSettingsTemplateDraft
-) {
+): MilestoneDrawWindow[] {
   const milestones = template.milestones
     .filter((row) => row.included)
     .slice()
@@ -472,7 +550,7 @@ export function buildMilestoneDrawWindows(
       (a, b) =>
         a.order - b.order || a.milestoneKey.localeCompare(b.milestoneKey)
     );
-  const windows = [];
+  const windows: MilestoneDrawWindow[] = [];
   for (let index = 0; index < milestones.length - 1; index += 1) {
     const milestone = milestones[index];
     const next = milestones[index + 1];
@@ -482,8 +560,23 @@ export function buildMilestoneDrawWindows(
     windows.push({
       afterMilestoneEndDay: milestoneEndDay(milestones, index),
       afterMilestoneKey: milestone.milestoneKey,
+      afterMilestoneName: milestone.name,
       beforeMilestoneKey: next.milestoneKey,
+      beforeMilestoneName: next.name,
       beforeMilestoneStartDay: milestoneStartDay(milestones, index + 1),
+    });
+  }
+  const finalMilestone = milestones.at(-1);
+  if (finalMilestone) {
+    const finalIndex = milestones.length - 1;
+    const finalEndDay = milestoneEndDay(milestones, finalIndex);
+    windows.push({
+      afterMilestoneEndDay: finalEndDay,
+      afterMilestoneKey: finalMilestone.milestoneKey,
+      afterMilestoneName: finalMilestone.name,
+      beforeMilestoneKey: "final-closeout",
+      beforeMilestoneStartDay:
+        finalEndDay + TIMELINE_DEMO_SETTINGS_HANDOFF_GAP_DAYS,
     });
   }
   return windows;

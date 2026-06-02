@@ -180,8 +180,24 @@ describe("timeline demo settings adapter", () => {
     expect(validateScenarioDrafts([invalidScenario], template).ok).toBe(false);
     expect(
       validateScenarioDrafts([invalidScenario], template).errors[
-        "draw:draw-01:timingDayWindow"
+        "scenario:standard:draw:draw-01:timingDayWindow"
       ],
-    ).toMatch(/between the end/);
+    ).toBe(
+      "Draw 01, day 9: conflicts with Foundation (ends day 10) and Framing (starts day 15). Valid window: days 11-14. Nearest valid day: 11.",
+    );
+  });
+
+  test("allows draws in the final closeout handoff window", () => {
+    const [template] = normalizeTimelineSettingsProjection(projection);
+    const finalWindowScenario = {
+      ...template.scenarios[0],
+      draws: template.scenarios[0].draws.map((row, index) =>
+        index === 0 ? { ...row, timingDay: 11 } : { ...row, timingDay: 28 },
+      ),
+    };
+
+    expect(validateScenarioDrafts([finalWindowScenario], template).ok).toBe(
+      true,
+    );
   });
 });

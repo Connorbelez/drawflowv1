@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   buildPlanningPayloadFromSetupRows,
   buildTimelineItemsFromSetupRows,
+  createRowsFromTemplate,
   DEFAULT_SETUP_ADDRESS,
   parsePercentTextToBps,
   resolveTimelineSetupAddress,
@@ -130,5 +131,93 @@ describe("TimelineSetupFlow reimbursement percentage", () => {
         drawAvailabilityAmount: 90_000,
       },
     );
+  });
+});
+
+describe("createRowsFromTemplate", () => {
+  test("allocates sub-milestone budgets by PoC basis points", () => {
+    const [row] = createRowsFromTemplate(
+      {
+        description: "4-plex weighted template",
+        rows: [
+          {
+            dependencyKeys: [],
+            durationDays: 24,
+            icon: "plumbing",
+            key: "four-plex-draw-04",
+            name: "Draw/Milestone 4 - MEP rough-ins",
+            percentageBps: 10_000,
+            subMilestoneDetails: [
+              {
+                durationDays: 8,
+                key: "hvac",
+                name: "HVAC",
+                order: 1,
+                percentageBps: 596,
+              },
+              {
+                durationDays: 7,
+                key: "plumbing",
+                name: "PLUMBING",
+                order: 2,
+                percentageBps: 366,
+              },
+              {
+                durationDays: 1,
+                key: "plumbing-supplies",
+                name: "PLUMBING SUPPLIES",
+                order: 3,
+                percentageBps: 0,
+              },
+              {
+                durationDays: 8,
+                key: "electrical",
+                name: "ELECTRICAL",
+                order: 4,
+                percentageBps: 321,
+              },
+            ],
+            subMilestones: [
+              "HVAC",
+              "PLUMBING",
+              "PLUMBING SUPPLIES",
+              "ELECTRICAL",
+            ],
+            type: "roughIn",
+          },
+        ],
+        summary: "4-plex MEP",
+        templateKey: "4-plex",
+        title: "4-plex",
+      },
+      100_000_000,
+    );
+
+    expect(row?.subMilestoneDetails).toEqual([
+      expect.objectContaining({
+        budgetText: "$464,536",
+        durationText: "8",
+        id: "hvac",
+        name: "HVAC",
+      }),
+      expect.objectContaining({
+        budgetText: "$285,269",
+        durationText: "7",
+        id: "plumbing",
+        name: "PLUMBING",
+      }),
+      expect.objectContaining({
+        budgetText: "$0",
+        durationText: "1",
+        id: "plumbing-supplies",
+        name: "PLUMBING SUPPLIES",
+      }),
+      expect.objectContaining({
+        budgetText: "$250,195",
+        durationText: "8",
+        id: "electrical",
+        name: "ELECTRICAL",
+      }),
+    ]);
   });
 });

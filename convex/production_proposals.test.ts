@@ -44,6 +44,60 @@ async function seeded(roles: string[], subject?: string) {
   return { base, seed, t };
 }
 
+function productionTemplateSettingsArgs(
+  template: any,
+  scenarios = template.scenarios,
+) {
+  return {
+    milestones: template.milestones.map((milestone: any, index: number) => ({
+      dependencyKeys: milestone.dependencyKeys,
+      durationDays: milestone.durationDays,
+      icon: milestone.icon,
+      included: true,
+      milestoneKey: milestone.key,
+      name: milestone.name,
+      order: index,
+      percentageBps: milestone.percentageBps,
+      siteVisitGuidance: milestone.siteVisitGuidance,
+      submilestones: milestone.submilestones.map(
+        (submilestone: any, subIndex: number) => ({
+          description: submilestone.description,
+          durationDays: submilestone.durationDays,
+          name: submilestone.name,
+          order: subIndex,
+          percentageBps: submilestone.percentageBps,
+          submilestoneKey: submilestone.key,
+        }),
+      ),
+      type: milestone.archetypeKey,
+    })),
+    scenarios: scenarios.map((scenario: any) => ({
+      description: scenario.description,
+      draws: scenario.draws.map((draw: any, order: number) => ({
+        amountBps: draw.amountBps,
+        drawKey: draw.drawKey,
+        label: draw.label,
+        order: draw.order ?? order,
+        reviewNote: draw.reviewNote,
+        timingDay: draw.timingDay,
+      })),
+      isActive: scenario.isActive,
+      isDefault: scenario.isDefault,
+      name: scenario.name,
+      scenarioKey: scenario.scenarioKey,
+      sortOrder: scenario.sortOrder,
+    })),
+    template: {
+      description: template.description,
+      isDefault: template.isDefault,
+      summary: template.summary,
+      templateKey: template.templateKey,
+      title: template.title,
+    },
+    workosOrganizationId: ORG,
+  };
+}
+
 describe("production proposal foundation", () => {
   test("creates, saves, submits, approves, and closes a production Build Proposal without mutating demo tables", async () => {
     const { seed, t } = await seeded(["admin"], "user_admin");
@@ -1040,7 +1094,7 @@ describe("production proposal foundation", () => {
     expect(context.templates[0].milestones).toHaveLength(3);
   });
 
-  test("seeds production defaults from the demo milestone setup templates", async () => {
+  test("seeds production defaults including the 4-plex template", async () => {
     const { t } = await seeded(["admin"], "user_admin");
 
     const result = await t.mutation(
@@ -1049,10 +1103,10 @@ describe("production proposal foundation", () => {
     );
 
     expect(result).toMatchObject({
-      milestones: 21,
-      scenarios: 4,
-      submilestones: 50,
-      templates: 3,
+      milestones: 29,
+      scenarios: 5,
+      submilestones: 86,
+      templates: 4,
     });
 
     const settings = await t.query(
@@ -1063,6 +1117,7 @@ describe("production proposal foundation", () => {
       "single-family-full-build",
       "single-family-renovation",
       "multiplex-build",
+      "4-plex",
     ]);
 
     const fullBuild = settings.templates.find(
@@ -1115,13 +1170,126 @@ describe("production proposal foundation", () => {
       fullBuild.milestones.map((milestone: any) => milestone.key),
     ).not.toContain("shell-dry-in");
 
+    const fourPlex = settings.templates.find(
+      (template: any) => template.templateKey === "4-plex",
+    );
+    expect(fourPlex).toMatchObject({
+      summary: "8 milestones, 36 budget line items, 100.00% PoC, 160 field days",
+      title: "4-plex",
+    });
+    expect(fourPlex.milestones.map((milestone: any) => milestone.name)).toEqual([
+      "Draw/Milestone 1 - Permits, demo & foundation",
+      "Draw/Milestone 2 - Underground, framing & roof",
+      "Draw/Milestone 3 - Service upgrade & envelope",
+      "Draw/Milestone 4 - MEP rough-ins",
+      "Draw/Milestone 5 - Insulation, drywall & stairs",
+      "Draw/Milestone 6 - Tile, flooring & trim",
+      "Draw/Milestone 7 - Kitchen, appliances, paint & labour",
+      "Draw/Milestone 8 - Landscaping, misc, insurance & management",
+    ]);
+    expect(
+      fourPlex.milestones.reduce(
+        (total: number, milestone: any) => total + milestone.percentageBps,
+        0,
+      ),
+    ).toBe(10_000);
+    expect(
+      fourPlex.milestones.every((milestone: any) => {
+        const subTotal = milestone.submilestones.reduce(
+          (total: number, submilestone: any) =>
+            total + submilestone.percentageBps,
+          0,
+        );
+        return subTotal === milestone.percentageBps;
+      }),
+    ).toBe(true);
+    expect(fourPlex.milestones[0].submilestones.map((row: any) => row.name)).toEqual([
+      "DC/ED",
+      "PERMITS",
+      "DRAWINGS",
+      "DEMO EX",
+      "TEMP FENCE",
+      "TREE PROTECTION",
+      "FOUNDATION",
+    ]);
+    expect(fourPlex.milestones[3].submilestones).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "PLUMBING SUPPLIES",
+          percentageBps: 0,
+        }),
+      ]),
+    );
+    expect(
+      fourPlex.milestones.every(
+        (milestone: any) =>
+          milestone.siteVisitGuidance?.whatToVerify?.includes("<li>") &&
+          milestone.siteVisitGuidance?.cameraAngles?.includes(
+            "Required wide angle",
+          ),
+      ),
+    ).toBe(true);
+    expect(fourPlex.scenarios[0]).toMatchObject({
+      draws: [
+        expect.objectContaining({
+          amountBps: 1100,
+          label: "Draw/Milestone 1",
+          timingDay: 23,
+        }),
+        expect.objectContaining({
+          amountBps: 1329,
+          label: "Draw/Milestone 2",
+          timingDay: 56,
+        }),
+        expect.objectContaining({
+          amountBps: 1118,
+          label: "Draw/Milestone 3",
+          timingDay: 82,
+        }),
+        expect.objectContaining({
+          amountBps: 1283,
+          label: "Draw/Milestone 4",
+          timingDay: 111,
+        }),
+        expect.objectContaining({
+          amountBps: 1099,
+          label: "Draw/Milestone 5",
+          timingDay: 130,
+        }),
+        expect.objectContaining({
+          amountBps: 815,
+          label: "Draw/Milestone 6",
+          timingDay: 153,
+        }),
+        expect.objectContaining({
+          amountBps: 1283,
+          label: "Draw/Milestone 7",
+          timingDay: 178,
+        }),
+        expect.objectContaining({
+          amountBps: 1973,
+          label: "Draw/Milestone 8",
+          timingDay: 197,
+        }),
+      ],
+      isActive: true,
+      name: "4-plex",
+      scenarioKey: "four-plex-standard",
+    });
+    expect(
+      fourPlex.scenarios[0].draws.reduce(
+        (total: number, draw: any) => total + draw.amountBps,
+        0,
+      ),
+    ).toBe(10_000);
+
     const secondResult = await t.mutation(
       (api as any).production_proposals.seedProductionDefaultsToProd,
       { workosOrganizationId: ORG },
     );
     expect(secondResult).toMatchObject({
-      milestones: 21,
-      templates: 3,
+      milestones: 29,
+      templates: 4,
     });
     const secondSettings = await t.query(
       (api as any).production_proposals.getProductionProposalSettings,
@@ -1259,6 +1427,41 @@ describe("production proposal foundation", () => {
     );
     expect(audits.map((event: any) => event.eventType)).toContain(
       "production_settings.template_configuration_saved",
+    );
+  });
+
+  test("reports production draw timing conflicts with milestones and nearest valid days", async () => {
+    const { t } = await seeded(["admin"], "user_admin");
+    await t.mutation(
+      (api as any).production_proposals.seedProductionDefaultsToProd,
+      { workosOrganizationId: ORG },
+    );
+    const settings = await t.query(
+      (api as any).production_proposals.getProductionProposalSettings,
+      { workosOrganizationId: ORG },
+    );
+    const fullBuild = settings.templates.find(
+      (template: any) => template.templateKey === "single-family-full-build",
+    );
+    const invalidScenarios = fullBuild.scenarios.map(
+      (scenario: any, scenarioIndex: number) => ({
+        ...scenario,
+        draws: scenario.draws.map((draw: any, drawIndex: number) =>
+          scenarioIndex === 0 && drawIndex === 0
+            ? { ...draw, timingDay: 10 }
+            : draw,
+        ),
+      }),
+    );
+
+    await expect(
+      t.mutation(
+        (api as any).production_proposals
+          .saveProductionProposalTemplateConfiguration,
+        productionTemplateSettingsArgs(fullBuild, invalidScenarios),
+      ),
+    ).rejects.toThrow(
+      /Draw 01, day 10: conflicts with Site prep & foundation \(ends day 14\) and Framing & structure \(starts day 19\)\. Valid window: days 15-18\. Nearest valid day: 15\./,
     );
   });
 

@@ -21,7 +21,13 @@ export interface ProductionProposalTemplateProjection {
       cameraAngles: string;
       whatToVerify: string;
     };
-    submilestones?: Array<{ key: string; name: string; order?: number }>;
+    submilestones?: Array<{
+      durationDays?: number;
+      key: string;
+      name: string;
+      order?: number;
+      percentageBps?: number;
+    }>;
   }>;
   summary?: string;
   templateKey: string;
@@ -202,6 +208,15 @@ export function productionTemplatesToTimelineSetupTemplates(
         name: milestone.name,
         percentageBps: milestone.percentageBps,
         siteVisitGuidance: milestone.siteVisitGuidance,
+        subMilestoneDetails: [...(milestone.submilestones ?? [])]
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+          .map((submilestone) => ({
+            durationDays: submilestone.durationDays,
+            key: submilestone.key,
+            name: submilestone.name,
+            order: submilestone.order,
+            percentageBps: submilestone.percentageBps,
+          })),
         subMilestones: [...(milestone.submilestones ?? [])]
           .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
           .map((submilestone) => submilestone.name),

@@ -1145,6 +1145,10 @@ function ScenarioSettingsTab({
   template: TimelineSettingsTemplateDraft;
   validation: ReturnType<typeof validateScenarioDrafts>;
 }) {
+  const validationMessages = selectedScenario
+    ? getScenarioValidationMessages(validation, selectedScenario.scenarioKey)
+    : [];
+
   return (
     <div>
       <div
@@ -1312,6 +1316,12 @@ function ScenarioSettingsTab({
                         }),
                       )
                     }
+                    timingError={getScenarioDrawValidationError(
+                      validation,
+                      selectedScenario.scenarioKey,
+                      draw.drawKey,
+                      "timingDayWindow",
+                    )}
                   />
                 ))}
               </TableBody>
@@ -1351,10 +1361,15 @@ function ScenarioSettingsTab({
               Total draw percentage{" "}
               {formatBps(scenarioDrawTotalBps(selectedScenario))}
             </strong>
-            {!validation.ok ? (
-              <span className="text-destructive">
-                {Object.values(validation.errors)[0]}
-              </span>
+            {validationMessages.length > 0 ? (
+              <div className="min-w-[min(100%,52rem)] text-destructive">
+                <strong className="block">Resolve scenario validation</strong>
+                <ul className="mt-1 grid gap-1">
+                  {validationMessages.map((message) => (
+                    <li key={message}>{message}</li>
+                  ))}
+                </ul>
+              </div>
             ) : null}
           </FramePanel>
         </div>
@@ -1367,10 +1382,12 @@ function ScenarioDrawRow({
   draw,
   onRemove,
   onUpdateDraw,
+  timingError,
 }: {
   draw: TimelineSettingsDrawDraft;
   onRemove: () => void;
   onUpdateDraw: (draw: TimelineSettingsDrawDraft) => void;
+  timingError?: string;
 }) {
   const [timingDayText, setTimingDayText] = useState(String(draw.timingDay));
   const [amountText, setAmountText] = useState(formatBps(draw.amountBps));
@@ -1403,6 +1420,7 @@ function ScenarioDrawRow({
       <TableCell>
         <Input
           aria-label={`${draw.label} timing day`}
+          aria-invalid={timingError ? true : undefined}
           inputMode="numeric"
           onBlur={() => {
             setEditingTimingDay(false);
@@ -1468,6 +1486,46 @@ function ScenarioDrawRow({
         </Button>
       </TableCell>
     </TableRow>
+  );
+}
+
+function getScenarioValidationMessages(
+  validation: ReturnType<typeof validateScenarioDrafts>,
+  scenarioKey: string,
+) {
+  const scenarioEntries = Object.entries(validation.errors).filter(([key]) =>
+    isScenarioValidationKey(key, scenarioKey),
+  );
+  const visibleEntries =
+    scenarioEntries.length > 0
+      ? scenarioEntries
+      : Object.entries(validation.errors);
+  const timingMessages = visibleEntries
+    .filter(([key]) => key.endsWith(":timingDayWindow"))
+    .map(([, message]) => message);
+
+  if (timingMessages.length > 0) {
+    return timingMessages;
+  }
+
+  return visibleEntries.map(([, message]) => message);
+}
+
+function getScenarioDrawValidationError(
+  validation: ReturnType<typeof validateScenarioDrafts>,
+  scenarioKey: string,
+  drawKey: string,
+  field: string,
+) {
+  return validation.errors[
+    `scenario:${scenarioKey}:draw:${drawKey}:${field}`
+  ];
+}
+
+function isScenarioValidationKey(key: string, scenarioKey: string) {
+  return (
+    key === "activeScenario" ||
+    key.startsWith(`scenario:${scenarioKey}:`)
   );
 }
 

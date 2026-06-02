@@ -459,6 +459,8 @@ export const SUB_MILESTONE_BANK: SubMilestoneBankItem[] = [
   },
 ];
 const TEMPLATE_THUMBNAILS: Record<string, string> = {
+  "4-plex": "/drawflow-template-thumbnails/four-plex-blueprint.svg",
+  four_plex: "/drawflow-template-thumbnails/four-plex-blueprint.svg",
   multiplex_build:
     "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
   "multiplex-build": "/drawflow-template-thumbnails/multiplex-build-blueprint.png",

@@ -20,7 +20,13 @@ describe("production proposal timeline setup adapter", () => {
             order: 1,
             percentageBps: 2_500,
             submilestones: [
-              { key: "forms", name: "Forms and pour", order: 1 },
+              {
+                durationDays: 12,
+                key: "forms",
+                name: "Forms and pour",
+                order: 1,
+                percentageBps: 1_200,
+              },
             ],
           },
         ],
@@ -36,6 +42,15 @@ describe("production proposal timeline setup adapter", () => {
         {
           icon: "foundation",
           key: "foundation",
+          subMilestoneDetails: [
+            {
+              durationDays: 12,
+              key: "forms",
+              name: "Forms and pour",
+              order: 1,
+              percentageBps: 1_200,
+            },
+          ],
           subMilestones: ["Forms and pour"],
         },
       ],

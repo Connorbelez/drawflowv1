@@ -204,6 +204,14 @@ type ScenarioDrawScheduleInput = {
   label: string;
   timingDay: number;
 };
+type MilestoneDrawWindow = {
+  afterMilestoneEndDay: number;
+  afterMilestoneKey: string;
+  afterMilestoneName: string;
+  beforeMilestoneKey: string;
+  beforeMilestoneName?: string;
+  beforeMilestoneStartDay: number;
+};
 
 const DEFAULT_TEMPLATES: SeedTemplate[] = [
   {
@@ -1566,7 +1574,7 @@ function validateDrawTimingsAgainstMilestones(
   const windows = buildMilestoneDrawWindows(milestones);
   if (windows.length === 0) {
     throw new Error(
-      "Draw timing requires at least two included milestones to create a reimbursement window."
+      "Draw timing requires at least one included milestone to create a reimbursement window."
     );
   }
   for (const drawRow of draws) {
@@ -1576,16 +1584,81 @@ function validateDrawTimingsAgainstMilestones(
         drawRow.timingDay < window.beforeMilestoneStartDay
     );
     if (!inWindow) {
-      throw new Error(
-        `Draw "${drawRow.label}" must happen between the end of one milestone and the start of another.`
-      );
+      throw new Error(formatDrawTimingWindowError(drawRow, windows));
     }
   }
 }
 
-function buildMilestoneDrawWindows(rows: MilestoneScheduleInput[]) {
+function formatDrawTimingWindowError(
+  draw: ScenarioDrawScheduleInput,
+  windows: MilestoneDrawWindow[]
+) {
+  const nearest = findNearestDrawTimingWindow(draw.timingDay, windows);
+  const label = draw.label.trim() || "Unnamed draw";
+
+  if (!nearest) {
+    return `${label}, day ${draw.timingDay}: no valid handoff window exists. Include at least one milestone before saving draw timing.`;
+  }
+
+  const { firstValidDay, lastValidDay, nearestValidDay, window } = nearest;
+  const validWindow =
+    firstValidDay === lastValidDay
+      ? `day ${firstValidDay}`
+      : `days ${firstValidDay}-${lastValidDay}`;
+
+  const beforeMilestoneText = window.beforeMilestoneName
+    ? ` and ${window.beforeMilestoneName} (starts day ${window.beforeMilestoneStartDay})`
+    : "";
+  const windowLabel = window.beforeMilestoneName
+    ? "Valid window"
+    : "Valid final draw window";
+
+  return `${label}, day ${draw.timingDay}: conflicts with ${window.afterMilestoneName} (ends day ${window.afterMilestoneEndDay})${beforeMilestoneText}. ${windowLabel}: ${validWindow}. Nearest valid day: ${nearestValidDay}.`;
+}
+
+function findNearestDrawTimingWindow(
+  timingDay: number,
+  windows: MilestoneDrawWindow[]
+) {
+  let nearest: {
+    distance: number;
+    firstValidDay: number;
+    lastValidDay: number;
+    nearestValidDay: number;
+    window: MilestoneDrawWindow;
+  } | null = null;
+
+  for (const window of windows) {
+    const firstValidDay = window.afterMilestoneEndDay + 1;
+    const lastValidDay = window.beforeMilestoneStartDay - 1;
+    if (firstValidDay > lastValidDay) {
+      continue;
+    }
+    const nearestValidDay = Math.min(
+      Math.max(timingDay, firstValidDay),
+      lastValidDay
+    );
+    const distance = Math.abs(timingDay - nearestValidDay);
+
+    if (!nearest || distance < nearest.distance) {
+      nearest = {
+        distance,
+        firstValidDay,
+        lastValidDay,
+        nearestValidDay,
+        window,
+      };
+    }
+  }
+
+  return nearest;
+}
+
+function buildMilestoneDrawWindows(
+  rows: MilestoneScheduleInput[]
+): MilestoneDrawWindow[] {
   const included = sortedIncludedMilestones(rows);
-  const windows = [];
+  const windows: MilestoneDrawWindow[] = [];
   for (let index = 0; index < included.length - 1; index += 1) {
     const row = included[index];
     const next = included[index + 1];
@@ -1595,8 +1668,23 @@ function buildMilestoneDrawWindows(rows: MilestoneScheduleInput[]) {
     windows.push({
       afterMilestoneEndDay: milestoneEndDay(included, index),
       afterMilestoneKey: row.milestoneKey,
+      afterMilestoneName: row.name,
       beforeMilestoneKey: next.milestoneKey,
+      beforeMilestoneName: next.name,
       beforeMilestoneStartDay: milestoneStartDay(included, index + 1),
+    });
+  }
+  const final = included.at(-1);
+  if (final) {
+    const finalIndex = included.length - 1;
+    const finalEndDay = milestoneEndDay(included, finalIndex);
+    windows.push({
+      afterMilestoneEndDay: finalEndDay,
+      afterMilestoneKey: final.milestoneKey,
+      afterMilestoneName: final.name,
+      beforeMilestoneKey: "final-closeout",
+      beforeMilestoneStartDay:
+        finalEndDay + TIMELINE_DEMO_SETTINGS_HANDOFF_GAP_DAYS,
     });
   }
   return windows;
