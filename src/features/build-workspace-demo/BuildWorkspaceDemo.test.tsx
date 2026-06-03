@@ -55,6 +55,17 @@ describe("BuildWorkspaceDemo Gantt labels and draw editing", () => {
       timingDay: 61,
     });
   });
+
+  test("opens draw editor from the draw group label without using the drag handle", () => {
+    renderWorkspace();
+
+    fireEvent.click(screen.getByTestId("draw-drag-handle-draw-01"));
+    expect(screen.queryByTestId("draw-detail-sheet")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("draw-label-draw-01"));
+
+    expect(screen.getByTestId("draw-detail-sheet")).toBeTruthy();
+  });
 });
 
 function renderWorkspace(

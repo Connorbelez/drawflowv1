@@ -1030,6 +1030,7 @@ function DrawGroupRangeDragHandle({
   draw,
   milestones,
   onMoveDelta,
+  onOpenDraw,
   onPreviewDelta,
   proposalSubmitted,
 }: {
@@ -1037,6 +1038,7 @@ function DrawGroupRangeDragHandle({
   draw: DrawOverlay;
   milestones: Milestone[];
   onMoveDelta: (deltaDays: number) => void;
+  onOpenDraw: (drawGroupId: string) => void;
   onPreviewDelta: (deltaDays: number | null) => void;
   proposalSubmitted: boolean;
 }) {
@@ -1075,7 +1077,13 @@ function DrawGroupRangeDragHandle({
   return (
     <GanttRangeDragHandle
       className="absolute -top-4 z-40 inline-flex min-w-max max-w-max items-center gap-2 rounded-sm bg-popover/95 px-2.5 py-1 font-medium text-[0.72rem] shadow-foreground/10 shadow-lg backdrop-blur"
+      contentButtonLabel={`Edit ${draw.label}`}
+      contentTestId={`draw-label-${draw.id}`}
       disabled={proposalSubmitted || !hasUnlockedMilestones}
+      onContentClick={(event) => {
+        event.stopPropagation();
+        onOpenDraw(draw.id);
+      }}
       onMoveDelta={onMoveDelta}
       onPreviewDelta={onPreviewDelta}
       startAt={draw.startAt}
@@ -1439,6 +1447,7 @@ function GanttRoadmap({
                   sourceId: draw.id,
                 });
               }}
+              onOpenDraw={onOpenDraw}
               proposalSubmitted={proposalSubmitted}
             >
               <span className="font-semibold text-foreground">
