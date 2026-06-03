@@ -1827,10 +1827,7 @@ export const GanttRangeOverlay: FC<GanttRangeOverlayProps> = ({
 export type GanttRangeDragHandleProps = {
   children: ReactNode;
   className?: string;
-  contentButtonLabel?: string;
-  contentTestId?: string;
   disabled?: boolean;
-  onContentClick?: MouseEventHandler<HTMLButtonElement>;
   onMoveDelta?: (deltaDays: number) => void;
   onPreviewDelta?: (deltaDays: number | null) => void;
   startAt?: Date;
@@ -1842,10 +1839,7 @@ export type GanttRangeDragHandleProps = {
 export const GanttRangeDragHandle: FC<GanttRangeDragHandleProps> = ({
   children,
   className,
-  contentButtonLabel,
-  contentTestId,
   disabled,
-  onContentClick,
   onMoveDelta,
   onPreviewDelta,
   startAt,
@@ -1987,24 +1981,9 @@ export const GanttRangeDragHandle: FC<GanttRangeDragHandleProps> = ({
       >
         <MoveHorizontal className="size-3.5" />
       </button>
-      {onContentClick ? (
-        <button
-          aria-label={contentButtonLabel}
-          className="pointer-events-auto inline-flex min-w-max items-center gap-2 whitespace-nowrap rounded-sm px-1 text-left outline-none transition-colors hover:bg-muted/55 focus-visible:ring-2 focus-visible:ring-cyan-300/50 [&_*]:whitespace-nowrap"
-          data-testid={contentTestId}
-          onClick={onContentClick}
-          type="button"
-        >
-          {children}
-        </button>
-      ) : (
-        <span
-          className="pointer-events-none inline-flex min-w-max items-center gap-2 whitespace-nowrap [&_*]:whitespace-nowrap"
-          data-testid={contentTestId}
-        >
-          {children}
-        </span>
-      )}
+      <span className="pointer-events-none inline-flex min-w-max items-center gap-2 whitespace-nowrap [&_*]:whitespace-nowrap">
+        {children}
+      </span>
     </div>
   );
 };
