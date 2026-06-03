@@ -1,10 +1,19 @@
 import {
   parseCurrencyToCents,
 } from "#/features/builder-proposal-demo/template-helpers.ts";
-import type { TimelineMilestoneWorksheetRow } from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
+import type { ContractorPlanningModel } from "#/features/contractors/ContractorPlanningPanel.tsx";
+import type {
+  TimelineMilestoneWorksheetContractorAssignment,
+  TimelineMilestoneWorksheetContractorOption,
+  TimelineMilestoneWorksheetRow,
+} from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
 import type { IsometricIconKey } from "#/features/timeline-workspace/-timeline-share-snapshot.ts";
 
 import type { ProposalGanttMilestoneDraft } from "./ProductionProposalGanttWorkspace.tsx";
+
+type ProductionProposalPlanningAssignment = NonNullable<
+  ContractorPlanningModel["milestoneAssignments"]
+>[number];
 
 export interface ProductionProposalWorksheetDetail {
   milestones?: Array<{
@@ -99,9 +108,89 @@ function iconForMilestoneKey(key: string, name?: string): IsometricIconKey {
   return "change";
 }
 
+function contractorAssignmentGroupKey(assignment: {
+  contractorId: string;
+  role: string;
+}) {
+  return `${assignment.contractorId}:${assignment.role.trim().toLowerCase()}`;
+}
+
+export function milestoneContractorAssignmentsForWorksheetRow(
+  milestoneKey: string,
+  assignments: ProductionProposalPlanningAssignment[] | undefined,
+  availableSubMilestoneIds: Set<string>
+): TimelineMilestoneWorksheetContractorAssignment[] {
+  const grouped = new Map<string, TimelineMilestoneWorksheetContractorAssignment>();
+
+  for (const assignment of assignments ?? []) {
+    if (assignment.milestoneKey !== milestoneKey) {
+      continue;
+    }
+
+    const groupKey = contractorAssignmentGroupKey(assignment);
+    const subMilestoneId = assignment.submilestoneKey?.trim();
+    const nextSubMilestoneIds =
+      subMilestoneId && availableSubMilestoneIds.has(subMilestoneId)
+        ? [subMilestoneId]
+        : [];
+    const existing = grouped.get(groupKey);
+
+    if (existing) {
+      if (nextSubMilestoneIds.length > 0) {
+        existing.subMilestoneIds = [
+          ...new Set([...existing.subMilestoneIds, ...nextSubMilestoneIds]),
+        ];
+      }
+      continue;
+    }
+
+    grouped.set(groupKey, {
+      contractorId: assignment.contractorId,
+      contractorName: assignment.contractorName,
+      estimatedCostCents: assignment.estimatedCostCents,
+      estimatedHours: assignment.estimatedHours,
+      id: assignment._id,
+      role: assignment.role,
+      subMilestoneIds: nextSubMilestoneIds,
+    });
+  }
+
+  return [...grouped.values()];
+}
+
+export function contractorOptionsFromPlanning(
+  planning?: ContractorPlanningModel | null
+): TimelineMilestoneWorksheetContractorOption[] {
+  const seen = new Set<string>();
+  const options: TimelineMilestoneWorksheetContractorOption[] = [];
+
+  for (const contractor of [
+    ...(planning?.proposalContractors ?? []),
+    ...(planning?.availableContractors ?? []),
+  ]) {
+    const contractorId = contractor.contractorId ?? contractor._id;
+    if (!contractorId || seen.has(contractorId)) {
+      continue;
+    }
+    seen.add(contractorId);
+    options.push({
+      city: contractor.city,
+      contractorId,
+      defaultPayRateCents: contractor.defaultPayRateCents,
+      defaultPayRateUnit: contractor.defaultPayRateUnit,
+      name: contractor.name,
+      trades: contractor.trades,
+    });
+  }
+
+  return options;
+}
+
 export function productionProposalDetailToWorksheetRows(
-  detail: ProductionProposalWorksheetDetail
+  detail: ProductionProposalWorksheetDetail,
+  contractorPlanning?: ContractorPlanningModel | null
 ): TimelineMilestoneWorksheetRow[] {
+  const milestoneAssignments = contractorPlanning?.milestoneAssignments;
   const submilestonesByMilestone = new Map<
     string,
     NonNullable<ProductionProposalWorksheetDetail["submilestones"]>
@@ -133,11 +222,34 @@ export function productionProposalDetailToWorksheetRows(
       const percentageBps = Math.round(
         (milestone.budgetCents / totalBudgetCents) * 10_000
       );
+      const subMilestoneDetails = submilestones.map((submilestone, index) => {
+        const budgetCents =
+          submilestone.budgetCents ?? fallbackBudgets[index] ?? 0;
+        const subPercentageBps = Math.round(
+          (budgetCents / totalBudgetCents) * 10_000
+        );
+        return {
+          budgetText: formatCents(budgetCents),
+          description: "",
+          durationText: String(submilestone.durationDays ?? 1),
+          id: submilestone.key,
+          name: submilestone.name,
+          percentageBps: subPercentageBps,
+          percentageText: formatBps(subPercentageBps),
+        };
+      });
+      const availableSubMilestoneIds = new Set(
+        subMilestoneDetails.map((submilestone) => submilestone.id)
+      );
 
       return {
         baseItemId: milestone.key,
         budgetText: formatCents(milestone.budgetCents),
-        contractorAssignments: [],
+        contractorAssignments: milestoneContractorAssignmentsForWorksheetRow(
+          milestone.key,
+          milestoneAssignments,
+          availableSubMilestoneIds
+        ),
         costItems: [],
         dependencyKeys: milestone.dependencyKeys ?? [],
         durationDays,
@@ -150,22 +262,7 @@ export function productionProposalDetailToWorksheetRows(
         order: milestone.order,
         percentageBps,
         percentageText: formatBps(percentageBps),
-        subMilestoneDetails: submilestones.map((submilestone, index) => {
-          const budgetCents =
-            submilestone.budgetCents ?? fallbackBudgets[index] ?? 0;
-          const subPercentageBps = Math.round(
-            (budgetCents / totalBudgetCents) * 10_000
-          );
-          return {
-            budgetText: formatCents(budgetCents),
-            description: "",
-            durationText: String(submilestone.durationDays ?? 1),
-            id: submilestone.key,
-            name: submilestone.name,
-            percentageBps: subPercentageBps,
-            percentageText: formatBps(subPercentageBps),
-          };
-        }),
+        subMilestoneDetails,
         subMilestones: submilestones.map((submilestone) => submilestone.name),
         type: milestone.key,
       };

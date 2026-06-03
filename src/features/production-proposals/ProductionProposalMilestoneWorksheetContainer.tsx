@@ -5,6 +5,8 @@ import type { TimelineMilestoneWorksheetRow } from "#/features/timeline-workspac
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 
+import type { ContractorPlanningModel } from "#/features/contractors/ContractorPlanningPanel.tsx";
+
 import { syncMilestonesToProductionTimeline } from "./ProductionProposalGanttWorkspace.tsx";
 import { ProductionProposalMilestoneWorksheet } from "./ProductionProposalMilestoneWorksheet.tsx";
 import {
@@ -14,6 +16,7 @@ import {
 } from "./productionMilestoneWorksheetAdapter.ts";
 
 export function ProductionProposalMilestoneWorksheetContainer({
+  contractorPlanning,
   detail,
   footerExtra,
   persistenceMode = "noop",
@@ -22,6 +25,7 @@ export function ProductionProposalMilestoneWorksheetContainer({
   templateTitle,
   workosOrganizationId,
 }: {
+  contractorPlanning?: ContractorPlanningModel | null;
   detail: ProductionProposalWorksheetDetail;
   footerExtra?: React.ReactNode;
   persistenceMode?: "convex" | "noop";
@@ -114,6 +118,7 @@ export function ProductionProposalMilestoneWorksheetContainer({
 
   return (
     <ProductionProposalMilestoneWorksheet
+      contractorPlanning={contractorPlanning}
       detail={detail}
       footerExtra={footer}
       onPersistRows={canPersist ? onPersistRows : undefined}

@@ -4,7 +4,10 @@ import {
 } from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import type { ContractorPlanningModel } from "#/features/contractors/ContractorPlanningPanel.tsx";
+
 import {
+  contractorOptionsFromPlanning,
   productionProposalDetailToWorksheetRows,
   type ProductionProposalWorksheetDetail,
 } from "./productionMilestoneWorksheetAdapter.ts";
@@ -12,21 +15,27 @@ import {
 const PERSIST_DEBOUNCE_MS = 400;
 
 export function ProductionProposalMilestoneWorksheet({
+  contractorPlanning,
   detail,
   footerExtra,
   onPersistRows,
   showHeading = false,
   templateTitle,
 }: {
+  contractorPlanning?: ContractorPlanningModel | null;
   detail: ProductionProposalWorksheetDetail;
   footerExtra?: React.ReactNode;
   onPersistRows?: (rows: TimelineMilestoneWorksheetRow[]) => void | Promise<void>;
   showHeading?: boolean;
   templateTitle: string;
 }) {
+  const contractorOptions = useMemo(
+    () => contractorOptionsFromPlanning(contractorPlanning),
+    [contractorPlanning]
+  );
   const projectedRows = useMemo(
-    () => productionProposalDetailToWorksheetRows(detail),
-    [detail]
+    () => productionProposalDetailToWorksheetRows(detail, contractorPlanning),
+    [contractorPlanning, detail]
   );
   const projectedSignature = useMemo(
     () => JSON.stringify(projectedRows),
@@ -78,6 +87,7 @@ export function ProductionProposalMilestoneWorksheet({
 
   return (
     <TimelineMilestoneWorksheetTable
+      contractorOptions={contractorOptions}
       footerExtra={footerExtra}
       mode="setup"
       onRowsChange={handleRowsChange}

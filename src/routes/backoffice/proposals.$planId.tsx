@@ -376,6 +376,7 @@ function ProposalReviewRoute() {
         initialActiveTab={search.tab}
         milestones={
           <ProductionProposalMilestoneWorksheetContainer
+            contractorPlanning={productionWorkspace.contractorPlanning}
             detail={productionDetail}
             persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
             proposalId={proposalId}
