@@ -103,14 +103,22 @@ svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width:
 .df-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
 .df-menu-demo, .df-select, .df-popover-demo, .df-hover-wrap, .df-autocomplete { position: relative; display: inline-block; }
 .df-autocomplete { width: min(360px, 100%); display: grid; gap: 8px; }
-.df-menu { position: absolute; z-index: 10; top: calc(100% + 6px); left: 0; min-width: 220px; border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px); background: var(--popover); color: var(--popover-foreground); padding: 4px; box-shadow: 0 12px 36px oklch(0 0 0 / .12); }
+.df-menu { position: absolute; z-index: 10; top: calc(100% + 6px); left: 0; min-width: 220px; border: 1px solid var(--border); border-radius: calc(var(--radius) + 2px); background: var(--popover); color: var(--popover-foreground); padding: 6px; box-shadow: 0 12px 36px oklch(0 0 0 / .12); }
 .df-menu.static { position: static; margin-top: 6px; box-shadow: none; }
 .df-menu.context { top: 60%; left: 50%; }
-.df-menu-item { width: 100%; display: grid; grid-template-columns: 16px 1fr auto; align-items: center; gap: 8px; border: 0; border-radius: calc(var(--radius) - 4px); background: transparent; color: inherit; padding: 7px 8px; text-align: left; font-size: .75rem; }
+.df-menu-section { display: grid; gap: 2px; }
+.df-menu-label { padding: 6px 8px 4px; color: var(--muted-foreground); font-size: .75rem; font-weight: 500; }
+.df-menu-item { width: 100%; min-height: 32px; display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 10px; border: 0; border-radius: calc(var(--radius) - 4px); background: transparent; color: inherit; padding: 6px 8px; text-align: left; font-size: .875rem; }
 .df-menu-item:hover { background: var(--accent); color: var(--accent-foreground); }
 .df-menu-item.danger { color: var(--destructive); }
+.df-menu-item.disabled { color: var(--muted-foreground); pointer-events: none; }
+.df-menu-item.switch { grid-template-columns: 1fr auto; }
+.df-menu-item.submenu { grid-template-columns: 1fr auto; }
 .df-menu-item small { color: var(--muted-foreground); font-size: .68rem; }
-.df-menu-separator { height: 1px; margin: 4px -4px; background: var(--border); }
+.df-menu-item kbd { border: 0; background: transparent; color: var(--muted-foreground); font-size: .75rem; }
+.df-menu-switch { width: 34px; height: 20px; display: inline-flex; align-items: center; justify-content: flex-start; border-radius: 999px; background: var(--input); padding: 2px; }
+.df-menu-switch::before { content: ""; width: 16px; height: 16px; border-radius: 999px; background: var(--background); box-shadow: 0 1px 2px oklch(0 0 0 / .16); }
+.df-menu-separator { height: 1px; margin: 6px 8px; background: var(--border); }
 .df-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--muted-foreground); }
 .df-dot.success { background: var(--success); }
 .df-calendar { width: 300px; border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; background: var(--card); }

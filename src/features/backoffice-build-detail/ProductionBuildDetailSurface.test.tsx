@@ -153,6 +153,9 @@ const detail: ProductionBuildDetail = {
     _id: "active-build-01",
     buildName: "Approved With Permit Site",
     location: "Toronto, ON",
+    locationLatitude: 43.653226,
+    locationLongitude: -79.383184,
+    locationPlaceId: "place_toronto",
     startDate: "2026-06-01",
     status: "active",
     totalBudgetCents: 750_000_00,
@@ -408,7 +411,7 @@ describe("ProductionBuildDetailSurface", () => {
 
     expect(src).toBeTruthy();
     const url = new URL(src ?? "");
-    expect(url.searchParams.get("center")).toBe("Toronto, ON");
+    expect(url.searchParams.get("center")).toBe("43.653226,-79.383184");
     expect(url.searchParams.get("maptype")).toBe("satellite");
     expect(url.searchParams.get("key")).toBe("maps-key");
   });
@@ -560,6 +563,57 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.getByTestId("facility-change-requests")).toBeTruthy();
     expect(screen.getByText("Payback date")).toBeTruthy();
     expect(screen.getByTestId("build-permit-viewer-trigger")).toBeTruthy();
+    expect(screen.getByText("43.653226")).toBeTruthy();
+    expect(screen.getByText("-79.383184")).toBeTruthy();
+  });
+
+  test("opens a sheet to edit active build non-financial details", async () => {
+    vi.stubEnv("VITE_GOOGLE_MAPS_API_KEY", "maps-key");
+    const updateNonFinancialDetails = vi.fn().mockResolvedValue(null);
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ updateNonFinancialDetails }}
+        activeTab="details"
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("edit-build-details-trigger"));
+    expect(screen.getByText("Edit build details")).toBeTruthy();
+    expect(screen.getByText("Location metadata")).toBeTruthy();
+    expect(screen.getByText("place_toronto")).toBeTruthy();
+    const map = screen.getByTestId("build-details-satellite-map");
+    const mapUrl = new URL(map.getAttribute("src") ?? "");
+    expect(mapUrl.searchParams.get("center")).toBe("43.653226,-79.383184");
+
+    fireEvent.change(screen.getByTestId("build-details-title-input"), {
+      target: { value: "Renamed active build" },
+    });
+    fireEvent.change(screen.getByTestId("build-details-address-input"), {
+      target: { value: "26 Luverne, ON" },
+    });
+    fireEvent.change(screen.getByTestId("build-details-start-date-input"), {
+      target: { value: "2026-06-02" },
+    });
+    fireEvent.change(screen.getByTestId("build-details-reason-input"), {
+      target: { value: "Correct borrower-facing build metadata." },
+    });
+    fireEvent.click(screen.getByTestId("build-details-save"));
+
+    await waitFor(() =>
+      expect(updateNonFinancialDetails).toHaveBeenCalledWith({
+        buildName: "Renamed active build",
+        location: "26 Luverne, ON",
+        locationLatitude: null,
+        locationLongitude: null,
+        locationPlaceId: null,
+        reason: "Correct borrower-facing build metadata.",
+        startDate: "2026-06-02",
+      }),
+    );
   });
 
   test("exposes the active build permit PDF from the build header", () => {

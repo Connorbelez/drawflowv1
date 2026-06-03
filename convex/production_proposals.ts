@@ -9351,6 +9351,104 @@ export const getActiveBuildDetailByString = authenticatedQuery
   })
   .public();
 
+export const updateActiveBuildNonFinancialDetails = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    buildName: v.string(),
+    location: v.string(),
+    locationLatitude: v.optional(v.union(v.number(), v.null())),
+    locationLongitude: v.optional(v.union(v.number(), v.null())),
+    locationPlaceId: v.optional(v.union(v.string(), v.null())),
+    reason: v.string(),
+    startDate: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId,
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    requireReason(args.reason);
+
+    const buildName = args.buildName.trim();
+    const location = args.location.trim();
+    const startDate = args.startDate.trim();
+    if (!buildName) {
+      throw new Error("Build title is required.");
+    }
+    if (!location) {
+      throw new Error("Build address is required.");
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+      throw new Error("Project start must use YYYY-MM-DD.");
+    }
+    if (
+      (args.locationLatitude === null) !== (args.locationLongitude === null) ||
+      (args.locationLatitude === undefined) !==
+        (args.locationLongitude === undefined)
+    ) {
+      throw new Error("Latitude and longitude must be updated together.");
+    }
+
+    const priorState = {
+      buildName: auth.build.buildName,
+      location: auth.build.location,
+      locationLatitude: auth.build.locationLatitude,
+      locationLongitude: auth.build.locationLongitude,
+      locationPlaceId: auth.build.locationPlaceId,
+      startDate: auth.build.startDate,
+    };
+    const patch: any = {
+      buildName,
+      location,
+      startDate,
+      updatedAt: Date.now(),
+    };
+    if (args.locationPlaceId !== undefined) {
+      patch.locationPlaceId = args.locationPlaceId?.trim() || undefined;
+    }
+    if (args.locationLatitude !== undefined) {
+      patch.locationLatitude = args.locationLatitude ?? undefined;
+    }
+    if (args.locationLongitude !== undefined) {
+      patch.locationLongitude = args.locationLongitude ?? undefined;
+    }
+
+    const newState = {
+      buildName,
+      location,
+      locationLatitude:
+        args.locationLatitude === undefined
+          ? auth.build.locationLatitude
+          : args.locationLatitude,
+      locationLongitude:
+        args.locationLongitude === undefined
+          ? auth.build.locationLongitude
+          : args.locationLongitude,
+      locationPlaceId:
+        args.locationPlaceId === undefined
+          ? auth.build.locationPlaceId
+          : args.locationPlaceId,
+      startDate,
+    };
+
+    await ctx.db.patch(args.buildId, patch);
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "updateActiveBuildNonFinancialDetails",
+      eventType: "active_build.non_financial_details.updated",
+      newState: JSON.stringify(newState),
+      priorState: JSON.stringify(priorState),
+      reason: args.reason.trim(),
+    });
+    return null;
+  })
+  .public();
+
 export const getActiveBuildTimelineWorkspace = authenticatedQuery
   .input({
     buildId: v.id("activeBuilds"),
@@ -14655,8 +14753,16 @@ async function requireProductionTimelineDraftStructureWrite(
     subject: string;
   },
 ) {
+  if (auth.proposal.status === "closed") {
+    throw new Error("Closed proposals cannot be edited.");
+  }
   if (auth.proposal.status !== "draft") {
-    throw new Error("Proposal structure is locked after submission.");
+    if (!isBackoffice(auth.roles)) {
+      throw new Error("Proposal structure is locked after submission.");
+    }
+    requireBackofficeProposalWrite(auth, auth.proposal);
+    await assertProposalCollaborationEditAllowed(ctx, auth);
+    return;
   }
   if (isBackoffice(auth.roles)) {
     requireBackofficeProposalWrite(auth, auth.proposal);

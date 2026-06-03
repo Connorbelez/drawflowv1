@@ -214,4 +214,63 @@ describe("production calendar workspace", () => {
       expect.arrayContaining(["active_build.milestone.schedule_revised"])
     );
   });
+
+  test("updates active build non-financial details with location metadata audit", async () => {
+    const { seed, t } = await seededAdmin();
+    const proposalId = await createCalendarProposal(t, seed);
+    await t.mutation((api as any).production_proposals.submitProposal, {
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approve before non-financial edit test.",
+      workosOrganizationId: ORG,
+    });
+    const closing = await t.mutation(
+      (api as any).production_proposals.recordOfflineClosing,
+      {
+        buildStartDate: "2026-08-01",
+        loanFacility: {
+          interestAnnualBps: 925,
+          principalCents: 65_000_000,
+        },
+        proposalId,
+        reason: "Closed before metadata correction.",
+        workosOrganizationId: ORG,
+      }
+    );
+
+    await t.mutation(
+      (api as any).production_proposals.updateActiveBuildNonFinancialDetails,
+      {
+        buildId: closing.buildId,
+        buildName: "Calendar build renamed",
+        location: "26 Luverne, ON",
+        locationLatitude: 43.653226,
+        locationLongitude: -79.383184,
+        locationPlaceId: "place_26_luverne",
+        reason: "Correct active build location metadata.",
+        startDate: "2026-08-02",
+        workosOrganizationId: ORG,
+      }
+    );
+
+    const detail = await t.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG }
+    );
+
+    expect(detail.build).toMatchObject({
+      buildName: "Calendar build renamed",
+      location: "26 Luverne, ON",
+      locationLatitude: 43.653226,
+      locationLongitude: -79.383184,
+      locationPlaceId: "place_26_luverne",
+      startDate: "2026-08-02",
+    });
+    expect(detail.auditEvents.map((event: any) => event.eventType)).toContain(
+      "active_build.non_financial_details.updated"
+    );
+  });
 });

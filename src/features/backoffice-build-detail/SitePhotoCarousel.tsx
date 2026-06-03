@@ -15,6 +15,8 @@ interface SitePhotoCarouselProps {
   buildName?: string;
   photos: SitePhoto[];
   siteAddress?: string;
+  siteLatitude?: number | null;
+  siteLongitude?: number | null;
 }
 
 type DisplaySitePhoto = SitePhoto & {
@@ -25,6 +27,8 @@ function buildSatellitePhotos({
   buildName,
   photos,
   siteAddress,
+  siteLatitude,
+  siteLongitude,
 }: SitePhotoCarouselProps): DisplaySitePhoto[] {
   const address = siteAddress?.trim();
   const sourcePhotos =
@@ -47,6 +51,8 @@ function buildSatellitePhotos({
     satelliteUrl: address
       ? createGoogleSatelliteMapUrl({
           address,
+          latitude: siteLatitude,
+          longitude: siteLongitude,
           markerLabel: String(index + 1),
           zoom: index === 0 ? 18 : 19,
         })
@@ -58,12 +64,16 @@ export function SitePhotoCarousel({
   buildName,
   photos,
   siteAddress,
+  siteLatitude,
+  siteLongitude,
 }: SitePhotoCarouselProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const displayPhotos = buildSatellitePhotos({
     buildName,
     photos,
     siteAddress,
+    siteLatitude,
+    siteLongitude,
   });
   if (displayPhotos.length === 0) {
     return null;

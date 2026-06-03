@@ -126,6 +126,9 @@ function RouteComponent() {
   const updateActiveBuildCostItem = useMutation(
     api.production_proposals.updateActiveBuildCostItem,
   );
+  const updateActiveBuildNonFinancialDetails = useMutation(
+    (api as any).production_proposals.updateActiveBuildNonFinancialDetails,
+  );
   const deleteActiveBuildCostItem = useMutation(
     api.production_proposals.deleteActiveBuildCostItem,
   );
@@ -480,6 +483,12 @@ function RouteComponent() {
           note,
           workosOrganizationId,
         }),
+      updateNonFinancialDetails: (input) =>
+        updateActiveBuildNonFinancialDetails({
+          ...input,
+          buildId: activeBuildId,
+          workosOrganizationId,
+        }).then(() => toast.success("Build details updated.")),
       materialPlanning: visualFixtureEnabled
         ? undefined
         : {

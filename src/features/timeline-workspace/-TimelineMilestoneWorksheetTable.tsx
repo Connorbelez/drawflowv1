@@ -289,7 +289,7 @@ export function TimelineMilestoneWorksheetTable({
     patch: Partial<TimelineMilestoneWorksheetSubMilestone>
   ) => {
     updateRows(
-      rows.map((row) => {
+      rowsRef.current.map((row) => {
         if (row.key !== rowKey) {
           return row;
         }

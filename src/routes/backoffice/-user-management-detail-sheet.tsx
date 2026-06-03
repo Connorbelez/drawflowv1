@@ -413,7 +413,7 @@ function AddMembershipSection({
           }
         }}
         roleOptions={roleOptions}
-        roleSlugs={[roleOptions[0]]}
+        roleSlugs={[]}
         submitIcon={<Plus />}
         submitLabel="Add membership"
       />
@@ -753,8 +753,7 @@ function RoleEditor({
   submitLabel?: string;
 }): ReactElement {
   const primaryRoleId = useId();
-  const initialRoles =
-    roleSlugs.length > 0 ? roleSlugs : roleOptions.slice(0, 1);
+  const initialRoles = roleSlugs;
   const initialPrimary = primaryRoleSlug ?? initialRoles[0] ?? "";
   // Signature of the server-confirmed roles. When a mutation lands and the
   // parent feeds new props for the same membership, reset local edit state so

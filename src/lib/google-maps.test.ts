@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   createGoogleSatelliteMapUrl,
+  fetchGoogleAddressPlaceDetails,
   fetchGoogleAddressSuggestions,
 } from "./google-maps";
 
@@ -40,6 +41,24 @@ describe("google maps helpers", () => {
     expect(url.searchParams.get("key")).toBe("maps-key");
   });
 
+  test("creates satellite Static Maps URLs from resolved coordinates", () => {
+    vi.stubEnv("VITE_GOOGLE_MAPS_API_KEY", "maps-key");
+
+    const result = createGoogleSatelliteMapUrl({
+      address: "Ignored when coordinates exist",
+      latitude: 43.653226,
+      longitude: -79.383184,
+      markerLabel: "B",
+    });
+
+    expect(result).not.toBeNull();
+    const url = new URL(result ?? "");
+    expect(url.searchParams.get("center")).toBe("43.653226,-79.383184");
+    expect(url.searchParams.get("markers")).toBe(
+      "color:red|label:B|43.653226,-79.383184",
+    );
+  });
+
   test("normalizes Google Places address predictions", async () => {
     vi.stubEnv("VITE_GOOGLE_MAPS_API_KEY", "maps-key");
     window.google = {
@@ -71,7 +90,7 @@ describe("google maps helpers", () => {
           },
         },
       },
-    };
+    } as any;
 
     await expect(fetchGoogleAddressSuggestions("123 King")).resolves.toEqual([
       {
@@ -81,5 +100,121 @@ describe("google maps helpers", () => {
         secondaryText: "Toronto, ON, Canada",
       },
     ]);
+  });
+
+  test("resolves Google Places detail geometry from a selected prediction", async () => {
+    vi.stubEnv("VITE_GOOGLE_MAPS_API_KEY", "maps-key");
+    window.google = {
+      maps: {
+        places: {
+          AutocompleteService: class {
+            getPlacePredictions() {}
+          },
+          PlacesService: class {
+            getDetails(
+              _request: unknown,
+              callback: (place: any, status: string) => void,
+            ) {
+              callback(
+                {
+                  formatted_address: "26 Luverne Ave, North York, ON, Canada",
+                  geometry: {
+                    location: {
+                      lat: () => 43.7591,
+                      lng: () => -79.443,
+                    },
+                  },
+                  place_id: "place-26",
+                },
+                "OK",
+              );
+            }
+          },
+          PlacesServiceStatus: {
+            OK: "OK",
+            ZERO_RESULTS: "ZERO_RESULTS",
+          },
+        },
+      },
+    } as any;
+
+    await expect(
+      fetchGoogleAddressPlaceDetails({
+        description: "26 Luverne Ave, North York, ON, Canada",
+        mainText: "26 Luverne Ave",
+        placeId: "place-26",
+        secondaryText: "North York, ON, Canada",
+      }),
+    ).resolves.toEqual({
+      formattedAddress: "26 Luverne Ave, North York, ON, Canada",
+      latitude: 43.7591,
+      longitude: -79.443,
+      placeId: "place-26",
+    });
+  });
+
+  test("falls back to geocoding when Places details omits geometry", async () => {
+    vi.stubEnv("VITE_GOOGLE_MAPS_API_KEY", "maps-key");
+    window.google = {
+      maps: {
+        Geocoder: class {
+          geocode(
+            request: unknown,
+            callback: (results: any[], status: string) => void,
+          ) {
+            expect(request).toEqual({ placeId: "place-26" });
+            callback(
+              [
+                {
+                  formatted_address: "26 Luverne Ave, North York, ON, Canada",
+                  geometry: {
+                    location: {
+                      lat: () => 43.7591,
+                      lng: () => -79.443,
+                    },
+                  },
+                  place_id: "place-26",
+                },
+              ],
+              "OK",
+            );
+          }
+        },
+        GeocoderStatus: {
+          OK: "OK",
+          ZERO_RESULTS: "ZERO_RESULTS",
+        },
+        places: {
+          AutocompleteService: class {
+            getPlacePredictions() {}
+          },
+          PlacesService: class {
+            getDetails(
+              _request: unknown,
+              callback: (place: any, status: string) => void,
+            ) {
+              callback({ place_id: "place-26" }, "OK");
+            }
+          },
+          PlacesServiceStatus: {
+            OK: "OK",
+            ZERO_RESULTS: "ZERO_RESULTS",
+          },
+        },
+      },
+    } as any;
+
+    await expect(
+      fetchGoogleAddressPlaceDetails({
+        description: "26 Luverne Ave, North York, ON, Canada",
+        mainText: "26 Luverne Ave",
+        placeId: "place-26",
+        secondaryText: "North York, ON, Canada",
+      }),
+    ).resolves.toMatchObject({
+      latitude: 43.7591,
+      longitude: -79.443,
+      placeId: "place-26",
+    });
   });
 });

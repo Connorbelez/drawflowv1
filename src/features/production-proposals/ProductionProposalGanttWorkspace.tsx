@@ -1659,7 +1659,7 @@ function sortDrawsByBoundary(
     });
 }
 
-async function syncMilestonesToProductionTimeline({
+export async function syncMilestonesToProductionTimeline({
   createMilestone,
   deleteMilestone,
   nextMilestones,

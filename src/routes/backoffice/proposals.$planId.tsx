@@ -30,6 +30,7 @@ import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import { ProductionProposalReviewSurface } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
+import { ProductionProposalMilestoneWorksheetContainer } from "#/features/production-proposals/ProductionProposalMilestoneWorksheetContainer.tsx";
 import {
   createProposalCalendarEditHandler,
   type ProposalCalendarAdapterActions,
@@ -373,6 +374,16 @@ function ProposalReviewRoute() {
         calendarWorkspace={productionCalendarWorkspaceQuery as any}
         detail={productionDetail}
         initialActiveTab={search.tab}
+        milestones={
+          <ProductionProposalMilestoneWorksheetContainer
+            detail={productionDetail}
+            persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
+            proposalId={proposalId}
+            showHeading
+            templateTitle={productionDetail.proposal.buildName}
+            workosOrganizationId={workosOrganizationId}
+          />
+        }
         materialPlanningActions={
           visualFixtureEnabled
             ? visualMaterialPlanningActions

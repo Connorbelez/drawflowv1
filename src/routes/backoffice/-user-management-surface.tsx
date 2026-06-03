@@ -7,10 +7,13 @@ import {
   ChevronDown,
   ChevronRight,
   Database,
+  Filter,
   HardHat,
   RefreshCw,
   Search,
   Send,
+  ShieldCheck,
+  SlidersHorizontal,
   UserPlus,
   X,
 } from "lucide-react";
@@ -25,6 +28,7 @@ import {
 import { Avatar, AvatarFallback } from "#/components/ui/avatar.tsx";
 import { Badge, type BadgeProps } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
+import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import {
   NativeSelect,
@@ -73,7 +77,15 @@ const BUILDER_ROLES = ["builder", "builder-staff"];
 // Per-column skeleton widths matching the Person/Roles/Orgs/Profiles/Status ramp.
 const SKELETON_CELL_WIDTHS = ["11rem", "6rem", "8rem", "7rem", "4rem"];
 
-type StatusFilter = "all" | "active" | "inactive" | "missing-profile";
+type ProfileFilter =
+  | "all"
+  | "complete"
+  | "linked"
+  | "missing"
+  | "brokerage-missing"
+  | "builder-missing";
+type SortMode = "attention" | "name-asc" | "role" | "org-count" | "status";
+type StatusFilter = "all" | "active" | "inactive" | "pending";
 
 export function UserManagementSurface({
   accepted,
@@ -186,21 +198,46 @@ export function UserManagementSurface({
     () => computeStats(directoryUsers, provisioningByOrg, organizations),
     [directoryUsers, provisioningByOrg, organizations]
   );
+  const attentionCount = useMemo(
+    () =>
+      directoryUsers.filter((entry) => {
+        const flags = computeProfileFlags(entry.memberships, provisioningByOrg);
+        return flags.needsBrokerage || flags.needsBuilder;
+      }).length,
+    [directoryUsers, provisioningByOrg]
+  );
 
   const [query, setQuery] = useState("");
+  const [organizationFilter, setOrganizationFilter] = useState<string>("all");
+  const [profileFilter, setProfileFilter] = useState<ProfileFilter>("all");
   const [roleFilter, setRoleFilter] = useState<string>("all");
+  const [sortMode, setSortMode] = useState<SortMode>("attention");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const deferredQuery = useDeferredValue(query);
 
   const filtered = useMemo(
     () =>
       filterUsers(directoryUsers, {
+        organizationFilter,
+        organizationsById,
+        profileFilter,
         provisioningByOrg,
         query: deferredQuery,
         roleFilter,
+        sortMode,
         statusFilter,
       }),
-    [directoryUsers, deferredQuery, roleFilter, statusFilter, provisioningByOrg]
+    [
+      directoryUsers,
+      deferredQuery,
+      organizationFilter,
+      organizationsById,
+      profileFilter,
+      roleFilter,
+      sortMode,
+      statusFilter,
+      provisioningByOrg,
+    ]
   );
 
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
@@ -215,7 +252,13 @@ export function UserManagementSurface({
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-4 pb-12 md:p-8">
       <PageHeader
+        attentionCount={attentionCount}
         onInvite={() => setInviteOpen(true)}
+        onShowGaps={() => {
+          setProfileFilter("missing");
+          setStatusFilter("all");
+          setSortMode("attention");
+        }}
         onSync={async () => {
           setSyncing(true);
           setActionError(null);
@@ -225,6 +268,9 @@ export function UserManagementSurface({
             setSyncing(false);
           }
         }}
+        pending={pending}
+        receipts={receipts}
+        stats={stats}
         syncing={syncing}
       />
 
@@ -248,16 +294,31 @@ export function UserManagementSurface({
 
       <DirectoryPanel
         filtered={filtered}
+        onClearFilters={() => {
+          setQuery("");
+          setOrganizationFilter("all");
+          setProfileFilter("all");
+          setRoleFilter("all");
+          setSortMode("attention");
+          setStatusFilter("all");
+        }}
+        onOrganizationFilter={setOrganizationFilter}
+        onProfileFilter={setProfileFilter}
         onRoleFilter={setRoleFilter}
         onRowClick={(userId) => setSelectedUserId(userId)}
         onSearch={setQuery}
+        onSortMode={setSortMode}
         onStatusFilter={setStatusFilter}
+        organizationFilter={organizationFilter}
+        organizationOptions={organizations}
         organizationsById={organizationsById}
         pending={pending}
+        profileFilter={profileFilter}
         provisioningByOrg={provisioningByOrg}
         query={query}
         roleFilter={roleFilter}
         roleOptions={roleOptions}
+        sortMode={sortMode}
         statusFilter={statusFilter}
         total={directoryUsers.length}
       />
@@ -296,43 +357,118 @@ export function UserManagementSurface({
 }
 
 function PageHeader({
+  attentionCount,
+  onShowGaps,
   onInvite,
   onSync,
+  pending,
+  receipts,
+  stats,
   syncing,
 }: {
+  attentionCount: number;
+  onShowGaps: () => void;
   onInvite: () => void;
   onSync: () => Promise<void>;
+  pending: boolean;
+  receipts: WorkosReceiptRow[];
+  stats: DirectoryStats;
   syncing: boolean;
 }): ReactElement {
+  const latestReceipt = receipts[0];
+  const healthVariant: BadgeProps["variant"] = pending
+    ? "secondary"
+    : attentionCount > 0
+      ? "warning"
+      : "success";
+  const healthLabel = pending
+    ? "Loading directory"
+    : attentionCount > 0
+      ? attentionCount === 1
+        ? "1 person needs attention"
+        : `${attentionCount} people need attention`
+      : "Directory healthy";
+
   return (
-    <header className="flex flex-wrap items-end justify-between gap-4">
-      <div className="space-y-1">
-        <h1 className="font-heading font-semibold text-2xl tracking-tight sm:text-3xl">
-          Directory
-        </h1>
-        <p className="max-w-prose text-muted-foreground text-sm">
-          People, organizations, and workspace profiles in one place. Click any
-          row to manage roles, memberships, and provisioned profiles.
-        </p>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          disabled={syncing}
-          onClick={() => {
-            onSync();
-          }}
-          size="sm"
-          variant="outline"
-        >
-          <RefreshCw className={syncing ? "animate-spin" : undefined} />
-          Sync WorkOS
-        </Button>
-        <Button onClick={onInvite} size="sm">
-          <UserPlus />
-          Invite person
-        </Button>
-      </div>
-    </header>
+    <Frame>
+      <FramePanel className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_auto]">
+        <div className="min-w-0 space-y-3">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="font-heading font-semibold text-2xl tracking-tight sm:text-3xl">
+                User Management
+              </h1>
+              <Badge variant={healthVariant}>
+                {attentionCount > 0 ? (
+                  <AlertTriangle className="size-3" />
+                ) : (
+                  <ShieldCheck className="size-3" />
+                )}
+                {healthLabel}
+              </Badge>
+            </div>
+            <p className="max-w-[68ch] text-muted-foreground text-sm">
+              WorkOS-backed access, organization memberships, and DrawFlow
+              profile links.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <HeaderMetric label="People" value={stats.people} />
+            <HeaderMetric label="Orgs" value={stats.organizations} />
+            <HeaderMetric label="Brokers" value={stats.brokers} />
+            <HeaderMetric label="Builders" value={stats.builders} />
+            <span className="inline-flex min-h-7 items-center gap-1.5 rounded-md border bg-muted/40 px-2.5 text-muted-foreground">
+              <Database className="size-3.5" />
+              {syncing
+                ? "Syncing WorkOS"
+                : latestReceipt
+                  ? `Latest ${latestReceipt.eventType}: ${latestReceipt.status}`
+                  : "No webhook receipts"}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+          {attentionCount > 0 ? (
+            <Button onClick={onShowGaps} size="sm" variant="outline">
+              <Filter />
+              Resolve gaps
+            </Button>
+          ) : null}
+          <Button
+            disabled={syncing}
+            onClick={() => {
+              onSync();
+            }}
+            size="sm"
+            variant="outline"
+          >
+            <RefreshCw className={syncing ? "animate-spin" : undefined} />
+            Sync WorkOS
+          </Button>
+          <Button onClick={onInvite} size="sm">
+            <UserPlus />
+            Invite person
+          </Button>
+        </div>
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function HeaderMetric({
+  label,
+  value,
+}: {
+  label: string;
+  value: number;
+}): ReactElement {
+  return (
+    <span className="inline-flex min-h-7 items-center gap-1.5 rounded-md border bg-background px-2.5">
+      <span className="font-heading font-semibold tabular-nums">{value}</span>
+      <span className="text-muted-foreground">{label}</span>
+    </span>
   );
 }
 
@@ -611,64 +747,91 @@ function ProvisioningCard({
 
 function DirectoryPanel({
   filtered,
+  onClearFilters,
+  onOrganizationFilter,
+  onProfileFilter,
   onRowClick,
   onRoleFilter,
   onSearch,
+  onSortMode,
   onStatusFilter,
+  organizationFilter,
   organizationsById,
+  organizationOptions,
   pending,
+  profileFilter,
   provisioningByOrg,
   query,
   roleFilter,
   roleOptions,
+  sortMode,
   statusFilter,
   total,
 }: {
   filtered: DirectoryUser[];
+  onClearFilters: () => void;
+  onOrganizationFilter: (organizationId: string) => void;
+  onProfileFilter: (profile: ProfileFilter) => void;
   onRowClick: (workosUserId: string) => void;
   onRoleFilter: (role: string) => void;
   onSearch: (value: string) => void;
+  onSortMode: (mode: SortMode) => void;
   onStatusFilter: (status: StatusFilter) => void;
+  organizationFilter: string;
   organizationsById: Map<string, WorkosOrganizationRow>;
+  organizationOptions: WorkosOrganizationRow[];
   pending: boolean;
+  profileFilter: ProfileFilter;
   provisioningByOrg: Map<string, OrganizationProvisioning>;
   query: string;
   roleFilter: string;
   roleOptions: string[];
+  sortMode: SortMode;
   statusFilter: StatusFilter;
   total: number;
 }): ReactElement {
+  const activeFilterCount = [
+    query.trim(),
+    organizationFilter !== "all",
+    profileFilter !== "all",
+    roleFilter !== "all",
+    statusFilter !== "all",
+  ].filter(Boolean).length;
+
   return (
-    <section
-      aria-label="People"
-      className="flex flex-col gap-3 rounded-xl border bg-card/40"
-    >
-      <div className="flex flex-col gap-3 border-b px-3.5 py-3 sm:flex-row sm:flex-wrap sm:items-center">
-        <div className="relative min-w-0 sm:max-w-sm sm:flex-1">
-          <Search
-            aria-hidden
-            className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            aria-label="Search people"
-            className="pl-7"
-            onChange={(event) => onSearch(event.target.value)}
-            placeholder="Search by name, email, or org"
-            size="sm"
-            type="search"
-            value={query}
-          />
-        </div>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:flex-initial">
-            <label className="text-foreground text-xs" htmlFor="filter-role">
-              Role
-            </label>
-            <NativeSelect
-              aria-label="Role filter"
-              className="min-w-0 flex-1 sm:flex-initial"
+    <Frame>
+      <FramePanel
+        aria-label="People"
+        className="flex flex-col gap-0 overflow-hidden p-0"
+        role="region"
+      >
+        <div className="grid gap-3 border-b px-3.5 py-3 lg:grid-cols-[minmax(16rem,1fr)_auto] lg:items-center">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="relative min-w-0 sm:max-w-sm sm:flex-1">
+              <Search
+                aria-hidden
+                className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+              />
+              <Input
+                aria-label="Search people"
+                className="pl-7"
+                onChange={(event) => onSearch(event.target.value)}
+                placeholder="Search name, email, user ID, org"
+                size="sm"
+                type="search"
+                value={query}
+              />
+            </div>
+            <p className="text-muted-foreground text-xs tabular-nums">
+              {filtered.length} of {total}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 lg:justify-end">
+            <FilterSelect
               id="filter-role"
-              onChange={(event) => onRoleFilter(event.target.value)}
+              label="Role"
+              onChange={onRoleFilter}
               value={roleFilter}
             >
               <NativeSelectOption value="all">All roles</NativeSelectOption>
@@ -677,73 +840,158 @@ function DirectoryPanel({
                   {role}
                 </NativeSelectOption>
               ))}
-            </NativeSelect>
-          </div>
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:flex-initial">
-            <label className="text-foreground text-xs" htmlFor="filter-status">
-              Status
-            </label>
-            <NativeSelect
-              aria-label="Status filter"
-              className="min-w-0 flex-1 sm:flex-initial"
+            </FilterSelect>
+            <FilterSelect
+              id="filter-org"
+              label="Org"
+              onChange={onOrganizationFilter}
+              value={organizationFilter}
+            >
+              <NativeSelectOption value="all">All orgs</NativeSelectOption>
+              {organizationOptions
+                .slice()
+                .sort((a, b) =>
+                  organizationLabel(a).localeCompare(organizationLabel(b))
+                )
+                .map((organization) => (
+                  <NativeSelectOption
+                    key={organization.workosOrganizationId}
+                    value={organization.workosOrganizationId}
+                  >
+                    {organizationLabel(organization)}
+                  </NativeSelectOption>
+                ))}
+            </FilterSelect>
+            <FilterSelect
               id="filter-status"
-              onChange={(event) =>
-                onStatusFilter(event.target.value as StatusFilter)
-              }
+              label="Status"
+              onChange={(value) => onStatusFilter(value as StatusFilter)}
               value={statusFilter}
             >
-              <NativeSelectOption value="all">All</NativeSelectOption>
+              <NativeSelectOption value="all">All statuses</NativeSelectOption>
               <NativeSelectOption value="active">Active</NativeSelectOption>
               <NativeSelectOption value="inactive">Inactive</NativeSelectOption>
-              <NativeSelectOption value="missing-profile">
-                Missing profile
+              <NativeSelectOption value="pending">Pending</NativeSelectOption>
+            </FilterSelect>
+            <FilterSelect
+              id="filter-profile"
+              label="Profile"
+              onChange={(value) => onProfileFilter(value as ProfileFilter)}
+              value={profileFilter}
+            >
+              <NativeSelectOption value="all">All profiles</NativeSelectOption>
+              <NativeSelectOption value="missing">Any gap</NativeSelectOption>
+              <NativeSelectOption value="brokerage-missing">
+                Brokerage gap
               </NativeSelectOption>
-            </NativeSelect>
+              <NativeSelectOption value="builder-missing">
+                Builder gap
+              </NativeSelectOption>
+              <NativeSelectOption value="linked">Linked</NativeSelectOption>
+              <NativeSelectOption value="complete">Complete</NativeSelectOption>
+            </FilterSelect>
+            <FilterSelect
+              id="sort-directory"
+              label="Order"
+              onChange={(value) => onSortMode(value as SortMode)}
+              value={sortMode}
+            >
+              <NativeSelectOption value="attention">
+                Needs attention
+              </NativeSelectOption>
+              <NativeSelectOption value="name-asc">Name A-Z</NativeSelectOption>
+              <NativeSelectOption value="role">Role</NativeSelectOption>
+              <NativeSelectOption value="org-count">
+                Most orgs
+              </NativeSelectOption>
+              <NativeSelectOption value="status">Status</NativeSelectOption>
+            </FilterSelect>
           </div>
-          <p className="text-muted-foreground text-xs tabular-nums sm:ms-auto">
-            {filtered.length} of {total}
-          </p>
         </div>
-      </div>
 
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[36%]">Person</TableHead>
-              <TableHead>Roles</TableHead>
-              <TableHead>Organizations</TableHead>
-              <TableHead>Profiles</TableHead>
-              <TableHead className="text-right">Status</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {pending ? (
-              <PlaceholderRows columnCount={5} />
-            ) : filtered.length === 0 ? (
+        {activeFilterCount > 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/24 px-3.5 py-2">
+            <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
+              <SlidersHorizontal className="size-3.5" />
+              {activeFilterCount} active filter
+              {activeFilterCount === 1 ? "" : "s"}
+            </span>
+            <Button onClick={onClearFilters} size="xs" variant="ghost">
+              Clear filters
+            </Button>
+          </div>
+        ) : null}
+
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell
-                  className="py-10 text-center text-muted-foreground text-sm"
-                  colSpan={5}
-                >
-                  No people match the current filters.
-                </TableCell>
+                <TableHead className="w-[36%]">Person</TableHead>
+                <TableHead>Roles</TableHead>
+                <TableHead>Organizations</TableHead>
+                <TableHead>Profiles</TableHead>
+                <TableHead className="text-right">Status</TableHead>
               </TableRow>
-            ) : (
-              filtered.map((entry) => (
-                <PersonRow
-                  entry={entry}
-                  key={entry.user._id ?? entry.user.workosUserId}
-                  onClick={() => onRowClick(entry.user.workosUserId ?? "")}
-                  organizationsById={organizationsById}
-                  provisioningByOrg={provisioningByOrg}
-                />
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
-    </section>
+            </TableHeader>
+            <TableBody>
+              {pending ? (
+                <PlaceholderRows columnCount={5} />
+              ) : filtered.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    className="py-10 text-center text-muted-foreground text-sm"
+                    colSpan={5}
+                  >
+                    No people match the current filters.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filtered.map((entry) => (
+                  <PersonRow
+                    entry={entry}
+                    key={entry.user._id ?? entry.user.workosUserId}
+                    onClick={() => onRowClick(entry.user.workosUserId ?? "")}
+                    organizationsById={organizationsById}
+                    provisioningByOrg={provisioningByOrg}
+                  />
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function FilterSelect({
+  children,
+  id,
+  label,
+  onChange,
+  value,
+}: {
+  children: ReactNode;
+  id: string;
+  label: string;
+  onChange: (value: string) => void;
+  value: string;
+}): ReactElement {
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:flex-initial">
+      <label className="text-foreground text-xs" htmlFor={id}>
+        {label}
+      </label>
+      <NativeSelect
+        aria-label={`${label} filter`}
+        className="min-w-0 flex-1 sm:flex-initial"
+        id={id}
+        onChange={(event) => onChange(event.target.value)}
+        value={value}
+      >
+        {children}
+      </NativeSelect>
+    </div>
   );
 }
 
@@ -1371,37 +1619,61 @@ function computeStats(
 function filterUsers(
   directoryUsers: DirectoryUser[],
   {
+    organizationFilter,
+    organizationsById,
+    profileFilter,
     provisioningByOrg,
     query,
     roleFilter,
+    sortMode,
     statusFilter,
   }: {
+    organizationFilter: string;
+    organizationsById: Map<string, WorkosOrganizationRow>;
+    profileFilter: ProfileFilter;
     provisioningByOrg: Map<string, OrganizationProvisioning>;
     query: string;
     roleFilter: string;
+    sortMode: SortMode;
     statusFilter: StatusFilter;
   }
 ): DirectoryUser[] {
   const normalized = query.trim().toLowerCase();
-  return directoryUsers.filter((entry) =>
-    matchesEntry(entry, {
-      normalized,
-      provisioningByOrg,
-      roleFilter,
-      statusFilter,
-    })
-  );
+  return directoryUsers
+    .filter((entry) =>
+      matchesEntry(entry, {
+        normalized,
+        organizationFilter,
+        organizationsById,
+        profileFilter,
+        provisioningByOrg,
+        roleFilter,
+        statusFilter,
+      })
+    )
+    .sort((a, b) =>
+      compareDirectoryUsers(a, b, {
+        provisioningByOrg,
+        sortMode,
+      })
+    );
 }
 
 function matchesEntry(
   entry: DirectoryUser,
   {
     normalized,
+    organizationFilter,
+    organizationsById,
+    profileFilter,
     provisioningByOrg,
     roleFilter,
     statusFilter,
   }: {
     normalized: string;
+    organizationFilter: string;
+    organizationsById: Map<string, WorkosOrganizationRow>;
+    profileFilter: ProfileFilter;
     provisioningByOrg: Map<string, OrganizationProvisioning>;
     roleFilter: string;
     statusFilter: StatusFilter;
@@ -1410,10 +1682,16 @@ function matchesEntry(
   if (!matchesRole(entry, roleFilter)) {
     return false;
   }
-  if (!matchesStatus(entry, statusFilter, provisioningByOrg)) {
+  if (!matchesOrganization(entry, organizationFilter)) {
     return false;
   }
-  return matchesQuery(entry, normalized);
+  if (!matchesStatus(entry, statusFilter)) {
+    return false;
+  }
+  if (!matchesProfile(entry, profileFilter, provisioningByOrg)) {
+    return false;
+  }
+  return matchesQuery(entry, normalized, organizationsById);
 }
 
 function matchesRole(entry: DirectoryUser, roleFilter: string): boolean {
@@ -1425,10 +1703,23 @@ function matchesRole(entry: DirectoryUser, roleFilter: string): boolean {
   );
 }
 
+function matchesOrganization(
+  entry: DirectoryUser,
+  organizationFilter: string
+): boolean {
+  if (organizationFilter === "all") {
+    return true;
+  }
+  return entry.memberships.some(
+    (membership) =>
+      membership.status === "active" &&
+      membership.workosOrganizationId === organizationFilter
+  );
+}
+
 function matchesStatus(
   entry: DirectoryUser,
-  statusFilter: StatusFilter,
-  provisioningByOrg: Map<string, OrganizationProvisioning>
+  statusFilter: StatusFilter
 ): boolean {
   if (statusFilter === "active") {
     return entry.user.status === "active";
@@ -1436,14 +1727,45 @@ function matchesStatus(
   if (statusFilter === "inactive") {
     return entry.user.status !== "active";
   }
-  if (statusFilter === "missing-profile") {
-    const flags = computeProfileFlags(entry.memberships, provisioningByOrg);
-    return flags.needsBrokerage || flags.needsBuilder;
+  if (statusFilter === "pending") {
+    return entry.user.status === "pending";
   }
   return true;
 }
 
-function matchesQuery(entry: DirectoryUser, normalized: string): boolean {
+function matchesProfile(
+  entry: DirectoryUser,
+  profileFilter: ProfileFilter,
+  provisioningByOrg: Map<string, OrganizationProvisioning>
+): boolean {
+  if (profileFilter === "all") {
+    return true;
+  }
+  const flags = computeProfileFlags(entry.memberships, provisioningByOrg);
+  if (profileFilter === "missing") {
+    return flags.needsBrokerage || flags.needsBuilder;
+  }
+  if (profileFilter === "brokerage-missing") {
+    return flags.needsBrokerage;
+  }
+  if (profileFilter === "builder-missing") {
+    return flags.needsBuilder;
+  }
+  if (profileFilter === "linked") {
+    return flags.brokerage || flags.builder;
+  }
+  return (
+    (flags.brokerage || flags.builder) &&
+    !flags.needsBrokerage &&
+    !flags.needsBuilder
+  );
+}
+
+function matchesQuery(
+  entry: DirectoryUser,
+  normalized: string,
+  organizationsById: Map<string, WorkosOrganizationRow>
+): boolean {
   if (!normalized) {
     return true;
   }
@@ -1453,8 +1775,100 @@ function matchesQuery(entry: DirectoryUser, normalized: string): boolean {
     return true;
   }
   return entry.memberships.some((membership) =>
-    membership.workosOrganizationId.toLowerCase().includes(normalized)
+    `${membership.workosOrganizationId} ${
+      organizationsById.get(membership.workosOrganizationId)?.name ?? ""
+    }`
+      .toLowerCase()
+      .includes(normalized)
   );
+}
+
+function compareDirectoryUsers(
+  a: DirectoryUser,
+  b: DirectoryUser,
+  {
+    provisioningByOrg,
+    sortMode,
+  }: {
+    provisioningByOrg: Map<string, OrganizationProvisioning>;
+    sortMode: SortMode;
+  }
+): number {
+  if (sortMode === "attention") {
+    return (
+      attentionScore(b, provisioningByOrg) -
+        attentionScore(a, provisioningByOrg) || compareNames(a, b)
+    );
+  }
+  if (sortMode === "role") {
+    return primaryRole(a).localeCompare(primaryRole(b)) || compareNames(a, b);
+  }
+  if (sortMode === "org-count") {
+    return activeOrgCount(b) - activeOrgCount(a) || compareNames(a, b);
+  }
+  if (sortMode === "status") {
+    return (
+      statusRank(a.user.status).localeCompare(statusRank(b.user.status)) ||
+      compareNames(a, b)
+    );
+  }
+  return compareNames(a, b);
+}
+
+function attentionScore(
+  entry: DirectoryUser,
+  provisioningByOrg: Map<string, OrganizationProvisioning>
+): number {
+  const flags = computeProfileFlags(entry.memberships, provisioningByOrg);
+  let score = 0;
+  if (flags.needsBrokerage) {
+    score += 40;
+  }
+  if (flags.needsBuilder) {
+    score += 40;
+  }
+  if (entry.user.status !== "active") {
+    score += 15;
+  }
+  if (activeOrgCount(entry) === 0) {
+    score += 10;
+  }
+  return score;
+}
+
+function activeOrgCount(entry: DirectoryUser): number {
+  return new Set(
+    entry.memberships
+      .filter((membership) => membership.status === "active")
+      .map((membership) => membership.workosOrganizationId)
+  ).size;
+}
+
+function compareNames(a: DirectoryUser, b: DirectoryUser): number {
+  return a.displayName.localeCompare(b.displayName, undefined, {
+    sensitivity: "base",
+  });
+}
+
+function organizationLabel(organization: WorkosOrganizationRow): string {
+  return organization.name ?? organization.workosOrganizationId;
+}
+
+function primaryRole(entry: DirectoryUser): string {
+  return uniqueRoles(entry.memberships)[0] ?? "zz-no-role";
+}
+
+function statusRank(status?: string | null): string {
+  if (status === "active") {
+    return "1-active";
+  }
+  if (status === "pending") {
+    return "2-pending";
+  }
+  if (status === "inactive") {
+    return "3-inactive";
+  }
+  return "4-other";
 }
 
 function collectRoleOptions(

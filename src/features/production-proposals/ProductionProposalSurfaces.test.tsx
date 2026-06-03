@@ -871,6 +871,49 @@ describe("ProductionProposalReviewSurface", () => {
     expect(screen.getAllByText("$12,500").length).toBeGreaterThan(0);
   });
 
+  test("allows editing submilestone budget and duration in the milestones tab", () => {
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          proposal: {
+            ...proposalDetail.proposal,
+            status: "submitted",
+          },
+          submilestones: [
+            {
+              budgetCents: 12_500_00,
+              durationDays: 2,
+              key: "forms",
+              milestoneKey: "foundation",
+              name: "Forms and pour",
+            },
+          ],
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+        timeline={<div data-testid="timeline-slot">Timeline workspace</div>}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Milestones" }));
+
+    const budgetInput = screen.getByTestId(
+      "timeline-setup-submilestone-budget-forms",
+    );
+    const durationInput = screen.getByTestId(
+      "timeline-setup-submilestone-duration-forms",
+    );
+
+    fireEvent.change(budgetInput, { target: { value: "$15,000" } });
+    fireEvent.change(durationInput, { target: { value: "T4" } });
+
+    expect((budgetInput as HTMLInputElement).value).toBe("$15,000");
+    expect((durationInput as HTMLInputElement).value).toBe("T4");
+  });
+
   test("renders packet satellite context, closing financials, and grouped submilestones", () => {
     vi.stubEnv("VITE_GOOGLE_MAPS_API_KEY", "maps-key");
 

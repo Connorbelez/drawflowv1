@@ -80,8 +80,20 @@ document.addEventListener("contextmenu", (event) => {
   event.preventDefault();
   const menu = target.querySelector("[data-context-menu]");
   menu.hidden = false;
-  menu.style.left = event.offsetX + "px";
-  menu.style.top = event.offsetY + "px";
+  const targetRect = target.getBoundingClientRect();
+  const menuRect = menu.getBoundingClientRect();
+  const maxLeft = Math.max(
+    window.innerWidth - targetRect.left - menuRect.width - 12,
+    0,
+  );
+  const maxTop = Math.max(
+    window.innerHeight - targetRect.top - menuRect.height - 12,
+    0,
+  );
+  const left = Math.min(Math.max(event.clientX - targetRect.left, 0), maxLeft);
+  const top = Math.min(Math.max(event.clientY - targetRect.top, 0), maxTop);
+  menu.style.left = left + "px";
+  menu.style.top = top + "px";
 });
 
 document.querySelectorAll("[data-accordion] .df-accordion-item > button").forEach((button) => {

@@ -130,6 +130,10 @@ import {
   type ProposalGanttDrawDraft,
   type ProposalGanttMilestoneDraft,
 } from "./ProductionProposalGanttWorkspace.tsx";
+import { ProductionProposalMilestoneWorksheet } from "./ProductionProposalMilestoneWorksheet.tsx";
+import {
+  productionProposalDetailToDraftMilestones,
+} from "./productionMilestoneWorksheetAdapter.ts";
 
 export type ProductionProposalStatus =
   | "draft"
@@ -1535,6 +1539,7 @@ export function ProductionProposalReviewSurface({
   onSaveCalendarView,
   onCreateClaimLink,
   onUpdateDraw,
+  milestones,
   contractors,
   gantt,
   timeline,
@@ -1602,6 +1607,7 @@ export function ProductionProposalReviewSurface({
       timingDay: number;
     }
   ) => Promise<unknown> | unknown;
+  milestones?: ReactNode;
   timeline?: ReactNode;
   initialActiveTab?: ProductionReviewTab;
 }) {
@@ -1634,10 +1640,6 @@ export function ProductionProposalReviewSurface({
   );
   const headerMinimumApprovedAmountCents =
     calculateProposalTotalDrawAmountCents(editableDraws);
-  const milestoneRows = useMemo(
-    () => productionProposalDetailToWorksheetRows(detail),
-    [detail]
-  );
   const canEditDraws =
     !!onUpdateDraw &&
     (proposal.status === "draft" ||
@@ -1839,19 +1841,19 @@ export function ProductionProposalReviewSurface({
           data-testid="production-proposal-milestones-tab"
           value="milestones"
         >
-          <TimelineMilestoneWorksheetTable
-            footerExtra={
-              <div className="timeline-blueprint-metric">
-                <span>Proposal budget</span>
-                <strong>{formatCents(proposal.totalBudgetCents)}</strong>
-              </div>
-            }
-            mode="setup"
-            onRowsChange={() => undefined}
-            rows={milestoneRows}
-            showHeading
-            templateTitle={proposal.buildName}
-          />
+          {milestones ?? (
+            <ProductionProposalMilestoneWorksheet
+              detail={detail}
+              footerExtra={
+                <div className="timeline-blueprint-metric">
+                  <span>Proposal budget</span>
+                  <strong>{formatCents(proposal.totalBudgetCents)}</strong>
+                </div>
+              }
+              showHeading
+              templateTitle={proposal.buildName}
+            />
+          )}
         </TabsPanel>
 
         {contractors ? (
@@ -2828,136 +2830,6 @@ function materialPlanningMilestones(detail: ProductionProposalDetail) {
         order: submilestone.order,
       })),
   }));
-}
-
-function productionProposalDetailToWorksheetRows(
-  detail: ProductionProposalDetail
-): TimelineMilestoneWorksheetRow[] {
-  const submilestonesByMilestone = new Map<string, ProductionSubmilestone[]>();
-  for (const submilestone of detail.submilestones ?? []) {
-    const next = submilestonesByMilestone.get(submilestone.milestoneKey) ?? [];
-    next.push(submilestone);
-    submilestonesByMilestone.set(submilestone.milestoneKey, next);
-  }
-  const totalBudgetCents = Math.max(1, detail.proposal.totalBudgetCents);
-
-  return (detail.milestones ?? [])
-    .slice()
-    .sort((a, b) => a.order - b.order || a.key.localeCompare(b.key))
-    .map((milestone) => {
-      const submilestones = (submilestonesByMilestone.get(milestone.key) ?? [])
-        .slice()
-        .sort(
-          (a, b) =>
-            (a.order ?? 0) - (b.order ?? 0) || a.key.localeCompare(b.key)
-        );
-      const fallbackBudgets = allocateEvenlyCents(
-        milestone.budgetCents,
-        submilestones.length
-      );
-      const durationDays =
-        milestone.durationDays ??
-        Math.max(1, Math.round(milestone.dayEnd - milestone.dayStart));
-      const percentageBps = Math.round(
-        (milestone.budgetCents / totalBudgetCents) * 10_000
-      );
-
-      return {
-        baseItemId: milestone.key,
-        budgetText: formatCents(milestone.budgetCents),
-        contractorAssignments: [],
-        costItems: [],
-        dependencyKeys: milestone.dependencyKeys ?? [],
-        durationDays,
-        durationText: String(durationDays),
-        excluded: false,
-        icon:
-          milestone.icon ?? iconForMilestoneKey(milestone.key, milestone.name),
-        key: milestone.key,
-        name: milestone.name,
-        order: milestone.order,
-        percentageBps,
-        percentageText: formatBps(percentageBps),
-        subMilestoneDetails: submilestones.map((submilestone, index) => {
-          const budgetCents =
-            submilestone.budgetCents ?? fallbackBudgets[index] ?? 0;
-          const subPercentageBps = Math.round(
-            (budgetCents / totalBudgetCents) * 10_000
-          );
-          return {
-            budgetText: formatCents(budgetCents),
-            description: "",
-            durationText: String(submilestone.durationDays ?? 1),
-            id: submilestone.key,
-            name: submilestone.name,
-            percentageBps: subPercentageBps,
-            percentageText: formatBps(subPercentageBps),
-          };
-        }),
-        subMilestones: submilestones.map((submilestone) => submilestone.name),
-        type: milestone.key,
-      };
-    });
-}
-
-function productionProposalDetailToDraftMilestones(
-  detail: ProductionProposalDetail
-): ProposalGanttMilestoneDraft[] {
-  const submilestonesByMilestone = new Map<string, ProductionSubmilestone[]>();
-  for (const submilestone of detail.submilestones ?? []) {
-    const next = submilestonesByMilestone.get(submilestone.milestoneKey) ?? [];
-    next.push(submilestone);
-    submilestonesByMilestone.set(submilestone.milestoneKey, next);
-  }
-  const sourceMilestones =
-    detail.milestones && detail.milestones.length > 0
-      ? detail.milestones
-      : [
-          {
-            budgetCents: detail.proposal.totalBudgetCents || 10_000_000,
-            dayEnd: 30,
-            dayStart: 0,
-            dependencyKeys: [],
-            durationDays: 30,
-            key: "foundation",
-            name: "Foundation",
-            order: 1,
-          },
-        ];
-
-  return sourceMilestones
-    .slice()
-    .sort((a, b) => a.order - b.order || a.key.localeCompare(b.key))
-    .map((milestone, index) => {
-      const durationDays =
-        milestone.durationDays ??
-        Math.max(1, Math.round(milestone.dayEnd - milestone.dayStart));
-      return {
-        budgetCents: milestone.budgetCents,
-        dayEnd: milestone.dayEnd,
-        dayStart: milestone.dayStart,
-        dependencyKeys: milestone.dependencyKeys ?? [],
-        durationDays,
-        icon: milestone.icon,
-        key: milestone.key,
-        name: milestone.name,
-        order: milestone.order ?? index + 1,
-        submilestones: (submilestonesByMilestone.get(milestone.key) ?? [])
-          .slice()
-          .sort(
-            (a, b) =>
-              (a.order ?? 0) - (b.order ?? 0) || a.key.localeCompare(b.key)
-          )
-          .map((submilestone, subIndex) => ({
-            budgetCents: submilestone.budgetCents,
-            durationDays: submilestone.durationDays,
-            key: submilestone.key,
-            name: submilestone.name,
-            order: submilestone.order ?? subIndex + 1,
-            startDay: submilestone.startDay,
-          })),
-      };
-    });
 }
 
 function productionProposalDetailToDraftDraws(

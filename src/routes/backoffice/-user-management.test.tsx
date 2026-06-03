@@ -8,6 +8,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import type React from "react";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { UserDetailSheet } from "./-user-management-detail-sheet";
@@ -16,6 +17,7 @@ import { UserManagementSurface } from "./-user-management-surface";
 import type {
   OrganizationProvisioning,
   UserManagementHandlers,
+  UserManagementProjection,
   WorkosMembershipRow,
   WorkosOrganizationRow,
   WorkosUserRow,
@@ -139,6 +141,62 @@ function renderSheet(
 }
 
 describe("UserDetailSheet role editor", () => {
+  test("does not preselect admin when adding a new organization membership", () => {
+    const user = directoryUser([
+      membership({
+        roleSlug: "broker",
+        roleSlugs: ["broker"],
+        workosMembershipId: "om_existing",
+        workosOrganizationId: "org_alpha",
+      }),
+    ]);
+    render(
+      <UserDetailSheet
+        directoryUser={user}
+        handlers={noopHandlers()}
+        onOpenChange={() => undefined}
+        organizationsById={orgMap([ORG_ALPHA, ORG_BETA])}
+        provisioningByOrg={new Map()}
+        roleOptions={["admin", "broker", "builder"]}
+        workspaceOrganizations={[ORG_ALPHA, ORG_BETA]}
+      />
+    );
+
+    const addSection = screen
+      .getByText("Add to organization")
+      .closest("section");
+    if (!addSection) {
+      throw new Error("add membership section not found");
+    }
+    const addMembershipEditor = within(addSection as HTMLElement);
+
+    expect(
+      addMembershipEditor
+        .getByRole("checkbox", { name: "admin" })
+        .getAttribute("aria-checked")
+    ).toBe("false");
+    expect(
+      addMembershipEditor
+        .getByRole("checkbox", { name: "broker" })
+        .getAttribute("aria-checked")
+    ).toBe("false");
+    expect(
+      addMembershipEditor
+        .getByRole("checkbox", { name: "builder" })
+        .getAttribute("aria-checked")
+    ).toBe("false");
+    expect(
+      addMembershipEditor
+        .getByRole("combobox", { name: "Primary role" })
+        .hasAttribute("disabled")
+    ).toBe(true);
+    expect(
+      addMembershipEditor
+        .getByRole("button", { name: "Add membership" })
+        .hasAttribute("disabled")
+    ).toBe(true);
+  });
+
   test("renders a unique Primary-role control id per membership", () => {
     const user = directoryUser([
       membership({
@@ -261,12 +319,22 @@ describe("UserDetailSheet destructive actions", () => {
 });
 
 describe("UserManagementSurface directory rows", () => {
-  function renderSurface(handlers: UserManagementHandlers) {
-    const projections = {
-      memberships: [
-        {
-          roleSlug: "broker",
-          roleSlugs: ["broker"],
+  function renderSurface(
+    handlers: UserManagementHandlers,
+    overrides?: {
+      brokerageProvisioning?: React.ComponentProps<
+        typeof UserManagementSurface
+      >["brokerageProvisioning"];
+      projections?: UserManagementProjection;
+    }
+  ) {
+    const projections =
+      overrides?.projections ??
+      ({
+        memberships: [
+          {
+            roleSlug: "broker",
+            roleSlugs: ["broker"],
           status: "active",
           workosMembershipId: "om_alpha",
           workosOrganizationId: "org_alpha",
@@ -285,13 +353,13 @@ describe("UserManagementSurface directory rows", () => {
           workosUserId: "user_1",
         },
       ],
-    };
+      } as unknown as UserManagementProjection);
     return render(
       <UserManagementSurface
         accepted={null}
         actionError={null}
-        brokerageProvisioning={undefined}
-        projections={projections as never}
+        brokerageProvisioning={overrides?.brokerageProvisioning}
+        projections={projections}
         setAccepted={() => undefined}
         setActionError={() => undefined}
         syncStatus={{ receipts: [] } as never}
@@ -315,5 +383,140 @@ describe("UserManagementSurface directory rows", () => {
     });
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText("River Han")).toBeTruthy();
+  });
+
+  test("orders attention rows first and supports profile and organization filters", async () => {
+    const handlers = noopHandlers();
+    renderSurface(handlers, {
+      brokerageProvisioning: {
+        fairLendBootstrap: {
+          displayName: "FairLendBrokerage",
+          principalBrokerWorkosUserId: "user_admin",
+          workosOrganizationId: "org_alpha",
+        },
+        organizations: [
+          {
+            brokerage: {
+              _id: "brokerage_alpha",
+              displayName: "Alpha Lending",
+              legalName: "Alpha Lending",
+              principalBrokerWorkosUserId: "user_1",
+              status: "active",
+            },
+            brokerMemberships: [
+              {
+                email: "alex@alpha.test",
+                name: "Alex Broker",
+                roleSlugs: ["broker"],
+                workosMembershipId: "om_alpha",
+                workosUserId: "user_1",
+              },
+            ],
+            builderAccountLinks: [],
+            builderMemberships: [],
+            builderProfile: null,
+            hasBrokerageProfile: true,
+            hasBuilderProfile: false,
+            name: "Alpha Lending",
+            needsBrokerageProfile: false,
+            needsBuilderProfile: false,
+            status: "active",
+            workosOrganizationId: "org_alpha",
+          },
+          {
+            brokerage: null,
+            brokerMemberships: [],
+            builderAccountLinks: [],
+            builderMemberships: [
+              {
+                email: "brooke@beta.test",
+                name: "Brooke Builder",
+                roleSlugs: ["builder"],
+                workosMembershipId: "om_beta",
+                workosUserId: "user_2",
+              },
+            ],
+            builderProfile: null,
+            hasBrokerageProfile: false,
+            hasBuilderProfile: false,
+            name: "Beta Builds",
+            needsBrokerageProfile: false,
+            needsBuilderProfile: true,
+            status: "active",
+            workosOrganizationId: "org_beta",
+          },
+        ],
+      },
+      projections: {
+        memberships: [
+          {
+            roleSlug: "broker",
+            roleSlugs: ["broker"],
+            status: "active",
+            workosMembershipId: "om_alpha",
+            workosOrganizationId: "org_alpha",
+            workosUserId: "user_1",
+          },
+          {
+            roleSlug: "builder",
+            roleSlugs: ["builder"],
+            status: "active",
+            workosMembershipId: "om_beta",
+            workosOrganizationId: "org_beta",
+            workosUserId: "user_2",
+          },
+        ],
+        organizationRoles: [],
+        organizations: [ORG_ALPHA, ORG_BETA],
+        permissions: [],
+        roles: [
+          { name: "Broker", slug: "broker", status: "active" },
+          { name: "Builder", slug: "builder", status: "active" },
+        ],
+        users: [
+          {
+            email: "alex@alpha.test",
+            name: "Alex Broker",
+            status: "active",
+            workosUserId: "user_1",
+          } as unknown as WorkosUserRow,
+          {
+            email: "brooke@beta.test",
+            name: "Brooke Builder",
+            status: "active",
+            workosUserId: "user_2",
+          } as unknown as WorkosUserRow,
+        ],
+      } as unknown as UserManagementProjection,
+    });
+
+    const table = screen.getByRole("table");
+    expect(
+      within(table)
+        .getAllByRole("button", { name: /^Manage / })
+        .map((button) => button.textContent)
+    ).toEqual(["Brooke Builder", "Alex Broker"]);
+
+    fireEvent.change(screen.getByLabelText("Order filter"), {
+      target: { value: "name-asc" },
+    });
+    expect(
+      within(table)
+        .getAllByRole("button", { name: /^Manage / })
+        .map((button) => button.textContent)
+    ).toEqual(["Alex Broker", "Brooke Builder"]);
+
+    fireEvent.change(screen.getByLabelText("Profile filter"), {
+      target: { value: "missing" },
+    });
+    expect(within(table).getByText("Brooke Builder")).toBeTruthy();
+    expect(within(table).queryByText("Alex Broker")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    fireEvent.change(screen.getByLabelText("Org filter"), {
+      target: { value: "org_alpha" },
+    });
+    expect(within(table).getByText("Alex Broker")).toBeTruthy();
+    expect(within(table).queryByText("Brooke Builder")).toBeNull();
   });
 });

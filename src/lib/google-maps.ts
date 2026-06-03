@@ -5,6 +5,13 @@ export interface GoogleAddressSuggestion {
   secondaryText?: string;
 }
 
+export interface GoogleAddressPlaceDetails {
+  formattedAddress: string;
+  latitude: number;
+  longitude: number;
+  placeId: string;
+}
+
 interface GoogleAutocompletePrediction {
   description: string;
   place_id: string;
@@ -27,8 +34,47 @@ interface GoogleAutocompleteService {
   ) => void;
 }
 
+interface GoogleLatLng {
+  lat: () => number;
+  lng: () => number;
+}
+
+interface GooglePlaceResult {
+  formatted_address?: string;
+  geometry?: {
+    location?: GoogleLatLng;
+  };
+  place_id?: string;
+}
+
+interface GoogleGeocoderResult {
+  formatted_address?: string;
+  geometry?: {
+    location?: GoogleLatLng;
+  };
+  place_id?: string;
+}
+
+interface GoogleGeocoder {
+  geocode: (
+    request: { address?: string; placeId?: string },
+    callback: (results: GoogleGeocoderResult[] | null, status: string) => void
+  ) => void;
+}
+
+interface GooglePlacesService {
+  getDetails: (
+    request: {
+      fields?: string[];
+      placeId: string;
+    },
+    callback: (place: GooglePlaceResult | null, status: string) => void
+  ) => void;
+}
+
 interface GoogleMapsPlacesNamespace {
   AutocompleteService: new () => GoogleAutocompleteService;
+  PlacesService: new (element: HTMLElement) => GooglePlacesService;
   PlacesServiceStatus?: {
     OK?: string;
     ZERO_RESULTS?: string;
@@ -40,6 +86,11 @@ declare global {
     __drawflowGoogleMapsPlacesPromise?: Promise<GoogleMapsPlacesNamespace | null>;
     google?: {
       maps?: {
+        Geocoder?: new () => GoogleGeocoder;
+        GeocoderStatus?: {
+          OK?: string;
+          ZERO_RESULTS?: string;
+        };
         places?: GoogleMapsPlacesNamespace;
       };
     };
@@ -97,21 +148,110 @@ export async function fetchGoogleAddressSuggestions(
   });
 }
 
+export async function fetchGoogleAddressPlaceDetails(
+  suggestion: GoogleAddressSuggestion
+): Promise<GoogleAddressPlaceDetails | null> {
+  const places = await loadGooglePlaces();
+  if (!places || typeof document === "undefined") {
+    return null;
+  }
+
+  const serviceNode = document.createElement("div");
+  serviceNode.hidden = true;
+  document.body.appendChild(serviceNode);
+  const service = new places.PlacesService(serviceNode);
+  const okStatus = places.PlacesServiceStatus?.OK ?? "OK";
+
+  try {
+    const placeDetails = await new Promise<GoogleAddressPlaceDetails | null>(
+      (resolve, reject) => {
+        service.getDetails(
+          {
+            fields: ["formatted_address", "geometry", "place_id"],
+            placeId: suggestion.placeId,
+          },
+          (place, status) => {
+            if (status !== okStatus) {
+              reject(new Error(`Google Places details failed: ${status}`));
+              return;
+            }
+            resolve(normalizePlaceDetails(place, suggestion));
+          }
+        );
+      }
+    );
+    return placeDetails ?? (await geocodeGoogleAddressSuggestion(suggestion));
+  } catch {
+    return await geocodeGoogleAddressSuggestion(suggestion);
+  } finally {
+    serviceNode.remove();
+  }
+}
+
+function normalizePlaceDetails(
+  place: GooglePlaceResult | GoogleGeocoderResult | null,
+  suggestion: GoogleAddressSuggestion
+): GoogleAddressPlaceDetails | null {
+  const location = place?.geometry?.location;
+  if (!location) {
+    return null;
+  }
+
+  return {
+    formattedAddress: place.formatted_address ?? suggestion.description,
+    latitude: location.lat(),
+    longitude: location.lng(),
+    placeId: place.place_id ?? suggestion.placeId,
+  };
+}
+
+function geocodeGoogleAddressSuggestion(
+  suggestion: GoogleAddressSuggestion
+): Promise<GoogleAddressPlaceDetails | null> {
+  const geocoderCtor = window.google?.maps?.Geocoder;
+  if (!geocoderCtor) {
+    return Promise.resolve(null);
+  }
+  const okStatus = window.google?.maps?.GeocoderStatus?.OK ?? "OK";
+  const geocoder = new geocoderCtor();
+
+  return new Promise((resolve, reject) => {
+    geocoder.geocode(
+      { placeId: suggestion.placeId },
+      (results, status) => {
+        if (status !== okStatus) {
+          reject(new Error(`Google geocoding failed: ${status}`));
+          return;
+        }
+        resolve(normalizePlaceDetails(results?.[0] ?? null, suggestion));
+      }
+    );
+  });
+}
+
 export function createGoogleSatelliteMapUrl({
   address,
+  latitude,
+  longitude,
   markerLabel = "S",
   scale = 2,
   size = "640x360",
   zoom = 18,
 }: {
-  address: string;
+  address?: string;
+  latitude?: number | null;
+  longitude?: number | null;
   markerLabel?: string;
   scale?: 1 | 2;
   size?: `${number}x${number}`;
   zoom?: number;
 }): string | null {
   const key = getGoogleMapsApiKey();
-  const center = address.trim();
+  const coordinateCenter =
+    typeof latitude === "number" && typeof longitude === "number"
+      ? `${latitude},${longitude}`
+      : null;
+  const center = coordinateCenter ?? address?.trim();
   if (!(key && center)) {
     return null;
   }

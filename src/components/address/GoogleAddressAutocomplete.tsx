@@ -2,7 +2,7 @@
 
 import { Loader2, MapPin, Search } from "lucide-react";
 import type React from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Autocomplete,
   AutocompleteEmpty,
@@ -12,7 +12,9 @@ import {
   AutocompletePopup,
 } from "#/components/ui/autocomplete.tsx";
 import {
+  fetchGoogleAddressPlaceDetails,
   fetchGoogleAddressSuggestions,
+  type GoogleAddressPlaceDetails,
   type GoogleAddressSuggestion,
   isGoogleMapsConfigured,
 } from "#/lib/google-maps.ts";
@@ -27,7 +29,15 @@ interface GoogleAddressAutocompleteProps {
   label?: React.ReactNode;
   labelClassName?: string;
   name?: string;
-  onChange: (value: string) => void;
+  onChange: (
+    value: string,
+    meta?: { source: "selection" | "typing" }
+  ) => void;
+  onPlaceSelect?: (
+    suggestion: GoogleAddressSuggestion,
+    details: GoogleAddressPlaceDetails | null
+  ) => void;
+  onResolvingChange?: (resolving: boolean) => void;
   placeholder?: string;
   showSearchIcon?: boolean;
   size?: "sm" | "default" | "lg" | number;
@@ -45,6 +55,8 @@ export function GoogleAddressAutocomplete({
   labelClassName,
   name,
   onChange,
+  onPlaceSelect,
+  onResolvingChange,
   placeholder = "Search project address",
   showSearchIcon = true,
   size,
@@ -55,7 +67,11 @@ export function GoogleAddressAutocomplete({
   const [open, setOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<GoogleAddressSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
+  const [detailsLoading, setDetailsLoading] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [detailsFailed, setDetailsFailed] = useState(false);
+  const pendingSelectionDescriptionRef = useRef<string | null>(null);
+  const selectedQueryRef = useRef<string | null>(null);
   const configured = useMemo(() => isGoogleMapsConfigured(), []);
 
   useEffect(() => {
@@ -64,6 +80,12 @@ export function GoogleAddressAutocomplete({
 
   useEffect(() => {
     const trimmed = query.trim();
+    if (selectedQueryRef.current?.trim() === trimmed) {
+      setSuggestions([]);
+      setLoading(false);
+      setOpen(false);
+      return;
+    }
     if (!configured || disabled || trimmed.length < 3) {
       setSuggestions([]);
       setLoading(false);
@@ -104,17 +126,53 @@ export function GoogleAddressAutocomplete({
   }, [configured, disabled, query]);
 
   function handleValueChange(nextValue: string) {
+    const source =
+      pendingSelectionDescriptionRef.current === nextValue
+        ? "selection"
+        : "typing";
+    if (source === "typing") {
+      pendingSelectionDescriptionRef.current = null;
+      selectedQueryRef.current = null;
+      setDetailsFailed(false);
+    }
     setQuery(nextValue);
-    onChange(nextValue);
+    onChange(nextValue, { source });
     if (!disabled) {
       setOpen(nextValue.trim().length >= 3 && suggestions.length > 0);
     }
   }
 
-  function selectSuggestion(suggestion: GoogleAddressSuggestion) {
+  async function selectSuggestion(suggestion: GoogleAddressSuggestion) {
+    pendingSelectionDescriptionRef.current = suggestion.description;
+    selectedQueryRef.current = suggestion.description;
     setQuery(suggestion.description);
-    onChange(suggestion.description);
+    onChange(suggestion.description, { source: "selection" });
+    setSuggestions([]);
     setOpen(false);
+    if (!onPlaceSelect) {
+      return;
+    }
+
+    setDetailsFailed(false);
+    setDetailsLoading(true);
+    onResolvingChange?.(true);
+    try {
+      const details = await fetchGoogleAddressPlaceDetails(suggestion);
+      selectedQueryRef.current = details?.formattedAddress ?? suggestion.description;
+      setSuggestions([]);
+      setOpen(false);
+      onPlaceSelect(suggestion, details);
+    } catch {
+      setDetailsFailed(true);
+      selectedQueryRef.current = suggestion.description;
+      setSuggestions([]);
+      setOpen(false);
+      onPlaceSelect(suggestion, null);
+    } finally {
+      setDetailsLoading(false);
+      onResolvingChange?.(false);
+      pendingSelectionDescriptionRef.current = null;
+    }
   }
 
   const fallbackText = configured
@@ -169,7 +227,10 @@ export function GoogleAddressAutocomplete({
               <AutocompleteItem
                 className="grid min-h-12 grid-cols-[1rem_minmax(0,1fr)] items-center gap-3 px-2.5 py-2"
                 key={suggestion.placeId}
-                onClick={() => selectSuggestion(suggestion)}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  void selectSuggestion(suggestion);
+                }}
                 value={suggestion}
               >
                 <MapPin aria-hidden className="size-4 text-muted-foreground" />
@@ -192,6 +253,17 @@ export function GoogleAddressAutocomplete({
         <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
           <Loader2 aria-hidden className="size-3 animate-spin" />
           Searching addresses
+        </span>
+      ) : null}
+      {detailsLoading ? (
+        <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
+          <Loader2 aria-hidden className="size-3 animate-spin" />
+          Resolving coordinates
+        </span>
+      ) : null}
+      {detailsFailed ? (
+        <span className="text-muted-foreground text-xs">
+          Coordinate lookup failed. The address text was kept.
         </span>
       ) : null}
     </div>
