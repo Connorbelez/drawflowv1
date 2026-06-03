@@ -51,6 +51,10 @@ function renderKanban(
   proposals: ProposalKanbanCard[],
   overrides: {
     builders?: ProductionBuilderOption[];
+    onArchiveProposal?: (
+      proposal: ProposalKanbanCard,
+      reason: string
+    ) => Promise<unknown>;
     onAssignBuilder?: (
       proposal: ProposalKanbanCard,
       builderProfileId: string
@@ -62,6 +66,9 @@ function renderKanban(
     <ProposalKanban
       builders={overrides.builders ?? builders}
       columns={proposalColumns}
+      onArchiveProposal={
+        overrides.onArchiveProposal ?? vi.fn().mockResolvedValue(null)
+      }
       onAssignBuilder={overrides.onAssignBuilder ?? vi.fn().mockResolvedValue(null)}
       onDeleteDraft={overrides.onDeleteDraft ?? vi.fn().mockResolvedValue(null)}
       onOpenApprovedProposal={vi.fn()}
@@ -186,6 +193,7 @@ describe("SubmittedProposalsCard", () => {
     const { container } = render(
       <SubmittedProposalsCard
         approvedPendingClosing={[approvedProposal]}
+        onArchiveProposal={vi.fn()}
         onOpenProposal={vi.fn()}
         onRecordClosing={vi.fn()}
         submittedProposals={[submittedProposal]}
@@ -198,6 +206,40 @@ describe("SubmittedProposalsCard", () => {
     expect(screen.getByText("Approved, pending closing")).toBeTruthy();
     expect(screen.getByText("Submitted Build")).toBeTruthy();
     expect(screen.getByText("Approved With Permit")).toBeTruthy();
+  });
+
+  test("opens the archive dialog from a submitted row right-click menu", async () => {
+    const onArchiveProposal = vi.fn().mockResolvedValue(null);
+
+    render(
+      <SubmittedProposalsCard
+        approvedPendingClosing={[]}
+        onArchiveProposal={onArchiveProposal}
+        onOpenProposal={vi.fn()}
+        onRecordClosing={vi.fn()}
+        submittedProposals={[submittedProposal]}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByText("Submitted Build"));
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Archive proposal" }),
+    );
+
+    await screen.findByRole("alertdialog", {
+      name: "Archive submitted proposal",
+    });
+    fireEvent.change(screen.getByTestId("archive-proposal-reason"), {
+      target: { value: "Duplicate submission." },
+    });
+    fireEvent.click(screen.getByTestId("archive-proposal-confirm"));
+
+    await waitFor(() =>
+      expect(onArchiveProposal).toHaveBeenCalledWith(
+        submittedProposal,
+        "Duplicate submission.",
+      ),
+    );
   });
 
   test("opens the closing confirmation dialog from the approved row right-click menu", async () => {
@@ -213,6 +255,7 @@ describe("SubmittedProposalsCard", () => {
         <>
           <SubmittedProposalsCard
             approvedPendingClosing={[approvedProposal]}
+            onArchiveProposal={vi.fn()}
             onOpenProposal={vi.fn()}
             onRecordClosing={setClosingProposal}
             submittedProposals={[]}
@@ -261,13 +304,58 @@ describe("SubmittedProposalsCard", () => {
   });
 });
 
+const activeBuild = {
+  activeMilestone: "Foundation",
+  address: "Closed Site, Toronto, ON",
+  buildKey: "build-active",
+  builder: "Production Builder",
+  daysActive: 12,
+  href: "/backoffice/builds/build-active",
+  id: "B-ACTIVE",
+  milestoneState: "inProgress" as const,
+  status: "onTrack" as const,
+  statusLabel: "On track",
+};
+
 describe("ActiveBuildsCard", () => {
+  test("confirms active build deletion from the row context menu", async () => {
+    const onDeleteActiveBuild = vi.fn().mockResolvedValue(null);
+
+    render(
+      <ActiveBuildsCard
+        builds={[activeBuild]}
+        onDeleteActiveBuild={onDeleteActiveBuild}
+        onOpenUnassignedDrafts={vi.fn()}
+        onStartNewBuildWorkflow={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByText("B-ACTIVE"));
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Delete active build" }),
+    );
+
+    await screen.findByRole("alertdialog", { name: "Delete active build" });
+    fireEvent.change(screen.getByTestId("delete-active-build-reason"), {
+      target: { value: "Created in error during QA." },
+    });
+    fireEvent.click(screen.getByTestId("delete-active-build-confirm"));
+
+    await waitFor(() =>
+      expect(onDeleteActiveBuild).toHaveBeenCalledWith(
+        activeBuild,
+        "Created in error during QA.",
+      ),
+    );
+  });
+
   test("starts the full New Build workflow", async () => {
     const startWorkflow = vi.fn<() => Promise<void>>().mockResolvedValue();
 
     render(
       <ActiveBuildsCard
         builds={[]}
+        onDeleteActiveBuild={vi.fn()}
         onOpenUnassignedDrafts={vi.fn()}
         onStartNewBuildWorkflow={startWorkflow}
       />,
@@ -286,6 +374,7 @@ describe("ActiveBuildsCard", () => {
     render(
       <ActiveBuildsCard
         builds={[]}
+        onDeleteActiveBuild={vi.fn()}
         onOpenUnassignedDrafts={openUnassignedDrafts}
         onStartNewBuildWorkflow={vi.fn()}
       />,
@@ -443,6 +532,31 @@ describe("ProposalKanban context menu", () => {
 
     await waitFor(() =>
       expect(onDeleteDraft).toHaveBeenCalledWith(unassignedDraft)
+    );
+  });
+
+  test("offers archive for submitted kanban cards", async () => {
+    const onArchiveProposal = vi.fn().mockResolvedValue(null);
+    renderKanban([submittedProposal], { onArchiveProposal });
+
+    fireEvent.contextMenu(screen.getByText("Submitted Build"));
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Archive proposal" })
+    );
+
+    await screen.findByRole("alertdialog", {
+      name: "Archive submitted proposal",
+    });
+    fireEvent.change(screen.getByTestId("archive-proposal-reason"), {
+      target: { value: "Withdrawn by borrower." },
+    });
+    fireEvent.click(screen.getByTestId("archive-proposal-confirm"));
+
+    await waitFor(() =>
+      expect(onArchiveProposal).toHaveBeenCalledWith(
+        submittedProposal,
+        "Withdrawn by borrower.",
+      ),
     );
   });
 });

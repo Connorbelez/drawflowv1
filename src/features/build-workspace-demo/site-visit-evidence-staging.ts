@@ -1,3 +1,10 @@
+import {
+  evidenceMimeTypeForFile,
+  normalizeEvidenceFileForUpload,
+} from "#/lib/evidence-image-normalization.ts";
+
+export { evidenceMimeTypeForFile };
+
 export const SITE_VISIT_PACKAGE_CAP_BYTES = 1_000_000_000;
 
 export type SiteVisitEvidenceKind = "document" | "image" | "video";
@@ -15,7 +22,9 @@ export interface SiteVisitStagedEvidence {
   uploadState: "ready" | "uploaded";
 }
 
-export function classifyEvidenceMimeType(mimeType: string): SiteVisitEvidenceKind {
+export function classifyEvidenceMimeType(
+  mimeType: string,
+): SiteVisitEvidenceKind {
   if (mimeType.startsWith("image/")) {
     return "image";
   }
@@ -64,7 +73,11 @@ export function buildStagedEvidence(input: {
     targetMilestoneKey: input.targetMilestoneKey,
     targetSubmilestoneKey: input.targetSubmilestoneKey,
     thumbnailKind:
-      kind === "image" ? "image" : kind === "video" ? "video-poster" : "document",
+      kind === "image"
+        ? "image"
+        : kind === "video"
+          ? "video-poster"
+          : "document",
     uploadState: "ready",
   };
 }
@@ -94,9 +107,13 @@ export async function uploadSiteVisitStagedEvidence({
   stagedItems,
   token,
   upload,
+  normalizeFile = normalizeEvidenceFileForUpload,
 }: {
   buildId: string;
-  generateUploadUrl: (input: { buildId: string; token: string }) => Promise<string>;
+  generateUploadUrl: (input: {
+    buildId: string;
+    token: string;
+  }) => Promise<string>;
   onUploadedItem?: () => void;
   registerFile: (input: {
     buildId: string;
@@ -115,6 +132,7 @@ export async function uploadSiteVisitStagedEvidence({
     file: Blob,
     mimeType: string,
   ) => Promise<{ json: () => Promise<{ storageId: string }>; ok: boolean }>;
+  normalizeFile?: (file: File) => Promise<File>;
 }) {
   if (stagedItems.length === 0) {
     return 0;
@@ -123,10 +141,14 @@ export async function uploadSiteVisitStagedEvidence({
   assertPackageWithinCap(stagedItems.map((item) => item.evidence));
 
   for (const item of stagedItems) {
-    const mimeType = item.file.type || "application/octet-stream";
-    const fileName = item.file.name ?? item.evidence.name;
+    const file =
+      typeof File !== "undefined" && item.file instanceof File
+        ? await normalizeFile(item.file)
+        : item.file;
+    const mimeType = evidenceMimeTypeForFile(file);
+    const fileName = file.name ?? item.evidence.name;
     const uploadUrl = await generateUploadUrl({ buildId, token });
-    const response = await upload(uploadUrl, item.file, mimeType);
+    const response = await upload(uploadUrl, file, mimeType);
     if (!response.ok) {
       throw new Error(`Unable to upload ${fileName}.`);
     }
@@ -135,7 +157,7 @@ export async function uploadSiteVisitStagedEvidence({
       buildId,
       fileName,
       mimeType,
-      sizeBytes: item.evidence.compressedBytes,
+      sizeBytes: file.size,
       storageId,
       targetMilestoneKey: item.evidence.targetMilestoneKey,
       targetSubmilestoneKey: item.evidence.targetSubmilestoneKey,

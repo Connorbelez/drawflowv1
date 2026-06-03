@@ -341,7 +341,7 @@
 }
 
 .timeline-setup-money-field > span,
-.timeline-setup-address-field > span {
+.timeline-setup-address-field > label > span {
   display: flex;
   align-items: center;
   gap: 5px;
@@ -412,7 +412,7 @@
   padding: 11px 12px;
 }
 
-.timeline-setup-address-field em {
+.timeline-setup-address-field label em {
   color: light-dark(oklch(0.420 0.040 258), oklch(0.57 0.03 260));
   font-style: normal;
 }

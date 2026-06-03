@@ -26,6 +26,7 @@ import {
   parseGanttMilestoneScopeId,
 } from "#/features/build-workspace-demo/build-workspace-contractor-planning.ts";
 import { BuildWorkspaceProvider } from "#/features/build-workspace-demo/workspace-adapter.tsx";
+import { normalizeEvidenceFileForUpload } from "#/lib/evidence-image-normalization.ts";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { ProductionBuildDetail } from "./ProductionBuildDetailSurface";
@@ -73,18 +74,24 @@ export function ActiveBuildGanttWorkspace({
   const submitCompletionClaim = useMutation(
     productionApi.submitActiveBuildMilestoneCompletion,
   );
-  const approveMilestone = useMutation(productionApi.approveActiveBuildMilestone);
+  const approveMilestone = useMutation(
+    productionApi.approveActiveBuildMilestone,
+  );
   const rejectMilestone = useMutation(productionApi.rejectActiveBuildMilestone);
   const requestMoreInfo = useMutation(
     productionApi.requestActiveBuildMilestoneInfo,
   );
-  const requestSiteVisit = useMutation(productionApi.assignActiveBuildSiteVisit);
+  const requestSiteVisit = useMutation(
+    productionApi.assignActiveBuildSiteVisit,
+  );
   const recordSiteVisit = useMutation(productionApi.recordActiveBuildSiteVisit);
   const reviewEvidence = useMutation(productionApi.reviewActiveBuildEvidence);
   const assignContractorToMilestone = useMutation(
     productionApi.assignActiveBuildContractorToMilestone,
   );
-  const attachContractor = useMutation(productionApi.attachActiveBuildContractor);
+  const attachContractor = useMutation(
+    productionApi.attachActiveBuildContractor,
+  );
   const createContractor = useMutation(productionApi.createContractorProfile);
   const createDraw = useMutation(productionApi.createActiveBuildTimelineDraw);
   const updateDraw = useMutation(productionApi.updateActiveBuildTimelineDraw);
@@ -203,7 +210,10 @@ export function ActiveBuildGanttWorkspace({
         const startDay = input.startAt
           ? dayFromDate(detail.build.startDate, input.startAt)
           : nextOrder * 14;
-        const durationDays = Math.max(1, Math.round(input.estimatedDurationDays));
+        const durationDays = Math.max(
+          1,
+          Math.round(input.estimatedDurationDays),
+        );
         await createMilestoneMutation({
           buildId,
           milestone: {
@@ -262,7 +272,10 @@ export function ActiveBuildGanttWorkspace({
           moves.map((move) =>
             updateMilestoneMutation({
               buildId,
-              dayEnd: dayFromDate(detail.build.startDate, move.endAt ?? move.startAt),
+              dayEnd: dayFromDate(
+                detail.build.startDate,
+                move.endAt ?? move.startAt,
+              ),
               dayStart: dayFromDate(detail.build.startDate, move.startAt),
               milestoneKey: move.milestoneId,
               workosOrganizationId,
@@ -280,8 +293,12 @@ export function ActiveBuildGanttWorkspace({
         });
       },
       mergeDrawGroups: async (sourceDrawGroupId, targetDrawGroupId) => {
-        const source = detail.draws.find((draw) => draw.drawKey === sourceDrawGroupId);
-        const target = detail.draws.find((draw) => draw.drawKey === targetDrawGroupId);
+        const source = detail.draws.find(
+          (draw) => draw.drawKey === sourceDrawGroupId,
+        );
+        const target = detail.draws.find(
+          (draw) => draw.drawKey === targetDrawGroupId,
+        );
         if (!(source && target)) return;
         await updateDraw({
           amountCents: source.amountCents + target.amountCents,
@@ -322,7 +339,9 @@ export function ActiveBuildGanttWorkspace({
         });
       },
       removeDependency: async (dependencyId) => {
-        const dependency = dependencies.find((item) => item.id === dependencyId);
+        const dependency = dependencies.find(
+          (item) => item.id === dependencyId,
+        );
         const target = detail.milestones.find(
           (milestone) => milestone.key === dependency?.toMilestoneId,
         );
@@ -338,7 +357,9 @@ export function ActiveBuildGanttWorkspace({
       },
       reorderMilestone: async (milestoneId, direction) => {
         const sorted = [...detail.milestones].sort((a, b) => a.order - b.order);
-        const fromIndex = sorted.findIndex((milestone) => milestone.key === milestoneId);
+        const fromIndex = sorted.findIndex(
+          (milestone) => milestone.key === milestoneId,
+        );
         const toIndex = direction === "up" ? fromIndex - 1 : fromIndex + 1;
         if (fromIndex < 0 || toIndex < 0 || toIndex >= sorted.length) return;
         await Promise.all([
@@ -405,7 +426,9 @@ export function ActiveBuildGanttWorkspace({
         dependencyId: string,
         _hardness: DependencyHardness,
       ) => {
-        const dependency = dependencies.find((item) => item.id === dependencyId);
+        const dependency = dependencies.find(
+          (item) => item.id === dependencyId,
+        );
         if (dependency) {
           await updateMilestoneMutation({
             buildId,
@@ -428,7 +451,9 @@ export function ActiveBuildGanttWorkspace({
       },
       setRole,
       splitDrawGroup: async (drawGroupId, afterMilestoneId) => {
-        const source = detail.draws.find((draw) => draw.drawKey === drawGroupId);
+        const source = detail.draws.find(
+          (draw) => draw.drawKey === drawGroupId,
+        );
         const milestone = detail.milestones.find(
           (item) => item.key === afterMilestoneId,
         );
@@ -445,12 +470,15 @@ export function ActiveBuildGanttWorkspace({
         });
       },
       submitCompletionClaim: async (milestoneId, requestedAmountCents) => {
-        const milestone = detail.milestones.find((item) => item.key === milestoneId);
+        const milestone = detail.milestones.find(
+          (item) => item.key === milestoneId,
+        );
         await submitCompletionClaim({
           actualCostCents: requestedAmountCents,
           buildId,
           completedDay:
-            milestone?.dayEnd ?? dayFromDate(detail.build.startDate, new Date()),
+            milestone?.dayEnd ??
+            dayFromDate(detail.build.startDate, new Date()),
           milestoneKey: milestoneId,
           note: "Completion submitted from build workspace.",
           workosOrganizationId,
@@ -525,18 +553,25 @@ export function ActiveBuildGanttWorkspace({
           milestoneKey: milestoneId,
           progressPercent: progress,
           status:
-            progress >= 100 ? "complete" : progress > 0 ? "in_progress" : "planned",
+            progress >= 100
+              ? "complete"
+              : progress > 0
+                ? "in_progress"
+                : "planned",
           workosOrganizationId,
         });
       },
       uploadEvidence: async (milestoneId, file, geofencePassed) => {
+        const uploadFile = await normalizeEvidenceFileForUpload(file);
         const uploadUrl = await generateEvidenceUploadUrl({
           buildId,
           workosOrganizationId,
         });
         const response = await fetch(uploadUrl, {
-          body: file,
-          headers: { "Content-Type": file.type || "application/octet-stream" },
+          body: uploadFile,
+          headers: {
+            "Content-Type": uploadFile.type || "application/octet-stream",
+          },
           method: "POST",
         });
         if (!response.ok) {
@@ -546,12 +581,12 @@ export function ActiveBuildGanttWorkspace({
         await createEvidenceMutation({
           asset: {
             evidenceKey: `upload-${milestoneId}-${Date.now()}`,
-            fileName: file.name,
-            label: file.name,
+            fileName: uploadFile.name,
+            label: uploadFile.name,
             locationVerified: geofencePassed,
             milestoneKey: milestoneId,
-            mimeType: file.type || "application/octet-stream",
-            sizeBytes: file.size,
+            mimeType: uploadFile.type || "application/octet-stream",
+            sizeBytes: uploadFile.size,
             source: "active_build_workspace_upload",
             storageId,
             tag: geofencePassed ? "Evidence" : "Location unverified evidence",
@@ -655,7 +690,10 @@ function mapActiveBuildWorkspace({
   const sortedDraws = [...detail.draws].sort(
     (a, b) => a.order - b.order || a.drawKey.localeCompare(b.drawKey),
   );
-  const evidenceByMilestone = new Map<string, NonNullable<typeof timelineWorkspace>["evidenceAssets"]>();
+  const evidenceByMilestone = new Map<
+    string,
+    NonNullable<typeof timelineWorkspace>["evidenceAssets"]
+  >();
   for (const asset of timelineWorkspace?.evidenceAssets ?? []) {
     const current = evidenceByMilestone.get(asset.milestoneKey) ?? [];
     current.push(asset);
@@ -671,22 +709,24 @@ function mapActiveBuildWorkspace({
       ? timelineWorkspace.plan.currentDay
       : dayFromDate(detail.build.startDate, new Date());
   const issues = buildWorkspaceIssues(detail, dismissedIssueKeys);
-  const dependencies: MilestoneDependency[] = sortedMilestones.flatMap((milestone) =>
-    (milestone.dependencyKeys ?? []).map((dependencyKey) => ({
-      fromMilestoneId: dependencyKey,
-      hardness: "hard" as const,
-      id: `${dependencyKey}->${milestone.key}`,
-      isSystem: false,
-      toMilestoneId: milestone.key,
-      type: "hard_blocker",
-    })),
+  const dependencies: MilestoneDependency[] = sortedMilestones.flatMap(
+    (milestone) =>
+      (milestone.dependencyKeys ?? []).map((dependencyKey) => ({
+        fromMilestoneId: dependencyKey,
+        hardness: "hard" as const,
+        id: `${dependencyKey}->${milestone.key}`,
+        isSystem: false,
+        toMilestoneId: milestone.key,
+        type: "hard_blocker",
+      })),
   );
   const milestones: Milestone[] = sortedMilestones.map((milestone) => {
     const draw = drawByMilestone.get(milestone.key) ?? sortedDraws[0];
     const evidenceAssets = evidenceByMilestone.get(milestone.key) ?? [];
     const siteVisits =
-      detail.siteVisits?.filter((visit) => visit.milestoneKey === milestone.key) ??
-      [];
+      detail.siteVisits?.filter(
+        (visit) => visit.milestoneKey === milestone.key,
+      ) ?? [];
     return {
       actualCost: centsToDollars(
         typeof milestone.completionClaim?.actualCostCents === "number"
@@ -730,7 +770,9 @@ function mapActiveBuildWorkspace({
       evidenceStatus: mapEvidenceStatus(milestone),
       id: milestone.key,
       isDragLocked: Boolean(milestone.isDragLocked),
-      issues: issues.filter((issue) => issue.milestoneIds.includes(milestone.key)),
+      issues: issues.filter((issue) =>
+        issue.milestoneIds.includes(milestone.key),
+      ),
       lane: draw?.drawKey ?? `draw-${milestone.order}`,
       name: milestone.name,
       notes: milestone.policyState ?? "",
@@ -748,7 +790,8 @@ function mapActiveBuildWorkspace({
         ? [
             {
               createdAt:
-                milestone.completionReview.reviewedAt ?? new Date().toISOString(),
+                milestone.completionReview.reviewedAt ??
+                new Date().toISOString(),
               id: `review-${milestone.key}`,
               notes: milestone.completionReview.note ?? "",
               outcome: milestone.completionReview.status ?? "pending",
@@ -756,7 +799,9 @@ function mapActiveBuildWorkspace({
             },
           ]
         : [],
-      siteVisitRequested: siteVisits.some((visit) => visit.status === "requested"),
+      siteVisitRequested: siteVisits.some(
+        (visit) => visit.status === "requested",
+      ),
       siteVisits: siteVisits.map((visit) => ({
         assignedPersona: "site_visitor",
         completedAt: visit.completedAt,
@@ -791,7 +836,9 @@ function mapActiveBuildWorkspace({
         ...scopedMilestones.map((milestone) =>
           sortedMilestones.findIndex((item) => item.key === milestone.id),
         ),
-      ) || fallbackMilestone?.order - 1 || index;
+      ) ||
+      fallbackMilestone?.order - 1 ||
+      index;
     return {
       amount: centsToDollars(draw.amountCents),
       eligibleAt: dateFromDay(detail.build.startDate, draw.timingDay),
@@ -800,7 +847,9 @@ function mapActiveBuildWorkspace({
         Math.max(draw.timingDay, fallbackMilestone?.dayEnd ?? draw.timingDay),
       ),
       id: draw.drawKey,
-      issues: issues.filter((issue) => issue.drawGroupIds.includes(draw.drawKey)),
+      issues: issues.filter((issue) =>
+        issue.drawGroupIds.includes(draw.drawKey),
+      ),
       label: draw.label,
       order: draw.order,
       plannedAt: dateFromDay(detail.build.startDate, draw.timingDay),
@@ -866,7 +915,9 @@ function mapActiveBuildWorkspace({
       lenderDrawPolicyLimit: centsToDollars(
         detail.capitalPlan?.lenderDrawPolicyLimitCents ?? 0,
       ),
-      requestedLoanAmount: centsToDollars(detail.loanFacility?.principalCents ?? 0),
+      requestedLoanAmount: centsToDollars(
+        detail.loanFacility?.principalCents ?? 0,
+      ),
       totalBuildBudget: centsToDollars(detail.build.totalBudgetCents),
       version: detail.capitalPlan?.version ?? 1,
     },
@@ -908,54 +959,70 @@ function buildWorkspaceIssues(
   dismissedIssueKeys: Set<string>,
 ): WorkspaceIssue[] {
   const issues: WorkspaceIssue[] = [];
-  const knownMilestones = new Set(detail.milestones.map((milestone) => milestone.key));
+  const knownMilestones = new Set(
+    detail.milestones.map((milestone) => milestone.key),
+  );
   for (const milestone of detail.milestones) {
     for (const dependencyKey of milestone.dependencyKeys ?? []) {
       if (!knownMilestones.has(dependencyKey)) {
-        issues.push(issueRow({
-          code: "missing_dependency",
-          id: `missing-dependency-${milestone.key}-${dependencyKey}`,
-          message: `${milestone.name} references missing dependency ${dependencyKey}.`,
-          milestoneIds: [milestone.key],
-          severity: "blocking",
-          title: "Missing dependency",
-        }));
+        issues.push(
+          issueRow({
+            code: "missing_dependency",
+            id: `missing-dependency-${milestone.key}-${dependencyKey}`,
+            message: `${milestone.name} references missing dependency ${dependencyKey}.`,
+            milestoneIds: [milestone.key],
+            severity: "blocking",
+            title: "Missing dependency",
+          }),
+        );
       }
     }
     if (
       milestone.status === "complete" &&
-      !String(milestone.evidenceState ?? "").toLowerCase().includes("accepted")
+      !String(milestone.evidenceState ?? "")
+        .toLowerCase()
+        .includes("accepted")
     ) {
-      issues.push(issueRow({
-        code: "evidence_review_pending",
-        id: `evidence-pending-${milestone.key}`,
-        message: `${milestone.name} is complete with evidence still awaiting lender acceptance.`,
-        milestoneIds: [milestone.key],
-        severity: "warning",
-        title: "Evidence review pending",
-      }));
+      issues.push(
+        issueRow({
+          code: "evidence_review_pending",
+          id: `evidence-pending-${milestone.key}`,
+          message: `${milestone.name} is complete with evidence still awaiting lender acceptance.`,
+          milestoneIds: [milestone.key],
+          severity: "warning",
+          title: "Evidence review pending",
+        }),
+      );
     }
-    if (String(milestone.evidenceState ?? "").toLowerCase().includes("location")) {
-      issues.push(issueRow({
-        code: "location_unverified",
-        id: `location-unverified-${milestone.key}`,
-        message: `${milestone.name} has evidence with unverified location.`,
-        milestoneIds: [milestone.key],
-        severity: "warning",
-        title: "Location unverified",
-      }));
+    if (
+      String(milestone.evidenceState ?? "")
+        .toLowerCase()
+        .includes("location")
+    ) {
+      issues.push(
+        issueRow({
+          code: "location_unverified",
+          id: `location-unverified-${milestone.key}`,
+          message: `${milestone.name} has evidence with unverified location.`,
+          milestoneIds: [milestone.key],
+          severity: "warning",
+          title: "Location unverified",
+        }),
+      );
     }
   }
   for (const draw of detail.draws) {
     if (draw.status === "rejected") {
-      issues.push(issueRow({
-        code: "draw_rejected",
-        drawGroupIds: [draw.drawKey],
-        id: `draw-rejected-${draw.drawKey}`,
-        message: `${draw.label} was rejected and needs borrower correction.`,
-        severity: "blocking",
-        title: "Draw rejected",
-      }));
+      issues.push(
+        issueRow({
+          code: "draw_rejected",
+          drawGroupIds: [draw.drawKey],
+          id: `draw-rejected-${draw.drawKey}`,
+          message: `${draw.label} was rejected and needs borrower correction.`,
+          severity: "blocking",
+          title: "Draw rejected",
+        }),
+      );
     }
   }
   return issues.filter(
@@ -1011,20 +1078,24 @@ function buildOptimizationPlans(
       label: "Cheapest Feasible",
       peakWorkingCapital: exposure,
       projectedInterest: Math.round(principal * 0.03),
-      summary: "Current production reimbursement grouping with minimum draw count.",
+      summary:
+        "Current production reimbursement grouping with minimum draw count.",
       totalFees,
       warning: "Uses active build schedule and production draw rows.",
     },
     {
       durationDays: Math.max(
         1,
-        Math.round(Math.max(...detail.milestones.map((m) => m.dayEnd), 1) * 0.85),
+        Math.round(
+          Math.max(...detail.milestones.map((m) => m.dayEnd), 1) * 0.85,
+        ),
       ),
       id: "fastest",
       label: "Fastest",
       peakWorkingCapital: Math.round(exposure * 1.15),
       projectedInterest: Math.round(principal * 0.025),
-      summary: "Compresses unlocked milestones where dependency policy permits.",
+      summary:
+        "Compresses unlocked milestones where dependency policy permits.",
       totalFees,
       warning: "May increase working-capital pressure.",
     },
@@ -1036,7 +1107,8 @@ function buildOptimizationPlans(
         detail.capitalPlan?.borrowerWorkingCapitalLimitCents ?? 0,
       ),
       projectedInterest: Math.round(principal * 0.028),
-      summary: "Keeps reimbursement cadence inside borrower capital constraints.",
+      summary:
+        "Keeps reimbursement cadence inside borrower capital constraints.",
       totalFees,
       warning: "Ready for active-build governance.",
     },
@@ -1050,10 +1122,18 @@ function mapMilestoneStatus(
 ) {
   if (milestone.status === "complete") return "approved";
   if (milestone.completionClaim) return "underReview";
-  if (String(milestone.evidenceState ?? "").toLowerCase().includes("required")) {
+  if (
+    String(milestone.evidenceState ?? "")
+      .toLowerCase()
+      .includes("required")
+  ) {
     return "evidenceRequired";
   }
-  if (String(milestone.evidenceState ?? "").toLowerCase().includes("submitted")) {
+  if (
+    String(milestone.evidenceState ?? "")
+      .toLowerCase()
+      .includes("submitted")
+  ) {
     return "evidenceSubmitted";
   }
   if (milestone.status === "in_progress") return "inProgress";
@@ -1068,10 +1148,12 @@ function mapEvidenceStatus(
   milestone: ProductionBuildDetail["milestones"][number],
 ): EvidenceStatus {
   const state = String(milestone.evidenceState ?? "").toLowerCase();
-  if (state.includes("accepted") || state.includes("approved")) return "accepted";
+  if (state.includes("accepted") || state.includes("approved"))
+    return "accepted";
   if (state.includes("info") || state.includes("rejected")) return "needsInfo";
   if (state.includes("location")) return "locationUnverified";
-  if (state.includes("submitted") || state.includes("completion")) return "submitted";
+  if (state.includes("submitted") || state.includes("completion"))
+    return "submitted";
   if (state.includes("draft")) return "draft";
   return "notStarted";
 }

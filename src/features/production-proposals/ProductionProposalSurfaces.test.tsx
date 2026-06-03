@@ -31,6 +31,7 @@ afterEach(() => {
   cleanup();
   document.body.removeAttribute("style");
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
 });
 
 const proposalDetail = {
@@ -525,6 +526,66 @@ describe("ProductionProposalReviewSurface", () => {
     expect(screen.getByText("FairLend Brokerage")).toBeTruthy();
   });
 
+  test("exposes the uploaded permit viewer from review readiness", () => {
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          proposal: { ...proposalDetail.proposal, status: "submitted" },
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Permit PDF linked: permit.pdf")).toBeTruthy();
+    expect(
+      screen.getByTestId("proposal-review-permit-viewer-trigger"),
+    ).toBeTruthy();
+  });
+
+  test("records a permit waiver reason from review readiness on approval", async () => {
+    const onApprove = vi.fn();
+
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          documents: [],
+          proposal: { ...proposalDetail.proposal, status: "submitted" },
+        }}
+        onApprove={onApprove}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Decision reason"), {
+      target: { value: "Approve with municipal follow-up" },
+    });
+    fireEvent.change(screen.getByLabelText("Audited permit waiver"), {
+      target: {
+        value: "Municipal permit follows closing under lender exception.",
+      },
+    });
+
+    expect(
+      screen.getByText("Permit waiver reason ready to record on approval."),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    await waitFor(() =>
+      expect(onApprove).toHaveBeenCalledWith(
+        "Approve with municipal follow-up",
+        "Municipal permit follows closing under lender exception.",
+      ),
+    );
+  });
+
   test("shows header budget totals and saves editable proposal terms before live build", async () => {
     let resolveApprovedAmountSave: () => void = () => {};
     const approvedAmountSave = new Promise<void>((resolve) => {
@@ -775,6 +836,65 @@ describe("ProductionProposalReviewSurface", () => {
     expect(screen.getByTestId("timeline-setup-budget-screen")).toBeTruthy();
     expect(screen.getAllByText("Forms and pour").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$12,500").length).toBeGreaterThan(0);
+  });
+
+  test("renders packet satellite context, closing financials, and grouped submilestones", () => {
+    vi.stubEnv("VITE_GOOGLE_MAPS_API_KEY", "maps-key");
+
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          activeBuild: null,
+          loanFacility: {
+            interestAnnualBps: 975,
+            principalCents: 550_000_00,
+          },
+          proposal: {
+            ...proposalDetail.proposal,
+            borrowerCoPayCents: 50_000_00,
+            status: "submitted",
+          },
+          submilestones: [
+            {
+              budgetCents: 12_500_00,
+              durationDays: 2,
+              key: "forms",
+              milestoneKey: "foundation",
+              name: "Forms and pour",
+              startDay: 4,
+            },
+          ],
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+        timeline={<div data-testid="timeline-slot">Timeline workspace</div>}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Packet" }));
+
+    expect(screen.getByText("Build, site, and loan summary")).toBeTruthy();
+    expect(screen.getByText("Closing financials")).toBeTruthy();
+    expect(
+      screen.getByText("Milestone and submilestone worksheet"),
+    ).toBeTruthy();
+    expect(screen.getByText("Forms and pour")).toBeTruthy();
+    expect(screen.getByText("Day 4 to 6")).toBeTruthy();
+    expect(screen.getByText("Borrower co-pay")).toBeTruthy();
+    expect(screen.getByText("$50,000")).toBeTruthy();
+    expect(screen.getByText("Scheduled reimbursements")).toBeTruthy();
+    expect(screen.getAllByText("$400,000").length).toBeGreaterThan(0);
+    expect(screen.getByText("Interest trigger")).toBeTruthy();
+    expect(screen.getByText("Funds released")).toBeTruthy();
+
+    const satellite = screen.getByAltText("Elm Street Build satellite view");
+    const satelliteUrl = new URL(satellite.getAttribute("src") ?? "");
+    expect(satelliteUrl.searchParams.get("center")).toBe("123 Elm Street");
+    expect(satelliteUrl.searchParams.get("maptype")).toBe("satellite");
+    expect(satelliteUrl.searchParams.get("key")).toBe("maps-key");
   });
 
   test("renders contractor planning in its own review tab when provided", () => {

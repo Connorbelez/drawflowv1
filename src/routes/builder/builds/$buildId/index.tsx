@@ -19,7 +19,13 @@ import { api } from "../../../../../convex/_generated/api";
 type BuilderBuildSearch = {
   timeframe?: CalendarTimeframe;
   milestone?: string;
-  tab?: "calendar" | "details" | "gantt" | "materials" | "timeline";
+  tab?:
+    | "calendar"
+    | "details"
+    | "evidence"
+    | "gantt"
+    | "materials"
+    | "timeline";
   rail?: "open" | "closed";
 };
 
@@ -27,6 +33,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
   validateSearch: (search: Record<string, unknown>): BuilderBuildSearch => {
     const tab =
       search.tab === "timeline" ||
+      search.tab === "evidence" ||
       search.tab === "materials" ||
       search.tab === "calendar" ||
       search.tab === "gantt" ||
@@ -71,7 +78,7 @@ function BuilderBuildRoute() {
       : {
           buildId,
           workosOrganizationId,
-        }
+        },
   );
   const effectiveProductionBuild = visualFixtureEnabled
     ? getVisualParityActiveBuildDetail(buildId)
@@ -86,7 +93,7 @@ function BuilderBuildRoute() {
             buildId: activeBuildIdForWorkspace,
             workosOrganizationId,
           }
-        : "skip"
+        : "skip",
   );
   const effectiveTimelineWorkspace = visualFixtureEnabled
     ? getVisualParityActiveBuildTimelineWorkspace(buildId)
@@ -100,16 +107,16 @@ function BuilderBuildRoute() {
             buildId: activeBuildIdForWorkspace,
             workosOrganizationId,
           }
-        : "skip"
+        : "skip",
   );
   const requestDraw = useMutation(
-    api.production_proposals.requestActiveBuildDraw
+    api.production_proposals.requestActiveBuildDraw,
   );
   const requestFacilityChange = useMutation(
-    (api as any).production_proposals.requestActiveBuildFacilityChange
+    (api as any).production_proposals.requestActiveBuildFacilityChange,
   );
   const submitMilestoneCompletion = useMutation(
-    (api as any).production_proposals.submitActiveBuildMilestoneCompletion
+    (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
   );
 
   const onChangeTab = (tab: BuildDetailSubTab) =>

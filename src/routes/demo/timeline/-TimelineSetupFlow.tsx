@@ -19,6 +19,7 @@ import {
   useState,
 } from "react";
 import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
+import { GoogleAddressAutocomplete } from "#/components/address/GoogleAddressAutocomplete.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { cn } from "#/lib/utils.ts";
 import {
@@ -1183,20 +1184,23 @@ function TemplateStep({
         </BlueprintPanel>
 
         <BlueprintPanel>
-          <label className="timeline-setup-address-field">
-            <span>
-              Project Address <em>(optional)</em>
-            </span>
-            <input
-              aria-label="Project address"
-              data-testid="timeline-setup-address-input"
-              onChange={(event) =>
-                onProjectAddressChange(event.currentTarget.value)
-              }
-              placeholder="Enter project address"
-              value={projectAddress}
-            />
-          </label>
+          <GoogleAddressAutocomplete
+            className="timeline-setup-address-field"
+            inputRender={
+              <input
+                aria-label="Project address"
+                data-testid="timeline-setup-address-input"
+              />
+            }
+            label={
+              <span>
+                Project Address <em>(optional)</em>
+              </span>
+            }
+            onChange={onProjectAddressChange}
+            placeholder="Enter project address"
+            value={projectAddress}
+          />
         </BlueprintPanel>
 
         <BlueprintPanel

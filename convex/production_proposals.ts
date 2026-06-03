@@ -923,13 +923,11 @@ function normalizeProductionMilestoneSchedule<
   let largestSubmilestoneEnd = dayStart;
   const submilestones = [...(milestone.submilestones ?? [])]
     .sort(
-      (left, right) => left.order - right.order || left.key.localeCompare(right.key),
+      (left, right) =>
+        left.order - right.order || left.key.localeCompare(right.key),
     )
     .map((submilestone, index) => {
-      const startDay = Math.max(
-        0,
-        Math.round(submilestone.startDay ?? cursor),
-      );
+      const startDay = Math.max(0, Math.round(submilestone.startDay ?? cursor));
       const durationDays = Math.max(
         1,
         Math.round(submilestone.durationDays ?? 1),
@@ -1019,7 +1017,9 @@ async function insertDraftProposalPlanRows(
     totalBudgetCents: 0,
   };
 
-  for (const rawRow of [...input.milestones].sort((a, b) => a.order - b.order)) {
+  for (const rawRow of [...input.milestones].sort(
+    (a, b) => a.order - b.order,
+  )) {
     const schedule = normalizeProductionMilestoneSchedule(rawRow);
     const row = {
       ...rawRow,
@@ -1185,13 +1185,16 @@ async function insertDraftProposalDrawRows(
       ? planRows.milestoneByKey.get(milestoneKey)
       : undefined;
     if (milestoneKey && !milestone) {
-      throw new Error(`Draw ${draw.drawKey} references missing milestone ${milestoneKey}.`);
+      throw new Error(
+        `Draw ${draw.drawKey} references missing milestone ${milestoneKey}.`,
+      );
     }
     const drawId = await ctx.db.insert("proposalDrawScheduleRows", {
       amountCents: Math.max(0, Math.round(draw.amountCents)),
       brokerageId: input.auth.brokerage._id,
       createdAt: input.now,
-      drawKey: draw.drawKey.trim() || `draw-${String(index + 1).padStart(2, "0")}`,
+      drawKey:
+        draw.drawKey.trim() || `draw-${String(index + 1).padStart(2, "0")}`,
       label:
         draw.label.trim() ||
         `${milestone?.key ?? `Draw ${index + 1}`} reimbursement draw`,
@@ -1859,7 +1862,9 @@ export const updateProductionTimelineMilestone = authenticatedMutation
     const nextDayStart = Math.round(args.dayStart ?? milestone.dayStart);
     const existingDurationDays = Math.max(
       1,
-      Math.round(milestone.durationDays ?? milestone.dayEnd - milestone.dayStart),
+      Math.round(
+        milestone.durationDays ?? milestone.dayEnd - milestone.dayStart,
+      ),
     );
     const nextRequestedDurationDays =
       args.durationDays ??
@@ -1897,7 +1902,10 @@ export const updateProductionTimelineMilestone = authenticatedMutation
               startDay:
                 submilestone.startDay === undefined
                   ? undefined
-                  : Math.max(0, Math.round(submilestone.startDay + dayStartDelta)),
+                  : Math.max(
+                      0,
+                      Math.round(submilestone.startDay + dayStartDelta),
+                    ),
             }))
           : args.submilestones,
     });
@@ -7553,6 +7561,866 @@ export const getBackofficeDashboard = authenticatedQuery
   })
   .public();
 
+const siteVisitOperationalStatusValidator = v.union(
+  v.literal("open"),
+  v.literal("in_field"),
+  v.literal("expired"),
+  v.literal("complete"),
+  v.literal("cancelled"),
+);
+
+export const listBrokerageSiteVisits = authenticatedQuery
+  .input({ workosOrganizationId: v.string() })
+  .returns(
+    v.object({
+      builds: v.array(
+        v.object({
+          activeVisitCount: v.number(),
+          buildDisplayId: v.string(),
+          buildId: v.id("activeBuilds"),
+          buildName: v.string(),
+          builderName: v.string(),
+          href: v.string(),
+          location: v.string(),
+          visits: v.array(
+            v.object({
+              buildDisplayId: v.string(),
+              buildHref: v.string(),
+              buildId: v.id("activeBuilds"),
+              buildName: v.string(),
+              builderName: v.string(),
+              completedAt: v.optional(v.string()),
+              geofenceFlagged: v.boolean(),
+              location: v.string(),
+              milestoneKey: v.string(),
+              milestoneName: v.string(),
+              milestoneReviewStatus: v.optional(v.string()),
+              note: v.optional(v.string()),
+              operationalStatus: siteVisitOperationalStatusValidator,
+              recordNote: v.optional(v.string()),
+              recommendedOutcome: v.optional(v.string()),
+              requestedAt: v.string(),
+              requestedDay: v.number(),
+              scheduledDateLabel: v.string(),
+              tokenExpiresAt: v.number(),
+              tokenMsRemaining: v.number(),
+              tokenOpenedAt: v.optional(v.number()),
+              tokenState: v.union(
+                v.literal("not_sent"),
+                v.literal("live"),
+                v.literal("opened"),
+                v.literal("consumed"),
+                v.literal("expired"),
+              ),
+              updatedAt: v.number(),
+              url: v.string(),
+              visitId: v.string(),
+            }),
+          ),
+        }),
+      ),
+      summary: v.object({
+        cancelled: v.number(),
+        complete: v.number(),
+        expiringWithin15Min: v.number(),
+        expired: v.number(),
+        geofenceFlagged: v.number(),
+        inField: v.number(),
+        open: v.number(),
+        total: v.number(),
+      }),
+      visits: v.array(
+        v.object({
+          buildDisplayId: v.string(),
+          buildHref: v.string(),
+          buildId: v.id("activeBuilds"),
+          buildName: v.string(),
+          builderName: v.string(),
+          completedAt: v.optional(v.string()),
+          geofenceFlagged: v.boolean(),
+          location: v.string(),
+          milestoneKey: v.string(),
+          milestoneName: v.string(),
+          milestoneReviewStatus: v.optional(v.string()),
+          note: v.optional(v.string()),
+          operationalStatus: siteVisitOperationalStatusValidator,
+          recordNote: v.optional(v.string()),
+          recommendedOutcome: v.optional(v.string()),
+          requestedAt: v.string(),
+          requestedDay: v.number(),
+          scheduledDateLabel: v.string(),
+          tokenExpiresAt: v.number(),
+          tokenMsRemaining: v.number(),
+          tokenOpenedAt: v.optional(v.number()),
+          tokenState: v.union(
+            v.literal("not_sent"),
+            v.literal("live"),
+            v.literal("opened"),
+            v.literal("consumed"),
+            v.literal("expired"),
+          ),
+          updatedAt: v.number(),
+          url: v.string(),
+          visitId: v.string(),
+        }),
+      ),
+    }),
+  )
+  .handler(async (ctx, args) => {
+    const scope = await resolveBrokerageScope(ctx, args.workosOrganizationId);
+    if (!isBackoffice(scope.roles)) {
+      throw new Error("Forbidden: backoffice");
+    }
+    if (!scope.brokerage) {
+      throw new Error("Forbidden: brokerage");
+    }
+    const brokerageId = scope.brokerage._id;
+    const now = Date.now();
+    const visitRows = await ctx.db
+      .query("buildSiteVisits")
+      .withIndex("by_brokerage", (q) => q.eq("brokerageId", brokerageId))
+      .collect();
+    const scopedVisits = visitRows.filter(
+      (visit) => visit.organizationId === args.workosOrganizationId,
+    );
+    scopedVisits.sort((a, b) => b.updatedAt - a.updatedAt);
+
+    const buildIds = [...new Set(scopedVisits.map((visit) => visit.buildId))];
+    const builds = new Map<Id<"activeBuilds">, Doc<"activeBuilds"> | null>();
+    const builders = new Map<
+      Id<"builderProfiles">,
+      Doc<"builderProfiles"> | null
+    >();
+    const milestones = new Map<string, Doc<"buildMilestones"> | null>();
+    const geofenceByMilestone = new Map<string, boolean>();
+
+    await Promise.all(
+      buildIds.map(async (buildId) => {
+        const build = await ctx.db.get(buildId);
+        builds.set(buildId, build);
+        if (build?.builderProfileId) {
+          if (!builders.has(build.builderProfileId)) {
+            builders.set(
+              build.builderProfileId,
+              await ctx.db.get(build.builderProfileId),
+            );
+          }
+        }
+        const evidenceAssets = await ctx.db
+          .query("buildEvidenceAssets")
+          .withIndex("by_build", (q) => q.eq("buildId", buildId))
+          .collect();
+        for (const asset of evidenceAssets) {
+          if (asset.locationVerified) {
+            continue;
+          }
+          const key = `${String(buildId)}:${asset.milestoneKey}`;
+          geofenceByMilestone.set(key, true);
+        }
+      }),
+    );
+
+    await Promise.all(
+      scopedVisits.map(async (visit) => {
+        const milestoneKey = `${String(visit.buildId)}:${visit.milestoneKey}`;
+        if (milestones.has(milestoneKey)) {
+          return;
+        }
+        milestones.set(milestoneKey, await ctx.db.get(visit.buildMilestoneId));
+      }),
+    );
+
+    const visits = scopedVisits.map((visit) => {
+      const build = builds.get(visit.buildId);
+      const builder =
+        build?.builderProfileId != null
+          ? builders.get(build.builderProfileId)
+          : null;
+      const milestone =
+        milestones.get(`${String(visit.buildId)}:${visit.milestoneKey}`) ??
+        null;
+      const tokenState = productionSiteVisitTokenState(visit, now);
+      const operationalStatus = productionSiteVisitOperationalStatus(
+        visit,
+        now,
+      );
+      const geofenceFlagged =
+        geofenceByMilestone.get(
+          `${String(visit.buildId)}:${visit.milestoneKey}`,
+        ) ?? false;
+      const scheduledDateLabel = build
+        ? productionSiteVisitScheduledLabel(build.startDate, visit.requestedDay)
+        : `Day ${visit.requestedDay}`;
+      return {
+        buildDisplayId: build ? productionBuildDisplayId(build) : "Build",
+        buildHref: `/backoffice/builds/${String(visit.buildId)}`,
+        buildId: visit.buildId,
+        buildName: build?.buildName ?? "Unknown build",
+        builderName: builder?.displayName ?? "Builder",
+        completedAt: visit.completedAt,
+        geofenceFlagged,
+        location: build?.location ?? "",
+        milestoneKey: visit.milestoneKey,
+        milestoneName: milestone?.name ?? visit.milestoneKey,
+        milestoneReviewStatus: milestone?.completionReview?.status,
+        note: visit.note,
+        operationalStatus,
+        recordNote: visit.recordNote,
+        recommendedOutcome:
+          milestone?.completionReview?.siteVisit?.recommendedOutcome,
+        requestedAt: visit.requestedAt,
+        requestedDay: visit.requestedDay,
+        scheduledDateLabel,
+        tokenExpiresAt: visit.tokenExpiresAt,
+        tokenMsRemaining: Math.max(0, visit.tokenExpiresAt - now),
+        tokenOpenedAt: visit.tokenOpenedAt,
+        tokenState,
+        updatedAt: visit.updatedAt,
+        url: visit.url,
+        visitId: visit.visitId,
+      };
+    });
+
+    visits.sort((a, b) => {
+      const urgency = productionSiteVisitUrgencyRank(a.operationalStatus);
+      const urgencyB = productionSiteVisitUrgencyRank(b.operationalStatus);
+      if (urgency !== urgencyB) {
+        return urgency - urgencyB;
+      }
+      if (a.operationalStatus === "expired" || a.operationalStatus === "open") {
+        return a.tokenMsRemaining - b.tokenMsRemaining;
+      }
+      return b.updatedAt - a.updatedAt;
+    });
+
+    const summary = {
+      cancelled: visits.filter(
+        (visit) => visit.operationalStatus === "cancelled",
+      ).length,
+      complete: visits.filter((visit) => visit.operationalStatus === "complete")
+        .length,
+      expiringWithin15Min: visits.filter(
+        (visit) =>
+          visit.operationalStatus === "open" &&
+          visit.tokenMsRemaining > 0 &&
+          visit.tokenMsRemaining <= 15 * 60 * 1000,
+      ).length,
+      expired: visits.filter((visit) => visit.operationalStatus === "expired")
+        .length,
+      geofenceFlagged: visits.filter((visit) => visit.geofenceFlagged).length,
+      inField: visits.filter((visit) => visit.operationalStatus === "in_field")
+        .length,
+      open: visits.filter((visit) => visit.operationalStatus === "open").length,
+      total: visits.length,
+    };
+
+    const buildsGrouped = new Map<
+      string,
+      {
+        activeVisitCount: number;
+        buildDisplayId: string;
+        buildId: Id<"activeBuilds">;
+        buildName: string;
+        builderName: string;
+        href: string;
+        location: string;
+        visits: typeof visits;
+      }
+    >();
+    for (const visit of visits) {
+      const key = String(visit.buildId);
+      const existing = buildsGrouped.get(key);
+      const isActive =
+        visit.operationalStatus === "open" ||
+        visit.operationalStatus === "in_field" ||
+        visit.operationalStatus === "expired";
+      if (existing) {
+        existing.visits.push(visit);
+        if (isActive) {
+          existing.activeVisitCount += 1;
+        }
+        continue;
+      }
+      buildsGrouped.set(key, {
+        activeVisitCount: isActive ? 1 : 0,
+        buildDisplayId: visit.buildDisplayId,
+        buildId: visit.buildId,
+        buildName: visit.buildName,
+        builderName: visit.builderName,
+        href: visit.buildHref,
+        location: visit.location,
+        visits: [visit],
+      });
+    }
+
+    const buildsOut = [...buildsGrouped.values()].sort((a, b) => {
+      if (a.activeVisitCount !== b.activeVisitCount) {
+        return b.activeVisitCount - a.activeVisitCount;
+      }
+      return a.buildName.localeCompare(b.buildName);
+    });
+
+    return { builds: buildsOut, summary, visits };
+  })
+  .public();
+
+const productionBuildDrawStatusValidator = v.union(
+  v.literal("planned"),
+  v.literal("requested"),
+  v.literal("approved"),
+  v.literal("rejected"),
+  v.literal("released"),
+);
+
+const brokerageDrawRowValidator = v.object({
+  amountCents: v.number(),
+  buildDisplayId: v.string(),
+  buildHref: v.string(),
+  buildId: v.id("activeBuilds"),
+  buildName: v.string(),
+  builderName: v.string(),
+  drawId: v.id("plannedDrawScheduleRows"),
+  drawKey: v.string(),
+  label: v.string(),
+  location: v.string(),
+  milestoneKey: v.optional(v.string()),
+  milestoneName: v.optional(v.string()),
+  requestNote: v.optional(v.string()),
+  requestReviewNote: v.optional(v.string()),
+  requestedAt: v.optional(v.string()),
+  reviewedAt: v.optional(v.string()),
+  releaseDate: v.optional(v.string()),
+  releasedAt: v.optional(v.string()),
+  scheduledDateIso: v.string(),
+  scheduledDateLabel: v.string(),
+  status: productionBuildDrawStatusValidator,
+  timingDay: v.number(),
+  updatedAt: v.number(),
+});
+
+export const listBrokerageDraws = authenticatedQuery
+  .input({ workosOrganizationId: v.string() })
+  .returns(
+    v.object({
+      builds: v.array(
+        v.object({
+          buildDisplayId: v.string(),
+          buildId: v.id("activeBuilds"),
+          buildName: v.string(),
+          builderName: v.string(),
+          draws: v.array(brokerageDrawRowValidator),
+          href: v.string(),
+          location: v.string(),
+          openDrawCount: v.number(),
+        }),
+      ),
+      chartSeries: v.array(
+        v.object({
+          approvedCents: v.number(),
+          periodKey: v.string(),
+          periodLabel: v.string(),
+          plannedCents: v.number(),
+          releasedCents: v.number(),
+          requestedCents: v.number(),
+        }),
+      ),
+      draws: v.array(brokerageDrawRowValidator),
+      exposureSnapshot: v.array(
+        v.object({
+          amountCents: v.number(),
+          label: v.string(),
+          status: productionBuildDrawStatusValidator,
+        }),
+      ),
+      summary: v.object({
+        approved: v.number(),
+        exposureApprovedCents: v.number(),
+        exposureRequestedCents: v.number(),
+        planned: v.number(),
+        rejected: v.number(),
+        released: v.number(),
+        releasedCents: v.number(),
+        requested: v.number(),
+        total: v.number(),
+        upcomingPlannedCents: v.number(),
+      }),
+    }),
+  )
+  .handler(async (ctx, args) => {
+    const scope = await resolveBrokerageScope(ctx, args.workosOrganizationId);
+    if (!isBackoffice(scope.roles)) {
+      throw new Error("Forbidden: backoffice");
+    }
+    if (!scope.brokerage) {
+      throw new Error("Forbidden: brokerage");
+    }
+    const auth = {
+      brokerage: scope.brokerage,
+      roles: scope.roles,
+      subject: scope.subject,
+    };
+    const staffCanRead =
+      auth.roles.includes("broker-staff") &&
+      (await hasPermission(
+        ctx,
+        auth.brokerage.workosOrganizationId,
+        auth.roles,
+        "proposals:read",
+      ));
+
+    const activeBuildRows = await ctx.db
+      .query("activeBuilds")
+      .withIndex("by_brokerage", (q) => q.eq("brokerageId", auth.brokerage._id))
+      .collect();
+    const scopedBuilds = activeBuildRows.filter(
+      (build) => build.organizationId === args.workosOrganizationId,
+    );
+
+    const builders = new Map<
+      Id<"builderProfiles">,
+      Doc<"builderProfiles"> | null
+    >();
+    const milestones = new Map<string, Doc<"buildMilestones"> | null>();
+    const draws: Array<{
+      amountCents: number;
+      buildDisplayId: string;
+      buildHref: string;
+      buildId: Id<"activeBuilds">;
+      buildName: string;
+      builderName: string;
+      drawId: Id<"plannedDrawScheduleRows">;
+      drawKey: string;
+      label: string;
+      location: string;
+      milestoneKey?: string;
+      milestoneName?: string;
+      requestNote?: string;
+      requestReviewNote?: string;
+      requestedAt?: string;
+      reviewedAt?: string;
+      releaseDate?: string;
+      releasedAt?: string;
+      scheduledDateIso: string;
+      scheduledDateLabel: string;
+      status: Doc<"plannedDrawScheduleRows">["status"];
+      timingDay: number;
+      updatedAt: number;
+    }> = [];
+
+    for (const build of scopedBuilds) {
+      const proposal = await ctx.db.get(build.proposalId);
+      if (!proposal) {
+        continue;
+      }
+      if (!(canReadBackofficeProposal(auth, proposal) || staffCanRead)) {
+        continue;
+      }
+      if (!builders.has(build.builderProfileId)) {
+        builders.set(
+          build.builderProfileId,
+          await ctx.db.get(build.builderProfileId),
+        );
+      }
+      const builder = builders.get(build.builderProfileId);
+      const drawRows = await ctx.db
+        .query("plannedDrawScheduleRows")
+        .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
+        .collect();
+
+      for (const draw of drawRows) {
+        const milestoneKey = draw.milestoneKey;
+        let milestone: Doc<"buildMilestones"> | null = null;
+        if (milestoneKey) {
+          const milestoneCacheKey = `${String(build._id)}:${milestoneKey}`;
+          if (!milestones.has(milestoneCacheKey)) {
+            const milestoneRows = await ctx.db
+              .query("buildMilestones")
+              .withIndex("by_build_key", (q) =>
+                q.eq("buildId", build._id).eq("key", milestoneKey),
+              )
+              .take(1);
+            milestones.set(milestoneCacheKey, milestoneRows[0] ?? null);
+          }
+          milestone = milestones.get(milestoneCacheKey) ?? null;
+        }
+        const scheduledDateIso =
+          draw.releaseDate ??
+          draw.releasedAt?.slice(0, 10) ??
+          addDaysIso(build.startDate, draw.timingDay);
+        draws.push({
+          amountCents: draw.amountCents,
+          buildDisplayId: productionBuildDisplayId(build),
+          buildHref: `/backoffice/builds/${String(build._id)}?tab=timeline&draw=${draw.drawKey}`,
+          buildId: build._id,
+          buildName: build.buildName,
+          builderName: builder?.displayName ?? "Builder",
+          drawId: draw._id,
+          drawKey: draw.drawKey,
+          label: draw.label,
+          location: build.location,
+          milestoneKey,
+          milestoneName: milestone?.name,
+          requestNote: draw.requestNote,
+          requestReviewNote: draw.requestReviewNote,
+          requestedAt: draw.requestedAt,
+          reviewedAt: draw.reviewedAt,
+          releaseDate: draw.releaseDate,
+          releasedAt: draw.releasedAt,
+          scheduledDateIso,
+          scheduledDateLabel: scheduledDateIso,
+          status: draw.status,
+          timingDay: draw.timingDay,
+          updatedAt: draw.updatedAt,
+        });
+      }
+    }
+
+    draws.sort((a, b) => {
+      const urgency = productionDrawUrgencyRank(a.status);
+      const urgencyB = productionDrawUrgencyRank(b.status);
+      if (urgency !== urgencyB) {
+        return urgency - urgencyB;
+      }
+      if (a.status === "requested" || a.status === "approved") {
+        return b.updatedAt - a.updatedAt;
+      }
+      return a.scheduledDateIso.localeCompare(b.scheduledDateIso);
+    });
+
+    const summary = {
+      approved: draws.filter((draw) => draw.status === "approved").length,
+      exposureApprovedCents: draws
+        .filter((draw) => draw.status === "approved")
+        .reduce((sum, draw) => sum + draw.amountCents, 0),
+      exposureRequestedCents: draws
+        .filter((draw) => draw.status === "requested")
+        .reduce((sum, draw) => sum + draw.amountCents, 0),
+      planned: draws.filter((draw) => draw.status === "planned").length,
+      rejected: draws.filter((draw) => draw.status === "rejected").length,
+      released: draws.filter((draw) => draw.status === "released").length,
+      releasedCents: draws
+        .filter((draw) => draw.status === "released")
+        .reduce((sum, draw) => sum + draw.amountCents, 0),
+      requested: draws.filter((draw) => draw.status === "requested").length,
+      total: draws.length,
+      upcomingPlannedCents: draws
+        .filter((draw) => draw.status === "planned")
+        .reduce((sum, draw) => sum + draw.amountCents, 0),
+    };
+
+    const exposureSnapshot = (
+      [
+        ["requested", "Under review"],
+        ["approved", "Approved to release"],
+        ["planned", "Upcoming planned"],
+        ["released", "Released"],
+        ["rejected", "Rejected"],
+      ] as const
+    ).map(([status, label]) => ({
+      amountCents: draws
+        .filter((draw) => draw.status === status)
+        .reduce((sum, draw) => sum + draw.amountCents, 0),
+      label,
+      status,
+    }));
+
+    const chartSeries = buildBrokerageDrawChartSeries(draws);
+
+    const buildsGrouped = new Map<
+      string,
+      {
+        buildDisplayId: string;
+        buildId: Id<"activeBuilds">;
+        buildName: string;
+        builderName: string;
+        draws: typeof draws;
+        href: string;
+        location: string;
+        openDrawCount: number;
+      }
+    >();
+    for (const draw of draws) {
+      const key = String(draw.buildId);
+      const isOpen =
+        draw.status === "requested" ||
+        draw.status === "approved" ||
+        draw.status === "planned";
+      const existing = buildsGrouped.get(key);
+      if (existing) {
+        existing.draws.push(draw);
+        if (isOpen) {
+          existing.openDrawCount += 1;
+        }
+        continue;
+      }
+      buildsGrouped.set(key, {
+        buildDisplayId: draw.buildDisplayId,
+        buildId: draw.buildId,
+        buildName: draw.buildName,
+        builderName: draw.builderName,
+        draws: [draw],
+        href: `/backoffice/builds/${String(draw.buildId)}?tab=timeline`,
+        location: draw.location,
+        openDrawCount: isOpen ? 1 : 0,
+      });
+    }
+
+    const buildsOut = [...buildsGrouped.values()].sort((a, b) => {
+      if (a.openDrawCount !== b.openDrawCount) {
+        return b.openDrawCount - a.openDrawCount;
+      }
+      return a.buildName.localeCompare(b.buildName);
+    });
+
+    return {
+      builds: buildsOut,
+      chartSeries,
+      draws,
+      exposureSnapshot,
+      summary,
+    };
+  })
+  .public();
+
+const buildRosterPhaseValidator = v.union(
+  v.literal("scheduled"),
+  v.literal("active"),
+  v.literal("attention"),
+  v.literal("completed"),
+);
+
+export const listBackofficeBuildRoster = authenticatedQuery
+  .input({ workosOrganizationId: v.string() })
+  .returns(
+    v.object({
+      builds: v.array(
+        v.object({
+          buildId: v.id("activeBuilds"),
+          buildName: v.string(),
+          buildStatus: v.union(v.literal("active"), v.literal("future_start")),
+          buildStatusLabel: v.string(),
+          builderName: v.string(),
+          closedAt: v.optional(v.number()),
+          daysActive: v.number(),
+          displayId: v.string(),
+          drawRequestsPending: v.number(),
+          href: v.string(),
+          loanStatus: v.optional(
+            v.union(v.literal("active"), v.literal("closed")),
+          ),
+          location: v.string(),
+          milestonesComplete: v.number(),
+          milestonesInReview: v.number(),
+          milestonesTotal: v.number(),
+          activeMilestoneName: v.string(),
+          phase: buildRosterPhaseValidator,
+          proposalStatus: v.union(
+            v.literal("approved"),
+            v.literal("closed"),
+            v.literal("draft"),
+            v.literal("submitted"),
+          ),
+          siteVisitsExpired: v.number(),
+          siteVisitsOpen: v.number(),
+          startDate: v.string(),
+          totalBudgetCents: v.number(),
+          updatedAt: v.number(),
+        }),
+      ),
+      summary: v.object({
+        active: v.number(),
+        attention: v.number(),
+        completed: v.number(),
+        scheduled: v.number(),
+        total: v.number(),
+      }),
+    }),
+  )
+  .handler(async (ctx, args) => {
+    const scope = await resolveBrokerageScope(ctx, args.workosOrganizationId);
+    if (!isBackoffice(scope.roles)) {
+      throw new Error("Forbidden: backoffice");
+    }
+    if (!scope.brokerage) {
+      throw new Error("Forbidden: brokerage");
+    }
+    const auth = {
+      brokerage: scope.brokerage,
+      roles: scope.roles,
+      subject: scope.subject,
+    };
+    const staffCanRead =
+      auth.roles.includes("broker-staff") &&
+      (await hasPermission(
+        ctx,
+        auth.brokerage.workosOrganizationId,
+        auth.roles,
+        "proposals:read",
+      ));
+    const now = Date.now();
+    const brokerageId = auth.brokerage._id;
+
+    const [buildRows, visitRows] = await Promise.all([
+      ctx.db
+        .query("activeBuilds")
+        .withIndex("by_brokerage", (q) => q.eq("brokerageId", brokerageId))
+        .collect(),
+      ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_brokerage", (q) => q.eq("brokerageId", brokerageId))
+        .collect(),
+    ]);
+
+    const visitsByBuild = new Map<
+      string,
+      {
+        expired: number;
+        open: number;
+      }
+    >();
+    for (const visit of visitRows) {
+      if (visit.organizationId !== args.workosOrganizationId) {
+        continue;
+      }
+      const key = String(visit.buildId);
+      const bucket = visitsByBuild.get(key) ?? { expired: 0, open: 0 };
+      const operationalStatus = productionSiteVisitOperationalStatus(
+        visit,
+        now,
+      );
+      if (operationalStatus === "expired") {
+        bucket.expired += 1;
+      }
+      if (operationalStatus === "open" || operationalStatus === "in_field") {
+        bucket.open += 1;
+      }
+      visitsByBuild.set(key, bucket);
+    }
+
+    const rosterBuilds: Array<{
+      buildId: Id<"activeBuilds">;
+      buildName: string;
+      buildStatus: Doc<"activeBuilds">["status"];
+      buildStatusLabel: string;
+      builderName: string;
+      closedAt?: number;
+      daysActive: number;
+      displayId: string;
+      drawRequestsPending: number;
+      href: string;
+      loanStatus?: "active" | "closed";
+      location: string;
+      milestonesComplete: number;
+      milestonesInReview: number;
+      milestonesTotal: number;
+      activeMilestoneName: string;
+      phase: "scheduled" | "active" | "attention" | "completed";
+      proposalStatus: Doc<"buildProposals">["status"];
+      siteVisitsExpired: number;
+      siteVisitsOpen: number;
+      startDate: string;
+      totalBudgetCents: number;
+      updatedAt: number;
+    }> = [];
+
+    for (const build of buildRows) {
+      if (build.organizationId !== args.workosOrganizationId) {
+        continue;
+      }
+      const proposal = await ctx.db.get(build.proposalId);
+      if (!proposal) {
+        continue;
+      }
+      if (!(canReadBackofficeProposal(auth, proposal) || staffCanRead)) {
+        continue;
+      }
+
+      const [builder, milestones, draws, loan] = await Promise.all([
+        ctx.db.get(build.builderProfileId),
+        ctx.db
+          .query("buildMilestones")
+          .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
+          .take(100),
+        ctx.db
+          .query("plannedDrawScheduleRows")
+          .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
+          .take(100),
+        ctx.db
+          .query("loanFacilities")
+          .withIndex("by_build", (q) => q.eq("buildId", build._id))
+          .unique(),
+      ]);
+
+      const visitCounts = visitsByBuild.get(String(build._id)) ?? {
+        expired: 0,
+        open: 0,
+      };
+      const milestonesComplete = milestones.filter(
+        (milestone) => milestone.status === "complete",
+      ).length;
+      const milestonesInReview = milestones.filter(
+        productionMilestoneNeedsBackofficeReview,
+      ).length;
+      const drawRequestsPending = draws.filter(
+        (draw) => draw.status === "requested",
+      ).length;
+      const activeMilestone =
+        milestones.find((milestone) => milestone.status !== "complete") ??
+        milestones[0];
+
+      const phase = productionBuildRosterPhase({
+        build,
+        drawRequestsPending,
+        expiredSiteVisits: visitCounts.expired,
+        loan,
+        milestones,
+        milestonesInReview,
+      });
+
+      rosterBuilds.push({
+        activeMilestoneName:
+          activeMilestone?.name ?? `${milestones.length} milestones`,
+        buildId: build._id,
+        buildName: build.buildName,
+        buildStatus: build.status,
+        buildStatusLabel: productionBuildStatusLabel(build.status),
+        builderName: builder?.displayName ?? "Builder",
+        ...(proposal.closedAt !== undefined
+          ? { closedAt: proposal.closedAt }
+          : {}),
+        daysActive: productionDaysActive(build.startDate),
+        displayId: productionBuildDisplayId(build),
+        drawRequestsPending,
+        href: `/backoffice/builds/${build._id}`,
+        ...(loan ? { loanStatus: loan.status } : {}),
+        location: build.location,
+        milestonesComplete,
+        milestonesInReview,
+        milestonesTotal: milestones.length,
+        phase,
+        proposalStatus: proposal.status,
+        siteVisitsExpired: visitCounts.expired,
+        siteVisitsOpen: visitCounts.open,
+        startDate: build.startDate,
+        totalBudgetCents: build.totalBudgetCents,
+        updatedAt: build.updatedAt,
+      });
+    }
+
+    rosterBuilds.sort((a, b) => b.updatedAt - a.updatedAt);
+
+    const summary = {
+      active: rosterBuilds.filter((row) => row.phase === "active").length,
+      attention: rosterBuilds.filter((row) => row.phase === "attention").length,
+      completed: rosterBuilds.filter((row) => row.phase === "completed").length,
+      scheduled: rosterBuilds.filter((row) => row.phase === "scheduled").length,
+      total: rosterBuilds.length,
+    };
+
+    return { builds: rosterBuilds, summary };
+  })
+  .public();
+
 export const listUnassignedDraftProposals = authenticatedQuery
   .input({ workosOrganizationId: v.string() })
   .returns(v.any())
@@ -7753,6 +8621,48 @@ export const deleteDraftProposal = authenticatedMutation
   })
   .public();
 
+export const deleteActiveBuild = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    reason: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId,
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    requireReason(args.reason);
+    const priorState = JSON.stringify({
+      buildName: auth.build.buildName,
+      location: auth.build.location,
+      proposalId: auth.build.proposalId,
+      status: auth.build.status,
+    });
+    await deleteActiveBuildCascade(ctx, args.buildId);
+    const now = Date.now();
+    if (auth.proposal.activeBuildId === args.buildId) {
+      await ctx.db.patch(auth.proposal._id, {
+        activeBuildId: undefined,
+        updatedAt: now,
+        updatedByWorkosUserId: auth.subject,
+      });
+    }
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "deleteActiveBuild",
+      eventType: "active_build.deleted",
+      priorState,
+      reason: args.reason,
+    });
+    return null;
+  })
+  .public();
+
 export const getProductionProposalSettings = authenticatedQuery
   .input({ workosOrganizationId: v.string() })
   .returns(v.any())
@@ -7883,10 +8793,9 @@ export const createProductionProposalTemplate = authenticatedMutation
     }
 
     const priorState = JSON.stringify({
-      templateCount: (await collectProposalTemplateDetails(
-        ctx,
-        auth.brokerage._id,
-      )).length,
+      templateCount: (
+        await collectProposalTemplateDetails(ctx, auth.brokerage._id)
+      ).length,
     });
     const now = Date.now();
     const templateId = await upsertProductionSettingsTemplate(ctx, {
@@ -8190,6 +9099,10 @@ export const getActiveBuildDetailByString = authenticatedQuery
       displayId: productionBuildDisplayId(build),
       documents: await withBuildDocumentStorageUrls(ctx, buildDocuments),
       draws,
+      evidenceAssets: await withBuildEvidenceAssetStorageUrls(
+        ctx,
+        buildEvidenceAssets,
+      ),
       facilityChangeRequests: (
         facilityChangeRequests as Doc<"activeBuildFacilityChangeRequests">[]
       )
@@ -8913,7 +9826,9 @@ export const updateActiveBuildTimelineMilestone = authenticatedMutation
     const nextDayStart = Math.round(args.dayStart ?? milestone.dayStart);
     const existingDurationDays = Math.max(
       1,
-      Math.round(milestone.durationDays ?? milestone.dayEnd - milestone.dayStart),
+      Math.round(
+        milestone.durationDays ?? milestone.dayEnd - milestone.dayStart,
+      ),
     );
     const nextRequestedDurationDays =
       args.durationDays ??
@@ -8932,9 +9847,7 @@ export const updateActiveBuildTimelineMilestone = authenticatedMutation
     const dayStartDelta = nextDayStart - Math.round(milestone.dayStart);
     const existingSubmilestones = (await ctx.db
       .query("buildSubmilestones")
-      .withIndex("by_milestone", (q) =>
-        q.eq("buildMilestoneId", milestone._id),
-      )
+      .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", milestone._id))
       .collect()) as Doc<"buildSubmilestones">[];
     const schedule = normalizeProductionMilestoneSchedule({
       dayEnd: nextDayEnd,
@@ -8951,7 +9864,10 @@ export const updateActiveBuildTimelineMilestone = authenticatedMutation
               startDay:
                 submilestone.startDay === undefined
                   ? undefined
-                  : Math.max(0, Math.round(submilestone.startDay + dayStartDelta)),
+                  : Math.max(
+                      0,
+                      Math.round(submilestone.startDay + dayStartDelta),
+                    ),
             }))
           : args.submilestones,
     });
@@ -11395,6 +12311,180 @@ function productionBuildDisplayId(build: Doc<"activeBuilds">) {
   return `B-${String(build._id).slice(-8).toUpperCase()}`;
 }
 
+function productionDrawUrgencyRank(
+  status: Doc<"plannedDrawScheduleRows">["status"],
+): number {
+  switch (status) {
+    case "requested":
+      return 0;
+    case "approved":
+      return 1;
+    case "planned":
+      return 2;
+    case "released":
+      return 3;
+  }
+  return 4;
+}
+
+function productionDrawMonthLabel(monthKey: string) {
+  const [yearText, monthText] = monthKey.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  if (!Number.isFinite(year) || !Number.isFinite(month)) {
+    return monthKey;
+  }
+  return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString("en-US", {
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function buildBrokerageDrawChartSeries(
+  draws: Array<{
+    amountCents: number;
+    scheduledDateIso: string;
+    status: Doc<"plannedDrawScheduleRows">["status"];
+  }>,
+) {
+  const bucketTotals = new Map<
+    string,
+    {
+      approvedCents: number;
+      plannedCents: number;
+      releasedCents: number;
+      requestedCents: number;
+    }
+  >();
+  for (const draw of draws) {
+    if (draw.status === "rejected") {
+      continue;
+    }
+    const periodKey = draw.scheduledDateIso.slice(0, 7);
+    const existing = bucketTotals.get(periodKey) ?? {
+      approvedCents: 0,
+      plannedCents: 0,
+      releasedCents: 0,
+      requestedCents: 0,
+    };
+    if (draw.status === "planned") {
+      existing.plannedCents += draw.amountCents;
+    } else if (draw.status === "requested") {
+      existing.requestedCents += draw.amountCents;
+    } else if (draw.status === "approved") {
+      existing.approvedCents += draw.amountCents;
+    } else if (draw.status === "released") {
+      existing.releasedCents += draw.amountCents;
+    }
+    bucketTotals.set(periodKey, existing);
+  }
+  const periodKeys = [...bucketTotals.keys()].sort();
+  if (periodKeys.length === 0) {
+    return [];
+  }
+  return periodKeys.map((periodKey) => {
+    const totals = bucketTotals.get(periodKey)!;
+    return {
+      approvedCents: totals.approvedCents,
+      periodKey,
+      periodLabel: productionDrawMonthLabel(periodKey),
+      plannedCents: totals.plannedCents,
+      releasedCents: totals.releasedCents,
+      requestedCents: totals.requestedCents,
+    };
+  });
+}
+
+type ProductionSiteVisitOperationalStatus =
+  | "open"
+  | "in_field"
+  | "expired"
+  | "complete"
+  | "cancelled";
+
+function productionSiteVisitOperationalStatus(
+  visit: Pick<
+    Doc<"buildSiteVisits">,
+    "status" | "tokenConsumedAt" | "tokenExpiresAt" | "tokenOpenedAt"
+  >,
+  now = Date.now(),
+): ProductionSiteVisitOperationalStatus {
+  if (visit.status === "complete") {
+    return "complete";
+  }
+  if (visit.status === "cancelled") {
+    return "cancelled";
+  }
+  if (visit.tokenExpiresAt <= now) {
+    return "expired";
+  }
+  if (visit.tokenOpenedAt) {
+    return "in_field";
+  }
+  return "open";
+}
+
+function productionSiteVisitTokenState(
+  visit: Pick<
+    Doc<"buildSiteVisits">,
+    "status" | "tokenConsumedAt" | "tokenExpiresAt" | "tokenOpenedAt"
+  >,
+  now = Date.now(),
+): "not_sent" | "live" | "opened" | "consumed" | "expired" {
+  if (visit.tokenConsumedAt) {
+    return "consumed";
+  }
+  if (visit.status === "complete") {
+    return "consumed";
+  }
+  if (visit.status === "cancelled") {
+    return "expired";
+  }
+  if (visit.tokenExpiresAt <= now) {
+    return "expired";
+  }
+  if (visit.tokenOpenedAt) {
+    return "opened";
+  }
+  return "live";
+}
+
+function productionSiteVisitUrgencyRank(
+  status: ProductionSiteVisitOperationalStatus,
+) {
+  switch (status) {
+    case "expired":
+      return 0;
+    case "open":
+      return 1;
+    case "in_field":
+      return 2;
+    case "complete":
+      return 3;
+    case "cancelled":
+      return 4;
+    default:
+      return 5;
+  }
+}
+
+function productionSiteVisitScheduledLabel(
+  buildStartDate: string,
+  requestedDay: number,
+) {
+  const startMs = Date.parse(`${buildStartDate}T00:00:00Z`);
+  if (!Number.isFinite(startMs)) {
+    return `Day ${requestedDay}`;
+  }
+  const scheduled = new Date(startMs + requestedDay * 86_400_000);
+  return scheduled.toLocaleDateString("en-US", {
+    day: "numeric",
+    month: "short",
+    weekday: "short",
+  });
+}
+
 function productionDaysActive(startDate: string) {
   const startMs = Date.parse(`${startDate}T00:00:00Z`);
   if (!Number.isFinite(startMs)) {
@@ -11540,6 +12630,40 @@ function productionBuildDashboardStatus(
 
 function productionBuildStatusLabel(status: Doc<"activeBuilds">["status"]) {
   return status === "future_start" ? "Future start" : "On track";
+}
+
+function productionBuildRosterPhase({
+  build,
+  drawRequestsPending,
+  expiredSiteVisits,
+  loan,
+  milestones,
+  milestonesInReview,
+}: {
+  build: Doc<"activeBuilds">;
+  drawRequestsPending: number;
+  expiredSiteVisits: number;
+  loan: Doc<"loanFacilities"> | null;
+  milestones: Doc<"buildMilestones">[];
+  milestonesInReview: number;
+}): "scheduled" | "active" | "attention" | "completed" {
+  if (build.status === "future_start") {
+    return "scheduled";
+  }
+  const allMilestonesComplete =
+    milestones.length > 0 &&
+    milestones.every((milestone) => milestone.status === "complete");
+  if (loan?.status === "closed" || allMilestonesComplete) {
+    return "completed";
+  }
+  if (
+    expiredSiteVisits > 0 ||
+    drawRequestsPending > 0 ||
+    milestonesInReview > 0
+  ) {
+    return "attention";
+  }
+  return "active";
 }
 
 function productionMilestoneState(
@@ -14489,9 +15613,9 @@ function activeBuildMilestoneEffectiveDrawAvailabilityCents(
     0,
     Math.round(milestone.drawAvailabilityCents),
   );
-  const actualCostCents = (milestone.completionClaim as
-    | { actualCostCents?: number }
-    | undefined)?.actualCostCents;
+  const actualCostCents = (
+    milestone.completionClaim as { actualCostCents?: number } | undefined
+  )?.actualCostCents;
 
   if (actualCostCents === undefined || !Number.isFinite(actualCostCents)) {
     return approvedDrawAvailabilityCents;
@@ -14518,9 +15642,9 @@ function activeBuildMilestoneEffectiveDrawAvailabilityCents(
 function activeBuildMilestoneEffectiveCompletionDay(
   milestone: Doc<"buildMilestones">,
 ) {
-  const completedDay = (milestone.completionClaim as
-    | { completedDay?: number }
-    | undefined)?.completedDay;
+  const completedDay = (
+    milestone.completionClaim as { completedDay?: number } | undefined
+  )?.completedDay;
 
   if (completedDay !== undefined && Number.isFinite(completedDay)) {
     return Math.max(0, Math.round(completedDay));
@@ -14539,15 +15663,18 @@ async function calculateActiveBuildDrawAvailableLimitCents(
     collectByIndex(ctx, "buildMilestones", "by_build", buildId),
     collectByIndex(ctx, "plannedDrawScheduleRows", "by_build", buildId),
   ]);
-  const totalUnlockedCents = (
-    milestones as Doc<"buildMilestones">[]
-  ).reduce((total, milestone) => {
-    if (activeBuildMilestoneEffectiveCompletionDay(milestone) > drawDay) {
-      return total;
-    }
+  const totalUnlockedCents = (milestones as Doc<"buildMilestones">[]).reduce(
+    (total, milestone) => {
+      if (activeBuildMilestoneEffectiveCompletionDay(milestone) > drawDay) {
+        return total;
+      }
 
-    return total + activeBuildMilestoneEffectiveDrawAvailabilityCents(milestone);
-  }, 0);
+      return (
+        total + activeBuildMilestoneEffectiveDrawAvailabilityCents(milestone)
+      );
+    },
+    0,
+  );
   const alreadyDrawnCents = (draws as Doc<"plannedDrawScheduleRows">[]).reduce(
     (total, draw) => {
       if (draw._id === targetDraw._id || draw.timingDay > drawDay) {
@@ -14739,6 +15866,79 @@ async function replaceActiveBuildSubmilestones(
       updatedAt: now,
     });
   }
+}
+
+async function deleteActiveBuildStorageRow(
+  ctx: MutationCtx,
+  row: {
+    _id: Id<"buildDocuments"> | Id<"buildEvidenceAssets">;
+    storageId?: Id<"_storage">;
+  },
+) {
+  if (row.storageId) {
+    await ctx.storage.delete(row.storageId);
+  }
+  await ctx.db.delete(row._id);
+}
+
+async function deleteActiveBuildCascade(
+  ctx: MutationCtx,
+  buildId: Id<"activeBuilds">,
+) {
+  const milestones = await collectByIndex(
+    ctx,
+    "buildMilestones",
+    "by_build",
+    buildId,
+  );
+  for (const milestone of milestones) {
+    await deleteActiveBuildMilestoneCascade(ctx, buildId, milestone);
+  }
+
+  const documents = await collectByIndex(
+    ctx,
+    "buildDocuments",
+    "by_build",
+    buildId,
+  );
+  for (const document of documents) {
+    await deleteActiveBuildStorageRow(ctx, document);
+  }
+
+  const evidenceAssets = await collectByIndex(
+    ctx,
+    "buildEvidenceAssets",
+    "by_build",
+    buildId,
+  );
+  for (const asset of evidenceAssets) {
+    await deleteActiveBuildStorageRow(ctx, asset);
+  }
+
+  for (const table of [
+    "milestoneContractorAssignments",
+    "contractorQualityRatings",
+    "buildContractorAssignments",
+    "buildBrokerAssignments",
+    "activeBuildFacilityChangeRequests",
+    "loanFacilities",
+    "buildCapitalPlans",
+    "plannedDrawScheduleRows",
+    "buildCostItems",
+    "buildSubmilestones",
+    "buildSiteVisits",
+    "capitalEvents",
+    "buildNotes",
+    "calendarTargetDates",
+    "scheduleRevisionRecords",
+  ] as const) {
+    const rows = await collectByIndex(ctx, table, "by_build", buildId);
+    for (const row of rows) {
+      await ctx.db.delete(row._id);
+    }
+  }
+
+  await ctx.db.delete(buildId);
 }
 
 async function deleteActiveBuildMilestoneCascade(
@@ -15221,6 +16421,35 @@ async function withBuildDocumentStorageUrls(
         storageUrl: document.storageId
           ? await ctx.storage.getUrl(document.storageId)
           : null,
+      })),
+  );
+}
+
+async function withBuildEvidenceAssetStorageUrls(
+  ctx: QueryCtx,
+  evidenceAssets: Doc<"buildEvidenceAssets">[],
+) {
+  return await Promise.all(
+    evidenceAssets
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map(async (asset) => ({
+        _id: String(asset._id),
+        contractorIds: asset.contractorIds,
+        createdAt: asset.createdAt,
+        evidenceKey: asset.evidenceKey,
+        fileName: asset.fileName,
+        label: asset.label,
+        locationVerified: asset.locationVerified,
+        milestoneKey: asset.milestoneKey,
+        mimeType: asset.mimeType,
+        previewUrl: asset.storageId
+          ? await ctx.storage.getUrl(asset.storageId)
+          : null,
+        sizeBytes: asset.sizeBytes,
+        source: asset.source,
+        submilestoneKey: asset.submilestoneKey,
+        tag: asset.tag,
+        updatedAt: asset.updatedAt,
       })),
   );
 }

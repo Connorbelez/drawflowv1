@@ -25,7 +25,6 @@ export const Route = createFileRoute("/builder")({
 function RouteComponent() {
   return (
     <AppShell
-      contentClassName="p-1 md:p-2"
       sidebar={{
         brand: {
           label: "DrawFlow Builder",

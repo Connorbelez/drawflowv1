@@ -42,6 +42,7 @@ import { Route as BuilderProposalsIndexRouteImport } from './routes/builder/prop
 import { Route as BackofficeSettingsIndexRouteImport } from './routes/backoffice/settings/index'
 import { Route as BackofficeProposalsIndexRouteImport } from './routes/backoffice/proposals/index'
 import { Route as BackofficeContractorsIndexRouteImport } from './routes/backoffice/contractors/index'
+import { Route as BackofficeBuildsIndexRouteImport } from './routes/backoffice/builds/index'
 import { Route as BackofficeBuildersIndexRouteImport } from './routes/backoffice/builders/index'
 import { Route as NewsitevisitBuildIdSiteVisitTokenRouteImport } from './routes/newsitevisit.$buildId.$siteVisitToken'
 import { Route as DemoTimelineTimelineIdRouteImport } from './routes/demo/timeline/$timelineId'
@@ -247,6 +248,11 @@ const BackofficeContractorsIndexRoute =
     path: '/',
     getParentRoute: () => BackofficeContractorsRouteRoute,
   } as any)
+const BackofficeBuildsIndexRoute = BackofficeBuildsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => BackofficeBuildsRouteRoute,
+} as any)
 const BackofficeBuildersIndexRoute = BackofficeBuildersIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -472,6 +478,7 @@ export interface FileRoutesByFullPath {
   '/demo/timeline/$timelineId': typeof DemoTimelineTimelineIdRoute
   '/newsitevisit/$buildId/$siteVisitToken': typeof NewsitevisitBuildIdSiteVisitTokenRoute
   '/backoffice/builders/': typeof BackofficeBuildersIndexRoute
+  '/backoffice/builds/': typeof BackofficeBuildsIndexRoute
   '/backoffice/contractors/': typeof BackofficeContractorsIndexRoute
   '/backoffice/proposals/': typeof BackofficeProposalsIndexRoute
   '/backoffice/settings/': typeof BackofficeSettingsIndexRoute
@@ -498,7 +505,6 @@ export interface FileRoutesByTo {
   '/callback': typeof CallbackRoute
   '/proposal-preview': typeof ProposalPreviewRoute
   '/protected-access': typeof ProtectedAccessRoute
-  '/backoffice/builds': typeof BackofficeBuildsRouteRouteWithChildren
   '/backoffice/draws': typeof BackofficeDrawsRouteRoute
   '/backoffice/site-visits': typeof BackofficeSiteVisitsRouteRoute
   '/builder/demo': typeof BuilderDemoRouteRouteWithChildren
@@ -528,6 +534,7 @@ export interface FileRoutesByTo {
   '/demo/timeline/$timelineId': typeof DemoTimelineTimelineIdRoute
   '/newsitevisit/$buildId/$siteVisitToken': typeof NewsitevisitBuildIdSiteVisitTokenRoute
   '/backoffice/builders': typeof BackofficeBuildersIndexRoute
+  '/backoffice/builds': typeof BackofficeBuildsIndexRoute
   '/backoffice/contractors': typeof BackofficeContractorsIndexRoute
   '/backoffice/proposals': typeof BackofficeProposalsIndexRoute
   '/backoffice/settings': typeof BackofficeSettingsIndexRoute
@@ -593,6 +600,7 @@ export interface FileRoutesById {
   '/demo/timeline/$timelineId': typeof DemoTimelineTimelineIdRoute
   '/newsitevisit/$buildId/$siteVisitToken': typeof NewsitevisitBuildIdSiteVisitTokenRoute
   '/backoffice/builders/': typeof BackofficeBuildersIndexRoute
+  '/backoffice/builds/': typeof BackofficeBuildsIndexRoute
   '/backoffice/contractors/': typeof BackofficeContractorsIndexRoute
   '/backoffice/proposals/': typeof BackofficeProposalsIndexRoute
   '/backoffice/settings/': typeof BackofficeSettingsIndexRoute
@@ -661,6 +669,7 @@ export interface FileRouteTypes {
     | '/demo/timeline/$timelineId'
     | '/newsitevisit/$buildId/$siteVisitToken'
     | '/backoffice/builders/'
+    | '/backoffice/builds/'
     | '/backoffice/contractors/'
     | '/backoffice/proposals/'
     | '/backoffice/settings/'
@@ -687,7 +696,6 @@ export interface FileRouteTypes {
     | '/callback'
     | '/proposal-preview'
     | '/protected-access'
-    | '/backoffice/builds'
     | '/backoffice/draws'
     | '/backoffice/site-visits'
     | '/builder/demo'
@@ -717,6 +725,7 @@ export interface FileRouteTypes {
     | '/demo/timeline/$timelineId'
     | '/newsitevisit/$buildId/$siteVisitToken'
     | '/backoffice/builders'
+    | '/backoffice/builds'
     | '/backoffice/contractors'
     | '/backoffice/proposals'
     | '/backoffice/settings'
@@ -781,6 +790,7 @@ export interface FileRouteTypes {
     | '/demo/timeline/$timelineId'
     | '/newsitevisit/$buildId/$siteVisitToken'
     | '/backoffice/builders/'
+    | '/backoffice/builds/'
     | '/backoffice/contractors/'
     | '/backoffice/proposals/'
     | '/backoffice/settings/'
@@ -1049,6 +1059,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BackofficeContractorsIndexRouteImport
       parentRoute: typeof BackofficeContractorsRouteRoute
     }
+    '/backoffice/builds/': {
+      id: '/backoffice/builds/'
+      path: '/'
+      fullPath: '/backoffice/builds/'
+      preLoaderRoute: typeof BackofficeBuildsIndexRouteImport
+      parentRoute: typeof BackofficeBuildsRouteRoute
+    }
     '/backoffice/builders/': {
       id: '/backoffice/builders/'
       path: '/'
@@ -1301,11 +1318,13 @@ const BackofficeBuildsBuildIdRouteRouteWithChildren =
 
 interface BackofficeBuildsRouteRouteChildren {
   BackofficeBuildsBuildIdRouteRoute: typeof BackofficeBuildsBuildIdRouteRouteWithChildren
+  BackofficeBuildsIndexRoute: typeof BackofficeBuildsIndexRoute
 }
 
 const BackofficeBuildsRouteRouteChildren: BackofficeBuildsRouteRouteChildren = {
   BackofficeBuildsBuildIdRouteRoute:
     BackofficeBuildsBuildIdRouteRouteWithChildren,
+  BackofficeBuildsIndexRoute: BackofficeBuildsIndexRoute,
 }
 
 const BackofficeBuildsRouteRouteWithChildren =

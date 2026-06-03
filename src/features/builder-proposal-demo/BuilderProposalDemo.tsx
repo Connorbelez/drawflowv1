@@ -21,6 +21,7 @@ import {
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { AppSidebar } from "#/components/app-sidebar.tsx";
+import { GoogleAddressAutocomplete } from "#/components/address/GoogleAddressAutocomplete.tsx";
 import {
   BuildPermitViewerDrawer,
   firstPermitDocument,
@@ -1538,14 +1539,21 @@ function TemplateBudgetScreen({
             </div>
 
             <div className="pb-form-panel">
-              <label className="pb-address-label" htmlFor="project-address">
-                Project Address <span>(optional)</span>
-              </label>
-              <input
-                aria-label="Project address"
-                className="pb-address-input pb-input"
+              <GoogleAddressAutocomplete
                 id="project-address"
-                onChange={(event) => setProjectAddress(event.target.value)}
+                inputRender={
+                  <input
+                    aria-label="Project address"
+                    className="pb-address-input pb-input"
+                  />
+                }
+                label={
+                  <>
+                    Project Address <span>(optional)</span>
+                  </>
+                }
+                labelClassName="pb-address-label"
+                onChange={setProjectAddress}
                 placeholder="Enter project address"
                 value={projectAddress}
               />

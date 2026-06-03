@@ -5,16 +5,17 @@ import {
   Database,
   FileText,
   Link2,
-  Send,
   Search,
+  Send,
   Trash2,
   UserPlus,
   UserRound,
   UserRoundX,
   XCircle,
 } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { GoogleAddressAutocomplete } from "#/components/address/GoogleAddressAutocomplete.tsx";
 import {
   Alert,
   AlertAction,
@@ -40,7 +41,6 @@ import {
 } from "#/components/ui/autocomplete.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
-import { EditableNumberChip } from "#/components/ui/editable-chip.tsx";
 import {
   Card,
   CardContent,
@@ -66,12 +66,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog.tsx";
+import { EditableNumberChip } from "#/components/ui/editable-chip.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
-import {
-  BuildPermitViewerDrawer,
-  firstPermitDocument,
-} from "#/features/build-permit-viewer/BuildPermitViewerDrawer.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import {
   NativeSelect,
@@ -93,13 +90,20 @@ import {
   TableRow,
 } from "#/components/ui/table.tsx";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
-import { CalendarWorkspace } from "#/features/calendar-workspace/CalendarWorkspace.tsx";
+import { Textarea } from "#/components/ui/textarea.tsx";
+import {
+  type BuildPermitViewerDocument,
+  BuildPermitViewerDrawer,
+  firstPermitDocument,
+} from "#/features/build-permit-viewer/BuildPermitViewerDrawer.tsx";
+import type { TimelinePlanRow } from "#/features/builder-dashboard/BuilderTimelineDashboard.tsx";
 import {
   buildProposalCalendarActions,
   buildProposalCalendarWorkspaceFromDetail,
   createProposalCalendarEditHandler,
   type ProposalCalendarAdapterActions,
 } from "#/features/calendar-workspace/adapters/proposalCalendarAdapter.ts";
+import { CalendarWorkspace } from "#/features/calendar-workspace/CalendarWorkspace.tsx";
 import type {
   CalendarEditRequest,
   CalendarFilters,
@@ -107,7 +111,6 @@ import type {
   CalendarTimeframe,
   DrawFlowCalendarWorkspaceData,
 } from "#/features/calendar-workspace/calendarTypes.ts";
-import type { TimelinePlanRow } from "#/features/builder-dashboard/BuilderTimelineDashboard.tsx";
 import {
   type MaterialPlanningActions,
   type MaterialPlanningItem,
@@ -119,6 +122,7 @@ import {
 } from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
 import type { IsometricIconKey } from "#/features/timeline-workspace/-timeline-share-snapshot.ts";
 import { useCopyToClipboard } from "#/hooks/use-copy-to-clipboard.ts";
+import { createGoogleSatelliteMapUrl } from "#/lib/google-maps.ts";
 import {
   deriveProposalDrawGroups,
   normalizeProposalDrawRows,
@@ -341,9 +345,9 @@ export interface ProductionProposalDraftSavePayload {
     sizeBytes: number;
     storageId?: string;
   }>;
+  draws?: ProposalGanttDrawDraft[];
   lenderDrawPolicyLimitCents: number;
   location: string;
-  draws?: ProposalGanttDrawDraft[];
   milestones: Array<{
     budgetCents: number;
     dayEnd: number;
@@ -378,7 +382,7 @@ export function ProductionProposalDraftEditorSurface({
   const proposal = detail.proposal;
   const initialDraftMilestones = useMemo(
     () => productionProposalDetailToDraftMilestones(detail),
-    [detail],
+    [detail]
   );
   const [buildName, setBuildName] = useState(proposal.buildName);
   const [location, setLocation] = useState(proposal.location);
@@ -387,18 +391,17 @@ export function ProductionProposalDraftEditorSurface({
     setBorrowerWorkingCapitalLimitCents,
   ] = useState(String(proposal.borrowerWorkingCapitalLimitCents));
   const [lenderDrawPolicyLimitCents, setLenderDrawPolicyLimitCents] = useState(
-    String(proposal.lenderDrawPolicyLimitCents),
+    String(proposal.lenderDrawPolicyLimitCents)
   );
   const [draftMilestones, setDraftMilestones] = useState<
     ProposalGanttMilestoneDraft[]
   >(initialDraftMilestones);
-  const [draftDraws, setDraftDraws] = useState<ProposalGanttDrawDraft[]>(
-    () =>
-      normalizeProposalDrawRows({
-        borrowerCoPayBps: proposal.borrowerCoPayBps,
-        draws: productionProposalDetailToDraftDraws(detail),
-        milestones: initialDraftMilestones,
-      }),
+  const [draftDraws, setDraftDraws] = useState<ProposalGanttDrawDraft[]>(() =>
+    normalizeProposalDrawRows({
+      borrowerCoPayBps: proposal.borrowerCoPayBps,
+      draws: productionProposalDetailToDraftDraws(detail),
+      milestones: initialDraftMilestones,
+    })
   );
   const [documentType, setDocumentType] = useState<
     "permit" | "budget" | "plan" | "supporting"
@@ -413,18 +416,19 @@ export function ProductionProposalDraftEditorSurface({
         mimeType: document.mimeType ?? "application/octet-stream",
         sizeBytes: document.sizeBytes ?? 0,
         storageId: document.storageId,
-      })) ?? [],
+      })) ?? []
   );
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const draftTotalBudgetCents = draftMilestones.reduce(
-    (total, milestone) => total + Math.max(0, Math.round(milestone.budgetCents)),
-    0,
+    (total, milestone) =>
+      total + Math.max(0, Math.round(milestone.budgetCents)),
+    0
   );
   const draftApprovedAmountCents = parseInteger(lenderDrawPolicyLimitCents);
   const draftBorrowerCoPayBps = calculateUnapprovedBudgetBps(
     draftTotalBudgetCents,
-    draftApprovedAmountCents,
+    draftApprovedAmountCents
   );
 
   function save() {
@@ -435,15 +439,15 @@ export function ProductionProposalDraftEditorSurface({
     });
     const nextApprovedAmountCents = Math.max(
       draftApprovedAmountCents,
-      calculateProposalTotalDrawAmountCents(normalizedDraftDraws),
+      calculateProposalTotalDrawAmountCents(normalizedDraftDraws)
     );
     onSave({
       borrowerCoPayBps: calculateUnapprovedBudgetBps(
         draftTotalBudgetCents,
-        nextApprovedAmountCents,
+        nextApprovedAmountCents
       ),
       borrowerWorkingCapitalLimitCents: parseInteger(
-        borrowerWorkingCapitalLimitCents,
+        borrowerWorkingCapitalLimitCents
       ),
       buildName,
       documents,
@@ -483,7 +487,7 @@ export function ProductionProposalDraftEditorSurface({
       ]);
     } catch (error) {
       setUploadError(
-        error instanceof Error ? error.message : "Document upload failed.",
+        error instanceof Error ? error.message : "Document upload failed."
       );
     } finally {
       setIsUploading(false);
@@ -536,12 +540,12 @@ export function ProductionProposalDraftEditorSurface({
             <ProductionProposalGanttWorkspace
               borrowerCoPayBps={draftBorrowerCoPayBps}
               borrowerWorkingCapitalLimitCents={parseInteger(
-                borrowerWorkingCapitalLimitCents,
+                borrowerWorkingCapitalLimitCents
               )}
               buildName={buildName}
               draws={draftDraws}
               lenderDrawPolicyLimitCents={parseInteger(
-                lenderDrawPolicyLimitCents,
+                lenderDrawPolicyLimitCents
               )}
               location={location}
               milestones={draftMilestones}
@@ -562,9 +566,11 @@ export function ProductionProposalDraftEditorSurface({
               onChange={setBuildName}
               value={buildName}
             />
-            <LabeledInput
+            <GoogleAddressAutocomplete
+              id="build-location"
               label="Build location"
               onChange={setLocation}
+              placeholder="Search build address"
               value={location}
             />
           </div>
@@ -595,7 +601,7 @@ export function ProductionProposalDraftEditorSurface({
                   borrowerCoPayBps: draftBorrowerCoPayBps,
                   draws: draftDraws,
                   milestones: nextMilestones,
-                }),
+                })
               );
             }}
           />
@@ -692,7 +698,7 @@ function DraftMilestoneTimelineEditor({
 }) {
   const updateMilestone = (
     milestoneKey: string,
-    patch: Partial<ProposalGanttMilestoneDraft>,
+    patch: Partial<ProposalGanttMilestoneDraft>
   ) => {
     onMilestonesChange(
       milestones.map((milestone) => {
@@ -712,14 +718,17 @@ function DraftMilestoneTimelineEditor({
               : next.dayStart + durationDays,
           durationDays,
         };
-      }),
+      })
     );
   };
 
   return (
     <div className="grid gap-3">
       {milestones.map((milestone) => (
-        <div className="grid gap-3 border-b pb-3 last:border-b-0 last:pb-0" key={milestone.key}>
+        <div
+          className="grid gap-3 border-b pb-3 last:border-b-0 last:pb-0"
+          key={milestone.key}
+        >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="font-medium text-sm">{milestone.name}</div>
@@ -827,10 +836,12 @@ function DraftDrawScheduleSummary({
                 ? group.submilestones
                     .map(
                       (submilestone) =>
-                        `${submilestone.milestoneKey}.${submilestone.order}`,
+                        `${submilestone.milestoneKey}.${submilestone.order}`
                     )
                     .join(", ")
-                : group.groupMilestones.map((milestone) => milestone.name).join(", ")}
+                : group.groupMilestones
+                    .map((milestone) => milestone.name)
+                    .join(", ")}
             </TableCell>
             <TableCell className="text-right">
               {formatCents(group.amountCents)}
@@ -978,10 +989,7 @@ export function ProductionProposalPackageSurface({
                 [
                   "Approved amount",
                   formatCents(
-                    calculateProposalApprovedAmountCents(
-                      proposal,
-                      detail.draws,
-                    ),
+                    calculateProposalApprovedAmountCents(proposal, detail.draws)
                   ),
                 ],
               ]}
@@ -1033,16 +1041,16 @@ export function ProductionProposalKanbanSurface({
   kanban: ProductionKanban;
   onAssignBuilder?: (
     card: ProductionKanbanCard,
-    builderProfileId: string,
+    builderProfileId: string
   ) => Promise<unknown> | unknown;
   onDeleteDraft?: (card: ProductionKanbanCard) => Promise<unknown> | unknown;
   onOpen?: (card: ProductionKanbanCard) => void;
 }) {
   const [assignCard, setAssignCard] = useState<ProductionKanbanCard | null>(
-    null,
+    null
   );
   const [deleteCard, setDeleteCard] = useState<ProductionKanbanCard | null>(
-    null,
+    null
   );
 
   return (
@@ -1208,7 +1216,7 @@ function AssignBuilderDialog({
   card: ProductionKanbanCard | null;
   onAssign?: (
     card: ProductionKanbanCard,
-    builderProfileId: string,
+    builderProfileId: string
   ) => Promise<unknown> | unknown;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -1235,7 +1243,7 @@ function AssignBuilderDialog({
       setError(
         assignError instanceof Error
           ? assignError.message
-          : "Could not assign builder.",
+          : "Could not assign builder."
       );
     } finally {
       setPending(false);
@@ -1327,7 +1335,7 @@ function DeleteDraftDialog({
       setError(
         deleteError instanceof Error
           ? deleteError.message
-          : "Could not delete draft.",
+          : "Could not delete draft."
       );
     } finally {
       setPending(false);
@@ -1384,11 +1392,11 @@ export function ProductionProposalSettingsSurface({
   const template = settings?.templates[0];
   const workflowRule = settings?.workflowRules[0];
   const activeScenario = template?.scenarios.find(
-    (scenario) => scenario.isDefault,
+    (scenario) => scenario.isDefault
   );
   const worksheetRows = useMemo(
     () => productionTemplateToWorksheetRows(template),
-    [template],
+    [template]
   );
   const [productionRows, setProductionRows] = useState(worksheetRows);
 
@@ -1542,11 +1550,11 @@ export function ProductionProposalReviewSurface({
   onChangeReviewTab?: (tab: ProductionReviewTab) => void;
   onApprove: (
     reason: string,
-    permitWaiverReason?: string,
+    permitWaiverReason?: string
   ) => Promise<unknown> | unknown;
   onClose: (startDate: string, reason: string) => Promise<unknown> | unknown;
   onCommitCalendarEdit?: (
-    request: CalendarEditRequest,
+    request: CalendarEditRequest
   ) => Promise<unknown> | unknown;
   onCreateCalendarSyncSubscription?: (input: {
     direction: "bidirectional" | "outbound";
@@ -1568,10 +1576,10 @@ export function ProductionProposalReviewSurface({
   onRequestChanges: (reason: string) => Promise<unknown> | unknown;
   onAssignBuilder?: (builderProfileId: string) => Promise<unknown> | unknown;
   onUpdateApprovedAmount?: (
-    approvedAmountCents: number,
+    approvedAmountCents: number
   ) => Promise<unknown> | unknown;
   onUpdateInterestRate?: (
-    interestAnnualBps: number,
+    interestAnnualBps: number
   ) => Promise<unknown> | unknown;
   onCreateClaimLink?: () =>
     | Promise<{ claimPath: string; claimToken: string; expiresAt: number }>
@@ -1590,7 +1598,7 @@ export function ProductionProposalReviewSurface({
       label: string;
       reason: string;
       timingDay: number;
-    },
+    }
   ) => Promise<unknown> | unknown;
   timeline?: ReactNode;
   initialActiveTab?: ProductionReviewTab;
@@ -1601,13 +1609,14 @@ export function ProductionProposalReviewSurface({
   const [drawAmounts, setDrawAmounts] = useState<Record<string, string>>({});
   const [drawLabels, setDrawLabels] = useState<Record<string, string>>({});
   const [drawTimingDays, setDrawTimingDays] = useState<Record<string, string>>(
-    {},
+    {}
   );
   const [pendingDecision, setPendingDecision] = useState<
     "approve" | "reject" | "requestChanges" | null
   >(null);
   const proposal = detail.proposal;
   const permit = detail.documents?.find((doc) => doc.documentType === "permit");
+  const permitViewerDocument = firstPermitDocument(detail.documents);
   const canEditProposalCapitalTerms =
     !detail.activeBuild && proposal.status !== "closed";
   const canEditApprovedAmount =
@@ -1619,13 +1628,13 @@ export function ProductionProposalReviewSurface({
   const editableDraws = detail.draws ?? [];
   const headerApprovedAmountCents = calculateProposalApprovedAmountCents(
     proposal,
-    editableDraws,
+    editableDraws
   );
   const headerMinimumApprovedAmountCents =
     calculateProposalTotalDrawAmountCents(editableDraws);
   const milestoneRows = useMemo(
     () => productionProposalDetailToWorksheetRows(detail),
-    [detail],
+    [detail]
   );
   const canEditDraws =
     !!onUpdateDraw &&
@@ -1666,9 +1675,11 @@ export function ProductionProposalReviewSurface({
         (onUpdateDraw
           ? (input) => {
               const draw = editableDraws.find(
-                (candidate) => candidate.drawKey === input.drawKey,
+                (candidate) => candidate.drawKey === input.drawKey
               );
-              if (!draw) return;
+              if (!draw) {
+                return;
+              }
               onUpdateDraw(input.drawKey, {
                 amountCents: draw.amountCents,
                 label: draw.label,
@@ -1678,15 +1689,15 @@ export function ProductionProposalReviewSurface({
             }
           : undefined),
     }),
-    [calendarAdapterActions, editableDraws, onUpdateDraw],
+    [calendarAdapterActions, editableDraws, onUpdateDraw]
   );
   const effectiveCalendarWorkspace = useMemo(
     () => calendarWorkspace ?? buildProposalCalendarWorkspaceFromDetail(detail),
-    [calendarWorkspace, detail],
+    [calendarWorkspace, detail]
   );
   const effectiveCalendarActions = useMemo(
     () => buildProposalCalendarActions(proposalCalendarActions),
-    [proposalCalendarActions],
+    [proposalCalendarActions]
   );
   const fallbackCalendarEdit = useMemo(
     () =>
@@ -1694,10 +1705,10 @@ export function ProductionProposalReviewSurface({
         actions: proposalCalendarActions,
         baseDate: detail.activeBuild?.startDate ?? "2026-06-01",
       }),
-    [detail.activeBuild?.startDate, proposalCalendarActions],
+    [detail.activeBuild?.startDate, proposalCalendarActions]
   );
   const [activeTab, setActiveTab] = useState<ProductionReviewTab>(
-    initialActiveTab ?? (timeline ? "timeline" : "review"),
+    initialActiveTab ?? (timeline ? "timeline" : "review")
   );
 
   useEffect(() => {
@@ -1715,7 +1726,7 @@ export function ProductionProposalReviewSurface({
   }, [initialActiveTab, tabs]);
 
   const runReviewDecision = async (
-    decision: "approve" | "reject" | "requestChanges",
+    decision: "approve" | "reject" | "requestChanges"
   ) => {
     if (proposal.status !== "submitted") {
       toast.error("This proposal is no longer awaiting review.");
@@ -1929,47 +1940,24 @@ export function ProductionProposalReviewSurface({
                     </div>
                   </div>
 
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div className="grid gap-2">
-                      <Label htmlFor="production-review-reason">
-                        Decision reason
-                      </Label>
-                      <Input
-                        aria-describedby="production-review-reason-help"
-                        id="production-review-reason"
-                        onChange={(event) => setReason(event.target.value)}
-                        placeholder="Required for material decisions"
-                        value={reason}
-                      />
-                      <p
-                        className="text-muted-foreground text-xs"
-                        id="production-review-reason-help"
-                      >
-                        Stored on the audit event for approval, rejection, or
-                        requested changes.
-                      </p>
-                    </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="production-permit-waiver">
-                        Permit waiver reason
-                      </Label>
-                      <Input
-                        aria-describedby="production-permit-waiver-help"
-                        id="production-permit-waiver"
-                        onChange={(event) =>
-                          setPermitWaiverReason(event.target.value)
-                        }
-                        placeholder="Required if no permit PDF is linked"
-                        value={permitWaiverReason}
-                      />
-                      <p
-                        className="text-muted-foreground text-xs"
-                        id="production-permit-waiver-help"
-                      >
-                        Only needed when approval relies on an audited permit
-                        waiver.
-                      </p>
-                    </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="production-review-reason">
+                      Decision reason
+                    </Label>
+                    <Input
+                      aria-describedby="production-review-reason-help"
+                      id="production-review-reason"
+                      onChange={(event) => setReason(event.target.value)}
+                      placeholder="Required for material decisions"
+                      value={reason}
+                    />
+                    <p
+                      className="text-muted-foreground text-xs"
+                      id="production-review-reason-help"
+                    >
+                      Stored on the audit event for approval, rejection, or
+                      requested changes.
+                    </p>
                   </div>
                 </div>
               </Section>
@@ -1997,8 +1985,8 @@ export function ProductionProposalReviewSurface({
                       formatCents(
                         calculateProposalApprovedAmountCents(
                           proposal,
-                          detail.draws,
-                        ),
+                          detail.draws
+                        )
                       ),
                     ],
                   ]}
@@ -2009,6 +1997,10 @@ export function ProductionProposalReviewSurface({
                 <ProposalReadinessList
                   detail={detail}
                   permitFileName={permit?.fileName}
+                  permitViewerDocument={permitViewerDocument}
+                  permitWaiverReason={permitWaiverReason}
+                  proposalStatus={proposal.status}
+                  onPermitWaiverReasonChange={setPermitWaiverReason}
                 />
               </Section>
             </div>
@@ -2049,7 +2041,7 @@ export function ProductionProposalReviewSurface({
                         reason: drawEditReasonRequired
                           ? reason
                           : reason || "Draft draw schedule edit.",
-                      }),
+                      })
                     )
                       .then(() => {
                         setDrawAmounts((current) => {
@@ -2069,7 +2061,9 @@ export function ProductionProposalReviewSurface({
                         });
                       })
                       .catch((error) => {
-                        toast.error(productionProposalActionErrorMessage(error));
+                        toast.error(
+                          productionProposalActionErrorMessage(error)
+                        );
                       });
                   }}
                   onLabelChange={(drawKey, value) =>
@@ -2199,10 +2193,10 @@ function ProposalReviewHeaderSummary({
   canEditInterestRate: boolean;
   minimumApprovedAmountCents: number;
   onUpdateApprovedAmount?: (
-    approvedAmountCents: number,
+    approvedAmountCents: number
   ) => Promise<unknown> | unknown;
   onUpdateInterestRate?: (
-    interestAnnualBps: number,
+    interestAnnualBps: number
   ) => Promise<unknown> | unknown;
   proposal: ProductionProposal;
 }) {
@@ -2235,7 +2229,7 @@ function ProposalReviewHeaderSummary({
     }
     const nextApprovedAmountCents = Math.max(
       0,
-      Math.round(nextApprovedAmountDollars * 100),
+      Math.round(nextApprovedAmountDollars * 100)
     );
     if (!Number.isFinite(nextApprovedAmountCents)) {
       toast.error("Enter a valid approved amount.");
@@ -2243,7 +2237,7 @@ function ProposalReviewHeaderSummary({
     }
     const normalizedApprovedAmountCents = Math.max(
       minimumApprovedAmountCents,
-      nextApprovedAmountCents,
+      nextApprovedAmountCents
     );
     setOptimisticApprovedAmount({
       previousCents: approvedAmountCents,
@@ -2367,7 +2361,7 @@ function HeaderEditableMetric({
       <span className="shrink-0 text-muted-foreground">{label}</span>
       <span className="shrink-0">{value}</span>
       {pending ? (
-        <span className="shrink-0 text-muted-foreground text-[10px]">
+        <span className="shrink-0 text-[10px] text-muted-foreground">
           Saving
         </span>
       ) : null}
@@ -2471,26 +2465,26 @@ function BuilderAssignmentSection({
         <dl className="grid gap-3 text-sm">
           <AssignmentIdentityRow
             label="Builder"
+            secondary={assignment?.builder?.ownerEmail}
             value={
               assignment?.builder
                 ? assignment.builder.displayName
                 : "Unassigned"
             }
-            secondary={assignment?.builder?.ownerEmail}
           />
           <AssignmentIdentityRow
             label="Broker"
-            value={formatProposalIdentity(assignment?.broker)}
             secondary={assignment?.broker?.email}
+            value={formatProposalIdentity(assignment?.broker)}
           />
           <AssignmentIdentityRow
             label="Brokerage"
+            secondary={assignment?.brokerage?.workosOrganizationId}
             value={
               assignment?.brokerage?.displayName ??
               assignment?.brokerage?.legalName ??
               "Unknown brokerage"
             }
-            secondary={assignment?.brokerage?.workosOrganizationId}
           />
         </dl>
 
@@ -2614,22 +2608,22 @@ function BuilderProfileAutocomplete({
 }) {
   const selectedOption = useMemo(
     () => options.find((option) => option._id === value),
-    [options, value],
+    [options, value]
   );
   const [query, setQuery] = useState(() =>
-    selectedOption ? formatBuilderOptionInputValue(selectedOption) : "",
+    selectedOption ? formatBuilderOptionInputValue(selectedOption) : ""
   );
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
     setQuery(
-      selectedOption ? formatBuilderOptionInputValue(selectedOption) : "",
+      selectedOption ? formatBuilderOptionInputValue(selectedOption) : ""
     );
   }, [selectedOption]);
 
   const filteredOptions = useMemo(
     () => filterBuilderOptions(options, query),
-    [options, query],
+    [options, query]
   );
 
   function selectOption(option: ProductionBuilderOption) {
@@ -2655,8 +2649,8 @@ function BuilderProfileAutocomplete({
     <Autocomplete
       autoHighlight="always"
       filter={null}
-      itemToStringValue={formatBuilderOptionInputValue}
       items={filteredOptions}
+      itemToStringValue={formatBuilderOptionInputValue}
       keepHighlight
       modal={false}
       onOpenChange={(nextOpen) => setOpen(nextOpen && !disabled)}
@@ -2713,7 +2707,7 @@ function BuilderProfileAutocomplete({
 
 function filterBuilderOptions(
   options: ProductionBuilderOption[],
-  query: string,
+  query: string
 ) {
   const terms = normalizeSearch(query).split(" ").filter(Boolean);
   if (terms.length === 0) {
@@ -2723,7 +2717,7 @@ function filterBuilderOptions(
     const haystack = normalizeSearch(
       [option.displayName, option.email, ...(option.workosUserIds ?? [])]
         .filter(Boolean)
-        .join(" "),
+        .join(" ")
     );
     return terms.every((term) => haystack.includes(term));
   });
@@ -2736,7 +2730,7 @@ function formatBuilderOptionInputValue(option: ProductionBuilderOption) {
 }
 
 function formatProposalIdentity(
-  identity: ProductionProposalIdentity | null | undefined,
+  identity: ProductionProposalIdentity | null | undefined
 ) {
   if (!identity) {
     return "Unassigned";
@@ -2793,7 +2787,7 @@ function materialPlanningMilestones(detail: ProductionProposalDetail) {
 }
 
 function productionProposalDetailToWorksheetRows(
-  detail: ProductionProposalDetail,
+  detail: ProductionProposalDetail
 ): TimelineMilestoneWorksheetRow[] {
   const submilestonesByMilestone = new Map<string, ProductionSubmilestone[]>();
   for (const submilestone of detail.submilestones ?? []) {
@@ -2811,17 +2805,17 @@ function productionProposalDetailToWorksheetRows(
         .slice()
         .sort(
           (a, b) =>
-            (a.order ?? 0) - (b.order ?? 0) || a.key.localeCompare(b.key),
+            (a.order ?? 0) - (b.order ?? 0) || a.key.localeCompare(b.key)
         );
       const fallbackBudgets = allocateEvenlyCents(
         milestone.budgetCents,
-        submilestones.length,
+        submilestones.length
       );
       const durationDays =
         milestone.durationDays ??
         Math.max(1, Math.round(milestone.dayEnd - milestone.dayStart));
       const percentageBps = Math.round(
-        (milestone.budgetCents / totalBudgetCents) * 10_000,
+        (milestone.budgetCents / totalBudgetCents) * 10_000
       );
 
       return {
@@ -2844,7 +2838,7 @@ function productionProposalDetailToWorksheetRows(
           const budgetCents =
             submilestone.budgetCents ?? fallbackBudgets[index] ?? 0;
           const subPercentageBps = Math.round(
-            (budgetCents / totalBudgetCents) * 10_000,
+            (budgetCents / totalBudgetCents) * 10_000
           );
           return {
             budgetText: formatCents(budgetCents),
@@ -2863,7 +2857,7 @@ function productionProposalDetailToWorksheetRows(
 }
 
 function productionProposalDetailToDraftMilestones(
-  detail: ProductionProposalDetail,
+  detail: ProductionProposalDetail
 ): ProposalGanttMilestoneDraft[] {
   const submilestonesByMilestone = new Map<string, ProductionSubmilestone[]>();
   for (const submilestone of detail.submilestones ?? []) {
@@ -2908,22 +2902,22 @@ function productionProposalDetailToDraftMilestones(
           .slice()
           .sort(
             (a, b) =>
-              (a.order ?? 0) - (b.order ?? 0) || a.key.localeCompare(b.key),
+              (a.order ?? 0) - (b.order ?? 0) || a.key.localeCompare(b.key)
           )
           .map((submilestone, subIndex) => ({
             budgetCents: submilestone.budgetCents,
-        durationDays: submilestone.durationDays,
-        key: submilestone.key,
-        name: submilestone.name,
-        order: submilestone.order ?? subIndex + 1,
-        startDay: submilestone.startDay,
-      })),
+            durationDays: submilestone.durationDays,
+            key: submilestone.key,
+            name: submilestone.name,
+            order: submilestone.order ?? subIndex + 1,
+            startDay: submilestone.startDay,
+          })),
       };
     });
 }
 
 function productionProposalDetailToDraftDraws(
-  detail: ProductionProposalDetail,
+  detail: ProductionProposalDetail
 ): ProposalGanttDrawDraft[] {
   return (detail.draws ?? detail.plannedDraws ?? [])
     .slice()
@@ -2931,7 +2925,7 @@ function productionProposalDetailToDraftDraws(
       (a, b) =>
         (a.order ?? 0) - (b.order ?? 0) ||
         a.timingDay - b.timingDay ||
-        a.drawKey.localeCompare(b.drawKey),
+        a.drawKey.localeCompare(b.drawKey)
     )
     .map((draw, index) => ({
       amountCents: draw.amountCents,
@@ -3011,54 +3005,125 @@ function ApprovedProposalConfirmation({
 function ProposalReadinessList({
   detail,
   permitFileName,
+  permitViewerDocument,
+  permitWaiverReason,
+  proposalStatus,
+  onPermitWaiverReasonChange,
 }: {
   detail: ProductionProposalDetail;
   permitFileName?: string;
+  permitViewerDocument?: BuildPermitViewerDocument | null;
+  permitWaiverReason: string;
+  proposalStatus: ProductionProposal["status"];
+  onPermitWaiverReasonChange: (value: string) => void;
 }) {
   const milestoneCount = detail.milestones?.length ?? 0;
   const drawCount = (detail.draws ?? detail.plannedDraws ?? []).length;
+  const pendingWaiverReason = permitWaiverReason.trim();
+  const hasPermit = Boolean(permitFileName || permitViewerDocument);
+  const hasRecordedWaiver = Boolean(detail.permitWaiver);
+  const permitGateReady =
+    hasPermit || hasRecordedWaiver || pendingWaiverReason.length > 0;
 
   return (
-    <ul className="grid gap-3 text-sm">
-      <li className="flex gap-2">
-        {permitFileName || detail.permitWaiver ? (
-          <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
-        ) : (
-          <XCircle className="mt-0.5 size-4 shrink-0 text-warning" />
+    <div className="grid gap-4 text-sm">
+      <ul className="grid gap-3">
+        <li className="flex gap-2">
+          {permitGateReady ? (
+            <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
+          ) : (
+            <XCircle className="mt-0.5 size-4 shrink-0 text-warning" />
+          )}
+          <span>
+            {permitFileName
+              ? `Permit PDF linked: ${permitFileName}`
+              : detail.permitWaiver
+                ? `Permit waiver recorded: ${detail.permitWaiver.reason}`
+                : pendingWaiverReason
+                  ? "Permit waiver reason ready to record on approval."
+                  : "Permit PDF or audited waiver is required before approval."}
+          </span>
+        </li>
+        <li className="flex gap-2">
+          {milestoneCount > 0 ? (
+            <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
+          ) : (
+            <XCircle className="mt-0.5 size-4 shrink-0 text-warning" />
+          )}
+          <span>
+            {milestoneCount > 0
+              ? `${milestoneCount} milestone${milestoneCount === 1 ? "" : "s"} staged for review.`
+              : "At least one milestone is required before submission."}
+          </span>
+        </li>
+        <li className="flex gap-2">
+          {drawCount > 0 ? (
+            <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
+          ) : (
+            <XCircle className="mt-0.5 size-4 shrink-0 text-warning" />
+          )}
+          <span>
+            {drawCount > 0
+              ? `${drawCount} reimbursement draw${drawCount === 1 ? "" : "s"} available in the schedule.`
+              : "No reimbursement draw rows are available yet."}
+          </span>
+        </li>
+      </ul>
+
+      <div className="grid gap-3 border-t pt-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">Permit requirement</span>
+              <Badge variant={permitGateReady ? "success" : "warning"}>
+                {permitGateReady ? "Ready" : "Blocked"}
+              </Badge>
+            </div>
+            <p className="mt-1 text-muted-foreground text-xs">
+              {hasPermit
+                ? "Review the uploaded permit before making the approval decision."
+                : hasRecordedWaiver
+                  ? "The approval package already includes an audited permit waiver."
+                  : "Enter the waiver reason here, then approve to create the audited waiver record."}
+            </p>
+          </div>
+          {hasPermit ? (
+            <BuildPermitViewerDrawer
+              permit={permitViewerDocument}
+              size="sm"
+              triggerLabel="View uploaded permit"
+              triggerTestId="proposal-review-permit-viewer-trigger"
+            />
+          ) : null}
+        </div>
+
+        {hasPermit || hasRecordedWaiver ? null : (
+          <div className="grid gap-2">
+            <Label htmlFor="production-permit-waiver-readiness">
+              Audited permit waiver
+            </Label>
+            <Textarea
+              aria-describedby="production-permit-waiver-readiness-help"
+              id="production-permit-waiver-readiness"
+              onChange={(event) =>
+                onPermitWaiverReasonChange(event.target.value)
+              }
+              placeholder="Reason permit approval is waived for this proposal"
+              rows={3}
+              value={permitWaiverReason}
+            />
+            <p
+              className="text-muted-foreground text-xs"
+              id="production-permit-waiver-readiness-help"
+            >
+              {proposalStatus === "submitted"
+                ? "Approval records this waiver reason in the audit trail."
+                : "This waiver reason is held in the review form until the submitted proposal is approved."}
+            </p>
+          </div>
         )}
-        <span>
-          {permitFileName
-            ? `Permit PDF linked: ${permitFileName}`
-            : detail.permitWaiver
-              ? `Permit waiver recorded: ${detail.permitWaiver.reason}`
-              : "Permit PDF or audited waiver is required before approval."}
-        </span>
-      </li>
-      <li className="flex gap-2">
-        {milestoneCount > 0 ? (
-          <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
-        ) : (
-          <XCircle className="mt-0.5 size-4 shrink-0 text-warning" />
-        )}
-        <span>
-          {milestoneCount > 0
-            ? `${milestoneCount} milestone${milestoneCount === 1 ? "" : "s"} staged for review.`
-            : "At least one milestone is required before submission."}
-        </span>
-      </li>
-      <li className="flex gap-2">
-        {drawCount > 0 ? (
-          <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
-        ) : (
-          <XCircle className="mt-0.5 size-4 shrink-0 text-warning" />
-        )}
-        <span>
-          {drawCount > 0
-            ? `${drawCount} reimbursement draw${drawCount === 1 ? "" : "s"} available in the schedule.`
-            : "No reimbursement draw rows are available yet."}
-        </span>
-      </li>
-    </ul>
+      </div>
+    </div>
   );
 }
 
@@ -3081,7 +3146,7 @@ function DrawScheduleEditor({
   onAmountChange: (drawKey: string, value: string) => void;
   onCommit: (
     drawKey: string,
-    patch: { amountCents: number; label: string; timingDay: number },
+    patch: { amountCents: number; label: string; timingDay: number }
   ) => void;
   onLabelChange: (drawKey: string, value: string) => void;
   onTimingChange: (drawKey: string, value: string) => void;
@@ -3157,7 +3222,7 @@ function DrawScheduleEditor({
             </div>
             <div>
               <Button
-                disabled={!canEditDraws || !isDirty}
+                disabled={!(canEditDraws && isDirty)}
                 onClick={() =>
                   onCommit(draw.drawKey, {
                     amountCents: parseDollarAmountToCents(amountValue),
@@ -3187,30 +3252,139 @@ function ProposalPacketSnapshot({
   const permit = detail.documents?.find((doc) => doc.documentType === "permit");
   const permitViewerDocument = firstPermitDocument(detail.documents);
   const draws = detail.draws ?? detail.plannedDraws ?? [];
+  const approvedAmountCents = calculateProposalApprovedAmountCents(
+    proposal,
+    draws
+  );
+  const totalDrawAmountCents = calculateProposalTotalDrawAmountCents(draws);
+  const borrowerCoPayCents =
+    proposal.borrowerCoPayCents ??
+    Math.max(0, proposal.totalBudgetCents - approvedAmountCents);
+  const closingGapCents = Math.max(
+    0,
+    proposal.totalBudgetCents - approvedAmountCents - borrowerCoPayCents
+  );
+  const satelliteUrl = createGoogleSatelliteMapUrl({
+    address: proposal.location,
+    markerLabel: "B",
+    zoom: 18,
+  });
+  const milestoneGroups = proposalPacketMilestoneGroups(detail);
+  const projectDurationDays =
+    (detail.milestones ?? []).length > 0
+      ? Math.max(
+          ...(detail.milestones ?? []).map((milestone) => milestone.dayEnd)
+        )
+      : 0;
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+    <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_26rem]">
       <div className="grid gap-4">
-        <Section title="Milestone worksheet">
+        <Section title="Build, site, and loan summary">
+          <div className="grid gap-4 2xl:grid-cols-[minmax(18rem,0.9fr)_minmax(0,1.1fr)]">
+            <div className="overflow-hidden rounded-lg border bg-muted">
+              {satelliteUrl ? (
+                <img
+                  alt={`${proposal.buildName} satellite view`}
+                  className="aspect-[16/9] w-full object-cover"
+                  height={360}
+                  src={satelliteUrl}
+                  width={640}
+                />
+              ) : (
+                <div className="grid aspect-[16/9] place-items-center p-4 text-center text-muted-foreground text-sm">
+                  Satellite image unavailable. Add VITE_GOOGLE_MAPS_API_KEY to
+                  render the site view.
+                </div>
+              )}
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <DetailGrid
+                rows={[
+                  ["Build", proposal.buildName],
+                  ["Location", proposal.location],
+                  ["Status", statusLabel(proposal.status)],
+                  ["Planned duration", `${projectDurationDays} days`],
+                ]}
+              />
+              <DetailGrid
+                rows={[
+                  ["Loan principal", formatCents(approvedAmountCents)],
+                  [
+                    "Interest rate",
+                    formatInterestAnnualBps(
+                      detail.loanFacility?.interestAnnualBps ??
+                        proposal.interestAnnualBps ??
+                        925
+                    ),
+                  ],
+                  ["Interest trigger", "Funds released"],
+                  ["Reimbursement model", "Work complete before release"],
+                ]}
+              />
+            </div>
+          </div>
+        </Section>
+
+        <Section title="Milestone and submilestone worksheet">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Milestone</TableHead>
+                <TableHead>Scope</TableHead>
                 <TableHead>Window</TableHead>
                 <TableHead className="text-right">Budget</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(detail.milestones ?? []).map((milestone) => (
-                <TableRow key={milestone.key}>
-                  <TableCell>{milestone.name}</TableCell>
-                  <TableCell>
-                    Day {milestone.dayStart} to {milestone.dayEnd}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {formatCents(milestone.budgetCents)}
-                  </TableCell>
-                </TableRow>
+              {milestoneGroups.map((group) => (
+                <Fragment key={group.milestone.key}>
+                  <TableRow>
+                    <TableCell className="font-medium">
+                      {group.milestone.name}
+                      <div className="mt-1 text-muted-foreground text-xs">
+                        {group.submilestones.length} submilestones
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      Day {group.milestone.dayStart} to {group.milestone.dayEnd}
+                    </TableCell>
+                    <TableCell className="text-right font-medium">
+                      {formatCents(group.milestone.budgetCents)}
+                    </TableCell>
+                  </TableRow>
+                  {group.submilestones.map((submilestone, index) => {
+                    const budgetCents =
+                      submilestone.budgetCents ??
+                      group.fallbackBudgets[index] ??
+                      0;
+                    const startDay =
+                      submilestone.startDay ??
+                      group.milestone.dayStart +
+                        group.fallbackStartOffsets[index];
+                    const durationDays = submilestone.durationDays ?? 1;
+                    return (
+                      <TableRow
+                        className="bg-muted/30"
+                        key={`${group.milestone.key}-${submilestone.key}`}
+                      >
+                        <TableCell className="pl-8">
+                          <span className="font-medium">
+                            {submilestone.name}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          Day {startDay} to {startDay + durationDays}
+                          <span className="ml-2 text-muted-foreground text-xs">
+                            {durationDays}d
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatCents(budgetCents)}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </Fragment>
               ))}
             </TableBody>
           </Table>
@@ -3241,30 +3415,41 @@ function ProposalPacketSnapshot({
       </div>
 
       <div className="grid gap-4">
-        <Section title="Proposal identity">
+        <Section title="Closing financials">
           <DetailGrid
             rows={[
-              ["Build", proposal.buildName],
-              ["Location", proposal.location],
-              ["Status", statusLabel(proposal.status)],
+              ["Total budget", formatCents(proposal.totalBudgetCents)],
+              ["Approved principal", formatCents(approvedAmountCents)],
+              ["Scheduled reimbursements", formatCents(totalDrawAmountCents)],
+              ["Borrower co-pay", formatCents(borrowerCoPayCents)],
+              [
+                "Working-capital limit",
+                formatCents(proposal.borrowerWorkingCapitalLimitCents),
+              ],
+              [
+                "Lender draw policy limit",
+                formatCents(proposal.lenderDrawPolicyLimitCents),
+              ],
+              ["Funding gap", formatCents(closingGapCents)],
+              [
+                "Closing state",
+                detail.activeBuild?.startDate
+                  ? `Closed, starts ${detail.activeBuild.startDate}`
+                  : proposal.status === "approved"
+                    ? "Approved, closing pending"
+                    : "Pre-closing review",
+              ],
             ]}
           />
         </Section>
 
-        <Section title="Budget and capital">
+        <Section title="Build details">
           <DetailGrid
             rows={[
-              ["Total budget", formatCents(proposal.totalBudgetCents)],
-              [
-                "Builder working capital",
-                formatCents(proposal.borrowerWorkingCapitalLimitCents),
-              ],
-              [
-                "Approved amount",
-                formatCents(
-                  calculateProposalApprovedAmountCents(proposal, detail.draws),
-                ),
-              ],
+              ["Milestones", String(detail.milestones?.length ?? 0)],
+              ["Submilestones", String(detail.submilestones?.length ?? 0)],
+              ["Draws", String(draws.length)],
+              ["Permit", permit ? permit.fileName : "Missing or waived"],
             ]}
           />
         </Section>
@@ -3293,8 +3478,83 @@ function ProposalPacketSnapshot({
   );
 }
 
+function proposalPacketMilestoneGroups(detail: ProductionProposalDetail) {
+  const submilestonesByMilestone = new Map<string, ProductionSubmilestone[]>();
+  for (const submilestone of detail.submilestones ?? []) {
+    const next = submilestonesByMilestone.get(submilestone.milestoneKey) ?? [];
+    next.push(submilestone);
+    submilestonesByMilestone.set(submilestone.milestoneKey, next);
+  }
+
+  return (detail.milestones ?? [])
+    .slice()
+    .sort((a, b) => a.order - b.order || a.key.localeCompare(b.key))
+    .map((milestone) => {
+      const milestoneDurationDays =
+        milestone.durationDays ??
+        Math.max(1, Math.round(milestone.dayEnd - milestone.dayStart));
+      const persistedSubmilestones = (
+        submilestonesByMilestone.get(milestone.key) ?? []
+      )
+        .slice()
+        .sort(
+          (a, b) =>
+            (a.order ?? 0) - (b.order ?? 0) || a.key.localeCompare(b.key)
+        );
+      const submilestones =
+        persistedSubmilestones.length > 0
+          ? persistedSubmilestones
+          : [
+              {
+                budgetCents: milestone.budgetCents,
+                durationDays: milestoneDurationDays,
+                key: `${milestone.key}-scope`,
+                milestoneKey: milestone.key,
+                name: `${milestone.name} scope`,
+                order: 1,
+                startDay: milestone.dayStart,
+              },
+            ];
+      const fallbackBudgets = allocateEvenlyCents(
+        milestone.budgetCents,
+        submilestones.length
+      );
+      const fallbackDurations = allocateWholeDays(
+        milestoneDurationDays,
+        submilestones.length
+      );
+      let elapsedDays = 0;
+      const fallbackStartOffsets = fallbackDurations.map((duration) => {
+        const offset = elapsedDays;
+        elapsedDays += duration;
+        return offset;
+      });
+
+      return {
+        fallbackBudgets,
+        fallbackStartOffsets,
+        milestone,
+        submilestones,
+      };
+    });
+}
+
+function allocateWholeDays(totalDays: number, count: number) {
+  if (count <= 0) {
+    return [];
+  }
+  const normalizedTotal = Math.max(count, Math.round(totalDays));
+  const base = Math.floor(normalizedTotal / count);
+  let remainder = normalizedTotal - base * count;
+  return Array.from({ length: count }, () => {
+    const extra = remainder > 0 ? 1 : 0;
+    remainder -= extra;
+    return base + extra;
+  });
+}
+
 export function toTimelineRows(
-  cards: ProductionKanbanCard[],
+  cards: ProductionKanbanCard[]
 ): TimelinePlanRow[] {
   return cards.map((card) => ({
     buildName: card.title,
@@ -3309,7 +3569,7 @@ export function toTimelineRows(
 }
 
 function productionTemplateToWorksheetRows(
-  template: ProductionProposalSettings["templates"][number] | undefined,
+  template: ProductionProposalSettings["templates"][number] | undefined
 ): TimelineMilestoneWorksheetRow[] {
   if (!template) {
     return [];
@@ -3347,7 +3607,7 @@ function productionTemplateToWorksheetRows(
         name: submilestone.name,
       })),
       subMilestones: milestone.submilestones.map(
-        (submilestone) => submilestone.name,
+        (submilestone) => submilestone.name
       ),
       type,
     };
@@ -3483,7 +3743,7 @@ function formatBps(bps: number) {
 
 function calculateProposalApprovedAmountCents(
   proposal: ProductionProposal,
-  draws: ProductionDraw[] = [],
+  draws: ProductionDraw[] = []
 ) {
   const totalDrawnCents = calculateProposalTotalDrawAmountCents(draws);
   return Math.max(0, proposal.lenderDrawPolicyLimitCents, totalDrawnCents);
@@ -3492,7 +3752,7 @@ function calculateProposalApprovedAmountCents(
 function calculateProposalTotalDrawAmountCents(draws: ProductionDraw[] = []) {
   return draws.reduce(
     (total, draw) => total + Math.max(0, Math.round(draw.amountCents)),
-    0,
+    0
   );
 }
 
@@ -3522,14 +3782,14 @@ function parseInteger(value: string) {
 
 function calculateUnapprovedBudgetBps(
   totalBudgetCents: number,
-  approvedAmountCents: number,
+  approvedAmountCents: number
 ) {
   if (totalBudgetCents <= 0) {
     return 0;
   }
   const normalizedApprovedAmountCents = Math.max(
     0,
-    Math.min(totalBudgetCents, approvedAmountCents),
+    Math.min(totalBudgetCents, approvedAmountCents)
   );
   return Math.max(
     0,
@@ -3537,14 +3797,14 @@ function calculateUnapprovedBudgetBps(
       10_000,
       Math.round(
         ((totalBudgetCents - normalizedApprovedAmountCents) * 10_000) /
-          totalBudgetCents,
-      ),
-    ),
+          totalBudgetCents
+      )
+    )
   );
 }
 
 function normalizeDocumentType(
-  value: string,
+  value: string
 ): "permit" | "budget" | "plan" | "supporting" {
   if (
     value === "permit" ||

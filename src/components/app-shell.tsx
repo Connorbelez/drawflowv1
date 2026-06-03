@@ -24,7 +24,7 @@ export function AppShell({
         <AppHeader />
         <div
           className={cn(
-            "flex w-full flex-1 flex-col px-1 py-0 md:p-0",
+            "flex w-full flex-1 flex-col p-0",
             contentClassName
           )}
         >

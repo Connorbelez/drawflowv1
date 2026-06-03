@@ -2936,6 +2936,46 @@ describe("production proposal foundation", () => {
       },
     );
     expect(siteVisit.url).toContain("/newsitevisit/");
+    const siteVisitRoster = await t.query(
+      (api as any).production_proposals.listBrokerageSiteVisits,
+      { workosOrganizationId: ORG },
+    );
+    expect(siteVisitRoster.summary.total).toBeGreaterThanOrEqual(1);
+    expect(siteVisitRoster.visits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          buildId: closing.buildId,
+          milestoneKey: "foundation",
+          operationalStatus: "open",
+          visitId: siteVisit.visitId,
+        }),
+      ]),
+    );
+    expect(
+      siteVisitRoster.builds.some(
+        (group: { buildId: string }) => group.buildId === closing.buildId,
+      ),
+    ).toBe(true);
+    const drawRoster = await t.query(
+      (api as any).production_proposals.listBrokerageDraws,
+      { workosOrganizationId: ORG },
+    );
+    expect(drawRoster.summary.total).toBeGreaterThanOrEqual(1);
+    expect(drawRoster.draws).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          buildId: closing.buildId,
+          drawKey: "draw-01",
+          status: "released",
+        }),
+      ]),
+    );
+    expect(drawRoster.chartSeries.length).toBeGreaterThanOrEqual(1);
+    expect(
+      drawRoster.builds.some(
+        (group: { buildId: string }) => group.buildId === closing.buildId,
+      ),
+    ).toBe(true);
     await t.mutation(
       (api as any).production_proposals.approveActiveBuildMilestone,
       {
@@ -3296,6 +3336,32 @@ describe("production proposal foundation", () => {
         build.id.includes("Approved With Permit"),
       ),
     ).toBe(false);
+  });
+
+  test("lists the backoffice build roster with phase rollups and operational signals", async () => {
+    const { t } = await seeded(["admin"], "user_admin");
+
+    await t.mutation(
+      (api as any).production_proposals.dev_seedProductionProposalScenarios,
+      { workosOrganizationId: ORG },
+    );
+
+    const roster = await t.query(
+      (api as any).production_proposals.listBackofficeBuildRoster,
+      { workosOrganizationId: ORG },
+    );
+
+    expect(roster.summary.total).toBeGreaterThanOrEqual(1);
+    expect(roster.builds.length).toBe(roster.summary.total);
+    expect(roster.builds[0]).toMatchObject({
+      buildName: expect.any(String),
+      displayId: expect.stringMatching(/^B-/),
+      href: expect.stringMatching(/^\/backoffice\/builds\//),
+      phase: expect.stringMatching(/scheduled|active|attention|completed/),
+    });
+    expect(
+      roster.summary.scheduled + roster.summary.active + roster.summary.attention + roster.summary.completed,
+    ).toBe(roster.summary.total);
   });
 
   test("dashboard milestone review queue only includes builder completion claims", async () => {
@@ -3927,5 +3993,95 @@ describe("draft builder assignment and deletion", () => {
         workosOrganizationId: ORG,
       }),
     ).rejects.toThrow(/Only draft proposals/);
+  });
+
+  test("deletes an active build and clears the proposal link", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const proposalId = await admin.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Closable build",
+        location: "12 Delete Lane",
+        workosOrganizationId: ORG,
+      },
+    );
+    await admin.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerWorkingCapitalLimitCents: 35_000_000,
+        documents: [
+          {
+            documentType: "permit",
+            fileName: "delete-build-permit.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 512,
+          },
+        ],
+        lenderDrawPolicyLimitCents: 55_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 20,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 20,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    await admin.mutation((api as any).production_proposals.submitProposal, {
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+    await admin.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Ready to close.",
+      workosOrganizationId: ORG,
+    });
+    const closing = await admin.mutation(
+      (api as any).production_proposals.recordOfflineClosing,
+      {
+        buildStartDate: "2026-08-01",
+        loanFacility: {
+          interestAnnualBps: 925,
+          principalCents: 50_000_000,
+        },
+        proposalId,
+        reason: "Closed for delete test.",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await admin.mutation((api as any).production_proposals.deleteActiveBuild, {
+      buildId: closing.buildId,
+      reason: "QA cleanup.",
+      workosOrganizationId: ORG,
+    });
+
+    const leftovers = await admin.run(async (ctx: any) => ({
+      build: await ctx.db.get(closing.buildId),
+      proposal: await ctx.db.get(proposalId),
+    }));
+    expect(leftovers.build).toBeNull();
+    expect(leftovers.proposal?.activeBuildId).toBeUndefined();
+
+    const dashboard = await admin.query(
+      (api as any).production_proposals.getBackofficeDashboard,
+      { workosOrganizationId: ORG },
+    );
+    expect(
+      dashboard.activeBuilds.some(
+        (build: { buildKey: string }) => build.buildKey === String(closing.buildId),
+      ),
+    ).toBe(false);
   });
 });

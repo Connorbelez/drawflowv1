@@ -44,6 +44,7 @@ import {
 import {
   assertPackageWithinCap,
   buildStagedEvidence,
+  evidenceMimeTypeForFile,
   packageTotalBytes,
   type SiteVisitStagedEvidence,
   uploadSiteVisitStagedEvidence,
@@ -321,14 +322,14 @@ function SiteVisitTokenRouteContent({
             [
               "Submitted",
               `${formatVisitTime(submittedSummary.completedAt)} · ${formatVisitDay(
-                submittedSummary.completedAt
+                submittedSummary.completedAt,
               )}`,
             ],
             ["Recommendation", submittedSummary.recommendation],
             [
               "Files stored",
               `${submittedSummary.fileCount} · ${formatSiteVisitBytes(
-                submittedSummary.totalBytes
+                submittedSummary.totalBytes,
               )}`,
             ],
           ]}
@@ -401,12 +402,12 @@ function SiteVisitTokenRouteContent({
   );
   const uploadedBytes = files.reduce((sum, file) => sum + file.sizeBytes, 0);
   const stagedBytes = packageTotalBytes(
-    stagedItems.map((item) => item.evidence)
+    stagedItems.map((item) => item.evidence),
   );
   const totalPackageBytes = uploadedBytes + stagedBytes;
   const expiresInMinutes = Math.max(
     0,
-    Math.ceil(((visit.tokenExpiresAt ?? now) - now) / 60_000)
+    Math.ceil(((visit.tokenExpiresAt ?? now) - now) / 60_000),
   );
 
   const stageFiles = (event: ChangeEvent<HTMLInputElement>) => {
@@ -419,7 +420,7 @@ function SiteVisitTokenRouteContent({
     const nextItems = selectedFiles.map((file) => ({
       evidence: buildStagedEvidence({
         id: `${Date.now()}-${file.name}-${file.size}`,
-        mimeType: file.type || "application/octet-stream",
+        mimeType: evidenceMimeTypeForFile(file),
         name: file.name,
         sizeBytes: file.size,
         targetMilestoneKey: selectedMilestoneKey,
@@ -437,7 +438,7 @@ function SiteVisitTokenRouteContent({
       setError(
         stageError instanceof Error
           ? stageError.message
-          : "Unable to stage selected evidence."
+          : "Unable to stage selected evidence.",
       );
     }
   };
@@ -483,7 +484,7 @@ function SiteVisitTokenRouteContent({
       setError(
         uploadError instanceof Error
           ? uploadError.message
-          : "Unable to upload site visit evidence."
+          : "Unable to upload site visit evidence.",
       );
       setUploadingCount(0);
       throw uploadError;
@@ -506,13 +507,15 @@ function SiteVisitTokenRouteContent({
         token: siteVisitToken,
       };
       if (source === "production" && rating !== undefined) {
-        reportPayload.contractorRatings = qualityRatingTargets.map((target) => ({
-          contractorId: target._id,
-          milestoneKey: target.milestoneKey,
-          note: reportNotes,
-          rating,
-          submilestoneKey: target.submilestoneKey,
-        }));
+        reportPayload.contractorRatings = qualityRatingTargets.map(
+          (target) => ({
+            contractorId: target._id,
+            milestoneKey: target.milestoneKey,
+            note: reportNotes,
+            rating,
+            submilestoneKey: target.submilestoneKey,
+          }),
+        );
       }
       await submitReport(reportPayload);
       setSubmittedSummary({
@@ -526,7 +529,7 @@ function SiteVisitTokenRouteContent({
       setError(
         submitError instanceof Error
           ? submitError.message
-          : "Unable to submit site visit report."
+          : "Unable to submit site visit report.",
       );
     }
   };
@@ -589,7 +592,7 @@ function SiteVisitTokenRouteContent({
             files={stagedItems.map((item) => item.evidence)}
             onRemove={(id) =>
               setStagedItems((current) =>
-                current.filter((item) => item.evidence.id !== id)
+                current.filter((item) => item.evidence.id !== id),
               )
             }
             targets={targets}
@@ -885,21 +888,23 @@ function SiteVisitCapturePanel({
             );
           })}
           {targets.flatMap((target, targetIndex) =>
-            visitSubmilestones(target).slice(0, 6).map((submilestone, subIndex) => {
-              const subTarget = encodeSubmilestoneVisitTarget(
-                target.milestoneKey,
-                submilestone.key,
-              );
-              return (
-                <TargetButton
-                  active={selectedTarget === subTarget}
-                  key={`${target._id}-${submilestone.key}`}
-                  onClick={() => setSelectedTarget(subTarget)}
-                >
-                  {subCode(target, subIndex, targetIndex)} {submilestone.name}
-                </TargetButton>
-              );
-            }),
+            visitSubmilestones(target)
+              .slice(0, 6)
+              .map((submilestone, subIndex) => {
+                const subTarget = encodeSubmilestoneVisitTarget(
+                  target.milestoneKey,
+                  submilestone.key,
+                );
+                return (
+                  <TargetButton
+                    active={selectedTarget === subTarget}
+                    key={`${target._id}-${submilestone.key}`}
+                    onClick={() => setSelectedTarget(subTarget)}
+                  >
+                    {subCode(target, subIndex, targetIndex)} {submilestone.name}
+                  </TargetButton>
+                );
+              }),
           )}
         </div>
       </div>
@@ -972,7 +977,9 @@ function CaptureButton({
       aria-label={label}
       className="grid min-h-28 cursor-pointer place-items-center p-2 text-center transition-colors hover:border-primary/40 hover:bg-accent/5 sm:min-h-32 lg:min-h-24"
       data-testid={
-        nativeCamera ? "site-visit-take-photo" : `site-visit-capture-${label.toLowerCase().replace(/\s+/g, "-")}`
+        nativeCamera
+          ? "site-visit-take-photo"
+          : `site-visit-capture-${label.toLowerCase().replace(/\s+/g, "-")}`
       }
       onClick={nativeCamera ? openPicker : undefined}
       onKeyDown={
@@ -1656,8 +1663,8 @@ function normalizedGuidance(target: VisitTarget): SiteVisitGuidanceHtml {
         .slice(0, 4)
         .map(
           (checkpoint) =>
-            `${checkpoint} is complete, visible, and consistent with the approved scope.`
-        )
+            `${checkpoint} is complete, visible, and consistent with the approved scope.`,
+        ),
     ),
   };
 }
@@ -1669,7 +1676,7 @@ function shortMilestoneLabel(value: string) {
 
 function subCode(target: VisitTarget, index: number) {
   return `${String(target.milestoneOrder || 1).padStart(2, "0")}${String.fromCharCode(
-    97 + index
+    97 + index,
   )}`;
 }
 
@@ -1696,7 +1703,9 @@ function targetLabel(
     : `${targetCode(target)} · ${submilestoneKey}`;
 }
 
-function visitSubmilestones(target: VisitTarget): Array<{ key: string; name: string }> {
+function visitSubmilestones(
+  target: VisitTarget,
+): Array<{ key: string; name: string }> {
   return target.submilestones.map((submilestone) =>
     typeof submilestone === "string"
       ? { key: slugifyTargetKey(submilestone), name: submilestone }

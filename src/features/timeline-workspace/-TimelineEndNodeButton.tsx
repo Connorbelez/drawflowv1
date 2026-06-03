@@ -33,7 +33,7 @@ export function TimelineEndNodeButton({
       className={cn(
         "grid size-8 place-items-center rounded-full border-2 bg-background text-muted-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         complete &&
-          "border-emerald-400 bg-emerald-50 text-emerald-600 ring-4 ring-emerald-500/10 dark:bg-emerald-500/10",
+          "border-emerald-400 bg-card text-emerald-600 ring-4 ring-emerald-500/10",
         active &&
           !complete &&
           "border-rose-500 bg-rose-500 text-white shadow-rose-500/30 ring-4 ring-rose-500/20",

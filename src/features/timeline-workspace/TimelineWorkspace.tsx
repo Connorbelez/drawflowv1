@@ -81,6 +81,10 @@ import { Switch } from "#/components/ui/switch.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { normalizeSiteVisitTokenRoute } from "#/features/build-workspace-demo/site-visit-token-route-model.ts";
 import { useMediaQuery } from "#/hooks/use-media-query.ts";
+import {
+  isHeicLikeEvidenceImage,
+  normalizeEvidenceFileForUpload,
+} from "#/lib/evidence-image-normalization.ts";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -948,8 +952,7 @@ export function TimelineWorkspace({
     forcedReadOnly || statusReadOnly || collaborationViewOnly,
   );
   const canWriteLiveTimeline =
-    !readOnly &&
-    (!durableMeta || planStatus === "draft" || liveBuildMode);
+    !readOnly && (!durableMeta || planStatus === "draft" || liveBuildMode);
   const canEditPlanStructure =
     !readOnly && (!durableMeta || planStatus === "draft");
   const canUseLiveExecution = liveBuildMode && !readOnly;
@@ -2367,8 +2370,7 @@ export function TimelineWorkspace({
                     ...(patch.drawAvailabilityAmount === undefined
                       ? {}
                       : {
-                          drawAvailabilityAmount:
-                            patch.drawAvailabilityAmount,
+                          drawAvailabilityAmount: patch.drawAvailabilityAmount,
                         }),
                     ...(patch.durationDays === undefined
                       ? {}
@@ -2561,17 +2563,32 @@ export function TimelineWorkspace({
       return;
     }
 
-    const createdAssets: DemoEvidenceAsset[] = [];
-    setItems((currentItems) =>
-      currentItems.map((item) => {
-        if (!(item.id === itemId && item.data)) {
-          return item;
-        }
+    void (async () => {
+      const evidenceFiles = await Promise.all(
+        files
+          .filter(
+            (file) =>
+              file.type.startsWith("image/") ||
+              isHeicLikeEvidenceImage({
+                fileName: file.name,
+                mimeType: file.type,
+              }),
+          )
+          .map((file) => normalizeEvidenceFileForUpload(file)),
+      );
+      if (evidenceFiles.length === 0) {
+        return;
+      }
 
-        const existingAssets = item.data.evidencePackage?.assets ?? [];
-        const nextAssets = files
-          .filter((file) => file.type.startsWith("image/"))
-          .map((file, index) => {
+      const createdAssets: DemoEvidenceAsset[] = [];
+      setItems((currentItems) =>
+        currentItems.map((item) => {
+          if (!(item.id === itemId && item.data)) {
+            return item;
+          }
+
+          const existingAssets = item.data.evidencePackage?.assets ?? [];
+          const nextAssets = evidenceFiles.map((file, index) => {
             const assetNumber = existingAssets.length + index + 1;
 
             const asset = {
@@ -2587,66 +2604,71 @@ export function TimelineWorkspace({
             return asset;
           });
 
-        if (nextAssets.length === 0) {
-          return item;
-        }
-
-        return {
-          ...item,
-          data: {
-            ...item.data,
-            evidence: "Submitted package",
-            evidencePackage: {
-              assets: [...existingAssets, ...nextAssets],
-            },
-          },
-        };
-      }),
-    );
-    if (durablePlanId && createdAssets.length > 0) {
-      for (const [index, asset] of createdAssets.entries()) {
-        const file = files.filter((candidate) =>
-          candidate.type.startsWith("image/"),
-        )[index];
-        if (!file) {
-          continue;
-        }
-        void (async () => {
-          const uploadUrl = await persistGenerateEvidenceUploadUrl();
-          const response = await fetch(uploadUrl, {
-            body: file,
-            headers: {
-              "Content-Type": file.type || "application/octet-stream",
-            },
-            method: "POST",
-          });
-          if (!response.ok) {
-            throw new Error("Evidence upload failed.");
+          if (nextAssets.length === 0) {
+            return item;
           }
-          const { storageId } = (await response.json()) as {
-            storageId: string;
-          };
-          await persistCreateEvidenceAsset({
-            asset: {
-              evidenceKey: asset.id,
-              fileName: asset.fileName,
-              label: asset.label,
-              milestoneKey: itemId,
-              mimeType: asset.mimeType,
-              sizeBytes: asset.size,
-              storageId: storageId as Id<"_storage">,
-              tag: asset.tag,
+
+          return {
+            ...item,
+            data: {
+              ...item.data,
+              evidence: "Submitted package",
+              evidencePackage: {
+                assets: [...existingAssets, ...nextAssets],
+              },
             },
+          };
+        }),
+      );
+      if (durablePlanId && createdAssets.length > 0) {
+        for (const [index, asset] of createdAssets.entries()) {
+          const file = evidenceFiles[index];
+          if (!file) {
+            continue;
+          }
+          void (async () => {
+            const uploadUrl = await persistGenerateEvidenceUploadUrl();
+            const response = await fetch(uploadUrl, {
+              body: file,
+              headers: {
+                "Content-Type": file.type || "application/octet-stream",
+              },
+              method: "POST",
+            });
+            if (!response.ok) {
+              throw new Error("Evidence upload failed.");
+            }
+            const { storageId } = (await response.json()) as {
+              storageId: string;
+            };
+            await persistCreateEvidenceAsset({
+              asset: {
+                evidenceKey: asset.id,
+                fileName: asset.fileName,
+                label: asset.label,
+                milestoneKey: itemId,
+                mimeType: asset.mimeType,
+                sizeBytes: asset.size,
+                storageId: storageId as Id<"_storage">,
+                tag: asset.tag,
+              },
+            });
+          })().catch((error) => {
+            const message =
+              error instanceof Error
+                ? error.message
+                : "Unable to persist evidence.";
+            toast.error(message);
           });
-        })().catch((error) => {
-          const message =
-            error instanceof Error
-              ? error.message
-              : "Unable to persist evidence.";
-          toast.error(message);
-        });
+        }
       }
-    }
+    })().catch((error) => {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Unable to prepare evidence images.";
+      toast.error(message);
+    });
   };
 
   const updateEvidenceAsset = (
@@ -5889,7 +5911,9 @@ export function buildDrawAvailabilityData(
     const approvedLimitShare =
       point.totalAvailableDraw >= baseTopLine
         ? approvedHeadroom
-        : Math.round((approvedHeadroom * point.totalAvailableDraw) / baseTopLine);
+        : Math.round(
+            (approvedHeadroom * point.totalAvailableDraw) / baseTopLine,
+          );
     const additionalAvailableDraw =
       point.additionalAvailableDraw + approvedLimitShare;
 
@@ -6505,10 +6529,7 @@ function SelectedDrawMobileDrawer({
     assetId: string,
     patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>,
   ) => void;
-  onUpdateMilestoneDrawAvailability?: (
-    itemId: string,
-    amount: number,
-  ) => void;
+  onUpdateMilestoneDrawAvailability?: (itemId: string, amount: number) => void;
   onUpdateSubmilestoneBudget?: (
     itemId: string,
     submilestoneKey: string,
@@ -6651,10 +6672,7 @@ function SelectedContextPanel({
     assetId: string,
     patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>,
   ) => void;
-  onUpdateMilestoneDrawAvailability?: (
-    itemId: string,
-    amount: number,
-  ) => void;
+  onUpdateMilestoneDrawAvailability?: (itemId: string, amount: number) => void;
   onUpdateSubmilestoneBudget?: (
     itemId: string,
     submilestoneKey: string,
@@ -6814,10 +6832,7 @@ function MilestonePlanSummaryPanel({
   activeDraw: DemoDraw | null;
   activeItem: TimelineItem<DemoMilestone>;
   contractorPlanning?: ContractorPlanningModel | null;
-  onUpdateMilestoneDrawAvailability?: (
-    itemId: string,
-    amount: number,
-  ) => void;
+  onUpdateMilestoneDrawAvailability?: (itemId: string, amount: number) => void;
   onUpdateSubmilestoneBudget?: (
     itemId: string,
     submilestoneKey: string,
@@ -6860,9 +6875,7 @@ function MilestonePlanSummaryPanel({
           </dd>
         </div>
         <div className="flex items-center justify-between gap-3">
-          <dt className="text-muted-foreground">
-            Draw availability unlocked
-          </dt>
+          <dt className="text-muted-foreground">Draw availability unlocked</dt>
           <dd className="font-semibold tabular-nums">
             <EditableNumberChip
               ariaLabel="Draw availability unlocked"
@@ -9419,7 +9432,7 @@ function TimelineNodeButton({
       className={cn(
         "grid size-9 place-items-center rounded-full border-2 bg-background text-muted-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         complete &&
-          "border-emerald-400 bg-emerald-50 text-emerald-600 ring-4 ring-emerald-500/10 dark:bg-emerald-500/10",
+          "border-emerald-400 bg-card text-emerald-600 ring-4 ring-emerald-500/10",
         active &&
           !complete &&
           "border-rose-500 bg-rose-500 text-white shadow-rose-500/30 ring-4 ring-rose-500/20",

@@ -20,7 +20,13 @@ import { api } from "../../../../../convex/_generated/api";
 type BuildDetailSearch = {
   timeframe?: CalendarTimeframe;
   milestone?: string;
-  tab?: "calendar" | "details" | "gantt" | "materials" | "timeline";
+  tab?:
+    | "calendar"
+    | "details"
+    | "evidence"
+    | "gantt"
+    | "materials"
+    | "timeline";
   rail?: "open" | "closed";
 };
 
@@ -28,6 +34,7 @@ export const Route = createFileRoute("/backoffice/builds/$buildId")({
   validateSearch: (search: Record<string, unknown>): BuildDetailSearch => {
     const tab =
       search.tab === "timeline" ||
+      search.tab === "evidence" ||
       search.tab === "materials" ||
       search.tab === "calendar" ||
       search.tab === "gantt" ||
@@ -65,50 +72,53 @@ function RouteComponent() {
   const navigate = useNavigate();
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
   const addDocument = useMutation(
-    api.production_proposals.addActiveBuildDocument
+    api.production_proposals.addActiveBuildDocument,
   );
   const addNote = useMutation(api.production_proposals.addActiveBuildNote);
   const approveDraw = useMutation(
-    api.production_proposals.approveActiveBuildDraw
+    api.production_proposals.approveActiveBuildDraw,
   );
   const approveMilestone = useMutation(
-    api.production_proposals.approveActiveBuildMilestone
+    api.production_proposals.approveActiveBuildMilestone,
   );
   const assignSiteVisit = useMutation(
-    api.production_proposals.assignActiveBuildSiteVisit
+    api.production_proposals.assignActiveBuildSiteVisit,
   );
   const assignContractorToMilestone = useMutation(
-    (api as any).production_proposals.assignActiveBuildContractorToMilestone
+    (api as any).production_proposals.assignActiveBuildContractorToMilestone,
   );
   const attachContractor = useMutation(
-    api.production_proposals.attachActiveBuildContractor
+    api.production_proposals.attachActiveBuildContractor,
   );
   const createContractor = useMutation(
-    api.production_proposals.createContractorProfile
+    api.production_proposals.createContractorProfile,
   );
   const rejectDraw = useMutation(
-    api.production_proposals.rejectActiveBuildDraw
+    api.production_proposals.rejectActiveBuildDraw,
   );
   const rejectMilestone = useMutation(
-    api.production_proposals.rejectActiveBuildMilestone
+    api.production_proposals.rejectActiveBuildMilestone,
   );
   const releaseDraw = useMutation(
-    api.production_proposals.releaseActiveBuildDraw
+    api.production_proposals.releaseActiveBuildDraw,
   );
   const requestFacilityChange = useMutation(
-    (api as any).production_proposals.requestActiveBuildFacilityChange
+    (api as any).production_proposals.requestActiveBuildFacilityChange,
   );
   const requestDraw = useMutation(
-    api.production_proposals.requestActiveBuildDraw
+    api.production_proposals.requestActiveBuildDraw,
   );
   const requestMilestoneInfo = useMutation(
-    api.production_proposals.requestActiveBuildMilestoneInfo
+    api.production_proposals.requestActiveBuildMilestoneInfo,
+  );
+  const reviewEvidence = useMutation(
+    api.production_proposals.reviewActiveBuildEvidence,
   );
   const reviewFacilityChangeRequest = useMutation(
-    (api as any).production_proposals.reviewActiveBuildFacilityChangeRequest
+    (api as any).production_proposals.reviewActiveBuildFacilityChangeRequest,
   );
   const startMilestoneWork = useMutation(
-    api.production_proposals.startActiveBuildMilestone
+    api.production_proposals.startActiveBuildMilestone,
   );
   const createActiveBuildCostItem = useMutation(
     api.production_proposals.createActiveBuildCostItem,
@@ -120,40 +130,40 @@ function RouteComponent() {
     api.production_proposals.deleteActiveBuildCostItem,
   );
   const reviseActiveBuildMilestoneSchedule = useMutation(
-    (api as any).production_proposals.reviseActiveBuildMilestoneSchedule
+    (api as any).production_proposals.reviseActiveBuildMilestoneSchedule,
   );
   const setEvidenceDueDate = useMutation(
-    (api as any).production_proposals.setEvidenceDueDate
+    (api as any).production_proposals.setEvidenceDueDate,
   );
   const setReviewTargetDate = useMutation(
-    (api as any).production_proposals.setReviewTargetDate
+    (api as any).production_proposals.setReviewTargetDate,
   );
   const setAdminDecisionTargetDate = useMutation(
-    (api as any).production_proposals.setAdminDecisionTargetDate
+    (api as any).production_proposals.setAdminDecisionTargetDate,
   );
   const setDrawReleaseTargetDate = useMutation(
-    (api as any).production_proposals.setDrawReleaseTargetDate
+    (api as any).production_proposals.setDrawReleaseTargetDate,
   );
   const scheduleActiveBuildSiteVisit = useMutation(
-    (api as any).production_proposals.scheduleActiveBuildSiteVisit
+    (api as any).production_proposals.scheduleActiveBuildSiteVisit,
   );
   const rescheduleActiveBuildSiteVisit = useMutation(
-    (api as any).production_proposals.rescheduleActiveBuildSiteVisit
+    (api as any).production_proposals.rescheduleActiveBuildSiteVisit,
   );
   const cancelActiveBuildSiteVisit = useMutation(
-    (api as any).production_proposals.cancelActiveBuildSiteVisit
+    (api as any).production_proposals.cancelActiveBuildSiteVisit,
   );
   const requestLoanFacilityDateChange = useMutation(
-    (api as any).production_proposals.requestLoanFacilityDateChange
+    (api as any).production_proposals.requestLoanFacilityDateChange,
   );
   const saveCalendarView = useMutation(
-    (api as any).production_proposals.saveCalendarView
+    (api as any).production_proposals.saveCalendarView,
   );
   const createCalendarSyncSubscription = useMutation(
-    (api as any).production_proposals.createCalendarSyncSubscription
+    (api as any).production_proposals.createCalendarSyncSubscription,
   );
   const recordExternalCalendarSyncChange = useMutation(
-    (api as any).production_proposals.recordExternalCalendarSyncChange
+    (api as any).production_proposals.recordExternalCalendarSyncChange,
   );
   const productionBuildQuery = useQuery(
     api.production_proposals.getActiveBuildDetailByString,
@@ -162,7 +172,7 @@ function RouteComponent() {
       : {
           buildId,
           workosOrganizationId: context.organizationId as string,
-        }
+        },
   );
   const effectiveProductionBuild = visualFixtureEnabled
     ? getVisualParityActiveBuildDetail(buildId)
@@ -177,7 +187,7 @@ function RouteComponent() {
             buildId: activeBuildIdForWorkspace,
             workosOrganizationId: context.organizationId as string,
           }
-        : "skip"
+        : "skip",
   );
   const effectiveTimelineWorkspace = visualFixtureEnabled
     ? getVisualParityActiveBuildTimelineWorkspace(buildId)
@@ -191,7 +201,7 @@ function RouteComponent() {
             buildId: activeBuildIdForWorkspace,
             workosOrganizationId: context.organizationId as string,
           }
-        : "skip"
+        : "skip",
   );
 
   const onChangeTab = (tab: BuildDetailSubTab) =>
@@ -450,6 +460,14 @@ function RouteComponent() {
         }),
       requestMilestoneInfo: ({ milestoneKey, note }) =>
         requestMilestoneInfo({
+          buildId: activeBuildId,
+          milestoneKey,
+          note,
+          workosOrganizationId,
+        }),
+      reviewEvidence: ({ accepted, milestoneKey, note }) =>
+        reviewEvidence({
+          accepted,
           buildId: activeBuildId,
           milestoneKey,
           note,

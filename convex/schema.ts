@@ -2444,6 +2444,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_brokerage", ["brokerageId"])
     .index("by_build", ["buildId"])
     .index("by_build_milestone", ["buildId", "milestoneKey"])
     .index("by_visit", ["visitId"]),

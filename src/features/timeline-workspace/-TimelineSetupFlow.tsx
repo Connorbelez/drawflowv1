@@ -18,6 +18,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { GoogleAddressAutocomplete } from "#/components/address/GoogleAddressAutocomplete.tsx";
 import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -1389,20 +1390,23 @@ function TemplateStep({
         </BlueprintPanel>
 
         <BlueprintPanel>
-          <label className="timeline-setup-address-field">
-            <span>
-              Project Address <em>(optional)</em>
-            </span>
-            <input
-              aria-label="Project address"
-              data-testid="timeline-setup-address-input"
-              onChange={(event) =>
-                onProjectAddressChange(event.currentTarget.value)
-              }
-              placeholder="Enter project address"
-              value={projectAddress}
-            />
-          </label>
+          <GoogleAddressAutocomplete
+            className="timeline-setup-address-field"
+            inputRender={
+              <input
+                aria-label="Project address"
+                data-testid="timeline-setup-address-input"
+              />
+            }
+            label={
+              <span>
+                Project Address <em>(optional)</em>
+              </span>
+            }
+            onChange={onProjectAddressChange}
+            placeholder="Enter project address"
+            value={projectAddress}
+          />
         </BlueprintPanel>
 
         <BlueprintPanel
@@ -1796,7 +1800,7 @@ function BudgetStep({
                 file,
                 fileName: file.name,
                 mimeType: file.type || "application/pdf",
-              })),
+              }))
             )}
             size="sm"
           />

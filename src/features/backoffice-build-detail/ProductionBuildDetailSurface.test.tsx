@@ -24,13 +24,19 @@ vi.mock("#/components/roadmap/AnimatedCurvedTimeline.tsx", () => ({
   AnimatedCurvedTimeline: () => <div data-testid="mock-animated-timeline" />,
 }));
 
-vi.mock("#/features/timeline-workspace/-TimelineCashflowCompoundChart.tsx", () => ({
-  TimelineCashflowCompoundChart: () => <div data-testid="mock-cashflow" />,
-}));
+vi.mock(
+  "#/features/timeline-workspace/-TimelineCashflowCompoundChart.tsx",
+  () => ({
+    TimelineCashflowCompoundChart: () => <div data-testid="mock-cashflow" />,
+  }),
+);
 
-vi.mock("#/features/timeline-workspace/-TimelineDrawAvailabilityChart.tsx", () => ({
-  TimelineDrawAvailabilityChart: () => <div data-testid="mock-draw-chart" />,
-}));
+vi.mock(
+  "#/features/timeline-workspace/-TimelineDrawAvailabilityChart.tsx",
+  () => ({
+    TimelineDrawAvailabilityChart: () => <div data-testid="mock-draw-chart" />,
+  }),
+);
 
 vi.mock("./ActiveBuildTimelineWorkspace", () => ({
   ActiveBuildTimelineWorkspace: ({ workspace }: { workspace: any }) => (
@@ -59,10 +65,17 @@ vi.mock("./ActiveBuildTimelineWorkspace.tsx", () => ({
 }));
 
 vi.mock("./ActiveBuildGanttWorkspace", () => ({
-  ActiveBuildGanttWorkspace: ({ detail }: { detail: ProductionBuildDetail }) => (
+  ActiveBuildGanttWorkspace: ({
+    detail,
+  }: {
+    detail: ProductionBuildDetail;
+  }) => (
     <div data-testid="mock-active-build-gantt">
       {detail.milestones.map((milestone) => (
-        <div data-testid={`mock-active-build-gantt-${milestone.key}`} key={milestone.key}>
+        <div
+          data-testid={`mock-active-build-gantt-${milestone.key}`}
+          key={milestone.key}
+        >
           {milestone.name}
         </div>
       ))}
@@ -71,10 +84,17 @@ vi.mock("./ActiveBuildGanttWorkspace", () => ({
 }));
 
 vi.mock("./ActiveBuildGanttWorkspace.tsx", () => ({
-  ActiveBuildGanttWorkspace: ({ detail }: { detail: ProductionBuildDetail }) => (
+  ActiveBuildGanttWorkspace: ({
+    detail,
+  }: {
+    detail: ProductionBuildDetail;
+  }) => (
     <div data-testid="mock-active-build-gantt">
       {detail.milestones.map((milestone) => (
-        <div data-testid={`mock-active-build-gantt-${milestone.key}`} key={milestone.key}>
+        <div
+          data-testid={`mock-active-build-gantt-${milestone.key}`}
+          key={milestone.key}
+        >
           {milestone.name}
         </div>
       ))}
@@ -124,6 +144,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllEnvs();
   document.body.removeAttribute("style");
 });
 
@@ -356,14 +377,167 @@ describe("ProductionBuildDetailSurface", () => {
     const tabbar = screen.getByTestId("build-detail-tabbar");
     expect(within(tabbar).getByText("Details")).toBeTruthy();
     expect(within(tabbar).getByText("Timeline")).toBeTruthy();
+    expect(within(tabbar).getByText("Evidence")).toBeTruthy();
     expect(within(tabbar).getByText("Calendar")).toBeTruthy();
     expect(within(tabbar).getByText("Gantt")).toBeTruthy();
     expect(
-      screen.getByTestId("build-detail-tab-details").getAttribute("aria-selected"),
+      screen
+        .getByTestId("build-detail-tab-details")
+        .getAttribute("aria-selected"),
     ).toBe("true");
 
     fireEvent.click(screen.getByTestId("build-detail-tab-timeline"));
     expect(onChangeTab).toHaveBeenCalledWith("timeline");
+  });
+
+  test("renders Google Maps satellite imagery for the build site photos", () => {
+    vi.stubEnv("VITE_GOOGLE_MAPS_API_KEY", "maps-key");
+
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="open"
+      />,
+    );
+
+    const image = screen.getByAltText("Foundation site photo satellite view");
+    const src = image.getAttribute("src");
+
+    expect(src).toBeTruthy();
+    const url = new URL(src ?? "");
+    expect(url.searchParams.get("center")).toBe("Toronto, ON");
+    expect(url.searchParams.get("maptype")).toBe("satellite");
+    expect(url.searchParams.get("key")).toBe("maps-key");
+  });
+
+  test("renders interactive builder evidence and completed site visits in the evidence tab", async () => {
+    const onChangeMilestone = vi.fn();
+    const reviewEvidence = vi.fn().mockResolvedValue(null);
+
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ reviewEvidence }}
+        activeTab="evidence"
+        detail={{
+          ...detail,
+          evidenceAssets: [
+            {
+              _id: "evidence-asset-01",
+              createdAt: Date.now(),
+              evidenceKey: "foundation-photo-01",
+              fileName: "foundation-photo.jpg",
+              label: "Foundation photo",
+              locationVerified: false,
+              milestoneKey: "foundation",
+              mimeType: "image/jpeg",
+              previewUrl: "https://example.com/foundation-photo.jpg",
+              sizeBytes: 238_000,
+              source: "active_build_timeline_upload",
+              tag: "Foundation",
+              updatedAt: Date.now(),
+            },
+            {
+              _id: "evidence-asset-02",
+              createdAt: Date.now(),
+              evidenceKey: "foundation-site-visit-report-01",
+              fileName: "site-visit-foundation.pdf",
+              label: "Foundation site visit report",
+              locationVerified: true,
+              milestoneKey: "foundation",
+              mimeType: "application/pdf",
+              previewUrl: "https://example.com/site-visit-foundation.pdf",
+              sizeBytes: 91_000,
+              source: "active_build_site_visit:visit-foundation-01",
+              tag: "Inspection report",
+              updatedAt: Date.now(),
+            },
+          ],
+          milestones: [
+            {
+              ...detail.milestones[0],
+              completionClaim: {
+                actualCostCents: 221_000_00,
+                completedDay: 28,
+                note: "Footings and wall forms complete.",
+                submittedAt: "2026-06-28T12:00:00.000Z",
+              },
+              completionReview: {
+                status: "revisionRequested",
+              },
+              evidenceState: "Submitted package",
+            },
+          ],
+          sitePhotos: [
+            {
+              caption: "Foundation site photo",
+              evidenceKey: "foundation-site-photo",
+              locationVerified: false,
+              takenAt: "2026-06-28",
+              url: "production-evidence://foundation-site-photo",
+            },
+          ],
+          siteVisits: [
+            {
+              _id: "visit-01",
+              completedAt: "2026-06-29T14:00:00.000Z",
+              milestoneKey: "foundation",
+              note: "Requested after location issue.",
+              recordNote: "Inspector verified foundation completion.",
+              requestedAt: "2026-06-28T18:00:00.000Z",
+              requestedDay: 29,
+              status: "complete",
+              visitId: "visit-foundation-01",
+            },
+          ],
+        }}
+        onChangeMilestone={onChangeMilestone}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+      />,
+    );
+
+    expect(screen.getByTestId("production-build-evidence")).toBeTruthy();
+    expect(screen.getByText("Builder Submitted Evidence")).toBeTruthy();
+    expect(screen.getByText("Completed Site Visits")).toBeTruthy();
+    expect(screen.getByText("Builder submitted")).toBeTruthy();
+    expect(screen.getByText("Site visit")).toBeTruthy();
+    expect(screen.getAllByText("Location unverified").length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.getByText("Footings and wall forms complete.")).toBeTruthy();
+    expect(screen.getAllByText("Evidence package").length).toBeGreaterThan(0);
+    expect(screen.getByText("Foundation photo")).toBeTruthy();
+    expect(screen.getByText("foundation-photo.jpg")).toBeTruthy();
+    expect(
+      screen
+        .getAllByRole("link", { name: /Open file/i })
+        .some(
+          (link) =>
+            link.getAttribute("href") ===
+            "https://example.com/foundation-photo.jpg",
+        ),
+    ).toBe(true);
+    expect(
+      screen.getByText("Inspector verified foundation completion."),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Approve evidence/i }));
+    await waitFor(() =>
+      expect(reviewEvidence).toHaveBeenCalledWith({
+        accepted: true,
+        milestoneKey: "foundation",
+        note: "Evidence approved from build evidence tab.",
+      }),
+    );
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /Open milestone/i })[0],
+    );
+    expect(onChangeMilestone).toHaveBeenCalledWith("foundation");
   });
 
   test("renders production detail data instead of the old summary-only page", () => {
@@ -404,9 +578,7 @@ describe("ProductionBuildDetailSurface", () => {
       screen
         .getByTestId("build-detail-document-document-01-view")
         .getAttribute("href"),
-    ).toBe(
-      "https://example.com/build-permit.pdf",
-    );
+    ).toBe("https://example.com/build-permit.pdf");
   });
 
   test("submits and reviews active build facility change requests", async () => {
@@ -433,9 +605,9 @@ describe("ProductionBuildDetailSurface", () => {
     fireEvent.click(screen.getByTestId("facility-request-principal"));
     await waitFor(() =>
       expect(requestFacilityChange).toHaveBeenCalledWith({
-      reason: "New material quote.",
-      requestedPrincipalCents: 625_000_00,
-      requestType: "principalIncrease",
+        reason: "New material quote.",
+        requestedPrincipalCents: 625_000_00,
+        requestType: "principalIncrease",
       }),
     );
 
@@ -468,8 +640,12 @@ describe("ProductionBuildDetailSurface", () => {
     );
 
     expect(screen.getByTestId("milestone-detail-sheet")).toBeTruthy();
-    expect(screen.getByText("Assignments · buildContractorAssignments")).toBeTruthy();
-    expect(screen.getByText("Recent events · activeBuildAuditEvents")).toBeTruthy();
+    expect(
+      screen.getByText("Assignments · buildContractorAssignments"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Recent events · activeBuildAuditEvents"),
+    ).toBeTruthy();
 
     fireEvent.click(screen.getByTestId("milestone-detail-sheet-close"));
     expect(onChangeMilestone).toHaveBeenCalledWith(undefined);
@@ -507,7 +683,9 @@ describe("ProductionBuildDetailSurface", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId("kanban-card-assign-contractor-foundation"));
+    fireEvent.click(
+      screen.getByTestId("kanban-card-assign-contractor-foundation"),
+    );
     expect(screen.getByText("Cost tracking")).toBeTruthy();
 
     fireEvent.click(screen.getByText("Available Concrete"));
@@ -524,7 +702,9 @@ describe("ProductionBuildDetailSurface", () => {
       target: { value: "4010" },
     });
     fireEvent.change(
-      screen.getByPlaceholderText("Crew finished early; no lift rental needed."),
+      screen.getByPlaceholderText(
+        "Crew finished early; no lift rental needed.",
+      ),
       {
         target: { value: "Crew finished under estimate." },
       },
@@ -597,10 +777,60 @@ describe("ProductionBuildDetailSurface", () => {
     );
 
     const inProgress = screen.getByTestId("kanban-col-InProgress");
-    expect(within(inProgress).getByTestId("kanban-card-foundation")).toBeTruthy();
+    expect(
+      within(inProgress).getByTestId("kanban-card-foundation"),
+    ).toBeTruthy();
     expect(within(inProgress).getByText("Ready")).toBeTruthy();
     expect(
       within(screen.getByTestId("kanban-col-Backlog")).queryByTestId(
+        "kanban-card-foundation",
+      ),
+    ).toBeNull();
+  });
+
+  test("moves builder completion claims into marked complete instead of in progress", () => {
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={{
+          ...detail,
+          milestones: [
+            {
+              ...detail.milestones[0],
+              completionClaim: {
+                completedDay: 26,
+                note: "Builder marked complete.",
+                submittedAt: "2026-06-26T12:00:00.000Z",
+              },
+              evidenceState: "Submitted package",
+              progressPercent: 100,
+              status: "in_progress",
+            },
+          ],
+          submilestones: [
+            {
+              ...detail.submilestones[0],
+              status: "complete",
+            },
+          ],
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="open"
+        timelineWorkspace={{
+          ...timelineWorkspace,
+          plan: { ...timelineWorkspace.plan, currentDay: 27 },
+        }}
+      />,
+    );
+
+    const markedComplete = screen.getByTestId("kanban-col-MarkedComplete");
+    expect(
+      within(markedComplete).getByTestId("kanban-card-foundation"),
+    ).toBeTruthy();
+    expect(within(markedComplete).getByText("Marked complete")).toBeTruthy();
+    expect(
+      within(screen.getByTestId("kanban-col-InProgress")).queryByTestId(
         "kanban-card-foundation",
       ),
     ).toBeNull();
