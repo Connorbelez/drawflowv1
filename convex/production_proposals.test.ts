@@ -138,37 +138,34 @@ async function createClosedSingleMilestoneBuild(t: any, seed: any) {
     },
   );
 
-  await t.mutation(
-    (api as any).production_proposals.saveDraftProposalPackage,
-    {
-      borrowerCoPayBps: 2_000,
-      borrowerWorkingCapitalLimitCents: 35_000_000,
-      documents: [
-        {
-          documentType: "permit",
-          fileName: "actual-cost-permit.pdf",
-          mimeType: "application/pdf",
-          sizeBytes: 512,
-        },
-      ],
-      lenderDrawPolicyLimitCents: 55_000_000,
-      milestones: [
-        {
-          budgetCents: 50_000_000,
-          dayEnd: 20,
-          dayStart: 0,
-          dependencyKeys: [],
-          durationDays: 20,
-          key: "foundation",
-          name: "Foundation",
-          order: 1,
-          submilestones: [],
-        },
-      ],
-      proposalId,
-      workosOrganizationId: ORG,
-    },
-  );
+  await t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
+    borrowerCoPayBps: 2_000,
+    borrowerWorkingCapitalLimitCents: 35_000_000,
+    documents: [
+      {
+        documentType: "permit",
+        fileName: "actual-cost-permit.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 512,
+      },
+    ],
+    lenderDrawPolicyLimitCents: 55_000_000,
+    milestones: [
+      {
+        budgetCents: 50_000_000,
+        dayEnd: 20,
+        dayStart: 0,
+        dependencyKeys: [],
+        durationDays: 20,
+        key: "foundation",
+        name: "Foundation",
+        order: 1,
+        submilestones: [],
+      },
+    ],
+    proposalId,
+    workosOrganizationId: ORG,
+  });
   await t.mutation((api as any).production_proposals.submitProposal, {
     proposalId,
     workosOrganizationId: ORG,
@@ -2956,6 +2953,34 @@ describe("production proposal foundation", () => {
         (group: { buildId: string }) => group.buildId === closing.buildId,
       ),
     ).toBe(true);
+    await t.mutation(
+      (api as any).production_proposals
+        .submitActiveBuildTokenizedSiteVisitReport,
+      {
+        buildId: String(closing.buildId),
+        completionObserved: true,
+        recommendedOutcome: "approve",
+        reportNotes:
+          "<p><strong>Inspector verified</strong> footing photo location.</p>",
+        token: siteVisit.visitId,
+      },
+    );
+    const completedSiteVisitRoster = await t.query(
+      (api as any).production_proposals.listBrokerageSiteVisits,
+      { workosOrganizationId: ORG },
+    );
+    expect(completedSiteVisitRoster.visits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          milestoneKey: "foundation",
+          operationalStatus: "complete",
+          recordNote:
+            "<p><strong>Inspector verified</strong> footing photo location.</p>",
+          recordNoteFormat: "html",
+          visitId: siteVisit.visitId,
+        }),
+      ]),
+    );
     const drawRoster = await t.query(
       (api as any).production_proposals.listBrokerageDraws,
       { workosOrganizationId: ORG },
@@ -3037,8 +3062,11 @@ describe("production proposal foundation", () => {
         note: "Milestone approved from production build detail.",
         siteVisit: expect.objectContaining({
           note: "Verify footing photo location.",
+          recordNote:
+            "<p><strong>Inspector verified</strong> footing photo location.</p>",
+          recordNoteFormat: "html",
           requestedDay: 23,
-          status: "requested",
+          status: "complete",
         }),
         status: "approved",
       }),
@@ -3061,6 +3089,7 @@ describe("production proposal foundation", () => {
         "active_build.draw.released",
         "active_build.milestone.info_requested",
         "active_build.site_visit.requested",
+        "active_build.site_visit.token_report_submitted",
         "active_build.milestone.approved",
       ]),
     );
@@ -3360,7 +3389,10 @@ describe("production proposal foundation", () => {
       phase: expect.stringMatching(/scheduled|active|attention|completed/),
     });
     expect(
-      roster.summary.scheduled + roster.summary.active + roster.summary.attention + roster.summary.completed,
+      roster.summary.scheduled +
+        roster.summary.active +
+        roster.summary.attention +
+        roster.summary.completed,
     ).toBe(roster.summary.total);
   });
 
@@ -4080,7 +4112,8 @@ describe("draft builder assignment and deletion", () => {
     );
     expect(
       dashboard.activeBuilds.some(
-        (build: { buildKey: string }) => build.buildKey === String(closing.buildId),
+        (build: { buildKey: string }) =>
+          build.buildKey === String(closing.buildId),
       ),
     ).toBe(false);
   });

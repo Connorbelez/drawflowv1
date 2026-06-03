@@ -379,7 +379,12 @@ describe("TimelineMilestoneWorksheetTable", () => {
     fireEvent.click(
       screen.getByTestId("timeline-setup-add-contractor-site-prep-foundation")
     );
+    fireEvent.keyDown(
+      screen.getByTestId("timeline-setup-contractor-name-site-prep-foundation"),
+      { key: "Escape" }
+    );
 
+    fireEvent.click(screen.getAllByRole("button", { name: "Add cost item" })[0]);
     fireEvent.change(screen.getByLabelText("Title"), {
       target: { value: "Foundation material package" },
     });

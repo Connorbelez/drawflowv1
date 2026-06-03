@@ -24,7 +24,10 @@ import {
 import { type ChangeEvent, useEffect, useRef, useState } from "react";
 
 import { api } from "../../../convex/_generated/api";
-import { FieldRichTextPreview } from "#/components/rich-text/field-rich-text.tsx";
+import {
+  FieldRichTextEditor,
+  FieldRichTextPreview,
+} from "#/components/rich-text/field-rich-text.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Card } from "#/components/ui/card.tsx";
@@ -35,7 +38,11 @@ import {
   DrawerTitle,
 } from "#/components/ui/drawer.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
-import { Textarea } from "#/components/ui/textarea.tsx";
+import {
+  plainTextToRichTextHtml,
+  richTextHtmlHasText,
+  richTextHtmlToPlainText,
+} from "#/lib/rich-text-html.ts";
 import {
   coerceSiteVisitGuidance,
   guidanceLinesToHtml,
@@ -146,8 +153,9 @@ type SubmittedSummary = {
   visitId: string;
 };
 
-const DEFAULT_REPORT_NOTES =
-  "Observed requested milestone scope on site. Evidence package attached for lender admin review.";
+const DEFAULT_REPORT_NOTES = plainTextToRichTextHtml(
+  "Observed requested milestone scope on site. Evidence package attached for lender admin review.",
+);
 
 type GuideSection = {
   html: string;
@@ -499,6 +507,7 @@ function SiteVisitTokenRouteContent({
         await uploadStagedFiles();
       }
       const rating = parseQualityRating(qualityRating);
+      const reportNoteText = richTextHtmlToPlainText(reportNotes);
       const reportPayload: Record<string, unknown> = {
         buildId,
         completionObserved,
@@ -511,7 +520,7 @@ function SiteVisitTokenRouteContent({
           (target) => ({
             contractorId: target._id,
             milestoneKey: target.milestoneKey,
-            note: reportNotes,
+            note: reportNoteText,
             rating,
             submilestoneKey: target.submilestoneKey,
           }),
@@ -651,16 +660,18 @@ function SiteVisitTokenRouteContent({
                       : "No contractor assignment on this scope"}
                   </span>
                 </label>
-                <label className="grid gap-2 text-sm">
-                  Field note
-                  <Textarea
-                    className="min-h-28 lg:min-h-24"
-                    onChange={(event) =>
-                      setReportNotes(event.currentTarget.value)
-                    }
+                <div className="grid gap-2 text-sm">
+                  <span className="font-medium">Field note</span>
+                  <FieldRichTextEditor
+                    ariaLabel="Field note"
+                    editorMinHeightClass="[&_.ProseMirror]:min-h-36 lg:[&_.ProseMirror]:min-h-28"
+                    imageMaxHeightClass="[&_.ProseMirror_img]:max-h-48"
+                    onChange={setReportNotes}
+                    placeholder="Document observed completion, exceptions, and evidence references..."
+                    testId="site-visit-report-note"
                     value={reportNotes}
                   />
-                </label>
+                </div>
               </div>
               {error ? (
                 <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-destructive text-sm">
@@ -671,7 +682,7 @@ function SiteVisitTokenRouteContent({
                 className="mt-4 w-full"
                 disabled={
                   uploadingCount > 0 ||
-                  reportNotes.trim().length === 0 ||
+                  !richTextHtmlHasText(reportNotes) ||
                   files.length + stagedItems.length === 0
                 }
                 onClick={() => void submit()}

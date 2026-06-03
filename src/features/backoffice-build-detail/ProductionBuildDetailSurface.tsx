@@ -16,6 +16,7 @@ import {
 import type * as React from "react";
 import { useEffect, useMemo, useState } from "react";
 
+import { FieldRichTextPreview } from "#/components/rich-text/field-rich-text.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -498,6 +499,7 @@ interface ProductionSiteVisit {
   completedAt?: string;
   milestoneKey: string;
   note?: string;
+  recordNoteFormat?: "plain_text" | "html";
   recordNote?: string;
   requestedAt: string;
   requestedDay: number;
@@ -517,6 +519,7 @@ interface ProductionEvidenceRow {
   milestoneKey: string;
   milestoneName: string;
   note?: string;
+  noteFormat?: "plain_text" | "html";
   source: ProductionEvidenceSource;
   status: string;
   submittedAt?: string;
@@ -2031,9 +2034,17 @@ function EvidenceRowItem({
             </div>
           </dl>
           {row.note ? (
-            <p className="mt-3 max-w-3xl text-muted-foreground text-xs">
-              {row.note}
-            </p>
+            row.noteFormat === "html" ? (
+              <FieldRichTextPreview
+                ariaLabel={`${row.milestoneName} field report`}
+                className="mt-3 max-w-3xl"
+                value={row.note}
+              />
+            ) : (
+              <p className="mt-3 max-w-3xl text-muted-foreground text-xs">
+                {row.note}
+              </p>
+            )
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2 2xl:justify-end">
@@ -2849,6 +2860,7 @@ function buildCompletedSiteVisitRows(
       milestoneKey: visit.milestoneKey,
       milestoneName: milestone?.name ?? visit.milestoneKey,
       note: visit.recordNote ?? visit.note,
+      noteFormat: visit.recordNote ? visit.recordNoteFormat : undefined,
       source: "site_visit",
       status: visit.status,
       submittedAt: visit.requestedAt,
@@ -2872,6 +2884,9 @@ function buildCompletedSiteVisitRows(
           : {}),
         ...(siteVisit.note ? { note: siteVisit.note } : {}),
         ...(siteVisit.recordNote ? { recordNote: siteVisit.recordNote } : {}),
+        ...(siteVisit.recordNoteFormat
+          ? { recordNoteFormat: siteVisit.recordNoteFormat }
+          : {}),
         ...(siteVisit.tokenExpiresAt
           ? { tokenExpiresAt: siteVisit.tokenExpiresAt }
           : {}),

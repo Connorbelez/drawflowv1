@@ -1,5 +1,6 @@
 const TOKEN_BYTE_LENGTH = 32;
 export const SITE_VISIT_COMPRESSED_PACKAGE_CAP_BYTES = 1_000_000_000;
+export const SITE_VISIT_REPORT_NOTES_HTML_MAX_LENGTH = 16_384;
 
 function toBase64Url(bytes: Uint8Array) {
   const alphabet =
@@ -39,6 +40,34 @@ export async function hashSiteVisitToken(token: string) {
   return toHex(new Uint8Array(digest));
 }
 
+export function siteVisitReportNotesPlainText(reportNotes: string) {
+  return reportNotes
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|li|h[1-6]|blockquote)>/gi, "\n")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/[ \t\f\v]+/g, " ")
+    .replace(/\s*\n\s*/g, "\n")
+    .trim();
+}
+
+export function normalizeSiteVisitReportNotes(reportNotes: string) {
+  const normalized = reportNotes.trim();
+  if (normalized.length > SITE_VISIT_REPORT_NOTES_HTML_MAX_LENGTH) {
+    throw new Error("Site visit report notes exceed the rich-text limit.");
+  }
+  if (!siteVisitReportNotesPlainText(normalized)) {
+    throw new Error("Site visit report notes are required.");
+  }
+  return normalized;
+}
+
 export function validateIncludedSiteVisitMilestones({
   includedMilestoneKeys,
   milestoneOrder,
@@ -65,13 +94,14 @@ export function validateIncludedSiteVisitMilestones({
     }
     if (index > selectedIndex) {
       throw new Error(
-        "Site visit can only include current and previous milestones"
+        "Site visit can only include current and previous milestones",
       );
     }
   }
 
   return uniqueKeys.sort(
-    (left, right) => milestoneOrder.indexOf(left) - milestoneOrder.indexOf(right)
+    (left, right) =>
+      milestoneOrder.indexOf(left) - milestoneOrder.indexOf(right),
   );
 }
 
@@ -90,12 +120,11 @@ export function validateSiteVisitReportSubmission({
   if (uploadedEvidenceCount < 1) {
     throw new Error("At least one uploaded evidence file is required.");
   }
-  if (reportNotes.trim().length === 0) {
-    throw new Error("Site visit report notes are required.");
-  }
+  const normalizedReportNotes = normalizeSiteVisitReportNotes(reportNotes);
   return {
     compressedPackageBytes,
-    reportNotes: reportNotes.trim(),
+    reportNotes: normalizedReportNotes,
+    reportNotesText: siteVisitReportNotesPlainText(normalizedReportNotes),
     uploadedEvidenceCount,
   };
 }

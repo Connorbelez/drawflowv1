@@ -109,9 +109,7 @@ const demoTimelineMilestoneDataValidator = v.object({
   initialPaymentAmount: v.optional(v.number()),
   name: v.string(),
   policy: v.string(),
-  siteVisitGuidance: v.optional(
-    demoTimelineSnapshotSiteVisitGuidanceValidator,
-  ),
+  siteVisitGuidance: v.optional(demoTimelineSnapshotSiteVisitGuidanceValidator),
   status: demoTimelineStatusValidator,
   subMilestones: v.optional(v.array(v.string())),
   submilestoneDetails: v.optional(
@@ -263,6 +261,11 @@ const siteVisitGuidanceValidator = v.object({
   cameraAngles: siteVisitGuidanceFieldValidator,
   whatToVerify: siteVisitGuidanceFieldValidator,
 });
+
+const richTextFormatValidator = v.union(
+  v.literal("plain_text"),
+  v.literal("html"),
+);
 
 const productionBuildStatusValidator = v.union(
   v.literal("active"),
@@ -608,6 +611,7 @@ export default defineSchema({
     ),
     milestoneKey: v.string(),
     notes: v.optional(v.string()),
+    notesFormat: v.optional(richTextFormatValidator),
     recommendedOutcome: v.optional(v.string()),
     requestReason: v.optional(v.string()),
     requestedByPersona: v.optional(v.string()),
@@ -2437,6 +2441,7 @@ export default defineSchema({
     note: v.optional(v.string()),
     completedAt: v.optional(v.string()),
     recordNote: v.optional(v.string()),
+    recordNoteFormat: v.optional(richTextFormatValidator),
     tokenConsumedAt: v.optional(v.number()),
     tokenExpiresAt: v.number(),
     tokenOpenedAt: v.optional(v.number()),

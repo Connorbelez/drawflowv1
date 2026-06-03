@@ -17,14 +17,10 @@ import {
   Timer,
   XCircle,
 } from "lucide-react";
-import {
-  type ReactElement,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { type ReactElement, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { FieldRichTextPreview } from "#/components/rich-text/field-rich-text.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Card, CardContent } from "#/components/ui/card.tsx";
@@ -69,6 +65,7 @@ import {
 } from "#/components/ui/table.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { ToggleGroup, ToggleGroupItem } from "#/components/ui/toggle-group.tsx";
+import { richTextHtmlToPlainText } from "#/lib/rich-text-html.ts";
 import { cn } from "#/lib/utils.ts";
 
 import {
@@ -131,7 +128,9 @@ function matchesSearch(visit: BrokerageSiteVisitRow, query: string) {
     visit.milestoneName,
     visit.milestoneKey,
     visit.note ?? "",
-    visit.recordNote ?? "",
+    visit.recordNoteFormat === "html"
+      ? richTextHtmlToPlainText(visit.recordNote ?? "")
+      : (visit.recordNote ?? ""),
   ]
     .join(" ")
     .toLowerCase();
@@ -158,9 +157,8 @@ export function SiteVisitControlRoom({
   const [viewMode, setViewMode] = useState<SiteVisitViewMode>("by_build");
   const [search, setSearch] = useState("");
   const [selectedVisitId, setSelectedVisitId] = useState<string | null>(null);
-  const [cancelTarget, setCancelTarget] = useState<BrokerageSiteVisitRow | null>(
-    null,
-  );
+  const [cancelTarget, setCancelTarget] =
+    useState<BrokerageSiteVisitRow | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelPending, setCancelPending] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -482,9 +480,7 @@ function BuildVisitGroup({
               <span className="font-medium">{group.buildName}</span>
               <Badge variant="outline">{group.buildDisplayId}</Badge>
               {group.activeVisitCount > 0 ? (
-                <Badge variant="warning">
-                  {group.activeVisitCount} active
-                </Badge>
+                <Badge variant="warning">{group.activeVisitCount} active</Badge>
               ) : null}
             </div>
             <p className="text-sm text-muted-foreground">{group.builderName}</p>
@@ -507,7 +503,12 @@ function BuildVisitGroup({
             <div className="flex justify-end pt-2">
               <Button
                 nativeButton={false}
-                render={<Link params={{ buildId: String(group.buildId) }} to="/backoffice/builds/$buildId" />}
+                render={
+                  <Link
+                    params={{ buildId: String(group.buildId) }}
+                    to="/backoffice/builds/$buildId"
+                  />
+                }
                 size="sm"
                 variant="outline"
               >
@@ -559,7 +560,9 @@ function VisitRowCard({
           <p className="text-xs text-muted-foreground">{visit.milestoneKey}</p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          <Badge variant={operationalStatusBadgeVariant(visit.operationalStatus)}>
+          <Badge
+            variant={operationalStatusBadgeVariant(visit.operationalStatus)}
+          >
             {operationalStatusLabel(visit.operationalStatus)}
           </Badge>
           {visit.geofenceFlagged ? (
@@ -589,7 +592,9 @@ function VisitRowCard({
         ) : null}
       </div>
       {visit.note ? (
-        <p className="line-clamp-2 text-xs text-muted-foreground">{visit.note}</p>
+        <p className="line-clamp-2 text-xs text-muted-foreground">
+          {visit.note}
+        </p>
       ) : null}
       <div className="flex justify-end gap-1">
         <Button
@@ -736,7 +741,9 @@ function VisitDetailSheet({
         </SheetHeader>
         <SheetPanel className="flex flex-col gap-4">
           <div className="flex flex-wrap gap-2">
-            <Badge variant={operationalStatusBadgeVariant(visit.operationalStatus)}>
+            <Badge
+              variant={operationalStatusBadgeVariant(visit.operationalStatus)}
+            >
               {operationalStatusLabel(visit.operationalStatus)}
             </Badge>
             <Badge variant="outline">{tokenStateLabel(visit.tokenState)}</Badge>
@@ -779,7 +786,17 @@ function VisitDetailSheet({
             {visit.recordNote ? (
               <div>
                 <dt className="text-muted-foreground">Field report</dt>
-                <dd>{visit.recordNote}</dd>
+                <dd>
+                  {visit.recordNoteFormat === "html" ? (
+                    <FieldRichTextPreview
+                      ariaLabel="Field report"
+                      className="mt-1"
+                      value={visit.recordNote}
+                    />
+                  ) : (
+                    visit.recordNote
+                  )}
+                </dd>
               </div>
             ) : null}
             {visit.recommendedOutcome ? (
@@ -815,10 +832,7 @@ function VisitDetailSheet({
               <ExternalLink className="size-4" />
             </Button>
             {canCancel ? (
-              <Button
-                onClick={() => onCancel(visit)}
-                variant="destructive"
-              >
+              <Button onClick={() => onCancel(visit)} variant="destructive">
                 <XCircle className="size-4" />
                 Cancel visit
               </Button>
@@ -829,8 +843,8 @@ function VisitDetailSheet({
             <div className="flex items-start gap-2 rounded-lg border border-success/30 bg-success/10 p-3 text-sm">
               <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
               <p>
-                This visit is complete. Milestone decisions and draw release stay
-                in the build workspace.
+                This visit is complete. Milestone decisions and draw release
+                stay in the build workspace.
               </p>
             </div>
           ) : null}

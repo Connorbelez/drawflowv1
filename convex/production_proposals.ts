@@ -16,6 +16,10 @@ import {
   SITE_VISIT_GUIDANCE_HTML_MAX_LENGTH,
   type SiteVisitGuidance,
 } from "./demo_site_visit_guidance";
+import {
+  normalizeSiteVisitReportNotes,
+  siteVisitReportNotesPlainText,
+} from "./demo_site_visit_tokens";
 import { publicMutation, publicQuery } from "./fluent";
 import {
   assertProposalCollaborationEditAllowed,
@@ -7598,6 +7602,9 @@ export const listBrokerageSiteVisits = authenticatedQuery
               note: v.optional(v.string()),
               operationalStatus: siteVisitOperationalStatusValidator,
               recordNote: v.optional(v.string()),
+              recordNoteFormat: v.optional(
+                v.union(v.literal("plain_text"), v.literal("html")),
+              ),
               recommendedOutcome: v.optional(v.string()),
               requestedAt: v.string(),
               requestedDay: v.number(),
@@ -7645,6 +7652,9 @@ export const listBrokerageSiteVisits = authenticatedQuery
           note: v.optional(v.string()),
           operationalStatus: siteVisitOperationalStatusValidator,
           recordNote: v.optional(v.string()),
+          recordNoteFormat: v.optional(
+            v.union(v.literal("plain_text"), v.literal("html")),
+          ),
           recommendedOutcome: v.optional(v.string()),
           requestedAt: v.string(),
           requestedDay: v.number(),
@@ -7766,6 +7776,7 @@ export const listBrokerageSiteVisits = authenticatedQuery
         note: visit.note,
         operationalStatus,
         recordNote: visit.recordNote,
+        recordNoteFormat: visit.recordNoteFormat,
         recommendedOutcome:
           milestone?.completionReview?.siteVisit?.recommendedOutcome,
         requestedAt: visit.requestedAt,
@@ -10667,9 +10678,12 @@ export const recordActiveBuildSiteVisit = authenticatedMutation
       throw new Error("Production active-build site visit request not found.");
     }
     const now = Date.now();
+    const note = args.note?.trim();
     const siteVisit = {
       ...(visit.note ? { note: visit.note } : {}),
-      ...(args.note ? { recordNote: args.note } : {}),
+      ...(note
+        ? { recordNote: note, recordNoteFormat: "plain_text" as const }
+        : {}),
       completedAt:
         args.status === "complete"
           ? new Date(now).toISOString()
@@ -10690,7 +10704,8 @@ export const recordActiveBuildSiteVisit = authenticatedMutation
     };
     await ctx.db.patch(visit._id, {
       completedAt: siteVisit.completedAt,
-      recordNote: args.note,
+      recordNote: note,
+      recordNoteFormat: note ? ("plain_text" as const) : undefined,
       status: args.status,
       updatedAt: now,
     });
@@ -10705,7 +10720,7 @@ export const recordActiveBuildSiteVisit = authenticatedMutation
       eventType: "active_build.site_visit.recorded",
       newState: JSON.stringify(siteVisit),
       priorState: JSON.stringify(visit),
-      reason: args.note,
+      reason: note,
     });
     return null;
   })
@@ -10841,9 +10856,8 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
     if (!state.available) {
       throw new Error("Site visit token is not active.");
     }
-    if (!args.reportNotes.trim()) {
-      throw new Error("Report notes are required.");
-    }
+    const reportNotes = normalizeSiteVisitReportNotes(args.reportNotes);
+    const reportNotesText = siteVisitReportNotesPlainText(reportNotes);
     const buildId = ctx.db.normalizeId("activeBuilds", args.buildId);
     if (!buildId) {
       throw new Error("Site visit token is invalid.");
@@ -10865,7 +10879,8 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
     const siteVisit = {
       ...(visit.note ? { note: visit.note } : {}),
       completedAt,
-      recordNote: args.reportNotes,
+      recordNote: reportNotes,
+      recordNoteFormat: "html" as const,
       recommendedOutcome: args.recommendedOutcome,
       requestedAt: visit.requestedAt,
       requestedDay: visit.requestedDay,
@@ -10885,7 +10900,8 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
     };
     await ctx.db.patch(visit._id, {
       completedAt,
-      recordNote: args.reportNotes,
+      recordNote: reportNotes,
+      recordNoteFormat: "html" as const,
       status: args.completionObserved ? "complete" : "cancelled",
       tokenConsumedAt: now,
       updatedAt: now,
@@ -10933,7 +10949,7 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
       newState: JSON.stringify(siteVisit),
       organizationId: build.organizationId,
       priorState: JSON.stringify(visit),
-      reason: args.reportNotes,
+      reason: reportNotesText,
       warnings: [],
     });
     await ctx.db.insert("eventOutbox", {
@@ -12608,6 +12624,9 @@ function activeBuildSiteVisitCompletionReviewView(
     ...(visit.completedAt ? { completedAt: visit.completedAt } : {}),
     ...(visit.note ? { note: visit.note } : {}),
     ...(visit.recordNote ? { recordNote: visit.recordNote } : {}),
+    ...(visit.recordNoteFormat
+      ? { recordNoteFormat: visit.recordNoteFormat }
+      : {}),
     requestedAt: visit.requestedAt,
     requestedDay: visit.requestedDay,
     status: visit.status,

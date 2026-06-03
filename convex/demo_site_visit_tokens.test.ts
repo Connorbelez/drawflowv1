@@ -16,7 +16,7 @@ describe("site visit token helpers", () => {
         includedMilestoneKeys: ["foundation", "framing"],
         milestoneOrder,
         selectedMilestoneKey: "framing",
-      })
+      }),
     ).toEqual(["foundation", "framing"]);
   });
 
@@ -26,7 +26,7 @@ describe("site visit token helpers", () => {
         includedMilestoneKeys: ["foundation"],
         milestoneOrder,
         selectedMilestoneKey: "framing",
-      })
+      }),
     ).toThrow("Selected milestone must be included");
   });
 
@@ -36,7 +36,7 @@ describe("site visit token helpers", () => {
         includedMilestoneKeys: ["foundation", "framing", "drywall"],
         milestoneOrder,
         selectedMilestoneKey: "framing",
-      })
+      }),
     ).toThrow("Site visit can only include current and previous milestones");
   });
 
@@ -56,16 +56,31 @@ describe("site visit token helpers", () => {
         compressedPackageBytes: 10,
         reportNotes: "Observed foundation forms and pour records.",
         uploadedEvidenceCount: 0,
-      })
+      }),
     ).toThrow("At least one uploaded evidence file is required.");
 
     expect(() =>
       validateSiteVisitReportSubmission({
         compressedPackageBytes: 10,
-        reportNotes: "   ",
+        reportNotes: "<p><br></p>",
         uploadedEvidenceCount: 1,
-      })
+      }),
     ).toThrow("Site visit report notes are required.");
+  });
+
+  test("preserves rich-text report notes and returns plain audit text", () => {
+    expect(
+      validateSiteVisitReportSubmission({
+        compressedPackageBytes: 10,
+        reportNotes:
+          "<p><strong>Observed</strong> foundation forms &amp; pour records.</p>",
+        uploadedEvidenceCount: 1,
+      }),
+    ).toMatchObject({
+      reportNotes:
+        "<p><strong>Observed</strong> foundation forms &amp; pour records.</p>",
+      reportNotesText: "Observed foundation forms & pour records.",
+    });
   });
 
   test("enforces the compressed package cap", () => {
@@ -74,7 +89,7 @@ describe("site visit token helpers", () => {
         compressedPackageBytes: SITE_VISIT_COMPRESSED_PACKAGE_CAP_BYTES + 1,
         reportNotes: "Ready.",
         uploadedEvidenceCount: 1,
-      })
+      }),
     ).toThrow("Compressed site visit package exceeds the 1 GB cap.");
   });
 });
