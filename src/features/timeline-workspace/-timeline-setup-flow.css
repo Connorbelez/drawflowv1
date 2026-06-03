@@ -51,6 +51,22 @@
     0 24px 70px light-dark(oklch(0.18 0.03 258 / 0.253), oklch(0.02 0.01 260 / 0.46));
 }
 
+.timeline-setup-app-shell-route {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.timeline-setup-app-shell-route .timeline-setup-shell {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: calc(100svh - 3.5rem);
+}
+
+.timeline-setup-app-shell-route .timeline-setup-frame {
+  min-height: calc(100svh - 3.5rem - 48px);
+}
+
 .timeline-setup-header {
   display: flex;
   flex-wrap: wrap;
@@ -2331,6 +2347,10 @@
 
   .timeline-setup-frame {
     min-height: calc(100svh - 24px);
+  }
+
+  .timeline-setup-app-shell-route .timeline-setup-frame {
+    min-height: calc(100svh - 3.5rem - 24px);
   }
 
   .timeline-setup-panel {

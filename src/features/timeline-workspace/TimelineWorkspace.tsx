@@ -3334,7 +3334,10 @@ export function TimelineWorkspace({
     >
       <motion.div
         animate="show"
-        className="relative mx-auto flex max-w-full flex-col gap-1 sm:gap-6"
+        className={cn(
+          "relative flex flex-col gap-1 sm:gap-6",
+          embedded ? "w-full min-w-0" : "mx-auto max-w-full",
+        )}
         data-testid="timeline-workspace-root"
         initial={prefersReducedMotion ? false : "hidden"}
         variants={{

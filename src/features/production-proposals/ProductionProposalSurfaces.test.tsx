@@ -716,6 +716,39 @@ describe("ProductionProposalReviewSurface", () => {
     );
   });
 
+  test("unassigns an assigned broker draft from the proposal detail panel", async () => {
+    const onUnassignBuilder = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          assignment: {
+            broker: { name: "River Han", workosUserId: "user_broker" },
+            brokerage: { displayName: "FairLend Brokerage" },
+            builder: {
+              _id: "builder_northline",
+              displayName: "Northline Homes",
+              ownerEmail: "owner@northline.example",
+            },
+            builderAssigned: true,
+            initiatedFromBackoffice: true,
+          },
+          proposal: { ...proposalDetail.proposal, status: "draft" },
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+        onUnassignBuilder={onUnassignBuilder}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Unassign builder" }));
+
+    await waitFor(() => expect(onUnassignBuilder).toHaveBeenCalledTimes(1));
+    expect(toast.success).toHaveBeenCalledWith("Builder unassigned.");
+  });
+
   test("creates and copies a builder claim link for an unassigned broker draft", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {

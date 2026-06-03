@@ -220,10 +220,12 @@ function BuilderProductionProposalRoute() {
   });
   const permit = firstPermitDocument(detail.documents);
 
+  const proposalTabPanelClassName = "w-full min-w-0";
+
   return (
-    <section className="min-w-0 bg-muted/30 p-0 md:p-5">
+    <section className="w-full min-w-0 bg-muted/30 p-0 md:p-5">
       <Tabs
-        className="gap-4"
+        className="flex w-full min-w-0 flex-col gap-4"
         onValueChange={(value) =>
           void navigate({
             params: { proposalId },
@@ -237,8 +239,8 @@ function BuilderProductionProposalRoute() {
         }
         value={search.tab ?? "timeline"}
       >
-        <Frame>
-          <FramePanel className="flex flex-wrap items-center justify-between gap-3 p-3">
+        <Frame className="w-full min-w-0">
+          <FramePanel className="flex w-full min-w-0 flex-wrap items-center justify-between gap-3 p-3">
             <TabsList
               aria-label="Builder proposal sections"
               className="justify-start overflow-x-auto"
@@ -253,26 +255,32 @@ function BuilderProductionProposalRoute() {
             <BuildPermitViewerDrawer permit={permit} size="sm" />
           </FramePanel>
         </Frame>
-        <TabsPanel value="timeline">
-          <ProductionTimelineWorkspace
-            backofficeHref={`/backoffice/proposals/${proposalId}`}
-            initialRole="builder"
-            persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
-            proposalHref={`/builder/proposals/${proposalId}`}
-            proposalId={typedProposalId}
-            workspace={workspace}
-            workosOrganizationId={workosOrganizationId}
-          />
+        <div className="w-full min-w-0">
+        <TabsPanel className={proposalTabPanelClassName} value="timeline">
+          <div className="w-full min-w-0 overflow-x-auto">
+            <ProductionTimelineWorkspace
+              backofficeHref={`/backoffice/proposals/${proposalId}`}
+              embedded
+              initialRole="builder"
+              persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
+              proposalHref={`/builder/proposals/${proposalId}`}
+              proposalId={typedProposalId}
+              workspace={workspace}
+              workosOrganizationId={workosOrganizationId}
+            />
+          </div>
         </TabsPanel>
-        <TabsPanel value="gantt">
-          <ProductionProposalTimelineGanttWorkspace
-            persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
-            proposalId={typedProposalId}
-            workspace={workspace}
-            workosOrganizationId={workosOrganizationId}
-          />
+        <TabsPanel className={proposalTabPanelClassName} value="gantt">
+          <div className="w-full min-w-0 overflow-x-auto">
+            <ProductionProposalTimelineGanttWorkspace
+              persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
+              proposalId={typedProposalId}
+              workspace={workspace}
+              workosOrganizationId={workosOrganizationId}
+            />
+          </div>
         </TabsPanel>
-        <TabsPanel value="calendar">
+        <TabsPanel className={proposalTabPanelClassName} value="calendar">
           <CalendarWorkspace
             actions={calendarActions}
             initialTimeframe={
@@ -309,7 +317,7 @@ function BuilderProductionProposalRoute() {
             workspace={effectiveCalendarWorkspace}
           />
         </TabsPanel>
-        <TabsPanel value="contractors">
+        <TabsPanel className={proposalTabPanelClassName} value="contractors">
           <ProductionContractorPlanningTab
             initialRole="builder"
             persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
@@ -318,7 +326,7 @@ function BuilderProductionProposalRoute() {
             workosOrganizationId={workosOrganizationId}
           />
         </TabsPanel>
-        <TabsPanel value="materials">
+        <TabsPanel className={proposalTabPanelClassName} value="materials">
           <MaterialPlanningTab
             actions={
               visualFixtureEnabled
@@ -351,6 +359,7 @@ function BuilderProductionProposalRoute() {
             scopeLabel="Builder Proposal"
           />
         </TabsPanel>
+        </div>
       </Tabs>
     </section>
   );

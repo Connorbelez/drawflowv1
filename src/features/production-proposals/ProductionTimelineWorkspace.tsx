@@ -51,6 +51,8 @@ import type { Id } from "../../../convex/_generated/dataModel";
 
 export interface ProductionTimelineWorkspaceProps {
   backofficeHref: string;
+  /** Use inside tabbed proposal surfaces so layout width stays with the shell. */
+  embedded?: boolean;
   headerActions?: ReactNode;
   initialRole?: "builder" | "lender";
   persistenceMode?: "convex" | "noop";
@@ -74,6 +76,7 @@ export interface ProductionTimelineWorkspaceProps {
 
 export function ProductionTimelineWorkspace({
   backofficeHref,
+  embedded = false,
   headerActions,
   initialRole = "builder",
   persistenceMode = "convex",
@@ -364,6 +367,7 @@ export function ProductionTimelineWorkspace({
   return (
     <TimelineWorkspace
       allowRoleSwitching={false}
+      embedded={embedded}
       collaboration={{
         cursors: collaboration.cursors,
         onCursorChange: collaboration.updateCursor,

@@ -1,8 +1,8 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMutation, useQuery } from "convex/react";
+import { createFileRoute } from "@tanstack/react-router";
+import { useAction, useQuery } from "convex/react";
 import { ArrowRight, Building2, CheckCircle2, Loader2, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "#/components/ui/badge.tsx";
@@ -13,6 +13,10 @@ import {
   FramePanel,
   FrameTitle,
 } from "#/components/ui/frame.tsx";
+import {
+  forgetProposalClaimReturnPath,
+  rememberProposalClaimReturnPath,
+} from "#/lib/proposal-claim-return.ts";
 import { api } from "../../convex/_generated/api";
 
 type ClaimPreview =
@@ -49,11 +53,10 @@ export const Route = createFileRoute("/proposal-claim/$claimToken")({
 function ProposalClaimRoute() {
   const { claimToken } = Route.useParams();
   const context = Route.useRouteContext();
-  const navigate = useNavigate();
   const preview = useQuery(api.production_proposals.getProposalClaimPreview, {
     claimToken,
   }) as ClaimPreview;
-  const claimDraftProposalLink = useMutation(
+  const claimDraftProposalLink = useAction(
     api.production_proposals.claimDraftProposalLink
   );
   const [claiming, setClaiming] = useState(false);
@@ -68,11 +71,22 @@ function ProposalClaimRoute() {
     returnPathname
   )}`;
 
+  useEffect(() => {
+    if (context.userId) {
+      forgetProposalClaimReturnPath();
+    }
+  }, [context.userId]);
+
+  function rememberClaimReturnPath() {
+    rememberProposalClaimReturnPath(returnPathname);
+  }
+
   async function handleClaim() {
     if (!preview || preview.claimStatus !== "active") {
       return;
     }
     if (!context.userId) {
+      rememberClaimReturnPath();
       window.location.href = signUpHref;
       return;
     }
@@ -83,10 +97,12 @@ function ProposalClaimRoute() {
         workosOrganizationId: preview.workosOrganizationId,
       });
       toast.success("Proposal claimed.");
-      void navigate({
-        params: { proposalId: result.proposalId },
-        to: "/builder/proposals/$proposalId",
-      });
+      const claimedPath = `/builder/proposals/${encodeURIComponent(
+        result.proposalId
+      )}`;
+      window.location.href = `/api/auth/sign-in?returnPathname=${encodeURIComponent(
+        claimedPath
+      )}&organizationId=${encodeURIComponent(preview.workosOrganizationId)}`;
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -187,11 +203,16 @@ function ProposalClaimRoute() {
             </Button>
           ) : (
             <div className="flex shrink-0 flex-wrap gap-2">
-              <Button render={<a href={signUpHref} />}>
+              <Button
+                render={<a href={signUpHref} onClick={rememberClaimReturnPath} />}
+              >
                 Create account
                 <ArrowRight aria-hidden />
               </Button>
-              <Button render={<a href={signInHref} />} variant="outline">
+              <Button
+                render={<a href={signInHref} onClick={rememberClaimReturnPath} />}
+                variant="outline"
+              >
                 Sign in
               </Button>
             </div>

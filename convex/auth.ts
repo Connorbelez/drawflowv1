@@ -24,6 +24,11 @@ const additionalEventTypes = [
 
 const authFunctions: AuthFunctions = internal.auth;
 
+// biome-ignore lint/suspicious/noExplicitAny: AuthKit's event helper has a keyed generic API with no catch-all handler.
+async function handleWorkosEvent(ctx: any, event: any) {
+  await processWorkosEvent(ctx, event);
+}
+
 function requireWorkosEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) {
@@ -44,58 +49,46 @@ export const authKit = new AuthKit<DataModel>(components.workOSAuthKit, {
 });
 
 export const { authKitEvent } = authKit.events({
-  "user.created": async (ctx, event) => {
-    await processWorkosEvent(ctx, event);
-  },
-  "user.updated": async (ctx, event) => {
-    await processWorkosEvent(ctx, event);
-  },
-  "user.deleted": async (ctx, event) => {
-    await processWorkosEvent(ctx, event);
-  },
-  "organization_membership.created": async (ctx, event) => {
-    await processWorkosEvent(ctx, event);
-  },
-  "organization_membership.updated": async (ctx, event) => {
-    await processWorkosEvent(ctx, event);
-  },
-  "organization_membership.deleted": async (ctx, event) => {
-    await processWorkosEvent(ctx, event);
-  },
-  "role.created": async (ctx, event) => {
-    await processWorkosEvent(ctx, event);
-  },
-  "role.updated": async (ctx, event) => {
-    await processWorkosEvent(ctx, event);
-  },
-  "role.deleted": async (ctx, event) => {
-    await processWorkosEvent(ctx, event);
-  },
-  "organization_role.created": async (ctx, event) => {
-    await processWorkosEvent(ctx, event);
-  },
-  "organization_role.updated": async (ctx, event) => {
-    await processWorkosEvent(ctx, event);
-  },
-  "organization_role.deleted": async (ctx, event) => {
-    await processWorkosEvent(ctx, event);
-  },
-  "permission.created": async (ctx, event) => {
-    await processWorkosEvent(ctx, event);
-  },
-  "permission.updated": async (ctx, event) => {
-    await processWorkosEvent(ctx, event);
-  },
-  "permission.deleted": async (ctx, event) => {
-    await processWorkosEvent(ctx, event);
-  },
-  "organization.created": async (ctx, event) => {
-    await processWorkosEvent(ctx, event);
-  },
-  "organization.updated": async (ctx, event) => {
-    await processWorkosEvent(ctx, event);
-  },
-  "organization.deleted": async (ctx, event) => {
-    await processWorkosEvent(ctx, event);
-  },
+  "authentication.email_verification_succeeded": handleWorkosEvent,
+  "authentication.magic_auth_failed": handleWorkosEvent,
+  "authentication.magic_auth_succeeded": handleWorkosEvent,
+  "authentication.mfa_succeeded": handleWorkosEvent,
+  "authentication.oauth_failed": handleWorkosEvent,
+  "authentication.oauth_succeeded": handleWorkosEvent,
+  "authentication.passkey_failed": handleWorkosEvent,
+  "authentication.passkey_succeeded": handleWorkosEvent,
+  "authentication.password_failed": handleWorkosEvent,
+  "authentication.password_succeeded": handleWorkosEvent,
+  "authentication.radar_risk_detected": handleWorkosEvent,
+  "authentication.sso_failed": handleWorkosEvent,
+  "authentication.sso_succeeded": handleWorkosEvent,
+  "invitation.accepted": handleWorkosEvent,
+  "invitation.created": handleWorkosEvent,
+  "invitation.revoked": handleWorkosEvent,
+  "invitation.resent": handleWorkosEvent,
+  "organization.created": handleWorkosEvent,
+  "organization.deleted": handleWorkosEvent,
+  "organization.updated": handleWorkosEvent,
+  "organization_domain.created": handleWorkosEvent,
+  "organization_domain.deleted": handleWorkosEvent,
+  "organization_domain.updated": handleWorkosEvent,
+  "organization_domain.verification_failed": handleWorkosEvent,
+  "organization_domain.verified": handleWorkosEvent,
+  "organization_membership.created": handleWorkosEvent,
+  "organization_membership.deleted": handleWorkosEvent,
+  "organization_membership.updated": handleWorkosEvent,
+  "organization_role.created": handleWorkosEvent,
+  "organization_role.deleted": handleWorkosEvent,
+  "organization_role.updated": handleWorkosEvent,
+  "permission.created": handleWorkosEvent,
+  "permission.deleted": handleWorkosEvent,
+  "permission.updated": handleWorkosEvent,
+  "role.created": handleWorkosEvent,
+  "role.deleted": handleWorkosEvent,
+  "role.updated": handleWorkosEvent,
+  "session.created": handleWorkosEvent,
+  "session.revoked": handleWorkosEvent,
+  "user.created": handleWorkosEvent,
+  "user.deleted": handleWorkosEvent,
+  "user.updated": handleWorkosEvent,
 });

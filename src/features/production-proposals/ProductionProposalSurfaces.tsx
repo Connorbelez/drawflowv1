@@ -1529,6 +1529,7 @@ export function ProductionProposalReviewSurface({
   onReject,
   onRequestChanges,
   onAssignBuilder,
+  onUnassignBuilder,
   onUpdateApprovedAmount,
   onUpdateInterestRate,
   onSaveCalendarView,
@@ -1575,6 +1576,7 @@ export function ProductionProposalReviewSurface({
   onReject: (reason: string) => Promise<unknown> | unknown;
   onRequestChanges: (reason: string) => Promise<unknown> | unknown;
   onAssignBuilder?: (builderProfileId: string) => Promise<unknown> | unknown;
+  onUnassignBuilder?: () => Promise<unknown> | unknown;
   onUpdateApprovedAmount?: (
     approvedAmountCents: number
   ) => Promise<unknown> | unknown;
@@ -1767,13 +1769,15 @@ export function ProductionProposalReviewSurface({
     }
   };
 
+  const reviewTabPanelClassName = "w-full min-w-0";
+
   return (
     <section
-      className="flex min-h-[calc(100vh-4rem)] min-w-0 flex-1 flex-col bg-muted/30 p-0 md:p-5"
+      className="flex min-h-[calc(100vh-4rem)] w-full min-w-0 flex-1 flex-col bg-muted/30 p-0 md:p-5"
       data-testid="production-proposal-review-tabs"
     >
       <Tabs
-        className="mx-auto max-w-full gap-4"
+        className="flex w-full min-w-0 flex-col gap-4"
         onValueChange={(value) => {
           const next = value as ProductionReviewTab;
           setActiveTab(next);
@@ -1781,8 +1785,8 @@ export function ProductionProposalReviewSurface({
         }}
         value={activeTab}
       >
-        <Frame>
-          <FramePanel className="flex flex-col gap-3 p-3 lg:flex-row lg:items-center lg:justify-between">
+        <Frame className="w-full min-w-0">
+          <FramePanel className="flex w-full min-w-0 flex-col gap-3 p-3 lg:flex-row lg:items-center lg:justify-between">
             <TabsList
               aria-label="Proposal workspace sections"
               className="max-w-full justify-start overflow-x-auto"
@@ -1806,28 +1810,32 @@ export function ProductionProposalReviewSurface({
           </FramePanel>
         </Frame>
 
+        <div
+          className="w-full min-w-0"
+          data-testid="production-proposal-review-tab-panels"
+        >
         {timeline ? (
           <TabsPanel
-            className="min-w-0"
+            className={reviewTabPanelClassName}
             data-testid="production-proposal-timeline-tab"
             value="timeline"
           >
-            {timeline}
+            <div className="w-full min-w-0 overflow-x-auto">{timeline}</div>
           </TabsPanel>
         ) : null}
 
         {gantt ? (
           <TabsPanel
-            className="min-w-0"
+            className={reviewTabPanelClassName}
             data-testid="production-proposal-gantt-tab"
             value="gantt"
           >
-            {gantt}
+            <div className="w-full min-w-0 overflow-x-auto">{gantt}</div>
           </TabsPanel>
         ) : null}
 
         <TabsPanel
-          className="min-w-0"
+          className={reviewTabPanelClassName}
           data-testid="production-proposal-milestones-tab"
           value="milestones"
         >
@@ -1848,7 +1856,7 @@ export function ProductionProposalReviewSurface({
 
         {contractors ? (
           <TabsPanel
-            className="min-w-0"
+            className={reviewTabPanelClassName}
             data-testid="production-proposal-contractors-tab"
             value="contractors"
           >
@@ -1857,7 +1865,7 @@ export function ProductionProposalReviewSurface({
         ) : null}
 
         <TabsPanel
-          className="min-w-0"
+          className={reviewTabPanelClassName}
           data-testid="production-proposal-calendar-tab"
           value="calendar"
         >
@@ -1876,7 +1884,7 @@ export function ProductionProposalReviewSurface({
         </TabsPanel>
 
         <TabsPanel
-          className="min-w-0"
+          className={reviewTabPanelClassName}
           data-testid="production-proposal-review-tab"
           value="review"
         >
@@ -1969,6 +1977,7 @@ export function ProductionProposalReviewSurface({
                 builders={builders}
                 onAssignBuilder={onAssignBuilder}
                 onCreateClaimLink={onCreateClaimLink}
+                onUnassignBuilder={onUnassignBuilder}
                 proposal={proposal}
               />
 
@@ -2009,7 +2018,7 @@ export function ProductionProposalReviewSurface({
 
         {editableDraws.length > 0 ? (
           <TabsPanel
-            className="min-w-0"
+            className={reviewTabPanelClassName}
             data-testid="production-proposal-draws-tab"
             value="draws"
           >
@@ -2101,7 +2110,7 @@ export function ProductionProposalReviewSurface({
         ) : null}
 
         <TabsPanel
-          className="min-w-0"
+          className={reviewTabPanelClassName}
           data-testid="production-proposal-materials-tab"
           value="materials"
         >
@@ -2115,7 +2124,7 @@ export function ProductionProposalReviewSurface({
         </TabsPanel>
 
         <TabsPanel
-          className="min-w-0"
+          className={reviewTabPanelClassName}
           data-testid="production-proposal-packet-tab"
           value="packet"
         >
@@ -2124,7 +2133,7 @@ export function ProductionProposalReviewSurface({
 
         {proposal.status === "approved" || proposal.status === "closed" ? (
           <TabsPanel
-            className="min-w-0"
+            className={reviewTabPanelClassName}
             data-testid="production-proposal-closing-tab"
             value="closing"
           >
@@ -2162,6 +2171,7 @@ export function ProductionProposalReviewSurface({
             </Section>
           </TabsPanel>
         ) : null}
+        </div>
       </Tabs>
     </section>
   );
@@ -2391,6 +2401,7 @@ function BuilderAssignmentSection({
   builders,
   onAssignBuilder,
   onCreateClaimLink,
+  onUnassignBuilder,
   proposal,
 }: {
   assignment?: ProductionProposalAssignment | null;
@@ -2399,6 +2410,7 @@ function BuilderAssignmentSection({
   onCreateClaimLink?: () =>
     | Promise<{ claimPath: string; claimToken: string; expiresAt: number }>
     | { claimPath: string; claimToken: string; expiresAt: number };
+  onUnassignBuilder?: () => Promise<unknown> | unknown;
   proposal: ProductionProposal;
 }) {
   const builderAssigned =
@@ -2406,6 +2418,7 @@ function BuilderAssignmentSection({
   const [selectedBuilderId, setSelectedBuilderId] = useState("");
   const [assigning, setAssigning] = useState(false);
   const [creatingLink, setCreatingLink] = useState(false);
+  const [unassigning, setUnassigning] = useState(false);
   const [claimLink, setClaimLink] = useState("");
   const [claimExpiresAt, setClaimExpiresAt] = useState<number | null>(null);
   const { copyToClipboard, isCopied } = useCopyToClipboard({
@@ -2415,6 +2428,8 @@ function BuilderAssignmentSection({
     proposal.status === "draft" &&
     !builderAssigned &&
     Boolean(onAssignBuilder || onCreateClaimLink);
+  const canUnassignBuilder =
+    proposal.status === "draft" && builderAssigned && Boolean(onUnassignBuilder);
 
   useEffect(() => {
     if (builderAssigned) {
@@ -2459,6 +2474,21 @@ function BuilderAssignmentSection({
     }
   }
 
+  async function handleUnassignBuilder() {
+    if (!onUnassignBuilder) {
+      return;
+    }
+    setUnassigning(true);
+    try {
+      await onUnassignBuilder();
+      toast.success("Builder unassigned.");
+    } catch (error) {
+      toast.error(productionProposalActionErrorMessage(error));
+    } finally {
+      setUnassigning(false);
+    }
+  }
+
   return (
     <Section title="Parties & assignment">
       <div className="grid gap-4">
@@ -2487,6 +2517,20 @@ function BuilderAssignmentSection({
             }
           />
         </dl>
+
+        {canUnassignBuilder ? (
+          <div className="border-t pt-4">
+            <Button
+              loading={unassigning}
+              onClick={handleUnassignBuilder}
+              size="sm"
+              variant="destructive-outline"
+            >
+              <UserRoundX aria-hidden />
+              Unassign builder
+            </Button>
+          </div>
+        ) : null}
 
         {canManageAssignment ? (
           <div className="grid gap-3 border-t pt-4">

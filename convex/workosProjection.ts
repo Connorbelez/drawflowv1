@@ -19,6 +19,26 @@ type InsertDoc<TableName extends TableNames> = Omit<
   Doc<TableName>,
   "_creationTime" | "_id"
 >;
+interface CurrentUserOrganization {
+  membershipId: string;
+  organizationName: string;
+  roleNames: string[];
+  roleSlug?: string;
+  roleSlugs: string[];
+  workosOrganizationId: string;
+}
+interface CurrentUserOrganizationAccumulator {
+  membershipIds: string[];
+  organizationName: string;
+  roleSlugs: Set<string>;
+  sourcePriority: number;
+  updatedAt: number;
+  workosOrganizationId: string;
+}
+type CurrentUserOrganizationCandidate = CurrentUserOrganization & {
+  sourcePriority: number;
+  updatedAt: number;
+};
 
 const userRow = v.object({
   _id: v.id("users"),
@@ -186,7 +206,10 @@ export const listCurrentUserOrganizations = authenticatedQuery
       .query("workosOrganizationMemberships")
       .withIndex("by_user", (q) => q.eq("workosUserId", ctx.viewer.subject))
       .collect();
-    const organizations = [];
+    const organizationsByWorkosId = new Map<
+      string,
+      CurrentUserOrganizationAccumulator
+    >();
 
     for (const membership of memberships) {
       if (membership.status !== "active") {
@@ -203,41 +226,153 @@ export const listCurrentUserOrganizations = authenticatedQuery
         continue;
       }
 
-      const roleSlugs = membershipRoleSlugs(membership);
-      const roleNames = await Promise.all(
-        roleSlugs.map(async (slug) => {
-          const organizationRole = await ctx.db
-            .query("workosOrganizationRoles")
-            .withIndex("by_organization_slug", (q) =>
-              q
-                .eq("workosOrganizationId", membership.workosOrganizationId)
-                .eq("slug", slug)
-            )
-            .unique();
-          return organizationRole?.status === "active"
-            ? organizationRole.name
-            : formatRoleSlug(slug);
-        })
-      );
+      const workosOrganizationId = membership.workosOrganizationId;
+      const accumulator =
+        organizationsByWorkosId.get(workosOrganizationId) ??
+        ({
+          membershipIds: [],
+          roleSlugs: new Set<string>(),
+          sourcePriority: organizationSourcePriority(organization),
+          updatedAt: projectionUpdatedAt(organization),
+          workosOrganizationId,
+          organizationName:
+            organization?.name?.trim() || membership.workosOrganizationId,
+        } satisfies CurrentUserOrganizationAccumulator);
 
-      organizations.push({
-        membershipId: membership.workosMembershipId,
-        organizationName:
-          organization?.name?.trim() || membership.workosOrganizationId,
-        roleNames,
-        roleSlug: membership.roleSlug,
-        roleSlugs,
-        workosOrganizationId: membership.workosOrganizationId,
-      });
+      accumulator.membershipIds.push(membership.workosMembershipId);
+      for (const roleSlug of membershipRoleSlugs(membership)) {
+        accumulator.roleSlugs.add(roleSlug);
+      }
+      accumulator.organizationName =
+        organization?.name?.trim() ||
+        accumulator.organizationName ||
+        membership.workosOrganizationId;
+      accumulator.sourcePriority = Math.max(
+        accumulator.sourcePriority,
+        organizationSourcePriority(organization)
+      );
+      accumulator.updatedAt = Math.max(
+        accumulator.updatedAt,
+        projectionUpdatedAt(organization)
+      );
+      organizationsByWorkosId.set(workosOrganizationId, accumulator);
     }
 
-    organizations.sort((left, right) =>
-      left.organizationName.localeCompare(right.organizationName)
+    const organizationCandidates: CurrentUserOrganizationCandidate[] =
+      await Promise.all(
+        [...organizationsByWorkosId.values()].map(async (organization) => {
+          const roleSlugs = [...organization.roleSlugs];
+          const roleNames = await Promise.all(
+            roleSlugs.map(async (slug) => {
+              const organizationRole = await ctx.db
+                .query("workosOrganizationRoles")
+                .withIndex("by_organization_slug", (q) =>
+                  q
+                    .eq(
+                      "workosOrganizationId",
+                      organization.workosOrganizationId
+                    )
+                    .eq("slug", slug)
+                )
+                .unique();
+              return organizationRole?.status === "active"
+                ? organizationRole.name
+                : formatRoleSlug(slug);
+            })
+          );
+
+          return {
+            membershipId:
+              organization.membershipIds.sort()[0] ??
+              organization.workosOrganizationId,
+            organizationName: organization.organizationName,
+            roleNames,
+            roleSlug: roleSlugs[0],
+            roleSlugs,
+            sourcePriority: organization.sourcePriority,
+            updatedAt: organization.updatedAt,
+            workosOrganizationId: organization.workosOrganizationId,
+          };
+        })
+      );
+    const organizations = uniqueCurrentUserOrganizationSwitchTargets(
+      organizationCandidates
     );
+
+    organizations.sort((left, right) => {
+      const nameComparison = left.organizationName.localeCompare(
+        right.organizationName
+      );
+      if (nameComparison !== 0) {
+        return nameComparison;
+      }
+      return left.workosOrganizationId.localeCompare(
+        right.workosOrganizationId
+      );
+    });
 
     return { organizations };
   })
   .public();
+
+function uniqueCurrentUserOrganizationSwitchTargets(
+  candidates: CurrentUserOrganizationCandidate[]
+): CurrentUserOrganization[] {
+  const candidatesByName = new Map<string, CurrentUserOrganizationCandidate>();
+
+  for (const candidate of candidates) {
+    const switchTargetKey = organizationSwitchTargetKey(candidate);
+    const existing = candidatesByName.get(switchTargetKey);
+    if (!existing || isPreferredOrganizationCandidate(candidate, existing)) {
+      candidatesByName.set(switchTargetKey, candidate);
+    }
+  }
+
+  return [...candidatesByName.values()].map((candidate) => ({
+    membershipId: candidate.membershipId,
+    organizationName: candidate.organizationName,
+    roleNames: candidate.roleNames,
+    roleSlug: candidate.roleSlug,
+    roleSlugs: candidate.roleSlugs,
+    workosOrganizationId: candidate.workosOrganizationId,
+  }));
+}
+
+function organizationSwitchTargetKey(organization: CurrentUserOrganization) {
+  return (
+    organization.organizationName.trim().toLowerCase() ||
+    organization.workosOrganizationId
+  );
+}
+
+function isPreferredOrganizationCandidate(
+  candidate: CurrentUserOrganizationCandidate,
+  existing: CurrentUserOrganizationCandidate
+) {
+  if (candidate.sourcePriority !== existing.sourcePriority) {
+    return candidate.sourcePriority > existing.sourcePriority;
+  }
+  if (candidate.updatedAt !== existing.updatedAt) {
+    return candidate.updatedAt > existing.updatedAt;
+  }
+  return (
+    candidate.workosOrganizationId.localeCompare(
+      existing.workosOrganizationId
+    ) < 0
+  );
+}
+
+function organizationSourcePriority(
+  organization: Doc<"workosOrganizations"> | null
+) {
+  return organization?.sourceEventType === "seed.production_foundation" ? 0 : 1;
+}
+
+function projectionUpdatedAt(
+  projection: Pick<Doc<"workosOrganizations">, "createdAt" | "updatedAt"> | null
+) {
+  return projection?.updatedAt ?? projection?.createdAt ?? 0;
+}
 
 export const listSyncStatus = backofficeQuery
   .returns(

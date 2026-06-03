@@ -33,20 +33,22 @@ import {
   useSidebar,
 } from "#/components/ui/sidebar.tsx";
 import {
-  VISUAL_PARITY_ORGANIZATION_ID,
   isProductionVisualParityFixtureEnabled,
+  VISUAL_PARITY_ORGANIZATION_ID,
 } from "#/features/production-proposals/visualParityFixtures.ts";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../convex/_generated/api";
 
-type NavUserOrganization = {
+const INITIALS_SPLIT_PATTERN = /\s+|@/;
+
+interface NavUserOrganization {
   membershipId: string;
   organizationName: string;
   roleNames: string[];
   roleSlug?: string;
   roleSlugs: string[];
   workosOrganizationId: string;
-};
+}
 
 export function NavUser({
   user,
@@ -84,8 +86,11 @@ export function NavUser({
               workosOrganizationId: VISUAL_PARITY_ORGANIZATION_ID,
             },
           ]
-        : (organizationResult?.organizations ?? []),
-    [organizationResult, visualFixtureEnabled]
+        : mergeOrganizationSwitchTargets(
+            organizationResult?.organizations ?? [],
+            organizationId
+          ),
+    [organizationId, organizationResult, visualFixtureEnabled]
   );
   const activeOrganization = organizations.find(
     (organization) => organization.workosOrganizationId === organizationId
@@ -210,7 +215,7 @@ export function NavUser({
                     <DropdownMenuItem
                       className="items-start py-2"
                       disabled={Boolean(switchingOrganizationId) || active}
-                      key={organization.membershipId}
+                      key={organization.workosOrganizationId}
                       onClick={() => handleSwitchOrganization(organization)}
                     >
                       {switching ? (
@@ -260,6 +265,116 @@ function roleNamesFromAuth(role?: string, roles?: string[]) {
   ].map(formatRoleSlug);
 }
 
+function mergeOrganizationSwitchTargets(
+  organizations: NavUserOrganization[],
+  activeOrganizationId?: string | null
+): NavUserOrganization[] {
+  const organizationsByWorkosId = mergeOrganizationsByWorkosId(organizations);
+  const organizationsByName = new Map<string, NavUserOrganization>();
+
+  for (const organization of organizationsByWorkosId) {
+    const switchTargetKey = organizationSwitchTargetKey(organization);
+    const existing = organizationsByName.get(switchTargetKey);
+    if (
+      !existing ||
+      isPreferredSwitchTarget(organization, existing, activeOrganizationId)
+    ) {
+      organizationsByName.set(switchTargetKey, organization);
+    }
+  }
+
+  return [...organizationsByName.values()].sort(compareOrganizations);
+}
+
+function mergeOrganizationsByWorkosId(organizations: NavUserOrganization[]) {
+  const organizationsByWorkosId = new Map<string, NavUserOrganization>();
+
+  for (const organization of organizations) {
+    const existing = organizationsByWorkosId.get(
+      organization.workosOrganizationId
+    );
+    if (!existing) {
+      organizationsByWorkosId.set(organization.workosOrganizationId, {
+        ...organization,
+        roleNames: uniqueStrings(organization.roleNames),
+        roleSlugs: uniqueStrings(organization.roleSlugs),
+      });
+      continue;
+    }
+
+    const roleSlugs = uniqueStrings([
+      ...existing.roleSlugs,
+      ...organization.roleSlugs,
+    ]);
+    organizationsByWorkosId.set(organization.workosOrganizationId, {
+      membershipId:
+        existing.membershipId.localeCompare(organization.membershipId) <= 0
+          ? existing.membershipId
+          : organization.membershipId,
+      organizationName:
+        existing.organizationName || organization.organizationName,
+      roleNames: uniqueStrings([
+        ...existing.roleNames,
+        ...organization.roleNames,
+      ]),
+      roleSlug: existing.roleSlug ?? organization.roleSlug ?? roleSlugs[0],
+      roleSlugs,
+      workosOrganizationId: organization.workosOrganizationId,
+    });
+  }
+
+  return [...organizationsByWorkosId.values()].sort(compareOrganizations);
+}
+
+function organizationSwitchTargetKey(organization: NavUserOrganization) {
+  return (
+    organization.organizationName.trim().toLowerCase() ||
+    organization.workosOrganizationId
+  );
+}
+
+function isPreferredSwitchTarget(
+  candidate: NavUserOrganization,
+  existing: NavUserOrganization,
+  activeOrganizationId?: string | null
+) {
+  if (candidate.workosOrganizationId === activeOrganizationId) {
+    return true;
+  }
+  if (existing.workosOrganizationId === activeOrganizationId) {
+    return false;
+  }
+  return (
+    candidate.workosOrganizationId.localeCompare(
+      existing.workosOrganizationId
+    ) < 0
+  );
+}
+
+function compareOrganizations(
+  left: NavUserOrganization,
+  right: NavUserOrganization
+) {
+  const nameComparison = left.organizationName.localeCompare(
+    right.organizationName
+  );
+  if (nameComparison !== 0) {
+    return nameComparison;
+  }
+  return left.workosOrganizationId.localeCompare(right.workosOrganizationId);
+}
+
+function uniqueStrings(values: string[]) {
+  return [
+    ...new Set(
+      values.filter(
+        (value): value is string =>
+          typeof value === "string" && value.trim().length > 0
+      )
+    ),
+  ];
+}
+
 function formatRoleSlug(slug: string) {
   return slug
     .split("-")
@@ -269,7 +384,7 @@ function formatRoleSlug(slug: string) {
 }
 
 function initialsFor(value: string) {
-  const parts = value.split(/\s+|@/).filter(Boolean).slice(0, 2);
+  const parts = value.split(INITIALS_SPLIT_PATTERN).filter(Boolean).slice(0, 2);
   return (
     parts.map((part) => part[0]?.toUpperCase()).join("") ||
     value[0]?.toUpperCase() ||

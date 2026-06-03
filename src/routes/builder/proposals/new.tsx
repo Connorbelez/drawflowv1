@@ -33,23 +33,23 @@ function NewProductionProposalRoute() {
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
   const createContextQuery = useQuery(
     api.production_proposals.getBuilderProposalCreateContext,
-    visualFixtureEnabled ? "skip" : { workosOrganizationId }
+    visualFixtureEnabled ? "skip" : { workosOrganizationId },
   );
   const createContext = visualFixtureEnabled
     ? getVisualParityCreateContext()
     : createContextQuery;
   const createDraft = useMutation(api.production_proposals.createDraftProposal);
   const saveDraft = useMutation(
-    api.production_proposals.saveDraftProposalPackage
+    api.production_proposals.saveDraftProposalPackage,
   );
   const generateDocumentUploadUrl = useMutation(
-    api.production_proposals.generateProposalDocumentUploadUrl
+    api.production_proposals.generateProposalDocumentUploadUrl,
   );
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState("");
   const setupTemplates = useMemo(
     () => productionTemplatesToTimelineSetupTemplates(createContext?.templates),
-    [createContext?.templates]
+    [createContext?.templates],
   );
 
   async function createProductionProposal(result: TimelineSetupResult) {
@@ -95,7 +95,7 @@ function NewProductionProposalRoute() {
             sizeBytes: file.size,
             storageId,
           };
-        })
+        }),
       );
       await saveDraft({
         ...packagePayload,
@@ -116,7 +116,7 @@ function NewProductionProposalRoute() {
       setError(
         caught instanceof Error
           ? caught.message
-          : "Production proposal creation failed."
+          : "Production proposal creation failed.",
       );
     } finally {
       setIsCreating(false);
@@ -147,12 +147,14 @@ function NewProductionProposalRoute() {
           </FramePanel>
         </Frame>
       ) : null}
-      <TimelineSetupFlow
-        baseItems={PRODUCTION_SETUP_BASE_ITEMS}
-        contractorOptions={createContext?.availableContractors ?? []}
-        onComplete={(result) => void createProductionProposal(result)}
-        settingsTemplates={setupTemplates}
-      />
+      <div className="timeline-setup-app-shell-route">
+        <TimelineSetupFlow
+          baseItems={PRODUCTION_SETUP_BASE_ITEMS}
+          contractorOptions={createContext?.availableContractors ?? []}
+          onComplete={(result) => void createProductionProposal(result)}
+          settingsTemplates={setupTemplates}
+        />
+      </div>
     </>
   );
 }

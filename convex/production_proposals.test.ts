@@ -3856,37 +3856,51 @@ describe("draft builder assignment and deletion", () => {
     );
   });
 
+  test("unassigns a builder from a draft and reflects it on the kanban", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const proposalId = await admin.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Assigned draft",
+        location: "1 Assigned Rd",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await admin.mutation(
+      (api as any).production_proposals.unassignDraftBuilder,
+      { proposalId, workosOrganizationId: ORG },
+    );
+
+    const detail = await admin.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(detail.proposal.builderProfileId).toBeUndefined();
+    expect(detail.assignment.builder).toBeNull();
+    expect(detail.auditEvents.map((event: any) => event.eventType)).toContain(
+      "proposal.builder_unassigned",
+    );
+
+    const kanban = await admin.query(
+      (api as any).production_proposals.listProposalKanban,
+      { workosOrganizationId: ORG },
+    );
+    const draftCard = kanban.columns
+      .find((column: any) => column.id === "draft")
+      .cards.find((card: any) => card.proposalId === proposalId);
+    expect(draftCard).toMatchObject({
+      builderAssigned: false,
+      builderName: "Unassigned builder",
+    });
+  });
+
   test("creates a builder claim link and claims an unassigned draft into a builder profile", async () => {
     const { base, t: admin } = await seeded(["admin"], "user_admin");
     const broker = withIdentity(base, ["broker"], "user_broker");
     const claimant = withIdentity(base, ["member"], "user_claimant");
-
-    await admin.run(async (ctx: any) => {
-      await ctx.db.insert("users", {
-        authId: "user_claimant",
-        createdAt: Date.now(),
-        email: "claimant.builder@example.com",
-        name: "Claimant Builder",
-        sourceEventId: "test_claimant",
-        sourceEventType: "test",
-        status: "active",
-        updatedAt: Date.now(),
-        workosUserId: "user_claimant",
-      });
-      await ctx.db.insert("workosOrganizationMemberships", {
-        createdAt: Date.now(),
-        directoryManaged: false,
-        roleSlug: "member",
-        roleSlugs: ["member"],
-        sourceEventId: "test_claimant_membership",
-        sourceEventType: "test",
-        status: "active",
-        updatedAt: Date.now(),
-        workosMembershipId: "membership_claimant",
-        workosOrganizationId: ORG,
-        workosUserId: "user_claimant",
-      });
-    });
 
     const proposalId = await broker.mutation(
       (api as any).production_proposals.createBrokerDraftProposal,
@@ -3909,11 +3923,14 @@ describe("draft builder assignment and deletion", () => {
       workosOrganizationId: ORG,
     });
 
-    const claimed = await claimant.mutation(
+    const claimed = await claimant.action(
       (api as any).production_proposals.claimDraftProposalLink,
       { claimToken: link.claimToken, workosOrganizationId: ORG },
     );
     expect(claimed.proposalId).toBe(proposalId);
+    expect(claimed.workosMembershipId).toBe(
+      `fake_membership_${ORG}_user_claimant`,
+    );
 
     const claimantDetail = await claimant.query(
       (api as any).production_proposals.getProposalDetail,
@@ -3923,10 +3940,7 @@ describe("draft builder assignment and deletion", () => {
       claimed.builderProfileId,
     );
     expect(claimantDetail.assignment.builder.displayName).toBe(
-      "Claimant Builder",
-    );
-    expect(claimantDetail.assignment.builder.ownerEmail).toBe(
-      "claimant.builder@example.com",
+      "user_claimant",
     );
 
     const claimedPreview = await base.query(
@@ -3934,6 +3948,40 @@ describe("draft builder assignment and deletion", () => {
       { claimToken: link.claimToken },
     );
     expect(claimedPreview.claimStatus).toBe("claimed");
+  });
+
+  test("claim link onboards a fresh signed-in builder into the link brokerage", async () => {
+    const { base, t: admin } = await seeded(["admin"], "user_admin");
+    const broker = withIdentity(base, ["broker"], "user_broker");
+    const claimant = withIdentity(base, [], "user_fresh_claimant");
+
+    const proposalId = await broker.mutation(
+      (api as any).production_proposals.createBrokerDraftProposal,
+      { buildName: "Fresh claimant proposal", workosOrganizationId: ORG },
+    );
+    const link = await admin.mutation(
+      (api as any).production_proposals.createDraftProposalClaimLink,
+      { proposalId, workosOrganizationId: ORG },
+    );
+
+    const claimed = await claimant.action(
+      (api as any).production_proposals.claimDraftProposalLink,
+      { claimToken: link.claimToken, workosOrganizationId: ORG },
+    );
+    expect(claimed.workosMembershipId).toBe(
+      `fake_membership_${ORG}_user_fresh_claimant`,
+    );
+
+    const claimantDetail = await claimant.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(claimantDetail.proposal.builderProfileId).toBe(
+      claimed.builderProfileId,
+    );
+    expect(claimantDetail.assignment.builder.displayName).toBe(
+      "user_fresh_claimant",
+    );
   });
 
   test("rejects assigning a builder to an already-assigned draft", async () => {

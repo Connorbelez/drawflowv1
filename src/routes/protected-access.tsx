@@ -1,6 +1,8 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useEffect } from "react";
 
 import { Frame, FrameDescription, FramePanel, FrameTitle } from "#/components/ui/frame.tsx";
+import { takeProposalClaimReturnPath } from "#/lib/proposal-claim-return.ts";
 import { roleLabel, type Workspace } from "#/lib/auth/rbac.ts";
 
 type ProtectedAccessSearch = {
@@ -23,8 +25,20 @@ export const Route = createFileRoute("/protected-access")({
 
 function ProtectedAccessRoute() {
   const { reason, workspace } = Route.useSearch();
+  const navigate = useNavigate();
   const isOnboarding = reason === "onboarding-required";
   const isMissingOrganization = reason === "missing-organization";
+
+  useEffect(() => {
+    if (!isMissingOrganization) {
+      return;
+    }
+    const claimReturnPath = takeProposalClaimReturnPath();
+    if (!claimReturnPath) {
+      return;
+    }
+    void navigate({ replace: true, to: claimReturnPath as never });
+  }, [isMissingOrganization, navigate]);
 
   return (
     <main className="grid min-h-svh place-items-center bg-bg-base p-6">

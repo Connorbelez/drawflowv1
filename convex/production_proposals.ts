@@ -1,7 +1,9 @@
 import { v } from "convex/values";
 
+import { api, internal } from "./_generated/api";
 import {
   type AuthorizedViewer,
+  authenticatedAction,
   authenticatedMutation,
   authenticatedQuery,
   normalizeRoleSlugs,
@@ -20,7 +22,7 @@ import {
   normalizeSiteVisitReportNotes,
   siteVisitReportNotesPlainText,
 } from "./demo_site_visit_tokens";
-import { publicMutation, publicQuery } from "./fluent";
+import { internalMutation, publicMutation, publicQuery } from "./fluent";
 import {
   assertProposalCollaborationEditAllowed,
   generateShareToken,
@@ -5124,9 +5126,71 @@ export const getProposalClaimPreview = publicQuery
   })
   .public();
 
-export const claimDraftProposalLink = authenticatedMutation
+const claimDraftProposalLinkReturn = v.object({
+  builderProfileId: v.id("builderProfiles"),
+  proposalId: v.id("buildProposals"),
+  workosMembershipId: v.union(v.string(), v.null()),
+});
+
+export const claimDraftProposalLink = authenticatedAction
   .input({
     claimToken: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(claimDraftProposalLinkReturn)
+  .handler(async (ctx, args) => {
+    const preview: {
+      claimStatus: string;
+      workosOrganizationId: string;
+    } | null = await ctx.runQuery(
+      api.production_proposals.getProposalClaimPreview,
+      { claimToken: args.claimToken },
+    );
+    if (
+      !preview ||
+      preview.workosOrganizationId !== args.workosOrganizationId ||
+      preview.claimStatus !== "active"
+    ) {
+      throw new Error("Proposal claim link was not found.");
+    }
+
+    const membership: { workosId?: string } = await ctx.runAction(
+      internal.workosManagement.createClaimMembershipForUser,
+      {
+        organizationId: args.workosOrganizationId,
+        primaryRoleSlug: "builder",
+        roleSlugs: ["builder"],
+        userId: ctx.viewer.subject,
+      },
+    );
+
+    const claimed: {
+      builderProfileId: Id<"builderProfiles">;
+      proposalId: Id<"buildProposals">;
+    } = await ctx.runMutation(
+      internal.production_proposals.finalizeDraftProposalClaimLink,
+      {
+        claimToken: args.claimToken,
+        claimantEmail: ctx.viewer.email,
+        claimantRoles: ctx.viewer.roles,
+        claimantWorkosUserId: ctx.viewer.subject,
+        workosOrganizationId: args.workosOrganizationId,
+      },
+    );
+
+    return {
+      ...claimed,
+      workosMembershipId: membership.workosId ?? null,
+    };
+  })
+  .public();
+
+export const finalizeDraftProposalClaimLink = internalMutation
+  .input({
+    claimToken: v.string(),
+    claimantEmail: v.optional(v.string()),
+    claimantRoles: v.array(v.string()),
+    claimantWorkosUserId: v.string(),
     workosOrganizationId: v.string(),
   })
   .returns(
@@ -5136,11 +5200,6 @@ export const claimDraftProposalLink = authenticatedMutation
     }),
   )
   .handler(async (ctx, args) => {
-    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
-    if (!canClaimDraftProposal(auth.roles)) {
-      throw new Error("Sign in with a builder account to claim this proposal.");
-    }
-
     const link = await getProposalClaimLinkByToken(ctx, args.claimToken);
     if (!link || link.organizationId !== args.workosOrganizationId) {
       throw new Error("Proposal claim link was not found.");
@@ -5151,8 +5210,22 @@ export const claimDraftProposalLink = authenticatedMutation
     if (link.expiresAt && link.expiresAt < Date.now()) {
       throw new Error("Proposal claim link has expired.");
     }
-    if (link.brokerageId !== auth.brokerage._id) {
-      throw new Error("Forbidden: proposal claim scope");
+
+    const brokerage = await ctx.db.get(link.brokerageId);
+    if (
+      !brokerage ||
+      brokerage.status !== "active" ||
+      brokerage.workosOrganizationId !== link.organizationId
+    ) {
+      throw new Error("Proposal claim link was not found.");
+    }
+    const auth = {
+      brokerage,
+      roles: claimRoles(args.claimantRoles),
+      subject: args.claimantWorkosUserId,
+    };
+    if (!canClaimDraftProposal(auth.roles)) {
+      throw new Error("Sign in with a builder account to claim this proposal.");
     }
 
     const proposal = await ctx.db.get(link.proposalId);
@@ -5169,14 +5242,10 @@ export const claimDraftProposalLink = authenticatedMutation
     const now = Date.now();
     const builderProfile = await getOrCreateClaimantBuilderProfile(ctx, {
       auth,
+      claimantEmail: args.claimantEmail,
       now,
       proposal,
       workosOrganizationId: args.workosOrganizationId,
-    });
-    await ensureBuilderRoleProjection(ctx, {
-      now,
-      workosOrganizationId: args.workosOrganizationId,
-      workosUserId: auth.subject,
     });
     await ctx.db.patch(proposal._id, {
       builderProfileId: builderProfile._id,
@@ -5205,7 +5274,7 @@ export const claimDraftProposalLink = authenticatedMutation
       proposalId: proposal._id,
     };
   })
-  .public();
+  .internal();
 
 export const getProposalDetail = authenticatedQuery
   .input({
@@ -8560,6 +8629,48 @@ export const assignDraftBuilder = authenticatedMutation
   })
   .public();
 
+export const unassignDraftBuilder = authenticatedMutation
+  .input({
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+    requireBackofficeProposalWrite(auth, auth.proposal);
+    if (auth.proposal.status !== "draft") {
+      throw new Error("Only draft proposals can be unassigned.");
+    }
+    if (!auth.proposal.builderProfileId) {
+      throw new Error("Proposal is not assigned to a builder.");
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(args.proposalId, {
+      builderProfileId: undefined,
+      updatedAt: now,
+      updatedByWorkosUserId: auth.subject,
+    });
+    await upsertKanbanCard(ctx, args.proposalId, now);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "unassignDraftBuilder",
+      eventType: "proposal.builder_unassigned",
+      newState: JSON.stringify({ assignment: "unassigned" }),
+      priorState: JSON.stringify({
+        builderProfileId: auth.proposal.builderProfileId,
+      }),
+      proposalId: args.proposalId,
+    });
+    return null;
+  })
+  .public();
+
 export const deleteDraftProposal = authenticatedMutation
   .input({
     proposalId: v.id("buildProposals"),
@@ -11840,7 +11951,11 @@ async function resolveBrokerageScope(
     .withIndex("by_user", (q) => q.eq("workosUserId", subject))
     .filter((q) => q.eq(q.field("workosOrganizationId"), workosOrganizationId))
     .first();
-  if (!membership || membership.status !== "active") {
+  const activeTokenOrganizationId = ctx.viewer.organizationId?.trim();
+  if (
+    (!membership || membership.status !== "active") &&
+    activeTokenOrganizationId !== workosOrganizationId
+  ) {
     throw new Error("Forbidden: WorkOS membership");
   }
 
@@ -12056,6 +12171,11 @@ function canClaimDraftProposal(roles: readonly RoleSlug[]) {
   );
 }
 
+function claimRoles(roles: readonly unknown[]) {
+  const normalized = normalizeRoleSlugs(roles);
+  return normalized.length > 0 ? normalized : (["member"] satisfies RoleSlug[]);
+}
+
 async function getOrCreateClaimantBuilderProfile(
   ctx: MutationCtx,
   input: {
@@ -12063,6 +12183,7 @@ async function getOrCreateClaimantBuilderProfile(
       brokerage: Doc<"brokerages">;
       subject: string;
     };
+    claimantEmail?: string;
     now: number;
     proposal: Doc<"buildProposals">;
     workosOrganizationId: string;
@@ -12078,7 +12199,11 @@ async function getOrCreateClaimantBuilderProfile(
   }
 
   const user = await getWorkosUserById(ctx, input.auth.subject);
-  const displayName = claimBuilderDisplayName(user, input.proposal);
+  const displayName = claimBuilderDisplayName(
+    user,
+    input.proposal,
+    input.claimantEmail,
+  );
   const builderProfileId = await ctx.db.insert("builderProfiles", {
     brokerageId: input.auth.brokerage._id,
     createdAt: input.now,
@@ -12107,6 +12232,7 @@ async function getOrCreateClaimantBuilderProfile(
 function claimBuilderDisplayName(
   user: Doc<"users"> | null,
   proposal: Doc<"buildProposals">,
+  fallbackEmail?: string,
 ) {
   const name = user?.name?.trim();
   if (name && name !== user?.email) {
@@ -12116,38 +12242,11 @@ function claimBuilderDisplayName(
   if (email) {
     return email.split("@")[0] || email;
   }
-  return `${proposal.buildName} builder`;
-}
-
-async function ensureBuilderRoleProjection(
-  ctx: MutationCtx,
-  input: {
-    now: number;
-    workosOrganizationId: string;
-    workosUserId: string;
-  },
-) {
-  const memberships = await ctx.db
-    .query("workosOrganizationMemberships")
-    .withIndex("by_user", (q) => q.eq("workosUserId", input.workosUserId))
-    .collect();
-  const membership = memberships.find(
-    (row) => row.workosOrganizationId === input.workosOrganizationId,
-  );
-  if (!membership) {
-    return;
+  const claimEmail = fallbackEmail?.trim();
+  if (claimEmail) {
+    return claimEmail.split("@")[0] || claimEmail;
   }
-  const roleSlugs = new Set(membership.roleSlugs ?? []);
-  roleSlugs.add("builder");
-  const roleSlug =
-    !membership.roleSlug || membership.roleSlug === "member"
-      ? "builder"
-      : membership.roleSlug;
-  await ctx.db.patch(membership._id, {
-    roleSlug,
-    roleSlugs: [...roleSlugs],
-    updatedAt: input.now,
-  });
+  return `${proposal.buildName} builder`;
 }
 
 async function builderAccountSummaries(

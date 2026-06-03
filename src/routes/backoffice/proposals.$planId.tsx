@@ -263,6 +263,9 @@ function ProposalReviewRoute() {
   const assignDraftBuilder = useMutation(
     api.production_proposals.assignDraftBuilder,
   );
+  const unassignDraftBuilder = useMutation(
+    api.production_proposals.unassignDraftBuilder,
+  );
   const createDraftProposalClaimLink = useMutation(
     api.production_proposals.createDraftProposalClaimLink,
   );
@@ -416,6 +419,7 @@ function ProposalReviewRoute() {
         timeline={
           <ProductionTimelineWorkspace
             backofficeHref={`/backoffice/proposals/${planId}`}
+            embedded
             initialRole="lender"
             persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
             prejoinedCollabToken={
@@ -470,6 +474,12 @@ function ProposalReviewRoute() {
         onAssignBuilder={(builderProfileId) =>
           assignDraftBuilder({
             builderProfileId: builderProfileId as Id<"builderProfiles">,
+            proposalId,
+            workosOrganizationId,
+          })
+        }
+        onUnassignBuilder={() =>
+          unassignDraftBuilder({
             proposalId,
             workosOrganizationId,
           })

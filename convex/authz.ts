@@ -51,6 +51,7 @@ const capabilities: Record<Capability, readonly RoleSlug[] | null> = {
 export interface AuthorizedViewer {
   capability: Capability;
   email?: string;
+  organizationId?: string;
   roles: RoleSlug[];
   subject: string;
   tokenIdentifier: string;
@@ -145,13 +146,23 @@ export function viewerFromIdentity(
     ...toArray(identity["https://workos.com/roles"]),
   ]);
 
+  const organizationId =
+    stringClaim(identity.organizationId) ??
+    stringClaim(identity.org_id) ??
+    stringClaim(identity["https://workos.com/organization_id"]);
+
   return {
     capability,
     email: identity.email,
+    ...(organizationId ? { organizationId } : {}),
     roles,
     subject: identity.subject,
     tokenIdentifier: identity.tokenIdentifier,
   };
+}
+
+function stringClaim(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function createCapabilityMiddleware(capability: Capability) {

@@ -42,6 +42,14 @@ vi.mock("convex/react", () => ({
         roleSlugs: ["builder"],
         workosOrganizationId: "org_oakline",
       },
+      {
+        membershipId: "om_fairlend_duplicate",
+        organizationName: "FairLend",
+        roleNames: ["Admin"],
+        roleSlug: "admin",
+        roleSlugs: ["admin"],
+        workosOrganizationId: "org_fairlend_duplicate",
+      },
     ],
   }),
 }));
@@ -91,7 +99,7 @@ describe("NavUser", () => {
     expect(screen.getByText("Active organization")).toBeTruthy();
     expect(screen.getAllByText("Oakline Builds").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Builder").length).toBeGreaterThan(0);
-    expect(screen.getByText("FairLend")).toBeTruthy();
+    expect(screen.getAllByText("FairLend")).toHaveLength(1);
     expect(screen.getByText("Principal Broker")).toBeTruthy();
 
     fireEvent.click(screen.getByText("FairLend").closest('[role="menuitem"]')!);
