@@ -2,7 +2,6 @@ import { useAuth } from "@workos/authkit-tanstack-react-start/client";
 import { cn } from "#/lib/utils.ts";
 import { Button } from "#/components/ui/button.tsx";
 import { Separator } from "#/components/ui/separator.tsx";
-import { DecorIcon } from "#/components/decor-icon.tsx";
 import { RouteBreadcrumbs } from "#/components/route-breadcrumbs.tsx";
 import { CustomSidebarTrigger } from "#/components/custom-sidebar-trigger.tsx";
 import { NavUser } from "#/components/nav-user.tsx";
@@ -21,12 +20,10 @@ export function AppHeader() {
 	return (
 		<header
 			className={cn(
-				"sticky top-0 z-50 flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4 md:px-6",
+				"sticky top-0 z-50 flex h-14 shrink-0 items-center justify-between gap-2 overflow-visible border-b px-4 md:px-6",
 				"bg-background/95 backdrop-blur-sm supports-backdrop-filter:bg-background/50"
 			)}
 		>
-			{/* "+" crosshair at the sidebar/header junction — blueprint motif. */}
-			<DecorIcon className="hidden md:block" position="bottom-left" />
 			<div className="flex items-center gap-3">
 				<CustomSidebarTrigger />
 				<Separator

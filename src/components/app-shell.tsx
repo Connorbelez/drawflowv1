@@ -3,6 +3,7 @@ import { cn } from "#/lib/utils.ts";
 import { SidebarInset, SidebarProvider } from "#/components/ui/sidebar.tsx";
 import { AppHeader } from "#/components/app-header.tsx";
 import { AppSidebar, type AppSidebarProps } from "#/components/app-sidebar.tsx";
+import { DecorIcon } from "#/components/decor-icon.tsx";
 
 export type AppShellProps = {
   children: ReactNode;
@@ -24,12 +25,14 @@ export function AppShell({
         <AppHeader />
         <div
           className={cn(
-            "flex w-full flex-1 flex-col p-0",
+            "flex min-h-0 w-full flex-1 flex-col p-0",
             contentClassName
           )}
         >
           {children}
         </div>
+        {/* Junction mark sits above scroll surfaces so it stays visible after load. */}
+        <DecorIcon position="junction" />
       </SidebarInset>
     </SidebarProvider>
   );

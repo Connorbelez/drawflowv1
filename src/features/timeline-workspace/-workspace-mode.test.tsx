@@ -69,6 +69,12 @@ vi.mock("./-TimelineDrawAvailabilityChart.tsx", () => ({
   TimelineDrawAvailabilityChart: () => <div data-testid="mock-draw-chart" />,
 }));
 
+function expectHtmlInput(element: Element | undefined): HTMLInputElement {
+  expect(element).toBeInstanceOf(HTMLInputElement);
+
+  return element as HTMLInputElement;
+}
+
 afterEach(() => {
   mediaQueryMockState.isMobile = false;
   timelineSearchMockState.share = null;
@@ -77,18 +83,20 @@ afterEach(() => {
   cleanup();
 });
 
+const milestoneData: DemoMilestone = {
+  amount: 120_000,
+  draw: "Draw 01",
+  durationDays: 14,
+  evidence: "Planning",
+  icon: "foundation",
+  name: "Foundation",
+  policy: "Within policy",
+  status: "ready",
+  subMilestones: ["Excavation", "Footings"],
+};
+
 const milestone: TimelineItem<DemoMilestone> = {
-  data: {
-    amount: 120_000,
-    draw: "Draw 01",
-    durationDays: 14,
-    evidence: "Planning",
-    icon: "foundation",
-    name: "Foundation",
-    policy: "Within policy",
-    status: "ready",
-    subMilestones: ["Excavation", "Footings"],
-  },
+  data: milestoneData,
   id: "foundation",
   label: "Foundation",
   markerLabel: "01",
@@ -135,14 +143,14 @@ test("cash use summary uses actual milestone spend when completion cost is filed
         {
           ...milestone,
           data: {
-            ...milestone.data,
+            ...milestoneData,
             completionClaim: {
               actualCost: 90_000,
               completedDay: 14,
               submittedAt: "2026-06-02T00:00:00.000Z",
             },
             status: "complete",
-          },
+          } satisfies DemoMilestone,
         },
       ],
       [draw],
@@ -171,7 +179,7 @@ function timelineState({
       {
         ...milestone,
         data: {
-          ...milestone.data,
+          ...milestoneData,
           amount: milestoneAmount,
           ...(withSubmilestoneBudgets
             ? {
@@ -193,9 +201,10 @@ function timelineState({
                 ],
               }
             : {}),
-        },
+        } satisfies DemoMilestone,
       },
     ],
+    minimumCashReserve: 0,
     progressValue: 0,
     range: { max: 60, min: 0, unit: "days" },
     selectedPanelOpen: true,
@@ -273,12 +282,6 @@ function workspaceProps({
     initialState,
     persistence,
     shareUrlPath,
-    planSummary: {
-      address: "Toronto, ON",
-      includedCount: 1,
-      templateTitle: "Single Family Full Build",
-      totalBudget: 120_000,
-    },
     timelineSettingsProjection: null,
     workspaceMode,
   };
@@ -358,9 +361,9 @@ describe("TimelineWorkspace mode split", () => {
     const budgetInput = screen
       .getAllByLabelText("DC/ED budget")
       .find((element) => element instanceof HTMLInputElement);
-    expect(budgetInput).toBeTruthy();
-    fireEvent.change(budgetInput, { target: { value: "42000" } });
-    fireEvent.keyDown(budgetInput, { key: "Enter" });
+    const editableBudgetInput = expectHtmlInput(budgetInput);
+    fireEvent.change(editableBudgetInput, { target: { value: "42000" } });
+    fireEvent.keyDown(editableBudgetInput, { key: "Enter" });
 
     expect(
       screen.getByTestId("selected-milestone-plan-summary").textContent,
@@ -395,9 +398,9 @@ describe("TimelineWorkspace mode split", () => {
     const durationInput = screen
       .getAllByLabelText("DC/ED duration")
       .find((element) => element instanceof HTMLInputElement);
-    expect(durationInput).toBeTruthy();
-    fireEvent.change(durationInput, { target: { value: "4" } });
-    fireEvent.keyDown(durationInput, { key: "Enter" });
+    const editableDurationInput = expectHtmlInput(durationInput);
+    fireEvent.change(editableDurationInput, { target: { value: "4" } });
+    fireEvent.keyDown(editableDurationInput, { key: "Enter" });
 
     expect(
       screen.getByTestId("selected-milestone-plan-summary").textContent,
@@ -437,9 +440,9 @@ describe("TimelineWorkspace mode split", () => {
     const availabilityInput = screen
       .getAllByLabelText("Draw availability unlocked")
       .find((element) => element instanceof HTMLInputElement);
-    expect(availabilityInput).toBeTruthy();
-    fireEvent.change(availabilityInput, { target: { value: "105000" } });
-    fireEvent.keyDown(availabilityInput, { key: "Enter" });
+    const editableAvailabilityInput = expectHtmlInput(availabilityInput);
+    fireEvent.change(editableAvailabilityInput, { target: { value: "105000" } });
+    fireEvent.keyDown(editableAvailabilityInput, { key: "Enter" });
 
     expect(
       screen.getByTestId("timeline-cashflow-lender-cash-used").textContent,

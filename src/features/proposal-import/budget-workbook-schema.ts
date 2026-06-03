@@ -1,7 +1,9 @@
-import { z } from "zod";
 import * as XLSX from "xlsx";
+import { z } from "zod";
 
 const currencyLikeSchema = z.union([z.number(), z.string()]);
+const MONEY_STRIP_REGEX = /[$,\s]/g;
+const PARENTHESIZED_NEGATIVE_REGEX = /^\((.*)\)$/;
 
 const moneySchema = currencyLikeSchema.transform((value, ctx) => {
   const parsed = parseMoney(value);
@@ -9,18 +11,6 @@ const moneySchema = currencyLikeSchema.transform((value, ctx) => {
     ctx.addIssue({
       code: "custom",
       message: `Expected a currency amount, received ${String(value)}`,
-    });
-    return z.NEVER;
-  }
-  return parsed;
-});
-
-const percentSchema = currencyLikeSchema.transform((value, ctx) => {
-  const parsed = parsePercent(value);
-  if (parsed === null) {
-    ctx.addIssue({
-      code: "custom",
-      message: `Expected a percent, received ${String(value)}`,
     });
     return z.NEVER;
   }
@@ -76,10 +66,10 @@ export const budgetWorkbookProposalDraftSchema = z
       seenMilestones.add(milestone.milestoneKey);
 
       const milestoneBudgetTotal = sum(
-        milestone.submilestones.map((line) => line.budgetAmount),
+        milestone.submilestones.map((line) => line.budgetAmount)
       );
       const milestoneDrawableTotal = sum(
-        milestone.submilestones.map((line) => line.drawableAmount),
+        milestone.submilestones.map((line) => line.drawableAmount)
       );
 
       if (!sameMoney(milestoneBudgetTotal, milestone.budgetAmount)) {
@@ -142,34 +132,56 @@ export type BudgetWorkbookProposalDraft = z.infer<
   typeof budgetWorkbookProposalDraftSchema
 >;
 
-type RawImportRow = {
-  category: string;
+interface RawImportRow {
   budgetAmount: number;
+  category: string;
   costPerTotalSqft: number;
   drawableAmount: number;
   milestoneDrawableAmount: number;
   milestoneName: string;
   milestoneOrder: number;
   percentageBps: number;
-};
+}
 
 export function parseBudgetWorkbookArrayBuffer(
   buffer: ArrayBuffer,
-  sourceName?: string,
+  sourceName?: string
 ): BudgetWorkbookProposalDraft {
   const workbook = XLSX.read(buffer, { type: "array" });
   return parseBudgetWorkbook(workbook, sourceName);
 }
 
+export async function parseBudgetWorkbookFile(
+  file: File
+): Promise<BudgetWorkbookProposalDraft> {
+  if (isCsvFile(file)) {
+    const workbook = XLSX.read(await file.text(), { type: "string" });
+    const sheetName = workbook.SheetNames[0];
+    if (!sheetName) {
+      throw new Error("CSV budget import is empty.");
+    }
+    return parseBudgetWorksheet(workbook.Sheets[sheetName], file.name);
+  }
+
+  return parseBudgetWorkbookArrayBuffer(await file.arrayBuffer(), file.name);
+}
+
 export function parseBudgetWorkbook(
   workbook: XLSX.WorkBook,
-  sourceName?: string,
+  sourceName?: string
 ): BudgetWorkbookProposalDraft {
   const importSheet = workbook.Sheets["Budget Import"];
   if (!importSheet) {
     throw new Error('Workbook must include a "Budget Import" sheet.');
   }
 
+  return parseBudgetWorksheet(importSheet, sourceName);
+}
+
+function parseBudgetWorksheet(
+  importSheet: XLSX.WorkSheet,
+  sourceName?: string
+): BudgetWorkbookProposalDraft {
   const rows = XLSX.utils.sheet_to_json<unknown[]>(importSheet, {
     blankrows: false,
     defval: "",
@@ -178,16 +190,22 @@ export function parseBudgetWorkbook(
   });
 
   const metadata = readMetadata(rows);
-  const headerIndex = rows.findIndex((row) => normalizeHeader(row[0]) === "milestoneorder");
+  const headerIndex = rows.findIndex(
+    (row) => normalizeHeader(row[0]) === "milestoneorder"
+  );
   if (headerIndex < 0) {
     throw new Error(
-      'Budget Import sheet must include a "Milestone Order" header row.',
+      'Budget Import sheet must include a "Milestone Order" header row.'
     );
   }
 
   const rawRows = readImportRows(rows.slice(headerIndex + 1));
   const draft = buildProposalDraft(metadata, rawRows, sourceName);
   return budgetWorkbookProposalDraftSchema.parse(draft);
+}
+
+function isCsvFile(file: File) {
+  return file.type === "text/csv" || file.name.toLowerCase().endsWith(".csv");
 }
 
 function readMetadata(rows: unknown[][]) {
@@ -202,13 +220,13 @@ function readMetadata(rows: unknown[][]) {
   const buildName = stringValue(pairs.get("buildname")) ?? "Imported build";
   const totalDrawableAmount = requiredMoney(
     pairs.get("totaldrawableamount"),
-    "Total Drawable Amount",
+    "Total Drawable Amount"
   );
   const totalBudget = requiredMoney(pairs.get("totalbudget"), "Total Budget");
   const totalSqft = requiredInteger(pairs.get("totalsqft"), "Total Sqft");
   const costPerTotalSqft = requiredMoney(
     pairs.get("costpertotalsqft"),
-    "Cost per Total Sqft",
+    "Cost per Total Sqft"
   );
 
   return {
@@ -244,7 +262,7 @@ function readImportRows(rows: unknown[][]): RawImportRow[] {
       milestoneDrawableAmount === undefined
     ) {
       throw new Error(
-        `Budget line "${category}" is missing milestone grouping data.`,
+        `Budget line "${category}" is missing milestone grouping data.`
       );
     }
 
@@ -261,7 +279,7 @@ function readImportRows(rows: unknown[][]): RawImportRow[] {
       milestoneName,
       milestoneOrder,
       percentageBps: Math.round(
-        requiredPercent(row[5], `${category} % of Total`) * 10_000,
+        requiredPercent(row[5], `${category} % of Total`) * 10_000
       ),
     });
   }
@@ -272,7 +290,7 @@ function readImportRows(rows: unknown[][]): RawImportRow[] {
 function buildProposalDraft(
   metadata: ReturnType<typeof readMetadata>,
   rows: RawImportRow[],
-  sourceName?: string,
+  sourceName?: string
 ) {
   const milestoneRows = new Map<number, RawImportRow[]>();
   for (const row of rows) {
@@ -332,7 +350,9 @@ function parseMoney(value: unknown) {
   if (!text || text === "-") {
     return 0;
   }
-  const normalized = text.replace(/[$,\s]/g, "").replace(/^\((.*)\)$/, "-$1");
+  const normalized = text
+    .replace(MONEY_STRIP_REGEX, "")
+    .replace(PARENTHESIZED_NEGATIVE_REGEX, "-$1");
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? roundMoney(parsed) : null;
 }

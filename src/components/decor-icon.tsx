@@ -2,7 +2,7 @@ import { cn } from "#/lib/utils.ts";
 import { cva, type VariantProps } from "class-variance-authority";
 
 const DecorIconVariants = cva(
-	"pointer-events-none absolute z-1 size-5 shrink-0 stroke-1 stroke-muted-foreground",
+	"pointer-events-none absolute z-[55] size-5 shrink-0 stroke-1 stroke-muted-foreground",
 	{
 		variants: {
 			position: {
@@ -14,6 +14,8 @@ const DecorIconVariants = cva(
 					"right-0 bottom-0 translate-x-[calc(50%+0.5px)] translate-y-[calc(50%+0.5px)]",
 				"bottom-left":
 					"bottom-0 left-0 -translate-x-[calc(50%+0.5px)] translate-y-[calc(50%+0.5px)]",
+				junction:
+					"top-14 left-0 hidden -translate-x-1/2 -translate-y-1/2 md:block",
 			},
 		},
 		defaultVariants: {

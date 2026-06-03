@@ -51,20 +51,40 @@
     0 24px 70px light-dark(oklch(0.18 0.03 258 / 0.253), oklch(0.02 0.01 260 / 0.46));
 }
 
+[data-slot="sidebar-wrapper"]:has(.timeline-setup-app-shell-route) {
+  height: 100svh;
+  max-height: 100svh;
+  overflow: hidden;
+}
+
+[data-slot="sidebar-inset"]:has(.timeline-setup-app-shell-route) {
+  min-height: 0;
+}
+
+[data-slot="sidebar-inset"]:has(.timeline-setup-app-shell-route) > div {
+  min-height: 0;
+  overflow: hidden;
+}
+
 .timeline-setup-app-shell-route {
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
+  width: 100%;
+  overflow: hidden;
 }
 
 .timeline-setup-app-shell-route .timeline-setup-shell {
   flex: 1 1 auto;
   width: 100%;
-  min-height: calc(100svh - 3.5rem);
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .timeline-setup-app-shell-route .timeline-setup-frame {
-  min-height: calc(100svh - 3.5rem - 48px);
+  min-height: 0;
 }
 
 .timeline-setup-header {
@@ -2350,7 +2370,7 @@
   }
 
   .timeline-setup-app-shell-route .timeline-setup-frame {
-    min-height: calc(100svh - 3.5rem - 24px);
+    min-height: 0;
   }
 
   .timeline-setup-panel {

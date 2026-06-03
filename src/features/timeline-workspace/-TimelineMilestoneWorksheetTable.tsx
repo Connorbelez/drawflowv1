@@ -294,12 +294,14 @@ export function TimelineMilestoneWorksheetTable({
           return row;
         }
 
-        return withSubMilestoneDetails(
+        const nextRow = withSubMilestoneDetails(
           row,
           row.subMilestoneDetails.map((detail) =>
             detail.id === subMilestoneId ? { ...detail, ...patch } : detail
           )
         );
+
+        return mode === "setup" ? withBudgetFromSubMilestones(nextRow) : nextRow;
       })
     );
     setActiveSubMilestoneByRow((current) => ({
@@ -327,14 +329,18 @@ export function TimelineMilestoneWorksheetTable({
     };
 
     updateRows(
-      rows.map((candidate) =>
-        candidate.key === rowKey
-          ? withSubMilestoneDetails(candidate, [
-              ...candidate.subMilestoneDetails,
-              nextSubMilestone,
-            ])
-          : candidate
-      )
+      rows.map((candidate) => {
+        if (candidate.key !== rowKey) {
+          return candidate;
+        }
+
+        const nextRow = withSubMilestoneDetails(candidate, [
+          ...candidate.subMilestoneDetails,
+          nextSubMilestone,
+        ]);
+
+        return mode === "setup" ? withBudgetFromSubMilestones(nextRow) : nextRow;
+      })
     );
     setActiveSubMilestoneByRow((current) => ({
       ...current,
@@ -362,7 +368,9 @@ export function TimelineMilestoneWorksheetTable({
           subMilestoneDetails[0]?.id ??
           "";
 
-        return withSubMilestoneDetails(row, subMilestoneDetails);
+        const nextRow = withSubMilestoneDetails(row, subMilestoneDetails);
+
+        return mode === "setup" ? withBudgetFromSubMilestones(nextRow) : nextRow;
       })
     );
     setActiveSubMilestoneByRow((current) => ({
@@ -2273,6 +2281,21 @@ function withSubMilestoneDetails(
     subMilestones: subMilestoneDetails.map((detail) =>
       sanitizeSubMilestoneName(detail.name)
     ),
+  };
+}
+
+function withBudgetFromSubMilestones(
+  row: TimelineMilestoneWorksheetRow
+): TimelineMilestoneWorksheetRow {
+  const totalBudgetCents = row.subMilestoneDetails.reduce((sum, detail) => {
+    const budgetCents = parseCurrencyToCents(detail.budgetText);
+
+    return sum + (Number.isFinite(budgetCents) ? Math.max(0, budgetCents) : 0);
+  }, 0);
+
+  return {
+    ...row,
+    budgetText: formatCurrency(totalBudgetCents),
   };
 }
 
