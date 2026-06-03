@@ -2,11 +2,9 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { ArrowDown, ArrowUp, GripVertical, PanelRightOpen } from "lucide-react";
 import type { ReactNode } from "react";
-import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { cn } from "#/lib/utils.ts";
 import type {
-  DrawGroup,
   Milestone,
   MilestoneStatus,
   WorkspaceIssue,
@@ -51,7 +49,6 @@ export interface SortableMilestoneRailRowProps {
   blocking: number;
   blockingChipActive: boolean;
   collapsed: boolean;
-  draw: DrawGroup | undefined;
   highlightBlockers: (milestone: Milestone) => void;
   highlightBlocking: (milestone: Milestone) => void;
   highlightTone: MilestoneHighlightTone | undefined;
@@ -69,7 +66,6 @@ export function SortableMilestoneRailRow({
   blocking,
   blockingChipActive,
   collapsed,
-  draw,
   highlightBlockers,
   highlightBlocking,
   highlightTone,
@@ -243,9 +239,6 @@ export function SortableMilestoneRailRow({
             </div>
           </div>
           <div className="flex flex-col items-end gap-1">
-            <Badge className="h-5 rounded-sm border-cyan-300/20 bg-cyan-300/10 px-1.5 text-cyan-700 dark:text-cyan-100">
-              {draw?.label}
-            </Badge>
             <div className="flex gap-1">
               <Button
                 data-testid={`milestone-rail-detail-${milestone.id}`}

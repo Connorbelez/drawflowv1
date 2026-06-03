@@ -211,9 +211,16 @@ export interface DrawGroup {
   rowSpan: number;
   startAt: Date;
   status: DrawStatus;
+  timingDay?: number;
   totalExposure: number;
   warningState: "clear" | "warning" | "critical";
 }
+
+export type DrawGroupPatch = Partial<
+  Pick<DrawGroup, "amount" | "eligibleAt" | "label" | "plannedAt">
+> & {
+  timingDay?: number;
+};
 
 export interface MilestoneDependency {
   fromMilestoneId: string;
@@ -383,6 +390,10 @@ export interface BuildWorkspaceActions {
   updateMilestone: (
     milestoneId: string,
     patch: MilestonePatch
+  ) => Promise<void>;
+  updateDrawGroup?: (
+    drawGroupId: string,
+    patch: DrawGroupPatch
   ) => Promise<void>;
   updateProgress: (milestoneId: string, progress: number) => Promise<void>;
   uploadEvidence: (

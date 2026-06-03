@@ -146,7 +146,7 @@ describe("ProductionProposalGanttWorkspace draw-group derivation", () => {
     });
 
     const workspace = mapProposalGanttWorkspace({
-      activePlanId: "cheapest",
+      activePlanId: "cheapestFeasible",
       borrowerWorkingCapitalLimitCents: 50_000_00,
       buildName: "Proposal build",
       dependencies: [],
@@ -203,6 +203,48 @@ describe("ProductionProposalGanttWorkspace draw-group derivation", () => {
       milestoneKey: "m2",
       timingDay: 45,
     });
+  });
+
+  test("normalizing draw rows preserves custom planned draw dates", () => {
+    const [draw] = normalizeProposalDrawRows({
+      borrowerCoPayBps: 0,
+      draws: [
+        {
+          amountCents: 0,
+          customDate: true,
+          drawKey: "D1",
+          label: "Draw 1",
+          milestoneKey: "m2",
+          timingDay: 53,
+        },
+      ],
+      milestones: milestones.slice(0, 2),
+    });
+
+    expect(draw).toMatchObject({
+      customDate: true,
+      drawKey: "D1",
+      milestoneKey: "m2",
+      timingDay: 53,
+    });
+  });
+
+  test("normalizing draw rows preserves explicit positive draw amounts", () => {
+    const [draw] = normalizeProposalDrawRows({
+      borrowerCoPayBps: 0,
+      draws: [
+        {
+          amountCents: 77_500_00,
+          drawKey: "D1",
+          label: "Draw 1",
+          milestoneKey: "m2",
+          timingDay: 40,
+        },
+      ],
+      milestones: milestones.slice(0, 2),
+    });
+
+    expect(draw?.amountCents).toBe(77_500_00);
   });
 
   test("projects the production timeline workspace into derived Gantt draw groups", () => {
@@ -337,7 +379,7 @@ describe("ProductionProposalGanttWorkspace draw-group derivation", () => {
     });
 
     const workspace = mapProposalGanttWorkspace({
-      activePlanId: "cheapest",
+      activePlanId: "cheapestFeasible",
       borrowerWorkingCapitalLimitCents: 50_000_00,
       buildName: "4-plex proposal",
       dependencies: [],

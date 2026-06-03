@@ -64,6 +64,7 @@ export interface ProposalGanttMilestoneDraft {
 
 export interface ProposalGanttDrawDraft {
   amountCents: number;
+  customDate?: boolean;
   drawKey: string;
   label: string;
   milestoneKey?: string;
@@ -135,6 +136,7 @@ export interface ProductionProposalTimelineGanttWorkspaceProps {
   persistenceMode?: "convex" | "noop";
   proposalId: Id<"buildProposals">;
   workspace: ConvexTimelineWorkspace & {
+    contractorPlanning?: ContractorPlanningModel | null;
     proposal: {
       borrowerCoPayBps?: number;
       borrowerWorkingCapitalLimitCents?: number;
@@ -664,6 +666,24 @@ export function ProductionProposalGanttWorkspace({
     updateMilestone: async (milestoneId, patch: MilestonePatch) => {
       commitMilestones(updateGanttSubmilestoneRow(milestones, milestoneId, patch));
     },
+    updateDrawGroup: async (drawGroupId, patch) => {
+      commitDraws(
+        normalizedDraws.map((draw) =>
+          draw.drawKey === drawGroupId
+            ? {
+                ...draw,
+                ...(patch.amount === undefined
+                  ? {}
+                  : { amountCents: dollarsToCents(patch.amount) }),
+                ...(patch.label === undefined ? {} : { label: patch.label }),
+                ...(patch.timingDay === undefined
+                  ? {}
+                  : { customDate: true, timingDay: patch.timingDay }),
+              }
+            : draw,
+        ),
+      );
+    },
     updateProgress: async () => undefined,
     uploadEvidence: async () => undefined,
   };
@@ -727,6 +747,7 @@ export function proposalTimelineWorkspaceToGanttDraft(
     borrowerCoPayBps,
     draws: workspace.draws.map((draw, index) => ({
       amountCents: draw.amountCents,
+      customDate: draw.customDate,
       drawKey: draw.drawKey,
       label: draw.label,
       milestoneKey: draw.itemMilestoneKey,
@@ -842,7 +863,9 @@ export function normalizeProposalDrawRows({
       label: group.draw.label || `${boundary?.name ?? "Milestone"} reimbursement draw`,
       milestoneKey: boundary?.key,
       order: index + 1,
-      timingDay: boundary?.dayEnd ?? group.draw.timingDay,
+      timingDay: group.draw.customDate
+        ? group.draw.timingDay
+        : boundary?.dayEnd ?? group.draw.timingDay,
     };
   });
 }
@@ -899,6 +922,7 @@ export function mapProposalGanttWorkspace({
     rowSpan: Math.max(1, group.submilestones.length),
     startAt: dateFromDay(group.startDay),
     status: "planned",
+    timingDay: group.draw.timingDay,
     totalExposure: centsToDollars(group.amountCents),
     warningState: "clear",
   }));
@@ -1034,11 +1058,13 @@ function buildDerivedDrawGroup({
 }): DerivedProposalDrawGroup {
   const startDay = Math.min(...groupMilestones.map((milestone) => milestone.dayStart));
   const endDay = Math.max(...groupMilestones.map((milestone) => milestone.dayEnd));
-  const amountCents = groupMilestones.reduce(
+  const derivedAmountCents = groupMilestones.reduce(
     (total, milestone) =>
       total + calculateDrawAvailabilityCents(milestone.budgetCents, borrowerCoPayBps),
     0,
   );
+  const amountCents =
+    draw.amountCents > 0 ? Math.round(draw.amountCents) : derivedAmountCents;
   return {
     amountCents,
     draw: {
@@ -1746,7 +1772,7 @@ async function syncDrawsToProductionTimeline({
     if (!previous) {
       await createDraw({
         amountCents: draw.amountCents,
-        customDate: true,
+        customDate: draw.customDate ?? true,
         drawKey: draw.drawKey,
         itemMilestoneKey: draw.milestoneKey,
         label: draw.label,
@@ -1895,16 +1921,6 @@ function normalizeMilestoneOrders(milestones: ProposalGanttMilestoneDraft[]) {
 function sortedMilestones(milestones: ProposalGanttMilestoneDraft[]) {
   return [...milestones].sort(
     (left, right) => left.order - right.order || left.key.localeCompare(right.key),
-  );
-}
-
-function indexOfMilestone(
-  milestones: ProposalGanttMilestoneDraft[],
-  milestoneKey: string | undefined,
-) {
-  return Math.max(
-    0,
-    milestones.findIndex((milestone) => milestone.key === milestoneKey),
   );
 }
 

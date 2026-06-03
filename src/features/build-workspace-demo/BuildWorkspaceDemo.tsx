@@ -86,18 +86,23 @@ import {
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
+  SheetFooter,
   SheetHeader,
+  SheetPanel,
   SheetTitle,
 } from "#/components/ui/sheet.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { cn } from "#/lib/utils.ts";
 import { ContractorQuickAddDrawer } from "#/features/contractors/ContractorQuickAddDrawer.tsx";
+import { ProductionProposalDrawScheduleEditor } from "#/features/production-proposals/ProductionProposalDrawScheduleEditor.tsx";
 import { TimelineMilestoneContractorList } from "#/features/timeline-workspace/TimelineMilestoneContractorList.tsx";
 import { parseGanttMilestoneScopeId } from "./build-workspace-contractor-planning.ts";
 import { SortableMilestoneRailRow } from "./SortableMilestoneRailRow";
 import type {
   DependencyHardness,
   DrawGroup,
+  DrawGroupPatch,
   DrawStatus,
   EvidenceStatus,
   Milestone,
@@ -253,6 +258,8 @@ export function BuildWorkspaceDemo({
   const [detailMilestoneId, setDetailMilestoneId] = useState<string | null>(
     null
   );
+  const [detailDrawId, setDetailDrawId] = useState<string | null>(null);
+  const [drawDetailOpen, setDrawDetailOpen] = useState(false);
   const [milestoneHighlightTones, setMilestoneHighlightTones] =
     useState<MilestoneHighlightTones>({});
   const [focusedMilestoneId, setFocusedMilestoneId] = useState<string | null>(
@@ -293,6 +300,9 @@ export function BuildWorkspaceDemo({
         (drawGroup) => drawGroup.id === detailMilestone.drawGroupId
       )
     : selectedDraw;
+  const detailDrawGroup =
+    workspace.drawGroups.find((drawGroup) => drawGroup.id === detailDrawId) ??
+    selectedDraw;
   const totalDrawAmount = workspace.milestones.reduce(
     (sum, milestone) => sum + milestone.estimatedCost,
     0
@@ -364,6 +374,10 @@ export function BuildWorkspaceDemo({
                 setDetailMilestoneId(milestoneId);
                 setDetailOpen(true);
               }}
+              onOpenDraw={(drawGroupId) => {
+                setDetailDrawId(drawGroupId);
+                setDrawDetailOpen(true);
+              }}
               railCollapsed={milestoneRailCollapsed}
               resolution={timelineResolution}
               zoom={timelineZoom}
@@ -377,6 +391,13 @@ export function BuildWorkspaceDemo({
           onOpenChange={setDetailOpen}
           open={detailOpen}
         />
+        {detailDrawGroup ? (
+          <DrawGroupDetailSheet
+            draw={detailDrawGroup}
+            onOpenChange={setDrawDetailOpen}
+            open={drawDetailOpen}
+          />
+        ) : null}
         <DrawPlanComparisonDialog
           activePlanId={workspace.activePlanId}
           onOpenChange={setDrawPlansOpen}
@@ -1009,6 +1030,7 @@ function DrawGroupRangeDragHandle({
   draw,
   milestones,
   onMoveDelta,
+  onOpenDraw,
   onPreviewDelta,
   proposalSubmitted,
 }: {
@@ -1016,6 +1038,7 @@ function DrawGroupRangeDragHandle({
   draw: DrawOverlay;
   milestones: Milestone[];
   onMoveDelta: (deltaDays: number) => void;
+  onOpenDraw: (drawGroupId: string) => void;
   onPreviewDelta: (deltaDays: number | null) => void;
   proposalSubmitted: boolean;
 }) {
@@ -1054,8 +1077,13 @@ function DrawGroupRangeDragHandle({
   return (
     <GanttRangeDragHandle
       className="absolute -top-4 z-40 inline-flex min-w-max max-w-max items-center gap-2 rounded-sm bg-popover/95 px-2.5 py-1 font-medium text-[0.72rem] shadow-foreground/10 shadow-lg backdrop-blur"
+      contentButtonLabel={`Edit ${draw.label}`}
       contentTestId={`draw-label-${draw.id}`}
       disabled={proposalSubmitted || !hasUnlockedMilestones}
+      onContentClick={(event) => {
+        event.stopPropagation();
+        onOpenDraw(draw.id);
+      }}
       onMoveDelta={onMoveDelta}
       onPreviewDelta={onPreviewDelta}
       startAt={draw.startAt}
@@ -1078,6 +1106,7 @@ function GanttRoadmap({
   onHighlightMilestones,
   onMilestoneFocus,
   onOpenDetail,
+  onOpenDraw,
   railCollapsed,
   resolution,
   zoom,
@@ -1087,6 +1116,7 @@ function GanttRoadmap({
   onHighlightMilestones: (milestoneTones: MilestoneHighlightTones) => void;
   onMilestoneFocus: (milestoneId: string | null) => void;
   onOpenDetail: (milestoneId: string) => void;
+  onOpenDraw: (drawGroupId: string) => void;
   railCollapsed: boolean;
   resolution: GanttResolution;
   zoom: number;
@@ -1397,6 +1427,7 @@ function GanttRoadmap({
                   .map((milestone) => milestone.id);
                 void commitBatchShift(ids, deltaDays, "drawGroup", draw.id);
               }}
+              onOpenDraw={onOpenDraw}
               onPreviewDelta={(deltaDays) => {
                 if (deltaDays === null) {
                   setBatchShiftPreview(null);
@@ -1762,9 +1793,6 @@ function MilestoneRail({
                     milestoneHighlightTones[dependency.fromMilestoneId] ===
                     "blocking"
                 );
-              const draw = workspace.drawGroups.find(
-                (drawGroup) => drawGroup.id === milestone.drawGroupId
-              );
               const selected = milestone.id === workspace.selectedMilestoneId;
               const highlightTone: MilestoneHighlightTone | undefined = selected
                 ? "selected"
@@ -1777,7 +1805,6 @@ function MilestoneRail({
                   blocking={blocking}
                   blockingChipActive={blockingChipActive}
                   collapsed={false}
-                  draw={draw}
                   highlightBlockers={highlightBlockers}
                   highlightBlocking={highlightBlocking}
                   highlightTone={highlightTone}
@@ -1829,12 +1856,6 @@ function GanttMilestoneSidebar({
           const milestone = workspace.milestones.find(
             (item) => item.id === feature.id
           );
-          const draw = milestone
-            ? workspace.drawGroups.find(
-                (drawGroup) => drawGroup.id === milestone.drawGroupId
-              )
-            : undefined;
-
           return (
             <GanttSidebarItem
               className={cn(
@@ -1857,7 +1878,7 @@ function GanttMilestoneSidebar({
                     style={{ backgroundColor: feature.status.color }}
                   />
                   <span className="truncate font-medium text-[0.7rem] text-muted-foreground">
-                    {milestone?.code.replace("M-", "")}
+                    {feature.name}
                   </span>
                 </span>
               ) : (
@@ -1867,15 +1888,9 @@ function GanttMilestoneSidebar({
                     style={{ backgroundColor: feature.status.color }}
                   />
                   <span className="pointer-events-none min-w-0 flex-1">
-                    <span className="block truncate text-[0.68rem] text-muted-foreground">
-                      {milestone?.code}
-                    </span>
                     <span className="block truncate font-medium text-[0.72rem] text-foreground">
                       {feature.name}
                     </span>
-                  </span>
-                  <span className="pointer-events-none shrink-0 text-[0.68rem] text-cyan-700 dark:text-cyan-100">
-                    {draw?.label}
                   </span>
                   {milestone ? (
                     <button
@@ -1948,9 +1963,6 @@ function MilestoneBlock({
   const workspace = useBuildWorkspace();
   const [previewOpen, setPreviewOpen] = useState(false);
   const handledModifiedPointerRef = useRef(false);
-  const draw = workspace.drawGroups.find(
-    (drawGroup) => drawGroup.id === milestone.drawGroupId
-  );
   const effectiveHighlightTone =
     selected || milestone.id === workspace.selectedMilestoneId
       ? "selected"
@@ -2030,9 +2042,6 @@ function MilestoneBlock({
               style={{ backgroundColor: feature.status.color }}
             />
             <span className="min-w-0 flex-1 truncate text-[0.68rem]">
-              <span className="mr-1 text-muted-foreground">
-                {milestone.code}
-              </span>
               <span className="font-medium text-foreground">
                 {feature.name}
               </span>
@@ -2056,7 +2065,7 @@ function MilestoneBlock({
         <div className="grid gap-1">
           <div className="font-medium">{milestone.name}</div>
           <div className="text-muted-foreground">
-            {milestone.code} / {draw?.label} / {statusLabels[milestone.status]}
+            {statusLabels[milestone.status]}
           </div>
           <div className="text-muted-foreground">
             {format(milestone.startAt, "MMM d")} -{" "}
@@ -2091,12 +2100,136 @@ function MilestoneGhostBlock({
         style={{ backgroundColor: feature.status.color }}
       />
       <span className="min-w-0 flex-1 truncate text-[0.68rem] text-cyan-950 dark:text-cyan-50">
-        <span className="mr-1 text-cyan-700 dark:text-cyan-100/80">
-          {milestone.code}
-        </span>
         <span className="font-medium">{feature.name}</span>
       </span>
     </div>
+  );
+}
+
+function DrawGroupDetailSheet({
+  draw,
+  open,
+  onOpenChange,
+}: {
+  draw: DrawGroup;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const workspace = useBuildWorkspace();
+  const [drawAmounts, setDrawAmounts] = useState<Record<string, string>>({});
+  const [drawLabels, setDrawLabels] = useState<Record<string, string>>({});
+  const [drawTimingDays, setDrawTimingDays] = useState<Record<string, string>>(
+    {},
+  );
+  const [error, setError] = useState("");
+  const canEditDraws =
+    Boolean(workspace.updateDrawGroup) &&
+    !(workspace.mode === "proposal" && workspace.build.proposalStatus === "submitted");
+  const timingDay = draw.timingDay ?? 0;
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    setDrawAmounts({ [draw.id]: String(draw.amount) });
+    setDrawLabels({ [draw.id]: draw.label });
+    setDrawTimingDays({ [draw.id]: String(timingDay) });
+    setError("");
+  }, [draw.amount, draw.id, draw.label, open, timingDay]);
+
+  const updateDraw = async (_drawKey: string, patch: {
+    amountCents: number;
+    label: string;
+    timingDay: number;
+  }) => {
+    if (!workspace.updateDrawGroup) {
+      return;
+    }
+    setError("");
+    const drawPatch: DrawGroupPatch = {
+      amount: patch.amountCents / 100,
+      label: patch.label,
+      timingDay: patch.timingDay,
+    };
+    try {
+      await workspace.updateDrawGroup(draw.id, drawPatch);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Unable to update draw.",
+      );
+    }
+  };
+
+  return (
+    <Sheet onOpenChange={onOpenChange} open={open}>
+      <SheetContent
+        className="w-full overflow-y-auto border-border bg-popover text-foreground sm:max-w-lg"
+        data-testid="draw-detail-sheet"
+      >
+        <SheetHeader className="border-border border-b">
+          <SheetTitle className="text-foreground">Edit draw</SheetTitle>
+          <SheetDescription>
+            Update the selected reimbursement draw row used by the Gantt plan.
+          </SheetDescription>
+        </SheetHeader>
+        <SheetPanel className="grid gap-4">
+          <div className="grid gap-1 text-muted-foreground text-xs">
+            <span className="font-medium text-foreground">{draw.label}</span>
+            <span>
+              {compactMoney(draw.amount)} / {statusLabels[draw.status]}
+            </span>
+            <span>
+              Planned day {timingDay} /{" "}
+              {format(draw.plannedAt ?? draw.eligibleAt, "MMM d, yyyy")}
+            </span>
+          </div>
+          {error ? (
+            <div
+              className="border-red-300/40 border-l-2 bg-red-500/10 px-3 py-2 text-red-700 text-xs dark:text-red-100"
+              data-testid="draw-detail-error"
+            >
+              {error}
+            </div>
+          ) : null}
+          <ProductionProposalDrawScheduleEditor
+            canEditDraws={canEditDraws}
+            drawAmounts={drawAmounts}
+            drawLabels={drawLabels}
+            draws={[
+              {
+                amountCents: Math.round(draw.amount * 100),
+                drawKey: draw.id,
+                label: draw.label,
+                timingDay,
+              },
+            ]}
+            drawTimingDays={drawTimingDays}
+            onAmountChange={(drawKey, value) =>
+              setDrawAmounts((current) => ({ ...current, [drawKey]: value }))
+            }
+            onCommit={updateDraw}
+            onLabelChange={(drawKey, value) =>
+              setDrawLabels((current) => ({ ...current, [drawKey]: value }))
+            }
+            onTimingChange={(drawKey, value) =>
+              setDrawTimingDays((current) => ({
+                ...current,
+                [drawKey]: value,
+              }))
+            }
+          />
+        </SheetPanel>
+        <SheetFooter>
+          <Button
+            data-testid="draw-detail-close"
+            onClick={() => onOpenChange(false)}
+            variant="outline"
+          >
+            Close
+          </Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }
 
