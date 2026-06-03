@@ -1158,6 +1158,53 @@ export function TimelineWorkspace({
       }),
     [deleteTimelineDraw, durablePlanId, persistence],
   );
+  const persistDrawSequenceUpdates = useCallback(
+    (
+      previousDraws: DemoDraw[],
+      nextDraws: DemoDraw[],
+      skipDrawIds: Set<string> = new Set(),
+    ) => {
+      if (!durablePlanId) {
+        return;
+      }
+
+      const previousById = new Map(
+        sortTimelineDraws(previousDraws).map((draw, index) => [
+          draw.id,
+          { draw, order: index + 1 },
+        ]),
+      );
+
+      nextDraws.forEach((draw, index) => {
+        if (skipDrawIds.has(draw.id)) {
+          return;
+        }
+
+        const previous = previousById.get(draw.id);
+        if (!previous) {
+          return;
+        }
+
+        const nextOrder = index + 1;
+        if (
+          previous.draw.label === draw.label &&
+          previous.order === nextOrder
+        ) {
+          return;
+        }
+
+        runDurableMutation(
+          persistUpdateDraw({
+            drawKey: draw.id,
+            label: draw.label,
+            order: nextOrder,
+          }),
+          "draw sequence update",
+        );
+      });
+    },
+    [durablePlanId, persistUpdateDraw, runDurableMutation],
+  );
   const persistSubmitDrawRequest = useCallback(
     (input: any) =>
       persistence?.submitDrawRequest?.(input) ??
@@ -2117,27 +2164,31 @@ export function TimelineWorkspace({
       label: `Draw ${draws.length + 1}`,
       x: requestedX,
     } satisfies DemoDraw;
+    const nextDraws = relabelTimelineDraws([...draws, nextDraw]);
+    const sequencedNextDraw =
+      nextDraws.find((draw) => draw.id === nextDraw.id) ?? nextDraw;
 
     setActiveDrawId(null);
     setActiveCapitalSpikeId(null);
     setDraws((currentDraws) =>
-      [...currentDraws, nextDraw].sort(
-        (a, b) => a.x - b.x || a.id.localeCompare(b.id),
-      ),
+      relabelTimelineDraws([...currentDraws, nextDraw]),
     );
     if (durablePlanId) {
       runDurableMutation(
         persistCreateDraw({
-          amountCents: dollarsToCents(nextDraw.amount),
+          amountCents: dollarsToCents(sequencedNextDraw.amount),
           customDate: true,
-          drawKey: nextDraw.id,
-          ...(nextDraw.itemId ? { itemMilestoneKey: nextDraw.itemId } : {}),
-          label: nextDraw.label,
-          order: draws.length + 1,
-          x: nextDraw.x,
+          drawKey: sequencedNextDraw.id,
+          ...(sequencedNextDraw.itemId
+            ? { itemMilestoneKey: sequencedNextDraw.itemId }
+            : {}),
+          label: sequencedNextDraw.label,
+          order: nextDraws.findIndex((draw) => draw.id === nextDraw.id) + 1,
+          x: sequencedNextDraw.x,
         }),
         "draw",
       );
+      persistDrawSequenceUpdates(draws, nextDraws, new Set([nextDraw.id]));
     }
   };
 
@@ -2223,6 +2274,9 @@ export function TimelineWorkspace({
       return;
     }
 
+    const nextDraws = relabelTimelineDraws(
+      draws.filter((draw) => draw.id !== drawId),
+    );
     setActiveDrawId(null);
     setDraws((currentDraws) =>
       relabelTimelineDraws(currentDraws.filter((draw) => draw.id !== drawId)),
@@ -2232,6 +2286,7 @@ export function TimelineWorkspace({
         persistDeleteDraw({ drawKey: drawId }),
         "draw deletion",
       );
+      persistDrawSequenceUpdates(draws, nextDraws);
     }
   };
 
@@ -2444,26 +2499,27 @@ export function TimelineWorkspace({
     }
 
     const nextBudgetCents = Math.max(0, Math.round(budgetCents));
-    const priorBudgetCents = Math.max(
-      0,
-      Math.round(targetSubmilestone.budgetCents ?? 0),
-    );
-    const deltaAmount = (nextBudgetCents - priorBudgetCents) / 100;
     const currentAmount = Math.max(0, Math.round(targetItem.data.amount));
     const currentDrawAvailability = getMilestoneDrawAvailabilityAmount(
       targetItem.data,
     );
     const drawAvailabilityRatio =
       currentAmount > 0 ? currentDrawAvailability / currentAmount : 0;
-    const nextAmount = Math.max(0, Math.round(currentAmount + deltaAmount));
-    const nextDrawAvailabilityAmount = Math.max(
-      0,
-      Math.round(nextAmount * drawAvailabilityRatio),
-    );
     const nextSubmilestones = currentSubmilestones.map((submilestone) =>
       submilestone.key === submilestoneKey
         ? { ...submilestone, budgetCents: nextBudgetCents }
         : submilestone,
+    );
+    const nextAmount = Math.round(
+      nextSubmilestones.reduce(
+        (total, submilestone) =>
+          total + Math.max(0, Math.round(submilestone.budgetCents ?? 0)),
+        0,
+      ) / 100,
+    );
+    const nextDrawAvailabilityAmount = Math.max(
+      0,
+      Math.round(nextAmount * drawAvailabilityRatio),
     );
     const nextItems = normalizeMilestoneTimelineItems(
       items.map((item) =>
@@ -2500,6 +2556,85 @@ export function TimelineWorkspace({
             ),
           }),
           "sub-milestone budget update",
+        );
+      }
+    }
+  };
+
+  const updateSubmilestoneDuration = (
+    itemId: string,
+    submilestoneKey: string,
+    durationDays: number,
+  ) => {
+    if (!(canWriteLiveTimeline && !liveBuildMode)) {
+      return;
+    }
+    const targetItem = items.find((item) => item.id === itemId);
+
+    if (!targetItem?.data) {
+      return;
+    }
+
+    const currentSubmilestones = resolveMilestoneSubmilestones(
+      targetItem.data,
+      itemId,
+    );
+    const targetSubmilestone = currentSubmilestones.find(
+      (submilestone) => submilestone.key === submilestoneKey,
+    );
+
+    if (!targetSubmilestone) {
+      return;
+    }
+
+    const nextDurationDays = Math.max(1, Math.round(durationDays));
+    const nextSubmilestones = currentSubmilestones.map((submilestone) =>
+      submilestone.key === submilestoneKey
+        ? { ...submilestone, durationDays: nextDurationDays }
+        : submilestone,
+    );
+    const nextMilestoneDurationDays = Math.max(
+      1,
+      nextSubmilestones.reduce(
+        (total, submilestone) =>
+          total + Math.max(1, Math.round(submilestone.durationDays ?? 1)),
+        0,
+      ),
+    );
+    const nextItems = normalizeMilestoneTimelineItems(
+      items.map((item) =>
+        item.id === itemId && item.data
+          ? {
+              ...item,
+              data: {
+                ...item.data,
+                durationDays: nextMilestoneDurationDays,
+                subMilestones: submilestoneNames(nextSubmilestones),
+                submilestoneDetails: nextSubmilestones,
+              },
+            }
+          : item,
+      ),
+    );
+    const nextRange = expandTimelineRangeForMilestones(nextItems, range);
+
+    setItems(nextItems);
+    setRange(nextRange);
+    setDraws((currentDraws) =>
+      syncDemoDrawsWithItems(currentDraws, nextItems, nextRange),
+    );
+
+    if (durablePlanId) {
+      const nextItem = nextItems.find((item) => item.id === itemId);
+      if (nextItem) {
+        runDurableMutation(
+          persistUpdateMilestone({
+            ...timelineItemToMilestoneMutationInput(
+              nextItem,
+              nextItems.findIndex((item) => item.id === itemId) + 1,
+            ),
+          }),
+          "sub-milestone duration update",
         );
       }
     }
@@ -2782,8 +2917,8 @@ export function TimelineWorkspace({
       return;
     }
 
-    setDraws((currentDraws) =>
-      currentDraws.map((draw) =>
+    const nextDraws = relabelTimelineDraws(
+      draws.map((draw) =>
         draw.id === drawId
           ? {
               ...draw,
@@ -2794,16 +2929,36 @@ export function TimelineWorkspace({
           : draw,
       ),
     );
+    const sequencedTargetDraw =
+      nextDraws.find((draw) => draw.id === drawId) ?? targetDraw;
+
+    setDraws((currentDraws) =>
+      relabelTimelineDraws(
+        currentDraws.map((draw) =>
+          draw.id === drawId
+            ? {
+                ...draw,
+                amount: nextAmount,
+                customDate: true,
+                x: nextX,
+              }
+            : draw,
+        ),
+      ),
+    );
     if (durablePlanId) {
       runDurableMutation(
         persistUpdateDraw({
           amountCents: dollarsToCents(nextAmount),
           customDate: true,
           drawKey: drawId,
+          label: sequencedTargetDraw.label,
+          order: nextDraws.findIndex((draw) => draw.id === drawId) + 1,
           x: nextX,
         }),
         "draw update",
       );
+      persistDrawSequenceUpdates(draws, nextDraws, new Set([drawId]));
     }
     if (nextX > resolvedRange.max) {
       setRange((currentRange) => ({
@@ -4354,6 +4509,11 @@ export function TimelineWorkspace({
                   ? updateSubmilestoneBudget
                   : undefined
               }
+              onUpdateSubmilestoneDuration={
+                canWriteLiveTimeline && !liveBuildMode
+                  ? updateSubmilestoneDuration
+                  : undefined
+              }
               onUpdateMilestoneDrawAvailability={
                 canWriteLiveTimeline && !liveBuildMode
                   ? (itemId, amount) =>
@@ -4526,6 +4686,11 @@ export function TimelineWorkspace({
                       onUpdateSubmilestoneBudget={
                         canWriteLiveTimeline && !liveBuildMode
                           ? updateSubmilestoneBudget
+                          : undefined
+                      }
+                      onUpdateSubmilestoneDuration={
+                        canWriteLiveTimeline && !liveBuildMode
+                          ? updateSubmilestoneDuration
                           : undefined
                       }
                       onUpdateMilestoneDrawAvailability={
@@ -5077,28 +5242,29 @@ function syncDemoDrawsWithItems(
   range: TimelineRange,
 ): DemoDraw[] {
   const resolvedRange = normalizeDemoRange(range);
-  return draws
-    .map((draw) => ({
+  return relabelTimelineDraws(
+    draws.map((draw) => ({
       ...draw,
       x: clampNumber(draw.x, resolvedRange.min, resolvedRange.max),
-    }))
-    .sort((a, b) => a.x - b.x || a.id.localeCompare(b.id));
+    })),
+  );
 }
 
-function relabelTimelineDraws(draws: DemoDraw[]) {
-  return draws
-    .slice()
-    .sort((a, b) => a.x - b.x || a.id.localeCompare(b.id))
-    .map((draw, index) => {
-      if (!/^draw\s+\d+$/i.test(draw.label.trim())) {
-        return draw;
-      }
+function sortTimelineDraws(draws: DemoDraw[]) {
+  return draws.slice().sort((a, b) => a.x - b.x || a.id.localeCompare(b.id));
+}
 
-      return {
-        ...draw,
-        label: `Draw ${String(index + 1).padStart(2, "0")}`,
-      };
-    });
+export function relabelTimelineDraws(draws: DemoDraw[]) {
+  return sortTimelineDraws(draws).map((draw, index) => {
+    if (!/^draw\s+\d+$/i.test(draw.label.trim())) {
+      return draw;
+    }
+
+    return {
+      ...draw,
+      label: `Draw ${String(index + 1).padStart(2, "0")}`,
+    };
+  });
 }
 
 function timelineItemToMilestoneMutationInput(
@@ -5632,12 +5798,18 @@ export function buildCashflowChartData(
     ...milestoneDays,
   ];
   const milestoneBudgetByDay = new Map<number, number>();
+  const milestoneReimbursableBudgetByDay = new Map<number, number>();
   const milestoneEndDayByStartDay = new Map<number, number>();
 
   for (const bar of milestoneBars) {
     milestoneBudgetByDay.set(
       bar.day,
       (milestoneBudgetByDay.get(bar.day) ?? 0) + bar.amount,
+    );
+    milestoneReimbursableBudgetByDay.set(
+      bar.day,
+      (milestoneReimbursableBudgetByDay.get(bar.day) ?? 0) +
+        bar.reimbursableAmount,
     );
     milestoneEndDayByStartDay.set(bar.day, bar.endDay);
   }
@@ -5659,6 +5831,11 @@ export function buildCashflowChartData(
       0,
     );
     const budget = milestoneBudgetByDay.get(day) ?? 0;
+    const reimbursableBudget = Math.min(
+      budget,
+      milestoneReimbursableBudgetByDay.get(day) ?? budget,
+    );
+    const outOfPocketBudget = Math.max(0, budget - reimbursableBudget);
     const primaryEvent =
       dayEvents.find((point) => point.event === "draw") ??
       dayEvents.find((point) => point.event === "cashInfusion") ??
@@ -5690,6 +5867,8 @@ export function buildCashflowChartData(
         budget > 0
           ? "Milestone cost gate"
           : (primaryEvent?.name ?? formatTimelineDay(day)),
+      outOfPocketBudget,
+      reimbursableBudget,
     } satisfies CashflowDatum;
   });
 }
@@ -5714,16 +5893,27 @@ function buildCashflowChartEventDays(
 function buildMilestoneCostBars(
   items: TimelineItem<DemoMilestone>[],
   range: Required<TimelineRange>,
-): Array<{ amount: number; day: number; endDay: number }> {
+): Array<{
+  amount: number;
+  day: number;
+  endDay: number;
+  reimbursableAmount: number;
+}> {
   return items
     .filter((item) => item.data)
     .map((item) => {
       const schedule = getMilestonePaymentSchedule(item);
+      const amount = Math.max(0, schedule.totalAmount);
+      const reimbursableAmount = Math.min(
+        amount,
+        Math.max(0, getMilestoneDrawAvailabilityAmount(item.data)),
+      );
 
       return {
-        amount: schedule.totalAmount,
+        amount,
         day: Math.round(clampNumber(schedule.startX, range.min, range.max)),
         endDay: Math.round(clampNumber(schedule.endX, range.min, range.max)),
+        reimbursableAmount,
       };
     })
     .filter((bar) => bar.amount > 0);
@@ -6473,6 +6663,7 @@ function SelectedDrawMobileDrawer({
   onUpdateMilestoneDrawAvailability,
   onUpdatePlannedDraw,
   onUpdateSubmilestoneBudget,
+  onUpdateSubmilestoneDuration,
   liveExecutionEnabled,
   open,
   overview,
@@ -6538,6 +6729,11 @@ function SelectedDrawMobileDrawer({
     submilestoneKey: string,
     budgetCents: number,
   ) => void;
+  onUpdateSubmilestoneDuration?: (
+    itemId: string,
+    submilestoneKey: string,
+    durationDays: number,
+  ) => void;
   liveExecutionEnabled: boolean;
   open: boolean;
   overview: FinancialOverview;
@@ -6583,6 +6779,7 @@ function SelectedDrawMobileDrawer({
               }
               onUpdatePlannedDraw={onUpdatePlannedDraw}
               onUpdateSubmilestoneBudget={onUpdateSubmilestoneBudget}
+              onUpdateSubmilestoneDuration={onUpdateSubmilestoneDuration}
               overview={overview}
               range={range}
               requiresApprovedDrawMilestones={requiresApprovedDrawMilestones}
@@ -6618,6 +6815,7 @@ function SelectedContextPanel({
   onUpdateMilestoneDrawAvailability,
   onUpdatePlannedDraw,
   onUpdateSubmilestoneBudget,
+  onUpdateSubmilestoneDuration,
   liveExecutionEnabled,
   overview,
   range,
@@ -6681,6 +6879,11 @@ function SelectedContextPanel({
     submilestoneKey: string,
     budgetCents: number,
   ) => void;
+  onUpdateSubmilestoneDuration?: (
+    itemId: string,
+    submilestoneKey: string,
+    durationDays: number,
+  ) => void;
   liveExecutionEnabled: boolean;
   overview: FinancialOverview;
   range: Required<TimelineRange>;
@@ -6705,6 +6908,7 @@ function SelectedContextPanel({
         contractorPlanning={contractorPlanning}
         onUpdateMilestoneDrawAvailability={onUpdateMilestoneDrawAvailability}
         onUpdateSubmilestoneBudget={onUpdateSubmilestoneBudget}
+        onUpdateSubmilestoneDuration={onUpdateSubmilestoneDuration}
         overview={overview}
         range={range}
       />
@@ -6768,6 +6972,7 @@ function SelectedContextPanel({
       onRemoveEvidenceAsset={onRemoveEvidenceAsset}
       onUpdateEvidenceAsset={onUpdateEvidenceAsset}
       onUpdateSubmilestoneBudget={onUpdateSubmilestoneBudget}
+      onUpdateSubmilestoneDuration={onUpdateSubmilestoneDuration}
       overview={overview}
       range={range}
     />
@@ -6829,6 +7034,7 @@ function MilestonePlanSummaryPanel({
   contractorPlanning,
   onUpdateMilestoneDrawAvailability,
   onUpdateSubmilestoneBudget,
+  onUpdateSubmilestoneDuration,
   overview,
   range,
 }: {
@@ -6840,6 +7046,11 @@ function MilestonePlanSummaryPanel({
     itemId: string,
     submilestoneKey: string,
     budgetCents: number,
+  ) => void;
+  onUpdateSubmilestoneDuration?: (
+    itemId: string,
+    submilestoneKey: string,
+    durationDays: number,
   ) => void;
   overview: FinancialOverview;
   range: Required<TimelineRange>;
@@ -6925,6 +7136,16 @@ function MilestonePlanSummaryPanel({
                   activeItem.id,
                   submilestoneKey,
                   budgetCents,
+                )
+            : undefined
+        }
+        onUpdateDuration={
+          onUpdateSubmilestoneDuration
+            ? (submilestoneKey, durationDays) =>
+                onUpdateSubmilestoneDuration(
+                  activeItem.id,
+                  submilestoneKey,
+                  durationDays,
                 )
             : undefined
         }
@@ -7128,6 +7349,7 @@ function MilestoneOperationsPanel({
   onRemoveEvidenceAsset,
   onUpdateEvidenceAsset,
   onUpdateSubmilestoneBudget,
+  onUpdateSubmilestoneDuration,
   overview,
   range,
 }: {
@@ -7149,6 +7371,11 @@ function MilestoneOperationsPanel({
     itemId: string,
     submilestoneKey: string,
     budgetCents: number,
+  ) => void;
+  onUpdateSubmilestoneDuration?: (
+    itemId: string,
+    submilestoneKey: string,
+    durationDays: number,
   ) => void;
   overview: FinancialOverview;
   range: Required<TimelineRange>;
@@ -7275,6 +7502,16 @@ function MilestoneOperationsPanel({
                   activeItem.id,
                   submilestoneKey,
                   budgetCents,
+                )
+            : undefined
+        }
+        onUpdateDuration={
+          onUpdateSubmilestoneDuration
+            ? (submilestoneKey, durationDays) =>
+                onUpdateSubmilestoneDuration(
+                  activeItem.id,
+                  submilestoneKey,
+                  durationDays,
                 )
             : undefined
         }

@@ -364,14 +364,51 @@ describe("TimelineWorkspace mode split", () => {
 
     expect(
       screen.getByTestId("selected-milestone-plan-summary").textContent,
-    ).toContain("$125,000");
+    ).toContain("$133,000");
     expect(updateMilestone).toHaveBeenCalledWith(
       expect.objectContaining({
-        budgetCents: 12_500_000,
+        budgetCents: 13_300_000,
         milestoneKey: "foundation",
         submilestones: expect.arrayContaining([
           expect.objectContaining({
             budgetCents: 4_200_000,
+            key: "dc-ed",
+          }),
+        ]),
+      }),
+    );
+  });
+
+  test("rolls editable sub-milestone duration changes into the parent milestone", () => {
+    const updateMilestone = vi.fn().mockResolvedValue(undefined);
+    renderWorkspace({
+      initialState: timelineState({ withSubmilestoneBudgets: true }),
+      persistence: { updateMilestone },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    const durationChip = screen.getByRole("button", {
+      name: "DC/ED duration",
+    });
+    fireEvent.click(durationChip);
+    const durationInput = screen
+      .getAllByLabelText("DC/ED duration")
+      .find((element) => element instanceof HTMLInputElement);
+    expect(durationInput).toBeTruthy();
+    fireEvent.change(durationInput, { target: { value: "4" } });
+    fireEvent.keyDown(durationInput, { key: "Enter" });
+
+    expect(
+      screen.getByTestId("selected-milestone-plan-summary").textContent,
+    ).toContain("6 days");
+    expect(updateMilestone).toHaveBeenCalledWith(
+      expect.objectContaining({
+        durationDays: 6,
+        milestoneKey: "foundation",
+        submilestones: expect.arrayContaining([
+          expect.objectContaining({
+            durationDays: 4,
             key: "dc-ed",
           }),
         ]),
@@ -449,16 +486,19 @@ describe("TimelineWorkspace mode split", () => {
     );
 
     expect(screen.getByText("Cash requirement vs draw recovery")).toBeTruthy();
-    expect(screen.getByTestId("timeline-workspace-root").parentElement?.tagName)
-      .toBe("SECTION");
+    expect(
+      screen.getByTestId("timeline-workspace-root").parentElement?.tagName,
+    ).toBe("SECTION");
     expect(screen.queryByText("Proposal mode")).toBeNull();
     expect(screen.queryByRole("button", { name: "Share" })).toBeNull();
     expect(screen.queryByText("Reset")).toBeNull();
     expect(screen.queryByText("Add draw")).toBeNull();
     expect(
-      (screen.getByRole("button", {
-        name: "DC/ED budget",
-      }) as HTMLButtonElement).disabled,
+      (
+        screen.getByRole("button", {
+          name: "DC/ED budget",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
   });
 

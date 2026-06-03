@@ -19,6 +19,7 @@ import {
   interpolateLinearCashOnHand,
   interpolateDrawAvailability,
   normalizeTimelineShareStateForRoute,
+  relabelTimelineDraws,
   resolveDemoLiveBuildHref,
   resolveSelectedDrawDate,
 } from "./index.tsx";
@@ -198,7 +199,7 @@ describe("timeline cash shortfall logic", () => {
         amount: 120_000,
         id: "late-change-draw",
         itemId: "late-change",
-        label: "Draw 1",
+        label: "Draw 01",
         x: 230,
       },
       {
@@ -379,6 +380,47 @@ describe("timeline cash shortfall logic", () => {
       },
       { cashOnHand: 420_000, day: 22, drawAmount: 125_000 },
     ]);
+  });
+
+  test("cashflow chart stacks reimbursable and out-of-pocket milestone cost", () => {
+    const items: TimelineItem<DemoMilestone>[] = [
+      {
+        data: {
+          amount: 120_000,
+          draw: "Draw 1",
+          drawAvailabilityAmount: 90_000,
+          durationDays: 8,
+          evidence: "Planning",
+          icon: "foundation",
+          name: "Foundation",
+          policy: "Planning",
+          status: "complete",
+          subMilestones: ["Forms"],
+        },
+        id: "foundation",
+        x: 12,
+      },
+    ];
+    const accountingData = buildTimelineCashflowData(
+      items,
+      [],
+      [],
+      { max: 40, min: 0, unit: "days" },
+      300_000,
+    );
+
+    expect(
+      buildCashflowChartData(
+        accountingData,
+        items,
+        { max: 40, min: 0, unit: "days" },
+        300_000,
+      ).find((point) => point.day === 12),
+    ).toMatchObject({
+      budget: 120_000,
+      outOfPocketBudget: 30_000,
+      reimbursableBudget: 90_000,
+    });
   });
 
   test("cash infusion increases cash on hand without counting as a capital cost", () => {
@@ -1146,6 +1188,20 @@ describe("timeline cash shortfall logic", () => {
         10,
       ),
     ).toBe("happened");
+  });
+
+  test("relabels default draw names by chronological insertion order", () => {
+    expect(
+      relabelTimelineDraws([
+        { amount: 100_000, id: "draw-existing", label: "Draw 09", x: 30 },
+        { amount: 100_000, id: "draw-inserted", label: "Draw 10", x: 0 },
+        { amount: 50_000, id: "custom", label: "Admin release", x: 15 },
+      ]),
+    ).toEqual([
+      expect.objectContaining({ id: "draw-inserted", label: "Draw 01" }),
+      expect.objectContaining({ id: "custom", label: "Admin release" }),
+      expect.objectContaining({ id: "draw-existing", label: "Draw 03" }),
+    ]);
   });
 });
 

@@ -1667,6 +1667,9 @@ export function buildReviewChartData(viewModel: any) {
     ...milestones.map((row: any) => ({
       amount: centsToDollars(row.budgetCents),
       day: row.dayStart,
+      drawCapacityUnlocked: centsToDollars(
+        row.drawAvailabilityCents ?? row.budgetCents,
+      ),
       event: "milestone" as const,
       id: row.milestoneKey,
       name: row.name,
@@ -1718,6 +1721,10 @@ export function buildReviewChartData(viewModel: any) {
       continue;
     }
     cashOnHand -= event.amount;
+    const reimbursableBudget =
+      event.event === "milestone"
+        ? Math.min(event.amount, event.drawCapacityUnlocked)
+        : 0;
     cashflow.push({
       budget: event.event === "milestone" ? event.amount : 0,
       capitalSpikeAmount: event.event === "capitalSpike" ? event.amount : 0,
@@ -1726,6 +1733,11 @@ export function buildReviewChartData(viewModel: any) {
       event: event.event,
       id: event.id,
       name: event.name,
+      outOfPocketBudget:
+        event.event === "milestone"
+          ? Math.max(0, event.amount - reimbursableBudget)
+          : 0,
+      reimbursableBudget,
     });
   }
   let unlockedDraw = 0;

@@ -37,18 +37,11 @@ function SubmilestoneStatusIcon({
   }
 
   return (
-    <Circle aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+    <Circle
+      aria-hidden="true"
+      className="size-3.5 shrink-0 text-muted-foreground"
+    />
   );
-}
-
-function formatSubmilestoneSupplementalMeta(submilestone: DemoSubmilestone) {
-  const parts: string[] = [];
-  if (submilestone.durationDays !== undefined) {
-    parts.push(
-      `${submilestone.durationDays} day${submilestone.durationDays === 1 ? "" : "s"}`
-    );
-  }
-  return parts.join(" · ");
 }
 
 export function TimelineMilestoneSubmilestoneList({
@@ -56,6 +49,7 @@ export function TimelineMilestoneSubmilestoneList({
   fallbackBudgetCents,
   milestoneKey,
   onUpdateBudget,
+  onUpdateDuration,
   submilestones,
   testIdPrefix = "timeline-milestone-submilestone",
 }: {
@@ -63,6 +57,7 @@ export function TimelineMilestoneSubmilestoneList({
   fallbackBudgetCents?: number;
   milestoneKey: string;
   onUpdateBudget?: (submilestoneKey: string, budgetCents: number) => void;
+  onUpdateDuration?: (submilestoneKey: string, durationDays: number) => void;
   submilestones: DemoSubmilestone[];
   testIdPrefix?: string;
 }) {
@@ -79,7 +74,7 @@ export function TimelineMilestoneSubmilestoneList({
 
   const doneCount = submilestones.filter((row) => row.status === "done").length;
   const activeCount = submilestones.filter(
-    (row) => row.status === "in_progress"
+    (row) => row.status === "in_progress",
   ).length;
 
   return (
@@ -103,14 +98,17 @@ export function TimelineMilestoneSubmilestoneList({
           const fallbackSubmilestoneBudgetCents = allocateFallbackBudgetCents(
             fallbackBudgetCents,
             submilestones.length,
-            submilestone.order - 1
+            submilestone.order - 1,
           );
           const budgetCents =
             submilestone.budgetCents ?? fallbackSubmilestoneBudgetCents ?? 0;
-          const supplementalMeta =
-            formatSubmilestoneSupplementalMeta(submilestone);
           const budgetDollars = Math.round(budgetCents / 100);
           const canEditBudget = Boolean(onUpdateBudget);
+          const canEditDuration = Boolean(onUpdateDuration);
+          const durationDays = Math.max(
+            1,
+            Math.round(submilestone.durationDays ?? 1),
+          );
           return (
             <li
               data-testid={`${testIdPrefix}-${submilestone.key}`}
@@ -146,7 +144,8 @@ export function TimelineMilestoneSubmilestoneList({
                   value={budgetDollars}
                   weight="semibold"
                 />
-                {(submilestone.description || supplementalMeta) ? (
+                {submilestone.description ||
+                submilestone.durationDays !== undefined ? (
                   <div className="col-span-2 min-w-0 px-2.5">
                     {submilestone.description ? (
                       <p
@@ -156,10 +155,31 @@ export function TimelineMilestoneSubmilestoneList({
                         {submilestone.description}
                       </p>
                     ) : null}
-                    {supplementalMeta ? (
-                      <p className="mt-0.5 text-muted-foreground text-xs tabular-nums">
-                        {supplementalMeta}
-                      </p>
+                    {submilestone.durationDays !== undefined ? (
+                      <EditableNumberChip
+                        ariaLabel={`${submilestone.name} duration`}
+                        className={
+                          submilestone.description ? "mt-1" : undefined
+                        }
+                        disabled={disabled || !canEditDuration}
+                        formatDisplay={(value) =>
+                          `${value} day${value === 1 ? "" : "s"}`
+                        }
+                        inputWidth="2.5rem"
+                        min={1}
+                        onCommit={(value) =>
+                          onUpdateDuration?.(
+                            submilestone.key,
+                            Math.max(1, Math.round(value)),
+                          )
+                        }
+                        reserveWidth="4.8rem"
+                        size="metric-sm"
+                        suffix="days"
+                        testId={`${testIdPrefix}-duration-${submilestone.key}`}
+                        value={durationDays}
+                        weight="medium"
+                      />
                     ) : null}
                   </div>
                 ) : null}
@@ -175,7 +195,7 @@ export function TimelineMilestoneSubmilestoneList({
 function allocateFallbackBudgetCents(
   totalCents: number | undefined,
   count: number,
-  index: number
+  index: number,
 ) {
   if (totalCents === undefined || count <= 0 || index < 0) {
     return;

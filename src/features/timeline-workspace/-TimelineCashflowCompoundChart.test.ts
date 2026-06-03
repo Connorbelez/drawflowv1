@@ -65,12 +65,11 @@ describe("TimelineCashflowCompoundChart milestone end markers", () => {
 
     expect(isMilestoneEndDatum(completionRow)).toBe(true);
     expect(isMilestoneEndDatum(initialRow)).toBe(false);
-    expect(buildMilestoneEndReferenceLines([initialRow, completionRow])).toEqual([
+    expect(
+      buildMilestoneEndReferenceLines([initialRow, completionRow]),
+    ).toEqual([
       {
-        label: [
-          "Milestone one completion capacity",
-          "Ends Day 52",
-        ],
+        label: ["Milestone one completion capacity", "Ends Day 52"],
         opacity: 0.58,
         stroke: "oklch(0.67 0.18 275)",
         strokeDasharray: "5 4",
@@ -88,6 +87,8 @@ describe("TimelineCashflowCompoundChart milestone end markers", () => {
       event: "milestone",
       id: "milestone-cost-gate-12",
       name: "Milestone cost gate",
+      outOfPocketBudget: 50_000,
+      reimbursableBudget: 200_000,
     };
     const capitalRow: TimelineCashflowCompoundDatum = {
       budget: 0,
@@ -109,6 +110,12 @@ describe("TimelineCashflowCompoundChart milestone end markers", () => {
     };
 
     expect(getCashflowBarHotspotDay("budget", milestoneRow)).toBe(12);
+    expect(getCashflowBarHotspotDay("reimbursableBudget", milestoneRow)).toBe(
+      12,
+    );
+    expect(getCashflowBarHotspotDay("outOfPocketBudget", milestoneRow)).toBe(
+      12,
+    );
     expect(getCashflowBarHotspotDay("capitalSpikeAmount", capitalRow)).toBe(18);
     expect(getCashflowBarHotspotDay("cashOnHand", milestoneRow)).toBeNull();
     expect(getCashflowBarHotspotDay("budget", drawRow)).toBeNull();

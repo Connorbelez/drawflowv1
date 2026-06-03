@@ -10,7 +10,7 @@ import { BuildWorkspaceProvider } from "./workspace-adapter.tsx";
 afterEach(() => cleanup());
 
 describe("BuildWorkspaceDemo Gantt labels and draw editing", () => {
-  test("renders submilestone names without draw-label pills and opens draw editor from draw bar", () => {
+  test("renders submilestone names without draw-label pills and opens draw editor from draw indicator", () => {
     const updateDrawGroup = vi.fn().mockResolvedValue(undefined);
     renderWorkspace({ updateDrawGroup });
 
@@ -24,8 +24,17 @@ describe("BuildWorkspaceDemo Gantt labels and draw editing", () => {
     expect(timelineCard.textContent).toContain("DEMO & EX");
     expect(timelineCard.textContent).not.toContain("FOUR-PLEX-DRAW-01.4");
 
-    const drawLabel = screen.getByTestId("draw-label-draw-01");
-    fireEvent.click(drawLabel);
+    fireEvent.click(screen.getByTestId("draw-drag-handle-draw-01"));
+    expect(screen.queryByTestId("draw-detail-sheet")).toBeNull();
+
+    const drawIndicator = screen.getByTestId("draw-planned-draw-01");
+    const drawIndicatorContainer = document.querySelector(
+      '[data-gantt-marker-container="draw-planned-draw-01"]',
+    );
+    expect(drawIndicatorContainer?.className).toContain("hover:z-[70]");
+    expect(drawIndicatorContainer?.className).toContain("focus-within:z-[70]");
+
+    fireEvent.click(drawIndicator);
 
     const sheet = screen.getByTestId("draw-detail-sheet");
     expect(within(sheet).getByText("Edit draw")).toBeTruthy();

@@ -92,9 +92,11 @@ export type GanttFeature = {
 export type GanttMarkerProps = {
   id: string;
   date: Date;
+  clickLabel?: string;
   detail?: ReactNode;
   detailTestId?: string;
   label: ReactNode;
+  onClick?: (id: string) => void;
   testId?: string;
 };
 
@@ -1641,9 +1643,11 @@ export const GanttMarker: FC<
   }
 > = memo(
   ({
+    clickLabel,
     label,
     date,
     id,
+    onClick,
     onRemove,
     className,
     containerClassName,
@@ -1678,13 +1682,26 @@ export const GanttMarker: FC<
     );
 
     const handleRemove = useCallback(() => onRemove?.(id), [onRemove, id]);
+    const handleClick = useCallback(() => onClick?.(id), [onClick, id]);
+    const markerContent = (
+      <>
+        {label}
+        <span
+          className="mt-1 block max-h-[0] overflow-hidden text-left text-[0.68rem] leading-tight opacity-80 transition-all group-hover:max-h-32 group-focus-within:max-h-32"
+          data-testid={detailTestId}
+        >
+          {detail ?? formatDate(date, "MMM dd, yyyy")}
+        </span>
+      </>
+    );
 
     return (
       <div
         className={cn(
-          "pointer-events-none absolute top-0 left-0 z-20 flex h-full select-none flex-col items-center justify-center overflow-visible",
+          "pointer-events-none absolute top-0 left-0 z-20 flex h-full select-none flex-col items-center justify-center overflow-visible transition-[z-index] hover:z-[70] focus-within:z-[70]",
           containerClassName,
         )}
+        data-gantt-marker-container={id}
         style={{
           width: 0,
           transform: `translateX(calc(var(--gantt-column-width) * ${offset} + ${innerOffset}px))`,
@@ -1693,28 +1710,41 @@ export const GanttMarker: FC<
         <ContextMenu>
           <ContextMenuTrigger
             render={
-              <div
-                className={cn(
-                  "group pointer-events-auto sticky top-0 z-30 flex select-auto flex-col flex-nowrap items-center justify-center whitespace-nowrap rounded-b-md bg-card px-2.5 py-1.5 font-medium text-foreground text-xs shadow-lg",
-                  labelClassName,
-                  className,
-                )}
-                data-gantt-interactive="true"
-                data-testid={testId}
-                style={{
-                  scrollMarginLeft:
-                    "calc(var(--gantt-leading-sidebar-width) + var(--gantt-kibo-sidebar-width) + 2rem)",
-                }}
-              />
+              onClick ? (
+                <button
+                  aria-label={clickLabel}
+                  className={cn(
+                    "group pointer-events-auto sticky top-0 z-30 flex select-auto flex-col flex-nowrap items-center justify-center whitespace-nowrap rounded-b-md bg-card px-2.5 py-1.5 font-medium text-foreground text-xs shadow-lg outline-none transition-[filter] hover:brightness-105 focus-visible:ring-2 focus-visible:ring-cyan-300/60",
+                    labelClassName,
+                    className,
+                  )}
+                  data-gantt-interactive="true"
+                  data-testid={testId}
+                  onClick={handleClick}
+                  style={{
+                    scrollMarginLeft:
+                      "calc(var(--gantt-leading-sidebar-width) + var(--gantt-kibo-sidebar-width) + 2rem)",
+                  }}
+                  type="button"
+                />
+              ) : (
+                <div
+                  className={cn(
+                    "group pointer-events-auto sticky top-0 z-30 flex select-auto flex-col flex-nowrap items-center justify-center whitespace-nowrap rounded-b-md bg-card px-2.5 py-1.5 font-medium text-foreground text-xs shadow-lg",
+                    labelClassName,
+                    className,
+                  )}
+                  data-gantt-interactive="true"
+                  data-testid={testId}
+                  style={{
+                    scrollMarginLeft:
+                      "calc(var(--gantt-leading-sidebar-width) + var(--gantt-kibo-sidebar-width) + 2rem)",
+                  }}
+                />
+              )
             }
           >
-            {label}
-            <span
-              className="mt-1 block max-h-[0] overflow-hidden text-left text-[0.68rem] leading-tight opacity-80 transition-all group-hover:max-h-32 group-focus-within:max-h-32"
-              data-testid={detailTestId}
-            >
-              {detail ?? formatDate(date, "MMM dd, yyyy")}
-            </span>
+            {markerContent}
           </ContextMenuTrigger>
           <ContextMenuContent>
             {onRemove ? (
@@ -1797,10 +1827,7 @@ export const GanttRangeOverlay: FC<GanttRangeOverlayProps> = ({
 export type GanttRangeDragHandleProps = {
   children: ReactNode;
   className?: string;
-  contentButtonLabel?: string;
-  contentTestId?: string;
   disabled?: boolean;
-  onContentClick?: MouseEventHandler<HTMLButtonElement>;
   onMoveDelta?: (deltaDays: number) => void;
   onPreviewDelta?: (deltaDays: number | null) => void;
   startAt?: Date;
@@ -1812,10 +1839,7 @@ export type GanttRangeDragHandleProps = {
 export const GanttRangeDragHandle: FC<GanttRangeDragHandleProps> = ({
   children,
   className,
-  contentButtonLabel,
-  contentTestId,
   disabled,
-  onContentClick,
   onMoveDelta,
   onPreviewDelta,
   startAt,
@@ -1957,24 +1981,9 @@ export const GanttRangeDragHandle: FC<GanttRangeDragHandleProps> = ({
       >
         <MoveHorizontal className="size-3.5" />
       </button>
-      {onContentClick ? (
-        <button
-          aria-label={contentButtonLabel}
-          className="pointer-events-auto inline-flex min-w-max items-center gap-2 whitespace-nowrap rounded-sm px-1 text-left outline-none transition-colors hover:bg-muted/55 focus-visible:ring-2 focus-visible:ring-cyan-300/50 [&_*]:whitespace-nowrap"
-          data-testid={contentTestId}
-          onClick={onContentClick}
-          type="button"
-        >
-          {children}
-        </button>
-      ) : (
-        <span
-          className="pointer-events-none inline-flex min-w-max items-center gap-2 whitespace-nowrap [&_*]:whitespace-nowrap"
-          data-testid={contentTestId}
-        >
-          {children}
-        </span>
-      )}
+      <span className="pointer-events-none inline-flex min-w-max items-center gap-2 whitespace-nowrap [&_*]:whitespace-nowrap">
+        {children}
+      </span>
     </div>
   );
 };
@@ -2348,7 +2357,7 @@ export const GanttToday: FC<GanttTodayProps> = ({ className }) => {
 
   return (
     <div
-      className="pointer-events-none absolute top-0 left-0 z-20 flex h-full select-none flex-col items-center justify-center overflow-visible"
+      className="pointer-events-none absolute top-0 left-0 z-20 flex h-full select-none flex-col items-center justify-center overflow-visible transition-[z-index] hover:z-[70] focus-within:z-[70]"
       style={{
         width: 0,
         transform: `translateX(calc(var(--gantt-column-width) * ${offset} + ${innerOffset}px))`,

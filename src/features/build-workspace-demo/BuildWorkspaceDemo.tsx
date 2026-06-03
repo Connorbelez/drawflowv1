@@ -1030,7 +1030,6 @@ function DrawGroupRangeDragHandle({
   draw,
   milestones,
   onMoveDelta,
-  onOpenDraw,
   onPreviewDelta,
   proposalSubmitted,
 }: {
@@ -1038,7 +1037,6 @@ function DrawGroupRangeDragHandle({
   draw: DrawOverlay;
   milestones: Milestone[];
   onMoveDelta: (deltaDays: number) => void;
-  onOpenDraw: (drawGroupId: string) => void;
   onPreviewDelta: (deltaDays: number | null) => void;
   proposalSubmitted: boolean;
 }) {
@@ -1077,13 +1075,7 @@ function DrawGroupRangeDragHandle({
   return (
     <GanttRangeDragHandle
       className="absolute -top-4 z-40 inline-flex min-w-max max-w-max items-center gap-2 rounded-sm bg-popover/95 px-2.5 py-1 font-medium text-[0.72rem] shadow-foreground/10 shadow-lg backdrop-blur"
-      contentButtonLabel={`Edit ${draw.label}`}
-      contentTestId={`draw-label-${draw.id}`}
       disabled={proposalSubmitted || !hasUnlockedMilestones}
-      onContentClick={(event) => {
-        event.stopPropagation();
-        onOpenDraw(draw.id);
-      }}
       onMoveDelta={onMoveDelta}
       onPreviewDelta={onPreviewDelta}
       startAt={draw.startAt}
@@ -1427,7 +1419,6 @@ function GanttRoadmap({
                   .map((milestone) => milestone.id);
                 void commitBatchShift(ids, deltaDays, "drawGroup", draw.id);
               }}
-              onOpenDraw={onOpenDraw}
               onPreviewDelta={(deltaDays) => {
                 if (deltaDays === null) {
                   setBatchShiftPreview(null);
@@ -1505,6 +1496,7 @@ function GanttRoadmap({
         {drawOverlays.map((draw) => (
           <GanttMarker
             className="bg-cyan-300 text-cyan-950 shadow-cyan-500/30"
+            clickLabel={`Edit ${draw.label}`}
             date={draw.plannedAt ?? draw.eligibleAt}
             detail={
               <span className="flex flex-col items-start gap-0.5 leading-tight">
@@ -1526,6 +1518,9 @@ function GanttRoadmap({
             key={`draw-planned-${draw.id}`}
             label={`${draw.label} planned`}
             labelClassName="items-start text-left"
+            onClick={() => {
+              onOpenDraw(draw.id);
+            }}
             testId={`draw-planned-${draw.id}`}
           />
         ))}
