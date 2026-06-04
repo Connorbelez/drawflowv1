@@ -103,7 +103,16 @@ export interface TimelineInsertionResult<TData = unknown> {
   range: Required<TimelineRange>;
 }
 
+export interface TimelineProgressTargetOptions<TData = unknown> {
+  activeItem: TimelineLayoutItem<TData> | null;
+  activeItemPhase: "end" | "start";
+  progressValue: number | null | undefined;
+  startX: number;
+  valueToX: (value: number) => number;
+}
+
 const MINIMUM_RANGE_SPAN = 1;
+const TIMELINE_VALUE_EPSILON = 0.000_001;
 
 export function clampTimelineValue(
   value: number,
@@ -154,6 +163,46 @@ export function roundTimelineValue(value: number, step = 1): number {
   }
 
   return Number((Math.round(value / step) * step).toFixed(6));
+}
+
+export function resolveTimelineProgressTargetX<TData>({
+  activeItem,
+  activeItemPhase,
+  progressValue,
+  startX,
+  valueToX,
+}: TimelineProgressTargetOptions<TData>): number {
+  if (typeof progressValue === "number") {
+    if (
+      activeItem?.endX !== undefined &&
+      Math.abs(progressValue - activeItem.endX) < TIMELINE_VALUE_EPSILON
+    ) {
+      return activeItem.endLayoutX ?? valueToX(progressValue);
+    }
+
+    if (
+      activeItem &&
+      Math.abs(progressValue - activeItem.x) < TIMELINE_VALUE_EPSILON
+    ) {
+      if (activeItem.endX !== undefined && activeItemPhase === "start") {
+        return activeItem.endLayoutX ?? valueToX(activeItem.endX);
+      }
+
+      return activeItem.layoutX;
+    }
+
+    return valueToX(progressValue);
+  }
+
+  if (!activeItem) {
+    return startX;
+  }
+
+  if (activeItemPhase === "end") {
+    return activeItem.endLayoutX ?? activeItem.layoutX;
+  }
+
+  return activeItem.endLayoutX ?? activeItem.layoutX;
 }
 
 export function buildTimelineLayout<TData>(

@@ -36,10 +36,13 @@ import type {
 export function visibleCalendarActions(
   actions: CalendarAction[],
   appliesTo: CalendarAction["appliesTo"],
+  context: CalendarActionContext,
 ): CalendarAction[] {
   return actions.filter(
     (action) =>
-      action.appliesTo === appliesTo && action.availability.state !== "hidden",
+      action.appliesTo === appliesTo &&
+      action.availability.state !== "hidden" &&
+      (action.isVisible?.(context) ?? true),
   );
 }
 
@@ -63,7 +66,7 @@ export function CalendarContextMenu({
       : context.events?.length
         ? "selection"
         : "date";
-  const visible = visibleCalendarActions(actions, target ?? inferredTarget);
+  const visible = visibleCalendarActions(actions, target ?? inferredTarget, context);
   return (
     <ContextMenu>
       <ContextMenuTrigger render={<div />}>{children}</ContextMenuTrigger>
@@ -96,7 +99,7 @@ export function CalendarOverflowMenu({
       : context.events?.length
         ? "selection"
         : "date";
-  const visible = visibleCalendarActions(actions, target ?? inferredTarget);
+  const visible = visibleCalendarActions(actions, target ?? inferredTarget, context);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger

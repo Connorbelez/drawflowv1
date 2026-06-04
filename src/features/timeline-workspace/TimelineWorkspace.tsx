@@ -20,6 +20,7 @@ import {
   RotateCcw,
   Share2,
   ShieldCheck,
+  Sparkles,
   Trash2,
   UploadCloud,
   UserRound,
@@ -105,6 +106,11 @@ import {
   TIMELINE_DEMO_SETTINGS_MISSING_NOTICE,
   timelineSettingsRange,
 } from "./-timeline-demo-settings-adapter.ts";
+import {
+  OPTIMIZED_DRAW_FEE as DRAW_FEE,
+  OPTIMIZED_INTEREST_APR as INTEREST_APR,
+  optimizeTimelineDrawSchedule,
+} from "./-timeline-draw-optimizer.ts";
 import {
   type ActiveMilestoneSelection,
   buildMilestoneSpendEvents,
@@ -226,8 +232,6 @@ const BASE_INITIAL_RANGE: TimelineRange = {
   min: 0,
   unit: "days",
 };
-const DRAW_FEE = 500;
-const INTEREST_APR = 0.0925;
 const CHART_PROBE_INTERVAL_DAYS = 5;
 const MINIMUM_POST_MILESTONE_CASH_RESERVE = 0;
 const STARTING_CASH = 400_000;
@@ -1090,13 +1094,13 @@ export function TimelineWorkspace({
   const resolvedRange = useMemo(() => normalizeDemoRange(range), [range]);
   const durablePlanStateInitialized = useRef(false);
   const runDurableMutation = useCallback(
-    (operation: Promise<unknown>, label: string) => {
+    (operation: unknown, label: string) => {
       if (!(durablePlanId && !readOnly)) {
         return;
       }
       setDurableSavePendingCount((count) => count + 1);
       setDurableSaveStatus("idle");
-      operation
+      Promise.resolve(operation)
         .catch((error) => {
           const message =
             error instanceof Error
@@ -1620,6 +1624,87 @@ export function TimelineWorkspace({
     resetTimeline,
     setupBaseline,
     share,
+  ]);
+
+  const optimizeCurrentScenario = useCallback(() => {
+    if (!(canWriteLiveTimeline && !liveBuildMode)) {
+      toast.error("Timeline is locked in this status.");
+      return;
+    }
+
+    const result = optimizeTimelineDrawSchedule({
+      capitalSpikes,
+      items,
+      minimumCashReserve,
+      range: resolvedRange,
+      startingCash,
+    });
+
+    if (result.status === "infeasible") {
+      toast.error(result.infeasibleReason);
+      return;
+    }
+
+    const optimizationRunId = Date.now().toString(36);
+    const nextDraws = relabelTimelineDraws(
+      result.draws.map((draw, index) => ({
+        ...draw,
+        id: `optimized-draw-${optimizationRunId}-${index + 1}`,
+      })),
+    );
+
+    setActiveDrawId(null);
+    setActiveCapitalSpikeId(null);
+    setDrawEditDraft({ amount: "", x: "" });
+    setDraws(nextDraws);
+
+    if (durablePlanId) {
+      for (const draw of draws) {
+        runDurableMutation(
+          persistDeleteDraw({ drawKey: draw.id }),
+          "optimized draw replacement",
+        );
+      }
+
+      nextDraws.forEach((draw, index) => {
+        runDurableMutation(
+          persistCreateDraw({
+            amountCents: dollarsToCents(draw.amount),
+            customDate: true,
+            drawKey: draw.id,
+            ...(draw.itemId ? { itemMilestoneKey: draw.itemId } : {}),
+            label: draw.label,
+            order: index + 1,
+            x: draw.x,
+          }),
+          "optimized draw",
+        );
+      });
+    }
+
+    if (nextDraws.length === 0) {
+      toast.success("No draw is needed to maintain the minimum cash reserve.");
+      return;
+    }
+
+    toast.success(
+      `Optimized ${nextDraws.length} draw${
+        nextDraws.length === 1 ? "" : "s"
+      }: ${money(result.totalCost)} total interest and fee cost.`,
+    );
+  }, [
+    canWriteLiveTimeline,
+    capitalSpikes,
+    draws,
+    durablePlanId,
+    items,
+    liveBuildMode,
+    minimumCashReserve,
+    persistCreateDraw,
+    persistDeleteDraw,
+    resolvedRange,
+    runDurableMutation,
+    startingCash,
   ]);
 
   const submitCurrentPlan = useCallback(async () => {
@@ -3704,6 +3789,17 @@ export function TimelineWorkspace({
                   </Button>
                 </>
               ) : null}
+              <Button
+                aria-disabled={!(canWriteLiveTimeline && !liveBuildMode)}
+                data-testid="timeline-optimize-scenario"
+                disabled={!(canWriteLiveTimeline && !liveBuildMode)}
+                onClick={optimizeCurrentScenario}
+                size="sm"
+                variant="secondary"
+              >
+                <Sparkles />
+                Optimize scenario
+              </Button>
               <ShareTimelineMenu {...shareMenuProps} />
               {share || durableMeta ? null : (
                 <Button

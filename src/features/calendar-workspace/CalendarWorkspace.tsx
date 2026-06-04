@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  CalendarPlus,
   CalendarClock,
   Download,
   ExternalLink,
@@ -20,6 +21,7 @@ import {
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Card, CardContent, CardHeader, CardTitle } from "#/components/ui/card.tsx";
+import { Checkbox } from "#/components/ui/checkbox.tsx";
 import {
   Dialog,
   DialogContent,
@@ -45,8 +47,10 @@ import {
 import type {
   CalendarAction,
   CalendarActionContext,
+  CalendarAssignableParticipant,
   CalendarEditRequest,
   CalendarFilters,
+  CalendarReminderEventInput,
   CalendarSavedView,
   CalendarSyncSubscriptionResult,
   CalendarTimeframe,
@@ -56,15 +60,22 @@ import type {
 
 export interface CalendarWorkspaceProps {
   actions?: CalendarAction[];
+  assignableParticipants?: CalendarAssignableParticipant[];
   className?: string;
   initialTimeframe?: CalendarTimeframe;
   onCommitEdit?: (request: CalendarEditRequest) => Promise<unknown> | unknown;
+  onCreateReminderEvent?: (input: CalendarReminderEventInput) => Promise<unknown> | unknown;
   onCreateSyncSubscription?: (input: {
     direction: "bidirectional" | "outbound";
     filters: CalendarFilters;
     provider: "google" | "ics" | "outlook";
+    sourceId: string;
     surface: DrawFlowCalendarWorkspaceData["surface"];
   }) => Promise<CalendarSyncSubscriptionResult> | CalendarSyncSubscriptionResult | void;
+  onDeleteReminderEvent?: (input: {
+    eventId: string;
+    reason?: string;
+  }) => Promise<unknown> | unknown;
   onRecordExternalSyncChange?: (input: {
     changeKey: string;
     externalEventId?: string;
@@ -80,18 +91,23 @@ export interface CalendarWorkspaceProps {
     viewKey: string;
   }) => Promise<unknown> | unknown;
   onTimeframeChange?: (timeframe: CalendarTimeframe) => void;
+  onUpdateReminderEvent?: (input: CalendarReminderEventInput & { eventId: string }) => Promise<unknown> | unknown;
   workspace?: DrawFlowCalendarWorkspaceData | null;
 }
 
 export function CalendarWorkspace({
   actions = [],
+  assignableParticipants = [],
   className,
   initialTimeframe,
   onCommitEdit,
+  onCreateReminderEvent,
   onCreateSyncSubscription,
+  onDeleteReminderEvent,
   onRecordExternalSyncChange,
   onSaveView,
   onTimeframeChange,
+  onUpdateReminderEvent,
   workspace,
 }: CalendarWorkspaceProps) {
   const [timeframe, setTimeframe] = useState<CalendarTimeframe>(
@@ -107,6 +123,7 @@ export function CalendarWorkspace({
     events: DrawFlowCalendarEvent[];
   } | null>(null);
   const [reason, setReason] = useState("");
+  const [reminderDraft, setReminderDraft] = useState<ReminderDraft | null>(null);
   const [syncFeedUrl, setSyncFeedUrl] = useState<string | null>(null);
   const [syncBusy, setSyncBusy] = useState<string | null>(null);
 
@@ -164,6 +181,11 @@ export function CalendarWorkspace({
       ) ?? [],
     [normalizedWorkspace, selectedEventIds],
   );
+  const canCreateReminderEvents = Boolean(
+    normalizedWorkspace?.surface === "proposal" && onCreateReminderEvent,
+  );
+  const canDeleteReminderEvents = Boolean(onDeleteReminderEvent);
+  const canUpdateReminderEvents = Boolean(onUpdateReminderEvent);
 
   const setTimeframeControlled = useCallback(
     (next: CalendarTimeframe) => {
@@ -177,6 +199,9 @@ export function CalendarWorkspace({
     () =>
       normalizedWorkspace
         ? buildDefaultCalendarActions({
+            canCreateReminderEvents,
+            canDeleteReminderEvents,
+            canUpdateReminderEvents,
             exportEvents: (events, filename) =>
               downloadTextFile(
                 filename,
@@ -184,11 +209,30 @@ export function CalendarWorkspace({
               ),
             onBulkMove: (events, dayDelta) =>
               setPendingBulkMove({ dayDelta, events }),
+            onDeleteReminder: async (event) => {
+              if (event.entity.type !== "calendarReminder") return;
+              await onDeleteReminderEvent?.({
+                eventId: event.entity.id,
+                reason: "Cancelled from calendar workspace.",
+              });
+              toast.success("Calendar reminder cancelled.");
+            },
+            onEditReminder: (event) => {
+              if (event.entity.type !== "calendarReminder") return;
+              setReminderDraft(reminderDraftFromEvent(event));
+            },
+            onNewReminder: (date) => setReminderDraft(emptyReminderDraft(date)),
             onOpen: (event) => setSelectedEventId(event.id),
             source: normalizedWorkspace.source,
           })
         : [],
-    [normalizedWorkspace],
+    [
+      canCreateReminderEvents,
+      canDeleteReminderEvents,
+      canUpdateReminderEvents,
+      normalizedWorkspace,
+      onDeleteReminderEvent,
+    ],
   );
   const allActions = useMemo(
     () => [...defaultActions, ...actions],
@@ -234,6 +278,7 @@ export function CalendarWorkspace({
         <div className="flex min-w-0 flex-col gap-3">
           <CalendarWorkspaceToolbar
             actions={allActions}
+            canCreateReminderEvents={canCreateReminderEvents}
             events={filteredEvents}
             filters={filters}
             onCreateSyncSubscription={async (provider) => {
@@ -247,10 +292,11 @@ export function CalendarWorkspace({
                   direction: provider === "ics" ? "outbound" : "bidirectional",
                   filters,
                   provider,
+                  sourceId: normalizedWorkspace.source.id,
                   surface: normalizedWorkspace.surface,
                 });
                 if (result?.feedUrl) {
-                  setSyncFeedUrl(result.feedUrl);
+                  setSyncFeedUrl(absoluteCalendarFeedUrl(result.feedUrl));
                   toast.success("Calendar subscription created.");
                 }
               } catch (error) {
@@ -267,6 +313,13 @@ export function CalendarWorkspace({
               downloadTextFile(
                 `${normalizedWorkspace.surface}-calendar.ics`,
                 buildIcsForEvents(filteredEvents, normalizedWorkspace.source.title),
+              )
+            }
+            onNewReminder={() =>
+              setReminderDraft(
+                emptyReminderDraft(
+                  selectedDate ?? new Date().toISOString().slice(0, 10),
+                ),
               )
             }
             onRecordInbound={async () => {
@@ -548,6 +601,34 @@ export function CalendarWorkspace({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ReminderEventDialog
+        assignableParticipants={assignableParticipants}
+        draft={reminderDraft}
+        onClose={() => setReminderDraft(null)}
+        onSubmit={async (draft) => {
+          const payload = reminderPayloadFromDraft(draft, assignableParticipants);
+          try {
+            if (draft.mode === "edit" && draft.eventId) {
+              await onUpdateReminderEvent?.({
+                ...payload,
+                eventId: draft.eventId,
+              });
+              toast.success("Calendar reminder updated.");
+            } else {
+              await onCreateReminderEvent?.(payload);
+              toast.success("Calendar reminder created.");
+            }
+            setReminderDraft(null);
+          } catch (error) {
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : "Calendar reminder save failed.",
+            );
+          }
+        }}
+      />
     </div>
   );
 }
@@ -571,6 +652,235 @@ function drawFlowEventToManagedEvent(
     ],
     title: event.title,
   };
+}
+
+interface ReminderDraft {
+  allDay: boolean;
+  assignedParticipantKeys: string[];
+  description: string;
+  endsAt: string;
+  eventId?: string;
+  location: string;
+  mode: "create" | "edit";
+  startsAt: string;
+  timezone: string;
+  title: string;
+}
+
+function emptyReminderDraft(startsAt: string): ReminderDraft {
+  return {
+    allDay: true,
+    assignedParticipantKeys: [],
+    description: "",
+    endsAt: "",
+    location: "",
+    mode: "create",
+    startsAt,
+    timezone: "America/Toronto",
+    title: "",
+  };
+}
+
+function reminderDraftFromEvent(event: DrawFlowCalendarEvent): ReminderDraft {
+  return {
+    allDay: event.allDay,
+    assignedParticipantKeys: (event.participants ?? []).map(
+      (participant) => participant.key,
+    ),
+    description: event.subtitle ?? "",
+    endsAt: event.endsAt?.slice(0, 10) ?? "",
+    eventId: event.entity.type === "calendarReminder" ? event.entity.id : undefined,
+    location: event.location ?? "",
+    mode: "edit",
+    startsAt: event.startsAt.slice(0, 10),
+    timezone: event.timezone,
+    title: event.title,
+  };
+}
+
+function reminderPayloadFromDraft(
+  draft: ReminderDraft,
+  assignableParticipants: CalendarAssignableParticipant[],
+): CalendarReminderEventInput {
+  return {
+    allDay: draft.allDay,
+    assignedParticipants: assignableParticipants
+      .filter((participant) =>
+        draft.assignedParticipantKeys.includes(participant.key),
+      )
+      .map(({ key: _key, ...participant }) => participant),
+    description: draft.description.trim() || undefined,
+    endsAt: draft.endsAt || undefined,
+    location: draft.location.trim() || undefined,
+    startsAt: draft.startsAt,
+    timezone: draft.timezone.trim() || "America/Toronto",
+    title: draft.title.trim(),
+  };
+}
+
+function ReminderEventDialog({
+  assignableParticipants,
+  draft,
+  onClose,
+  onSubmit,
+}: {
+  assignableParticipants: CalendarAssignableParticipant[];
+  draft: ReminderDraft | null;
+  onClose: () => void;
+  onSubmit: (draft: ReminderDraft) => Promise<void>;
+}) {
+  const [localDraft, setLocalDraft] = useState<ReminderDraft | null>(draft);
+  useEffect(() => {
+    setLocalDraft(draft);
+  }, [draft]);
+  const canSubmit = Boolean(localDraft?.title.trim() && localDraft.startsAt);
+  const update = (patch: Partial<ReminderDraft>) =>
+    setLocalDraft((current) => (current ? { ...current, ...patch } : current));
+  return (
+    <Dialog
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      open={Boolean(draft)}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {localDraft?.mode === "edit" ? "Edit calendar event" : "New calendar event"}
+          </DialogTitle>
+          <DialogDescription>
+            Reminder-only events stay on the calendar and do not change the build
+            timeline, draw plan, or approval workflow.
+          </DialogDescription>
+        </DialogHeader>
+        {localDraft ? (
+          <div className="grid gap-3">
+            <div className="grid gap-1.5">
+              <Label htmlFor="reminder-title">Title</Label>
+              <Input
+                id="reminder-title"
+                onChange={(event) => update({ title: event.target.value })}
+                placeholder="Follow up with broker"
+                value={localDraft.title}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="reminder-description">Notes</Label>
+              <Textarea
+                id="reminder-description"
+                onChange={(event) => update({ description: event.target.value })}
+                placeholder="Optional context for the event."
+                value={localDraft.description}
+              />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-1.5">
+                <Label htmlFor="reminder-start">Start date</Label>
+                <Input
+                  id="reminder-start"
+                  onChange={(event) => update({ startsAt: event.target.value })}
+                  type="date"
+                  value={localDraft.startsAt}
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="reminder-end">End date</Label>
+                <Input
+                  id="reminder-end"
+                  onChange={(event) => update({ endsAt: event.target.value })}
+                  type="date"
+                  value={localDraft.endsAt}
+                />
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-[1fr_10rem] sm:items-end">
+              <div className="grid gap-1.5">
+                <Label htmlFor="reminder-location">Location</Label>
+                <Input
+                  id="reminder-location"
+                  onChange={(event) => update({ location: event.target.value })}
+                  placeholder="Optional location"
+                  value={localDraft.location}
+                />
+              </div>
+              <label className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm">
+                <Checkbox
+                  checked={localDraft.allDay}
+                  onCheckedChange={(checked) =>
+                    update({ allDay: checked === true })
+                  }
+                />
+                All day
+              </label>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="reminder-timezone">Timezone</Label>
+              <Input
+                id="reminder-timezone"
+                onChange={(event) => update({ timezone: event.target.value })}
+                value={localDraft.timezone}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Invitees</Label>
+              <div className="grid max-h-44 gap-1 overflow-y-auto rounded-md border p-2">
+                {assignableParticipants.length > 0 ? (
+                  assignableParticipants.map((participant) => {
+                    const checked = localDraft.assignedParticipantKeys.includes(
+                      participant.key,
+                    );
+                    return (
+                      <label
+                        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted"
+                        key={participant.key}
+                      >
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={(nextChecked) => {
+                            update({
+                              assignedParticipantKeys: nextChecked
+                                ? [
+                                    ...localDraft.assignedParticipantKeys,
+                                    participant.key,
+                                  ]
+                                : localDraft.assignedParticipantKeys.filter(
+                                    (key) => key !== participant.key,
+                                  ),
+                            });
+                          }}
+                        />
+                        <span className="min-w-0 flex-1 truncate">
+                          {participant.displayName}
+                        </span>
+                        {participant.role ? (
+                          <Badge variant="outline">{participant.role}</Badge>
+                        ) : null}
+                      </label>
+                    );
+                  })
+                ) : (
+                  <p className="p-2 text-muted-foreground text-sm">
+                    No workspace invitees are available yet.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : null}
+        <DialogFooter>
+          <Button onClick={onClose} variant="outline">
+            Cancel
+          </Button>
+          <Button
+            disabled={!canSubmit}
+            onClick={() => (localDraft ? void onSubmit(localDraft) : undefined)}
+          >
+            {localDraft?.mode === "edit" ? "Save event" : "Create event"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function managedDateRangeFromCalendarEvent(event: DrawFlowCalendarEvent): {
@@ -688,6 +998,7 @@ function calendarColorForEvent(event: DrawFlowCalendarEvent): string {
   if (event.kind === "evidence" || event.warnings.length > 0) return "amber";
   if (event.kind === "budgetRevision") return "slate";
   if (event.kind === "contractor") return "rose";
+  if (event.kind === "reminder") return "cyan";
   return "blue";
 }
 
@@ -711,8 +1022,10 @@ function CalendarWorkspaceToolbar({
   events,
   filters,
   actions,
+  canCreateReminderEvents,
   onCreateSyncSubscription,
   onExport,
+  onNewReminder,
   onRecordInbound,
   onSaveView,
   onSetFilters,
@@ -727,10 +1040,12 @@ function CalendarWorkspaceToolbar({
   warnings,
 }: {
   actions: CalendarAction[];
+  canCreateReminderEvents: boolean;
   events: DrawFlowCalendarEvent[];
   filters: CalendarFilters;
   onCreateSyncSubscription: (provider: "google" | "ics" | "outlook") => void;
   onExport: () => void;
+  onNewReminder: () => void;
   onRecordInbound: () => void;
   onSaveView: () => void;
   onSetFilters: (filters: CalendarFilters) => void;
@@ -772,6 +1087,12 @@ function CalendarWorkspaceToolbar({
             ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {canCreateReminderEvents ? (
+              <Button onClick={onNewReminder} size="sm">
+                <CalendarPlus />
+                New event
+              </Button>
+            ) : null}
             <Button onClick={onExport} size="sm" variant="outline">
               <Download />
               Export ICS
@@ -896,12 +1217,39 @@ function ImpactCard({ request }: { request: CalendarEditRequest }) {
 }
 
 function buildDefaultCalendarActions(input: {
+  canCreateReminderEvents: boolean;
+  canDeleteReminderEvents: boolean;
+  canUpdateReminderEvents: boolean;
   exportEvents: (events: DrawFlowCalendarEvent[], filename: string) => void;
   onBulkMove: (events: DrawFlowCalendarEvent[], dayDelta: number) => void;
+  onDeleteReminder: (event: DrawFlowCalendarEvent) => Promise<void>;
+  onEditReminder: (event: DrawFlowCalendarEvent) => void;
+  onNewReminder: (date: string) => void;
   onOpen: (event: DrawFlowCalendarEvent) => void;
   source: DrawFlowCalendarWorkspaceData["source"];
 }): CalendarAction[] {
-  return [
+  const actions: CalendarAction[] = [
+    ...(input.canCreateReminderEvents
+      ? [
+          {
+            appliesTo: "date",
+            availability: { state: "enabled" },
+            description: "Create a reminder-only event for this calendar date.",
+            icon: <CalendarPlus className="size-4" />,
+            id: "new-reminder-event",
+            label: "New reminder event",
+            onSelect: (context) => {
+              input.onNewReminder(
+                context.date ??
+                  context.dateRange?.startsAt ??
+                  new Date().toISOString().slice(0, 10),
+              );
+            },
+            requiresConfirmation: false,
+            requiresReason: false,
+          } satisfies CalendarAction,
+        ]
+      : []),
     {
       appliesTo: "event",
       availability: { state: "enabled" },
@@ -914,6 +1262,27 @@ function buildDefaultCalendarActions(input: {
       requiresConfirmation: false,
       requiresReason: false,
     },
+    ...(input.canCreateReminderEvents
+      ? [
+          {
+            appliesTo: "event",
+            availability: { state: "enabled" },
+            description: "Create a reminder-only event on this calendar date.",
+            icon: <CalendarPlus className="size-4" />,
+            id: "new-reminder-event-from-event",
+            label: "New reminder event",
+            onSelect: (context) => {
+              input.onNewReminder(
+                context.date ??
+                  context.event?.startsAt.slice(0, 10) ??
+                  new Date().toISOString().slice(0, 10),
+              );
+            },
+            requiresConfirmation: false,
+            requiresReason: false,
+          } satisfies CalendarAction,
+        ]
+      : []),
     {
       appliesTo: "event",
       availability: { state: "enabled" },
@@ -943,6 +1312,39 @@ function buildDefaultCalendarActions(input: {
       requiresReason: false,
     },
     {
+      appliesTo: "event",
+      availability: { state: "enabled" },
+      description: "Edit this reminder-only calendar event.",
+      id: "edit-reminder-event",
+      isVisible: (context) =>
+        input.canUpdateReminderEvents && context.event?.kind === "reminder",
+      label: "Edit reminder",
+      onSelect: (context) => {
+        if (context.event?.kind === "reminder") {
+          input.onEditReminder(context.event);
+        }
+      },
+      requiresConfirmation: false,
+      requiresReason: false,
+    },
+    {
+      appliesTo: "event",
+      availability: { state: "enabled" },
+      description: "Cancel this reminder-only calendar event.",
+      id: "cancel-reminder-event",
+      isVisible: (context) =>
+        input.canDeleteReminderEvents && context.event?.kind === "reminder",
+      label: "Cancel reminder",
+      onSelect: async (context) => {
+        if (context.event?.kind === "reminder") {
+          await input.onDeleteReminder(context.event);
+        }
+      },
+      requiresConfirmation: true,
+      requiresReason: false,
+      tone: "destructive",
+    },
+    {
       appliesTo: "selection",
       availability: { state: "enabled" },
       description: "Export selected calendar events.",
@@ -967,10 +1369,23 @@ function buildDefaultCalendarActions(input: {
       requiresReason: true,
     },
   ];
+  return actions;
 }
 
 function shiftIso(iso: string, days: number) {
   const date = new Date(`${iso.slice(0, 10)}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
+}
+
+function absoluteCalendarFeedUrl(feedUrl: string) {
+  if (/^https?:\/\//i.test(feedUrl)) {
+    return feedUrl;
+  }
+  const convexUrl = import.meta.env.VITE_CONVEX_URL;
+  const base =
+    typeof convexUrl === "string" && convexUrl
+      ? convexUrl
+      : window.location.origin;
+  return new URL(feedUrl, base).toString();
 }

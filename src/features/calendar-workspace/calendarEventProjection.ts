@@ -56,9 +56,10 @@ const kindRank: Record<CalendarEventKind, number> = {
   milestone: 6,
   submilestone: 7,
   contractor: 8,
-  loan: 9,
-  budgetRevision: 10,
-  dependency: 11,
+  reminder: 9,
+  loan: 10,
+  budgetRevision: 11,
+  dependency: 12,
 };
 
 export function bucketLabel(bucket: CalendarTimeBucket): string {
@@ -156,7 +157,7 @@ export function applyCalendarFilters(
     }
     if (
       query &&
-      !`${event.title} ${event.subtitle ?? ""} ${event.kind} ${event.status}`
+      !`${event.title} ${event.subtitle ?? ""} ${event.kind} ${event.status} ${event.ownerUserId ?? ""} ${event.assigneeUserId ?? ""}`
         .toLowerCase()
         .includes(query)
     ) {
@@ -302,21 +303,31 @@ export function buildIcsForEvents(
 ): string {
   const escape = (value: string) =>
     value.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
+  const timestamp = `${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z`;
+  const dateValue = (value: string) => value.slice(0, 10).replace(/-/g, "");
+  const dateTimeValue = (value: string, fallbackHour: string) => {
+    if (value.includes("T")) {
+      return `${new Date(value).toISOString().replace(/[-:]/g, "").split(".")[0]}Z`;
+    }
+    return `${dateValue(value)}T${fallbackHour}0000`;
+  };
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
     "PRODID:-//FairLend//DrawFlow Calendar//EN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
     `X-WR-CALNAME:${escape(calendarName)}`,
   ];
   for (const event of events.sort(compareCalendarEvents)) {
-    const start = event.startsAt.replace(/-/g, "");
-    const end = addDaysIso(event.endsAt ?? event.startsAt, event.allDay ? 1 : 0).replace(/-/g, "");
+    const start = dateValue(event.startsAt);
+    const end = dateValue(addDaysIso(event.endsAt ?? event.startsAt, event.allDay ? 1 : 0));
     lines.push(
       "BEGIN:VEVENT",
       `UID:${escape(event.id)}@drawflow.fairlend.ca`,
-      `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z`,
-      event.allDay ? `DTSTART;VALUE=DATE:${start}` : `DTSTART:${start}T120000`,
-      event.allDay ? `DTEND;VALUE=DATE:${end}` : `DTEND:${end}T130000`,
+      `DTSTAMP:${timestamp}`,
+      event.allDay ? `DTSTART;VALUE=DATE:${start}` : `DTSTART:${dateTimeValue(event.startsAt, "09")}`,
+      event.allDay ? `DTEND;VALUE=DATE:${end}` : `DTEND:${dateTimeValue(event.endsAt ?? event.startsAt, "10")}`,
       `SUMMARY:${escape(event.title)}`,
       `DESCRIPTION:${escape([event.subtitle, event.kind, event.status, ...event.warnings.map((warning) => warning.label)].filter(Boolean).join(" | "))}`,
       "END:VEVENT",

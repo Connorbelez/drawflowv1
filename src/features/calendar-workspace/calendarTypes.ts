@@ -31,7 +31,8 @@ export type CalendarEventKind =
   | "adminDecision"
   | "loan"
   | "budgetRevision"
-  | "contractor";
+  | "contractor"
+  | "reminder";
 
 export type CalendarEventStatus =
   | "planned"
@@ -65,6 +66,21 @@ export interface CalendarEditCapability {
   requiredReason?: "none" | "scheduleChange" | "materialDecision" | "override";
 }
 
+export interface CalendarAssignableParticipant {
+  builderProfileId?: string;
+  contractorId?: string;
+  displayName: string;
+  email?: string;
+  key: string;
+  participantType:
+    | "builderProfile"
+    | "contractorProfile"
+    | "externalEmail"
+    | "workosUser";
+  role?: string;
+  workosUserId?: string;
+}
+
 export interface DrawFlowCalendarEvent {
   id: string;
   organizationId: string;
@@ -85,10 +101,13 @@ export interface DrawFlowCalendarEvent {
     | { type: "draw"; key: string; id?: string }
     | { type: "siteVisit"; id: string }
     | { type: "evidencePackage"; id: string }
-    | { type: "loanFacility"; id: string };
+    | { type: "loanFacility"; id: string }
+    | { type: "calendarReminder"; id: string };
   relatedEntityIds: string[];
   ownerUserId?: string;
   assigneeUserId?: string;
+  participants?: CalendarAssignableParticipant[];
+  location?: string;
   drawGroupKey?: string;
   milestoneKey?: string;
   warnings: CalendarEventWarning[];
@@ -170,6 +189,7 @@ export interface CalendarAction {
   requiresReason: boolean;
   requiresConfirmation: boolean;
   appliesTo: "event" | "date" | "dateRange" | "selection";
+  isVisible?: (context: CalendarActionContext) => boolean;
   onSelect: (context: CalendarActionContext) => Promise<unknown> | unknown;
 }
 
@@ -194,4 +214,16 @@ export interface CalendarSyncSubscriptionResult {
   feedUrl: string;
   subscriptionId?: string;
   subscriptionKey: string;
+}
+
+export interface CalendarReminderEventInput {
+  allDay: boolean;
+  assignedParticipants: Array<Omit<CalendarAssignableParticipant, "key">>;
+  description?: string;
+  endsAt?: string;
+  eventId?: string;
+  location?: string;
+  startsAt: string;
+  timezone: string;
+  title: string;
 }

@@ -1069,6 +1069,37 @@ async function getSiteVisitFiles(
     .take(100);
 }
 
+async function getDemoSiteVisitPermit(
+  ctx: DemoReadCtx,
+  build: Doc<"demo_builds"> | null | undefined,
+) {
+  if (!build) {
+    return null;
+  }
+  const documents = await ctx.db
+    .query("demo_buildDocuments")
+    .withIndex("by_build", (q) => q.eq("buildId", build._id))
+    .collect();
+  const permit = documents
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .find((document) => document.kind === "permit");
+  if (!permit) {
+    return null;
+  }
+  return {
+    _id: String(permit._id),
+    fileName: permit.name,
+    kind: permit.kind,
+    mimeType: permit.name.toLowerCase().endsWith(".pdf")
+      ? "application/pdf"
+      : undefined,
+    name: permit.name,
+    sizeBytes: permit.sizeBytes,
+    storageUrl: null,
+    url: permit.url ?? null,
+  };
+}
+
 async function appendAudit(ctx: DemoMutationCtx, input: AuditInput) {
   const createdAt = Date.now();
   await ctx.db.insert("demo_auditEvents", {
@@ -3447,10 +3478,14 @@ export const demo_getSiteVisitByToken = publicQuery
       const files = state.visit
         ? await getSiteVisitFiles(ctx, state.visit._id)
         : [];
+      const permit = state.visit
+        ? await getDemoSiteVisitPermit(ctx, state.build)
+        : null;
       return {
         available: false,
         build: state.build,
         files,
+        permit,
         reason: state.reason,
         status:
           state.reason === "expired"
@@ -3467,6 +3502,7 @@ export const demo_getSiteVisitByToken = publicQuery
       (a, b) => a.milestoneOrder - b.milestoneOrder,
     );
     const files = await getSiteVisitFiles(ctx, state.visit._id);
+    const permit = await getDemoSiteVisitPermit(ctx, state.build);
     const filesWithUrls = await Promise.all(
       files.map(async (file) => ({
         ...file,
@@ -3483,6 +3519,7 @@ export const demo_getSiteVisitByToken = publicQuery
       available: true,
       build: state.build,
       files: filesWithUrls,
+      permit,
       targets: targetsWithGuidance,
       visit: state.visit,
     };

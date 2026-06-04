@@ -9,6 +9,8 @@ import {
   Check,
   CheckCircle2,
   Clock3,
+  Download,
+  ExternalLink,
   FileText,
   Hammer,
   Lightbulb,
@@ -108,6 +110,17 @@ type VisitBuild = {
   subtitle?: string;
 };
 
+type VisitPermit = {
+  _id?: string;
+  fileName?: string;
+  kind?: string;
+  mimeType?: string;
+  name?: string;
+  sizeBytes?: number;
+  storageUrl?: string | null;
+  url?: string | null;
+};
+
 type VisitRecord = {
   completedAt?: number;
   createdAt: number;
@@ -123,6 +136,7 @@ type ActiveVisitState = {
   available: true;
   build: VisitBuild;
   files: VisitFile[];
+  permit?: VisitPermit | null;
   targets: VisitTarget[];
   visit: VisitRecord;
 };
@@ -131,6 +145,7 @@ type UnavailableVisitState = {
   available: false;
   build?: VisitBuild | null;
   files?: VisitFile[];
+  permit?: VisitPermit | null;
   reason?: "consumed" | "expired" | "not_found" | null;
   status: "completed" | "expired" | "invalid";
   targets?: VisitTarget[];
@@ -138,7 +153,13 @@ type UnavailableVisitState = {
 };
 
 type VisitState = ActiveVisitState | UnavailableVisitState;
-type DrawerKey = "capture" | "guide" | "location" | "scope" | "uploaded";
+type DrawerKey =
+  | "capture"
+  | "guide"
+  | "location"
+  | "permit"
+  | "scope"
+  | "uploaded";
 
 type StagedItem = {
   evidence: SiteVisitStagedEvidence;
@@ -399,7 +420,7 @@ function SiteVisitTokenRouteContent({
     );
   }
 
-  const { build, files, targets, visit } = visitState;
+  const { build, files, permit, targets, visit } = visitState;
   const selectedScope = parseSelectedVisitTarget(selectedTarget);
   const selectedMilestoneKey = selectedScope.milestoneKey;
   const selectedSubmilestoneKey = selectedScope.submilestoneKey;
@@ -565,6 +586,7 @@ function SiteVisitTokenRouteContent({
             build={build}
             buildCode={deriveBuildCode(buildId, build)}
           />
+          <DesktopPermitPanel permit={permit} />
           <DesktopScopePanel targets={targets} />
         </aside>
 
@@ -707,6 +729,7 @@ function SiteVisitTokenRouteContent({
         onStageFiles={stageFiles}
         onUploadStaged={() => void uploadStagedFiles()}
         open={drawer !== null}
+        permit={permit}
         selectedTarget={selectedTarget}
         setSelectedTarget={setSelectedTarget}
         stagedBytes={stagedBytes}
@@ -1153,11 +1176,16 @@ function BottomNav({
   stagedCount: number;
 }) {
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-20 mx-auto grid max-w-lg grid-cols-5 border-t bg-background/95 px-1 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] backdrop-blur md:inset-x-auto md:top-1/2 md:right-4 md:bottom-auto md:w-24 md:max-w-none md:-translate-y-1/2 md:grid-cols-1 md:gap-3 md:rounded-xl md:border md:px-2 md:py-3 lg:hidden">
+    <nav className="fixed inset-x-0 bottom-0 z-20 mx-auto grid max-w-xl grid-cols-6 border-t bg-background/95 px-1 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] backdrop-blur md:inset-x-auto md:top-1/2 md:right-4 md:bottom-auto md:w-24 md:max-w-none md:-translate-y-1/2 md:grid-cols-1 md:gap-3 md:rounded-xl md:border md:px-2 md:py-3 lg:hidden">
       <NavButton
         icon={<MapPin />}
         label="Location"
         onClick={() => onOpen("location")}
+      />
+      <NavButton
+        icon={<FileText />}
+        label="Permit"
+        onClick={() => onOpen("permit")}
       />
       <NavButton
         badge={scopeCount}
@@ -1175,7 +1203,7 @@ function BottomNav({
       <NavButton
         badge={filesCount}
         icon={<Upload />}
-        label="Uploaded"
+        label="Files"
         onClick={() => onOpen("uploaded")}
       />
       <NavButton
@@ -1215,7 +1243,7 @@ function NavButton({
           </span>
         ) : null}
       </span>
-      <span className="whitespace-nowrap font-medium text-[11px] uppercase tracking-[0.1em]">
+      <span className="whitespace-nowrap font-medium text-[10px] uppercase tracking-[0.06em] min-[380px]:text-[11px] min-[380px]:tracking-[0.1em]">
         {label}
       </span>
     </button>
@@ -1280,6 +1308,23 @@ function DesktopScopePanel({ targets }: { targets: VisitTarget[] }) {
   );
 }
 
+function DesktopPermitPanel({ permit }: { permit?: VisitPermit | null }) {
+  return (
+    <Frame>
+      <FramePanel className="p-4">
+        <SectionTitle
+          code="A.02"
+          right={permit ? "Attached" : "Missing"}
+          title="Permit"
+        />
+        <div className="mt-4">
+          <PermitPanel permit={permit} variant="desktop" />
+        </div>
+      </FramePanel>
+    </Frame>
+  );
+}
+
 function DesktopUploadedPanel({
   files,
   targets,
@@ -1337,6 +1382,7 @@ function SiteVisitDrawer({
   onStageFiles,
   onUploadStaged,
   open,
+  permit,
   selectedTarget,
   setSelectedTarget,
   stagedBytes,
@@ -1354,6 +1400,7 @@ function SiteVisitDrawer({
   onStageFiles: (event: ChangeEvent<HTMLInputElement>) => void;
   onUploadStaged: () => void;
   open: boolean;
+  permit?: VisitPermit | null;
   selectedTarget: string;
   setSelectedTarget: (target: string) => void;
   stagedBytes: number;
@@ -1368,6 +1415,7 @@ function SiteVisitDrawer({
     capture: "Capture evidence",
     guide: "Field Guidance",
     location: "Site Location",
+    permit: "Build Permit",
     scope: "Visit Scope",
     uploaded: "Uploaded Evidence",
   }[type];
@@ -1385,6 +1433,10 @@ function SiteVisitDrawer({
             <p className="mt-1 text-muted-foreground text-sm">
               {type === "location"
                 ? `${buildCode} · ${deriveAddress(build)}`
+                : type === "permit"
+                  ? permit
+                    ? permitDisplayName(permit)
+                    : "No permit attached"
                 : type === "scope"
                   ? `${targets.length} milestones`
                   : type === "uploaded"
@@ -1401,6 +1453,8 @@ function SiteVisitDrawer({
         <DrawerPanel className="p-4" scrollFade={false}>
           {type === "location" ? (
             <LocationPanel build={build} buildCode={buildCode} />
+          ) : type === "permit" ? (
+            <PermitPanel permit={permit} />
           ) : type === "scope" ? (
             <ScopePanel targets={targets} />
           ) : type === "uploaded" ? (
@@ -1550,6 +1604,166 @@ function GuidePanel({ targets }: { targets: VisitTarget[] }) {
   );
 }
 
+function PermitPanel({
+  permit,
+  variant = "drawer",
+}: {
+  permit?: VisitPermit | null;
+  variant?: "desktop" | "drawer";
+}) {
+  const sourceUrl = permitSourceUrl(permit);
+  const fileName = permitDisplayName(permit);
+  const mimeType = permit?.mimeType ?? "";
+  const isPdf =
+    mimeType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
+  const isImage = mimeType.startsWith("image/");
+  const viewerUrl =
+    sourceUrl && isPdf
+      ? `${sourceUrl}#toolbar=1&navpanes=1&scrollbar=1`
+      : sourceUrl;
+
+  if (!permit) {
+    return (
+      <Frame className="bg-transparent p-0">
+        <FramePanel className="border-dashed p-4 text-center">
+          <FileText className="mx-auto size-8 text-muted-foreground" />
+          <h3 className="mt-3 font-semibold">No build permit attached</h3>
+          <p className="mt-1 text-muted-foreground text-sm">
+            Continue the site visit, but note any permit-specific uncertainty in
+            the field note.
+          </p>
+        </FramePanel>
+      </Frame>
+    );
+  }
+
+  if (!sourceUrl) {
+    return (
+      <Frame className="bg-transparent p-0">
+        <FramePanel className="p-4">
+          <div className="flex items-start gap-3">
+            <div className="grid size-10 shrink-0 place-items-center rounded-md border bg-muted">
+              <FileText className="size-5 text-primary" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="truncate font-semibold">{fileName}</h3>
+              <p className="mt-1 text-muted-foreground text-sm">
+                Permit metadata is present, but no preview URL is available.
+                Record any permit check as location-unverified context.
+              </p>
+            </div>
+          </div>
+          <PermitMeta permit={permit} />
+        </FramePanel>
+      </Frame>
+    );
+  }
+
+  return (
+    <div className="grid gap-4">
+      <Frame>
+        <FramePanel className="p-3">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="min-w-0">
+              <h3 className="truncate font-semibold">{fileName}</h3>
+              <p className="text-muted-foreground text-xs uppercase tracking-[0.14em]">
+                {isPdf ? "PDF permit" : mimeType || "Permit document"}
+              </p>
+            </div>
+            <Badge variant={isPdf ? "success" : "outline"}>
+              {isPdf ? "PDF" : "Preview"}
+            </Badge>
+          </div>
+          <div
+            className={
+              variant === "desktop"
+                ? "overflow-hidden rounded-md border bg-muted"
+                : "overflow-hidden rounded-lg border bg-muted"
+            }
+          >
+            {isPdf ? (
+              <iframe
+                className={
+                  variant === "desktop"
+                    ? "h-72 w-full border-0"
+                    : "h-[58svh] w-full border-0"
+                }
+                data-testid="site-visit-permit-frame"
+                src={viewerUrl}
+                title={`Build permit viewer for ${fileName}`}
+              />
+            ) : isImage ? (
+              <img
+                alt={`Build permit ${fileName}`}
+                className={
+                  variant === "desktop"
+                    ? "h-72 w-full object-contain"
+                    : "max-h-[58svh] w-full object-contain"
+                }
+                src={sourceUrl}
+              />
+            ) : (
+              <div className="grid min-h-56 place-items-center p-6 text-center">
+                <div>
+                  <FileText className="mx-auto mb-3 size-10 text-primary" />
+                  <p className="font-semibold">Preview unavailable</p>
+                  <p className="mt-1 text-muted-foreground text-sm">
+                    Open the document in a new tab to inspect it.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+          <PermitMeta permit={permit} />
+        </FramePanel>
+      </Frame>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <Button
+          render={
+            <a download={fileName} href={sourceUrl}>
+              <Download />
+              Download
+            </a>
+          }
+          variant="outline"
+        />
+        <Button
+          render={
+            <a href={sourceUrl} rel="noreferrer" target="_blank">
+              <ExternalLink />
+              Open permit
+            </a>
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
+function PermitMeta({ permit }: { permit: VisitPermit }) {
+  return (
+    <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+      <InfoItem label="File" value={permitDisplayName(permit)} />
+      <InfoItem
+        label="Type"
+        value={permit.mimeType ?? permit.kind ?? "Permit document"}
+      />
+      <InfoItem
+        label="Size"
+        value={
+          permit.sizeBytes !== undefined
+            ? formatSiteVisitBytes(permit.sizeBytes)
+            : "Not recorded"
+        }
+      />
+      <InfoItem
+        label="Status"
+        value={permitSourceUrl(permit) ? "Viewable" : "URL missing"}
+      />
+    </dl>
+  );
+}
+
 function OutcomeCard({
   body,
   detailItems = [],
@@ -1630,6 +1844,14 @@ function deriveCityLine(build?: VisitBuild | null) {
     return address;
   }
   return "Pinellas Park, FL";
+}
+
+function permitDisplayName(permit?: VisitPermit | null) {
+  return permit?.fileName ?? permit?.name ?? "Build permit.pdf";
+}
+
+function permitSourceUrl(permit?: VisitPermit | null) {
+  return permit?.storageUrl ?? permit?.url ?? null;
 }
 
 function targetCode(target: VisitTarget, fallbackIndex = 0) {

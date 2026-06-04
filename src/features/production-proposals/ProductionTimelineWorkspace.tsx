@@ -142,6 +142,9 @@ export function ProductionTimelineWorkspace({
     enabled: persistenceMode === "convex",
     prejoinedShareToken: prejoinedCollabToken,
     proposalId,
+    shareTargetHref: buildCollaborationTargetHref(
+      initialRole === "lender" ? proposalHref : backofficeHref
+    ),
     workosOrganizationId,
   });
 
@@ -439,11 +442,13 @@ function useProductionProposalCollaboration({
   enabled,
   prejoinedShareToken,
   proposalId,
+  shareTargetHref,
   workosOrganizationId,
 }: {
   enabled: boolean;
   prejoinedShareToken?: string | null;
   proposalId: Id<"buildProposals">;
+  shareTargetHref: string;
   workosOrganizationId: string;
 }) {
   const [shareUrl, setShareUrl] = useState("");
@@ -628,11 +633,21 @@ function useProductionProposalCollaboration({
             proposalId,
             workosOrganizationId,
           });
-          setShareUrl(buildCollaborationShareUrl(result.shareToken));
+          setShareUrl(
+            buildCollaborationShareUrl(result.shareToken, {
+              targetHref: shareTargetHref,
+            })
+          );
         },
         "Live collaboration started."
       ),
-    [proposalId, runToolbarAction, startSession, workosOrganizationId]
+    [
+      proposalId,
+      runToolbarAction,
+      shareTargetHref,
+      startSession,
+      workosOrganizationId,
+    ]
   );
 
   const handleStop = useCallback(
@@ -1065,12 +1080,46 @@ function collaborationCursorColor(index: number) {
   return colors[index % colors.length];
 }
 
-export function buildCollaborationShareUrl(shareToken: string) {
-  if (typeof window === "undefined") {
+export function buildCollaborationShareUrl(
+  shareToken: string,
+  options: { targetHref?: string } = {}
+) {
+  const href =
+    options.targetHref ??
+    (typeof window === "undefined" ? "" : window.location.href);
+
+  if (!href) {
     return `?collab=${encodeURIComponent(shareToken)}`;
   }
-  const url = new URL(window.location.href);
+
+  const isAbsolute = /^[a-z][a-z\d+\-.]*:/i.test(href);
+  const base =
+    typeof window === "undefined"
+      ? "http://drawflow.local"
+      : window.location.origin;
+  const url = new URL(href, base);
   url.searchParams.set("collab", shareToken);
+
+  if (typeof window === "undefined" && !isAbsolute) {
+    return `${url.pathname}${url.search}${url.hash}`;
+  }
+
+  return url.toString();
+}
+
+export function buildCollaborationTargetHref(href: string) {
+  const isAbsolute = /^[a-z][a-z\d+\-.]*:/i.test(href);
+  const base =
+    typeof window === "undefined"
+      ? "http://drawflow.local"
+      : window.location.origin;
+  const url = new URL(href, base);
+  url.searchParams.set("tab", "timeline");
+
+  if (!isAbsolute) {
+    return `${url.pathname}${url.search}${url.hash}`;
+  }
+
   return url.toString();
 }
 

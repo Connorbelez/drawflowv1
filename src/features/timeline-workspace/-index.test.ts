@@ -512,7 +512,7 @@ describe("timeline cash shortfall logic", () => {
     ]);
   });
 
-  test("actual cost lowers milestone spend and unlocked draw capacity", () => {
+  test("actual cost lowers milestone spend without changing unlocked draw capacity", () => {
     const items: TimelineItem<DemoMilestone>[] = [
       {
         data: {
@@ -556,23 +556,25 @@ describe("timeline cash shortfall logic", () => {
         budget: 280_000,
         cashOnHand: 120_000,
         day: 30,
-        drawCapacityUnlocked: 224_000,
+        drawCapacityUnlocked: 240_000,
         id: "foundation-completion-payment",
       },
     ]);
-    expect(getMilestoneDrawAvailabilityAmount(items[0]?.data)).toBe(224_000);
+    expect(getMilestoneDrawAvailabilityAmount(items[0]?.data)).toBe(240_000);
 
-    expect(
-      buildCashflowChartData(
-        cashflow,
-        items,
-        { max: 40, min: 0, unit: "days" },
-        400_000,
-      ).find((point) => point.day === 0),
-    ).toMatchObject({
+    const chartData = buildCashflowChartData(
+      cashflow,
+      items,
+      { max: 40, min: 0, unit: "days" },
+      400_000,
+    );
+    expect(chartData.find((point) => point.day === 0)).toMatchObject({
       budget: 280_000,
       cashOnHand: 400_000,
       event: "milestone",
+    });
+    expect(chartData.find((point) => point.day === 30)).toMatchObject({
+      cashOnHand: 120_000,
     });
   });
 

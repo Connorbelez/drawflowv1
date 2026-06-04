@@ -281,6 +281,8 @@ export function EventManager({
           event.category,
           event.drawFlowEvent?.kind,
           event.drawFlowEvent?.status,
+          event.drawFlowEvent?.ownerUserId,
+          event.drawFlowEvent?.assigneeUserId,
           ...(event.tags ?? []),
         ]
           .filter(Boolean)
@@ -869,6 +871,7 @@ function MonthView({
                       onEventResize={onEventResize}
                       onEventSelect={onEventSelect}
                       onToggleEventSelection={onToggleEventSelection}
+                      renderedDate={key}
                       selected={selectedEventId === event.id}
                       selectedForBulk={selectedEventIds.includes(event.id)}
                       setDraggedEvent={setDraggedEvent}
@@ -973,6 +976,7 @@ function WeekView({
                       onEventResize={onEventResize}
                       onEventSelect={onEventSelect}
                       onToggleEventSelection={onToggleEventSelection}
+                      renderedDate={dateKey(day)}
                       selected={selectedEventId === event.id}
                       selectedForBulk={selectedEventIds.includes(event.id)}
                       setDraggedEvent={setDraggedEvent}
@@ -1026,6 +1030,7 @@ function WeekView({
                         onEventResize={onEventResize}
                         onEventSelect={onEventSelect}
                         onToggleEventSelection={onToggleEventSelection}
+                        renderedDate={dateKey(day)}
                         selected={selectedEventId === event.id}
                         selectedForBulk={selectedEventIds.includes(event.id)}
                         setDraggedEvent={setDraggedEvent}
@@ -1080,7 +1085,7 @@ function DayView({
     {
       description: "Milestones, field evidence, contractor windows, and site visits.",
       events: dayEvents.filter((event) =>
-        ["milestone", "submilestone", "evidence", "siteVisit", "contractor"].includes(
+        ["milestone", "submilestone", "evidence", "siteVisit", "contractor", "reminder"].includes(
           event.drawFlowEvent?.kind ?? "",
         ),
       ),
@@ -1114,6 +1119,7 @@ function DayView({
                       onEventResize={onEventResize}
                       onEventSelect={onEventSelect}
                       onToggleEventSelection={onToggleEventSelection}
+                      renderedDate={dateKey(currentDate)}
                       selected={selectedEventId === event.id}
                       selectedForBulk={selectedEventIds.includes(event.id)}
                       setDraggedEvent={setDraggedEvent}
@@ -1143,6 +1149,7 @@ function DayView({
                     onEventResize={onEventResize}
                     onEventSelect={onEventSelect}
                     onToggleEventSelection={onToggleEventSelection}
+                    renderedDate={dateKey(currentDate)}
                     selected={selectedEventId === event.id}
                     selectedForBulk={selectedEventIds.includes(event.id)}
                     setDraggedEvent={setDraggedEvent}
@@ -1189,6 +1196,7 @@ function DayView({
                       onEventResize={onEventResize}
                       onEventSelect={onEventSelect}
                       onToggleEventSelection={onToggleEventSelection}
+                      renderedDate={dateKey(currentDate)}
                       selected={selectedEventId === event.id}
                       selectedForBulk={selectedEventIds.includes(event.id)}
                       setDraggedEvent={setDraggedEvent}
@@ -1278,6 +1286,7 @@ function QuarterView({
                         onEventResize={onEventResize}
                         onEventSelect={onEventSelect}
                         onToggleEventSelection={onToggleEventSelection}
+                        renderedDate={key}
                         selected={selectedEventId === event.id}
                         selectedForBulk={selectedEventIds.includes(event.id)}
                         setDraggedEvent={setDraggedEvent}
@@ -1360,6 +1369,7 @@ function AgendaView({
                       onEventResize={onEventResize}
                       onEventSelect={onEventSelect}
                       onToggleEventSelection={onToggleEventSelection}
+                      renderedDate={dayKey}
                       selected={selectedEventId === event.id}
                       selectedForBulk={selectedEventIds.includes(event.id)}
                       setDraggedEvent={setDraggedEvent}
@@ -1456,6 +1466,7 @@ function EventTile({
   onEventResize,
   onEventSelect,
   onToggleEventSelection,
+  renderedDate,
   selected,
   selectedForBulk,
   setDraggedEvent,
@@ -1470,6 +1481,7 @@ function EventTile({
   onEventResize: (event: Event, edge: "start" | "end", dayDelta: number) => void;
   onEventSelect?: (event: Event) => void;
   onToggleEventSelection?: (event: Event) => void;
+  renderedDate?: string;
   selected: boolean;
   selectedForBulk: boolean;
   setDraggedEvent: (event: Event | null) => void;
@@ -1602,7 +1614,7 @@ function EventTile({
         >
           <CalendarOverflowMenu
             actions={actions}
-            context={{ event: domain, source, surface, timeframe }}
+            context={{ date: renderedDate, event: domain, source, surface, timeframe }}
             label={event.title}
             target="event"
           />
@@ -1614,7 +1626,7 @@ function EventTile({
   return (
     <CalendarContextMenu
       actions={actions}
-      context={{ event: domain, source, surface, timeframe }}
+      context={{ date: renderedDate, event: domain, source, surface, timeframe }}
       label={event.title}
       target="event"
     >

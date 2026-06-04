@@ -2031,6 +2031,51 @@ export default defineSchema({
     .index("by_build", ["buildId"])
     .index("by_proposal", ["proposalId"])
     .index("by_entity", ["entityType", "entityKey", "dateKind"]),
+  calendarReminderEvents: defineTable({
+    allDay: v.boolean(),
+    assignedParticipants: v.array(
+      v.object({
+        builderProfileId: v.optional(v.id("builderProfiles")),
+        contractorId: v.optional(v.id("contractorProfiles")),
+        displayName: v.optional(v.string()),
+        email: v.optional(v.string()),
+        participantType: v.union(
+          v.literal("workosUser"),
+          v.literal("builderProfile"),
+          v.literal("contractorProfile"),
+          v.literal("externalEmail"),
+        ),
+        role: v.optional(v.string()),
+        workosUserId: v.optional(v.string()),
+      }),
+    ),
+    brokerageId: v.id("brokerages"),
+    createdAt: v.number(),
+    createdByWorkosUserId: v.string(),
+    description: v.optional(v.string()),
+    endsAt: v.optional(v.string()),
+    externalEventId: v.optional(v.string()),
+    externalProvider: v.optional(
+      v.union(v.literal("google"), v.literal("outlook"), v.literal("ics")),
+    ),
+    location: v.optional(v.string()),
+    organizationId: v.string(),
+    proposalId: v.id("buildProposals"),
+    source: v.union(v.literal("drawflow"), v.literal("external")),
+    startsAt: v.string(),
+    status: v.union(v.literal("active"), v.literal("cancelled")),
+    timezone: v.string(),
+    title: v.string(),
+    updatedAt: v.number(),
+    updatedByWorkosUserId: v.string(),
+  })
+    .index("by_proposal", ["proposalId"])
+    .index("by_created_by", ["organizationId", "createdByWorkosUserId"])
+    .index("by_external", [
+      "organizationId",
+      "externalProvider",
+      "externalEventId",
+    ]),
   calendarSyncSubscriptions: defineTable({
     brokerageId: v.id("brokerages"),
     createdAt: v.number(),
@@ -2042,6 +2087,8 @@ export default defineSchema({
       v.literal("google"),
       v.literal("outlook"),
     ),
+    sourceBuildId: v.optional(v.id("activeBuilds")),
+    sourceProposalId: v.optional(v.id("buildProposals")),
     status: v.union(
       v.literal("active"),
       v.literal("paused"),

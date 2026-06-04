@@ -113,33 +113,12 @@ export function getMilestoneDrawAvailabilityAmount(
   }
 
   const approvedBudget = Math.max(0, Math.round(milestone.amount));
-  const approvedDrawAvailability = Number.isFinite(
-    milestone.drawAvailabilityAmount
-  )
+  return Number.isFinite(milestone.drawAvailabilityAmount)
     ? Math.max(0, Math.round(milestone.drawAvailabilityAmount ?? 0))
     : calculateDrawAvailabilityAmount(
         approvedBudget,
         DEFAULT_BORROWER_CO_PAY_BPS
       );
-
-  const actualCost = milestone.completionClaim?.actualCost;
-  if (actualCost === undefined || !Number.isFinite(actualCost)) {
-    return approvedDrawAvailability;
-  }
-
-  if (approvedBudget <= 0) {
-    return 0;
-  }
-
-  const reimbursableBasis = Math.min(
-    approvedBudget,
-    Math.max(0, Math.round(actualCost))
-  );
-
-  return Math.min(
-    approvedDrawAvailability,
-    Math.round((approvedDrawAvailability * reimbursableBasis) / approvedBudget)
-  );
 }
 
 export interface DemoCompletionClaim {

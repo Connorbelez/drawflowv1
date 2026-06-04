@@ -7,6 +7,7 @@ import {
   groupMarkersByProximity,
   insertTimelineItemWithSpacing,
   normalizeTimelineRange,
+  resolveTimelineProgressTargetX,
   routePointForX,
   routeProgressForItem,
   roundTimelineValue,
@@ -148,6 +149,66 @@ describe("animated curved timeline utilities", () => {
       x: layout.items[0].endLayoutX,
       y: layout.items[0].layoutY,
     });
+  });
+
+  test("targets a duration-backed milestone completion when its start node is selected", () => {
+    const layout = buildTimelineLayout(
+      [
+        { id: "foundation", x: 10, data: { end: 24 } },
+        { id: "framing", x: 38, data: { end: 52 } },
+      ],
+      {
+        baselineY: 100,
+        getItemEndValue: (item) => item.data?.end,
+        laneStepY: 18,
+        minInlineNodeSpacingPx: 64,
+        minNodeSpacingPx: 120,
+        paddingX: 50,
+        pixelsPerUnit: 8,
+        range: { max: 80, min: 0, unit: "days" },
+        viewportWidth: 0,
+      },
+    );
+    const foundation = layout.items[0]!;
+
+    expect(
+      resolveTimelineProgressTargetX({
+        activeItem: foundation,
+        activeItemPhase: "start",
+        progressValue: foundation.x,
+        startX: layout.startX,
+        valueToX: layout.valueToX,
+      }),
+    ).toBe(foundation.endLayoutX);
+  });
+
+  test("keeps start-node progress for timeline items without completion values", () => {
+    const layout = buildTimelineLayout(
+      [
+        { id: "foundation", x: 10 },
+        { id: "framing", x: 38 },
+      ],
+      {
+        baselineY: 100,
+        laneStepY: 18,
+        minNodeSpacingPx: 120,
+        paddingX: 50,
+        pixelsPerUnit: 8,
+        range: { max: 80, min: 0, unit: "days" },
+        viewportWidth: 0,
+      },
+    );
+    const foundation = layout.items[0]!;
+
+    expect(
+      resolveTimelineProgressTargetX({
+        activeItem: foundation,
+        activeItemPhase: "start",
+        progressValue: foundation.x,
+        startX: layout.startX,
+        valueToX: layout.valueToX,
+      }),
+    ).toBe(foundation.layoutX);
   });
 
   test("scales for inline completion-to-next-start spacing separately from card spacing", () => {

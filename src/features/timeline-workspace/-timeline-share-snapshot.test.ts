@@ -90,6 +90,28 @@ describe("timeline share snapshots", () => {
     ).toBe(80_000);
   });
 
+  test("does not reduce approved draw availability when actual cost is lower", () => {
+    expect(
+      getMilestoneDrawAvailabilityAmount({
+        amount: 100_000,
+        completionClaim: {
+          actualCost: 60_000,
+          completedDay: 10,
+          submittedAt: "2026-06-02T00:00:00.000Z",
+        },
+        draw: "Draw 1",
+        drawAvailabilityAmount: 90_000,
+        durationDays: 10,
+        evidence: "Submitted",
+        icon: "foundation",
+        name: "Foundation",
+        policy: "Review",
+        status: "complete",
+        subMilestones: [],
+      }),
+    ).toBe(90_000);
+  });
+
   test("round-trips initial timeline state", () => {
     const state = initialTimelineShareState(
       initialItems,

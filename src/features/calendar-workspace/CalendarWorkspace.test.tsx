@@ -243,6 +243,126 @@ describe("CalendarWorkspace", () => {
     expect(screen.queryByText("Borrower working-capital exposure")).toBeNull();
   });
 
+  test("creates reminder-only calendar events from the workspace toolbar", async () => {
+    const onCreateReminderEvent = vi.fn();
+
+    render(
+      <CalendarWorkspace
+        assignableParticipants={[
+          {
+            displayName: "Production Builder",
+            key: "builder:builder-1",
+            participantType: "builderProfile",
+            role: "builder",
+          },
+        ]}
+        onCreateReminderEvent={onCreateReminderEvent}
+        workspace={workspace}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /new event/i }));
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "Follow up with builder" },
+    });
+    fireEvent.change(screen.getByLabelText("Start date"), {
+      target: { value: "2026-06-15" },
+    });
+    fireEvent.click(screen.getByText("Production Builder"));
+    fireEvent.click(screen.getByRole("button", { name: /create event/i }));
+
+    await waitFor(() =>
+      expect(onCreateReminderEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          assignedParticipants: [
+            expect.objectContaining({ participantType: "builderProfile" }),
+          ],
+          startsAt: "2026-06-15",
+          title: "Follow up with builder",
+        }),
+      ),
+    );
+  });
+
+  test("creates reminder-only calendar events from the date right-click menu", async () => {
+    const onCreateReminderEvent = vi.fn();
+
+    const { container } = render(
+      <CalendarWorkspace
+        onCreateReminderEvent={onCreateReminderEvent}
+        workspace={workspace}
+      />,
+    );
+
+    const dateCell = container.querySelector('[data-calendar-date="2026-06-15"]');
+    expect(dateCell).toBeTruthy();
+    fireEvent.contextMenu(dateCell as HTMLElement);
+    fireEvent.click(screen.getByText("New reminder event"));
+    expect((screen.getByLabelText("Start date") as HTMLInputElement).value).toBe(
+      "2026-06-15",
+    );
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "Check in request" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /create event/i }));
+
+    await waitFor(() =>
+      expect(onCreateReminderEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          startsAt: "2026-06-15",
+          title: "Check in request",
+        }),
+      ),
+    );
+  });
+
+  test("creates reminder-only calendar events from an occupied date right-click menu", async () => {
+    const onCreateReminderEvent = vi.fn();
+
+    const { container } = render(
+      <CalendarWorkspace
+        onCreateReminderEvent={onCreateReminderEvent}
+        workspace={workspace}
+      />,
+    );
+
+    const dateCell = container.querySelector('[data-calendar-date="2026-06-20"]');
+    expect(dateCell).toBeTruthy();
+    const eventTile = within(dateCell as HTMLElement).getAllByRole("button", {
+      name: /foundation/i,
+    })[0];
+
+    fireEvent.contextMenu(eventTile);
+    fireEvent.click(screen.getByText("New reminder event"));
+    expect((screen.getByLabelText("Start date") as HTMLInputElement).value).toBe(
+      "2026-06-20",
+    );
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "Site visit coordination" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /create event/i }));
+
+    await waitFor(() =>
+      expect(onCreateReminderEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          startsAt: "2026-06-20",
+          title: "Site visit coordination",
+        }),
+      ),
+    );
+  });
+
+  test("hides reminder creation when no proposal reminder handler is wired", () => {
+    const { container } = render(<CalendarWorkspace workspace={workspace} />);
+
+    expect(screen.queryByRole("button", { name: /new event/i })).toBeNull();
+
+    const dateCell = container.querySelector('[data-calendar-date="2026-06-15"]');
+    expect(dateCell).toBeTruthy();
+    fireEvent.contextMenu(dateCell as HTMLElement);
+    expect(screen.queryByText("New reminder event")).toBeNull();
+  });
+
   test(
     "previews and commits editable schedule changes with audit reason",
     async () => {

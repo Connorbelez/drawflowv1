@@ -16,6 +16,7 @@ import {
   isProductionVisualParityFixtureEnabled,
 } from "#/features/production-proposals/visualParityFixtures.ts";
 import { api } from "../../../../../convex/_generated/api";
+import type { Id } from "../../../../../convex/_generated/dataModel";
 
 type BuildDetailSearch = {
   timeframe?: CalendarTimeframe;
@@ -434,6 +435,10 @@ function RouteComponent() {
       createCalendarSyncSubscription: (input) =>
         createCalendarSyncSubscription({
           ...input,
+          buildId:
+            input.surface === "activeBuild"
+              ? (input.sourceId as Id<"activeBuilds">)
+              : undefined,
           workosOrganizationId,
         }),
       recordExternalCalendarSyncChange: (input) =>

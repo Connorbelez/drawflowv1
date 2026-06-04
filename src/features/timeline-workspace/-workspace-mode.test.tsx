@@ -293,10 +293,56 @@ describe("TimelineWorkspace mode split", () => {
 
     expect(screen.getByText("Proposal mode")).toBeTruthy();
     expect(screen.getByText("Approved proposal")).toBeTruthy();
+    expect(
+      (screen.getByTestId("timeline-optimize-scenario") as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
     expect(screen.getByTestId("selected-milestone-plan-summary")).toBeTruthy();
     expect(screen.queryByText("Mark milestone complete")).toBeNull();
     expect(screen.queryByText("Request site visit")).toBeNull();
     expect(screen.queryByText("Add draw")).toBeNull();
+  });
+
+  test("optimizes draft proposal draws and persists the replacement schedule", () => {
+    const createDraw = vi.fn().mockResolvedValue(undefined);
+    const deleteDraw = vi.fn().mockResolvedValue(undefined);
+    const initialState: TimelineShareState = {
+      ...timelineState({ milestoneAmount: 100 }),
+      capitalSpikes: [
+        {
+          amount: 100,
+          id: "supplier-deposit",
+          label: "supplier-deposit",
+          x: 20,
+        },
+      ],
+      startingCash: 120,
+    };
+
+    renderWorkspace({
+      initialState,
+      persistence: { createDraw, deleteDraw },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    const optimizeButton = screen.getByTestId(
+      "timeline-optimize-scenario",
+    ) as HTMLButtonElement;
+
+    expect(optimizeButton.disabled).toBe(false);
+    fireEvent.click(optimizeButton);
+
+    expect(deleteDraw).toHaveBeenCalledWith({ drawKey: "draw-01" });
+    expect(createDraw).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amountCents: 8_000,
+        customDate: true,
+        label: "Draw 01",
+        order: 1,
+      }),
+    );
+    expect(createDraw.mock.calls[0]?.[0].x).toBeLessThan(20);
   });
 
   test("shows milestone contractor assignments in the proposal sidebar", () => {
@@ -441,7 +487,9 @@ describe("TimelineWorkspace mode split", () => {
       .getAllByLabelText("Draw availability unlocked")
       .find((element) => element instanceof HTMLInputElement);
     const editableAvailabilityInput = expectHtmlInput(availabilityInput);
-    fireEvent.change(editableAvailabilityInput, { target: { value: "105000" } });
+    fireEvent.change(editableAvailabilityInput, {
+      target: { value: "105000" },
+    });
     fireEvent.keyDown(editableAvailabilityInput, { key: "Enter" });
 
     expect(

@@ -140,6 +140,166 @@ describe("production calendar workspace", () => {
     );
   });
 
+  test("stores reminder-only proposal calendar events without changing timeline projections", async () => {
+    const { seed, t } = await seededAdmin();
+    const proposalId = await createCalendarProposal(t, seed);
+
+    const invitees = await t.query(
+      (api as any).production_proposals.listProposalCalendarAssignableParticipants,
+      { proposalId, workosOrganizationId: ORG }
+    );
+    const builderInvitee = invitees.find(
+      (participant: any) => participant.participantType === "builderProfile"
+    );
+    expect(builderInvitee).toBeTruthy();
+    const { key: _key, ...builderReminderInvitee } = builderInvitee;
+
+    const reminderId = await t.mutation(
+      (api as any).production_proposals.createProposalReminderCalendarEvent,
+      {
+        allDay: true,
+        assignedParticipants: [builderReminderInvitee],
+        description: "Ask whether updated site access is ready.",
+        endsAt: "2026-06-16",
+        location: "Site office",
+        proposalId,
+        startsAt: "2026-06-15",
+        timezone: "America/Toronto",
+        title: "Check in with builder",
+        workosOrganizationId: ORG,
+      }
+    );
+
+    let workspace = await t.query(
+      (api as any).production_proposals.getProposalCalendarWorkspace,
+      { proposalId, workosOrganizationId: ORG }
+    );
+    expect(workspace.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          entity: expect.objectContaining({
+            id: String(reminderId),
+            type: "calendarReminder",
+          }),
+          kind: "reminder",
+          location: "Site office",
+          participants: expect.arrayContaining([
+            expect.objectContaining({ participantType: "builderProfile" }),
+          ]),
+          startsAt: "2026-06-15",
+          title: "Check in with builder",
+        }),
+      ])
+    );
+    expect(
+      workspace.events.filter((event: any) => event.kind === "milestone")
+    ).toHaveLength(2);
+
+    await t.mutation(
+      (api as any).production_proposals.updateProposalReminderCalendarEvent,
+      {
+        allDay: false,
+        assignedParticipants: [],
+        description: "Move the check-in after permit packet review.",
+        eventId: reminderId,
+        proposalId,
+        startsAt: "2026-06-18",
+        timezone: "America/Toronto",
+        title: "Builder permit check-in",
+        workosOrganizationId: ORG,
+      }
+    );
+    workspace = await t.query(
+      (api as any).production_proposals.getProposalCalendarWorkspace,
+      { proposalId, workosOrganizationId: ORG }
+    );
+    expect(workspace.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "reminder",
+          startsAt: "2026-06-18",
+          title: "Builder permit check-in",
+        }),
+      ])
+    );
+
+    await t.mutation(
+      (api as any).production_proposals.deleteProposalReminderCalendarEvent,
+      {
+        eventId: reminderId,
+        proposalId,
+        reason: "No longer needed.",
+        workosOrganizationId: ORG,
+      }
+    );
+    workspace = await t.query(
+      (api as any).production_proposals.getProposalCalendarWorkspace,
+      { proposalId, workosOrganizationId: ORG }
+    );
+    expect(workspace.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "reminder",
+          status: "cancelled",
+          title: "Builder permit check-in",
+        }),
+      ])
+    );
+  });
+
+  test("creates durable proposal calendar ICS subscriptions with reminder events", async () => {
+    const { seed, t } = await seededAdmin();
+    const proposalId = await createCalendarProposal(t, seed);
+    await t.mutation(
+      (api as any).production_proposals.createProposalReminderCalendarEvent,
+      {
+        allDay: true,
+        assignedParticipants: [],
+        proposalId,
+        startsAt: "2026-06-15",
+        timezone: "America/Toronto",
+        title: "Follow up with broker",
+        workosOrganizationId: ORG,
+      }
+    );
+    const subscription = await t.mutation(
+      (api as any).production_proposals.createCalendarSyncSubscription,
+      {
+        direction: "outbound",
+        filters: {},
+        proposalId,
+        provider: "ics",
+        surface: "proposal",
+        workosOrganizationId: ORG,
+      }
+    );
+    expect(subscription.feedUrl).toBe(
+      `/api/calendar/${subscription.subscriptionKey}.ics`
+    );
+
+    const ics = await t.query(
+      (api as any).production_proposals.getCalendarSubscriptionIcs,
+      { subscriptionKey: subscription.subscriptionKey }
+    );
+    expect(ics).toContain("BEGIN:VCALENDAR");
+    expect(ics).toContain("SUMMARY:Follow up with broker");
+    expect(ics).toContain("SUMMARY:Foundation");
+  });
+
+  test("rejects calendar sync subscriptions without a source record", async () => {
+    const { t } = await seededAdmin();
+
+    await expect(
+      t.mutation((api as any).production_proposals.createCalendarSyncSubscription, {
+        direction: "outbound",
+        filters: {},
+        provider: "ics",
+        surface: "proposal",
+        workosOrganizationId: ORG,
+      })
+    ).rejects.toThrow("Proposal calendar subscriptions require a proposal id.");
+  });
+
   test("projects active build calendar events and audits schedule revisions", async () => {
     const { seed, t } = await seededAdmin();
     const proposalId = await createCalendarProposal(t, seed);

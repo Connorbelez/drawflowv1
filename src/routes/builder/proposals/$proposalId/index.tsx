@@ -290,6 +290,10 @@ function BuilderProductionProposalRoute() {
             onCreateSyncSubscription={(input) =>
               createCalendarSyncSubscription({
                 ...input,
+                proposalId:
+                  input.surface === "proposal"
+                    ? (input.sourceId as Id<"buildProposals">)
+                    : undefined,
                 workosOrganizationId,
               })
             }

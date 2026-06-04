@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as RoadmapRouteImport } from './routes/roadmap'
 import { Route as ProtectedAccessRouteImport } from './routes/protected-access'
 import { Route as ProposalPreviewRouteImport } from './routes/proposal-preview'
 import { Route as CallbackRouteImport } from './routes/callback'
@@ -75,6 +76,11 @@ import { Route as BuilderDemoDashboardBuildsIndexRouteImport } from './routes/bu
 import { Route as BuilderDemoDashboardProposalsDraftIdRouteImport } from './routes/builder/demo/dashboard/proposals/$draftId'
 import { Route as BuilderDemoDashboardBuildsBuildIdRouteImport } from './routes/builder/demo/dashboard/builds/$buildId'
 
+const RoadmapRoute = RoadmapRouteImport.update({
+  id: '/roadmap',
+  path: '/roadmap',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProtectedAccessRoute = ProtectedAccessRouteImport.update({
   id: '/protected-access',
   path: '/protected-access',
@@ -440,6 +446,7 @@ export interface FileRoutesByFullPath {
   '/callback': typeof CallbackRoute
   '/proposal-preview': typeof ProposalPreviewRoute
   '/protected-access': typeof ProtectedAccessRoute
+  '/roadmap': typeof RoadmapRoute
   '/backoffice/builders': typeof BackofficeBuildersRouteRouteWithChildren
   '/backoffice/builds': typeof BackofficeBuildsRouteRouteWithChildren
   '/backoffice/contractors': typeof BackofficeContractorsRouteRouteWithChildren
@@ -505,6 +512,7 @@ export interface FileRoutesByTo {
   '/callback': typeof CallbackRoute
   '/proposal-preview': typeof ProposalPreviewRoute
   '/protected-access': typeof ProtectedAccessRoute
+  '/roadmap': typeof RoadmapRoute
   '/backoffice/draws': typeof BackofficeDrawsRouteRoute
   '/backoffice/site-visits': typeof BackofficeSiteVisitsRouteRoute
   '/builder/demo': typeof BuilderDemoRouteRouteWithChildren
@@ -562,6 +570,7 @@ export interface FileRoutesById {
   '/callback': typeof CallbackRoute
   '/proposal-preview': typeof ProposalPreviewRoute
   '/protected-access': typeof ProtectedAccessRoute
+  '/roadmap': typeof RoadmapRoute
   '/backoffice/builders': typeof BackofficeBuildersRouteRouteWithChildren
   '/backoffice/builds': typeof BackofficeBuildsRouteRouteWithChildren
   '/backoffice/contractors': typeof BackofficeContractorsRouteRouteWithChildren
@@ -631,6 +640,7 @@ export interface FileRouteTypes {
     | '/callback'
     | '/proposal-preview'
     | '/protected-access'
+    | '/roadmap'
     | '/backoffice/builders'
     | '/backoffice/builds'
     | '/backoffice/contractors'
@@ -696,6 +706,7 @@ export interface FileRouteTypes {
     | '/callback'
     | '/proposal-preview'
     | '/protected-access'
+    | '/roadmap'
     | '/backoffice/draws'
     | '/backoffice/site-visits'
     | '/builder/demo'
@@ -752,6 +763,7 @@ export interface FileRouteTypes {
     | '/callback'
     | '/proposal-preview'
     | '/protected-access'
+    | '/roadmap'
     | '/backoffice/builders'
     | '/backoffice/builds'
     | '/backoffice/contractors'
@@ -820,6 +832,7 @@ export interface RootRouteChildren {
   CallbackRoute: typeof CallbackRoute
   ProposalPreviewRoute: typeof ProposalPreviewRoute
   ProtectedAccessRoute: typeof ProtectedAccessRoute
+  RoadmapRoute: typeof RoadmapRoute
   ProposalClaimClaimTokenRoute: typeof ProposalClaimClaimTokenRoute
   ApiAuthSignInRoute: typeof ApiAuthSignInRoute
   ApiAuthSignUpRoute: typeof ApiAuthSignUpRoute
@@ -828,6 +841,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/roadmap': {
+      id: '/roadmap'
+      path: '/roadmap'
+      fullPath: '/roadmap'
+      preLoaderRoute: typeof RoadmapRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/protected-access': {
       id: '/protected-access'
       path: '/protected-access'
@@ -1579,6 +1599,7 @@ const rootRouteChildren: RootRouteChildren = {
   CallbackRoute: CallbackRoute,
   ProposalPreviewRoute: ProposalPreviewRoute,
   ProtectedAccessRoute: ProtectedAccessRoute,
+  RoadmapRoute: RoadmapRoute,
   ProposalClaimClaimTokenRoute: ProposalClaimClaimTokenRoute,
   ApiAuthSignInRoute: ApiAuthSignInRoute,
   ApiAuthSignUpRoute: ApiAuthSignUpRoute,

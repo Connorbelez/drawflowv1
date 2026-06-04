@@ -252,6 +252,15 @@ function ProposalReviewRoute() {
           workosOrganizationId,
         },
   );
+  const calendarAssignableParticipantsQuery = useQuery(
+    (api as any).production_proposals.listProposalCalendarAssignableParticipants,
+    visualFixtureEnabled || !productionDetail
+      ? "skip"
+      : {
+          proposalId: planId as Id<"buildProposals">,
+          workosOrganizationId,
+        },
+  );
   const buildersQuery = useQuery(
     api.production_proposals.listBrokerageBuilders,
     visualFixtureEnabled || !productionDetail
@@ -315,6 +324,15 @@ function ProposalReviewRoute() {
   const saveCalendarView = useMutation(
     (api as any).production_proposals.saveCalendarView,
   );
+  const createProposalReminderCalendarEvent = useMutation(
+    (api as any).production_proposals.createProposalReminderCalendarEvent,
+  );
+  const updateProposalReminderCalendarEvent = useMutation(
+    (api as any).production_proposals.updateProposalReminderCalendarEvent,
+  );
+  const deleteProposalReminderCalendarEvent = useMutation(
+    (api as any).production_proposals.deleteProposalReminderCalendarEvent,
+  );
   const createCalendarSyncSubscription = useMutation(
     (api as any).production_proposals.createCalendarSyncSubscription,
   );
@@ -370,6 +388,7 @@ function ProposalReviewRoute() {
       <ProductionProposalReviewSurface
         builders={buildersQuery ?? []}
         calendarAdapterActions={calendarAdapterActions}
+        calendarAssignableParticipants={calendarAssignableParticipantsQuery ?? []}
         calendarTimeframe={search.timeframe}
         calendarWorkspace={productionCalendarWorkspaceQuery as any}
         detail={productionDetail}
@@ -561,9 +580,28 @@ function ProposalReviewRoute() {
           })
         }
         onCommitCalendarEdit={commitCalendarEdit}
+        onCreateCalendarReminderEvent={(input) =>
+          createProposalReminderCalendarEvent({
+            ...input,
+            proposalId,
+            workosOrganizationId,
+          })
+        }
         onCreateCalendarSyncSubscription={(input) =>
           createCalendarSyncSubscription({
             ...input,
+            proposalId:
+              input.surface === "proposal"
+                ? (input.sourceId as Id<"buildProposals">)
+                : undefined,
+            workosOrganizationId,
+          })
+        }
+        onDeleteCalendarReminderEvent={(input) =>
+          deleteProposalReminderCalendarEvent({
+            ...input,
+            eventId: input.eventId as Id<"calendarReminderEvents">,
+            proposalId,
             workosOrganizationId,
           })
         }
@@ -577,6 +615,14 @@ function ProposalReviewRoute() {
           saveCalendarView({
             ...input,
             surface: "proposal",
+            workosOrganizationId,
+          })
+        }
+        onUpdateCalendarReminderEvent={(input) =>
+          updateProposalReminderCalendarEvent({
+            ...input,
+            eventId: input.eventId as Id<"calendarReminderEvents">,
+            proposalId,
             workosOrganizationId,
           })
         }

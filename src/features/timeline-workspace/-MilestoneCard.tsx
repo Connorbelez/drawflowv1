@@ -101,6 +101,12 @@ export function MilestoneCard({
     statusLabel === "Complete"
       ? "border-emerald-200 bg-emerald-50 text-emerald-700 shadow-emerald-500/10"
       : "border-zinc-200 bg-zinc-50 text-zinc-500 shadow-zinc-500/10";
+  const actualCost = milestone.completionClaim?.actualCost;
+  const hasActualCost = actualCost !== undefined && Number.isFinite(actualCost);
+  const cardCostLabel = hasActualCost ? "Actual cost" : "Planned cost";
+  const cardCostValue = hasActualCost
+    ? Math.max(0, Math.round(actualCost))
+    : schedule.totalAmount;
   const nameLength = milestone.name.length;
   const collapsedTitleFontSize = 17;
   const collapsedTitleLineHeight = "22px";
@@ -242,24 +248,35 @@ export function MilestoneCard({
                           }}
                         >
                           <p className="text-muted-foreground text-xs">
-                            Planned cost
+                            {cardCostLabel}
                           </p>
                           <div className="mt-1 flex items-center justify-between gap-3">
-                            <EditableNumberChip
-                              ariaLabel={`${milestone.name} planned cost`}
-                              disabled={readOnly}
-                              formatDisplay={(value) => money(value)}
-                              inputWidth="5.75rem"
-                              min={0}
-                              onCommit={(amount) => onUpdate(item.id, { amount })}
-                              prefix="$"
-                              reserveWidth="8.25rem"
-                              size="money-lg"
-                              step={1000}
-                              testId={`timeline-card-cost-${item.id}`}
-                              value={schedule.totalAmount}
-                              weight="semibold"
-                            />
+                            {hasActualCost ? (
+                              <p
+                                className="font-semibold text-2xl tabular-nums"
+                                data-testid={`timeline-card-cost-${item.id}`}
+                              >
+                                {money(cardCostValue)}
+                              </p>
+                            ) : (
+                              <EditableNumberChip
+                                ariaLabel={`${milestone.name} planned cost`}
+                                disabled={readOnly}
+                                formatDisplay={(value) => money(value)}
+                                inputWidth="5.75rem"
+                                min={0}
+                                onCommit={(amount) =>
+                                  onUpdate(item.id, { amount })
+                                }
+                                prefix="$"
+                                reserveWidth="8.25rem"
+                                size="money-lg"
+                                step={1000}
+                                testId={`timeline-card-cost-${item.id}`}
+                                value={cardCostValue}
+                                weight="semibold"
+                              />
+                            )}
                           </div>
                         </motion.div>
                       </motion.div>
@@ -337,11 +354,11 @@ export function MilestoneCard({
                     }
                   >
                     <p className="text-muted-foreground text-xs">
-                      Planned cost
+                      {cardCostLabel}
                     </p>
                     <div className="mt-1 flex items-center justify-between gap-3">
                       <p className="w-[6.75rem] shrink-0 font-semibold text-[25px] tabular-nums leading-8">
-                        {money(milestone.amount)}
+                        {money(cardCostValue)}
                       </p>
                       <StatusIndicator
                         isExpanded={isExpanded}

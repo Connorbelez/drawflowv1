@@ -2933,6 +2933,18 @@ describe("production proposal foundation", () => {
       },
     );
     expect(siteVisit.url).toContain("/newsitevisit/");
+    const tokenizedVisit = await t.query(
+      (api as any).production_proposals.getActiveBuildSiteVisitByToken,
+      {
+        buildId: String(closing.buildId),
+        token: siteVisit.visitId,
+      },
+    );
+    expect(tokenizedVisit.permit).toMatchObject({
+      fileName: "workspace-permit.pdf",
+      kind: "permit",
+      mimeType: "application/pdf",
+    });
     const siteVisitRoster = await t.query(
       (api as any).production_proposals.listBrokerageSiteVisits,
       { workosOrganizationId: ORG },
@@ -3459,7 +3471,7 @@ describe("production proposal foundation", () => {
     ]);
   });
 
-  test("active build draw requests are capped by lower actual completion cost", async () => {
+  test("active build draw requests keep approved availability when actual cost is lower", async () => {
     const { base, seed, t } = await seeded(["admin"], "user_admin");
     const closing = await createClosedSingleMilestoneBuild(t, seed);
     const initialWorkspace = await t.query(
@@ -3486,7 +3498,7 @@ describe("production proposal foundation", () => {
         amountCents: 40_000_000,
         buildId: closing.buildId,
         drawKey,
-        note: "Requesting available reimbursement.",
+        note: "Requesting approved reimbursement.",
         workosOrganizationId: ORG,
       },
     );
@@ -3496,13 +3508,13 @@ describe("production proposal foundation", () => {
       { buildId: closing.buildId, workosOrganizationId: ORG },
     );
     expect(workspace.draws[0]).toMatchObject({
-      amountCents: 24_000_000,
-      requestNote: "Requesting available reimbursement.",
+      amountCents: 40_000_000,
+      requestNote: "Requesting approved reimbursement.",
       requestStatus: "requested",
     });
   });
 
-  test("active build draw approval rejects stale requests above actual-cost cap", async () => {
+  test("active build draw approval allows approved availability after lower actual cost", async () => {
     const { base, seed, t } = await seeded(["admin"], "user_admin");
     const closing = await createClosedSingleMilestoneBuild(t, seed);
     const initialWorkspace = await t.query(
@@ -3541,7 +3553,16 @@ describe("production proposal foundation", () => {
         note: "Approve release.",
         workosOrganizationId: ORG,
       }),
-    ).rejects.toThrow(/available draw limit/i);
+    ).resolves.toBeNull();
+
+    const workspace = await t.query(
+      (api as any).production_proposals.getActiveBuildTimelineWorkspace,
+      { buildId: closing.buildId, workosOrganizationId: ORG },
+    );
+    expect(workspace.draws[0]).toMatchObject({
+      amountCents: 40_000_000,
+      requestStatus: "approved",
+    });
   });
 
   test("requires backoffice authorization for the production backoffice dashboard", async () => {

@@ -1305,6 +1305,7 @@ async function applyDraftProposalCostItemDeltas(
     borrowerCoPayBps: number;
     now: number;
     planRows: DraftProposalPlanRows;
+    proposalId: Id<"buildProposals">;
   },
   deltas: {
     costDeltaByMilestoneKey: Map<string, number>;
@@ -1327,6 +1328,12 @@ async function applyDraftProposalCostItemDeltas(
     await ctx.db.patch(milestone._id, {
       budgetCents: nextBudgetCents,
       drawAvailabilityCents: nextDrawAvailabilityCents,
+      updatedAt: input.now,
+    });
+    await syncMilestoneOwnedDrawAmount(ctx, {
+      amountCents: nextDrawAvailabilityCents,
+      milestoneKey: milestone.key,
+      proposalId: input.proposalId,
       updatedAt: input.now,
     });
     totalDeltaCents += deltaCents;
@@ -5695,6 +5702,37 @@ const calendarTimeframeInput = v.union(
   v.literal("agenda"),
 );
 
+const calendarReminderParticipantInput = v.object({
+  builderProfileId: v.optional(v.id("builderProfiles")),
+  contractorId: v.optional(v.id("contractorProfiles")),
+  displayName: v.optional(v.string()),
+  email: v.optional(v.string()),
+  participantType: v.union(
+    v.literal("workosUser"),
+    v.literal("builderProfile"),
+    v.literal("contractorProfile"),
+    v.literal("externalEmail"),
+  ),
+  role: v.optional(v.string()),
+  workosUserId: v.optional(v.string()),
+});
+
+const calendarReminderEventInput = {
+  allDay: v.optional(v.boolean()),
+  assignedParticipants: v.optional(v.array(calendarReminderParticipantInput)),
+  description: v.optional(v.string()),
+  endsAt: v.optional(v.string()),
+  externalEventId: v.optional(v.string()),
+  externalProvider: v.optional(calendarProviderInput),
+  location: v.optional(v.string()),
+  proposalId: v.id("buildProposals"),
+  source: v.optional(v.union(v.literal("drawflow"), v.literal("external"))),
+  startsAt: v.string(),
+  timezone: v.optional(v.string()),
+  title: v.string(),
+  workosOrganizationId: v.string(),
+};
+
 function calendarDateFromMs(ms: number) {
   return new Date(ms).toISOString().slice(0, 10);
 }
@@ -6039,6 +6077,7 @@ export const getProposalCalendarWorkspace = authenticatedQuery
       evidenceAssets,
       contractorAssignments,
       targetDates,
+      reminderEvents,
     ] = await Promise.all([
       collectByIndex(ctx, "proposalMilestones", "by_proposal", args.proposalId),
       collectByIndex(
@@ -6068,6 +6107,12 @@ export const getProposalCalendarWorkspace = authenticatedQuery
       collectByIndex(
         ctx,
         "calendarTargetDates",
+        "by_proposal",
+        args.proposalId,
+      ),
+      collectByIndex(
+        ctx,
+        "calendarReminderEvents",
         "by_proposal",
         args.proposalId,
       ),
@@ -6206,6 +6251,9 @@ export const getProposalCalendarWorkspace = authenticatedQuery
     }
     for (const target of targetDates) {
       events.push(calendarTargetDateEvent(target, "proposal"));
+    }
+    for (const reminder of reminderEvents) {
+      events.push(calendarReminderEvent(reminder, "proposal"));
     }
     return {
       defaultTimeframe: "month",
@@ -6504,6 +6552,83 @@ function calendarTargetDateEvent(
       (letter) => ` ${letter.toLowerCase()}`,
     ),
     warnings: [],
+  };
+}
+
+function calendarReminderEvent(
+  event: Doc<"calendarReminderEvents">,
+  surface: "proposal",
+) {
+  const assignedWorkosUser = event.assignedParticipants.find(
+    (participant) => participant.workosUserId,
+  )?.workosUserId;
+  return {
+    allDay: event.allDay,
+    assigneeUserId: assignedWorkosUser,
+    auditRequired: false,
+    editable: {
+      canChangeAssignee: true,
+      canChangeStatus: true,
+      canMove: event.status !== "cancelled",
+      canResizeEnd: event.status !== "cancelled",
+      canResizeStart: event.status !== "cancelled",
+      immutableReason:
+        event.status === "cancelled"
+          ? "Cancelled reminder events are retained for calendar history."
+          : undefined,
+      requiredReason: "none",
+    },
+    endsAt: event.endsAt,
+    entity: { id: String(event._id), type: "calendarReminder" },
+    id: calendarEventId(surface, "reminder", String(event._id)),
+    kind: "reminder",
+    location: event.location,
+    organizationId: event.organizationId,
+    ownerUserId: event.createdByWorkosUserId,
+    participants: event.assignedParticipants.map((participant) => ({
+      ...participant,
+      key:
+        participant.workosUserId
+          ? `workos:${participant.workosUserId}`
+          : participant.builderProfileId
+            ? `builder:${participant.builderProfileId}`
+            : participant.contractorId
+              ? `contractor:${participant.contractorId}`
+              : `email:${participant.email ?? participant.displayName ?? "external"}`,
+    })),
+    relatedEntityIds: [
+      String(event.proposalId),
+      ...event.assignedParticipants
+        .map(
+          (participant) =>
+            participant.workosUserId ??
+            participant.builderProfileId ??
+            participant.contractorId ??
+            participant.email,
+        )
+        .filter((value): value is string => Boolean(value)),
+    ],
+    startsAt: event.startsAt,
+    status: event.status === "cancelled" ? "cancelled" : "planned",
+    subtitle:
+      event.description ??
+      event.assignedParticipants
+        .map((participant) => participant.displayName ?? participant.email)
+        .filter(Boolean)
+        .join(", "),
+    surface,
+    timeBucket: event.allDay ? "allDay" : "morning",
+    timezone: event.timezone,
+    title: event.title,
+    warnings:
+      event.source === "external"
+        ? [
+            {
+              label: `Imported from ${event.externalProvider ?? "external calendar"}`,
+              severity: "info",
+            },
+          ]
+        : [],
   };
 }
 
@@ -6915,6 +7040,369 @@ export const setDrawReleaseTargetDate = authenticatedMutation
   })
   .public();
 
+async function normalizeReminderParticipants(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    auth: { brokerage: Doc<"brokerages"> };
+    participants?: Array<{
+      builderProfileId?: Id<"builderProfiles">;
+      contractorId?: Id<"contractorProfiles">;
+      displayName?: string;
+      email?: string;
+      participantType:
+        | "builderProfile"
+        | "contractorProfile"
+        | "externalEmail"
+        | "workosUser";
+      role?: string;
+      workosUserId?: string;
+    }>;
+    workosOrganizationId: string;
+  },
+) {
+  const normalized = [];
+  const seen = new Set<string>();
+  for (const participant of input.participants ?? []) {
+    if (participant.participantType === "workosUser") {
+      const workosUserId = normalizeOptionalString(participant.workosUserId);
+      if (!workosUserId) {
+        throw new Error("WorkOS invitee requires a user id.");
+      }
+      const membership = await ctx.db
+        .query("workosOrganizationMemberships")
+        .withIndex("by_user", (q) => q.eq("workosUserId", workosUserId))
+        .filter((q) =>
+          q.eq(q.field("workosOrganizationId"), input.workosOrganizationId),
+        )
+        .first();
+      if (membership && membership.status !== "active") {
+        throw new Error("Calendar invitee is not an active workspace member.");
+      }
+      const user = await getWorkosUserById(ctx, workosUserId);
+      const key = `workos:${workosUserId}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        normalized.push({
+          displayName:
+            normalizeOptionalString(participant.displayName) ??
+            user?.name ??
+            user?.email ??
+            workosUserId,
+          email: normalizeOptionalString(participant.email) ?? user?.email,
+          participantType: "workosUser" as const,
+          role: normalizeOptionalString(participant.role),
+          workosUserId,
+        });
+      }
+      continue;
+    }
+    if (participant.participantType === "builderProfile") {
+      if (!participant.builderProfileId) {
+        throw new Error("Builder invitee requires a builder profile id.");
+      }
+      const builder = await ctx.db.get(participant.builderProfileId);
+      if (
+        !builder ||
+        builder.brokerageId !== input.auth.brokerage._id ||
+        builder.status !== "active"
+      ) {
+        throw new Error("Calendar builder invitee is outside this workspace.");
+      }
+      const key = `builder:${participant.builderProfileId}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        normalized.push({
+          builderProfileId: participant.builderProfileId,
+          displayName:
+            normalizeOptionalString(participant.displayName) ??
+            builder.displayName,
+          participantType: "builderProfile" as const,
+          role: normalizeOptionalString(participant.role) ?? "builder",
+        });
+      }
+      continue;
+    }
+    if (participant.participantType === "contractorProfile") {
+      if (!participant.contractorId) {
+        throw new Error("Contractor invitee requires a contractor id.");
+      }
+      const contractor = await ctx.db.get(participant.contractorId);
+      if (
+        !contractor ||
+        contractor.brokerageId !== input.auth.brokerage._id ||
+        contractor.status !== "active"
+      ) {
+        throw new Error("Calendar contractor invitee is outside this workspace.");
+      }
+      const key = `contractor:${participant.contractorId}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        normalized.push({
+          contractorId: participant.contractorId,
+          displayName:
+            normalizeOptionalString(participant.displayName) ?? contractor.name,
+          email: normalizeOptionalString(participant.email) ?? contractor.email,
+          participantType: "contractorProfile" as const,
+          role: normalizeOptionalString(participant.role) ?? "contractor",
+          workosUserId: contractor.accountWorkosUserId,
+        });
+      }
+      continue;
+    }
+    const email = normalizeOptionalString(participant.email);
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new Error("External invitee requires a valid email.");
+    }
+    const key = `email:${email.toLowerCase()}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      normalized.push({
+        displayName:
+          normalizeOptionalString(participant.displayName) ?? email,
+        email,
+        participantType: "externalEmail" as const,
+        role: normalizeOptionalString(participant.role),
+      });
+    }
+  }
+  return normalized.slice(0, 50);
+}
+
+function normalizeReminderDateRange(input: {
+  endsAt?: string;
+  startsAt: string;
+}) {
+  const startsAt = normalizeIsoDate(
+    input.startsAt,
+    "Reminder start date is invalid.",
+  );
+  const endsAt = input.endsAt
+    ? normalizeIsoDate(input.endsAt, "Reminder end date is invalid.")
+    : undefined;
+  if (endsAt && endsAt < startsAt) {
+    throw new Error("Reminder end date cannot be before start date.");
+  }
+  return { endsAt, startsAt };
+}
+
+export const listProposalCalendarAssignableParticipants = authenticatedQuery
+  .input({
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    const participants: any[] = [];
+    const addWorkosUser = async (workosUserId: string, role: string) => {
+      if (participants.some((participant) => participant.key === `workos:${workosUserId}`)) {
+        return;
+      }
+      const user = await getWorkosUserById(ctx, workosUserId);
+      participants.push({
+        displayName: user?.name ?? user?.email ?? workosUserId,
+        email: user?.email,
+        key: `workos:${workosUserId}`,
+        participantType: "workosUser",
+        role,
+        workosUserId,
+      });
+    };
+    await addWorkosUser(auth.proposal.createdByWorkosUserId, "creator");
+    if (auth.proposal.assignedBrokerWorkosUserId) {
+      await addWorkosUser(auth.proposal.assignedBrokerWorkosUserId, "broker");
+    }
+    if (auth.proposal.builderProfileId) {
+      const builder = await ctx.db.get(auth.proposal.builderProfileId);
+      if (builder) {
+        participants.push({
+          builderProfileId: builder._id,
+          displayName: builder.displayName,
+          key: `builder:${builder._id}`,
+          participantType: "builderProfile",
+          role: "builder",
+        });
+        const builderAccounts = await builderAccountSummaries(ctx, builder._id);
+        for (const account of builderAccounts) {
+          await addWorkosUser(account.workosUserId, `builder ${account.role}`);
+        }
+      }
+    }
+    const proposalContractors = (await collectByIndex(
+      ctx,
+      "proposalContractorAssignments",
+      "by_proposal",
+      args.proposalId,
+    )) as Doc<"proposalContractorAssignments">[];
+    for (const assignment of proposalContractors) {
+      const contractor = (await ctx.db.get(
+        assignment.contractorId,
+      )) as Doc<"contractorProfiles"> | null;
+      if (!contractor || contractor.status !== "active") {
+        continue;
+      }
+      participants.push({
+        contractorId: contractor._id,
+        displayName: contractor.name,
+        email: contractor.email,
+        key: `contractor:${contractor._id}`,
+        participantType: "contractorProfile",
+        role: assignment.role,
+        workosUserId: contractor.accountWorkosUserId,
+      });
+    }
+    return participants;
+  })
+  .public();
+
+export const createProposalReminderCalendarEvent = authenticatedMutation
+  .input(calendarReminderEventInput)
+  .returns(v.id("calendarReminderEvents"))
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    const title = normalizeOptionalString(args.title);
+    if (!title) {
+      throw new Error("Reminder title is required.");
+    }
+    const dates = normalizeReminderDateRange(args);
+    const now = Date.now();
+    const eventId = await ctx.db.insert("calendarReminderEvents", {
+      allDay: args.allDay ?? true,
+      assignedParticipants: await normalizeReminderParticipants(ctx, {
+        auth,
+        participants: args.assignedParticipants,
+        workosOrganizationId: args.workosOrganizationId,
+      }),
+      brokerageId: auth.brokerage._id,
+      createdAt: now,
+      createdByWorkosUserId: auth.subject,
+      description: normalizeOptionalString(args.description),
+      endsAt: dates.endsAt,
+      externalEventId: normalizeOptionalString(args.externalEventId),
+      externalProvider: args.externalProvider,
+      location: normalizeOptionalString(args.location),
+      organizationId: args.workosOrganizationId,
+      proposalId: args.proposalId,
+      source: args.source ?? "drawflow",
+      startsAt: dates.startsAt,
+      status: "active",
+      timezone: normalizeOptionalString(args.timezone) ?? "America/Toronto",
+      title,
+      updatedAt: now,
+      updatedByWorkosUserId: auth.subject,
+    });
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "createProposalReminderCalendarEvent",
+      eventType: "calendar.reminder.created",
+      newState: JSON.stringify({ eventId, title }),
+      proposalId: args.proposalId,
+    });
+    return eventId;
+  })
+  .public();
+
+export const updateProposalReminderCalendarEvent = authenticatedMutation
+  .input({
+    ...calendarReminderEventInput,
+    eventId: v.id("calendarReminderEvents"),
+    status: v.optional(v.union(v.literal("active"), v.literal("cancelled"))),
+  })
+  .returns(v.id("calendarReminderEvents"))
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    const existing = await ctx.db.get(args.eventId);
+    if (!existing || existing.proposalId !== args.proposalId) {
+      throw new Error("Reminder calendar event not found.");
+    }
+    const title = normalizeOptionalString(args.title);
+    if (!title) {
+      throw new Error("Reminder title is required.");
+    }
+    const dates = normalizeReminderDateRange(args);
+    const now = Date.now();
+    const next = {
+      allDay: args.allDay ?? existing.allDay,
+      assignedParticipants: await normalizeReminderParticipants(ctx, {
+        auth,
+        participants: args.assignedParticipants,
+        workosOrganizationId: args.workosOrganizationId,
+      }),
+      description: normalizeOptionalString(args.description),
+      endsAt: dates.endsAt,
+      externalEventId:
+        normalizeOptionalString(args.externalEventId) ?? existing.externalEventId,
+      externalProvider: args.externalProvider ?? existing.externalProvider,
+      location: normalizeOptionalString(args.location),
+      source: args.source ?? existing.source,
+      startsAt: dates.startsAt,
+      status: args.status ?? existing.status,
+      timezone: normalizeOptionalString(args.timezone) ?? existing.timezone,
+      title,
+      updatedAt: now,
+      updatedByWorkosUserId: auth.subject,
+    };
+    await ctx.db.patch(args.eventId, next);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "updateProposalReminderCalendarEvent",
+      eventType: "calendar.reminder.updated",
+      newState: JSON.stringify(next),
+      priorState: JSON.stringify(existing),
+      proposalId: args.proposalId,
+    });
+    return args.eventId;
+  })
+  .public();
+
+export const deleteProposalReminderCalendarEvent = authenticatedMutation
+  .input({
+    eventId: v.id("calendarReminderEvents"),
+    proposalId: v.id("buildProposals"),
+    reason: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    const existing = await ctx.db.get(args.eventId);
+    if (!existing || existing.proposalId !== args.proposalId) {
+      throw new Error("Reminder calendar event not found.");
+    }
+    await ctx.db.patch(args.eventId, {
+      status: "cancelled",
+      updatedAt: Date.now(),
+      updatedByWorkosUserId: auth.subject,
+    });
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "deleteProposalReminderCalendarEvent",
+      eventType: "calendar.reminder.cancelled",
+      newState: JSON.stringify({ status: "cancelled" }),
+      priorState: JSON.stringify(existing),
+      proposalId: args.proposalId,
+      reason: args.reason,
+    });
+    return null;
+  })
+  .public();
+
 export const scheduleActiveBuildSiteVisit = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
@@ -7174,11 +7662,13 @@ export const saveCalendarView = authenticatedMutation
 
 export const createCalendarSyncSubscription = authenticatedMutation
   .input({
+    buildId: v.optional(v.id("activeBuilds")),
     direction: v.optional(
       v.union(v.literal("outbound"), v.literal("bidirectional")),
     ),
     filters: v.any(),
     provider: calendarProviderInput,
+    proposalId: v.optional(v.id("buildProposals")),
     surface: calendarSurfaceInput,
     workosOrganizationId: v.string(),
   })
@@ -7191,6 +7681,22 @@ export const createCalendarSyncSubscription = authenticatedMutation
   )
   .handler(async (ctx, args) => {
     const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    if (args.surface === "proposal" && !args.proposalId) {
+      throw new Error("Proposal calendar subscriptions require a proposal id.");
+    }
+    if (args.surface === "activeBuild" && !args.buildId) {
+      throw new Error("Active build calendar subscriptions require a build id.");
+    }
+    if (args.surface === "proposal" && args.proposalId) {
+      await authorizeProposal(ctx, args.proposalId, args.workosOrganizationId);
+    }
+    if (args.surface === "activeBuild" && args.buildId) {
+      await authorizeActiveBuildOrThrow(
+        ctx,
+        args.buildId,
+        args.workosOrganizationId,
+      );
+    }
     const now = Date.now();
     const subscriptionKey = `cal_${args.provider}_${auth.subject.replace(/[^a-zA-Z0-9]/g, "_")}_${now}`;
     const subscriptionId = await ctx.db.insert("calendarSyncSubscriptions", {
@@ -7200,6 +7706,8 @@ export const createCalendarSyncSubscription = authenticatedMutation
       filters: args.filters,
       organizationId: args.workosOrganizationId,
       provider: args.provider,
+      sourceBuildId: args.buildId,
+      sourceProposalId: args.proposalId,
       status: "active",
       subscriptionKey,
       surface: args.surface,
@@ -7249,6 +7757,73 @@ export const recordExternalCalendarSyncChange = authenticatedMutation
           .unique()
       : null;
     const now = Date.now();
+    const payload =
+      args.payload && typeof args.payload === "object"
+        ? (args.payload as Record<string, unknown>)
+        : {};
+    let status: "applied" | "pendingReview" = "pendingReview";
+    if (
+      subscription?.sourceProposalId &&
+      typeof payload.title === "string" &&
+      typeof payload.startsAt === "string"
+    ) {
+      const proposal = await ctx.db.get(subscription.sourceProposalId);
+      if (proposal && proposal.organizationId === args.workosOrganizationId) {
+        const authForProposal = {
+          brokerage: auth.brokerage,
+          roles: auth.roles,
+          subject: auth.subject,
+        };
+        await ctx.db.insert("calendarReminderEvents", {
+          allDay: typeof payload.allDay === "boolean" ? payload.allDay : true,
+          assignedParticipants: [],
+          brokerageId: auth.brokerage._id,
+          createdAt: now,
+          createdByWorkosUserId: auth.subject,
+          description:
+            typeof payload.description === "string"
+              ? normalizeOptionalString(payload.description)
+              : undefined,
+          endsAt:
+            typeof payload.endsAt === "string"
+              ? normalizeIsoDate(payload.endsAt, "External event end date is invalid.")
+              : undefined,
+          externalEventId: args.externalEventId,
+          externalProvider: args.provider,
+          location:
+            typeof payload.location === "string"
+              ? normalizeOptionalString(payload.location)
+              : undefined,
+          organizationId: args.workosOrganizationId,
+          proposalId: subscription.sourceProposalId,
+          source: "external",
+          startsAt: normalizeIsoDate(
+            payload.startsAt,
+            "External event start date is invalid.",
+          ),
+          status: "active",
+          timezone:
+            typeof payload.timezone === "string"
+              ? normalizeOptionalString(payload.timezone) ?? "America/Toronto"
+              : "America/Toronto",
+          title: payload.title.trim() || "External calendar event",
+          updatedAt: now,
+          updatedByWorkosUserId: auth.subject,
+        });
+        await writeProposalEvent(ctx, {
+          auth: authForProposal,
+          command: "recordExternalCalendarSyncChange",
+          eventType: "calendar.reminder.imported",
+          newState: JSON.stringify({
+            externalEventId: args.externalEventId,
+            provider: args.provider,
+            title: payload.title,
+          }),
+          proposalId: subscription.sourceProposalId,
+        });
+        status = "applied";
+      }
+    }
     return await ctx.db.insert("calendarSyncChanges", {
       brokerageId: auth.brokerage._id,
       changeKey: args.changeKey,
@@ -7257,11 +7832,227 @@ export const recordExternalCalendarSyncChange = authenticatedMutation
       organizationId: args.workosOrganizationId,
       payload: args.payload,
       provider: args.provider,
-      status: "pendingReview",
+      status,
       subscriptionId: subscription?._id,
       updatedAt: now,
       workosUserId: auth.subject,
     });
+  })
+  .public();
+
+async function proposalCalendarEventsForFeed(
+  ctx: QueryCtx,
+  proposal: Doc<"buildProposals">,
+) {
+  const [
+    milestones,
+    submilestones,
+    draws,
+    evidenceAssets,
+    contractorAssignments,
+    targetDates,
+    reminderEvents,
+  ] = await Promise.all([
+    collectByIndex(ctx, "proposalMilestones", "by_proposal", proposal._id),
+    collectByIndex(ctx, "proposalSubmilestones", "by_proposal", proposal._id),
+    collectByIndex(ctx, "proposalDrawScheduleRows", "by_proposal", proposal._id),
+    collectByIndex(ctx, "proposalEvidenceAssets", "by_proposal", proposal._id),
+    collectByIndex(
+      ctx,
+      "proposalContractorAssignments",
+      "by_proposal",
+      proposal._id,
+    ),
+    collectByIndex(ctx, "calendarTargetDates", "by_proposal", proposal._id),
+    collectByIndex(ctx, "calendarReminderEvents", "by_proposal", proposal._id),
+  ]);
+  const baseDate = proposalCalendarBaseDate(proposal);
+  const events: any[] = [];
+  const sortedMilestones = [...milestones].sort(
+    (a, b) => a.order - b.order || a.key.localeCompare(b.key),
+  );
+  for (const milestone of sortedMilestones) {
+    events.push(proposalCalendarMilestoneEvent({ baseDate, milestone, proposal }));
+  }
+  for (const submilestone of submilestones) {
+    const parent = sortedMilestones.find(
+      (milestone) => milestone.key === submilestone.milestoneKey,
+    );
+    const startsAt = addDaysIso(baseDate, parent?.dayStart ?? 0);
+    events.push({
+      allDay: true,
+      auditRequired: proposal.status !== "draft",
+      editable: {
+        canChangeAssignee: false,
+        canChangeStatus: false,
+        canMove: false,
+        canResizeEnd: false,
+        canResizeStart: false,
+        requiredReason: "none",
+      },
+      endsAt: addDaysIso(startsAt, Math.max(1, submilestone.durationDays ?? 1)),
+      entity: { id: String(submilestone._id), key: submilestone.key, type: "milestone" },
+      id: calendarEventId("proposal", "submilestone", submilestone.key),
+      kind: "submilestone",
+      milestoneKey: submilestone.milestoneKey,
+      organizationId: submilestone.organizationId,
+      relatedEntityIds: [String(proposal._id)],
+      startsAt,
+      status: "proposed",
+      subtitle: submilestone.milestoneKey,
+      surface: "proposal",
+      timeBucket: "allDay",
+      timezone: "America/Toronto",
+      title: submilestone.name,
+      warnings: [],
+    });
+  }
+  for (const draw of draws) {
+    events.push(proposalCalendarDrawEvent({ baseDate, draw, proposal }));
+  }
+  for (const event of evidenceAssets) {
+    events.push({
+      allDay: false,
+      auditRequired: false,
+      editable: {
+        canChangeAssignee: false,
+        canChangeStatus: false,
+        canMove: false,
+        canResizeEnd: false,
+        canResizeStart: false,
+        requiredReason: "none",
+      },
+      entity: { id: String(event._id), type: "proposal" },
+      id: calendarEventId("proposal", "supporting", String(event._id)),
+      kind: "evidence",
+      milestoneKey: event.milestoneKey,
+      organizationId: event.organizationId,
+      relatedEntityIds: [String(proposal._id)],
+      startsAt: baseDate,
+      status: "planned",
+      subtitle: event.label,
+      surface: "proposal",
+      timeBucket: "midday",
+      timezone: "America/Toronto",
+      title: event.fileName,
+      warnings: !event.locationVerified ? ["Location unverified"] : [],
+    });
+  }
+  for (const assignment of contractorAssignments) {
+    if (
+      assignment.startDay === undefined &&
+      assignment.endDay === undefined
+    ) {
+      continue;
+    }
+    events.push({
+      allDay: true,
+      auditRequired: false,
+      editable: {
+        canChangeAssignee: true,
+        canChangeStatus: false,
+        canMove: false,
+        canResizeEnd: false,
+        canResizeStart: false,
+        requiredReason: "none",
+      },
+      endsAt: addDaysIso(baseDate, assignment.endDay ?? assignment.startDay ?? 0),
+      entity: { id: String(assignment._id), type: "proposal" },
+      id: calendarEventId("proposal", "contractor", String(assignment._id)),
+      kind: "contractor",
+      organizationId: assignment.organizationId,
+      relatedEntityIds: [String(proposal._id), String(assignment.contractorId)],
+      startsAt: addDaysIso(baseDate, assignment.startDay ?? assignment.endDay ?? 0),
+      status: assignment.status === "active" ? "planned" : "cancelled",
+      subtitle: assignment.role,
+      surface: "proposal",
+      timeBucket: "allDay",
+      timezone: "America/Toronto",
+      title: `${assignment.role} contractor window`,
+      warnings: [],
+    });
+  }
+  for (const target of targetDates) {
+    events.push(calendarTargetDateEvent(target, "proposal"));
+  }
+  for (const reminder of reminderEvents) {
+    events.push(calendarReminderEvent(reminder, "proposal"));
+  }
+  return events;
+}
+
+function buildCalendarIcsText(events: any[], calendarName: string) {
+  const escape = (value: string) =>
+    value
+      .replace(/\\/g, "\\\\")
+      .replace(/\n/g, "\\n")
+      .replace(/,/g, "\\,")
+      .replace(/;/g, "\\;");
+  const dateValue = (value: string) => value.slice(0, 10).replace(/-/g, "");
+  const dateTimeValue = (value: string, fallbackHour: string) =>
+    value.includes("T")
+      ? `${new Date(value).toISOString().replace(/[-:]/g, "").split(".")[0]}Z`
+      : `${dateValue(value)}T${fallbackHour}0000`;
+  const timestamp = `${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z`;
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//FairLend//DrawFlow Calendar//EN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    `X-WR-CALNAME:${escape(calendarName)}`,
+  ];
+  for (const event of events
+    .filter((candidate) => candidate.status !== "cancelled")
+    .sort((a, b) => String(a.startsAt).localeCompare(String(b.startsAt)))) {
+    const start = dateValue(event.startsAt);
+    const end = dateValue(
+      addDaysIso(event.endsAt ?? event.startsAt, event.allDay ? 1 : 0),
+    );
+    lines.push(
+      "BEGIN:VEVENT",
+      `UID:${escape(event.id)}@drawflow.fairlend.ca`,
+      `DTSTAMP:${timestamp}`,
+      event.allDay
+        ? `DTSTART;VALUE=DATE:${start}`
+        : `DTSTART:${dateTimeValue(event.startsAt, "09")}`,
+      event.allDay
+        ? `DTEND;VALUE=DATE:${end}`
+        : `DTEND:${dateTimeValue(event.endsAt ?? event.startsAt, "10")}`,
+      `SUMMARY:${escape(event.title)}`,
+      `DESCRIPTION:${escape([event.subtitle, event.kind, event.status, ...(event.warnings ?? []).map((warning: any) => typeof warning === "string" ? warning : warning.label)].filter(Boolean).join(" | "))}`,
+      event.location ? `LOCATION:${escape(event.location)}` : "",
+      "END:VEVENT",
+    );
+  }
+  lines.push("END:VCALENDAR");
+  return `${lines.filter((line) => line !== "").join("\r\n")}\r\n`;
+}
+
+export const getCalendarSubscriptionIcs = publicQuery
+  .input({ subscriptionKey: v.string() })
+  .returns(v.string())
+  .handler(async (ctx, args) => {
+    const subscription = await ctx.db
+      .query("calendarSyncSubscriptions")
+      .withIndex("by_subscription_key", (q) =>
+        q.eq("subscriptionKey", args.subscriptionKey),
+      )
+      .unique();
+    if (!subscription || subscription.status !== "active") {
+      throw new Error("Calendar subscription not found.");
+    }
+    if (subscription.surface === "proposal" && subscription.sourceProposalId) {
+      const proposal = await ctx.db.get(subscription.sourceProposalId);
+      if (!proposal || proposal.organizationId !== subscription.organizationId) {
+        throw new Error("Calendar source not found.");
+      }
+      return buildCalendarIcsText(
+        await proposalCalendarEventsForFeed(ctx, proposal),
+        proposal.buildName,
+      );
+    }
+    return buildCalendarIcsText([], "DrawFlow Calendar");
   })
   .public();
 
@@ -14951,7 +15742,44 @@ async function applyProposalCostItemBudgetDelta(
     drawAvailabilityCents: nextDrawAvailabilityCents,
     updatedAt: now,
   });
+  await syncMilestoneOwnedDrawAmount(ctx, {
+    amountCents: nextDrawAvailabilityCents,
+    milestoneKey: input.milestone.key,
+    proposalId: input.proposalId,
+    updatedAt: now,
+  });
   await recalculateProposalBudget(ctx, auth, input.proposalId);
+}
+
+async function syncMilestoneOwnedDrawAmount(
+  ctx: MutationCtx,
+  input: {
+    amountCents: number;
+    milestoneKey: string;
+    proposalId: Id<"buildProposals">;
+    updatedAt: number;
+  },
+) {
+  const draws = (await collectByIndex(
+    ctx,
+    "proposalDrawScheduleRows",
+    "by_proposal",
+    input.proposalId,
+  )) as Doc<"proposalDrawScheduleRows">[];
+  const draw = draws.find(
+    (row) =>
+      row.milestoneKey === input.milestoneKey &&
+      (row.source === undefined || row.source === "milestone"),
+  );
+
+  if (!draw) {
+    return;
+  }
+
+  await ctx.db.patch(draw._id, {
+    amountCents: Math.max(0, Math.round(input.amountCents)),
+    updatedAt: input.updatedAt,
+  });
 }
 
 async function requireProductionTimelineLiveWrite(
@@ -15832,35 +16660,7 @@ async function getActiveBuildMilestoneOrThrow(
 function activeBuildMilestoneEffectiveDrawAvailabilityCents(
   milestone: Doc<"buildMilestones">,
 ) {
-  const approvedBudgetCents = Math.max(0, Math.round(milestone.budgetCents));
-  const approvedDrawAvailabilityCents = Math.max(
-    0,
-    Math.round(milestone.drawAvailabilityCents),
-  );
-  const actualCostCents = (
-    milestone.completionClaim as { actualCostCents?: number } | undefined
-  )?.actualCostCents;
-
-  if (actualCostCents === undefined || !Number.isFinite(actualCostCents)) {
-    return approvedDrawAvailabilityCents;
-  }
-
-  if (approvedBudgetCents <= 0) {
-    return 0;
-  }
-
-  const reimbursableBasisCents = Math.min(
-    approvedBudgetCents,
-    Math.max(0, Math.round(actualCostCents)),
-  );
-
-  return Math.min(
-    approvedDrawAvailabilityCents,
-    Math.round(
-      (approvedDrawAvailabilityCents * reimbursableBasisCents) /
-        approvedBudgetCents,
-    ),
-  );
+  return Math.max(0, Math.round(milestone.drawAvailabilityCents));
 }
 
 function activeBuildMilestoneEffectiveCompletionDay(
@@ -16494,28 +17294,39 @@ async function getActiveBuildSiteVisitTokenState(
       visit: null,
     };
   }
-  const [milestone, submilestones, evidenceAssets, contractorAssignments] =
-    await Promise.all([
-      ctx.db.get(visit.buildMilestoneId),
-      ctx.db
-        .query("buildSubmilestones")
-        .withIndex("by_milestone", (q) =>
-          q.eq("buildMilestoneId", visit.buildMilestoneId),
-        )
-        .collect(),
-      ctx.db
-        .query("buildEvidenceAssets")
-        .withIndex("by_build_milestone", (q) =>
-          q.eq("buildId", buildId).eq("milestoneKey", visit.milestoneKey),
-        )
-        .collect(),
-      ctx.db
-        .query("milestoneContractorAssignments")
-        .withIndex("by_build_milestone", (q) =>
-          q.eq("buildId", buildId).eq("milestoneKey", visit.milestoneKey),
-        )
-        .collect(),
-    ]);
+  const [
+    milestone,
+    submilestones,
+    evidenceAssets,
+    contractorAssignments,
+    permitDocuments,
+  ] = await Promise.all([
+    ctx.db.get(visit.buildMilestoneId),
+    ctx.db
+      .query("buildSubmilestones")
+      .withIndex("by_milestone", (q) =>
+        q.eq("buildMilestoneId", visit.buildMilestoneId),
+      )
+      .collect(),
+    ctx.db
+      .query("buildEvidenceAssets")
+      .withIndex("by_build_milestone", (q) =>
+        q.eq("buildId", buildId).eq("milestoneKey", visit.milestoneKey),
+      )
+      .collect(),
+    ctx.db
+      .query("milestoneContractorAssignments")
+      .withIndex("by_build_milestone", (q) =>
+        q.eq("buildId", buildId).eq("milestoneKey", visit.milestoneKey),
+      )
+      .collect(),
+    ctx.db
+      .query("buildDocuments")
+      .withIndex("by_build_type", (q) =>
+        q.eq("buildId", buildId).eq("documentType", "permit"),
+      )
+      .collect(),
+  ]);
   const assignedContractorProfiles = await Promise.all(
     contractorAssignments.map((assignment) =>
       ctx.db.get(assignment.contractorId),
@@ -16543,6 +17354,7 @@ async function getActiveBuildSiteVisitTokenState(
         url: asset.storageId ? await ctx.storage.getUrl(asset.storageId) : null,
       })),
   );
+  const permit = await getActiveBuildSiteVisitPermit(ctx, permitDocuments);
   const targets = milestone
     ? [
         {
@@ -16605,6 +17417,7 @@ async function getActiveBuildSiteVisitTokenState(
       available: false,
       build: buildView,
       files,
+      permit,
       reason: "consumed",
       status: "completed",
       targets,
@@ -16616,6 +17429,7 @@ async function getActiveBuildSiteVisitTokenState(
       available: false,
       build: buildView,
       files,
+      permit,
       reason: "expired",
       status: "expired",
       targets,
@@ -16626,8 +17440,31 @@ async function getActiveBuildSiteVisitTokenState(
     available: true,
     build: buildView,
     files,
+    permit,
     targets,
     visit: visitView,
+  };
+}
+
+async function getActiveBuildSiteVisitPermit(
+  ctx: QueryCtx | MutationCtx,
+  documents: Doc<"buildDocuments">[],
+) {
+  const permit = documents.sort((a, b) => b.createdAt - a.createdAt)[0];
+  if (!permit) {
+    return null;
+  }
+  return {
+    _id: String(permit._id),
+    fileName: permit.fileName,
+    kind: permit.documentType,
+    mimeType: permit.mimeType,
+    name: permit.fileName,
+    sizeBytes: permit.sizeBytes,
+    storageUrl: permit.storageId
+      ? await ctx.storage.getUrl(permit.storageId)
+      : null,
+    url: null,
   };
 }
 

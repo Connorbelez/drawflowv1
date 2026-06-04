@@ -105,8 +105,10 @@ import {
 } from "#/features/calendar-workspace/adapters/proposalCalendarAdapter.ts";
 import { CalendarWorkspace } from "#/features/calendar-workspace/CalendarWorkspace.tsx";
 import type {
+  CalendarAssignableParticipant,
   CalendarEditRequest,
   CalendarFilters,
+  CalendarReminderEventInput,
   CalendarSyncSubscriptionResult,
   CalendarTimeframe,
   DrawFlowCalendarWorkspaceData,
@@ -439,7 +441,7 @@ export function ProductionProposalDraftEditorSurface({
   function save() {
     const normalizedDraftDraws = normalizeProposalDrawRows({
       borrowerCoPayBps: draftBorrowerCoPayBps,
-      draws: draftDraws,
+      draws: draftDrawsForAvailabilityRecalculation(draftDraws),
       milestones: draftMilestones,
     });
     const nextApprovedAmountCents = Math.max(
@@ -1519,6 +1521,7 @@ export function ProductionProposalSettingsSurface({
 export function ProductionProposalReviewSurface({
   builders = [],
   calendarAdapterActions,
+  calendarAssignableParticipants = [],
   calendarTimeframe,
   calendarWorkspace,
   detail,
@@ -1529,13 +1532,16 @@ export function ProductionProposalReviewSurface({
   onApprove,
   onClose,
   onCommitCalendarEdit,
+  onCreateCalendarReminderEvent,
   onCreateCalendarSyncSubscription,
+  onDeleteCalendarReminderEvent,
   onRecordExternalCalendarSyncChange,
   onReject,
   onRequestChanges,
   onAssignBuilder,
   onUnassignBuilder,
   onUpdateApprovedAmount,
+  onUpdateCalendarReminderEvent,
   onUpdateInterestRate,
   onSaveCalendarView,
   onCreateClaimLink,
@@ -1549,6 +1555,7 @@ export function ProductionProposalReviewSurface({
   contractors?: ReactNode;
   gantt?: ReactNode;
   calendarAdapterActions?: ProposalCalendarAdapterActions;
+  calendarAssignableParticipants?: CalendarAssignableParticipant[];
   calendarTimeframe?: CalendarTimeframe;
   calendarWorkspace?: DrawFlowCalendarWorkspaceData | null;
   detail: ProductionProposalDetail;
@@ -1567,11 +1574,19 @@ export function ProductionProposalReviewSurface({
     direction: "bidirectional" | "outbound";
     filters: CalendarFilters;
     provider: "google" | "ics" | "outlook";
+    sourceId: string;
     surface: "activeBuild" | "proposal";
   }) =>
     | Promise<CalendarSyncSubscriptionResult>
     | CalendarSyncSubscriptionResult
     | void;
+  onCreateCalendarReminderEvent?: (
+    input: CalendarReminderEventInput,
+  ) => Promise<unknown> | unknown;
+  onDeleteCalendarReminderEvent?: (input: {
+    eventId: string;
+    reason?: string;
+  }) => Promise<unknown> | unknown;
   onRecordExternalCalendarSyncChange?: (input: {
     changeKey: string;
     externalEventId?: string;
@@ -1585,6 +1600,9 @@ export function ProductionProposalReviewSurface({
   onUnassignBuilder?: () => Promise<unknown> | unknown;
   onUpdateApprovedAmount?: (
     approvedAmountCents: number
+  ) => Promise<unknown> | unknown;
+  onUpdateCalendarReminderEvent?: (
+    input: CalendarReminderEventInput & { eventId: string },
   ) => Promise<unknown> | unknown;
   onUpdateInterestRate?: (
     interestAnnualBps: number
@@ -1874,14 +1892,18 @@ export function ProductionProposalReviewSurface({
         >
           <CalendarWorkspace
             actions={effectiveCalendarActions}
+            assignableParticipants={calendarAssignableParticipants}
             initialTimeframe={
               calendarTimeframe ?? effectiveCalendarWorkspace.defaultTimeframe
             }
             onCommitEdit={onCommitCalendarEdit ?? fallbackCalendarEdit}
+            onCreateReminderEvent={onCreateCalendarReminderEvent}
             onCreateSyncSubscription={onCreateCalendarSyncSubscription}
+            onDeleteReminderEvent={onDeleteCalendarReminderEvent}
             onRecordExternalSyncChange={onRecordExternalCalendarSyncChange}
             onSaveView={onSaveCalendarView}
             onTimeframeChange={onChangeCalendarTimeframe}
+            onUpdateReminderEvent={onUpdateCalendarReminderEvent}
             workspace={effectiveCalendarWorkspace}
           />
         </TabsPanel>
@@ -2830,6 +2852,15 @@ function materialPlanningMilestones(detail: ProductionProposalDetail) {
         name: submilestone.name,
         order: submilestone.order,
       })),
+  }));
+}
+
+function draftDrawsForAvailabilityRecalculation(
+  draws: ProposalGanttDrawDraft[],
+): ProposalGanttDrawDraft[] {
+  return draws.map((draw) => ({
+    ...draw,
+    amountCents: 0,
   }));
 }
 
