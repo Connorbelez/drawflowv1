@@ -28,11 +28,6 @@ import {
   type BuildPermitViewerDocument,
 } from "#/features/build-permit-viewer/BuildPermitViewerDrawer.tsx";
 import {
-  BuildPermitViewerDrawer,
-  firstPermitDocument,
-  type BuildPermitViewerDocument,
-} from "#/features/build-permit-viewer/BuildPermitViewerDrawer.tsx";
-import {
   Sortable,
   SortableItem,
   SortableItemHandle,

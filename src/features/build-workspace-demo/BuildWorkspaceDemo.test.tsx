@@ -56,15 +56,25 @@ describe("BuildWorkspaceDemo Gantt labels and draw editing", () => {
     });
   });
 
-  test("opens draw editor from the draw group label without using the drag handle", () => {
-    renderWorkspace();
+  test("switches roadmap display labels between calendar dates and T offsets locally", () => {
+    renderWorkspace({
+      timelineBaseDate: new Date(2026, 5, 1),
+    });
 
-    fireEvent.click(screen.getByTestId("draw-drag-handle-draw-01"));
-    expect(screen.queryByTestId("draw-detail-sheet")).toBeNull();
+    expect(
+      screen
+        .getByTestId("timeline-schedule-display-dates")
+        .getAttribute("aria-pressed")
+    ).toBe("true");
+    fireEvent.click(screen.getByTestId("timeline-schedule-display-tOffsets"));
 
-    fireEvent.click(screen.getByTestId("draw-label-draw-01"));
+    expect(
+      screen.getByTestId("timeline-schedule-display-tOffsets")
+        .getAttribute("aria-pressed")
+    ).toBe("true");
 
-    expect(screen.getByTestId("draw-detail-sheet")).toBeTruthy();
+    fireEvent.mouseEnter(screen.getByTestId("timeline-milestone-dc-ed"));
+    expect(screen.getByText(/T0 - T3/)).toBeTruthy();
   });
 });
 

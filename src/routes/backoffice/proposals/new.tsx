@@ -64,6 +64,7 @@ function NewBackofficeProductionProposalRoute() {
       const proposalId = await createBrokerDraft({
         buildName: packagePayload.buildName,
         location: packagePayload.location,
+        proposedStartDate: packagePayload.proposedStartDate,
         workosOrganizationId,
       });
       await saveDraft({

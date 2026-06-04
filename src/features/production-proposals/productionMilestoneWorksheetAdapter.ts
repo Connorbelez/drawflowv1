@@ -28,6 +28,7 @@ export interface ProductionProposalWorksheetDetail {
     order: number;
   }>;
   proposal: {
+    proposedStartDate?: string;
     status: string;
     totalBudgetCents: number;
   };
@@ -236,6 +237,7 @@ export function productionProposalDetailToWorksheetRows(
           name: submilestone.name,
           percentageBps: subPercentageBps,
           percentageText: formatBps(subPercentageBps),
+          startDay: submilestone.startDay ?? milestone.dayStart,
         };
       });
       const availableSubMilestoneIds = new Set(
@@ -262,6 +264,7 @@ export function productionProposalDetailToWorksheetRows(
         order: milestone.order,
         percentageBps,
         percentageText: formatBps(percentageBps),
+        startDay: milestone.dayStart,
         subMilestoneDetails,
         subMilestones: submilestones.map((submilestone) => submilestone.name),
         type: milestone.key,
@@ -360,6 +363,9 @@ export function worksheetRowsToGanttMilestoneDrafts(
         row.durationText,
         schedule?.durationDays ?? 1
       );
+      const dayStart = Number.isFinite(row.startDay)
+        ? Math.round(row.startDay ?? 0)
+        : schedule?.dayStart ?? 0;
       const scheduleSubmilestonesByKey = new Map(
         (schedule?.submilestones ?? []).map((submilestone) => [
           submilestone.key,
@@ -369,8 +375,8 @@ export function worksheetRowsToGanttMilestoneDrafts(
 
       return {
         budgetCents,
-        dayEnd: schedule?.dayEnd ?? durationDays,
-        dayStart: schedule?.dayStart ?? 0,
+        dayEnd: dayStart + durationDays,
+        dayStart,
         dependencyKeys: row.dependencyKeys,
         durationDays,
         icon: row.icon,
@@ -393,9 +399,13 @@ export function worksheetRowsToGanttMilestoneDrafts(
             key: submilestone.id,
             name: submilestone.name,
             order: subIndex + 1,
-            ...(scheduleSubmilestone?.startDay === undefined
+            ...(submilestone.startDay === undefined &&
+            scheduleSubmilestone?.startDay === undefined
               ? {}
-              : { startDay: scheduleSubmilestone.startDay }),
+              : {
+                  startDay:
+                    submilestone.startDay ?? scheduleSubmilestone?.startDay,
+                }),
           };
         }),
       };

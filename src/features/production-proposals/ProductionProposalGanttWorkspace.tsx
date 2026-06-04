@@ -27,6 +27,7 @@ import {
 } from "#/features/build-workspace-demo/build-workspace-contractor-planning.ts";
 import { BuildWorkspaceProvider } from "#/features/build-workspace-demo/workspace-adapter.tsx";
 import type { ContractorPlanningModel } from "#/features/contractors/ContractorPlanningPanel.tsx";
+import { localDateFromIsoDate } from "#/features/production-proposals/proposalScheduleDates.ts";
 import type {
   ContractorAssignmentCostDraft,
   ContractorProfileDraft,
@@ -104,6 +105,7 @@ export interface ProposalGanttSubmilestoneRow {
 }
 
 export interface ProductionProposalGanttWorkspaceProps {
+  baseDate?: string;
   borrowerCoPayBps: number;
   borrowerWorkingCapitalLimitCents: number;
   buildName: string;
@@ -136,6 +138,7 @@ export interface ProductionProposalTimelineGanttWorkspaceProps {
   persistenceMode?: "convex" | "noop";
   proposalId: Id<"buildProposals">;
   workspace: ConvexTimelineWorkspace & {
+    activeBuild?: { startDate?: string } | null;
     contractorPlanning?: ContractorPlanningModel | null;
     proposal: {
       borrowerCoPayBps?: number;
@@ -143,6 +146,7 @@ export interface ProductionProposalTimelineGanttWorkspaceProps {
       buildName: string;
       lenderDrawPolicyLimitCents?: number;
       location: string;
+      proposedStartDate?: string;
       status: string;
       totalBudgetCents: number;
     };
@@ -265,6 +269,9 @@ export function ProductionProposalTimelineGanttWorkspace({
         projected.borrowerWorkingCapitalLimitCents
       }
       buildName={projected.buildName}
+      baseDate={
+        workspace.activeBuild?.startDate ?? workspace.proposal.proposedStartDate
+      }
       contractorPlanning={contractorPlanning}
       draws={localDraws}
       lenderDrawPolicyLimitCents={projected.lenderDrawPolicyLimitCents}
@@ -335,6 +342,7 @@ export function ProductionProposalTimelineGanttWorkspace({
 }
 
 export function ProductionProposalGanttWorkspace({
+  baseDate,
   borrowerCoPayBps,
   borrowerWorkingCapitalLimitCents,
   buildName,
@@ -359,6 +367,7 @@ export function ProductionProposalGanttWorkspace({
   const [dismissedIssueKeys, setDismissedIssueKeys] = useState(
     () => new Set<string>(),
   );
+  const timelineBaseDate = useMemo(() => proposalBaseDateFromIso(baseDate), [baseDate]);
 
   const normalizedDraws = useMemo(
     () =>
@@ -416,6 +425,7 @@ export function ProductionProposalGanttWorkspace({
 
   const mapped = mapProposalGanttWorkspace({
     activePlanId,
+    baseDate: timelineBaseDate,
     borrowerWorkingCapitalLimitCents,
     buildName,
     dependencies,
@@ -464,8 +474,8 @@ export function ProductionProposalGanttWorkspace({
       const order = ordered.length + 1;
       const durationDays = Math.max(1, Math.round(input.estimatedDurationDays));
       const dayStart = input.startAt
-        ? dayFromDate(input.startAt)
-        : Math.max(0, last?.dayEnd ?? 0);
+        ? dayFromDate(input.startAt, timelineBaseDate)
+        : (last?.dayEnd ?? 0);
       const key = uniqueMilestoneKey(input.name, milestones);
       commitMilestones([
         ...ordered,
@@ -514,7 +524,9 @@ export function ProductionProposalGanttWorkspace({
     applyRecommendedPlan: async () => setActivePlanId("capitalConstrained"),
     approveMilestone: async () => undefined,
     batchMoveMilestoneDates: async (moves) => {
-      commitMilestones(applyGanttSubmilestoneMoves(milestones, moves));
+      commitMilestones(
+        applyGanttSubmilestoneMoves(milestones, moves, timelineBaseDate),
+      );
     },
     claimSiteVisit: async () => undefined,
     dismissIssue: async (issue) => {
@@ -540,7 +552,7 @@ export function ProductionProposalGanttWorkspace({
             startAt,
             endAt,
           },
-        ]),
+        ], timelineBaseDate),
       );
     },
     moveMilestoneToDrawGroup: async (milestoneId, drawGroupId) => {
@@ -660,7 +672,7 @@ export function ProductionProposalGanttWorkspace({
             startAt,
             endAt,
           },
-        ]),
+        ], timelineBaseDate),
       );
     },
     updateMilestone: async (milestoneId, patch: MilestonePatch) => {
@@ -703,6 +715,7 @@ export function proposalTimelineWorkspaceToGanttDraft(
       buildName: string;
       lenderDrawPolicyLimitCents?: number;
       location: string;
+      proposedStartDate?: string;
       status: string;
       totalBudgetCents: number;
     };
@@ -710,7 +723,7 @@ export function proposalTimelineWorkspaceToGanttDraft(
 ) {
   const milestones = workspace.milestones
     .map<ProposalGanttMilestoneDraft>((milestone, index) => {
-      const dayStart = Math.max(0, Math.round(milestone.x));
+      const dayStart = Math.round(milestone.x);
       const durationDays = Math.max(1, Math.round(milestone.durationDays));
       return {
         budgetCents: Math.max(0, Math.round(milestone.budgetCents)),
@@ -752,7 +765,7 @@ export function proposalTimelineWorkspaceToGanttDraft(
       label: draw.label,
       milestoneKey: draw.itemMilestoneKey,
       order: index + 1,
-      timingDay: Math.max(0, Math.round(draw.x)),
+      timingDay: Math.round(draw.x),
     })),
     milestones,
   });
@@ -872,6 +885,7 @@ export function normalizeProposalDrawRows({
 
 export function mapProposalGanttWorkspace({
   activePlanId,
+  baseDate = BASE_DATE,
   borrowerWorkingCapitalLimitCents,
   buildName,
   dependencies,
@@ -885,6 +899,7 @@ export function mapProposalGanttWorkspace({
   selectedMilestoneId,
 }: {
   activePlanId: OptimizationPlanId;
+  baseDate?: Date;
   borrowerWorkingCapitalLimitCents: number;
   buildName: string;
   dependencies: MilestoneDependency[];
@@ -905,22 +920,22 @@ export function mapProposalGanttWorkspace({
   );
   const workspaceDrawGroups = drawGroups.map<DrawGroup>((group) => ({
     amount: centsToDollars(group.amountCents),
-    eligibleAt: dateFromDay(group.draw.timingDay),
-    endAt: dateFromDay(group.endDay),
+    eligibleAt: dateFromDay(group.draw.timingDay, baseDate),
+    endAt: dateFromDay(group.endDay, baseDate),
     id: group.draw.drawKey,
     issues: issues.filter((issue) =>
       issue.drawGroupIds.includes(group.draw.drawKey),
     ),
     label: group.draw.label,
     order: group.order,
-    plannedAt: dateFromDay(group.draw.timingDay),
+    plannedAt: dateFromDay(group.draw.timingDay, baseDate),
     rowIndex: indexOfSubmilestoneRow(
       submilestoneRows,
       group.submilestones[0]?.milestoneKey,
       group.submilestones[0]?.key,
     ),
     rowSpan: Math.max(1, group.submilestones.length),
-    startAt: dateFromDay(group.startDay),
+    startAt: dateFromDay(group.startDay, baseDate),
     status: "planned",
     timingDay: group.draw.timingDay,
     totalExposure: centsToDollars(group.amountCents),
@@ -956,7 +971,7 @@ export function mapProposalGanttWorkspace({
     completionReport: "",
     drawGroupId:
       drawKeyBySubmilestoneRow.get(row.id) ?? workspaceDrawGroups[0]?.id ?? "",
-    endAt: dateFromDay(row.dayEnd),
+    endAt: dateFromDay(row.dayEnd, baseDate),
     estimatedCost: centsToDollars(row.budgetCents),
     estimatedDurationDays: row.durationDays,
     evidenceFiles: [],
@@ -984,7 +999,7 @@ export function mapProposalGanttWorkspace({
     siteVisitRequested: false,
     siteVisits: [],
     staffRecommendation: "",
-    startAt: dateFromDay(row.dayStart),
+    startAt: dateFromDay(row.dayStart, baseDate),
     status: proposalStatus === "draft" ? "proposed" : "notStarted",
     warningCount: issues.filter(
       (issue) =>
@@ -1036,6 +1051,7 @@ export function mapProposalGanttWorkspace({
     role,
     selectedMilestoneId: selectedMilestoneId || workspaceMilestones[0]?.id || "",
     terminalMessage: "Draft Gantt edits update the proposal package before save.",
+    timelineBaseDate: baseDate,
     validationErrors: issues
       .filter((issue) => issue.severity === "blocking")
       .map((issue) => issue.message),
@@ -1116,7 +1132,7 @@ export function proposalMilestonesToGanttSubmilestoneRows(
       const dayStart =
         submilestone.startDay === undefined
           ? cursor
-          : Math.max(0, Math.round(submilestone.startDay));
+          : Math.round(submilestone.startDay);
       const dayEnd = dayStart + durationDays;
       cursor = dayEnd;
       return {
@@ -1140,6 +1156,7 @@ export function proposalMilestonesToGanttSubmilestoneRows(
 export function applyGanttSubmilestoneMoves(
   milestones: ProposalGanttMilestoneDraft[],
   moves: Array<{ endAt: Date | null; milestoneId: string; startAt: Date }>,
+  baseDate = BASE_DATE,
 ) {
   let nextMilestones = milestones;
   const movesByParent = new Map<string, typeof moves>();
@@ -1160,7 +1177,7 @@ export function applyGanttSubmilestoneMoves(
     const movedRowIds = new Set(parentMoves.map((move) => move.milestoneId));
     const deltas = parentMoves.map((move) => {
       const row = rows.find((item) => item.id === move.milestoneId);
-      return row ? dayFromDate(move.startAt) - row.dayStart : 0;
+      return row ? dayFromDate(move.startAt, baseDate) - row.dayStart : 0;
     });
     const uniqueDeltas = Array.from(new Set(deltas));
     if (movedRowIds.size === rows.length && uniqueDeltas.length === 1) {
@@ -1173,7 +1190,7 @@ export function applyGanttSubmilestoneMoves(
 
     let nextMilestone = milestone;
     for (const move of parentMoves) {
-      nextMilestone = applySingleGanttSubmilestoneMove(nextMilestone, move);
+      nextMilestone = applySingleGanttSubmilestoneMove(nextMilestone, move, baseDate);
     }
     nextMilestones = nextMilestones.map((item) =>
       item.key === parentKey ? nextMilestone : item,
@@ -1186,14 +1203,15 @@ export function applyGanttSubmilestoneMoves(
 function applySingleGanttSubmilestoneMove(
   milestone: ProposalGanttMilestoneDraft,
   move: { endAt: Date | null; milestoneId: string; startAt: Date },
+  baseDate: Date,
 ) {
   const rows = proposalMilestonesToGanttSubmilestoneRows([milestone]);
   const rowIndex = rows.findIndex((row) => row.id === move.milestoneId);
   if (rowIndex < 0) {
     return milestone;
   }
-  const targetStart = dayFromDate(move.startAt);
-  const targetEnd = dayFromDate(move.endAt ?? move.startAt);
+  const targetStart = dayFromDate(move.startAt, baseDate);
+  const targetEnd = dayFromDate(move.endAt ?? move.startAt, baseDate);
   const targetDuration = Math.max(1, targetEnd - targetStart);
   const nextSubmilestones = submilestonesForMilestone(milestone).map((submilestone, index) => ({
     ...submilestone,
@@ -1976,12 +1994,23 @@ function slugify(value: string) {
     .replace(/^-+|-+$/g, "");
 }
 
-function dateFromDay(day: number) {
-  return addDays(BASE_DATE, Math.max(0, Math.round(day)));
+function proposalBaseDateFromIso(value?: string) {
+  if (!value) {
+    return BASE_DATE;
+  }
+  try {
+    return localDateFromIsoDate(value);
+  } catch {
+    return BASE_DATE;
+  }
 }
 
-function dayFromDate(date: Date) {
-  return Math.max(0, differenceInDays(date, BASE_DATE));
+function dateFromDay(day: number, baseDate = BASE_DATE) {
+  return addDays(baseDate, Math.round(day));
+}
+
+function dayFromDate(date: Date, baseDate = BASE_DATE) {
+  return differenceInDays(date, baseDate);
 }
 
 function centsToDollars(cents: number) {

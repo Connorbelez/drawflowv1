@@ -925,6 +925,110 @@ describe("production proposal foundation", () => {
     });
   });
 
+  test("persists a backdated proposed start date without creating implicit dependencies", async () => {
+    const { seed, t } = await seeded(["admin"], "user_admin");
+    const proposalId = await t.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Backdated proposal",
+        location: "11 Parallel Road",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerWorkingCapitalLimitCents: 40_000_000,
+        lenderDrawPolicyLimitCents: 90_000_000,
+        milestones: [
+          {
+            budgetCents: 40_000_000,
+            dayEnd: 30,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 30,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [],
+          },
+          {
+            budgetCents: 35_000_000,
+            dayEnd: 35,
+            dayStart: 5,
+            dependencyKeys: [],
+            durationDays: 30,
+            key: "framing",
+            name: "Framing",
+            order: 2,
+            submilestones: [],
+          },
+        ],
+        proposalId,
+        proposedStartDate: "2025-04-15",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const detail = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(detail.proposal.proposedStartDate).toBe("2025-04-15");
+    expect(
+      detail.milestones
+        .sort((left: any, right: any) => left.order - right.order)
+        .map((milestone: any) => ({
+          dependencyKeys: milestone.dependencyKeys,
+          key: milestone.key,
+        })),
+    ).toEqual([
+      { dependencyKeys: [], key: "foundation" },
+      { dependencyKeys: [], key: "framing" },
+    ]);
+
+    const byString = await t.query(
+      (api as any).production_proposals.getProposalDetailByString,
+      { proposalId: String(proposalId), workosOrganizationId: ORG },
+    );
+    expect(byString.proposal.proposedStartDate).toBe("2025-04-15");
+
+    await t.mutation((api as any).production_proposals.submitProposal, {
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      permitWaiverReason: "Permit packet approved offline.",
+      proposalId,
+      reason: "Schedule reviewed.",
+      workosOrganizationId: ORG,
+    });
+    const closing = await t.mutation(
+      (api as any).production_proposals.recordOfflineClosing,
+      {
+        buildStartDate: "2025-05-01",
+        loanFacility: {
+          interestAnnualBps: 925,
+          principalCents: 90_000_000,
+        },
+        proposalId,
+        reason: "Loan closed with updated start date.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const closed = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(closed.proposal.proposedStartDate).toBe("2025-04-15");
+    expect(closed.activeBuild?._id).toBe(closing.buildId);
+    expect(closed.activeBuild?.startDate).toBe("2025-05-01");
+  });
+
   test("generates Convex storage upload URLs and returns document storage URLs in proposal detail", async () => {
     const { seed, t } = await seeded(["admin"], "user_admin");
     const proposalId = await t.mutation(

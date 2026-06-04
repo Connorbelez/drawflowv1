@@ -45,6 +45,7 @@ export interface DemoMilestone {
   completionClaim?: DemoCompletionClaim;
   completionPaymentAmount?: number;
   completionReview?: DemoCompletionReview;
+  dependencyKeys?: string[];
   draw: string;
   drawAvailabilityAmount?: number;
   drawX?: number;

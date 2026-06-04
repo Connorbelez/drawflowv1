@@ -67,6 +67,7 @@ function NewProductionProposalRoute() {
         builderProfileId: createContext.builderProfile._id,
         buildName: packagePayload.buildName,
         location: packagePayload.location,
+        proposedStartDate: packagePayload.proposedStartDate,
         workosOrganizationId,
       });
       const uploadedPermitDocuments = await Promise.all(

@@ -627,6 +627,7 @@ export const createDraftProposal = authenticatedMutation
     builderProfileId: v.id("builderProfiles"),
     buildName: v.string(),
     location: v.string(),
+    proposedStartDate: v.optional(v.string()),
     workosOrganizationId: v.string(),
   })
   .returns(v.id("buildProposals"))
@@ -659,6 +660,14 @@ export const createDraftProposal = authenticatedMutation
       lenderDrawPolicyLimitCents: 0,
       location: args.location,
       organizationId: args.workosOrganizationId,
+      ...(args.proposedStartDate === undefined
+        ? {}
+        : {
+            proposedStartDate: normalizeIsoDateOnly(
+              args.proposedStartDate,
+              "proposedStartDate",
+            ),
+          }),
       reviewOutcome: "none",
       status: "draft",
       totalBudgetCents: 0,
@@ -681,6 +690,7 @@ export const createBrokerDraftProposal = authenticatedMutation
   .input({
     buildName: v.optional(v.string()),
     location: v.optional(v.string()),
+    proposedStartDate: v.optional(v.string()),
     workosOrganizationId: v.string(),
   })
   .returns(v.id("buildProposals"))
@@ -702,6 +712,14 @@ export const createBrokerDraftProposal = authenticatedMutation
       lenderDrawPolicyLimitCents: 0,
       location: args.location?.trim() || "Unassigned site",
       organizationId: args.workosOrganizationId,
+      ...(args.proposedStartDate === undefined
+        ? {}
+        : {
+            proposedStartDate: normalizeIsoDateOnly(
+              args.proposedStartDate,
+              "proposedStartDate",
+            ),
+          }),
       reviewOutcome: "none",
       status: "draft",
       totalBudgetCents: 0,
@@ -738,6 +756,7 @@ export const saveDraftProposalPackage = authenticatedMutation
     location: v.optional(v.string()),
     milestones: v.array(milestoneInput),
     proposalId: v.id("buildProposals"),
+    proposedStartDate: v.optional(v.string()),
     templateId: v.optional(v.id("proposalTemplates")),
     workosOrganizationId: v.string(),
   })
@@ -835,6 +854,14 @@ export const saveDraftProposalPackage = authenticatedMutation
       buildName: args.buildName?.trim() || auth.proposal.buildName,
       lenderDrawPolicyLimitCents: args.lenderDrawPolicyLimitCents,
       location: args.location?.trim() || auth.proposal.location,
+      ...(args.proposedStartDate === undefined
+        ? {}
+        : {
+            proposedStartDate: normalizeIsoDateOnly(
+              args.proposedStartDate,
+              "Proposed start date",
+            ),
+          }),
       templateId: args.templateId,
       totalBudgetCents,
       updatedAt: now,
@@ -5738,6 +5765,9 @@ function calendarDateFromMs(ms: number) {
 }
 
 function proposalCalendarBaseDate(proposal: Doc<"buildProposals">) {
+  if (proposal.proposedStartDate) {
+    return proposal.proposedStartDate;
+  }
   return calendarDateFromMs(proposal.submittedAt ?? proposal.createdAt);
 }
 
@@ -6135,7 +6165,10 @@ export const getProposalCalendarWorkspace = authenticatedQuery
       const parent = sortedMilestones.find(
         (milestone) => milestone.key === submilestone.milestoneKey,
       );
-      const startsAt = addDaysIso(baseDate, parent?.dayStart ?? 0);
+      const startsAt = addDaysIso(
+        baseDate,
+        submilestone.startDay ?? parent?.dayStart ?? 0,
+      );
       events.push({
         allDay: true,
         auditRequired: auth.proposal.status !== "draft",
@@ -13840,6 +13873,27 @@ function requireAnyRole(
 function normalizeOptionalString(value?: string) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function normalizeIsoDateOnly(value: string, label: string) {
+  const trimmed = value.trim();
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (!match) {
+    throw new Error(`${label} must be a valid YYYY-MM-DD date.`);
+  }
+  const [, yearText, monthText, dayText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    throw new Error(`${label} must be a valid YYYY-MM-DD date.`);
+  }
+  return trimmed;
 }
 
 function normalizeOptionalMoneyCents(value?: number) {

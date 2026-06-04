@@ -45,6 +45,42 @@ const baseItems = [
 ];
 
 describe("TimelineSetupFlow permit viewer", () => {
+  test("requires a proposed start date before continuing", () => {
+    render(<TimelineSetupFlow baseItems={baseItems} onComplete={vi.fn()} />);
+
+    const proposedStartDateInput = screen.getByTestId(
+      "timeline-setup-proposed-start-date-input"
+    );
+    expect((proposedStartDateInput as HTMLInputElement).value).toMatch(
+      /^\d{4}-\d{2}-\d{2}$/
+    );
+
+    fireEvent.change(proposedStartDateInput, { target: { value: "" } });
+    fireEvent.click(screen.getByTestId("timeline-setup-continue-budget"));
+
+    expect(screen.getByTestId("timeline-setup-error").textContent).toContain(
+      "Enter a proposed start date"
+    );
+  });
+
+  test("emits a backdated proposed start date in the setup result", () => {
+    const onComplete = vi.fn();
+    render(<TimelineSetupFlow baseItems={baseItems} onComplete={onComplete} />);
+
+    fireEvent.change(
+      screen.getByTestId("timeline-setup-proposed-start-date-input"),
+      { target: { value: "2025-01-15" } }
+    );
+    fireEvent.click(screen.getByTestId("timeline-setup-continue-budget"));
+    fireEvent.click(screen.getByTestId("timeline-setup-complete"));
+
+    expect(onComplete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        proposedStartDate: "2025-01-15",
+      })
+    );
+  });
+
   test("shows permit viewer after leaving template selection when a permit is attached", () => {
     ensureObjectUrlStatics();
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:permit");

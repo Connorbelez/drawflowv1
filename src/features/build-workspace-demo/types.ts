@@ -429,6 +429,7 @@ export interface BuildWorkspaceState {
   role: WorkspaceRole;
   selectedMilestoneId: string;
   terminalMessage?: string;
+  timelineBaseDate?: Date;
   validationErrors: string[];
   validationWarnings: string[];
   contractorPlanning?: ContractorPlanningModel | null;

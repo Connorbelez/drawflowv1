@@ -247,10 +247,7 @@ export function timelineSetupResultToDraftPackage(
         budgetCents: dollarsToCents(item.data.amount),
         dayEnd: dayStart + durationDays,
         dayStart,
-        dependencyKeys:
-          index === 0
-            ? []
-            : [result.items[index - 1]?.id ?? ""].filter(Boolean),
+        dependencyKeys: item.data.dependencyKeys ?? [],
         durationDays,
         icon: item.data.icon,
         key: item.id,
@@ -274,6 +271,7 @@ export function timelineSetupResultToDraftPackage(
         ),
       };
     }),
+    proposedStartDate: result.proposedStartDate,
   };
 }
 

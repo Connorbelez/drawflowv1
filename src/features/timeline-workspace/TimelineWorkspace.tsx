@@ -129,10 +129,12 @@ import {
 import {
   applyTimelineShareSnapshotV2,
   buildTimelineShareSnapshotV2,
+  calculateDrawAvailabilityAmount,
   type DemoCapitalSpike,
   type DemoDraw,
   type DemoEvidenceAsset,
   type DemoMilestone,
+  DEFAULT_BORROWER_CO_PAY_BPS,
   getMilestoneDrawAvailabilityAmount,
   getMilestoneEffectiveCashSpendAmount,
   initialTimelineShareState,
@@ -5336,14 +5338,14 @@ function syncDemoDrawsWithItems(
   draws: DemoDraw[],
   _items: TimelineItem<DemoMilestone>[],
   range: TimelineRange,
+  options?: { preserveLabels?: boolean },
 ): DemoDraw[] {
   const resolvedRange = normalizeDemoRange(range);
-  return relabelTimelineDraws(
-    draws.map((draw) => ({
+  const clampedDraws = draws.map((draw) => ({
       ...draw,
       x: clampNumber(draw.x, resolvedRange.min, resolvedRange.max),
-    })),
-  );
+    }));
+  return options?.preserveLabels ? sortTimelineDraws(clampedDraws) : relabelTimelineDraws(clampedDraws);
 }
 
 function sortTimelineDraws(draws: DemoDraw[]) {
@@ -5418,7 +5420,9 @@ export function normalizeTimelineShareStateForRoute(
 
   return {
     ...state,
-    draws: syncDemoDrawsWithItems(state.draws, state.items, range),
+    draws: syncDemoDrawsWithItems(state.draws, state.items, range, {
+      preserveLabels: true,
+    }),
     range,
   };
 }
@@ -5610,7 +5614,7 @@ export function calculateDrawRequestLimit(
       return total;
     }
 
-    return total + getMilestoneDrawAvailabilityAmount(item.data);
+    return total + getMilestoneRequestableDrawAmount(item.data);
   }, 0);
   const alreadyDrawn = draws.reduce((total, draw) => {
     if (draw.id === targetDraw.id || draw.x > drawDay) {
@@ -5631,6 +5635,23 @@ export function calculateDrawRequestLimit(
     remainingAfterRequest: Math.max(0, availableLimit - targetDraw.amount),
     totalUnlocked,
   };
+}
+
+function getMilestoneRequestableDrawAmount(milestone: DemoMilestone) {
+  const approvedDrawAvailability = getMilestoneDrawAvailabilityAmount(milestone);
+  const actualCost = milestone.completionClaim?.actualCost;
+
+  if (actualCost === undefined || !Number.isFinite(actualCost)) {
+    return approvedDrawAvailability;
+  }
+
+  return Math.min(
+    approvedDrawAvailability,
+    calculateDrawAvailabilityAmount(
+      Math.max(0, Math.round(actualCost)),
+      DEFAULT_BORROWER_CO_PAY_BPS,
+    ),
+  );
 }
 
 interface ApprovedDrawRequestLimit extends DrawRequestLimit {
@@ -5667,7 +5688,7 @@ export function calculateApprovedDrawRequestLimit(
       return total;
     }
 
-    return total + getMilestoneDrawAvailabilityAmount(item.data);
+    return total + getMilestoneRequestableDrawAmount(item.data);
   }, 0);
   const alreadyDrawn = draws.reduce((total, draw) => {
     if (draw.id === targetDraw.id || draw.x > drawDay) {

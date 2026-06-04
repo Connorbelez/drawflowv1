@@ -159,6 +159,7 @@ describe("production proposal timeline setup adapter", () => {
         },
       ],
       projectAddress: "Hamilton, ON",
+      proposedStartDate: "2025-04-15",
       redirectToDurableRoute: true,
       reimbursableBudgetCents: 100_000_000,
       reimbursementBps: 8_000,
@@ -174,6 +175,7 @@ describe("production proposal timeline setup adapter", () => {
       buildName: "Single Family Full Build Proposal",
       lenderDrawPolicyLimitCents: 100_000_000,
       location: "Hamilton, ON",
+      proposedStartDate: "2025-04-15",
     });
     expect(payload.milestones).toEqual([
       expect.objectContaining({
@@ -197,10 +199,91 @@ describe("production proposal timeline setup adapter", () => {
         budgetCents: 45_000_000,
         dayEnd: 80,
         dayStart: 35,
-        dependencyKeys: ["foundation"],
+        dependencyKeys: [],
         icon: "framing",
         key: "shell",
       }),
+    ]);
+  });
+
+  test("preserves parallel milestone offsets without implicit row-order dependencies", () => {
+    const payload = timelineSetupResultToDraftPackage({
+      activeItemId: "foundation",
+      borrowerCoPayBps: 2_000,
+      borrowerCoPayCents: 25_000_000,
+      currentDay: 0,
+      includedCount: 2,
+      items: [
+        {
+          data: {
+            amount: 300_000,
+            draw: "Draw 1",
+            durationDays: 30,
+            evidence: "Ready",
+            icon: "foundation",
+            name: "Foundation",
+            policy: "Planning",
+            status: "ready",
+            subMilestones: [],
+          },
+          eyebrow: "Milestone 1",
+          id: "foundation",
+          label: "Foundation",
+          markerLabel: "1",
+          tone: "active",
+          x: 0,
+        },
+        {
+          data: {
+            amount: 450_000,
+            draw: "Draw 2",
+            durationDays: 30,
+            evidence: "Upcoming",
+            icon: "framing",
+            name: "Framing",
+            policy: "Upcoming",
+            status: "upcoming",
+            subMilestones: [],
+          },
+          eyebrow: "Milestone 2",
+          id: "framing",
+          label: "Framing",
+          markerLabel: "2",
+          tone: "upcoming",
+          x: 5,
+        },
+      ],
+      projectAddress: "Hamilton, ON",
+      proposedStartDate: "2025-04-15",
+      redirectToDurableRoute: true,
+      reimbursableBudgetCents: 100_000_000,
+      reimbursementBps: 8_000,
+      startingCash: 400_000,
+      templateKey: "parallel-build",
+      templateTitle: "Parallel Build",
+      totalBudget: 750_000,
+    });
+
+    expect(
+      payload.milestones.map((milestone) => ({
+        dayEnd: milestone.dayEnd,
+        dayStart: milestone.dayStart,
+        dependencyKeys: milestone.dependencyKeys,
+        key: milestone.key,
+      })),
+    ).toEqual([
+      {
+        dayEnd: 30,
+        dayStart: 0,
+        dependencyKeys: [],
+        key: "foundation",
+      },
+      {
+        dayEnd: 35,
+        dayStart: 5,
+        dependencyKeys: [],
+        key: "framing",
+      },
     ]);
   });
 
