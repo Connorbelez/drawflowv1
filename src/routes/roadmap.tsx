@@ -358,7 +358,7 @@ function DrawFlowRoadmap(): ReactElement {
 
   return (
     <main
-      className="w-full max-w-full overflow-x-hidden bg-[oklch(0.985_0.003_125)] text-foreground"
+      className="w-full max-w-full overflow-x-hidden bg-[oklch(0.985_0.003_125)] text-foreground dark:bg-[oklch(0.141_0.005_285.823)]"
       ref={rootRef}
     >
       <Header enableLandingMobileMenu />
@@ -379,7 +379,11 @@ function Hero(): ReactElement {
     >
       <div
         aria-hidden="true"
-        className="-z-10 absolute inset-0 bg-[radial-gradient(circle_at_75%_12%,oklch(0.841_0.238_128.85/0.28),transparent_28rem),radial-gradient(circle_at_10%_30%,oklch(0.54_0.14_240/0.1),transparent_22rem)]"
+        className="-z-10 absolute inset-0 bg-[radial-gradient(circle_at_75%_12%,oklch(0.841_0.238_128.85/0.28),transparent_28rem),radial-gradient(circle_at_10%_30%,oklch(0.54_0.14_240/0.1),transparent_22rem)] dark:hidden"
+      />
+      <div
+        aria-hidden="true"
+        className="-z-10 absolute inset-0 hidden bg-[radial-gradient(circle_at_76%_12%,oklch(0.768_0.233_130.85/0.18),transparent_30rem),radial-gradient(circle_at_8%_24%,oklch(0.54_0.14_240/0.13),transparent_24rem),linear-gradient(180deg,oklch(0.21_0.006_285.885/0.62),transparent_58%)] dark:block"
       />
       <div
         aria-hidden="true"
