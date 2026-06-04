@@ -2143,6 +2143,81 @@ export default defineSchema({
     .index("by_build", ["buildId"])
     .index("by_proposal", ["proposalId"])
     .index("by_entity", ["entityType", "entityKey"]),
+  assistantThreads: defineTable({
+    brokerageId: v.optional(v.id("brokerages")),
+    componentThreadId: v.optional(v.string()),
+    createdAt: v.number(),
+    createdByWorkosUserId: v.string(),
+    organizationId: v.string(),
+    routeContext: v.any(),
+    status: v.union(v.literal("active"), v.literal("archived")),
+    title: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_organization", ["organizationId"])
+    .index("by_actor", ["organizationId", "createdByWorkosUserId"]),
+  assistantMessages: defineTable({
+    content: v.string(),
+    createdAt: v.number(),
+    metadata: v.any(),
+    organizationId: v.string(),
+    role: v.union(
+      v.literal("user"),
+      v.literal("assistant"),
+      v.literal("system"),
+      v.literal("tool"),
+    ),
+    threadId: v.id("assistantThreads"),
+  })
+    .index("by_thread", ["threadId"])
+    .index("by_organization", ["organizationId"]),
+  assistantActionPlans: defineTable({
+    acceptedClientRequestIds: v.array(v.string()),
+    actorRoles: v.array(v.string()),
+    brokerageId: v.optional(v.id("brokerages")),
+    buildId: v.optional(v.id("activeBuilds")),
+    commitOutcome: v.optional(v.any()),
+    committedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    createdByWorkosUserId: v.string(),
+    items: v.array(v.any()),
+    organizationId: v.string(),
+    proposalId: v.optional(v.id("buildProposals")),
+    rejectedClientRequestIds: v.array(v.string()),
+    routeContext: v.any(),
+    status: v.union(
+      v.literal("preview"),
+      v.literal("committed"),
+      v.literal("failed"),
+      v.literal("cancelled"),
+    ),
+    threadId: v.optional(v.id("assistantThreads")),
+    updatedAt: v.number(),
+    validationResults: v.array(v.any()),
+  })
+    .index("by_organization", ["organizationId"])
+    .index("by_thread", ["threadId"])
+    .index("by_proposal", ["proposalId"])
+    .index("by_build", ["buildId"]),
+  assistantTraceEvents: defineTable({
+    aguiType: v.string(),
+    createdAt: v.number(),
+    label: v.string(),
+    metadata: v.any(),
+    organizationId: v.string(),
+    planId: v.optional(v.id("assistantActionPlans")),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("needs_input"),
+      v.literal("succeeded"),
+      v.literal("failed"),
+    ),
+    threadId: v.id("assistantThreads"),
+  })
+    .index("by_thread", ["threadId"])
+    .index("by_plan", ["planId"])
+    .index("by_organization", ["organizationId"]),
   activeBuilds: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),

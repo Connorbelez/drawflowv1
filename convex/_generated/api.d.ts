@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as assistant from "../assistant.js";
 import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
 import type * as authzTest from "../authzTest.js";
@@ -42,6 +43,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  assistant: typeof assistant;
   auth: typeof auth;
   authz: typeof authz;
   authzTest: typeof authzTest;
@@ -97,6 +99,7 @@ export declare const internal: FilterApi<
 >;
 
 export declare const components: {
+  agent: import("@convex-dev/agent/_generated/component.js").ComponentApi<"agent">;
   workOSAuthKit: import("@convex-dev/workos-authkit/_generated/component.js").ComponentApi<"workOSAuthKit">;
   presence: import("@convex-dev/presence/_generated/component.js").ComponentApi<"presence">;
   timeline: import("convex-timeline/_generated/component.js").ComponentApi<"timeline">;
