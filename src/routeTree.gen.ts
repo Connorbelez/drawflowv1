@@ -18,6 +18,7 @@ import { Route as DemoRouteRouteImport } from './routes/demo/route'
 import { Route as BuilderRouteRouteImport } from './routes/builder/route'
 import { Route as BackofficeRouteRouteImport } from './routes/backoffice/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as IntakeIndexRouteImport } from './routes/intake/index'
 import { Route as BuilderIndexRouteImport } from './routes/builder/index'
 import { Route as BackofficeIndexRouteImport } from './routes/backoffice/index'
 import { Route as ProposalClaimClaimTokenRouteImport } from './routes/proposal-claim.$claimToken'
@@ -119,6 +120,11 @@ const BackofficeRouteRoute = BackofficeRouteRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IntakeIndexRoute = IntakeIndexRouteImport.update({
+  id: '/intake/',
+  path: '/intake/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BuilderIndexRoute = BuilderIndexRouteImport.update({
@@ -465,6 +471,7 @@ export interface FileRoutesByFullPath {
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/backoffice/': typeof BackofficeIndexRoute
   '/builder/': typeof BuilderIndexRoute
+  '/intake/': typeof IntakeIndexRoute
   '/backoffice/builds/$buildId': typeof BackofficeBuildsBuildIdRouteRouteWithChildren
   '/builder/demo/dashboard': typeof BuilderDemoDashboardRouteRouteWithChildren
   '/builder/proposals/$proposalId': typeof BuilderProposalsProposalIdRouteRouteWithChildren
@@ -525,6 +532,7 @@ export interface FileRoutesByTo {
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/backoffice': typeof BackofficeIndexRoute
   '/builder': typeof BuilderIndexRoute
+  '/intake': typeof IntakeIndexRoute
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
   '/api/auth/sign-up': typeof ApiAuthSignUpRoute
   '/backoffice/builders/builderId': typeof BackofficeBuildersBuilderIdRoute
@@ -589,6 +597,7 @@ export interface FileRoutesById {
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/backoffice/': typeof BackofficeIndexRoute
   '/builder/': typeof BuilderIndexRoute
+  '/intake/': typeof IntakeIndexRoute
   '/backoffice/builds/$buildId': typeof BackofficeBuildsBuildIdRouteRouteWithChildren
   '/builder/demo/dashboard': typeof BuilderDemoDashboardRouteRouteWithChildren
   '/builder/proposals/$proposalId': typeof BuilderProposalsProposalIdRouteRouteWithChildren
@@ -659,6 +668,7 @@ export interface FileRouteTypes {
     | '/proposal-claim/$claimToken'
     | '/backoffice/'
     | '/builder/'
+    | '/intake/'
     | '/backoffice/builds/$buildId'
     | '/builder/demo/dashboard'
     | '/builder/proposals/$proposalId'
@@ -719,6 +729,7 @@ export interface FileRouteTypes {
     | '/proposal-claim/$claimToken'
     | '/backoffice'
     | '/builder'
+    | '/intake'
     | '/api/auth/sign-in'
     | '/api/auth/sign-up'
     | '/backoffice/builders/builderId'
@@ -782,6 +793,7 @@ export interface FileRouteTypes {
     | '/proposal-claim/$claimToken'
     | '/backoffice/'
     | '/builder/'
+    | '/intake/'
     | '/backoffice/builds/$buildId'
     | '/builder/demo/dashboard'
     | '/builder/proposals/$proposalId'
@@ -834,6 +846,7 @@ export interface RootRouteChildren {
   ProtectedAccessRoute: typeof ProtectedAccessRoute
   RoadmapRoute: typeof RoadmapRoute
   ProposalClaimClaimTokenRoute: typeof ProposalClaimClaimTokenRoute
+  IntakeIndexRoute: typeof IntakeIndexRoute
   ApiAuthSignInRoute: typeof ApiAuthSignInRoute
   ApiAuthSignUpRoute: typeof ApiAuthSignUpRoute
   NewsitevisitBuildIdSiteVisitTokenRoute: typeof NewsitevisitBuildIdSiteVisitTokenRoute
@@ -902,6 +915,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/intake/': {
+      id: '/intake/'
+      path: '/intake'
+      fullPath: '/intake/'
+      preLoaderRoute: typeof IntakeIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/builder/': {
@@ -1601,6 +1621,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProtectedAccessRoute: ProtectedAccessRoute,
   RoadmapRoute: RoadmapRoute,
   ProposalClaimClaimTokenRoute: ProposalClaimClaimTokenRoute,
+  IntakeIndexRoute: IntakeIndexRoute,
   ApiAuthSignInRoute: ApiAuthSignInRoute,
   ApiAuthSignUpRoute: ApiAuthSignUpRoute,
   NewsitevisitBuildIdSiteVisitTokenRoute:
