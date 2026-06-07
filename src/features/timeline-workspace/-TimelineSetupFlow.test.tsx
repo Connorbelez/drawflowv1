@@ -63,6 +63,24 @@ describe("TimelineSetupFlow permit viewer", () => {
     );
   });
 
+  test("opens the proposed start date picker from the calendar trigger", () => {
+    render(<TimelineSetupFlow baseItems={baseItems} onComplete={vi.fn()} />);
+    const proposedStartDateInput = screen.getByTestId(
+      "timeline-setup-proposed-start-date-input"
+    ) as HTMLInputElement;
+    const showPicker = vi.fn();
+    Object.defineProperty(proposedStartDateInput, "showPicker", {
+      configurable: true,
+      value: showPicker,
+    });
+
+    fireEvent.click(
+      screen.getByTestId("timeline-setup-proposed-start-date-input-picker")
+    );
+
+    expect(showPicker).toHaveBeenCalledTimes(1);
+  });
+
   test("emits a backdated proposed start date in the setup result", () => {
     const onComplete = vi.fn();
     render(<TimelineSetupFlow baseItems={baseItems} onComplete={onComplete} />);

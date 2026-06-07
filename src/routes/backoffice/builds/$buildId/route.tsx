@@ -3,6 +3,11 @@ import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
+import { BuilderStaffPermissionsPanel } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
+import {
+  canUseAppPermission,
+  filterMaterialPlanningActionsForPermissions,
+} from "#/features/builder-staff/app-permissions.ts";
 import type { BuildDetailSubTab } from "#/features/backoffice-build-detail/BuildDetailTabs.tsx";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import {
@@ -27,6 +32,7 @@ type BuildDetailSearch = {
     | "evidence"
     | "gantt"
     | "materials"
+    | "staff"
     | "timeline";
   rail?: "open" | "closed";
 };
@@ -37,6 +43,7 @@ export const Route = createFileRoute("/backoffice/builds/$buildId")({
       search.tab === "timeline" ||
       search.tab === "evidence" ||
       search.tab === "materials" ||
+      search.tab === "staff" ||
       search.tab === "calendar" ||
       search.tab === "gantt" ||
       search.tab === "details"
@@ -255,16 +262,47 @@ function RouteComponent() {
     const detail = effectiveProductionBuild as ProductionBuildDetail;
     const activeBuildId = detail.build._id as any;
     const workosOrganizationId = context.organizationId as string;
+    const appPermissions = detail.appPermissions;
+    const materialPlanningActions =
+      filterMaterialPlanningActionsForPermissions(
+        appPermissions,
+        visualFixtureEnabled
+          ? undefined
+          : {
+              create: (payload) =>
+                createActiveBuildCostItem({
+                  ...payload,
+                  buildId: activeBuildId,
+                  workosOrganizationId,
+                }).then(() => toast.success("Cost item added.")),
+              delete: (item, reason) =>
+                deleteActiveBuildCostItem({
+                  buildId: activeBuildId,
+                  itemId: item._id as any,
+                  reason,
+                  workosOrganizationId,
+                }).then(() => toast.success("Cost item removed.")),
+              update: (item, payload) =>
+                updateActiveBuildCostItem({
+                  ...payload,
+                  buildId: activeBuildId,
+                  itemId: item._id as any,
+                  workosOrganizationId,
+                }).then(() => toast.success("Cost item updated.")),
+            },
+      );
     const actions: ProductionBuildDetailActions = {
-      addDocument: ({ documentType, fileName }) =>
-        addDocument({
-          buildId: activeBuildId,
-          documentType,
-          fileName,
-          mimeType: "application/octet-stream",
-          sizeBytes: 0,
-          workosOrganizationId,
-        }),
+      addDocument: canUseAppPermission(appPermissions, "evidence", "create")
+        ? ({ documentType, fileName }) =>
+            addDocument({
+              buildId: activeBuildId,
+              documentType,
+              fileName,
+              mimeType: "application/octet-stream",
+              sizeBytes: 0,
+              workosOrganizationId,
+            })
+        : undefined,
       addNote: ({ body, visibility }) =>
         addNote({
           body,
@@ -272,160 +310,246 @@ function RouteComponent() {
           visibility,
           workosOrganizationId,
         }),
-      approveDraw: (draw) =>
-        approveDraw({
-          buildId: activeBuildId,
-          drawKey: draw.drawKey,
-          note: "Approved from build detail workspace.",
-          workosOrganizationId,
-        }),
-      approveMilestone: ({ milestoneKey, note }) =>
-        approveMilestone({
-          buildId: activeBuildId,
-          milestoneKey,
-          note,
-          workosOrganizationId,
-        }),
-      assignSiteVisit: ({ milestoneKey }) =>
-        assignSiteVisit({
-          buildId: activeBuildId,
-          milestoneKey,
-          note: "Assigned from build detail workspace.",
-          requestedDay: 0,
-          workosOrganizationId,
-        }),
-      assignContractorToMilestone: ({
+      approveDraw: canUseAppPermission(appPermissions, "draw", "update")
+        ? (draw) =>
+            approveDraw({
+              buildId: activeBuildId,
+              drawKey: draw.drawKey,
+              note: "Approved from build detail workspace.",
+              workosOrganizationId,
+            })
+        : undefined,
+      approveMilestone: canUseAppPermission(
+        appPermissions,
+        "milestone",
+        "update",
+      )
+        ? ({ milestoneKey, note }) =>
+            approveMilestone({
+              buildId: activeBuildId,
+              milestoneKey,
+              note,
+              workosOrganizationId,
+            })
+        : undefined,
+      assignSiteVisit: canUseAppPermission(appPermissions, "evidence", "update")
+        ? ({ milestoneKey }) =>
+            assignSiteVisit({
+              buildId: activeBuildId,
+              milestoneKey,
+              note: "Assigned from build detail workspace.",
+              requestedDay: 0,
+              workosOrganizationId,
+            })
+        : undefined,
+      assignContractorToMilestone: canUseAppPermission(
+        appPermissions,
+        "contractor",
+        "update",
+      )
+        ? ({
         assignmentCost,
         contractorId,
         milestoneKey,
         role,
         submilestoneKeys,
       }) =>
-        assignContractorToMilestone({
-          ...assignmentCost,
-          buildId: activeBuildId,
-          contractorId: contractorId as any,
-          milestoneKey,
-          role,
-          submilestoneKeys,
-          workosOrganizationId,
-        }),
-      attachContractor: ({ contractorId, role }) =>
-        attachContractor({
-          buildId: activeBuildId,
-          contractorId: contractorId as any,
-          role,
-          workosOrganizationId,
-        }),
-      createAndAttachContractor: async ({ contractor, role }) => {
-        const contractorId = await createContractor({
-          ...contractor,
-          brokerageId: detail.build.brokerageId as any,
-          workosOrganizationId,
-        });
-        await attachContractor({
-          buildId: activeBuildId,
-          contractorId,
-          role,
-          workosOrganizationId,
-        });
-      },
-      createAndAssignContractor: async ({
+            assignContractorToMilestone({
+              ...assignmentCost,
+              buildId: activeBuildId,
+              contractorId: contractorId as any,
+              milestoneKey,
+              role,
+              submilestoneKeys,
+              workosOrganizationId,
+            })
+        : undefined,
+      attachContractor: canUseAppPermission(appPermissions, "contractor", "update")
+        ? ({ contractorId, role }) =>
+            attachContractor({
+              buildId: activeBuildId,
+              contractorId: contractorId as any,
+              role,
+              workosOrganizationId,
+            })
+        : undefined,
+      createAndAttachContractor: canUseAppPermission(
+        appPermissions,
+        "contractor",
+        "create",
+      )
+        ? async ({ contractor, role }) => {
+            const contractorId = await createContractor({
+              ...contractor,
+              brokerageId: detail.build.brokerageId as any,
+              workosOrganizationId,
+            });
+            await attachContractor({
+              buildId: activeBuildId,
+              contractorId,
+              role,
+              workosOrganizationId,
+            });
+          }
+        : undefined,
+      createAndAssignContractor: canUseAppPermission(
+        appPermissions,
+        "contractor",
+        "create",
+      )
+        ? async ({
         assignmentCost,
         contractor,
         milestoneKey,
         role,
       }) => {
-        const contractorId = await createContractor({
-          ...contractor,
-          brokerageId: detail.build.brokerageId as any,
-          workosOrganizationId,
-        });
-        await assignContractorToMilestone({
-          ...assignmentCost,
-          buildId: activeBuildId,
-          contractorId,
-          milestoneKey,
-          role,
-          workosOrganizationId,
-        });
-      },
-      rejectDraw: (draw) =>
-        rejectDraw({
-          buildId: activeBuildId,
-          drawKey: draw.drawKey,
-          note: "Rejected from build detail workspace.",
-          workosOrganizationId,
-        }),
-      rejectMilestone: ({ milestoneKey }) =>
-        rejectMilestone({
-          buildId: activeBuildId,
-          milestoneKey,
-          note: "Rejected from build detail workspace.",
-          workosOrganizationId,
-        }),
-      releaseDraw: (draw) =>
-        releaseDraw({
-          buildId: activeBuildId,
-          drawKey: draw.drawKey,
-          note: "Released from build detail workspace.",
-          releaseDate: new Date().toISOString().slice(0, 10),
-          workosOrganizationId,
-        }),
-      reviseMilestoneSchedule: (input) =>
-        reviseActiveBuildMilestoneSchedule({
-          ...input,
-          buildId: activeBuildId,
-          workosOrganizationId,
-        }).then(() => toast.success("Milestone schedule revised.")),
-      setEvidenceDueDate: (input) =>
-        setEvidenceDueDate({
-          ...input,
-          buildId: activeBuildId,
-          workosOrganizationId,
-        }).then(() => toast.success("Evidence due date set.")),
-      setReviewTargetDate: (input) =>
-        setReviewTargetDate({
-          ...input,
-          buildId: activeBuildId,
-          workosOrganizationId,
-        }).then(() => toast.success("Review target date set.")),
-      setAdminDecisionTargetDate: (input) =>
-        setAdminDecisionTargetDate({
-          ...input,
-          buildId: activeBuildId,
-          workosOrganizationId,
-        }).then(() => toast.success("Admin decision target set.")),
-      setDrawReleaseTargetDate: (input) =>
-        setDrawReleaseTargetDate({
-          ...input,
-          buildId: activeBuildId,
-          workosOrganizationId,
-        }).then(() => toast.success("Draw release target set.")),
-      scheduleSiteVisit: (input) =>
-        scheduleActiveBuildSiteVisit({
-          ...input,
-          buildId: activeBuildId,
-          workosOrganizationId,
-        }).then(() => toast.success("Site visit scheduled.")),
-      rescheduleSiteVisit: (input) =>
-        rescheduleActiveBuildSiteVisit({
-          ...input,
-          buildId: activeBuildId,
-          workosOrganizationId,
-        }).then(() => toast.success("Site visit rescheduled.")),
-      cancelSiteVisit: (input) =>
-        cancelActiveBuildSiteVisit({
-          ...input,
-          buildId: activeBuildId,
-          workosOrganizationId,
-        }).then(() => toast.success("Site visit cancelled.")),
-      requestLoanFacilityDateChange: (input) =>
-        requestLoanFacilityDateChange({
-          ...input,
-          buildId: activeBuildId,
-          workosOrganizationId,
-        }).then(() => toast.success("Facility date change requested.")),
+            const contractorId = await createContractor({
+              ...contractor,
+              brokerageId: detail.build.brokerageId as any,
+              workosOrganizationId,
+            });
+            await assignContractorToMilestone({
+              ...assignmentCost,
+              buildId: activeBuildId,
+              contractorId,
+              milestoneKey,
+              role,
+              workosOrganizationId,
+            });
+          }
+        : undefined,
+      rejectDraw: canUseAppPermission(appPermissions, "draw", "update")
+        ? (draw) =>
+            rejectDraw({
+              buildId: activeBuildId,
+              drawKey: draw.drawKey,
+              note: "Rejected from build detail workspace.",
+              workosOrganizationId,
+            })
+        : undefined,
+      rejectMilestone: canUseAppPermission(
+        appPermissions,
+        "milestone",
+        "update",
+      )
+        ? ({ milestoneKey }) =>
+            rejectMilestone({
+              buildId: activeBuildId,
+              milestoneKey,
+              note: "Rejected from build detail workspace.",
+              workosOrganizationId,
+            })
+        : undefined,
+      releaseDraw: canUseAppPermission(appPermissions, "draw", "update")
+        ? (draw) =>
+            releaseDraw({
+              buildId: activeBuildId,
+              drawKey: draw.drawKey,
+              note: "Released from build detail workspace.",
+              releaseDate: new Date().toISOString().slice(0, 10),
+              workosOrganizationId,
+            })
+        : undefined,
+      reviseMilestoneSchedule: canUseAppPermission(
+        appPermissions,
+        "milestone",
+        "update",
+      )
+        ? (input) =>
+            reviseActiveBuildMilestoneSchedule({
+              ...input,
+              buildId: activeBuildId,
+              workosOrganizationId,
+            }).then(() => toast.success("Milestone schedule revised."))
+        : undefined,
+      setEvidenceDueDate: canUseAppPermission(
+        appPermissions,
+        "evidence",
+        "update",
+      )
+        ? (input) =>
+            setEvidenceDueDate({
+              ...input,
+              buildId: activeBuildId,
+              workosOrganizationId,
+            }).then(() => toast.success("Evidence due date set."))
+        : undefined,
+      setReviewTargetDate: canUseAppPermission(
+        appPermissions,
+        "reminder",
+        "create",
+      )
+        ? (input) =>
+            setReviewTargetDate({
+              ...input,
+              buildId: activeBuildId,
+              workosOrganizationId,
+            }).then(() => toast.success("Review target date set."))
+        : undefined,
+      setAdminDecisionTargetDate: canUseAppPermission(
+        appPermissions,
+        "reminder",
+        "create",
+      )
+        ? (input) =>
+            setAdminDecisionTargetDate({
+              ...input,
+              buildId: activeBuildId,
+              workosOrganizationId,
+            }).then(() => toast.success("Admin decision target set."))
+        : undefined,
+      setDrawReleaseTargetDate: canUseAppPermission(
+        appPermissions,
+        "reminder",
+        "create",
+      )
+        ? (input) =>
+            setDrawReleaseTargetDate({
+              ...input,
+              buildId: activeBuildId,
+              workosOrganizationId,
+            }).then(() => toast.success("Draw release target set."))
+        : undefined,
+      scheduleSiteVisit: canUseAppPermission(appPermissions, "evidence", "update")
+        ? (input) =>
+            scheduleActiveBuildSiteVisit({
+              ...input,
+              buildId: activeBuildId,
+              workosOrganizationId,
+            }).then(() => toast.success("Site visit scheduled."))
+        : undefined,
+      rescheduleSiteVisit: canUseAppPermission(
+        appPermissions,
+        "evidence",
+        "update",
+      )
+        ? (input) =>
+            rescheduleActiveBuildSiteVisit({
+              ...input,
+              buildId: activeBuildId,
+              workosOrganizationId,
+            }).then(() => toast.success("Site visit rescheduled."))
+        : undefined,
+      cancelSiteVisit: canUseAppPermission(appPermissions, "evidence", "update")
+        ? (input) =>
+            cancelActiveBuildSiteVisit({
+              ...input,
+              buildId: activeBuildId,
+              workosOrganizationId,
+            }).then(() => toast.success("Site visit cancelled."))
+        : undefined,
+      requestLoanFacilityDateChange: canUseAppPermission(
+        appPermissions,
+        "capitalEvent",
+        "create",
+      )
+        ? (input) =>
+            requestLoanFacilityDateChange({
+              ...input,
+              buildId: activeBuildId,
+              workosOrganizationId,
+            }).then(() => toast.success("Facility date change requested."))
+        : undefined,
       saveCalendarView: (input) =>
         saveCalendarView({
           ...input,
@@ -446,78 +570,83 @@ function RouteComponent() {
           ...input,
           workosOrganizationId,
         }),
-      requestFacilityChange: (input) =>
-        requestFacilityChange({
-          ...input,
-          buildId: activeBuildId,
-          workosOrganizationId,
-        }),
-      requestDraw: (draw) =>
-        requestDraw({
-          amountCents: draw.amountCents,
-          buildId: activeBuildId,
-          drawKey: draw.drawKey,
-          note: "Requested from build detail workspace.",
-          workosOrganizationId,
-        }),
-      reviewFacilityChangeRequest: (input) =>
-        reviewFacilityChangeRequest({
-          ...input,
-          requestId: input.requestId as any,
-          workosOrganizationId,
-        }),
-      requestMilestoneInfo: ({ milestoneKey, note }) =>
-        requestMilestoneInfo({
-          buildId: activeBuildId,
-          milestoneKey,
-          note,
-          workosOrganizationId,
-        }),
-      reviewEvidence: ({ accepted, milestoneKey, note }) =>
-        reviewEvidence({
-          accepted,
-          buildId: activeBuildId,
-          milestoneKey,
-          note,
-          workosOrganizationId,
-        }),
-      startMilestoneWork: ({ milestoneKey, note }) =>
-        startMilestoneWork({
-          buildId: activeBuildId,
-          milestoneKey,
-          note,
-          workosOrganizationId,
-        }),
+      requestFacilityChange: canUseAppPermission(
+        appPermissions,
+        "capitalEvent",
+        "create",
+      )
+        ? (input) =>
+            requestFacilityChange({
+              ...input,
+              buildId: activeBuildId,
+              workosOrganizationId,
+            })
+        : undefined,
+      requestDraw: canUseAppPermission(appPermissions, "draw", "update")
+        ? (draw) =>
+            requestDraw({
+              amountCents: draw.amountCents,
+              buildId: activeBuildId,
+              drawKey: draw.drawKey,
+              note: "Requested from build detail workspace.",
+              workosOrganizationId,
+            })
+        : undefined,
+      reviewFacilityChangeRequest: canUseAppPermission(
+        appPermissions,
+        "capitalEvent",
+        "update",
+      )
+        ? (input) =>
+            reviewFacilityChangeRequest({
+              ...input,
+              requestId: input.requestId as any,
+              workosOrganizationId,
+            })
+        : undefined,
+      requestMilestoneInfo: canUseAppPermission(
+        appPermissions,
+        "milestone",
+        "update",
+      )
+        ? ({ milestoneKey, note }) =>
+            requestMilestoneInfo({
+              buildId: activeBuildId,
+              milestoneKey,
+              note,
+              workosOrganizationId,
+            })
+        : undefined,
+      reviewEvidence: canUseAppPermission(appPermissions, "evidence", "update")
+        ? ({ accepted, milestoneKey, note }) =>
+            reviewEvidence({
+              accepted,
+              buildId: activeBuildId,
+              milestoneKey,
+              note,
+              workosOrganizationId,
+            })
+        : undefined,
+      startMilestoneWork: canUseAppPermission(
+        appPermissions,
+        "milestone",
+        "update",
+      )
+        ? ({ milestoneKey, note }) =>
+            startMilestoneWork({
+              buildId: activeBuildId,
+              milestoneKey,
+              note,
+              workosOrganizationId,
+            })
+        : undefined,
       updateNonFinancialDetails: (input) =>
         updateActiveBuildNonFinancialDetails({
           ...input,
           buildId: activeBuildId,
           workosOrganizationId,
         }).then(() => toast.success("Build details updated.")),
-      materialPlanning: visualFixtureEnabled
-        ? undefined
-        : {
-            create: (payload) =>
-              createActiveBuildCostItem({
-                ...payload,
-                buildId: activeBuildId,
-                workosOrganizationId,
-              }).then(() => toast.success("Cost item added.")),
-            delete: (item, reason) =>
-              deleteActiveBuildCostItem({
-                buildId: activeBuildId,
-                itemId: item._id as any,
-                reason,
-                workosOrganizationId,
-              }).then(() => toast.success("Cost item removed.")),
-            update: (item, payload) =>
-              updateActiveBuildCostItem({
-                ...payload,
-                buildId: activeBuildId,
-                itemId: item._id as any,
-                workosOrganizationId,
-              }).then(() => toast.success("Cost item updated.")),
-          },
+      materialPlanning: materialPlanningActions,
     };
     return (
       <ProductionBuildDetailSurface
@@ -536,6 +665,15 @@ function RouteComponent() {
         onChangeRail={onChangeRail}
         onChangeTab={onChangeTab}
         rail={search.rail}
+        staff={
+          visualFixtureEnabled ? undefined : (
+            <BuilderStaffPermissionsPanel
+              buildId={activeBuildId as Id<"activeBuilds">}
+              scope="activeBuild"
+              workosOrganizationId={workosOrganizationId}
+            />
+          )
+        }
         timelineWorkspace={effectiveTimelineWorkspace as any}
         workosOrganizationId={workosOrganizationId}
       />

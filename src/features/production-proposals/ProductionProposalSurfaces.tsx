@@ -118,6 +118,7 @@ import {
   type MaterialPlanningItem,
   MaterialPlanningTab,
 } from "#/features/material-planning/MaterialPlanningTab.tsx";
+import type { BuilderStaffAppPermissions } from "#/features/builder-staff/app-permissions.ts";
 import {
   type TimelineMilestoneWorksheetRow,
   TimelineMilestoneWorksheetTable,
@@ -230,6 +231,7 @@ interface ProductionDocument {
 
 export interface ProductionProposalDetail {
   activeBuild?: { _id?: string; startDate?: string } | null;
+  appPermissions?: BuilderStaffAppPermissions | null;
   assignment?: ProductionProposalAssignment | null;
   costItems?: MaterialPlanningItem[];
   documents?: ProductionDocument[];
@@ -252,6 +254,7 @@ type ProductionReviewTab =
   | "materials"
   | "packet"
   | "review"
+  | "staff"
   | "timeline";
 
 export interface ProductionKanbanCard {
@@ -1554,6 +1557,7 @@ export function ProductionProposalReviewSurface({
   milestones,
   contractors,
   gantt,
+  staff,
   timeline,
 }: {
   builders?: ProductionBuilderOption[];
@@ -1632,6 +1636,7 @@ export function ProductionProposalReviewSurface({
     }
   ) => Promise<unknown> | unknown;
   milestones?: ReactNode;
+  staff?: ReactNode;
   timeline?: ReactNode;
   initialActiveTab?: ProductionReviewTab;
 }) {
@@ -1690,12 +1695,22 @@ export function ProductionProposalReviewSurface({
       nextTabs.push({ label: "Draw schedule", value: "draws" });
     }
     nextTabs.push({ label: "Materials", value: "materials" });
+    if (staff) {
+      nextTabs.push({ label: "Staff", value: "staff" });
+    }
     nextTabs.push({ label: "Packet", value: "packet" });
     if (proposal.status === "approved" || proposal.status === "closed") {
       nextTabs.push({ label: "Closing", value: "closing" });
     }
     return nextTabs;
-  }, [contractors, editableDraws.length, gantt, proposal.status, timeline]);
+  }, [
+    contractors,
+    editableDraws.length,
+    gantt,
+    proposal.status,
+    staff,
+    timeline,
+  ]);
   const proposalCalendarActions = useMemo<ProposalCalendarAdapterActions>(
     () => ({
       ...calendarAdapterActions,
@@ -2173,6 +2188,16 @@ export function ProductionProposalReviewSurface({
             scopeLabel="Build Proposal"
           />
         </TabsPanel>
+
+        {staff ? (
+          <TabsPanel
+            className={reviewTabPanelClassName}
+            data-testid="production-proposal-staff-tab"
+            value="staff"
+          >
+            {staff}
+          </TabsPanel>
+        ) : null}
 
         <TabsPanel
           className={reviewTabPanelClassName}

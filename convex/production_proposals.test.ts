@@ -9,6 +9,16 @@ import schema from "./schema";
 const modules = import.meta.glob("./**/*.ts");
 
 const ORG = "org_production_foundation";
+const APP_PERMISSION_RESOURCES = [
+  "milestone",
+  "submilestone",
+  "draw",
+  "evidence",
+  "contractor",
+  "material",
+  "capitalEvent",
+  "reminder",
+] as const;
 
 function asIdentity(roles: string[], subject = "user_builder") {
   return convexTest(schema, modules).withIdentity({
@@ -189,6 +199,28 @@ async function createClosedSingleMilestoneBuild(t: any, seed: any) {
       workosOrganizationId: ORG,
     },
   );
+}
+
+function appPermissionGrants(
+  allowed: Partial<
+    Record<
+      (typeof APP_PERMISSION_RESOURCES)[number],
+      Partial<{
+        canCreate: boolean;
+        canDelete: boolean;
+        canUpdate: boolean;
+        canView: boolean;
+      }>
+    >
+  >,
+) {
+  return APP_PERMISSION_RESOURCES.map((resourceType) => ({
+    canCreate: allowed[resourceType]?.canCreate ?? false,
+    canDelete: allowed[resourceType]?.canDelete ?? false,
+    canUpdate: allowed[resourceType]?.canUpdate ?? false,
+    canView: allowed[resourceType]?.canView ?? false,
+    resourceType,
+  }));
 }
 
 describe("production proposal foundation", () => {
@@ -524,6 +556,277 @@ describe("production proposal foundation", () => {
     );
     expect(buildDetailAfterDelete.costItems).toHaveLength(1);
     expect(buildDetailAfterDelete.build.totalBudgetCents).toBe(70_000_000);
+  });
+
+  test("enforces proposal-scoped builder staff material permissions", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    await grantOrgMembership(admin, {
+      roleSlugs: ["builder-staff"],
+      subject: "user_staff_material",
+    });
+    const proposalId = await admin.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Staff permission proposal",
+        location: "12 Staff Lane",
+        workosOrganizationId: ORG,
+      },
+    );
+    await admin.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerWorkingCapitalLimitCents: 20_000_000,
+        lenderDrawPolicyLimitCents: 40_000_000,
+        milestones: [
+          {
+            budgetCents: 10_000_000,
+            dayEnd: 10,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 10,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    await admin.mutation(
+      (api as any).production_proposals.saveProposalBuilderStaffPermissions,
+      {
+        permissions: appPermissionGrants({
+          material: { canCreate: true, canView: true },
+        }),
+        proposalId,
+        staffWorkosUserId: "user_staff_material",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const staff = withIdentity(base, ["builder-staff"], "user_staff_material");
+    await expect(
+      staff.mutation(
+        (api as any).production_proposals.updateProductionTimelineMilestone,
+        {
+          milestoneKey: "foundation",
+          name: "Blocked rename",
+          proposalId,
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow("Forbidden: builder staff milestone.update");
+
+    await staff.mutation((api as any).production_proposals.createProposalCostItem, {
+      costCents: 1_500_000,
+      itemType: "material",
+      milestoneKey: "foundation",
+      proposalId,
+      quantity: 1,
+      relevantSubmilestoneKeys: [],
+      title: "Concrete package",
+      workosOrganizationId: ORG,
+    });
+    const detail = await staff.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(detail.costItems).toHaveLength(1);
+    expect(detail.milestones).toHaveLength(0);
+    expect(detail.appPermissions.role).toBe("staff");
+  });
+
+  test("provisions unknown proposal builder staff emails before assigning app permissions", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const proposalId = await admin.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Staff invite proposal",
+        location: "14 Staff Lane",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const result = await admin.action(
+      (api as any).production_proposals.provisionProposalBuilderStaffPermissions,
+      {
+        permissions: appPermissionGrants({
+          milestone: { canView: true },
+        }),
+        proposalId,
+        staffEmail: "Frame.Team@Example.com",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    expect(result).toMatchObject({
+      invite: {
+        adapter: "fake",
+        status: "accepted",
+        sync: "waiting-for-webhook",
+      },
+      staffWorkosUserId: "provisioned_builder_staff_frame_team_example_com",
+    });
+
+    const directory = await admin.query(
+      (api as any).production_proposals.listProposalBuilderStaffPermissions,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    const invited = directory.staff.find(
+      (member: any) =>
+        member.workosUserId ===
+        "provisioned_builder_staff_frame_team_example_com",
+    );
+    expect(invited).toMatchObject({
+      email: "frame.team@example.com",
+      role: "staff",
+    });
+    expect(
+      invited.permissions.find(
+        (permission: any) => permission.resourceType === "milestone",
+      ),
+    ).toMatchObject({ canView: true });
+
+    await admin.run(async (ctx: any) => {
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_workos_user_id", (q: any) =>
+          q.eq("workosUserId", result.staffWorkosUserId),
+        )
+        .unique();
+      expect(user).toMatchObject({
+        email: "frame.team@example.com",
+        status: "active",
+      });
+      const membership = await ctx.db
+        .query("workosOrganizationMemberships")
+        .withIndex("by_user", (q: any) =>
+          q.eq("workosUserId", result.staffWorkosUserId),
+        )
+        .filter((q: any) => q.eq(q.field("workosOrganizationId"), ORG))
+        .first();
+      expect(membership).toMatchObject({
+        roleSlug: "builder-staff",
+        status: "active",
+      });
+      const link = await ctx.db
+        .query("builderAccountLinks")
+        .withIndex("by_builder_user", (q: any) =>
+          q
+            .eq("builderProfileId", seed.builderProfileId)
+            .eq("workosUserId", result.staffWorkosUserId),
+        )
+        .unique();
+      expect(link).toMatchObject({
+        role: "staff",
+        status: "active",
+      });
+    });
+  });
+
+  test("enforces active-build scoped builder staff draw permissions", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    await grantOrgMembership(admin, {
+      roleSlugs: ["builder-staff"],
+      subject: "user_staff_draw",
+    });
+    const { buildId } = await createClosedSingleMilestoneBuild(admin, seed);
+    await admin.mutation(
+      (api as any).production_proposals.saveActiveBuildBuilderStaffPermissions,
+      {
+        buildId,
+        permissions: appPermissionGrants({
+          draw: { canUpdate: true, canView: true },
+        }),
+        staffWorkosUserId: "user_staff_draw",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const staff = withIdentity(base, ["builder-staff"], "user_staff_draw");
+    await expect(
+      staff.mutation((api as any).production_proposals.createActiveBuildCostItem, {
+        buildId,
+        costCents: 250_000,
+        itemType: "material",
+        milestoneKey: "foundation",
+        quantity: 1,
+        relevantSubmilestoneKeys: [],
+        title: "Blocked material",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("Forbidden: builder staff material.create");
+
+    await staff.mutation((api as any).production_proposals.requestActiveBuildDraw, {
+      amountCents: 1_000_000,
+      buildId,
+      drawKey: "draw-01",
+      note: "Ready for reimbursement.",
+      workosOrganizationId: ORG,
+    });
+    const detail = await staff.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(buildId), workosOrganizationId: ORG },
+    );
+    expect(detail.draws[0]).toMatchObject({
+      requestNote: "Ready for reimbursement.",
+      status: "requested",
+    });
+    expect(detail.costItems).toHaveLength(0);
+    expect(detail.appPermissions.role).toBe("staff");
+  });
+
+  test("provisions unknown active-build builder staff emails before assigning app permissions", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const { buildId } = await createClosedSingleMilestoneBuild(admin, seed);
+
+    const result = await admin.action(
+      (api as any).production_proposals
+        .provisionActiveBuildBuilderStaffPermissions,
+      {
+        buildId,
+        permissions: appPermissionGrants({
+          draw: { canUpdate: true, canView: true },
+        }),
+        staffEmail: "Draw.Team@Example.com",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    expect(result).toMatchObject({
+      invite: {
+        adapter: "fake",
+        status: "accepted",
+        sync: "waiting-for-webhook",
+      },
+      staffWorkosUserId: "provisioned_builder_staff_draw_team_example_com",
+    });
+
+    const directory = await admin.query(
+      (api as any).production_proposals.listActiveBuildBuilderStaffPermissions,
+      { buildId, workosOrganizationId: ORG },
+    );
+    const invited = directory.staff.find(
+      (member: any) =>
+        member.workosUserId ===
+        "provisioned_builder_staff_draw_team_example_com",
+    );
+    expect(invited).toMatchObject({
+      email: "draw.team@example.com",
+      role: "staff",
+    });
+    expect(
+      invited.permissions.find(
+        (permission: any) => permission.resourceType === "draw",
+      ),
+    ).toMatchObject({ canUpdate: true, canView: true });
   });
 
   test("persists sub-milestone starts and expands milestone duration to cover them", async () => {

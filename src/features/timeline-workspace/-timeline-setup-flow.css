@@ -418,6 +418,10 @@
   grid-template-columns: minmax(0, 1fr) 24px;
 }
 
+.timeline-setup-date-input {
+  grid-template-columns: minmax(0, 1fr) 40px;
+}
+
 .timeline-setup-money-field:focus-within .timeline-setup-money-input,
 .timeline-setup-address-field:focus-within input {
   border-color: light-dark(oklch(0.400 0.160 236 / 0.72), oklch(0.82 0.14 238 / 0.72));
@@ -433,6 +437,28 @@
   place-items: center;
   color: light-dark(oklch(0.420 0.040 258), oklch(0.66 0.035 260));
   font-weight: 760;
+}
+
+.timeline-setup-date-input button {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-height: 42px;
+  place-items: center;
+  border: 0;
+  border-left: 1px solid light-dark(oklch(0.400 0.120 240 / 0.16), oklch(0.72 0.08 240 / 0.2));
+  background: transparent;
+  color: light-dark(oklch(0.300 0.070 248), oklch(0.74 0.070 248));
+  cursor: pointer;
+}
+
+.timeline-setup-date-input button:hover {
+  background: light-dark(oklch(0.400 0.120 240 / 0.08), oklch(0.72 0.08 240 / 0.1));
+}
+
+.timeline-setup-date-input button svg {
+  width: 16px;
+  height: 16px;
 }
 
 .timeline-setup-money-input input,
@@ -1299,6 +1325,46 @@
   height: auto;
   padding: 0;
   background: light-dark(oklch(0.985 0.010 235), oklch(0.07 0.016 258));
+}
+
+.timeline-blueprint-expanded-tabs {
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.24), oklch(0.72 0.08 240 / 0.24));
+  background:
+    linear-gradient(90deg, light-dark(oklch(0.985 0.010 235), oklch(0.09 0.018 255)), light-dark(oklch(0.985 0.010 235), oklch(0.075 0.016 258))),
+    linear-gradient(to right, light-dark(oklch(0.400 0.120 240 / 0.08), oklch(0.72 0.09 240 / 0.08)) 1px, transparent 1px);
+  background-size: auto, 32px 32px;
+  animation: timeline-submilestone-reveal 220ms var(--setup-ease) both;
+}
+
+.timeline-blueprint-expanded-tabs-header {
+  display: flex;
+  align-items: center;
+  min-height: 46px;
+  border-bottom: 1px solid light-dark(oklch(0.400 0.120 240 / 0.18), oklch(0.72 0.08 240 / 0.18));
+  padding: 0 14px;
+}
+
+.timeline-blueprint-expanded-tabs-list {
+  width: 100%;
+  justify-content: flex-start;
+  overflow-x: auto;
+  padding-block: 0;
+}
+
+.timeline-blueprint-expanded-tab-panel {
+  min-width: 0;
+}
+
+.timeline-blueprint-expanded-tab-panel > .timeline-blueprint-planning-pane,
+.timeline-blueprint-expanded-tab-panel > .timeline-blueprint-field-guidance {
+  min-height: 300px;
+  border: 0;
+}
+
+.timeline-blueprint-expanded-tab-panel > .timeline-blueprint-planning-pane-contractors {
+  border-right: 0;
 }
 
 .timeline-blueprint-planning-extras {

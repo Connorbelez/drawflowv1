@@ -81,6 +81,21 @@ export const inviteUser = userManagementWriteAction
   })
   .public();
 
+export const inviteBuilderStaffUser = publicAction
+  .input({
+    email: v.string(),
+    organizationId: v.string(),
+  })
+  .returns(acceptedReturn)
+  .handler((_ctx, args) =>
+    getWorkosManagementAdapter().inviteUser({
+      email: args.email,
+      organizationId: args.organizationId,
+      roleSlug: "builder-staff",
+    })
+  )
+  .internal();
+
 export const updateMembershipRole = userManagementWriteAction
   .input({
     membershipId: v.string(),

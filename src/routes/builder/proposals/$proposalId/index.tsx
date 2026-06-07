@@ -10,6 +10,12 @@ import {
   BuildPermitViewerDrawer,
   firstPermitDocument,
 } from "#/features/build-permit-viewer/BuildPermitViewerDrawer.tsx";
+import { BuilderStaffPermissionsPanel } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
+import {
+  canUseAppPermission,
+  filterMaterialPlanningActionsForPermissions,
+  hasAnyAppPermission,
+} from "#/features/builder-staff/app-permissions.ts";
 import { MaterialPlanningTab } from "#/features/material-planning/MaterialPlanningTab.tsx";
 import { CalendarWorkspace } from "#/features/calendar-workspace/CalendarWorkspace.tsx";
 import {
@@ -32,7 +38,13 @@ import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
 type BuilderProposalSearch = {
-  tab?: "calendar" | "contractors" | "gantt" | "materials" | "timeline";
+  tab?:
+    | "calendar"
+    | "contractors"
+    | "gantt"
+    | "materials"
+    | "staff"
+    | "timeline";
   timeframe?: CalendarTimeframe;
 };
 
@@ -44,6 +56,7 @@ export const Route = createFileRoute("/builder/proposals/$proposalId/")({
       search.tab === "contractors" ||
       search.tab === "gantt" ||
       search.tab === "materials" ||
+      search.tab === "staff" ||
       search.tab === "timeline"
         ? (search.tab as BuilderProposalSearch["tab"])
         : undefined;
@@ -184,31 +197,83 @@ function BuilderProductionProposalRoute() {
     );
   }
 
+  const appPermissions = detail.appPermissions;
+  const canMutateContractors = hasAnyAppPermission(appPermissions, [
+    ["contractor", "create"],
+    ["contractor", "update"],
+  ]);
+  const materialPlanningActions = filterMaterialPlanningActionsForPermissions(
+    appPermissions,
+    visualFixtureEnabled
+      ? visualMaterialPlanningActions
+      : {
+          create: (payload) =>
+            createProposalCostItem({
+              ...payload,
+              proposalId: typedProposalId,
+              workosOrganizationId,
+            }).then(() => toast.success("Cost item added.")),
+          delete: (item, reason) =>
+            deleteProposalCostItem({
+              itemId: item._id as any,
+              proposalId: typedProposalId,
+              reason,
+              workosOrganizationId,
+            }).then(() => toast.success("Cost item removed.")),
+          update: (item, payload) =>
+            updateProposalCostItem({
+              ...payload,
+              itemId: item._id as any,
+              proposalId: typedProposalId,
+              workosOrganizationId,
+            }).then(() => toast.success("Cost item updated.")),
+        },
+  );
   const calendarAdapterActions: ProposalCalendarAdapterActions = {
-    addEvidenceDueDate: (input) =>
-      setEvidenceDueDate({
-        ...input,
-        proposalId: typedProposalId,
-        workosOrganizationId,
-      }).then(() => toast.success("Evidence due date set.")),
-    addReviewTargetDate: (input) =>
-      setReviewTargetDate({
-        ...input,
-        proposalId: typedProposalId,
-        workosOrganizationId,
-      }).then(() => toast.success("Review target date set.")),
-    reviseDrawTiming: (input) =>
-      reviseProposalDrawTiming({
-        ...input,
-        proposalId: typedProposalId,
-        workosOrganizationId,
-      }).then(() => toast.success("Draw timing revised.")),
-    reviseMilestoneSchedule: (input) =>
-      reviseProposalMilestoneSchedule({
-        ...input,
-        proposalId: typedProposalId,
-        workosOrganizationId,
-      }).then(() => toast.success("Milestone schedule revised.")),
+    addEvidenceDueDate: canUseAppPermission(
+      appPermissions,
+      "evidence",
+      "update",
+    )
+      ? (input) =>
+          setEvidenceDueDate({
+            ...input,
+            proposalId: typedProposalId,
+            workosOrganizationId,
+          }).then(() => toast.success("Evidence due date set."))
+      : undefined,
+    addReviewTargetDate: canUseAppPermission(
+      appPermissions,
+      "reminder",
+      "create",
+    )
+      ? (input) =>
+          setReviewTargetDate({
+            ...input,
+            proposalId: typedProposalId,
+            workosOrganizationId,
+          }).then(() => toast.success("Review target date set."))
+      : undefined,
+    reviseDrawTiming: canUseAppPermission(appPermissions, "draw", "update")
+      ? (input) =>
+          reviseProposalDrawTiming({
+            ...input,
+            proposalId: typedProposalId,
+            workosOrganizationId,
+          }).then(() => toast.success("Draw timing revised."))
+      : undefined,
+    reviseMilestoneSchedule: canUseAppPermission(
+      appPermissions,
+      "milestone",
+      "update",
+    )
+      ? (input) =>
+          reviseProposalMilestoneSchedule({
+            ...input,
+            proposalId: typedProposalId,
+            workosOrganizationId,
+          }).then(() => toast.success("Milestone schedule revised."))
+      : undefined,
   };
   const effectiveCalendarWorkspace =
     (calendarWorkspaceQuery as any) ??
@@ -251,6 +316,9 @@ function BuilderProductionProposalRoute() {
               <TabsTab value="calendar">Calendar</TabsTab>
               <TabsTab value="contractors">Contractors</TabsTab>
               <TabsTab value="materials">Materials</TabsTab>
+              {visualFixtureEnabled ? null : (
+                <TabsTab value="staff">Staff</TabsTab>
+              )}
             </TabsList>
             <BuildPermitViewerDrawer permit={permit} size="sm" />
           </FramePanel>
@@ -259,6 +327,7 @@ function BuilderProductionProposalRoute() {
         <TabsPanel className={proposalTabPanelClassName} value="timeline">
           <div className="w-full min-w-0 overflow-x-auto">
             <ProductionTimelineWorkspace
+              appPermissions={appPermissions}
               backofficeHref={`/backoffice/proposals/${proposalId}`}
               embedded
               initialRole="builder"
@@ -323,6 +392,7 @@ function BuilderProductionProposalRoute() {
         </TabsPanel>
         <TabsPanel className={proposalTabPanelClassName} value="contractors">
           <ProductionContractorPlanningTab
+            canMutate={canMutateContractors}
             initialRole="builder"
             persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
             proposalId={typedProposalId}
@@ -333,36 +403,22 @@ function BuilderProductionProposalRoute() {
         <TabsPanel className={proposalTabPanelClassName} value="materials">
           <MaterialPlanningTab
             actions={
-              visualFixtureEnabled
-                ? visualMaterialPlanningActions
-                : {
-                    create: (payload) =>
-                      createProposalCostItem({
-                        ...payload,
-                        proposalId: typedProposalId,
-                        workosOrganizationId,
-                      }).then(() => toast.success("Cost item added.")),
-                    delete: (item, reason) =>
-                      deleteProposalCostItem({
-                        itemId: item._id as any,
-                        proposalId: typedProposalId,
-                        reason,
-                        workosOrganizationId,
-                      }).then(() => toast.success("Cost item removed.")),
-                    update: (item, payload) =>
-                      updateProposalCostItem({
-                        ...payload,
-                        itemId: item._id as any,
-                        proposalId: typedProposalId,
-                        workosOrganizationId,
-                      }).then(() => toast.success("Cost item updated.")),
-                  }
+              materialPlanningActions
             }
             items={detail.costItems ?? []}
             milestones={proposalMaterialMilestones(detail)}
             scopeLabel="Builder Proposal"
           />
         </TabsPanel>
+        {visualFixtureEnabled ? null : (
+          <TabsPanel className={proposalTabPanelClassName} value="staff">
+            <BuilderStaffPermissionsPanel
+              proposalId={typedProposalId}
+              scope="proposal"
+              workosOrganizationId={workosOrganizationId}
+            />
+          </TabsPanel>
+        )}
         </div>
       </Tabs>
     </section>

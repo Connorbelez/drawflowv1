@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Calendar,
   Check,
   ChevronRight,
   ClipboardCheck,
@@ -1243,78 +1244,78 @@ export function buildTimelineItemsFromSetupRows(
 ): TimelineItem<DemoMilestone>[] {
   const includedRows = rows.filter((row) => !row.excluded);
   return includedRows.map((row, includedIndex) => {
-      const budgetCents = rowBudgetCents(row);
-      const durationDays = rowDurationDays(row);
-      const amount = Number.isFinite(budgetCents)
-        ? Math.round(budgetCents / 100)
-        : 0;
-      const normalizedDuration = Number.isFinite(durationDays)
-        ? durationDays
-        : row.durationDays;
-      const startDay = Number.isFinite(row.startDay)
-        ? Math.round(row.startDay)
-        : GENERATED_TIMELINE_CURRENT_DAY;
-      const status = chooseStatus(includedIndex, includedRows.length);
-      const item: TimelineItem<DemoMilestone> = {
-        data: {
+    const budgetCents = rowBudgetCents(row);
+    const durationDays = rowDurationDays(row);
+    const amount = Number.isFinite(budgetCents)
+      ? Math.round(budgetCents / 100)
+      : 0;
+    const normalizedDuration = Number.isFinite(durationDays)
+      ? durationDays
+      : row.durationDays;
+    const startDay = Number.isFinite(row.startDay)
+      ? Math.round(row.startDay)
+      : GENERATED_TIMELINE_CURRENT_DAY;
+    const status = chooseStatus(includedIndex, includedRows.length);
+    const item: TimelineItem<DemoMilestone> = {
+      data: {
+        amount,
+        draw: `Draw ${includedIndex + 1}`,
+        drawAvailabilityAmount: calculateDrawAvailabilityAmount(
           amount,
-          draw: `Draw ${includedIndex + 1}`,
-          drawAvailabilityAmount: calculateDrawAvailabilityAmount(
-            amount,
-            coPayBps
+          coPayBps
+        ),
+        drawX:
+          startDay +
+          normalizedDuration +
+          Math.min(
+            DEFAULT_GENERATED_DRAW_OFFSET_DAYS,
+            DEFAULT_HANDOFF_GAP_DAYS - 1
           ),
-          drawX:
-            startDay +
-            normalizedDuration +
-            Math.min(
-              DEFAULT_GENERATED_DRAW_OFFSET_DAYS,
-              DEFAULT_HANDOFF_GAP_DAYS - 1
-            ),
-          dependencyKeys: row.dependencyKeys,
-          durationDays: normalizedDuration,
-          evidence: status === "ready" ? "Ready to start" : "Not started",
-          icon: row.icon,
-          name: row.name,
-          policy: status === "ready" ? "Planning handoff" : "Upcoming",
-          siteVisitGuidance: row.siteVisitGuidance,
-          status,
-          subMilestones: row.subMilestones,
-          submilestoneDetails: mapSubmilestoneSnapshotRows(
-            row.subMilestoneDetails.map((detail, index) => ({
-              budgetCents: (() => {
-                const cents = parseCurrencyToCents(detail.budgetText);
-                return Number.isFinite(cents) ? Math.max(0, cents) : undefined;
-              })(),
-              description: detail.description,
-              durationDays: (() => {
-                const parsed = Number(
-                  detail.durationText.replace(DURATION_PREFIX_REGEX, "")
-                );
-                return Number.isFinite(parsed)
-                  ? Math.max(1, Math.round(parsed))
-                  : undefined;
-              })(),
-              key: detail.id,
-              name: detail.name,
-              order: index + 1,
-              startDay: Number.isFinite(detail.startDay)
-                ? Math.round(detail.startDay ?? startDay)
-                : startDay,
-            })),
-            row.key
-          ),
-        },
-        eyebrow: `Milestone ${includedIndex + 1}`,
-        id: row.key,
-        label: row.name.split(" ")[0] ?? row.name,
-        lane: includedIndex % 3 === 1 ? -1 : includedIndex % 3 === 2 ? 1 : 0,
-        markerLabel: String(includedIndex + 1),
-        tone: chooseTone(status),
-        x: startDay,
-      };
+        dependencyKeys: row.dependencyKeys,
+        durationDays: normalizedDuration,
+        evidence: status === "ready" ? "Ready to start" : "Not started",
+        icon: row.icon,
+        name: row.name,
+        policy: status === "ready" ? "Planning handoff" : "Upcoming",
+        siteVisitGuidance: row.siteVisitGuidance,
+        status,
+        subMilestones: row.subMilestones,
+        submilestoneDetails: mapSubmilestoneSnapshotRows(
+          row.subMilestoneDetails.map((detail, index) => ({
+            budgetCents: (() => {
+              const cents = parseCurrencyToCents(detail.budgetText);
+              return Number.isFinite(cents) ? Math.max(0, cents) : undefined;
+            })(),
+            description: detail.description,
+            durationDays: (() => {
+              const parsed = Number(
+                detail.durationText.replace(DURATION_PREFIX_REGEX, "")
+              );
+              return Number.isFinite(parsed)
+                ? Math.max(1, Math.round(parsed))
+                : undefined;
+            })(),
+            key: detail.id,
+            name: detail.name,
+            order: index + 1,
+            startDay: Number.isFinite(detail.startDay)
+              ? Math.round(detail.startDay ?? startDay)
+              : startDay,
+          })),
+          row.key
+        ),
+      },
+      eyebrow: `Milestone ${includedIndex + 1}`,
+      id: row.key,
+      label: row.name.split(" ")[0] ?? row.name,
+      lane: includedIndex % 3 === 1 ? -1 : includedIndex % 3 === 2 ? 1 : 0,
+      markerLabel: String(includedIndex + 1),
+      tone: chooseTone(status),
+      x: startDay,
+    };
 
-      return item;
-    });
+    return item;
+  });
 }
 
 export function buildPlanningPayloadFromSetupRows(
@@ -1778,19 +1779,43 @@ function DateSetupField({
   testId: string;
   value: string;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const openDatePicker = () => {
+    const input = inputRef.current;
+    if (!input) {
+      return;
+    }
+    input.focus();
+    if (typeof input.showPicker === "function") {
+      input.showPicker();
+    }
+  };
+
   return (
     <label className="timeline-setup-money-field">
       <span>
         {label} <Info aria-hidden="true" />
       </span>
-      <div className="timeline-setup-money-input">
+      <div className="timeline-setup-money-input timeline-setup-date-input">
         <input
           aria-label={label}
           data-testid={testId}
           onChange={(event) => onChange(event.currentTarget.value)}
+          ref={inputRef}
           type="date"
           value={value}
         />
+        <button
+          aria-label={`Open ${label} calendar`}
+          data-testid={`${testId}-picker`}
+          onClick={(event) => {
+            event.preventDefault();
+            openDatePicker();
+          }}
+          type="button"
+        >
+          <Calendar aria-hidden="true" />
+        </button>
       </div>
       {note ? <small>{note}</small> : null}
     </label>
