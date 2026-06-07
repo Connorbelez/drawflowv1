@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="Approved check circle">
+  <title>Approved check circle</title>
+
+  <circle cx="24" cy="24" r="22" fill="#2f6f48"/>
+  <path d="m14 24 7 7 15-17" fill="none" stroke="#fbfbf6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 70" role="img" aria-label="Milestone unlock tag $250,000">
+  <title>Milestone unlock tag $250,000</title>
+
+  <path d="M8 1.5h84a6.5 6.5 0 0 1 6.5 6.5v45a6.5 6.5 0 0 1-6.5 6.5H57L50 68l-7-8.5H8A6.5 6.5 0 0 1 1.5 53V8A6.5 6.5 0 0 1 8 1.5Z" fill="#fbfbf6" stroke="#9db6a4" stroke-width="1.5"/>
+  <text x="13" y="20" fill="#2f6f48" font-family="Inter, Arial, sans-serif" font-size="8" font-weight="800" letter-spacing=".8">UNLOCKED</text>
+  <text x="13" y="42" fill="#2f6f48" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="800">$250,000</text>
+</svg>

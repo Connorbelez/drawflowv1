@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 62" role="img" aria-label="Rigid three draw schedule axis">
+  <title>Rigid three draw schedule axis</title>
+
+  <path d="M6 31H690" fill="none" stroke="#071b43" stroke-width="5" stroke-linecap="round"/>
+  <g fill="#fbfbf6" stroke="#071b43" stroke-width="4">
+    <circle cx="6" cy="31" r="8"/>
+    <circle cx="138" cy="31" r="8"/>
+    <circle cx="360" cy="31" r="8"/>
+    <circle cx="586" cy="31" r="8"/>
+  </g>
+</svg>

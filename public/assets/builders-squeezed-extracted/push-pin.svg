@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 52" role="img" aria-label="Pinned note push pin">
+  <title>Pinned note push pin</title>
+
+  <g fill="none" stroke="#0b2149" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="24" cy="10" r="7" fill="#d6dde7"/>
+    <path d="M20 16 18 32M28 16l2 16M17 32h14M24 32v15"/>
+    <path d="M20 9c2.5-3 7-3 9 0" stroke="#6d7f9d"/>
+  </g>
+</svg>

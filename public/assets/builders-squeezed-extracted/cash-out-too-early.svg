@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 64" role="img" aria-label="Cash out too early icon">
+  <title>Cash out too early icon</title>
+
+  <g fill="none" stroke="#f15a49" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 30c9-6 18-5 26 2l12 10"/>
+    <path d="M13 42h16c7 0 12-2 17-7l14-13c4-3 9 2 5 7L47 48c-4 4-9 6-15 6H18L5 47"/>
+    <path d="M7 25c4 0 8 2 12 6"/>
+    <path d="M36 21c3-8 11-12 20-9-1 10-7 16-17 18"/>
+    <path d="M31 19c-2-7-8-11-16-10 0 8 5 13 13 15"/>
+  </g>
+</svg>

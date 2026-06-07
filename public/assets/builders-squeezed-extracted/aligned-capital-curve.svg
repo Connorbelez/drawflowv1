@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 805 112" role="img" aria-label="Aligned capital milestone curve">
+  <title>Aligned capital milestone curve</title>
+
+  <path d="M2 92 C58 60 100 48 158 44 S267 22 365 28 S493 20 605 25 S724 31 795 34" fill="none" stroke="#2f6f48" stroke-width="4" stroke-linecap="round"/>
+  <g fill="#2f6f48" stroke="#fbfbf6" stroke-width="4">
+    <circle cx="84" cy="61" r="16"/><circle cx="159" cy="43" r="16"/><circle cx="300" cy="30" r="16"/>
+    <circle cx="442" cy="25" r="16"/><circle cx="575" cy="28" r="16"/><circle cx="716" cy="33" r="16"/>
+  </g>
+  <g fill="none" stroke="#fbfbf6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m76 60 7 7 14-15"/><path d="m151 42 7 7 14-15"/><path d="m292 29 7 7 14-15"/>
+    <path d="m434 24 7 7 14-15"/><path d="m567 27 7 7 14-15"/><path d="m708 32 7 7 14-15"/>
+  </g>
+</svg>
