@@ -125,6 +125,19 @@ describe("AppShell assistant integration", () => {
     cleanup();
   });
 
+  test("keeps the assistant panel unmounted until the compact trigger is opened", async () => {
+    render(
+      <AppShell>
+        <main>Workspace</main>
+      </AppShell>,
+    );
+
+    expect(screen.queryByTestId("drawflow-assistant-surface")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Open DrawFlow AI assistant"));
+
+    expect(await screen.findByTestId("drawflow-assistant-surface")).toBeTruthy();
+  });
+
   test("Cmd/Ctrl+J opens the global assistant with route-aware context", async () => {
     render(
       <AppShell>
