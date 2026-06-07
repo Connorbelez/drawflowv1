@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="Warning triangle">
+  <title>Warning triangle</title>
+
+  <path d="M24 4 46 42H2L24 4Z" fill="none" stroke="#f15a49" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M24 16v13" stroke="#f15a49" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="24" cy="35" r="2.2" fill="#f15a49"/>
+</svg>

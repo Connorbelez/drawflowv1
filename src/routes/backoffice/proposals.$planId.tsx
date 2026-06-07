@@ -30,6 +30,14 @@ import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import { ProductionProposalReviewSurface } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
+import { ProductionProposalMilestoneWorksheetContainer } from "#/features/production-proposals/ProductionProposalMilestoneWorksheetContainer.tsx";
+import {
+  createProposalCalendarEditHandler,
+  type ProposalCalendarAdapterActions,
+} from "#/features/calendar-workspace/adapters/proposalCalendarAdapter.ts";
+import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
+import { ProductionContractorPlanningTab } from "#/features/production-proposals/ProductionContractorPlanningTab.tsx";
+import { ProductionProposalTimelineGanttWorkspace } from "#/features/production-proposals/ProductionProposalGanttWorkspace.tsx";
 import { ProductionTimelineWorkspace } from "#/features/production-proposals/ProductionTimelineWorkspace.tsx";
 import {
   createVisualParityCostItem,
@@ -81,8 +89,54 @@ const proposalMilestoneStatusMap = {
   upcoming: "upcoming",
 } as const satisfies Record<string, DemoMilestone["status"]>;
 
+type ProposalReviewSearch = {
+  tab?:
+    | "calendar"
+    | "closing"
+    | "contractors"
+    | "draws"
+    | "gantt"
+    | "materials"
+    | "packet"
+    | "review"
+    | "timeline";
+  timeframe?: CalendarTimeframe;
+};
+
 export const Route = createFileRoute("/backoffice/proposals/$planId")({
   ssr: false,
+  staticData: {
+    breadcrumb: {
+      label: ({ params }) => params.planId,
+      to: "/backoffice/proposals/$planId",
+    },
+  },
+  validateSearch: (search: Record<string, unknown>): ProposalReviewSearch => {
+    const tab =
+      search.tab === "calendar" ||
+      search.tab === "closing" ||
+      search.tab === "contractors" ||
+      search.tab === "draws" ||
+      search.tab === "gantt" ||
+      search.tab === "materials" ||
+      search.tab === "packet" ||
+      search.tab === "review" ||
+      search.tab === "timeline"
+        ? (search.tab as ProposalReviewSearch["tab"])
+        : undefined;
+    const timeframe =
+      search.timeframe === "day" ||
+      search.timeframe === "week" ||
+      search.timeframe === "month" ||
+      search.timeframe === "quarter" ||
+      search.timeframe === "agenda"
+        ? (search.timeframe as CalendarTimeframe)
+        : undefined;
+    return {
+      ...(tab ? { tab } : {}),
+      ...(timeframe ? { timeframe } : {}),
+    };
+  },
   component: ProposalReviewRoute,
 });
 
@@ -91,16 +145,17 @@ type DecisionModal = "approve" | "reject";
 
 function ProposalReviewRoute() {
   const { planId } = Route.useParams();
+  const search = Route.useSearch();
   const context = Route.useRouteContext();
   const navigate = useNavigate();
   const workosOrganizationId = context.organizationId as string;
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
   const visualProposalDetail = useMemo(
     () => getVisualParityProposalDetail(planId),
-    [planId]
+    [planId],
   );
   const [visualCostItems, setVisualCostItems] = useState(
-    () => visualProposalDetail.costItems ?? []
+    () => visualProposalDetail.costItems ?? [],
   );
   useEffect(() => {
     setVisualCostItems(visualProposalDetail.costItems ?? []);
@@ -115,23 +170,26 @@ function ProposalReviewRoute() {
       },
       delete: (item: { _id: string }) => {
         setVisualCostItems((current) =>
-          current.filter((candidate) => candidate._id !== item._id)
+          current.filter((candidate) => candidate._id !== item._id),
         );
       },
       update: (
         item: { _id: string },
-        payload: Parameters<typeof createVisualParityCostItem>[0]
+        payload: Parameters<typeof createVisualParityCostItem>[0],
       ) => {
         setVisualCostItems((current) =>
           current.map((candidate) =>
             candidate._id === item._id
-              ? { ...createVisualParityCostItem(payload, candidate._id), _id: item._id }
-              : candidate
-          )
+              ? {
+                  ...createVisualParityCostItem(payload, candidate._id),
+                  _id: item._id,
+                }
+              : candidate,
+          ),
         );
       },
     }),
-    []
+    [],
   );
   const joinSession = useMutation(api.proposal_collaboration.joinSession);
   const collabToken = useMemo(
@@ -139,7 +197,7 @@ function ProposalReviewRoute() {
       typeof window === "undefined"
         ? null
         : new URLSearchParams(window.location.search).get("collab"),
-    []
+    [],
   );
   const [collabJoinState, setCollabJoinState] = useState<
     "idle" | "joined" | "joining"
@@ -159,7 +217,7 @@ function ProposalReviewRoute() {
         toast.error(
           error instanceof Error
             ? error.message
-            : "Unable to join live collaboration."
+            : "Unable to join live collaboration.",
         );
       });
   }, [collabJoinState, collabToken, joinSession, workosOrganizationId]);
@@ -168,7 +226,7 @@ function ProposalReviewRoute() {
     api.production_proposals.getProposalDetailByString,
     visualFixtureEnabled || collabJoinState === "joining"
       ? "skip"
-      : { proposalId: planId, workosOrganizationId }
+      : { proposalId: planId, workosOrganizationId },
   );
   const productionDetail = visualFixtureEnabled
     ? { ...visualProposalDetail, costItems: visualCostItems }
@@ -180,34 +238,106 @@ function ProposalReviewRoute() {
       : {
           proposalId: planId as Id<"buildProposals">,
           workosOrganizationId,
-        }
+        },
   );
   const productionWorkspace = visualFixtureEnabled
     ? getVisualParityTimelineWorkspace(planId)
     : productionWorkspaceQuery;
+  const productionCalendarWorkspaceQuery = useQuery(
+    (api as any).production_proposals.getProposalCalendarWorkspace,
+    visualFixtureEnabled || !productionDetail
+      ? "skip"
+      : {
+          proposalId: planId as Id<"buildProposals">,
+          workosOrganizationId,
+        },
+  );
+  const calendarAssignableParticipantsQuery = useQuery(
+    (api as any).production_proposals.listProposalCalendarAssignableParticipants,
+    visualFixtureEnabled || !productionDetail
+      ? "skip"
+      : {
+          proposalId: planId as Id<"buildProposals">,
+          workosOrganizationId,
+        },
+  );
+  const buildersQuery = useQuery(
+    api.production_proposals.listBrokerageBuilders,
+    visualFixtureEnabled || !productionDetail
+      ? "skip"
+      : { workosOrganizationId },
+  );
   const requestProductionChanges = useMutation(
-    api.production_proposals.requestChanges
+    api.production_proposals.requestChanges,
+  );
+  const assignDraftBuilder = useMutation(
+    api.production_proposals.assignDraftBuilder,
+  );
+  const unassignDraftBuilder = useMutation(
+    api.production_proposals.unassignDraftBuilder,
+  );
+  const createDraftProposalClaimLink = useMutation(
+    api.production_proposals.createDraftProposalClaimLink,
   );
   const rejectProductionProposal = useMutation(
-    api.production_proposals.rejectProposal
+    api.production_proposals.rejectProposal,
   );
   const approveProductionProposal = useMutation(
-    api.production_proposals.approveProposal
+    api.production_proposals.approveProposal,
   );
   const recordProductionClosing = useMutation(
-    api.production_proposals.recordOfflineClosing
+    api.production_proposals.recordOfflineClosing,
   );
   const createProposalCostItem = useMutation(
-    api.production_proposals.createProposalCostItem
+    api.production_proposals.createProposalCostItem,
   );
   const updateProposalCostItem = useMutation(
-    api.production_proposals.updateProposalCostItem
+    api.production_proposals.updateProposalCostItem,
   );
   const deleteProposalCostItem = useMutation(
-    api.production_proposals.deleteProposalCostItem
+    api.production_proposals.deleteProposalCostItem,
   );
   const updateProductionDrawScheduleRow = useMutation(
-    api.production_proposals.updateSubmittedProposalDrawScheduleRow
+    api.production_proposals.updateSubmittedProposalDrawScheduleRow,
+  );
+  const updateProductionTimelineDraw = useMutation(
+    api.production_proposals.updateProductionTimelineDraw,
+  );
+  const updateProductionProposalApprovedAmount = useMutation(
+    api.production_proposals.updateProductionProposalApprovedAmount,
+  );
+  const updateProductionProposalInterestRate = useMutation(
+    api.production_proposals.updateProductionProposalInterestRate,
+  );
+  const reviseProposalMilestoneSchedule = useMutation(
+    (api as any).production_proposals.reviseProposalMilestoneSchedule,
+  );
+  const reviseProposalDrawTiming = useMutation(
+    (api as any).production_proposals.reviseProposalDrawTiming,
+  );
+  const setEvidenceDueDate = useMutation(
+    (api as any).production_proposals.setEvidenceDueDate,
+  );
+  const setReviewTargetDate = useMutation(
+    (api as any).production_proposals.setReviewTargetDate,
+  );
+  const saveCalendarView = useMutation(
+    (api as any).production_proposals.saveCalendarView,
+  );
+  const createProposalReminderCalendarEvent = useMutation(
+    (api as any).production_proposals.createProposalReminderCalendarEvent,
+  );
+  const updateProposalReminderCalendarEvent = useMutation(
+    (api as any).production_proposals.updateProposalReminderCalendarEvent,
+  );
+  const deleteProposalReminderCalendarEvent = useMutation(
+    (api as any).production_proposals.deleteProposalReminderCalendarEvent,
+  );
+  const createCalendarSyncSubscription = useMutation(
+    (api as any).production_proposals.createCalendarSyncSubscription,
+  );
+  const recordExternalCalendarSyncChange = useMutation(
+    (api as any).production_proposals.recordExternalCalendarSyncChange,
   );
 
   if (collabJoinState === "joining") {
@@ -221,11 +351,59 @@ function ProposalReviewRoute() {
     );
   }
 
+  //ToDo: BIG CODESMELL
   if (productionDetail && productionWorkspace) {
     const proposalId = planId as Id<"buildProposals">;
+    const calendarAdapterActions: ProposalCalendarAdapterActions = {
+      addEvidenceDueDate: (input) =>
+        setEvidenceDueDate({
+          ...input,
+          proposalId,
+          workosOrganizationId,
+        }).then(() => toast.success("Evidence due date set.")),
+      addReviewTargetDate: (input) =>
+        setReviewTargetDate({
+          ...input,
+          proposalId,
+          workosOrganizationId,
+        }).then(() => toast.success("Review target date set.")),
+      reviseDrawTiming: (input) =>
+        reviseProposalDrawTiming({
+          ...input,
+          proposalId,
+          workosOrganizationId,
+        }).then(() => toast.success("Draw timing revised.")),
+      reviseMilestoneSchedule: (input) =>
+        reviseProposalMilestoneSchedule({
+          ...input,
+          proposalId,
+          workosOrganizationId,
+        }).then(() => toast.success("Milestone schedule revised.")),
+    };
+    const commitCalendarEdit = createProposalCalendarEditHandler({
+      actions: calendarAdapterActions,
+      baseDate: productionDetail.activeBuild?.startDate ?? "2026-06-01",
+    });
     return (
       <ProductionProposalReviewSurface
+        builders={buildersQuery ?? []}
+        calendarAdapterActions={calendarAdapterActions}
+        calendarAssignableParticipants={calendarAssignableParticipantsQuery ?? []}
+        calendarTimeframe={search.timeframe}
+        calendarWorkspace={productionCalendarWorkspaceQuery as any}
         detail={productionDetail}
+        initialActiveTab={search.tab}
+        milestones={
+          <ProductionProposalMilestoneWorksheetContainer
+            contractorPlanning={productionWorkspace.contractorPlanning}
+            detail={productionDetail}
+            persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
+            proposalId={proposalId}
+            showHeading
+            templateTitle={productionDetail.proposal.buildName}
+            workosOrganizationId={workosOrganizationId}
+          />
+        }
         materialPlanningActions={
           visualFixtureEnabled
             ? visualMaterialPlanningActions
@@ -252,9 +430,27 @@ function ProposalReviewRoute() {
                   }).then(() => toast.success("Cost item updated.")),
               }
         }
+        contractors={
+          <ProductionContractorPlanningTab
+            initialRole="lender"
+            persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
+            proposalId={proposalId}
+            workspace={productionWorkspace}
+            workosOrganizationId={workosOrganizationId}
+          />
+        }
+        gantt={
+          <ProductionProposalTimelineGanttWorkspace
+            persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
+            proposalId={proposalId}
+            workspace={productionWorkspace}
+            workosOrganizationId={workosOrganizationId}
+          />
+        }
         timeline={
           <ProductionTimelineWorkspace
             backofficeHref={`/backoffice/proposals/${planId}`}
+            embedded
             initialRole="lender"
             persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
             prejoinedCollabToken={
@@ -276,14 +472,15 @@ function ProposalReviewRoute() {
             toast.success("Proposal approved.", {
               description:
                 "The proposal is ready for closing. Live build controls stay locked until closing is recorded.",
-            })
+            }),
           )
         }
         onClose={(buildStartDate, reason) =>
           recordProductionClosing({
             buildStartDate,
             loanFacility: {
-              interestAnnualBps: 925,
+              interestAnnualBps:
+                productionDetail.proposal.interestAnnualBps ?? 925,
               principalCents:
                 productionDetail.proposal.lenderDrawPolicyLimitCents,
             },
@@ -305,6 +502,39 @@ function ProposalReviewRoute() {
             workosOrganizationId,
           }).then(() => toast.success("Proposal rejected."))
         }
+        onAssignBuilder={(builderProfileId) =>
+          assignDraftBuilder({
+            builderProfileId: builderProfileId as Id<"builderProfiles">,
+            proposalId,
+            workosOrganizationId,
+          })
+        }
+        onUnassignBuilder={() =>
+          unassignDraftBuilder({
+            proposalId,
+            workosOrganizationId,
+          })
+        }
+        onCreateClaimLink={() =>
+          createDraftProposalClaimLink({
+            proposalId,
+            workosOrganizationId,
+          })
+        }
+        onUpdateApprovedAmount={(approvedAmountCents) =>
+          updateProductionProposalApprovedAmount({
+            approvedAmountCents,
+            proposalId,
+            workosOrganizationId,
+          })
+        }
+        onUpdateInterestRate={(interestAnnualBps) =>
+          updateProductionProposalInterestRate({
+            interestAnnualBps,
+            proposalId,
+            workosOrganizationId,
+          })
+        }
         onRequestChanges={(reason) =>
           requestProductionChanges({
             proposalId,
@@ -313,15 +543,88 @@ function ProposalReviewRoute() {
           }).then(() => toast.success("Changes requested."))
         }
         onUpdateDraw={(drawKey, patch) =>
-          void updateProductionDrawScheduleRow({
-            amountCents: patch.amountCents,
-            drawKey,
-            label: patch.label,
+          (productionDetail.proposal.status === "draft"
+            ? updateProductionTimelineDraw({
+                amountCents: patch.amountCents,
+                drawKey,
+                label: patch.label,
+                proposalId,
+                workosOrganizationId,
+                x: patch.timingDay,
+              })
+            : updateProductionDrawScheduleRow({
+                amountCents: patch.amountCents,
+                drawKey,
+                label: patch.label,
+                proposalId,
+                reason: patch.reason,
+                timingDay: patch.timingDay,
+                workosOrganizationId,
+              })
+          ).then(() => toast.success("Draw schedule updated."))
+        }
+        onChangeCalendarTimeframe={(timeframe) =>
+          void navigate({
+            params: { planId },
+            replace: true,
+            search: { ...search, timeframe },
+            to: "/backoffice/proposals/$planId",
+          })
+        }
+        onChangeReviewTab={(tab) =>
+          void navigate({
+            params: { planId },
+            replace: true,
+            search: { ...search, tab },
+            to: "/backoffice/proposals/$planId",
+          })
+        }
+        onCommitCalendarEdit={commitCalendarEdit}
+        onCreateCalendarReminderEvent={(input) =>
+          createProposalReminderCalendarEvent({
+            ...input,
             proposalId,
-            reason: patch.reason,
-            timingDay: patch.timingDay,
             workosOrganizationId,
-          }).then(() => toast.success("Draw schedule updated."))
+          })
+        }
+        onCreateCalendarSyncSubscription={(input) =>
+          createCalendarSyncSubscription({
+            ...input,
+            proposalId:
+              input.surface === "proposal"
+                ? (input.sourceId as Id<"buildProposals">)
+                : undefined,
+            workosOrganizationId,
+          })
+        }
+        onDeleteCalendarReminderEvent={(input) =>
+          deleteProposalReminderCalendarEvent({
+            ...input,
+            eventId: input.eventId as Id<"calendarReminderEvents">,
+            proposalId,
+            workosOrganizationId,
+          })
+        }
+        onRecordExternalCalendarSyncChange={(input) =>
+          recordExternalCalendarSyncChange({
+            ...input,
+            workosOrganizationId,
+          })
+        }
+        onSaveCalendarView={(input) =>
+          saveCalendarView({
+            ...input,
+            surface: "proposal",
+            workosOrganizationId,
+          })
+        }
+        onUpdateCalendarReminderEvent={(input) =>
+          updateProposalReminderCalendarEvent({
+            ...input,
+            eventId: input.eventId as Id<"calendarReminderEvents">,
+            proposalId,
+            workosOrganizationId,
+          })
         }
       />
     );
@@ -414,7 +717,7 @@ export function ProposalReviewSurface({
   const [adminNote, setAdminNote] = useState("");
   const [rejectReason, setRejectReason] = useState("");
   const [decisionModal, setDecisionModal] = useState<DecisionModal | null>(
-    null
+    null,
   );
   const [isApproving, setIsApproving] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
@@ -425,20 +728,20 @@ export function ProposalReviewSurface({
   const chartData = useMemo(() => buildReviewChartData(viewModel), [viewModel]);
   const timelineItems = useMemo(
     () => buildTimelineItems(viewModel),
-    [viewModel]
+    [viewModel],
   );
   const timelineMarkers = useMemo(
     () => buildProposalTimelineMarkers(viewModel),
-    [viewModel]
+    [viewModel],
   );
   const startingCash = centsToDollars(viewModel?.plan?.startingCashCents ?? 0);
   const timelineRange = useMemo(
     () => ({ max: chartData.maxDay + 10, min: 0, unit: "days" as const }),
-    [chartData.maxDay]
+    [chartData.maxDay],
   );
   const xDomain = useMemo(
     () => [timelineRange.min, timelineRange.max] as [number, number],
-    [timelineRange.max, timelineRange.min]
+    [timelineRange.max, timelineRange.min],
   );
   const probeReferenceLines = useMemo(
     () =>
@@ -446,9 +749,9 @@ export function ProposalReviewSurface({
         probeValue,
         chartData.cashflow,
         chartData.drawAvailability,
-        startingCash
+        startingCash,
       ),
-    [chartData.cashflow, chartData.drawAvailability, probeValue, startingCash]
+    [chartData.cashflow, chartData.drawAvailability, probeValue, startingCash],
   );
   const snapshotMilestones = viewModel?.snapshot?.milestones ?? [];
   const workingMilestones = viewModel?.workingCopy?.milestones ?? [];
@@ -458,13 +761,13 @@ export function ProposalReviewSurface({
   const canEditTimeline = plan?.status === "submitted";
   const approvalValidation = useMemo(
     () => validateApprovalStartDate(startDate, plan?.status),
-    [plan?.status, startDate]
+    [plan?.status, startDate],
   );
   const canAttemptApproval = plan?.status === "submitted" && !terminalBuild;
 
   const openApproveModal = useCallback(() => {
     setStartDate(
-      (current) => current || getDefaultApprovalStartDateInput(plan)
+      (current) => current || getDefaultApprovalStartDateInput(plan),
     );
     setDecisionModal("approve");
   }, [plan]);
@@ -485,7 +788,7 @@ export function ProposalReviewSurface({
       }
 
       const milestone = workingMilestones.find(
-        (row: ProposalReviewMilestone) => row.milestoneKey === milestoneKey
+        (row: ProposalReviewMilestone) => row.milestoneKey === milestoneKey,
       );
       if (!milestone) {
         return;
@@ -495,7 +798,7 @@ export function ProposalReviewSurface({
         milestone,
         milestoneKey,
         patch,
-        planId
+        planId,
       );
       if (!mutationArgs) {
         return;
@@ -507,11 +810,11 @@ export function ProposalReviewSurface({
         })
         .catch((error) => {
           toast.error(
-            error instanceof Error ? error.message : "Milestone update failed."
+            error instanceof Error ? error.message : "Milestone update failed.",
           );
         });
     },
-    [canEditTimeline, planId, updateMilestone, workingMilestones]
+    [canEditTimeline, planId, updateMilestone, workingMilestones],
   );
 
   if (viewModel === undefined) {
@@ -674,7 +977,7 @@ export function ProposalReviewSurface({
                     getItemEndValue={(item) =>
                       workingMilestones.find(
                         (row: ProposalReviewMilestone) =>
-                          row.milestoneKey === item.id
+                          row.milestoneKey === item.id,
                       )?.dayEnd ?? getMilestoneEndX(item)
                     }
                     hoverValue={probeValue}
@@ -738,7 +1041,7 @@ export function ProposalReviewSurface({
                   onCommit={(milestoneKey, patch) => {
                     const milestone = workingMilestones.find(
                       (row: ProposalReviewMilestone) =>
-                        row.milestoneKey === milestoneKey
+                        row.milestoneKey === milestoneKey,
                     );
                     if (!milestone) {
                       return;
@@ -748,7 +1051,7 @@ export function ProposalReviewSurface({
                       milestone,
                       milestoneKey,
                       patch,
-                      planId
+                      planId,
                     );
                     if (!mutationArgs) {
                       return;
@@ -762,7 +1065,7 @@ export function ProposalReviewSurface({
                         toast.error(
                           error instanceof Error
                             ? error.message
-                            : "Milestone update failed."
+                            : "Milestone update failed.",
                         );
                       });
                   }}
@@ -772,7 +1075,7 @@ export function ProposalReviewSurface({
                   label="Draws"
                   rows={workingDraws.map((draw: any) => {
                     const frozen = snapshotDraws.find(
-                      (row: any) => row.sourceTimelineDrawId === draw._id
+                      (row: any) => row.sourceTimelineDrawId === draw._id,
                     );
                     return {
                       id: draw.drawKey,
@@ -1025,7 +1328,7 @@ function MilestoneAdjustmentsTable({
           <TableBody>
             {milestones.map((milestone) => {
               const frozen = snapshotMilestones.find(
-                (row) => row.sourceTimelineMilestoneId === milestone._id
+                (row) => row.sourceTimelineMilestoneId === milestone._id,
               );
               const workingStart = milestone.x ?? milestone.dayStart;
               const snapshotCostDiff =
@@ -1220,7 +1523,7 @@ function ComparisonTable({
                       defaultValue={Math.round(row.working / 100)}
                       onBlur={(event) => {
                         const nextValue = Math.round(
-                          Number(event.currentTarget.value) * 100
+                          Number(event.currentTarget.value) * 100,
                         );
                         if (Number.isFinite(nextValue)) {
                           void row.onCommit(nextValue);
@@ -1252,7 +1555,7 @@ export function buildProposalMilestoneMutationArgs(
   milestone: ProposalReviewMilestone,
   milestoneKey: string,
   patch: MilestoneCardUpdate,
-  planId: string
+  planId: string,
 ) {
   const mutationArgs: {
     budgetCents?: number;
@@ -1310,7 +1613,7 @@ export function buildProposalTimelineMarkers(viewModel: any): TimelineMarker[] {
     ...capitalEvents
       .filter(
         (event: ProposalReviewCapitalEvent) =>
-          !isInitialBorrowerCapitalEvent(event.label)
+          !isInitialBorrowerCapitalEvent(event.label),
       )
       .map((event: ProposalReviewCapitalEvent) => ({
         id: `capital-spike-${event.capitalEventKey}`,
@@ -1326,7 +1629,7 @@ export function buildProposalTimelineMarkers(viewModel: any): TimelineMarker[] {
 }
 
 export function buildProposalTimelineItems(
-  viewModel: any
+  viewModel: any,
 ): TimelineItem<DemoMilestone>[] {
   return (viewModel?.workingCopy?.milestones ?? []).map(
     (milestone: ProposalReviewMilestone) => ({
@@ -1340,7 +1643,7 @@ export function buildProposalTimelineItems(
         policy: milestone.policyState,
         status: proposalMilestoneStatusMap[milestone.status] ?? "upcoming",
         subMilestones: (milestone.submilestoneSnapshot ?? []).map(
-          (row) => row.name
+          (row) => row.name,
         ),
       },
       eyebrow: `Milestone ${milestone.order}`,
@@ -1350,7 +1653,7 @@ export function buildProposalTimelineItems(
       markerLabel: milestone.markerLabel ?? String(milestone.order),
       tone: milestone.tone,
       x: milestone.x ?? milestone.dayStart,
-    })
+    }),
   );
 }
 
@@ -1410,6 +1713,9 @@ export function buildReviewChartData(viewModel: any) {
     ...milestones.map((row: any) => ({
       amount: centsToDollars(row.budgetCents),
       day: row.dayStart,
+      drawCapacityUnlocked: centsToDollars(
+        row.drawAvailabilityCents ?? row.budgetCents,
+      ),
       event: "milestone" as const,
       id: row.milestoneKey,
       name: row.name,
@@ -1435,7 +1741,7 @@ export function buildReviewChartData(viewModel: any) {
     })),
   ].sort((a, b) => a.day - b.day || a.sort - b.sort);
   let cashOnHand = startingCash;
-  const cashflow = [
+  const cashflow: TimelineCashflowCompoundDatum[] = [
     {
       budget: 0,
       capitalSpikeAmount: 0,
@@ -1461,6 +1767,10 @@ export function buildReviewChartData(viewModel: any) {
       continue;
     }
     cashOnHand -= event.amount;
+    const reimbursableBudget =
+      event.event === "milestone"
+        ? Math.min(event.amount, event.drawCapacityUnlocked)
+        : 0;
     cashflow.push({
       budget: event.event === "milestone" ? event.amount : 0,
       capitalSpikeAmount: event.event === "capitalSpike" ? event.amount : 0,
@@ -1469,6 +1779,11 @@ export function buildReviewChartData(viewModel: any) {
       event: event.event,
       id: event.id,
       name: event.name,
+      outOfPocketBudget:
+        event.event === "milestone"
+          ? Math.max(0, event.amount - reimbursableBudget)
+          : 0,
+      reimbursableBudget,
     });
   }
   let unlockedDraw = 0;
@@ -1492,7 +1807,7 @@ export function buildReviewChartData(viewModel: any) {
   const drawAvailability = availabilityEvents.map((event) => {
     totalInterestAccrued += calculateProposalDailyCompoundedInterest(
       releasedDraw + totalInterestAccrued,
-      event.day - previousAvailabilityDay
+      event.day - previousAvailabilityDay,
     );
     previousAvailabilityDay = event.day;
 
@@ -1514,7 +1829,7 @@ export function buildReviewChartData(viewModel: any) {
     30,
     ...milestones.map((row: any) => row.dayEnd),
     ...draws.map((row: any) => row.x),
-    ...capitalEvents.map((row: any) => row.x)
+    ...capitalEvents.map((row: any) => row.x),
   );
   const maxValue = Math.max(
     100_000,
@@ -1528,7 +1843,7 @@ export function buildReviewChartData(viewModel: any) {
       row.additionalAvailableDraw,
       row.interestBearingDraw,
       row.totalAvailableDraw,
-    ])
+    ]),
   );
   return {
     cashflow,
@@ -1536,7 +1851,7 @@ export function buildReviewChartData(viewModel: any) {
     maxDay,
     maxValue,
     ticks: Array.from({ length: 6 }, (_, index) =>
-      Math.round((maxDay / 5) * index)
+      Math.round((maxDay / 5) * index),
     ),
   };
 }
@@ -1545,7 +1860,7 @@ export function buildProposalProbeReferenceLines(
   probeValue: number | null,
   cashflow: TimelineCashflowCompoundDatum[],
   drawAvailability: TimelineDrawAvailabilityDatum[],
-  startingCash: number
+  startingCash: number,
 ): {
   cashflow: TimelineCashflowReferenceLine[];
   drawAvailability: TimelineDrawAvailabilityReferenceLine[];
@@ -1557,11 +1872,11 @@ export function buildProposalProbeReferenceLines(
   const probeCashOnHand = interpolateProposalCashOnHand(
     cashflow,
     probeValue,
-    startingCash
+    startingCash,
   );
   const probeDrawAvailability = interpolateProposalDrawAvailability(
     drawAvailability,
-    Math.round(probeValue)
+    Math.round(probeValue),
   );
 
   return {
@@ -1581,13 +1896,13 @@ export function buildProposalProbeReferenceLines(
       {
         label: [
           `Delta ${formatProbeMoney(
-            probeDrawAvailability.additionalAvailableDraw
+            probeDrawAvailability.additionalAvailableDraw,
           )}`,
           `Interest-bearing ${formatProbeMoney(
-            probeDrawAvailability.interestBearingDraw
+            probeDrawAvailability.interestBearingDraw,
           )}`,
           `Total interest ${formatProbeMoney(
-            probeDrawAvailability.totalInterestAccrued
+            probeDrawAvailability.totalInterestAccrued,
           )}`,
         ],
         opacity: 0.82,
@@ -1602,14 +1917,14 @@ export function buildProposalProbeReferenceLines(
 function interpolateProposalCashOnHand(
   data: TimelineCashflowCompoundDatum[],
   value: number,
-  startingCash: number
+  startingCash: number,
 ) {
   if (data.length === 0) {
     return startingCash;
   }
 
   const sorted = [...data].sort(
-    (a, b) => a.day - b.day || a.id.localeCompare(b.id)
+    (a, b) => a.day - b.day || a.id.localeCompare(b.id),
   );
   let previous = sorted[0];
 
@@ -1643,7 +1958,7 @@ function interpolateProposalCashOnHand(
 
 function interpolateProposalDrawAvailability(
   data: TimelineDrawAvailabilityDatum[],
-  value: number
+  value: number,
 ) {
   const fallback: TimelineDrawAvailabilityDatum = {
     additionalAvailableDraw: 0,
@@ -1675,14 +1990,14 @@ function interpolateProposalDrawAvailability(
       current.totalInterestAccrued +
       calculateProposalDailyCompoundedInterest(
         current.interestBearingDraw + current.totalInterestAccrued,
-        Math.max(0, value - current.day)
+        Math.max(0, value - current.day),
       ),
   };
 }
 
 function calculateProposalDailyCompoundedInterest(
   principal: number,
-  elapsedDays: number
+  elapsedDays: number,
 ) {
   if (principal <= 0 || elapsedDays <= 0) {
     return 0;
@@ -1727,7 +2042,7 @@ export function getDefaultApprovalStartDateInput(plan?: {
 
 export function validateApprovalStartDate(
   startDate: string,
-  status?: string
+  status?: string,
 ):
   | {
       message: string;

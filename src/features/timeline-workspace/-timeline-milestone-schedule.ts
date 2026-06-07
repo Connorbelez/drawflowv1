@@ -89,9 +89,19 @@ export function getMilestonePaymentSchedule(
     status: data?.status ?? "upcoming",
     subMilestones: data?.subMilestones ?? [],
   }) as ScheduledDemoMilestone;
-  const totalAmount = normalized.amount;
-  const initialPaymentAmount = normalized.initialPaymentAmount ?? 0;
-  const completionPaymentAmount = normalized.completionPaymentAmount ?? 0;
+  const actualCost = data?.completionClaim?.actualCost;
+  const totalAmount =
+    actualCost === undefined || !Number.isFinite(actualCost)
+      ? normalized.amount
+      : Math.max(0, Math.round(actualCost));
+  const initialPaymentAmount = Math.min(
+    normalized.initialPaymentAmount ?? 0,
+    totalAmount
+  );
+  const completionPaymentAmount = Math.min(
+    normalized.completionPaymentAmount ?? 0,
+    Math.max(0, totalAmount - initialPaymentAmount)
+  );
   const durationDays =
     normalized.durationDays ?? DEFAULT_MILESTONE_DURATION_DAYS;
   const distributedAmount = Math.max(

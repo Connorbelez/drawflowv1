@@ -1,3 +1,10 @@
+import type { ContractorPlanningModel } from "#/features/contractors/ContractorPlanningPanel.tsx";
+
+import type {
+  BuildWorkspaceAssignContractorInput,
+  BuildWorkspaceCreateAndAssignContractorInput,
+} from "./build-workspace-contractor-planning.ts";
+
 export type WorkspaceMode = "active" | "proposal";
 
 export type WorkspaceRole = "builderLead" | "lenderAdmin" | "siteVisitor";
@@ -199,13 +206,21 @@ export interface DrawGroup {
   issues: WorkspaceIssue[];
   label: string;
   order: number;
+  plannedAt?: Date;
   rowIndex: number;
   rowSpan: number;
   startAt: Date;
   status: DrawStatus;
+  timingDay?: number;
   totalExposure: number;
   warningState: "clear" | "warning" | "critical";
 }
+
+export type DrawGroupPatch = Partial<
+  Pick<DrawGroup, "amount" | "eligibleAt" | "label" | "plannedAt">
+> & {
+  timingDay?: number;
+};
 
 export interface MilestoneDependency {
   fromMilestoneId: string;
@@ -376,12 +391,23 @@ export interface BuildWorkspaceActions {
     milestoneId: string,
     patch: MilestonePatch
   ) => Promise<void>;
+  updateDrawGroup?: (
+    drawGroupId: string,
+    patch: DrawGroupPatch
+  ) => Promise<void>;
   updateProgress: (milestoneId: string, progress: number) => Promise<void>;
   uploadEvidence: (
     milestoneId: string,
     file: File,
     geofencePassed: boolean
   ) => Promise<void>;
+  assignContractorToMilestone?: (
+    input: BuildWorkspaceAssignContractorInput
+  ) => Promise<void>;
+  createAndAssignContractor?: (
+    input: BuildWorkspaceCreateAndAssignContractorInput
+  ) => Promise<void>;
+  resolveContractorMilestoneKey?: (milestoneId: string) => string;
 }
 
 export interface BuildWorkspaceState {
@@ -405,6 +431,7 @@ export interface BuildWorkspaceState {
   terminalMessage?: string;
   validationErrors: string[];
   validationWarnings: string[];
+  contractorPlanning?: ContractorPlanningModel | null;
 }
 
 export type BuildWorkspaceAdapter = BuildWorkspaceState & BuildWorkspaceActions;

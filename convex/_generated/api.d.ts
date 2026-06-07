@@ -24,6 +24,7 @@ import type * as demo_site_visit_guidance from "../demo_site_visit_guidance.js";
 import type * as demo_site_visit_tokens from "../demo_site_visit_tokens.js";
 import type * as demo_timeline_plans from "../demo_timeline_plans.js";
 import type * as demo_timeline_snapshots from "../demo_timeline_snapshots.js";
+import type * as evidence_preview from "../evidence_preview.js";
 import type * as fluent from "../fluent.js";
 import type * as http from "../http.js";
 import type * as production_proposals from "../production_proposals.js";
@@ -57,6 +58,7 @@ declare const fullApi: ApiFromModules<{
   demo_site_visit_tokens: typeof demo_site_visit_tokens;
   demo_timeline_plans: typeof demo_timeline_plans;
   demo_timeline_snapshots: typeof demo_timeline_snapshots;
+  evidence_preview: typeof evidence_preview;
   fluent: typeof fluent;
   http: typeof http;
   production_proposals: typeof production_proposals;

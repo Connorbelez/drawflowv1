@@ -11,7 +11,14 @@ import {
   Users,
   WifiOff,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 
 import { Badge } from "#/components/ui/badge.tsx";
@@ -39,13 +46,14 @@ import {
   type TimelineModificationRequestView,
   type TimelineWorkspacePersistence,
 } from "#/features/timeline-workspace/index.tsx";
-import { ContractorPlanningPanel } from "#/features/contractors/ContractorPlanningPanel.tsx";
-
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 
 export interface ProductionTimelineWorkspaceProps {
   backofficeHref: string;
+  /** Use inside tabbed proposal surfaces so layout width stays with the shell. */
+  embedded?: boolean;
+  headerActions?: ReactNode;
   initialRole?: "builder" | "lender";
   persistenceMode?: "convex" | "noop";
   prejoinedCollabToken?: string | null;
@@ -57,6 +65,7 @@ export interface ProductionTimelineWorkspaceProps {
     proposal: {
       buildName: string;
       location: string;
+      lenderDrawPolicyLimitCents?: number;
       reviewOutcome?: string;
       status: string;
       totalBudgetCents: number;
@@ -67,6 +76,8 @@ export interface ProductionTimelineWorkspaceProps {
 
 export function ProductionTimelineWorkspace({
   backofficeHref,
+  embedded = false,
+  headerActions,
   initialRole = "builder",
   persistenceMode = "convex",
   prejoinedCollabToken = null,
@@ -127,19 +138,13 @@ export function ProductionTimelineWorkspace({
   const reviewModificationRequest = useMutation(
     api.production_proposals.reviewProductionTimelineModificationRequest
   );
-  const attachProposalContractor = useMutation(
-    (api as any).production_proposals.attachProposalContractor
-  );
-  const createAndAttachProposalContractor = useMutation(
-    (api as any).production_proposals.createAndAttachProposalContractor
-  );
-  const assignProposalContractorToMilestone = useMutation(
-    (api as any).production_proposals.assignProposalContractorToMilestone
-  );
   const collaboration = useProductionProposalCollaboration({
     enabled: persistenceMode === "convex",
     prejoinedShareToken: prejoinedCollabToken,
     proposalId,
+    shareTargetHref: buildCollaborationTargetHref(
+      initialRole === "lender" ? proposalHref : backofficeHref
+    ),
     workosOrganizationId,
   });
 
@@ -363,75 +368,32 @@ export function ProductionTimelineWorkspace({
       : convexPersistence;
 
   return (
-    <div className="grid gap-4">
-      <ContractorPlanningPanel
-        canMutate={persistenceMode !== "noop" && collaborationCanEdit}
-        milestones={workspace.milestones.map((milestone: any) => ({
-          ...milestone,
-          milestoneKey: milestone.milestoneKey ?? milestone.key,
-        }))}
-        onAssignToMilestone={({
-          assignmentCost,
-          contractorId,
-          milestoneKey,
-          role,
-          submilestoneKeys,
-        }) =>
-          assignProposalContractorToMilestone({
-            agreedRateCents: assignmentCost?.agreedRateCents,
-            agreedRateUnit: assignmentCost?.agreedRateUnit,
-            contractorId,
-            estimatedCostCents: assignmentCost?.estimatedCostCents,
-            estimatedHours: assignmentCost?.estimatedHours,
-            milestoneKey,
-            proposalId,
-            role,
-            submilestoneKeys,
-            workosOrganizationId,
-          })
-        }
-        onAttachExisting={({ contractorId, role }) =>
-          attachProposalContractor({
-            contractorId,
-            proposalId,
-            role,
-            workosOrganizationId,
-          })
-        }
-        onCreateAndAttach={({ contractor, role }) =>
-          createAndAttachProposalContractor({
-            contractor,
-            proposalId,
-            role,
-            workosOrganizationId,
-          })
-        }
-        planning={workspace.contractorPlanning}
-        roleLabel={initialRole}
-      />
-      <TimelineWorkspace
-        allowRoleSwitching={false}
-        collaboration={{
-          cursors: collaboration.cursors,
-          onCursorChange: collaboration.updateCursor,
-          permission: collaboration.permission,
-          toolbar: collaboration.toolbar,
-        }}
-        durableMeta={{
-          backofficeHref,
-          proposalHref,
-          proposalSlug: String(proposalId),
-          status: durableStatus,
-        }}
-        durablePlanId={proposalId}
-        initialRole={initialRole}
-        initialState={initialState}
-        modificationRequests={workspace.modificationRequests ?? []}
-        persistence={persistence}
-        timelineSettingsProjection={null}
-        workspaceMode="proposal"
-      />
-    </div>
+    <TimelineWorkspace
+      allowRoleSwitching={false}
+      embedded={embedded}
+      collaboration={{
+        cursors: collaboration.cursors,
+        onCursorChange: collaboration.updateCursor,
+        permission: collaboration.permission,
+        toolbar: collaboration.toolbar,
+      }}
+      contractorPlanning={workspace.contractorPlanning}
+      durableMeta={{
+        backofficeHref,
+        proposalHref,
+        proposalSlug: String(proposalId),
+        status: durableStatus,
+      }}
+      durablePlanId={proposalId}
+      headerActions={headerActions}
+      initialRole={initialRole}
+      initialState={initialState}
+      modificationRequests={workspace.modificationRequests ?? []}
+      persistence={persistence}
+      shareUrlPath="/proposal-preview"
+      timelineSettingsProjection={null}
+      workspaceMode="proposal"
+    />
   );
 }
 
@@ -480,11 +442,13 @@ function useProductionProposalCollaboration({
   enabled,
   prejoinedShareToken,
   proposalId,
+  shareTargetHref,
   workosOrganizationId,
 }: {
   enabled: boolean;
   prejoinedShareToken?: string | null;
   proposalId: Id<"buildProposals">;
+  shareTargetHref: string;
   workosOrganizationId: string;
 }) {
   const [shareUrl, setShareUrl] = useState("");
@@ -669,11 +633,21 @@ function useProductionProposalCollaboration({
             proposalId,
             workosOrganizationId,
           });
-          setShareUrl(buildCollaborationShareUrl(result.shareToken));
+          setShareUrl(
+            buildCollaborationShareUrl(result.shareToken, {
+              targetHref: shareTargetHref,
+            })
+          );
         },
         "Live collaboration started."
       ),
-    [proposalId, runToolbarAction, startSession, workosOrganizationId]
+    [
+      proposalId,
+      runToolbarAction,
+      shareTargetHref,
+      startSession,
+      workosOrganizationId,
+    ]
   );
 
   const handleStop = useCallback(
@@ -1106,12 +1080,46 @@ function collaborationCursorColor(index: number) {
   return colors[index % colors.length];
 }
 
-export function buildCollaborationShareUrl(shareToken: string) {
-  if (typeof window === "undefined") {
+export function buildCollaborationShareUrl(
+  shareToken: string,
+  options: { targetHref?: string } = {}
+) {
+  const href =
+    options.targetHref ??
+    (typeof window === "undefined" ? "" : window.location.href);
+
+  if (!href) {
     return `?collab=${encodeURIComponent(shareToken)}`;
   }
-  const url = new URL(window.location.href);
+
+  const isAbsolute = /^[a-z][a-z\d+\-.]*:/i.test(href);
+  const base =
+    typeof window === "undefined"
+      ? "http://drawflow.local"
+      : window.location.origin;
+  const url = new URL(href, base);
   url.searchParams.set("collab", shareToken);
+
+  if (typeof window === "undefined" && !isAbsolute) {
+    return `${url.pathname}${url.search}${url.hash}`;
+  }
+
+  return url.toString();
+}
+
+export function buildCollaborationTargetHref(href: string) {
+  const isAbsolute = /^[a-z][a-z\d+\-.]*:/i.test(href);
+  const base =
+    typeof window === "undefined"
+      ? "http://drawflow.local"
+      : window.location.origin;
+  const url = new URL(href, base);
+  url.searchParams.set("tab", "timeline");
+
+  if (!isAbsolute) {
+    return `${url.pathname}${url.search}${url.hash}`;
+  }
+
   return url.toString();
 }
 
@@ -1195,6 +1203,9 @@ function normalizeSubmilestoneInput(input: any, index: number) {
     key: input.key ?? `sub-${index + 1}`,
     name: input.name ?? "Submilestone",
     order: Math.max(1, Math.round(input.order ?? index + 1)),
+    ...(input.startDay === undefined
+      ? {}
+      : { startDay: Math.max(0, Math.round(input.startDay)) }),
   };
 }
 

@@ -8,11 +8,15 @@ import {
 } from "./fluent";
 import { DEMO_PERSONAS } from "./demo_personas";
 import {
+  coerceSiteVisitGuidanceInput,
   defaultSiteVisitGuidance,
+  guidanceHtmlExceedsMaxLength,
   guidanceItemsToGuidance,
   guidanceToItems,
   normalizeSiteVisitGuidance,
+  SITE_VISIT_GUIDANCE_HTML_MAX_LENGTH,
   type SiteVisitGuidance,
+  type SiteVisitGuidanceField,
 } from "./demo_site_visit_guidance";
 import type { DatabaseReader, DatabaseWriter, Doc } from "./types";
 
@@ -21,6 +25,11 @@ const TOTAL_BPS = 10_000;
 const TIMELINE_DEMO_SETTINGS_HANDOFF_GAP_DAYS = 5;
 const TIMELINE_DEMO_SETTINGS_DRAW_OFFSET_DAYS = 2;
 const NOW = Date.parse("2026-05-20T18:34:00.000Z");
+
+type DemoSettingsSiteVisitGuidanceInput = {
+  cameraAngles: SiteVisitGuidanceField;
+  whatToVerify: SiteVisitGuidanceField;
+};
 
 const iconValidator = v.union(
   v.literal("change"),
@@ -45,9 +54,14 @@ const scenarioDrawInputValidator = v.object({
   timingDay: v.number(),
 });
 
+const siteVisitGuidanceFieldInputValidator = v.union(
+  v.string(),
+  v.array(v.string())
+);
+
 const siteVisitGuidanceInputValidator = v.object({
-  cameraAngles: v.array(v.string()),
-  whatToVerify: v.array(v.string()),
+  cameraAngles: siteVisitGuidanceFieldInputValidator,
+  whatToVerify: siteVisitGuidanceFieldInputValidator,
 });
 
 const milestoneInputValidator = v.object({
@@ -157,6 +171,19 @@ type MilestoneInput = {
   submilestones: (SeedSubmilestone & { order: number })[];
   type: string;
 };
+
+type MilestoneInputDraft = Omit<MilestoneInput, "siteVisitGuidance"> & {
+  siteVisitGuidance?: DemoSettingsSiteVisitGuidanceInput;
+};
+
+function normalizeMilestoneInputs(rows: MilestoneInputDraft[]): MilestoneInput[] {
+  return rows.map((row) => ({
+    ...row,
+    siteVisitGuidance: row.siteVisitGuidance
+      ? coerceSiteVisitGuidanceInput(row.siteVisitGuidance)
+      : undefined,
+  }));
+}
 type ScenarioInput = {
   description: string;
   draws: (SeedDraw & { order: number })[];
@@ -176,6 +203,14 @@ type MilestoneScheduleInput = {
 type ScenarioDrawScheduleInput = {
   label: string;
   timingDay: number;
+};
+type MilestoneDrawWindow = {
+  afterMilestoneEndDay: number;
+  afterMilestoneKey: string;
+  afterMilestoneName: string;
+  beforeMilestoneKey: string;
+  beforeMilestoneName?: string;
+  beforeMilestoneStartDay: number;
 };
 
 const DEFAULT_TEMPLATES: SeedTemplate[] = [
@@ -349,10 +384,11 @@ export const saveTimelineTemplateConfiguration = publicMutation
   })
   .returns(v.any())
   .handler(async (ctx, args) => {
-    validateTemplateRows(args.milestones);
-    validateScenarios(args.scenarios, args.milestones);
+    const milestones = normalizeMilestoneInputs(args.milestones);
+    validateTemplateRows(milestones);
+    validateScenarios(args.scenarios, milestones);
     await upsertTemplate(ctx, args.template, 0, true);
-    await replaceTemplateMilestones(ctx, args.template.templateKey, args.milestones);
+    await replaceTemplateMilestones(ctx, args.template.templateKey, milestones);
     for (const scenarioRow of args.scenarios) {
       await upsertScenario(ctx, args.template.templateKey, scenarioRow, true);
       await replaceScenarioDraws(
@@ -373,7 +409,7 @@ export const saveTimelineTemplateConfiguration = publicMutation
       entityType: "timelineTemplate",
       eventType: "template_configuration_saved",
       newState: JSON.stringify({
-        milestoneCount: args.milestones.length,
+        milestoneCount: milestones.length,
         scenarioCount: args.scenarios.length,
       }),
       warnings: [],
@@ -390,8 +426,9 @@ export const saveTimelineTemplateWorksheet = publicMutation
   })
   .returns(v.any())
   .handler(async (ctx, args) => {
-    validateTemplateRows(args.milestones);
-    await replaceTemplateMilestones(ctx, args.templateKey, args.milestones);
+    const milestones = normalizeMilestoneInputs(args.milestones);
+    validateTemplateRows(milestones);
+    await replaceTemplateMilestones(ctx, args.templateKey, milestones);
     await insertEvent(ctx, {
       command: "saveTimelineTemplateWorksheet",
       entityKey: args.templateKey,
@@ -1422,7 +1459,7 @@ function validateTemplateRows(
     name: string;
     order: number;
     percentageBps: number;
-    siteVisitGuidance?: SiteVisitGuidance;
+    siteVisitGuidance?: DemoSettingsSiteVisitGuidanceInput;
     submilestones: { name: string }[];
   }[]
 ) {
@@ -1444,11 +1481,10 @@ function validateTemplateRows(
       throw new Error("Sub-milestones require names.");
     }
     const guidance = normalizeSiteVisitGuidance(row.siteVisitGuidance);
-    if (
-      guidance.whatToVerify.some((item) => item.length > 280) ||
-      guidance.cameraAngles.some((item) => item.length > 280)
-    ) {
-      throw new Error("Field guidance items must be 280 characters or less.");
+    if (guidanceHtmlExceedsMaxLength(guidance)) {
+      throw new Error(
+        `Field guidance must be ${SITE_VISIT_GUIDANCE_HTML_MAX_LENGTH} characters or less per section.`
+      );
     }
   }
   validateMilestoneHandoffGaps(rows);
@@ -1538,7 +1574,7 @@ function validateDrawTimingsAgainstMilestones(
   const windows = buildMilestoneDrawWindows(milestones);
   if (windows.length === 0) {
     throw new Error(
-      "Draw timing requires at least two included milestones to create a reimbursement window."
+      "Draw timing requires at least one included milestone to create a reimbursement window."
     );
   }
   for (const drawRow of draws) {
@@ -1548,16 +1584,81 @@ function validateDrawTimingsAgainstMilestones(
         drawRow.timingDay < window.beforeMilestoneStartDay
     );
     if (!inWindow) {
-      throw new Error(
-        `Draw "${drawRow.label}" must happen between the end of one milestone and the start of another.`
-      );
+      throw new Error(formatDrawTimingWindowError(drawRow, windows));
     }
   }
 }
 
-function buildMilestoneDrawWindows(rows: MilestoneScheduleInput[]) {
+function formatDrawTimingWindowError(
+  draw: ScenarioDrawScheduleInput,
+  windows: MilestoneDrawWindow[]
+) {
+  const nearest = findNearestDrawTimingWindow(draw.timingDay, windows);
+  const label = draw.label.trim() || "Unnamed draw";
+
+  if (!nearest) {
+    return `${label}, day ${draw.timingDay}: no valid handoff window exists. Include at least one milestone before saving draw timing.`;
+  }
+
+  const { firstValidDay, lastValidDay, nearestValidDay, window } = nearest;
+  const validWindow =
+    firstValidDay === lastValidDay
+      ? `day ${firstValidDay}`
+      : `days ${firstValidDay}-${lastValidDay}`;
+
+  const beforeMilestoneText = window.beforeMilestoneName
+    ? ` and ${window.beforeMilestoneName} (starts day ${window.beforeMilestoneStartDay})`
+    : "";
+  const windowLabel = window.beforeMilestoneName
+    ? "Valid window"
+    : "Valid final draw window";
+
+  return `${label}, day ${draw.timingDay}: conflicts with ${window.afterMilestoneName} (ends day ${window.afterMilestoneEndDay})${beforeMilestoneText}. ${windowLabel}: ${validWindow}. Nearest valid day: ${nearestValidDay}.`;
+}
+
+function findNearestDrawTimingWindow(
+  timingDay: number,
+  windows: MilestoneDrawWindow[]
+) {
+  let nearest: {
+    distance: number;
+    firstValidDay: number;
+    lastValidDay: number;
+    nearestValidDay: number;
+    window: MilestoneDrawWindow;
+  } | null = null;
+
+  for (const window of windows) {
+    const firstValidDay = window.afterMilestoneEndDay + 1;
+    const lastValidDay = window.beforeMilestoneStartDay - 1;
+    if (firstValidDay > lastValidDay) {
+      continue;
+    }
+    const nearestValidDay = Math.min(
+      Math.max(timingDay, firstValidDay),
+      lastValidDay
+    );
+    const distance = Math.abs(timingDay - nearestValidDay);
+
+    if (!nearest || distance < nearest.distance) {
+      nearest = {
+        distance,
+        firstValidDay,
+        lastValidDay,
+        nearestValidDay,
+        window,
+      };
+    }
+  }
+
+  return nearest;
+}
+
+function buildMilestoneDrawWindows(
+  rows: MilestoneScheduleInput[]
+): MilestoneDrawWindow[] {
   const included = sortedIncludedMilestones(rows);
-  const windows = [];
+  const windows: MilestoneDrawWindow[] = [];
   for (let index = 0; index < included.length - 1; index += 1) {
     const row = included[index];
     const next = included[index + 1];
@@ -1567,8 +1668,23 @@ function buildMilestoneDrawWindows(rows: MilestoneScheduleInput[]) {
     windows.push({
       afterMilestoneEndDay: milestoneEndDay(included, index),
       afterMilestoneKey: row.milestoneKey,
+      afterMilestoneName: row.name,
       beforeMilestoneKey: next.milestoneKey,
+      beforeMilestoneName: next.name,
       beforeMilestoneStartDay: milestoneStartDay(included, index + 1),
+    });
+  }
+  const final = included.at(-1);
+  if (final) {
+    const finalIndex = included.length - 1;
+    const finalEndDay = milestoneEndDay(included, finalIndex);
+    windows.push({
+      afterMilestoneEndDay: finalEndDay,
+      afterMilestoneKey: final.milestoneKey,
+      afterMilestoneName: final.name,
+      beforeMilestoneKey: "final-closeout",
+      beforeMilestoneStartDay:
+        finalEndDay + TIMELINE_DEMO_SETTINGS_HANDOFF_GAP_DAYS,
     });
   }
   return windows;

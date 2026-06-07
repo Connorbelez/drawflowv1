@@ -10,6 +10,8 @@ export interface TimelineCashflowCompoundDatum {
   capitalSpikeAmount: number;
   cashOnHand: number;
   day: number;
+  outOfPocketBudget?: number;
+  reimbursableBudget?: number;
   event: "capitalSpike" | "cashInfusion" | "draw" | "milestone" | "start";
   id: string;
   milestoneEndDay?: number;
@@ -39,6 +41,20 @@ export const timelineCashflowChartConfig = {
     colors: {
       dark: ["oklch(0.7 0.18 275)", "oklch(0.76 0.17 235)"],
       light: ["oklch(0.67 0.18 275)", "oklch(0.76 0.17 235)"],
+    },
+  },
+  reimbursableBudget: {
+    label: "Reimbursable",
+    colors: {
+      dark: ["oklch(0.72 0.17 160)", "oklch(0.62 0.2 185)"],
+      light: ["oklch(0.58 0.18 160)", "oklch(0.64 0.18 185)"],
+    },
+  },
+  outOfPocketBudget: {
+    label: "Out of pocket",
+    colors: {
+      dark: ["oklch(0.73 0.18 340)", "oklch(0.68 0.2 20)"],
+      light: ["oklch(0.65 0.2 340)", "oklch(0.68 0.2 20)"],
     },
   },
   capitalSpikeAmount: {
@@ -85,7 +101,7 @@ export function resolveMilestoneEndDay(row: TimelineCashflowCompoundDatum) {
 
 export function buildMilestoneEndReferenceLines(
   data: TimelineCashflowCompoundDatum[],
-  onHotspotDaySelect?: (day: number) => void
+  onHotspotDaySelect?: (day: number) => void,
 ): TimelineCashflowReferenceLine[] {
   return data.filter(isMilestoneEndDatum).map((row) => {
     const endDay = resolveMilestoneEndDay(row);
@@ -157,12 +173,17 @@ export function TimelineCashflowCompoundChart({
       areaOpacity={0.16}
       areaVariant="gradient"
       barConfig={{
-        budget: timelineCashflowChartConfig.budget,
+        reimbursableBudget: timelineCashflowChartConfig.reimbursableBudget,
+        outOfPocketBudget: timelineCashflowChartConfig.outOfPocketBudget,
         capitalSpikeAmount: timelineCashflowChartConfig.capitalSpikeAmount,
         cashInfusionAmount: timelineCashflowChartConfig.cashInfusionAmount,
       }}
       barRadius={6}
       barSize={barSize}
+      barStackId={{
+        reimbursableBudget: "milestone-budget",
+        outOfPocketBudget: "milestone-budget",
+      }}
       barVariant="duotone"
       chartProps={{
         margin: { bottom: 0, left: 0, right: 12, top: 18 },
@@ -202,10 +223,7 @@ export function TimelineCashflowCompoundChart({
         if (milestoneEnd && activeDay !== null) {
           const endDay = resolveMilestoneEndDay(milestoneEnd);
           if (Math.round(activeDay) === Math.round(endDay)) {
-            return [
-              `${milestoneEnd.name} ends`,
-              formatTimelineDay(endDay),
-            ];
+            return [`${milestoneEnd.name} ends`, formatTimelineDay(endDay)];
           }
 
           if (
@@ -245,9 +263,15 @@ export function TimelineCashflowCompoundChart({
 
 export function getCashflowBarHotspotDay(
   dataKey: string,
-  row: TimelineCashflowCompoundDatum
+  row: TimelineCashflowCompoundDatum,
 ) {
-  if (dataKey === "budget" && row.event === "milestone" && row.budget > 0) {
+  if (
+    (dataKey === "budget" ||
+      dataKey === "reimbursableBudget" ||
+      dataKey === "outOfPocketBudget") &&
+    row.event === "milestone" &&
+    row.budget > 0
+  ) {
     return Math.round(row.day);
   }
   if (
@@ -288,6 +312,8 @@ export function getCashflowCompoundExtent(
 ) {
   const values = data.flatMap((row) => [
     row.budget,
+    row.reimbursableBudget ?? 0,
+    row.outOfPocketBudget ?? 0,
     row.cashInfusionAmount ?? 0,
     row.capitalSpikeAmount,
     row.cashOnHand,

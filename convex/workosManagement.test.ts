@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 
 import { api } from "./_generated/api";
 import schema from "./schema";
+import { buildWorkosMembershipRolesPayload } from "./workosManagement";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -20,6 +21,27 @@ function adminTest() {
 }
 
 describe("WorkOS management actions", () => {
+  test("sends either roleSlugs or roleSlug to WorkOS membership writes, never both", () => {
+    expect(
+      buildWorkosMembershipRolesPayload({
+        primaryRoleSlug: "builder",
+        roleSlugs: ["builder"],
+      })
+    ).toEqual({ roleSlugs: ["builder"] });
+    expect(
+      buildWorkosMembershipRolesPayload({
+        primaryRoleSlug: "broker",
+        roleSlugs: ["broker", "builder"],
+      })
+    ).toEqual({ roleSlugs: ["broker", "builder"] });
+    expect(
+      buildWorkosMembershipRolesPayload({
+        primaryRoleSlug: "builder",
+        roleSlugs: [],
+      })
+    ).toEqual({ roleSlug: "builder" });
+  });
+
   test("uses fake adapters in tests and returns waiting-for-sync accepted results", async () => {
     const t = adminTest();
 

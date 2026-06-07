@@ -52,6 +52,26 @@ describe("SiteVisitTokenRoute", () => {
     });
     expect(screen.queryByText("Visit unavailable")).toBeNull();
   });
+
+  test("opens the build permit tab from the site visit navigation", () => {
+    render(
+      <SiteVisitTokenRoute
+        buildId="k57activebuild"
+        siteVisitToken="fresh-token"
+        source="production"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /permit/i }));
+
+    expect(screen.getByText("Build Permit")).toBeTruthy();
+    expect(
+      screen.getAllByText("city-issued-build-permit.pdf").length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByTestId("site-visit-permit-frame").length,
+    ).toBeGreaterThan(0);
+  });
 });
 
 function activeVisitState() {
@@ -72,6 +92,14 @@ function activeVisitState() {
         uploadedAt: Date.now(),
       },
     ],
+    permit: {
+      _id: "permit-1",
+      fileName: "city-issued-build-permit.pdf",
+      kind: "permit",
+      mimeType: "application/pdf",
+      sizeBytes: 420_000,
+      storageUrl: "https://example.com/city-issued-build-permit.pdf",
+    },
     targets: [
       {
         _id: "milestone-1",

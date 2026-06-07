@@ -9,6 +9,8 @@ import {
   Check,
   CheckCircle2,
   Clock3,
+  Download,
+  ExternalLink,
   FileText,
   Hammer,
   Lightbulb,
@@ -24,6 +26,10 @@ import {
 import { type ChangeEvent, useEffect, useRef, useState } from "react";
 
 import { api } from "../../../convex/_generated/api";
+import {
+  FieldRichTextEditor,
+  FieldRichTextPreview,
+} from "#/components/rich-text/field-rich-text.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Card } from "#/components/ui/card.tsx";
@@ -34,10 +40,20 @@ import {
   DrawerTitle,
 } from "#/components/ui/drawer.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
-import { Textarea } from "#/components/ui/textarea.tsx";
+import {
+  plainTextToRichTextHtml,
+  richTextHtmlHasText,
+  richTextHtmlToPlainText,
+} from "#/lib/rich-text-html.ts";
+import {
+  coerceSiteVisitGuidance,
+  guidanceLinesToHtml,
+  type SiteVisitGuidanceHtml,
+} from "#/lib/site-visit-guidance.ts";
 import {
   assertPackageWithinCap,
   buildStagedEvidence,
+  evidenceMimeTypeForFile,
   packageTotalBytes,
   type SiteVisitStagedEvidence,
   uploadSiteVisitStagedEvidence,
@@ -53,8 +69,8 @@ type VisitTarget = {
   _id: string;
   contractors?: VisitTargetContractor[];
   guidance?: {
-    cameraAngles?: string[];
-    whatToVerify?: string[];
+    cameraAngles?: string | string[];
+    whatToVerify?: string | string[];
   };
   milestoneKey: string;
   milestoneName: string;
@@ -94,6 +110,17 @@ type VisitBuild = {
   subtitle?: string;
 };
 
+type VisitPermit = {
+  _id?: string;
+  fileName?: string;
+  kind?: string;
+  mimeType?: string;
+  name?: string;
+  sizeBytes?: number;
+  storageUrl?: string | null;
+  url?: string | null;
+};
+
 type VisitRecord = {
   completedAt?: number;
   createdAt: number;
@@ -109,6 +136,7 @@ type ActiveVisitState = {
   available: true;
   build: VisitBuild;
   files: VisitFile[];
+  permit?: VisitPermit | null;
   targets: VisitTarget[];
   visit: VisitRecord;
 };
@@ -117,6 +145,7 @@ type UnavailableVisitState = {
   available: false;
   build?: VisitBuild | null;
   files?: VisitFile[];
+  permit?: VisitPermit | null;
   reason?: "consumed" | "expired" | "not_found" | null;
   status: "completed" | "expired" | "invalid";
   targets?: VisitTarget[];
@@ -124,7 +153,13 @@ type UnavailableVisitState = {
 };
 
 type VisitState = ActiveVisitState | UnavailableVisitState;
-type DrawerKey = "capture" | "guide" | "location" | "scope" | "uploaded";
+type DrawerKey =
+  | "capture"
+  | "guide"
+  | "location"
+  | "permit"
+  | "scope"
+  | "uploaded";
 
 type StagedItem = {
   evidence: SiteVisitStagedEvidence;
@@ -139,35 +174,41 @@ type SubmittedSummary = {
   visitId: string;
 };
 
-const DEFAULT_REPORT_NOTES =
-  "Observed requested milestone scope on site. Evidence package attached for lender admin review.";
+const DEFAULT_REPORT_NOTES = plainTextToRichTextHtml(
+  "Observed requested milestone scope on site. Evidence package attached for lender admin review.",
+);
 
-const FALLBACK_GUIDE_SECTIONS = [
+type GuideSection = {
+  html: string;
+  title: string;
+};
+
+const FALLBACK_GUIDE_SECTIONS: GuideSection[] = [
   {
-    items: [
+    html: guidanceLinesToHtml([
       "All exterior load-bearing walls erected, sheathed, and braced.",
       "Roof trusses set on bearing walls with hurricane strapping visible.",
       "Interior partition layout matches stamped plan revision.",
       "No daylight visible at sheathing seams or plate connections.",
-    ],
+    ]),
     title: "M-04 · Framing — What to verify",
   },
   {
-    items: [
+    html: guidanceLinesToHtml([
       "Wide shot per elevation showing full frame.",
       "Close-up of straps, hold-downs, or hardware called out on plan.",
       "Header or king-stud detail at large openings.",
       "Roof from interior showing truss bottom chords and bridging.",
-    ],
+    ]),
     title: "Required photo angles",
   },
   {
-    items: [
+    html: guidanceLinesToHtml([
       "Plumbing supply lines pressurized; gauge holding at test stub.",
       "DWV vent stack runs through to roof penetration.",
       "Electrical boxes set plumb at code-correct heights.",
       "No mechanical conflicts at chase intersections.",
-    ],
+    ]),
     title: "M-05 · Rough-in — What to verify",
   },
 ];
@@ -310,14 +351,14 @@ function SiteVisitTokenRouteContent({
             [
               "Submitted",
               `${formatVisitTime(submittedSummary.completedAt)} · ${formatVisitDay(
-                submittedSummary.completedAt
+                submittedSummary.completedAt,
               )}`,
             ],
             ["Recommendation", submittedSummary.recommendation],
             [
               "Files stored",
               `${submittedSummary.fileCount} · ${formatSiteVisitBytes(
-                submittedSummary.totalBytes
+                submittedSummary.totalBytes,
               )}`,
             ],
           ]}
@@ -379,7 +420,7 @@ function SiteVisitTokenRouteContent({
     );
   }
 
-  const { build, files, targets, visit } = visitState;
+  const { build, files, permit, targets, visit } = visitState;
   const selectedScope = parseSelectedVisitTarget(selectedTarget);
   const selectedMilestoneKey = selectedScope.milestoneKey;
   const selectedSubmilestoneKey = selectedScope.submilestoneKey;
@@ -390,12 +431,12 @@ function SiteVisitTokenRouteContent({
   );
   const uploadedBytes = files.reduce((sum, file) => sum + file.sizeBytes, 0);
   const stagedBytes = packageTotalBytes(
-    stagedItems.map((item) => item.evidence)
+    stagedItems.map((item) => item.evidence),
   );
   const totalPackageBytes = uploadedBytes + stagedBytes;
   const expiresInMinutes = Math.max(
     0,
-    Math.ceil(((visit.tokenExpiresAt ?? now) - now) / 60_000)
+    Math.ceil(((visit.tokenExpiresAt ?? now) - now) / 60_000),
   );
 
   const stageFiles = (event: ChangeEvent<HTMLInputElement>) => {
@@ -408,7 +449,7 @@ function SiteVisitTokenRouteContent({
     const nextItems = selectedFiles.map((file) => ({
       evidence: buildStagedEvidence({
         id: `${Date.now()}-${file.name}-${file.size}`,
-        mimeType: file.type || "application/octet-stream",
+        mimeType: evidenceMimeTypeForFile(file),
         name: file.name,
         sizeBytes: file.size,
         targetMilestoneKey: selectedMilestoneKey,
@@ -426,7 +467,7 @@ function SiteVisitTokenRouteContent({
       setError(
         stageError instanceof Error
           ? stageError.message
-          : "Unable to stage selected evidence."
+          : "Unable to stage selected evidence.",
       );
     }
   };
@@ -472,7 +513,7 @@ function SiteVisitTokenRouteContent({
       setError(
         uploadError instanceof Error
           ? uploadError.message
-          : "Unable to upload site visit evidence."
+          : "Unable to upload site visit evidence.",
       );
       setUploadingCount(0);
       throw uploadError;
@@ -487,6 +528,7 @@ function SiteVisitTokenRouteContent({
         await uploadStagedFiles();
       }
       const rating = parseQualityRating(qualityRating);
+      const reportNoteText = richTextHtmlToPlainText(reportNotes);
       const reportPayload: Record<string, unknown> = {
         buildId,
         completionObserved,
@@ -495,13 +537,15 @@ function SiteVisitTokenRouteContent({
         token: siteVisitToken,
       };
       if (source === "production" && rating !== undefined) {
-        reportPayload.contractorRatings = qualityRatingTargets.map((target) => ({
-          contractorId: target._id,
-          milestoneKey: target.milestoneKey,
-          note: reportNotes,
-          rating,
-          submilestoneKey: target.submilestoneKey,
-        }));
+        reportPayload.contractorRatings = qualityRatingTargets.map(
+          (target) => ({
+            contractorId: target._id,
+            milestoneKey: target.milestoneKey,
+            note: reportNoteText,
+            rating,
+            submilestoneKey: target.submilestoneKey,
+          }),
+        );
       }
       await submitReport(reportPayload);
       setSubmittedSummary({
@@ -515,7 +559,7 @@ function SiteVisitTokenRouteContent({
       setError(
         submitError instanceof Error
           ? submitError.message
-          : "Unable to submit site visit report."
+          : "Unable to submit site visit report.",
       );
     }
   };
@@ -542,6 +586,7 @@ function SiteVisitTokenRouteContent({
             build={build}
             buildCode={deriveBuildCode(buildId, build)}
           />
+          <DesktopPermitPanel permit={permit} />
           <DesktopScopePanel targets={targets} />
         </aside>
 
@@ -578,7 +623,7 @@ function SiteVisitTokenRouteContent({
             files={stagedItems.map((item) => item.evidence)}
             onRemove={(id) =>
               setStagedItems((current) =>
-                current.filter((item) => item.evidence.id !== id)
+                current.filter((item) => item.evidence.id !== id),
               )
             }
             targets={targets}
@@ -637,16 +682,18 @@ function SiteVisitTokenRouteContent({
                       : "No contractor assignment on this scope"}
                   </span>
                 </label>
-                <label className="grid gap-2 text-sm">
-                  Field note
-                  <Textarea
-                    className="min-h-28 lg:min-h-24"
-                    onChange={(event) =>
-                      setReportNotes(event.currentTarget.value)
-                    }
+                <div className="grid gap-2 text-sm">
+                  <span className="font-medium">Field note</span>
+                  <FieldRichTextEditor
+                    ariaLabel="Field note"
+                    editorMinHeightClass="[&_.ProseMirror]:min-h-36 lg:[&_.ProseMirror]:min-h-28"
+                    imageMaxHeightClass="[&_.ProseMirror_img]:max-h-48"
+                    onChange={setReportNotes}
+                    placeholder="Document observed completion, exceptions, and evidence references..."
+                    testId="site-visit-report-note"
                     value={reportNotes}
                   />
-                </label>
+                </div>
               </div>
               {error ? (
                 <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-destructive text-sm">
@@ -657,7 +704,7 @@ function SiteVisitTokenRouteContent({
                 className="mt-4 w-full"
                 disabled={
                   uploadingCount > 0 ||
-                  reportNotes.trim().length === 0 ||
+                  !richTextHtmlHasText(reportNotes) ||
                   files.length + stagedItems.length === 0
                 }
                 onClick={() => void submit()}
@@ -682,6 +729,7 @@ function SiteVisitTokenRouteContent({
         onStageFiles={stageFiles}
         onUploadStaged={() => void uploadStagedFiles()}
         open={drawer !== null}
+        permit={permit}
         selectedTarget={selectedTarget}
         setSelectedTarget={setSelectedTarget}
         stagedBytes={stagedBytes}
@@ -874,21 +922,23 @@ function SiteVisitCapturePanel({
             );
           })}
           {targets.flatMap((target, targetIndex) =>
-            visitSubmilestones(target).slice(0, 6).map((submilestone, subIndex) => {
-              const subTarget = encodeSubmilestoneVisitTarget(
-                target.milestoneKey,
-                submilestone.key,
-              );
-              return (
-                <TargetButton
-                  active={selectedTarget === subTarget}
-                  key={`${target._id}-${submilestone.key}`}
-                  onClick={() => setSelectedTarget(subTarget)}
-                >
-                  {subCode(target, subIndex, targetIndex)} {submilestone.name}
-                </TargetButton>
-              );
-            }),
+            visitSubmilestones(target)
+              .slice(0, 6)
+              .map((submilestone, subIndex) => {
+                const subTarget = encodeSubmilestoneVisitTarget(
+                  target.milestoneKey,
+                  submilestone.key,
+                );
+                return (
+                  <TargetButton
+                    active={selectedTarget === subTarget}
+                    key={`${target._id}-${submilestone.key}`}
+                    onClick={() => setSelectedTarget(subTarget)}
+                  >
+                    {subCode(target, subIndex, targetIndex)} {submilestone.name}
+                  </TargetButton>
+                );
+              }),
           )}
         </div>
       </div>
@@ -961,7 +1011,9 @@ function CaptureButton({
       aria-label={label}
       className="grid min-h-28 cursor-pointer place-items-center p-2 text-center transition-colors hover:border-primary/40 hover:bg-accent/5 sm:min-h-32 lg:min-h-24"
       data-testid={
-        nativeCamera ? "site-visit-take-photo" : `site-visit-capture-${label.toLowerCase().replace(/\s+/g, "-")}`
+        nativeCamera
+          ? "site-visit-take-photo"
+          : `site-visit-capture-${label.toLowerCase().replace(/\s+/g, "-")}`
       }
       onClick={nativeCamera ? openPicker : undefined}
       onKeyDown={
@@ -1124,11 +1176,16 @@ function BottomNav({
   stagedCount: number;
 }) {
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-20 mx-auto grid max-w-lg grid-cols-5 border-t bg-background/95 px-1 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] backdrop-blur md:inset-x-auto md:top-1/2 md:right-4 md:bottom-auto md:w-24 md:max-w-none md:-translate-y-1/2 md:grid-cols-1 md:gap-3 md:rounded-xl md:border md:px-2 md:py-3 lg:hidden">
+    <nav className="fixed inset-x-0 bottom-0 z-20 mx-auto grid max-w-xl grid-cols-6 border-t bg-background/95 px-1 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] backdrop-blur md:inset-x-auto md:top-1/2 md:right-4 md:bottom-auto md:w-24 md:max-w-none md:-translate-y-1/2 md:grid-cols-1 md:gap-3 md:rounded-xl md:border md:px-2 md:py-3 lg:hidden">
       <NavButton
         icon={<MapPin />}
         label="Location"
         onClick={() => onOpen("location")}
+      />
+      <NavButton
+        icon={<FileText />}
+        label="Permit"
+        onClick={() => onOpen("permit")}
       />
       <NavButton
         badge={scopeCount}
@@ -1146,7 +1203,7 @@ function BottomNav({
       <NavButton
         badge={filesCount}
         icon={<Upload />}
-        label="Uploaded"
+        label="Files"
         onClick={() => onOpen("uploaded")}
       />
       <NavButton
@@ -1186,7 +1243,7 @@ function NavButton({
           </span>
         ) : null}
       </span>
-      <span className="whitespace-nowrap font-medium text-[11px] uppercase tracking-[0.1em]">
+      <span className="whitespace-nowrap font-medium text-[10px] uppercase tracking-[0.06em] min-[380px]:text-[11px] min-[380px]:tracking-[0.1em]">
         {label}
       </span>
     </button>
@@ -1251,6 +1308,23 @@ function DesktopScopePanel({ targets }: { targets: VisitTarget[] }) {
   );
 }
 
+function DesktopPermitPanel({ permit }: { permit?: VisitPermit | null }) {
+  return (
+    <Frame>
+      <FramePanel className="p-4">
+        <SectionTitle
+          code="A.02"
+          right={permit ? "Attached" : "Missing"}
+          title="Permit"
+        />
+        <div className="mt-4">
+          <PermitPanel permit={permit} variant="desktop" />
+        </div>
+      </FramePanel>
+    </Frame>
+  );
+}
+
 function DesktopUploadedPanel({
   files,
   targets,
@@ -1286,13 +1360,12 @@ function DesktopGuidePanel({ targets }: { targets: VisitTarget[] }) {
               <h3 className="font-semibold text-primary text-xs uppercase tracking-[0.14em]">
                 {section.title}
               </h3>
-              <ul className="mt-2 grid gap-1.5 pl-4 text-muted-foreground text-xs leading-relaxed">
-                {section.items.slice(0, 3).map((item) => (
-                  <li className="list-disc" key={item}>
-                    {item}
-                  </li>
-                ))}
-              </ul>
+              <FieldRichTextPreview
+                ariaLabel={section.title}
+                className="mt-2 border-0 bg-transparent text-xs [&_.ProseMirror]:max-h-24 [&_.ProseMirror]:overflow-hidden [&_.ProseMirror]:px-0 [&_.ProseMirror]:py-0"
+                imageMaxHeightClass="[&_.ProseMirror_img]:max-h-16"
+                value={section.html}
+              />
             </section>
           ))}
         </div>
@@ -1309,6 +1382,7 @@ function SiteVisitDrawer({
   onStageFiles,
   onUploadStaged,
   open,
+  permit,
   selectedTarget,
   setSelectedTarget,
   stagedBytes,
@@ -1326,6 +1400,7 @@ function SiteVisitDrawer({
   onStageFiles: (event: ChangeEvent<HTMLInputElement>) => void;
   onUploadStaged: () => void;
   open: boolean;
+  permit?: VisitPermit | null;
   selectedTarget: string;
   setSelectedTarget: (target: string) => void;
   stagedBytes: number;
@@ -1340,6 +1415,7 @@ function SiteVisitDrawer({
     capture: "Capture evidence",
     guide: "Field Guidance",
     location: "Site Location",
+    permit: "Build Permit",
     scope: "Visit Scope",
     uploaded: "Uploaded Evidence",
   }[type];
@@ -1357,6 +1433,10 @@ function SiteVisitDrawer({
             <p className="mt-1 text-muted-foreground text-sm">
               {type === "location"
                 ? `${buildCode} · ${deriveAddress(build)}`
+                : type === "permit"
+                  ? permit
+                    ? permitDisplayName(permit)
+                    : "No permit attached"
                 : type === "scope"
                   ? `${targets.length} milestones`
                   : type === "uploaded"
@@ -1373,6 +1453,8 @@ function SiteVisitDrawer({
         <DrawerPanel className="p-4" scrollFade={false}>
           {type === "location" ? (
             <LocationPanel build={build} buildCode={buildCode} />
+          ) : type === "permit" ? (
+            <PermitPanel permit={permit} />
           ) : type === "scope" ? (
             <ScopePanel targets={targets} />
           ) : type === "uploaded" ? (
@@ -1510,16 +1592,175 @@ function GuidePanel({ targets }: { targets: VisitTarget[] }) {
           <h3 className="font-semibold text-primary text-sm uppercase tracking-[0.18em]">
             {section.title}
           </h3>
-          <ul className="mt-3 grid gap-2 pl-5 text-muted-foreground text-sm">
-            {section.items.map((item) => (
-              <li className="list-disc" key={item}>
-                {item}
-              </li>
-            ))}
-          </ul>
+          <div className="mt-3">
+            <FieldRichTextPreview
+              ariaLabel={section.title}
+              value={section.html}
+            />
+          </div>
         </section>
       ))}
     </div>
+  );
+}
+
+function PermitPanel({
+  permit,
+  variant = "drawer",
+}: {
+  permit?: VisitPermit | null;
+  variant?: "desktop" | "drawer";
+}) {
+  const sourceUrl = permitSourceUrl(permit);
+  const fileName = permitDisplayName(permit);
+  const mimeType = permit?.mimeType ?? "";
+  const isPdf =
+    mimeType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
+  const isImage = mimeType.startsWith("image/");
+  const viewerUrl =
+    sourceUrl && isPdf
+      ? `${sourceUrl}#toolbar=1&navpanes=1&scrollbar=1`
+      : sourceUrl;
+
+  if (!permit) {
+    return (
+      <Frame className="bg-transparent p-0">
+        <FramePanel className="border-dashed p-4 text-center">
+          <FileText className="mx-auto size-8 text-muted-foreground" />
+          <h3 className="mt-3 font-semibold">No build permit attached</h3>
+          <p className="mt-1 text-muted-foreground text-sm">
+            Continue the site visit, but note any permit-specific uncertainty in
+            the field note.
+          </p>
+        </FramePanel>
+      </Frame>
+    );
+  }
+
+  if (!sourceUrl) {
+    return (
+      <Frame className="bg-transparent p-0">
+        <FramePanel className="p-4">
+          <div className="flex items-start gap-3">
+            <div className="grid size-10 shrink-0 place-items-center rounded-md border bg-muted">
+              <FileText className="size-5 text-primary" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="truncate font-semibold">{fileName}</h3>
+              <p className="mt-1 text-muted-foreground text-sm">
+                Permit metadata is present, but no preview URL is available.
+                Record any permit check as location-unverified context.
+              </p>
+            </div>
+          </div>
+          <PermitMeta permit={permit} />
+        </FramePanel>
+      </Frame>
+    );
+  }
+
+  return (
+    <div className="grid gap-4">
+      <Frame>
+        <FramePanel className="p-3">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="min-w-0">
+              <h3 className="truncate font-semibold">{fileName}</h3>
+              <p className="text-muted-foreground text-xs uppercase tracking-[0.14em]">
+                {isPdf ? "PDF permit" : mimeType || "Permit document"}
+              </p>
+            </div>
+            <Badge variant={isPdf ? "success" : "outline"}>
+              {isPdf ? "PDF" : "Preview"}
+            </Badge>
+          </div>
+          <div
+            className={
+              variant === "desktop"
+                ? "overflow-hidden rounded-md border bg-muted"
+                : "overflow-hidden rounded-lg border bg-muted"
+            }
+          >
+            {isPdf ? (
+              <iframe
+                className={
+                  variant === "desktop"
+                    ? "h-72 w-full border-0"
+                    : "h-[58svh] w-full border-0"
+                }
+                data-testid="site-visit-permit-frame"
+                src={viewerUrl}
+                title={`Build permit viewer for ${fileName}`}
+              />
+            ) : isImage ? (
+              <img
+                alt={`Build permit ${fileName}`}
+                className={
+                  variant === "desktop"
+                    ? "h-72 w-full object-contain"
+                    : "max-h-[58svh] w-full object-contain"
+                }
+                src={sourceUrl}
+              />
+            ) : (
+              <div className="grid min-h-56 place-items-center p-6 text-center">
+                <div>
+                  <FileText className="mx-auto mb-3 size-10 text-primary" />
+                  <p className="font-semibold">Preview unavailable</p>
+                  <p className="mt-1 text-muted-foreground text-sm">
+                    Open the document in a new tab to inspect it.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+          <PermitMeta permit={permit} />
+        </FramePanel>
+      </Frame>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <Button
+          render={
+            <a download={fileName} href={sourceUrl}>
+              <Download />
+              Download
+            </a>
+          }
+          variant="outline"
+        />
+        <Button
+          render={
+            <a href={sourceUrl} rel="noreferrer" target="_blank">
+              <ExternalLink />
+              Open permit
+            </a>
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
+function PermitMeta({ permit }: { permit: VisitPermit }) {
+  return (
+    <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+      <InfoItem label="File" value={permitDisplayName(permit)} />
+      <InfoItem
+        label="Type"
+        value={permit.mimeType ?? permit.kind ?? "Permit document"}
+      />
+      <InfoItem
+        label="Size"
+        value={
+          permit.sizeBytes !== undefined
+            ? formatSiteVisitBytes(permit.sizeBytes)
+            : "Not recorded"
+        }
+      />
+      <InfoItem
+        label="Status"
+        value={permitSourceUrl(permit) ? "Viewable" : "URL missing"}
+      />
+    </dl>
   );
 }
 
@@ -1605,55 +1846,60 @@ function deriveCityLine(build?: VisitBuild | null) {
   return "Pinellas Park, FL";
 }
 
+function permitDisplayName(permit?: VisitPermit | null) {
+  return permit?.fileName ?? permit?.name ?? "Build permit.pdf";
+}
+
+function permitSourceUrl(permit?: VisitPermit | null) {
+  return permit?.storageUrl ?? permit?.url ?? null;
+}
+
 function targetCode(target: VisitTarget, fallbackIndex = 0) {
   return `M-${String(target.milestoneOrder || fallbackIndex + 1).padStart(2, "0")}`;
 }
 
-function guidanceSectionsForTargets(targets: VisitTarget[]) {
+function guidanceSectionsForTargets(targets: VisitTarget[]): GuideSection[] {
   const sections = targets.flatMap((target, index) => {
     const code = targetCode(target, index);
     const label = shortMilestoneLabel(target.milestoneName);
     const guidance = normalizedGuidance(target);
     return [
       {
-        items: guidance.whatToVerify,
+        html: guidance.whatToVerify,
         title: `${code} · ${label} — What to verify`,
       },
       {
-        items: guidance.cameraAngles,
+        html: guidance.cameraAngles,
         title: `${code} · ${label} — Required photo angles`,
       },
-    ].filter((section) => section.items.length > 0);
+    ].filter((section) => section.html.trim().length > 0);
   });
 
   return sections.length > 0 ? sections : FALLBACK_GUIDE_SECTIONS;
 }
 
-function normalizedGuidance(target: VisitTarget) {
-  const whatToVerify = normalizeGuidanceList(target.guidance?.whatToVerify);
-  const cameraAngles = normalizeGuidanceList(target.guidance?.cameraAngles);
-  if (whatToVerify.length > 0 || cameraAngles.length > 0) {
-    return { cameraAngles, whatToVerify };
+function normalizedGuidance(target: VisitTarget): SiteVisitGuidanceHtml {
+  const guidance = coerceSiteVisitGuidance(target.guidance);
+  if (guidance.whatToVerify || guidance.cameraAngles) {
+    return guidance;
   }
   return {
-    cameraAngles: [
+    cameraAngles: guidanceLinesToHtml([
       "Wide shot showing the full milestone work area.",
       "Close-up of the highest-risk connection, fixture, or finish.",
-    ],
-    whatToVerify: (visitSubmilestones(target).length
-      ? visitSubmilestones(target).map((submilestone) => submilestone.name)
-      : [target.milestoneName]
-    )
-      .slice(0, 4)
-      .map(
-        (checkpoint) =>
-          `${checkpoint} is complete, visible, and consistent with the approved scope.`
-      ),
+    ]),
+    whatToVerify: guidanceLinesToHtml(
+      (visitSubmilestones(target).length
+        ? visitSubmilestones(target).map((submilestone) => submilestone.name)
+        : [target.milestoneName]
+      )
+        .slice(0, 4)
+        .map(
+          (checkpoint) =>
+            `${checkpoint} is complete, visible, and consistent with the approved scope.`,
+        ),
+    ),
   };
-}
-
-function normalizeGuidanceList(items: string[] | undefined) {
-  return (items ?? []).map((item) => item.trim()).filter(Boolean);
 }
 
 function shortMilestoneLabel(value: string) {
@@ -1663,7 +1909,7 @@ function shortMilestoneLabel(value: string) {
 
 function subCode(target: VisitTarget, index: number) {
   return `${String(target.milestoneOrder || 1).padStart(2, "0")}${String.fromCharCode(
-    97 + index
+    97 + index,
   )}`;
 }
 
@@ -1690,7 +1936,9 @@ function targetLabel(
     : `${targetCode(target)} · ${submilestoneKey}`;
 }
 
-function visitSubmilestones(target: VisitTarget): Array<{ key: string; name: string }> {
+function visitSubmilestones(
+  target: VisitTarget,
+): Array<{ key: string; name: string }> {
   return target.submilestones.map((submilestone) =>
     typeof submilestone === "string"
       ? { key: slugifyTargetKey(submilestone), name: submilestone }

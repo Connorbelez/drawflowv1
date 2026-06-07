@@ -183,6 +183,14 @@ describe("WorkOS webhook projections", () => {
         status: "deleted",
         workosOrganizationId: "org_deleted",
       });
+      await ctx.db.insert("workosOrganizations", {
+        domains: [],
+        name: "FairLend",
+        sourceEventId: "seed_org_fairlend_duplicate",
+        sourceEventType: "seed.production_foundation",
+        status: "active",
+        workosOrganizationId: "org_fairlend_seed_duplicate",
+      });
       await ctx.db.insert("workosOrganizationRoles", {
         name: "Principal Broker",
         permissionSlugs: [],
@@ -201,6 +209,15 @@ describe("WorkOS webhook projections", () => {
         status: "active",
         workosOrganizationId: "org_oakline",
       });
+      await ctx.db.insert("workosOrganizationRoles", {
+        name: "Broker",
+        permissionSlugs: [],
+        slug: "broker",
+        sourceEventId: "seed_role_broker",
+        sourceEventType: "organization_role.created",
+        status: "active",
+        workosOrganizationId: "org_fairlend",
+      });
       await ctx.db.insert("workosOrganizationMemberships", {
         roleSlug: "principle-broker",
         roleSlugs: ["principle-broker"],
@@ -212,6 +229,16 @@ describe("WorkOS webhook projections", () => {
         workosUserId: "user_builder",
       });
       await ctx.db.insert("workosOrganizationMemberships", {
+        roleSlug: "broker",
+        roleSlugs: ["broker"],
+        sourceEventId: "seed_membership_fairlend_duplicate",
+        sourceEventType: "organization_membership.created",
+        status: "active",
+        workosMembershipId: "om_fairlend_duplicate",
+        workosOrganizationId: "org_fairlend",
+        workosUserId: "user_builder",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
         roleSlug: "builder",
         roleSlugs: ["builder"],
         sourceEventId: "seed_membership_oakline",
@@ -219,6 +246,16 @@ describe("WorkOS webhook projections", () => {
         status: "active",
         workosMembershipId: "om_oakline",
         workosOrganizationId: "org_oakline",
+        workosUserId: "user_builder",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        roleSlug: "admin",
+        roleSlugs: ["admin"],
+        sourceEventId: "seed_membership_fairlend_seed_duplicate",
+        sourceEventType: "seed.production_foundation",
+        status: "active",
+        workosMembershipId: "om_fairlend_seed_duplicate",
+        workosOrganizationId: "org_fairlend_seed_duplicate",
         workosUserId: "user_builder",
       });
       await ctx.db.insert("workosOrganizationMemberships", {
@@ -260,9 +297,9 @@ describe("WorkOS webhook projections", () => {
         {
           membershipId: "om_fairlend",
           organizationName: "FairLend",
-          roleNames: ["Principal Broker"],
+          roleNames: ["Principal Broker", "Broker"],
           roleSlug: "principle-broker",
-          roleSlugs: ["principle-broker"],
+          roleSlugs: ["principle-broker", "broker"],
           workosOrganizationId: "org_fairlend",
         },
         {
@@ -291,6 +328,46 @@ describe("WorkOS webhook projections", () => {
     expect(status.receipts).toHaveLength(1);
     expect(status.receipts[0]).toMatchObject({ eventId: "event_duplicate" });
     expect(projections.users).toHaveLength(1);
+  });
+
+  test("records non-projection WorkOS events without blocking webhook delivery", async () => {
+    const t = convexTest(schema, modules);
+
+    await t.mutation(internal.auth.authKitEvent, {
+      event: "session.created",
+      data: {
+        id: "session_fixture",
+        userId: "user_fixture",
+        createdAt: "2023-11-27T19:07:33.155Z",
+        updatedAt: "2023-11-27T19:07:33.155Z",
+      },
+    });
+    await t.mutation(internal.auth.authKitEvent, {
+      event: "organization_domain.created",
+      data: {
+        id: "domain_fixture",
+        organizationId: "org_fixture",
+        domain: "example.com",
+        createdAt: "2023-11-27T19:07:33.155Z",
+        updatedAt: "2023-11-27T19:07:33.155Z",
+      },
+    });
+
+    const status = await asAdmin(t).query(api.workosProjection.listSyncStatus, {});
+    expect(status.receipts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventId: "organization_domain.created:domain_fixture",
+          eventType: "organization_domain.created",
+          status: "processed",
+        }),
+        expect.objectContaining({
+          eventId: "session.created:session_fixture",
+          eventType: "session.created",
+          status: "processed",
+        }),
+      ])
+    );
   });
 
   test("requires backoffice authorization to list sync receipts", async () => {

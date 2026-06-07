@@ -60,7 +60,9 @@ export interface WorkosReceiptRow {
   _id?: string;
   eventId: string;
   eventType: string;
+  processedAt?: number;
   status: string;
+  workosCreatedAt?: number;
 }
 
 export interface BrokerageBlock {

@@ -92,9 +92,11 @@ export type GanttFeature = {
 export type GanttMarkerProps = {
   id: string;
   date: Date;
+  clickLabel?: string;
   detail?: ReactNode;
   detailTestId?: string;
   label: ReactNode;
+  onClick?: (id: string) => void;
   testId?: string;
 };
 
@@ -331,6 +333,26 @@ const getWidth = (
 };
 
 export const getGanttRangeWidth = getWidth;
+
+export const getGanttFeatureDragResolution = ({
+  context,
+  endAt,
+  pixelDelta,
+  startAt,
+}: {
+  context: GanttContextProps;
+  endAt: Date | null;
+  pixelDelta: number;
+  startAt: Date;
+}) => {
+  const deltaDays = getDayDeltaByPixelDelta(context, startAt, pixelDelta);
+
+  return {
+    deltaDays,
+    endAt: endAt ? addDays(endAt, deltaDays) : null,
+    startAt: addDays(startAt, deltaDays),
+  };
+};
 
 const calculateInnerOffset = (
   date: Date,
@@ -1048,6 +1070,7 @@ export type GanttFeatureItemProps = GanttFeature & {
   batchMoveIds?: string[];
   onBatchMove?: (deltaDays: number) => void;
   onBatchPreviewChange?: (preview: { deltaDays: number } | null) => void;
+  onPreviewChange?: (preview: { deltaDays: number } | null) => void;
   children?: ReactNode;
   className?: string;
 };
@@ -1059,6 +1082,7 @@ export const GanttFeatureItem: FC<GanttFeatureItemProps> = ({
   batchMoveIds,
   onBatchMove,
   onBatchPreviewChange,
+  onPreviewChange,
   children,
   className,
   ...feature
@@ -1110,25 +1134,24 @@ export const GanttFeatureItem: FC<GanttFeatureItemProps> = ({
 
   const handleItemDragMove = useCallback(
     (event: { delta: { x: number } }) => {
-      const delta = getDayDeltaByPixelDelta(
-        gantt,
-        previousStartAt,
-        event.delta.x,
-      );
-      const newStartDate = addDays(previousStartAt, delta);
-      const newEndDate = previousEndAt ? addDays(previousEndAt, delta) : null;
-
-      setStartAt(newStartDate);
-      setEndAt(newEndDate);
-      setDragDeltaDays(delta);
+      const preview = getGanttFeatureDragResolution({
+        context: gantt,
+        endAt: previousEndAt,
+        pixelDelta: event.delta.x,
+        startAt: previousStartAt,
+      });
+      setDragDeltaDays(preview.deltaDays);
       if (batchDragEnabled) {
-        onBatchPreviewChange?.({ deltaDays: delta });
+        onBatchPreviewChange?.({ deltaDays: preview.deltaDays });
+        return;
       }
+      onPreviewChange?.({ deltaDays: preview.deltaDays });
     },
     [
       batchDragEnabled,
       gantt,
       onBatchPreviewChange,
+      onPreviewChange,
       previousStartAt,
       previousEndAt,
     ],
@@ -1136,17 +1159,30 @@ export const GanttFeatureItem: FC<GanttFeatureItemProps> = ({
 
   const onItemDragEnd = useCallback(
     (event?: { delta: { x: number } }) => {
-      const finalDeltaDays = event?.delta
-        ? getDayDeltaByPixelDelta(gantt, previousStartAt, event.delta.x)
-        : dragDeltaDays;
+      const finalPreview = event?.delta
+        ? getGanttFeatureDragResolution({
+            context: gantt,
+            endAt: previousEndAt,
+            pixelDelta: event.delta.x,
+            startAt: previousStartAt,
+          })
+        : {
+            deltaDays: dragDeltaDays,
+            endAt: previousEndAt ? addDays(previousEndAt, dragDeltaDays) : null,
+            startAt: addDays(previousStartAt, dragDeltaDays),
+          };
       onBatchPreviewChange?.(null);
       if (batchDragEnabled) {
-        if (finalDeltaDays !== 0) {
-          onBatchMove?.(finalDeltaDays);
+        if (finalPreview.deltaDays !== 0) {
+          onBatchMove?.(finalPreview.deltaDays);
         }
         return;
       }
-      onMove?.(feature.id, startAt, endAt);
+      onPreviewChange?.(null);
+      if (finalPreview.deltaDays === 0) {
+        return;
+      }
+      onMove?.(feature.id, finalPreview.startAt, finalPreview.endAt);
     },
     [
       batchDragEnabled,
@@ -1156,22 +1192,24 @@ export const GanttFeatureItem: FC<GanttFeatureItemProps> = ({
       onBatchMove,
       onBatchPreviewChange,
       onMove,
+      onPreviewChange,
       previousStartAt,
-      startAt,
-      endAt,
+      previousEndAt,
     ],
   );
 
   const onResizeDragEnd = useCallback(() => {
     onBatchPreviewChange?.(null);
+    onPreviewChange?.(null);
     onMove?.(feature.id, startAt, endAt);
-  }, [feature.id, onBatchPreviewChange, onMove, startAt, endAt]);
+  }, [feature.id, onBatchPreviewChange, onMove, onPreviewChange, startAt, endAt]);
 
   const onDragCancel = useCallback(() => {
     onBatchPreviewChange?.(null);
+    onPreviewChange?.(null);
     setStartAt(feature.startAt);
     setEndAt(feature.endAt);
-  }, [feature.startAt, feature.endAt, onBatchPreviewChange]);
+  }, [feature.startAt, feature.endAt, onBatchPreviewChange, onPreviewChange]);
 
   const handleLeftDragMove = useCallback(() => {
     const ganttRect = gantt.ref?.current?.getBoundingClientRect();
@@ -1295,6 +1333,10 @@ export type GanttFeatureRowProps = {
     featureId: string,
     preview: { deltaDays: number } | null,
   ) => void;
+  onPreviewChange?: (
+    featureId: string,
+    preview: { deltaDays: number } | null,
+  ) => void;
   children?: (feature: GanttFeature) => ReactNode;
   className?: string;
 };
@@ -1307,6 +1349,7 @@ export const GanttFeatureRow: FC<GanttFeatureRowProps> = ({
   batchMoveIds,
   onBatchMove,
   onBatchPreviewChange,
+  onPreviewChange,
   children,
   className,
 }) => {
@@ -1370,6 +1413,9 @@ export const GanttFeatureRow: FC<GanttFeatureRowProps> = ({
               onBatchPreviewChange?.(feature.id, preview)
             }
             onMove={onMove}
+            onPreviewChange={(preview) =>
+              onPreviewChange?.(feature.id, preview)
+            }
             selected={selectedIds?.has(feature.id)}
           >
             {children ? (
@@ -1597,9 +1643,11 @@ export const GanttMarker: FC<
   }
 > = memo(
   ({
+    clickLabel,
     label,
     date,
     id,
+    onClick,
     onRemove,
     className,
     containerClassName,
@@ -1634,13 +1682,26 @@ export const GanttMarker: FC<
     );
 
     const handleRemove = useCallback(() => onRemove?.(id), [onRemove, id]);
+    const handleClick = useCallback(() => onClick?.(id), [onClick, id]);
+    const markerContent = (
+      <>
+        {label}
+        <span
+          className="mt-1 block max-h-[0] overflow-hidden text-left text-[0.68rem] leading-tight opacity-80 transition-all group-hover:max-h-32 group-focus-within:max-h-32"
+          data-testid={detailTestId}
+        >
+          {detail ?? formatDate(date, "MMM dd, yyyy")}
+        </span>
+      </>
+    );
 
     return (
       <div
         className={cn(
-          "pointer-events-none absolute top-0 left-0 z-20 flex h-full select-none flex-col items-center justify-center overflow-visible",
+          "pointer-events-none absolute top-0 left-0 z-20 flex h-full select-none flex-col items-center justify-center overflow-visible transition-[z-index] hover:z-[70] focus-within:z-[70]",
           containerClassName,
         )}
+        data-gantt-marker-container={id}
         style={{
           width: 0,
           transform: `translateX(calc(var(--gantt-column-width) * ${offset} + ${innerOffset}px))`,
@@ -1649,28 +1710,41 @@ export const GanttMarker: FC<
         <ContextMenu>
           <ContextMenuTrigger
             render={
-              <div
-                className={cn(
-                  "group pointer-events-auto sticky top-0 z-30 flex select-auto flex-col flex-nowrap items-center justify-center whitespace-nowrap rounded-b-md bg-card px-2.5 py-1.5 font-medium text-foreground text-xs shadow-lg",
-                  labelClassName,
-                  className,
-                )}
-                data-gantt-interactive="true"
-                data-testid={testId}
-                style={{
-                  scrollMarginLeft:
-                    "calc(var(--gantt-leading-sidebar-width) + var(--gantt-kibo-sidebar-width) + 2rem)",
-                }}
-              />
+              onClick ? (
+                <button
+                  aria-label={clickLabel}
+                  className={cn(
+                    "group pointer-events-auto sticky top-0 z-30 flex select-auto flex-col flex-nowrap items-center justify-center whitespace-nowrap rounded-b-md bg-card px-2.5 py-1.5 font-medium text-foreground text-xs shadow-lg outline-none transition-[filter] hover:brightness-105 focus-visible:ring-2 focus-visible:ring-cyan-300/60",
+                    labelClassName,
+                    className,
+                  )}
+                  data-gantt-interactive="true"
+                  data-testid={testId}
+                  onClick={handleClick}
+                  style={{
+                    scrollMarginLeft:
+                      "calc(var(--gantt-leading-sidebar-width) + var(--gantt-kibo-sidebar-width) + 2rem)",
+                  }}
+                  type="button"
+                />
+              ) : (
+                <div
+                  className={cn(
+                    "group pointer-events-auto sticky top-0 z-30 flex select-auto flex-col flex-nowrap items-center justify-center whitespace-nowrap rounded-b-md bg-card px-2.5 py-1.5 font-medium text-foreground text-xs shadow-lg",
+                    labelClassName,
+                    className,
+                  )}
+                  data-gantt-interactive="true"
+                  data-testid={testId}
+                  style={{
+                    scrollMarginLeft:
+                      "calc(var(--gantt-leading-sidebar-width) + var(--gantt-kibo-sidebar-width) + 2rem)",
+                  }}
+                />
+              )
             }
           >
-            {label}
-            <span
-              className="mt-1 block max-h-[0] overflow-hidden text-left text-[0.68rem] leading-tight opacity-80 transition-all group-hover:max-h-32 group-focus-within:max-h-32"
-              data-testid={detailTestId}
-            >
-              {detail ?? formatDate(date, "MMM dd, yyyy")}
-            </span>
+            {markerContent}
           </ContextMenuTrigger>
           <ContextMenuContent>
             {onRemove ? (
@@ -1753,7 +1827,6 @@ export const GanttRangeOverlay: FC<GanttRangeOverlayProps> = ({
 export type GanttRangeDragHandleProps = {
   children: ReactNode;
   className?: string;
-  contentTestId?: string;
   disabled?: boolean;
   onMoveDelta?: (deltaDays: number) => void;
   onPreviewDelta?: (deltaDays: number | null) => void;
@@ -1766,7 +1839,6 @@ export type GanttRangeDragHandleProps = {
 export const GanttRangeDragHandle: FC<GanttRangeDragHandleProps> = ({
   children,
   className,
-  contentTestId,
   disabled,
   onMoveDelta,
   onPreviewDelta,
@@ -1909,10 +1981,7 @@ export const GanttRangeDragHandle: FC<GanttRangeDragHandleProps> = ({
       >
         <MoveHorizontal className="size-3.5" />
       </button>
-      <span
-        className="pointer-events-none inline-flex min-w-max items-center gap-2 whitespace-nowrap [&_*]:whitespace-nowrap"
-        data-testid={contentTestId}
-      >
+      <span className="pointer-events-none inline-flex min-w-max items-center gap-2 whitespace-nowrap [&_*]:whitespace-nowrap">
         {children}
       </span>
     </div>
@@ -2288,7 +2357,7 @@ export const GanttToday: FC<GanttTodayProps> = ({ className }) => {
 
   return (
     <div
-      className="pointer-events-none absolute top-0 left-0 z-20 flex h-full select-none flex-col items-center justify-center overflow-visible"
+      className="pointer-events-none absolute top-0 left-0 z-20 flex h-full select-none flex-col items-center justify-center overflow-visible transition-[z-index] hover:z-[70] focus-within:z-[70]"
       style={{
         width: 0,
         transform: `translateX(calc(var(--gantt-column-width) * ${offset} + ${innerOffset}px))`,

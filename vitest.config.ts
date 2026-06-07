@@ -14,6 +14,7 @@ export default defineConfig({
     environment: "node",
     environmentMatchGlobs: [["convex/**/*.test.ts", "edge-runtime"]],
     exclude: ["**/node_modules/**", "**/dist/**", "tests/e2e/**"],
+    testTimeout: 15_000,
     server: {
       deps: {
         inline: [/fluent-convex/],

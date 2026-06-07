@@ -7,6 +7,7 @@ import {
   FileText,
   Info,
   ShieldCheck,
+  Upload,
 } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import {
@@ -18,15 +19,31 @@ import {
   useRef,
   useState,
 } from "react";
+import { GoogleAddressAutocomplete } from "#/components/address/GoogleAddressAutocomplete.tsx";
 import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
 import { Button } from "#/components/ui/button.tsx";
-import { cn } from "#/lib/utils.ts";
+import { FramePanel } from "#/components/ui/frame.tsx";
+import {
+  BuildPermitViewerDrawer,
+  firstPermitDocument,
+} from "#/features/build-permit-viewer/BuildPermitViewerDrawer.tsx";
 import {
   allocateBudgetCents,
   formatCurrency,
   parseCurrencyToCents,
 } from "#/features/builder-proposal-demo/template-helpers.ts";
-import { TimelineMilestoneWorksheetTable } from "./-TimelineMilestoneWorksheetTable.tsx";
+import {
+  type BudgetWorkbookProposalDraft,
+  parseBudgetWorkbookFile,
+} from "#/features/proposal-import/budget-workbook-schema.ts";
+import { coerceSiteVisitGuidance } from "#/lib/site-visit-guidance.ts";
+import { cn } from "#/lib/utils.ts";
+import {
+  type TimelineMilestoneWorksheetContractorAssignment,
+  type TimelineMilestoneWorksheetContractorOption,
+  type TimelineMilestoneWorksheetCostItem,
+  TimelineMilestoneWorksheetTable,
+} from "./-TimelineMilestoneWorksheetTable.tsx";
 import { normalizeMilestoneTimelineItems } from "./-timeline-milestone-schedule.ts";
 import { mapSubmilestoneSnapshotRows } from "./-timeline-milestone-submilestones.ts";
 import type {
@@ -459,9 +476,12 @@ export const SUB_MILESTONE_BANK: SubMilestoneBankItem[] = [
   },
 ];
 const TEMPLATE_THUMBNAILS: Record<string, string> = {
+  "4-plex": "/drawflow-template-thumbnails/four-plex-blueprint.svg",
+  four_plex: "/drawflow-template-thumbnails/four-plex-blueprint.svg",
   multiplex_build:
     "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
-  "multiplex-build": "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
+  "multiplex-build":
+    "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
   single_family_full_build:
     "/drawflow-template-thumbnails/single-family-full-build-blueprint.png",
   "single-family-full-build":
@@ -492,15 +512,27 @@ export interface TimelineSetupPreset {
   name: string;
   percentageBps: number;
   siteVisitGuidance?: {
-    cameraAngles: string[];
-    whatToVerify: string[];
+    cameraAngles: string;
+    whatToVerify: string;
   };
+  subMilestoneDetails?: TimelineSetupPresetSubMilestone[];
   subMilestones: string[];
   type: string;
 }
 
+export interface TimelineSetupPresetSubMilestone {
+  description?: string;
+  durationDays?: number;
+  key?: string;
+  name: string;
+  order?: number;
+  percentageBps?: number;
+}
+
 export interface TimelineSetupMilestoneRow extends TimelineSetupPreset {
   budgetText: string;
+  contractorAssignments?: TimelineMilestoneWorksheetContractorAssignment[];
+  costItems?: TimelineMilestoneWorksheetCostItem[];
   durationText: string;
   excluded: boolean;
   order: number;
@@ -519,9 +551,12 @@ export interface TimelineSetupResult {
   activeItemId: string;
   borrowerCoPayBps: number;
   borrowerCoPayCents: number;
+  contractorAssignments: TimelineSetupContractorAssignment[];
+  costItems: TimelineSetupCostItem[];
   currentDay: number;
   includedCount: number;
   items: TimelineItem<DemoMilestone>[];
+  permitFiles: File[];
   projectAddress: string;
   redirectToDurableRoute: boolean;
   reimbursableBudgetCents: number;
@@ -534,14 +569,46 @@ export interface TimelineSetupResult {
 
 export interface TimelineSetupFlowProps {
   baseItems: TimelineItem<DemoMilestone>[];
+  contractorOptions?: TimelineMilestoneWorksheetContractorOption[];
   onComplete: (result: TimelineSetupResult) => void;
   settingsTemplates?: TimelineSetupTemplate[];
+}
+
+export interface TimelineSetupContractorAssignment {
+  contractorId?: string;
+  contractorName: string;
+  estimatedCostCents?: number;
+  estimatedHours?: number;
+  milestoneKey: string;
+  role: string;
+  submilestoneKeys: string[];
+}
+
+export interface TimelineSetupCostItem {
+  costCents: number;
+  description?: string;
+  itemType: "equipment" | "material";
+  milestoneKey: string;
+  quantity: number;
+  relevantSubmilestoneKeys: string[];
+  supplier?: string;
+  title: string;
 }
 
 function rowBudgetCents(row: TimelineSetupMilestoneRow) {
   const parsed = parseCurrencyToCents(row.budgetText);
 
   return Number.isFinite(parsed) ? Math.max(0, parsed) : Number.NaN;
+}
+
+function setupRowsBudgetCents(rows: TimelineSetupMilestoneRow[]) {
+  return rows
+    .filter((row) => !row.excluded)
+    .reduce((sum, row) => {
+      const budgetCents = rowBudgetCents(row);
+
+      return sum + (Number.isFinite(budgetCents) ? budgetCents : 0);
+    }, 0);
 }
 
 function rowDurationDays(row: TimelineSetupMilestoneRow) {
@@ -616,14 +683,174 @@ function slugifySubMilestone(value: string) {
   );
 }
 
+function slugifyMilestone(value: string) {
+  return (
+    value
+      .toLowerCase()
+      .replace(/&/g, " and ")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || "milestone"
+  );
+}
+
+function inferImportedMilestoneIcon(name: string): IsometricIconKey {
+  const normalized = name.toLowerCase();
+  if (normalized.includes("foundation") || normalized.includes("permit")) {
+    return "foundation";
+  }
+  if (
+    normalized.includes("framing") ||
+    normalized.includes("lumber") ||
+    normalized.includes("concrete")
+  ) {
+    return "framing";
+  }
+  if (
+    normalized.includes("hvac") ||
+    normalized.includes("plumbing") ||
+    normalized.includes("electrical")
+  ) {
+    return "roughIn";
+  }
+  if (
+    normalized.includes("stucco") ||
+    normalized.includes("brick") ||
+    normalized.includes("roof") ||
+    normalized.includes("window") ||
+    normalized.includes("door")
+  ) {
+    return "exterior";
+  }
+  if (
+    normalized.includes("drywall") ||
+    normalized.includes("insulation") ||
+    normalized.includes("floor") ||
+    normalized.includes("tile") ||
+    normalized.includes("paint")
+  ) {
+    return "finishes";
+  }
+  if (
+    normalized.includes("kitchen") ||
+    normalized.includes("appliance") ||
+    normalized.includes("trim")
+  ) {
+    return "kitchen";
+  }
+  if (
+    normalized.includes("landscaping") ||
+    normalized.includes("insurance") ||
+    normalized.includes("management")
+  ) {
+    return "closeout";
+  }
+  return "change";
+}
+
+export function budgetWorkbookDraftToSetupRows(
+  draft: BudgetWorkbookProposalDraft
+): TimelineSetupMilestoneRow[] {
+  return draft.milestones.map((milestone, index) => {
+    const durationDays = Math.max(1, milestone.submilestones.length);
+    const key = milestone.milestoneKey || slugifyMilestone(milestone.name);
+    const subMilestoneDetails = milestone.submilestones.map((submilestone) => ({
+      budgetText: formatCurrency(Math.round(submilestone.budgetAmount * 100)),
+      description: `Imported budget line from ${draft.sourceName ?? "budget workbook"}`,
+      durationText: "1",
+      id: submilestone.budgetLineKey.replace(/[^a-zA-Z0-9_-]+/g, "-"),
+      name: sanitizeSubMilestoneName(submilestone.name),
+    }));
+
+    return withSubMilestoneDetails(
+      {
+        budgetText: formatCurrency(Math.round(milestone.budgetAmount * 100)),
+        contractorAssignments: [],
+        costItems: [],
+        dependencyKeys:
+          index === 0
+            ? []
+            : [draft.milestones[index - 1]?.milestoneKey ?? ""].filter(Boolean),
+        durationDays,
+        durationText: String(durationDays),
+        excluded: false,
+        icon: inferImportedMilestoneIcon(
+          `${milestone.name} ${milestone.submilestones
+            .map((submilestone) => submilestone.name)
+            .join(" ")}`
+        ),
+        key,
+        name: milestone.name,
+        order: index,
+        percentageBps: Math.round(
+          (milestone.budgetAmount / Math.max(1, draft.totalBudget)) * 10_000
+        ),
+        subMilestoneDetails,
+        subMilestones: subMilestoneDetails.map((detail) => detail.name),
+        type: "imported_budget",
+      },
+      subMilestoneDetails
+    );
+  });
+}
+
+function allocateWeightedBudgetCents(
+  totalCents: number,
+  rows: Array<{ percentageBps?: number }>
+) {
+  const totalBps = rows.reduce(
+    (sum, row) => sum + Math.max(0, Math.round(row.percentageBps ?? 0)),
+    0
+  );
+  if (totalBps <= 0) {
+    return;
+  }
+
+  const roundedTotal = Math.round(totalCents);
+  const allocations = rows.map((row, order) => {
+    const raw = roundedTotal * Math.max(0, Math.round(row.percentageBps ?? 0));
+    return {
+      cents: Math.floor(raw / totalBps),
+      order,
+      remainder: raw % totalBps,
+    };
+  });
+  let remainderCents =
+    roundedTotal -
+    allocations.reduce((sum, allocation) => sum + allocation.cents, 0);
+  const byRemainder = [...allocations].sort(
+    (a, b) => b.remainder - a.remainder || a.order - b.order
+  );
+  for (const allocation of byRemainder) {
+    if (remainderCents <= 0) {
+      break;
+    }
+    allocation.cents += 1;
+    remainderCents -= 1;
+  }
+  return allocations
+    .sort((a, b) => a.order - b.order)
+    .map((allocation) => allocation.cents);
+}
+
 function buildSubMilestoneDetails(
   row: TimelineSetupPreset,
   budgetCents: number,
   durationDays: number
 ): TimelineSetupSubMilestone[] {
-  const names =
-    row.subMilestones.length > 0 ? row.subMilestones : ["Initial scope"];
-  const count = Math.max(1, names.length);
+  const presets: TimelineSetupPresetSubMilestone[] =
+    row.subMilestoneDetails && row.subMilestoneDetails.length > 0
+      ? [...row.subMilestoneDetails]
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+          .map((detail) => ({
+            ...detail,
+            name: sanitizeSubMilestoneName(detail.name),
+          }))
+      : (row.subMilestones.length > 0
+          ? row.subMilestones
+          : ["Initial scope"]
+        ).map((name) => ({ name: sanitizeSubMilestoneName(name) }));
+  const count = Math.max(1, presets.length);
+  const weightedBudgetCents = allocateWeightedBudgetCents(budgetCents, presets);
   const baseBudgetCents = Math.floor(Math.max(0, budgetCents) / count);
   const budgetRemainderCents =
     Math.max(0, budgetCents) - baseBudgetCents * count;
@@ -631,17 +858,25 @@ function buildSubMilestoneDetails(
   const durationRemainderDays =
     Math.max(1, durationDays) - baseDurationDays * count;
 
-  return names.map((name, index) => ({
+  return presets.map((preset, index) => ({
     budgetText: formatCurrency(
-      baseBudgetCents + (index < budgetRemainderCents ? 1 : 0)
+      weightedBudgetCents?.[index] ??
+        baseBudgetCents + (index < budgetRemainderCents ? 1 : 0)
     ),
     description:
+      preset.description ??
       subMilestoneDescriptions[index % subMilestoneDescriptions.length],
     durationText: String(
-      Math.max(1, baseDurationDays + (index < durationRemainderDays ? 1 : 0))
+      Math.max(
+        1,
+        Math.round(
+          preset.durationDays ??
+            baseDurationDays + (index < durationRemainderDays ? 1 : 0)
+        )
+      )
     ),
-    id: `${row.key}-${slugifySubMilestone(name)}-${index}`,
-    name,
+    id: preset.key ?? `${row.key}-${slugifySubMilestone(preset.name)}-${index}`,
+    name: preset.name,
   }));
 }
 
@@ -698,6 +933,8 @@ export function createCustomMilestoneRow({
   return withSubMilestoneDetails(
     {
       budgetText: DEFAULT_NEW_MILESTONE_BUDGET_TEXT,
+      contractorAssignments: [],
+      costItems: [],
       dependencyKeys: [],
       durationDays: Number(DEFAULT_NEW_MILESTONE_DURATION_TEXT),
       durationText: DEFAULT_NEW_MILESTONE_DURATION_TEXT,
@@ -722,7 +959,9 @@ export function formatRowType(value: string) {
     .toLowerCase();
 }
 
-function buildDefaultTemplate(baseItems: TimelineItem<DemoMilestone>[]) {
+function buildDefaultTemplate(
+  baseItems: TimelineItem<DemoMilestone>[]
+): TimelineSetupTemplate {
   const totalAmount = Math.max(
     1,
     baseItems.reduce((sum, item) => sum + (item.data?.amount ?? 0), 0)
@@ -744,7 +983,7 @@ function buildDefaultTemplate(baseItems: TimelineItem<DemoMilestone>[]) {
         key: item.id,
         name: data?.name ?? item.label ?? item.id,
         percentageBps: Math.round((amount / totalAmount) * 10_000),
-        siteVisitGuidance: data?.siteVisitGuidance,
+        siteVisitGuidance: coerceSiteVisitGuidance(data?.siteVisitGuidance),
         subMilestones: data?.subMilestones ?? [],
         type: data?.icon ?? "scope",
       } satisfies TimelineSetupPreset;
@@ -925,7 +1164,7 @@ function preset(
   };
 }
 
-function createRowsFromTemplate(
+export function createRowsFromTemplate(
   template: TimelineSetupTemplate,
   budgetCents: number
 ): TimelineSetupMilestoneRow[] {
@@ -937,6 +1176,8 @@ function createRowsFromTemplate(
     return {
       ...row,
       budgetText: formatCurrency(budgetCents),
+      contractorAssignments: [],
+      costItems: [],
       durationText: String(row.durationDays),
       excluded: false,
       order,
@@ -1049,6 +1290,103 @@ export function buildTimelineItemsFromSetupRows(
       return item;
     })
   );
+}
+
+export function buildPlanningPayloadFromSetupRows(
+  rows: TimelineSetupMilestoneRow[]
+): {
+  contractorAssignments: TimelineSetupContractorAssignment[];
+  costItems: TimelineSetupCostItem[];
+} {
+  const includedRows = rows.filter((row) => !row.excluded);
+  return {
+    contractorAssignments: includedRows.flatMap(
+      setupRowContractorAssignmentsToPayload
+    ),
+    costItems: includedRows.flatMap(setupRowCostItemsToPayload),
+  };
+}
+
+function setupRowContractorAssignmentsToPayload(
+  row: TimelineSetupMilestoneRow
+) {
+  const availableSubmilestoneKeys = setupRowSubmilestoneKeys(row);
+  return (row.contractorAssignments ?? [])
+    .map((assignment) =>
+      setupContractorAssignmentToPayload(
+        row,
+        availableSubmilestoneKeys,
+        assignment
+      )
+    )
+    .filter((assignment): assignment is TimelineSetupContractorAssignment =>
+      Boolean(assignment)
+    );
+}
+
+function setupContractorAssignmentToPayload(
+  row: TimelineSetupMilestoneRow,
+  availableSubmilestoneKeys: Set<string>,
+  assignment: TimelineMilestoneWorksheetContractorAssignment
+): TimelineSetupContractorAssignment | null {
+  const contractorName = assignment.contractorName.trim();
+  const role = assignment.role.trim();
+  if (!(contractorName && role)) {
+    return null;
+  }
+  return {
+    ...(assignment.contractorId
+      ? { contractorId: assignment.contractorId }
+      : {}),
+    contractorName,
+    ...(assignment.estimatedCostCents === undefined
+      ? {}
+      : { estimatedCostCents: assignment.estimatedCostCents }),
+    ...(assignment.estimatedHours === undefined
+      ? {}
+      : { estimatedHours: assignment.estimatedHours }),
+    milestoneKey: row.key,
+    role,
+    submilestoneKeys: assignment.subMilestoneIds.filter((key) =>
+      availableSubmilestoneKeys.has(key)
+    ),
+  };
+}
+
+function setupRowCostItemsToPayload(row: TimelineSetupMilestoneRow) {
+  const availableSubmilestoneKeys = setupRowSubmilestoneKeys(row);
+  return (row.costItems ?? [])
+    .map((item) => setupCostItemToPayload(row, availableSubmilestoneKeys, item))
+    .filter((item): item is TimelineSetupCostItem => Boolean(item));
+}
+
+function setupCostItemToPayload(
+  row: TimelineSetupMilestoneRow,
+  availableSubmilestoneKeys: Set<string>,
+  item: TimelineMilestoneWorksheetCostItem
+): TimelineSetupCostItem | null {
+  const title = item.title.trim();
+  if (!title || item.costCents <= 0 || item.quantity <= 0) {
+    return null;
+  }
+  return {
+    costCents: item.costCents,
+    ...(item.description?.trim()
+      ? { description: item.description.trim() }
+      : {}),
+    itemType: item.itemType,
+    milestoneKey: row.key,
+    quantity: item.quantity,
+    relevantSubmilestoneKeys: item.relevantSubMilestoneIds.filter((key) =>
+      availableSubmilestoneKeys.has(key)
+    ),
+    ...(item.supplier?.trim() ? { supplier: item.supplier.trim() } : {}),
+    title,
+  };
+}
+
+function setupRowSubmilestoneKeys(row: TimelineSetupMilestoneRow) {
+  return new Set(row.subMilestoneDetails.map((detail) => detail.id));
 }
 
 function TemplateStep({
@@ -1181,20 +1519,23 @@ function TemplateStep({
         </BlueprintPanel>
 
         <BlueprintPanel>
-          <label className="timeline-setup-address-field">
-            <span>
-              Project Address <em>(optional)</em>
-            </span>
-            <input
-              aria-label="Project address"
-              data-testid="timeline-setup-address-input"
-              onChange={(event) =>
-                onProjectAddressChange(event.currentTarget.value)
-              }
-              placeholder="Enter project address"
-              value={projectAddress}
-            />
-          </label>
+          <GoogleAddressAutocomplete
+            className="timeline-setup-address-field"
+            inputRender={
+              <input
+                aria-label="Project address"
+                data-testid="timeline-setup-address-input"
+              />
+            }
+            label={
+              <span>
+                Project Address <em>(optional)</em>
+              </span>
+            }
+            onChange={onProjectAddressChange}
+            placeholder="Enter project address"
+            value={projectAddress}
+          />
         </BlueprintPanel>
 
         <BlueprintPanel
@@ -1546,34 +1887,142 @@ function BlueprintPermitUploader({
 function BudgetStep({
   cascadeBudgetEdits,
   cashText,
+  contractorOptions,
   error,
+  onBudgetFileImport,
   onBack,
   onCascadeBudgetEditsChange,
   onComplete,
   onRowsChange,
   projectAddress,
+  permitFiles,
   rows,
   targetBudgetCents,
   templateTitle,
 }: {
   cascadeBudgetEdits: boolean;
   cashText: string;
+  contractorOptions: TimelineMilestoneWorksheetContractorOption[];
   error: string;
+  onBudgetFileImport: (file: File) => Promise<BudgetWorkbookProposalDraft>;
   onBack: () => void;
   onCascadeBudgetEditsChange: (enabled: boolean) => void;
   onComplete: (options: { redirectToDurableRoute: boolean }) => void;
   onRowsChange: (rows: TimelineSetupMilestoneRow[]) => void;
+  permitFiles: File[];
   projectAddress: string;
   rows: TimelineSetupMilestoneRow[];
   targetBudgetCents: number;
   templateTitle: string;
 }) {
+  const budgetImportInputRef = useRef<HTMLInputElement>(null);
+  const [importState, setImportState] = useState<
+    | { message: string; tone: "error" | "success" }
+    | { message: ""; tone: "idle" }
+  >({ message: "", tone: "idle" });
+  const [isImporting, setIsImporting] = useState(false);
+
+  const importBudgetFile = async (file: File | undefined) => {
+    if (!file) {
+      return;
+    }
+
+    setIsImporting(true);
+    setImportState({ message: "", tone: "idle" });
+    try {
+      const draft = await onBudgetFileImport(file);
+      setImportState({
+        message: `Imported ${draft.milestones.length} milestones and ${draft.milestones.reduce(
+          (count, milestone) => count + milestone.submilestones.length,
+          0
+        )} budget lines from ${file.name}.`,
+        tone: "success",
+      });
+    } catch (caught) {
+      setImportState({
+        message:
+          caught instanceof Error
+            ? caught.message
+            : "Budget workbook import failed.",
+        tone: "error",
+      });
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   return (
     <TimelineMilestoneWorksheetTable
       cascadeBudgetEdits={cascadeBudgetEdits}
       cashText={cashText}
+      contractorOptions={contractorOptions}
       error={error}
-      leadingContent={<ProposalProgressSection step="budget" />}
+      leadingContent={
+        <div className="grid gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <ProposalProgressSection step="budget" />
+            <BuildPermitViewerDrawer
+              permit={firstPermitDocument(
+                permitFiles.map((file) => ({
+                  documentType: "permit",
+                  file,
+                  fileName: file.name,
+                  mimeType: file.type || "application/pdf",
+                }))
+              )}
+              size="sm"
+            />
+          </div>
+          <FramePanel className="flex flex-wrap items-center justify-between gap-3 p-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 font-medium text-sm">
+                <Upload className="size-4 text-muted-foreground" />
+                Import milestone budget
+              </div>
+              <p className="mt-1 text-muted-foreground text-xs">
+                Upload a DrawFlow budget .xlsx or exported Budget Import .csv to
+                replace the worksheet with the milestone and sub-milestone
+                breakdown.
+              </p>
+              {importState.message ? (
+                <p
+                  className={cn(
+                    "mt-2 text-xs",
+                    importState.tone === "error"
+                      ? "text-destructive"
+                      : "text-emerald-600"
+                  )}
+                  data-testid="timeline-budget-import-status"
+                >
+                  {importState.message}
+                </p>
+              ) : null}
+            </div>
+            <Button
+              disabled={isImporting}
+              onClick={() => budgetImportInputRef.current?.click()}
+              size="sm"
+              variant="outline"
+            >
+              {isImporting ? "Importing..." : "Upload budget"}
+            </Button>
+            <input
+              accept=".xlsx,.xls,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+              aria-label="Upload milestone budget workbook"
+              className="sr-only"
+              data-testid="timeline-budget-import-input"
+              disabled={isImporting}
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                event.currentTarget.value = "";
+                importBudgetFile(file);
+              }}
+              ref={budgetImportInputRef}
+              type="file"
+            />
+          </FramePanel>
+        </div>
+      }
       mode="setup"
       onBack={onBack}
       onCascadeBudgetEditsChange={onCascadeBudgetEditsChange}
@@ -1628,6 +2077,7 @@ function CornerMarker({
 
 export function TimelineSetupFlow({
   baseItems,
+  contractorOptions = [],
   onComplete,
   settingsTemplates,
 }: TimelineSetupFlowProps) {
@@ -1652,6 +2102,7 @@ export function TimelineSetupFlow({
   const [projectAddress, setProjectAddress] = useState(DEFAULT_SETUP_ADDRESS);
   const [permitFiles, setPermitFiles] = useState<File[]>([]);
   const [permitsSkipped, setPermitsSkipped] = useState(false);
+  const [importedBudgetTitle, setImportedBudgetTitle] = useState("");
   const [rows, setRows] = useState<TimelineSetupMilestoneRow[]>(() =>
     defaultTemplate
       ? createRowsFromTemplate(
@@ -1785,7 +2236,7 @@ export function TimelineSetupFlow({
       return;
     }
 
-    const budgetCents = validCurrencyCents(budgetText);
+    const budgetCents = setupRowsBudgetCents(rows);
     const totalBudget = rows
       .filter((row) => !row.excluded)
       .reduce((sum, row) => sum + Math.round(rowBudgetCents(row) / 100), 0);
@@ -1798,6 +2249,7 @@ export function TimelineSetupFlow({
       (budgetCents * reimbursementBps) / TOTAL_REIMBURSEMENT_BPS
     );
     const items = buildTimelineItemsFromSetupRows(rows, borrowerCoPayBps);
+    const planningPayload = buildPlanningPayloadFromSetupRows(rows);
     const activeItem = items[0];
 
     setError("");
@@ -1805,22 +2257,27 @@ export function TimelineSetupFlow({
       activeItemId: activeItem?.id ?? "",
       borrowerCoPayBps,
       borrowerCoPayCents,
+      contractorAssignments: planningPayload.contractorAssignments,
       currentDay: GENERATED_TIMELINE_CURRENT_DAY,
       includedCount: items.length,
       items,
+      permitFiles,
+      costItems: planningPayload.costItems,
       projectAddress: resolveTimelineSetupAddress(projectAddress),
       redirectToDurableRoute,
       reimbursableBudgetCents,
       reimbursementBps,
       startingCash: Math.round(cashCents / 100),
       templateKey: selectedTemplate?.templateKey ?? "",
-      templateTitle: selectedTemplate?.title ?? "Timeline plan",
+      templateTitle:
+        importedBudgetTitle || selectedTemplate?.title || "Timeline plan",
       totalBudget,
     });
   };
 
   const selectTemplate = (templateKey: string) => {
     setSelectedTemplateKey(templateKey);
+    setImportedBudgetTitle("");
     const nextTemplate = templates.find(
       (template) => template.templateKey === templateKey
     );
@@ -1830,8 +2287,28 @@ export function TimelineSetupFlow({
     }
   };
 
+  const importBudgetFile = async (file: File) => {
+    const draft = await parseBudgetWorkbookFile(file);
+    const totalBudgetCents = Math.round(draft.totalBudget * 100);
+    const borrowerCoPayBps = normalizeBorrowerCoPayBps(
+      Math.round(
+        ((draft.totalBudget - draft.totalDrawableAmount) /
+          Math.max(1, draft.totalBudget)) *
+          TOTAL_REIMBURSEMENT_BPS
+      )
+    );
+
+    setBudgetText(formatCurrency(totalBudgetCents));
+    setCoPayText(formatBpsPercent(borrowerCoPayBps));
+    setImportedBudgetTitle(draft.buildName);
+    setRows(budgetWorkbookDraftToSetupRows(draft));
+    setError("");
+
+    return draft;
+  };
+
   return (
-    <main className="timeline-setup-shell">
+    <div className="timeline-setup-shell">
       <CornerMarker position="top-left" />
       <CornerMarker position="top-right" />
       <CornerMarker position="bottom-left" />
@@ -1886,21 +2363,27 @@ export function TimelineSetupFlow({
           <BudgetStep
             cascadeBudgetEdits={cascadeBudgetEdits}
             cashText={cashText}
+            contractorOptions={contractorOptions}
             error={error}
             onBack={() => setStep("template")}
+            onBudgetFileImport={importBudgetFile}
             onCascadeBudgetEditsChange={setCascadeBudgetEdits}
             onComplete={completeSetup}
             onRowsChange={(nextRows) => {
               setRows(nextRows);
+              setBudgetText(formatCurrency(setupRowsBudgetCents(nextRows)));
               setError("");
             }}
+            permitFiles={permitFiles}
             projectAddress={projectAddress}
             rows={rows}
             targetBudgetCents={validCurrencyCents(budgetText)}
-            templateTitle={selectedTemplate?.title ?? "Timeline plan"}
+            templateTitle={
+              importedBudgetTitle || selectedTemplate?.title || "Timeline plan"
+            }
           />
         )}
       </motion.div>
-    </main>
+    </div>
   );
 }

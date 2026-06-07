@@ -29,7 +29,9 @@ vi.mock("sonner", () => ({
 
 afterEach(() => {
   cleanup();
+  document.body.removeAttribute("style");
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
 });
 
 const proposalDetail = {
@@ -38,6 +40,7 @@ const proposalDetail = {
       documentType: "permit",
       fileName: "permit.pdf",
       status: "uploaded",
+      storageUrl: "https://example.com/permit.pdf",
     },
   ],
   draws: [
@@ -63,6 +66,7 @@ const proposalDetail = {
     buildName: "Elm Street Build",
     borrowerCoPayBps: 2_000,
     borrowerWorkingCapitalLimitCents: 400_000_00,
+    interestAnnualBps: 925,
     lenderDrawPolicyLimitCents: 550_000_00,
     location: "123 Elm Street",
     status: "draft",
@@ -78,7 +82,7 @@ const proposalDetail = {
 };
 
 describe("ProductionProposalPackageSurface", () => {
-  test("renders all proposal package sections and bps co-pay semantics", () => {
+  test("renders all proposal package sections with approved amount semantics", () => {
     render(
       <ProductionProposalPackageSurface
         detail={proposalDetail}
@@ -94,8 +98,11 @@ describe("ProductionProposalPackageSurface", () => {
     expect(screen.getByText("Draw schedule")).toBeTruthy();
     expect(screen.getByText("Readiness warnings")).toBeTruthy();
     expect(screen.getByText("Submit proposal")).toBeTruthy();
-    expect(screen.getByText("20.00% / 2000 bps")).toBeTruthy();
+    expect(screen.getByText("Approved amount")).toBeTruthy();
+    expect(screen.queryByText("Borrower co-pay")).toBeNull();
+    expect(screen.getByTestId("build-permit-viewer-trigger")).toBeTruthy();
   });
+
 });
 
 describe("ProductionProposalDraftEditorSurface", () => {
@@ -117,14 +124,14 @@ describe("ProductionProposalDraftEditorSurface", () => {
     fireEvent.change(screen.getByLabelText("Build location"), {
       target: { value: "456 Updated Street" },
     });
-    fireEvent.change(screen.getByLabelText("Borrower co-pay bps"), {
-      target: { value: "2500" },
+    fireEvent.change(screen.getByLabelText("Approved amount cents"), {
+      target: { value: "45000000" },
     });
     fireEvent.change(screen.getByLabelText("Foundation budget"), {
       target: { value: "60000000" },
     });
     fireEvent.click(screen.getByText("Save draft"));
-    fireEvent.click(screen.getByText("Submit proposal"));
+    fireEvent.click(screen.getAllByText("Submit proposal")[0]!);
 
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -135,6 +142,14 @@ describe("ProductionProposalDraftEditorSurface", () => {
           expect.objectContaining({
             budgetCents: 60_000_000,
             key: "foundation",
+          }),
+        ],
+        draws: [
+          expect.objectContaining({
+            amountCents: 45_000_000,
+            drawKey: "draw-01",
+            milestoneKey: "foundation",
+            timingDay: 30,
           }),
         ],
       }),
@@ -240,7 +255,9 @@ describe("ProductionProposalKanbanSurface", () => {
       />,
     );
     expect(screen.getByText("Northline Homes")).toBeTruthy();
-    expect(screen.queryByTestId("production-kanban-card-unassigned")).toBeNull();
+    expect(
+      screen.queryByTestId("production-kanban-card-unassigned"),
+    ).toBeNull();
 
     rerender(
       <ProductionProposalKanbanSurface
@@ -421,9 +438,7 @@ describe("ProductionProposalSettingsSurface", () => {
                   key: "foundation",
                   name: "Foundation",
                   percentageBps: 2_500,
-                  submilestones: [
-                    { key: "forms", name: "Forms and pour" },
-                  ],
+                  submilestones: [{ key: "forms", name: "Forms and pour" }],
                 },
               ],
               scenarios: [
@@ -456,18 +471,329 @@ describe("ProductionProposalSettingsSurface", () => {
 
     expect(screen.getByText("Production proposal settings")).toBeTruthy();
     expect(screen.getByText("Single Family Full Build")).toBeTruthy();
-    expect(screen.getByTestId("timeline-settings-template-blueprint-table")).toBeTruthy();
+    expect(
+      screen.getByTestId("timeline-settings-template-blueprint-table"),
+    ).toBeTruthy();
     expect(screen.getByDisplayValue("Foundation")).toBeTruthy();
     expect(screen.getByDisplayValue("25.00% / 2500 bps")).toBeTruthy();
     expect(screen.getByText("Cheapest Feasible")).toBeTruthy();
     expect(screen.getByText("Interest starts on funds_released")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Seed defaults to prod" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Seed defaults to prod" }),
+    );
     expect(seed).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("ProductionProposalReviewSurface", () => {
+  test("renders builder, broker, and brokerage identity on the review tab", () => {
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          assignment: {
+            broker: {
+              email: "river@fairlend.example",
+              name: "River Han",
+              workosUserId: "user_broker",
+            },
+            brokerage: {
+              displayName: "FairLend Brokerage",
+              legalName: "FairLend Brokerage LLC",
+              workosOrganizationId: "org_fairlend",
+            },
+            builder: {
+              _id: "builder_1",
+              displayName: "Northline Homes",
+              ownerEmail: "owner@northline.example",
+            },
+            builderAssigned: true,
+          },
+          proposal: { ...proposalDetail.proposal, status: "submitted" },
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Parties & assignment")).toBeTruthy();
+    expect(screen.getByText("Northline Homes")).toBeTruthy();
+    expect(screen.getByText("owner@northline.example")).toBeTruthy();
+    expect(screen.getByText("River Han")).toBeTruthy();
+    expect(screen.getByText("FairLend Brokerage")).toBeTruthy();
+  });
+
+  test("exposes the uploaded permit viewer from review readiness", () => {
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          proposal: { ...proposalDetail.proposal, status: "submitted" },
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Permit PDF linked: permit.pdf")).toBeTruthy();
+    expect(
+      screen.getByTestId("proposal-review-permit-viewer-trigger"),
+    ).toBeTruthy();
+  });
+
+  test("records a permit waiver reason from review readiness on approval", async () => {
+    const onApprove = vi.fn();
+
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          documents: [],
+          proposal: { ...proposalDetail.proposal, status: "submitted" },
+        }}
+        onApprove={onApprove}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Decision reason"), {
+      target: { value: "Approve with municipal follow-up" },
+    });
+    fireEvent.change(screen.getByLabelText("Audited permit waiver"), {
+      target: {
+        value: "Municipal permit follows closing under lender exception.",
+      },
+    });
+
+    expect(
+      screen.getByText("Permit waiver reason ready to record on approval."),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    await waitFor(() =>
+      expect(onApprove).toHaveBeenCalledWith(
+        "Approve with municipal follow-up",
+        "Municipal permit follows closing under lender exception.",
+      ),
+    );
+  });
+
+  test("shows header budget totals and saves editable proposal terms before live build", async () => {
+    let resolveApprovedAmountSave: () => void = () => {};
+    const approvedAmountSave = new Promise<void>((resolve) => {
+      resolveApprovedAmountSave = resolve;
+    });
+    const onUpdateApprovedAmount = vi.fn(() => approvedAmountSave);
+    const onUpdateInterestRate = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          activeBuild: null,
+          draws: [
+            {
+              ...proposalDetail.draws[0],
+              amountCents: 80_000_500,
+            },
+          ],
+          proposal: {
+            ...proposalDetail.proposal,
+            borrowerCoPayBps: 1_999,
+            borrowerCoPayCents: 21_040_000,
+            lenderDrawPolicyLimitCents: 75_997_600,
+            status: "submitted",
+            totalBudgetCents: 1_052_000_00,
+          },
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+        onUpdateApprovedAmount={onUpdateApprovedAmount}
+        onUpdateInterestRate={onUpdateInterestRate}
+      />,
+    );
+
+    expect(screen.getAllByText("Total budget").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("$1,052,000").length).toBeGreaterThan(0);
+    expect(screen.getByText("Total approved")).toBeTruthy();
+    expect(screen.getAllByText("$800,005").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Co-pay amount")).toBeNull();
+    expect(screen.getByText("Interest rate")).toBeTruthy();
+    expect(screen.getByText("9.25%")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Total approved" }));
+    const approvedAmountInput = await waitFor(() => {
+      const input = document.querySelector<HTMLInputElement>(
+        'input[aria-label="Total approved"]',
+      );
+      expect(input).toBeTruthy();
+      return input;
+    });
+    expect((approvedAmountInput as HTMLInputElement).value).toBe("800005");
+    fireEvent.change(approvedAmountInput, { target: { value: "873080" } });
+    fireEvent.keyDown(approvedAmountInput, { key: "Enter" });
+
+    expect(screen.getAllByText("$873,080").length).toBeGreaterThan(0);
+    expect(screen.getByText("Saving")).toBeTruthy();
+    await waitFor(() =>
+      expect(onUpdateApprovedAmount).toHaveBeenCalledWith(87_308_000),
+    );
+    resolveApprovedAmountSave();
+    await waitFor(() => expect(screen.queryByText("Saving")).toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: "Interest rate" }));
+    const interestInput = await waitFor(() => {
+      const input = document.querySelector<HTMLInputElement>(
+        'input[aria-label="Interest rate"]',
+      );
+      expect(input).toBeTruthy();
+      return input;
+    });
+    expect((interestInput as HTMLInputElement).value).toBe("9.25");
+    fireEvent.change(interestInput, { target: { value: "10.5" } });
+    fireEvent.keyDown(interestInput, { key: "Enter" });
+
+    await waitFor(() =>
+      expect(onUpdateInterestRate).toHaveBeenCalledWith(1050),
+    );
+  });
+
+  test("assigns an unassigned broker draft through builder autocomplete", async () => {
+    const onAssignBuilder = vi.fn();
+    render(
+      <ProductionProposalReviewSurface
+        builders={[
+          {
+            _id: "builder_northline",
+            displayName: "Northline Homes",
+            email: "owner@northline.example",
+          },
+          {
+            _id: "builder_cedar",
+            displayName: "Cedarpoint Builders",
+            email: "ops@cedarpoint.example",
+          },
+        ]}
+        detail={{
+          ...proposalDetail,
+          assignment: {
+            broker: { name: "River Han", workosUserId: "user_broker" },
+            brokerage: { displayName: "FairLend Brokerage" },
+            builder: null,
+            builderAssigned: false,
+            initiatedFromBackoffice: true,
+          },
+          proposal: { ...proposalDetail.proposal, status: "draft" },
+        }}
+        onApprove={vi.fn()}
+        onAssignBuilder={onAssignBuilder}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+      />,
+    );
+
+    const input = screen.getByRole("combobox", { name: "Builder assignee" });
+    fireEvent.click(input);
+    expect(await screen.findByText("Northline Homes")).toBeTruthy();
+    expect(screen.getByText("Cedarpoint Builders")).toBeTruthy();
+    fireEvent.change(input, { target: { value: "northline" } });
+    fireEvent.click(await screen.findByText("Northline Homes"));
+    fireEvent.click(screen.getByRole("button", { name: "Assign builder" }));
+
+    await waitFor(() =>
+      expect(onAssignBuilder).toHaveBeenCalledWith("builder_northline"),
+    );
+  });
+
+  test("unassigns an assigned broker draft from the proposal detail panel", async () => {
+    const onUnassignBuilder = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          assignment: {
+            broker: { name: "River Han", workosUserId: "user_broker" },
+            brokerage: { displayName: "FairLend Brokerage" },
+            builder: {
+              _id: "builder_northline",
+              displayName: "Northline Homes",
+              ownerEmail: "owner@northline.example",
+            },
+            builderAssigned: true,
+            initiatedFromBackoffice: true,
+          },
+          proposal: { ...proposalDetail.proposal, status: "draft" },
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+        onUnassignBuilder={onUnassignBuilder}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Unassign builder" }));
+
+    await waitFor(() => expect(onUnassignBuilder).toHaveBeenCalledTimes(1));
+    expect(toast.success).toHaveBeenCalledWith("Builder unassigned.");
+  });
+
+  test("creates and copies a builder claim link for an unassigned broker draft", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const onCreateClaimLink = vi.fn().mockResolvedValue({
+      claimPath: "/proposal-claim/token_123",
+      claimToken: "token_123",
+      expiresAt: Date.UTC(2026, 5, 30, 12, 0, 0),
+    });
+
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          assignment: {
+            broker: { name: "River Han", workosUserId: "user_broker" },
+            brokerage: { displayName: "FairLend Brokerage" },
+            builder: null,
+            builderAssigned: false,
+            initiatedFromBackoffice: true,
+          },
+          proposal: { ...proposalDetail.proposal, status: "draft" },
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onCreateClaimLink={onCreateClaimLink}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create claim link" }));
+
+    await waitFor(() => expect(onCreateClaimLink).toHaveBeenCalledTimes(1));
+    const linkInput = await screen.findByDisplayValue(
+      /\/proposal-claim\/token_123/,
+    );
+    expect(linkInput).toBeTruthy();
+    expect(writeText).toHaveBeenCalledWith(
+      expect.stringContaining("/proposal-claim/token_123"),
+    );
+  });
+
   test("uses the existing timeline workspace as the default production review tab", () => {
     render(
       <ProductionProposalReviewSurface
@@ -486,20 +812,206 @@ describe("ProductionProposalReviewSurface", () => {
     const tablist = screen.getByRole("tablist", {
       name: /proposal workspace sections/i,
     });
-    expect(within(tablist).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+    expect(
+      within(tablist)
+        .getAllByRole("tab")
+        .map((tab) => tab.textContent),
+    ).toEqual([
       "Timeline",
+      "Milestones",
+      "Calendar",
       "Review",
       "Draw schedule",
       "Materials",
       "Packet",
     ]);
     expect(
-      screen.getByRole("tab", { name: "Timeline" }).getAttribute(
-        "aria-selected",
-      ),
+      screen
+        .getByRole("tab", { name: "Timeline" })
+        .getAttribute("aria-selected"),
     ).toBe("true");
     expect(screen.getByTestId("timeline-slot")).toBeTruthy();
     expect(screen.queryByText("Submit proposal")).toBeNull();
+  });
+
+  test("reuses the milestone budget worksheet in the production milestones tab", () => {
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          proposal: {
+            ...proposalDetail.proposal,
+            status: "submitted",
+          },
+          submilestones: [
+            {
+              budgetCents: 12_500_00,
+              durationDays: 2,
+              key: "forms",
+              milestoneKey: "foundation",
+              name: "Forms and pour",
+            },
+          ],
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+        timeline={<div data-testid="timeline-slot">Timeline workspace</div>}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Milestones" }));
+
+    expect(
+      screen.getByTestId("production-proposal-milestones-tab"),
+    ).toBeTruthy();
+    expect(screen.getByTestId("timeline-setup-budget-screen")).toBeTruthy();
+    expect(screen.getAllByText("Forms and pour").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("$12,500").length).toBeGreaterThan(0);
+  });
+
+  test("allows editing submilestone budget and duration in the milestones tab", () => {
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          proposal: {
+            ...proposalDetail.proposal,
+            status: "submitted",
+          },
+          submilestones: [
+            {
+              budgetCents: 12_500_00,
+              durationDays: 2,
+              key: "forms",
+              milestoneKey: "foundation",
+              name: "Forms and pour",
+            },
+          ],
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+        timeline={<div data-testid="timeline-slot">Timeline workspace</div>}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Milestones" }));
+
+    const budgetInput = screen.getByTestId(
+      "timeline-setup-submilestone-budget-forms",
+    );
+    const durationInput = screen.getByTestId(
+      "timeline-setup-submilestone-duration-forms",
+    );
+
+    fireEvent.change(budgetInput, { target: { value: "$15,000" } });
+    fireEvent.change(durationInput, { target: { value: "T4" } });
+
+    expect((budgetInput as HTMLInputElement).value).toBe("$15,000");
+    expect((durationInput as HTMLInputElement).value).toBe("T4");
+  });
+
+  test("renders packet satellite context, closing financials, and grouped submilestones", () => {
+    vi.stubEnv("VITE_GOOGLE_MAPS_API_KEY", "maps-key");
+
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          activeBuild: null,
+          loanFacility: {
+            interestAnnualBps: 975,
+            principalCents: 550_000_00,
+          },
+          proposal: {
+            ...proposalDetail.proposal,
+            borrowerCoPayCents: 50_000_00,
+            status: "submitted",
+          },
+          submilestones: [
+            {
+              budgetCents: 12_500_00,
+              durationDays: 2,
+              key: "forms",
+              milestoneKey: "foundation",
+              name: "Forms and pour",
+              startDay: 4,
+            },
+          ],
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+        timeline={<div data-testid="timeline-slot">Timeline workspace</div>}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Packet" }));
+
+    expect(screen.getByText("Build, site, and loan summary")).toBeTruthy();
+    expect(screen.getByText("Closing financials")).toBeTruthy();
+    expect(
+      screen.getByText("Milestone and submilestone worksheet"),
+    ).toBeTruthy();
+    expect(screen.getByText("Forms and pour")).toBeTruthy();
+    expect(screen.getByText("Day 4 to 6")).toBeTruthy();
+    expect(screen.getByText("Borrower co-pay")).toBeTruthy();
+    expect(screen.getByText("$50,000")).toBeTruthy();
+    expect(screen.getByText("Scheduled reimbursements")).toBeTruthy();
+    expect(screen.getAllByText("$400,000").length).toBeGreaterThan(0);
+    expect(screen.getByText("Interest trigger")).toBeTruthy();
+    expect(screen.getByText("Funds released")).toBeTruthy();
+
+    const satellite = screen.getByAltText("Elm Street Build satellite view");
+    const satelliteUrl = new URL(satellite.getAttribute("src") ?? "");
+    expect(satelliteUrl.searchParams.get("center")).toBe("123 Elm Street");
+    expect(satelliteUrl.searchParams.get("maptype")).toBe("satellite");
+    expect(satelliteUrl.searchParams.get("key")).toBe("maps-key");
+  });
+
+  test("renders contractor planning in its own review tab when provided", () => {
+    render(
+      <ProductionProposalReviewSurface
+        contractors={
+          <div data-testid="contractors-slot">Contractor planning</div>
+        }
+        detail={{
+          ...proposalDetail,
+          proposal: { ...proposalDetail.proposal, status: "submitted" },
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+        timeline={<div data-testid="timeline-slot">Timeline workspace</div>}
+      />,
+    );
+
+    const tablist = screen.getByRole("tablist", {
+      name: /proposal workspace sections/i,
+    });
+    expect(
+      within(tablist)
+        .getAllByRole("tab")
+        .map((tab) => tab.textContent),
+    ).toEqual([
+      "Timeline",
+      "Milestones",
+      "Calendar",
+      "Contractors",
+      "Review",
+      "Draw schedule",
+      "Materials",
+      "Packet",
+    ]);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Contractors" }));
+    expect(screen.getByTestId("contractors-slot")).toBeTruthy();
+    expect(screen.queryByTestId("timeline-slot")).toBeNull();
   });
 
   test("shows approval without build creation and closing with future start date", () => {
@@ -555,11 +1067,13 @@ describe("ProductionProposalReviewSurface", () => {
   });
 
   test("reports rejected review mutations with a concise toast error", async () => {
-    const onApprove = vi.fn().mockRejectedValue(
-      new Error(
-        "5/29/2026, 4:33:49 PM [CONVEX M(production_proposals:approveProposal)] Uncaught Error: A reason is required.\n    at requireReason",
-      ),
-    );
+    const onApprove = vi
+      .fn()
+      .mockRejectedValue(
+        new Error(
+          "5/29/2026, 4:33:49 PM [CONVEX M(production_proposals:approveProposal)] Uncaught Error: A reason is required.\n    at requireReason",
+        ),
+      );
     render(
       <ProductionProposalReviewSurface
         detail={{
@@ -601,28 +1115,72 @@ describe("ProductionProposalReviewSurface", () => {
     );
 
     fireEvent.click(screen.getByRole("tab", { name: "Draw schedule" }));
-    expect(screen.getByText("Save draw row").hasAttribute("disabled")).toBe(
+    const saveDrawRow = screen.getByText("Save draw row");
+    expect(saveDrawRow.hasAttribute("disabled")).toBe(
       true,
+    );
+    fireEvent.change(screen.getByLabelText("draw-01 label"), {
+      target: { value: "Foundation verified reimbursement" },
+    });
+    expect(saveDrawRow.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(saveDrawRow);
+    expect(onUpdateDraw).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith(
+      "Draw edit reason required.",
+      expect.objectContaining({
+        description: expect.stringContaining("change reason"),
+      }),
     );
     fireEvent.change(screen.getByLabelText("Change reason"), {
       target: { value: "Adjusted after lender review." },
     });
-    fireEvent.change(screen.getByLabelText("draw-01 label"), {
-      target: { value: "Foundation verified reimbursement" },
-    });
-    fireEvent.change(screen.getByLabelText("Amount cents"), {
-      target: { value: "35000000" },
+    const amountInput = screen.getByLabelText(
+      "Amount dollars",
+    ) as HTMLInputElement;
+    expect(amountInput.value).toBe("400000");
+    fireEvent.change(amountInput, {
+      target: { value: "$350,000.25" },
     });
     fireEvent.change(screen.getByLabelText("Timing day"), {
       target: { value: "28" },
     });
-    fireEvent.click(screen.getByText("Save draw row"));
+    fireEvent.click(saveDrawRow);
 
     expect(onUpdateDraw).toHaveBeenCalledWith("draw-01", {
-      amountCents: 35_000_000,
+      amountCents: 35_000_025,
       label: "Foundation verified reimbursement",
       reason: "Adjusted after lender review.",
       timingDay: 28,
+    });
+  });
+
+  test("edits draft draw schedule rows without requiring an audit reason", () => {
+    const onUpdateDraw = vi.fn();
+    render(
+      <ProductionProposalReviewSurface
+        detail={proposalDetail}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+        onUpdateDraw={onUpdateDraw}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Draw schedule" }));
+    const saveDrawRow = screen.getByText("Save draw row");
+    fireEvent.change(screen.getByLabelText("draw-01 label"), {
+      target: { value: "Draft foundation reimbursement" },
+    });
+    expect(saveDrawRow.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(saveDrawRow);
+
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(onUpdateDraw).toHaveBeenCalledWith("draw-01", {
+      amountCents: 40_000_000,
+      label: "Draft foundation reimbursement",
+      reason: "Draft draw schedule edit.",
+      timingDay: 30,
     });
   });
 });

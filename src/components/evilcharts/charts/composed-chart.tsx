@@ -188,6 +188,7 @@ type EvilComposedChartProps<
   minBarWidth?: number;
   barGap?: number;
   barCategoryGap?: number;
+  barStackId?: string | Partial<Record<keyof TBarConfig & string, string>>;
   enableHoverHighlight?: boolean;
   glowingBars?: NumericDataKeys<TData>[];
 
@@ -281,6 +282,7 @@ export function EvilComposedChart<
   minBarWidth,
   barGap,
   barCategoryGap,
+  barStackId,
   enableHoverHighlight = false,
   glowingBars = [],
   // Area props
@@ -541,6 +543,7 @@ export function EvilComposedChart<
                 fill={`url(#${chartId}-bar-colors-${dataKey})`}
                 key={`bar-${dataKey}`}
                 radius={barRadius}
+                stackId={resolveBarStackId(barStackId, dataKey)}
                 shape={(props: unknown) => {
                   const barProps = props as BarShapeProps;
                   const index = barProps.index as number;
@@ -824,6 +827,20 @@ const getOpacity = (
     : { stroke: 0.3, dot: 0.3 };
 };
 
+function resolveBarStackId<TBarConfig extends Record<string, unknown>>(
+  stackId:
+    | string
+    | Partial<Record<keyof TBarConfig & string, string>>
+    | undefined,
+  dataKey: string,
+) {
+  if (typeof stackId === "string") {
+    return stackId;
+  }
+
+  return stackId?.[dataKey as keyof TBarConfig & string];
+}
+
 // Animated dashed-stroke style for lines
 const AnimatedDashedStyle = () => (
   <>
@@ -995,7 +1012,7 @@ const CustomBar = ({
 export function getMinimumWidthBarX(
   x: number,
   width: number,
-  renderedWidth: number
+  renderedWidth: number,
 ) {
   return x - (renderedWidth - width) / 2;
 }

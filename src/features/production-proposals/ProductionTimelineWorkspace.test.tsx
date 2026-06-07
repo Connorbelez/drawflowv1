@@ -7,6 +7,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import {
   buildCollaborationShareUrl,
+  buildCollaborationTargetHref,
   ProductionTimelineWorkspace,
 } from "./ProductionTimelineWorkspace";
 import { api } from "../../../convex/_generated/api";
@@ -85,7 +86,45 @@ const workspace = {
 };
 
 describe("ProductionTimelineWorkspace collaboration integration", () => {
-  test("builds live collaboration share links from the current workspace route", () => {
+  test("builds back-office generated live links for the builder proposal route", () => {
+    window.history.pushState(
+      null,
+      "",
+      "/backoffice/proposals/proposal_123?tab=timeline",
+    );
+
+    const targetHref = buildCollaborationTargetHref(
+      "/builder/proposals/proposal_123",
+    );
+
+    expect(targetHref).toBe("/builder/proposals/proposal_123?tab=timeline");
+    expect(
+      buildCollaborationShareUrl("share-token", { targetHref }),
+    ).toBe(
+      "http://localhost:3000/builder/proposals/proposal_123?tab=timeline&collab=share-token",
+    );
+  });
+
+  test("builds builder generated live links for the back-office proposal route", () => {
+    window.history.pushState(
+      null,
+      "",
+      "/builder/proposals/proposal_123?tab=timeline",
+    );
+
+    const targetHref = buildCollaborationTargetHref(
+      "/backoffice/proposals/proposal_123",
+    );
+
+    expect(targetHref).toBe("/backoffice/proposals/proposal_123?tab=timeline");
+    expect(
+      buildCollaborationShareUrl("share-token", { targetHref }),
+    ).toBe(
+      "http://localhost:3000/backoffice/proposals/proposal_123?tab=timeline&collab=share-token",
+    );
+  });
+
+  test("keeps current-route live link fallback for callers without a target", () => {
     window.history.pushState(
       null,
       "",

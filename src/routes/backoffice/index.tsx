@@ -227,6 +227,10 @@ function RouteComponent() {
     api.production_proposals.assignDraftBuilder
   );
   const deleteDraft = useMutation(api.production_proposals.deleteDraftProposal);
+  const deleteActiveBuild = useMutation(
+    api.production_proposals.deleteActiveBuild
+  );
+  const archiveProposal = useMutation(api.production_proposals.rejectProposal);
   const buildersResult = useQuery(
     api.production_proposals.listBrokerageBuilders,
     { workosOrganizationId }
@@ -256,11 +260,26 @@ function RouteComponent() {
     <BackofficeDashboard
       builders={buildersResult ?? []}
       dashboard={dashboard}
+      onArchiveProposal={(proposal, reason) =>
+        archiveProposal({
+          proposalId: (proposal.proposalId ??
+            proposal.id) as Id<"buildProposals">,
+          reason,
+          workosOrganizationId,
+        })
+      }
       onAssignBuilder={(proposal, builderProfileId) =>
         assignBuilder({
           builderProfileId: builderProfileId as Id<"builderProfiles">,
           proposalId: (proposal.proposalId ??
             proposal.id) as Id<"buildProposals">,
+          workosOrganizationId,
+        })
+      }
+      onDeleteActiveBuild={(build, reason) =>
+        deleteActiveBuild({
+          buildId: build.buildKey as Id<"activeBuilds">,
+          reason,
           workosOrganizationId,
         })
       }
@@ -297,7 +316,9 @@ function RouteComponent() {
 export function BackofficeDashboard({
   builders,
   dashboard,
+  onArchiveProposal,
   onAssignBuilder,
+  onDeleteActiveBuild,
   onDeleteDraft,
   onOpenUnassignedDrafts,
   onStartNewBuildWorkflow,
@@ -305,9 +326,17 @@ export function BackofficeDashboard({
 }: {
   builders: ProductionBuilderOption[];
   dashboard: ProductionBackofficeDashboardData;
+  onArchiveProposal: (
+    proposal: ProposalKanbanCard,
+    reason: string
+  ) => Promise<unknown>;
   onAssignBuilder: (
     proposal: ProposalKanbanCard,
     builderProfileId: string
+  ) => Promise<unknown>;
+  onDeleteActiveBuild: (
+    build: ActiveBuild,
+    reason: string
   ) => Promise<unknown>;
   onDeleteDraft: (proposal: ProposalKanbanCard) => Promise<unknown>;
   onOpenUnassignedDrafts: () => Promise<unknown> | unknown;
@@ -361,11 +390,13 @@ export function BackofficeDashboard({
           <MetricGrid dashboard={dashboard} />
           <ActiveBuildsCard
             builds={dashboard.activeBuilds}
+            onDeleteActiveBuild={onDeleteActiveBuild}
             onOpenUnassignedDrafts={onOpenUnassignedDrafts}
             onStartNewBuildWorkflow={onStartNewBuildWorkflow}
           />
           <SubmittedProposalsCard
             approvedPendingClosing={dashboard.approvedPendingClosing}
+            onArchiveProposal={onArchiveProposal}
             onOpenProposal={setSidebarProposal}
             onRecordClosing={setClosingProposal}
             submittedProposals={dashboard.submittedProposals}
@@ -377,6 +408,7 @@ export function BackofficeDashboard({
           <ProposalKanban
             builders={builders}
             columns={dashboard.proposalColumns}
+            onArchiveProposal={onArchiveProposal}
             onAssignBuilder={onAssignBuilder}
             onDeleteDraft={onDeleteDraft}
             onOpenApprovedProposal={setSidebarProposal}
@@ -527,14 +559,20 @@ function openBackofficeBuildWorkspace(
 
 export function ActiveBuildsCard({
   builds,
+  onDeleteActiveBuild,
   onOpenUnassignedDrafts,
   onStartNewBuildWorkflow,
 }: {
   builds: ActiveBuild[];
+  onDeleteActiveBuild: (
+    build: ActiveBuild,
+    reason: string
+  ) => Promise<unknown>;
   onOpenUnassignedDrafts: () => Promise<unknown> | unknown;
   onStartNewBuildWorkflow: () => Promise<unknown> | unknown;
 }) {
   const navigate = useNavigate();
+  const [deleteTarget, setDeleteTarget] = useState<ActiveBuild | null>(null);
   const [newBuildPending, setNewBuildPending] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<
@@ -747,60 +785,92 @@ export function ActiveBuildsCard({
               ))}
             </TableHeader>
             <TableBody>
-              {table.getRowModel().rows.map((row) => (
-                <TableRow
-                  className="cursor-pointer"
-                  key={row.id}
-                  onClick={() => {
-                    openBackofficeBuildWorkspace(navigate, row.original);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
+              {table.getRowModel().rows.map((row) => {
+                const buildRow = (
+                  <TableRow
+                    className="cursor-pointer"
+                    key={row.id}
+                    onClick={() => {
                       openBackofficeBuildWorkspace(navigate, row.original);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openBackofficeBuildWorkspace(navigate, row.original);
+                      }
+                    }}
+                    tabIndex={0}
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell
+                        className={cn(
+                          cell.column.id === "actions" && "text-right"
+                        )}
+                        key={cell.id}
+                      >
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext()
+                        )}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                );
+
+                return (
+                  <ActiveBuildContextMenu
+                    build={row.original}
+                    key={row.id}
+                    onDeleteRequest={() => setDeleteTarget(row.original)}
+                    onOpen={() =>
+                      openBackofficeBuildWorkspace(navigate, row.original)
                     }
-                  }}
-                  tabIndex={0}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell
-                      className={cn(
-                        cell.column.id === "actions" && "text-right"
-                      )}
-                      key={cell.id}
-                    >
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext()
-                      )}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))}
+                  >
+                    {buildRow}
+                  </ActiveBuildContextMenu>
+                );
+              })}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
+      <DeleteActiveBuildDialog
+        build={deleteTarget}
+        onDelete={onDeleteActiveBuild}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null);
+          }
+        }}
+      />
     </>
   );
 }
 
 export function SubmittedProposalsCard({
   approvedPendingClosing,
+  onArchiveProposal,
   onOpenProposal,
   onRecordClosing,
   submittedProposals,
 }: {
   approvedPendingClosing: ProposalKanbanCard[];
+  onArchiveProposal: (
+    proposal: ProposalKanbanCard,
+    reason: string
+  ) => Promise<unknown>;
   onOpenProposal: (proposal: ProposalKanbanCard) => void;
   onRecordClosing: (proposal: ProposalKanbanCard) => void;
   submittedProposals: ProposalKanbanCard[];
 }) {
   const navigate = useNavigate();
+  const [archiveTarget, setArchiveTarget] =
+    useState<ProposalKanbanCard | null>(null);
   const reviewCount = submittedProposals.length;
   const closingCount = approvedPendingClosing.length;
 
   return (
+    <>
     <Card id="submitted-proposals">
       <CardHeader className="gap-3 border-b p-4">
         <CardTitle className="text-base">Submitted Proposals</CardTitle>
@@ -816,6 +886,7 @@ export function SubmittedProposalsCard({
       <CardContent className="space-y-0 p-0">
         <ProposalQueueTable
           emptyLabel="No submitted proposals are waiting for admin approval."
+          onArchiveRequest={setArchiveTarget}
           onPrimaryAction={(proposal) => {
             navigate({
               params: { planId: proposal.proposalId ?? proposal.id },
@@ -824,6 +895,7 @@ export function SubmittedProposalsCard({
           }}
           primaryActionLabel="Review"
           proposals={submittedProposals}
+          showArchive
           title="Submitted for lender review"
         />
         <ProposalQueueTable
@@ -837,24 +909,38 @@ export function SubmittedProposalsCard({
         />
       </CardContent>
     </Card>
+    <ArchiveProposalDialog
+      onArchive={onArchiveProposal}
+      onOpenChange={(open) => {
+        if (!open) {
+          setArchiveTarget(null);
+        }
+      }}
+      proposal={archiveTarget}
+    />
+    </>
   );
 }
 
 function ProposalQueueTable({
   emptyLabel,
+  onArchiveRequest,
   onOpenProposal,
   onPrimaryAction,
   onRecordClosing,
   primaryActionLabel,
   proposals,
+  showArchive = false,
   title,
 }: {
   emptyLabel: string;
+  onArchiveRequest?: (proposal: ProposalKanbanCard) => void;
   onOpenProposal?: (proposal: ProposalKanbanCard) => void;
   onPrimaryAction: (proposal: ProposalKanbanCard) => void;
   onRecordClosing?: (proposal: ProposalKanbanCard) => void;
   primaryActionLabel: string;
   proposals: ProposalKanbanCard[];
+  showArchive?: boolean;
   title: string;
 }) {
   return (
@@ -926,6 +1012,19 @@ function ProposalQueueTable({
                   </TableCell>
                 </TableRow>
               );
+
+              if (showArchive && onArchiveRequest) {
+                return (
+                  <SubmittedProposalContextMenu
+                    key={proposal.id}
+                    onArchiveRequest={() => onArchiveRequest(proposal)}
+                    onOpen={() => onPrimaryAction(proposal)}
+                    proposal={proposal}
+                  >
+                    {row}
+                  </SubmittedProposalContextMenu>
+                );
+              }
 
               return proposal.column === "approved" && onRecordClosing ? (
                 <ApprovedProposalContextMenu
@@ -1094,6 +1193,7 @@ function MilestoneCard({
 export function ProposalKanban({
   builders,
   columns,
+  onArchiveProposal,
   onAssignBuilder,
   onDeleteDraft,
   onOpenApprovedProposal,
@@ -1102,6 +1202,10 @@ export function ProposalKanban({
 }: {
   builders: ProductionBuilderOption[];
   columns: DashboardKanbanColumn[];
+  onArchiveProposal: (
+    proposal: ProposalKanbanCard,
+    reason: string
+  ) => Promise<unknown>;
   onAssignBuilder: (
     proposal: ProposalKanbanCard,
     builderProfileId: string
@@ -1112,6 +1216,9 @@ export function ProposalKanban({
   proposals: ProposalKanbanCard[];
 }) {
   const [assignTarget, setAssignTarget] = useState<ProposalKanbanCard | null>(
+    null
+  );
+  const [archiveTarget, setArchiveTarget] = useState<ProposalKanbanCard | null>(
     null
   );
   const [deleteTarget, setDeleteTarget] = useState<ProposalKanbanCard | null>(
@@ -1195,6 +1302,7 @@ export function ProposalKanban({
                     {(card) => (
                       <ProposalCard
                         card={card}
+                        onArchiveRequest={() => setArchiveTarget(card)}
                         onAssignRequest={() => setAssignTarget(card)}
                         onDeleteRequest={() => setDeleteTarget(card)}
                         onOpenApprovedProposal={onOpenApprovedProposal}
@@ -1247,6 +1355,15 @@ export function ProposalKanban({
           }
         }}
       />
+      <ArchiveProposalDialog
+        onArchive={onArchiveProposal}
+        onOpenChange={(open) => {
+          if (!open) {
+            setArchiveTarget(null);
+          }
+        }}
+        proposal={archiveTarget}
+      />
       <DeleteDraftDialog
         card={deleteTarget}
         onDelete={onDeleteDraft}
@@ -1270,6 +1387,7 @@ function isUnassignedProposalBuilder(builder: string | undefined) {
 
 function ProposalCard({
   card,
+  onArchiveRequest,
   onAssignRequest,
   onDeleteRequest,
   onOpenApprovedProposal,
@@ -1277,6 +1395,7 @@ function ProposalCard({
   onSelect,
 }: {
   card: ProposalKanbanCard;
+  onArchiveRequest: () => void;
   onAssignRequest: () => void;
   onDeleteRequest: () => void;
   onOpenApprovedProposal: (card: ProposalKanbanCard) => void;
@@ -1284,6 +1403,7 @@ function ProposalCard({
   onSelect: (card: ProposalKanbanCard) => void;
 }) {
   const isDraft = card.column === "draft";
+  const isSubmitted = card.column === "submitted";
   const assigned =
     card.builderAssigned ?? !isUnassignedProposalBuilder(card.builder);
   const body = (
@@ -1348,6 +1468,7 @@ function ProposalCard({
 
   return (
     <ProposalContextMenu
+      onArchiveRequest={onArchiveRequest}
       onAssignRequest={onAssignRequest}
       onDeleteRequest={onDeleteRequest}
       onOpen={() =>
@@ -1357,6 +1478,7 @@ function ProposalCard({
       }
       onRecordClosing={() => onRecordClosing(card)}
       proposal={card}
+      showArchive={isSubmitted}
       showAssign={isDraft && !assigned}
       showDelete={isDraft}
       showRecordClosing={card.column === "approved"}
@@ -1368,21 +1490,25 @@ function ProposalCard({
 
 function ProposalContextMenu({
   children,
+  onArchiveRequest,
   onAssignRequest,
   onDeleteRequest,
   onOpen,
   onRecordClosing,
   proposal,
+  showArchive,
   showAssign,
   showDelete,
   showRecordClosing,
 }: {
   children: ReactElement;
+  onArchiveRequest: () => void;
   onAssignRequest: () => void;
   onDeleteRequest: () => void;
   onOpen: () => void;
   onRecordClosing: () => void;
   proposal: ProposalKanbanCard;
+  showArchive: boolean;
   showAssign: boolean;
   showDelete: boolean;
   showRecordClosing: boolean;
@@ -1412,15 +1538,92 @@ function ProposalContextMenu({
               Record closing
             </ContextMenuItem>
           ) : null}
-          {showDelete ? (
+          {showArchive || showDelete ? (
             <>
               <ContextMenuSeparator />
-              <ContextMenuItem onClick={onDeleteRequest} variant="destructive">
-                <Trash2 aria-hidden />
-                Delete draft
-              </ContextMenuItem>
+              {showArchive ? (
+                <ContextMenuItem
+                  onClick={onArchiveRequest}
+                  variant="destructive"
+                >
+                  <Trash2 aria-hidden />
+                  Archive proposal
+                </ContextMenuItem>
+              ) : null}
+              {showDelete ? (
+                <ContextMenuItem onClick={onDeleteRequest} variant="destructive">
+                  <Trash2 aria-hidden />
+                  Delete draft
+                </ContextMenuItem>
+              ) : null}
             </>
           ) : null}
+        </ContextMenuGroup>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+function ActiveBuildContextMenu({
+  build,
+  children,
+  onDeleteRequest,
+  onOpen,
+}: {
+  build: ActiveBuild;
+  children: ReactElement;
+  onDeleteRequest: () => void;
+  onOpen: () => void;
+}) {
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger render={children} />
+      <ContextMenuContent className="w-56">
+        <ContextMenuGroup>
+          <ContextMenuLabel className="truncate">{build.id}</ContextMenuLabel>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={onOpen}>
+            <Eye aria-hidden />
+            Open build workspace
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={onDeleteRequest} variant="destructive">
+            <Trash2 aria-hidden />
+            Delete active build
+          </ContextMenuItem>
+        </ContextMenuGroup>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+function SubmittedProposalContextMenu({
+  children,
+  onArchiveRequest,
+  onOpen,
+  proposal,
+}: {
+  children: ReactElement;
+  onArchiveRequest: () => void;
+  onOpen: () => void;
+  proposal: ProposalKanbanCard;
+}) {
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger render={children} />
+      <ContextMenuContent className="w-56">
+        <ContextMenuGroup>
+          <ContextMenuLabel className="truncate">{proposal.name}</ContextMenuLabel>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={onOpen}>
+            <FileText aria-hidden />
+            Review proposal
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={onArchiveRequest} variant="destructive">
+            <Trash2 aria-hidden />
+            Archive proposal
+          </ContextMenuItem>
         </ContextMenuGroup>
       </ContextMenuContent>
     </ContextMenu>
@@ -1553,6 +1756,7 @@ function DeleteDraftDialog({
     setError(null);
     try {
       await onDelete(card);
+      toast.success("Draft proposal deleted.");
       onOpenChange(false);
     } catch (deleteError) {
       setError(
@@ -1592,6 +1796,194 @@ function DeleteDraftDialog({
             variant="destructive"
           >
             Delete draft
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+export function ArchiveProposalDialog({
+  onArchive,
+  onOpenChange,
+  proposal,
+}: {
+  onArchive: (proposal: ProposalKanbanCard, reason: string) => Promise<unknown>;
+  onOpenChange: (open: boolean) => void;
+  proposal: ProposalKanbanCard | null;
+}) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
+  const proposalKey = proposal?.proposalId ?? proposal?.id ?? null;
+
+  useEffect(() => {
+    setError(null);
+    setPending(false);
+    setReason("");
+  }, [proposalKey]);
+
+  async function handleArchive() {
+    if (!proposal) {
+      return;
+    }
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      setError("Archive reason is required.");
+      return;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      await onArchive(proposal, trimmedReason);
+      toast.success("Proposal archived.");
+      onOpenChange(false);
+    } catch (archiveError) {
+      setError(
+        archiveError instanceof Error
+          ? archiveError.message
+          : "Could not archive proposal."
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <AlertDialog onOpenChange={onOpenChange} open={proposal !== null}>
+      <AlertDialogContent className="sm:max-w-md">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Archive submitted proposal</AlertDialogTitle>
+          <AlertDialogDescription>
+            {proposal
+              ? `"${proposal.name}" will be removed from the submitted review queue. This action is audited.`
+              : null}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="px-6 pb-2">
+          <label className="grid gap-2 text-sm" htmlFor="archive-proposal-reason">
+            <span>Archive reason</span>
+            <Textarea
+              data-testid="archive-proposal-reason"
+              id="archive-proposal-reason"
+              onChange={(event) => setReason(event.currentTarget.value)}
+              placeholder="Explain why this proposal is being archived."
+              rows={3}
+              value={reason}
+            />
+          </label>
+        </div>
+        {error ? (
+          <p className="px-6 text-destructive text-sm" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <AlertDialogFooter>
+          <AlertDialogClose
+            render={<Button variant="outline">Cancel</Button>}
+          />
+          <Button
+            data-testid="archive-proposal-confirm"
+            disabled={!reason.trim()}
+            loading={pending}
+            onClick={handleArchive}
+            variant="destructive"
+          >
+            Archive proposal
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+function DeleteActiveBuildDialog({
+  build,
+  onDelete,
+  onOpenChange,
+}: {
+  build: ActiveBuild | null;
+  onDelete: (build: ActiveBuild, reason: string) => Promise<unknown>;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
+  const buildKey = build?.buildKey ?? null;
+
+  useEffect(() => {
+    setError(null);
+    setPending(false);
+    setReason("");
+  }, [buildKey]);
+
+  async function handleDelete() {
+    if (!build) {
+      return;
+    }
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      setError("Delete reason is required.");
+      return;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      await onDelete(build, trimmedReason);
+      toast.success("Active build deleted.");
+      onOpenChange(false);
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Could not delete active build."
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <AlertDialog onOpenChange={onOpenChange} open={build !== null}>
+      <AlertDialogContent className="sm:max-w-md">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete active build</AlertDialogTitle>
+          <AlertDialogDescription>
+            {build
+              ? `"${build.id}" at ${build.address} and its live build workspace data will be permanently removed. This cannot be undone.`
+              : null}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="px-6 pb-2">
+          <label className="grid gap-2 text-sm" htmlFor="delete-active-build-reason">
+            <span>Delete reason</span>
+            <Textarea
+              data-testid="delete-active-build-reason"
+              id="delete-active-build-reason"
+              onChange={(event) => setReason(event.currentTarget.value)}
+              placeholder="Explain why this active build is being deleted."
+              rows={3}
+              value={reason}
+            />
+          </label>
+        </div>
+        {error ? (
+          <p className="px-6 text-destructive text-sm" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <AlertDialogFooter>
+          <AlertDialogClose
+            render={<Button variant="outline">Cancel</Button>}
+          />
+          <Button
+            data-testid="delete-active-build-confirm"
+            disabled={!reason.trim()}
+            loading={pending}
+            onClick={handleDelete}
+            variant="destructive"
+          >
+            Delete active build
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

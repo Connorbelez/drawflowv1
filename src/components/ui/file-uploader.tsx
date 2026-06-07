@@ -87,8 +87,22 @@ const Toast: React.FC<ToastProps> = ({ message, type, onClose }) => (
   </div>
 );
 
-export const FileUploader: React.FC = () => {
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+interface FileUploaderProps {
+  accept?: string;
+  files?: File[];
+  multiple?: boolean;
+  onFilesChange?: (files: File[]) => void;
+}
+
+export const FileUploader: React.FC<FileUploaderProps> = ({
+  accept,
+  files,
+  multiple = true,
+  onFilesChange,
+}) => {
+  const [internalSelectedFiles, setInternalSelectedFiles] = useState<File[]>(
+    []
+  );
   const [isDragging, setIsDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -97,15 +111,27 @@ export const FileUploader: React.FC = () => {
     type: "success" | "error";
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const selectedFiles = files ?? internalSelectedFiles;
+
+  const setSelectedFiles = (
+    updater: File[] | ((currentFiles: File[]) => File[])
+  ) => {
+    const nextFiles =
+      typeof updater === "function" ? updater(selectedFiles) : updater;
+    if (files === undefined) {
+      setInternalSelectedFiles(nextFiles);
+    }
+    onFilesChange?.(nextFiles);
+  };
 
   const handleFiles = (files: FileList) => {
     const fileArr = Array.from(files);
-    setSelectedFiles((prev) => [
-      ...prev,
-      ...fileArr.filter(
+    setSelectedFiles((prev) => {
+      const nextFiles = fileArr.filter(
         (f) => !prev.some((p) => p.name === f.name && p.size === f.size)
-      ),
-    ]);
+      );
+      return multiple ? [...prev, ...nextFiles] : nextFiles.slice(0, 1);
+    });
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -169,12 +195,13 @@ export const FileUploader: React.FC = () => {
   return (
     <div className="w-full">
       <input
+        accept={accept}
         ref={fileInputRef}
         type="file"
         className="hidden"
         onChange={handleFileChange}
         aria-label="File input"
-        multiple
+        multiple={multiple}
       />
       <div
         className={`w-full flex flex-col items-center justify-center border-2 border-dashed rounded-xl transition-all duration-200 mb-5 cursor-pointer ${isDragging ? "border-blue-500 bg-blue-50" : "border-gray-300 bg-gray-50 hover:border-blue-400"}`}

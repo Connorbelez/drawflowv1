@@ -8,6 +8,7 @@ import {
   type ProductionBuildDetailActions,
 } from "#/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx";
 import type { BuildDetailSubTab } from "#/features/backoffice-build-detail/BuildDetailTabs.tsx";
+import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import {
   getVisualParityActiveBuildDetail,
   getVisualParityActiveBuildTimelineWorkspace,
@@ -16,8 +17,15 @@ import {
 import { api } from "../../../../../convex/_generated/api";
 
 type BuilderBuildSearch = {
+  timeframe?: CalendarTimeframe;
   milestone?: string;
-  tab?: "calendar" | "details" | "gantt" | "materials" | "timeline";
+  tab?:
+    | "calendar"
+    | "details"
+    | "evidence"
+    | "gantt"
+    | "materials"
+    | "timeline";
   rail?: "open" | "closed";
 };
 
@@ -25,6 +33,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
   validateSearch: (search: Record<string, unknown>): BuilderBuildSearch => {
     const tab =
       search.tab === "timeline" ||
+      search.tab === "evidence" ||
       search.tab === "materials" ||
       search.tab === "calendar" ||
       search.tab === "gantt" ||
@@ -37,7 +46,16 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
       search.rail === "closed" || search.rail === "open"
         ? (search.rail as BuilderBuildSearch["rail"])
         : undefined;
+    const timeframe =
+      search.timeframe === "day" ||
+      search.timeframe === "week" ||
+      search.timeframe === "month" ||
+      search.timeframe === "quarter" ||
+      search.timeframe === "agenda"
+        ? (search.timeframe as CalendarTimeframe)
+        : undefined;
     return {
+      ...(timeframe ? { timeframe } : {}),
       ...(milestone ? { milestone } : {}),
       ...(rail ? { rail } : {}),
       ...(tab ? { tab } : {}),
@@ -60,7 +78,7 @@ function BuilderBuildRoute() {
       : {
           buildId,
           workosOrganizationId,
-        }
+        },
   );
   const effectiveProductionBuild = visualFixtureEnabled
     ? getVisualParityActiveBuildDetail(buildId)
@@ -75,40 +93,58 @@ function BuilderBuildRoute() {
             buildId: activeBuildIdForWorkspace,
             workosOrganizationId,
           }
-        : "skip"
+        : "skip",
   );
   const effectiveTimelineWorkspace = visualFixtureEnabled
     ? getVisualParityActiveBuildTimelineWorkspace(buildId)
     : timelineWorkspaceQuery;
+  const calendarWorkspaceQuery = useQuery(
+    (api as any).production_proposals.getActiveBuildCalendarWorkspace,
+    visualFixtureEnabled
+      ? "skip"
+      : effectiveProductionBuild
+        ? {
+            buildId: activeBuildIdForWorkspace,
+            workosOrganizationId,
+          }
+        : "skip",
+  );
   const requestDraw = useMutation(
-    api.production_proposals.requestActiveBuildDraw
+    api.production_proposals.requestActiveBuildDraw,
   );
   const requestFacilityChange = useMutation(
-    (api as any).production_proposals.requestActiveBuildFacilityChange
+    (api as any).production_proposals.requestActiveBuildFacilityChange,
   );
   const submitMilestoneCompletion = useMutation(
-    (api as any).production_proposals.submitActiveBuildMilestoneCompletion
+    (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
   );
 
   const onChangeTab = (tab: BuildDetailSubTab) =>
     navigate({
       params: { buildId },
       replace: true,
-      search: (prev) => ({ ...prev, tab }),
+      search: { ...search, tab },
       to: "/builder/builds/$buildId",
     });
   const onChangeRail = (rail: "open" | "closed") =>
     navigate({
       params: { buildId },
       replace: true,
-      search: (prev) => ({ ...prev, rail }),
+      search: { ...search, rail },
       to: "/builder/builds/$buildId",
     });
   const onChangeMilestone = (milestone?: string) =>
     navigate({
       params: { buildId },
       replace: true,
-      search: (prev) => ({ ...prev, milestone }),
+      search: { ...search, milestone },
+      to: "/builder/builds/$buildId",
+    });
+  const onChangeCalendarTimeframe = (timeframe: CalendarTimeframe) =>
+    navigate({
+      params: { buildId },
+      replace: true,
+      search: { ...search, timeframe },
       to: "/builder/builds/$buildId",
     });
 
@@ -157,6 +193,14 @@ function BuilderBuildRoute() {
         buildId: activeBuildId,
         workosOrganizationId,
       }),
+    requestLoanFacilityDateChange: (input) =>
+      requestFacilityChange({
+        reason: input.reason,
+        requestedPaybackDate: input.requestedPaybackDate,
+        requestType: "paybackExtension",
+        buildId: activeBuildId,
+        workosOrganizationId,
+      }),
     startMilestoneWork: () => undefined,
     submitMilestoneCompletion: ({
       actualCostCents,
@@ -183,6 +227,8 @@ function BuilderBuildRoute() {
       actions={actions}
       activeBuildId={activeBuildId}
       activeTab={search.tab ?? "details"}
+      calendarTimeframe={search.timeframe}
+      calendarWorkspace={calendarWorkspaceQuery as any}
       breadcrumbRootHref="/builder"
       breadcrumbRootLabel="Builder"
       breadcrumbSectionHref="/builder/proposals"
@@ -193,6 +239,7 @@ function BuilderBuildRoute() {
       detail={detail}
       milestoneKey={search.milestone}
       onChangeMilestone={onChangeMilestone}
+      onChangeCalendarTimeframe={onChangeCalendarTimeframe}
       onChangeRail={onChangeRail}
       onChangeTab={onChangeTab}
       rail={search.rail}

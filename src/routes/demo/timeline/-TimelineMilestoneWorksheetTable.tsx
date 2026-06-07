@@ -26,6 +26,9 @@ import {
 } from "react";
 
 import {
+  FieldRichTextEditor,
+} from "#/components/rich-text/field-rich-text.tsx";
+import {
   Sortable,
   SortableItem,
   SortableItemHandle,
@@ -52,6 +55,11 @@ import {
   TableRow,
 } from "#/components/ui/table.tsx";
 import { Toggle } from "#/components/ui/toggle.tsx";
+import {
+  coerceSiteVisitGuidance,
+  guidanceLinesToHtml,
+  type SiteVisitGuidanceHtml,
+} from "#/lib/site-visit-guidance.ts";
 import { cn } from "#/lib/utils.ts";
 import {
   formatCurrency,
@@ -149,10 +157,7 @@ export interface TimelineMilestoneWorksheetRow {
   order: number;
   percentageBps: number;
   percentageText?: string;
-  siteVisitGuidance?: {
-    cameraAngles: string[];
-    whatToVerify: string[];
-  };
+  siteVisitGuidance?: SiteVisitGuidanceHtml;
   subMilestoneDetails: TimelineMilestoneWorksheetSubMilestone[];
   subMilestones: string[];
   type: string;
@@ -1404,13 +1409,13 @@ function FieldGuidanceEditor({
   onUpdate,
   row,
 }: {
-  onUpdate: (guidance: {
-    cameraAngles: string[];
-    whatToVerify: string[];
-  }) => void;
+  onUpdate: (guidance: SiteVisitGuidanceHtml) => void;
   row: TimelineMilestoneWorksheetRow;
 }) {
-  const guidance = row.siteVisitGuidance ?? defaultGuidanceForRow(row);
+  const guidance = coerceSiteVisitGuidance(
+    row.siteVisitGuidance,
+    defaultGuidanceForRow(row)
+  );
   return (
     <section
       aria-label={`${row.name} field guidance`}
@@ -1430,30 +1435,32 @@ function FieldGuidanceEditor({
       <div className="grid gap-4 md:grid-cols-2">
         <label className="grid gap-2 text-sm">
           <span className="font-medium">What to verify</span>
-          <textarea
-            className="min-h-32 rounded-md border bg-background p-3 text-sm"
-            data-testid={`timeline-settings-guidance-verify-${row.key}`}
-            onChange={(event) =>
+          <FieldRichTextEditor
+            ariaLabel={`${row.name} what to verify`}
+            onChange={(whatToVerify) =>
               onUpdate({
                 ...guidance,
-                whatToVerify: linesToGuidanceItems(event.currentTarget.value),
+                whatToVerify,
               })
             }
-            value={guidance.whatToVerify.join("\n")}
+            placeholder="Verification checklist, notes, and reference photos..."
+            testId={`timeline-settings-guidance-verify-${row.key}`}
+            value={guidance.whatToVerify}
           />
         </label>
         <label className="grid gap-2 text-sm">
           <span className="font-medium">Required photo angles</span>
-          <textarea
-            className="min-h-32 rounded-md border bg-background p-3 text-sm"
-            data-testid={`timeline-settings-guidance-camera-${row.key}`}
-            onChange={(event) =>
+          <FieldRichTextEditor
+            ariaLabel={`${row.name} required photo angles`}
+            onChange={(cameraAngles) =>
               onUpdate({
                 ...guidance,
-                cameraAngles: linesToGuidanceItems(event.currentTarget.value),
+                cameraAngles,
               })
             }
-            value={guidance.cameraAngles.join("\n")}
+            placeholder="Required angles, framing notes, and example photos..."
+            testId={`timeline-settings-guidance-camera-${row.key}`}
+            value={guidance.cameraAngles}
           />
         </label>
       </div>
@@ -1707,13 +1714,13 @@ function createCustomMilestoneRow({
       percentageBps: 0,
       percentageText: "0.00%",
       siteVisitGuidance: {
-        cameraAngles: [
+        cameraAngles: guidanceLinesToHtml([
           "Wide shot showing the full custom milestone work area.",
           "Close-up of the primary completion detail.",
-        ],
-        whatToVerify: [
+        ]),
+        whatToVerify: guidanceLinesToHtml([
           "Custom milestone scope is complete and consistent with the approved draw plan.",
-        ],
+        ]),
       },
       subMilestoneDetails,
       subMilestones: [],
@@ -1736,26 +1743,21 @@ function withSubMilestoneDetails(
   };
 }
 
-function defaultGuidanceForRow(row: TimelineMilestoneWorksheetRow) {
+function defaultGuidanceForRow(row: TimelineMilestoneWorksheetRow): SiteVisitGuidanceHtml {
   return {
-    cameraAngles: [
+    cameraAngles: guidanceLinesToHtml([
       "Wide shot showing the full milestone work area.",
       "Close-up of the highest-risk connection, fixture, or finish.",
-    ],
-    whatToVerify: (row.subMilestones.length ? row.subMilestones : [row.name])
-      .slice(0, 4)
-      .map(
-        (checkpoint) =>
-          `${checkpoint} is complete, visible, and consistent with the approved scope.`
-      ),
+    ]),
+    whatToVerify: guidanceLinesToHtml(
+      (row.subMilestones.length ? row.subMilestones : [row.name])
+        .slice(0, 4)
+        .map(
+          (checkpoint) =>
+            `${checkpoint} is complete, visible, and consistent with the approved scope.`
+        )
+    ),
   };
-}
-
-function linesToGuidanceItems(value: string) {
-  return value
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
 }
 
 function makeUniqueRowKey(name: string, rows: TimelineMilestoneWorksheetRow[]) {

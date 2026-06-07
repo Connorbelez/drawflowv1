@@ -58,6 +58,33 @@ describe("MaterialPlanningTab", () => {
     expect(screen.getByText("$80,000 x 2.5")).toBeTruthy();
   });
 
+  test("renders rich description images in material item previews", () => {
+    render(
+      <MaterialPlanningTab
+        items={[
+          {
+            _id: "item-1",
+            costCents: 8_000_000,
+            description:
+              '<p>Concrete and rebar package.</p><img src="data:image/png;base64,abc" alt="site detail" />',
+            itemType: "material",
+            milestoneKey: "foundation",
+            quantity: 1,
+            relevantSubmilestoneKeys: [],
+            title: "Foundation material package",
+          },
+        ]}
+        milestones={milestones}
+        readOnly
+        scopeLabel="Build Proposal"
+      />,
+    );
+
+    expect(screen.getByAltText("site detail").getAttribute("src")).toBe(
+      "data:image/png;base64,abc",
+    );
+  });
+
   test("submits a cost item payload without creating a submilestone", () => {
     const create = vi.fn();
     render(
@@ -68,6 +95,9 @@ describe("MaterialPlanningTab", () => {
         scopeLabel="Build Proposal"
       />,
     );
+
+    expect(screen.queryByLabelText("Title")).toBeNull();
+    fireEvent.click(screen.getAllByRole("button", { name: "Add cost item" })[0]);
 
     fireEvent.change(screen.getByLabelText("Title"), {
       target: { value: "Pump rental" },
@@ -92,6 +122,53 @@ describe("MaterialPlanningTab", () => {
         relevantSubmilestoneKeys: [],
         supplier: "Rental Desk",
         title: "Pump rental",
+      }),
+    );
+  });
+
+  test("opens the edit form in a sheet from an existing material card", () => {
+    const update = vi.fn();
+    render(
+      <MaterialPlanningTab
+        actions={{ update }}
+        items={[
+          {
+            _id: "item-1",
+            costCents: 8_000_000,
+            itemType: "equipment",
+            milestoneKey: "foundation",
+            quantity: 1,
+            relevantSubmilestoneKeys: [],
+            supplier: "Rental Desk",
+            title: "Pump rental",
+          },
+        ]}
+        milestones={milestones}
+        scopeLabel="Build Proposal"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Edit cost item" })).toBeTruthy();
+    expect(screen.getByLabelText("Title").getAttribute("value")).toBe(
+      "Pump rental",
+    );
+
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "Concrete pump rental" },
+    });
+    fireEvent.change(screen.getByLabelText("Change reason"), {
+      target: { value: "Supplier quote updated." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save item" }));
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Pump rental" }),
+      expect.objectContaining({
+        reason: "Supplier quote updated.",
+        title: "Concrete pump rental",
       }),
     );
   });

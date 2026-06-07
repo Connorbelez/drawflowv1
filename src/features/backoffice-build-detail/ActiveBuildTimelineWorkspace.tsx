@@ -376,6 +376,9 @@ function normalizeSubmilestoneInput(input: any, index: number) {
     key: input.key ?? `sub-${index + 1}`,
     name: input.name ?? "Submilestone",
     order: Math.max(1, Math.round(input.order ?? index + 1)),
+    ...(input.startDay === undefined
+      ? {}
+      : { startDay: Math.max(0, Math.round(input.startDay)) }),
   };
 }
 

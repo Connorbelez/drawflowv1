@@ -2,7 +2,10 @@
 
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-
+import {
+  FieldRichTextEditor,
+  FieldRichTextPreview,
+} from "#/components/rich-text/field-rich-text.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -19,7 +22,14 @@ import {
   NativeSelect,
   NativeSelectOption,
 } from "#/components/ui/native-select.tsx";
-import { Textarea } from "#/components/ui/textarea.tsx";
+import {
+  Sheet,
+  SheetDescription,
+  SheetHeader,
+  SheetPanel,
+  SheetPopup,
+  SheetTitle,
+} from "#/components/ui/sheet.tsx";
 import { cn } from "#/lib/utils.ts";
 
 export type MaterialPlanningItemType = "equipment" | "material";
@@ -68,7 +78,10 @@ export interface MaterialPlanningPayload {
 
 export interface MaterialPlanningActions {
   create?: (payload: MaterialPlanningPayload) => Promise<unknown> | unknown;
-  delete?: (item: MaterialPlanningItem, reason?: string) => Promise<unknown> | unknown;
+  delete?: (
+    item: MaterialPlanningItem,
+    reason?: string
+  ) => Promise<unknown> | unknown;
   update?: (
     item: MaterialPlanningItem,
     payload: MaterialPlanningPayload
@@ -78,10 +91,12 @@ export interface MaterialPlanningActions {
 interface MaterialPlanningTabProps {
   actions?: MaterialPlanningActions;
   items: MaterialPlanningItem[];
-  panelLayout?: "auto" | "stacked";
   milestones: MaterialPlanningMilestone[];
+  panelLayout?: "auto" | "stacked";
   readOnly?: boolean;
   scopeLabel: string;
+  showChangeReason?: boolean;
+  variant?: "embedded" | "full";
 }
 
 type ItemFormState = {
@@ -96,6 +111,10 @@ type ItemFormState = {
   title: string;
 };
 
+type ActiveMaterialEditor =
+  | { mode: "create"; milestoneKey: string }
+  | { itemId: string; mode: "edit" };
+
 const TOUCH_BUTTON_CLASS = "max-sm:h-11";
 const TOUCH_INPUT_CLASS =
   "max-sm:h-11 max-sm:[&_[data-slot=input]]:h-11 max-sm:[&_[data-slot=input]]:leading-[2.75rem]";
@@ -109,7 +128,10 @@ export function MaterialPlanningTab({
   milestones,
   readOnly = false,
   scopeLabel,
+  showChangeReason = true,
+  variant = "full",
 }: MaterialPlanningTabProps) {
+  const embedded = variant === "embedded";
   const sortedMilestones = useMemo(
     () => [...milestones].sort((a, b) => a.order - b.order),
     [milestones]
@@ -117,21 +139,26 @@ export function MaterialPlanningTab({
   const [selectedMilestoneKey, setSelectedMilestoneKey] = useState(
     sortedMilestones[0]?.key ?? ""
   );
-  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [activeEditor, setActiveEditor] = useState<ActiveMaterialEditor | null>(
+    null
+  );
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
     if (
       sortedMilestones.length > 0 &&
-      !sortedMilestones.some((milestone) => milestone.key === selectedMilestoneKey)
+      !sortedMilestones.some(
+        (milestone) => milestone.key === selectedMilestoneKey
+      )
     ) {
       setSelectedMilestoneKey(sortedMilestones[0]?.key ?? "");
     }
   }, [selectedMilestoneKey, sortedMilestones]);
 
   const milestoneByKey = useMemo(
-    () => new Map(sortedMilestones.map((milestone) => [milestone.key, milestone])),
+    () =>
+      new Map(sortedMilestones.map((milestone) => [milestone.key, milestone])),
     [sortedMilestones]
   );
   const itemsByMilestone = useMemo(() => {
@@ -150,29 +177,54 @@ export function MaterialPlanningTab({
   const selectedMilestone =
     milestoneByKey.get(selectedMilestoneKey) ?? sortedMilestones[0];
   const editable = !readOnly && Boolean(actions?.create);
+  const editingItem =
+    activeEditor?.mode === "edit"
+      ? items.find((item) => item._id === activeEditor.itemId)
+      : undefined;
+  const editorMilestoneKey =
+    activeEditor?.mode === "create"
+      ? activeEditor.milestoneKey
+      : editingItem?.milestoneKey;
+  const editorMilestone = editorMilestoneKey
+    ? milestoneByKey.get(editorMilestoneKey)
+    : undefined;
 
   async function runCreate(payload: MaterialPlanningPayload) {
-    if (!actions?.create) return;
+    if (!actions?.create) {
+      return false;
+    }
     setPending(true);
     setError("");
     try {
       await actions.create(payload);
+      return true;
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Cost item save failed.");
+      setError(
+        caught instanceof Error ? caught.message : "Cost item save failed."
+      );
+      return false;
     } finally {
       setPending(false);
     }
   }
 
-  async function runUpdate(item: MaterialPlanningItem, payload: MaterialPlanningPayload) {
-    if (!actions?.update) return;
+  async function runUpdate(
+    item: MaterialPlanningItem,
+    payload: MaterialPlanningPayload
+  ) {
+    if (!actions?.update) {
+      return false;
+    }
     setPending(true);
     setError("");
     try {
       await actions.update(item, payload);
-      setEditingItemId(null);
+      return true;
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Cost item update failed.");
+      setError(
+        caught instanceof Error ? caught.message : "Cost item update failed."
+      );
+      return false;
     } finally {
       setPending(false);
     }
@@ -182,13 +234,17 @@ export function MaterialPlanningTab({
     item: MaterialPlanningItem,
     reason?: string
   ) {
-    if (!actions?.delete) return;
+    if (!actions?.delete) {
+      return;
+    }
     setPending(true);
     setError("");
     try {
       await actions.delete(item, reason || undefined);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Cost item delete failed.");
+      setError(
+        caught instanceof Error ? caught.message : "Cost item delete failed."
+      );
     } finally {
       setPending(false);
     }
@@ -196,51 +252,56 @@ export function MaterialPlanningTab({
 
   return (
     <div
-      className="grid-flow-dense grid gap-4 overflow-x-hidden"
+      className="grid grid-flow-dense gap-4 overflow-x-hidden"
       data-testid="material-planning-tab"
     >
-      <Frame>
-        <FramePanel className="overflow-hidden p-0">
-          <div className="grid gap-5 p-4 md:p-5">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-              <div className="max-w-5xl">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline">{scopeLabel}</Badge>
-                  <Badge variant={readOnly ? "secondary" : "success"}>
-                    {readOnly ? "View only" : "Planning editable"}
-                  </Badge>
+      {embedded ? null : (
+        <Frame>
+          <FramePanel className="overflow-hidden p-0">
+            <div className="grid gap-5 p-4 md:p-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div className="max-w-5xl">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">{scopeLabel}</Badge>
+                    <Badge variant={readOnly ? "secondary" : "success"}>
+                      {readOnly ? "View only" : "Planning editable"}
+                    </Badge>
+                  </div>
+                  <h2 className="mt-3 text-balance font-semibold text-2xl tracking-tight md:text-3xl">
+                    Material and equipment planning
+                  </h2>
+                  <p className="mt-2 max-w-3xl text-muted-foreground text-sm">
+                    Cost-only entries stay attached to milestones and relevant
+                    sub-milestones without becoming construction tasks.
+                  </p>
                 </div>
-                <h2 className="mt-3 text-balance font-semibold text-2xl tracking-tight md:text-3xl">
-                  Material and equipment planning
-                </h2>
-                <p className="mt-2 max-w-3xl text-muted-foreground text-sm">
-                  Cost-only entries stay attached to milestones and relevant
-                  sub-milestones without becoming construction tasks.
-                </p>
+                {selectedMilestone ? (
+                  <NativeSelect
+                    aria-label="Select milestone"
+                    className={cn("w-full lg:w-72", TOUCH_SELECT_CLASS)}
+                    onChange={(event) => {
+                      setSelectedMilestoneKey(event.target.value);
+                      setActiveEditor(null);
+                    }}
+                    value={selectedMilestone.key}
+                  >
+                    {sortedMilestones.map((milestone) => (
+                      <NativeSelectOption
+                        key={milestone.key}
+                        value={milestone.key}
+                      >
+                        {milestone.name}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                ) : null}
               </div>
-              {selectedMilestone ? (
-                <NativeSelect
-                  aria-label="Select milestone"
-                  className={cn("w-full lg:w-72", TOUCH_SELECT_CLASS)}
-                  onChange={(event) => {
-                    setSelectedMilestoneKey(event.target.value);
-                    setEditingItemId(null);
-                  }}
-                  value={selectedMilestone.key}
-                >
-                  {sortedMilestones.map((milestone) => (
-                    <NativeSelectOption key={milestone.key} value={milestone.key}>
-                      {milestone.name}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
-              ) : null}
-            </div>
 
-            <MaterialSummaryStrip summary={summary} />
-          </div>
-        </FramePanel>
-      </Frame>
+              <MaterialSummaryStrip summary={summary} />
+            </div>
+          </FramePanel>
+        </Frame>
+      )}
 
       {error ? (
         <Frame>
@@ -253,7 +314,9 @@ export function MaterialPlanningTab({
       <div
         className={cn(
           "grid gap-4",
-          panelLayout === "auto" && "xl:grid-cols-[minmax(0,1fr)_24rem]"
+          panelLayout === "auto" &&
+            !embedded &&
+            "xl:grid-cols-[minmax(0,1fr)_24rem]"
         )}
       >
         <div className="grid gap-4">
@@ -282,46 +345,79 @@ export function MaterialPlanningTab({
                       {formatCents(totalCents)} cost-only detail
                     </p>
                   </div>
-                  <Badge variant="outline">{formatCents(milestone.budgetCents)}</Badge>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <Badge variant="outline">
+                      {formatCents(milestone.budgetCents)}
+                    </Badge>
+                    {editable ? (
+                      <Button
+                        className={TOUCH_BUTTON_CLASS}
+                        onClick={() =>
+                          setActiveEditor({
+                            milestoneKey: milestone.key,
+                            mode: "create",
+                          })
+                        }
+                        size="sm"
+                        type="button"
+                      >
+                        <Plus />
+                        Add cost item
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
                 {milestoneItems.length === 0 ? (
                   <Frame>
-                    <FramePanel className="p-4 text-muted-foreground text-sm">
-                      No material or equipment entries are attached to this
-                      milestone.
+                    <FramePanel className="flex flex-col gap-3 p-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+                      <span className="text-muted-foreground">
+                        No material or equipment entries are attached to this
+                        milestone.
+                      </span>
+                      {editable ? (
+                        <Button
+                          className={TOUCH_BUTTON_CLASS}
+                          onClick={() =>
+                            setActiveEditor({
+                              milestoneKey: milestone.key,
+                              mode: "create",
+                            })
+                          }
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          <Plus />
+                          Add cost item
+                        </Button>
+                      ) : null}
                     </FramePanel>
                   </Frame>
                 ) : (
                   <div
                     className={cn(
                       "grid gap-3",
-                      panelLayout === "auto" ? "md:grid-cols-2" : "2xl:grid-cols-2"
+                      panelLayout === "auto"
+                        ? "md:grid-cols-2"
+                        : "2xl:grid-cols-2"
                     )}
                   >
-                    {milestoneItems.map((item) =>
-                      editingItemId === item._id ? (
-                        <MaterialItemEditor
-                          item={item}
-                          key={item._id}
-                          milestones={sortedMilestones}
-                          onCancel={() => setEditingItemId(null)}
-                          onSubmit={(payload) => runUpdate(item, payload)}
-                          pending={pending}
-                          submitLabel="Save item"
-                        />
-                      ) : (
-                        <MaterialItemCard
-                          canDelete={Boolean(actions?.delete) && !readOnly}
-                          canEdit={Boolean(actions?.update) && !readOnly}
-                          item={item}
-                          key={item._id}
-                          milestone={milestone}
-                          onDelete={(reason) => void runDeleteWithReason(item, reason)}
-                          onEdit={() => setEditingItemId(item._id)}
-                          pending={pending}
-                        />
-                      )
-                    )}
+                    {milestoneItems.map((item) => (
+                      <MaterialItemCard
+                        canDelete={Boolean(actions?.delete) && !readOnly}
+                        canEdit={Boolean(actions?.update) && !readOnly}
+                        item={item}
+                        key={item._id}
+                        milestone={milestone}
+                        onDelete={(reason) =>
+                          void runDeleteWithReason(item, reason)
+                        }
+                        onEdit={() =>
+                          setActiveEditor({ itemId: item._id, mode: "edit" })
+                        }
+                        pending={pending}
+                      />
+                    ))}
                   </div>
                 )}
               </section>
@@ -329,32 +425,18 @@ export function MaterialPlanningTab({
           })}
         </div>
 
-        <aside className="grid content-start gap-4 xl:sticky xl:top-20">
-          {editable && selectedMilestone ? (
-            <MaterialItemEditor
-              key={selectedMilestone.key}
-              milestones={sortedMilestones}
-              onSubmit={runCreate}
-              pending={pending}
-              selectedMilestoneKey={selectedMilestone.key}
-              submitLabel="Add item"
-            />
-          ) : (
-            <Frame>
-              <FramePanel className="p-4 text-sm">
-                <p className="font-medium">Planning entries are locked</p>
-                <p className="mt-1 text-muted-foreground">
-                  This view shows the material and equipment detail already
-                  attached to the build plan.
-                </p>
-              </FramePanel>
-            </Frame>
+        <aside
+          className={cn(
+            "grid content-start gap-4",
+            !embedded && "xl:sticky xl:top-20"
           )}
-
+        >
           {selectedMilestone ? (
             <Frame>
               <FramePanel className="p-4">
-                <h3 className="font-semibold text-sm">Attached sub-milestones</h3>
+                <h3 className="font-semibold text-sm">
+                  Attached sub-milestones
+                </h3>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {(selectedMilestone.submilestones ?? []).length > 0 ? (
                     selectedMilestone.submilestones?.map((submilestone) => (
@@ -373,25 +455,90 @@ export function MaterialPlanningTab({
           ) : null}
         </aside>
       </div>
+
+      <Sheet
+        onOpenChange={(open) => {
+          if (!open && !pending) {
+            setActiveEditor(null);
+          }
+        }}
+        open={Boolean(activeEditor)}
+      >
+        <SheetPopup className="sm:max-w-2xl" side="right" variant="inset">
+          <SheetHeader>
+            <SheetTitle>
+              {activeEditor?.mode === "edit"
+                ? "Edit cost item"
+                : "Add cost item"}
+            </SheetTitle>
+            <SheetDescription>
+              {editorMilestone
+                ? `${editorMilestone.name} material and equipment detail. Enter the per-unit dollar amount; quantity controls the total.`
+                : "Material and equipment detail. Enter the per-unit dollar amount; quantity controls the total."}
+            </SheetDescription>
+          </SheetHeader>
+          <SheetPanel className="pb-20">
+            {activeEditor?.mode === "edit" && editingItem ? (
+              <MaterialItemEditor
+                chrome="plain"
+                item={editingItem}
+                key={editingItem._id}
+                milestones={sortedMilestones}
+                onCancel={() => setActiveEditor(null)}
+                onSubmit={async (payload) => {
+                  const saved = await runUpdate(editingItem, payload);
+                  if (saved) {
+                    setActiveEditor(null);
+                  }
+                }}
+                pending={pending}
+                showChangeReason={showChangeReason}
+                submitLabel="Save item"
+              />
+            ) : activeEditor?.mode === "create" ? (
+              <MaterialItemEditor
+                chrome="plain"
+                key={activeEditor.milestoneKey}
+                milestones={sortedMilestones}
+                onCancel={() => setActiveEditor(null)}
+                onSubmit={async (payload) => {
+                  const saved = await runCreate(payload);
+                  if (saved) {
+                    setActiveEditor(null);
+                  }
+                }}
+                pending={pending}
+                selectedMilestoneKey={activeEditor.milestoneKey}
+                showChangeReason={showChangeReason}
+                submitLabel="Add item"
+              />
+            ) : null}
+          </SheetPanel>
+        </SheetPopup>
+      </Sheet>
     </div>
   );
 }
 
 function MaterialItemEditor({
+  chrome = "frame",
   item,
   milestones,
   onCancel,
   onSubmit,
   pending,
   selectedMilestoneKey,
+  showChangeReason,
   submitLabel,
 }: {
+  chrome?: "frame" | "plain";
   item?: MaterialPlanningItem;
   milestones: MaterialPlanningMilestone[];
   onCancel?: () => void;
   onSubmit: (payload: MaterialPlanningPayload) => Promise<unknown> | unknown;
   pending?: boolean;
   selectedMilestoneKey?: string;
+  showChangeReason: boolean;
   submitLabel: string;
 }) {
   const [form, setForm] = useState<ItemFormState>(() =>
@@ -402,7 +549,9 @@ function MaterialItemEditor({
     milestones[0];
 
   useEffect(() => {
-    setForm(itemToFormState(item, selectedMilestoneKey ?? milestones[0]?.key ?? ""));
+    setForm(
+      itemToFormState(item, selectedMilestoneKey ?? milestones[0]?.key ?? "")
+    );
   }, [item, milestones, selectedMilestoneKey]);
 
   function setField<Key extends keyof ItemFormState>(
@@ -421,9 +570,9 @@ function MaterialItemEditor({
     }));
   }
 
-  return (
-    <Frame>
-      <FramePanel className="grid gap-4 p-4">
+  const formContent = (
+    <>
+      {chrome === "frame" ? (
         <div>
           <h3 className="font-semibold text-sm">
             {item ? "Edit cost item" : "Add cost item"}
@@ -432,102 +581,119 @@ function MaterialItemEditor({
             Enter the per-unit dollar amount. Quantity controls the total.
           </p>
         </div>
+      ) : null}
 
-        <div className="grid gap-3">
+      <div className="grid gap-3">
+        <div className="grid gap-2">
+          <Label htmlFor={fieldId(item, "title")}>Title</Label>
+          <Input
+            className={TOUCH_INPUT_CLASS}
+            id={fieldId(item, "title")}
+            onChange={(event) => setField("title", event.target.value)}
+            value={form.title}
+          />
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor={fieldId(item, "description")}>Description</Label>
+          <FieldRichTextEditor
+            ariaLabel="Description"
+            id={fieldId(item, "description")}
+            onChange={(value) => setField("description", value)}
+            placeholder="Scope notes, supplier terms, or image references..."
+            value={form.description}
+          />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
           <div className="grid gap-2">
-            <Label htmlFor={fieldId(item, "title")}>Title</Label>
+            <Label htmlFor={fieldId(item, "itemType")}>Type</Label>
+            <NativeSelect
+              className={cn("w-full", TOUCH_SELECT_CLASS)}
+              id={fieldId(item, "itemType")}
+              onChange={(event) =>
+                setField(
+                  "itemType",
+                  event.target.value as MaterialPlanningItemType
+                )
+              }
+              value={form.itemType}
+            >
+              <NativeSelectOption value="material">Material</NativeSelectOption>
+              <NativeSelectOption value="equipment">
+                Equipment
+              </NativeSelectOption>
+            </NativeSelect>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor={fieldId(item, "milestoneKey")}>Milestone</Label>
+            <NativeSelect
+              className={cn("w-full", TOUCH_SELECT_CLASS)}
+              id={fieldId(item, "milestoneKey")}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  milestoneKey: event.target.value,
+                  relevantSubmilestoneKeys: [],
+                }))
+              }
+              value={form.milestoneKey}
+            >
+              {milestones.map((milestone) => (
+                <NativeSelectOption key={milestone.key} value={milestone.key}>
+                  {milestone.name}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          </div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-2">
+            <Label htmlFor={fieldId(item, "costCents")}>
+              Cost per unit (USD)
+            </Label>
             <Input
+              aria-describedby={fieldId(item, "costHelp")}
               className={TOUCH_INPUT_CLASS}
-              id={fieldId(item, "title")}
-              onChange={(event) => setField("title", event.target.value)}
-              value={form.title}
+              id={fieldId(item, "costCents")}
+              inputMode="decimal"
+              onChange={(event) => setField("costCents", event.target.value)}
+              placeholder="0.00"
+              value={form.costCents}
             />
+            <p
+              className="text-muted-foreground text-xs"
+              id={fieldId(item, "costHelp")}
+            >
+              Must be greater than zero.
+            </p>
           </div>
           <div className="grid gap-2">
-            <Label htmlFor={fieldId(item, "description")}>Description</Label>
-            <Textarea
-              id={fieldId(item, "description")}
-              onChange={(event) => setField("description", event.target.value)}
-              value={form.description}
-            />
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="grid gap-2">
-              <Label htmlFor={fieldId(item, "itemType")}>Type</Label>
-              <NativeSelect
-                className={cn("w-full", TOUCH_SELECT_CLASS)}
-                id={fieldId(item, "itemType")}
-                onChange={(event) =>
-                  setField("itemType", event.target.value as MaterialPlanningItemType)
-                }
-                value={form.itemType}
-              >
-                <NativeSelectOption value="material">Material</NativeSelectOption>
-                <NativeSelectOption value="equipment">Equipment</NativeSelectOption>
-              </NativeSelect>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor={fieldId(item, "milestoneKey")}>Milestone</Label>
-              <NativeSelect
-                className={cn("w-full", TOUCH_SELECT_CLASS)}
-                id={fieldId(item, "milestoneKey")}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    milestoneKey: event.target.value,
-                    relevantSubmilestoneKeys: [],
-                  }))
-                }
-                value={form.milestoneKey}
-              >
-                {milestones.map((milestone) => (
-                  <NativeSelectOption key={milestone.key} value={milestone.key}>
-                    {milestone.name}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </div>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="grid gap-2">
-              <Label htmlFor={fieldId(item, "costCents")}>Cost per unit (USD)</Label>
-              <Input
-                aria-describedby={fieldId(item, "costHelp")}
-                className={TOUCH_INPUT_CLASS}
-                id={fieldId(item, "costCents")}
-                inputMode="decimal"
-                onChange={(event) => setField("costCents", event.target.value)}
-                placeholder="0.00"
-                value={form.costCents}
-              />
-              <p className="text-muted-foreground text-xs" id={fieldId(item, "costHelp")}>
-                Must be greater than zero.
-              </p>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor={fieldId(item, "quantity")}>Quantity</Label>
-              <Input
-                aria-describedby={fieldId(item, "quantityHelp")}
-                className={TOUCH_INPUT_CLASS}
-                id={fieldId(item, "quantity")}
-                inputMode="decimal"
-                onChange={(event) => setField("quantity", event.target.value)}
-                value={form.quantity}
-              />
-              <p className="text-muted-foreground text-xs" id={fieldId(item, "quantityHelp")}>
-                Supports partial quantities.
-              </p>
-            </div>
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor={fieldId(item, "supplier")}>Supplier</Label>
+            <Label htmlFor={fieldId(item, "quantity")}>Quantity</Label>
             <Input
+              aria-describedby={fieldId(item, "quantityHelp")}
               className={TOUCH_INPUT_CLASS}
-              id={fieldId(item, "supplier")}
-              onChange={(event) => setField("supplier", event.target.value)}
-              value={form.supplier}
+              id={fieldId(item, "quantity")}
+              inputMode="decimal"
+              onChange={(event) => setField("quantity", event.target.value)}
+              value={form.quantity}
             />
+            <p
+              className="text-muted-foreground text-xs"
+              id={fieldId(item, "quantityHelp")}
+            >
+              Supports partial quantities.
+            </p>
           </div>
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor={fieldId(item, "supplier")}>Supplier</Label>
+          <Input
+            className={TOUCH_INPUT_CLASS}
+            id={fieldId(item, "supplier")}
+            onChange={(event) => setField("supplier", event.target.value)}
+            value={form.supplier}
+          />
+        </div>
+        {showChangeReason ? (
           <div className="grid gap-2">
             <Label htmlFor={fieldId(item, "reason")}>Change reason</Label>
             <Input
@@ -538,68 +704,85 @@ function MaterialItemEditor({
               value={form.reason}
             />
           </div>
-          <div className="grid gap-2">
-            <Label>Relevant sub-milestones</Label>
-            <div className="grid gap-2 rounded-lg border bg-background/70 p-2">
-              {(selectedMilestone?.submilestones ?? []).length > 0 ? (
-                selectedMilestone?.submilestones?.map((submilestone) => {
-                  const checked = form.relevantSubmilestoneKeys.includes(
-                    submilestone.key
-                  );
-                  return (
-                    <label
-                      className="flex min-h-11 items-center gap-2 text-sm sm:min-h-8"
-                      key={submilestone.key}
-                    >
-                      <Checkbox
-                        checked={checked}
-                        onCheckedChange={(value) =>
-                          toggleSubmilestone(submilestone.key, value === true)
-                        }
-                      />
-                      <span>{submilestone.name}</span>
-                    </label>
-                  );
-                })
-              ) : (
-                <p className="text-muted-foreground text-sm">
-                  This milestone has no sub-milestones.
-                </p>
-              )}
-            </div>
+        ) : null}
+        <div className="grid gap-2">
+          <Label>Relevant sub-milestones</Label>
+          <div className="grid gap-2 rounded-lg border bg-background/70 p-2">
+            {(selectedMilestone?.submilestones ?? []).length > 0 ? (
+              selectedMilestone?.submilestones?.map((submilestone) => {
+                const checked = form.relevantSubmilestoneKeys.includes(
+                  submilestone.key
+                );
+                return (
+                  <label
+                    className="flex min-h-11 items-center gap-2 text-sm sm:min-h-8"
+                    key={submilestone.key}
+                  >
+                    <Checkbox
+                      checked={checked}
+                      onCheckedChange={(value) =>
+                        toggleSubmilestone(submilestone.key, value === true)
+                      }
+                    />
+                    <span>{submilestone.name}</span>
+                  </label>
+                );
+              })
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                This milestone has no sub-milestones.
+              </p>
+            )}
           </div>
         </div>
+      </div>
 
-        <div className="flex flex-wrap justify-end gap-2">
-          {onCancel ? (
-            <Button
-              className={TOUCH_BUTTON_CLASS}
-              onClick={onCancel}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Cancel
-            </Button>
-          ) : null}
+      <div
+        className={cn(
+          "flex flex-wrap justify-end gap-2",
+          chrome === "plain" &&
+            "sticky bottom-0 -mx-6 border-t bg-popover/95 px-6 py-4 sm:pr-24"
+        )}
+      >
+        {onCancel ? (
           <Button
             className={TOUCH_BUTTON_CLASS}
-            disabled={
-              !form.title.trim() ||
-              !form.milestoneKey ||
-              !costDollarsPositive(form.costCents) ||
-              !quantityPositive(form.quantity) ||
-              pending
-            }
-            onClick={() => void onSubmit(formToPayload(form))}
+            onClick={onCancel}
             size="sm"
             type="button"
+            variant="outline"
           >
-            {item ? <Pencil /> : <Plus />}
-            {pending ? "Saving..." : submitLabel}
+            Cancel
           </Button>
-        </div>
-      </FramePanel>
+        ) : null}
+        <Button
+          className={TOUCH_BUTTON_CLASS}
+          disabled={
+            !(
+              form.title.trim() &&
+              form.milestoneKey &&
+              costDollarsPositive(form.costCents) &&
+              quantityPositive(form.quantity)
+            ) || pending
+          }
+          onClick={() => void onSubmit(formToPayload(form))}
+          size="sm"
+          type="button"
+        >
+          {item ? <Pencil /> : <Plus />}
+          {pending ? "Saving..." : submitLabel}
+        </Button>
+      </div>
+    </>
+  );
+
+  if (chrome === "plain") {
+    return <div className="grid gap-4">{formContent}</div>;
+  }
+
+  return (
+    <Frame>
+      <FramePanel className="grid gap-4 p-4">{formContent}</FramePanel>
     </Frame>
   );
 }
@@ -657,7 +840,10 @@ function MaterialItemCard({
       </CardHeader>
       <CardContent className="grid gap-4 p-4 pt-0">
         {item.description ? (
-          <p className="text-muted-foreground text-sm">{item.description}</p>
+          <FieldRichTextPreview
+            ariaLabel="Cost item description"
+            value={item.description}
+          />
         ) : null}
         <dl className="grid gap-2 text-sm">
           <DetailRow label="Supplier" value={item.supplier || "Unspecified"} />
@@ -794,7 +980,8 @@ function summarizeItems(items: MaterialPlanningItem[]) {
       .filter((supplier): supplier is string => Boolean(supplier))
   );
   return {
-    equipmentCount: items.filter((item) => item.itemType === "equipment").length,
+    equipmentCount: items.filter((item) => item.itemType === "equipment")
+      .length,
     materialCount: items.filter((item) => item.itemType === "material").length,
     supplierCount: suppliers.size,
     totalCents: items.reduce((sum, item) => sum + totalForItem(item), 0),
@@ -878,5 +1065,8 @@ function formatQuantity(quantity: number) {
 }
 
 function fieldId(item: MaterialPlanningItem | undefined, field: string) {
-  return cn("material-planning", item?._id ?? "new", field).replace(/\s+/g, "-");
+  return cn("material-planning", item?._id ?? "new", field).replace(
+    /\s+/g,
+    "-"
+  );
 }

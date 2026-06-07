@@ -41,7 +41,9 @@ function NewBackofficeProductionProposalRoute() {
   const createBrokerDraft = useMutation(
     api.production_proposals.createBrokerDraftProposal,
   );
-  const saveDraft = useMutation(api.production_proposals.saveDraftProposalPackage);
+  const saveDraft = useMutation(
+    api.production_proposals.saveDraftProposalPackage,
+  );
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState("");
   const setupTemplates = useMemo(
@@ -108,11 +110,14 @@ function NewBackofficeProductionProposalRoute() {
           </FramePanel>
         </Frame>
       ) : null}
-      <TimelineSetupFlow
-        baseItems={PRODUCTION_SETUP_BASE_ITEMS}
-        onComplete={(result) => void createProductionProposal(result)}
-        settingsTemplates={setupTemplates}
-      />
+      <div className="timeline-setup-app-shell-route">
+        <TimelineSetupFlow
+          baseItems={PRODUCTION_SETUP_BASE_ITEMS}
+          contractorOptions={createContext?.availableContractors ?? []}
+          onComplete={(result) => void createProductionProposal(result)}
+          settingsTemplates={setupTemplates}
+        />
+      </div>
     </>
   );
 }

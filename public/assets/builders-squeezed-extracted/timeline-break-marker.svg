@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 90 38" role="img" aria-label="Schedule transition break marker">
+  <title>Schedule transition break marker</title>
+
+  <g fill="none" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M10 23c6 0 6-14 12-14s6 14 12 14 6-14 12-14" stroke="#071b43"/>
+    <path d="M52 23H80" stroke="#2f6f48"/>
+  </g>
+</svg>

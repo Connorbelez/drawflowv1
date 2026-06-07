@@ -3,6 +3,7 @@ import type {
   TimelineSetupResult,
   TimelineSetupTemplate,
 } from "#/features/timeline-workspace/-TimelineSetupFlow.tsx";
+import { resolveMilestoneSubmilestones } from "#/features/timeline-workspace/-timeline-milestone-submilestones.ts";
 import type { DemoMilestone } from "#/features/timeline-workspace/-timeline-share-snapshot.ts";
 
 import type { ProductionProposalDraftSavePayload } from "./ProductionProposalSurfaces.tsx";
@@ -18,10 +19,16 @@ export interface ProductionProposalTemplateProjection {
     order: number;
     percentageBps: number;
     siteVisitGuidance?: {
-      cameraAngles: string[];
-      whatToVerify: string[];
+      cameraAngles: string;
+      whatToVerify: string;
     };
-    submilestones?: Array<{ key: string; name: string; order?: number }>;
+    submilestones?: Array<{
+      durationDays?: number;
+      key: string;
+      name: string;
+      order?: number;
+      percentageBps?: number;
+    }>;
   }>;
   summary?: string;
   templateKey: string;
@@ -179,10 +186,10 @@ export const PRODUCTION_SETUP_BASE_ITEMS: TimelineItem<DemoMilestone>[] = [
 ];
 
 export function productionTemplatesToTimelineSetupTemplates(
-  templates: ProductionProposalTemplateProjection[] | undefined,
+  templates: ProductionProposalTemplateProjection[] | undefined
 ): TimelineSetupTemplate[] | undefined {
   if (!templates?.length) {
-    return undefined;
+    return;
   }
 
   return templates.map((template) => ({
@@ -196,12 +203,21 @@ export function productionTemplatesToTimelineSetupTemplates(
         icon: iconForMilestone(
           milestone.key,
           milestone.archetypeKey,
-          milestone.name,
+          milestone.name
         ),
         key: milestone.key,
         name: milestone.name,
         percentageBps: milestone.percentageBps,
         siteVisitGuidance: milestone.siteVisitGuidance,
+        subMilestoneDetails: [...(milestone.submilestones ?? [])]
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+          .map((submilestone) => ({
+            durationDays: submilestone.durationDays,
+            key: submilestone.key,
+            name: submilestone.name,
+            order: submilestone.order,
+            percentageBps: submilestone.percentageBps,
+          })),
         subMilestones: [...(milestone.submilestones ?? [])]
           .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
           .map((submilestone) => submilestone.name),
@@ -214,12 +230,14 @@ export function productionTemplatesToTimelineSetupTemplates(
 }
 
 export function timelineSetupResultToDraftPackage(
-  result: TimelineSetupResult,
+  result: TimelineSetupResult
 ): ProductionProposalDraftSavePayload {
   return {
     borrowerCoPayBps: result.borrowerCoPayBps,
     borrowerWorkingCapitalLimitCents: dollarsToCents(result.startingCash),
     buildName: `${result.templateTitle} Proposal`,
+    contractorAssignments: result.contractorAssignments,
+    costItems: result.costItems,
     lenderDrawPolicyLimitCents: result.reimbursableBudgetCents,
     location: result.projectAddress,
     milestones: result.items.map((item, index) => {
@@ -229,20 +247,30 @@ export function timelineSetupResultToDraftPackage(
         budgetCents: dollarsToCents(item.data.amount),
         dayEnd: dayStart + durationDays,
         dayStart,
-        dependencyKeys: index === 0 ? [] : [result.items[index - 1]?.id ?? ""].filter(Boolean),
+        dependencyKeys:
+          index === 0
+            ? []
+            : [result.items[index - 1]?.id ?? ""].filter(Boolean),
         durationDays,
         icon: item.data.icon,
         key: item.id,
         name: item.data.name,
         order: index + 1,
-        submilestones: (item.data.submilestoneDetails ?? []).map(
+        submilestones: resolveMilestoneSubmilestones(item.data, item.id).map(
           (submilestone) => ({
-            budgetCents: submilestone.budgetCents,
-            durationDays: submilestone.durationDays,
+            ...(submilestone.budgetCents === undefined
+              ? {}
+              : { budgetCents: submilestone.budgetCents }),
+            ...(submilestone.durationDays === undefined
+              ? {}
+              : { durationDays: submilestone.durationDays }),
             key: submilestone.key,
             name: submilestone.name,
             order: submilestone.order,
-          }),
+            ...(submilestone.startDay === undefined
+              ? {}
+              : { startDay: submilestone.startDay }),
+          })
         ),
       };
     }),
@@ -252,7 +280,7 @@ export function timelineSetupResultToDraftPackage(
 function iconForMilestone(
   key: string,
   archetypeKey?: string,
-  name?: string,
+  name?: string
 ): DemoMilestone["icon"] {
   const value = `${archetypeKey ?? ""} ${key} ${name ?? ""}`.toLowerCase();
   if (value.includes("foundation") || value.includes("site")) {

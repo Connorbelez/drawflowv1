@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 66" role="img" aria-label="Right capital right time calendar icon">
+  <title>Right capital right time calendar icon</title>
+
+  <g fill="none" stroke="#2f6f48" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="7" y="10" width="50" height="50" rx="5"/>
+    <path d="M7 22h50M18 5v13M46 5v13"/>
+    <path d="m16 39 6 6 11-14M38 40l5 5 10-13"/>
+    <path d="M18 29h6M39 29h7"/>
+  </g>
+</svg>

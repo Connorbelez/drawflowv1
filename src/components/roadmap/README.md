@@ -40,6 +40,7 @@ The component owns timeline geometry, SVG routing, progress animation, scroll ov
 - `hoverNodeCollisionPaddingPx` to control the distance-weighted fade zone around rendered nodes/icons. The dot hides quickly near icon centers while the label stays visible.
 - `renderNode` for progress nodes; call `context.activate()` from custom node controls.
 - `getItemEndValue` with `renderEndNode` for inline completion markers on the same lane as a start node. End nodes do not create path waypoints, connectors, or cards; they are rendered as collision-aware node wrappers with the id suffix `-end`.
+- Selecting the start node of an item with `getItemEndValue` fills the progress rail through that item's completion marker. Items without an end value still fill to their start node.
 - `activeItemPhase` to distinguish selected start and completion markers for the same item. It can be controlled by the consumer; when omitted, the component manages start/end phase internally. `renderNode` receives `phase: "start"`, `renderEndNode` receives `phase: "end"`, and `renderCard` receives the active phase while remaining active for either selected phase of the item.
 - `renderCard` for cards that hang below the route.
 - `renderMarker` for markers above the route.

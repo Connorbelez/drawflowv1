@@ -7,6 +7,7 @@ import {
   normalizeRoleSlug,
   userManagementWriteAction,
 } from "./authz";
+import { publicAction } from "./fluent";
 
 const acceptedReturn = v.object({
   adapter: v.union(v.literal("fake"), v.literal("workos")),
@@ -115,6 +116,17 @@ export const createMembership = userManagementWriteAction
   .returns(acceptedReturn)
   .handler((_ctx, args) => getWorkosManagementAdapter().createMembership(args))
   .public();
+
+export const createClaimMembershipForUser = publicAction
+  .input({
+    organizationId: v.string(),
+    primaryRoleSlug: v.optional(v.string()),
+    roleSlugs: v.array(v.string()),
+    userId: v.string(),
+  })
+  .returns(acceptedReturn)
+  .handler((_ctx, args) => getWorkosManagementAdapter().createMembership(args))
+  .internal();
 
 export const removeMembership = userManagementWriteAction
   .input({
@@ -265,13 +277,7 @@ const fakeAdapter = {
     primaryRoleSlug?: string;
     roleSlugs: string[];
   }): Promise<AcceptedResult> {
-    const roleSlugs = normalizeWorkosRoleSlugs(args.roleSlugs);
-    const primaryRoleSlug =
-      args.primaryRoleSlug === undefined
-        ? undefined
-        : normalizeWorkosRoleSlug(args.primaryRoleSlug);
-    requireNonEmptyRoleSlugs(roleSlugs);
-    requireSelectedPrimaryRole(primaryRoleSlug, roleSlugs);
+    buildWorkosMembershipRolesPayload(args);
     return Promise.resolve(
       accepted("fake", "updateMembershipRoles", args.membershipId)
     );
@@ -282,13 +288,7 @@ const fakeAdapter = {
     roleSlugs: string[];
     userId: string;
   }): Promise<AcceptedResult> {
-    const roleSlugs = normalizeWorkosRoleSlugs(args.roleSlugs);
-    const primaryRoleSlug =
-      args.primaryRoleSlug === undefined
-        ? undefined
-        : normalizeWorkosRoleSlug(args.primaryRoleSlug);
-    requireNonEmptyRoleSlugs(roleSlugs);
-    requireSelectedPrimaryRole(primaryRoleSlug, roleSlugs);
+    buildWorkosMembershipRolesPayload(args);
     return Promise.resolve(
       accepted(
         "fake",
@@ -446,19 +446,10 @@ function liveAdapter(workos: WorkOS) {
       primaryRoleSlug?: string;
       roleSlugs: string[];
     }): Promise<AcceptedResult> {
-      const roleSlugs = normalizeWorkosRoleSlugs(args.roleSlugs);
-      const primaryRoleSlug =
-        args.primaryRoleSlug === undefined
-          ? undefined
-          : normalizeWorkosRoleSlug(args.primaryRoleSlug);
-      requireNonEmptyRoleSlugs(roleSlugs);
-      requireSelectedPrimaryRole(primaryRoleSlug, roleSlugs);
+      const rolesPayload = buildWorkosMembershipRolesPayload(args);
       await workos.userManagement.updateOrganizationMembership(
         args.membershipId,
-        {
-          roleSlug: primaryRoleSlug,
-          roleSlugs,
-        }
+        rolesPayload
       );
       return accepted("workos", "updateMembershipRoles", args.membershipId);
     },
@@ -468,18 +459,30 @@ function liveAdapter(workos: WorkOS) {
       roleSlugs: string[];
       userId: string;
     }): Promise<AcceptedResult> {
-      const roleSlugs = normalizeWorkosRoleSlugs(args.roleSlugs);
-      const primaryRoleSlug =
-        args.primaryRoleSlug === undefined
-          ? undefined
-          : normalizeWorkosRoleSlug(args.primaryRoleSlug);
-      requireNonEmptyRoleSlugs(roleSlugs);
-      requireSelectedPrimaryRole(primaryRoleSlug, roleSlugs);
+      const rolesPayload = buildWorkosMembershipRolesPayload(args);
+      const existingMemberships = await (
+        await workos.userManagement.listOrganizationMemberships({
+          organizationId: args.organizationId,
+          statuses: ["active", "inactive", "pending"],
+          userId: args.userId,
+        } as any)
+      ).autoPagination();
+      const existing = existingMemberships[0];
+      if (existing) {
+        if (existing.status === "inactive") {
+          await workos.userManagement.reactivateOrganizationMembership(
+            existing.id
+          );
+        }
+        await workos.userManagement.updateOrganizationMembership(existing.id, {
+          ...rolesPayload,
+        });
+        return accepted("workos", "createMembership", existing.id);
+      }
       const membership =
         await workos.userManagement.createOrganizationMembership({
           organizationId: args.organizationId,
-          roleSlug: primaryRoleSlug,
-          roleSlugs,
+          ...rolesPayload,
           userId: args.userId,
         });
       return accepted("workos", "createMembership", membership.id);
@@ -625,6 +628,28 @@ function normalizeWorkosRoleSlug(roleSlug: string) {
 
 function normalizeWorkosRoleSlugs(roleSlugs: string[]) {
   return [...new Set(roleSlugs.map(normalizeWorkosRoleSlug))];
+}
+
+export function buildWorkosMembershipRolesPayload(args: {
+  primaryRoleSlug?: string;
+  roleSlugs: string[];
+}): { roleSlug: string } | { roleSlugs: string[] } {
+  const roleSlugs = normalizeWorkosRoleSlugs(args.roleSlugs);
+  const primaryRoleSlug =
+    args.primaryRoleSlug === undefined
+      ? undefined
+      : normalizeWorkosRoleSlug(args.primaryRoleSlug);
+
+  if (roleSlugs.length > 0) {
+    requireSelectedPrimaryRole(primaryRoleSlug, roleSlugs);
+    return { roleSlugs };
+  }
+  if (primaryRoleSlug !== undefined) {
+    requireNonEmptyRoleSlug(primaryRoleSlug);
+    return { roleSlug: primaryRoleSlug };
+  }
+
+  throw new Error("At least one WorkOS role slug is required");
 }
 
 function requireSelectedPrimaryRole(

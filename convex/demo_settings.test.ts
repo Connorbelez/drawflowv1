@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 
 import { api } from "./_generated/api";
 import { MOCK_BUILDER_PERSONA, MOCK_STAFF_PERSONA } from "./demo_personas";
+import { coerceGuidanceField } from "./demo_site_visit_guidance";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -216,12 +217,12 @@ describe("timeline demo settings Convex functions", () => {
         expect.objectContaining({
           kind: "whatToVerify",
           milestoneKey: "framing",
-          text: "Custom shear wall verification",
+          text: expect.stringContaining("Custom shear wall verification"),
         }),
         expect.objectContaining({
           kind: "cameraAngle",
           milestoneKey: "framing",
-          text: "Custom north elevation",
+          text: expect.stringContaining("Custom north elevation"),
         }),
       ])
     );
@@ -251,7 +252,42 @@ describe("timeline demo settings Convex functions", () => {
         scenario,
         templateKey: template.templateKey,
       })
-    ).rejects.toThrow(/between the end of one milestone/);
+    ).rejects.toThrow(
+      /Draw 01, day 10: conflicts with Site prep & foundation \(ends day 14\) and Framing & structure \(starts day 19\)\. Valid window: days 15-18\. Nearest valid day: 15\./
+    );
+  });
+
+  test("allows final draw timing in the final closeout handoff window", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(api.demo_settings.seedTimelineDemoDefaults, {});
+    const settings = await t.query(api.demo_settings.getTimelineDemoSettings, {});
+    const template = settings.templates.find(
+      (row: any) => row.templateKey === "single_family_full_build"
+    );
+    const scenario = toScenarioInput({
+      ...template.scenarios.find(
+        (row: any) => row.scenarioKey === "standard_reimbursement"
+      ),
+      draws: template.scenarios
+        .find((row: any) => row.scenarioKey === "standard_reimbursement")
+        .draws.map((row: any, index: number, draws: any[]) => ({
+          ...row,
+          timingDay: index === draws.length - 1 ? 133 : row.timingDay,
+        })),
+    });
+
+    const result = await t.mutation(api.demo_settings.saveTimelineDrawScenario, {
+      scenario,
+      templateKey: template.templateKey,
+    });
+
+    expect(
+      result.templates
+        .find((row: any) => row.templateKey === "single_family_full_build")
+        .scenarios.find(
+          (row: any) => row.scenarioKey === "standard_reimbursement"
+        ).draws.at(-1).timingDay
+    ).toBe(133);
   });
 
   test("replaces nonconforming seeded draw timings on reseed", async () => {
@@ -311,6 +347,14 @@ function expectDefaultTimingRules(templates: any[]) {
       afterEnd: milestoneEndDay(included, index),
       beforeStart: milestoneStartDay(included, index + 1),
     }));
+    const finalIndex = included.length - 1;
+    if (finalIndex >= 0) {
+      const finalEnd = milestoneEndDay(included, finalIndex);
+      windows.push({
+        afterEnd: finalEnd,
+        beforeStart: finalEnd + 5,
+      });
+    }
     for (const scenario of template.scenarios) {
       for (const draw of scenario.draws) {
         expect(
@@ -382,8 +426,16 @@ function toMilestoneInputs(template: any) {
     order: row.order,
     percentageBps: row.percentageBps,
     siteVisitGuidance: {
-      cameraAngles: guidanceItems(template, row.milestoneKey, "cameraAngle"),
-      whatToVerify: guidanceItems(template, row.milestoneKey, "whatToVerify"),
+      cameraAngles: guidanceFieldHtml(
+        template,
+        row.milestoneKey,
+        "cameraAngle"
+      ),
+      whatToVerify: guidanceFieldHtml(
+        template,
+        row.milestoneKey,
+        "whatToVerify"
+      ),
     },
     submilestones: template.submilestones
       .filter((subRow: any) => subRow.milestoneKey === row.milestoneKey)
@@ -406,4 +458,8 @@ function guidanceItems(template: any, milestoneKey: string, kind: string) {
     )
     .sort((a: any, b: any) => a.order - b.order)
     .map((row: any) => row.text);
+}
+
+function guidanceFieldHtml(template: any, milestoneKey: string, kind: string) {
+  return coerceGuidanceField(guidanceItems(template, milestoneKey, kind));
 }

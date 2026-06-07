@@ -17,6 +17,7 @@ import WorkOSHeader from "./workos-user.tsx";
 
 const navItems = linkOptions([
   { to: "/", label: "Home" },
+  { to: "/roadmap", label: "Roadmap" },
   { to: "/about", label: "About" },
 ]);
 

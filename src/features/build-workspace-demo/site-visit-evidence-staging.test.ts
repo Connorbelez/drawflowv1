@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   assertPackageWithinCap,
   buildStagedEvidence,
+  evidenceMimeTypeForFile,
   packageTotalBytes,
   SITE_VISIT_PACKAGE_CAP_BYTES,
   uploadSiteVisitStagedEvidence,
@@ -38,6 +39,26 @@ describe("site visit evidence staging", () => {
     expect(packageTotalBytes([image, video])).toBe(7_820_000);
   });
 
+  test("treats empty-type HEIC camera files as image evidence", () => {
+    const mimeType = evidenceMimeTypeForFile({
+      name: "IMG_4748.heic",
+      type: "",
+    });
+
+    const evidence = buildStagedEvidence({
+      id: "photo-1",
+      mimeType,
+      name: "IMG_4748.heic",
+      sizeBytes: 1_000_000,
+    });
+
+    expect(evidence).toMatchObject({
+      kind: "image",
+      mimeType: "image/heic",
+      thumbnailKind: "image",
+    });
+  });
+
   test("blocks staged packages over one gigabyte", () => {
     expect(() =>
       assertPackageWithinCap([
@@ -47,7 +68,7 @@ describe("site visit evidence staging", () => {
           name: "large.pdf",
           sizeBytes: SITE_VISIT_PACKAGE_CAP_BYTES + 1,
         }),
-      ])
+      ]),
     ).toThrow("Compressed site visit package exceeds the 1 GB cap.");
   });
 
@@ -78,5 +99,48 @@ describe("site visit evidence staging", () => {
       }),
     ).rejects.toThrow("Unable to upload foundation.jpg.");
     expect(registerCalls).toEqual([]);
+  });
+
+  test("registers normalized browser-safe image metadata after upload", async () => {
+    const registerCalls: unknown[] = [];
+    const stagedEvidence = buildStagedEvidence({
+      id: "photo-1",
+      mimeType: "image/heic",
+      name: "IMG_4748.heic",
+      sizeBytes: 1_000_000,
+      targetMilestoneKey: "foundation",
+    });
+    const file = new File(["heic"], "IMG_4748.heic", { type: "image/heic" });
+    const normalizedFile = new File(["jpeg"], "IMG_4748.jpg", {
+      type: "image/jpeg",
+    });
+
+    await uploadSiteVisitStagedEvidence({
+      buildId: "demo-timeline-steady-maple-ab12",
+      generateUploadUrl: async () => "https://upload.example.test",
+      normalizeFile: async () => normalizedFile,
+      registerFile: async (input) => {
+        registerCalls.push(input);
+      },
+      stagedItems: [{ evidence: stagedEvidence, file }],
+      token: "token-123",
+      upload: async (_url, uploadFile, mimeType) => {
+        expect(uploadFile).toBe(normalizedFile);
+        expect(mimeType).toBe("image/jpeg");
+        return {
+          json: async () => ({ storageId: "storage-1" }),
+          ok: true,
+        };
+      },
+    });
+
+    expect(registerCalls).toEqual([
+      expect.objectContaining({
+        fileName: "IMG_4748.jpg",
+        mimeType: "image/jpeg",
+        sizeBytes: normalizedFile.size,
+        storageId: "storage-1",
+      }),
+    ]);
   });
 });

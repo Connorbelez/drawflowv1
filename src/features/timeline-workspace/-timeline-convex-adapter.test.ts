@@ -74,6 +74,9 @@ describe("convexWorkspaceToTimelineState", () => {
         },
         startingCashCents: 40_000_000,
       },
+      proposal: {
+        lenderDrawPolicyLimitCents: 14_000_000,
+      },
     });
 
     expect(state.items[0].id).toBe("foundation");
@@ -105,6 +108,7 @@ describe("convexWorkspaceToTimelineState", () => {
     expect(state.capitalSpikes[0].id).toBe("permit-overrun");
     expect(state.capitalSpikes[0].amount).toBe(50_000);
     expect(state.startingCash).toBe(400_000);
+    expect(state.approvedDrawLimit).toBe(140_000);
     expect(state.activeSelection.itemId).toBe("foundation");
   });
 });

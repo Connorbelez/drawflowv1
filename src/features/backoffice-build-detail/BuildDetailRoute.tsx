@@ -473,7 +473,11 @@ function DetailsTabPanel({
           displayId={displayId}
           onUpdate={onUpdateBuildDetails}
         />
-        <SitePhotoCarousel photos={sitePhotos} />
+        <SitePhotoCarousel
+          buildName={build.name}
+          photos={sitePhotos}
+          siteAddress={address}
+        />
       </section>
 
       <DrawsTable

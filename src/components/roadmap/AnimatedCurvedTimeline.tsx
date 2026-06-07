@@ -36,6 +36,7 @@ import {
   groupMarkersByProximity,
   insertTimelineItemWithSpacing,
   normalizeTimelineRange,
+  resolveTimelineProgressTargetX,
   roundTimelineValue,
   routePointForX,
   routeProgressForX,
@@ -474,29 +475,13 @@ export function AnimatedCurvedTimeline<TData = unknown>({
     progressValue === undefined ? uncontrolledProgressValue : progressValue;
   const activeLayoutItem =
     layout.items.find((item) => item.id === resolvedActiveItemId) ?? null;
-  const progressValueTargetsActiveItem =
-    typeof resolvedProgressValue === "number" &&
-    activeLayoutItem !== null &&
-    Math.abs(resolvedProgressValue - activeLayoutItem.x) < 0.000_001;
-  const progressValueTargetsActiveItemEnd =
-    typeof resolvedProgressValue === "number" &&
-    activeLayoutItem !== null &&
-    activeLayoutItem.endX !== undefined &&
-    resolvedActiveItemPhase === "end" &&
-    Math.abs(resolvedProgressValue - activeLayoutItem.endX) < 0.000_001;
-  const progressTargetX =
-    typeof resolvedProgressValue === "number"
-      ? progressValueTargetsActiveItemEnd
-        ? (activeLayoutItem.endLayoutX ??
-          layout.valueToX(resolvedProgressValue))
-        : progressValueTargetsActiveItem
-          ? activeLayoutItem.layoutX
-          : layout.valueToX(resolvedProgressValue)
-      : activeLayoutItem
-        ? resolvedActiveItemPhase === "end"
-          ? (activeLayoutItem.endLayoutX ?? activeLayoutItem.layoutX)
-          : activeLayoutItem.layoutX
-        : layout.startX;
+  const progressTargetX = resolveTimelineProgressTargetX({
+    activeItem: activeLayoutItem,
+    activeItemPhase: resolvedActiveItemPhase,
+    progressValue: resolvedProgressValue,
+    startX: layout.startX,
+    valueToX: layout.valueToX,
+  });
   const progressRatio = routeProgressForX(routePoints, progressTargetX);
   const activeOrder =
     layout.items.find((item) => item.id === resolvedActiveItemId)?.order ?? -1;
@@ -1224,7 +1209,7 @@ export function AnimatedCurvedTimeline<TData = unknown>({
                   )}
                   {renderCard && (
                     <motion.div
-                      className="absolute z-10"
+                      className="timeline-card-layer absolute z-10"
                       initial={false}
                       layout="position"
                       style={{

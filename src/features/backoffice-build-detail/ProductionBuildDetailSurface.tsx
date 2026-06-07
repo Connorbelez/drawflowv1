@@ -1,9 +1,24 @@
 "use client";
 
-import { MapPin, ScrollText } from "lucide-react";
+import {
+  ChevronDown,
+  CheckCircle2,
+  ClipboardCheck,
+  ExternalLink,
+  FileCheck2,
+  FileText,
+  ImageIcon,
+  MapPin,
+  MessageSquare,
+  Pencil,
+  ScrollText,
+  UserCheck,
+} from "lucide-react";
 import type * as React from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import { GoogleAddressAutocomplete } from "#/components/address/GoogleAddressAutocomplete.tsx";
+import { FieldRichTextPreview } from "#/components/rich-text/field-rich-text.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -12,8 +27,37 @@ import {
   CardHeader,
   CardTitle,
 } from "#/components/ui/card.tsx";
-import { Calendar } from "#/components/ui/calendar.tsx";
+import { Field, FieldDescription, FieldLabel } from "#/components/ui/field.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
+import { Input } from "#/components/ui/input.tsx";
+import {
+  Sheet,
+  SheetClose,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetPanel,
+  SheetPopup,
+  SheetTitle,
+} from "#/components/ui/sheet.tsx";
+import { Textarea } from "#/components/ui/textarea.tsx";
+import {
+  BuildPermitViewerDrawer,
+  firstPermitDocument,
+} from "#/features/build-permit-viewer/BuildPermitViewerDrawer.tsx";
+import { CalendarWorkspace } from "#/features/calendar-workspace/CalendarWorkspace.tsx";
+import {
+  buildActiveBuildCalendarActions,
+  buildActiveBuildCalendarWorkspaceFromDetail,
+  createActiveBuildCalendarEditHandler,
+  type ActiveBuildCalendarAdapterActions,
+} from "#/features/calendar-workspace/adapters/activeBuildCalendarAdapter.ts";
+import type {
+  CalendarFilters,
+  CalendarSyncSubscriptionResult,
+  CalendarTimeframe,
+  DrawFlowCalendarWorkspaceData,
+} from "#/features/calendar-workspace/calendarTypes.ts";
 import {
   ContractorQuickAddDrawer,
   type ContractorAssignmentCostDraft,
@@ -24,6 +68,11 @@ import {
   type MaterialPlanningActions,
   type MaterialPlanningItem,
 } from "#/features/material-planning/MaterialPlanningTab.tsx";
+import {
+  isBrowserPreviewableImageMime,
+  isHeicLikeEvidenceImage,
+} from "#/lib/evidence-image-normalization.ts";
+import { createGoogleSatelliteMapUrl } from "#/lib/google-maps.ts";
 import { cn } from "#/lib/utils.ts";
 import { BuildDetailTabBar, type BuildDetailSubTab } from "./BuildDetailTabs";
 import { ActiveBuildGanttWorkspace } from "./ActiveBuildGanttWorkspace";
@@ -58,32 +107,34 @@ export interface ProductionBuildDetailActions {
   addDocument?: (input: {
     documentType: "permit" | "budget" | "plan" | "supporting";
     fileName: string;
-  }) => Promise<void> | void;
+  }) => Promise<unknown> | unknown;
   addNote?: (input: {
     body: string;
     visibility: "internal" | "public";
-  }) => Promise<void> | void;
-  approveDraw?: (draw: ProductionDraw) => Promise<void> | void;
+  }) => Promise<unknown> | unknown;
+  approveDraw?: (draw: ProductionDraw) => Promise<unknown> | unknown;
   approveMilestone?: (input: {
     milestoneKey: string;
     note?: string;
-  }) => Promise<void> | void;
+  }) => Promise<unknown> | unknown;
   assignContractorToMilestone?: (input: {
     assignmentCost?: ContractorAssignmentCostDraft;
     contractorId: string;
     milestoneKey: string;
     role: string;
     submilestoneKeys?: string[];
-  }) => Promise<void> | void;
-  assignSiteVisit?: (input: { milestoneKey: string }) => Promise<void> | void;
+  }) => Promise<unknown> | unknown;
+  assignSiteVisit?: (input: {
+    milestoneKey: string;
+  }) => Promise<unknown> | unknown;
   attachContractor?: (input: {
     contractorId: string;
     role: string;
-  }) => Promise<void> | void;
+  }) => Promise<unknown> | unknown;
   createAndAttachContractor?: (input: {
     contractor: ContractorProfileDraft;
     role: string;
-  }) => Promise<void> | void;
+  }) => Promise<unknown> | unknown;
   createAndAssignContractor?: (input: {
     assignmentCost?: ContractorAssignmentCostDraft;
     contractor: {
@@ -115,30 +166,123 @@ export interface ProductionBuildDetailActions {
     };
     milestoneKey: string;
     role: string;
-  }) => Promise<void> | void;
-  rejectDraw?: (draw: ProductionDraw) => Promise<void> | void;
-  rejectMilestone?: (input: { milestoneKey: string }) => Promise<void> | void;
-  releaseDraw?: (draw: ProductionDraw) => Promise<void> | void;
+  }) => Promise<unknown> | unknown;
+  rejectDraw?: (draw: ProductionDraw) => Promise<unknown> | unknown;
+  rejectMilestone?: (input: {
+    milestoneKey: string;
+  }) => Promise<unknown> | unknown;
+  releaseDraw?: (draw: ProductionDraw) => Promise<unknown> | unknown;
+  cancelSiteVisit?: (input: {
+    reason: string;
+    visitId: string;
+  }) => Promise<unknown> | unknown;
+  createCalendarSyncSubscription?: (input: {
+    direction: "bidirectional" | "outbound";
+    filters: CalendarFilters;
+    provider: "google" | "ics" | "outlook";
+    surface: "activeBuild" | "proposal";
+  }) =>
+    | Promise<CalendarSyncSubscriptionResult>
+    | CalendarSyncSubscriptionResult
+    | void;
+  recordExternalCalendarSyncChange?: (input: {
+    changeKey: string;
+    externalEventId?: string;
+    payload: unknown;
+    provider: "google" | "ics" | "outlook";
+    subscriptionKey?: string;
+  }) => Promise<unknown> | unknown;
+  rescheduleSiteVisit?: (input: {
+    reason: string;
+    requestedDay: number;
+    requestedTime?: string;
+    visitId: string;
+  }) => Promise<unknown> | unknown;
+  reviseMilestoneSchedule?: (input: {
+    dayEnd: number;
+    dayStart: number;
+    milestoneKey: string;
+    reason: string;
+  }) => Promise<unknown> | unknown;
   requestFacilityChange?: (input: {
     reason?: string;
     requestedPaybackDate?: string;
     requestedPrincipalCents?: number;
     requestType: "principalIncrease" | "paybackExtension";
-  }) => Promise<void> | void;
-  requestDraw?: (draw: ProductionDraw) => Promise<void> | void;
+  }) => Promise<unknown> | unknown;
+  requestDraw?: (draw: ProductionDraw) => Promise<unknown> | unknown;
+  requestLoanFacilityDateChange?: (input: {
+    reason: string;
+    requestedPaybackDate: string;
+  }) => Promise<unknown> | unknown;
   reviewFacilityChangeRequest?: (input: {
     note?: string;
     requestId: string;
     status: "approved" | "rejected";
-  }) => Promise<void> | void;
+  }) => Promise<unknown> | unknown;
   requestMilestoneInfo?: (input: {
     milestoneKey: string;
     note: string;
-  }) => Promise<void> | void;
+  }) => Promise<unknown> | unknown;
+  reviewEvidence?: (input: {
+    accepted: boolean;
+    milestoneKey: string;
+    note?: string;
+  }) => Promise<unknown> | unknown;
+  saveCalendarView?: (input: {
+    filters: CalendarFilters;
+    isDefault?: boolean;
+    label: string;
+    timeframe: CalendarTimeframe;
+    viewKey: string;
+  }) => Promise<unknown> | unknown;
+  scheduleSiteVisit?: (input: {
+    milestoneKey: string;
+    note?: string;
+    requestedDay: number;
+    requestedTime?: string;
+  }) => Promise<unknown> | unknown;
+  setAdminDecisionTargetDate?: (input: {
+    drawKey?: string;
+    milestoneKey?: string;
+    reason?: string;
+    targetDate: string;
+    targetTime?: string;
+  }) => Promise<unknown> | unknown;
+  setDrawReleaseTargetDate?: (input: {
+    drawKey?: string;
+    milestoneKey?: string;
+    reason?: string;
+    targetDate: string;
+    targetTime?: string;
+  }) => Promise<unknown> | unknown;
+  setEvidenceDueDate?: (input: {
+    drawKey?: string;
+    milestoneKey?: string;
+    reason?: string;
+    targetDate: string;
+    targetTime?: string;
+  }) => Promise<unknown> | unknown;
+  setReviewTargetDate?: (input: {
+    drawKey?: string;
+    milestoneKey?: string;
+    reason?: string;
+    targetDate: string;
+    targetTime?: string;
+  }) => Promise<unknown> | unknown;
   startMilestoneWork?: (input: {
     milestoneKey: string;
     note?: string;
-  }) => Promise<void> | void;
+  }) => Promise<unknown> | unknown;
+  updateNonFinancialDetails?: (input: {
+    buildName: string;
+    location: string;
+    locationLatitude?: number | null;
+    locationLongitude?: number | null;
+    locationPlaceId?: string | null;
+    reason: string;
+    startDate: string;
+  }) => Promise<unknown> | unknown;
   materialPlanning?: MaterialPlanningActions;
 }
 
@@ -150,6 +294,9 @@ export interface ProductionBuildDetail {
     status: ProductionBuildStatus;
     startDate: string;
     totalBudgetCents: number;
+    locationLatitude?: number;
+    locationLongitude?: number;
+    locationPlaceId?: string;
     brokerageId?: string;
     createdAt?: number;
     updatedAt?: number;
@@ -176,6 +323,7 @@ export interface ProductionBuildDetail {
   costItems?: MaterialPlanningItem[];
   displayId?: string;
   documents?: ProductionDocument[];
+  evidenceAssets?: ProductionEvidenceAsset[];
   milestones: ProductionMilestone[];
   notes?: {
     internal: ProductionNote[];
@@ -217,6 +365,7 @@ interface ProductionSubmilestone {
   order: number;
   budgetCents?: number;
   durationDays?: number;
+  startDay?: number;
   status: ProductionMilestoneStatus;
 }
 
@@ -267,13 +416,35 @@ interface ProductionSitePhoto {
   url: string;
 }
 
+interface ProductionEvidenceAsset {
+  _id?: string;
+  contractorIds?: string[];
+  createdAt?: number;
+  evidenceKey: string;
+  fileName: string;
+  label: string;
+  locationVerified?: boolean;
+  milestoneKey: string;
+  mimeType: string;
+  previewUrl?: string | null;
+  sizeBytes: number;
+  source?: string;
+  submilestoneKey?: string;
+  tag: string;
+  updatedAt?: number;
+}
+
 interface ProductionDocument {
   _id: string;
   documentType?: string;
   fileName?: string;
   kind?: string;
+  mimeType?: string;
   name?: string;
   sizeBytes?: number;
+  storageId?: string;
+  storageUrl?: string | null;
+  url?: string | null;
 }
 
 interface ProductionNote {
@@ -356,12 +527,30 @@ interface ProductionSiteVisit {
   completedAt?: string;
   milestoneKey: string;
   note?: string;
+  recordNoteFormat?: "plain_text" | "html";
   recordNote?: string;
   requestedAt: string;
   requestedDay: number;
   status: string;
   tokenExpiresAt?: number;
   visitId: string;
+}
+
+type ProductionEvidenceSource = "builder" | "site_visit";
+
+interface ProductionEvidenceRow {
+  amountCents?: number;
+  assets: ProductionEvidenceAsset[];
+  completedAt?: string;
+  id: string;
+  locationState?: "unverified" | "verified";
+  milestoneKey: string;
+  milestoneName: string;
+  note?: string;
+  noteFormat?: "plain_text" | "html";
+  source: ProductionEvidenceSource;
+  status: string;
+  submittedAt?: string;
 }
 
 interface ProductionBuildProjection {
@@ -376,6 +565,8 @@ export function ProductionBuildDetailSurface({
   actions,
   activeBuildId,
   activeTab,
+  calendarTimeframe,
+  calendarWorkspace,
   contractorDetailHrefFor,
   breadcrumbRootHref = "/backoffice",
   breadcrumbRootLabel = "Backoffice",
@@ -384,6 +575,7 @@ export function ProductionBuildDetailSurface({
   detail,
   milestoneKey,
   onChangeMilestone,
+  onChangeCalendarTimeframe,
   onChangeRail,
   onChangeTab,
   rail,
@@ -394,6 +586,8 @@ export function ProductionBuildDetailSurface({
   activeTab: BuildDetailSubTab;
   activeBuildId?: string;
   actions?: ProductionBuildDetailActions;
+  calendarTimeframe?: CalendarTimeframe;
+  calendarWorkspace?: DrawFlowCalendarWorkspaceData | null;
   contractorDetailHrefFor?: (contractorId: string) => string;
   detail: ProductionBuildDetail;
   breadcrumbRootHref?: string;
@@ -401,6 +595,7 @@ export function ProductionBuildDetailSurface({
   breadcrumbSectionHref?: string;
   breadcrumbSectionLabel?: string;
   milestoneKey?: string;
+  onChangeCalendarTimeframe?: (timeframe: CalendarTimeframe) => void;
   onChangeMilestone?: (milestoneKey?: string) => void;
   onChangeRail: (rail: "open" | "closed") => void;
   onChangeTab: (tab: BuildDetailSubTab) => void;
@@ -411,12 +606,13 @@ export function ProductionBuildDetailSurface({
 }) {
   const projection = useMemo(
     () => buildProductionBuildProjection(detail),
-    [detail]
+    [detail],
   );
   const currentDay = resolveProductionCurrentDay(detail, timelineWorkspace);
   const eventsOpen = rail === "open";
   const eventCount =
     (detail.auditEvents?.length ?? 0) + (detail.quickActionEvents?.length ?? 0);
+  const permit = firstPermitDocument(detail.documents);
   const [localActiveMilestoneKey, setLocalActiveMilestoneKey] = useState<
     string | null
   >(milestoneKey ?? null);
@@ -434,15 +630,15 @@ export function ProductionBuildDetailSurface({
             detail,
             projection,
             activeMilestoneKey,
-            currentDay
+            currentDay,
           )
         : null,
-    [activeMilestoneKey, currentDay, detail, projection]
+    [activeMilestoneKey, currentDay, detail, projection],
   );
 
   return (
     <main
-      className="min-h-[calc(100vh-4rem)] min-w-0 bg-muted/30"
+      className="min-h-[calc(100vh-4rem)] min-w-0 bg-muted/30 px-2"
       data-testid="production-build-detail-route"
     >
       <section className="flex min-w-0 flex-col gap-3 px-0 py-3 sm:gap-4 sm:py-4 md:gap-5 md:py-0">
@@ -454,6 +650,7 @@ export function ProductionBuildDetailSurface({
           detail={detail}
           eventCount={eventCount}
           onOpenEvents={() => onChangeRail("open")}
+          permit={permit}
         />
         <BuildDetailTabBar activeTab={activeTab} onChangeTab={onChangeTab} />
         {activeTab === "details" ? (
@@ -481,6 +678,16 @@ export function ProductionBuildDetailSurface({
             workosOrganizationId={workosOrganizationId}
           />
         ) : null}
+        {activeTab === "evidence" ? (
+          <ProductionEvidenceTab
+            actions={actions}
+            detail={detail}
+            onOpenMilestone={(milestoneKey) =>
+              setActiveMilestoneKey(milestoneKey)
+            }
+            projection={projection}
+          />
+        ) : null}
         {activeTab === "materials" ? (
           <ProductionBuildMaterialsTab
             actions={actions?.materialPlanning}
@@ -488,7 +695,15 @@ export function ProductionBuildDetailSurface({
           />
         ) : null}
         {activeTab === "calendar" ? (
-          <ProductionCalendarTab detail={detail} projection={projection} />
+          <ProductionCalendarTab
+            actions={actions}
+            calendarTimeframe={calendarTimeframe}
+            calendarWorkspace={calendarWorkspace}
+            detail={detail}
+            onChangeCalendarTimeframe={onChangeCalendarTimeframe}
+            onChangeTab={onChangeTab}
+            workosOrganizationId={workosOrganizationId}
+          />
         ) : null}
         {activeTab === "gantt" ? (
           <ProductionGanttTab
@@ -511,9 +726,9 @@ export function ProductionBuildDetailSurface({
         assignmentsSourceLabel="buildContractorAssignments"
         data={sheetData}
         eventsSourceLabel="activeBuildAuditEvents"
-        onApprove={async (milestoneKey, note) =>
-          actions?.approveMilestone?.({ milestoneKey, note })
-        }
+        onApprove={async (milestoneKey, note) => {
+          await actions?.approveMilestone?.({ milestoneKey, note });
+        }}
         onAssignContractor={
           actions?.assignContractorToMilestone ||
           actions?.createAndAssignContractor
@@ -530,9 +745,9 @@ export function ProductionBuildDetailSurface({
         onRequestInfo={(milestoneKey, note) =>
           void actions?.requestMilestoneInfo?.({ milestoneKey, note })
         }
-        onStartWork={(milestoneKey, note) =>
-          actions?.startMilestoneWork?.({ milestoneKey, note })
-        }
+        onStartWork={(milestoneKey, note) => {
+          void actions?.startMilestoneWork?.({ milestoneKey, note });
+        }}
       />
       <ContractorQuickAddDrawer
         availableContractors={contractorAssignmentOptions(detail)}
@@ -580,6 +795,7 @@ function ProductionBuildHeader({
   detail,
   eventCount,
   onOpenEvents,
+  permit,
 }: {
   breadcrumbRootHref: string;
   breadcrumbRootLabel: string;
@@ -588,6 +804,7 @@ function ProductionBuildHeader({
   detail: ProductionBuildDetail;
   eventCount: number;
   onOpenEvents: () => void;
+  permit: ReturnType<typeof firstPermitDocument>;
 }) {
   return (
     <Frame>
@@ -625,6 +842,7 @@ function ProductionBuildHeader({
         </div>
         <div className="flex w-full flex-col gap-3 md:min-w-72 md:max-w-sm">
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <BuildPermitViewerDrawer permit={permit} size="sm" />
             <Button
               data-testid="build-detail-events-trigger"
               onClick={onOpenEvents}
@@ -690,14 +908,24 @@ function ProductionDetailsTab({
   const [showCompletedKanban, setShowCompletedKanban] = useState(false);
   const kanbanCards = useMemo(
     () => buildProductionKanbanCards(detail, projection, currentDay),
-    [currentDay, detail, projection]
+    [currentDay, detail, projection],
   );
 
   return (
     <div className="flex flex-col gap-4" data-testid="production-build-details">
       <section className="grid items-stretch gap-3 sm:gap-4 xl:grid-cols-[minmax(280px,0.85fr)_minmax(0,1.6fr)]">
-        <ProductionBuildDetailsCard detail={detail} projection={projection} />
-        <SitePhotoCarousel photos={detail.sitePhotos ?? []} />
+        <ProductionBuildDetailsCard
+          actions={actions}
+          detail={detail}
+          projection={projection}
+        />
+        <SitePhotoCarousel
+          buildName={detail.build.buildName}
+          photos={detail.sitePhotos ?? []}
+          siteAddress={detail.build.location}
+          siteLatitude={detail.build.locationLatitude}
+          siteLongitude={detail.build.locationLongitude}
+        />
       </section>
 
       <ProductionDrawsTable
@@ -719,8 +947,16 @@ function ProductionDetailsTab({
       <section className="grid gap-3 sm:gap-4 xl:grid-cols-2">
         <ContractorsCard
           actions={{
-            onAttachExisting: actions?.attachContractor,
-            onCreateAndAttach: actions?.createAndAttachContractor,
+            onAttachExisting: actions?.attachContractor
+              ? (input) => {
+                  void actions.attachContractor?.(input);
+                }
+              : undefined,
+            onCreateAndAttach: actions?.createAndAttachContractor
+              ? (input) => {
+                  void actions.createAndAttachContractor?.(input);
+                }
+              : undefined,
             sourceLabel: "production_contractors",
           }}
           availableContractors={detail.availableContractors ?? []}
@@ -755,14 +991,16 @@ function ProductionDetailsTab({
 }
 
 function ProductionBuildDetailsCard({
+  actions,
   detail,
   projection,
 }: {
+  actions?: ProductionBuildDetailActions;
   detail: ProductionBuildDetail;
   projection: ProductionBuildProjection;
 }) {
   const completed = projection.milestones.filter(
-    (milestone) => milestone.status === "complete"
+    (milestone) => milestone.status === "complete",
   ).length;
   const percentComplete =
     projection.milestones.length > 0
@@ -773,7 +1011,7 @@ function ProductionBuildDetailsCard({
     .reduce((sum, draw) => sum + draw.amountCents, 0);
   const drawAvailableCents = projection.milestones.reduce(
     (sum, milestone) => sum + milestone.drawAvailabilityCents,
-    0
+    0,
   );
   const siteVisitsOpen =
     detail.siteVisits?.filter((visit) => visit.status === "requested").length ??
@@ -782,93 +1020,387 @@ function ProductionBuildDetailsCard({
     projection.draws.filter((draw) => draw.status === "rejected").length +
     (detail.sitePhotos?.filter((photo) => photo.locationVerified === false)
       .length ?? 0);
+  const [editOpen, setEditOpen] = useState(false);
 
   return (
-    <Card data-testid="production-build-details-card" id="ui-build-details">
-      <CardHeader className="flex flex-row items-center justify-between gap-3 p-3 pb-2 sm:p-5 sm:pb-3">
-        <CardTitle className="text-sm">Build Details</CardTitle>
-        <span className="shrink-0 text-[11px] text-muted-foreground">
-          active_builds
-        </span>
-      </CardHeader>
-      <CardContent className="p-3 pt-0 sm:p-5 sm:pt-0">
-        <dl className="grid grid-cols-[minmax(0,1fr)] gap-y-1.5 text-sm sm:grid-cols-[120px_minmax(0,1fr)]">
-          <Label>Loan number</Label>
-          <dd className="min-w-0 break-words tabular-nums">
-            FL-{detail.displayId ?? detail.build._id}
-          </dd>
-          <Label>Address</Label>
-          <dd className="min-w-0 break-words">{detail.build.location}</dd>
-          <Label>Project start</Label>
-          <dd className="min-w-0 break-words">
-            {formatDate(detail.build.startDate)}
-          </dd>
-          <Label>Roadmap end</Label>
-          <dd className="min-w-0 break-words">
-            {formatDate(addDaysSafe(detail.build.startDate, projection.maxDay))}
-          </dd>
-          <Label>% complete</Label>
-          <dd className="flex min-w-0 items-center gap-2">
-            <span className="tabular-nums">{percentComplete}%</span>
-            <span
-              aria-hidden
-              className="h-1.5 min-w-16 flex-1 overflow-hidden rounded-full bg-muted sm:w-24 sm:flex-none"
-            >
-              <span
-                className="block h-full bg-primary"
-                style={{ width: `${Math.min(100, percentComplete)}%` }}
-              />
+    <>
+      <Card data-testid="production-build-details-card" id="ui-build-details">
+        <CardHeader className="flex flex-row items-center justify-between gap-3 p-3 pb-2 sm:p-5 sm:pb-3">
+          <CardTitle className="text-sm">Build Details</CardTitle>
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="text-[11px] text-muted-foreground">
+              active_builds
             </span>
-          </dd>
-          <Label>Open warnings</Label>
-          <dd className={openWarnings > 0 ? "text-amber-400" : undefined}>
-            {openWarnings}
-          </dd>
-          <Label>Site visits open</Label>
-          <dd>{siteVisitsOpen}</dd>
-        </dl>
-        <hr className="my-4 border-border" />
-        <h3 className="mb-2 font-semibold text-sm">Loan Details</h3>
-        <dl className="grid grid-cols-[minmax(0,1fr)] gap-y-1.5 text-sm sm:grid-cols-[120px_1fr]">
-          <Label>Working capital limit</Label>
-          <span className="min-w-0 break-words">
-            {formatCents(
-              detail.capitalPlan?.borrowerWorkingCapitalLimitCents ?? 0
-            )}
-          </span>
-          <Label>Lender policy limit</Label>
-          <span className="min-w-0 break-words">
-            {formatCents(detail.capitalPlan?.lenderDrawPolicyLimitCents ?? 0)}
-          </span>
-          <Label>Approved principal</Label>
-          <span className="min-w-0 break-words">
-            {formatCents(detail.loanFacility?.principalCents ?? 0)}
-          </span>
-          <Label>Payback date</Label>
-          <span className="min-w-0 break-words">
-            {detail.loanFacility?.paybackDate
-              ? formatDate(detail.loanFacility.paybackDate)
-              : formatDate(
-                  addDaysSafe(detail.build.startDate, projection.maxDay)
-                )}
-          </span>
-          <Label>Draw availability</Label>
-          <span className="min-w-0 break-words">
-            {formatCents(drawAvailableCents)} of{" "}
-            {formatCents(detail.build.totalBudgetCents)}
-          </span>
-          <Label>Drawn to date</Label>
-          <span className="min-w-0 break-words">{formatCents(drawnCents)}</span>
-          <Label>Interest (annual)</Label>
-          <span className="tabular-nums">
-            {((detail.loanFacility?.interestAnnualBps ?? 0) / 100).toFixed(2)}%
-          </span>
-          <Label>Interest starts</Label>
-          <span>Funds released</span>
-        </dl>
-      </CardContent>
-    </Card>
+            {actions?.updateNonFinancialDetails ? (
+              <Button
+                aria-label="Edit build details"
+                data-testid="edit-build-details-trigger"
+                onClick={() => setEditOpen(true)}
+                size="icon-xs"
+                type="button"
+                variant="outline"
+              >
+                <Pencil aria-hidden="true" className="size-3.5" />
+              </Button>
+            ) : null}
+          </div>
+        </CardHeader>
+        <CardContent className="p-3 pt-0 sm:p-5 sm:pt-0">
+          <dl className="grid grid-cols-[minmax(0,1fr)] gap-y-1.5 text-sm sm:grid-cols-[120px_minmax(0,1fr)]">
+            <Label>Loan number</Label>
+            <dd className="min-w-0 break-words tabular-nums">
+              FL-{detail.displayId ?? detail.build._id}
+            </dd>
+            <Label>Address</Label>
+            <dd className="min-w-0 break-words">{detail.build.location}</dd>
+            <Label>Latitude</Label>
+            <dd className="min-w-0 break-words tabular-nums">
+              {formatCoordinate(detail.build.locationLatitude)}
+            </dd>
+            <Label>Longitude</Label>
+            <dd className="min-w-0 break-words tabular-nums">
+              {formatCoordinate(detail.build.locationLongitude)}
+            </dd>
+            <Label>Project start</Label>
+            <dd className="min-w-0 break-words">
+              {formatDate(detail.build.startDate)}
+            </dd>
+            <Label>Roadmap end</Label>
+            <dd className="min-w-0 break-words">
+              {formatDate(
+                addDaysSafe(detail.build.startDate, projection.maxDay),
+              )}
+            </dd>
+            <Label>% complete</Label>
+            <dd className="flex min-w-0 items-center gap-2">
+              <span className="tabular-nums">{percentComplete}%</span>
+              <span
+                aria-hidden
+                className="h-1.5 min-w-16 flex-1 overflow-hidden rounded-full bg-muted sm:w-24 sm:flex-none"
+              >
+                <span
+                  className="block h-full bg-primary"
+                  style={{ width: `${Math.min(100, percentComplete)}%` }}
+                />
+              </span>
+            </dd>
+            <Label>Open warnings</Label>
+            <dd className={openWarnings > 0 ? "text-amber-400" : undefined}>
+              {openWarnings}
+            </dd>
+            <Label>Site visits open</Label>
+            <dd>{siteVisitsOpen}</dd>
+          </dl>
+          <hr className="my-4 border-border" />
+          <h3 className="mb-2 font-semibold text-sm">Loan Details</h3>
+          <dl className="grid grid-cols-[minmax(0,1fr)] gap-y-1.5 text-sm sm:grid-cols-[120px_1fr]">
+            <Label>Working capital limit</Label>
+            <span className="min-w-0 break-words">
+              {formatCents(
+                detail.capitalPlan?.borrowerWorkingCapitalLimitCents ?? 0,
+              )}
+            </span>
+            <Label>Lender policy limit</Label>
+            <span className="min-w-0 break-words">
+              {formatCents(detail.capitalPlan?.lenderDrawPolicyLimitCents ?? 0)}
+            </span>
+            <Label>Approved principal</Label>
+            <span className="min-w-0 break-words">
+              {formatCents(detail.loanFacility?.principalCents ?? 0)}
+            </span>
+            <Label>Payback date</Label>
+            <span className="min-w-0 break-words">
+              {detail.loanFacility?.paybackDate
+                ? formatDate(detail.loanFacility.paybackDate)
+                : formatDate(
+                    addDaysSafe(detail.build.startDate, projection.maxDay),
+                  )}
+            </span>
+            <Label>Draw availability</Label>
+            <span className="min-w-0 break-words">
+              {formatCents(drawAvailableCents)} of{" "}
+              {formatCents(detail.build.totalBudgetCents)}
+            </span>
+            <Label>Drawn to date</Label>
+            <span className="min-w-0 break-words">
+              {formatCents(drawnCents)}
+            </span>
+            <Label>Interest (annual)</Label>
+            <span className="tabular-nums">
+              {((detail.loanFacility?.interestAnnualBps ?? 0) / 100).toFixed(
+                2,
+              )}
+              %
+            </span>
+            <Label>Interest starts</Label>
+            <span>Funds released</span>
+          </dl>
+        </CardContent>
+      </Card>
+      {actions?.updateNonFinancialDetails ? (
+        <BuildNonFinancialDetailsSheet
+          detail={detail}
+          onOpenChange={setEditOpen}
+          onSubmit={actions.updateNonFinancialDetails}
+          open={editOpen}
+        />
+      ) : null}
+    </>
   );
+}
+
+function BuildNonFinancialDetailsSheet({
+  detail,
+  onOpenChange,
+  onSubmit,
+  open,
+}: {
+  detail: ProductionBuildDetail;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: NonNullable<ProductionBuildDetailActions["updateNonFinancialDetails"]>;
+  open: boolean;
+}) {
+  const [buildName, setBuildName] = useState(detail.build.buildName);
+  const [location, setLocation] = useState(detail.build.location);
+  const [locationLatitude, setLocationLatitude] = useState<number | null>(
+    detail.build.locationLatitude ?? null,
+  );
+  const [locationLongitude, setLocationLongitude] = useState<number | null>(
+    detail.build.locationLongitude ?? null,
+  );
+  const [locationPlaceId, setLocationPlaceId] = useState<string | null>(
+    detail.build.locationPlaceId ?? null,
+  );
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [startDate, setStartDate] = useState(detail.build.startDate);
+  const [error, setError] = useState<string | null>(null);
+  const [locationResolving, setLocationResolving] = useState(false);
+  const [locationResolutionError, setLocationResolutionError] = useState<
+    string | null
+  >(null);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    setBuildName(detail.build.buildName);
+    setLocation(detail.build.location);
+    setLocationLatitude(detail.build.locationLatitude ?? null);
+    setLocationLongitude(detail.build.locationLongitude ?? null);
+    setLocationPlaceId(detail.build.locationPlaceId ?? null);
+    setReason("");
+    setSaving(false);
+    setStartDate(detail.build.startDate);
+    setError(null);
+    setLocationResolving(false);
+    setLocationResolutionError(null);
+  }, [detail, open]);
+
+  const satelliteMapUrl = useMemo(
+    () =>
+      createGoogleSatelliteMapUrl({
+        address: location,
+        latitude: locationLatitude,
+        longitude: locationLongitude,
+        markerLabel: "B",
+        size: "640x360",
+        zoom: 19,
+      }),
+    [location, locationLatitude, locationLongitude],
+  );
+
+  const canSave =
+    buildName.trim().length > 0 &&
+    location.trim().length > 0 &&
+    /^\d{4}-\d{2}-\d{2}$/.test(startDate.trim()) &&
+    reason.trim().length > 0 &&
+    !locationResolving &&
+    !saving;
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canSave) {
+      setError("Title, address, project start, and audit reason are required.");
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      await onSubmit({
+        buildName: buildName.trim(),
+        location: location.trim(),
+        locationLatitude,
+        locationLongitude,
+        locationPlaceId,
+        reason: reason.trim(),
+        startDate: startDate.trim(),
+      });
+      onOpenChange(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to save build details.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Sheet onOpenChange={onOpenChange} open={open}>
+      <SheetPopup side="right" variant="inset">
+        <SheetHeader>
+          <SheetTitle>Edit build details</SheetTitle>
+          <SheetDescription>
+            Update non-financial build identity and location metadata.
+          </SheetDescription>
+        </SheetHeader>
+        <form className="contents" onSubmit={handleSubmit}>
+          <SheetPanel className="flex flex-col gap-5">
+            <Field name="buildName">
+              <FieldLabel>Build title</FieldLabel>
+              <Input
+                data-testid="build-details-title-input"
+                onChange={(event) => setBuildName(event.currentTarget.value)}
+                value={buildName}
+              />
+            </Field>
+            <Field name="location">
+              <FieldLabel>Address</FieldLabel>
+              <GoogleAddressAutocomplete
+                onChange={(nextLocation, meta) => {
+                  setLocation(nextLocation);
+                  if (meta?.source !== "selection") {
+                    setLocationLatitude(null);
+                    setLocationLongitude(null);
+                    setLocationPlaceId(null);
+                    setLocationResolutionError(null);
+                  }
+                }}
+                onPlaceSelect={(_suggestion, details) => {
+                  if (!details) {
+                    setLocationResolutionError(
+                      "Google did not return coordinates for that address.",
+                    );
+                    return;
+                  }
+                  setLocation(details.formattedAddress);
+                  setLocationLatitude(details.latitude);
+                  setLocationLongitude(details.longitude);
+                  setLocationPlaceId(details.placeId);
+                  setLocationResolutionError(null);
+                }}
+                onResolvingChange={setLocationResolving}
+                placeholder="Search build address"
+                testId="build-details-address-input"
+                value={location}
+              />
+              <FieldDescription>
+                Selecting a Google result resolves the stored coordinates.
+              </FieldDescription>
+              {locationResolutionError ? (
+                <p className="text-destructive-foreground text-xs">
+                  {locationResolutionError}
+                </p>
+              ) : null}
+            </Field>
+            <Field name="startDate">
+              <FieldLabel>Project start</FieldLabel>
+              <Input
+                data-testid="build-details-start-date-input"
+                onChange={(event) => setStartDate(event.currentTarget.value)}
+                type="date"
+                value={startDate}
+              />
+            </Field>
+            <Frame>
+              <FramePanel className="p-4">
+                <h3 className="mb-3 font-semibold text-sm">
+                  Location metadata
+                </h3>
+                <dl className="grid grid-cols-[110px_minmax(0,1fr)] gap-y-2 text-sm">
+                  <Label>Latitude</Label>
+                  <dd className="min-w-0 break-words tabular-nums">
+                    {formatCoordinate(locationLatitude)}
+                  </dd>
+                  <Label>Longitude</Label>
+                  <dd className="min-w-0 break-words tabular-nums">
+                    {formatCoordinate(locationLongitude)}
+                  </dd>
+                  <Label>Place ID</Label>
+                  <dd className="min-w-0 break-words text-muted-foreground text-xs">
+                    {locationPlaceId ?? "Not resolved"}
+                  </dd>
+                </dl>
+              </FramePanel>
+            </Frame>
+            <Frame>
+              <FramePanel className="p-4">
+                <h3 className="mb-3 font-semibold text-sm">
+                  Satellite preview
+                </h3>
+                {satelliteMapUrl ? (
+                  <img
+                    alt="Selected build location satellite map"
+                    className="aspect-video w-full rounded-lg border border-border object-cover"
+                    data-testid="build-details-satellite-map"
+                    height={360}
+                    src={satelliteMapUrl}
+                    width={640}
+                  />
+                ) : (
+                  <div className="grid aspect-video w-full place-items-center rounded-lg border border-border bg-muted text-center text-muted-foreground">
+                    <div className="p-4">
+                      <MapPin
+                        aria-hidden="true"
+                        className="mx-auto mb-2 size-6 text-primary"
+                      />
+                      <p className="font-medium text-sm">
+                        Satellite map unavailable
+                      </p>
+                      <p className="mt-1 text-xs">
+                        Select a Google address or configure Maps.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </FramePanel>
+            </Frame>
+            <Field name="reason">
+              <FieldLabel>Audit reason</FieldLabel>
+              <Textarea
+                data-testid="build-details-reason-input"
+                onChange={(event) => setReason(event.currentTarget.value)}
+                placeholder="Why are these build details changing?"
+                value={reason}
+              />
+            </Field>
+            {error ? (
+              <p className="text-destructive-foreground text-sm" role="alert">
+                {error}
+              </p>
+            ) : null}
+          </SheetPanel>
+          <SheetFooter>
+            <SheetClose render={<Button type="button" variant="ghost" />}>
+              Cancel
+            </SheetClose>
+            <Button
+              data-testid="build-details-save"
+              disabled={!canSave}
+              loading={saving}
+              type="submit"
+            >
+              Save changes
+            </Button>
+          </SheetFooter>
+        </form>
+      </SheetPopup>
+    </Sheet>
+  );
+}
+
+function formatCoordinate(value: number | null | undefined) {
+  return typeof value === "number" ? value.toFixed(6) : "Not resolved";
 }
 
 function Label({ children }: { children: React.ReactNode }) {
@@ -893,7 +1425,7 @@ function ProductionDrawsTable({
 
   const run = async (
     draw: ProductionDraw,
-    fn?: (draw: ProductionDraw) => Promise<void> | void
+    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown,
   ) => {
     if (!fn || pendingDraw) return;
     setPendingDraw(draw.drawKey);
@@ -952,7 +1484,7 @@ function ProductionDrawsTable({
                     </Td>
                     <Td>
                       {formatDate(
-                        addDaysSafe(detail.build.startDate, draw.timingDay)
+                        addDaysSafe(detail.build.startDate, draw.timingDay),
                       )}
                     </Td>
                     <Td>
@@ -1051,10 +1583,10 @@ function FacilityChangeRequestsCard({
   detail: ProductionBuildDetail;
 }) {
   const [principalText, setPrincipalText] = useState(
-    String(Math.round((detail.loanFacility?.principalCents ?? 0) / 100))
+    String(Math.round((detail.loanFacility?.principalCents ?? 0) / 100)),
   );
   const [paybackDate, setPaybackDate] = useState(
-    detail.loanFacility?.paybackDate ?? detail.build.startDate
+    detail.loanFacility?.paybackDate ?? detail.build.startDate,
   );
   const [reason, setReason] = useState("");
   const [reviewNote, setReviewNote] = useState("");
@@ -1062,10 +1594,10 @@ function FacilityChangeRequestsCard({
   const [error, setError] = useState("");
   const requests = detail.facilityChangeRequests ?? [];
   const pendingRequests = requests.filter(
-    (request) => request.status === "requested"
+    (request) => request.status === "requested",
   );
 
-  const run = async (key: string, fn?: () => Promise<void> | void) => {
+  const run = async (key: string, fn?: () => Promise<unknown> | unknown) => {
     if (!fn || pending) return;
     setPending(key);
     setError("");
@@ -1087,7 +1619,7 @@ function FacilityChangeRequestsCard({
         reason: reason.trim() || undefined,
         requestedPrincipalCents: Math.round(Number(principalText) * 100),
         requestType: "principalIncrease",
-      })
+      }),
     );
   const requestPayback = () =>
     run("request-payback", () =>
@@ -1095,18 +1627,18 @@ function FacilityChangeRequestsCard({
         reason: reason.trim() || undefined,
         requestedPaybackDate: paybackDate,
         requestType: "paybackExtension",
-      })
+      }),
     );
   const review = (
     request: ProductionFacilityChangeRequest,
-    status: "approved" | "rejected"
+    status: "approved" | "rejected",
   ) =>
     run(`${status}-${request._id}`, () =>
       actions?.reviewFacilityChangeRequest?.({
         note: reviewNote.trim() || undefined,
         requestId: request._id,
         status,
-      })
+      }),
     );
 
   return (
@@ -1274,11 +1806,11 @@ function FacilityChangeRequestsCard({
 function facilityRequestLabel(request: ProductionFacilityChangeRequest) {
   if (request.requestType === "principalIncrease") {
     return `Principal increase to ${formatCents(
-      request.requestedPayload.requestedPrincipalCents ?? 0
+      request.requestedPayload.requestedPrincipalCents ?? 0,
     )}`;
   }
   return `Payback extension to ${formatDate(
-    request.requestedPayload.requestedPaybackDate ?? ""
+    request.requestedPayload.requestedPaybackDate ?? "",
   )}`;
 }
 
@@ -1319,7 +1851,7 @@ function ProductionDocumentsCard({
 }) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<"permit" | "budget" | "plan" | "supporting">(
-    "supporting"
+    "supporting",
   );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -1399,12 +1931,33 @@ function ProductionDocumentsCard({
                 <span className="truncate">
                   {document.name ?? document.fileName}
                 </span>
-                <span className="shrink-0 text-[11px] text-muted-foreground sm:ml-2">
-                  {document.kind ?? document.documentType}
-                  {document.sizeBytes
-                    ? ` - ${Math.round(document.sizeBytes / 1024)}KB`
-                    : ""}
-                </span>
+                <div className="flex shrink-0 items-center gap-2 sm:ml-2">
+                  <span className="text-[11px] text-muted-foreground">
+                    {document.kind ?? document.documentType}
+                    {document.sizeBytes
+                      ? ` - ${Math.round(document.sizeBytes / 1024)}KB`
+                      : ""}
+                  </span>
+                  {(document.kind === "permit" ||
+                    document.documentType === "permit") &&
+                  (document.storageUrl || document.url) ? (
+                    <Button
+                      render={
+                        <a
+                          data-testid={`build-detail-document-${document._id}-view`}
+                          href={document.storageUrl ?? document.url ?? ""}
+                          rel="noreferrer"
+                          target="_blank"
+                        />
+                      }
+                      size="xs"
+                      variant="outline"
+                    >
+                      <ExternalLink />
+                      View
+                    </Button>
+                  ) : null}
+                </div>
               </li>
             ))}
           </ul>
@@ -1494,15 +2047,6 @@ function ProductionNotesCard({
   );
 }
 
-function DescriptionRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-border border-b pb-2 last:border-b-0 last:pb-0">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="text-right font-medium tabular-nums">{value}</span>
-    </div>
-  );
-}
-
 function ProductionTimelineTab({
   activeBuildId,
   detail,
@@ -1552,6 +2096,485 @@ function ProductionTimelineTab({
   );
 }
 
+function ProductionEvidenceTab({
+  actions,
+  detail,
+  onOpenMilestone,
+  projection,
+}: {
+  actions?: ProductionBuildDetailActions;
+  detail: ProductionBuildDetail;
+  onOpenMilestone: (milestoneKey: string) => void;
+  projection: ProductionBuildProjection;
+}) {
+  const builderEvidence = useMemo(
+    () => buildBuilderEvidenceRows(detail, projection),
+    [detail, projection],
+  );
+  const completedSiteVisits = useMemo(
+    () => buildCompletedSiteVisitRows(detail, projection),
+    [detail, projection],
+  );
+  const locationUnverifiedCount = builderEvidence.filter(
+    (row) => row.locationState === "unverified",
+  ).length;
+  const totalEvidence = builderEvidence.length + completedSiteVisits.length;
+
+  return (
+    <div
+      className="flex flex-col gap-4"
+      data-testid="production-build-evidence"
+    >
+      <Frame>
+        <FramePanel className="p-4 sm:p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="info">Unified evidence</Badge>
+                {locationUnverifiedCount > 0 ? (
+                  <Badge variant="warning">
+                    {locationUnverifiedCount} location unverified
+                  </Badge>
+                ) : null}
+              </div>
+              <h2 className="mt-3 font-semibold text-lg">Evidence</h2>
+              <p className="mt-1 max-w-3xl text-muted-foreground text-sm">
+                Builder milestone evidence and completed site visits are grouped
+                here with source labels, review state, and milestone context.
+              </p>
+            </div>
+            <div className="grid min-w-0 grid-cols-3 gap-2 text-sm lg:min-w-[24rem]">
+              <EvidenceSummaryStat
+                icon={<FileCheck2 aria-hidden="true" className="size-4" />}
+                label="Builder"
+                value={builderEvidence.length}
+              />
+              <EvidenceSummaryStat
+                icon={<ClipboardCheck aria-hidden="true" className="size-4" />}
+                label="Site visits"
+                value={completedSiteVisits.length}
+              />
+              <EvidenceSummaryStat
+                icon={<CheckCircle2 aria-hidden="true" className="size-4" />}
+                label="Total"
+                value={totalEvidence}
+              />
+            </div>
+          </div>
+        </FramePanel>
+      </Frame>
+
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]">
+        <EvidenceSourcePanel
+          actions={actions}
+          emptyLabel="No builder-submitted milestone evidence yet."
+          onOpenMilestone={onOpenMilestone}
+          rows={builderEvidence}
+          title="Builder Submitted Evidence"
+        />
+        <EvidenceSourcePanel
+          emptyLabel="No completed site visits yet."
+          onOpenMilestone={onOpenMilestone}
+          rows={completedSiteVisits}
+          title="Completed Site Visits"
+        />
+      </section>
+    </div>
+  );
+}
+
+function EvidenceSummaryStat({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+}) {
+  return (
+    <div className="min-w-0 rounded-lg border bg-background/70 px-3 py-2">
+      <div className="flex items-center gap-2 text-muted-foreground text-xs">
+        {icon}
+        <span className="truncate">{label}</span>
+      </div>
+      <p className="mt-1 font-semibold text-lg tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function EvidenceSourcePanel({
+  actions,
+  emptyLabel,
+  onOpenMilestone,
+  rows,
+  title,
+}: {
+  actions?: ProductionBuildDetailActions;
+  emptyLabel: string;
+  onOpenMilestone: (milestoneKey: string) => void;
+  rows: ProductionEvidenceRow[];
+  title: string;
+}) {
+  const [expandedRowId, setExpandedRowId] = useState<string | null>(
+    rows[0]?.id ?? null,
+  );
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (expandedRowId && rows.some((row) => row.id === expandedRowId)) return;
+    setExpandedRowId(rows[0]?.id ?? null);
+  }, [expandedRowId, rows]);
+
+  const reviewEvidence = async (
+    row: ProductionEvidenceRow,
+    accepted: boolean,
+  ) => {
+    if (!actions?.reviewEvidence || pendingAction) return;
+    const actionKey = `${accepted ? "approve" : "request-info"}:${row.id}`;
+    setPendingAction(actionKey);
+    try {
+      await actions.reviewEvidence({
+        accepted,
+        milestoneKey: row.milestoneKey,
+        note: accepted
+          ? "Evidence approved from build evidence tab."
+          : "More information requested from build evidence tab.",
+      });
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
+  return (
+    <Frame>
+      <FramePanel className="p-0">
+        <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+          <h3 className="font-semibold text-sm">{title}</h3>
+          <Badge size="sm" variant={rows.length > 0 ? "secondary" : "outline"}>
+            {rows.length}
+          </Badge>
+        </div>
+        {rows.length === 0 ? (
+          <div className="px-4 py-8 text-muted-foreground text-sm">
+            {emptyLabel}
+          </div>
+        ) : (
+          <div className="divide-y">
+            {rows.map((row) => (
+              <EvidenceRowItem
+                actions={actions}
+                expanded={expandedRowId === row.id}
+                key={row.id}
+                onOpenMilestone={onOpenMilestone}
+                onReviewEvidence={reviewEvidence}
+                onToggleExpanded={() =>
+                  setExpandedRowId((current) =>
+                    current === row.id ? null : row.id,
+                  )
+                }
+                pendingAction={pendingAction}
+                row={row}
+              />
+            ))}
+          </div>
+        )}
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function EvidenceRowItem({
+  actions,
+  expanded,
+  onOpenMilestone,
+  onReviewEvidence,
+  onToggleExpanded,
+  pendingAction,
+  row,
+}: {
+  actions?: ProductionBuildDetailActions;
+  expanded: boolean;
+  onOpenMilestone: (milestoneKey: string) => void;
+  onReviewEvidence: (
+    row: ProductionEvidenceRow,
+    accepted: boolean,
+  ) => Promise<void>;
+  onToggleExpanded: () => void;
+  pendingAction: string | null;
+  row: ProductionEvidenceRow;
+}) {
+  const evidenceDate = row.submittedAt ?? row.completedAt;
+  const submittedLabel =
+    evidenceDate !== undefined ? formatDate(evidenceDate) : "Not dated";
+  const statusAlreadyReportsLocation = row.status
+    .toLowerCase()
+    .includes("location");
+  const approveActionKey = `approve:${row.id}`;
+  const requestInfoActionKey = `request-info:${row.id}`;
+
+  return (
+    <div
+      className="px-4 py-4"
+      data-testid={`production-evidence-row-${row.id}`}
+    >
+      <div className="grid gap-3 2xl:grid-cols-[minmax(0,1fr)_auto] 2xl:items-start">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={row.source === "builder" ? "info" : "success"}>
+              {row.source === "builder" ? (
+                <FileCheck2 aria-hidden="true" className="size-3" />
+              ) : (
+                <UserCheck aria-hidden="true" className="size-3" />
+              )}
+              {row.source === "builder" ? "Builder submitted" : "Site visit"}
+            </Badge>
+            <Badge variant={evidenceStatusVariant(row.status)}>
+              {evidenceStatusLabel(row.status)}
+            </Badge>
+            {row.locationState === "unverified" &&
+            !statusAlreadyReportsLocation ? (
+              <Badge variant="warning">Location unverified</Badge>
+            ) : row.locationState === "verified" ? (
+              <Badge variant="success">Location verified</Badge>
+            ) : null}
+            <Badge size="sm" variant="outline">
+              {row.assets.length} file{row.assets.length === 1 ? "" : "s"}
+            </Badge>
+          </div>
+          <h4 className="mt-2 font-semibold text-sm">{row.milestoneName}</h4>
+          <dl className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
+            <div>
+              <dt className="text-muted-foreground">Milestone</dt>
+              <dd className="font-medium">{row.milestoneKey}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">
+                {row.source === "builder" ? "Submitted" : "Completed"}
+              </dt>
+              <dd className="font-medium tabular-nums">{submittedLabel}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Availability</dt>
+              <dd className="font-medium tabular-nums">
+                {row.amountCents === undefined
+                  ? "Not set"
+                  : formatCents(row.amountCents)}
+              </dd>
+            </div>
+          </dl>
+          {row.note ? (
+            row.noteFormat === "html" ? (
+              <FieldRichTextPreview
+                ariaLabel={`${row.milestoneName} field report`}
+                className="mt-3 max-w-3xl"
+                value={row.note}
+              />
+            ) : (
+              <p className="mt-3 max-w-3xl text-muted-foreground text-xs">
+                {row.note}
+              </p>
+            )
+          ) : null}
+        </div>
+        <div className="flex flex-wrap gap-2 2xl:justify-end">
+          <Button
+            onClick={onToggleExpanded}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <ChevronDown
+              aria-hidden="true"
+              className={cn(
+                "size-4 transition-transform",
+                expanded && "rotate-180",
+              )}
+            />
+            {expanded ? "Hide evidence" : "View evidence"}
+          </Button>
+          <Button
+            onClick={() => onOpenMilestone(row.milestoneKey)}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <ExternalLink aria-hidden="true" className="size-4" />
+            Open milestone
+          </Button>
+          {row.source === "builder" && actions?.reviewEvidence ? (
+            <>
+              <Button
+                loading={pendingAction === approveActionKey}
+                onClick={() => void onReviewEvidence(row, true)}
+                size="sm"
+                type="button"
+                variant="default"
+              >
+                <CheckCircle2 aria-hidden="true" className="size-4" />
+                Approve evidence
+              </Button>
+              <Button
+                loading={pendingAction === requestInfoActionKey}
+                onClick={() => void onReviewEvidence(row, false)}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <MessageSquare aria-hidden="true" className="size-4" />
+                Request info
+              </Button>
+            </>
+          ) : null}
+        </div>
+      </div>
+      {expanded ? <EvidenceAssetPackage row={row} /> : null}
+    </div>
+  );
+}
+
+function EvidenceAssetPackage({ row }: { row: ProductionEvidenceRow }) {
+  return (
+    <div
+      className="mt-4 rounded-lg border bg-background/60 p-3"
+      data-testid={`production-evidence-package-${row.id}`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="font-medium text-sm">Evidence package</p>
+          <p className="text-muted-foreground text-xs">
+            Files attached to {row.milestoneName}
+          </p>
+        </div>
+        <Badge variant={row.assets.length > 0 ? "secondary" : "outline"}>
+          {row.assets.length} file{row.assets.length === 1 ? "" : "s"}
+        </Badge>
+      </div>
+      {row.assets.length === 0 ? (
+        <p className="mt-4 rounded-md border border-dashed p-4 text-muted-foreground text-sm">
+          No files are attached to this evidence package yet. The milestone
+          claim is still visible for review, but there are no uploaded assets to
+          inspect.
+        </p>
+      ) : (
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {row.assets.map((asset) => (
+            <EvidenceAssetTile asset={asset} key={asset.evidenceKey} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EvidenceAssetTile({ asset }: { asset: ProductionEvidenceAsset }) {
+  const canOpenAsset = isUsableEvidenceUrl(asset.previewUrl);
+  return (
+    <div
+      className="min-w-0 rounded-lg border bg-card p-3"
+      data-testid={`production-evidence-asset-${asset.evidenceKey}`}
+    >
+      <div className="overflow-hidden rounded-md border bg-background">
+        <EvidenceAssetPreview asset={asset} canOpenAsset={canOpenAsset} />
+      </div>
+      <div className="mt-3 min-w-0">
+        <p className="truncate font-medium text-sm">{asset.label}</p>
+        <p className="truncate text-muted-foreground text-xs">
+          {asset.fileName}
+        </p>
+        <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
+          <div>
+            <dt className="text-muted-foreground">Type</dt>
+            <dd className="truncate">{asset.mimeType}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Size</dt>
+            <dd>{formatBytes(asset.sizeBytes)}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Tag</dt>
+            <dd className="truncate">{asset.tag}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Location</dt>
+            <dd>{asset.locationVerified ? "Verified" : "Unverified"}</dd>
+          </div>
+        </dl>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {canOpenAsset ? (
+          <Button
+            render={
+              <a
+                href={asset.previewUrl ?? ""}
+                rel="noreferrer"
+                target="_blank"
+              />
+            }
+            size="sm"
+            variant="outline"
+          >
+            <ExternalLink aria-hidden="true" className="size-4" />
+            Open file
+          </Button>
+        ) : (
+          <Button disabled size="sm" type="button" variant="outline">
+            <ExternalLink aria-hidden="true" className="size-4" />
+            File unavailable
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EvidenceAssetPreview({
+  asset,
+  canOpenAsset,
+}: {
+  asset: ProductionEvidenceAsset;
+  canOpenAsset: boolean;
+}) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const isImage = asset.mimeType.startsWith("image/");
+  const canRenderDirectly = isBrowserPreviewableImageMime(asset.mimeType);
+  const needsHeicConversion = isHeicLikeEvidenceImage({
+    fileName: asset.fileName,
+    mimeType: asset.mimeType,
+  });
+  const displayUrl =
+    needsHeicConversion && canOpenAsset
+      ? evidenceImagePreviewUrl(asset.previewUrl)
+      : canRenderDirectly && canOpenAsset
+        ? asset.previewUrl
+        : null;
+
+  if (isImage && displayUrl && !imageFailed) {
+    return (
+      <img
+        alt={asset.label}
+        className="aspect-[4/3] w-full object-cover"
+        onError={() => setImageFailed(true)}
+        src={displayUrl}
+      />
+    );
+  }
+  return (
+    <div className="flex aspect-[4/3] flex-col items-center justify-center gap-2 p-3 text-center text-muted-foreground">
+      {isImage ? (
+        <ImageIcon aria-hidden="true" className="size-8" />
+      ) : (
+        <FileText aria-hidden="true" className="size-8" />
+      )}
+      {needsHeicConversion ? (
+        <div className="max-w-44 text-xs">
+          HEIC preview unavailable. Open the original file.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ProductionBuildMaterialsTab({
   actions,
   detail,
@@ -1597,55 +2620,118 @@ function ProductionBuildMaterialsTab({
 }
 
 function ProductionCalendarTab({
+  actions,
+  calendarTimeframe,
+  calendarWorkspace,
   detail,
-  projection,
+  onChangeCalendarTimeframe,
+  onChangeTab,
+  workosOrganizationId,
 }: {
+  actions?: ProductionBuildDetailActions;
+  calendarTimeframe?: CalendarTimeframe;
+  calendarWorkspace?: DrawFlowCalendarWorkspaceData | null;
   detail: ProductionBuildDetail;
-  projection: ProductionBuildProjection;
+  onChangeCalendarTimeframe?: (timeframe: CalendarTimeframe) => void;
+  onChangeTab: (tab: BuildDetailSubTab) => void;
+  workosOrganizationId?: string;
 }) {
+  const drawByKey = useMemo(
+    () => new Map(detail.draws.map((draw) => [draw.drawKey, draw])),
+    [detail.draws],
+  );
+  const adapterActions = useMemo<ActiveBuildCalendarAdapterActions>(
+    () => ({
+      approveDraw: (drawKey) => {
+        const draw = drawByKey.get(drawKey);
+        if (draw) return actions?.approveDraw?.(draw);
+      },
+      approveMilestone: (milestoneKey) =>
+        actions?.approveMilestone?.({ milestoneKey }),
+      assignSiteVisit: (milestoneKey) =>
+        actions?.assignSiteVisit?.({ milestoneKey }),
+      cancelSiteVisit: actions?.cancelSiteVisit,
+      releaseDraw: (drawKey) => {
+        const draw = drawByKey.get(drawKey);
+        if (draw) return actions?.releaseDraw?.(draw);
+      },
+      requestDraw: (drawKey) => {
+        const draw = drawByKey.get(drawKey);
+        if (draw) return actions?.requestDraw?.(draw);
+      },
+      requestLoanFacilityDateChange:
+        actions?.requestLoanFacilityDateChange ??
+        ((input) =>
+          actions?.requestFacilityChange?.({
+            reason: input.reason,
+            requestedPaybackDate: input.requestedPaybackDate,
+            requestType: "paybackExtension",
+          })),
+      requestMilestoneInfo: actions?.requestMilestoneInfo,
+      rescheduleSiteVisit: actions?.rescheduleSiteVisit,
+      reviseMilestoneSchedule: actions?.reviseMilestoneSchedule,
+      scheduleSiteVisit:
+        actions?.scheduleSiteVisit ??
+        ((input) =>
+          actions?.assignSiteVisit?.({ milestoneKey: input.milestoneKey })),
+      setAdminDecisionTargetDate: actions?.setAdminDecisionTargetDate,
+      setDrawReleaseTargetDate: actions?.setDrawReleaseTargetDate,
+      setEvidenceDueDate: actions?.setEvidenceDueDate,
+      setReviewTargetDate: actions?.setReviewTargetDate,
+      startMilestoneWork: (milestoneKey) =>
+        actions?.startMilestoneWork?.({
+          milestoneKey,
+          note: "Started from calendar workspace.",
+        }),
+    }),
+    [actions, drawByKey],
+  );
+  const effectiveWorkspace = useMemo(
+    () =>
+      calendarWorkspace ??
+      buildActiveBuildCalendarWorkspaceFromDetail(detail, {
+        organizationId: workosOrganizationId,
+      }),
+    [calendarWorkspace, detail, workosOrganizationId],
+  );
+  const calendarActions = useMemo(
+    () =>
+      buildActiveBuildCalendarActions(adapterActions, {
+        baseDate: detail.build.startDate,
+      }),
+    [adapterActions, detail.build.startDate],
+  );
+  const commitEdit = useMemo(
+    () =>
+      createActiveBuildCalendarEditHandler({
+        actions: adapterActions,
+        baseDate: detail.build.startDate,
+      }),
+    [adapterActions, detail.build.startDate],
+  );
+
   return (
-    <div
-      className="grid gap-4 xl:grid-cols-[auto_1fr]"
-      data-testid="production-build-calendar"
-    >
-      <Frame>
-        <FramePanel className="p-4">
-          <Calendar
-            mode="multiple"
-            selected={projection.calendarDates}
-            showOutsideDays
-          />
-        </FramePanel>
-      </Frame>
-      <Card>
-        <CardHeader className="p-4">
-          <CardTitle className="text-base">Calendar milestones</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3 p-4 pt-0">
-          {projection.milestones.map((milestone) => (
-            <div
-              className="grid gap-3 rounded-md border bg-background/60 p-3 text-sm md:grid-cols-[1fr_auto]"
-              key={milestone._id}
-            >
-              <div className="min-w-0">
-                <p className="truncate font-medium">{milestone.name}</p>
-                <p className="text-muted-foreground text-xs">
-                  {formatDate(
-                    addDaysSafe(detail.build.startDate, milestone.dayStart)
-                  )}{" "}
-                  to{" "}
-                  {formatDate(
-                    addDaysSafe(detail.build.startDate, milestone.dayEnd)
-                  )}
-                </p>
-              </div>
-              <Badge variant={milestoneBadgeVariant(milestone.status)}>
-                {milestoneStatusLabel(milestone.status)}
-              </Badge>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+    <div data-testid="production-build-calendar">
+      <CalendarWorkspace
+        actions={calendarActions}
+        initialTimeframe={
+          calendarTimeframe ?? effectiveWorkspace.defaultTimeframe
+        }
+        onCommitEdit={commitEdit}
+        onCreateSyncSubscription={actions?.createCalendarSyncSubscription}
+        onRecordExternalSyncChange={actions?.recordExternalCalendarSyncChange}
+        onSaveView={actions?.saveCalendarView}
+        onTimeframeChange={onChangeCalendarTimeframe}
+        workspace={effectiveWorkspace}
+      />
+      <div className="sr-only">
+        <button onClick={() => onChangeTab("timeline")} type="button">
+          Jump to timeline
+        </button>
+        <button onClick={() => onChangeTab("gantt")} type="button">
+          Jump to Gantt
+        </button>
+      </div>
     </div>
   );
 }
@@ -1689,12 +2775,12 @@ function ProductionGanttTab({
 function buildProductionKanbanCards(
   detail: ProductionBuildDetail,
   projection: ProductionBuildProjection,
-  currentDay: number
+  currentDay: number,
 ): KanbanCardData[] {
   const drawByMilestone = new Map(
     projection.draws
       .filter((draw) => draw.milestoneKey)
-      .map((draw) => [draw.milestoneKey as string, draw])
+      .map((draw) => [draw.milestoneKey as string, draw]),
   );
   return projection.milestones.map((milestone) => {
     const draw = drawByMilestone.get(milestone.key);
@@ -1707,7 +2793,7 @@ function buildProductionKanbanCards(
           ? Math.round(
               (submilestones.filter((sub) => sub.status === "complete").length /
                 submilestones.length) *
-                100
+                100,
             )
           : milestone.status === "complete"
             ? 100
@@ -1728,14 +2814,14 @@ function buildProductionKanbanCards(
         (contractor) => ({
           initials: initialsFor(contractor.name),
           name: contractor.name,
-        })
+        }),
       ),
       drawGroupKey: draw?.drawKey ?? milestone.key,
       evidenceReviewStatus: milestone.evidenceState,
       forecastEndDate: addDaysSafe(detail.build.startDate, milestone.dayEnd),
       forecastStartDate: addDaysSafe(
         detail.build.startDate,
-        milestone.dayStart
+        milestone.dayStart,
       ),
       milestoneId: milestone._id,
       milestoneKey: milestone.key,
@@ -1759,6 +2845,7 @@ function buildProductionKanbanCards(
         key: submilestone.key,
         name: submilestone.name,
         order: submilestone.order,
+        startDay: submilestone.startDay,
         status:
           submilestone.status === "complete"
             ? "done"
@@ -1802,9 +2889,16 @@ function resolveProductionMilestoneKanbanState({
       status: "completion_approved",
     };
   }
+  if (milestone.completionClaim) {
+    return {
+      canStartWork: false,
+      column: "MarkedComplete",
+      status: "completion_requested",
+    };
+  }
   const dependenciesReady = productionMilestoneDependenciesSatisfied(
     milestone,
-    projection
+    projection,
   );
   const hasStarted = productionMilestoneHasStartedWorkflow(milestone, draw);
   const isPastEnd = currentDay > milestone.dayEnd;
@@ -1836,20 +2930,19 @@ function resolveProductionMilestoneKanbanState({
 
 function productionMilestoneDependenciesSatisfied(
   milestone: ProductionMilestone,
-  projection: ProductionBuildProjection
+  projection: ProductionBuildProjection,
 ) {
   const byKey = new Map(projection.milestones.map((row) => [row.key, row]));
   return (milestone.dependencyKeys ?? []).every(
-    (key) => byKey.get(key)?.status === "complete"
+    (key) => byKey.get(key)?.status === "complete",
   );
 }
 
 function productionMilestoneHasStartedWorkflow(
   milestone: ProductionMilestone,
-  draw?: ProductionDraw
+  draw?: ProductionDraw,
 ) {
   if (milestone.status === "in_progress") return true;
-  if (milestone.completionClaim) return true;
   if ((milestone.progressPercent ?? 0) > 0) return true;
   if (
     draw?.status === "requested" ||
@@ -1861,7 +2954,7 @@ function productionMilestoneHasStartedWorkflow(
   const evidenceState = String(milestone.evidenceState ?? "").toLowerCase();
   return Boolean(
     evidenceState &&
-      !["draft package", "not started", "planned"].includes(evidenceState)
+    !["draft package", "not started", "planned"].includes(evidenceState),
   );
 }
 
@@ -1869,14 +2962,14 @@ function buildMilestoneSheetData(
   detail: ProductionBuildDetail,
   projection: ProductionBuildProjection,
   milestoneKey: string,
-  currentDay: number
+  currentDay: number,
 ): MilestoneSheetData | null {
   const milestone = projection.milestones.find(
-    (row) => row.key === milestoneKey
+    (row) => row.key === milestoneKey,
   );
   if (!milestone) return null;
   const draw = projection.draws.find(
-    (row) => row.milestoneKey === milestoneKey
+    (row) => row.milestoneKey === milestoneKey,
   );
   const state = resolveProductionMilestoneKanbanState({
     currentDay,
@@ -1901,7 +2994,7 @@ function buildMilestoneSheetData(
         initials: initialsFor(contractor.name),
         name: contractor.name,
         role: contractor.role,
-      })
+      }),
     ),
     drawGroupKey: draw?.drawKey ?? milestone.key,
     milestoneKey: milestone.key,
@@ -1914,7 +3007,7 @@ function buildMilestoneSheetData(
 
 function resolveProductionCurrentDay(
   detail: ProductionBuildDetail,
-  timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null
+  timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null,
 ) {
   const timelineDay = timelineWorkspace?.plan?.currentDay;
   if (typeof timelineDay === "number" && Number.isFinite(timelineDay)) {
@@ -1922,7 +3015,7 @@ function resolveProductionCurrentDay(
   }
   return daysBetweenProductionDates(
     detail.build.startDate,
-    new Date().toISOString()
+    new Date().toISOString(),
   );
 }
 
@@ -1934,7 +3027,7 @@ function daysBetweenProductionDates(startIso: string, endIso: string) {
   };
   return Math.max(
     0,
-    Math.round((parseDay(endIso) - parseDay(startIso)) / 86_400_000)
+    Math.round((parseDay(endIso) - parseDay(startIso)) / 86_400_000),
   );
 }
 
@@ -1943,12 +3036,12 @@ function clampPercent(value: number) {
 }
 
 function buildProductionBuildProjection(
-  detail: ProductionBuildDetail
+  detail: ProductionBuildDetail,
 ): ProductionBuildProjection {
   const milestones = [...detail.milestones].sort((a, b) => a.order - b.order);
   const draws = [...detail.draws].sort((a, b) => a.order - b.order);
   const submilestones = [...detail.submilestones].sort(
-    (a, b) => a.order - b.order
+    (a, b) => a.order - b.order,
   );
   const submilestonesByMilestone = new Map<string, ProductionSubmilestone[]>();
   for (const submilestone of submilestones) {
@@ -1959,12 +3052,12 @@ function buildProductionBuildProjection(
   const maxDay = Math.max(
     60,
     ...milestones.map((milestone) => milestone.dayEnd + 14),
-    ...draws.map((draw) => draw.timingDay + 14)
+    ...draws.map((draw) => draw.timingDay + 14),
   );
   const calendarIsoDates = new Set<string>();
   for (const milestone of milestones) {
     calendarIsoDates.add(
-      addDaysSafe(detail.build.startDate, milestone.dayStart)
+      addDaysSafe(detail.build.startDate, milestone.dayStart),
     );
     calendarIsoDates.add(addDaysSafe(detail.build.startDate, milestone.dayEnd));
   }
@@ -2003,17 +3096,6 @@ function statusLabel(status: ProductionBuildStatus): string {
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function milestoneStatusLabel(status: ProductionMilestoneStatus): string {
-  switch (status) {
-    case "in_progress":
-      return "In progress";
-    case "complete":
-      return "Complete";
-    default:
-      return "Planned";
-  }
-}
-
 function drawStatusLabel(status: ProductionDrawStatus): string {
   switch (status) {
     case "approved":
@@ -2029,24 +3111,293 @@ function drawStatusLabel(status: ProductionDrawStatus): string {
   }
 }
 
+function buildBuilderEvidenceRows(
+  detail: ProductionBuildDetail,
+  projection: ProductionBuildProjection,
+): ProductionEvidenceRow[] {
+  const drawByMilestone = new Map(
+    projection.draws
+      .filter((draw) => draw.milestoneKey)
+      .map((draw) => [draw.milestoneKey as string, draw]),
+  );
+  return projection.milestones
+    .map((milestone) => {
+      const assets = evidenceAssetsForMilestone(detail, milestone.key).filter(
+        (asset) => !isSiteVisitEvidenceAsset(asset),
+      );
+      if (!hasBuilderSubmittedEvidence(milestone) && assets.length === 0) {
+        return null;
+      }
+      const claim = milestone.completionClaim;
+      const review = milestone.completionReview;
+      const completedDay = numberFromRecord(claim, "completedDay");
+      const submittedAt =
+        stringFromRecord(claim, "submittedAt") ??
+        stringFromRecord(review, "reviewedAt") ??
+        (completedDay === undefined
+          ? undefined
+          : addDaysSafe(detail.build.startDate, completedDay));
+      const note =
+        stringFromRecord(claim, "note") ?? stringFromRecord(review, "note");
+      const status =
+        stringFromRecord(review, "status") ??
+        milestone.evidenceState ??
+        "Submitted";
+      return {
+        amountCents:
+          drawByMilestone.get(milestone.key)?.amountCents ??
+          milestone.drawAvailabilityCents,
+        assets,
+        id: `builder-${milestone.key}`,
+        locationState: evidenceLocationState(detail, milestone.key),
+        milestoneKey: milestone.key,
+        milestoneName: milestone.name,
+        note,
+        source: "builder",
+        status,
+        submittedAt,
+      } satisfies ProductionEvidenceRow;
+    })
+    .filter((row): row is ProductionEvidenceRow => row !== null);
+}
+
+function buildCompletedSiteVisitRows(
+  detail: ProductionBuildDetail,
+  projection: ProductionBuildProjection,
+): ProductionEvidenceRow[] {
+  const milestoneByKey = new Map(
+    projection.milestones.map((milestone) => [milestone.key, milestone]),
+  );
+  const drawByMilestone = new Map(
+    projection.draws
+      .filter((draw) => draw.milestoneKey)
+      .map((draw) => [draw.milestoneKey as string, draw]),
+  );
+  const rows = new Map<string, ProductionEvidenceRow>();
+  const addVisit = (visit: ProductionSiteVisit) => {
+    if (visit.status !== "complete") return;
+    const milestone = milestoneByKey.get(visit.milestoneKey);
+    const key = visit.visitId || visit._id || visit.milestoneKey;
+    const assets = siteVisitEvidenceAssetsForVisit(detail, visit);
+    rows.set(key, {
+      amountCents:
+        drawByMilestone.get(visit.milestoneKey)?.amountCents ??
+        milestone?.drawAvailabilityCents,
+      assets,
+      completedAt: visit.completedAt,
+      id: `site-visit-${key}`,
+      locationState: evidenceLocationState(detail, visit.milestoneKey, assets),
+      milestoneKey: visit.milestoneKey,
+      milestoneName: milestone?.name ?? visit.milestoneKey,
+      note: visit.recordNote ?? visit.note,
+      noteFormat: visit.recordNote ? visit.recordNoteFormat : undefined,
+      source: "site_visit",
+      status: visit.status,
+      submittedAt: visit.requestedAt,
+    });
+  };
+
+  for (const visit of detail.siteVisits ?? []) {
+    addVisit(visit);
+  }
+  for (const milestone of projection.milestones) {
+    const siteVisit = siteVisitFromCompletionReview(milestone.completionReview);
+    if (siteVisit?.status === "complete") {
+      addVisit({
+        milestoneKey: milestone.key,
+        requestedAt: siteVisit.requestedAt ?? siteVisit.completedAt ?? "",
+        requestedDay: siteVisit.requestedDay ?? milestone.dayEnd,
+        status: siteVisit.status,
+        visitId: siteVisit.visitId ?? milestone.key,
+        ...(siteVisit.completedAt
+          ? { completedAt: siteVisit.completedAt }
+          : {}),
+        ...(siteVisit.note ? { note: siteVisit.note } : {}),
+        ...(siteVisit.recordNote ? { recordNote: siteVisit.recordNote } : {}),
+        ...(siteVisit.recordNoteFormat
+          ? { recordNoteFormat: siteVisit.recordNoteFormat }
+          : {}),
+        ...(siteVisit.tokenExpiresAt
+          ? { tokenExpiresAt: siteVisit.tokenExpiresAt }
+          : {}),
+      });
+    }
+  }
+  return [...rows.values()].sort((a, b) =>
+    (b.completedAt ?? b.submittedAt ?? "").localeCompare(
+      a.completedAt ?? a.submittedAt ?? "",
+    ),
+  );
+}
+
+function hasBuilderSubmittedEvidence(milestone: ProductionMilestone) {
+  if (milestone.completionClaim) return true;
+  const state = String(milestone.evidenceState ?? "").toLowerCase();
+  if (!state) return false;
+  return !["draft package", "not started", "planned"].includes(state);
+}
+
+function evidenceLocationState(
+  detail: ProductionBuildDetail,
+  milestoneKey: string,
+  scopedAssets = evidenceAssetsForMilestone(detail, milestoneKey),
+): ProductionEvidenceRow["locationState"] {
+  if (scopedAssets.some((asset) => asset.locationVerified === false)) {
+    return "unverified";
+  }
+  if (scopedAssets.some((asset) => asset.locationVerified === true)) {
+    return "verified";
+  }
+  const relatedPhotos = (detail.sitePhotos ?? []).filter((photo) =>
+    [photo.caption, photo.evidenceKey]
+      .filter(Boolean)
+      .some((value) =>
+        String(value).toLowerCase().includes(milestoneKey.toLowerCase()),
+      ),
+  );
+  if (relatedPhotos.some((photo) => photo.locationVerified === false)) {
+    return "unverified";
+  }
+  if (relatedPhotos.some((photo) => photo.locationVerified === true)) {
+    return "verified";
+  }
+  return undefined;
+}
+
+function evidenceAssetsForMilestone(
+  detail: ProductionBuildDetail,
+  milestoneKey: string,
+) {
+  return (detail.evidenceAssets ?? []).filter(
+    (asset) => asset.milestoneKey === milestoneKey,
+  );
+}
+
+function siteVisitEvidenceAssetsForVisit(
+  detail: ProductionBuildDetail,
+  visit: ProductionSiteVisit,
+) {
+  const milestoneAssets = evidenceAssetsForMilestone(
+    detail,
+    visit.milestoneKey,
+  );
+  const visitId = visit.visitId ?? visit._id;
+  const visitAssets = milestoneAssets.filter((asset) => {
+    const source = String(asset.source ?? "");
+    return (
+      isSiteVisitEvidenceAsset(asset) &&
+      (!visitId || source.includes(String(visitId)))
+    );
+  });
+  if (visitAssets.length > 0) return visitAssets;
+  return milestoneAssets.filter(isSiteVisitEvidenceAsset);
+}
+
+function isSiteVisitEvidenceAsset(asset: ProductionEvidenceAsset) {
+  return String(asset.source ?? "")
+    .toLowerCase()
+    .includes("site_visit");
+}
+
+function isUsableEvidenceUrl(url?: string | null) {
+  if (!url) return false;
+  return !(
+    url.startsWith("production-evidence://") ||
+    url.startsWith("production-build://")
+  );
+}
+
+function evidenceImagePreviewUrl(url?: string | null) {
+  if (!url) return null;
+  const siteUrl = import.meta.env.VITE_CONVEX_SITE_URL;
+  if (!siteUrl) return null;
+  return `${siteUrl}/evidence-image-preview?url=${encodeURIComponent(url)}`;
+}
+
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"] as const;
+  const exponent = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1,
+  );
+  const value = bytes / 1024 ** exponent;
+  return `${value >= 10 || exponent === 0 ? Math.round(value) : value.toFixed(1)} ${units[exponent]}`;
+}
+
+function evidenceStatusLabel(status: string): string {
+  if (!status) return "Submitted";
+  return status
+    .replace(/_/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function evidenceStatusVariant(
+  status: string,
+): React.ComponentProps<typeof Badge>["variant"] {
+  const normalized = status.toLowerCase();
+  if (
+    normalized.includes("approved") ||
+    normalized.includes("accepted") ||
+    normalized === "complete"
+  ) {
+    return "success";
+  }
+  if (
+    normalized.includes("rejected") ||
+    normalized.includes("failed") ||
+    normalized.includes("declined")
+  ) {
+    return "destructive";
+  }
+  if (
+    normalized.includes("info") ||
+    normalized.includes("revision") ||
+    normalized.includes("unverified") ||
+    normalized.includes("requested")
+  ) {
+    return "warning";
+  }
+  if (normalized.includes("submitted") || normalized.includes("claim")) {
+    return "info";
+  }
+  return "outline";
+}
+
+function stringFromRecord(
+  value: Record<string, unknown> | undefined,
+  key: string,
+) {
+  const raw = value?.[key];
+  return typeof raw === "string" && raw.trim() ? raw : undefined;
+}
+
+function numberFromRecord(
+  value: Record<string, unknown> | undefined,
+  key: string,
+) {
+  const raw = value?.[key];
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
+}
+
+function siteVisitFromCompletionReview(
+  review: Record<string, any> | undefined,
+): Partial<ProductionSiteVisit> | null {
+  const raw = review?.siteVisit;
+  return raw && typeof raw === "object" ? raw : null;
+}
+
 function statusBadgeVariant(
-  status: ProductionBuildStatus
+  status: ProductionBuildStatus,
 ): React.ComponentProps<typeof Badge>["variant"] {
   if (status === "completed") return "success";
   if (status === "paused") return "warning";
   return "info";
 }
 
-function milestoneBadgeVariant(
-  status: ProductionMilestoneStatus
-): React.ComponentProps<typeof Badge>["variant"] {
-  if (status === "complete") return "success";
-  if (status === "in_progress") return "warning";
-  return "outline";
-}
-
 function drawBadgeVariant(
-  status: ProductionDrawStatus
+  status: ProductionDrawStatus,
 ): React.ComponentProps<typeof Badge>["variant"] {
   if (status === "released") return "success";
   if (status === "requested") return "warning";
@@ -2057,7 +3408,7 @@ function drawBadgeVariant(
 
 function contractorAssignmentsForMilestone(
   detail: ProductionBuildDetail,
-  milestoneKey: string
+  milestoneKey: string,
 ) {
   const profileById = new Map<string, { name: string; trades?: string[] }>();
   for (const contractor of detail.contractors ?? []) {
@@ -2088,13 +3439,13 @@ function contractorAssignmentsForMilestone(
 function submilestoneNameFor(
   detail: ProductionBuildDetail,
   milestoneKey: string,
-  submilestoneKey: string
+  submilestoneKey: string,
 ) {
   return (
     detail.submilestones.find(
       (submilestone) =>
         submilestone.milestoneKey === milestoneKey &&
-        submilestone.key === submilestoneKey
+        submilestone.key === submilestoneKey,
     )?.name ?? submilestoneKey
   );
 }

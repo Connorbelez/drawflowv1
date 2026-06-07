@@ -4,6 +4,10 @@
 @import 'shadcn/tailwind.css';
 @import '@fontsource-variable/oxanium';
 
+.timeline-card-layer:has([data-timeline-expanded-card='true']) {
+  z-index: 120;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 :root {

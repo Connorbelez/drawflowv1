@@ -9,15 +9,19 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as RoadmapRouteImport } from './routes/roadmap'
 import { Route as ProtectedAccessRouteImport } from './routes/protected-access'
+import { Route as ProposalPreviewRouteImport } from './routes/proposal-preview'
 import { Route as CallbackRouteImport } from './routes/callback'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as DemoRouteRouteImport } from './routes/demo/route'
 import { Route as BuilderRouteRouteImport } from './routes/builder/route'
 import { Route as BackofficeRouteRouteImport } from './routes/backoffice/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as IntakeIndexRouteImport } from './routes/intake/index'
 import { Route as BuilderIndexRouteImport } from './routes/builder/index'
 import { Route as BackofficeIndexRouteImport } from './routes/backoffice/index'
+import { Route as ProposalClaimClaimTokenRouteImport } from './routes/proposal-claim.$claimToken'
 import { Route as DemoWorkosRouteImport } from './routes/demo/workos'
 import { Route as DemoTanstackQueryRouteImport } from './routes/demo/tanstack-query'
 import { Route as DemoConvexRouteImport } from './routes/demo/convex'
@@ -40,6 +44,7 @@ import { Route as BuilderProposalsIndexRouteImport } from './routes/builder/prop
 import { Route as BackofficeSettingsIndexRouteImport } from './routes/backoffice/settings/index'
 import { Route as BackofficeProposalsIndexRouteImport } from './routes/backoffice/proposals/index'
 import { Route as BackofficeContractorsIndexRouteImport } from './routes/backoffice/contractors/index'
+import { Route as BackofficeBuildsIndexRouteImport } from './routes/backoffice/builds/index'
 import { Route as BackofficeBuildersIndexRouteImport } from './routes/backoffice/builders/index'
 import { Route as NewsitevisitBuildIdSiteVisitTokenRouteImport } from './routes/newsitevisit.$buildId.$siteVisitToken'
 import { Route as DemoTimelineTimelineIdRouteImport } from './routes/demo/timeline/$timelineId'
@@ -72,9 +77,19 @@ import { Route as BuilderDemoDashboardBuildsIndexRouteImport } from './routes/bu
 import { Route as BuilderDemoDashboardProposalsDraftIdRouteImport } from './routes/builder/demo/dashboard/proposals/$draftId'
 import { Route as BuilderDemoDashboardBuildsBuildIdRouteImport } from './routes/builder/demo/dashboard/builds/$buildId'
 
+const RoadmapRoute = RoadmapRouteImport.update({
+  id: '/roadmap',
+  path: '/roadmap',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProtectedAccessRoute = ProtectedAccessRouteImport.update({
   id: '/protected-access',
   path: '/protected-access',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProposalPreviewRoute = ProposalPreviewRouteImport.update({
+  id: '/proposal-preview',
+  path: '/proposal-preview',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CallbackRoute = CallbackRouteImport.update({
@@ -107,6 +122,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const IntakeIndexRoute = IntakeIndexRouteImport.update({
+  id: '/intake/',
+  path: '/intake/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const BuilderIndexRoute = BuilderIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -116,6 +136,11 @@ const BackofficeIndexRoute = BackofficeIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => BackofficeRouteRoute,
+} as any)
+const ProposalClaimClaimTokenRoute = ProposalClaimClaimTokenRouteImport.update({
+  id: '/proposal-claim/$claimToken',
+  path: '/proposal-claim/$claimToken',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const DemoWorkosRoute = DemoWorkosRouteImport.update({
   id: '/workos',
@@ -235,6 +260,11 @@ const BackofficeContractorsIndexRoute =
     path: '/',
     getParentRoute: () => BackofficeContractorsRouteRoute,
   } as any)
+const BackofficeBuildsIndexRoute = BackofficeBuildsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => BackofficeBuildsRouteRoute,
+} as any)
 const BackofficeBuildersIndexRoute = BackofficeBuildersIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -420,7 +450,9 @@ export interface FileRoutesByFullPath {
   '/demo': typeof DemoRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/callback': typeof CallbackRoute
+  '/proposal-preview': typeof ProposalPreviewRoute
   '/protected-access': typeof ProtectedAccessRoute
+  '/roadmap': typeof RoadmapRoute
   '/backoffice/builders': typeof BackofficeBuildersRouteRouteWithChildren
   '/backoffice/builds': typeof BackofficeBuildsRouteRouteWithChildren
   '/backoffice/contractors': typeof BackofficeContractorsRouteRouteWithChildren
@@ -436,8 +468,10 @@ export interface FileRoutesByFullPath {
   '/demo/convex': typeof DemoConvexRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/demo/workos': typeof DemoWorkosRoute
+  '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/backoffice/': typeof BackofficeIndexRoute
   '/builder/': typeof BuilderIndexRoute
+  '/intake/': typeof IntakeIndexRoute
   '/backoffice/builds/$buildId': typeof BackofficeBuildsBuildIdRouteRouteWithChildren
   '/builder/demo/dashboard': typeof BuilderDemoDashboardRouteRouteWithChildren
   '/builder/proposals/$proposalId': typeof BuilderProposalsProposalIdRouteRouteWithChildren
@@ -458,6 +492,7 @@ export interface FileRoutesByFullPath {
   '/demo/timeline/$timelineId': typeof DemoTimelineTimelineIdRoute
   '/newsitevisit/$buildId/$siteVisitToken': typeof NewsitevisitBuildIdSiteVisitTokenRoute
   '/backoffice/builders/': typeof BackofficeBuildersIndexRoute
+  '/backoffice/builds/': typeof BackofficeBuildsIndexRoute
   '/backoffice/contractors/': typeof BackofficeContractorsIndexRoute
   '/backoffice/proposals/': typeof BackofficeProposalsIndexRoute
   '/backoffice/settings/': typeof BackofficeSettingsIndexRoute
@@ -482,8 +517,9 @@ export interface FileRoutesByTo {
   '/demo': typeof DemoRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/callback': typeof CallbackRoute
+  '/proposal-preview': typeof ProposalPreviewRoute
   '/protected-access': typeof ProtectedAccessRoute
-  '/backoffice/builds': typeof BackofficeBuildsRouteRouteWithChildren
+  '/roadmap': typeof RoadmapRoute
   '/backoffice/draws': typeof BackofficeDrawsRouteRoute
   '/backoffice/site-visits': typeof BackofficeSiteVisitsRouteRoute
   '/builder/demo': typeof BuilderDemoRouteRouteWithChildren
@@ -493,8 +529,10 @@ export interface FileRoutesByTo {
   '/demo/convex': typeof DemoConvexRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/demo/workos': typeof DemoWorkosRoute
+  '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/backoffice': typeof BackofficeIndexRoute
   '/builder': typeof BuilderIndexRoute
+  '/intake': typeof IntakeIndexRoute
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
   '/api/auth/sign-up': typeof ApiAuthSignUpRoute
   '/backoffice/builders/builderId': typeof BackofficeBuildersBuilderIdRoute
@@ -512,6 +550,7 @@ export interface FileRoutesByTo {
   '/demo/timeline/$timelineId': typeof DemoTimelineTimelineIdRoute
   '/newsitevisit/$buildId/$siteVisitToken': typeof NewsitevisitBuildIdSiteVisitTokenRoute
   '/backoffice/builders': typeof BackofficeBuildersIndexRoute
+  '/backoffice/builds': typeof BackofficeBuildsIndexRoute
   '/backoffice/contractors': typeof BackofficeContractorsIndexRoute
   '/backoffice/proposals': typeof BackofficeProposalsIndexRoute
   '/backoffice/settings': typeof BackofficeSettingsIndexRoute
@@ -537,7 +576,9 @@ export interface FileRoutesById {
   '/demo': typeof DemoRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/callback': typeof CallbackRoute
+  '/proposal-preview': typeof ProposalPreviewRoute
   '/protected-access': typeof ProtectedAccessRoute
+  '/roadmap': typeof RoadmapRoute
   '/backoffice/builders': typeof BackofficeBuildersRouteRouteWithChildren
   '/backoffice/builds': typeof BackofficeBuildsRouteRouteWithChildren
   '/backoffice/contractors': typeof BackofficeContractorsRouteRouteWithChildren
@@ -553,8 +594,10 @@ export interface FileRoutesById {
   '/demo/convex': typeof DemoConvexRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/demo/workos': typeof DemoWorkosRoute
+  '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/backoffice/': typeof BackofficeIndexRoute
   '/builder/': typeof BuilderIndexRoute
+  '/intake/': typeof IntakeIndexRoute
   '/backoffice/builds/$buildId': typeof BackofficeBuildsBuildIdRouteRouteWithChildren
   '/builder/demo/dashboard': typeof BuilderDemoDashboardRouteRouteWithChildren
   '/builder/proposals/$proposalId': typeof BuilderProposalsProposalIdRouteRouteWithChildren
@@ -575,6 +618,7 @@ export interface FileRoutesById {
   '/demo/timeline/$timelineId': typeof DemoTimelineTimelineIdRoute
   '/newsitevisit/$buildId/$siteVisitToken': typeof NewsitevisitBuildIdSiteVisitTokenRoute
   '/backoffice/builders/': typeof BackofficeBuildersIndexRoute
+  '/backoffice/builds/': typeof BackofficeBuildsIndexRoute
   '/backoffice/contractors/': typeof BackofficeContractorsIndexRoute
   '/backoffice/proposals/': typeof BackofficeProposalsIndexRoute
   '/backoffice/settings/': typeof BackofficeSettingsIndexRoute
@@ -603,7 +647,9 @@ export interface FileRouteTypes {
     | '/demo'
     | '/about'
     | '/callback'
+    | '/proposal-preview'
     | '/protected-access'
+    | '/roadmap'
     | '/backoffice/builders'
     | '/backoffice/builds'
     | '/backoffice/contractors'
@@ -619,8 +665,10 @@ export interface FileRouteTypes {
     | '/demo/convex'
     | '/demo/tanstack-query'
     | '/demo/workos'
+    | '/proposal-claim/$claimToken'
     | '/backoffice/'
     | '/builder/'
+    | '/intake/'
     | '/backoffice/builds/$buildId'
     | '/builder/demo/dashboard'
     | '/builder/proposals/$proposalId'
@@ -641,6 +689,7 @@ export interface FileRouteTypes {
     | '/demo/timeline/$timelineId'
     | '/newsitevisit/$buildId/$siteVisitToken'
     | '/backoffice/builders/'
+    | '/backoffice/builds/'
     | '/backoffice/contractors/'
     | '/backoffice/proposals/'
     | '/backoffice/settings/'
@@ -665,8 +714,9 @@ export interface FileRouteTypes {
     | '/demo'
     | '/about'
     | '/callback'
+    | '/proposal-preview'
     | '/protected-access'
-    | '/backoffice/builds'
+    | '/roadmap'
     | '/backoffice/draws'
     | '/backoffice/site-visits'
     | '/builder/demo'
@@ -676,8 +726,10 @@ export interface FileRouteTypes {
     | '/demo/convex'
     | '/demo/tanstack-query'
     | '/demo/workos'
+    | '/proposal-claim/$claimToken'
     | '/backoffice'
     | '/builder'
+    | '/intake'
     | '/api/auth/sign-in'
     | '/api/auth/sign-up'
     | '/backoffice/builders/builderId'
@@ -695,6 +747,7 @@ export interface FileRouteTypes {
     | '/demo/timeline/$timelineId'
     | '/newsitevisit/$buildId/$siteVisitToken'
     | '/backoffice/builders'
+    | '/backoffice/builds'
     | '/backoffice/contractors'
     | '/backoffice/proposals'
     | '/backoffice/settings'
@@ -719,7 +772,9 @@ export interface FileRouteTypes {
     | '/demo'
     | '/about'
     | '/callback'
+    | '/proposal-preview'
     | '/protected-access'
+    | '/roadmap'
     | '/backoffice/builders'
     | '/backoffice/builds'
     | '/backoffice/contractors'
@@ -735,8 +790,10 @@ export interface FileRouteTypes {
     | '/demo/convex'
     | '/demo/tanstack-query'
     | '/demo/workos'
+    | '/proposal-claim/$claimToken'
     | '/backoffice/'
     | '/builder/'
+    | '/intake/'
     | '/backoffice/builds/$buildId'
     | '/builder/demo/dashboard'
     | '/builder/proposals/$proposalId'
@@ -757,6 +814,7 @@ export interface FileRouteTypes {
     | '/demo/timeline/$timelineId'
     | '/newsitevisit/$buildId/$siteVisitToken'
     | '/backoffice/builders/'
+    | '/backoffice/builds/'
     | '/backoffice/contractors/'
     | '/backoffice/proposals/'
     | '/backoffice/settings/'
@@ -784,7 +842,11 @@ export interface RootRouteChildren {
   DemoRouteRoute: typeof DemoRouteRouteWithChildren
   AboutRoute: typeof AboutRoute
   CallbackRoute: typeof CallbackRoute
+  ProposalPreviewRoute: typeof ProposalPreviewRoute
   ProtectedAccessRoute: typeof ProtectedAccessRoute
+  RoadmapRoute: typeof RoadmapRoute
+  ProposalClaimClaimTokenRoute: typeof ProposalClaimClaimTokenRoute
+  IntakeIndexRoute: typeof IntakeIndexRoute
   ApiAuthSignInRoute: typeof ApiAuthSignInRoute
   ApiAuthSignUpRoute: typeof ApiAuthSignUpRoute
   NewsitevisitBuildIdSiteVisitTokenRoute: typeof NewsitevisitBuildIdSiteVisitTokenRoute
@@ -792,11 +854,25 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/roadmap': {
+      id: '/roadmap'
+      path: '/roadmap'
+      fullPath: '/roadmap'
+      preLoaderRoute: typeof RoadmapRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/protected-access': {
       id: '/protected-access'
       path: '/protected-access'
       fullPath: '/protected-access'
       preLoaderRoute: typeof ProtectedAccessRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/proposal-preview': {
+      id: '/proposal-preview'
+      path: '/proposal-preview'
+      fullPath: '/proposal-preview'
+      preLoaderRoute: typeof ProposalPreviewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/callback': {
@@ -841,6 +917,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/intake/': {
+      id: '/intake/'
+      path: '/intake'
+      fullPath: '/intake/'
+      preLoaderRoute: typeof IntakeIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/builder/': {
       id: '/builder/'
       path: '/'
@@ -854,6 +937,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/backoffice/'
       preLoaderRoute: typeof BackofficeIndexRouteImport
       parentRoute: typeof BackofficeRouteRoute
+    }
+    '/proposal-claim/$claimToken': {
+      id: '/proposal-claim/$claimToken'
+      path: '/proposal-claim/$claimToken'
+      fullPath: '/proposal-claim/$claimToken'
+      preLoaderRoute: typeof ProposalClaimClaimTokenRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/demo/workos': {
       id: '/demo/workos'
@@ -1008,6 +1098,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/backoffice/contractors/'
       preLoaderRoute: typeof BackofficeContractorsIndexRouteImport
       parentRoute: typeof BackofficeContractorsRouteRoute
+    }
+    '/backoffice/builds/': {
+      id: '/backoffice/builds/'
+      path: '/'
+      fullPath: '/backoffice/builds/'
+      preLoaderRoute: typeof BackofficeBuildsIndexRouteImport
+      parentRoute: typeof BackofficeBuildsRouteRoute
     }
     '/backoffice/builders/': {
       id: '/backoffice/builders/'
@@ -1261,11 +1358,13 @@ const BackofficeBuildsBuildIdRouteRouteWithChildren =
 
 interface BackofficeBuildsRouteRouteChildren {
   BackofficeBuildsBuildIdRouteRoute: typeof BackofficeBuildsBuildIdRouteRouteWithChildren
+  BackofficeBuildsIndexRoute: typeof BackofficeBuildsIndexRoute
 }
 
 const BackofficeBuildsRouteRouteChildren: BackofficeBuildsRouteRouteChildren = {
   BackofficeBuildsBuildIdRouteRoute:
     BackofficeBuildsBuildIdRouteRouteWithChildren,
+  BackofficeBuildsIndexRoute: BackofficeBuildsIndexRoute,
 }
 
 const BackofficeBuildsRouteRouteWithChildren =
@@ -1518,7 +1617,11 @@ const rootRouteChildren: RootRouteChildren = {
   DemoRouteRoute: DemoRouteRouteWithChildren,
   AboutRoute: AboutRoute,
   CallbackRoute: CallbackRoute,
+  ProposalPreviewRoute: ProposalPreviewRoute,
   ProtectedAccessRoute: ProtectedAccessRoute,
+  RoadmapRoute: RoadmapRoute,
+  ProposalClaimClaimTokenRoute: ProposalClaimClaimTokenRoute,
+  IntakeIndexRoute: IntakeIndexRoute,
   ApiAuthSignInRoute: ApiAuthSignInRoute,
   ApiAuthSignUpRoute: ApiAuthSignUpRoute,
   NewsitevisitBuildIdSiteVisitTokenRoute:

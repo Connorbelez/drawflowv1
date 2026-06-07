@@ -1,6 +1,6 @@
 # Agent Guide
 
-DrawFlow is a FairLend construction draw-management product, not a generic TanStack demo app. Treat `docs/draw_flow_prd.md` as the product source of truth.
+DrawFlow is a FairLend construction draw-management product, not a generic TanStack demo app. Treat `docs/draw_flow_prd.md` as the product source of truth
 
 ## Product Context
 
@@ -61,6 +61,8 @@ Using it as a reference to create your own version NOT VALID (unless explicitly 
 When working on Convex code, always read `convex/_generated/ai/guidelines.md` first. It contains repo-specific Convex API and pattern rules that override model training data.
 
 `fluent-convex` is the only allowed way to author Convex functions in this repo. Feature queries, mutations, actions, internal queries, internal mutations, and internal actions should live in normal domain files, but they must be defined with fluent-convex chains.
+
+Tables populated from WorkOS webhooks are webhook-owned. Never write directly to WorkOS projection tables such as `users`, `workosOrganizations`, `workosOrganizationMemberships`, `workosOrganizationRoles`, `workosRoles`, or `workosPermissions` from product flows, tests for product flows, onboarding shortcuts, claim flows, or local provisioning code. Change WorkOS state through the WorkOS Management API and let the webhook/sync projection update those tables.
 
 Use `convex/fluent.ts` as the reference implementation for fluent-convex best practices and as the home for shared builders, reusable chains, middleware, and validators. Do not move unrelated feature functions into `convex/fluent.ts`; import shared fluent helpers from it.
 

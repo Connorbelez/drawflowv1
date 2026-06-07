@@ -20,6 +20,7 @@ import {
   RotateCcw,
   Share2,
   ShieldCheck,
+  Sparkles,
   Trash2,
   UploadCloud,
   UserRound,
@@ -71,6 +72,7 @@ import {
   NativeSelect,
   NativeSelectOption,
 } from "#/components/ui/native-select.tsx";
+import { EditableNumberChip } from "#/components/ui/editable-chip.tsx";
 import {
   Popover,
   PopoverContent,
@@ -80,6 +82,10 @@ import { Switch } from "#/components/ui/switch.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { normalizeSiteVisitTokenRoute } from "#/features/build-workspace-demo/site-visit-token-route-model.ts";
 import { useMediaQuery } from "#/hooks/use-media-query.ts";
+import {
+  isHeicLikeEvidenceImage,
+  normalizeEvidenceFileForUpload,
+} from "#/lib/evidence-image-normalization.ts";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -101,6 +107,11 @@ import {
   timelineSettingsRange,
 } from "./-timeline-demo-settings-adapter.ts";
 import {
+  OPTIMIZED_DRAW_FEE as DRAW_FEE,
+  OPTIMIZED_INTEREST_APR as INTEREST_APR,
+  optimizeTimelineDrawSchedule,
+} from "./-timeline-draw-optimizer.ts";
+import {
   type ActiveMilestoneSelection,
   buildMilestoneSpendEvents,
   DEFAULT_MILESTONE_DURATION_DAYS,
@@ -113,6 +124,7 @@ import {
 import {
   mapSubmilestoneSnapshotRows,
   resolveMilestoneSubmilestones,
+  submilestoneNames,
 } from "./-timeline-milestone-submilestones.ts";
 import {
   applyTimelineShareSnapshotV2,
@@ -122,6 +134,7 @@ import {
   type DemoEvidenceAsset,
   type DemoMilestone,
   getMilestoneDrawAvailabilityAmount,
+  getMilestoneEffectiveCashSpendAmount,
   initialTimelineShareState,
   type TimelineShareState,
 } from "./-timeline-share-snapshot.ts";
@@ -131,7 +144,9 @@ import {
   EditDatesSheet,
   EditDrawSheet,
 } from "./MobileTimelineSheets.tsx";
+import type { ContractorPlanningModel } from "#/features/contractors/ContractorPlanningPanel.tsx";
 import { MobileTimelineDayDialWorkspace } from "./MobileTimelineWorkspace.tsx";
+import { TimelineMilestoneContractorList } from "./TimelineMilestoneContractorList.tsx";
 
 export const timelineWorkspaceSearchParsers = {
   share: parseAsString,
@@ -217,8 +232,6 @@ const BASE_INITIAL_RANGE: TimelineRange = {
   min: 0,
   unit: "days",
 };
-const DRAW_FEE = 500;
-const INTEREST_APR = 0.0925;
 const CHART_PROBE_INTERVAL_DAYS = 5;
 const MINIMUM_POST_MILESTONE_CASH_RESERVE = 0;
 const STARTING_CASH = 400_000;
@@ -227,7 +240,8 @@ const GENERATED_TIMELINE_CURRENT_DAY = 0;
 const TIMELINE_END_PADDING_DAYS = 5;
 const INITIAL_CAPITAL_SPIKES: DemoCapitalSpike[] = [];
 const INITIAL_COMPLETION_SUBMITTED_AT = "2026-05-01T14:00:00.000Z";
-const LOCAL_TIMELINE_SHARE_PREFIX = "local-timeline-";
+export const LOCAL_TIMELINE_SHARE_PREFIX = "local-timeline-";
+const DEFAULT_TIMELINE_SHARE_PATH = "/demo/timeline";
 const TIMELINE_TO_DEMO_MILESTONE_KEY: Record<string, string> = {
   closeout: "aluminum_windows",
   drywall: "aluminum_windows",
@@ -419,12 +433,12 @@ const INITIAL_ITEMS: TimelineItem<DemoMilestone>[] = [
 
 const INITIAL_TOTAL_BUDGET = INITIAL_ITEMS.reduce(
   (sum, item) => sum + (item.data?.amount ?? 0),
-  0
+  0,
 );
 const NORMALIZED_INITIAL_ITEMS = normalizeMilestoneTimelineItems(INITIAL_ITEMS);
 const INITIAL_RANGE = expandTimelineRangeForMilestones(
   NORMALIZED_INITIAL_ITEMS,
-  BASE_INITIAL_RANGE
+  BASE_INITIAL_RANGE,
 );
 
 const money = (value: number) =>
@@ -442,7 +456,7 @@ export function resolveTimelineSiteVisitMilestoneKey(itemId: string) {
 
 export function resolveTimelinePersistenceSiteVisitMilestoneKey(
   itemId: string,
-  workspaceMode: TimelineWorkspaceMode
+  workspaceMode: TimelineWorkspaceMode,
 ) {
   return workspaceMode === "demo"
     ? resolveTimelineSiteVisitMilestoneKey(itemId)
@@ -452,7 +466,7 @@ export function resolveTimelinePersistenceSiteVisitMilestoneKey(
 export function normalizeTimelineSiteVisitStatus(
   status?: string,
   tokenExpiresAt?: number,
-  now = Date.now()
+  now = Date.now(),
 ) {
   if (status === "completed") {
     return "complete";
@@ -532,7 +546,7 @@ interface TimelineResponsiveSizing {
 
 function getTimelineResponsiveSizing(
   isCompactLayout: boolean,
-  isPhoneLayout: boolean
+  isPhoneLayout: boolean,
 ): TimelineResponsiveSizing {
   if (isPhoneLayout) {
     return {
@@ -574,6 +588,7 @@ export type TimelineWorkspaceMode = "demo" | "live" | "proposal";
 export interface TimelineWorkspaceProps {
   allowRoleSwitching?: boolean;
   collaboration?: TimelineWorkspaceCollaboration;
+  contractorPlanning?: ContractorPlanningModel | null;
   durableMeta?: {
     backofficeHref: string;
     buildKey?: string;
@@ -583,10 +598,15 @@ export interface TimelineWorkspaceProps {
     status: string;
   };
   durablePlanId?: string;
+  embedded?: boolean;
+  headerActions?: ReactNode;
   initialRole?: TimelineDemoRole;
   initialState?: TimelineShareState;
   modificationRequests?: TimelineModificationRequestView[];
   persistence?: TimelineWorkspacePersistence;
+  readOnly?: boolean;
+  shareUrlPath?: string;
+  showWorkspaceHeader?: boolean;
   timelineSettingsProjection?: unknown;
   workspaceMode?: TimelineWorkspaceMode;
 }
@@ -630,7 +650,7 @@ export interface TimelineWorkspacePersistence {
   generateEvidenceUploadUrl?: () => Promise<string>;
   recordMilestoneSiteVisit?: (input: any) => Promise<unknown>;
   requestMilestoneSiteVisit?: (
-    input: any
+    input: any,
   ) => Promise<TimelineSiteVisitRequestInput | void>;
   requestModification?: (input: any) => Promise<unknown>;
   reviewDrawRequest?: (input: any) => Promise<unknown>;
@@ -659,7 +679,7 @@ const EMPTY_TIMELINE_MODIFICATION_REQUESTS: TimelineModificationRequestView[] =
 
 function timelineMilestonePayloadToItem(
   milestone: any,
-  approved = false
+  approved = false,
 ): TimelineItem<DemoMilestone> {
   const milestoneKey = milestone.milestoneKey ?? milestone.key ?? "milestone";
   const submilestoneDetails = mapSubmilestoneSnapshotRows(
@@ -667,22 +687,30 @@ function timelineMilestonePayloadToItem(
       (milestone.submilestones ?? []).map(
         (
           submilestone: {
+            budgetCents?: number;
             description?: string;
+            durationDays?: number;
             key?: string;
             name: string;
             order?: number;
           },
-          index: number
+          index: number,
         ) => ({
+          ...(submilestone.budgetCents === undefined
+            ? {}
+            : { budgetCents: submilestone.budgetCents }),
           ...(submilestone.description
             ? { description: submilestone.description }
             : {}),
+          ...(submilestone.durationDays === undefined
+            ? {}
+            : { durationDays: submilestone.durationDays }),
           key: submilestone.key,
           name: submilestone.name,
           order: submilestone.order ?? index + 1,
-        })
+        }),
       ),
-    milestoneKey
+    milestoneKey,
   );
 
   return {
@@ -693,7 +721,7 @@ function timelineMilestonePayloadToItem(
         ? {}
         : {
             drawAvailabilityAmount: Math.round(
-              milestone.drawAvailabilityCents / 100
+              milestone.drawAvailabilityCents / 100,
             ),
           }),
       durationDays:
@@ -705,7 +733,7 @@ function timelineMilestonePayloadToItem(
       policy: milestone.policyState ?? "Admin approval required",
       status: approved ? "ready" : "review",
       subMilestones: submilestoneDetails.map(
-        (submilestone) => submilestone.name
+        (submilestone) => submilestone.name,
       ),
       submilestoneDetails,
     },
@@ -724,91 +752,97 @@ function timelineMilestonePayloadToItem(
 export function TimelineWorkspace({
   allowRoleSwitching = true,
   collaboration,
+  contractorPlanning,
   durableMeta,
   durablePlanId,
+  embedded = false,
+  headerActions,
   initialRole,
   initialState,
   modificationRequests:
     initialModificationRequests = EMPTY_TIMELINE_MODIFICATION_REQUESTS,
   persistence,
+  readOnly: forcedReadOnly = false,
+  shareUrlPath = DEFAULT_TIMELINE_SHARE_PATH,
+  showWorkspaceHeader = true,
   timelineSettingsProjection,
   workspaceMode = "demo",
 }: TimelineWorkspaceProps = {}) {
   const timelineDemoSettings = useQuery(
     api.demo_settings.getTimelineDemoSettings,
-    timelineSettingsProjection === undefined ? {} : "skip"
+    timelineSettingsProjection === undefined ? {} : "skip",
   );
   const createTimelinePlan = useMutation(
-    api.demo_timeline_plans.demo_createTimelinePlanFromSetup
+    api.demo_timeline_plans.demo_createTimelinePlanFromSetup,
   );
   const submitTimelinePlan = useMutation(
-    api.demo_timeline_plans.demo_submitTimelinePlan
+    api.demo_timeline_plans.demo_submitTimelinePlan,
   );
   const approveTimelinePlan = useMutation(
-    api.demo_timeline_plans.demo_approveTimelinePlan
+    api.demo_timeline_plans.demo_approveTimelinePlan,
   );
   const createTimelineDraw = useMutation(
-    api.demo_timeline_plans.demo_createTimelineDraw
+    api.demo_timeline_plans.demo_createTimelineDraw,
   );
   const updateTimelineDraw = useMutation(
-    api.demo_timeline_plans.demo_updateTimelineDraw
+    api.demo_timeline_plans.demo_updateTimelineDraw,
   );
   const deleteTimelineDraw = useMutation(
-    api.demo_timeline_plans.demo_deleteTimelineDraw
+    api.demo_timeline_plans.demo_deleteTimelineDraw,
   );
   const submitTimelineDrawRequest = useMutation(
-    api.demo_timeline_plans.demo_submitTimelineDrawRequest
+    api.demo_timeline_plans.demo_submitTimelineDrawRequest,
   );
   const reviewTimelineDrawRequest = useMutation(
-    api.demo_timeline_plans.demo_reviewTimelineDrawRequest
+    api.demo_timeline_plans.demo_reviewTimelineDrawRequest,
   );
   const createTimelineCapitalEvent = useMutation(
-    api.demo_timeline_plans.demo_createTimelineCapitalEvent
+    api.demo_timeline_plans.demo_createTimelineCapitalEvent,
   );
   const updateTimelineCapitalEvent = useMutation(
-    api.demo_timeline_plans.demo_updateTimelineCapitalEvent
+    api.demo_timeline_plans.demo_updateTimelineCapitalEvent,
   );
   const deleteTimelineCapitalEvent = useMutation(
-    api.demo_timeline_plans.demo_deleteTimelineCapitalEvent
+    api.demo_timeline_plans.demo_deleteTimelineCapitalEvent,
   );
   const createTimelineMilestone = useMutation(
-    api.demo_timeline_plans.demo_createTimelineMilestone
+    api.demo_timeline_plans.demo_createTimelineMilestone,
   );
   const requestTimelineModification = useMutation(
-    api.demo_timeline_plans.demo_requestTimelineModification
+    api.demo_timeline_plans.demo_requestTimelineModification,
   );
   const reviewTimelineModificationRequest = useMutation(
-    api.demo_timeline_plans.demo_reviewTimelineModificationRequest
+    api.demo_timeline_plans.demo_reviewTimelineModificationRequest,
   );
   const createTimelineCashInfusion = useMutation(
-    api.demo_timeline_plans.demo_createTimelineCashInfusion
+    api.demo_timeline_plans.demo_createTimelineCashInfusion,
   );
   const updateTimelineMilestone = useMutation(
-    api.demo_timeline_plans.demo_updateTimelineMilestone
+    api.demo_timeline_plans.demo_updateTimelineMilestone,
   );
   const deleteTimelineMilestone = useMutation(
-    api.demo_timeline_plans.demo_deleteTimelineMilestone
+    api.demo_timeline_plans.demo_deleteTimelineMilestone,
   );
   const submitTimelineMilestoneCompletion = useMutation(
-    api.demo_timeline_plans.demo_submitTimelineMilestoneCompletion
+    api.demo_timeline_plans.demo_submitTimelineMilestoneCompletion,
   );
   const reviewTimelineMilestoneCompletion = useMutation(
-    api.demo_timeline_plans.demo_reviewTimelineMilestoneCompletion
+    api.demo_timeline_plans.demo_reviewTimelineMilestoneCompletion,
   );
   const updateTimelinePlanState = useMutation(
-    api.demo_timeline_plans.demo_updateTimelinePlanState
+    api.demo_timeline_plans.demo_updateTimelinePlanState,
   );
   const generateTimelineEvidenceUploadUrl = useMutation(
-    api.demo_timeline_plans.demo_generateTimelineEvidenceUploadUrl
+    api.demo_timeline_plans.demo_generateTimelineEvidenceUploadUrl,
   );
   const createTimelineEvidenceAsset = useMutation(
-    api.demo_timeline_plans.demo_createTimelineEvidenceAsset
+    api.demo_timeline_plans.demo_createTimelineEvidenceAsset,
   );
   const updateTimelineEvidenceAssetMutation = useMutation(
-    api.demo_timeline_plans.demo_updateTimelineEvidenceAsset
+    api.demo_timeline_plans.demo_updateTimelineEvidenceAsset,
   );
   const deleteTimelineEvidenceAsset = useMutation(
-    api.demo_timeline_plans.demo_deleteTimelineEvidenceAsset
+    api.demo_timeline_plans.demo_deleteTimelineEvidenceAsset,
   );
   const prefersReducedMotion = useReducedMotion();
   const isCompactLayout = useMediaQuery("max-lg");
@@ -836,44 +870,47 @@ export function TimelineWorkspace({
             true,
             STARTING_CASH,
             true,
-            0
+            0,
           ),
-    [initialState]
+    [initialState],
   );
   const incomingTimelineStateSignature = useMemo(
     () =>
       initialState ? timelineShareStateSignature(workspaceInitialState) : null,
-    [initialState, workspaceInitialState]
+    [initialState, workspaceInitialState],
   );
   const appliedTimelineStateSignature = useRef<string | null>(null);
   const [items, setItems] = useState<TimelineItem<DemoMilestone>[]>(
-    () => workspaceInitialState.items
+    () => workspaceInitialState.items,
   );
   const [draws, setDraws] = useState<DemoDraw[]>(
-    () => workspaceInitialState.draws
+    () => workspaceInitialState.draws,
   );
   const [capitalSpikes, setCapitalSpikes] = useState<DemoCapitalSpike[]>(
-    () => workspaceInitialState.capitalSpikes
+    () => workspaceInitialState.capitalSpikes,
   );
   const [startingCash, setStartingCash] = useState(
-    workspaceInitialState.startingCash
+    workspaceInitialState.startingCash,
   );
   const [minimumCashReserve, setMinimumCashReserve] = useState(
-    workspaceInitialState.minimumCashReserve
+    workspaceInitialState.minimumCashReserve,
+  );
+  const [approvedDrawLimit, setApprovedDrawLimit] = useState(
+    workspaceInitialState.approvedDrawLimit,
   );
   const [currentDay, setCurrentDay] = useState(
-    workspaceInitialState.currentDay
+    workspaceInitialState.currentDay,
   );
   const [selectedDay, setSelectedDay] = useState(
-    workspaceInitialState.progressValue ?? workspaceInitialState.currentDay
+    workspaceInitialState.progressValue ?? workspaceInitialState.currentDay,
   );
   const [range, setRange] = useState<TimelineRange>(
-    workspaceInitialState.range
+    workspaceInitialState.range,
   );
   const [activeSelection, setActiveSelection] =
     useState<ActiveMilestoneSelection>(workspaceInitialState.activeSelection);
   const [progressValue, setProgressValue] = useState(
-    workspaceInitialState.progressValue
+    workspaceInitialState.progressValue,
   );
   const [probeValue, setProbeValue] = useState<number | null>(null);
   const [activeDrawId, setActiveDrawId] = useState<string | null>(null);
@@ -901,7 +938,7 @@ export function TimelineWorkspace({
     "idle" | "saved" | "error"
   >("idle");
   const [timelineRole, setTimelineRole] = useState<TimelineDemoRole>(
-    initialRole ?? "builder"
+    initialRole ?? "builder",
   );
   const planStatus = durableMeta?.status ?? "draft";
   const demoMode = workspaceMode === "demo";
@@ -912,16 +949,17 @@ export function TimelineWorkspace({
   const collaborationViewOnly = collaboration?.permission === "view";
   const statusReadOnly = Boolean(
     durableMeta &&
-      ((proposalMode && planStatus !== "draft") ||
-        (demoMode && planStatus !== "draft" && !liveBuildMode))
+    ((proposalMode && planStatus !== "draft") ||
+      (demoMode && planStatus !== "draft" && !liveBuildMode)),
   );
-  const readOnly = Boolean(statusReadOnly || collaborationViewOnly);
+  const readOnly = Boolean(
+    forcedReadOnly || statusReadOnly || collaborationViewOnly,
+  );
   const canWriteLiveTimeline =
-    !collaborationViewOnly &&
-    (!durableMeta || planStatus === "draft" || liveBuildMode);
+    !readOnly && (!durableMeta || planStatus === "draft" || liveBuildMode);
   const canEditPlanStructure =
-    !collaborationViewOnly && (!durableMeta || planStatus === "draft");
-  const canUseLiveExecution = liveBuildMode && !collaborationViewOnly;
+    !readOnly && (!durableMeta || planStatus === "draft");
+  const canUseLiveExecution = liveBuildMode && !readOnly;
   const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
   const [submitPending, setSubmitPending] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -930,11 +968,11 @@ export function TimelineWorkspace({
     string | null
   >(null);
   const [straightLine, setStraightLine] = useState(
-    workspaceInitialState.straightLine
+    workspaceInitialState.straightLine,
   );
   const [setupComplete, setSetupComplete] = useState(Boolean(initialState));
   const [setupBaseline, setSetupBaseline] = useState<TimelineShareState | null>(
-    initialState ?? null
+    initialState ?? null,
   );
   const [mobileEditDatesItemId, setMobileEditDatesItemId] = useState<
     string | null
@@ -954,11 +992,11 @@ export function TimelineWorkspace({
       : timelineSettingsProjection;
   const settingsTemplates = useMemo(
     () => normalizeTimelineSettingsProjection(timelineSettingsSource),
-    [timelineSettingsSource]
+    [timelineSettingsSource],
   );
   const setupTemplates = useMemo(
     () => buildTimelineSetupTemplatesFromSettings(settingsTemplates),
-    [settingsTemplates]
+    [settingsTemplates],
   );
   const settingsFallbackActive =
     timelineSettingsProjection === undefined &&
@@ -992,7 +1030,7 @@ export function TimelineWorkspace({
         (item) =>
           item.id === activePanelDraw.itemId ||
           `${item.id}-draw` === activePanelDraw.id ||
-          item.data?.draw === activePanelDraw.label
+          item.data?.draw === activePanelDraw.label,
       ) ?? null)
     : null;
   const requestedMilestoneCreations = useMemo(
@@ -1002,25 +1040,25 @@ export function TimelineWorkspace({
           (request) =>
             request.status === "requested" &&
             request.requestType === "createMilestone" &&
-            request.requestedPayload?.milestone
+            request.requestedPayload?.milestone,
         )
         .map((request): TimelineItem<DemoMilestone> => {
           const item = timelineMilestonePayloadToItem(
-            request.requestedPayload.milestone
+            request.requestedPayload.milestone,
           );
           return {
             ...item,
             id: `requested-${item.id}`,
           };
         }),
-    [modificationRequests]
+    [modificationRequests],
   );
   const timelineItemsForRender = useMemo(
     () =>
       [...items, ...requestedMilestoneCreations].sort(
-        (a, b) => a.x - b.x || a.id.localeCompare(b.id)
+        (a, b) => a.x - b.x || a.id.localeCompare(b.id),
       ),
-    [items, requestedMilestoneCreations]
+    [items, requestedMilestoneCreations],
   );
   const requestedDeletionByMilestone = useMemo(
     () =>
@@ -1030,11 +1068,11 @@ export function TimelineWorkspace({
             (request) =>
               request.status === "requested" &&
               request.requestType === "deleteMilestone" &&
-              request.milestoneKey
+              request.milestoneKey,
           )
-          .map((request) => request.milestoneKey as string)
+          .map((request) => request.milestoneKey as string),
       ),
-    [modificationRequests]
+    [modificationRequests],
   );
   const requestedBudgetByMilestone = useMemo(() => {
     const map = new Map<string, number>();
@@ -1047,7 +1085,7 @@ export function TimelineWorkspace({
       ) {
         map.set(
           request.milestoneKey,
-          request.requestedPayload.budgetCents / 100
+          request.requestedPayload.budgetCents / 100,
         );
       }
     }
@@ -1056,13 +1094,13 @@ export function TimelineWorkspace({
   const resolvedRange = useMemo(() => normalizeDemoRange(range), [range]);
   const durablePlanStateInitialized = useRef(false);
   const runDurableMutation = useCallback(
-    (operation: Promise<unknown>, label: string) => {
+    (operation: unknown, label: string) => {
       if (!(durablePlanId && !readOnly)) {
         return;
       }
       setDurableSavePendingCount((count) => count + 1);
       setDurableSaveStatus("idle");
-      operation
+      Promise.resolve(operation)
         .catch((error) => {
           const message =
             error instanceof Error
@@ -1073,20 +1111,20 @@ export function TimelineWorkspace({
         })
         .then(() => {
           setDurableSaveStatus((status) =>
-            status === "error" ? "error" : "saved"
+            status === "error" ? "error" : "saved",
           );
         })
         .finally(() => {
           setDurableSavePendingCount((count) => Math.max(0, count - 1));
         });
     },
-    [durablePlanId, readOnly]
+    [durablePlanId, readOnly],
   );
   const persistSubmitPlan = useCallback(
     () =>
       persistence?.submitPlan?.() ??
       submitTimelinePlan({ planId: durablePlanId as Id<"demo_timelinePlans"> }),
-    [durablePlanId, persistence, submitTimelinePlan]
+    [durablePlanId, persistence, submitTimelinePlan],
   );
   const persistUpdatePlanState = useCallback(
     (input: any) =>
@@ -1095,7 +1133,7 @@ export function TimelineWorkspace({
         ...input,
         planId: durablePlanId as Id<"demo_timelinePlans">,
       }),
-    [durablePlanId, persistence, updateTimelinePlanState]
+    [durablePlanId, persistence, updateTimelinePlanState],
   );
   const persistCreateDraw = useCallback(
     (input: any) =>
@@ -1104,7 +1142,7 @@ export function TimelineWorkspace({
         ...input,
         planId: durablePlanId as Id<"demo_timelinePlans">,
       }),
-    [createTimelineDraw, durablePlanId, persistence]
+    [createTimelineDraw, durablePlanId, persistence],
   );
   const persistUpdateDraw = useCallback(
     (input: any) =>
@@ -1113,7 +1151,7 @@ export function TimelineWorkspace({
         ...input,
         planId: durablePlanId as Id<"demo_timelinePlans">,
       }),
-    [durablePlanId, persistence, updateTimelineDraw]
+    [durablePlanId, persistence, updateTimelineDraw],
   );
   const persistDeleteDraw = useCallback(
     (input: any) =>
@@ -1122,7 +1160,54 @@ export function TimelineWorkspace({
         ...input,
         planId: durablePlanId as Id<"demo_timelinePlans">,
       }),
-    [deleteTimelineDraw, durablePlanId, persistence]
+    [deleteTimelineDraw, durablePlanId, persistence],
+  );
+  const persistDrawSequenceUpdates = useCallback(
+    (
+      previousDraws: DemoDraw[],
+      nextDraws: DemoDraw[],
+      skipDrawIds: Set<string> = new Set(),
+    ) => {
+      if (!durablePlanId) {
+        return;
+      }
+
+      const previousById = new Map(
+        sortTimelineDraws(previousDraws).map((draw, index) => [
+          draw.id,
+          { draw, order: index + 1 },
+        ]),
+      );
+
+      nextDraws.forEach((draw, index) => {
+        if (skipDrawIds.has(draw.id)) {
+          return;
+        }
+
+        const previous = previousById.get(draw.id);
+        if (!previous) {
+          return;
+        }
+
+        const nextOrder = index + 1;
+        if (
+          previous.draw.label === draw.label &&
+          previous.order === nextOrder
+        ) {
+          return;
+        }
+
+        runDurableMutation(
+          persistUpdateDraw({
+            drawKey: draw.id,
+            label: draw.label,
+            order: nextOrder,
+          }),
+          "draw sequence update",
+        );
+      });
+    },
+    [durablePlanId, persistUpdateDraw, runDurableMutation],
   );
   const persistSubmitDrawRequest = useCallback(
     (input: any) =>
@@ -1131,7 +1216,7 @@ export function TimelineWorkspace({
         ...input,
         planId: durablePlanId as Id<"demo_timelinePlans">,
       }),
-    [durablePlanId, persistence, submitTimelineDrawRequest]
+    [durablePlanId, persistence, submitTimelineDrawRequest],
   );
   const persistReviewDrawRequest = useCallback(
     (input: any) =>
@@ -1140,7 +1225,7 @@ export function TimelineWorkspace({
         ...input,
         planId: durablePlanId as Id<"demo_timelinePlans">,
       }),
-    [durablePlanId, persistence, reviewTimelineDrawRequest]
+    [durablePlanId, persistence, reviewTimelineDrawRequest],
   );
   const persistCreateCapitalEvent = useCallback(
     (input: any) =>
@@ -1149,7 +1234,7 @@ export function TimelineWorkspace({
         ...input,
         planId: durablePlanId as Id<"demo_timelinePlans">,
       }),
-    [createTimelineCapitalEvent, durablePlanId, persistence]
+    [createTimelineCapitalEvent, durablePlanId, persistence],
   );
   const persistCreateCashInfusion = useCallback(
     (input: any) =>
@@ -1158,7 +1243,7 @@ export function TimelineWorkspace({
         ...input,
         planId: durablePlanId as Id<"demo_timelinePlans">,
       }),
-    [createTimelineCashInfusion, durablePlanId, persistence]
+    [createTimelineCashInfusion, durablePlanId, persistence],
   );
   const persistUpdateCapitalEvent = useCallback(
     (input: any) =>
@@ -1167,7 +1252,7 @@ export function TimelineWorkspace({
         ...input,
         planId: durablePlanId as Id<"demo_timelinePlans">,
       }),
-    [durablePlanId, persistence, updateTimelineCapitalEvent]
+    [durablePlanId, persistence, updateTimelineCapitalEvent],
   );
   const persistDeleteCapitalEvent = useCallback(
     (input: any) =>
@@ -1176,7 +1261,7 @@ export function TimelineWorkspace({
         ...input,
         planId: durablePlanId as Id<"demo_timelinePlans">,
       }),
-    [deleteTimelineCapitalEvent, durablePlanId, persistence]
+    [deleteTimelineCapitalEvent, durablePlanId, persistence],
   );
   const persistCreateMilestone = useCallback(
     (input: any) =>
@@ -1185,7 +1270,7 @@ export function TimelineWorkspace({
         ...input,
         planId: durablePlanId as Id<"demo_timelinePlans">,
       }),
-    [createTimelineMilestone, durablePlanId, persistence]
+    [createTimelineMilestone, durablePlanId, persistence],
   );
   const persistUpdateMilestone = useCallback(
     (input: any) =>
@@ -1194,7 +1279,7 @@ export function TimelineWorkspace({
         ...input,
         planId: durablePlanId as Id<"demo_timelinePlans">,
       }),
-    [durablePlanId, persistence, updateTimelineMilestone]
+    [durablePlanId, persistence, updateTimelineMilestone],
   );
   const persistDeleteMilestone = useCallback(
     (input: any) =>
@@ -1203,7 +1288,7 @@ export function TimelineWorkspace({
         ...input,
         planId: durablePlanId as Id<"demo_timelinePlans">,
       }),
-    [deleteTimelineMilestone, durablePlanId, persistence]
+    [deleteTimelineMilestone, durablePlanId, persistence],
   );
   const persistRequestModification = useCallback(
     (input: any) =>
@@ -1212,13 +1297,13 @@ export function TimelineWorkspace({
         ...input,
         planId: durablePlanId as Id<"demo_timelinePlans">,
       }),
-    [durablePlanId, persistence, requestTimelineModification]
+    [durablePlanId, persistence, requestTimelineModification],
   );
   const persistReviewModificationRequest = useCallback(
     (input: any) =>
       persistence?.reviewModificationRequest?.(input) ??
       reviewTimelineModificationRequest(input),
-    [persistence, reviewTimelineModificationRequest]
+    [persistence, reviewTimelineModificationRequest],
   );
   const persistSubmitMilestoneCompletion = useCallback(
     (input: any) =>
@@ -1227,7 +1312,7 @@ export function TimelineWorkspace({
         ...input,
         planId: durablePlanId as Id<"demo_timelinePlans">,
       }),
-    [durablePlanId, persistence, submitTimelineMilestoneCompletion]
+    [durablePlanId, persistence, submitTimelineMilestoneCompletion],
   );
   const persistReviewMilestoneCompletion = useCallback(
     (input: any) =>
@@ -1236,15 +1321,15 @@ export function TimelineWorkspace({
         ...input,
         planId: durablePlanId as Id<"demo_timelinePlans">,
       }),
-    [durablePlanId, persistence, reviewTimelineMilestoneCompletion]
+    [durablePlanId, persistence, reviewTimelineMilestoneCompletion],
   );
   const persistRequestMilestoneSiteVisit = useCallback(
     (input: any) => persistence?.requestMilestoneSiteVisit?.(input),
-    [persistence]
+    [persistence],
   );
   const persistRecordMilestoneSiteVisit = useCallback(
     (input: any) => persistence?.recordMilestoneSiteVisit?.(input),
-    [persistence]
+    [persistence],
   );
   const persistGenerateEvidenceUploadUrl = useCallback(
     () =>
@@ -1252,7 +1337,7 @@ export function TimelineWorkspace({
       generateTimelineEvidenceUploadUrl({
         planId: durablePlanId as Id<"demo_timelinePlans">,
       }),
-    [durablePlanId, generateTimelineEvidenceUploadUrl, persistence]
+    [durablePlanId, generateTimelineEvidenceUploadUrl, persistence],
   );
   const persistCreateEvidenceAsset = useCallback(
     (input: any) =>
@@ -1261,7 +1346,7 @@ export function TimelineWorkspace({
         ...input,
         planId: durablePlanId as Id<"demo_timelinePlans">,
       }),
-    [createTimelineEvidenceAsset, durablePlanId, persistence]
+    [createTimelineEvidenceAsset, durablePlanId, persistence],
   );
   const persistUpdateEvidenceAsset = useCallback(
     (input: any) =>
@@ -1270,7 +1355,7 @@ export function TimelineWorkspace({
         ...input,
         planId: durablePlanId as Id<"demo_timelinePlans">,
       }),
-    [durablePlanId, persistence, updateTimelineEvidenceAssetMutation]
+    [durablePlanId, persistence, updateTimelineEvidenceAssetMutation],
   );
   const persistDeleteEvidenceAsset = useCallback(
     (input: any) =>
@@ -1279,7 +1364,7 @@ export function TimelineWorkspace({
         ...input,
         planId: durablePlanId as Id<"demo_timelinePlans">,
       }),
-    [deleteTimelineEvidenceAsset, durablePlanId, persistence]
+    [deleteTimelineEvidenceAsset, durablePlanId, persistence],
   );
   const {
     resetTimeline,
@@ -1289,6 +1374,7 @@ export function TimelineWorkspace({
     share,
   } = useTimelineSnapshotSharing({
     activeSelection,
+    approvedDrawLimit,
     capitalSpikeInsertionCount,
     capitalSpikes,
     drawInsertionCount,
@@ -1299,6 +1385,7 @@ export function TimelineWorkspace({
     progressValue,
     resolvedRange,
     selectedPanelOpen,
+    shareUrlPath,
     setActiveCapitalSpikeId,
     setActiveDrawId,
     setActiveSelection,
@@ -1313,6 +1400,7 @@ export function TimelineWorkspace({
     setRange,
     setSelectedDay,
     setSelectedPanelOpen,
+    setApprovedDrawLimit,
     setMinimumCashReserve,
     setStartingCash,
     setStraightLine,
@@ -1340,6 +1428,7 @@ export function TimelineWorkspace({
     setSelectedPanelOpen(hydratedState.selectedPanelOpen);
     setMinimumCashReserve(hydratedState.minimumCashReserve);
     setStartingCash(hydratedState.startingCash);
+    setApprovedDrawLimit(hydratedState.approvedDrawLimit);
     setStraightLine(hydratedState.straightLine);
     insertionCount.current = countInsertedTimelineItems(hydratedState.items);
     drawInsertionCount.current = countManualDraws(hydratedState.draws);
@@ -1387,7 +1476,7 @@ export function TimelineWorkspace({
   const completeTimelineSetup = useCallback(
     (result: TimelineSetupResult) => {
       const settingsTemplate = settingsTemplates.find(
-        (template) => template.templateKey === result.templateKey
+        (template) => template.templateKey === result.templateKey,
       );
       const nextRange = settingsTemplate
         ? timelineSettingsRange(result.items)
@@ -1396,7 +1485,7 @@ export function TimelineWorkspace({
         ? buildDrawsFromActiveScenario(
             settingsTemplate,
             result.items,
-            result.reimbursableBudgetCents
+            result.reimbursableBudgetCents,
           )
         : buildDemoDraws(result.items, nextRange);
       const activeItem =
@@ -1444,17 +1533,17 @@ export function TimelineWorkspace({
         milestones: result.items
           .filter(
             (
-              item
+              item,
             ): item is TimelineItem<DemoMilestone> & {
               data: DemoMilestone;
-            } => Boolean(item.data)
+            } => Boolean(item.data),
           )
           .map((item, index) => ({
             budgetCents: dollarsToCents(item.data.amount),
             dayEnd: Math.round(item.x + item.data.durationDays),
             dayStart: Math.round(item.x),
             drawAvailabilityCents: dollarsToCents(
-              getMilestoneDrawAvailabilityAmount(item.data)
+              getMilestoneDrawAvailabilityAmount(item.data),
             ),
             drawKey: item.data.draw,
             durationDays: item.data.durationDays,
@@ -1471,7 +1560,7 @@ export function TimelineWorkspace({
             siteVisitGuidance: item.data.siteVisitGuidance,
             submilestones: resolveMilestoneSubmilestones(
               item.data,
-              item.id
+              item.id,
             ).map((submilestone) => ({
               ...(submilestone.budgetCents === undefined
                 ? {}
@@ -1516,7 +1605,7 @@ export function TimelineWorkspace({
         });
       }
     },
-    [applyTimelineState, createTimelinePlan, settingsTemplates]
+    [applyTimelineState, createTimelinePlan, settingsTemplates],
   );
 
   const resetCurrentTimeline = useCallback(() => {
@@ -1535,6 +1624,87 @@ export function TimelineWorkspace({
     resetTimeline,
     setupBaseline,
     share,
+  ]);
+
+  const optimizeCurrentScenario = useCallback(() => {
+    if (!(canWriteLiveTimeline && !liveBuildMode)) {
+      toast.error("Timeline is locked in this status.");
+      return;
+    }
+
+    const result = optimizeTimelineDrawSchedule({
+      capitalSpikes,
+      items,
+      minimumCashReserve,
+      range: resolvedRange,
+      startingCash,
+    });
+
+    if (result.status === "infeasible") {
+      toast.error(result.infeasibleReason);
+      return;
+    }
+
+    const optimizationRunId = Date.now().toString(36);
+    const nextDraws = relabelTimelineDraws(
+      result.draws.map((draw, index) => ({
+        ...draw,
+        id: `optimized-draw-${optimizationRunId}-${index + 1}`,
+      })),
+    );
+
+    setActiveDrawId(null);
+    setActiveCapitalSpikeId(null);
+    setDrawEditDraft({ amount: "", x: "" });
+    setDraws(nextDraws);
+
+    if (durablePlanId) {
+      for (const draw of draws) {
+        runDurableMutation(
+          persistDeleteDraw({ drawKey: draw.id }),
+          "optimized draw replacement",
+        );
+      }
+
+      nextDraws.forEach((draw, index) => {
+        runDurableMutation(
+          persistCreateDraw({
+            amountCents: dollarsToCents(draw.amount),
+            customDate: true,
+            drawKey: draw.id,
+            ...(draw.itemId ? { itemMilestoneKey: draw.itemId } : {}),
+            label: draw.label,
+            order: index + 1,
+            x: draw.x,
+          }),
+          "optimized draw",
+        );
+      });
+    }
+
+    if (nextDraws.length === 0) {
+      toast.success("No draw is needed to maintain the minimum cash reserve.");
+      return;
+    }
+
+    toast.success(
+      `Optimized ${nextDraws.length} draw${
+        nextDraws.length === 1 ? "" : "s"
+      }: ${money(result.totalCost)} total interest and fee cost.`,
+    );
+  }, [
+    canWriteLiveTimeline,
+    capitalSpikes,
+    draws,
+    durablePlanId,
+    items,
+    liveBuildMode,
+    minimumCashReserve,
+    persistCreateDraw,
+    persistDeleteDraw,
+    resolvedRange,
+    runDurableMutation,
+    startingCash,
   ]);
 
   const submitCurrentPlan = useCallback(async () => {
@@ -1611,7 +1781,7 @@ export function TimelineWorkspace({
           minimumCashReserveCents: dollarsToCents(minimumCashReserve),
           startingCashCents: dollarsToCents(startingCash),
         }),
-        "timeline state"
+        "timeline state",
       );
     }, 450);
     return () => window.clearTimeout(timeout);
@@ -1639,38 +1809,42 @@ export function TimelineWorkspace({
         draws,
         capitalSpikes,
         resolvedRange,
-        startingCash
+        startingCash,
       ),
-    [capitalSpikes, draws, items, resolvedRange, startingCash]
+    [capitalSpikes, draws, items, resolvedRange, startingCash],
   );
   const cashflowChartData = useMemo(
     () =>
       buildCashflowChartData(cashflowData, items, resolvedRange, startingCash),
-    [cashflowData, items, resolvedRange, startingCash]
+    [cashflowData, items, resolvedRange, startingCash],
   );
   const drawAvailabilityData = useMemo(
-    () => buildDrawAvailabilityData(cashflowData),
-    [cashflowData]
+    () => buildDrawAvailabilityData(cashflowData, approvedDrawLimit),
+    [approvedDrawLimit, cashflowData],
   );
   const drawAvailabilityChartData = useMemo(
     () => densifyDrawAvailabilityData(drawAvailabilityData, resolvedRange),
-    [drawAvailabilityData, resolvedRange]
+    [drawAvailabilityData, resolvedRange],
   );
   const cashShortfalls = useMemo(
     () => buildCashShortfallPoints(cashflowData, minimumCashReserve),
-    [cashflowData, minimumCashReserve]
+    [cashflowData, minimumCashReserve],
   );
   const financialOverview = useMemo(
     () => buildFinancialOverview(cashflowData, draws, resolvedRange),
-    [cashflowData, draws, resolvedRange]
+    [cashflowData, draws, resolvedRange],
+  );
+  const cashUseSummary = useMemo(
+    () => buildCashUseSummary(items, draws, capitalSpikes),
+    [capitalSpikes, draws, items],
   );
   const cashflowExtent = useMemo(
     () => getCashflowChartExtent(cashflowChartData),
-    [cashflowChartData]
+    [cashflowChartData],
   );
   const drawAvailabilityExtent = useMemo(
     () => getDrawAvailabilityChartExtent(drawAvailabilityData),
-    [drawAvailabilityData]
+    [drawAvailabilityData],
   );
   const probeCashOnHand =
     probeValue === null
@@ -1681,28 +1855,28 @@ export function TimelineWorkspace({
       ? null
       : interpolateDrawAvailability(
           drawAvailabilityData,
-          Math.round(probeValue)
+          Math.round(probeValue),
         );
   const probeInterestPaid = probeDrawAvailability?.totalInterestAccrued ?? null;
   const endingCashOnHand = cashflowData.at(-1)?.cashOnHand ?? startingCash;
   const endingAvailability = interpolateDrawAvailability(
     drawAvailabilityData,
-    resolvedRange.max
+    resolvedRange.max,
   );
   const timelineSizing = useMemo(
     () => getTimelineResponsiveSizing(isCompactLayout, isPhoneLayout),
-    [isCompactLayout, isPhoneLayout]
+    [isCompactLayout, isPhoneLayout],
   );
   const cashflowTicks = useMemo(
     () => getTimelineAlignedTicks(resolvedRange, timelineSizing.pixelsPerUnit),
-    [resolvedRange, timelineSizing.pixelsPerUnit]
+    [resolvedRange, timelineSizing.pixelsPerUnit],
   );
   const handleChartHotspotDaySelect = useCallback(
     (day: number) => {
       const nextDay = clampNumber(
         Math.round(day),
         resolvedRange.min,
-        resolvedRange.max
+        resolvedRange.max,
       );
       setSelectedDay(nextDay);
       setProgressValue(nextDay);
@@ -1724,7 +1898,7 @@ export function TimelineWorkspace({
         });
       }
     },
-    [items, resolvedRange.max, resolvedRange.min]
+    [items, resolvedRange.max, resolvedRange.min],
   );
   const drawAvailabilityHotspotReferenceLines = useMemo(
     () => [
@@ -1735,8 +1909,8 @@ export function TimelineWorkspace({
             clampNumber(
               getMilestoneEndX(item),
               resolvedRange.min,
-              resolvedRange.max
-            )
+              resolvedRange.max,
+            ),
           );
 
           return {
@@ -1750,7 +1924,7 @@ export function TimelineWorkspace({
         }),
       ...capitalSpikes.map((spike) => {
         const day = Math.round(
-          clampNumber(spike.x, resolvedRange.min, resolvedRange.max)
+          clampNumber(spike.x, resolvedRange.min, resolvedRange.max),
         );
         const isCashInfusion = spike.eventKind === "cashInfusion";
 
@@ -1772,7 +1946,7 @@ export function TimelineWorkspace({
       items,
       resolvedRange.max,
       resolvedRange.min,
-    ]
+    ],
   );
   const cashflowReferenceLines = useMemo(
     () => [
@@ -1823,7 +1997,7 @@ export function TimelineWorkspace({
       probeValue,
       selectedDay,
       startingCash,
-    ]
+    ],
   );
   const drawAvailabilityReferenceLines = useMemo(
     () => [
@@ -1847,13 +2021,13 @@ export function TimelineWorkspace({
             {
               label: [
                 `Delta ${money(
-                  probeDrawAvailability?.additionalAvailableDraw ?? 0
+                  probeDrawAvailability?.additionalAvailableDraw ?? 0,
                 )}`,
                 `Interest-bearing ${money(
-                  probeDrawAvailability?.interestBearingDraw ?? 0
+                  probeDrawAvailability?.interestBearingDraw ?? 0,
                 )}`,
                 `Total interest ${money(
-                  probeDrawAvailability?.totalInterestAccrued ?? 0
+                  probeDrawAvailability?.totalInterestAccrued ?? 0,
                 )}`,
               ],
               opacity: 0.82,
@@ -1870,7 +2044,7 @@ export function TimelineWorkspace({
       probeDrawAvailability,
       probeValue,
       selectedDay,
-    ]
+    ],
   );
   const markers = useMemo<TimelineMarker[]>(
     () => [
@@ -1906,7 +2080,7 @@ export function TimelineWorkspace({
         x: 154,
       },
     ],
-    [capitalSpikes, currentDay, draws]
+    [capitalSpikes, currentDay, draws],
   );
 
   const openDrawEditor = (draw: DemoDraw) => {
@@ -1931,7 +2105,7 @@ export function TimelineWorkspace({
   };
 
   const addLocalModificationRequest = (
-    request: TimelineModificationRequestView
+    request: TimelineModificationRequestView,
   ) => {
     setModificationRequests((current) => [request, ...current]);
   };
@@ -1977,7 +2151,7 @@ export function TimelineWorkspace({
           requestedPayload: { milestone },
           requestType: "createMilestone",
         }),
-        "milestone modification request"
+        "milestone modification request",
       );
     }
   };
@@ -2027,7 +2201,7 @@ export function TimelineWorkspace({
     const normalizedItems = normalizeMilestoneTimelineItems(result.items);
     const expandedRange = expandTimelineRangeForMilestones(
       normalizedItems,
-      result.range
+      result.range,
     );
     const normalizedInsertedItem =
       normalizedItems.find((item) => item.id === result.insertedItem.id) ??
@@ -2043,7 +2217,7 @@ export function TimelineWorkspace({
     setActiveCapitalSpikeId(null);
     setItems(normalizedItems);
     setDraws((currentDraws) =>
-      syncDemoDrawsWithItems(currentDraws, normalizedItems, expandedRange)
+      syncDemoDrawsWithItems(currentDraws, normalizedItems, expandedRange),
     );
     if (durablePlanId) {
       runDurableMutation(
@@ -2051,11 +2225,11 @@ export function TimelineWorkspace({
           milestone: timelineItemToMilestoneMutationInput(
             normalizedInsertedItem,
             normalizedItems.findIndex(
-              (item) => item.id === normalizedInsertedItem.id
-            ) + 1
+              (item) => item.id === normalizedInsertedItem.id,
+            ) + 1,
           ),
         }),
-        "milestone creation"
+        "milestone creation",
       );
     }
   };
@@ -2075,27 +2249,31 @@ export function TimelineWorkspace({
       label: `Draw ${draws.length + 1}`,
       x: requestedX,
     } satisfies DemoDraw;
+    const nextDraws = relabelTimelineDraws([...draws, nextDraw]);
+    const sequencedNextDraw =
+      nextDraws.find((draw) => draw.id === nextDraw.id) ?? nextDraw;
 
     setActiveDrawId(null);
     setActiveCapitalSpikeId(null);
     setDraws((currentDraws) =>
-      [...currentDraws, nextDraw].sort(
-        (a, b) => a.x - b.x || a.id.localeCompare(b.id)
-      )
+      relabelTimelineDraws([...currentDraws, nextDraw]),
     );
     if (durablePlanId) {
       runDurableMutation(
         persistCreateDraw({
-          amountCents: dollarsToCents(nextDraw.amount),
+          amountCents: dollarsToCents(sequencedNextDraw.amount),
           customDate: true,
-          drawKey: nextDraw.id,
-          ...(nextDraw.itemId ? { itemMilestoneKey: nextDraw.itemId } : {}),
-          label: nextDraw.label,
-          order: draws.length + 1,
-          x: nextDraw.x,
+          drawKey: sequencedNextDraw.id,
+          ...(sequencedNextDraw.itemId
+            ? { itemMilestoneKey: sequencedNextDraw.itemId }
+            : {}),
+          label: sequencedNextDraw.label,
+          order: nextDraws.findIndex((draw) => draw.id === nextDraw.id) + 1,
+          x: sequencedNextDraw.x,
         }),
-        "draw"
+        "draw",
       );
+      persistDrawSequenceUpdates(draws, nextDraws, new Set([nextDraw.id]));
     }
   };
 
@@ -2117,8 +2295,8 @@ export function TimelineWorkspace({
     setActiveCapitalSpikeId(null);
     setCapitalSpikes((currentSpikes) =>
       [...currentSpikes, nextSpike].sort(
-        (a, b) => a.x - b.x || a.id.localeCompare(b.id)
-      )
+        (a, b) => a.x - b.x || a.id.localeCompare(b.id),
+      ),
     );
     if (durablePlanId) {
       runDurableMutation(
@@ -2130,7 +2308,7 @@ export function TimelineWorkspace({
           order: capitalSpikes.length + 1,
           x: nextSpike.x,
         }),
-        "capital event"
+        "capital event",
       );
     }
   };
@@ -2153,8 +2331,8 @@ export function TimelineWorkspace({
     setActiveCapitalSpikeId(null);
     setCapitalSpikes((currentSpikes) =>
       [...currentSpikes, nextInfusion].sort(
-        (a, b) => a.x - b.x || a.id.localeCompare(b.id)
-      )
+        (a, b) => a.x - b.x || a.id.localeCompare(b.id),
+      ),
     );
     if (durablePlanId) {
       runDurableMutation(
@@ -2165,7 +2343,7 @@ export function TimelineWorkspace({
           order: capitalSpikes.length + 1,
           x: nextInfusion.x,
         }),
-        "cash infusion"
+        "cash infusion",
       );
     }
   };
@@ -2181,15 +2359,19 @@ export function TimelineWorkspace({
       return;
     }
 
+    const nextDraws = relabelTimelineDraws(
+      draws.filter((draw) => draw.id !== drawId),
+    );
     setActiveDrawId(null);
     setDraws((currentDraws) =>
-      relabelTimelineDraws(currentDraws.filter((draw) => draw.id !== drawId))
+      relabelTimelineDraws(currentDraws.filter((draw) => draw.id !== drawId)),
     );
     if (durablePlanId) {
       runDurableMutation(
         persistDeleteDraw({ drawKey: drawId }),
-        "draw deletion"
+        "draw deletion",
       );
+      persistDrawSequenceUpdates(draws, nextDraws);
     }
   };
 
@@ -2200,14 +2382,14 @@ export function TimelineWorkspace({
     }
     setActiveCapitalSpikeId(null);
     setCapitalSpikes((currentSpikes) =>
-      currentSpikes.filter((spike) => spike.id !== spikeId)
+      currentSpikes.filter((spike) => spike.id !== spikeId),
     );
     if (durablePlanId) {
       runDurableMutation(
         persistDeleteCapitalEvent({
           capitalEventKey: spikeId,
         }),
-        "capital event deletion"
+        "capital event deletion",
       );
     }
   };
@@ -2234,7 +2416,7 @@ export function TimelineWorkspace({
             requestedPayload: {},
             requestType: "deleteMilestone",
           }),
-          "milestone deletion request"
+          "milestone deletion request",
         );
       }
       return;
@@ -2250,20 +2432,20 @@ export function TimelineWorkspace({
     }
 
     const nextItems = normalizeMilestoneTimelineItems(
-      items.filter((item) => item.id !== targetItem.id)
+      items.filter((item) => item.id !== targetItem.id),
     );
     const nextRange = expandTimelineRangeForMilestones(nextItems, range);
     setItems(nextItems);
     setRange(nextRange);
     setDraws((currentDraws) =>
-      syncDemoDrawsWithItems(currentDraws, nextItems, nextRange)
+      syncDemoDrawsWithItems(currentDraws, nextItems, nextRange),
     );
     if (durablePlanId) {
       runDurableMutation(
         persistDeleteMilestone({
           milestoneKey: targetItem.id,
         }),
-        "milestone deletion"
+        "milestone deletion",
       );
     }
 
@@ -2308,7 +2490,7 @@ export function TimelineWorkspace({
             requestedPayload: { budgetCents: dollarsToCents(patch.amount) },
             requestType: "updateMilestoneBudget",
           }),
-          "milestone budget request"
+          "milestone budget request",
         );
       }
       return;
@@ -2325,6 +2507,11 @@ export function TimelineWorkspace({
                     ...(patch.amount === undefined
                       ? {}
                       : { amount: patch.amount }),
+                    ...(patch.drawAvailabilityAmount === undefined
+                      ? {}
+                      : {
+                          drawAvailabilityAmount: patch.drawAvailabilityAmount,
+                        }),
                     ...(patch.durationDays === undefined
                       ? {}
                       : { durationDays: patch.durationDays }),
@@ -2335,15 +2522,15 @@ export function TimelineWorkspace({
                 : item.data,
               x: patch.x ?? item.x,
             }
-          : item
-      )
+          : item,
+      ),
     );
     const nextRange = expandTimelineRangeForMilestones(nextItems, range);
 
     setItems(nextItems);
     setRange(nextRange);
     setDraws((currentDraws) =>
-      syncDemoDrawsWithItems(currentDraws, nextItems, nextRange)
+      syncDemoDrawsWithItems(currentDraws, nextItems, nextRange),
     );
     if (durablePlanId) {
       const nextItem = nextItems.find((item) => item.id === itemId);
@@ -2352,10 +2539,10 @@ export function TimelineWorkspace({
           persistUpdateMilestone({
             ...timelineItemToMilestoneMutationInput(
               nextItem,
-              nextItems.findIndex((item) => item.id === itemId) + 1
+              nextItems.findIndex((item) => item.id === itemId) + 1,
             ),
           }),
-          "milestone update"
+          "milestone update",
         );
       }
     }
@@ -2365,14 +2552,182 @@ export function TimelineWorkspace({
       setProgressValue(
         activeSelection.phase === "complete" && nextActiveItem
           ? getMilestoneEndX(nextActiveItem)
-          : (nextActiveItem?.x ?? patch.x ?? progressValue)
+          : (nextActiveItem?.x ?? patch.x ?? progressValue),
       );
+    }
+  };
+
+  const updateSubmilestoneBudget = (
+    itemId: string,
+    submilestoneKey: string,
+    budgetCents: number,
+  ) => {
+    if (!(canWriteLiveTimeline && !liveBuildMode)) {
+      return;
+    }
+    const targetItem = items.find((item) => item.id === itemId);
+
+    if (!targetItem?.data) {
+      return;
+    }
+
+    const currentSubmilestones = resolveMilestoneSubmilestones(
+      targetItem.data,
+      itemId,
+    );
+    const targetSubmilestone = currentSubmilestones.find(
+      (submilestone) => submilestone.key === submilestoneKey,
+    );
+
+    if (!targetSubmilestone) {
+      return;
+    }
+
+    const nextBudgetCents = Math.max(0, Math.round(budgetCents));
+    const currentAmount = Math.max(0, Math.round(targetItem.data.amount));
+    const currentDrawAvailability = getMilestoneDrawAvailabilityAmount(
+      targetItem.data,
+    );
+    const drawAvailabilityRatio =
+      currentAmount > 0 ? currentDrawAvailability / currentAmount : 0;
+    const nextSubmilestones = currentSubmilestones.map((submilestone) =>
+      submilestone.key === submilestoneKey
+        ? { ...submilestone, budgetCents: nextBudgetCents }
+        : submilestone,
+    );
+    const nextAmount = Math.round(
+      nextSubmilestones.reduce(
+        (total, submilestone) =>
+          total + Math.max(0, Math.round(submilestone.budgetCents ?? 0)),
+        0,
+      ) / 100,
+    );
+    const nextDrawAvailabilityAmount = Math.max(
+      0,
+      Math.round(nextAmount * drawAvailabilityRatio),
+    );
+    const nextItems = normalizeMilestoneTimelineItems(
+      items.map((item) =>
+        item.id === itemId && item.data
+          ? {
+              ...item,
+              data: {
+                ...item.data,
+                amount: nextAmount,
+                drawAvailabilityAmount: nextDrawAvailabilityAmount,
+                subMilestones: submilestoneNames(nextSubmilestones),
+                submilestoneDetails: nextSubmilestones,
+              },
+            }
+          : item,
+      ),
+    );
+    const nextRange = expandTimelineRangeForMilestones(nextItems, range);
+
+    setItems(nextItems);
+    setRange(nextRange);
+    setDraws((currentDraws) =>
+      syncDemoDrawsWithItems(currentDraws, nextItems, nextRange),
+    );
+
+    if (durablePlanId) {
+      const nextItem = nextItems.find((item) => item.id === itemId);
+      if (nextItem) {
+        runDurableMutation(
+          persistUpdateMilestone({
+            ...timelineItemToMilestoneMutationInput(
+              nextItem,
+              nextItems.findIndex((item) => item.id === itemId) + 1,
+            ),
+          }),
+          "sub-milestone budget update",
+        );
+      }
+    }
+  };
+
+  const updateSubmilestoneDuration = (
+    itemId: string,
+    submilestoneKey: string,
+    durationDays: number,
+  ) => {
+    if (!(canWriteLiveTimeline && !liveBuildMode)) {
+      return;
+    }
+    const targetItem = items.find((item) => item.id === itemId);
+
+    if (!targetItem?.data) {
+      return;
+    }
+
+    const currentSubmilestones = resolveMilestoneSubmilestones(
+      targetItem.data,
+      itemId,
+    );
+    const targetSubmilestone = currentSubmilestones.find(
+      (submilestone) => submilestone.key === submilestoneKey,
+    );
+
+    if (!targetSubmilestone) {
+      return;
+    }
+
+    const nextDurationDays = Math.max(1, Math.round(durationDays));
+    const nextSubmilestones = currentSubmilestones.map((submilestone) =>
+      submilestone.key === submilestoneKey
+        ? { ...submilestone, durationDays: nextDurationDays }
+        : submilestone,
+    );
+    const nextMilestoneDurationDays = Math.max(
+      1,
+      nextSubmilestones.reduce(
+        (total, submilestone) =>
+          total + Math.max(1, Math.round(submilestone.durationDays ?? 1)),
+        0,
+      ),
+    );
+    const nextItems = normalizeMilestoneTimelineItems(
+      items.map((item) =>
+        item.id === itemId && item.data
+          ? {
+              ...item,
+              data: {
+                ...item.data,
+                durationDays: nextMilestoneDurationDays,
+                subMilestones: submilestoneNames(nextSubmilestones),
+                submilestoneDetails: nextSubmilestones,
+              },
+            }
+          : item,
+      ),
+    );
+    const nextRange = expandTimelineRangeForMilestones(nextItems, range);
+
+    setItems(nextItems);
+    setRange(nextRange);
+    setDraws((currentDraws) =>
+      syncDemoDrawsWithItems(currentDraws, nextItems, nextRange),
+    );
+
+    if (durablePlanId) {
+      const nextItem = nextItems.find((item) => item.id === itemId);
+      if (nextItem) {
+        runDurableMutation(
+          persistUpdateMilestone({
+            ...timelineItemToMilestoneMutationInput(
+              nextItem,
+              nextItems.findIndex((item) => item.id === itemId) + 1,
+            ),
+          }),
+          "sub-milestone duration update",
+        );
+      }
     }
   };
 
   const completeMilestone = (
     itemId: string,
-    claim: TimelineCompletionClaimInput
+    claim: TimelineCompletionClaimInput,
   ) => {
     setItems((currentItems) =>
       currentItems.map((item) =>
@@ -2387,7 +2742,9 @@ export function TimelineWorkspace({
                     : { actualCost: claim.actualCost }),
                   completedDay: claim.completedDay,
                   ...(claim.note ? { note: claim.note } : {}),
-                  ...(claim.qualityNote ? { qualityNote: claim.qualityNote } : {}),
+                  ...(claim.qualityNote
+                    ? { qualityNote: claim.qualityNote }
+                    : {}),
                   ...(claim.qualityRating === undefined
                     ? {}
                     : { qualityRating: claim.qualityRating }),
@@ -2400,8 +2757,8 @@ export function TimelineWorkspace({
                 status: "complete",
               },
             }
-          : item
-      )
+          : item,
+      ),
     );
     if (durablePlanId) {
       runDurableMutation(
@@ -2416,7 +2773,7 @@ export function TimelineWorkspace({
           qualityNote: claim.qualityNote,
           qualityRating: claim.qualityRating,
         }),
-        "milestone completion"
+        "milestone completion",
       );
     }
   };
@@ -2426,17 +2783,32 @@ export function TimelineWorkspace({
       return;
     }
 
-    const createdAssets: DemoEvidenceAsset[] = [];
-    setItems((currentItems) =>
-      currentItems.map((item) => {
-        if (!(item.id === itemId && item.data)) {
-          return item;
-        }
+    void (async () => {
+      const evidenceFiles = await Promise.all(
+        files
+          .filter(
+            (file) =>
+              file.type.startsWith("image/") ||
+              isHeicLikeEvidenceImage({
+                fileName: file.name,
+                mimeType: file.type,
+              }),
+          )
+          .map((file) => normalizeEvidenceFileForUpload(file)),
+      );
+      if (evidenceFiles.length === 0) {
+        return;
+      }
 
-        const existingAssets = item.data.evidencePackage?.assets ?? [];
-        const nextAssets = files
-          .filter((file) => file.type.startsWith("image/"))
-          .map((file, index) => {
+      const createdAssets: DemoEvidenceAsset[] = [];
+      setItems((currentItems) =>
+        currentItems.map((item) => {
+          if (!(item.id === itemId && item.data)) {
+            return item;
+          }
+
+          const existingAssets = item.data.evidencePackage?.assets ?? [];
+          const nextAssets = evidenceFiles.map((file, index) => {
             const assetNumber = existingAssets.length + index + 1;
 
             const asset = {
@@ -2452,72 +2824,77 @@ export function TimelineWorkspace({
             return asset;
           });
 
-        if (nextAssets.length === 0) {
-          return item;
-        }
-
-        return {
-          ...item,
-          data: {
-            ...item.data,
-            evidence: "Submitted package",
-            evidencePackage: {
-              assets: [...existingAssets, ...nextAssets],
-            },
-          },
-        };
-      })
-    );
-    if (durablePlanId && createdAssets.length > 0) {
-      for (const [index, asset] of createdAssets.entries()) {
-        const file = files.filter((candidate) =>
-          candidate.type.startsWith("image/")
-        )[index];
-        if (!file) {
-          continue;
-        }
-        void (async () => {
-          const uploadUrl = await persistGenerateEvidenceUploadUrl();
-          const response = await fetch(uploadUrl, {
-            body: file,
-            headers: {
-              "Content-Type": file.type || "application/octet-stream",
-            },
-            method: "POST",
-          });
-          if (!response.ok) {
-            throw new Error("Evidence upload failed.");
+          if (nextAssets.length === 0) {
+            return item;
           }
-          const { storageId } = (await response.json()) as {
-            storageId: string;
-          };
-          await persistCreateEvidenceAsset({
-            asset: {
-              evidenceKey: asset.id,
-              fileName: asset.fileName,
-              label: asset.label,
-              milestoneKey: itemId,
-              mimeType: asset.mimeType,
-              sizeBytes: asset.size,
-              storageId: storageId as Id<"_storage">,
-              tag: asset.tag,
+
+          return {
+            ...item,
+            data: {
+              ...item.data,
+              evidence: "Submitted package",
+              evidencePackage: {
+                assets: [...existingAssets, ...nextAssets],
+              },
             },
+          };
+        }),
+      );
+      if (durablePlanId && createdAssets.length > 0) {
+        for (const [index, asset] of createdAssets.entries()) {
+          const file = evidenceFiles[index];
+          if (!file) {
+            continue;
+          }
+          void (async () => {
+            const uploadUrl = await persistGenerateEvidenceUploadUrl();
+            const response = await fetch(uploadUrl, {
+              body: file,
+              headers: {
+                "Content-Type": file.type || "application/octet-stream",
+              },
+              method: "POST",
+            });
+            if (!response.ok) {
+              throw new Error("Evidence upload failed.");
+            }
+            const { storageId } = (await response.json()) as {
+              storageId: string;
+            };
+            await persistCreateEvidenceAsset({
+              asset: {
+                evidenceKey: asset.id,
+                fileName: asset.fileName,
+                label: asset.label,
+                milestoneKey: itemId,
+                mimeType: asset.mimeType,
+                sizeBytes: asset.size,
+                storageId: storageId as Id<"_storage">,
+                tag: asset.tag,
+              },
+            });
+          })().catch((error) => {
+            const message =
+              error instanceof Error
+                ? error.message
+                : "Unable to persist evidence.";
+            toast.error(message);
           });
-        })().catch((error) => {
-          const message =
-            error instanceof Error
-              ? error.message
-              : "Unable to persist evidence.";
-          toast.error(message);
-        });
+        }
       }
-    }
+    })().catch((error) => {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Unable to prepare evidence images.";
+      toast.error(message);
+    });
   };
 
   const updateEvidenceAsset = (
     itemId: string,
     assetId: string,
-    patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>
+    patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>,
   ) => {
     setItems((currentItems) =>
       currentItems.map((item) =>
@@ -2538,13 +2915,13 @@ export function TimelineWorkspace({
                             ? {}
                             : { tag: patch.tag }),
                         }
-                      : asset
+                      : asset,
                   ),
                 },
               },
             }
-          : item
-      )
+          : item,
+      ),
     );
     if (durablePlanId) {
       runDurableMutation(
@@ -2553,7 +2930,7 @@ export function TimelineWorkspace({
           label: patch.label,
           tag: patch.tag,
         }),
-        "evidence asset"
+        "evidence asset",
       );
     }
   };
@@ -2566,14 +2943,14 @@ export function TimelineWorkspace({
         }
 
         const removedAsset = item.data.evidencePackage.assets.find(
-          (asset) => asset.id === assetId
+          (asset) => asset.id === assetId,
         );
         if (removedAsset?.previewUrl) {
           URL.revokeObjectURL(removedAsset.previewUrl);
         }
 
         const nextAssets = item.data.evidencePackage.assets.filter(
-          (asset) => asset.id !== assetId
+          (asset) => asset.id !== assetId,
         );
 
         return {
@@ -2585,14 +2962,14 @@ export function TimelineWorkspace({
             evidencePackage: { assets: nextAssets },
           },
         };
-      })
+      }),
     );
     if (durablePlanId) {
       runDurableMutation(
         persistDeleteEvidenceAsset({
           evidenceKey: assetId,
         }),
-        "evidence deletion"
+        "evidence deletion",
       );
     }
   };
@@ -2600,7 +2977,7 @@ export function TimelineWorkspace({
   const updatePlannedDraw = (
     drawId: string,
     patch: { amount?: number; x?: number },
-    options: { closeEditor?: boolean } = {}
+    options: { closeEditor?: boolean } = {},
   ) => {
     if (!canWriteLiveTimeline) {
       toast.error("Timeline is locked in this status.");
@@ -2625,8 +3002,8 @@ export function TimelineWorkspace({
       return;
     }
 
-    setDraws((currentDraws) =>
-      currentDraws.map((draw) =>
+    const nextDraws = relabelTimelineDraws(
+      draws.map((draw) =>
         draw.id === drawId
           ? {
               ...draw,
@@ -2634,8 +3011,25 @@ export function TimelineWorkspace({
               customDate: true,
               x: nextX,
             }
-          : draw
-      )
+          : draw,
+      ),
+    );
+    const sequencedTargetDraw =
+      nextDraws.find((draw) => draw.id === drawId) ?? targetDraw;
+
+    setDraws((currentDraws) =>
+      relabelTimelineDraws(
+        currentDraws.map((draw) =>
+          draw.id === drawId
+            ? {
+                ...draw,
+                amount: nextAmount,
+                customDate: true,
+                x: nextX,
+              }
+            : draw,
+        ),
+      ),
     );
     if (durablePlanId) {
       runDurableMutation(
@@ -2643,10 +3037,13 @@ export function TimelineWorkspace({
           amountCents: dollarsToCents(nextAmount),
           customDate: true,
           drawKey: drawId,
+          label: sequencedTargetDraw.label,
+          order: nextDraws.findIndex((draw) => draw.id === drawId) + 1,
           x: nextX,
         }),
-        "draw update"
+        "draw update",
       );
+      persistDrawSequenceUpdates(draws, nextDraws, new Set([drawId]));
     }
     if (nextX > resolvedRange.max) {
       setRange((currentRange) => ({
@@ -2667,12 +3064,12 @@ export function TimelineWorkspace({
 
     const formData = new FormData(event.currentTarget);
     const nextAmount = Math.max(
-      0,
-      Math.round(Number(formData.get("drawAmount") ?? drawEditDraft.amount))
+      1,
+      Math.round(Number(formData.get("drawAmount") ?? drawEditDraft.amount)),
     );
     const nextX = Math.max(
       resolvedRange.min,
-      Math.round(Number(formData.get("drawDate") ?? drawEditDraft.x))
+      Math.round(Number(formData.get("drawDate") ?? drawEditDraft.x)),
     );
 
     if (!(Number.isFinite(nextAmount) && Number.isFinite(nextX))) {
@@ -2682,13 +3079,13 @@ export function TimelineWorkspace({
     updatePlannedDraw(
       activeDrawId,
       { amount: nextAmount, x: nextX },
-      { closeEditor: true }
+      { closeEditor: true },
     );
   };
 
   const submitDrawRequest = (
     drawId: string,
-    request: { amount: number; note?: string; x?: number }
+    request: { amount: number; note?: string; x?: number },
   ) => {
     const targetDraw = draws.find((draw) => draw.id === drawId);
 
@@ -2702,7 +3099,7 @@ export function TimelineWorkspace({
         : clampNumber(
             Math.round(request.x),
             resolvedRange.min,
-            resolvedRange.max
+            resolvedRange.max,
           );
     const requestedDraw = { ...targetDraw, x: nextX };
     const limit = liveBuildMode
@@ -2711,7 +3108,7 @@ export function TimelineWorkspace({
     const nextAmount = clampNumber(
       Math.round(request.amount),
       0,
-      limit.availableLimit
+      limit.availableLimit,
     );
 
     setDraws((currentDraws) =>
@@ -2735,7 +3132,7 @@ export function TimelineWorkspace({
           requestedAt: new Date().toISOString(),
           x: nextX,
         };
-      })
+      }),
     );
     if (durablePlanId) {
       runDurableMutation(
@@ -2745,14 +3142,14 @@ export function TimelineWorkspace({
           note: request.note,
           x: nextX,
         }),
-        "draw request"
+        "draw request",
       );
     }
   };
 
   const reviewDrawRequest = (
     drawId: string,
-    review: { note?: string; status: "approved" | "rejected" }
+    review: { note?: string; status: "approved" | "rejected" },
   ) => {
     setDraws((currentDraws) =>
       currentDraws.map((draw) =>
@@ -2763,8 +3160,8 @@ export function TimelineWorkspace({
               requestStatus: review.status,
               reviewedAt: new Date().toISOString(),
             }
-          : draw
-      )
+          : draw,
+      ),
     );
     if (durablePlanId) {
       runDurableMutation(
@@ -2773,14 +3170,14 @@ export function TimelineWorkspace({
           note: review.note,
           status: review.status,
         }),
-        "draw review"
+        "draw review",
       );
     }
   };
 
   const reviewModificationRequest = (
     request: TimelineModificationRequestView,
-    review: { note?: string; status: "approved" | "rejected" }
+    review: { note?: string; status: "approved" | "rejected" },
   ) => {
     setModificationRequests((currentRequests) =>
       currentRequests.map((candidate) =>
@@ -2790,8 +3187,8 @@ export function TimelineWorkspace({
               ...(review.note ? { reviewNote: review.note } : {}),
               status: review.status,
             }
-          : candidate
-      )
+          : candidate,
+      ),
     );
 
     if (review.status === "approved") {
@@ -2802,13 +3199,13 @@ export function TimelineWorkspace({
         const milestone = request.requestedPayload.milestone;
         const nextItem = timelineMilestonePayloadToItem(milestone, true);
         setItems((currentItems) =>
-          normalizeMilestoneTimelineItems([...currentItems, nextItem])
+          normalizeMilestoneTimelineItems([...currentItems, nextItem]),
         );
       }
 
       if (request.requestType === "deleteMilestone" && request.milestoneKey) {
         setItems((currentItems) =>
-          currentItems.filter((item) => item.id !== request.milestoneKey)
+          currentItems.filter((item) => item.id !== request.milestoneKey),
         );
       }
 
@@ -2828,8 +3225,8 @@ export function TimelineWorkspace({
                     amount: nextAmount,
                   },
                 }
-              : item
-          )
+              : item,
+          ),
         );
       }
     }
@@ -2841,14 +3238,14 @@ export function TimelineWorkspace({
           requestId: request._id,
           status: review.status,
         }),
-        "timeline modification review"
+        "timeline modification review",
       );
     }
   };
 
   const reviewMilestoneCompletion = (
     itemId: string,
-    review: { note?: string; status: "approved" | "revisionRequested" }
+    review: { note?: string; status: "approved" | "revisionRequested" },
   ) => {
     setItems((currentItems) =>
       currentItems.map((item) =>
@@ -2867,8 +3264,8 @@ export function TimelineWorkspace({
                 },
               },
             }
-          : item
-      )
+          : item,
+      ),
     );
     if (durablePlanId) {
       runDurableMutation(
@@ -2877,14 +3274,14 @@ export function TimelineWorkspace({
           note: review.note,
           status: review.status,
         }),
-        "milestone review"
+        "milestone review",
       );
     }
   };
 
   const requestMilestoneSiteVisit = (
     itemId: string,
-    request: TimelineSiteVisitRequestInput
+    request: TimelineSiteVisitRequestInput,
   ) => {
     setItems((currentItems) =>
       currentItems.map((item) =>
@@ -2919,8 +3316,8 @@ export function TimelineWorkspace({
                 },
               },
             }
-          : item
-      )
+          : item,
+      ),
     );
   };
   const createMilestoneSiteVisit = persistence?.requestMilestoneSiteVisit
@@ -2930,12 +3327,12 @@ export function TimelineWorkspace({
             (includedItemId) =>
               resolveTimelinePersistenceSiteVisitMilestoneKey(
                 includedItemId,
-                workspaceMode
-              )
+                workspaceMode,
+              ),
           ),
           milestoneKey: resolveTimelinePersistenceSiteVisitMilestoneKey(
             itemId,
-            workspaceMode
+            workspaceMode,
           ),
           note: request.note,
           requestedDay: request.requestedDay,
@@ -2946,7 +3343,7 @@ export function TimelineWorkspace({
         persistRecordMilestoneSiteVisit({
           milestoneKey: resolveTimelinePersistenceSiteVisitMilestoneKey(
             itemId,
-            workspaceMode
+            workspaceMode,
           ),
           note: request.note,
           status: request.status,
@@ -2969,19 +3366,19 @@ export function TimelineWorkspace({
       0,
       Math.round(
         Number(
-          formData.get("capitalSpikeAmount") ?? capitalSpikeEditDraft.amount
-        )
-      )
+          formData.get("capitalSpikeAmount") ?? capitalSpikeEditDraft.amount,
+        ),
+      ),
     );
     const nextX = Math.max(
       resolvedRange.min,
       Math.round(
-        Number(formData.get("capitalSpikeDate") ?? capitalSpikeEditDraft.x)
-      )
+        Number(formData.get("capitalSpikeDate") ?? capitalSpikeEditDraft.x),
+      ),
     );
     const nextLabel =
       String(
-        formData.get("capitalSpikeLabel") ?? capitalSpikeEditDraft.label
+        formData.get("capitalSpikeLabel") ?? capitalSpikeEditDraft.label,
       ).trim() || "Capital spike";
 
     if (!(Number.isFinite(nextAmount) && Number.isFinite(nextX))) {
@@ -2998,9 +3395,9 @@ export function TimelineWorkspace({
                 label: nextLabel,
                 x: nextX,
               }
-            : spike
+            : spike,
         )
-        .sort((a, b) => a.x - b.x || a.id.localeCompare(b.id))
+        .sort((a, b) => a.x - b.x || a.id.localeCompare(b.id)),
     );
     if (durablePlanId) {
       runDurableMutation(
@@ -3013,7 +3410,7 @@ export function TimelineWorkspace({
           label: nextLabel,
           x: nextX,
         }),
-        "capital event update"
+        "capital event update",
       );
     }
     if (nextX > resolvedRange.max) {
@@ -3027,14 +3424,14 @@ export function TimelineWorkspace({
   // --- Mobile (max-md) day dial + drawer handlers ------------------------
   const mobileFeedItems = useMemo(
     () => items.filter((item) => item.data),
-    [items]
+    [items],
   );
   const handleMobileDayChange = useCallback(
     (day: number) => {
       const nextDay = clampNumber(
         Math.round(day),
         resolvedRange.min,
-        resolvedRange.max
+        resolvedRange.max,
       );
       setSelectedDay(nextDay);
       setProgressValue(nextDay);
@@ -3051,7 +3448,7 @@ export function TimelineWorkspace({
         });
       }
     },
-    [mobileFeedItems, resolvedRange.max, resolvedRange.min]
+    [mobileFeedItems, resolvedRange.max, resolvedRange.min],
   );
   const handleMobileOpenDraw = useCallback(
     (drawId: string) => {
@@ -3071,7 +3468,7 @@ export function TimelineWorkspace({
       setMobileDetailDrawerRequested(true);
       setSelectedPanelOpen(true);
     },
-    [canWriteLiveTimeline, draws, liveBuildMode]
+    [canWriteLiveTimeline, draws, liveBuildMode],
   );
   const handleMobileOpenCapitalEvent = useCallback((capitalSpikeId: string) => {
     setActiveCapitalSpikeId(capitalSpikeId);
@@ -3133,17 +3530,17 @@ export function TimelineWorkspace({
     liveBuildHref: durableMeta?.liveBuildHref,
   });
   const showLenderDealControls = Boolean(
-    demoMode && durableMeta && timelineRole === "lender"
+    demoMode && durableMeta && timelineRole === "lender",
   );
   const showLenderApproveCta = Boolean(
     showLenderDealControls &&
-      planStatus === "submitted" &&
-      !lenderApprovedBuildKey
+    planStatus === "submitted" &&
+    !lenderApprovedBuildKey,
   );
   const showLenderLiveBuildLink = Boolean(
     showLenderDealControls &&
-      lenderLiveBuildHref &&
-      (planStatus === "approved" || lenderApprovedBuildKey)
+    lenderLiveBuildHref &&
+    (planStatus === "approved" || lenderApprovedBuildKey),
   );
 
   if (!(share || setupComplete)) {
@@ -3159,16 +3556,28 @@ export function TimelineWorkspace({
     );
   }
 
+  const WorkspaceRoot = embedded ? "section" : "main";
+
   return (
-    <main
+    <WorkspaceRoot
+      aria-label={embedded ? "Proposal timeline preview" : undefined}
       className={cn(
-        "min-h-svh min-w-0 bg-[radial-gradient(circle_at_top_left,color-mix(in_oklch,var(--primary)_14%,transparent),transparent_34%),linear-gradient(180deg,var(--background),var(--bg-base))]",
-        workspaceMode === "live" ? "px-0 py-0" : "px-0 py-0 sm:px-2 sm:py-1"
+        "min-w-0",
+        embedded
+          ? "bg-transparent px-0 py-0"
+          : "min-h-svh bg-[radial-gradient(circle_at_top_left,color-mix(in_oklch,var(--primary)_14%,transparent),transparent_34%),linear-gradient(180deg,var(--background),var(--bg-base))]",
+        !embedded &&
+          (workspaceMode === "live"
+            ? "px-0 py-0"
+            : "px-0 py-0 sm:px-2 sm:py-1"),
       )}
     >
       <motion.div
         animate="show"
-        className="relative mx-auto flex max-w-full flex-col gap-1 sm:gap-6"
+        className={cn(
+          "relative flex flex-col gap-1 sm:gap-6",
+          embedded ? "w-full min-w-0" : "mx-auto max-w-full",
+        )}
         data-testid="timeline-workspace-root"
         initial={prefersReducedMotion ? false : "hidden"}
         variants={{
@@ -3220,196 +3629,210 @@ export function TimelineWorkspace({
             </div>
           </div>
         ) : null}
-        <motion.section
-          className="timeline-route-header"
-          variants={routeSectionVariants}
-        >
-          <div className="timeline-route-header__meta max-w-3xl">
-            <div className="mb-1 flex items-center gap-2 overflow-x-auto pb-0.5 sm:mb-3 sm:flex-wrap sm:overflow-visible sm:pb-0">
-              <Badge variant="success">
-                {liveBuildMode
-                  ? "Live build"
-                  : proposalMode
-                    ? "Proposal mode"
-                    : "Capital schedule"}
-              </Badge>
+        {showWorkspaceHeader ? (
+          <motion.section
+            className="timeline-route-header"
+            variants={routeSectionVariants}
+          >
+            <div className="timeline-route-header__meta max-w-3xl">
+              <div className="mb-1 flex items-center gap-2 overflow-x-auto pb-0.5 sm:mb-3 sm:flex-wrap sm:overflow-visible sm:pb-0">
+                <Badge variant="success">
+                  {liveBuildMode
+                    ? "Live build"
+                    : proposalMode
+                      ? "Proposal mode"
+                      : "Capital schedule"}
+                </Badge>
+                {durableMeta ? (
+                  <>
+                    <Badge
+                      data-ixc-ref="UI-PROPOSAL-SHORT-LINK"
+                      variant="outline"
+                    >
+                      ?proposal={durableMeta.proposalSlug}
+                    </Badge>
+                    <Badge variant="secondary">{durableMeta.status}</Badge>
+                    <Badge
+                      data-testid="timeline-durable-save-status"
+                      variant={
+                        durableSaveStatus === "error"
+                          ? "destructive"
+                          : durableSavePendingCount > 0
+                            ? "warning"
+                            : "outline"
+                      }
+                    >
+                      {durableSavePendingCount > 0
+                        ? "Saving"
+                        : durableSaveStatus === "error"
+                          ? "Save failed"
+                          : durableSaveStatus === "saved"
+                            ? "Saved"
+                            : "Ready"}
+                    </Badge>
+                  </>
+                ) : null}
+                <ShareStatusBadges
+                  loading={sharedSnapshotLoading}
+                  missing={sharedSnapshotMissing}
+                  share={share}
+                />
+              </div>
+            </div>
+            <div className="timeline-route-header__actions">
+              {headerActions}
+              {collaboration?.toolbar}
+              {allowRoleSwitching ? (
+                <TimelineRoleSwitcher
+                  onRoleChange={setTimelineRole}
+                  role={timelineRole}
+                />
+              ) : null}
+              {showLenderApproveCta ? (
+                <Button
+                  data-testid="timeline-lender-approve-close"
+                  disabled={lenderApprovalPending}
+                  onClick={() => void approveAndCloseFromLenderDemo()}
+                  size="sm"
+                >
+                  {lenderApprovalPending ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <ShieldCheck />
+                  )}
+                  Approve proposal and close deal
+                </Button>
+              ) : null}
+              {showLenderLiveBuildLink && lenderLiveBuildHref ? (
+                <Button
+                  data-testid="timeline-lender-live-build-link"
+                  render={<a href={lenderLiveBuildHref} />}
+                  size="sm"
+                  variant="secondary"
+                >
+                  <ExternalLink />
+                  Open live build
+                </Button>
+              ) : null}
               {durableMeta ? (
                 <>
-                  <Badge
-                    data-ixc-ref="UI-PROPOSAL-SHORT-LINK"
+                  {planStatus === "draft" ? (
+                    <Button
+                      data-ixc-ref="UI-SUBMIT-CTA"
+                      data-testid="timeline-submit-proposal"
+                      disabled={readOnly}
+                      onClick={() => {
+                        setSubmitError("");
+                        setSubmitConfirmOpen(true);
+                      }}
+                      size="sm"
+                    >
+                      <ShieldCheck />
+                      Submit Proposal
+                    </Button>
+                  ) : liveBuildMode ? (
+                    <Button
+                      aria-disabled="true"
+                      disabled
+                      size="sm"
+                      variant="outline"
+                    >
+                      Active build
+                    </Button>
+                  ) : proposalMode && planStatus === "approved" ? (
+                    <Button
+                      aria-disabled="true"
+                      disabled
+                      size="sm"
+                      variant="outline"
+                    >
+                      Approved proposal
+                    </Button>
+                  ) : proposalMode && planStatus === "closed" ? (
+                    <Button
+                      aria-disabled="true"
+                      disabled
+                      size="sm"
+                      variant="outline"
+                    >
+                      Closed proposal
+                    </Button>
+                  ) : (
+                    <Button
+                      aria-disabled="true"
+                      data-ixc-ref="UI-LOCKED-SUBMIT"
+                      disabled
+                      size="sm"
+                      variant="outline"
+                    >
+                      Submitted
+                    </Button>
+                  )}
+                  <Button
+                    render={<a href={durableMeta.backofficeHref} />}
+                    size="sm"
                     variant="outline"
                   >
-                    ?proposal={durableMeta.proposalSlug}
-                  </Badge>
-                  <Badge variant="secondary">{durableMeta.status}</Badge>
-                  <Badge
-                    data-testid="timeline-durable-save-status"
-                    variant={
-                      durableSaveStatus === "error"
-                        ? "destructive"
-                        : durableSavePendingCount > 0
-                          ? "warning"
-                          : "outline"
-                    }
+                    <ExternalLink />
+                    Backoffice
+                  </Button>
+                  <Button
+                    data-ixc-ref="UI-PROPOSAL-SHORT-LINK"
+                    render={<a href={durableMeta.proposalHref} />}
+                    size="sm"
                   >
-                    {durableSavePendingCount > 0
-                      ? "Saving"
-                      : durableSaveStatus === "error"
-                        ? "Save failed"
-                        : durableSaveStatus === "saved"
-                          ? "Saved"
-                          : "Ready"}
-                  </Badge>
+                    {liveBuildMode
+                      ? "Build timeline link"
+                      : proposalMode
+                        ? "Builder proposal link"
+                        : "Live proposal link"}
+                  </Button>
                 </>
               ) : null}
-              <ShareStatusBadges
-                loading={sharedSnapshotLoading}
-                missing={sharedSnapshotMissing}
-                share={share}
-              />
-            </div>
-          </div>
-          <div className="timeline-route-header__actions">
-            {collaboration?.toolbar}
-            {allowRoleSwitching ? (
-              <TimelineRoleSwitcher
-                onRoleChange={setTimelineRole}
-                role={timelineRole}
-              />
-            ) : null}
-            {showLenderApproveCta ? (
               <Button
-                data-testid="timeline-lender-approve-close"
-                disabled={lenderApprovalPending}
-                onClick={() => void approveAndCloseFromLenderDemo()}
-                size="sm"
-              >
-                {lenderApprovalPending ? (
-                  <Loader2 className="animate-spin" />
-                ) : (
-                  <ShieldCheck />
-                )}
-                Approve proposal and close deal
-              </Button>
-            ) : null}
-            {showLenderLiveBuildLink && lenderLiveBuildHref ? (
-              <Button
-                data-testid="timeline-lender-live-build-link"
-                render={<a href={lenderLiveBuildHref} />}
+                aria-disabled={!(canWriteLiveTimeline && !liveBuildMode)}
+                data-testid="timeline-optimize-scenario"
+                disabled={!(canWriteLiveTimeline && !liveBuildMode)}
+                onClick={optimizeCurrentScenario}
                 size="sm"
                 variant="secondary"
               >
-                <ExternalLink />
-                Open live build
+                <Sparkles />
+                Optimize scenario
               </Button>
-            ) : null}
-            {durableMeta ? (
-              <>
-                {planStatus === "draft" ? (
-                  <Button
-                    data-ixc-ref="UI-SUBMIT-CTA"
-                    data-testid="timeline-submit-proposal"
-                    disabled={collaborationViewOnly}
-                    onClick={() => {
-                      setSubmitError("");
-                      setSubmitConfirmOpen(true);
-                    }}
-                    size="sm"
-                  >
-                    <ShieldCheck />
-                    Submit Proposal
-                  </Button>
-                ) : liveBuildMode ? (
-                  <Button
-                    aria-disabled="true"
-                    disabled
-                    size="sm"
-                    variant="outline"
-                  >
-                    Active build
-                  </Button>
-                ) : proposalMode && planStatus === "approved" ? (
-                  <Button
-                    aria-disabled="true"
-                    disabled
-                    size="sm"
-                    variant="outline"
-                  >
-                    Approved proposal
-                  </Button>
-                ) : proposalMode && planStatus === "closed" ? (
-                  <Button
-                    aria-disabled="true"
-                    disabled
-                    size="sm"
-                    variant="outline"
-                  >
-                    Closed proposal
-                  </Button>
-                ) : (
-                  <Button
-                    aria-disabled="true"
-                    data-ixc-ref="UI-LOCKED-SUBMIT"
-                    disabled
-                    size="sm"
-                    variant="outline"
-                  >
-                    Submitted
-                  </Button>
-                )}
+              <ShareTimelineMenu {...shareMenuProps} />
+              {share || durableMeta ? null : (
                 <Button
-                  render={<a href={durableMeta.backofficeHref} />}
+                  data-testid="timeline-reconfigure-plan"
+                  onClick={() => setSetupComplete(false)}
                   size="sm"
                   variant="outline"
                 >
-                  <ExternalLink />
-                  Backoffice
+                  <ReceiptText />
+                  Reconfigure budget
                 </Button>
-                <Button
-                  data-ixc-ref="UI-PROPOSAL-SHORT-LINK"
-                  render={<a href={durableMeta.proposalHref} />}
-                  size="sm"
-                >
-                  {liveBuildMode
-                    ? "Build timeline link"
-                    : proposalMode
-                      ? "Builder proposal link"
-                      : "Live proposal link"}
-                </Button>
-              </>
-            ) : null}
-            <ShareTimelineMenu {...shareMenuProps} />
-            {share || durableMeta ? null : (
+              )}
               <Button
-                data-testid="timeline-reconfigure-plan"
-                onClick={() => setSetupComplete(false)}
+                aria-disabled={!canEditPlanStructure}
+                disabled={!canEditPlanStructure}
+                onClick={resetCurrentTimeline}
                 size="sm"
                 variant="outline"
               >
-                <ReceiptText />
-                Reconfigure budget
+                <RotateCcw />
+                Reset
               </Button>
-            )}
-            <Button
-              aria-disabled={!canEditPlanStructure}
-              disabled={!canEditPlanStructure}
-              onClick={resetCurrentTimeline}
-              size="sm"
-              variant="outline"
-            >
-              <RotateCcw />
-              Reset
-            </Button>
-            <div className="flex h-8 items-center gap-2 rounded-lg border border-border bg-background px-3 text-sm shadow-xs">
-              <Switch
-                checked={straightLine}
-                disabled={readOnly}
-                onCheckedChange={setStraightLine}
-              />
-              Straight line
+              <div className="flex h-8 items-center gap-2 rounded-lg border border-border bg-background px-3 text-sm shadow-xs">
+                <Switch
+                  checked={straightLine}
+                  disabled={readOnly}
+                  onCheckedChange={setStraightLine}
+                />
+                Straight line
+              </div>
             </div>
-          </div>
-        </motion.section>
+          </motion.section>
+        ) : null}
 
         {submitConfirmOpen ? (
           <div
@@ -3520,7 +3943,7 @@ export function TimelineWorkspace({
                     Cash requirement vs draw recovery
                   </h2>
                 </div>
-                <div className="grid w-full min-w-0 max-w-full gap-1 sm:gap-3 lg:ml-auto lg:w-full lg:max-w-xl xl:max-w-2xl">
+                <div className="grid w-full min-w-0 max-w-full gap-1 sm:gap-3 lg:ml-auto lg:w-full lg:max-w-2xl 2xl:max-w-4xl">
                   <div className="rounded-md border border-primary/25 bg-primary/10 px-2 py-1.5 sm:hidden">
                     <p className="font-medium text-[10px] text-muted-foreground uppercase">
                       Initial cash on hand
@@ -3555,7 +3978,7 @@ export function TimelineWorkspace({
                         onChange={(event) => {
                           const nextValue = Math.max(
                             0,
-                            Math.round(Number(event.currentTarget.value))
+                            Math.round(Number(event.currentTarget.value)),
                           );
 
                           if (Number.isFinite(nextValue)) {
@@ -3585,7 +4008,7 @@ export function TimelineWorkspace({
                         onChange={(event) => {
                           const nextValue = Math.max(
                             0,
-                            Math.round(Number(event.currentTarget.value))
+                            Math.round(Number(event.currentTarget.value)),
                           );
 
                           if (Number.isFinite(nextValue)) {
@@ -3599,7 +4022,7 @@ export function TimelineWorkspace({
                       />
                     </div>
                   </div>
-                  <div className="grid min-w-0 grid-cols-6 gap-1.5 text-xs sm:gap-2 sm:text-sm">
+                  <div className="grid min-w-0 grid-cols-2 gap-1.5 text-xs sm:grid-cols-4 sm:gap-2 sm:text-sm 2xl:grid-cols-8">
                     <div className="min-w-0 overflow-hidden rounded-md border border-border bg-muted/30 px-2 py-1.5 sm:px-3 sm:py-2">
                       <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
                         Probe
@@ -3637,6 +4060,28 @@ export function TimelineWorkspace({
                         {money(endingCashOnHand)}
                       </p>
                     </div>
+                    <div className="min-w-0 overflow-hidden rounded-md border border-sky-500/25 bg-sky-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
+                      <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
+                        Lender cash
+                      </p>
+                      <p
+                        className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
+                        data-testid="timeline-cashflow-lender-cash-used"
+                      >
+                        {money(cashUseSummary.lenderCashUsed)}
+                      </p>
+                    </div>
+                    <div className="min-w-0 overflow-hidden rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
+                      <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
+                        Builder cash
+                      </p>
+                      <p
+                        className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
+                        data-testid="timeline-cashflow-builder-cash-used"
+                      >
+                        {money(cashUseSummary.builderCashUsed)}
+                      </p>
+                    </div>
                     <div className="min-w-0 overflow-hidden rounded-md border border-violet-500/25 bg-violet-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
                       <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
                         Interest paid
@@ -3666,7 +4111,7 @@ export function TimelineWorkspace({
                         "min-w-0 overflow-hidden rounded-md border px-2 py-1.5 sm:px-3 sm:py-2",
                         cashShortfalls.length > 0
                           ? "border-rose-500/30 bg-rose-500/10"
-                          : "border-border bg-muted/30"
+                          : "border-border bg-muted/30",
                       )}
                       data-testid="timeline-cashflow-risk-summary"
                     >
@@ -3862,12 +4307,12 @@ export function TimelineWorkspace({
                         normalizeMilestoneTimelineItems(nextItems);
                       const expandedRange = expandTimelineRangeForMilestones(
                         normalizedItems,
-                        details.range
+                        details.range,
                       );
                       const normalizedInsertedItem =
                         details.type === "insert"
                           ? normalizedItems.find(
-                              (item) => item.id === details.insertedItem.id
+                              (item) => item.id === details.insertedItem.id,
                             )
                           : null;
 
@@ -3885,8 +4330,8 @@ export function TimelineWorkspace({
                         syncDemoDrawsWithItems(
                           currentDraws,
                           normalizedItems,
-                          expandedRange
-                        )
+                          expandedRange,
+                        ),
                       );
                       if (durablePlanId) {
                         if (normalizedInsertedItem) {
@@ -3896,11 +4341,11 @@ export function TimelineWorkspace({
                                 normalizedInsertedItem,
                                 normalizedItems.findIndex(
                                   (item) =>
-                                    item.id === normalizedInsertedItem.id
-                                ) + 1
+                                    item.id === normalizedInsertedItem.id,
+                                ) + 1,
                               ),
                             }),
-                            "milestone creation"
+                            "milestone creation",
                           );
                         } else {
                           for (const [
@@ -3911,10 +4356,10 @@ export function TimelineWorkspace({
                               persistUpdateMilestone({
                                 ...timelineItemToMilestoneMutationInput(
                                   item,
-                                  index + 1
+                                  index + 1,
                                 ),
                               }),
-                              "milestone position"
+                              "milestone position",
                             );
                           }
                         }
@@ -3947,7 +4392,7 @@ export function TimelineWorkspace({
                       pendingExpandedRange.current = null;
                       setRange(
                         expandedRange ??
-                          expandTimelineRangeForMilestones(items, nextRange)
+                          expandTimelineRangeForMilestones(items, nextRange),
                       );
                     }}
                     paddingX={timelineSizing.paddingX}
@@ -3979,11 +4424,11 @@ export function TimelineWorkspace({
                           <MilestoneRequestBadges
                             currentAmount={item.data?.amount}
                             deleteRequested={requestedDeletionByMilestone.has(
-                              item.id
+                              item.id,
                             )}
                             isRequestedCreate={item.id.startsWith("requested-")}
                             requestedAmount={requestedBudgetByMilestone.get(
-                              item.id
+                              item.id,
                             )}
                           />
                           <MilestoneCard
@@ -4016,7 +4461,7 @@ export function TimelineWorkspace({
                         ? marker.id.slice("draw-".length)
                         : null;
                       const capitalSpikeId = marker.id.startsWith(
-                        "capital-spike-"
+                        "capital-spike-",
                       )
                         ? marker.id.slice("capital-spike-".length)
                         : null;
@@ -4025,7 +4470,7 @@ export function TimelineWorkspace({
                         : null;
                       const capitalSpike = capitalSpikeId
                         ? capitalSpikes.find(
-                            (candidate) => candidate.id === capitalSpikeId
+                            (candidate) => candidate.id === capitalSpikeId,
                           )
                         : null;
 
@@ -4150,10 +4595,29 @@ export function TimelineWorkspace({
               activePanelDraw={activePanelDraw}
               activePanelDrawItem={activePanelDrawItem}
               addEvidenceFiles={addEvidenceFiles}
+              contractorPlanning={contractorPlanning}
               draws={draws}
               items={items}
               liveExecutionEnabled={canUseLiveExecution}
               modificationRequests={modificationRequests}
+              onUpdateSubmilestoneBudget={
+                canWriteLiveTimeline && !liveBuildMode
+                  ? updateSubmilestoneBudget
+                  : undefined
+              }
+              onUpdateSubmilestoneDuration={
+                canWriteLiveTimeline && !liveBuildMode
+                  ? updateSubmilestoneDuration
+                  : undefined
+              }
+              onUpdateMilestoneDrawAvailability={
+                canWriteLiveTimeline && !liveBuildMode
+                  ? (itemId, amount) =>
+                      updateMilestone(itemId, {
+                        drawAvailabilityAmount: amount,
+                      })
+                  : undefined
+              }
               onCompleteMilestone={completeMilestone}
               onCreateMilestoneSiteVisit={createMilestoneSiteVisit}
               onOpenChange={(open) => {
@@ -4310,10 +4774,29 @@ export function TimelineWorkspace({
                       activePanelDraw={activePanelDraw}
                       activePanelDrawItem={activePanelDrawItem}
                       addEvidenceFiles={addEvidenceFiles}
+                      contractorPlanning={contractorPlanning}
                       draws={draws}
                       items={items}
                       liveExecutionEnabled={canUseLiveExecution}
                       modificationRequests={modificationRequests}
+                      onUpdateSubmilestoneBudget={
+                        canWriteLiveTimeline && !liveBuildMode
+                          ? updateSubmilestoneBudget
+                          : undefined
+                      }
+                      onUpdateSubmilestoneDuration={
+                        canWriteLiveTimeline && !liveBuildMode
+                          ? updateSubmilestoneDuration
+                          : undefined
+                      }
+                      onUpdateMilestoneDrawAvailability={
+                        canWriteLiveTimeline && !liveBuildMode
+                          ? (itemId, amount) =>
+                              updateMilestone(itemId, {
+                                drawAvailabilityAmount: amount,
+                              })
+                          : undefined
+                      }
                       onCompleteMilestone={completeMilestone}
                       onCreateMilestoneSiteVisit={createMilestoneSiteVisit}
                       onRecordMilestoneSiteVisit={recordMilestoneSiteVisit}
@@ -4337,7 +4820,7 @@ export function TimelineWorkspace({
           </AnimatePresence>
         </motion.div>
       </motion.div>
-    </main>
+    </WorkspaceRoot>
   );
 }
 
@@ -4348,10 +4831,10 @@ function TimelineRemoteCursors({
 }) {
   const activeCursors = cursors.filter(
     (
-      cursor
+      cursor,
     ): cursor is TimelineWorkspaceRemoteCursor & {
       cursor: { x: number; y: number };
-    } => Boolean(cursor.cursor)
+    } => Boolean(cursor.cursor),
   );
 
   if (activeCursors.length === 0) {
@@ -4434,6 +4917,7 @@ interface CounterRef {
 
 interface UseTimelineSnapshotSharingArgs {
   activeSelection: ActiveMilestoneSelection;
+  approvedDrawLimit?: number;
   capitalSpikeInsertionCount: CounterRef;
   capitalSpikes: DemoCapitalSpike[];
   currentDay: number;
@@ -4442,10 +4926,10 @@ interface UseTimelineSnapshotSharingArgs {
   insertionCount: CounterRef;
   items: TimelineItem<DemoMilestone>[];
   minimumCashReserve: number;
-  minimumCashReserve: number;
   progressValue: number;
   resolvedRange: Required<TimelineRange>;
   selectedPanelOpen: boolean;
+  shareUrlPath: string;
   setActiveCapitalSpikeId: (value: string | null) => void;
   setActiveDrawId: (value: string | null) => void;
   setActiveSelection: (value: ActiveMilestoneSelection) => void;
@@ -4461,6 +4945,7 @@ interface UseTimelineSnapshotSharingArgs {
   setRange: (value: TimelineRange) => void;
   setSelectedDay: (value: number) => void;
   setSelectedPanelOpen: (value: boolean) => void;
+  setApprovedDrawLimit: (value: number | undefined) => void;
   setStartingCash: (value: number) => void;
   setStraightLine: (value: boolean) => void;
   startingCash: number;
@@ -4523,6 +5008,7 @@ function ShareStatusBadges({
 
 function useTimelineSnapshotSharing({
   activeSelection,
+  approvedDrawLimit,
   capitalSpikeInsertionCount,
   capitalSpikes,
   currentDay,
@@ -4533,6 +5019,7 @@ function useTimelineSnapshotSharing({
   progressValue,
   resolvedRange,
   selectedPanelOpen,
+  shareUrlPath,
   setActiveCapitalSpikeId,
   setActiveDrawId,
   setActiveSelection,
@@ -4547,6 +5034,7 @@ function useTimelineSnapshotSharing({
   setRange,
   setSelectedDay,
   setSelectedPanelOpen,
+  setApprovedDrawLimit,
   setMinimumCashReserve,
   setStartingCash,
   setStraightLine,
@@ -4555,16 +5043,18 @@ function useTimelineSnapshotSharing({
   straightLine,
 }: UseTimelineSnapshotSharingArgs) {
   const [{ share }, setTimelineSearch] = useQueryStates(
-    timelineWorkspaceSearchParsers
+    timelineWorkspaceSearchParsers,
   );
+  const shareHydrationEnabled = isCurrentTimelineSharePath(shareUrlPath);
+  const hydratedShare = shareHydrationEnabled ? share : null;
   const createTimelineSnapshot = useMutation(
-    api.demo_timeline_snapshots.demo_createTimelineSnapshot
+    api.demo_timeline_snapshots.demo_createTimelineSnapshot,
   );
   const sharedSnapshot = useQuery(
     api.demo_timeline_snapshots.demo_getTimelineSnapshot,
-    share && !share.startsWith(LOCAL_TIMELINE_SHARE_PREFIX)
-      ? { snapshotId: share }
-      : "skip"
+    hydratedShare && !hydratedShare.startsWith(LOCAL_TIMELINE_SHARE_PREFIX)
+      ? { snapshotId: hydratedShare }
+      : "skip",
   );
   const hydratedShareId = useRef<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
@@ -4585,9 +5075,9 @@ function useTimelineSnapshotSharing({
         true,
         STARTING_CASH,
         true,
-        0
+        0,
       ),
-    []
+    [],
   );
 
   const applyShareState = useCallback(
@@ -4608,6 +5098,7 @@ function useTimelineSnapshotSharing({
       setDrawEditDraft({ amount: "", x: "" });
       setCapitalSpikeEditDraft({ amount: "", label: "", x: "" });
       setSelectedPanelOpen(hydratedState.selectedPanelOpen);
+      setApprovedDrawLimit(hydratedState.approvedDrawLimit);
       setMinimumCashReserve(hydratedState.minimumCashReserve);
       setStartingCash(hydratedState.startingCash);
       setStraightLine(hydratedState.straightLine);
@@ -4633,63 +5124,70 @@ function useTimelineSnapshotSharing({
       setRange,
       setSelectedDay,
       setSelectedPanelOpen,
+      setApprovedDrawLimit,
       setMinimumCashReserve,
       setStartingCash,
       setStraightLine,
-    ]
+    ],
   );
 
   useEffect(() => {
-    if (!share) {
+    if (!hydratedShare) {
       hydratedShareId.current = null;
       return;
     }
 
-    setShareUrl(buildTimelineShareUrl(share));
-  }, [share]);
+    setShareUrl(buildTimelineShareUrl(hydratedShare, shareUrlPath));
+  }, [hydratedShare, shareUrlPath]);
 
   useEffect(() => {
     if (
       !(
-        share?.startsWith(LOCAL_TIMELINE_SHARE_PREFIX) &&
-        hydratedShareId.current !== share
+        hydratedShare?.startsWith(LOCAL_TIMELINE_SHARE_PREFIX) &&
+        hydratedShareId.current !== hydratedShare
       )
     ) {
       return;
     }
 
-    const storedSnapshot = readLocalTimelineSnapshot(share);
+    const storedSnapshot = readLocalTimelineSnapshot(hydratedShare);
     if (storedSnapshot) {
       applyShareState(
-        applyTimelineShareSnapshotV2(storedSnapshot, initialShareState)
+        applyTimelineShareSnapshotV2(storedSnapshot, initialShareState),
       );
-      hydratedShareId.current = share;
+      hydratedShareId.current = hydratedShare;
     }
-  }, [applyShareState, initialShareState, share]);
+  }, [applyShareState, hydratedShare, initialShareState]);
 
   useEffect(() => {
-    if (!(share && sharedSnapshot && hydratedShareId.current !== share)) {
+    if (
+      !(
+        hydratedShare &&
+        sharedSnapshot &&
+        hydratedShareId.current !== hydratedShare
+      )
+    ) {
       return;
     }
 
     applyShareState(
-      applyTimelineShareSnapshotV2(sharedSnapshot, initialShareState)
+      applyTimelineShareSnapshotV2(sharedSnapshot, initialShareState),
     );
-    hydratedShareId.current = share;
-  }, [applyShareState, initialShareState, share, sharedSnapshot]);
+    hydratedShareId.current = hydratedShare;
+  }, [applyShareState, hydratedShare, initialShareState, sharedSnapshot]);
 
   const resetTimeline = useCallback(() => {
-    const localSnapshot = share?.startsWith(LOCAL_TIMELINE_SHARE_PREFIX)
-      ? readLocalTimelineSnapshot(share)
+    const localSnapshot = hydratedShare?.startsWith(LOCAL_TIMELINE_SHARE_PREFIX)
+      ? readLocalTimelineSnapshot(hydratedShare)
       : null;
     const nextState = localSnapshot
       ? applyTimelineShareSnapshotV2(localSnapshot, initialShareState)
-      : share && sharedSnapshot
+      : hydratedShare && sharedSnapshot
         ? applyTimelineShareSnapshotV2(sharedSnapshot, initialShareState)
         : initialShareState;
 
     applyShareState(nextState);
-  }, [applyShareState, initialShareState, share, sharedSnapshot]);
+  }, [applyShareState, hydratedShare, initialShareState, sharedSnapshot]);
 
   const createShareSnapshot = useCallback(async () => {
     setShareOpen(true);
@@ -4700,6 +5198,7 @@ function useTimelineSnapshotSharing({
     try {
       const snapshot = buildTimelineShareSnapshotV2({
         activeSelection,
+        approvedDrawLimit,
         capitalSpikes,
         currentDay,
         draws,
@@ -4712,13 +5211,16 @@ function useTimelineSnapshotSharing({
         straightLine,
       });
       const snapshotId = await createTimelineSnapshot({ snapshot });
-      const nextShareUrl = buildTimelineShareUrl(snapshotId);
+      const nextShareUrl = buildTimelineShareUrl(snapshotId, shareUrlPath);
 
-      await setTimelineSearch({ share: snapshotId });
+      if (shareHydrationEnabled) {
+        await setTimelineSearch({ share: snapshotId });
+      }
       setShareUrl(nextShareUrl);
     } catch {
       const snapshot = buildTimelineShareSnapshotV2({
         activeSelection,
+        approvedDrawLimit,
         capitalSpikes,
         currentDay,
         draws,
@@ -4731,17 +5233,20 @@ function useTimelineSnapshotSharing({
         straightLine,
       });
       const localShareId = `${LOCAL_TIMELINE_SHARE_PREFIX}${Date.now().toString(
-        36
+        36,
       )}`;
       writeLocalTimelineSnapshot(localShareId, snapshot);
-      await setTimelineSearch({ share: localShareId });
-      setShareUrl(buildTimelineShareUrl(localShareId));
+      if (shareHydrationEnabled) {
+        await setTimelineSearch({ share: localShareId });
+      }
+      setShareUrl(buildTimelineShareUrl(localShareId, shareUrlPath));
       setShareError(null);
     } finally {
       setShareCreating(false);
     }
   }, [
     activeSelection,
+    approvedDrawLimit,
     capitalSpikes,
     createTimelineSnapshot,
     currentDay,
@@ -4751,6 +5256,8 @@ function useTimelineSnapshotSharing({
     resolvedRange,
     selectedPanelOpen,
     setTimelineSearch,
+    shareUrlPath,
+    shareHydrationEnabled,
     minimumCashReserve,
     startingCash,
     straightLine,
@@ -4766,23 +5273,23 @@ function useTimelineSnapshotSharing({
       setShareCopied(true);
     } catch (error) {
       setShareError(
-        error instanceof Error ? error.message : "Unable to copy the link."
+        error instanceof Error ? error.message : "Unable to copy the link.",
       );
     }
   }, [shareUrl]);
 
   return {
     resetTimeline,
-    share,
+    share: hydratedShare,
     sharedSnapshotLoading: Boolean(
-      share &&
-        !share.startsWith(LOCAL_TIMELINE_SHARE_PREFIX) &&
-        sharedSnapshot === undefined
+      hydratedShare &&
+      !hydratedShare.startsWith(LOCAL_TIMELINE_SHARE_PREFIX) &&
+      sharedSnapshot === undefined,
     ),
     sharedSnapshotMissing: Boolean(
-      share &&
-        !share.startsWith(LOCAL_TIMELINE_SHARE_PREFIX) &&
-        sharedSnapshot === null
+      hydratedShare &&
+      !hydratedShare.startsWith(LOCAL_TIMELINE_SHARE_PREFIX) &&
+      sharedSnapshot === null,
     ),
     shareMenuProps: {
       copied: shareCopied,
@@ -4797,9 +5304,25 @@ function useTimelineSnapshotSharing({
   };
 }
 
+export function isCurrentTimelineSharePath(shareUrlPath: string) {
+  if (typeof window === "undefined") {
+    return true;
+  }
+  return (
+    normalizeSharePath(window.location.pathname) ===
+    normalizeSharePath(shareUrlPath)
+  );
+}
+
+function normalizeSharePath(path: string) {
+  const parsed = new URL(path, "http://drawflow.local");
+  const pathname = parsed.pathname.replace(/\/+$/, "");
+  return pathname || "/";
+}
+
 export function buildDemoDraws(
   items: TimelineItem<DemoMilestone>[],
-  range: TimelineRange
+  range: TimelineRange,
 ): DemoDraw[] {
   const resolvedRange = normalizeDemoRange(range);
 
@@ -4812,36 +5335,37 @@ export function buildDemoDraws(
 function syncDemoDrawsWithItems(
   draws: DemoDraw[],
   _items: TimelineItem<DemoMilestone>[],
-  range: TimelineRange
+  range: TimelineRange,
 ): DemoDraw[] {
   const resolvedRange = normalizeDemoRange(range);
-  return draws
-    .map((draw) => ({
+  return relabelTimelineDraws(
+    draws.map((draw) => ({
       ...draw,
       x: clampNumber(draw.x, resolvedRange.min, resolvedRange.max),
-    }))
-    .sort((a, b) => a.x - b.x || a.id.localeCompare(b.id));
+    })),
+  );
 }
 
-function relabelTimelineDraws(draws: DemoDraw[]) {
-  return draws
-    .slice()
-    .sort((a, b) => a.x - b.x || a.id.localeCompare(b.id))
-    .map((draw, index) => {
-      if (!/^draw\s+\d+$/i.test(draw.label.trim())) {
-        return draw;
-      }
+function sortTimelineDraws(draws: DemoDraw[]) {
+  return draws.slice().sort((a, b) => a.x - b.x || a.id.localeCompare(b.id));
+}
 
-      return {
-        ...draw,
-        label: `Draw ${String(index + 1).padStart(2, "0")}`,
-      };
-    });
+export function relabelTimelineDraws(draws: DemoDraw[]) {
+  return sortTimelineDraws(draws).map((draw, index) => {
+    if (!/^draw\s+\d+$/i.test(draw.label.trim())) {
+      return draw;
+    }
+
+    return {
+      ...draw,
+      label: `Draw ${String(index + 1).padStart(2, "0")}`,
+    };
+  });
 }
 
 function timelineItemToMilestoneMutationInput(
   item: TimelineItem<DemoMilestone>,
-  order: number
+  order: number,
 ) {
   const milestone = item.data;
   return {
@@ -4850,7 +5374,7 @@ function timelineItemToMilestoneMutationInput(
     dayStart: Math.round(item.x),
     dependencyKeys: [],
     drawAvailabilityCents: dollarsToCents(
-      getMilestoneDrawAvailabilityAmount(milestone)
+      getMilestoneDrawAvailabilityAmount(milestone),
     ),
     drawKey: milestone?.draw,
     durationDays: milestone?.durationDays ?? 1,
@@ -4864,10 +5388,22 @@ function timelineItemToMilestoneMutationInput(
     order,
     policyState: milestone?.policy ?? "Needs sequencing",
     status: milestone?.status,
-    submilestones: (milestone?.subMilestones ?? []).map((name, index) => ({
-      key: `${item.id}-sub-${index + 1}`,
-      name,
-      order: index + 1,
+    submilestones: resolveMilestoneSubmilestones(
+      milestone ?? { subMilestones: [], submilestoneDetails: [] },
+      item.id,
+    ).map((submilestone) => ({
+      ...(submilestone.budgetCents === undefined
+        ? {}
+        : { budgetCents: submilestone.budgetCents }),
+      ...(submilestone.description
+        ? { description: submilestone.description }
+        : {}),
+      ...(submilestone.durationDays === undefined
+        ? {}
+        : { durationDays: submilestone.durationDays }),
+      key: submilestone.key,
+      name: submilestone.name,
+      order: submilestone.order,
     })),
     tone: item.tone,
     type: "timeline_demo",
@@ -4876,7 +5412,7 @@ function timelineItemToMilestoneMutationInput(
 }
 
 export function normalizeTimelineShareStateForRoute(
-  state: TimelineShareState
+  state: TimelineShareState,
 ): TimelineShareState {
   const range = expandTimelineRangeForMilestones(state.items, state.range);
 
@@ -4889,17 +5425,17 @@ export function normalizeTimelineShareStateForRoute(
 
 export function expandTimelineRangeForMilestones(
   items: TimelineItem<DemoMilestone>[],
-  range: TimelineRange
+  range: TimelineRange,
 ): Required<TimelineRange> {
   const resolvedRange = normalizeDemoRange(range);
   const lastCompletionX = items.reduce(
     (nextMax, item) => Math.max(nextMax, getMilestoneEndX(item)),
-    Number.NEGATIVE_INFINITY
+    Number.NEGATIVE_INFINITY,
   );
   const max = Number.isFinite(lastCompletionX)
     ? Math.max(
         resolvedRange.min + 1,
-        lastCompletionX + TIMELINE_END_PADDING_DAYS
+        lastCompletionX + TIMELINE_END_PADDING_DAYS,
       )
     : resolvedRange.min + TIMELINE_END_PADDING_DAYS;
 
@@ -4912,7 +5448,7 @@ export function expandTimelineRangeForMilestones(
 export function resolveSelectedDrawDate(
   activeItem: TimelineItem<DemoMilestone>,
   activeDraw: DemoDraw | null | undefined,
-  range: TimelineRange
+  range: TimelineRange,
 ): number {
   if (activeDraw) {
     return activeDraw.x;
@@ -4920,20 +5456,20 @@ export function resolveSelectedDrawDate(
 
   return createDemoDraw(
     activeItem,
-    expandTimelineRangeForMilestones([activeItem], range)
+    expandTimelineRangeForMilestones([activeItem], range),
   ).x;
 }
 
 function createDemoDraw(
   item: TimelineItem<DemoMilestone>,
-  range: Required<TimelineRange>
+  range: Required<TimelineRange>,
 ): DemoDraw {
   const milestone = item.data;
   const defaultDrawX = resolveDefaultDrawX(item, range);
   const drawX = clampNumber(
     Math.max(milestone?.drawX ?? defaultDrawX, defaultDrawX),
     range.min,
-    range.max
+    range.max,
   );
 
   return {
@@ -4947,7 +5483,7 @@ function createDemoDraw(
 
 function findTimelineItemForDay(
   items: TimelineItem<DemoMilestone>[],
-  day: number
+  day: number,
 ) {
   const requestedDay = Math.round(day);
   const sortedItems = items
@@ -4965,7 +5501,7 @@ function findTimelineItemForDay(
       .map((item) => ({
         distance: Math.min(
           Math.abs(requestedDay - Math.round(item.x)),
-          Math.abs(requestedDay - Math.round(getMilestoneEndX(item)))
+          Math.abs(requestedDay - Math.round(getMilestoneEndX(item))),
         ),
         item,
       }))
@@ -5030,7 +5566,7 @@ export type DrawTimelineMarkerState =
 
 export function getDrawTimelineMarkerState(
   draw: DemoDraw,
-  currentDay: number
+  currentDay: number,
 ): DrawTimelineMarkerState {
   if (draw.requestStatus === "requested") {
     return "requested";
@@ -5066,7 +5602,7 @@ function getDrawTimelineMarkerCopy(state: DrawTimelineMarkerState) {
 export function calculateDrawRequestLimit(
   targetDraw: DemoDraw,
   items: TimelineItem<DemoMilestone>[],
-  draws: DemoDraw[]
+  draws: DemoDraw[],
 ): DrawRequestLimit {
   const drawDay = targetDraw.x;
   const totalUnlocked = items.reduce((total, item) => {
@@ -5117,7 +5653,7 @@ function isMilestoneAdminApproved(item: TimelineItem<DemoMilestone>) {
 export function calculateApprovedDrawRequestLimit(
   targetDraw: DemoDraw,
   items: TimelineItem<DemoMilestone>[],
-  draws: DemoDraw[]
+  draws: DemoDraw[],
 ): ApprovedDrawRequestLimit {
   const drawDay = targetDraw.x;
   const blockingMilestones: string[] = [];
@@ -5160,7 +5696,7 @@ export function buildTimelineCashflowData(
   draws: DemoDraw[],
   capitalSpikes: DemoCapitalSpike[],
   range: Required<TimelineRange>,
-  startingCash = STARTING_CASH
+  startingCash = STARTING_CASH,
 ): CashflowDatum[] {
   const events = [
     ...items
@@ -5169,7 +5705,7 @@ export function buildTimelineCashflowData(
         const spendEvents = buildMilestoneSpendEvents(item);
         const completionDay = getMilestoneEndX(item);
         const completionSpendEvent = spendEvents.find(
-          (event) => event.kind === "completion" && event.day === completionDay
+          (event) => event.kind === "completion" && event.day === completionDay,
         );
         const insertedCapacityEvent = {
           amount: 0,
@@ -5224,7 +5760,7 @@ export function buildTimelineCashflowData(
     })),
   ].sort(
     (a, b) =>
-      a.day - b.day || a.sortOrder - b.sortOrder || a.id.localeCompare(b.id)
+      a.day - b.day || a.sortOrder - b.sortOrder || a.id.localeCompare(b.id),
   );
   const data: CashflowDatum[] = [
     {
@@ -5314,7 +5850,7 @@ export function buildTimelineCashflowData(
 
 export function densifyCashflowData(
   data: CashflowDatum[],
-  range: Required<TimelineRange>
+  range: Required<TimelineRange>,
 ): CashflowDatum[] {
   const grouped = groupCashflowPointsByDay(data);
   const eventDays = data.map((point) => point.day);
@@ -5347,7 +5883,7 @@ export function buildCashflowChartData(
   accountingData: CashflowDatum[],
   items: TimelineItem<DemoMilestone>[],
   range: Required<TimelineRange>,
-  startingCash = STARTING_CASH
+  startingCash = STARTING_CASH,
 ): CashflowDatum[] {
   const milestoneBars = buildMilestoneCostBars(items, range);
   const milestoneDays = items
@@ -5358,33 +5894,44 @@ export function buildCashflowChartData(
     ...milestoneDays,
   ];
   const milestoneBudgetByDay = new Map<number, number>();
+  const milestoneReimbursableBudgetByDay = new Map<number, number>();
   const milestoneEndDayByStartDay = new Map<number, number>();
 
   for (const bar of milestoneBars) {
     milestoneBudgetByDay.set(
       bar.day,
-      (milestoneBudgetByDay.get(bar.day) ?? 0) + bar.amount
+      (milestoneBudgetByDay.get(bar.day) ?? 0) + bar.amount,
+    );
+    milestoneReimbursableBudgetByDay.set(
+      bar.day,
+      (milestoneReimbursableBudgetByDay.get(bar.day) ?? 0) +
+        bar.reimbursableAmount,
     );
     milestoneEndDayByStartDay.set(bar.day, bar.endDay);
   }
 
   return buildCashflowChartEventDays(range, eventDays).map((day) => {
     const dayEvents = accountingData.filter(
-      (point) => Math.round(point.day) === day
+      (point) => Math.round(point.day) === day,
     );
     const drawAmount = dayEvents.reduce(
       (total, point) => total + point.drawAmount,
-      0
+      0,
     );
     const capitalSpikeAmount = dayEvents.reduce(
       (total, point) => total + point.capitalSpikeAmount,
-      0
+      0,
     );
     const cashInfusionAmount = dayEvents.reduce(
       (total, point) => total + point.cashInfusionAmount,
-      0
+      0,
     );
     const budget = milestoneBudgetByDay.get(day) ?? 0;
+    const reimbursableBudget = Math.min(
+      budget,
+      milestoneReimbursableBudgetByDay.get(day) ?? budget,
+    );
+    const outOfPocketBudget = Math.max(0, budget - reimbursableBudget);
     const primaryEvent =
       dayEvents.find((point) => point.event === "draw") ??
       dayEvents.find((point) => point.event === "cashInfusion") ??
@@ -5400,7 +5947,7 @@ export function buildCashflowChartData(
         items,
         range,
         day,
-        startingCash
+        startingCash,
       ),
       day,
       drawAmount,
@@ -5416,13 +5963,15 @@ export function buildCashflowChartData(
         budget > 0
           ? "Milestone cost gate"
           : (primaryEvent?.name ?? formatTimelineDay(day)),
+      outOfPocketBudget,
+      reimbursableBudget,
     } satisfies CashflowDatum;
   });
 }
 
 function buildCashflowChartEventDays(
   range: Required<TimelineRange>,
-  eventDays: number[]
+  eventDays: number[],
 ): number[] {
   const min = Math.round(range.min);
   const max = Math.round(range.max);
@@ -5439,17 +5988,28 @@ function buildCashflowChartEventDays(
 
 function buildMilestoneCostBars(
   items: TimelineItem<DemoMilestone>[],
-  range: Required<TimelineRange>
-): Array<{ amount: number; day: number; endDay: number }> {
+  range: Required<TimelineRange>,
+): Array<{
+  amount: number;
+  day: number;
+  endDay: number;
+  reimbursableAmount: number;
+}> {
   return items
     .filter((item) => item.data)
     .map((item) => {
       const schedule = getMilestonePaymentSchedule(item);
+      const amount = Math.max(0, schedule.totalAmount);
+      const reimbursableAmount = Math.min(
+        amount,
+        Math.max(0, getMilestoneDrawAvailabilityAmount(item.data)),
+      );
 
       return {
-        amount: schedule.totalAmount,
+        amount,
         day: Math.round(clampNumber(schedule.startX, range.min, range.max)),
         endDay: Math.round(clampNumber(schedule.endX, range.min, range.max)),
+        reimbursableAmount,
       };
     })
     .filter((bar) => bar.amount > 0);
@@ -5460,7 +6020,7 @@ function projectCashOnHandForChart(
   items: TimelineItem<DemoMilestone>[],
   range: Required<TimelineRange>,
   value: number,
-  startingCash = STARTING_CASH
+  startingCash = STARTING_CASH,
 ): number {
   const startPoint = accountingData.find((point) => point.event === "start");
   let cashOnHand = startPoint?.cashOnHand ?? startingCash;
@@ -5493,7 +6053,7 @@ function projectCashOnHandForChart(
 
     const completionAmount = Math.max(
       0,
-      schedule.totalAmount - schedule.initialPaymentAmount
+      schedule.totalAmount - schedule.initialPaymentAmount,
     );
     cashOnHand -=
       schedule.initialPaymentAmount +
@@ -5505,7 +6065,7 @@ function projectCashOnHandForChart(
 
 export function densifyDrawAvailabilityData(
   data: DrawAvailabilityDatum[],
-  range: Required<TimelineRange>
+  range: Required<TimelineRange>,
 ): DrawAvailabilityDatum[] {
   const grouped = new Map<number, DrawAvailabilityDatum[]>();
 
@@ -5516,7 +6076,7 @@ export function densifyDrawAvailabilityData(
 
   return buildChartProbeDays(
     range,
-    data.map((point) => point.day)
+    data.map((point) => point.day),
   ).flatMap((day) => {
     const existing = grouped.get(day);
 
@@ -5535,7 +6095,7 @@ export function densifyDrawAvailabilityData(
 export function buildChartProbeDays(
   range: Required<TimelineRange>,
   eventDays: number[],
-  intervalDays = CHART_PROBE_INTERVAL_DAYS
+  intervalDays = CHART_PROBE_INTERVAL_DAYS,
 ): number[] {
   const min = Math.round(range.min);
   const max = Math.round(range.max);
@@ -5566,21 +6126,22 @@ export function groupCashflowPointsByDay(data: CashflowDatum[]) {
 }
 
 export function buildDrawAvailabilityData(
-  cashflowData: CashflowDatum[]
+  cashflowData: CashflowDatum[],
+  approvedDrawLimit?: number,
 ): DrawAvailabilityDatum[] {
   const sortedCashflowData = [...cashflowData].sort(
-    (a, b) => a.day - b.day || a.id.localeCompare(b.id)
+    (a, b) => a.day - b.day || a.id.localeCompare(b.id),
   );
   let unlockedDraw = 0;
   let releasedDraw = 0;
   let totalInterestAccrued = 0;
   let previousDay = sortedCashflowData[0]?.day ?? 0;
 
-  return sortedCashflowData.map((point) => {
+  const baseAvailability = sortedCashflowData.map((point) => {
     const day = Math.max(previousDay, point.day);
     totalInterestAccrued += calculateDailyCompoundedInterest(
       releasedDraw + totalInterestAccrued,
-      day - previousDay
+      day - previousDay,
     );
     previousDay = day;
 
@@ -5599,11 +6160,63 @@ export function buildDrawAvailabilityData(
       totalAvailableDraw: interestBearingDraw + additionalAvailableDraw,
     };
   });
+
+  const normalizedApprovedDrawLimit =
+    typeof approvedDrawLimit === "number" && Number.isFinite(approvedDrawLimit)
+      ? Math.max(0, Math.round(approvedDrawLimit))
+      : undefined;
+  if (normalizedApprovedDrawLimit === undefined) {
+    return baseAvailability;
+  }
+
+  const baseTopLine = Math.max(
+    0,
+    ...baseAvailability.map((point) => point.totalAvailableDraw),
+  );
+  const approvedHeadroom = Math.max(
+    0,
+    normalizedApprovedDrawLimit - baseTopLine,
+  );
+  if (approvedHeadroom <= 0) {
+    return baseAvailability;
+  }
+
+  if (baseTopLine <= 0) {
+    return baseAvailability.map((point, index) => {
+      const additionalAvailableDraw =
+        index === baseAvailability.length - 1
+          ? point.additionalAvailableDraw + approvedHeadroom
+          : point.additionalAvailableDraw;
+
+      return {
+        ...point,
+        additionalAvailableDraw,
+        totalAvailableDraw: point.interestBearingDraw + additionalAvailableDraw,
+      };
+    });
+  }
+
+  return baseAvailability.map((point) => {
+    const approvedLimitShare =
+      point.totalAvailableDraw >= baseTopLine
+        ? approvedHeadroom
+        : Math.round(
+            (approvedHeadroom * point.totalAvailableDraw) / baseTopLine,
+          );
+    const additionalAvailableDraw =
+      point.additionalAvailableDraw + approvedLimitShare;
+
+    return {
+      ...point,
+      additionalAvailableDraw,
+      totalAvailableDraw: point.interestBearingDraw + additionalAvailableDraw,
+    };
+  });
 }
 
 function calculateDailyCompoundedInterest(
   principal: number,
-  elapsedDays: number
+  elapsedDays: number,
 ): number {
   if (principal <= 0 || elapsedDays <= 0) {
     return 0;
@@ -5614,7 +6227,7 @@ function calculateDailyCompoundedInterest(
 
 export function buildCashShortfallPoints(
   cashflowData: CashflowDatum[],
-  minimumCashReserve = MINIMUM_POST_MILESTONE_CASH_RESERVE
+  minimumCashReserve = MINIMUM_POST_MILESTONE_CASH_RESERVE,
 ): CashShortfallPoint[] {
   const reserve = Math.max(0, Math.round(minimumCashReserve));
   return cashflowData.flatMap((point) => {
@@ -5653,7 +6266,7 @@ function formatCashShortfallMessage(point: CashShortfallPoint): string {
 export function buildFinancialOverview(
   cashflowData: CashflowDatum[],
   draws: DemoDraw[],
-  range: Required<TimelineRange>
+  range: Required<TimelineRange>,
 ): FinancialOverview {
   const drawEvents = cashflowData
     .filter((point) => point.event === "draw")
@@ -5666,7 +6279,7 @@ export function buildFinancialOverview(
     const day = clampNumber(event.day, range.min, range.max);
     interestPaid += calculateDailyCompoundedInterest(
       principal + interestPaid,
-      Math.max(0, day - previousDay)
+      Math.max(0, day - previousDay),
     );
     principal += event.drawAmount;
     previousDay = day;
@@ -5674,7 +6287,7 @@ export function buildFinancialOverview(
 
   interestPaid += calculateDailyCompoundedInterest(
     principal + interestPaid,
-    Math.max(0, range.max - previousDay)
+    Math.max(0, range.max - previousDay),
   );
 
   return {
@@ -5683,8 +6296,37 @@ export function buildFinancialOverview(
     interestPaid,
     totalDrawReleased: drawEvents.reduce(
       (total, event) => total + event.drawAmount,
-      0
+      0,
     ),
+  };
+}
+
+export function buildCashUseSummary(
+  items: TimelineItem<DemoMilestone>[],
+  draws: DemoDraw[],
+  capitalSpikes: DemoCapitalSpike[],
+) {
+  const milestoneSpend = items.reduce((total, item) => {
+    if (!item.data) {
+      return total;
+    }
+
+    return total + getMilestonePaymentSchedule(item).totalAmount;
+  }, 0);
+  const costSpikeSpend = capitalSpikes.reduce((total, spike) => {
+    if (spike.eventKind === "cashInfusion") {
+      return total;
+    }
+
+    return total + spike.amount;
+  }, 0);
+  const lenderCashUsed = draws.reduce((total, draw) => total + draw.amount, 0);
+  const totalPlannedSpend = milestoneSpend + costSpikeSpend;
+
+  return {
+    builderCashUsed: Math.max(0, totalPlannedSpend - lenderCashUsed),
+    lenderCashUsed,
+    totalPlannedSpend,
   };
 }
 
@@ -5702,7 +6344,7 @@ function normalizeDemoRange(range: TimelineRange): Required<TimelineRange> {
 
 export function getTimelineAlignedTicks(
   range: Required<TimelineRange>,
-  pixelsPerUnit: number
+  pixelsPerUnit: number,
 ): number[] {
   const axisWidth = Math.max(1, (range.max - range.min) * pixelsPerUnit);
   const tickCount = Math.max(5, Math.ceil(axisWidth / 220));
@@ -5737,7 +6379,7 @@ function getDrawAvailabilityChartExtent(data: DrawAvailabilityDatum[]) {
       item.additionalAvailableDraw,
       item.interestBearingDraw,
       item.totalAvailableDraw,
-    ])
+    ]),
   );
 
   return {
@@ -5765,14 +6407,14 @@ function interpolateCashOnHand(data: CashflowDatum[], value: number): number {
 
 export function interpolateLinearCashOnHand(
   data: CashflowDatum[],
-  value: number
+  value: number,
 ): number {
   if (data.length === 0) {
     return STARTING_CASH;
   }
 
   const sorted = [...data].sort(
-    (a, b) => a.day - b.day || a.id.localeCompare(b.id)
+    (a, b) => a.day - b.day || a.id.localeCompare(b.id),
   );
   let previous = sorted[0];
 
@@ -5806,7 +6448,7 @@ export function interpolateLinearCashOnHand(
 
 export function interpolateDrawAvailability(
   data: DrawAvailabilityDatum[],
-  value: number
+  value: number,
 ): DrawAvailabilityDatum {
   const fallback = {
     additionalAvailableDraw: 0,
@@ -5838,7 +6480,7 @@ export function interpolateDrawAvailability(
       current.totalInterestAccrued +
       calculateDailyCompoundedInterest(
         current.interestBearingDraw + current.totalInterestAccrued,
-        Math.max(0, value - current.day)
+        Math.max(0, value - current.day),
       ),
   };
 }
@@ -5858,7 +6500,7 @@ function formatCompactMoney(value: number) {
 }
 
 function countInsertedTimelineItems(
-  items: TimelineItem<DemoMilestone>[]
+  items: TimelineItem<DemoMilestone>[],
 ): number {
   return items.filter((item) => item.id.startsWith("inserted-")).length;
 }
@@ -5871,24 +6513,27 @@ function timelineShareStateSignature(state: TimelineShareState): string {
   return JSON.stringify(state);
 }
 
-function buildTimelineShareUrl(snapshotId: string): string {
+function buildTimelineShareUrl(
+  snapshotId: string,
+  shareUrlPath = DEFAULT_TIMELINE_SHARE_PATH,
+): string {
   if (typeof window === "undefined") {
-    return "";
+    return `${shareUrlPath}?share=${encodeURIComponent(snapshotId)}`;
   }
 
-  const url = new URL("/demo/timeline", window.location.origin);
+  const url = new URL(shareUrlPath, window.location.origin);
   url.searchParams.set("share", snapshotId);
 
   return url.toString();
 }
 
-function readLocalTimelineSnapshot(snapshotId: string): unknown {
+export function readLocalTimelineSnapshot(snapshotId: string): unknown {
   if (typeof window === "undefined") {
     return null;
   }
 
   const rawSnapshot = window.localStorage.getItem(
-    `${LOCAL_TIMELINE_SHARE_PREFIX}snapshot:${snapshotId}`
+    `${LOCAL_TIMELINE_SHARE_PREFIX}snapshot:${snapshotId}`,
   );
 
   if (!rawSnapshot) {
@@ -5909,7 +6554,7 @@ function writeLocalTimelineSnapshot(snapshotId: string, snapshot: unknown) {
 
   window.localStorage.setItem(
     `${LOCAL_TIMELINE_SHARE_PREFIX}snapshot:${snapshotId}`,
-    JSON.stringify(snapshot)
+    JSON.stringify(snapshot),
   );
 }
 
@@ -5941,7 +6586,7 @@ function ShareTimelineMenu({
     : undefined;
   const mailHref = shareUrl
     ? `mailto:?subject=${encodedTitle}&body=${encodeURIComponent(
-        `Review this DrawFlow roadmap snapshot: ${shareUrl}`
+        `Review this DrawFlow roadmap snapshot: ${shareUrl}`,
       )}`
     : undefined;
 
@@ -6096,6 +6741,7 @@ function SelectedDrawMobileDrawer({
   activePanelDrawItem,
   addEvidenceFiles,
   activeItem,
+  contractorPlanning,
   draws,
   items,
   onOpenChange,
@@ -6110,7 +6756,10 @@ function SelectedDrawMobileDrawer({
   onReviewMilestoneCompletion,
   onSubmitDrawRequest,
   onUpdateEvidenceAsset,
+  onUpdateMilestoneDrawAvailability,
   onUpdatePlannedDraw,
+  onUpdateSubmilestoneBudget,
+  onUpdateSubmilestoneDuration,
   liveExecutionEnabled,
   open,
   overview,
@@ -6123,51 +6772,63 @@ function SelectedDrawMobileDrawer({
   activePanelDrawItem: TimelineItem<DemoMilestone> | null;
   addEvidenceFiles: (itemId: string, files: File[]) => void;
   activeItem: TimelineItem<DemoMilestone> | null;
+  contractorPlanning?: ContractorPlanningModel | null;
   draws: DemoDraw[];
   items: TimelineItem<DemoMilestone>[];
   modificationRequests: TimelineModificationRequestView[];
   onOpenChange: (open: boolean) => void;
   onCompleteMilestone: (
     itemId: string,
-    claim: TimelineCompletionClaimInput
+    claim: TimelineCompletionClaimInput,
   ) => void;
   onCreateMilestoneSiteVisit?: (
     itemId: string,
-    request: TimelineSiteVisitRequestInput
+    request: TimelineSiteVisitRequestInput,
   ) => Promise<TimelineSiteVisitRequestInput | void>;
   onRequestMilestoneSiteVisit: (
     itemId: string,
-    request: TimelineSiteVisitRequestInput
+    request: TimelineSiteVisitRequestInput,
   ) => void;
   onRecordMilestoneSiteVisit?: (
     itemId: string,
-    request: TimelineSiteVisitRequestInput
+    request: TimelineSiteVisitRequestInput,
   ) => Promise<unknown>;
   onRemoveEvidenceAsset: (itemId: string, assetId: string) => void;
   onReviewDrawRequest: (
     drawId: string,
-    review: { note?: string; status: "approved" | "rejected" }
+    review: { note?: string; status: "approved" | "rejected" },
   ) => void;
   onReviewModificationRequest: (
     request: TimelineModificationRequestView,
-    review: { note?: string; status: "approved" | "rejected" }
+    review: { note?: string; status: "approved" | "rejected" },
   ) => void;
   onReviewMilestoneCompletion: (
     itemId: string,
-    review: { note?: string; status: "approved" | "revisionRequested" }
+    review: { note?: string; status: "approved" | "revisionRequested" },
   ) => void;
   onSubmitDrawRequest: (
     drawId: string,
-    request: { amount: number; note?: string; x?: number }
+    request: { amount: number; note?: string; x?: number },
   ) => void;
   onUpdatePlannedDraw: (
     drawId: string,
-    patch: { amount?: number; x?: number }
+    patch: { amount?: number; x?: number },
   ) => void;
   onUpdateEvidenceAsset: (
     itemId: string,
     assetId: string,
-    patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>
+    patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>,
+  ) => void;
+  onUpdateMilestoneDrawAvailability?: (itemId: string, amount: number) => void;
+  onUpdateSubmilestoneBudget?: (
+    itemId: string,
+    submilestoneKey: string,
+    budgetCents: number,
+  ) => void;
+  onUpdateSubmilestoneDuration?: (
+    itemId: string,
+    submilestoneKey: string,
+    durationDays: number,
   ) => void;
   liveExecutionEnabled: boolean;
   open: boolean;
@@ -6194,6 +6855,7 @@ function SelectedDrawMobileDrawer({
               activePanelDraw={activePanelDraw}
               activePanelDrawItem={activePanelDrawItem}
               addEvidenceFiles={addEvidenceFiles}
+              contractorPlanning={contractorPlanning}
               draws={draws}
               items={items}
               liveExecutionEnabled={liveExecutionEnabled}
@@ -6208,7 +6870,12 @@ function SelectedDrawMobileDrawer({
               onReviewModificationRequest={onReviewModificationRequest}
               onSubmitDrawRequest={onSubmitDrawRequest}
               onUpdateEvidenceAsset={onUpdateEvidenceAsset}
+              onUpdateMilestoneDrawAvailability={
+                onUpdateMilestoneDrawAvailability
+              }
               onUpdatePlannedDraw={onUpdatePlannedDraw}
+              onUpdateSubmilestoneBudget={onUpdateSubmilestoneBudget}
+              onUpdateSubmilestoneDuration={onUpdateSubmilestoneDuration}
               overview={overview}
               range={range}
               requiresApprovedDrawMilestones={requiresApprovedDrawMilestones}
@@ -6227,6 +6894,7 @@ function SelectedContextPanel({
   activePanelDrawItem,
   addEvidenceFiles,
   activeItem,
+  contractorPlanning,
   draws,
   items,
   onCompleteMilestone,
@@ -6240,7 +6908,10 @@ function SelectedContextPanel({
   onReviewMilestoneCompletion,
   onSubmitDrawRequest,
   onUpdateEvidenceAsset,
+  onUpdateMilestoneDrawAvailability,
   onUpdatePlannedDraw,
+  onUpdateSubmilestoneBudget,
+  onUpdateSubmilestoneDuration,
   liveExecutionEnabled,
   overview,
   range,
@@ -6252,50 +6923,62 @@ function SelectedContextPanel({
   activePanelDrawItem: TimelineItem<DemoMilestone> | null;
   addEvidenceFiles: (itemId: string, files: File[]) => void;
   activeItem: TimelineItem<DemoMilestone>;
+  contractorPlanning?: ContractorPlanningModel | null;
   draws: DemoDraw[];
   items: TimelineItem<DemoMilestone>[];
   modificationRequests: TimelineModificationRequestView[];
   onCompleteMilestone: (
     itemId: string,
-    claim: TimelineCompletionClaimInput
+    claim: TimelineCompletionClaimInput,
   ) => void;
   onCreateMilestoneSiteVisit?: (
     itemId: string,
-    request: TimelineSiteVisitRequestInput
+    request: TimelineSiteVisitRequestInput,
   ) => Promise<TimelineSiteVisitRequestInput | void>;
   onRequestMilestoneSiteVisit: (
     itemId: string,
-    request: TimelineSiteVisitRequestInput
+    request: TimelineSiteVisitRequestInput,
   ) => void;
   onRecordMilestoneSiteVisit?: (
     itemId: string,
-    request: TimelineSiteVisitRequestInput
+    request: TimelineSiteVisitRequestInput,
   ) => Promise<unknown>;
   onRemoveEvidenceAsset: (itemId: string, assetId: string) => void;
   onReviewDrawRequest: (
     drawId: string,
-    review: { note?: string; status: "approved" | "rejected" }
+    review: { note?: string; status: "approved" | "rejected" },
   ) => void;
   onReviewModificationRequest: (
     request: TimelineModificationRequestView,
-    review: { note?: string; status: "approved" | "rejected" }
+    review: { note?: string; status: "approved" | "rejected" },
   ) => void;
   onReviewMilestoneCompletion: (
     itemId: string,
-    review: { note?: string; status: "approved" | "revisionRequested" }
+    review: { note?: string; status: "approved" | "revisionRequested" },
   ) => void;
   onSubmitDrawRequest: (
     drawId: string,
-    request: { amount: number; note?: string; x?: number }
+    request: { amount: number; note?: string; x?: number },
   ) => void;
   onUpdatePlannedDraw: (
     drawId: string,
-    patch: { amount?: number; x?: number }
+    patch: { amount?: number; x?: number },
   ) => void;
   onUpdateEvidenceAsset: (
     itemId: string,
     assetId: string,
-    patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>
+    patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>,
+  ) => void;
+  onUpdateMilestoneDrawAvailability?: (itemId: string, amount: number) => void;
+  onUpdateSubmilestoneBudget?: (
+    itemId: string,
+    submilestoneKey: string,
+    budgetCents: number,
+  ) => void;
+  onUpdateSubmilestoneDuration?: (
+    itemId: string,
+    submilestoneKey: string,
+    durationDays: number,
   ) => void;
   liveExecutionEnabled: boolean;
   overview: FinancialOverview;
@@ -6318,6 +7001,10 @@ function SelectedContextPanel({
       <MilestonePlanSummaryPanel
         activeDraw={activeDraw}
         activeItem={activeItem}
+        contractorPlanning={contractorPlanning}
+        onUpdateMilestoneDrawAvailability={onUpdateMilestoneDrawAvailability}
+        onUpdateSubmilestoneBudget={onUpdateSubmilestoneBudget}
+        onUpdateSubmilestoneDuration={onUpdateSubmilestoneDuration}
         overview={overview}
         range={range}
       />
@@ -6359,6 +7046,7 @@ function SelectedContextPanel({
         />
         <LenderMilestoneReviewPanel
           activeItem={activeItem}
+          contractorPlanning={contractorPlanning}
           items={items}
           onCreateMilestoneSiteVisit={onCreateMilestoneSiteVisit}
           onRecordMilestoneSiteVisit={onRecordMilestoneSiteVisit}
@@ -6375,9 +7063,12 @@ function SelectedContextPanel({
       activeDraw={activeDraw}
       activeItem={activeItem}
       addEvidenceFiles={addEvidenceFiles}
+      contractorPlanning={contractorPlanning}
       onCompleteMilestone={onCompleteMilestone}
       onRemoveEvidenceAsset={onRemoveEvidenceAsset}
       onUpdateEvidenceAsset={onUpdateEvidenceAsset}
+      onUpdateSubmilestoneBudget={onUpdateSubmilestoneBudget}
+      onUpdateSubmilestoneDuration={onUpdateSubmilestoneDuration}
       overview={overview}
       range={range}
     />
@@ -6436,11 +7127,27 @@ function DrawPlanSummaryPanel({
 function MilestonePlanSummaryPanel({
   activeDraw,
   activeItem,
+  contractorPlanning,
+  onUpdateMilestoneDrawAvailability,
+  onUpdateSubmilestoneBudget,
+  onUpdateSubmilestoneDuration,
   overview,
   range,
 }: {
   activeDraw: DemoDraw | null;
   activeItem: TimelineItem<DemoMilestone>;
+  contractorPlanning?: ContractorPlanningModel | null;
+  onUpdateMilestoneDrawAvailability?: (itemId: string, amount: number) => void;
+  onUpdateSubmilestoneBudget?: (
+    itemId: string,
+    submilestoneKey: string,
+    budgetCents: number,
+  ) => void;
+  onUpdateSubmilestoneDuration?: (
+    itemId: string,
+    submilestoneKey: string,
+    durationDays: number,
+  ) => void;
   overview: FinancialOverview;
   range: Required<TimelineRange>;
 }) {
@@ -6449,6 +7156,7 @@ function MilestonePlanSummaryPanel({
   if (!milestone) {
     return null;
   }
+  const drawAvailabilityAmount = getMilestoneDrawAvailabilityAmount(milestone);
 
   return (
     <div className="grid gap-4" data-testid="selected-milestone-plan-summary">
@@ -6477,6 +7185,28 @@ function MilestonePlanSummaryPanel({
           </dd>
         </div>
         <div className="flex items-center justify-between gap-3">
+          <dt className="text-muted-foreground">Draw availability unlocked</dt>
+          <dd className="font-semibold tabular-nums">
+            <EditableNumberChip
+              ariaLabel="Draw availability unlocked"
+              disabled={!onUpdateMilestoneDrawAvailability}
+              formatDisplay={(value) => money(value)}
+              inputWidth="5.75rem"
+              min={0}
+              onCommit={(amount) =>
+                onUpdateMilestoneDrawAvailability?.(activeItem.id, amount)
+              }
+              prefix="$"
+              reserveWidth="7.25rem"
+              size="metric-sm"
+              step={1000}
+              testId={`timeline-selected-milestone-draw-availability-${activeItem.id}`}
+              value={drawAvailabilityAmount}
+              weight="semibold"
+            />
+          </dd>
+        </div>
+        <div className="flex items-center justify-between gap-3">
           <dt className="text-muted-foreground">Duration</dt>
           <dd className="font-medium tabular-nums">
             {milestone.durationDays} days
@@ -6486,16 +7216,43 @@ function MilestonePlanSummaryPanel({
           <dt className="text-muted-foreground">Draw date</dt>
           <dd className="font-medium tabular-nums">
             {formatTimelineDay(
-              resolveSelectedDrawDate(activeItem, activeDraw, range)
+              resolveSelectedDrawDate(activeItem, activeDraw, range),
             )}
           </dd>
         </div>
       </dl>
 
       <TimelineMilestoneSubmilestoneList
+        fallbackBudgetCents={dollarsToCents(milestone.amount)}
         milestoneKey={activeItem.id}
+        onUpdateBudget={
+          onUpdateSubmilestoneBudget
+            ? (submilestoneKey, budgetCents) =>
+                onUpdateSubmilestoneBudget(
+                  activeItem.id,
+                  submilestoneKey,
+                  budgetCents,
+                )
+            : undefined
+        }
+        onUpdateDuration={
+          onUpdateSubmilestoneDuration
+            ? (submilestoneKey, durationDays) =>
+                onUpdateSubmilestoneDuration(
+                  activeItem.id,
+                  submilestoneKey,
+                  durationDays,
+                )
+            : undefined
+        }
         submilestones={resolveMilestoneSubmilestones(milestone, activeItem.id)}
         testIdPrefix="timeline-selected-milestone-submilestone"
+      />
+
+      <TimelineMilestoneContractorList
+        milestoneKey={activeItem.id}
+        planning={contractorPlanning}
+        testIdPrefix="timeline-selected-milestone-contractor"
       />
 
       <FinancialOverviewCard overview={overview} />
@@ -6509,12 +7266,12 @@ function TimelineModificationRequestsPanel({
 }: {
   onReviewModificationRequest: (
     request: TimelineModificationRequestView,
-    review: { note?: string; status: "approved" | "rejected" }
+    review: { note?: string; status: "approved" | "rejected" },
   ) => void;
   requests: TimelineModificationRequestView[];
 }) {
   const pendingRequests = requests.filter(
-    (request) => request.status === "requested"
+    (request) => request.status === "requested",
   );
 
   if (pendingRequests.length === 0) {
@@ -6587,7 +7344,7 @@ function TimelineModificationRequestsPanel({
 }
 
 function getTimelineModificationRequestTitle(
-  request: TimelineModificationRequestView
+  request: TimelineModificationRequestView,
 ) {
   if (request.requestType === "createMilestone") {
     return "Request milestone";
@@ -6601,7 +7358,7 @@ function getTimelineModificationRequestTitle(
 }
 
 function getTimelineModificationRequestDetail(
-  request: TimelineModificationRequestView
+  request: TimelineModificationRequestView,
 ) {
   if (request.requestType === "createMilestone") {
     return request.requestedPayload?.milestone?.name ?? "New milestone";
@@ -6658,7 +7415,7 @@ function TimelineRoleSwitcher({
               "inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md px-2.5 text-left font-medium text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               active
                 ? "bg-foreground text-background shadow-xs"
-                : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
             )}
             data-testid={`timeline-role-${option.id}`}
             key={option.id}
@@ -6683,24 +7440,38 @@ function MilestoneOperationsPanel({
   activeDraw,
   addEvidenceFiles,
   activeItem,
+  contractorPlanning,
   onCompleteMilestone,
   onRemoveEvidenceAsset,
   onUpdateEvidenceAsset,
+  onUpdateSubmilestoneBudget,
+  onUpdateSubmilestoneDuration,
   overview,
   range,
 }: {
   activeDraw: DemoDraw | null;
   addEvidenceFiles: (itemId: string, files: File[]) => void;
   activeItem: TimelineItem<DemoMilestone>;
+  contractorPlanning?: ContractorPlanningModel | null;
   onCompleteMilestone: (
     itemId: string,
-    claim: TimelineCompletionClaimInput
+    claim: TimelineCompletionClaimInput,
   ) => void;
   onRemoveEvidenceAsset: (itemId: string, assetId: string) => void;
   onUpdateEvidenceAsset: (
     itemId: string,
     assetId: string,
-    patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>
+    patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>,
+  ) => void;
+  onUpdateSubmilestoneBudget?: (
+    itemId: string,
+    submilestoneKey: string,
+    budgetCents: number,
+  ) => void;
+  onUpdateSubmilestoneDuration?: (
+    itemId: string,
+    submilestoneKey: string,
+    durationDays: number,
   ) => void;
   overview: FinancialOverview;
   range: Required<TimelineRange>;
@@ -6714,6 +7485,9 @@ function MilestoneOperationsPanel({
   const evidenceAssets = milestone.evidencePackage?.assets ?? [];
   const completionClaim = milestone.completionClaim;
   const completed = Boolean(completionClaim);
+  const effectiveCost = getMilestoneEffectiveCashSpendAmount(milestone);
+  const approvedBudget = Math.max(0, Math.round(milestone.amount));
+  const costAdjusted = completionClaim && effectiveCost !== approvedBudget;
 
   return (
     <div className="grid gap-4" data-testid="selected-draw-details">
@@ -6723,7 +7497,7 @@ function MilestoneOperationsPanel({
             "mb-3 grid size-10 place-items-center rounded-md",
             completed
               ? "bg-emerald-500/10 text-emerald-600"
-              : "bg-rose-500/10 text-rose-600"
+              : "bg-rose-500/10 text-rose-600",
           )}
         >
           {completed ? (
@@ -6768,16 +7542,26 @@ function MilestoneOperationsPanel({
           <dt className="text-muted-foreground">Draw date</dt>
           <dd className="font-medium tabular-nums">
             {formatTimelineDay(
-              resolveSelectedDrawDate(activeItem, activeDraw, range)
+              resolveSelectedDrawDate(activeItem, activeDraw, range),
             )}
           </dd>
         </div>
         <div className="flex items-center justify-between gap-3">
-          <dt className="text-muted-foreground">Milestone cost</dt>
+          <dt className="text-muted-foreground">
+            {costAdjusted ? "Effective cost" : "Milestone cost"}
+          </dt>
           <dd className="font-semibold tabular-nums">
-            {money(milestone.amount)}
+            {money(costAdjusted ? effectiveCost : approvedBudget)}
           </dd>
         </div>
+        {costAdjusted ? (
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">Approved budget</dt>
+            <dd className="font-medium tabular-nums">
+              {money(approvedBudget)}
+            </dd>
+          </div>
+        ) : null}
         {completionClaim ? (
           <>
             <div className="flex items-center justify-between gap-3">
@@ -6805,9 +7589,36 @@ function MilestoneOperationsPanel({
       </dl>
 
       <TimelineMilestoneSubmilestoneList
+        fallbackBudgetCents={dollarsToCents(milestone.amount)}
         milestoneKey={activeItem.id}
+        onUpdateBudget={
+          onUpdateSubmilestoneBudget
+            ? (submilestoneKey, budgetCents) =>
+                onUpdateSubmilestoneBudget(
+                  activeItem.id,
+                  submilestoneKey,
+                  budgetCents,
+                )
+            : undefined
+        }
+        onUpdateDuration={
+          onUpdateSubmilestoneDuration
+            ? (submilestoneKey, durationDays) =>
+                onUpdateSubmilestoneDuration(
+                  activeItem.id,
+                  submilestoneKey,
+                  durationDays,
+                )
+            : undefined
+        }
         submilestones={resolveMilestoneSubmilestones(milestone, activeItem.id)}
         testIdPrefix="timeline-selected-milestone-submilestone"
+      />
+
+      <TimelineMilestoneContractorList
+        milestoneKey={activeItem.id}
+        planning={contractorPlanning}
+        testIdPrefix="timeline-selected-milestone-contractor"
       />
 
       <CompletionClaimPanel
@@ -6830,6 +7641,7 @@ function MilestoneOperationsPanel({
 
 function LenderMilestoneReviewPanel({
   activeItem,
+  contractorPlanning,
   items,
   onCreateMilestoneSiteVisit,
   onRequestMilestoneSiteVisit,
@@ -6838,22 +7650,23 @@ function LenderMilestoneReviewPanel({
   overview,
 }: {
   activeItem: TimelineItem<DemoMilestone>;
+  contractorPlanning?: ContractorPlanningModel | null;
   items: TimelineItem<DemoMilestone>[];
   onCreateMilestoneSiteVisit?: (
     itemId: string,
-    request: TimelineSiteVisitRequestInput
+    request: TimelineSiteVisitRequestInput,
   ) => Promise<TimelineSiteVisitRequestInput | void>;
   onRequestMilestoneSiteVisit: (
     itemId: string,
-    request: TimelineSiteVisitRequestInput
+    request: TimelineSiteVisitRequestInput,
   ) => void;
   onRecordMilestoneSiteVisit?: (
     itemId: string,
-    request: TimelineSiteVisitRequestInput
+    request: TimelineSiteVisitRequestInput,
   ) => Promise<unknown>;
   onReviewMilestoneCompletion: (
     itemId: string,
-    review: { note?: string; status: "approved" | "revisionRequested" }
+    review: { note?: string; status: "approved" | "revisionRequested" },
   ) => void;
   overview: FinancialOverview;
 }) {
@@ -6861,7 +7674,7 @@ function LenderMilestoneReviewPanel({
   const usesExternalSiteVisitPersistence = Boolean(onCreateMilestoneSiteVisit);
   const workspace = useQuery(
     api.demo_drawflow.demo_getWorkspace,
-    usesExternalSiteVisitPersistence ? "skip" : { scenario: "active" }
+    usesExternalSiteVisitPersistence ? "skip" : { scenario: "active" },
   );
   const seedDemo = useMutation(api.demo_drawflow.demo_seedDrawFlowDemo);
   const requestSiteVisit = useMutation(api.demo_drawflow.demo_requestSiteVisit);
@@ -6880,18 +7693,21 @@ function LenderMilestoneReviewPanel({
   const claim = milestone.completionClaim;
   const review = milestone.completionReview;
   const siteVisit = review?.siteVisit;
+  const effectiveCost = getMilestoneEffectiveCashSpendAmount(milestone);
+  const approvedBudget = Math.max(0, Math.round(milestone.amount));
+  const costAdjusted = claim && effectiveCost !== approvedBudget;
   const liveSiteVisit = findLiveSiteVisit(workspace, siteVisit?.visitId);
   const liveStatus = normalizeTimelineSiteVisitStatus(
     liveSiteVisit?.status ?? siteVisit?.status,
-    liveSiteVisit?.tokenExpiresAt ?? siteVisit?.tokenExpiresAt
+    liveSiteVisit?.tokenExpiresAt ?? siteVisit?.tokenExpiresAt,
   );
   const siteVisitUrl = buildAbsoluteSiteVisitUrl(siteVisit?.url);
   const eligibleSiteVisitItems = items.slice(
     0,
     Math.max(
       0,
-      items.findIndex((item) => item.id === activeItem.id)
-    ) + 1
+      items.findIndex((item) => item.id === activeItem.id),
+    ) + 1,
   );
   const evidenceAssets = milestone.evidencePackage?.assets ?? [];
   const submitReview = (event: FormEvent<HTMLFormElement>) => {
@@ -6912,7 +7728,7 @@ function LenderMilestoneReviewPanel({
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const requestedDay = Math.round(
-      Number(formData.get("siteVisitDay") ?? getMilestoneEndX(activeItem))
+      Number(formData.get("siteVisitDay") ?? getMilestoneEndX(activeItem)),
     );
     const note = String(formData.get("siteVisitNote") ?? "").trim();
     const includedItemIds = Array.from(
@@ -6920,8 +7736,8 @@ function LenderMilestoneReviewPanel({
         [
           ...formData.getAll("includedSiteVisitItemId").map(String),
           activeItem.id,
-        ].filter(Boolean)
-      )
+        ].filter(Boolean),
+      ),
     );
 
     if (!Number.isFinite(requestedDay)) {
@@ -6964,7 +7780,7 @@ function LenderMilestoneReviewPanel({
       setSiteVisitError(
         error instanceof Error
           ? error.message
-          : "Unable to generate site visit token."
+          : "Unable to generate site visit token.",
       );
     } finally {
       setSiteVisitPending(false);
@@ -6992,7 +7808,7 @@ function LenderMilestoneReviewPanel({
       });
     } catch (error) {
       setSiteVisitError(
-        error instanceof Error ? error.message : "Unable to record site visit."
+        error instanceof Error ? error.message : "Unable to record site visit.",
       );
     } finally {
       setSiteVisitPending(false);
@@ -7050,11 +7866,21 @@ function LenderMilestoneReviewPanel({
 
       <dl className="grid gap-2 border-border border-t pt-3 text-sm">
         <div className="flex items-center justify-between gap-3">
-          <dt className="text-muted-foreground">Milestone cost</dt>
+          <dt className="text-muted-foreground">
+            {costAdjusted ? "Effective cost" : "Milestone cost"}
+          </dt>
           <dd className="font-semibold tabular-nums">
-            {money(milestone.amount)}
+            {money(costAdjusted ? effectiveCost : approvedBudget)}
           </dd>
         </div>
+        {costAdjusted ? (
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">Approved budget</dt>
+            <dd className="font-medium tabular-nums">
+              {money(approvedBudget)}
+            </dd>
+          </div>
+        ) : null}
         <div className="flex items-center justify-between gap-3">
           <dt className="text-muted-foreground">Claimed complete</dt>
           <dd
@@ -7081,9 +7907,16 @@ function LenderMilestoneReviewPanel({
       </dl>
 
       <TimelineMilestoneSubmilestoneList
+        fallbackBudgetCents={dollarsToCents(milestone.amount)}
         milestoneKey={activeItem.id}
         submilestones={resolveMilestoneSubmilestones(milestone, activeItem.id)}
         testIdPrefix="timeline-lender-milestone-submilestone"
+      />
+
+      <TimelineMilestoneContractorList
+        milestoneKey={activeItem.id}
+        planning={contractorPlanning}
+        testIdPrefix="timeline-lender-milestone-contractor"
       />
 
       <form
@@ -7360,17 +8193,17 @@ export function DrawRequestPanel({
   items: TimelineItem<DemoMilestone>[];
   onSubmitDrawRequest: (
     drawId: string,
-    request: { amount: number; note?: string; x?: number }
+    request: { amount: number; note?: string; x?: number },
   ) => void;
   onUpdatePlannedDraw: (
     drawId: string,
-    patch: { amount?: number; x?: number }
+    patch: { amount?: number; x?: number },
   ) => void;
   requiresApprovedMilestones: boolean;
 }) {
   const [requestedDay, setRequestedDay] = useState(() => Math.round(draw.x));
   const [requestedAmount, setRequestedAmount] = useState(() =>
-    Math.round(draw.amount)
+    Math.round(draw.amount),
   );
   useEffect(() => {
     setRequestedDay(Math.round(draw.x));
@@ -7410,10 +8243,10 @@ export function DrawRequestPanel({
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const requestedAmount = Math.round(
-      Number(formData.get("drawRequestAmount") ?? draw.amount)
+      Number(formData.get("drawRequestAmount") ?? draw.amount),
     );
     const requestedX = Math.round(
-      Number(formData.get("drawRequestDate") ?? draw.x)
+      Number(formData.get("drawRequestDate") ?? draw.x),
     );
     const note = String(formData.get("drawRequestNote") ?? "").trim();
 
@@ -7421,8 +8254,16 @@ export function DrawRequestPanel({
       return;
     }
 
+    const requestedDraw = { ...draw, x: requestedX };
+    const requestLimit = requiresApprovedMilestones
+      ? calculateApprovedDrawRequestLimit(requestedDraw, items, draws)
+      : calculateDrawRequestLimit(requestedDraw, items, draws);
+
     onSubmitDrawRequest(draw.id, {
-      amount: requestedAmount,
+      amount: Math.min(
+        Math.max(0, requestedAmount),
+        requestLimit.availableLimit,
+      ),
       ...(note ? { note } : {}),
       x: requestedX,
     });
@@ -7487,7 +8328,7 @@ export function DrawRequestPanel({
             data-testid={`selected-draw-remaining-limit-${getDrawDomId(draw)}`}
           >
             {money(
-              Math.max(0, requestableLimit.availableLimit - requestedAmount)
+              Math.max(0, requestableLimit.availableLimit - requestedAmount),
             )}
           </dd>
         </div>
@@ -7645,7 +8486,7 @@ function LenderDrawReviewPanel({
   items: TimelineItem<DemoMilestone>[];
   onReviewDrawRequest: (
     drawId: string,
-    review: { note?: string; status: "approved" | "rejected" }
+    review: { note?: string; status: "approved" | "rejected" },
   ) => void;
 }) {
   const limit = calculateDrawRequestLimit(draw, items, draws);
@@ -7833,7 +8674,7 @@ async function requestDemoTimelineSiteVisit({
   }
   const result = await requestSiteVisit({
     includedMilestoneKeys: includedItemIds.map(
-      resolveTimelineSiteVisitMilestoneKey
+      resolveTimelineSiteVisitMilestoneKey,
     ),
     milestoneKey: resolveTimelineSiteVisitMilestoneKey(activeItem.id),
     persona: "lender_admin",
@@ -7857,7 +8698,7 @@ function CompletionClaimPanel({
   evidenceCount: number;
   onCompleteMilestone: (
     itemId: string,
-    claim: TimelineCompletionClaimInput
+    claim: TimelineCompletionClaimInput,
   ) => void;
 }) {
   const milestone = activeItem.data;
@@ -7873,7 +8714,7 @@ function CompletionClaimPanel({
     const formData = new FormData(event.currentTarget);
     const completedDay = Math.max(
       0,
-      Math.round(Number(formData.get("completedDay") ?? schedule.endX))
+      Math.round(Number(formData.get("completedDay") ?? schedule.endX)),
     );
     const actualCostRaw = String(formData.get("actualCost") ?? "").trim();
     const actualCost =
@@ -8035,7 +8876,7 @@ function EvidencePackagePanel({
   onUpdateEvidenceAsset: (
     itemId: string,
     assetId: string,
-    patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>
+    patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>,
   ) => void;
 }) {
   const [dragging, setDragging] = useState(false);
@@ -8097,7 +8938,7 @@ function EvidencePackagePanel({
           "grid cursor-pointer place-items-center rounded-lg border border-dashed px-3 py-4 text-center transition-colors",
           dragging
             ? "border-sky-400 bg-sky-500/10 text-sky-700"
-            : "border-border bg-background/60 text-muted-foreground hover:border-sky-300 hover:bg-sky-500/5"
+            : "border-border bg-background/60 text-muted-foreground hover:border-sky-300 hover:bg-sky-500/5",
         )}
         data-testid={`selected-draw-evidence-dropzone-${activeItem.id}`}
         htmlFor={inputId}
@@ -8148,7 +8989,7 @@ function EvidenceAssetCard({
   onUpdateEvidenceAsset: (
     itemId: string,
     assetId: string,
-    patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>
+    patch: Partial<Pick<DemoEvidenceAsset, "label" | "tag">>,
   ) => void;
   tagOptions: string[];
 }) {
@@ -8306,11 +9147,11 @@ function DrawAvailabilityDeltaReadout({
           {probeDrawAvailability === null
             ? "Hover the chart or roadmap"
             : `${formatTimelineDay(probeDrawAvailability.day)}: ${money(
-                probeDrawAvailability.additionalAvailableDraw
+                probeDrawAvailability.additionalAvailableDraw,
               )} delta, ${money(
-                probeDrawAvailability.interestBearingDraw
+                probeDrawAvailability.interestBearingDraw,
               )} interest-bearing, ${money(
-                probeDrawAvailability.totalInterestAccrued
+                probeDrawAvailability.totalInterestAccrued,
               )} total interest accrued`}
         </span>
       </div>
@@ -8338,7 +9179,7 @@ function TimelineMarkerBadge({ marker }: { marker: TimelineMarker }) {
       <motion.div
         className={cn(
           "rounded-md border px-2.5 py-1 text-center shadow-sm backdrop-blur",
-          toneClass
+          toneClass,
         )}
         layout
       >
@@ -8545,7 +9386,7 @@ function DrawTimelineMarker({
         className={cn(
           "group min-w-28 rounded-md border bg-background/95 px-2.5 py-1.5 text-center text-foreground shadow-sm backdrop-blur transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:bg-zinc-950/90",
           markerClasses[markerState],
-          active && activeMarkerClasses[markerState]
+          active && activeMarkerClasses[markerState],
         )}
         data-state={markerState}
         data-testid={`timeline-draw-marker-${getDrawDomId(draw)}`}
@@ -8558,7 +9399,7 @@ function DrawTimelineMarker({
         <span
           className={cn(
             "flex items-center justify-center gap-1 font-semibold text-[10px] uppercase tracking-normal",
-            labelClasses[markerState]
+            labelClasses[markerState],
           )}
         >
           <CircleDollarSign className="size-3" />
@@ -8574,7 +9415,7 @@ function DrawTimelineMarker({
         <span
           className={cn(
             "mt-1 inline-flex rounded-full border px-1.5 py-0.5 font-medium text-[9px] uppercase",
-            labelClasses[markerState]
+            labelClasses[markerState],
           )}
         >
           {stateCopy}
@@ -8628,7 +9469,7 @@ function DrawTimelineMarker({
                 </Label>
                 <Input
                   id={amountInputId}
-                  min={0}
+                  min={1}
                   name="drawAmount"
                   nativeInput
                   onChange={(event) =>
@@ -8638,7 +9479,7 @@ function DrawTimelineMarker({
                     })
                   }
                   size="sm"
-                  step={1000}
+                  step="any"
                   type="number"
                   value={draft.amount}
                 />
@@ -8703,7 +9544,7 @@ function CapitalSpikeTimelineMarker({
           active &&
             (isCashInfusion
               ? "border-emerald-500 bg-emerald-50 shadow-emerald-500/15 dark:bg-emerald-500/10"
-              : "border-amber-500 bg-amber-50 shadow-amber-500/15 dark:bg-amber-500/10")
+              : "border-amber-500 bg-amber-50 shadow-amber-500/15 dark:bg-amber-500/10"),
         )}
         data-testid={`timeline-capital-spike-marker-${spike.id}`}
         onClick={onOpen}
@@ -8717,7 +9558,7 @@ function CapitalSpikeTimelineMarker({
             "flex items-center justify-center gap-1 font-semibold text-[10px] uppercase tracking-normal",
             isCashInfusion
               ? "text-emerald-700 dark:text-emerald-100"
-              : "text-amber-700 dark:text-amber-200"
+              : "text-amber-700 dark:text-amber-200",
           )}
         >
           <MarkerIcon className="size-3" />
@@ -8927,11 +9768,11 @@ function TimelineNodeButton({
       className={cn(
         "grid size-9 place-items-center rounded-full border-2 bg-background text-muted-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         complete &&
-          "border-emerald-400 bg-emerald-50 text-emerald-600 ring-4 ring-emerald-500/10 dark:bg-emerald-500/10",
+          "border-emerald-400 bg-card text-emerald-600 ring-4 ring-emerald-500/10",
         active &&
           !complete &&
           "border-rose-500 bg-rose-500 text-white shadow-rose-500/30 ring-4 ring-rose-500/20",
-        !(active || complete) && "border-zinc-300 dark:border-zinc-700"
+        !(active || complete) && "border-zinc-300 dark:border-zinc-700",
       )}
       data-testid={`demo-timeline-node-${item.id}`}
       onClick={onClick}

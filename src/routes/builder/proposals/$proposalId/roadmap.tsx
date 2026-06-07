@@ -4,8 +4,13 @@ import { Loader2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import {
+  BuildPermitViewerDrawer,
+  firstPermitDocument,
+} from "#/features/build-permit-viewer/BuildPermitViewerDrawer.tsx";
 import { ProductionTimelineWorkspace } from "#/features/production-proposals/ProductionTimelineWorkspace.tsx";
 import {
+  getVisualParityProposalDetail,
   getVisualParityTimelineWorkspace,
   isProductionVisualParityFixtureEnabled,
 } from "#/features/production-proposals/visualParityFixtures.ts";
@@ -66,8 +71,20 @@ function BuilderProductionProposalRoadmapCompatibilityRoute() {
   const workspace = visualFixtureEnabled
     ? getVisualParityTimelineWorkspace(proposalId)
     : workspaceQuery;
+  const detailQuery = useQuery(
+    api.production_proposals.getProposalDetailByString,
+    visualFixtureEnabled || collabJoinState === "joining"
+      ? "skip"
+      : {
+          proposalId,
+          workosOrganizationId,
+        },
+  );
+  const detail = visualFixtureEnabled
+    ? getVisualParityProposalDetail(proposalId)
+    : detailQuery;
 
-  if (!workspace || collabJoinState === "joining") {
+  if (!workspace || detail === undefined || collabJoinState === "joining") {
     return (
       <div className="grid min-h-[24rem] place-items-center">
         <div className="flex items-center gap-2 rounded-lg border bg-background p-4 text-sm">
@@ -86,6 +103,12 @@ function BuilderProductionProposalRoadmapCompatibilityRoute() {
       initialRole="builder"
       persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
       prejoinedCollabToken={collabJoinState === "joined" ? collabToken : null}
+      headerActions={
+        <BuildPermitViewerDrawer
+          permit={firstPermitDocument(detail?.documents)}
+          size="sm"
+        />
+      }
       proposalHref={`/builder/proposals/${proposalId}`}
       proposalId={typedProposalId}
       workspace={workspace}

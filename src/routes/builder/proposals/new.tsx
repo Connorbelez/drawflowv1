@@ -39,7 +39,12 @@ function NewProductionProposalRoute() {
     ? getVisualParityCreateContext()
     : createContextQuery;
   const createDraft = useMutation(api.production_proposals.createDraftProposal);
-  const saveDraft = useMutation(api.production_proposals.saveDraftProposalPackage);
+  const saveDraft = useMutation(
+    api.production_proposals.saveDraftProposalPackage,
+  );
+  const generateDocumentUploadUrl = useMutation(
+    api.production_proposals.generateProposalDocumentUploadUrl,
+  );
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState("");
   const setupTemplates = useMemo(
@@ -64,8 +69,40 @@ function NewProductionProposalRoute() {
         location: packagePayload.location,
         workosOrganizationId,
       });
+      const uploadedPermitDocuments = await Promise.all(
+        result.permitFiles.map(async (file) => {
+          const uploadUrl = await generateDocumentUploadUrl({
+            proposalId,
+            workosOrganizationId,
+          });
+          const response = await fetch(uploadUrl, {
+            body: file,
+            headers: {
+              "Content-Type": file.type || "application/pdf",
+            },
+            method: "POST",
+          });
+          if (!response.ok) {
+            throw new Error(`Permit upload failed for ${file.name}.`);
+          }
+          const { storageId } = (await response.json()) as {
+            storageId: string;
+          };
+          return {
+            documentType: "permit" as const,
+            fileName: file.name,
+            mimeType: file.type || "application/pdf",
+            sizeBytes: file.size,
+            storageId,
+          };
+        }),
+      );
       await saveDraft({
         ...packagePayload,
+        documents: [
+          ...(packagePayload.documents ?? []),
+          ...uploadedPermitDocuments,
+        ],
         proposalId,
         workosOrganizationId,
       });
@@ -110,11 +147,14 @@ function NewProductionProposalRoute() {
           </FramePanel>
         </Frame>
       ) : null}
-      <TimelineSetupFlow
-        baseItems={PRODUCTION_SETUP_BASE_ITEMS}
-        onComplete={(result) => void createProductionProposal(result)}
-        settingsTemplates={setupTemplates}
-      />
+      <div className="timeline-setup-app-shell-route">
+        <TimelineSetupFlow
+          baseItems={PRODUCTION_SETUP_BASE_ITEMS}
+          contractorOptions={createContext?.availableContractors ?? []}
+          onComplete={(result) => void createProductionProposal(result)}
+          settingsTemplates={setupTemplates}
+        />
+      </div>
     </>
   );
 }

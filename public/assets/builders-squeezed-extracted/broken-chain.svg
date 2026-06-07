@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 68" role="img" aria-label="Broken chain icon">
+  <title>Broken chain icon</title>
+
+  <g fill="none" stroke="#f15a49" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M25 42 15 52c-6 6-15-3-9-9l13-13c4-4 10-5 15-1"/>
+    <path d="M43 24 56 11c6-6 15 3 9 9L55 30c-4 4-10 5-15 1"/>
+    <path d="m30 37 14-14"/>
+    <path d="M12 15 5 8M24 10V1M39 14l7-8M50 47l7 7M38 52v9M23 48l-7 8"/>
+  </g>
+</svg>

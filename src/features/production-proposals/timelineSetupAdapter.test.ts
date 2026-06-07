@@ -20,7 +20,13 @@ describe("production proposal timeline setup adapter", () => {
             order: 1,
             percentageBps: 2_500,
             submilestones: [
-              { key: "forms", name: "Forms and pour", order: 1 },
+              {
+                durationDays: 12,
+                key: "forms",
+                name: "Forms and pour",
+                order: 1,
+                percentageBps: 1_200,
+              },
             ],
           },
         ],
@@ -36,6 +42,15 @@ describe("production proposal timeline setup adapter", () => {
         {
           icon: "foundation",
           key: "foundation",
+          subMilestoneDetails: [
+            {
+              durationDays: 12,
+              key: "forms",
+              name: "Forms and pour",
+              order: 1,
+              percentageBps: 1_200,
+            },
+          ],
           subMilestones: ["Forms and pour"],
         },
       ],
@@ -186,6 +201,93 @@ describe("production proposal timeline setup adapter", () => {
         icon: "framing",
         key: "shell",
       }),
+    ]);
+  });
+
+  test("resolves sub-milestones from subMilestones when submilestoneDetails is missing", () => {
+    const payload = timelineSetupResultToDraftPackage({
+      activeItemId: "four-plex-draw-01",
+      borrowerCoPayBps: 2_000,
+      borrowerCoPayCents: 25_000_000,
+      currentDay: 0,
+      includedCount: 2,
+      items: [
+        {
+          data: {
+            amount: 300_000,
+            draw: "Draw 1",
+            durationDays: 30,
+            evidence: "Ready",
+            icon: "foundation",
+            name: "Draw/Milestone 1",
+            policy: "Planning",
+            status: "ready",
+            subMilestones: ["DC/ED", "PERMITS"],
+            submilestoneDetails: [
+              {
+                budgetCents: 100_000_00,
+                durationDays: 10,
+                key: "dc-ed",
+                name: "DC/ED",
+                order: 1,
+              },
+              {
+                budgetCents: 50_000_00,
+                durationDays: 5,
+                key: "permits",
+                name: "PERMITS",
+                order: 2,
+              },
+            ],
+          },
+          eyebrow: "Milestone 1",
+          id: "four-plex-draw-01",
+          label: "Draw/Milestone 1",
+          markerLabel: "1",
+          tone: "active",
+          x: 0,
+        },
+        {
+          data: {
+            amount: 450_000,
+            draw: "Draw 2",
+            durationDays: 28,
+            evidence: "Upcoming",
+            icon: "framing",
+            name: "Draw/Milestone 2 - Underground, framing & roof",
+            policy: "Upcoming",
+            status: "upcoming",
+            subMilestones: ["UNDERGROUND PIB", "FRAMING"],
+          },
+          eyebrow: "Milestone 2",
+          id: "four-plex-draw-02",
+          label: "Draw/Milestone 2",
+          markerLabel: "2",
+          tone: "upcoming",
+          x: 35,
+        },
+      ],
+      projectAddress: "Hamilton, ON",
+      redirectToDurableRoute: true,
+      reimbursableBudgetCents: 100_000_000,
+      reimbursementBps: 8_000,
+      startingCash: 400_000,
+      templateKey: "4-plex",
+      templateTitle: "4-plex",
+      totalBudget: 750_000,
+    });
+
+    expect(payload.milestones[1]?.submilestones).toEqual([
+      {
+        key: "four-plex-draw-02-sub-01",
+        name: "UNDERGROUND PIB",
+        order: 1,
+      },
+      {
+        key: "four-plex-draw-02-sub-02",
+        name: "FRAMING",
+        order: 2,
+      },
     ]);
   });
 });

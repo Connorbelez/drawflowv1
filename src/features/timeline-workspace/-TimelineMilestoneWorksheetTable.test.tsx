@@ -1,13 +1,38 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { useState } from "react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { type ComponentProps, useState } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import {
   TimelineMilestoneWorksheetTable,
   type TimelineMilestoneWorksheetRow,
 } from "./-TimelineMilestoneWorksheetTable.tsx";
+
+vi.mock("#/components/rich-text/field-rich-text.tsx", () => ({
+  FieldRichTextEditor: ({
+    onChange,
+    testId,
+    value,
+  }: {
+    onChange: (value: string) => void;
+    testId?: string;
+    value: string;
+  }) => (
+    <textarea
+      data-testid={testId}
+      onChange={(event) => onChange(`<p>${event.currentTarget.value}</p>`)}
+      value={value.replace(/<[^>]+>/g, "")}
+    />
+  ),
+  FieldRichTextPreview: () => null,
+}));
 
 afterEach(() => cleanup());
 
@@ -135,14 +160,22 @@ const cascadeRows: TimelineMilestoneWorksheetRow[] = [
 
 function ControlledWorksheet({
   cascadeBudgetEdits = false,
+  contractorOptions = [],
   initialRows = worksheetRows,
   mode = "setup",
+  onComplete = vi.fn(),
   onRowsChange = vi.fn(),
   targetBudgetCents = 200_000_00,
 }: {
   cascadeBudgetEdits?: boolean;
+  contractorOptions?: ComponentProps<
+    typeof TimelineMilestoneWorksheetTable
+  >["contractorOptions"];
   initialRows?: TimelineMilestoneWorksheetRow[];
   mode?: "settings" | "setup";
+  onComplete?: ComponentProps<
+    typeof TimelineMilestoneWorksheetTable
+  >["onComplete"];
   onRowsChange?: (rows: TimelineMilestoneWorksheetRow[]) => void;
   targetBudgetCents?: number;
 }) {
@@ -153,8 +186,10 @@ function ControlledWorksheet({
     <TimelineMilestoneWorksheetTable
       cascadeBudgetEdits={cascadeEnabled}
       cashText="$25,000"
+      contractorOptions={contractorOptions}
       mode={mode}
       onCascadeBudgetEditsChange={setCascadeEnabled}
+      onComplete={onComplete}
       onRowsChange={(nextRows) => {
         setRows(nextRows);
         onRowsChange(nextRows);
@@ -237,6 +272,162 @@ describe("TimelineMilestoneWorksheetTable", () => {
     );
   });
 
+  test("hides demo-only durable routing and proposal review reason fields in setup mode", () => {
+    const onComplete = vi.fn();
+    render(<ControlledWorksheet onComplete={onComplete} />);
+
+    expect(
+      screen.queryByTestId("timeline-setup-durable-route-toggle")
+    ).toBeNull();
+    expect(
+      screen.queryByLabelText("Open durable Convex route after generating")
+    ).toBeNull();
+    expect(screen.queryByLabelText("Change reason")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("timeline-setup-complete"));
+
+    expect(onComplete).toHaveBeenCalledWith({
+      redirectToDurableRoute: false,
+    });
+  });
+
+  test("opens the contractor autocomplete with existing contractors before typing", async () => {
+    render(
+      <ControlledWorksheet
+        contractorOptions={[
+          {
+            city: "Hamilton",
+            contractorId: "contractor-ledger",
+            name: "Ledger Frame Co.",
+            trades: ["Framing"],
+          },
+          {
+            city: "Toronto",
+            contractorId: "contractor-apex",
+            name: "Apex Concrete",
+            trades: ["Foundation"],
+          },
+        ]}
+      />
+    );
+
+    const contractorInput = screen.getByRole("combobox", {
+      name: "Contractor",
+    });
+
+    fireEvent.click(contractorInput);
+
+    expect(await screen.findByText("Ledger Frame Co.")).toBeTruthy();
+    expect(screen.getByText("Apex Concrete")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Ledger Frame Co."));
+
+    await waitFor(() =>
+      expect((contractorInput as HTMLInputElement).value).toBe(
+        "Ledger Frame Co."
+      )
+    );
+    expect(
+      (
+        screen.getByTestId(
+          "timeline-setup-contractor-role-site-prep-foundation"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("Framing");
+  });
+
+  test("adds optional contractor and material planning to an expanded setup row", () => {
+    const onRowsChange = vi.fn();
+    render(
+      <ControlledWorksheet
+        contractorOptions={[
+          {
+            contractorId: "contractor-ledger",
+            name: "Ledger Frame Co.",
+            trades: ["Framing"],
+          },
+        ]}
+        onRowsChange={onRowsChange}
+      />
+    );
+
+    fireEvent.change(
+      screen.getByTestId(
+        "timeline-setup-contractor-name-site-prep-foundation"
+      ),
+      { target: { value: "Ledger Frame Co." } }
+    );
+    fireEvent.change(
+      screen.getByTestId(
+        "timeline-setup-contractor-role-site-prep-foundation"
+      ),
+      { target: { value: "Foundation crew" } }
+    );
+    fireEvent.change(
+      screen.getByTestId(
+        "timeline-setup-contractor-cost-site-prep-foundation"
+      ),
+      { target: { value: "$12,500" } }
+    );
+    fireEvent.change(
+      screen.getByTestId(
+        "timeline-setup-contractor-hours-site-prep-foundation"
+      ),
+      { target: { value: "16.5" } }
+    );
+    fireEvent.click(screen.getAllByLabelText("Foundation scope")[0]);
+    fireEvent.click(
+      screen.getByTestId("timeline-setup-add-contractor-site-prep-foundation")
+    );
+    fireEvent.keyDown(
+      screen.getByTestId("timeline-setup-contractor-name-site-prep-foundation"),
+      { key: "Escape" }
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Add cost item" })[0]);
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "Foundation material package" },
+    });
+    fireEvent.change(screen.getByLabelText("Cost per unit (USD)"), {
+      target: { value: "80000" },
+    });
+    fireEvent.change(screen.getByLabelText("Quantity"), {
+      target: { value: "2.5" },
+    });
+    fireEvent.change(screen.getByLabelText("Supplier"), {
+      target: { value: "Apex Supply" },
+    });
+    fireEvent.click(screen.getByText("Add item"));
+
+    expect(onRowsChange).toHaveBeenLastCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          contractorAssignments: [
+            expect.objectContaining({
+              contractorId: "contractor-ledger",
+              contractorName: "Ledger Frame Co.",
+              estimatedCostCents: 1_250_000,
+              estimatedHours: 16.5,
+              role: "Foundation crew",
+              subMilestoneIds: ["site-prep-foundation-sub-1"],
+            }),
+          ],
+          costItems: [
+            expect.objectContaining({
+              costCents: 8_000_000,
+              itemType: "material",
+              quantity: 2.5,
+              relevantSubMilestoneIds: [],
+              supplier: "Apex Supply",
+              title: "Foundation material package",
+            }),
+          ],
+          key: "site-prep-foundation",
+        }),
+      ])
+    );
+  });
+
   test("edits milestone field guidance from expanded worksheet rows", () => {
     const onRowsChange = vi.fn();
     render(<ControlledWorksheet onRowsChange={onRowsChange} />);
@@ -245,7 +436,11 @@ describe("TimelineMilestoneWorksheetTable", () => {
       screen.getByTestId(
         "timeline-settings-guidance-verify-site-prep-foundation"
       ),
-      { target: { value: "Verify footing pins\nConfirm anchor bolts" } }
+      {
+        target: {
+          value: "Verify footing pins<img src='data:image/png;base64,abc' />",
+        },
+      }
     );
 
     expect(onRowsChange).toHaveBeenLastCalledWith(
@@ -253,7 +448,7 @@ describe("TimelineMilestoneWorksheetTable", () => {
         expect.objectContaining({
           key: "site-prep-foundation",
           siteVisitGuidance: expect.objectContaining({
-            whatToVerify: ["Verify footing pins", "Confirm anchor bolts"],
+            whatToVerify: expect.stringContaining("<img"),
           }),
         }),
       ])

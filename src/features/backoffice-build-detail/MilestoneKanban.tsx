@@ -66,6 +66,10 @@ const STATUS_TONE: Record<
     label: "Approved",
     className: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
   },
+  completion_requested: {
+    label: "Marked complete",
+    className: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+  },
   in_progress_on_schedule: {
     label: "On schedule",
     className: "bg-sky-500/15 text-sky-300 border-sky-500/30",
@@ -109,9 +113,7 @@ export function MilestoneKanban({
 }: MilestoneKanbanProps): ReactNode {
   const visibleCards = showCompleted
     ? cards
-    : cards.filter(
-        (c) => c.column !== "MarkedComplete" && c.status !== "completion_approved",
-      );
+    : cards.filter((c) => c.status !== "completion_approved");
   const byColumn = new Map<KanbanColumn, KanbanCardData[]>();
   for (const card of visibleCards) {
     const arr = byColumn.get(card.column) ?? [];

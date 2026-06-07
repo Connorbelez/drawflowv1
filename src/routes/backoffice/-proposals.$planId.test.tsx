@@ -20,7 +20,10 @@ vi.mock("#/components/roadmap/AnimatedCurvedTimeline.tsx", () => ({
     renderEndNode?: () => ReactNode;
   }) => (
     <div data-testid="mocked-timeline">
-      <div data-marker-count={markers?.length ?? 0} data-testid="mocked-timeline-markers" />
+      <div
+        data-marker-count={markers?.length ?? 0}
+        data-testid="mocked-timeline-markers"
+      />
       {renderEndNode ? (
         <div data-testid="mocked-timeline-end-node">
           {renderEndNode(
@@ -42,13 +45,21 @@ vi.mock("#/features/timeline-workspace/-TimelineEndNodeButton.tsx", () => ({
   TimelineEndNodeButton: () => <div data-testid="mocked-end-node" />,
 }));
 
-vi.mock("#/features/timeline-workspace/-TimelineCashflowCompoundChart.tsx", () => ({
-  TimelineCashflowCompoundChart: () => <div data-testid="mocked-cashflow" />,
-}));
+vi.mock(
+  "#/features/timeline-workspace/-TimelineCashflowCompoundChart.tsx",
+  () => ({
+    TimelineCashflowCompoundChart: () => <div data-testid="mocked-cashflow" />,
+  }),
+);
 
-vi.mock("#/features/timeline-workspace/-TimelineDrawAvailabilityChart.tsx", () => ({
-  TimelineDrawAvailabilityChart: () => <div data-testid="mocked-draw-chart" />,
-}));
+vi.mock(
+  "#/features/timeline-workspace/-TimelineDrawAvailabilityChart.tsx",
+  () => ({
+    TimelineDrawAvailabilityChart: () => (
+      <div data-testid="mocked-draw-chart" />
+    ),
+  }),
+);
 
 import {
   buildProposalMilestoneMutationArgs,
@@ -114,6 +125,7 @@ const submittedViewModel = {
         budgetCents: 160_000_00,
         dayEnd: 24,
         dayStart: 0,
+        drawAvailabilityCents: 120_000_00,
         durationDays: 24,
         evidenceState: "Not started",
         icon: "foundation",
@@ -137,7 +149,9 @@ function renderReview(viewModel = submittedViewModel) {
     updateMilestone: vi.fn().mockResolvedValue({ ok: true }),
     ...render(
       <ProposalReviewSurface
-        approvePlan={vi.fn().mockResolvedValue({ buildKey: "demo-timeline-build" })}
+        approvePlan={vi
+          .fn()
+          .mockResolvedValue({ buildKey: "demo-timeline-build" })}
         navigateToBuild={vi.fn()}
         planId="plan-01"
         rejectPlan={vi.fn().mockResolvedValue({ ok: true })}
@@ -169,6 +183,18 @@ describe("validateApprovalStartDate", () => {
 });
 
 describe("buildProposalProbeReferenceLines", () => {
+  test("splits proposal milestone cashflow bars into reimbursable and out-of-pocket amounts", () => {
+    const chartData = buildReviewChartData(submittedViewModel);
+
+    expect(
+      chartData.cashflow.find((point) => point.id === "foundation"),
+    ).toMatchObject({
+      budget: 160_000,
+      outOfPocketBudget: 40_000,
+      reimbursableBudget: 120_000,
+    });
+  });
+
   test("adds synchronized probe lines for cashflow and draw availability", () => {
     const chartData = buildReviewChartData(submittedViewModel);
     const lines = buildProposalProbeReferenceLines(
@@ -281,7 +307,9 @@ describe("ProposalReviewSurface", () => {
     expect(screen.getByTestId("mocked-cashflow")).toBeTruthy();
     expect(screen.getByTestId("mocked-timeline")).toBeTruthy();
     expect(
-      screen.getByTestId("mocked-timeline-markers").getAttribute("data-marker-count"),
+      screen
+        .getByTestId("mocked-timeline-markers")
+        .getAttribute("data-marker-count"),
     ).toBe("2");
     expect(screen.getByTestId("mocked-end-node")).toBeTruthy();
     expect(screen.getByTestId("mocked-draw-chart")).toBeTruthy();
@@ -292,7 +320,9 @@ describe("ProposalReviewSurface", () => {
 
     render(
       <ProposalReviewSurface
-        approvePlan={vi.fn().mockResolvedValue({ buildKey: "demo-timeline-build" })}
+        approvePlan={vi
+          .fn()
+          .mockResolvedValue({ buildKey: "demo-timeline-build" })}
         navigateToBuild={vi.fn()}
         planId="plan-01"
         rejectPlan={vi.fn().mockResolvedValue({ ok: true })}
@@ -303,8 +333,12 @@ describe("ProposalReviewSurface", () => {
     );
 
     fireEvent.click(screen.getByRole("tab", { name: "Adjustments" }));
-    const foundationRow = screen.getByTestId("proposal-milestone-adjustment-foundation");
-    expect(within(foundationRow).getAllByText("diff").length).toBeGreaterThan(0);
+    const foundationRow = screen.getByTestId(
+      "proposal-milestone-adjustment-foundation",
+    );
+    expect(within(foundationRow).getAllByText("diff").length).toBeGreaterThan(
+      0,
+    );
 
     const costInput = screen.getByTestId("proposal-adjust-cost-foundation");
     fireEvent.change(costInput, { target: { value: "170000" } });
@@ -326,7 +360,9 @@ describe("ProposalReviewSurface", () => {
       planId: "plan-01",
     });
 
-    const durationInput = screen.getByTestId("proposal-adjust-duration-foundation");
+    const durationInput = screen.getByTestId(
+      "proposal-adjust-duration-foundation",
+    );
     fireEvent.change(durationInput, { target: { value: "30" } });
     fireEvent.blur(durationInput);
 
@@ -339,7 +375,9 @@ describe("ProposalReviewSurface", () => {
   });
 
   test("opens approve modal and calls approvePlan with default start date", async () => {
-    const approvePlan = vi.fn().mockResolvedValue({ buildKey: "demo-timeline-build" });
+    const approvePlan = vi
+      .fn()
+      .mockResolvedValue({ buildKey: "demo-timeline-build" });
 
     render(
       <ProposalReviewSurface
@@ -380,7 +418,9 @@ describe("ProposalReviewSurface", () => {
 
     render(
       <ProposalReviewSurface
-        approvePlan={vi.fn().mockResolvedValue({ buildKey: "demo-timeline-build" })}
+        approvePlan={vi
+          .fn()
+          .mockResolvedValue({ buildKey: "demo-timeline-build" })}
         navigateToBuild={vi.fn()}
         planId="plan-01"
         rejectPlan={rejectPlan}
@@ -414,7 +454,9 @@ describe("ProposalReviewSurface", () => {
     });
 
     expect(
-      within(screen.getByRole("tablist")).getAllByRole("tab").map((tab) => tab.textContent),
+      within(screen.getByRole("tablist"))
+        .getAllByRole("tab")
+        .map((tab) => tab.textContent),
     ).toEqual(["Timeline"]);
     expect(screen.queryByRole("tab", { name: "Adjustments" })).toBeNull();
   });

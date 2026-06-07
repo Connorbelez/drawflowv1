@@ -21,6 +21,12 @@ import {
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { AppSidebar } from "#/components/app-sidebar.tsx";
+import { GoogleAddressAutocomplete } from "#/components/address/GoogleAddressAutocomplete.tsx";
+import {
+  BuildPermitViewerDrawer,
+  firstPermitDocument,
+  type BuildPermitViewerDocument,
+} from "#/features/build-permit-viewer/BuildPermitViewerDrawer.tsx";
 import {
   Sortable,
   SortableItem,
@@ -286,6 +292,7 @@ function ProposalBuilderShell({
   action,
   children,
   eyebrow,
+  permit,
   rightPanel,
   step,
   title,
@@ -293,6 +300,7 @@ function ProposalBuilderShell({
   action?: ReactNode;
   children: ReactNode;
   eyebrow: string;
+  permit?: BuildPermitViewerDocument | null;
   rightPanel: ReactNode;
   step: "template" | "milestones" | "boundary";
   title: string;
@@ -339,6 +347,9 @@ function ProposalBuilderShell({
         </div>
         <div className="pb-shell-actions">
           <AutoSaveIndicator />
+          {step === "template" ? null : (
+            <BuildPermitViewerDrawer permit={permit} size="sm" />
+          )}
           {action}
         </div>
       </header>
@@ -1021,6 +1032,15 @@ export function BuilderNewProposalRoute({
   const { dashboard, isLoading, startDraft } = useBuilderProposalDemo(draftId);
   const projection = dashboard?.activeDraft;
   const [isStarting, setIsStarting] = useState(false);
+  const [permitFiles, setPermitFiles] = useState<File[]>([]);
+  const permit = firstPermitDocument(
+    permitFiles.map((file) => ({
+      documentType: "permit",
+      file,
+      fileName: file.name,
+      mimeType: file.type || "application/pdf",
+    })),
+  );
 
   async function handleCreateDraft() {
     setIsStarting(true);
@@ -1194,19 +1214,21 @@ export function BuilderNewProposalRoute({
   }
 
   if (projection.draft.status === "workspace_ready") {
-    return <BoundaryScreen projection={projection} />;
+    return <BoundaryScreen permit={permit} projection={projection} />;
   }
 
   if (projection.milestones.length === 0) {
     return (
       <TemplateBudgetScreen
+        onPermitFilesChange={setPermitFiles}
+        permitFiles={permitFiles}
         projection={projection}
         templates={dashboard.templates}
       />
     );
   }
 
-  return <MilestoneEditorScreen projection={projection} />;
+  return <MilestoneEditorScreen permit={permit} projection={projection} />;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1308,9 +1330,13 @@ function ProposalProgressSection() {
 }
 
 function TemplateBudgetScreen({
+  onPermitFilesChange,
+  permitFiles,
   projection,
   templates,
 }: {
+  onPermitFilesChange: (files: File[]) => void;
+  permitFiles: File[];
   projection: BuilderProposalDraftProjection;
   templates: BuilderProposalTemplate[];
 }) {
@@ -1513,14 +1539,21 @@ function TemplateBudgetScreen({
             </div>
 
             <div className="pb-form-panel">
-              <label className="pb-address-label" htmlFor="project-address">
-                Project Address <span>(optional)</span>
-              </label>
-              <input
-                aria-label="Project address"
-                className="pb-address-input pb-input"
+              <GoogleAddressAutocomplete
                 id="project-address"
-                onChange={(event) => setProjectAddress(event.target.value)}
+                inputRender={
+                  <input
+                    aria-label="Project address"
+                    className="pb-address-input pb-input"
+                  />
+                }
+                label={
+                  <>
+                    Project Address <span>(optional)</span>
+                  </>
+                }
+                labelClassName="pb-address-label"
+                onChange={setProjectAddress}
                 placeholder="Enter project address"
                 value={projectAddress}
               />
@@ -1531,7 +1564,12 @@ function TemplateBudgetScreen({
                 <h2>4. Build Permits</h2>
                 <p>Upload building permits or other required approvals.</p>
               </div>
-              <FileUploader />
+              <FileUploader
+                accept="application/pdf"
+                files={permitFiles}
+                multiple={false}
+                onFilesChange={onPermitFilesChange}
+              />
               <div className="pb-permit-footer">
                 <span>
                   <FileText size={14} />
@@ -1658,8 +1696,10 @@ function TemplateBudgetScreen({
 /* ------------------------------------------------------------------ */
 
 function MilestoneEditorScreen({
+  permit,
   projection,
 }: {
+  permit?: BuildPermitViewerDocument | null;
   projection: BuilderProposalDraftProjection;
 }) {
   const {
@@ -1982,6 +2022,7 @@ function MilestoneEditorScreen({
           milestones={effectiveMilestones}
         />
       }
+      permit={permit}
       step="milestones"
       title="Curate milestone scope"
     >
@@ -2537,8 +2578,10 @@ function MilestoneEditorScreen({
 /* ------------------------------------------------------------------ */
 
 function BoundaryScreen({
+  permit,
   projection,
 }: {
+  permit?: BuildPermitViewerDocument | null;
   projection: BuilderProposalDraftProjection;
 }) {
   const payload = projection.boundary?.payload;
@@ -2566,6 +2609,7 @@ function BoundaryScreen({
           milestones={projection.milestones}
         />
       }
+      permit={permit}
       step="boundary"
       title="Build Workspace starts here"
     >
