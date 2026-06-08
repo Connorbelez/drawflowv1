@@ -2533,6 +2533,7 @@ function ProfessionalNetworkBeamGraphic(): ReactElement {
           fromRef={centerRef}
           gradientStartColor="oklch(0.45 0.2 145)"
           gradientStopColor="oklch(0.58 0.16 178)"
+          key={className}
           pathColor="oklch(0.4 0.12 240 / 0.34)"
           pathDasharray="7 8"
           pathOpacity={0.62}
