@@ -37,7 +37,7 @@ import {
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
-type BuilderProposalSearch = {
+export type BuilderProposalSearch = {
   tab?:
     | "calendar"
     | "contractors"
@@ -80,8 +80,31 @@ function BuilderProductionProposalRoute() {
   const { proposalId } = Route.useParams();
   const search = Route.useSearch();
   const context = Route.useRouteContext();
+  return (
+    <BuilderProductionProposalWorkspace
+      includeStaffTab
+      proposalId={proposalId}
+      routeBase="/builder"
+      search={search}
+      workosOrganizationId={context.organizationId as string}
+    />
+  );
+}
+
+export function BuilderProductionProposalWorkspace({
+  includeStaffTab,
+  proposalId,
+  routeBase,
+  search,
+  workosOrganizationId,
+}: {
+  includeStaffTab: boolean;
+  proposalId: string;
+  routeBase: "/builder" | "/builder-staff";
+  search: BuilderProposalSearch;
+  workosOrganizationId: string;
+}) {
   const navigate = useNavigate();
-  const workosOrganizationId = context.organizationId as string;
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
   const typedProposalId = proposalId as Id<"buildProposals">;
   const visualProposalDetail = useMemo(
@@ -299,7 +322,7 @@ function BuilderProductionProposalRoute() {
               ...search,
               tab: value as BuilderProposalSearch["tab"],
             },
-            to: "/builder/proposals/$proposalId",
+            to: `${routeBase}/proposals/$proposalId` as never,
           })
         }
         value={search.tab ?? "timeline"}
@@ -316,7 +339,7 @@ function BuilderProductionProposalRoute() {
               <TabsTab value="calendar">Calendar</TabsTab>
               <TabsTab value="contractors">Contractors</TabsTab>
               <TabsTab value="materials">Materials</TabsTab>
-              {visualFixtureEnabled ? null : (
+              {visualFixtureEnabled || !includeStaffTab ? null : (
                 <TabsTab value="staff">Staff</TabsTab>
               )}
             </TabsList>
@@ -332,7 +355,7 @@ function BuilderProductionProposalRoute() {
               embedded
               initialRole="builder"
               persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
-              proposalHref={`/builder/proposals/${proposalId}`}
+              proposalHref={`${routeBase}/proposals/${proposalId}`}
               proposalId={typedProposalId}
               workspace={workspace}
               workosOrganizationId={workosOrganizationId}
@@ -384,7 +407,7 @@ function BuilderProductionProposalRoute() {
                 params: { proposalId },
                 replace: true,
                 search: { ...search, timeframe },
-                to: "/builder/proposals/$proposalId",
+                to: `${routeBase}/proposals/$proposalId` as never,
               })
             }
             workspace={effectiveCalendarWorkspace}
@@ -410,7 +433,7 @@ function BuilderProductionProposalRoute() {
             scopeLabel="Builder Proposal"
           />
         </TabsPanel>
-        {visualFixtureEnabled ? null : (
+        {visualFixtureEnabled || !includeStaffTab ? null : (
           <TabsPanel className={proposalTabPanelClassName} value="staff">
             <BuilderStaffPermissionsPanel
               proposalId={typedProposalId}

@@ -175,6 +175,31 @@ export const builderNavGroups: SidebarNavGroup[] = [
   },
 ];
 
+export const builderStaffNavGroups: SidebarNavGroup[] = [
+  {
+    label: "Builder",
+    items: [
+      {
+        title: "Dashboard",
+        to: builderRoute("/builder-staff"),
+        icon: icon(DashboardSquare01Icon),
+      },
+      {
+        title: "Proposals",
+        to: builderRoute("/builder-staff/proposals"),
+        icon: icon(ClipboardIcon),
+        matchPrefix: true,
+      },
+      {
+        title: "Live Builds",
+        to: builderRoute("/builder-staff/builds"),
+        icon: icon(Building06Icon),
+        matchPrefix: true,
+      },
+    ],
+  },
+];
+
 export const footerNavLinks: SidebarNavItem[] = [
   { title: "About", to: "/about", icon: icon(HelpCircleIcon) },
   { title: "Docs", to: "/demo", icon: icon(BookOpen01Icon), matchPrefix: true },

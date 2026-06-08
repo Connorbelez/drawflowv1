@@ -14,6 +14,7 @@ import type { ConvexReactClient } from "convex/react";
 import { NuqsAdapter } from "nuqs/adapters/tanstack-router";
 import type { ReactElement, ReactNode } from "react";
 
+import { Toaster } from "../components/ui/sonner";
 import { TooltipProvider } from "../components/ui/tooltip";
 import ConvexProvider from "../integrations/convex/provider";
 import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
@@ -159,7 +160,7 @@ interface RootDocumentProps {
   children: ReactNode;
 }
 
-function RootDocument({ children }: RootDocumentProps): ReactElement {
+export function RootDocument({ children }: RootDocumentProps): ReactElement {
   const { queryClient } = useRouter().options.context;
 
   return (
@@ -174,6 +175,7 @@ function RootDocument({ children }: RootDocumentProps): ReactElement {
             <QueryClientProvider client={queryClient}>
               <TooltipProvider>
                 <NuqsAdapter>{children}</NuqsAdapter>
+                <Toaster closeButton position="top-right" richColors />
                 <TanStackDevtools
                   config={{
                     position: "bottom-right",

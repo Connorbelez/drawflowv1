@@ -9,7 +9,7 @@ export const DEFAULT_DRAW_REVIEW_LAG_DAYS = 8;
 export const MINIMUM_MILESTONE_HANDOFF_GAP_DAYS = 5;
 
 export type MilestonePhase = "inProgress" | "complete";
-export type MilestoneSpendKind = "completion" | "initial";
+export type MilestoneSpendKind = "completion" | "distributed" | "initial";
 
 export interface ActiveMilestoneSelection {
   itemId: string;
@@ -185,13 +185,10 @@ export function buildMilestoneSpendEvents(
   const schedule = getMilestonePaymentSchedule(item);
   const milestoneId = item.id;
   const milestoneName = item.data?.name?.trim() || item.label || item.id;
-  const completionAmount = Math.max(
-    0,
-    schedule.totalAmount - schedule.initialPaymentAmount
-  );
+  const events: MilestoneSpendEvent[] = [];
 
-  return [
-    {
+  if (schedule.initialPaymentAmount > 0) {
+    events.push({
       amount: schedule.initialPaymentAmount,
       day: schedule.startX,
       id: `${milestoneId}-initial-payment`,
@@ -200,9 +197,16 @@ export function buildMilestoneSpendEvents(
       milestoneAmount: schedule.totalAmount,
       milestoneId,
       milestoneName,
-    },
-    {
-      amount: completionAmount,
+    });
+  }
+
+  events.push(
+    ...buildDistributedMilestoneSpendEvents(schedule, milestoneId, milestoneName)
+  );
+
+  if (schedule.completionPaymentAmount > 0) {
+    events.push({
+      amount: schedule.completionPaymentAmount,
       day: schedule.endX,
       id: `${milestoneId}-completion-payment`,
       kind: "completion",
@@ -210,8 +214,54 @@ export function buildMilestoneSpendEvents(
       milestoneAmount: schedule.totalAmount,
       milestoneId,
       milestoneName,
-    },
-  ];
+    });
+  }
+
+  return events;
+}
+
+function buildDistributedMilestoneSpendEvents(
+  schedule: MilestonePaymentSchedule,
+  milestoneId: string,
+  milestoneName: string
+): MilestoneSpendEvent[] {
+  const distributedAmount = Math.max(0, Math.round(schedule.distributedAmount));
+  if (distributedAmount <= 0) {
+    return [];
+  }
+
+  const startDay = Math.round(schedule.startX);
+  const endDay = Math.round(schedule.endX);
+  const bucketCount = Math.max(1, endDay - startDay);
+  const baseAmount = Math.floor(distributedAmount / bucketCount);
+  const events: MilestoneSpendEvent[] = [];
+  let allocatedAmount = 0;
+
+  for (let index = 0; index < bucketCount; index += 1) {
+    const day = startDay + index;
+    const amount =
+      index === bucketCount - 1
+        ? distributedAmount - allocatedAmount
+        : baseAmount;
+    allocatedAmount += amount;
+
+    if (amount <= 0) {
+      continue;
+    }
+
+    events.push({
+      amount,
+      day,
+      id: `${milestoneId}-distributed-${day}`,
+      kind: "distributed",
+      label: `${milestoneName} daily spend`,
+      milestoneAmount: schedule.totalAmount,
+      milestoneId,
+      milestoneName,
+    });
+  }
+
+  return events;
 }
 
 function normalizeDurationDays(value: number | undefined): number {

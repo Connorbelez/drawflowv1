@@ -11,6 +11,8 @@ import type {
   DrawFlowCalendarWorkspaceData,
 } from "../calendarTypes";
 
+const DEFAULT_PROPOSAL_CALENDAR_BASE_DATE = "2026-06-01";
+
 export interface ProposalCalendarAdapterActions {
   addEvidenceDueDate?: CalendarTargetDateHandler;
   addReviewTargetDate?: CalendarTargetDateHandler;
@@ -41,11 +43,11 @@ export function buildProposalCalendarWorkspaceFromDetail(
 ): DrawFlowCalendarWorkspaceData {
   const proposal = detail.proposal ?? {};
   const organizationId = options.organizationId ?? proposal.organizationId ?? "visual-fixture";
-  const baseDate =
-    options.baseDate ??
-    detail.activeBuild?.startDate ??
-    proposal.proposedStartDate ??
-    "2026-06-01";
+  const baseDate = resolveProposalCalendarBaseDate(
+    options.baseDate,
+    detail.activeBuild?.startDate,
+    proposal.proposedStartDate,
+  );
   const events: DrawFlowCalendarEvent[] = [];
   const milestones = (detail.milestones ?? []).slice().sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
   const draws = detail.draws ?? detail.plannedDraws ?? [];
@@ -228,12 +230,13 @@ export function createProposalCalendarEditHandler(input: {
   actions: ProposalCalendarAdapterActions;
   baseDate: string;
 }) {
+  const baseDate = resolveProposalCalendarBaseDate(input.baseDate);
   return async (request: CalendarEditRequest) => {
     const event = request.event;
     if ((event.kind === "milestone" || event.kind === "submilestone") && event.milestoneKey) {
       await input.actions.reviseMilestoneSchedule?.({
-        dayEnd: daysBetweenIso(input.baseDate, request.nextEndsAt ?? request.nextStartsAt),
-        dayStart: daysBetweenIso(input.baseDate, request.nextStartsAt),
+        dayEnd: daysBetweenIso(baseDate, request.nextEndsAt ?? request.nextStartsAt),
+        dayStart: daysBetweenIso(baseDate, request.nextStartsAt),
         milestoneKey: event.milestoneKey,
         reason: request.reason,
       });
@@ -243,7 +246,7 @@ export function createProposalCalendarEditHandler(input: {
       await input.actions.reviseDrawTiming?.({
         drawKey: event.drawGroupKey,
         reason: request.reason,
-        timingDay: daysBetweenIso(input.baseDate, request.nextStartsAt),
+        timingDay: daysBetweenIso(baseDate, request.nextStartsAt),
       });
       return;
     }
@@ -315,4 +318,41 @@ function defaultCalendarSavedViews(): CalendarSavedView[] {
     { filters: { eventKinds: ["evidence", "review", "adminDecision"] }, id: "evidence-review", isDefault: false, label: "Evidence and review", timeframe: "agenda" },
     { filters: { statuses: ["overdue", "blocked"] }, id: "overdue-blocked", isDefault: false, label: "Overdue and blocked", timeframe: "agenda" },
   ];
+}
+
+function resolveProposalCalendarBaseDate(...candidates: unknown[]): string {
+  for (const candidate of candidates) {
+    const normalized = normalizeIsoDateOnly(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return DEFAULT_PROPOSAL_CALENDAR_BASE_DATE;
+}
+
+function normalizeIsoDateOnly(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const candidate = value.trim().slice(0, 10);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(candidate);
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return candidate;
 }

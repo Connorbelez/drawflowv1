@@ -16,7 +16,6 @@ import { getMilestoneDrawAvailabilityAmount } from "./-timeline-share-snapshot.t
 export const OPTIMIZED_DRAW_FEE = 500;
 export const OPTIMIZED_INTEREST_APR = 0.0925;
 
-const JUST_IN_TIME_DRAW_OFFSET_DAYS = 0.001;
 const COST_EPSILON = 0.000_001;
 
 export interface TimelineDrawOptimizationInput {
@@ -49,12 +48,19 @@ export type TimelineDrawOptimizationResult =
 
 interface OptimizerEvent {
   amount: number;
-  capacityUnlockedAfterEvent: number;
   day: number;
   id: string;
   label: string;
   sortOrder: number;
-  type: "cashInfusion" | "spend";
+  spendKind?: "capitalSpike" | "milestone";
+  type: "capacityUnlock" | "cashInfusion" | "spend";
+}
+
+interface DrawConstraintLedgerTotals {
+  capitalSpikeSpend: number;
+  cashInfusions: number;
+  milestoneSpend: number;
+  startingCash: number;
 }
 
 interface DrawConstraint {
@@ -244,6 +250,12 @@ function buildDrawConstraintLedger(
   const constraints: DrawConstraint[] = [];
   let naturalCash = startingCash;
   let unlockedAvailability = 0;
+  const totals: DrawConstraintLedgerTotals = {
+    capitalSpikeSpend: 0,
+    cashInfusions: 0,
+    milestoneSpend: 0,
+    startingCash,
+  };
 
   if (naturalCash < reserve) {
     return {
@@ -255,10 +267,21 @@ function buildDrawConstraintLedger(
   for (const event of events) {
     if (event.type === "cashInfusion") {
       naturalCash += event.amount;
+      totals.cashInfusions += event.amount;
+      continue;
+    }
+
+    if (event.type === "capacityUnlock") {
+      unlockedAvailability += event.amount;
       continue;
     }
 
     naturalCash -= event.amount;
+    if (event.spendKind === "capitalSpike") {
+      totals.capitalSpikeSpend += event.amount;
+    } else {
+      totals.milestoneSpend += event.amount;
+    }
     const requiredCumulativeDraw = Math.max(0, reserve - naturalCash);
     if (requiredCumulativeDraw > 0) {
       const constraint = {
@@ -271,15 +294,18 @@ function buildDrawConstraintLedger(
 
       if (requiredCumulativeDraw > unlockedAvailability) {
         return {
-          reason: `${event.label} needs ${formatCurrency(requiredCumulativeDraw)} of cumulative draw cash by Day ${formatDay(event.day)}, but only ${formatCurrency(unlockedAvailability)} is unlocked by previously completed milestones.`,
+          reason: formatAvailabilityInfeasibleReason({
+            event,
+            requiredCumulativeDraw,
+            totals,
+            unlockedAvailability,
+          }),
           status: "infeasible",
         };
       }
 
       constraints.push(constraint);
     }
-
-    unlockedAvailability += event.capacityUnlockedAfterEvent;
   }
 
   return { constraints, status: "ready" };
@@ -293,34 +319,39 @@ function buildOptimizerEvents(
   return [
     ...items
       .filter((item) => item.data)
-      .flatMap((item) =>
-        buildMilestoneSpendEvents(item).map((event) => {
-          const unlocksAtCompletion =
-            event.kind === "completion" && event.day === getMilestoneEndX(item);
+      .flatMap((item) => {
+        const spendEvents = buildMilestoneSpendEvents(item).map((event) => ({
+          amount: normalizeCurrency(event.amount),
+          day: clampNumber(event.day, range.min, range.max),
+          id: event.id,
+          label: event.label,
+          spendKind: "milestone" as const,
+          sortOrder: getMilestoneSpendSortOrder(event.kind),
+          type: "spend" as const,
+        }));
+        const capacityEvent = {
+          amount: normalizeCurrency(getMilestoneDrawAvailabilityAmount(item.data)),
+          day: clampNumber(getMilestoneEndX(item), range.min, range.max),
+          id: `${item.id}-completion-capacity`,
+          label: `${item.data?.name ?? item.label ?? "Milestone"} completion capacity`,
+          sortOrder: 4,
+          type: "capacityUnlock" as const,
+        };
 
-          return {
-            amount: normalizeCurrency(event.amount),
-            capacityUnlockedAfterEvent: unlocksAtCompletion
-              ? getMilestoneDrawAvailabilityAmount(item.data)
-              : 0,
-            day: clampNumber(event.day, range.min, range.max),
-            id: event.id,
-            label: event.label,
-            sortOrder: event.kind === "initial" ? 0 : 2,
-            type: "spend" as const,
-          };
-        }),
-      ),
+        return [...spendEvents, capacityEvent];
+      }),
     ...capitalSpikes.map((spike) => {
       const eventKind = spike.eventKind ?? "cost";
 
       return {
         amount: normalizeCurrency(spike.amount),
-        capacityUnlockedAfterEvent: 0,
         day: clampNumber(spike.x, range.min, range.max),
         id: spike.id,
         label: spike.label,
-        sortOrder: eventKind === "cashInfusion" ? 3.5 : 3,
+        ...(eventKind === "cashInfusion"
+          ? {}
+          : { spendKind: "capitalSpike" as const }),
+        sortOrder: eventKind === "cashInfusion" ? 0 : 3,
         type: eventKind === "cashInfusion" ? "cashInfusion" : "spend",
       } satisfies OptimizerEvent;
     }),
@@ -330,15 +361,46 @@ function buildOptimizerEvents(
   );
 }
 
+function getMilestoneSpendSortOrder(
+  kind: ReturnType<typeof buildMilestoneSpendEvents>[number]["kind"],
+) {
+  if (kind === "initial") {
+    return 1;
+  }
+
+  if (kind === "distributed") {
+    return 2;
+  }
+
+  return 3;
+}
+
+function formatAvailabilityInfeasibleReason({
+  event,
+  requiredCumulativeDraw,
+  totals,
+  unlockedAvailability,
+}: {
+  event: OptimizerEvent;
+  requiredCumulativeDraw: number;
+  totals: DrawConstraintLedgerTotals;
+  unlockedAvailability: number;
+}) {
+  return `${event.label} needs ${formatCurrency(requiredCumulativeDraw)} of cumulative draw cash by Day ${formatDay(event.day)} after applying ${formatCurrency(totals.startingCash)} starting cash, ${formatCurrency(totals.cashInfusions)} cash infusions, ${formatCurrency(totals.capitalSpikeSpend)} capital spikes, and ${formatCurrency(totals.milestoneSpend)} milestone spend through that day; only ${formatCurrency(unlockedAvailability)} is unlocked by previously completed milestones.`;
+}
+
 function latestDrawXBeforeConstraint(
   constraintDay: number,
   range: Required<TimelineRange>,
 ) {
-  if (constraintDay <= range.min) {
+  const constraintCalendarDay = Math.round(constraintDay);
+  const minCalendarDay = Math.round(range.min);
+
+  if (constraintCalendarDay <= minCalendarDay) {
     return null;
   }
 
-  return Math.max(range.min, constraintDay - JUST_IN_TIME_DRAW_OFFSET_DAYS);
+  return Math.max(range.min, constraintCalendarDay - 1);
 }
 
 function calculateInterestCost(

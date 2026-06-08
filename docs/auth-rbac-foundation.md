@@ -21,8 +21,10 @@ The source slug `principle-broker` is intentionally preserved. Product UI may
 display `Principal Broker`, but policy code and persisted projection data keep
 the WorkOS slug.
 
-`builder-staff` and `contractor` are normalized and projected only in this
-foundation. Product workspace semantics for those roles are deferred.
+`builder-staff` and `contractor` are normalized and projected in this
+foundation. Builder-staff app-level proposal and active-build permissions are
+managed from DrawFlow builder account links, while WorkOS remains authoritative
+for the user, organization membership, and role assignment.
 
 ## Route Policy
 
@@ -112,12 +114,31 @@ feeds them through the same projection ingestion path as webhook events. It is
 the recovery path for records created before the webhook existed and for
 temporary webhook delivery outages.
 
+## Builder Staff Provisioning
+
+Builder staff assignment uses a WorkOS-first flow. Adding staff by email calls
+`workosManagement.provisionBuilderStaffUser`, which creates or reuses the
+WorkOS user, creates or reactivates the organization membership in the linked
+brokerage WorkOS organization, adds the `builder-staff` role without stripping
+other active roles, and sends an invitation when possible.
+
+The proposal or active-build mutation stores only DrawFlow assignment metadata
+on `builderAccountLinks`: the WorkOS user id, membership id, and assigned email.
+It does not write directly to `users` or
+`workosOrganizationMemberships`. Those projection tables are updated only by
+WorkOS webhooks or explicit directory sync.
+
+Builder staff directories and permission checks fail closed when WorkOS
+projection data says the linked user or membership is deleted, inactive, or no
+longer has the `builder-staff` role. Fresh assignments can appear as pending
+while webhooks catch up because DrawFlow already has the real WorkOS user and
+membership ids returned by the management action.
+
 ## Deferred Scope
 
 This foundation does not enforce WorkOS organization membership for route access
-or Convex RBAC. It also does not migrate demo data, add DrawFlow domain ownership
-checks, create contractor or builder-staff workspaces, or add a WorkOS operation
-tracking table.
+or Convex RBAC. It also does not migrate demo data, create contractor
+workspaces, or add a WorkOS operation tracking table.
 
 ## Verification
 

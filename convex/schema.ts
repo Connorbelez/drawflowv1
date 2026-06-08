@@ -1367,12 +1367,16 @@ export default defineSchema({
     brokerageId: v.id("brokerages"),
     builderProfileId: v.id("builderProfiles"),
     workosUserId: v.string(),
+    assignedEmail: v.optional(v.string()),
+    workosMembershipId: v.optional(v.string()),
     role: v.union(v.literal("owner"), v.literal("staff")),
     status: v.union(v.literal("active"), v.literal("inactive")),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_builder", ["builderProfileId"])
+    .index("by_builder_assigned_email", ["builderProfileId", "assignedEmail"])
+    .index("by_assigned_email", ["assignedEmail"])
     .index("by_user", ["workosUserId"])
     .index("by_builder_user", ["builderProfileId", "workosUserId"]),
   builderStaffPermissionGrants: defineTable({

@@ -27,6 +27,7 @@ import {
   Info,
   Lock,
   MapPinOff,
+  MoveRight,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
@@ -61,6 +62,15 @@ import {
 } from "#/components/kibo-ui/gantt/index.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuGroup,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "#/components/ui/context-menu.tsx";
 import {
   Dialog,
   DialogContent,
@@ -2074,8 +2084,22 @@ function MilestoneBlock({
     selected || milestone.id === workspace.selectedMilestoneId
       ? "selected"
       : highlightTone;
+  const parentMoveTargets =
+    workspace.listSubmilestoneParentTargets?.(milestone.id) ?? [];
+  const canShowParentMoveMenu =
+    workspace.mode === "proposal" &&
+    Boolean(workspace.moveSubmilestoneToParent) &&
+    parentMoveTargets.length > 0;
+  const parentMoveDisabled =
+    workspace.build.proposalStatus === "submitted" ||
+    parentMoveTargets.every((target) => target.disabled);
+  const parentMoveDisabledReason =
+    workspace.build.proposalStatus === "submitted"
+      ? "Submitted proposals cannot move sub-milestones."
+      : (parentMoveTargets.find((target) => target.disabled)?.reason ??
+        "No other parent milestones.");
 
-  return (
+  const block = (
     <HoverCard onOpenChange={setPreviewOpen} open={previewOpen}>
       <HoverCardTrigger
         className="flex h-full min-w-0 flex-1 items-center"
@@ -2192,6 +2216,52 @@ function MilestoneBlock({
         </div>
       </HoverCardContent>
     </HoverCard>
+  );
+
+  if (!canShowParentMoveMenu) {
+    return block;
+  }
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger
+        className="flex h-full min-w-0 flex-1"
+        render={<div />}
+      >
+        {block}
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-72">
+        <ContextMenuGroup>
+          <ContextMenuLabel className="truncate">
+            Move sub-milestone
+          </ContextMenuLabel>
+          <ContextMenuSeparator />
+          {parentMoveDisabled ? (
+            <ContextMenuItem disabled>
+              {parentMoveDisabledReason}
+            </ContextMenuItem>
+          ) : (
+            parentMoveTargets.map((target) => (
+              <ContextMenuItem
+                disabled={target.disabled}
+                key={target.id}
+                onClick={(event) => {
+                  event.preventDefault();
+                  setPreviewOpen(false);
+                  void workspace.moveSubmilestoneToParent?.(
+                    milestone.id,
+                    target.id
+                  );
+                }}
+              >
+                <MoveRight aria-hidden="true" />
+                <span className="truncate">Move to {target.label}</span>
+              </ContextMenuItem>
+            ))
+          )}
+        </ContextMenuGroup>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
@@ -2373,6 +2443,7 @@ function MilestoneDetailSheet({
   const [dependencyTarget, setDependencyTarget] = useState(
     workspace.milestones.find((item) => item.id !== milestone.id)?.id ?? ""
   );
+  const [parentTarget, setParentTarget] = useState("");
   const [dependencyHardness, setDependencyHardnessDraft] =
     useState<DependencyHardness>("hard");
   const [assignContractorOpen, setAssignContractorOpen] = useState(false);
@@ -2395,6 +2466,16 @@ function MilestoneDetailSheet({
       trades: contractor.trades,
     })) ??
     [];
+  const parentMoveTargets =
+    workspace.listSubmilestoneParentTargets?.(milestone.id) ?? [];
+  const firstEnabledParentTarget = parentMoveTargets.find(
+    (target) => !target.disabled
+  );
+  const canMoveParent =
+    workspace.mode === "proposal" &&
+    workspace.build.proposalStatus !== "submitted" &&
+    Boolean(workspace.moveSubmilestoneToParent) &&
+    Boolean(firstEnabledParentTarget);
 
   useEffect(() => {
     setDraft({
@@ -2412,8 +2493,9 @@ function MilestoneDetailSheet({
     setDependencyTarget(
       workspace.milestones.find((item) => item.id !== milestone.id)?.id ?? ""
     );
+    setParentTarget(firstEnabledParentTarget?.id ?? "");
     setAssignContractorOpen(false);
-  }, [milestone, workspace.milestones]);
+  }, [firstEnabledParentTarget?.id, milestone, workspace.milestones]);
 
   const incoming = workspace.dependencies.filter(
     (dependency) => dependency.toMilestoneId === milestone.id
@@ -2654,6 +2736,50 @@ function MilestoneDetailSheet({
                   value={draft.progress}
                 />
               </Field>
+              {workspace.moveSubmilestoneToParent &&
+              parentMoveTargets.length > 0 ? (
+                <div className="grid gap-2 sm:col-span-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <Field label="Parent milestone">
+                    <NativeSelect
+                      className="w-full"
+                      data-testid="move-to-parent-milestone-select"
+                      disabled={!canMoveParent}
+                      onChange={(event) =>
+                        setParentTarget(event.currentTarget.value)
+                      }
+                      value={parentTarget}
+                    >
+                      {parentMoveTargets.map((target) => (
+                        <NativeSelectOption
+                          disabled={target.disabled}
+                          key={target.id}
+                          value={target.id}
+                        >
+                          {target.disabled && target.reason
+                            ? `${target.label} (${target.reason})`
+                            : target.label}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                  </Field>
+                  <Button
+                    className="self-end"
+                    data-testid="move-to-parent-milestone"
+                    disabled={!canMoveParent || !parentTarget}
+                    onClick={() =>
+                      parentTarget &&
+                      void workspace.moveSubmilestoneToParent?.(
+                        milestone.id,
+                        parentTarget
+                      )
+                    }
+                    variant="outline"
+                  >
+                    <MoveRight />
+                    Move
+                  </Button>
+                </div>
+              ) : null}
             </div>
             <Field label="Notes">
               <Textarea

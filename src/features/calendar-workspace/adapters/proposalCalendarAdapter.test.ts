@@ -3,6 +3,51 @@ import { describe, expect, test } from "vitest";
 import { buildProposalCalendarWorkspaceFromDetail } from "./proposalCalendarAdapter.ts";
 
 describe("buildProposalCalendarWorkspaceFromDetail", () => {
+  test("falls back to the default planning anchor when proposal start dates are invalid", () => {
+    const workspace = buildProposalCalendarWorkspaceFromDetail({
+      draws: [
+        {
+          amountCents: 40_000_00,
+          drawKey: "draw-01",
+          label: "Foundation reimbursement draw",
+          timingDay: 12,
+        },
+      ],
+      milestones: [
+        {
+          budgetCents: 50_000_00,
+          dayEnd: 10,
+          dayStart: 0,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+        },
+      ],
+      proposal: {
+        _id: "proposal-1",
+        buildName: "Placeholder start proposal",
+        location: "Hamilton, ON",
+        proposedStartDate: "not-scheduled",
+        status: "draft",
+      },
+      submilestones: [],
+    });
+
+    expect(
+      workspace.events.find(
+        (event) => event.id === "proposal:milestone:foundation",
+      ),
+    ).toMatchObject({
+      endsAt: "2026-06-11",
+      startsAt: "2026-06-01",
+    });
+    expect(
+      workspace.events.find((event) => event.id === "proposal:draw:draw-01"),
+    ).toMatchObject({
+      startsAt: "2026-06-13",
+    });
+  });
+
   test("uses proposal proposedStartDate before active build start date exists", () => {
     const workspace = buildProposalCalendarWorkspaceFromDetail({
       draws: [

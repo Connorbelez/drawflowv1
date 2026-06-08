@@ -1,17 +1,16 @@
 import { useMutation } from "convex/react";
-import type { Id } from "../../../convex/_generated/dataModel";
-import { api } from "../../../convex/_generated/api";
-import type { TimelineMilestoneWorksheetRow } from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
-
 import type { ContractorPlanningModel } from "#/features/contractors/ContractorPlanningPanel.tsx";
+import type { TimelineMilestoneWorksheetRow } from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
+import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
 
 import { syncMilestonesToProductionTimeline } from "./ProductionProposalGanttWorkspace.tsx";
 import { ProductionProposalMilestoneWorksheet } from "./ProductionProposalMilestoneWorksheet.tsx";
 import {
-  productionProposalDetailToDraftMilestones,
   type ProductionProposalWorksheetDetail,
+  productionProposalDetailToDraftMilestones,
   worksheetRowsToGanttMilestoneDrafts,
 } from "./productionMilestoneWorksheetAdapter.ts";
 
@@ -49,10 +48,14 @@ export function ProductionProposalMilestoneWorksheetContainer({
     [detail]
   );
   const scheduleByMilestoneKey = useMemo(
-    () => new Map(projectedMilestones.map((milestone) => [milestone.key, milestone])),
+    () =>
+      new Map(
+        projectedMilestones.map((milestone) => [milestone.key, milestone])
+      ),
     [projectedMilestones]
   );
   const previousMilestonesRef = useRef(projectedMilestones);
+  const saveToastIdRef = useRef<string | number | null>(null);
 
   useEffect(() => {
     previousMilestonesRef.current = projectedMilestones;
@@ -73,6 +76,10 @@ export function ProductionProposalMilestoneWorksheetContainer({
       );
       const previousMilestones = previousMilestonesRef.current;
 
+      saveToastIdRef.current = toast.loading("Saving...", {
+        id: saveToastIdRef.current ?? undefined,
+      });
+
       try {
         await syncMilestonesToProductionTimeline({
           createMilestone,
@@ -84,12 +91,20 @@ export function ProductionProposalMilestoneWorksheetContainer({
           workosOrganizationId,
         });
         previousMilestonesRef.current = nextMilestones;
+        toast.success("Saved", {
+          id: saveToastIdRef.current ?? undefined,
+        });
       } catch (error) {
         toast.error(
           error instanceof Error
             ? error.message
-            : "Unable to save milestone worksheet changes."
+            : "Unable to save milestone worksheet changes.",
+          {
+            id: saveToastIdRef.current ?? undefined,
+          }
         );
+      } finally {
+        saveToastIdRef.current = null;
       }
     },
     [

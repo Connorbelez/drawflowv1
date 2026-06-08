@@ -2383,11 +2383,14 @@ function ProposalReviewHeaderSummary({
               inputMode="decimal"
               inputWidth="5.8rem"
               min={0}
-              onCommit={(value) => void saveApprovedAmount(value)}
+              onCommit={(value) => {
+                saveApprovedAmount(value);
+              }}
               reserveWidth="7.4rem"
               size="metric-sm"
               step={1000}
               testId="proposal-header-approved-amount-chip"
+              tone="light"
               value={approvedAmountDollars}
               weight="semibold"
             />
@@ -2412,12 +2415,15 @@ function ProposalReviewHeaderSummary({
               inputMode="decimal"
               inputWidth="3.5rem"
               min={0}
-              onCommit={(value) => void saveInterestRate(value)}
+              onCommit={(value) => {
+                saveInterestRate(value);
+              }}
               parseCommit={parseInterestRateDraftToBps}
               reserveWidth="4.8rem"
               size="metric-sm"
               step={0.25}
               testId="proposal-header-interest-rate-chip"
+              tone="light"
               value={interestAnnualBps}
               weight="semibold"
             />

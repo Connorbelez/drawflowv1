@@ -10,6 +10,10 @@ import {
   type RoleSlug,
 } from "./authz";
 import {
+  isPendingBuilderStaffWorkosUserId,
+  pendingBuilderStaffWorkosUserId,
+} from "./builderStaffIdentity";
+import {
   coerceSiteVisitGuidanceInput,
   defaultSiteVisitGuidance,
   guidanceHtmlExceedsMaxLength,
@@ -38,14 +42,17 @@ type ProductionSettingsSiteVisitGuidanceInput = Parameters<
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 interface BuilderStaffProvisionResult {
-  invite: {
+  provisioning: {
     adapter: string;
+    invitationId?: string;
+    membershipId: string;
     operation?: string;
     status: string;
     sync: string;
-    workosId?: string;
+    userId: string;
   };
   staffWorkosUserId: string;
+  workosMembershipId: string;
 }
 
 const PROPOSAL_COLUMNS = ["draft", "submitted", "approved", "closed"] as const;
@@ -323,14 +330,17 @@ const builderStaffProvisionActorInput = v.object({
 });
 
 const builderStaffProvisionResult = v.object({
-  invite: v.object({
+  provisioning: v.object({
     adapter: v.string(),
+    invitationId: v.optional(v.string()),
+    membershipId: v.string(),
     operation: v.optional(v.string()),
     status: v.string(),
     sync: v.string(),
-    workosId: v.optional(v.string()),
+    userId: v.string(),
   }),
   staffWorkosUserId: v.string(),
+  workosMembershipId: v.string(),
 });
 
 const productionCostItemCreateInput = {
@@ -2916,7 +2926,15 @@ export const updateProductionTimelinePlanState = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireProductionTimelineEditable(ctx, auth);
-    await requireProposalAppPermission(ctx, auth, "capitalEvent", "update");
+    if (
+      !(await hasActiveCollaborationParticipant(
+        ctx,
+        auth.proposal._id,
+        auth.subject,
+      ))
+    ) {
+      await requireProposalAppPermission(ctx, auth, "capitalEvent", "update");
+    }
     const priorState = JSON.stringify({
       currentDay: auth.proposal.timelineCurrentDay,
       progressValue: auth.proposal.timelineProgressValue,
@@ -5551,6 +5569,7 @@ export const listProposalBuilderStaffPermissions = authenticatedQuery
       builderProfileId,
       proposalId: args.proposalId,
       scope: "proposal",
+      workosOrganizationId: args.workosOrganizationId,
     });
   })
   .public();
@@ -5599,12 +5618,15 @@ export const provisionProposalBuilderStaffPermissions = authenticatedAction
     if (!staffEmail) {
       throw new Error("A valid staff email is required.");
     }
-    const invite: {
+    const provisioning: {
       adapter: string;
+      invitationId?: string;
+      membershipId: string;
+      operation: "provisionBuilderStaffUser";
       status: string;
       sync: string;
-      workosId?: string;
-    } = await ctx.runAction(internal.workosManagement.inviteBuilderStaffUser, {
+      userId: string;
+    } = await ctx.runAction(internal.workosManagement.provisionBuilderStaffUser, {
       email: staffEmail,
       organizationId: args.workosOrganizationId,
     });
@@ -5619,11 +5641,16 @@ export const provisionProposalBuilderStaffPermissions = authenticatedAction
         permissions: args.permissions,
         proposalId: args.proposalId,
         staffEmail,
-        staffWorkosUserId: provisionedBuilderStaffWorkosUserId(staffEmail),
+        staffWorkosUserId: provisioning.userId,
+        workosMembershipId: provisioning.membershipId,
         workosOrganizationId: args.workosOrganizationId,
       },
     );
-    return { invite, staffWorkosUserId };
+    return {
+      provisioning,
+      staffWorkosUserId,
+      workosMembershipId: provisioning.membershipId,
+    };
   })
   .public();
 
@@ -5634,6 +5661,7 @@ export const finalizeProposalBuilderStaffProvisioning = internalMutation
     proposalId: v.id("buildProposals"),
     staffEmail: v.string(),
     staffWorkosUserId: v.string(),
+    workosMembershipId: v.string(),
     workosOrganizationId: v.string(),
   })
   .returns(v.string())
@@ -5647,19 +5675,16 @@ export const finalizeProposalBuilderStaffProvisioning = internalMutation
     );
     const builderProfileId = assignedBuilderProfileIdOrThrow(auth.proposal);
     await requireBuilderStaffManagementAllowed(ctx, auth, builderProfileId);
-    const staffWorkosUserId = await ensureBuilderStaffProvisionIdentity(ctx, {
-      email: args.staffEmail,
-      fallbackWorkosUserId: args.staffWorkosUserId,
-      workosOrganizationId: args.workosOrganizationId,
-    });
     return await saveBuilderStaffPermissionScope(ctx, {
+      allowPendingEmail: true,
       auth,
       builderProfileId,
       permissions: args.permissions,
       proposalId: args.proposalId,
       scope: "proposal",
       staffEmail: args.staffEmail,
-      staffWorkosUserId,
+      staffWorkosUserId: args.staffWorkosUserId,
+      workosMembershipId: args.workosMembershipId,
       workosOrganizationId: args.workosOrganizationId,
     });
   })
@@ -8590,6 +8615,24 @@ export const listProposalKanban = authenticatedQuery
   })
   .public();
 
+export const listBuilderStaffWorkspace = authenticatedQuery
+  .input({ workosOrganizationId: v.string() })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    if (auth.roles.includes("admin")) {
+      return await buildAdminBuilderStaffWorkspace(ctx, {
+        brokerage: auth.brokerage,
+      });
+    }
+    requireAnyRole(auth.roles, ["builder-staff"]);
+    return await buildBuilderStaffWorkspace(ctx, {
+      auth,
+      workosOrganizationId: args.workosOrganizationId,
+    });
+  })
+  .public();
+
 export const getBackofficeDashboard = authenticatedQuery
   .input({ workosOrganizationId: v.string() })
   .returns(v.any())
@@ -10589,6 +10632,7 @@ export const listActiveBuildBuilderStaffPermissions = authenticatedQuery
       builderProfileId: auth.build.builderProfileId,
       proposalId: auth.proposal._id,
       scope: "activeBuild",
+      workosOrganizationId: args.workosOrganizationId,
     });
   })
   .public();
@@ -10641,12 +10685,15 @@ export const provisionActiveBuildBuilderStaffPermissions = authenticatedAction
     if (!staffEmail) {
       throw new Error("A valid staff email is required.");
     }
-    const invite: {
+    const provisioning: {
       adapter: string;
+      invitationId?: string;
+      membershipId: string;
+      operation: "provisionBuilderStaffUser";
       status: string;
       sync: string;
-      workosId?: string;
-    } = await ctx.runAction(internal.workosManagement.inviteBuilderStaffUser, {
+      userId: string;
+    } = await ctx.runAction(internal.workosManagement.provisionBuilderStaffUser, {
       email: staffEmail,
       organizationId: args.workosOrganizationId,
     });
@@ -10661,11 +10708,16 @@ export const provisionActiveBuildBuilderStaffPermissions = authenticatedAction
         buildId: args.buildId,
         permissions: args.permissions,
         staffEmail,
-        staffWorkosUserId: provisionedBuilderStaffWorkosUserId(staffEmail),
+        staffWorkosUserId: provisioning.userId,
+        workosMembershipId: provisioning.membershipId,
         workosOrganizationId: args.workosOrganizationId,
       },
     );
-    return { invite, staffWorkosUserId };
+    return {
+      provisioning,
+      staffWorkosUserId,
+      workosMembershipId: provisioning.membershipId,
+    };
   })
   .public();
 
@@ -10676,6 +10728,7 @@ export const finalizeActiveBuildBuilderStaffProvisioning = internalMutation
     permissions: v.array(builderStaffPermissionGrantInput),
     staffEmail: v.string(),
     staffWorkosUserId: v.string(),
+    workosMembershipId: v.string(),
     workosOrganizationId: v.string(),
   })
   .returns(v.string())
@@ -10695,12 +10748,8 @@ export const finalizeActiveBuildBuilderStaffProvisioning = internalMutation
       auth,
       auth.build.builderProfileId,
     );
-    const staffWorkosUserId = await ensureBuilderStaffProvisionIdentity(ctx, {
-      email: args.staffEmail,
-      fallbackWorkosUserId: args.staffWorkosUserId,
-      workosOrganizationId: args.workosOrganizationId,
-    });
     return await saveBuilderStaffPermissionScope(ctx, {
+      allowPendingEmail: true,
       auth,
       buildId: args.buildId,
       builderProfileId: auth.build.builderProfileId,
@@ -10708,7 +10757,8 @@ export const finalizeActiveBuildBuilderStaffProvisioning = internalMutation
       proposalId: auth.proposal._id,
       scope: "activeBuild",
       staffEmail: args.staffEmail,
-      staffWorkosUserId,
+      staffWorkosUserId: args.staffWorkosUserId,
+      workosMembershipId: args.workosMembershipId,
       workosOrganizationId: args.workosOrganizationId,
     });
   })
@@ -13567,7 +13617,6 @@ async function authorizeActiveBuildForViewer(
     await assertBackofficeProposalRead(ctx, auth, proposal);
   } else {
     const builderProfileId = assignedBuilderProfileIdOrThrow(proposal);
-    await assertBuilderOwnership(ctx, builderProfileId, auth.subject);
     await requireAnyBuilderStaffViewPermission(ctx, auth, {
       buildId,
       builderProfileId,
@@ -13648,9 +13697,14 @@ async function authorizeProposalForViewer(
       throw error;
     }
   } else {
+    if (
+      !proposal.builderProfileId &&
+      (await hasActiveCollaborationParticipant(ctx, proposal._id, auth.subject))
+    ) {
+      return { ...auth, proposal };
+    }
     const builderProfileId = assignedBuilderProfileIdOrThrow(proposal);
     try {
-      await assertBuilderOwnership(ctx, builderProfileId, auth.subject);
       await requireAnyBuilderStaffViewPermission(ctx, auth, {
         builderProfileId,
         proposalId: proposal._id,
@@ -13706,6 +13760,7 @@ async function assertBuilderOwnership(
   if (!link || link.status !== "active") {
     throw new Error("Forbidden: builder ownership");
   }
+  await assertBuilderAccountLinkNotDeleted(ctx, link, builderProfileId);
 }
 
 async function getActiveBuilderAccountLink(
@@ -13722,6 +13777,156 @@ async function getActiveBuilderAccountLink(
     )
     .unique();
   return link?.status === "active" ? link : null;
+}
+
+async function assertBuilderAccountLinkNotDeleted(
+  ctx: QueryCtx | MutationCtx,
+  link: Doc<"builderAccountLinks">,
+  builderProfileId: Id<"builderProfiles">,
+) {
+  const workosOrganizationId = await builderProfileBrokerageWorkosOrganizationId(
+    ctx,
+    builderProfileId,
+  );
+  const workosState = await builderAccountLinkWorkosState(ctx, {
+    link,
+    workosOrganizationId,
+  });
+  if (workosState.hidden) {
+    throw new Error("Forbidden: builder account is not active in WorkOS");
+  }
+}
+
+async function builderProfileBrokerageWorkosOrganizationId(
+  ctx: QueryCtx | MutationCtx,
+  builderProfileId: Id<"builderProfiles">,
+) {
+  const builderProfile = await ctx.db.get(builderProfileId);
+  if (!builderProfile) {
+    throw new Error("Forbidden: builder scope");
+  }
+  const brokerage = await ctx.db.get(builderProfile.brokerageId);
+  if (!brokerage || brokerage.status !== "active") {
+    throw new Error("Forbidden: brokerage");
+  }
+  return brokerage.workosOrganizationId;
+}
+
+async function builderAccountLinkWorkosState(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    link: Doc<"builderAccountLinks">;
+    workosOrganizationId: string;
+  },
+) {
+  const user = await getWorkosUserForBuilderAccountLink(ctx, input.link);
+  if (user?.status === "deleted") {
+    return { hidden: true as const, membership: null, user };
+  }
+
+  const membership = await getBuilderAccountLinkWorkosMembership(ctx, {
+    ...input,
+    user,
+  });
+  if (
+    input.link.role === "staff" &&
+    membership?.status === "pending"
+  ) {
+    if (
+      workosMembershipRoleSlugs(membership).includes("builder-staff") ||
+      isBuilderStaffRoleSyncPending(input.link, membership)
+    ) {
+      return {
+        hidden: false as const,
+        identityStatus: "pending" as const,
+        membership,
+        user,
+      };
+    }
+    return { hidden: true as const, membership, user };
+  }
+
+  if (membership && membership.status !== "active") {
+    return { hidden: true as const, membership, user };
+  }
+
+  if (
+    input.link.role === "staff" &&
+    membership?.status === "active" &&
+    !workosMembershipRoleSlugs(membership).includes("builder-staff")
+  ) {
+    if (isBuilderStaffRoleSyncPending(input.link, membership)) {
+      return {
+        hidden: false as const,
+        identityStatus: "pending" as const,
+        membership,
+        user,
+      };
+    }
+    return { hidden: true as const, membership, user };
+  }
+
+  const projected = Boolean(user && membership);
+  return {
+    hidden: false as const,
+    identityStatus: projected ? ("active" as const) : ("pending" as const),
+    membership,
+    user,
+  };
+}
+
+function isBuilderStaffRoleSyncPending(
+  link: Doc<"builderAccountLinks">,
+  membership: Doc<"workosOrganizationMemberships">,
+) {
+  return (
+    Boolean(link.workosMembershipId) &&
+    link.workosMembershipId === membership.workosMembershipId &&
+    link.updatedAt >= (membership.updatedAt ?? 0)
+  );
+}
+
+async function getBuilderAccountLinkWorkosMembership(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    link: Doc<"builderAccountLinks">;
+    user?: Doc<"users"> | null;
+    workosOrganizationId: string;
+  },
+) {
+  if (input.link.workosMembershipId) {
+    const workosMembershipId = input.link.workosMembershipId;
+    const membership = await ctx.db
+      .query("workosOrganizationMemberships")
+      .withIndex("by_workos_membership_id", (q) =>
+        q.eq("workosMembershipId", workosMembershipId),
+      )
+      .unique();
+    if (membership) {
+      return membership;
+    }
+  }
+
+  const workosUserId = input.user?.workosUserId ?? input.link.workosUserId;
+  return await ctx.db
+    .query("workosOrganizationMemberships")
+    .withIndex("by_user", (q) => q.eq("workosUserId", workosUserId))
+    .filter((q) =>
+      q.eq(q.field("workosOrganizationId"), input.workosOrganizationId),
+    )
+    .first();
+}
+
+function workosMembershipRoleSlugs(
+  membership: Pick<
+    Doc<"workosOrganizationMemberships">,
+    "roleSlug" | "roleSlugs"
+  >,
+) {
+  return normalizeRoleSlugs([
+    membership.roleSlug,
+    ...(membership.roleSlugs ?? []),
+  ]);
 }
 
 type BuilderStaffPermissionResource =
@@ -13754,6 +13959,7 @@ interface BuilderStaffPermissionSnapshot {
 async function requireBuilderStaffPermission(
   ctx: QueryCtx | MutationCtx,
   auth: {
+    email?: string;
     roles: RoleSlug[];
     subject: string;
   },
@@ -13777,6 +13983,7 @@ async function requireBuilderStaffPermission(
 async function requireAnyBuilderStaffViewPermission(
   ctx: QueryCtx | MutationCtx,
   auth: {
+    email?: string;
     roles: RoleSlug[];
     subject: string;
   },
@@ -13807,6 +14014,7 @@ async function requireAnyBuilderStaffViewPermission(
 async function getBuilderStaffPermissionSnapshot(
   ctx: QueryCtx | MutationCtx,
   auth: {
+    email?: string;
     roles: RoleSlug[];
     subject: string;
   },
@@ -13819,14 +14027,15 @@ async function getBuilderStaffPermissionSnapshot(
       role: "backoffice",
     };
   }
-  const link = await getActiveBuilderAccountLink(
+  const link = await getActiveBuilderAccountLinkForStaffViewer(
     ctx,
     input.builderProfileId,
-    auth.subject,
+    auth,
   );
   if (!link) {
     throw new Error("Forbidden: builder ownership");
   }
+  await assertBuilderAccountLinkNotDeleted(ctx, link, input.builderProfileId);
   if (link.role === "owner") {
     return {
       grants: fullBuilderStaffPermissionGrants(),
@@ -13868,6 +14077,7 @@ async function getBuilderStaffPermissionSnapshot(
 async function proposalAppPermissionProjection(
   ctx: QueryCtx | MutationCtx,
   auth: {
+    email?: string;
     proposal: Doc<"buildProposals">;
     roles: RoleSlug[];
     subject: string;
@@ -13893,6 +14103,7 @@ async function activeBuildAppPermissionProjection(
   ctx: QueryCtx | MutationCtx,
   auth: {
     build: Doc<"activeBuilds">;
+    email?: string;
     proposal: Doc<"buildProposals">;
     roles: RoleSlug[];
     subject: string;
@@ -13925,6 +14136,7 @@ function canUseAppPermission(
 async function requireProposalAppPermission(
   ctx: QueryCtx | MutationCtx,
   auth: {
+    email?: string;
     proposal: Doc<"buildProposals">;
     roles: RoleSlug[];
     subject: string;
@@ -13951,6 +14163,7 @@ async function requireActiveBuildAppPermission(
   ctx: QueryCtx | MutationCtx,
   auth: {
     build: Doc<"activeBuilds">;
+    email?: string;
     proposal: Doc<"buildProposals">;
     roles: RoleSlug[];
     subject: string;
@@ -14078,13 +14291,167 @@ async function getWorkosUserByEmail(
   }
   const users = await ctx.db.query("users").collect();
   return (
-    users.find((user) => user.email.trim().toLowerCase() === normalized) ?? null
+    users
+      .filter((user) => user.email.trim().toLowerCase() === normalized)
+      .sort(workosUserEmailResolutionSort)[0] ?? null
   );
+}
+
+async function getWorkosUserForBuilderAccountLink(
+  ctx: QueryCtx | MutationCtx,
+  link: Doc<"builderAccountLinks">,
+) {
+  const user = await getWorkosUserById(ctx, link.workosUserId);
+  const assignedEmail = normalizeBuilderStaffAssignedEmail(link.assignedEmail);
+  if (!assignedEmail) {
+    return user;
+  }
+  const emailUser = await getWorkosUserByEmail(ctx, assignedEmail);
+  if (!user) {
+    return emailUser;
+  }
+  if (
+    user.status === "deleted" &&
+    emailUser &&
+    emailUser.workosUserId !== user.workosUserId
+  ) {
+    return emailUser;
+  }
+  return user;
+}
+
+function workosUserEmailResolutionSort(
+  left: Doc<"users">,
+  right: Doc<"users">,
+) {
+  const leftDeleted = left.status === "deleted" ? 1 : 0;
+  const rightDeleted = right.status === "deleted" ? 1 : 0;
+  return (
+    leftDeleted - rightDeleted ||
+    (right.updatedAt ?? 0) - (left.updatedAt ?? 0) ||
+    (right.createdAt ?? 0) - (left.createdAt ?? 0) ||
+    String(right._id).localeCompare(String(left._id))
+  );
+}
+
+async function getActiveBuilderStaffAccountLinkByEmail(
+  ctx: QueryCtx | MutationCtx,
+  builderProfileId: Id<"builderProfiles">,
+  email: string,
+) {
+  const assignedEmail = normalizeBuilderStaffAssignedEmail(email);
+  if (!assignedEmail) {
+    return null;
+  }
+  const links = await ctx.db
+    .query("builderAccountLinks")
+    .withIndex("by_builder_assigned_email", (q) =>
+      q.eq("builderProfileId", builderProfileId).eq("assignedEmail", assignedEmail),
+    )
+    .collect();
+  return (
+    links
+      .filter(
+        (link) =>
+          link.status === "active" &&
+          link.role === "staff" &&
+          link.assignedEmail === assignedEmail,
+      )
+      .sort(
+        (left, right) =>
+          left.createdAt - right.createdAt ||
+          String(left._id).localeCompare(String(right._id)),
+      )[0] ?? null
+  );
+}
+
+async function getActiveBuilderStaffAccountLinksByEmail(
+  ctx: QueryCtx | MutationCtx,
+  email: string,
+) {
+  const assignedEmail = normalizeBuilderStaffAssignedEmail(email);
+  if (!assignedEmail) {
+    return [];
+  }
+  const links = await ctx.db
+    .query("builderAccountLinks")
+    .withIndex("by_assigned_email", (q) =>
+      q.eq("assignedEmail", assignedEmail),
+    )
+    .collect();
+  return links
+    .filter(
+      (link) =>
+        link.status === "active" &&
+        link.role === "staff" &&
+        link.assignedEmail === assignedEmail,
+    )
+    .sort(
+      (left, right) =>
+        left.createdAt - right.createdAt ||
+        String(left._id).localeCompare(String(right._id)),
+    );
+}
+
+async function getActiveBuilderAccountLinkForStaffViewer(
+  ctx: QueryCtx | MutationCtx,
+  builderProfileId: Id<"builderProfiles">,
+  auth: {
+    email?: string;
+    subject: string;
+  },
+) {
+  const direct = await getActiveBuilderAccountLink(
+    ctx,
+    builderProfileId,
+    auth.subject,
+  );
+  if (direct) {
+    return direct;
+  }
+  const email = await resolveBuilderStaffViewerEmail(ctx, auth);
+  return email
+    ? await getActiveBuilderStaffAccountLinkByEmail(ctx, builderProfileId, email)
+    : null;
+}
+
+async function getActiveBuilderAccountLinkByProjectedUserEmail(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    builderProfileId: Id<"builderProfiles">;
+    workosUserId: string;
+  },
+) {
+  const user = await getWorkosUserById(ctx, input.workosUserId);
+  const email = normalizeBuilderStaffAssignedEmail(user?.email);
+  return email
+    ? await getActiveBuilderStaffAccountLinkByEmail(
+        ctx,
+        input.builderProfileId,
+        email,
+      )
+    : null;
+}
+
+async function resolveBuilderStaffViewerEmail(
+  ctx: QueryCtx | MutationCtx,
+  auth: {
+    email?: string;
+    subject: string;
+  },
+) {
+  const identityEmail = normalizeBuilderStaffAssignedEmail(auth.email);
+  if (identityEmail) {
+    return identityEmail;
+  }
+  const user = await getWorkosUserById(ctx, auth.subject);
+  return normalizeBuilderStaffAssignedEmail(user?.email);
 }
 
 async function resolveBuilderStaffWorkosUserId(
   ctx: QueryCtx | MutationCtx,
   input: {
+    allowPendingEmail?: boolean;
     staffEmail?: string;
     staffWorkosUserId?: string;
   },
@@ -14102,6 +14469,9 @@ async function resolveBuilderStaffWorkosUserId(
   }
   if (!email) {
     throw new Error("Staff email or WorkOS user ID is required.");
+  }
+  if (input.allowPendingEmail) {
+    return pendingBuilderStaffWorkosUserId(email);
   }
   throw new Error("Use staff provisioning before assigning an unknown email.");
 }
@@ -14122,86 +14492,6 @@ function viewerFromBuilderStaffProvisionActor(
   };
 }
 
-async function ensureBuilderStaffProvisionIdentity(
-  ctx: MutationCtx,
-  input: {
-    email: string;
-    fallbackWorkosUserId: string;
-    workosOrganizationId: string;
-  },
-) {
-  const now = Date.now();
-  const existingByEmail = await getWorkosUserByEmail(ctx, input.email);
-  const workosUserId =
-    existingByEmail?.workosUserId ?? input.fallbackWorkosUserId.trim();
-  if (!workosUserId) {
-    throw new Error("Staff WorkOS user ID is required.");
-  }
-  const displayName = builderStaffDisplayName(input.email);
-  const existingById = await getWorkosUserById(ctx, workosUserId);
-  if (existingById) {
-    await ctx.db.patch(existingById._id, {
-      email: existingById.email || input.email,
-      name: existingById.name || displayName,
-      status: "active",
-      updatedAt: now,
-    });
-  } else {
-    await ctx.db.insert("users", {
-      authId: workosUserId,
-      createdAt: now,
-      email: input.email,
-      emailVerified: false,
-      name: displayName,
-      sourceEventId: `builder_staff_provisioning:${workosUserId}`,
-      sourceEventType: "builder_staff.provisioning",
-      status: "active",
-      updatedAt: now,
-      workosUserId,
-    });
-  }
-
-  const existingMembership = await ctx.db
-    .query("workosOrganizationMemberships")
-    .withIndex("by_user", (q) => q.eq("workosUserId", workosUserId))
-    .filter((q) =>
-      q.eq(q.field("workosOrganizationId"), input.workosOrganizationId),
-    )
-    .first();
-  if (existingMembership) {
-    const roleSlugs = [
-      ...new Set([
-        ...normalizeRoleSlugs([
-          existingMembership.roleSlug,
-          ...(existingMembership.roleSlugs ?? []),
-        ]),
-        "builder-staff" satisfies RoleSlug,
-      ]),
-    ];
-    await ctx.db.patch(existingMembership._id, {
-      roleSlug: existingMembership.roleSlug || "builder-staff",
-      roleSlugs,
-      status: "active",
-      updatedAt: now,
-    });
-  } else {
-    await ctx.db.insert("workosOrganizationMemberships", {
-      createdAt: now,
-      directoryManaged: false,
-      roleSlug: "builder-staff",
-      roleSlugs: ["builder-staff"],
-      sourceEventId: `builder_staff_provisioning:${input.workosOrganizationId}:${workosUserId}`,
-      sourceEventType: "builder_staff.provisioning",
-      status: "active",
-      updatedAt: now,
-      workosMembershipId: `builder_staff_provisioning_${input.workosOrganizationId}_${workosUserId}`,
-      workosOrganizationId: input.workosOrganizationId,
-      workosUserId,
-    });
-  }
-  return workosUserId;
-}
-
 function builderStaffDisplayName(email: string) {
   return email.split("@")[0] || email;
 }
@@ -14218,9 +14508,8 @@ function normalizeBuilderStaffEmail(value: string) {
   return trimmed;
 }
 
-function provisionedBuilderStaffWorkosUserId(email: string) {
-  const slug = email.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-  return `provisioned_builder_staff_${slug}`;
+function normalizeBuilderStaffAssignedEmail(value?: string) {
+  return value ? normalizeBuilderStaffEmail(value) || undefined : undefined;
 }
 
 async function requireBuilderStaffManagementAllowed(
@@ -14242,6 +14531,7 @@ async function requireBuilderStaffManagementAllowed(
   if (!link || link.role !== "owner") {
     throw new Error("Forbidden: builder staff management");
   }
+  await assertBuilderAccountLinkNotDeleted(ctx, link, builderProfileId);
 }
 
 async function buildStaffPermissionDirectory(
@@ -14255,6 +14545,7 @@ async function buildStaffPermissionDirectory(
     builderProfileId: Id<"builderProfiles">;
     proposalId: Id<"buildProposals">;
     scope: BuilderStaffPermissionScope;
+    workosOrganizationId: string;
   },
 ) {
   const links = await ctx.db
@@ -14264,6 +14555,8 @@ async function buildStaffPermissionDirectory(
     )
     .collect();
   const activeLinks = links.filter((link) => link.status === "active");
+  const { canonicalLinkIdById, links: canonicalActiveLinks } =
+    canonicalBuilderAccountLinks(activeLinks);
   const permissionRows =
     input.scope === "proposal"
       ? await ctx.db
@@ -14292,23 +14585,37 @@ async function buildStaffPermissionDirectory(
           .collect();
   const rowsByLink = new Map<string, Doc<"builderStaffPermissionGrants">[]>();
   for (const row of permissionRows) {
-    const key = String(row.builderAccountLinkId);
+    const key =
+      canonicalLinkIdById.get(String(row.builderAccountLinkId)) ??
+      String(row.builderAccountLinkId);
     const list = rowsByLink.get(key) ?? [];
     list.push(row);
     rowsByLink.set(key, list);
   }
 
   const staff = [];
-  for (const link of activeLinks.sort(
+  for (const link of canonicalActiveLinks.sort(
     (a, b) => builderAccountRoleRank(a.role) - builderAccountRoleRank(b.role),
   )) {
-    const user = await getWorkosUserById(ctx, link.workosUserId);
+    const workosState = await builderAccountLinkWorkosState(ctx, {
+      link,
+      workosOrganizationId: input.workosOrganizationId,
+    });
+    if (workosState.hidden) {
+      continue;
+    }
+    const user = workosState.user;
     const role = link.role;
+    const assignedEmail = normalizeOptionalString(link.assignedEmail);
+    const displayEmail = user?.email ?? assignedEmail;
     staff.push({
       builderAccountLinkId: link._id,
-      email: user?.email,
+      email: displayEmail,
+      identityStatus: workosState.identityStatus,
       mode: role === "owner" ? "full" : "limited",
-      name: user?.name,
+      name:
+        user?.name ??
+        (assignedEmail ? builderStaffDisplayName(assignedEmail) : undefined),
       permissions:
         role === "owner"
           ? fullBuilderStaffPermissionGrants()
@@ -14317,6 +14624,8 @@ async function buildStaffPermissionDirectory(
             ),
       role,
       status: link.status,
+      workosMembershipId:
+        link.workosMembershipId ?? workosState.membership?.workosMembershipId,
       workosUserId: link.workosUserId,
     });
   }
@@ -14341,6 +14650,7 @@ async function buildStaffPermissionDirectory(
 async function saveBuilderStaffPermissionScope(
   ctx: MutationCtx,
   input: {
+    allowPendingEmail?: boolean;
     auth: {
       brokerage: Doc<"brokerages">;
       roles: RoleSlug[];
@@ -14359,19 +14669,89 @@ async function saveBuilderStaffPermissionScope(
     scope: BuilderStaffPermissionScope;
     staffEmail?: string;
     staffWorkosUserId?: string;
+    workosMembershipId?: string;
     workosOrganizationId: string;
   },
 ) {
-  const staffWorkosUserId = await resolveBuilderStaffWorkosUserId(ctx, input);
-  const existingLink = await getActiveBuilderAccountLink(
+  const requestedStaffWorkosUserId = await resolveBuilderStaffWorkosUserId(
+    ctx,
+    input,
+  );
+  const assignedEmail = normalizeBuilderStaffAssignedEmail(input.staffEmail);
+  const workosMembershipId = normalizeOptionalString(input.workosMembershipId);
+  const existingByUser = await getActiveBuilderAccountLink(
     ctx,
     input.builderProfileId,
-    staffWorkosUserId,
+    requestedStaffWorkosUserId,
   );
-  if (existingLink?.role === "owner") {
+  const existingByEmail = assignedEmail
+    ? await getActiveBuilderStaffAccountLinkByEmail(
+        ctx,
+        input.builderProfileId,
+        assignedEmail,
+      )
+    : null;
+  if (existingByUser?.role === "owner" || existingByEmail?.role === "owner") {
     throw new Error("Builder owners have full access and cannot be limited.");
   }
   const now = Date.now();
+  if (existingByEmail && existingByUser && existingByEmail._id !== existingByUser._id) {
+    await mergeBuilderStaffAccountLinks(ctx, {
+      duplicate: existingByUser,
+      now,
+      primary: existingByEmail,
+      updatedByWorkosUserId: input.auth.subject,
+    });
+  }
+  const existingLink = existingByEmail ?? existingByUser;
+  if (existingLink?.role === "owner") {
+    throw new Error("Builder owners have full access and cannot be limited.");
+  }
+  let staffWorkosUserId = requestedStaffWorkosUserId;
+  if (existingLink) {
+    if (
+      isPendingBuilderStaffWorkosUserId(requestedStaffWorkosUserId) ||
+      !isPendingBuilderStaffWorkosUserId(existingLink.workosUserId)
+    ) {
+      staffWorkosUserId = existingLink.workosUserId;
+    }
+    const linkPatch: Partial<
+      Pick<
+        Doc<"builderAccountLinks">,
+        "assignedEmail" | "updatedAt" | "workosMembershipId" | "workosUserId"
+      >
+    > = {};
+    if (assignedEmail && assignedEmail !== existingLink.assignedEmail) {
+      linkPatch.assignedEmail = assignedEmail;
+    }
+    if (
+      workosMembershipId &&
+      workosMembershipId !== existingLink.workosMembershipId
+    ) {
+      linkPatch.workosMembershipId = workosMembershipId;
+    }
+    if (
+      !isPendingBuilderStaffWorkosUserId(requestedStaffWorkosUserId) &&
+      requestedStaffWorkosUserId !== existingLink.workosUserId
+    ) {
+      linkPatch.workosUserId = requestedStaffWorkosUserId;
+      staffWorkosUserId = requestedStaffWorkosUserId;
+    }
+    if (Object.keys(linkPatch).length > 0) {
+      await ctx.db.patch(existingLink._id, {
+        ...linkPatch,
+        updatedAt: now,
+      });
+      if (linkPatch.workosUserId) {
+        await syncBuilderStaffGrantWorkosUserId(ctx, {
+          builderAccountLinkId: existingLink._id,
+          now,
+          updatedByWorkosUserId: input.auth.subject,
+          workosUserId: linkPatch.workosUserId,
+        });
+      }
+    }
+  }
   const builderAccountLinkId =
     existingLink?._id ??
     (await ensureBuilderAccountLink(ctx, {
@@ -14379,11 +14759,29 @@ async function saveBuilderStaffPermissionScope(
       builderProfileId: input.builderProfileId,
       now,
       role: "staff",
+      assignedEmail,
+      workosMembershipId,
       workosUserId: staffWorkosUserId,
     }));
   const normalizedPermissions = normalizeBuilderStaffPermissionInput(
     input.permissions,
   );
+  const existingScopeRows = existingLink
+    ? await collectScopedBuilderStaffPermissionRows(ctx, {
+        buildId: input.buildId,
+        builderAccountLinkId,
+        proposalId: input.proposalId,
+        scope: input.scope,
+      })
+    : [];
+  if (
+    existingLink &&
+    input.staffEmail &&
+    !normalizedPermissions.some(builderStaffGrantHasAnyCapability) &&
+    existingScopeRows.some(builderStaffGrantHasAnyCapability)
+  ) {
+    return staffWorkosUserId;
+  }
   for (const permission of normalizedPermissions) {
     const existing =
       input.scope === "proposal"
@@ -14435,6 +14833,116 @@ async function saveBuilderStaffPermissionScope(
   return staffWorkosUserId;
 }
 
+async function mergeBuilderStaffAccountLinks(
+  ctx: MutationCtx,
+  input: {
+    duplicate: Doc<"builderAccountLinks">;
+    now: number;
+    primary: Doc<"builderAccountLinks">;
+    updatedByWorkosUserId: string;
+  },
+) {
+  const duplicateGrants = await ctx.db
+    .query("builderStaffPermissionGrants")
+    .withIndex("by_link", (q) =>
+      q.eq("builderAccountLinkId", input.duplicate._id),
+    )
+    .collect();
+  for (const duplicateGrant of duplicateGrants) {
+    const primaryGrant =
+      duplicateGrant.scope === "proposal"
+        ? await ctx.db
+            .query("builderStaffPermissionGrants")
+            .withIndex("by_proposal_link_resource", (q) =>
+              q
+                .eq("proposalId", duplicateGrant.proposalId)
+                .eq("builderAccountLinkId", input.primary._id)
+                .eq("resourceType", duplicateGrant.resourceType),
+            )
+            .unique()
+        : await ctx.db
+            .query("builderStaffPermissionGrants")
+            .withIndex("by_build_link_resource", (q) =>
+              q
+                .eq("buildId", duplicateGrant.buildId)
+                .eq("builderAccountLinkId", input.primary._id)
+                .eq("resourceType", duplicateGrant.resourceType),
+            )
+            .unique();
+    if (primaryGrant) {
+      await ctx.db.patch(primaryGrant._id, {
+        canCreate: primaryGrant.canCreate || duplicateGrant.canCreate,
+        canDelete: primaryGrant.canDelete || duplicateGrant.canDelete,
+        canUpdate: primaryGrant.canUpdate || duplicateGrant.canUpdate,
+        canView: primaryGrant.canView || duplicateGrant.canView,
+        updatedAt: input.now,
+        updatedByWorkosUserId: input.updatedByWorkosUserId,
+      });
+      await ctx.db.delete(duplicateGrant._id);
+      continue;
+    }
+    await ctx.db.patch(duplicateGrant._id, {
+      builderAccountLinkId: input.primary._id,
+      updatedAt: input.now,
+      updatedByWorkosUserId: input.updatedByWorkosUserId,
+      workosUserId: input.primary.workosUserId,
+    });
+  }
+  await ctx.db.patch(input.duplicate._id, {
+    status: "inactive",
+    updatedAt: input.now,
+  });
+}
+
+async function syncBuilderStaffGrantWorkosUserId(
+  ctx: MutationCtx,
+  input: {
+    builderAccountLinkId: Id<"builderAccountLinks">;
+    now: number;
+    updatedByWorkosUserId: string;
+    workosUserId: string;
+  },
+) {
+  const grants = await ctx.db
+    .query("builderStaffPermissionGrants")
+    .withIndex("by_link", (q) =>
+      q.eq("builderAccountLinkId", input.builderAccountLinkId),
+    )
+    .collect();
+  for (const grant of grants) {
+    if (grant.workosUserId === input.workosUserId) {
+      continue;
+    }
+    await ctx.db.patch(grant._id, {
+      updatedAt: input.now,
+      updatedByWorkosUserId: input.updatedByWorkosUserId,
+      workosUserId: input.workosUserId,
+    });
+  }
+}
+
+async function collectScopedBuilderStaffPermissionRows(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    buildId?: Id<"activeBuilds">;
+    builderAccountLinkId: Id<"builderAccountLinks">;
+    proposalId: Id<"buildProposals">;
+    scope: BuilderStaffPermissionScope;
+  },
+) {
+  const rows = await ctx.db
+    .query("builderStaffPermissionGrants")
+    .withIndex("by_link", (q) =>
+      q.eq("builderAccountLinkId", input.builderAccountLinkId),
+    )
+    .collect();
+  return rows.filter((row) =>
+    input.scope === "proposal"
+      ? row.scope === "proposal" && row.proposalId === input.proposalId
+      : row.scope === "activeBuild" && row.buildId === input.buildId,
+  );
+}
+
 async function removeBuilderStaffMember(
   ctx: MutationCtx,
   input: {
@@ -14448,11 +14956,17 @@ async function removeBuilderStaffMember(
   if (input.auth.subject === input.staffWorkosUserId) {
     throw new Error("You cannot remove your own builder account.");
   }
-  const link = await getActiveBuilderAccountLink(
+  const directLink = await getActiveBuilderAccountLink(
     ctx,
     input.builderProfileId,
     input.staffWorkosUserId,
   );
+  const link =
+    directLink ??
+    (await getActiveBuilderAccountLinkByProjectedUserEmail(ctx, {
+      builderProfileId: input.builderProfileId,
+      workosUserId: input.staffWorkosUserId,
+    }));
   if (!link) {
     return;
   }
@@ -14503,6 +15017,39 @@ function normalizeBuilderStaffPermissionInput(
 
 function builderAccountRoleRank(role: "owner" | "staff") {
   return role === "owner" ? 0 : 1;
+}
+
+function canonicalBuilderAccountLinks(
+  links: Array<Doc<"builderAccountLinks">>,
+) {
+  const sorted = [...links].sort(
+    (left, right) =>
+      builderAccountRoleRank(left.role) - builderAccountRoleRank(right.role) ||
+      left.createdAt - right.createdAt ||
+      String(left._id).localeCompare(String(right._id)),
+  );
+  const canonicalByKey = new Map<string, Doc<"builderAccountLinks">>();
+  const canonicalLinkIdById = new Map<string, string>();
+  for (const link of sorted) {
+    const key = builderAccountCanonicalKey(link);
+    const canonical = canonicalByKey.get(key) ?? link;
+    canonicalByKey.set(key, canonical);
+    canonicalLinkIdById.set(String(link._id), String(canonical._id));
+  }
+  return {
+    canonicalLinkIdById,
+    links: [...canonicalByKey.values()],
+  };
+}
+
+function builderAccountCanonicalKey(link: Doc<"builderAccountLinks">) {
+  if (link.role === "staff") {
+    const assignedEmail = normalizeBuilderStaffAssignedEmail(link.assignedEmail);
+    if (assignedEmail) {
+      return `staff-email:${assignedEmail}`;
+    }
+  }
+  return `${link.role}:user:${link.workosUserId}`;
 }
 
 async function getProposalClaimLinkByToken(
@@ -14613,6 +15160,10 @@ async function builderAccountSummaries(
   ctx: QueryCtx | MutationCtx,
   builderProfileId: Id<"builderProfiles">,
 ) {
+  const workosOrganizationId = await builderProfileBrokerageWorkosOrganizationId(
+    ctx,
+    builderProfileId,
+  );
   const links = await ctx.db
     .query("builderAccountLinks")
     .withIndex("by_builder", (q) => q.eq("builderProfileId", builderProfileId))
@@ -14620,10 +15171,23 @@ async function builderAccountSummaries(
   const activeLinks = links.filter((link) => link.status === "active");
   const summaries = [];
   for (const link of activeLinks) {
-    const user = await getWorkosUserById(ctx, link.workosUserId);
+    const workosState = await builderAccountLinkWorkosState(ctx, {
+      link,
+      workosOrganizationId,
+    });
+    if (workosState.hidden) {
+      continue;
+    }
+    const user = workosState.user;
+    const assignedEmail = normalizeOptionalString(link.assignedEmail);
+    const displayEmail = user?.email ?? assignedEmail;
     summaries.push({
-      ...(user?.email ? { email: user.email } : {}),
-      ...(user?.name ? { name: user.name } : {}),
+      ...(displayEmail ? { email: displayEmail } : {}),
+      ...(user?.name
+        ? { name: user.name }
+        : assignedEmail
+          ? { name: builderStaffDisplayName(assignedEmail) }
+          : {}),
       role: link.role,
       workosUserId: link.workosUserId,
     });
@@ -19154,6 +19718,282 @@ async function visibleBuilderCards(
   return visible;
 }
 
+async function buildAdminBuilderStaffWorkspace(
+  ctx: QueryCtx,
+  input: {
+    brokerage: Doc<"brokerages">;
+  },
+) {
+  const proposals = await ctx.db
+    .query("buildProposals")
+    .withIndex("by_brokerage", (q) =>
+      q.eq("brokerageId", input.brokerage._id),
+    )
+    .collect();
+  const activeBuilds = await ctx.db
+    .query("activeBuilds")
+    .withIndex("by_brokerage", (q) =>
+      q.eq("brokerageId", input.brokerage._id),
+    )
+    .collect();
+
+  const proposalRows = [];
+  for (const proposal of proposals) {
+    const row = await builderStaffProposalWorkspaceRow(
+      ctx,
+      input.brokerage,
+      proposal._id,
+    );
+    if (row) {
+      proposalRows.push(row);
+    }
+  }
+
+  const activeBuildRows = [];
+  for (const build of activeBuilds) {
+    const row = await builderStaffActiveBuildWorkspaceRow(
+      ctx,
+      input.brokerage,
+      build._id,
+    );
+    if (row) {
+      activeBuildRows.push(row);
+    }
+  }
+
+  return {
+    activeBuildRows: activeBuildRows.sort(workspaceRowSort),
+    proposalRows: proposalRows.sort(workspaceRowSort),
+  };
+}
+
+async function buildBuilderStaffWorkspace(
+  ctx: QueryCtx,
+  input: {
+    auth: {
+      brokerage: Doc<"brokerages">;
+      email?: string;
+      roles: RoleSlug[];
+      subject: string;
+    };
+    workosOrganizationId: string;
+  },
+) {
+  const grantsById = new Map<string, Doc<"builderStaffPermissionGrants">>();
+  const directGrants = await ctx.db
+    .query("builderStaffPermissionGrants")
+    .withIndex("by_user", (q) => q.eq("workosUserId", input.auth.subject))
+    .collect();
+  for (const grant of directGrants) {
+    grantsById.set(String(grant._id), grant);
+  }
+  const viewerEmail = await resolveBuilderStaffViewerEmail(ctx, input.auth);
+  if (viewerEmail) {
+    const emailLinks = await getActiveBuilderStaffAccountLinksByEmail(
+      ctx,
+      viewerEmail,
+    );
+    for (const link of emailLinks) {
+      const linkGrants = await ctx.db
+        .query("builderStaffPermissionGrants")
+        .withIndex("by_link", (q) => q.eq("builderAccountLinkId", link._id))
+        .collect();
+      for (const grant of linkGrants) {
+        grantsById.set(String(grant._id), grant);
+      }
+    }
+  }
+  const grants = [...grantsById.values()];
+  const proposalIds = new Set<string>();
+  const activeBuildIds = new Set<string>();
+  const linkCache = new Map<string, Doc<"builderAccountLinks"> | null>();
+
+  for (const grant of grants) {
+    if (!builderStaffGrantHasAnyCapability(grant)) {
+      continue;
+    }
+    const linkKey = String(grant.builderAccountLinkId);
+    let link = linkCache.get(linkKey);
+    if (link === undefined) {
+      link = await ctx.db.get(grant.builderAccountLinkId);
+      linkCache.set(linkKey, link);
+    }
+    const assignedEmail = normalizeBuilderStaffAssignedEmail(link?.assignedEmail);
+    if (
+      !link ||
+      link.status !== "active" ||
+      link.role !== "staff" ||
+      (link.workosUserId !== input.auth.subject &&
+        (!viewerEmail || assignedEmail !== viewerEmail)) ||
+      link.builderProfileId !== grant.builderProfileId
+    ) {
+      continue;
+    }
+    const workosState = await builderAccountLinkWorkosState(ctx, {
+      link,
+      workosOrganizationId: input.workosOrganizationId,
+    });
+    if (workosState.hidden) {
+      continue;
+    }
+    if (grant.scope === "proposal" && grant.proposalId) {
+      proposalIds.add(String(grant.proposalId));
+    }
+    if (grant.scope === "activeBuild" && grant.buildId) {
+      activeBuildIds.add(String(grant.buildId));
+    }
+  }
+
+  const proposalRows = [];
+  for (const rawProposalId of proposalIds) {
+    const proposalId = ctx.db.normalizeId("buildProposals", rawProposalId);
+    if (!proposalId) {
+      continue;
+    }
+    const row = await builderStaffProposalWorkspaceRow(
+      ctx,
+      input.auth.brokerage,
+      proposalId,
+    );
+    if (row) {
+      proposalRows.push(row);
+    }
+  }
+
+  const activeBuildRows = [];
+  for (const rawBuildId of activeBuildIds) {
+    const buildId = ctx.db.normalizeId("activeBuilds", rawBuildId);
+    if (!buildId) {
+      continue;
+    }
+    const row = await builderStaffActiveBuildWorkspaceRow(
+      ctx,
+      input.auth.brokerage,
+      buildId,
+    );
+    if (row) {
+      activeBuildRows.push(row);
+    }
+  }
+
+  return {
+    activeBuildRows: activeBuildRows.sort(workspaceRowSort),
+    proposalRows: proposalRows.sort(workspaceRowSort),
+  };
+}
+
+function builderStaffGrantHasAnyCapability(
+  grant: Pick<
+    Doc<"builderStaffPermissionGrants">,
+    "canCreate" | "canDelete" | "canUpdate" | "canView"
+  >,
+) {
+  return grant.canCreate || grant.canDelete || grant.canUpdate || grant.canView;
+}
+
+async function builderStaffProposalWorkspaceRow(
+  ctx: QueryCtx,
+  brokerage: Doc<"brokerages">,
+  proposalId: Id<"buildProposals">,
+) {
+  const proposal = await ctx.db.get(proposalId);
+  if (!proposal || proposal.brokerageId !== brokerage._id) {
+    return null;
+  }
+  const [card, milestones, draws, modificationRequests] = await Promise.all([
+    ctx.db
+      .query("proposalKanbanCards")
+      .withIndex("by_proposal", (q) => q.eq("proposalId", proposalId))
+      .unique(),
+    collectByIndex(ctx, "proposalMilestones", "by_proposal", proposalId),
+    collectByIndex(ctx, "proposalDrawScheduleRows", "by_proposal", proposalId),
+    collectByIndex(
+      ctx,
+      "proposalTimelineModificationRequests",
+      "by_proposal",
+      proposalId,
+    ),
+  ]);
+  const proposalDraws = draws as Doc<"proposalDrawScheduleRows">[];
+  const proposalModificationRequests =
+    modificationRequests as Doc<"proposalTimelineModificationRequests">[];
+  return {
+    activeBuildId: proposal.activeBuildId
+      ? String(proposal.activeBuildId)
+      : undefined,
+    buildKey: proposal.activeBuildId ? String(proposal.activeBuildId) : undefined,
+    buildName: card?.title ?? proposal.buildName,
+    drawCount: proposalDraws.length,
+    kind: "proposal",
+    milestoneCount: milestones.length,
+    pendingDrawRequestCount: proposalDraws.filter(
+      (draw) => draw.requestStatus === "requested",
+    ).length,
+    pendingModificationRequestCount: proposalModificationRequests.filter(
+      (request) => request.status === "requested",
+    ).length,
+    planId: String(proposal._id),
+    proposalId: String(proposal._id),
+    status: builderStaffWorkspaceProposalStatus(card?.column ?? proposal.status),
+    totalBudgetCents: card?.totalBudgetCents ?? proposal.totalBudgetCents,
+    updatedAt: Math.max(card?.updatedAt ?? 0, proposal.updatedAt),
+  };
+}
+
+async function builderStaffActiveBuildWorkspaceRow(
+  ctx: QueryCtx,
+  brokerage: Doc<"brokerages">,
+  buildId: Id<"activeBuilds">,
+) {
+  const build = await ctx.db.get(buildId);
+  if (!build || build.brokerageId !== brokerage._id) {
+    return null;
+  }
+  const proposal = await ctx.db.get(build.proposalId);
+  if (!proposal || proposal.brokerageId !== brokerage._id) {
+    return null;
+  }
+  const [milestones, draws, facilityChangeRequests] = await Promise.all([
+    collectByIndex(ctx, "buildMilestones", "by_build", buildId),
+    collectByIndex(ctx, "plannedDrawScheduleRows", "by_build", buildId),
+    collectByIndex(ctx, "activeBuildFacilityChangeRequests", "by_build", buildId),
+  ]);
+  const buildDraws = draws as Doc<"plannedDrawScheduleRows">[];
+  const buildFacilityChangeRequests =
+    facilityChangeRequests as Doc<"activeBuildFacilityChangeRequests">[];
+  return {
+    buildKey: String(build._id),
+    buildName: build.buildName,
+    drawCount: buildDraws.length,
+    kind: "activeBuild",
+    milestoneCount: milestones.length,
+    pendingDrawRequestCount: buildDraws.filter(
+      (draw) => draw.status === "requested",
+    ).length,
+    pendingModificationRequestCount: buildFacilityChangeRequests.filter(
+      (request) => request.status === "requested",
+    ).length,
+    planId: String(build._id),
+    proposalId: String(proposal._id),
+    status: "approved",
+    totalBudgetCents: build.totalBudgetCents,
+    updatedAt: build.updatedAt,
+  };
+}
+
+function builderStaffWorkspaceProposalStatus(
+  status: (typeof PROPOSAL_COLUMNS)[number],
+) {
+  return status === "closed" ? "approved" : status;
+}
+
+function workspaceRowSort(
+  a: { buildName: string; updatedAt: number },
+  b: { buildName: string; updatedAt: number },
+) {
+  return b.updatedAt - a.updatedAt || a.buildName.localeCompare(b.buildName);
+}
+
 async function visibleBackofficeCards(
   ctx: QueryCtx,
   auth: { brokerage: Doc<"brokerages">; roles: RoleSlug[]; subject: string },
@@ -19530,10 +20370,12 @@ async function ensureBuilderProfile(
 async function ensureBuilderAccountLink(
   ctx: MutationCtx,
   input: {
+    assignedEmail?: string;
     brokerageId: Id<"brokerages">;
     builderProfileId: Id<"builderProfiles">;
     now: number;
     role: "owner" | "staff";
+    workosMembershipId?: string;
     workosUserId: string;
   },
 ) {
@@ -19546,13 +20388,29 @@ async function ensureBuilderAccountLink(
     )
     .unique();
   if (existing) {
+    const metadataPatch = {
+      ...(input.assignedEmail
+        ? { assignedEmail: input.assignedEmail }
+        : {}),
+      ...(input.workosMembershipId
+        ? { workosMembershipId: input.workosMembershipId }
+        : {}),
+    };
     await ctx.db.patch(existing._id, {
+      ...metadataPatch,
       status: "active",
       updatedAt: input.now,
     });
     return existing._id;
   }
+  const metadata = {
+    ...(input.assignedEmail ? { assignedEmail: input.assignedEmail } : {}),
+    ...(input.workosMembershipId
+      ? { workosMembershipId: input.workosMembershipId }
+      : {}),
+  };
   return await ctx.db.insert("builderAccountLinks", {
+    ...metadata,
     brokerageId: input.brokerageId,
     builderProfileId: input.builderProfileId,
     createdAt: input.now,

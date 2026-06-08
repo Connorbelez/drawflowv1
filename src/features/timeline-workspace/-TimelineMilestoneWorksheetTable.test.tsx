@@ -13,6 +13,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   TimelineMilestoneWorksheetTable,
   type TimelineMilestoneWorksheetRow,
+  type TimelineMilestoneWorksheetRowsChangeMeta,
   type TimelineScheduleDisplayMode,
 } from "./-TimelineMilestoneWorksheetTable.tsx";
 
@@ -163,6 +164,7 @@ function ControlledWorksheet({
   cascadeBudgetEdits = false,
   contractorOptions = [],
   initialRows = worksheetRows,
+  includeChangeMeta = false,
   mode = "setup",
   onComplete = vi.fn(),
   onRowsChange = vi.fn(),
@@ -174,12 +176,16 @@ function ControlledWorksheet({
   contractorOptions?: ComponentProps<
     typeof TimelineMilestoneWorksheetTable
   >["contractorOptions"];
+  includeChangeMeta?: boolean;
   initialRows?: TimelineMilestoneWorksheetRow[];
   mode?: "settings" | "setup";
   onComplete?: ComponentProps<
     typeof TimelineMilestoneWorksheetTable
   >["onComplete"];
-  onRowsChange?: (rows: TimelineMilestoneWorksheetRow[]) => void;
+  onRowsChange?: (
+    rows: TimelineMilestoneWorksheetRow[],
+    meta?: TimelineMilestoneWorksheetRowsChangeMeta
+  ) => void;
   proposedStartDate?: string;
   scheduleDisplayMode?: TimelineScheduleDisplayMode;
   targetBudgetCents?: number;
@@ -195,8 +201,12 @@ function ControlledWorksheet({
       mode={mode}
       onCascadeBudgetEditsChange={setCascadeEnabled}
       onComplete={onComplete}
-      onRowsChange={(nextRows) => {
+      onRowsChange={(nextRows, meta) => {
         setRows(nextRows);
+        if (includeChangeMeta) {
+          onRowsChange(nextRows, meta);
+          return;
+        }
         onRowsChange(nextRows);
       }}
       proposedStartDate={proposedStartDate}
@@ -224,6 +234,58 @@ function panelIsHidden(element: HTMLElement | null) {
 }
 
 describe("TimelineMilestoneWorksheetTable", () => {
+  test("marks row input typing as uncommitted until blur", () => {
+    const onRowsChange = vi.fn();
+
+    render(
+      <ControlledWorksheet includeChangeMeta onRowsChange={onRowsChange} />
+    );
+
+    const budgetInput = screen.getByTestId(
+      "timeline-setup-row-budget-site-prep-foundation"
+    );
+
+    fireEvent.change(budgetInput, { target: { value: "$126,000" } });
+
+    expect(onRowsChange).toHaveBeenLastCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ commit: false })
+    );
+
+    fireEvent.blur(budgetInput);
+
+    expect(onRowsChange).toHaveBeenLastCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ commit: true })
+    );
+  });
+
+  test("marks expanded sub-milestone typing as uncommitted until Enter", () => {
+    const onRowsChange = vi.fn();
+
+    render(
+      <ControlledWorksheet includeChangeMeta onRowsChange={onRowsChange} />
+    );
+
+    const nameInput = screen.getByTestId(
+      "timeline-setup-submilestone-name-site-prep-foundation-sub-1"
+    );
+
+    fireEvent.change(nameInput, { target: { value: "Foundation revised" } });
+
+    expect(onRowsChange).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ commit: false })
+    );
+
+    fireEvent.keyDown(nameInput, { key: "Enter" });
+
+    expect(onRowsChange).toHaveBeenLastCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ commit: true })
+    );
+  });
+
   test("defaults expanded setup rows to the sub-milestones tab", () => {
     render(<ControlledWorksheet />);
 

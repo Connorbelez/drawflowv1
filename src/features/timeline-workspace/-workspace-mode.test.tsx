@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { toast } from "sonner";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
@@ -37,6 +38,14 @@ vi.mock("nuqs", () => ({
 
 vi.mock("#/hooks/use-media-query.ts", () => ({
   useMediaQuery: () => mediaQueryMockState.isMobile,
+}));
+
+vi.mock("sonner", () => ({
+  toast: {
+    error: vi.fn(),
+    info: vi.fn(),
+    success: vi.fn(),
+  },
 }));
 
 vi.mock("#/components/roadmap/AnimatedCurvedTimeline.tsx", () => ({
@@ -79,6 +88,9 @@ afterEach(() => {
   mediaQueryMockState.isMobile = false;
   timelineSearchMockState.share = null;
   timelineSearchMockState.setTimelineSearch.mockReset();
+  vi.mocked(toast.error).mockReset();
+  vi.mocked(toast.info).mockReset();
+  vi.mocked(toast.success).mockReset();
   window.history.pushState(null, "", "/");
   cleanup();
 });
@@ -343,6 +355,120 @@ describe("TimelineWorkspace mode split", () => {
       }),
     );
     expect(createDraw.mock.calls[0]?.[0].x).toBeLessThan(20);
+  });
+
+  test("optimizes when same-day borrower cash funds milestone deposits", () => {
+    const createDraw = vi.fn().mockResolvedValue(undefined);
+    const deleteDraw = vi.fn().mockResolvedValue(undefined);
+    const baseline = timelineState({ milestoneAmount: 100 });
+    const initialState: TimelineShareState = {
+      ...baseline,
+      capitalSpikes: [
+        {
+          amount: 100,
+          eventKind: "cashInfusion",
+          id: "borrower-day-zero-capital",
+          label: "Borrower day-zero capital",
+          x: 0,
+        },
+        {
+          amount: 50,
+          id: "supplier-deposit",
+          label: "supplier-deposit",
+          x: 10,
+        },
+      ],
+      items: baseline.items.map((item) => ({
+        ...item,
+        data: {
+          ...item.data,
+          completionPaymentAmount: 20,
+          drawAvailabilityAmount: 100,
+          durationDays: 5,
+          initialPaymentAmount: 80,
+        } satisfies DemoMilestone,
+      })),
+      startingCash: 0,
+    };
+
+    renderWorkspace({
+      initialState,
+      persistence: { createDraw, deleteDraw },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    fireEvent.click(screen.getByTestId("timeline-optimize-scenario"));
+
+    expect(deleteDraw).toHaveBeenCalledWith({ drawKey: "draw-01" });
+    expect(createDraw).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amountCents: 5_000,
+        customDate: true,
+        label: "Draw 01",
+        order: 1,
+      }),
+    );
+    expect(createDraw.mock.calls[0]?.[0].x).toBe(9);
+  });
+
+  test("reports when draft proposal draws are already optimized", () => {
+    const createDraw = vi.fn().mockResolvedValue(undefined);
+    const deleteDraw = vi.fn().mockResolvedValue(undefined);
+    const baseline = timelineState({ milestoneAmount: 100 });
+    const initialState: TimelineShareState = {
+      ...baseline,
+      capitalSpikes: [
+        {
+          amount: 100,
+          eventKind: "cashInfusion",
+          id: "borrower-day-zero-capital",
+          label: "Borrower day-zero capital",
+          x: 0,
+        },
+        {
+          amount: 50,
+          id: "supplier-deposit",
+          label: "supplier-deposit",
+          x: 10,
+        },
+      ],
+      draws: [
+        {
+          amount: 50,
+          customDate: true,
+          id: "existing-optimized-draw",
+          label: "Draw 01",
+          x: 9,
+        },
+      ],
+      items: baseline.items.map((item) => ({
+        ...item,
+        data: {
+          ...item.data,
+          completionPaymentAmount: 20,
+          drawAvailabilityAmount: 100,
+          durationDays: 5,
+          initialPaymentAmount: 80,
+        } satisfies DemoMilestone,
+      })),
+      startingCash: 0,
+    };
+
+    renderWorkspace({
+      initialState,
+      persistence: { createDraw, deleteDraw },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    fireEvent.click(screen.getByTestId("timeline-optimize-scenario"));
+
+    expect(deleteDraw).not.toHaveBeenCalled();
+    expect(createDraw).not.toHaveBeenCalled();
+    expect(toast.success).toHaveBeenCalledWith(
+      expect.stringContaining("already optimized"),
+    );
   });
 
   test("shows milestone contractor assignments in the proposal sidebar", () => {

@@ -2,7 +2,10 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import { Loader2 } from "lucide-react";
 
-import { BuilderProposalListSurface } from "#/features/builder-dashboard/BuilderTimelineDashboard.tsx";
+import {
+  BuilderProposalListSurface,
+  type TimelinePlanRow,
+} from "#/features/builder-dashboard/BuilderTimelineDashboard.tsx";
 import { toTimelineRows } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
 import {
   getVisualParityKanban,
@@ -17,16 +20,42 @@ export const Route = createFileRoute("/builder/proposals/")({
 
 function BuilderProductionProposalsRoute() {
   const context = Route.useRouteContext();
+  return (
+    <BuilderProductionProposalsWorkspace
+      routeBase="/builder"
+      workosOrganizationId={context.organizationId as string}
+    />
+  );
+}
+
+export function BuilderProductionProposalsWorkspace({
+  routeBase,
+  workosOrganizationId,
+}: {
+  routeBase: "/builder" | "/builder-staff";
+  workosOrganizationId: string;
+}) {
   const navigate = useNavigate();
-  const workosOrganizationId = context.organizationId as string;
+  const isStaffWorkspace = routeBase === "/builder-staff";
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
   const kanbanQuery = useQuery(
     api.production_proposals.listProposalKanban,
-    visualFixtureEnabled ? "skip" : { workosOrganizationId },
+    visualFixtureEnabled || isStaffWorkspace
+      ? "skip"
+      : { workosOrganizationId },
+  );
+  const staffWorkspaceQuery = useQuery(
+    api.production_proposals.listBuilderStaffWorkspace,
+    visualFixtureEnabled || !isStaffWorkspace
+      ? "skip"
+      : { workosOrganizationId },
   );
   const kanban = visualFixtureEnabled ? getVisualParityKanban() : kanbanQuery;
+  const rows: TimelinePlanRow[] = isStaffWorkspace
+    ? ((staffWorkspaceQuery?.proposalRows ?? []) as TimelinePlanRow[])
+    : toTimelineRows(kanban?.columns.flatMap((column) => column.cards) ?? []);
 
-  if (!kanban) {
+  if ((!isStaffWorkspace && !kanban) || (isStaffWorkspace && !staffWorkspaceQuery)) {
     return (
       <div className="grid min-h-[24rem] place-items-center">
         <div className="flex items-center gap-2 rounded-lg border bg-background p-4 text-sm">
@@ -47,13 +76,14 @@ function BuilderProductionProposalsRoute() {
         if (to.includes("$draftId") && params?.draftId) {
           void navigate({
             params: { proposalId: params.draftId },
-            to: "/builder/proposals/$proposalId",
+            to: `${routeBase}/proposals/$proposalId` as never,
           });
           return;
         }
-        void navigate({ to: "/builder/proposals" });
+        void navigate({ to: `${routeBase}/proposals` as never });
       }}
-      rows={toTimelineRows(kanban.columns.flatMap((column) => column.cards))}
+      rows={rows}
+      showStartProposalAction={!isStaffWorkspace}
     />
   );
 }

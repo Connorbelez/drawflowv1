@@ -25,13 +25,12 @@ import {
   useRef,
   useState,
 } from "react";
-
-import { FieldRichTextEditor } from "#/components/rich-text/field-rich-text.tsx";
 import {
   Sortable,
   SortableItem,
   SortableItemHandle,
 } from "#/components/reui/sortable.tsx";
+import { FieldRichTextEditor } from "#/components/rich-text/field-rich-text.tsx";
 import {
   Autocomplete,
   AutocompleteEmpty,
@@ -71,17 +70,17 @@ import {
   parseCurrencyToCents,
 } from "#/features/builder-proposal-demo/template-helpers.ts";
 import {
-  dateFromProposalDayOffset,
-  dayOffsetFromProposalDate,
-  inclusiveEndDateFromProposalSchedule,
-  proposalDurationDaysFromInclusiveDates,
-} from "#/features/production-proposals/proposalScheduleDates.ts";
-import {
   type MaterialPlanningItem,
   type MaterialPlanningMilestone,
   type MaterialPlanningPayload,
   MaterialPlanningTab,
 } from "#/features/material-planning/MaterialPlanningTab.tsx";
+import {
+  dateFromProposalDayOffset,
+  dayOffsetFromProposalDate,
+  inclusiveEndDateFromProposalSchedule,
+  proposalDurationDaysFromInclusiveDates,
+} from "#/features/production-proposals/proposalScheduleDates.ts";
 import {
   coerceSiteVisitGuidance,
   guidanceLinesToHtml,
@@ -107,8 +106,14 @@ const FOCUSABLE_TABLE_CONTROL_SELECTOR = [
 ].join(",");
 const DURATION_PREFIX_REGEX = /^T/i;
 const NON_DIGIT_REGEX = /\D/g;
+const T_OFFSET_PREFIX_REGEX = /^T/i;
+const T_OFFSET_PLUS_PREFIX_REGEX = /^\+/;
 
 const iconOptions = ISOMETRIC_ICON_KEYS;
+
+export interface TimelineMilestoneWorksheetRowsChangeMeta {
+  commit?: boolean;
+}
 
 interface SubMilestoneBankItem {
   budgetText?: string;
@@ -263,7 +268,10 @@ export function TimelineMilestoneWorksheetTable({
   onCascadeBudgetEditsChange?: (enabled: boolean) => void;
   onComplete?: (options: { redirectToDurableRoute: boolean }) => void;
   onReset?: () => void;
-  onRowsChange: (rows: TimelineMilestoneWorksheetRow[]) => void;
+  onRowsChange: (
+    rows: TimelineMilestoneWorksheetRow[],
+    meta?: TimelineMilestoneWorksheetRowsChangeMeta
+  ) => void;
   onScheduleDisplayModeChange?: (mode: TimelineScheduleDisplayMode) => void;
   projectAddress?: string;
   proposedStartDate?: string;
@@ -291,22 +299,31 @@ export function TimelineMilestoneWorksheetTable({
   onRowsChangeRef.current = onRowsChange;
 
   const updateRows = useCallback(
-    (nextRows: TimelineMilestoneWorksheetRow[]) =>
+    (
+      nextRows: TimelineMilestoneWorksheetRow[],
+      meta: TimelineMilestoneWorksheetRowsChangeMeta = { commit: true }
+    ) =>
       onRowsChangeRef.current(
         nextRows.map((row, order) => ({
           ...row,
           order,
-        }))
+        })),
+        meta
       ),
     []
   );
 
   const updateRow = useCallback(
-    (rowKey: string, patch: Partial<TimelineMilestoneWorksheetRow>) => {
+    (
+      rowKey: string,
+      patch: Partial<TimelineMilestoneWorksheetRow>,
+      meta?: TimelineMilestoneWorksheetRowsChangeMeta
+    ) => {
       updateRows(
         rowsRef.current.map((row) =>
           row.key === rowKey ? { ...row, ...patch } : row
-        )
+        ),
+        meta
       );
     },
     [updateRows]
@@ -315,7 +332,8 @@ export function TimelineMilestoneWorksheetTable({
   const updateSubMilestone = (
     rowKey: string,
     subMilestoneId: string,
-    patch: Partial<TimelineMilestoneWorksheetSubMilestone>
+    patch: Partial<TimelineMilestoneWorksheetSubMilestone>,
+    meta?: TimelineMilestoneWorksheetRowsChangeMeta
   ) => {
     updateRows(
       rowsRef.current.map((row) => {
@@ -333,13 +351,17 @@ export function TimelineMilestoneWorksheetTable({
         return withDerivedSubMilestoneRollups(nextRow, {
           includeBudget: mode === "setup",
         });
-      })
+      }),
+      meta
     );
     setActiveSubMilestoneByRow((current) => ({
       ...current,
       [rowKey]: subMilestoneId,
     }));
   };
+  const commitRows = useCallback(() => {
+    updateRows(rowsRef.current, { commit: true });
+  }, [updateRows]);
 
   const addSubMilestone = (rowKey: string, item?: SubMilestoneBankItem) => {
     const row = rows.find((candidate) => candidate.key === rowKey);
@@ -647,6 +669,7 @@ export function TimelineMilestoneWorksheetTable({
         ? settingsColumns({ updateRow, moveRowByKey })
         : setupColumns({
             commitBudgetEdit,
+            commitRows,
             moveRowByKey,
             proposedStartDate,
             scheduleDisplayMode,
@@ -654,6 +677,7 @@ export function TimelineMilestoneWorksheetTable({
           }),
     [
       commitBudgetEdit,
+      commitRows,
       mode,
       moveRowByKey,
       proposedStartDate,
@@ -684,6 +708,7 @@ export function TimelineMilestoneWorksheetTable({
     (sum, row) => sum + row.percentageBps,
     0
   );
+  const showSetupActions = mode === "setup" && Boolean(onBack || onComplete);
 
   return (
     <div
@@ -916,6 +941,10 @@ export function TimelineMilestoneWorksheetTable({
                       }
                       contractorOptions={contractorOptions}
                       mode={mode}
+                      moveTargetRows={rows.map(({ key, name }) => ({
+                        key,
+                        name,
+                      }))}
                       onActiveSubMilestoneChange={(subMilestoneId) =>
                         setActiveSubMilestoneByRow((current) => ({
                           ...current,
@@ -928,11 +957,19 @@ export function TimelineMilestoneWorksheetTable({
                       onAddSubMilestone={(item) =>
                         addSubMilestone(row.original.key, item)
                       }
+                      onCommitField={commitRows}
                       onCreateCostItem={(payload) =>
                         createCostItem(row.original.key, payload)
                       }
                       onDeleteCostItem={(itemId) =>
                         deleteCostItem(row.original.key, itemId)
+                      }
+                      onMoveSubMilestone={(subMilestoneId, targetRowKey) =>
+                        moveSubMilestone(
+                          row.original.key,
+                          subMilestoneId,
+                          targetRowKey
+                        )
                       }
                       onRemoveContractorAssignment={(assignmentId) =>
                         removeContractorAssignment(
@@ -943,32 +980,22 @@ export function TimelineMilestoneWorksheetTable({
                       onRemoveSubMilestone={(subMilestoneId) =>
                         removeSubMilestone(row.original.key, subMilestoneId)
                       }
-                      onMoveSubMilestone={(subMilestoneId, targetRowKey) =>
-                        moveSubMilestone(
-                          row.original.key,
-                          subMilestoneId,
-                          targetRowKey
-                        )
-                      }
                       onUpdateCostItem={(itemId, payload) =>
                         updateCostItem(row.original.key, itemId, payload)
                       }
                       onUpdateFieldGuidance={(siteVisitGuidance) =>
                         updateRow(row.original.key, { siteVisitGuidance })
                       }
-                      onUpdateSubMilestone={(subMilestoneId, patch) =>
+                      onUpdateSubMilestone={(subMilestoneId, patch, meta) =>
                         updateSubMilestone(
                           row.original.key,
                           subMilestoneId,
-                          patch
+                          patch,
+                          meta
                         )
                       }
                       proposedStartDate={proposedStartDate}
                       row={row.original}
-                      moveTargetRows={rows.map(({ key, name }) => ({
-                        key,
-                        name,
-                      }))}
                       scheduleDisplayMode={scheduleDisplayMode}
                     />
                   </TableCell>
@@ -1011,23 +1038,27 @@ export function TimelineMilestoneWorksheetTable({
               {error}
             </p>
           ) : null}
-          {mode === "setup" ? (
+          {showSetupActions ? (
             <>
-              <Button
-                className="timeline-setup-secondary"
-                onClick={onBack}
-                variant="outline"
-              >
-                Back to templates
-              </Button>
-              <Button
-                className="timeline-setup-primary"
-                data-testid="timeline-setup-complete"
-                onClick={() => onComplete?.({ redirectToDurableRoute: false })}
-              >
-                Generate timeline
-                <ChevronRight />
-              </Button>
+              {onBack ? (
+                <Button
+                  className="timeline-setup-secondary"
+                  onClick={onBack}
+                  variant="outline"
+                >
+                  Back to templates
+                </Button>
+              ) : null}
+              {onComplete ? (
+                <Button
+                  className="timeline-setup-primary"
+                  data-testid="timeline-setup-complete"
+                  onClick={() => onComplete({ redirectToDurableRoute: false })}
+                >
+                  Generate timeline
+                  <ChevronRight />
+                </Button>
+              ) : null}
             </>
           ) : null}
         </div>
@@ -1038,18 +1069,21 @@ export function TimelineMilestoneWorksheetTable({
 
 function setupColumns({
   commitBudgetEdit,
+  commitRows,
   moveRowByKey,
   proposedStartDate,
   scheduleDisplayMode,
   updateRow,
 }: {
   commitBudgetEdit: (rowKey: string) => void;
+  commitRows: () => void;
   moveRowByKey: (rowKey: string, direction: "down" | "up") => void;
   proposedStartDate?: string;
   scheduleDisplayMode: TimelineScheduleDisplayMode;
   updateRow: (
     rowKey: string,
-    patch: Partial<TimelineMilestoneWorksheetRow>
+    patch: Partial<TimelineMilestoneWorksheetRow>,
+    meta?: TimelineMilestoneWorksheetRowsChangeMeta
   ) => void;
 }): ColumnDef<TimelineMilestoneWorksheetRow>[] {
   return [
@@ -1062,7 +1096,9 @@ function setupColumns({
           className="timeline-blueprint-money"
           label={`${row.original.name} budget`}
           onBlur={() => commitBudgetEdit(row.original.key)}
-          onChange={(budgetText) => updateRow(row.original.key, { budgetText })}
+          onChange={(budgetText) =>
+            updateRow(row.original.key, { budgetText }, { commit: false })
+          }
           testId={`timeline-setup-row-budget-${row.original.key}`}
           value={row.original.budgetText}
         />
@@ -1072,8 +1108,8 @@ function setupColumns({
       size: 150,
     },
     ...(scheduleDisplayMode === "dates" && proposedStartDate
-      ? dateScheduleColumns(updateRow, proposedStartDate)
-      : tOffsetScheduleColumns(updateRow)),
+      ? dateScheduleColumns(updateRow, commitRows, proposedStartDate)
+      : tOffsetScheduleColumns(updateRow, commitRows)),
     excludeColumn(updateRow),
     expandColumn(),
   ];
@@ -1086,7 +1122,8 @@ function settingsColumns({
   moveRowByKey: (rowKey: string, direction: "down" | "up") => void;
   updateRow: (
     rowKey: string,
-    patch: Partial<TimelineMilestoneWorksheetRow>
+    patch: Partial<TimelineMilestoneWorksheetRow>,
+    meta?: TimelineMilestoneWorksheetRowsChangeMeta
   ) => void;
 }): ColumnDef<TimelineMilestoneWorksheetRow>[] {
   return [
@@ -1097,7 +1134,9 @@ function settingsColumns({
           <BlueprintInput
             label={`${row.original.name} type`}
             onBlur={() => undefined}
-            onChange={(type) => updateRow(row.original.key, { type })}
+            onChange={(type) =>
+              updateRow(row.original.key, { type }, { commit: false })
+            }
             testId={`timeline-setup-row-type-${row.original.key}`}
             value={row.original.type}
           />
@@ -1142,10 +1181,14 @@ function settingsColumns({
             })
           }
           onChange={(percentageText) =>
-            updateRow(row.original.key, {
-              percentageBps: parsePercentToBps(percentageText),
-              percentageText,
-            })
+            updateRow(
+              row.original.key,
+              {
+                percentageBps: parsePercentToBps(percentageText),
+                percentageText,
+              },
+              { commit: false }
+            )
           }
           testId={`timeline-setup-row-poc-${row.original.key}`}
           value={
@@ -1182,7 +1225,8 @@ function nameColumn(
   moveRowByKey: (rowKey: string, direction: "down" | "up") => void,
   updateRow?: (
     rowKey: string,
-    patch: Partial<TimelineMilestoneWorksheetRow>
+    patch: Partial<TimelineMilestoneWorksheetRow>,
+    meta?: TimelineMilestoneWorksheetRowsChangeMeta
   ) => void
 ): ColumnDef<TimelineMilestoneWorksheetRow> {
   return {
@@ -1205,8 +1249,10 @@ function nameColumn(
           {updateRow ? (
             <BlueprintInput
               label={`${row.original.name} name`}
-              onBlur={() => undefined}
-              onChange={(name) => updateRow(row.original.key, { name })}
+              onBlur={() => updateRow(row.original.key, {})}
+              onChange={(name) =>
+                updateRow(row.original.key, { name }, { commit: false })
+              }
               testId={`timeline-setup-row-title-${row.original.key}`}
               value={row.original.name}
             />
@@ -1242,7 +1288,8 @@ function subMilestoneColumn(): ColumnDef<TimelineMilestoneWorksheetRow> {
 function durationColumn(
   updateRow: (
     rowKey: string,
-    patch: Partial<TimelineMilestoneWorksheetRow>
+    patch: Partial<TimelineMilestoneWorksheetRow>,
+    meta?: TimelineMilestoneWorksheetRowsChangeMeta
   ) => void
 ): ColumnDef<TimelineMilestoneWorksheetRow> {
   return {
@@ -1258,12 +1305,16 @@ function durationColumn(
           })
         }
         onChange={(durationText) =>
-          updateRow(row.original.key, {
-            durationDays: parseDurationDays(durationText),
-            durationText: durationText
-              .replace(DURATION_PREFIX_REGEX, "")
-              .replace(NON_DIGIT_REGEX, ""),
-          })
+          updateRow(
+            row.original.key,
+            {
+              durationDays: parseDurationDays(durationText),
+              durationText: durationText
+                .replace(DURATION_PREFIX_REGEX, "")
+                .replace(NON_DIGIT_REGEX, ""),
+            },
+            { commit: false }
+          )
         }
         testId={`timeline-setup-row-duration-${row.original.key}`}
         value={`T${rowDurationDays(row.original)}`}
@@ -1278,8 +1329,10 @@ function durationColumn(
 function tOffsetScheduleColumns(
   updateRow: (
     rowKey: string,
-    patch: Partial<TimelineMilestoneWorksheetRow>
-  ) => void
+    patch: Partial<TimelineMilestoneWorksheetRow>,
+    meta?: TimelineMilestoneWorksheetRowsChangeMeta
+  ) => void,
+  commitRows: () => void
 ): ColumnDef<TimelineMilestoneWorksheetRow>[] {
   return [
     {
@@ -1288,11 +1341,15 @@ function tOffsetScheduleColumns(
           align="center"
           className="timeline-blueprint-duration"
           label={`${row.original.name} T offset start`}
-          onBlur={() => undefined}
+          onBlur={commitRows}
           onChange={(startText) =>
-            updateRow(row.original.key, {
-              startDay: parseTOffsetDay(startText),
-            })
+            updateRow(
+              row.original.key,
+              {
+                startDay: parseTOffsetDay(startText),
+              },
+              { commit: false }
+            )
           }
           testId={`timeline-setup-row-start-offset-${row.original.key}`}
           value={formatTOffset(rowStartDay(row.original))}
@@ -1329,8 +1386,10 @@ function tOffsetScheduleColumns(
 function dateScheduleColumns(
   updateRow: (
     rowKey: string,
-    patch: Partial<TimelineMilestoneWorksheetRow>
+    patch: Partial<TimelineMilestoneWorksheetRow>,
+    meta?: TimelineMilestoneWorksheetRowsChangeMeta
   ) => void,
+  commitRows: () => void,
   proposedStartDate: string
 ): ColumnDef<TimelineMilestoneWorksheetRow>[] {
   return [
@@ -1342,15 +1401,19 @@ function dateScheduleColumns(
             align="center"
             className="timeline-blueprint-date"
             label={`${row.original.name} start date`}
-            onBlur={() => undefined}
+            onBlur={commitRows}
             onChange={(startDate) => {
               const dayStart = dayOffsetFromProposalDate(
                 proposedStartDate,
                 startDate
               );
-              updateRow(row.original.key, {
-                startDay: dayStart,
-              });
+              updateRow(
+                row.original.key,
+                {
+                  startDay: dayStart,
+                },
+                { commit: false }
+              );
             }}
             testId={`timeline-setup-row-start-date-${row.original.key}`}
             type="date"
@@ -1371,7 +1434,7 @@ function dateScheduleColumns(
             align="center"
             className="timeline-blueprint-date"
             label={`${row.original.name} end date`}
-            onBlur={() => undefined}
+            onBlur={commitRows}
             onChange={(endDate) => {
               const startDate = dateFromProposalDayOffset(
                 proposedStartDate,
@@ -1381,10 +1444,14 @@ function dateScheduleColumns(
                 startDate,
                 endDate
               );
-              updateRow(row.original.key, {
-                durationDays: nextDurationDays,
-                durationText: String(nextDurationDays),
-              });
+              updateRow(
+                row.original.key,
+                {
+                  durationDays: nextDurationDays,
+                  durationText: String(nextDurationDays),
+                },
+                { commit: false }
+              );
             }}
             testId={`timeline-setup-row-end-date-${row.original.key}`}
             type="date"
@@ -1496,6 +1563,7 @@ function BlueprintInput({
   labelledBy,
   onBlur,
   onChange,
+  onCommit,
   readOnly = false,
   testId,
   type = "text",
@@ -1508,6 +1576,7 @@ function BlueprintInput({
   labelledBy?: string;
   onBlur: () => void;
   onChange: (value: string) => void;
+  onCommit?: () => void;
   readOnly?: boolean;
   testId: string;
   type?: "date" | "text";
@@ -1528,7 +1597,7 @@ function BlueprintInput({
           onChange(event.currentTarget.value);
         }
       }}
-      onKeyDown={handleBlueprintInputKeyDown}
+      onKeyDown={(event) => handleBlueprintInputKeyDown(event, onCommit)}
       readOnly={readOnly}
       tabIndex={readOnly ? -1 : undefined}
       type={type}
@@ -1537,13 +1606,17 @@ function BlueprintInput({
   );
 }
 
-function handleBlueprintInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+function handleBlueprintInputKeyDown(
+  event: KeyboardEvent<HTMLInputElement>,
+  onCommit?: () => void
+) {
   if (event.altKey || event.ctrlKey || event.metaKey) {
     return;
   }
 
   if (event.key === "Enter") {
     event.preventDefault();
+    onCommit?.();
     focusAdjacentTableControl(event.currentTarget, event.shiftKey ? -1 : 1);
     return;
   }
@@ -1590,6 +1663,7 @@ function SubMilestoneEditor({
   activeSubMilestoneId,
   mode,
   moveTargetRows,
+  onCommitField,
   onActiveSubMilestoneChange,
   onAddSubMilestone,
   onMoveSubMilestone,
@@ -1608,8 +1682,10 @@ function SubMilestoneEditor({
   onRemoveSubMilestone: (subMilestoneId: string) => void;
   onUpdateSubMilestone: (
     subMilestoneId: string,
-    patch: Partial<TimelineMilestoneWorksheetSubMilestone>
+    patch: Partial<TimelineMilestoneWorksheetSubMilestone>,
+    meta?: TimelineMilestoneWorksheetRowsChangeMeta
   ) => void;
+  onCommitField: () => void;
   proposedStartDate?: string;
   row: TimelineMilestoneWorksheetRow;
   scheduleDisplayMode: TimelineScheduleDisplayMode;
@@ -1768,11 +1844,23 @@ function SubMilestoneEditor({
               <input
                 aria-label="Sub-milestone name"
                 data-testid={`timeline-setup-submilestone-name-${activeSubMilestone.id}`}
+                onBlur={onCommitField}
                 onChange={(event) =>
-                  onUpdateSubMilestone(activeSubMilestone.id, {
-                    name: event.currentTarget.value,
-                  })
+                  onUpdateSubMilestone(
+                    activeSubMilestone.id,
+                    {
+                      name: event.currentTarget.value,
+                    },
+                    { commit: false }
+                  )
                 }
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    onCommitField();
+                    event.currentTarget.blur();
+                  }
+                }}
                 value={activeSubMilestone.name}
               />
             </label>
@@ -1781,11 +1869,23 @@ function SubMilestoneEditor({
               <textarea
                 aria-label="Sub-milestone scope note"
                 data-testid={`timeline-setup-submilestone-description-${activeSubMilestone.id}`}
+                onBlur={onCommitField}
                 onChange={(event) =>
-                  onUpdateSubMilestone(activeSubMilestone.id, {
-                    description: event.currentTarget.value,
-                  })
+                  onUpdateSubMilestone(
+                    activeSubMilestone.id,
+                    {
+                      description: event.currentTarget.value,
+                    },
+                    { commit: false }
+                  )
                 }
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    onCommitField();
+                    event.currentTarget.blur();
+                  }
+                }}
                 value={activeSubMilestone.description}
               />
             </label>
@@ -1813,7 +1913,8 @@ function SubMilestoneEditor({
                             budgetText: normalizeCurrencyText(
                               activeSubMilestone.budgetText
                             ),
-                          }
+                          },
+                      { commit: true }
                     )
                   }
                   onChange={(value) =>
@@ -1824,9 +1925,11 @@ function SubMilestoneEditor({
                             percentageBps: parsePercentToBps(value),
                             percentageText: value,
                           }
-                        : { budgetText: value }
+                        : { budgetText: value },
+                      { commit: false }
                     )
                   }
+                  onCommit={onCommitField}
                   testId={`timeline-setup-submilestone-budget-${activeSubMilestone.id}`}
                   value={
                     mode === "settings"
@@ -1844,15 +1947,20 @@ function SubMilestoneEditor({
                       align="center"
                       className="timeline-submilestone-detail-input"
                       label="Sub-milestone start date"
-                      onBlur={() => undefined}
+                      onBlur={onCommitField}
                       onChange={(startDate) =>
-                        onUpdateSubMilestone(activeSubMilestone.id, {
-                          startDay: dayOffsetFromProposalDate(
-                            proposedStartDate,
-                            startDate
-                          ),
-                        })
+                        onUpdateSubMilestone(
+                          activeSubMilestone.id,
+                          {
+                            startDay: dayOffsetFromProposalDate(
+                              proposedStartDate,
+                              startDate
+                            ),
+                          },
+                          { commit: false }
+                        )
                       }
+                      onCommit={onCommitField}
                       testId={`timeline-setup-submilestone-start-date-${activeSubMilestone.id}`}
                       type="date"
                       value={dateFromProposalDayOffset(
@@ -1867,7 +1975,7 @@ function SubMilestoneEditor({
                       align="center"
                       className="timeline-submilestone-detail-input"
                       label="Sub-milestone end date"
-                      onBlur={() => undefined}
+                      onBlur={onCommitField}
                       onChange={(endDate) => {
                         const startDate = dateFromProposalDayOffset(
                           proposedStartDate,
@@ -1878,10 +1986,15 @@ function SubMilestoneEditor({
                             startDate,
                             endDate
                           );
-                        onUpdateSubMilestone(activeSubMilestone.id, {
-                          durationText: String(durationDays),
-                        });
+                        onUpdateSubMilestone(
+                          activeSubMilestone.id,
+                          {
+                            durationText: String(durationDays),
+                          },
+                          { commit: false }
+                        );
                       }}
+                      onCommit={onCommitField}
                       testId={`timeline-setup-submilestone-end-date-${activeSubMilestone.id}`}
                       type="date"
                       value={inclusiveEndDateFromProposalSchedule(
@@ -1900,12 +2013,17 @@ function SubMilestoneEditor({
                       align="center"
                       className="timeline-submilestone-detail-input"
                       label="Sub-milestone T offset start"
-                      onBlur={() => undefined}
+                      onBlur={onCommitField}
                       onChange={(startText) =>
-                        onUpdateSubMilestone(activeSubMilestone.id, {
-                          startDay: parseTOffsetDay(startText),
-                        })
+                        onUpdateSubMilestone(
+                          activeSubMilestone.id,
+                          {
+                            startDay: parseTOffsetDay(startText),
+                          },
+                          { commit: false }
+                        )
                       }
+                      onCommit={onCommitField}
                       testId={`timeline-setup-submilestone-start-offset-${activeSubMilestone.id}`}
                       value={formatTOffset(
                         subMilestoneStartDay(row, activeSubMilestone)
@@ -1920,19 +2038,28 @@ function SubMilestoneEditor({
                       label="Sub-milestone duration"
                       labelledBy={durationFieldLabelId}
                       onBlur={() =>
-                        onUpdateSubMilestone(activeSubMilestone.id, {
-                          durationText: normalizeDurationText(
-                            activeSubMilestone.durationText
-                          ),
-                        })
+                        onUpdateSubMilestone(
+                          activeSubMilestone.id,
+                          {
+                            durationText: normalizeDurationText(
+                              activeSubMilestone.durationText
+                            ),
+                          },
+                          { commit: true }
+                        )
                       }
                       onChange={(durationText) =>
-                        onUpdateSubMilestone(activeSubMilestone.id, {
-                          durationText: durationText
-                            .replace(DURATION_PREFIX_REGEX, "")
-                            .replace(NON_DIGIT_REGEX, ""),
-                        })
+                        onUpdateSubMilestone(
+                          activeSubMilestone.id,
+                          {
+                            durationText: durationText
+                              .replace(DURATION_PREFIX_REGEX, "")
+                              .replace(NON_DIGIT_REGEX, ""),
+                          },
+                          { commit: false }
+                        )
                       }
+                      onCommit={onCommitField}
                       testId={`timeline-setup-submilestone-duration-${activeSubMilestone.id}`}
                       value={`T${activeSubMilestone.durationText}`}
                     />
@@ -1998,6 +2125,7 @@ function MilestoneExpandedTabs({
   onAddContractorAssignment,
   onActiveSubMilestoneChange,
   onAddSubMilestone,
+  onCommitField,
   onCreateCostItem,
   onDeleteCostItem,
   onMoveSubMilestone,
@@ -2020,6 +2148,7 @@ function MilestoneExpandedTabs({
     assignment: Omit<TimelineMilestoneWorksheetContractorAssignment, "id">
   ) => void;
   onAddSubMilestone: (item?: SubMilestoneBankItem) => void;
+  onCommitField: () => void;
   onCreateCostItem: (payload: MaterialPlanningPayload) => void;
   onDeleteCostItem: (itemId: string) => void;
   onMoveSubMilestone: (subMilestoneId: string, targetRowKey: string) => void;
@@ -2029,7 +2158,8 @@ function MilestoneExpandedTabs({
   onUpdateFieldGuidance: (guidance: SiteVisitGuidanceHtml) => void;
   onUpdateSubMilestone: (
     subMilestoneId: string,
-    patch: Partial<TimelineMilestoneWorksheetSubMilestone>
+    patch: Partial<TimelineMilestoneWorksheetSubMilestone>,
+    meta?: TimelineMilestoneWorksheetRowsChangeMeta
   ) => void;
   proposedStartDate?: string;
   row: TimelineMilestoneWorksheetRow;
@@ -2067,6 +2197,7 @@ function MilestoneExpandedTabs({
           moveTargetRows={moveTargetRows}
           onActiveSubMilestoneChange={onActiveSubMilestoneChange}
           onAddSubMilestone={onAddSubMilestone}
+          onCommitField={onCommitField}
           onMoveSubMilestone={onMoveSubMilestone}
           onRemoveSubMilestone={onRemoveSubMilestone}
           onUpdateSubMilestone={onUpdateSubMilestone}
@@ -2267,16 +2398,16 @@ function ContractorAssignmentEditor({
 
       <div className="grid gap-3">
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="grid gap-1.5 text-sm">
+          <div className="grid gap-1.5 text-sm">
             <span className="font-medium">Contractor</span>
             <div className="timeline-contractor-autocomplete">
               <Autocomplete
                 autoHighlight="always"
                 filter={null}
+                items={visibleContractorOptions}
                 itemToStringValue={(
                   option: TimelineMilestoneWorksheetContractorOption
                 ) => option.name}
-                items={visibleContractorOptions}
                 keepHighlight
                 modal={false}
                 onOpenChange={(nextOpen) =>
@@ -2329,7 +2460,7 @@ function ContractorAssignmentEditor({
                 </AutocompletePopup>
               </Autocomplete>
             </div>
-          </label>
+          </div>
           <label className="grid gap-1.5 text-sm">
             <span className="font-medium">Role / trade</span>
             <input
@@ -2494,7 +2625,7 @@ function FieldGuidanceEditor({
         </div>
       </div>
       <div className="timeline-blueprint-field-guidance-grid">
-        <label className="timeline-submilestone-detail-field is-wide timeline-field-rich-text-field">
+        <div className="timeline-submilestone-detail-field is-wide timeline-field-rich-text-field">
           <span>What to verify</span>
           <FieldRichTextEditor
             ariaLabel={`${row.name} what to verify`}
@@ -2510,8 +2641,8 @@ function FieldGuidanceEditor({
             testId={`timeline-settings-guidance-verify-${row.key}`}
             value={guidance.whatToVerify}
           />
-        </label>
-        <label className="timeline-submilestone-detail-field is-wide timeline-field-rich-text-field">
+        </div>
+        <div className="timeline-submilestone-detail-field is-wide timeline-field-rich-text-field">
           <span>Required photo angles</span>
           <FieldRichTextEditor
             ariaLabel={`${row.name} required photo angles`}
@@ -2527,7 +2658,7 @@ function FieldGuidanceEditor({
             testId={`timeline-settings-guidance-camera-${row.key}`}
             value={guidance.cameraAngles}
           />
-        </label>
+        </div>
       </div>
     </section>
   );
@@ -3163,7 +3294,10 @@ function rowStartDay(row: TimelineMilestoneWorksheetRow) {
 }
 
 function parseTOffsetDay(value: string) {
-  const normalized = value.trim().replace(/^T/i, "").replace(/^\+/, "");
+  const normalized = value
+    .trim()
+    .replace(T_OFFSET_PREFIX_REGEX, "")
+    .replace(T_OFFSET_PLUS_PREFIX_REGEX, "");
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? Math.round(parsed) : 0;
 }

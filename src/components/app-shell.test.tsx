@@ -125,17 +125,21 @@ describe("AppShell assistant integration", () => {
     cleanup();
   });
 
-  test("keeps the assistant panel unmounted until the compact trigger is opened", async () => {
+  test("renders a single full-width shell junction rule", () => {
     render(
       <AppShell>
         <main>Workspace</main>
       </AppShell>,
     );
 
-    expect(screen.queryByTestId("drawflow-assistant-surface")).toBeNull();
-    fireEvent.click(screen.getByLabelText("Open DrawFlow AI assistant"));
+    const rule = screen.getByTestId("app-shell-junction-rule");
 
-    expect(await screen.findByTestId("drawflow-assistant-surface")).toBeTruthy();
+    expect(rule.getAttribute("aria-hidden")).toBe("true");
+    expect(rule.className).toContain("fixed");
+    expect(rule.className).toContain("inset-x-0");
+    expect(rule.className).toContain("top-14");
+    expect(rule.className).toContain("border-t");
+    expect(rule.className).not.toContain("left-(--sidebar-width)");
   });
 
   test("Cmd/Ctrl+J opens the global assistant with route-aware context", async () => {

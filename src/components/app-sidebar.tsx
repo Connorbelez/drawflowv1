@@ -69,7 +69,7 @@ export function AppSidebar({
 			variant={variant}
 			{...sidebarProps}
 		>
-			<SidebarHeader className="h-14 justify-center border-b px-2">
+			<SidebarHeader className="h-14 justify-center px-2">
 				<SidebarMenuButton
 					render={<Link to={brand.to} preload="intent" viewTransition />}
 				>

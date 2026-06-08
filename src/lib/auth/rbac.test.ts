@@ -6,6 +6,7 @@ import {
   DESTRUCTIVE_WRITE_ROLE_SLUGS,
   getUserManagementAccessDecision,
   getWorkspaceAccessDecision,
+  hasBuilderStaffWorkspaceAccess,
   normalizeRoleSlug,
   normalizeRoleSlugs,
   requireUserManagementWriteAccess,
@@ -129,6 +130,14 @@ describe("DrawFlow frontend RBAC policy", () => {
         workspace: "builder",
       })
     ).toMatchObject({ status: "allowed", reason: "demo-exception" });
+  });
+
+  test("builder-staff workspace allows admins and builder staff only", () => {
+    expect(hasBuilderStaffWorkspaceAccess(["admin"])).toBe(true);
+    expect(hasBuilderStaffWorkspaceAccess(["builder-staff"])).toBe(true);
+    expect(hasBuilderStaffWorkspaceAccess(["builder_staff"])).toBe(true);
+    expect(hasBuilderStaffWorkspaceAccess(["builder"])).toBe(false);
+    expect(hasBuilderStaffWorkspaceAccess(["broker"])).toBe(false);
   });
 
   test("requireWorkspaceAccess redirects unauthenticated and forbidden sessions", () => {

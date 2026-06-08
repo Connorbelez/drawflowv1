@@ -276,6 +276,13 @@ export interface AddMilestoneInput {
   startAt?: Date;
 }
 
+export interface SubmilestoneParentTarget {
+  disabled?: boolean;
+  id: string;
+  label: string;
+  reason?: string;
+}
+
 export type MilestonePatch = Partial<
   Pick<
     Milestone,
@@ -329,6 +336,13 @@ export interface BuildWorkspaceActions {
   moveMilestoneToDrawGroup: (
     milestoneId: string,
     drawGroupId: string
+  ) => Promise<void>;
+  listSubmilestoneParentTargets?: (
+    milestoneId: string
+  ) => SubmilestoneParentTarget[];
+  moveSubmilestoneToParent?: (
+    milestoneId: string,
+    parentMilestoneKey: string
   ) => Promise<void>;
   recomputeProposalPlan: () => Promise<void>;
   rejectMilestone: (milestoneId: string, reason: string) => Promise<void>;

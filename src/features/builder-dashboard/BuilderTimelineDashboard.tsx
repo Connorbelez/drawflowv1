@@ -27,10 +27,12 @@ export type TimelinePlanRow = {
   buildKey?: string;
   buildName: string;
   drawCount: number;
+  kind?: "activeBuild" | "proposal";
   milestoneCount: number;
   pendingDrawRequestCount?: number;
   pendingModificationRequestCount?: number;
   planId: string;
+  proposalId?: string;
   proposalSlug?: string;
   status: "approved" | "archived" | "draft" | "submitted";
   totalBudgetCents: number;
@@ -49,6 +51,7 @@ export function BuilderTimelineDashboardSurface({
   personaLabel = MOCK_BUILDER_PERSONA,
   rows,
   showBuilderShellAction = false,
+  showStartProposalAction = true,
 }: {
   chrome?: "embedded" | "page";
   liveBuildRoute?: string;
@@ -56,14 +59,21 @@ export function BuilderTimelineDashboardSurface({
   personaLabel?: string;
   rows: TimelinePlanRow[];
   showBuilderShellAction?: boolean;
+  showStartProposalAction?: boolean;
 }) {
   const counts = useMemo(() => countByStatus(rows), [rows]);
   const liveBuilds = useMemo(
-    () => rows.filter((row: TimelinePlanRow) => row.status === "approved"),
+    () =>
+      rows.filter((row: TimelinePlanRow) =>
+        row.kind ? row.kind === "activeBuild" : row.status === "approved",
+      ),
     [rows]
   );
   const proposalRows = useMemo(
-    () => rows.filter((row: TimelinePlanRow) => row.status !== "approved"),
+    () =>
+      rows.filter((row: TimelinePlanRow) =>
+        row.kind ? row.kind === "proposal" : row.status !== "approved",
+      ),
     [rows]
   );
 
@@ -86,6 +96,7 @@ export function BuilderTimelineDashboardSurface({
           <BuilderDashboardActions
             onNavigate={onNavigate}
             showBuilderShellAction={showBuilderShellAction}
+            showStartProposalAction={showStartProposalAction}
           />
         </FramePanel>
       </Frame>
@@ -159,11 +170,13 @@ export function BuilderProposalListSurface({
   liveBuildRoute = "/builder/demo/dashboard/builds/$buildId",
   onNavigate,
   rows,
+  showStartProposalAction = true,
 }: {
   chrome?: "embedded" | "page";
   liveBuildRoute?: string;
   onNavigate: BuilderDashboardNavigate;
   rows: TimelinePlanRow[];
+  showStartProposalAction?: boolean;
 }) {
   const counts = useMemo(() => countByStatus(rows), [rows]);
 
@@ -183,7 +196,10 @@ export function BuilderProposalListSurface({
               into live builds without losing their proposal history.
             </p>
           </div>
-          <BuilderDashboardActions onNavigate={onNavigate} />
+          <BuilderDashboardActions
+            onNavigate={onNavigate}
+            showStartProposalAction={showStartProposalAction}
+          />
         </FramePanel>
       </Frame>
 
@@ -206,7 +222,7 @@ export function BuilderProposalListSurface({
             <TimelinePlanTable
               rows={rows}
               onOpen={(row) =>
-                row.status === "approved"
+                isLiveBuildRow(row)
                   ? onNavigate(liveBuildRoute, {
                       buildId: resolveBuildKey(row),
                     })
@@ -231,14 +247,19 @@ export function BuilderLiveBuildListSurface({
   liveBuildRoute = "/builder/demo/dashboard/builds/$buildId",
   onNavigate,
   rows,
+  showStartProposalAction = true,
 }: {
   chrome?: "embedded" | "page";
   liveBuildRoute?: string;
   onNavigate: BuilderDashboardNavigate;
   rows: TimelinePlanRow[];
+  showStartProposalAction?: boolean;
 }) {
   const liveRows = useMemo(
-    () => rows.filter((row: TimelinePlanRow) => row.status === "approved"),
+    () =>
+      rows.filter((row: TimelinePlanRow) =>
+        row.kind ? row.kind === "activeBuild" : row.status === "approved",
+      ),
     [rows]
   );
 
@@ -258,7 +279,10 @@ export function BuilderLiveBuildListSurface({
               timelines.
             </p>
           </div>
-          <BuilderDashboardActions onNavigate={onNavigate} />
+          <BuilderDashboardActions
+            onNavigate={onNavigate}
+            showStartProposalAction={showStartProposalAction}
+          />
         </FramePanel>
       </Frame>
 
@@ -321,9 +345,11 @@ function BuilderDashboardScaffold({
 function BuilderDashboardActions({
   onNavigate,
   showBuilderShellAction = false,
+  showStartProposalAction = true,
 }: {
   onNavigate: BuilderDashboardNavigate;
   showBuilderShellAction?: boolean;
+  showStartProposalAction?: boolean;
 }) {
   return (
     <div className="flex flex-wrap gap-2">
@@ -348,14 +374,16 @@ function BuilderDashboardActions({
         <RefreshCcw />
         Refresh
       </Button>
-      <Button
-        data-ixc-ref="UI-DASHBOARD-START-PLAN"
-        onClick={() => onNavigate("/demo/timeline")}
-        size="sm"
-      >
-        <Plus />
-        Start new proposal
-      </Button>
+      {showStartProposalAction ? (
+        <Button
+          data-ixc-ref="UI-DASHBOARD-START-PLAN"
+          onClick={() => onNavigate("/demo/timeline")}
+          size="sm"
+        >
+          <Plus />
+          Start new proposal
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -386,7 +414,7 @@ function TimelinePlanTable({
         {rows.map((row) => {
           const resolvedActionLabel =
             actionLabel ??
-            (row.status === "approved" ? "Open live build" : "Open proposal");
+            (isLiveBuildRow(row) ? "Open live build" : "Open proposal");
           return (
             <TableRow key={row.planId}>
               <TableCell className="font-medium">{row.buildName}</TableCell>
@@ -403,7 +431,7 @@ function TimelinePlanTable({
                 <Button
                   aria-label={`${resolvedActionLabel} ${row.buildName}`}
                   data-ixc-ref={
-                    row.status === "approved"
+                    isLiveBuildRow(row)
                       ? "UI-DASHBOARD-OPEN-LIVE-BUILD"
                       : "UI-DASHBOARD-OPEN-PROPOSAL"
                   }
@@ -468,6 +496,10 @@ function countByStatus(rows: TimelinePlanRow[]) {
 
 function resolveBuildKey(row: TimelinePlanRow) {
   return row.buildKey ?? `demo-timeline-${row.proposalSlug ?? row.planId}`;
+}
+
+function isLiveBuildRow(row: TimelinePlanRow) {
+  return row.kind ? row.kind === "activeBuild" : row.status === "approved";
 }
 
 function formatOpenRequests(row: TimelinePlanRow) {

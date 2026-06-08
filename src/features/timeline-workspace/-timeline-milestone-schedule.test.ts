@@ -48,7 +48,7 @@ describe("timeline milestone schedule helpers", () => {
     expect(
       buildMilestoneSpendEvents(item).find((event) => event.kind === "completion")
     ).toMatchObject({
-      amount: 60_000,
+      amount: 20_000,
       day: 8,
       kind: "completion",
     });
@@ -105,7 +105,7 @@ describe("timeline milestone schedule helpers", () => {
     expect(MINIMUM_MILESTONE_HANDOFF_GAP_DAYS).toBe(5);
   });
 
-  test("builds boundary-only milestone spend events", () => {
+  test("builds initial, distributed, and completion milestone spend events", () => {
     const events = buildMilestoneSpendEvents(
       milestoneItem({
         amount: 100_000,
@@ -129,7 +129,47 @@ describe("timeline milestone schedule helpers", () => {
         milestoneName: "Foundation",
       },
       {
-        amount: 60_000,
+        amount: 10_000,
+        day: 10,
+        id: "foundation-distributed-10",
+        kind: "distributed",
+        label: "Foundation daily spend",
+        milestoneAmount: 100_000,
+        milestoneId: "foundation",
+        milestoneName: "Foundation",
+      },
+      {
+        amount: 10_000,
+        day: 11,
+        id: "foundation-distributed-11",
+        kind: "distributed",
+        label: "Foundation daily spend",
+        milestoneAmount: 100_000,
+        milestoneId: "foundation",
+        milestoneName: "Foundation",
+      },
+      {
+        amount: 10_000,
+        day: 12,
+        id: "foundation-distributed-12",
+        kind: "distributed",
+        label: "Foundation daily spend",
+        milestoneAmount: 100_000,
+        milestoneId: "foundation",
+        milestoneName: "Foundation",
+      },
+      {
+        amount: 10_000,
+        day: 13,
+        id: "foundation-distributed-13",
+        kind: "distributed",
+        label: "Foundation daily spend",
+        milestoneAmount: 100_000,
+        milestoneId: "foundation",
+        milestoneName: "Foundation",
+      },
+      {
+        amount: 20_000,
         day: 14,
         id: "foundation-completion-payment",
         kind: "completion",
@@ -141,7 +181,7 @@ describe("timeline milestone schedule helpers", () => {
     ]);
   });
 
-  test("puts the full milestone impact at completion when no downpayment exists", () => {
+  test("distributes the full milestone impact when no explicit payments exist", () => {
     const events = buildMilestoneSpendEvents(
       milestoneItem({
         amount: 100_000,
@@ -153,21 +193,21 @@ describe("timeline milestone schedule helpers", () => {
 
     expect(events).toEqual([
       {
-        amount: 0,
+        amount: 50_000,
         day: 10,
-        id: "foundation-initial-payment",
-        kind: "initial",
-        label: "Foundation initial payment",
+        id: "foundation-distributed-10",
+        kind: "distributed",
+        label: "Foundation daily spend",
         milestoneAmount: 100_000,
         milestoneId: "foundation",
         milestoneName: "Foundation",
       },
       {
-        amount: 100_000,
-        day: 12,
-        id: "foundation-completion-payment",
-        kind: "completion",
-        label: "Foundation completion payment",
+        amount: 50_000,
+        day: 11,
+        id: "foundation-distributed-11",
+        kind: "distributed",
+        label: "Foundation daily spend",
         milestoneAmount: 100_000,
         milestoneId: "foundation",
         milestoneName: "Foundation",
@@ -185,16 +225,31 @@ describe("timeline milestone schedule helpers", () => {
       })
     );
 
-    expect(events[0]).toMatchObject({
-      amount: 0,
-      day: 10.6,
-      kind: "initial",
-    });
-    expect(events.at(-1)).toMatchObject({
-      amount: 30_000,
-      day: 13.6,
-      kind: "completion",
-    });
+    expect(events).toMatchObject([
+      { amount: 10_000, day: 11, kind: "distributed" },
+      { amount: 10_000, day: 12, kind: "distributed" },
+      { amount: 10_000, day: 13, kind: "distributed" },
+    ]);
+  });
+
+  test("assigns distributed spend rounding remainder to the final bucket", () => {
+    const events = buildMilestoneSpendEvents(
+      milestoneItem({
+        amount: 100_000,
+        completionPaymentAmount: 0,
+        durationDays: 3,
+        initialPaymentAmount: 0,
+        name: "Foundation",
+        x: 10,
+      })
+    );
+
+    expect(events.map((event) => event.amount)).toEqual([
+      33_333, 33_333, 33_334,
+    ]);
+    expect(events.reduce((total, event) => total + event.amount, 0)).toBe(
+      100_000,
+    );
   });
 });
 

@@ -1,19 +1,19 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ContractorPlanningModel } from "#/features/contractors/ContractorPlanningPanel.tsx";
 import {
+  type TimelineMilestoneWorksheetRow,
+  type TimelineMilestoneWorksheetRowsChangeMeta,
   TimelineMilestoneWorksheetTable,
   type TimelineScheduleDisplayMode,
-  type TimelineMilestoneWorksheetRow,
 } from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
-import { useEffect, useMemo, useRef, useState } from "react";
-
-import type { ContractorPlanningModel } from "#/features/contractors/ContractorPlanningPanel.tsx";
 
 import {
   contractorOptionsFromPlanning,
-  productionProposalDetailToWorksheetRows,
   type ProductionProposalWorksheetDetail,
+  productionProposalDetailToWorksheetRows,
 } from "./productionMilestoneWorksheetAdapter.ts";
 
-const PERSIST_DEBOUNCE_MS = 400;
+export const PRODUCTION_MILESTONE_WORKSHEET_SAVE_DEBOUNCE_MS = 600;
 
 export function ProductionProposalMilestoneWorksheet({
   contractorPlanning,
@@ -26,7 +26,9 @@ export function ProductionProposalMilestoneWorksheet({
   contractorPlanning?: ContractorPlanningModel | null;
   detail: ProductionProposalWorksheetDetail;
   footerExtra?: React.ReactNode;
-  onPersistRows?: (rows: TimelineMilestoneWorksheetRow[]) => void | Promise<void>;
+  onPersistRows?: (
+    rows: TimelineMilestoneWorksheetRow[]
+  ) => void | Promise<void>;
   showHeading?: boolean;
   templateTitle: string;
 }) {
@@ -69,11 +71,14 @@ export function ProductionProposalMilestoneWorksheet({
     []
   );
 
-  const handleRowsChange = (nextRows: TimelineMilestoneWorksheetRow[]) => {
+  const handleRowsChange = (
+    nextRows: TimelineMilestoneWorksheetRow[],
+    meta: TimelineMilestoneWorksheetRowsChangeMeta = { commit: true }
+  ) => {
     setRows(nextRows);
     pendingRowsRef.current = nextRows;
 
-    if (!onPersistRows) {
+    if (!onPersistRows || meta.commit === false) {
       return;
     }
 
@@ -87,8 +92,8 @@ export function ProductionProposalMilestoneWorksheet({
       if (!pendingRows) {
         return;
       }
-      void onPersistRows(pendingRows);
-    }, PERSIST_DEBOUNCE_MS);
+      onPersistRows(pendingRows);
+    }, PRODUCTION_MILESTONE_WORKSHEET_SAVE_DEBOUNCE_MS);
   };
 
   return (

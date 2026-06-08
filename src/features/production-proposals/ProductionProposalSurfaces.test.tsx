@@ -630,6 +630,16 @@ describe("ProductionProposalReviewSurface", () => {
     expect(screen.queryByText("Co-pay amount")).toBeNull();
     expect(screen.getByText("Interest rate")).toBeTruthy();
     expect(screen.getByText("9.25%")).toBeTruthy();
+    expect(
+      screen
+        .getByTestId("proposal-header-approved-amount-chip")
+        .classList.contains("bg-background")
+    ).toBe(true);
+    expect(
+      screen
+        .getByTestId("proposal-header-interest-rate-chip")
+        .classList.contains("bg-background")
+    ).toBe(true);
 
     fireEvent.click(screen.getByRole("button", { name: "Total approved" }));
     const approvedAmountInput = await waitFor(() => {

@@ -135,6 +135,16 @@ export function getWorkspaceAccessDecision(
     : { reason: "no-workspace-access", status: "forbidden" };
 }
 
+export function hasBuilderStaffWorkspaceAccess(
+  roles: readonly (string | null | undefined)[]
+): boolean {
+  const normalizedRoles = normalizeRoleSlugs(roles);
+  return (
+    normalizedRoles.includes("admin") ||
+    normalizedRoles.includes("builder-staff")
+  );
+}
+
 export function requireWorkspaceAccess(
   input: AuthAccessInput
 ): WorkspaceAccessDecision {

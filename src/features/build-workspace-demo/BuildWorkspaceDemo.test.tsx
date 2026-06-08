@@ -76,6 +76,46 @@ describe("BuildWorkspaceDemo Gantt labels and draw editing", () => {
     fireEvent.mouseEnter(screen.getByTestId("timeline-milestone-dc-ed"));
     expect(screen.getByText(/T0 - T3/)).toBeTruthy();
   });
+
+  test("opens the submilestone sidebar from the rail row context menu", () => {
+    renderWorkspace();
+
+    fireEvent.contextMenu(screen.getByTestId("milestone-rail-row-dc-ed"));
+    fireEvent.click(
+      screen.getByTestId("milestone-rail-context-open-submilestones-dc-ed"),
+    );
+
+    const sheet = screen.getByTestId("milestone-detail-sheet");
+    expect(within(sheet).getByText("FOUR-PLEX-DRAW-01.1 / DC/ED")).toBeTruthy();
+  });
+
+  test("moves a proposal submilestone to another parent from the detail sheet", () => {
+    const moveSubmilestoneToParent = vi.fn().mockResolvedValue(undefined);
+    renderWorkspace({
+      listSubmilestoneParentTargets: (milestoneId) =>
+        milestoneId === "dc-ed"
+          ? [
+              {
+                id: "draw-02",
+                label: "Draw 02 - Underground and framing",
+              },
+            ]
+          : [],
+      moveSubmilestoneToParent,
+    });
+
+    fireEvent.click(screen.getByTestId("timeline-milestone-dc-ed"));
+    const sheet = screen.getByTestId("milestone-detail-sheet");
+    fireEvent.change(
+      within(sheet).getByTestId("move-to-parent-milestone-select"),
+      {
+        target: { value: "draw-02" },
+      },
+    );
+    fireEvent.click(within(sheet).getByTestId("move-to-parent-milestone"));
+
+    expect(moveSubmilestoneToParent).toHaveBeenCalledWith("dc-ed", "draw-02");
+  });
 });
 
 function renderWorkspace(

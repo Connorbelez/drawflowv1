@@ -2,7 +2,17 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { ArrowDown, ArrowUp, GripVertical, PanelRightOpen } from "lucide-react";
 import type { ReactNode } from "react";
+import { useRef } from "react";
 import { Button } from "#/components/ui/button.tsx";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuGroup,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "#/components/ui/context-menu.tsx";
 import { cn } from "#/lib/utils.ts";
 import type {
   Milestone,
@@ -76,6 +86,8 @@ export function SortableMilestoneRailRow({
   renderIssueChip,
 }: SortableMilestoneRailRowProps) {
   const workspace = useBuildWorkspace();
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
   const sortableDisabled =
     workspace.mode === "active" ||
     workspace.build.proposalStatus === "submitted";
@@ -91,7 +103,25 @@ export function SortableMilestoneRailRow({
     disabled: sortableDisabled || collapsed,
   });
 
-  return (
+  const setRowNodeRef = (node: HTMLDivElement | null) => {
+    rowRef.current = node;
+    setNodeRef(node);
+  };
+
+  const openSubmilestoneSidebar = () => {
+    workspace.selectMilestone(milestone.id);
+    onOpenDetail(milestone.id);
+  };
+
+  const clearLongPressTimer = () => {
+    if (longPressTimerRef.current === null) {
+      return;
+    }
+    window.clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
+  };
+
+  const row = (
     // biome-ignore lint/a11y/useSemanticElements: The existing row pattern uses a div to host nested controls.
     <div
       className={cn(
@@ -117,7 +147,29 @@ export function SortableMilestoneRailRow({
           onFocusMilestone(milestone);
         }
       }}
-      ref={setNodeRef}
+      onPointerCancel={clearLongPressTimer}
+      onPointerDown={(event) => {
+        if (event.pointerType === "mouse") {
+          return;
+        }
+        clearLongPressTimer();
+        const { clientX, clientY } = event;
+        longPressTimerRef.current = window.setTimeout(() => {
+          rowRef.current?.dispatchEvent(
+            new MouseEvent("contextmenu", {
+              bubbles: true,
+              button: 2,
+              cancelable: true,
+              clientX,
+              clientY,
+            })
+          );
+        }, 550);
+      }}
+      onPointerLeave={clearLongPressTimer}
+      onPointerMove={clearLongPressTimer}
+      onPointerUp={clearLongPressTimer}
+      ref={setRowNodeRef}
       role="button"
       style={{
         height: collapsed ? "var(--gantt-row-height)" : "120px",
@@ -294,5 +346,34 @@ export function SortableMilestoneRailRow({
         </>
       )}
     </div>
+  );
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger
+        className="contents"
+        render={<div />}
+      >
+        {row}
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-64">
+        <ContextMenuGroup>
+          <ContextMenuLabel className="truncate">
+            {milestone.name}
+          </ContextMenuLabel>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            data-testid={`milestone-rail-context-open-submilestones-${milestone.id}`}
+            onClick={(event) => {
+              event.preventDefault();
+              openSubmilestoneSidebar();
+            }}
+          >
+            <PanelRightOpen aria-hidden="true" />
+            <span className="truncate">Open sub-milestone sidebar</span>
+          </ContextMenuItem>
+        </ContextMenuGroup>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }

@@ -18,6 +18,7 @@ import type {
   OptimizationPlanId,
   OutboxEvent,
   SiteVisitReportDraft,
+  SubmilestoneParentTarget,
   WorkspaceIssue,
   WorkspaceRole,
 } from "#/features/build-workspace-demo/types.ts";
@@ -574,6 +575,25 @@ export function ProductionProposalGanttWorkspace({
             : row,
         ),
       );
+    },
+    listSubmilestoneParentTargets: (milestoneId) =>
+      buildGanttSubmilestoneParentTargets(milestones, milestoneId),
+    moveSubmilestoneToParent: async (milestoneId, parentMilestoneKey) => {
+      if (proposalStatus !== "draft") {
+        return;
+      }
+      const result = prepareGanttSubmilestoneParentMove(
+        milestones,
+        milestoneId,
+        parentMilestoneKey,
+      );
+      if (result.milestones === milestones) {
+        return;
+      }
+      commitMilestones(result.milestones);
+      if (result.movedRowId) {
+        setSelectedMilestoneId(result.movedRowId);
+      }
     },
     recomputeProposalPlan: async () => undefined,
     rejectMilestone: async () => undefined,
@@ -1322,8 +1342,136 @@ function reorderGanttSubmilestoneRow(
   });
 }
 
+export function buildGanttSubmilestoneParentTargets(
+  milestones: ProposalGanttMilestoneDraft[],
+  milestoneId: string,
+): SubmilestoneParentTarget[] {
+  const rows = proposalMilestonesToGanttSubmilestoneRows(milestones);
+  const sourceRow = rows.find((row) => row.id === milestoneId);
+  if (!sourceRow) {
+    return [];
+  }
+  const sourceParentRows = rows.filter(
+    (row) => row.milestoneKey === sourceRow.milestoneKey,
+  );
+  const sourceNeedsOneSubmilestone = sourceParentRows.length <= 1;
+
+  return sortedMilestones(milestones)
+    .filter((milestone) => milestone.key !== sourceRow.milestoneKey)
+    .map((milestone) => ({
+      disabled: sourceNeedsOneSubmilestone,
+      id: milestone.key,
+      label: milestone.name,
+      reason: sourceNeedsOneSubmilestone
+        ? "Parent needs at least one sub-milestone"
+        : undefined,
+    }));
+}
+
+export function moveGanttSubmilestoneToParent(
+  milestones: ProposalGanttMilestoneDraft[],
+  sourceRowId: string,
+  targetParentKey: string,
+) {
+  return prepareGanttSubmilestoneParentMove(
+    milestones,
+    sourceRowId,
+    targetParentKey,
+  ).milestones;
+}
+
+function prepareGanttSubmilestoneParentMove(
+  milestones: ProposalGanttMilestoneDraft[],
+  sourceRowId: string,
+  targetParentKey: string,
+): { milestones: ProposalGanttMilestoneDraft[]; movedRowId?: string } {
+  const rows = proposalMilestonesToGanttSubmilestoneRows(milestones);
+  const sourceRow = rows.find((row) => row.id === sourceRowId);
+  const targetMilestone = milestones.find(
+    (milestone) => milestone.key === targetParentKey,
+  );
+  if (!sourceRow || !targetMilestone) {
+    return { milestones };
+  }
+  if (sourceRow.milestoneKey === targetParentKey) {
+    return { milestones, movedRowId: sourceRowId };
+  }
+  const sourceRows = rows.filter(
+    (row) => row.milestoneKey === sourceRow.milestoneKey,
+  );
+  if (sourceRows.length <= 1) {
+    return { milestones, movedRowId: sourceRowId };
+  }
+  const targetRows = rows.filter((row) => row.milestoneKey === targetParentKey);
+  const movedSubmilestoneKey = uniqueSubmilestoneKey(
+    sourceRow.submilestoneKey,
+    new Set(targetRows.map((row) => row.submilestoneKey)),
+  );
+  const movedSubmilestone = materializeGanttSubmilestoneRow(
+    sourceRow,
+    movedSubmilestoneKey,
+  );
+  const movedRowId = ganttSubmilestoneRowId(
+    targetParentKey,
+    movedSubmilestoneKey,
+  );
+
+  return {
+    milestones: milestones.map((milestone) => {
+      if (milestone.key === sourceRow.milestoneKey) {
+        return normalizeMilestoneFromSubmilestones(
+          {
+            ...milestone,
+            submilestones: sourceRows
+              .filter((row) => row.id !== sourceRowId)
+              .map((row, index) => ({
+                ...materializeGanttSubmilestoneRow(row),
+                order: index + 1,
+              })),
+          },
+          { fitToSubmilestoneBounds: true },
+        );
+      }
+      if (milestone.key === targetParentKey) {
+        return normalizeMilestoneFromSubmilestones(
+          {
+            ...milestone,
+            submilestones: [
+              ...targetRows.map((row, index) => ({
+                ...materializeGanttSubmilestoneRow(row),
+                order: index + 1,
+              })),
+              {
+                ...movedSubmilestone,
+                order: targetRows.length + 1,
+              },
+            ],
+          },
+          { fitToSubmilestoneBounds: true },
+        );
+      }
+      return milestone;
+    }),
+    movedRowId,
+  };
+}
+
+function materializeGanttSubmilestoneRow(
+  row: ProposalGanttSubmilestoneRow,
+  key = row.submilestoneKey,
+): ProposalGanttSubmilestoneDraft {
+  return {
+    ...row.submilestone,
+    budgetCents: row.budgetCents,
+    durationDays: row.durationDays,
+    key,
+    startDay: row.dayStart,
+  };
+}
+
 function normalizeMilestoneFromSubmilestones(
   milestone: ProposalGanttMilestoneDraft,
+  options: { fitToSubmilestoneBounds?: boolean } = {},
 ) {
   const submilestones = submilestonesForMilestone(milestone).map((submilestone, index) => ({
     ...submilestone,
@@ -1336,6 +1484,7 @@ function normalizeMilestoneFromSubmilestones(
   );
   let cursor = milestone.dayStart;
   let largestSubmilestoneEnd = milestone.dayStart;
+  let earliestSubmilestoneStart = Number.POSITIVE_INFINITY;
   const scheduledSubmilestones = submilestones.map((submilestone) => {
     const startDay =
       submilestone.startDay === undefined
@@ -1345,20 +1494,28 @@ function normalizeMilestoneFromSubmilestones(
     const endDay = startDay + durationDays;
     cursor = endDay;
     largestSubmilestoneEnd = Math.max(largestSubmilestoneEnd, endDay);
+    earliestSubmilestoneStart = Math.min(earliestSubmilestoneStart, startDay);
     return {
       ...submilestone,
       durationDays,
       startDay,
     };
   });
-  const durationDays = Math.max(
-    Math.max(1, Math.round(milestone.durationDays)),
-    largestSubmilestoneEnd - milestone.dayStart,
-  );
+  const dayStart =
+    options.fitToSubmilestoneBounds && Number.isFinite(earliestSubmilestoneStart)
+      ? earliestSubmilestoneStart
+      : milestone.dayStart;
+  const durationDays = options.fitToSubmilestoneBounds
+    ? Math.max(1, largestSubmilestoneEnd - dayStart)
+    : Math.max(
+        Math.max(1, Math.round(milestone.durationDays)),
+        largestSubmilestoneEnd - milestone.dayStart,
+      );
   return {
     ...milestone,
     budgetCents: budgetCents || milestone.budgetCents,
-    dayEnd: milestone.dayStart + durationDays,
+    dayEnd: dayStart + durationDays,
+    dayStart,
     durationDays,
     submilestones: scheduledSubmilestones,
   };
@@ -1970,6 +2127,19 @@ function uniqueMilestoneKey(name: string, milestones: ProposalGanttMilestoneDraf
   while (existing.has(key)) {
     key = `${base}-${index}`;
     index += 1;
+  }
+  return key;
+}
+
+function uniqueSubmilestoneKey(baseKey: string, existing: Set<string>) {
+  if (!existing.has(baseKey)) {
+    return baseKey;
+  }
+  let index = 2;
+  let key = `${baseKey}-${index}`;
+  while (existing.has(key)) {
+    index += 1;
+    key = `${baseKey}-${index}`;
   }
   return key;
 }
