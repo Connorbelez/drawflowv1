@@ -468,10 +468,10 @@ describe("ProposalReviewSurface", () => {
 });
 
 describe("proposal review subscription gates", () => {
-  test("keeps the default timeline route on lean workspace subscriptions", () => {
+  test("keeps the default packet route on lean workspace subscriptions", () => {
     const activeTab = resolveProposalReviewRouteTab({});
 
-    expect(activeTab).toBe("timeline");
+    expect(activeTab).toBe("packet");
     expect(shouldLoadProposalCalendarWorkspace(activeTab)).toBe(false);
     expect(shouldLoadProposalContractorPlanning(activeTab)).toBe(false);
     expect(shouldLoadProposalReviewBuilders(activeTab)).toBe(false);

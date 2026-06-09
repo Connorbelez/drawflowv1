@@ -5,28 +5,29 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
-import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
-import {
-  BuildPermitViewerDrawer,
-  firstPermitDocument,
-} from "#/features/build-permit-viewer/BuildPermitViewerDrawer.tsx";
 import { BuilderStaffPermissionsPanel } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
 import {
   canUseAppPermission,
   filterMaterialPlanningActionsForPermissions,
   hasAnyAppPermission,
 } from "#/features/builder-staff/app-permissions.ts";
-import { MaterialPlanningTab } from "#/features/material-planning/MaterialPlanningTab.tsx";
-import { CalendarWorkspace } from "#/features/calendar-workspace/CalendarWorkspace.tsx";
 import {
-  buildProposalCalendarActions,
-  buildProposalCalendarWorkspaceFromDetail,
   createProposalCalendarEditHandler,
   type ProposalCalendarAdapterActions,
 } from "#/features/calendar-workspace/adapters/proposalCalendarAdapter.ts";
-import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
+import type {
+  CalendarFilters,
+  CalendarReminderEventInput,
+  CalendarSyncSubscriptionResult,
+  CalendarTimeframe,
+} from "#/features/calendar-workspace/calendarTypes.ts";
 import { ProductionContractorPlanningTab } from "#/features/production-proposals/ProductionContractorPlanningTab.tsx";
+import { ProductionProposalMilestoneWorksheetContainer } from "#/features/production-proposals/ProductionProposalMilestoneWorksheetContainer.tsx";
 import { ProductionProposalTimelineGanttWorkspace } from "#/features/production-proposals/ProductionProposalGanttWorkspace.tsx";
+import {
+  ProductionProposalReviewSurface,
+  type ProductionReviewTab,
+} from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
 import { ProductionTimelineWorkspace } from "#/features/production-proposals/ProductionTimelineWorkspace.tsx";
 import {
   createVisualParityCostItem,
@@ -38,22 +39,16 @@ import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
 export type BuilderProposalSearch = {
-  tab?:
-    | "calendar"
-    | "contractors"
-    | "gantt"
-    | "materials"
-    | "staff"
-    | "timeline";
+  tab?: ProductionReviewTab;
   timeframe?: CalendarTimeframe;
 };
 
-type BuilderProposalRouteTab = NonNullable<BuilderProposalSearch["tab"]>;
+type BuilderProposalRouteTab = ProductionReviewTab;
 
 export function resolveBuilderProposalRouteTab(
   search: BuilderProposalSearch,
 ): BuilderProposalRouteTab {
-  return search.tab ?? "timeline";
+  return search.tab ?? "packet";
 }
 
 export function shouldLoadBuilderProposalCalendarWorkspace(
@@ -65,7 +60,11 @@ export function shouldLoadBuilderProposalCalendarWorkspace(
 export function shouldLoadBuilderProposalContractorPlanning(
   activeTab: BuilderProposalRouteTab,
 ) {
-  return activeTab === "contractors" || activeTab === "gantt";
+  return (
+    activeTab === "contractors" ||
+    activeTab === "gantt" ||
+    activeTab === "milestones"
+  );
 }
 
 export function shouldMountBuilderProposalStaffPanel(
@@ -79,9 +78,14 @@ export const Route = createFileRoute("/builder/proposals/$proposalId/")({
   validateSearch: (search: Record<string, unknown>): BuilderProposalSearch => {
     const tab =
       search.tab === "calendar" ||
+      search.tab === "closing" ||
       search.tab === "contractors" ||
+      search.tab === "draws" ||
       search.tab === "gantt" ||
+      search.tab === "milestones" ||
       search.tab === "materials" ||
+      search.tab === "packet" ||
+      search.tab === "review" ||
       search.tab === "staff" ||
       search.tab === "timeline"
         ? (search.tab as BuilderProposalSearch["tab"])
@@ -223,6 +227,15 @@ export function BuilderProductionProposalWorkspace({
           workosOrganizationId,
         },
   );
+  const calendarAssignableParticipantsQuery = useQuery(
+    (api as any).production_proposals.listProposalCalendarAssignableParticipants,
+    visualFixtureEnabled || !detail || !loadCalendarWorkspace
+      ? "skip"
+      : {
+          proposalId: typedProposalId,
+          workosOrganizationId,
+        },
+  );
   const createProposalCostItem = useMutation(
     api.production_proposals.createProposalCostItem,
   );
@@ -231,6 +244,21 @@ export function BuilderProductionProposalWorkspace({
   );
   const deleteProposalCostItem = useMutation(
     api.production_proposals.deleteProposalCostItem,
+  );
+  const updateProductionDrawScheduleRow = useMutation(
+    api.production_proposals.updateSubmittedProposalDrawScheduleRow,
+  );
+  const updateProductionTimelineDraw = useMutation(
+    api.production_proposals.updateProductionTimelineDraw,
+  );
+  const createProductionTimelineMilestone = useMutation(
+    api.production_proposals.createProductionTimelineMilestone,
+  );
+  const updateProductionTimelineMilestone = useMutation(
+    api.production_proposals.updateProductionTimelineMilestone,
+  );
+  const updateProductionProposalProposedStartDate = useMutation(
+    api.production_proposals.updateProductionProposalProposedStartDate,
   );
   const reviseProposalMilestoneSchedule = useMutation(
     (api as any).production_proposals.reviseProposalMilestoneSchedule,
@@ -246,6 +274,15 @@ export function BuilderProductionProposalWorkspace({
   );
   const saveCalendarView = useMutation(
     (api as any).production_proposals.saveCalendarView,
+  );
+  const createProposalReminderCalendarEvent = useMutation(
+    (api as any).production_proposals.createProposalReminderCalendarEvent,
+  );
+  const updateProposalReminderCalendarEvent = useMutation(
+    (api as any).production_proposals.updateProposalReminderCalendarEvent,
+  );
+  const deleteProposalReminderCalendarEvent = useMutation(
+    (api as any).production_proposals.deleteProposalReminderCalendarEvent,
   );
   const createCalendarSyncSubscription = useMutation(
     (api as any).production_proposals.createCalendarSyncSubscription,
@@ -270,6 +307,21 @@ export function BuilderProductionProposalWorkspace({
     ["contractor", "create"],
     ["contractor", "update"],
   ]);
+  const canViewContractors = canUseAppPermission(
+    appPermissions,
+    "contractor",
+    "view",
+  );
+  const canEditProposalMilestones = hasAnyAppPermission(appPermissions, [
+    ["milestone", "create"],
+    ["milestone", "delete"],
+    ["milestone", "update"],
+    ["submilestone", "create"],
+    ["submilestone", "delete"],
+    ["submilestone", "update"],
+  ]);
+  const proposalEditorPersistenceMode =
+    visualFixtureEnabled || !canEditProposalMilestones ? "noop" : "convex";
   const materialPlanningActions = filterMaterialPlanningActionsForPermissions(
     appPermissions,
     visualFixtureEnabled
@@ -343,123 +395,23 @@ export function BuilderProductionProposalWorkspace({
           }).then(() => toast.success("Milestone schedule revised."))
       : undefined,
   };
-  const effectiveCalendarWorkspace =
-    (calendarWorkspaceQuery as any) ??
-    buildProposalCalendarWorkspaceFromDetail(detail);
-  const calendarActions = buildProposalCalendarActions(calendarAdapterActions);
   const commitCalendarEdit = createProposalCalendarEditHandler({
     actions: calendarAdapterActions,
-    baseDate: detail.activeBuild?.startDate ?? "2026-06-01",
+    baseDate:
+      detail.activeBuild?.startDate ??
+      detail.proposal.proposedStartDate ??
+      "2026-06-01",
   });
-  const permit = firstPermitDocument(detail.documents);
-
-  const proposalTabPanelClassName = "w-full min-w-0";
 
   return (
-    <section className="w-full min-w-0 bg-muted/30 p-0 md:p-5">
-      <Tabs
-        className="flex w-full min-w-0 flex-col gap-4"
-        onValueChange={(value) =>
-          void navigate({
-            params: { proposalId },
-            replace: true,
-            search: {
-              ...search,
-              tab: value as BuilderProposalSearch["tab"],
-            },
-            to: `${routeBase}/proposals/$proposalId` as never,
-          })
-        }
-        value={search.tab ?? "timeline"}
-      >
-        <Frame className="w-full min-w-0">
-          <FramePanel className="flex w-full min-w-0 flex-wrap items-center justify-between gap-3 p-3">
-            <TabsList
-              aria-label="Builder proposal sections"
-              className="justify-start overflow-x-auto"
-              variant="underline"
-            >
-              <TabsTab value="timeline">Timeline</TabsTab>
-              <TabsTab value="gantt">Gantt</TabsTab>
-              <TabsTab value="calendar">Calendar</TabsTab>
-              <TabsTab value="contractors">Contractors</TabsTab>
-              <TabsTab value="materials">Materials</TabsTab>
-              {visualFixtureEnabled || !includeStaffTab ? null : (
-                <TabsTab value="staff">Staff</TabsTab>
-              )}
-            </TabsList>
-            <BuildPermitViewerDrawer permit={permit} size="sm" />
-          </FramePanel>
-        </Frame>
-        <div className="w-full min-w-0">
-        <TabsPanel className={proposalTabPanelClassName} value="timeline">
-          <div className="w-full min-w-0 overflow-x-auto">
-            <ProductionTimelineWorkspace
-              appPermissions={appPermissions}
-              backofficeHref={`/backoffice/proposals/${proposalId}`}
-              embedded
-              initialRole="builder"
-              persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
-              proposalHref={`${routeBase}/proposals/${proposalId}`}
-              proposalId={typedProposalId}
-              workspace={workspace}
-              workosOrganizationId={workosOrganizationId}
-            />
-          </div>
-        </TabsPanel>
-        <TabsPanel className={proposalTabPanelClassName} value="gantt">
-          <div className="w-full min-w-0 overflow-x-auto">
-            <ProductionProposalTimelineGanttWorkspace
-              persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
-              proposalId={typedProposalId}
-              workspace={workspace}
-              workosOrganizationId={workosOrganizationId}
-            />
-          </div>
-        </TabsPanel>
-        <TabsPanel className={proposalTabPanelClassName} value="calendar">
-          <CalendarWorkspace
-            actions={calendarActions}
-            initialTimeframe={
-              search.timeframe ?? effectiveCalendarWorkspace.defaultTimeframe
-            }
-            onCommitEdit={commitCalendarEdit}
-            onCreateSyncSubscription={(input) =>
-              createCalendarSyncSubscription({
-                ...input,
-                proposalId:
-                  input.surface === "proposal"
-                    ? (input.sourceId as Id<"buildProposals">)
-                    : undefined,
-                workosOrganizationId,
-              })
-            }
-            onRecordExternalSyncChange={(input) =>
-              recordExternalCalendarSyncChange({
-                ...input,
-                workosOrganizationId,
-              })
-            }
-            onSaveView={(input) =>
-              saveCalendarView({
-                ...input,
-                surface: "proposal",
-                workosOrganizationId,
-              })
-            }
-            onTimeframeChange={(timeframe) =>
-              void navigate({
-                params: { proposalId },
-                replace: true,
-                search: { ...search, timeframe },
-                to: `${routeBase}/proposals/$proposalId` as never,
-              })
-            }
-            workspace={effectiveCalendarWorkspace}
-          />
-        </TabsPanel>
-        <TabsPanel className={proposalTabPanelClassName} value="contractors">
-          {activeProposalTab === "contractors" &&
+    <ProductionProposalReviewSurface
+      calendarAdapterActions={calendarAdapterActions}
+      calendarAssignableParticipants={calendarAssignableParticipantsQuery ?? []}
+      calendarTimeframe={search.timeframe}
+      calendarWorkspace={calendarWorkspaceQuery as any}
+      contractors={
+        canViewContractors ? (
+          activeProposalTab === "contractors" &&
           loadContractorPlanning &&
           contractorPlanningQuery === undefined ? (
             <DeferredBuilderProposalTabPanel
@@ -475,20 +427,34 @@ export function BuilderProductionProposalWorkspace({
               workspace={workspace}
               workosOrganizationId={workosOrganizationId}
             />
-          )}
-        </TabsPanel>
-        <TabsPanel className={proposalTabPanelClassName} value="materials">
-          <MaterialPlanningTab
-            actions={
-              materialPlanningActions
-            }
-            items={detail.costItems ?? []}
-            milestones={proposalMaterialMilestones(detail)}
-            scopeLabel="Builder Proposal"
-          />
-        </TabsPanel>
-        {visualFixtureEnabled || !includeStaffTab ? null : (
-          <TabsPanel className={proposalTabPanelClassName} value="staff">
+          )
+        ) : undefined
+      }
+      detail={detail}
+      gantt={
+        <ProductionProposalTimelineGanttWorkspace
+          persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
+          proposalId={typedProposalId}
+          workspace={workspace}
+          workosOrganizationId={workosOrganizationId}
+        />
+      }
+      initialActiveTab={activeProposalTab}
+      materialPlanningActions={materialPlanningActions}
+      milestones={
+        <ProductionProposalMilestoneWorksheetContainer
+          contractorPlanning={workspace.contractorPlanning}
+          detail={detail}
+          persistenceMode={proposalEditorPersistenceMode}
+          proposalId={typedProposalId}
+          showHeading
+          templateTitle={detail.proposal.buildName}
+          workosOrganizationId={workosOrganizationId}
+        />
+      }
+      staff={
+        visualFixtureEnabled || !includeStaffTab ? undefined : (
+          <>
             {shouldMountBuilderProposalStaffPanel(activeProposalTab) ? (
               <BuilderStaffPermissionsPanel
                 proposalId={typedProposalId}
@@ -498,11 +464,156 @@ export function BuilderProductionProposalWorkspace({
             ) : (
               <DeferredBuilderProposalTabPanel label="Staff permissions" />
             )}
-          </TabsPanel>
-        )}
-        </div>
-      </Tabs>
-    </section>
+          </>
+        )
+      }
+      timeline={
+        <ProductionTimelineWorkspace
+          appPermissions={appPermissions}
+          backofficeHref={`/backoffice/proposals/${proposalId}`}
+          embedded
+          initialRole="builder"
+          persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
+          proposalHref={`${routeBase}/proposals/${proposalId}`}
+          proposalId={typedProposalId}
+          workspace={workspace}
+          workosOrganizationId={workosOrganizationId}
+        />
+      }
+      onChangeCalendarTimeframe={(timeframe) =>
+        void navigate({
+          params: { proposalId },
+          replace: true,
+          search: { ...search, timeframe },
+          to: `${routeBase}/proposals/$proposalId` as never,
+        })
+      }
+      onChangeReviewTab={(tab) =>
+        void navigate({
+          params: { proposalId },
+          replace: true,
+          search: { ...search, tab },
+          to: `${routeBase}/proposals/$proposalId` as never,
+        })
+      }
+      onCommitCalendarEdit={commitCalendarEdit}
+      onCreateCalendarReminderEvent={
+        canUseAppPermission(appPermissions, "reminder", "create")
+          ? (input: CalendarReminderEventInput) =>
+              createProposalReminderCalendarEvent({
+                ...input,
+                proposalId: typedProposalId,
+                workosOrganizationId,
+              })
+          : undefined
+      }
+      onCreateCalendarSyncSubscription={(input: {
+        direction: "bidirectional" | "outbound";
+        filters: CalendarFilters;
+        provider: "google" | "ics" | "outlook";
+        sourceId: string;
+        surface: "activeBuild" | "proposal";
+      }) =>
+        createCalendarSyncSubscription({
+          ...input,
+          proposalId:
+            input.surface === "proposal"
+              ? (input.sourceId as Id<"buildProposals">)
+              : undefined,
+          workosOrganizationId,
+        }) as Promise<CalendarSyncSubscriptionResult>
+      }
+      onCreatePacketMilestone={
+        canUseAppPermission(appPermissions, "milestone", "create")
+          ? (milestone) =>
+              createProductionTimelineMilestone({
+                milestone,
+                proposalId: typedProposalId,
+                workosOrganizationId,
+              }).then(() => toast.success("Milestone added."))
+          : undefined
+      }
+      onDeleteCalendarReminderEvent={
+        canUseAppPermission(appPermissions, "reminder", "delete")
+          ? (input) =>
+              deleteProposalReminderCalendarEvent({
+                ...input,
+                eventId: input.eventId as Id<"calendarReminderEvents">,
+                proposalId: typedProposalId,
+                workosOrganizationId,
+              })
+          : undefined
+      }
+      onRecordExternalCalendarSyncChange={(input) =>
+        recordExternalCalendarSyncChange({
+          ...input,
+          workosOrganizationId,
+        })
+      }
+      onSaveCalendarView={(input) =>
+        saveCalendarView({
+          ...input,
+          surface: "proposal",
+          workosOrganizationId,
+        })
+      }
+      onUpdateCalendarReminderEvent={
+        canUseAppPermission(appPermissions, "reminder", "update")
+          ? (input) =>
+              updateProposalReminderCalendarEvent({
+                ...input,
+                eventId: input.eventId as Id<"calendarReminderEvents">,
+                proposalId: typedProposalId,
+                workosOrganizationId,
+              })
+          : undefined
+      }
+      onUpdateDraw={
+        canUseAppPermission(appPermissions, "draw", "update")
+          ? (drawKey, patch) =>
+              (detail.proposal.status === "draft"
+                ? updateProductionTimelineDraw({
+                    amountCents: patch.amountCents,
+                    drawKey,
+                    label: patch.label,
+                    proposalId: typedProposalId,
+                    workosOrganizationId,
+                    x: patch.timingDay,
+                  })
+                : updateProductionDrawScheduleRow({
+                    amountCents: patch.amountCents,
+                    drawKey,
+                    label: patch.label,
+                    proposalId: typedProposalId,
+                    reason: patch.reason,
+                    timingDay: patch.timingDay,
+                    workosOrganizationId,
+                  })
+              ).then(() => toast.success("Draw schedule updated."))
+          : undefined
+      }
+      onUpdatePacketMilestone={
+        canUseAppPermission(appPermissions, "milestone", "update")
+          ? (milestoneKey, patch) =>
+              updateProductionTimelineMilestone({
+                ...patch,
+                milestoneKey,
+                proposalId: typedProposalId,
+                workosOrganizationId,
+              }).then(() => toast.success("Milestone updated."))
+          : undefined
+      }
+      onUpdateProposedStartDate={
+        canUseAppPermission(appPermissions, "milestone", "update")
+          ? (proposedStartDate) =>
+              updateProductionProposalProposedStartDate({
+                proposalId: typedProposalId,
+                proposedStartDate,
+                workosOrganizationId,
+              }).then(() => toast.success("Proposed start date updated."))
+          : undefined
+      }
+    />
   );
 }
 
@@ -523,27 +634,4 @@ function DeferredBuilderProposalTabPanel({
       </FramePanel>
     </Frame>
   );
-}
-
-function proposalMaterialMilestones(detail: any) {
-  const submilestonesByMilestone = new Map<string, any[]>();
-  for (const submilestone of detail.submilestones ?? []) {
-    const next = submilestonesByMilestone.get(submilestone.milestoneKey) ?? [];
-    next.push(submilestone);
-    submilestonesByMilestone.set(submilestone.milestoneKey, next);
-  }
-  return (detail.milestones ?? []).map((milestone: any) => ({
-    budgetCents: milestone.budgetCents,
-    key: milestone.key,
-    name: milestone.name,
-    order: milestone.order,
-    submilestones: (submilestonesByMilestone.get(milestone.key) ?? []).map(
-      (submilestone) => ({
-        key: submilestone.key,
-        milestoneKey: submilestone.milestoneKey,
-        name: submilestone.name,
-        order: submilestone.order,
-      }),
-    ),
-  }));
 }

@@ -8,7 +8,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { toast } from "sonner";
 
 import {
@@ -26,6 +26,22 @@ vi.mock("sonner", () => ({
     success: vi.fn(),
   },
 }));
+
+beforeEach(() => {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      addEventListener: vi.fn(),
+      addListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+      matches: query.includes("min-width"),
+      media: query,
+      onchange: null,
+      removeEventListener: vi.fn(),
+      removeListener: vi.fn(),
+    })),
+  });
+});
 
 afterEach(() => {
   cleanup();
@@ -512,6 +528,7 @@ describe("ProductionProposalReviewSurface", () => {
           },
           proposal: { ...proposalDetail.proposal, status: "submitted" },
         }}
+        initialActiveTab="review"
         onApprove={vi.fn()}
         onClose={vi.fn()}
         onReject={vi.fn()}
@@ -533,6 +550,7 @@ describe("ProductionProposalReviewSurface", () => {
           ...proposalDetail,
           proposal: { ...proposalDetail.proposal, status: "submitted" },
         }}
+        initialActiveTab="review"
         onApprove={vi.fn()}
         onClose={vi.fn()}
         onReject={vi.fn()}
@@ -556,6 +574,7 @@ describe("ProductionProposalReviewSurface", () => {
           documents: [],
           proposal: { ...proposalDetail.proposal, status: "submitted" },
         }}
+        initialActiveTab="review"
         onApprove={onApprove}
         onClose={vi.fn()}
         onReject={vi.fn()}
@@ -628,8 +647,8 @@ describe("ProductionProposalReviewSurface", () => {
     expect(screen.getByText("Total approved")).toBeTruthy();
     expect(screen.getAllByText("$800,005").length).toBeGreaterThan(0);
     expect(screen.queryByText("Co-pay amount")).toBeNull();
-    expect(screen.getByText("Interest rate")).toBeTruthy();
-    expect(screen.getByText("9.25%")).toBeTruthy();
+    expect(screen.getAllByText("Interest rate").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("9.25%").length).toBeGreaterThan(0);
     expect(
       screen
         .getByTestId("proposal-header-approved-amount-chip")
@@ -705,6 +724,7 @@ describe("ProductionProposalReviewSurface", () => {
           },
           proposal: { ...proposalDetail.proposal, status: "draft" },
         }}
+        initialActiveTab="review"
         onApprove={vi.fn()}
         onAssignBuilder={onAssignBuilder}
         onClose={vi.fn()}
@@ -745,6 +765,7 @@ describe("ProductionProposalReviewSurface", () => {
           },
           proposal: { ...proposalDetail.proposal, status: "draft" },
         }}
+        initialActiveTab="review"
         onApprove={vi.fn()}
         onClose={vi.fn()}
         onReject={vi.fn()}
@@ -784,6 +805,7 @@ describe("ProductionProposalReviewSurface", () => {
           },
           proposal: { ...proposalDetail.proposal, status: "draft" },
         }}
+        initialActiveTab="review"
         onApprove={vi.fn()}
         onClose={vi.fn()}
         onCreateClaimLink={onCreateClaimLink}
@@ -804,7 +826,7 @@ describe("ProductionProposalReviewSurface", () => {
     );
   });
 
-  test("uses the existing timeline workspace as the default production review tab", () => {
+  test("uses the packet tab as the default production review tab", () => {
     render(
       <ProductionProposalReviewSurface
         detail={{
@@ -827,20 +849,19 @@ describe("ProductionProposalReviewSurface", () => {
         .getAllByRole("tab")
         .map((tab) => tab.textContent),
     ).toEqual([
+      "Packet",
       "Timeline",
       "Milestones",
       "Calendar",
       "Review",
       "Draw schedule",
       "Materials",
-      "Packet",
     ]);
     expect(
-      screen
-        .getByRole("tab", { name: "Timeline" })
-        .getAttribute("aria-selected"),
+      screen.getByRole("tab", { name: "Packet" }).getAttribute("aria-selected"),
     ).toBe("true");
-    expect(screen.getByTestId("timeline-slot")).toBeTruthy();
+    expect(screen.getByText("Build, site, and loan summary")).toBeTruthy();
+    expect(screen.queryByTestId("timeline-slot")).toBeNull();
     expect(screen.queryByText("Submit proposal")).toBeNull();
   });
 
@@ -983,6 +1004,252 @@ describe("ProductionProposalReviewSurface", () => {
     expect(satelliteUrl.searchParams.get("key")).toBe("maps-key");
   });
 
+  test("edits a backdated proposed start date from the packet summary", async () => {
+    const onUpdateProposedStartDate = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          proposal: {
+            ...proposalDetail.proposal,
+            status: "submitted",
+          },
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+        onUpdateProposedStartDate={onUpdateProposedStartDate}
+        timeline={<div data-testid="timeline-slot">Timeline workspace</div>}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit proposed start date" }),
+    );
+    fireEvent.change(screen.getByLabelText("Proposed start date"), {
+      target: { value: "2024-11-18" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save proposed start date" }),
+    );
+
+    await waitFor(() =>
+      expect(onUpdateProposedStartDate).toHaveBeenCalledWith("2024-11-18"),
+    );
+  });
+
+  test("toggles packet worksheet windows between relative days and real dates", () => {
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          proposal: {
+            ...proposalDetail.proposal,
+            proposedStartDate: "2025-04-15",
+            status: "submitted",
+          },
+          submilestones: [
+            {
+              budgetCents: 12_500_00,
+              durationDays: 2,
+              key: "forms",
+              milestoneKey: "foundation",
+              name: "Forms and pour",
+              startDay: 4,
+            },
+          ],
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+        timeline={<div data-testid="timeline-slot">Timeline workspace</div>}
+      />,
+    );
+
+    expect(screen.getByText("Day 4 to 6")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Real dates" }));
+
+    expect(screen.getByText("Apr 19, 2025 to Apr 21, 2025")).toBeTruthy();
+    expect(screen.queryByText("Day 4 to 6")).toBeNull();
+  });
+
+  test("edits packet milestone and submilestones inline", async () => {
+    const onUpdatePacketMilestone = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          proposal: {
+            ...proposalDetail.proposal,
+            status: "submitted",
+          },
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+        onUpdatePacketMilestone={onUpdatePacketMilestone}
+        timeline={<div data-testid="timeline-slot">Timeline workspace</div>}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit Foundation packet row" }),
+    );
+    expect(screen.queryByText("Edit milestone packet")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Foundation scope"), {
+      target: { value: "Permits, demo & foundation" },
+    });
+    fireEvent.change(
+      screen.getByLabelText("Foundation submilestone 1 name"),
+      {
+        target: { value: "Forms, permits, and pour" },
+      },
+    );
+    fireEvent.change(
+      screen.getByLabelText("Foundation submilestone 1 start day"),
+      {
+        target: { value: "2" },
+      },
+    );
+    const submilestoneEndDayInput = screen.getByLabelText(
+      "Foundation submilestone 1 end day",
+    );
+    fireEvent.change(submilestoneEndDayInput, {
+      target: { value: "" },
+    });
+    expect((submilestoneEndDayInput as HTMLInputElement).value).toBe("");
+    fireEvent.change(submilestoneEndDayInput, {
+      target: { value: "7" },
+    });
+    fireEvent.change(
+      screen.getByLabelText("Foundation submilestone 1 budget"),
+      {
+        target: { value: "12000" },
+      },
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add submilestone to Foundation" }),
+    );
+    fireEvent.change(
+      screen.getByLabelText("Name", {
+        selector: "#packet-new-submilestone-name",
+      }),
+      { target: { value: "Tree protection" } },
+    );
+    fireEvent.change(screen.getByLabelText("End day"), {
+      target: { value: "3" },
+    });
+    fireEvent.change(
+      screen.getByLabelText("Budget dollars", {
+        selector: "#packet-new-submilestone-budget",
+      }),
+      { target: { value: "910" } },
+    );
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Add submilestone" }).at(-1)!,
+    );
+
+    expect(screen.getByText("Day 0 to 7")).toBeTruthy();
+    expect(screen.getByText("$12,910")).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save Foundation packet row" }),
+    );
+
+    await waitFor(() =>
+      expect(onUpdatePacketMilestone).toHaveBeenCalledWith("foundation", {
+        budgetCents: 1_291_000,
+        dayEnd: 7,
+        dayStart: 0,
+        durationDays: 7,
+        name: "Permits, demo & foundation",
+        submilestones: [
+          {
+            budgetCents: 1_200_000,
+            durationDays: 5,
+            key: "forms",
+            name: "Forms, permits, and pour",
+            order: 1,
+            startDay: 2,
+          },
+          {
+            budgetCents: 91_000,
+            durationDays: 3,
+            key: "tree-protection",
+            name: "Tree protection",
+            order: 2,
+            startDay: 0,
+          },
+        ],
+      }),
+    );
+  });
+
+  test("creates a packet milestone from the add milestone sheet", async () => {
+    const onCreatePacketMilestone = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          proposal: {
+            ...proposalDetail.proposal,
+            status: "submitted",
+          },
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onCreatePacketMilestone={onCreatePacketMilestone}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+        timeline={<div data-testid="timeline-slot">Timeline workspace</div>}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Add milestone" }));
+    expect(screen.getAllByText("Add milestone").length).toBeGreaterThan(1);
+
+    fireEvent.change(screen.getByLabelText("Scope"), {
+      target: { value: "Rough-ins" },
+    });
+    fireEvent.change(screen.getByLabelText("Start day"), {
+      target: { value: "31" },
+    });
+    fireEvent.change(screen.getByLabelText("End day"), {
+      target: { value: "52" },
+    });
+    fireEvent.change(screen.getByLabelText("Budget dollars"), {
+      target: { value: "99605" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save milestone" }));
+
+    await waitFor(() =>
+      expect(onCreatePacketMilestone).toHaveBeenCalledWith({
+        budgetCents: 9_960_500,
+        dayEnd: 52,
+        dayStart: 31,
+        dependencyKeys: [],
+        drawAvailabilityCents: 9_960_500,
+        durationDays: 21,
+        evidenceState: "Draft package",
+        milestoneKey: "rough-ins",
+        name: "Rough-ins",
+        order: 2,
+        policyState: "Draft policy review",
+        submilestones: [],
+        x: 31,
+      }),
+    );
+  });
+
   test("renders contractor planning in its own review tab when provided", () => {
     render(
       <ProductionProposalReviewSurface
@@ -1009,6 +1276,7 @@ describe("ProductionProposalReviewSurface", () => {
         .getAllByRole("tab")
         .map((tab) => tab.textContent),
     ).toEqual([
+      "Packet",
       "Timeline",
       "Milestones",
       "Calendar",
@@ -1016,7 +1284,6 @@ describe("ProductionProposalReviewSurface", () => {
       "Review",
       "Draw schedule",
       "Materials",
-      "Packet",
     ]);
 
     fireEvent.click(screen.getByRole("tab", { name: "Contractors" }));
@@ -1037,6 +1304,7 @@ describe("ProductionProposalReviewSurface", () => {
             status: "approved",
           },
         }}
+        initialActiveTab="review"
         onApprove={vi.fn()}
         onClose={onClose}
         onReject={vi.fn()}

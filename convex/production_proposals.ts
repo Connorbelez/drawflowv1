@@ -1026,6 +1026,7 @@ function normalizeProductionMilestoneSchedule<
     Math.round(milestone.durationDays ?? fallbackEnd - dayStart),
   );
   let cursor = dayStart;
+  let smallestSubmilestoneStart = Number.POSITIVE_INFINITY;
   let largestSubmilestoneEnd = dayStart;
   const submilestones = [...(milestone.submilestones ?? [])]
     .sort(
@@ -1040,6 +1041,7 @@ function normalizeProductionMilestoneSchedule<
       );
       const endDay = startDay + durationDays;
       cursor = endDay;
+      smallestSubmilestoneStart = Math.min(smallestSubmilestoneStart, startDay);
       largestSubmilestoneEnd = Math.max(largestSubmilestoneEnd, endDay);
       return {
         ...submilestone,
@@ -1048,16 +1050,28 @@ function normalizeProductionMilestoneSchedule<
         startDay,
       };
     });
-  const durationDays = Math.max(
-    requestedDurationDays,
-    largestSubmilestoneEnd - dayStart,
-  );
+  const hasSubmilestones = submilestones.length > 0;
+  const scheduleDayStart = hasSubmilestones
+    ? smallestSubmilestoneStart
+    : dayStart;
+  const durationDays = hasSubmilestones
+    ? Math.max(1, largestSubmilestoneEnd - scheduleDayStart)
+    : Math.max(requestedDurationDays, largestSubmilestoneEnd - dayStart);
   return {
-    dayEnd: dayStart + durationDays,
-    dayStart,
+    dayEnd: scheduleDayStart + durationDays,
+    dayStart: scheduleDayStart,
     durationDays,
     submilestones,
   };
+}
+
+function sumProductionSubmilestoneBudgetCents(
+  rows: ProductionSubmilestoneScheduleInput[],
+) {
+  return rows.reduce(
+    (total, row) => total + Math.max(0, Math.round(row.budgetCents ?? 0)),
+    0,
+  );
 }
 
 interface DraftProposalDrawInput {
@@ -1127,9 +1141,14 @@ async function insertDraftProposalPlanRows(
     (a, b) => a.order - b.order,
   )) {
     const schedule = normalizeProductionMilestoneSchedule(rawRow);
+    const budgetCents =
+      schedule.submilestones.length > 0
+        ? sumProductionSubmilestoneBudgetCents(schedule.submilestones)
+        : rawRow.budgetCents;
     const row = {
       ...rawRow,
       ...schedule,
+      budgetCents,
     };
     const drawAvailabilityCents = calculateDrawAvailability(
       row.budgetCents,
@@ -2030,10 +2049,14 @@ export const updateProductionTimelineMilestone = authenticatedMutation
             }))
           : args.submilestones,
     });
+    const budgetDerivedFromSubmilestones =
+      args.submilestones !== undefined && schedule.submilestones.length > 0;
     const nextBudgetCents =
-      args.budgetCents === undefined
-        ? milestone.budgetCents
-        : Math.max(0, Math.round(args.budgetCents));
+      budgetDerivedFromSubmilestones
+        ? sumProductionSubmilestoneBudgetCents(schedule.submilestones)
+        : (args.budgetCents === undefined
+            ? milestone.budgetCents
+            : Math.max(0, Math.round(args.budgetCents)));
     const now = Date.now();
     const nextDrawAvailabilityCents =
       args.drawAvailabilityCents === undefined
@@ -2043,7 +2066,7 @@ export const updateProductionTimelineMilestone = authenticatedMutation
           )
         : Math.max(0, Math.round(args.drawAvailabilityCents));
     const patch = {
-      ...(args.budgetCents === undefined
+      ...(args.budgetCents === undefined && !budgetDerivedFromSubmilestones
         ? {}
         : { budgetCents: nextBudgetCents }),
       ...(args.dayEnd === undefined ? {} : { dayEnd: Math.round(args.dayEnd) }),
@@ -2052,9 +2075,10 @@ export const updateProductionTimelineMilestone = authenticatedMutation
         : { dayStart: Math.round(args.dayStart) }),
       ...(args.dependencyKeys === undefined
         ? {}
-        : { dependencyKeys: args.dependencyKeys }),
+          : { dependencyKeys: args.dependencyKeys }),
       ...(args.drawAvailabilityCents === undefined &&
-      args.budgetCents === undefined
+      args.budgetCents === undefined &&
+      !budgetDerivedFromSubmilestones
         ? {}
         : { drawAvailabilityCents: nextDrawAvailabilityCents }),
       ...(args.durationDays === undefined
@@ -3180,6 +3204,47 @@ export const updateProductionProposalInterestRate = authenticatedMutation
       newState: JSON.stringify({ interestAnnualBps }),
       priorState: JSON.stringify({
         interestAnnualBps: auth.proposal.interestAnnualBps ?? 925,
+      }),
+      proposalId: args.proposalId,
+    });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
+    return null;
+  })
+  .public();
+
+export const updateProductionProposalProposedStartDate = authenticatedMutation
+  .input({
+    proposedStartDate: v.string(),
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    await requireProductionTimelineDraftStructureWrite(ctx, auth);
+    await requireProposalAppPermission(ctx, auth, "milestone", "update");
+    const proposedStartDate = normalizeIsoDateOnly(
+      args.proposedStartDate,
+      "proposedStartDate",
+    );
+    const now = Date.now();
+    await ctx.db.patch(args.proposalId, {
+      proposedStartDate,
+      updatedAt: now,
+      updatedByWorkosUserId: auth.subject,
+    });
+    await upsertKanbanCard(ctx, args.proposalId, now);
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "updateProductionProposalProposedStartDate",
+      eventType: "proposal.proposed_start_date.updated",
+      newState: JSON.stringify({ proposedStartDate }),
+      priorState: JSON.stringify({
+        proposedStartDate: auth.proposal.proposedStartDate,
       }),
       proposalId: args.proposalId,
     });
@@ -17908,7 +17973,10 @@ async function insertProductionMilestoneFromInput(
   }
   const schedule = normalizeProductionMilestoneSchedule(milestone);
   const now = Date.now();
-  const budgetCents = Math.max(0, Math.round(milestone.budgetCents));
+  const budgetCents =
+    schedule.submilestones.length > 0
+      ? sumProductionSubmilestoneBudgetCents(schedule.submilestones)
+      : Math.max(0, Math.round(milestone.budgetCents));
   const milestoneId = await ctx.db.insert("proposalMilestones", {
     brokerageId: auth.brokerage._id,
     budgetCents,
@@ -18822,7 +18890,10 @@ async function insertActiveBuildMilestoneFromInput(
   }
   const schedule = normalizeProductionMilestoneSchedule(milestone);
   const now = Date.now();
-  const budgetCents = Math.max(0, Math.round(milestone.budgetCents));
+  const budgetCents =
+    schedule.submilestones.length > 0
+      ? sumProductionSubmilestoneBudgetCents(schedule.submilestones)
+      : Math.max(0, Math.round(milestone.budgetCents));
   const proposalMilestoneId = await ctx.db.insert("proposalMilestones", {
     brokerageId: auth.brokerage._id,
     budgetCents,

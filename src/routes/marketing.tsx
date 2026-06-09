@@ -62,14 +62,10 @@ function MarketingPage(): ReactElement {
   const rootRef = useRef<HTMLElement>(null);
   const pinRef = useRef<HTMLDivElement>(null);
   const renderRef = useRef<HTMLDivElement>(null);
-  const blueprintRef = useRef<HTMLImageElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const nextCueRef = useRef<HTMLDivElement>(null);
 
   useMarketingScrollScene({
-    blueprintRef,
     contentRef,
-    nextCueRef,
     pinRef,
     renderRef,
     rootRef,
@@ -85,7 +81,6 @@ function MarketingPage(): ReactElement {
               className="mkt-hero-blueprint"
               decoding="async"
               fetchPriority="high"
-              ref={blueprintRef}
               src={blueprintAsset}
             />
             <div className="mkt-render-layer" ref={renderRef}>
@@ -107,15 +102,18 @@ function MarketingPage(): ReactElement {
           <div className="mkt-hero-content" ref={contentRef}>
             <div className="mkt-hero-copy">
               <p className="mkt-eyebrow">Fairlend Capital</p>
-              <h1 className="mkt-headline" id="marketing-hero-title">
-                <span className="mkt-headline-state mkt-headline-primary">
+              <div className="mkt-headline-stack">
+                <h1
+                  className="mkt-headline mkt-headline-state mkt-headline-primary"
+                  id="marketing-hero-title"
+                >
                   Building a fair
                   <br />
                   future for lending
-                </span>
+                </h1>
                 <ScrollReveal
                   aria-hidden="true"
-                  as="span"
+                  as="div"
                   baseOpacity={0}
                   baseRotation={-1.5}
                   blurStrength={1.4}
@@ -130,7 +128,7 @@ function MarketingPage(): ReactElement {
                 >
                   And a team thats with you from the start
                 </ScrollReveal>
-              </h1>
+              </div>
               <p className="mkt-hero-subcopy">
                 Build financing, private mortgages, and investor access for real
                 Canadian housing, underwritten with transparency and discipline.
@@ -159,10 +157,6 @@ function MarketingPage(): ReactElement {
             <TrustRail />
             <UnderwritingCard />
           </div>
-
-          <div className="mkt-next-cue" ref={nextCueRef}>
-            <span>DrawFlow visibility after funds release</span>
-          </div>
         </div>
       </section>
 
@@ -172,16 +166,12 @@ function MarketingPage(): ReactElement {
 }
 
 function useMarketingScrollScene({
-  blueprintRef,
   contentRef,
-  nextCueRef,
   pinRef,
   renderRef,
   rootRef,
 }: {
-  blueprintRef: React.RefObject<HTMLImageElement | null>;
   contentRef: React.RefObject<HTMLDivElement | null>;
-  nextCueRef: React.RefObject<HTMLDivElement | null>;
   pinRef: React.RefObject<HTMLDivElement | null>;
   renderRef: React.RefObject<HTMLDivElement | null>;
   rootRef: React.RefObject<HTMLElement | null>;
@@ -215,7 +205,7 @@ function useMarketingScrollScene({
             defaults: { ease: "none" },
             scrollTrigger: {
               anticipatePin: 1,
-              end: "+=210%",
+              end: "+=150%",
               pin: pinRef.current,
               scrub: true,
               start: "top top",
@@ -252,27 +242,19 @@ function useMarketingScrollScene({
               0.035,
             )
             .to(
+              ".mkt-headline-secondary",
+              {
+                duration: 0.16,
+                opacity: 1,
+              },
+              0.075,
+            )
+            .to(
               contentRef.current,
               {
                 y: -10,
               },
               0.58,
-            )
-            .to(
-              blueprintRef.current,
-              {
-                filter: "saturate(1.1) contrast(1.05)",
-                scale: 1.035,
-              },
-              0.48,
-            )
-            .to(
-              nextCueRef.current,
-              {
-                opacity: 1,
-                y: 0,
-              },
-              0.78,
             );
         }, rootRef);
 
@@ -285,9 +267,7 @@ function useMarketingScrollScene({
       cleanup();
     };
   }, [
-    blueprintRef,
     contentRef,
-    nextCueRef,
     pinRef,
     renderRef,
     rootRef,

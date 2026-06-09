@@ -1,13 +1,17 @@
 import {
   CalendarClock,
+  Check,
   CheckCircle2,
   Copy,
   Database,
   FileText,
   Link2,
+  Pencil,
+  Plus,
   Search,
   Send,
   Trash2,
+  X,
   UserPlus,
   UserRound,
   UserRoundX,
@@ -66,6 +70,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog.tsx";
+import {
+  Drawer,
+  DrawerClose,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerPanel,
+  DrawerPopup,
+  DrawerTitle,
+} from "#/components/ui/drawer.tsx";
 import { EditableNumberChip } from "#/components/ui/editable-chip.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
@@ -81,6 +95,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "#/components/ui/select.tsx";
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetPanel,
+  SheetTitle,
+} from "#/components/ui/sheet.tsx";
 import {
   Table,
   TableBody,
@@ -125,6 +149,7 @@ import {
 } from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
 import type { IsometricIconKey } from "#/features/timeline-workspace/-timeline-share-snapshot.ts";
 import { useCopyToClipboard } from "#/hooks/use-copy-to-clipboard.ts";
+import { useIsMobile } from "#/hooks/use-media-query.ts";
 import { createGoogleSatelliteMapUrl } from "#/lib/google-maps.ts";
 import { ProductionProposalDrawScheduleEditor } from "./ProductionProposalDrawScheduleEditor.tsx";
 import {
@@ -138,6 +163,10 @@ import { ProductionProposalMilestoneWorksheet } from "./ProductionProposalMilest
 import {
   productionProposalDetailToDraftMilestones,
 } from "./productionMilestoneWorksheetAdapter.ts";
+import {
+  dateFromProposalDayOffset,
+  isValidIsoDateOnly,
+} from "./proposalScheduleDates.ts";
 
 export type ProductionProposalStatus =
   | "draft"
@@ -244,7 +273,7 @@ export interface ProductionProposalDetail {
   submilestones?: ProductionSubmilestone[];
 }
 
-type ProductionReviewTab =
+export type ProductionReviewTab =
   | "calendar"
   | "closing"
   | "contractors"
@@ -256,6 +285,74 @@ type ProductionReviewTab =
   | "review"
   | "staff"
   | "timeline";
+
+type PacketMilestonePatch = {
+  budgetCents: number;
+  dayEnd: number;
+  dayStart: number;
+  durationDays: number;
+  name: string;
+  submilestones: PacketSubmilestonePatch[];
+};
+
+type PacketMilestoneCreatePayload = PacketMilestonePatch & {
+  dependencyKeys?: string[];
+  drawAvailabilityCents?: number;
+  durationDays: number;
+  evidenceState: string;
+  milestoneKey: string;
+  order: number;
+  policyState: string;
+  status?: string;
+  x: number;
+};
+
+type PacketSubmilestonePatch = {
+  budgetCents?: number;
+  durationDays?: number;
+  key: string;
+  name: string;
+  order: number;
+  startDay?: number;
+};
+
+type PacketSubmilestoneFormDraft = {
+  budgetDollars: string;
+  dayEnd: string;
+  key: string;
+  name: string;
+  order: number;
+  startDay: string;
+};
+
+type PacketMilestoneFormDraft = {
+  budgetDollars: string;
+  dayEnd: string;
+  dayStart: string;
+  milestoneKey: string;
+  mode: "create" | "edit";
+  name: string;
+  order: number;
+  submilestones: PacketSubmilestoneFormDraft[];
+};
+
+type PacketSubmilestoneOverlayDraft = {
+  budgetDollars: string;
+  dayEnd: string;
+  key?: string;
+  milestoneKey: string;
+  name: string;
+  order?: number;
+  startDay: string;
+};
+
+type PacketMilestoneGroup = {
+  fallbackBudgets: number[];
+  fallbackDurations: number[];
+  fallbackStartOffsets: number[];
+  milestone: ProductionMilestone;
+  submilestones: ProductionSubmilestone[];
+};
 
 export interface ProductionKanbanCard {
   activeBuildId?: string;
@@ -1548,9 +1645,12 @@ export function ProductionProposalReviewSurface({
   onRequestChanges,
   onAssignBuilder,
   onUnassignBuilder,
+  onCreatePacketMilestone,
   onUpdateApprovedAmount,
   onUpdateCalendarReminderEvent,
   onUpdateInterestRate,
+  onUpdatePacketMilestone,
+  onUpdateProposedStartDate,
   onSaveCalendarView,
   onCreateClaimLink,
   onUpdateDraw,
@@ -1571,11 +1671,11 @@ export function ProductionProposalReviewSurface({
   materialPlanningActions?: MaterialPlanningActions;
   onChangeCalendarTimeframe?: (timeframe: CalendarTimeframe) => void;
   onChangeReviewTab?: (tab: ProductionReviewTab) => void;
-  onApprove: (
+  onApprove?: (
     reason: string,
     permitWaiverReason?: string
   ) => Promise<unknown> | unknown;
-  onClose: (startDate: string, reason: string) => Promise<unknown> | unknown;
+  onClose?: (startDate: string, reason: string) => Promise<unknown> | unknown;
   onCommitCalendarEdit?: (
     request: CalendarEditRequest
   ) => Promise<unknown> | unknown;
@@ -1603,10 +1703,13 @@ export function ProductionProposalReviewSurface({
     provider: "google" | "ics" | "outlook";
     subscriptionKey?: string;
   }) => Promise<unknown> | unknown;
-  onReject: (reason: string) => Promise<unknown> | unknown;
-  onRequestChanges: (reason: string) => Promise<unknown> | unknown;
+  onReject?: (reason: string) => Promise<unknown> | unknown;
+  onRequestChanges?: (reason: string) => Promise<unknown> | unknown;
   onAssignBuilder?: (builderProfileId: string) => Promise<unknown> | unknown;
   onUnassignBuilder?: () => Promise<unknown> | unknown;
+  onCreatePacketMilestone?: (
+    milestone: PacketMilestoneCreatePayload
+  ) => Promise<unknown> | unknown;
   onUpdateApprovedAmount?: (
     approvedAmountCents: number
   ) => Promise<unknown> | unknown;
@@ -1615,6 +1718,13 @@ export function ProductionProposalReviewSurface({
   ) => Promise<unknown> | unknown;
   onUpdateInterestRate?: (
     interestAnnualBps: number
+  ) => Promise<unknown> | unknown;
+  onUpdatePacketMilestone?: (
+    milestoneKey: string,
+    patch: PacketMilestonePatch
+  ) => Promise<unknown> | unknown;
+  onUpdateProposedStartDate?: (
+    proposedStartDate: string
   ) => Promise<unknown> | unknown;
   onCreateClaimLink?: () =>
     | Promise<{ claimPath: string; claimToken: string; expiresAt: number }>
@@ -1677,8 +1787,13 @@ export function ProductionProposalReviewSurface({
       proposal.status === "approved");
   const drawEditReasonRequired =
     proposal.status === "submitted" || proposal.status === "approved";
+  const canRunReviewDecision = Boolean(
+    onApprove && onReject && onRequestChanges
+  );
+  const canRecordClosing = Boolean(onClose);
   const tabs = useMemo(() => {
     const nextTabs: { label: string; value: ProductionReviewTab }[] = [];
+    nextTabs.push({ label: "Packet", value: "packet" });
     if (timeline) {
       nextTabs.push({ label: "Timeline", value: "timeline" });
     }
@@ -1698,7 +1813,6 @@ export function ProductionProposalReviewSurface({
     if (staff) {
       nextTabs.push({ label: "Staff", value: "staff" });
     }
-    nextTabs.push({ label: "Packet", value: "packet" });
     if (proposal.status === "approved" || proposal.status === "closed") {
       nextTabs.push({ label: "Closing", value: "closing" });
     }
@@ -1766,7 +1880,7 @@ export function ProductionProposalReviewSurface({
     ]
   );
   const [activeTab, setActiveTab] = useState<ProductionReviewTab>(
-    initialActiveTab ?? (timeline ? "timeline" : "review")
+    initialActiveTab ?? "packet"
   );
 
   useEffect(() => {
@@ -1792,6 +1906,10 @@ export function ProductionProposalReviewSurface({
   const runReviewDecision = async (
     decision: "approve" | "reject" | "requestChanges"
   ) => {
+    if (!canRunReviewDecision) {
+      toast.error("You do not have permission to review this proposal.");
+      return;
+    }
     if (proposal.status !== "submitted") {
       toast.error("This proposal is no longer awaiting review.");
       return;
@@ -1818,11 +1936,11 @@ export function ProductionProposalReviewSurface({
     setPendingDecision(decision);
     try {
       if (decision === "approve") {
-        await onApprove(reviewReason, permitWaiverReviewReason || undefined);
+        await onApprove?.(reviewReason, permitWaiverReviewReason || undefined);
       } else if (decision === "reject") {
-        await onReject(reviewReason);
+        await onReject?.(reviewReason);
       } else {
-        await onRequestChanges(reviewReason);
+        await onRequestChanges?.(reviewReason);
       }
     } catch (error) {
       toast.error(productionProposalActionErrorMessage(error));
@@ -1972,46 +2090,50 @@ export function ProductionProposalReviewSurface({
                         {proposal.location}
                       </p>
                     </div>
-                    <div className="flex flex-wrap gap-2 sm:justify-end">
-                      <Button
-                        disabled={
-                          proposal.status !== "submitted" ||
-                          pendingDecision !== null
-                        }
-                        onClick={() => void runReviewDecision("requestChanges")}
-                        size="sm"
-                        variant="outline"
-                      >
-                        {pendingDecision === "requestChanges"
-                          ? "Requesting..."
-                          : "Request changes"}
-                      </Button>
-                      <Button
-                        disabled={
-                          proposal.status !== "submitted" ||
-                          pendingDecision !== null
-                        }
-                        onClick={() => void runReviewDecision("reject")}
-                        size="sm"
-                        variant="destructive"
-                      >
-                        {pendingDecision === "reject"
-                          ? "Rejecting..."
-                          : "Reject"}
-                      </Button>
-                      <Button
-                        disabled={
-                          proposal.status !== "submitted" ||
-                          pendingDecision !== null
-                        }
-                        onClick={() => void runReviewDecision("approve")}
-                        size="sm"
-                      >
-                        {pendingDecision === "approve"
-                          ? "Approving..."
-                          : "Approve"}
-                      </Button>
-                    </div>
+                    {canRunReviewDecision ? (
+                      <div className="flex flex-wrap gap-2 sm:justify-end">
+                        <Button
+                          disabled={
+                            proposal.status !== "submitted" ||
+                            pendingDecision !== null
+                          }
+                          onClick={() =>
+                            void runReviewDecision("requestChanges")
+                          }
+                          size="sm"
+                          variant="outline"
+                        >
+                          {pendingDecision === "requestChanges"
+                            ? "Requesting..."
+                            : "Request changes"}
+                        </Button>
+                        <Button
+                          disabled={
+                            proposal.status !== "submitted" ||
+                            pendingDecision !== null
+                          }
+                          onClick={() => void runReviewDecision("reject")}
+                          size="sm"
+                          variant="destructive"
+                        >
+                          {pendingDecision === "reject"
+                            ? "Rejecting..."
+                            : "Reject"}
+                        </Button>
+                        <Button
+                          disabled={
+                            proposal.status !== "submitted" ||
+                            pendingDecision !== null
+                          }
+                          onClick={() => void runReviewDecision("approve")}
+                          size="sm"
+                        >
+                          {pendingDecision === "approve"
+                            ? "Approving..."
+                            : "Approve"}
+                        </Button>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="grid gap-2">
@@ -2204,7 +2326,12 @@ export function ProductionProposalReviewSurface({
           data-testid="production-proposal-packet-tab"
           value="packet"
         >
-          <ProposalPacketSnapshot detail={detail} />
+        <ProposalPacketSnapshot
+          detail={detail}
+          onCreateMilestone={onCreatePacketMilestone}
+          onUpdateMilestone={onUpdatePacketMilestone}
+          onUpdateProposedStartDate={onUpdateProposedStartDate}
+        />
         </TabsPanel>
 
         {proposal.status === "approved" || proposal.status === "closed" ? (
@@ -2234,9 +2361,13 @@ export function ProductionProposalReviewSurface({
                   value={startDate}
                 />
                 <Button
-                  disabled={proposal.status !== "approved" || !startDate}
+                  disabled={
+                    !canRecordClosing ||
+                    proposal.status !== "approved" ||
+                    !startDate
+                  }
                   onClick={() =>
-                    onClose(startDate, reason || "Loan closed offline.")
+                    onClose?.(startDate, reason || "Loan closed offline.")
                   }
                   size="sm"
                 >
@@ -3134,10 +3265,41 @@ function ProposalReadinessList({
 
 function ProposalPacketSnapshot({
   detail,
+  onCreateMilestone,
+  onUpdateMilestone,
+  onUpdateProposedStartDate,
 }: {
   detail: ProductionProposalDetail;
+  onCreateMilestone?: (
+    milestone: PacketMilestoneCreatePayload
+  ) => Promise<unknown> | unknown;
+  onUpdateMilestone?: (
+    milestoneKey: string,
+    patch: PacketMilestonePatch
+  ) => Promise<unknown> | unknown;
+  onUpdateProposedStartDate?: (
+    proposedStartDate: string
+  ) => Promise<unknown> | unknown;
 }) {
   const proposal = detail.proposal;
+  const [dateDisplayMode, setDateDisplayMode] = useState<
+    "relative" | "real"
+  >("relative");
+  const [editingStartDate, setEditingStartDate] = useState(false);
+  const [startDateDraft, setStartDateDraft] = useState(
+    proposal.proposedStartDate ?? ""
+  );
+  const [startDatePending, setStartDatePending] = useState(false);
+  const [editingMilestoneKey, setEditingMilestoneKey] = useState<string | null>(
+    null
+  );
+  const [pendingMilestoneKey, setPendingMilestoneKey] = useState<string | null>(
+    null
+  );
+  const [milestoneDraft, setMilestoneDraft] =
+    useState<PacketMilestoneFormDraft | null>(null);
+  const [submilestoneOverlayDraft, setSubmilestoneOverlayDraft] =
+    useState<PacketSubmilestoneOverlayDraft | null>(null);
   const permit = detail.documents?.find((doc) => doc.documentType === "permit");
   const permitViewerDocument = firstPermitDocument(detail.documents);
   const draws = detail.draws ?? detail.plannedDraws ?? [];
@@ -3159,12 +3321,348 @@ function ProposalPacketSnapshot({
     zoom: 18,
   });
   const milestoneGroups = proposalPacketMilestoneGroups(detail);
+  const existingMilestoneKeys = new Set(
+    milestoneGroups.map((group) => group.milestone.key)
+  );
   const projectDurationDays =
     (detail.milestones ?? []).length > 0
       ? Math.max(
           ...(detail.milestones ?? []).map((milestone) => milestone.dayEnd)
         )
       : 0;
+  const canEditMilestones = Boolean(onUpdateMilestone);
+  const canCreateMilestones = Boolean(onCreateMilestone);
+  const canManageMilestones = canEditMilestones || canCreateMilestones;
+  const canEditProposedStartDate = Boolean(onUpdateProposedStartDate);
+  const proposedStartDate = proposal.proposedStartDate ?? "";
+  const canShowRealDates = isValidProposalStartDate(proposedStartDate);
+
+  useEffect(() => {
+    setStartDateDraft(proposal.proposedStartDate ?? "");
+    if (!proposal.proposedStartDate) {
+      setDateDisplayMode("relative");
+    }
+  }, [proposal.proposedStartDate]);
+
+  function beginMilestoneEdit(group: PacketMilestoneGroup) {
+    setEditingMilestoneKey(group.milestone.key);
+    setMilestoneDraft(packetMilestoneFormDraftFromGroup(group));
+  }
+
+  function beginMilestoneCreate() {
+    setEditingMilestoneKey(null);
+    const nextOrder =
+      milestoneGroups.reduce(
+        (maxOrder, group) => Math.max(maxOrder, group.milestone.order),
+        0
+      ) + 1;
+    const nextStartDay =
+      milestoneGroups.length > 0
+        ? Math.max(...milestoneGroups.map((group) => group.milestone.dayEnd))
+        : 0;
+    setMilestoneDraft({
+      budgetDollars: "",
+      dayEnd: String(nextStartDay + 7),
+      dayStart: String(nextStartDay),
+      milestoneKey: `milestone-${nextOrder}`,
+      mode: "create",
+      name: "",
+      order: nextOrder,
+      submilestones: [],
+    });
+  }
+
+  function updateMilestoneDraft(patch: Partial<PacketMilestoneFormDraft>) {
+    setMilestoneDraft((current) => (current ? { ...current, ...patch } : null));
+  }
+
+  function updateSubmilestoneDraft(
+    key: string,
+    patch: Partial<PacketSubmilestoneFormDraft>
+  ) {
+    setMilestoneDraft((current) =>
+      current
+        ? {
+            ...current,
+            submilestones: current.submilestones.map((submilestone) =>
+              submilestone.key === key
+                ? { ...submilestone, ...patch }
+                : submilestone
+            ),
+          }
+        : null
+    );
+  }
+
+  function updateSubmilestoneStartDayDraft(key: string, value: string) {
+    setMilestoneDraft((current) =>
+      current
+        ? {
+            ...current,
+            submilestones: current.submilestones.map((submilestone) => {
+              if (submilestone.key !== key) {
+                return submilestone;
+              }
+              return {
+                ...submilestone,
+                startDay: digitDraftValue(value),
+              };
+            }),
+          }
+        : null
+    );
+  }
+
+  function updateSubmilestoneEndDayDraft(key: string, value: string) {
+    setMilestoneDraft((current) =>
+      current
+        ? {
+            ...current,
+            submilestones: current.submilestones.map((submilestone) => {
+              if (submilestone.key !== key) {
+                return submilestone;
+              }
+              return {
+                ...submilestone,
+                dayEnd: digitDraftValue(value),
+              };
+            }),
+          }
+        : null
+    );
+  }
+
+  function updateSubmilestoneOverlayStartDay(value: string) {
+    setSubmilestoneOverlayDraft((current) => {
+      if (!current) {
+        return null;
+      }
+      return {
+        ...current,
+        startDay: digitDraftValue(value),
+      };
+    });
+  }
+
+  function updateSubmilestoneOverlayEndDay(value: string) {
+    setSubmilestoneOverlayDraft((current) =>
+      current
+        ? {
+            ...current,
+            dayEnd: digitDraftValue(value),
+          }
+        : null
+    );
+  }
+
+  function removeSubmilestoneDraft(key: string) {
+    setMilestoneDraft((current) =>
+      current
+        ? {
+            ...current,
+            submilestones: current.submilestones
+              .filter((submilestone) => submilestone.key !== key)
+              .map((submilestone, index) => ({
+                ...submilestone,
+                order: index + 1,
+              })),
+          }
+        : null
+    );
+  }
+
+  function openAddSubmilestone(group: PacketMilestoneGroup) {
+    const activeDraft =
+      milestoneDraft?.mode === "edit" &&
+      milestoneDraft.milestoneKey === group.milestone.key
+        ? milestoneDraft
+        : packetMilestoneFormDraftFromGroup(group);
+    if (!activeDraft) {
+      return;
+    }
+    setSubmilestoneOverlayDraft({
+      budgetDollars: "",
+      dayEnd: String(parseInteger(activeDraft.dayStart) + 1),
+      milestoneKey: group.milestone.key,
+      name: "",
+      order: activeDraft.submilestones.length + 1,
+      startDay: activeDraft.dayStart,
+    });
+  }
+
+  function openAddSubmilestoneForDraft() {
+    if (!milestoneDraft) {
+      return;
+    }
+    setSubmilestoneOverlayDraft({
+      budgetDollars: "",
+      dayEnd: String(parseInteger(milestoneDraft.dayStart) + 1),
+      milestoneKey: milestoneDraft.milestoneKey,
+      name: "",
+      order: milestoneDraft.submilestones.length + 1,
+      startDay: milestoneDraft.dayStart,
+    });
+  }
+
+  async function saveSubmilestoneOverlayDraft() {
+    if (!submilestoneOverlayDraft) {
+      return;
+    }
+    const name = submilestoneOverlayDraft.name.trim();
+    if (!name) {
+      toast.error("Submilestone name is required.");
+      return;
+    }
+    const startDay = parseRequiredInteger(submilestoneOverlayDraft.startDay);
+    const dayEnd = parseRequiredInteger(submilestoneOverlayDraft.dayEnd);
+    if (startDay === null || startDay < 0) {
+      toast.error("Submilestone start day is invalid.");
+      return;
+    }
+    if (dayEnd === null || dayEnd <= startDay) {
+      toast.error("Submilestone end day is invalid.");
+      return;
+    }
+    const durationDays = dayEnd - startDay;
+    const budgetCents = dollarsInputToOptionalCents(
+      submilestoneOverlayDraft.budgetDollars
+    );
+    if (budgetCents !== undefined && budgetCents < 0) {
+      toast.error("Submilestone budget is invalid.");
+      return;
+    }
+    const creatingMilestone =
+      milestoneDraft?.mode === "create" &&
+      milestoneDraft.milestoneKey === submilestoneOverlayDraft.milestoneKey
+        ? milestoneDraft
+        : null;
+    const targetGroup = milestoneGroups.find(
+      (group) => group.milestone.key === submilestoneOverlayDraft.milestoneKey
+    );
+    if (!(targetGroup || creatingMilestone)) {
+      toast.error("Milestone was not found.");
+      return;
+    }
+    const targetDraft =
+      creatingMilestone ??
+      (milestoneDraft?.mode === "edit" &&
+      milestoneDraft.milestoneKey === submilestoneOverlayDraft.milestoneKey
+        ? milestoneDraft
+        : packetMilestoneFormDraftFromGroup(targetGroup!));
+    const existingKeys = new Set(
+      targetDraft.submilestones.map((submilestone) => submilestone.key)
+    );
+    const key = uniquePacketKey(name, "submilestone", existingKeys);
+    const nextSubmilestones = [
+      ...targetDraft.submilestones,
+      {
+        budgetDollars: submilestoneOverlayDraft.budgetDollars,
+        dayEnd: String(dayEnd),
+        key,
+        name,
+        order: targetDraft.submilestones.length + 1,
+        startDay: String(startDay),
+      },
+    ];
+    if (
+      milestoneDraft &&
+      milestoneDraft.milestoneKey === submilestoneOverlayDraft.milestoneKey
+    ) {
+      updateMilestoneDraft({
+        submilestones: nextSubmilestones,
+      });
+      setSubmilestoneOverlayDraft(null);
+      return;
+    }
+    if (!onUpdateMilestone) {
+      return;
+    }
+    const nextDraft = {
+      ...targetDraft,
+      submilestones: [
+        ...nextSubmilestones,
+      ],
+    };
+    const normalized = normalizePacketMilestoneFormDraft(nextDraft);
+    if (!normalized) {
+      return;
+    }
+    setPendingMilestoneKey(targetDraft.milestoneKey);
+    try {
+      await onUpdateMilestone(targetDraft.milestoneKey, normalized);
+      setSubmilestoneOverlayDraft(null);
+    } catch (error) {
+      toast.error(productionProposalActionErrorMessage(error));
+    } finally {
+      setPendingMilestoneKey(null);
+    }
+  }
+
+  async function saveMilestoneDraft() {
+    if (!milestoneDraft) {
+      return;
+    }
+    const normalized = normalizePacketMilestoneFormDraft(milestoneDraft);
+    if (!normalized) {
+      return;
+    }
+    if (milestoneDraft.mode === "edit" && !onUpdateMilestone) {
+      return;
+    }
+    if (milestoneDraft.mode === "create" && !onCreateMilestone) {
+      return;
+    }
+    const pendingKey = milestoneDraft.milestoneKey;
+    setPendingMilestoneKey(pendingKey);
+    try {
+      if (milestoneDraft.mode === "edit") {
+        await onUpdateMilestone?.(milestoneDraft.milestoneKey, normalized);
+      } else {
+        const milestoneKey = uniquePacketKey(
+          normalized.name,
+          milestoneDraft.milestoneKey,
+          existingMilestoneKeys
+        );
+        await onCreateMilestone?.({
+          ...normalized,
+          dependencyKeys: [],
+          drawAvailabilityCents: normalized.budgetCents,
+          evidenceState: "Draft package",
+          milestoneKey,
+          order: milestoneDraft.order,
+          policyState: "Draft policy review",
+          x: normalized.dayStart,
+        });
+      }
+      setMilestoneDraft(null);
+      setEditingMilestoneKey(null);
+    } catch (error) {
+      toast.error(productionProposalActionErrorMessage(error));
+    } finally {
+      setPendingMilestoneKey(null);
+    }
+  }
+
+  async function saveProposedStartDate() {
+    if (!onUpdateProposedStartDate) {
+      return;
+    }
+    if (!isValidIsoDateOnly(startDateDraft)) {
+      toast.error("Enter a valid proposed start date.");
+      return;
+    }
+    setStartDatePending(true);
+    try {
+      await onUpdateProposedStartDate(startDateDraft);
+      setDateDisplayMode("real");
+      setEditingStartDate(false);
+      toast.success("Proposed start date updated.");
+    } catch (error) {
+      toast.error(productionProposalActionErrorMessage(error));
+    } finally {
+      setStartDatePending(false);
+    }
+  }
 
   return (
     <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_26rem]">
@@ -3193,6 +3691,23 @@ function ProposalPacketSnapshot({
                   ["Build", proposal.buildName],
                   ["Location", proposal.location],
                   ["Status", statusLabel(proposal.status)],
+                  [
+                    "Proposed start date",
+                    <PacketProposedStartDateControl
+                      canEdit={canEditProposedStartDate}
+                      draft={startDateDraft}
+                      editing={editingStartDate}
+                      onCancel={() => {
+                        setStartDateDraft(proposal.proposedStartDate ?? "");
+                        setEditingStartDate(false);
+                      }}
+                      onDraftChange={setStartDateDraft}
+                      onEdit={() => setEditingStartDate(true)}
+                      onSave={() => void saveProposedStartDate()}
+                      pending={startDatePending}
+                      value={proposal.proposedStartDate}
+                    />,
+                  ],
                   ["Planned duration", `${projectDurationDays} days`],
                 ]}
               />
@@ -3215,66 +3730,362 @@ function ProposalPacketSnapshot({
           </div>
         </Section>
 
-        <Section title="Milestone and submilestone worksheet">
-          <Table>
+        <Section
+          action={
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {canShowRealDates ? (
+                <PacketDateDisplayToggle
+                  mode={dateDisplayMode}
+                  onModeChange={setDateDisplayMode}
+                />
+              ) : null}
+              {canCreateMilestones ? (
+                <Button onClick={beginMilestoneCreate} size="sm">
+                  <Plus aria-hidden />
+                  Add milestone
+                </Button>
+              ) : null}
+            </div>
+          }
+          title="Milestone and submilestone worksheet"
+        >
+          <Table className="table-fixed">
+            <colgroup>
+              <col className={canManageMilestones ? "w-[54%]" : "w-[58%]"} />
+              <col className={canManageMilestones ? "w-[24%]" : "w-[26%]"} />
+              <col className={canManageMilestones ? "w-[14%]" : "w-[16%]"} />
+              {canManageMilestones ? <col className="w-[8%]" /> : null}
+            </colgroup>
             <TableHeader>
               <TableRow>
                 <TableHead>Scope</TableHead>
                 <TableHead>Window</TableHead>
                 <TableHead className="text-right">Budget</TableHead>
+                {canManageMilestones ? (
+                  <TableHead className="w-24 text-right">Edit</TableHead>
+                ) : null}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {milestoneGroups.map((group) => (
-                <Fragment key={group.milestone.key}>
-                  <TableRow>
-                    <TableCell className="font-medium">
-                      {group.milestone.name}
-                      <div className="mt-1 text-muted-foreground text-xs">
-                        {group.submilestones.length} submilestones
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      Day {group.milestone.dayStart} to {group.milestone.dayEnd}
-                    </TableCell>
-                    <TableCell className="text-right font-medium">
-                      {formatCents(group.milestone.budgetCents)}
-                    </TableCell>
-                  </TableRow>
-                  {group.submilestones.map((submilestone, index) => {
-                    const budgetCents =
-                      submilestone.budgetCents ??
-                      group.fallbackBudgets[index] ??
-                      0;
-                    const startDay =
-                      submilestone.startDay ??
-                      group.milestone.dayStart +
-                        group.fallbackStartOffsets[index];
-                    const durationDays = submilestone.durationDays ?? 1;
-                    return (
-                      <TableRow
-                        className="bg-muted/30"
-                        key={`${group.milestone.key}-${submilestone.key}`}
-                      >
-                        <TableCell className="pl-8">
-                          <span className="font-medium">
-                            {submilestone.name}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          Day {startDay} to {startDay + durationDays}
-                          <span className="ml-2 text-muted-foreground text-xs">
-                            {durationDays}d
-                          </span>
-                        </TableCell>
+              {milestoneGroups.map((group) => {
+                const pending = pendingMilestoneKey === group.milestone.key;
+                const editing =
+                  editingMilestoneKey === group.milestone.key &&
+                  milestoneDraft?.mode === "edit"
+                    ? milestoneDraft
+                    : null;
+                return (
+                  <Fragment key={group.milestone.key}>
+                    <TableRow className="h-16">
+                      <TableCell className="font-medium">
+                        {editing ? (
+                          <Input
+                            aria-label={`${group.milestone.name} scope`}
+                            className="h-8 w-full"
+                            onChange={(event) =>
+                              updateMilestoneDraft({
+                                name: event.currentTarget.value,
+                              })
+                            }
+                            value={editing.name}
+                          />
+                        ) : (
+                          <>
+                            {group.milestone.name}
+                            <div className="mt-1 text-muted-foreground text-xs">
+                              {group.submilestones.length} submilestones
+                            </div>
+                          </>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {editing ? (
+                          editing.submilestones.length > 0 ? (
+                            <PacketComputedMilestoneValue
+                              label="Calculated from submilestones"
+                              value={formatPacketWindow({
+                                dateDisplayMode,
+                                dayEnd:
+                                  packetMilestoneDraftPreview(editing).dayEnd,
+                                dayStart:
+                                  packetMilestoneDraftPreview(editing).dayStart,
+                                proposedStartDate,
+                              })}
+                            />
+                          ) : (
+                            <div className="flex items-center gap-1.5">
+                              <Input
+                                aria-label={`${group.milestone.name} start day`}
+                                className="h-8 w-20"
+                                inputMode="numeric"
+                                onChange={(event) =>
+                                  updateMilestoneDraft({
+                                    dayStart: digitDraftValue(
+                                      event.currentTarget.value
+                                    ),
+                                  })
+                                }
+                                value={editing.dayStart}
+                              />
+                              <span className="text-muted-foreground text-xs">
+                                to
+                              </span>
+                              <Input
+                                aria-label={`${group.milestone.name} end day`}
+                                className="h-8 w-20"
+                                inputMode="numeric"
+                                onChange={(event) =>
+                                  updateMilestoneDraft({
+                                    dayEnd: digitDraftValue(
+                                      event.currentTarget.value
+                                    ),
+                                  })
+                                }
+                                value={editing.dayEnd}
+                              />
+                            </div>
+                          )
+                        ) : (
+                          <>
+                            {formatPacketWindow({
+                              dateDisplayMode,
+                              dayEnd: group.milestone.dayEnd,
+                              dayStart: group.milestone.dayStart,
+                              proposedStartDate,
+                            })}
+                          </>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right font-medium">
+                        {editing ? (
+                          editing.submilestones.length > 0 ? (
+                            <PacketComputedMilestoneValue
+                              align="right"
+                              label="Calculated from submilestones"
+                              value={formatCents(
+                                packetMilestoneDraftPreview(editing)
+                                  .budgetCents
+                              )}
+                            />
+                          ) : (
+                            <Input
+                              aria-label={`${group.milestone.name} budget`}
+                              className="ml-auto h-8 w-32 text-right"
+                              inputMode="decimal"
+                              onChange={(event) =>
+                                updateMilestoneDraft({
+                                  budgetDollars: event.currentTarget.value,
+                                })
+                              }
+                              value={editing.budgetDollars}
+                            />
+                          )
+                        ) : (
+                          formatCents(group.milestone.budgetCents)
+                        )}
+                      </TableCell>
+                      {canManageMilestones ? (
                         <TableCell className="text-right">
-                          {formatCents(budgetCents)}
+                          {editing ? (
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                aria-label={`Add submilestone to ${group.milestone.name}`}
+                                disabled={pending}
+                                onClick={() => openAddSubmilestone(group)}
+                                size="icon-xs"
+                                title="Add submilestone"
+                                variant="ghost"
+                              >
+                                <Plus aria-hidden />
+                              </Button>
+                              <Button
+                                aria-label={`Save ${group.milestone.name} packet row`}
+                                loading={pending}
+                                onClick={() => void saveMilestoneDraft()}
+                                size="icon-xs"
+                                title="Save row"
+                              >
+                                <Check aria-hidden />
+                              </Button>
+                              <Button
+                                aria-label={`Cancel ${group.milestone.name} packet row edit`}
+                                disabled={pending}
+                                onClick={() => {
+                                  setEditingMilestoneKey(null);
+                                  setMilestoneDraft(null);
+                                }}
+                                size="icon-xs"
+                                title="Cancel edit"
+                                variant="ghost"
+                              >
+                                <X aria-hidden />
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="flex justify-end gap-1">
+                              {canEditMilestones ? (
+                                <Button
+                                  aria-label={`Add submilestone to ${group.milestone.name}`}
+                                  loading={pending}
+                                  onClick={() => openAddSubmilestone(group)}
+                                  size="icon-xs"
+                                  title="Add submilestone"
+                                  variant="ghost"
+                                >
+                                  <Plus aria-hidden />
+                                </Button>
+                              ) : null}
+                              {canEditMilestones ? (
+                                <Button
+                                  aria-label={`Edit ${group.milestone.name} packet row`}
+                                  loading={pending}
+                                  onClick={() => beginMilestoneEdit(group)}
+                                  size="icon-xs"
+                                  title="Edit row"
+                                  variant="ghost"
+                                >
+                                  <Pencil aria-hidden />
+                                </Button>
+                              ) : null}
+                            </div>
+                          )}
                         </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </Fragment>
-              ))}
+                      ) : null}
+                    </TableRow>
+                    {(editing?.submilestones ?? group.submilestones).map((submilestone, index) => {
+                      const budgetCents =
+                        editing
+                          ? dollarsInputToCents(submilestone.budgetDollars)
+                          : submilestone.budgetCents ??
+                            group.fallbackBudgets[index] ??
+                            0;
+                      const startDay =
+                        editing
+                          ? parseInteger(submilestone.startDay)
+                          : submilestone.startDay ??
+                            group.milestone.dayStart +
+                              group.fallbackStartOffsets[index];
+                      const durationDays =
+                        editing
+                          ? Math.max(
+                              1,
+                              parseInteger(
+                                (submilestone as PacketSubmilestoneFormDraft)
+                                  .dayEnd
+                              ) - startDay
+                            )
+                          : submilestone.durationDays ?? 1;
+                      return (
+                        <TableRow
+                          className="h-14 bg-muted/30"
+                          key={`${group.milestone.key}-${submilestone.key}`}
+                        >
+                          <TableCell className="pl-8">
+                            {editing ? (
+                              <Input
+                                aria-label={`${group.milestone.name} submilestone ${index + 1} name`}
+                                className="h-8"
+                                onChange={(event) =>
+                                  updateSubmilestoneDraft(submilestone.key, {
+                                    name: event.currentTarget.value,
+                                  })
+                                }
+                                value={submilestone.name}
+                              />
+                            ) : (
+                              <span className="font-medium">
+                                {submilestone.name}
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {editing ? (
+                              <div className="flex items-center gap-1.5">
+                                <Input
+                                  aria-label={`${group.milestone.name} submilestone ${index + 1} start day`}
+                                  className="h-8 w-20"
+                                  inputMode="numeric"
+                                  onChange={(event) =>
+                                    updateSubmilestoneStartDayDraft(
+                                      submilestone.key,
+                                      event.currentTarget.value
+                                    )
+                                  }
+                                  value={submilestone.startDay}
+                                />
+                                <span className="text-muted-foreground text-xs">
+                                  to
+                                </span>
+                                <Input
+                                  aria-label={`${group.milestone.name} submilestone ${index + 1} end day`}
+                                  className="h-8 w-20"
+                                  inputMode="numeric"
+                                  onChange={(event) =>
+                                    updateSubmilestoneEndDayDraft(
+                                      submilestone.key,
+                                      event.currentTarget.value
+                                    )
+                                  }
+                                  value={String(
+                                    (submilestone as PacketSubmilestoneFormDraft)
+                                      .dayEnd
+                                  )}
+                                />
+                              </div>
+                            ) : (
+                              <>
+                                {formatPacketWindow({
+                                  dateDisplayMode,
+                                  dayEnd: startDay + durationDays,
+                                  dayStart: startDay,
+                                  proposedStartDate,
+                                })}
+                                <span className="ml-2 text-muted-foreground text-xs">
+                                  {durationDays}d
+                                </span>
+                              </>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {editing ? (
+                              <Input
+                                aria-label={`${group.milestone.name} submilestone ${index + 1} budget`}
+                                className="ml-auto h-8 w-28 text-right"
+                                inputMode="decimal"
+                                onChange={(event) =>
+                                  updateSubmilestoneDraft(submilestone.key, {
+                                    budgetDollars: event.currentTarget.value,
+                                  })
+                                }
+                                value={submilestone.budgetDollars}
+                              />
+                            ) : (
+                              formatCents(budgetCents)
+                            )}
+                          </TableCell>
+                          {canManageMilestones ? (
+                            <TableCell className="text-right">
+                              {editing ? (
+                                <Button
+                                  aria-label={`Remove ${submilestone.name || `submilestone ${index + 1}`}`}
+                                  onClick={() =>
+                                    removeSubmilestoneDraft(submilestone.key)
+                                  }
+                                  size="icon-xs"
+                                  title="Remove submilestone"
+                                  variant="ghost"
+                                >
+                                  <Trash2 aria-hidden />
+                                </Button>
+                              ) : null}
+                            </TableCell>
+                          ) : null}
+                        </TableRow>
+                      );
+                    })}
+                  </Fragment>
+                );
+              })}
             </TableBody>
           </Table>
         </Section>
@@ -3302,6 +4113,28 @@ function ProposalPacketSnapshot({
           </Table>
         </Section>
       </div>
+      <PacketMilestoneEditorOverlay
+        draft={milestoneDraft?.mode === "create" ? milestoneDraft : null}
+        onAddSubmilestone={openAddSubmilestoneForDraft}
+        onClose={() => setMilestoneDraft(null)}
+        onDraftChange={updateMilestoneDraft}
+        onRemoveSubmilestone={removeSubmilestoneDraft}
+        onSave={() => void saveMilestoneDraft()}
+        onSubmilestoneChange={updateSubmilestoneDraft}
+        pending={Boolean(pendingMilestoneKey)}
+      />
+      <PacketSubmilestoneOverlay
+        draft={submilestoneOverlayDraft}
+        onClose={() => setSubmilestoneOverlayDraft(null)}
+        onDraftChange={(patch) =>
+          setSubmilestoneOverlayDraft((current) =>
+            current ? { ...current, ...patch } : null
+          )
+        }
+        onEndDayChange={updateSubmilestoneOverlayEndDay}
+        onSave={saveSubmilestoneOverlayDraft}
+        onStartDayChange={updateSubmilestoneOverlayStartDay}
+      />
 
       <div className="grid gap-4">
         <Section title="Closing financials">
@@ -3367,6 +4200,761 @@ function ProposalPacketSnapshot({
   );
 }
 
+function PacketProposedStartDateControl({
+  canEdit,
+  draft,
+  editing,
+  onCancel,
+  onDraftChange,
+  onEdit,
+  onSave,
+  pending,
+  value,
+}: {
+  canEdit: boolean;
+  draft: string;
+  editing: boolean;
+  onCancel: () => void;
+  onDraftChange: (value: string) => void;
+  onEdit: () => void;
+  onSave: () => void;
+  pending: boolean;
+  value?: string;
+}) {
+  if (editing) {
+    return (
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        <Input
+          aria-label="Proposed start date"
+          className="h-8 w-38"
+          onChange={(event) => onDraftChange(event.currentTarget.value)}
+          type="date"
+          value={draft}
+        />
+        <Button
+          aria-label="Save proposed start date"
+          loading={pending}
+          onClick={onSave}
+          size="icon-xs"
+          title="Save proposed start date"
+        >
+          <Check aria-hidden />
+        </Button>
+        <Button
+          aria-label="Cancel proposed start date edit"
+          disabled={pending}
+          onClick={onCancel}
+          size="icon-xs"
+          title="Cancel edit"
+          variant="ghost"
+        >
+          <X aria-hidden />
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1.5">
+      <span>{value ? formatPacketDate(value) : "Not set"}</span>
+      {canEdit ? (
+        <Button
+          aria-label="Edit proposed start date"
+          onClick={onEdit}
+          size="icon-xs"
+          title="Edit proposed start date"
+          variant="ghost"
+        >
+          <Pencil aria-hidden />
+        </Button>
+      ) : null}
+    </span>
+  );
+}
+
+function PacketComputedMilestoneValue({
+  align = "left",
+  label,
+  value,
+}: {
+  align?: "left" | "right";
+  label: string;
+  value: string;
+}) {
+  return (
+    <div
+      className={`grid gap-0.5 ${align === "right" ? "justify-items-end" : ""}`}
+    >
+      <span>{value}</span>
+      <span className="text-muted-foreground text-xs">{label}</span>
+    </div>
+  );
+}
+
+function PacketDateDisplayToggle({
+  mode,
+  onModeChange,
+}: {
+  mode: "relative" | "real";
+  onModeChange: (mode: "relative" | "real") => void;
+}) {
+  return (
+    <div
+      aria-label="Packet date display"
+      className="inline-flex rounded-lg border bg-background p-0.5"
+      role="group"
+    >
+      <Button
+        aria-pressed={mode === "relative"}
+        onClick={() => onModeChange("relative")}
+        size="sm"
+        variant={mode === "relative" ? "secondary" : "ghost"}
+      >
+        Relative
+      </Button>
+      <Button
+        aria-pressed={mode === "real"}
+        onClick={() => onModeChange("real")}
+        size="sm"
+        variant={mode === "real" ? "secondary" : "ghost"}
+      >
+        Real dates
+      </Button>
+    </div>
+  );
+}
+
+function PacketMilestoneEditorOverlay({
+  draft,
+  onAddSubmilestone,
+  onClose,
+  onDraftChange,
+  onRemoveSubmilestone,
+  onSave,
+  onSubmilestoneChange,
+  pending,
+}: {
+  draft: PacketMilestoneFormDraft | null;
+  onAddSubmilestone: () => void;
+  onClose: () => void;
+  onDraftChange: (patch: Partial<PacketMilestoneFormDraft>) => void;
+  onRemoveSubmilestone: (key: string) => void;
+  onSave: () => void;
+  onSubmilestoneChange: (
+    key: string,
+    patch: Partial<PacketSubmilestoneFormDraft>
+  ) => void;
+  pending: boolean;
+}) {
+  const isMobile = useIsMobile();
+  const open = Boolean(draft);
+  const title =
+    draft?.mode === "create" ? "Add milestone" : "Edit milestone packet";
+  const description =
+    draft?.mode === "create"
+      ? "Create a packet milestone with its schedule, budget, and submilestones."
+      : "Update milestone scope, window, budget, and all submilestone rows.";
+  const body = draft ? (
+    <PacketMilestoneEditorForm
+      draft={draft}
+      onAddSubmilestone={onAddSubmilestone}
+      onDraftChange={onDraftChange}
+      onRemoveSubmilestone={onRemoveSubmilestone}
+      onSubmilestoneChange={onSubmilestoneChange}
+    />
+  ) : null;
+  const footer = (
+    <>
+      {isMobile ? (
+        <DrawerClose render={<Button disabled={pending} variant="outline" />}>
+          Cancel
+        </DrawerClose>
+      ) : (
+        <SheetClose render={<Button disabled={pending} variant="outline" />}>
+          Cancel
+        </SheetClose>
+      )}
+      <Button loading={pending} onClick={onSave}>
+        Save milestone
+      </Button>
+    </>
+  );
+
+  if (isMobile) {
+    return (
+      <Drawer onOpenChange={(nextOpen) => !nextOpen && onClose()} open={open}>
+        <DrawerPopup className="max-h-[88dvh]" showBar showCloseButton>
+          <DrawerHeader>
+            <DrawerTitle>{title}</DrawerTitle>
+            <DrawerDescription>{description}</DrawerDescription>
+          </DrawerHeader>
+          <DrawerPanel>{body}</DrawerPanel>
+          <DrawerFooter>{footer}</DrawerFooter>
+        </DrawerPopup>
+      </Drawer>
+    );
+  }
+
+  return (
+    <Sheet onOpenChange={(nextOpen) => !nextOpen && onClose()} open={open}>
+      <SheetContent className="w-full sm:max-w-3xl">
+        <SheetHeader>
+          <SheetTitle>{title}</SheetTitle>
+          <SheetDescription>{description}</SheetDescription>
+        </SheetHeader>
+        <SheetPanel>{body}</SheetPanel>
+        <SheetFooter>{footer}</SheetFooter>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function PacketMilestoneEditorForm({
+  draft,
+  onAddSubmilestone,
+  onDraftChange,
+  onRemoveSubmilestone,
+  onSubmilestoneChange,
+}: {
+  draft: PacketMilestoneFormDraft;
+  onAddSubmilestone: () => void;
+  onDraftChange: (patch: Partial<PacketMilestoneFormDraft>) => void;
+  onRemoveSubmilestone: (key: string) => void;
+  onSubmilestoneChange: (
+    key: string,
+    patch: Partial<PacketSubmilestoneFormDraft>
+  ) => void;
+}) {
+  return (
+    <div className="grid gap-5">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-2 sm:col-span-2">
+          <Label htmlFor="packet-milestone-name">Scope</Label>
+          <Input
+            id="packet-milestone-name"
+            onChange={(event) =>
+              onDraftChange({ name: event.currentTarget.value })
+            }
+            placeholder="Permits, demo & foundation"
+            value={draft.name}
+          />
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="packet-milestone-start">Start day</Label>
+          <Input
+            id="packet-milestone-start"
+            inputMode="numeric"
+            onChange={(event) =>
+              onDraftChange({ dayStart: digitDraftValue(event.currentTarget.value) })
+            }
+            value={draft.dayStart}
+          />
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="packet-milestone-end">End day</Label>
+          <Input
+            id="packet-milestone-end"
+            inputMode="numeric"
+            onChange={(event) =>
+              onDraftChange({ dayEnd: digitDraftValue(event.currentTarget.value) })
+            }
+            value={draft.dayEnd}
+          />
+        </div>
+        <div className="grid gap-2 sm:col-span-2">
+          <Label htmlFor="packet-milestone-budget">Budget dollars</Label>
+          <Input
+            id="packet-milestone-budget"
+            inputMode="decimal"
+            onChange={(event) =>
+              onDraftChange({ budgetDollars: event.currentTarget.value })
+            }
+            value={draft.budgetDollars}
+          />
+        </div>
+      </div>
+
+      <div className="grid gap-3 border-t pt-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-medium text-sm">Submilestones</h3>
+            <p className="text-muted-foreground text-xs">
+              Edit the full packet breakdown that rolls up to this milestone.
+            </p>
+          </div>
+          <Button onClick={onAddSubmilestone} size="sm" variant="outline">
+            <Plus aria-hidden />
+            Add submilestone
+          </Button>
+        </div>
+
+        {draft.submilestones.length > 0 ? (
+          <div className="grid gap-3">
+            {draft.submilestones.map((submilestone, index) => (
+              <div
+                className="grid gap-3 rounded-lg border bg-muted/20 p-3"
+                key={submilestone.key}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-medium text-xs">
+                    Submilestone {index + 1}
+                  </span>
+                  <Button
+                    aria-label={`Remove ${submilestone.name || `submilestone ${index + 1}`}`}
+                    onClick={() => onRemoveSubmilestone(submilestone.key)}
+                    size="icon-xs"
+                    title="Remove submilestone"
+                    variant="ghost"
+                  >
+                    <Trash2 aria-hidden />
+                  </Button>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-[minmax(0,1.3fr)_6rem_6rem_8rem]">
+                  <div className="grid gap-2">
+                    <Label htmlFor={`packet-submilestone-${submilestone.key}`}>
+                      Name
+                    </Label>
+                    <Input
+                      id={`packet-submilestone-${submilestone.key}`}
+                      onChange={(event) =>
+                        onSubmilestoneChange(submilestone.key, {
+                          name: event.currentTarget.value,
+                        })
+                      }
+                      value={submilestone.name}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label
+                      htmlFor={`packet-submilestone-start-${submilestone.key}`}
+                    >
+                      Start
+                    </Label>
+                    <Input
+                      id={`packet-submilestone-start-${submilestone.key}`}
+                      inputMode="numeric"
+                      onChange={(event) =>
+                        onSubmilestoneChange(submilestone.key, {
+                          startDay: digitDraftValue(event.currentTarget.value),
+                        })
+                      }
+                      value={submilestone.startDay}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label
+                      htmlFor={`packet-submilestone-end-${submilestone.key}`}
+                    >
+                      End
+                    </Label>
+                    <Input
+                      id={`packet-submilestone-end-${submilestone.key}`}
+                      inputMode="numeric"
+                      onChange={(event) =>
+                        onSubmilestoneChange(submilestone.key, {
+                          dayEnd: digitDraftValue(event.currentTarget.value),
+                        })
+                      }
+                      value={submilestone.dayEnd}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label
+                      htmlFor={`packet-submilestone-budget-${submilestone.key}`}
+                    >
+                      Budget
+                    </Label>
+                    <Input
+                      id={`packet-submilestone-budget-${submilestone.key}`}
+                      inputMode="decimal"
+                      onChange={(event) =>
+                        onSubmilestoneChange(submilestone.key, {
+                          budgetDollars: event.currentTarget.value,
+                        })
+                      }
+                      value={submilestone.budgetDollars}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed p-4 text-muted-foreground text-sm">
+            No submilestones yet.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PacketSubmilestoneOverlay({
+  draft,
+  onClose,
+  onDraftChange,
+  onEndDayChange,
+  onSave,
+  onStartDayChange,
+}: {
+  draft: PacketSubmilestoneOverlayDraft | null;
+  onClose: () => void;
+  onDraftChange: (patch: Partial<PacketSubmilestoneOverlayDraft>) => void;
+  onEndDayChange: (value: string) => void;
+  onSave: () => void;
+  onStartDayChange: (value: string) => void;
+}) {
+  const isMobile = useIsMobile();
+  const open = Boolean(draft);
+  const body = draft ? (
+    <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-2 sm:col-span-2">
+        <Label htmlFor="packet-new-submilestone-name">Name</Label>
+        <Input
+          id="packet-new-submilestone-name"
+          onChange={(event) =>
+            onDraftChange({ name: event.currentTarget.value })
+          }
+          placeholder="Excavation and foundation"
+          value={draft.name}
+        />
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor="packet-new-submilestone-start">Start day</Label>
+        <Input
+          id="packet-new-submilestone-start"
+          inputMode="numeric"
+          onChange={(event) => onStartDayChange(event.currentTarget.value)}
+          value={draft.startDay}
+        />
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor="packet-new-submilestone-end">End day</Label>
+        <Input
+          id="packet-new-submilestone-end"
+          inputMode="numeric"
+          onChange={(event) => onEndDayChange(event.currentTarget.value)}
+          value={draft.dayEnd}
+        />
+      </div>
+      <div className="grid gap-2 sm:col-span-2">
+        <Label htmlFor="packet-new-submilestone-budget">Budget dollars</Label>
+        <Input
+          id="packet-new-submilestone-budget"
+          inputMode="decimal"
+          onChange={(event) =>
+            onDraftChange({ budgetDollars: event.currentTarget.value })
+          }
+          value={draft.budgetDollars}
+        />
+      </div>
+    </div>
+  ) : null;
+  const footer = (
+    <>
+      {isMobile ? (
+        <DrawerClose render={<Button variant="outline" />}>Cancel</DrawerClose>
+      ) : (
+        <SheetClose render={<Button variant="outline" />}>Cancel</SheetClose>
+      )}
+      <Button onClick={onSave}>Add submilestone</Button>
+    </>
+  );
+
+  if (isMobile) {
+    return (
+      <Drawer onOpenChange={(nextOpen) => !nextOpen && onClose()} open={open}>
+        <DrawerPopup className="max-h-[82dvh]" showBar showCloseButton>
+          <DrawerHeader>
+            <DrawerTitle>Add submilestone</DrawerTitle>
+            <DrawerDescription>
+              Add a scoped packet row to the active milestone.
+            </DrawerDescription>
+          </DrawerHeader>
+          <DrawerPanel>{body}</DrawerPanel>
+          <DrawerFooter>{footer}</DrawerFooter>
+        </DrawerPopup>
+      </Drawer>
+    );
+  }
+
+  return (
+    <Sheet onOpenChange={(nextOpen) => !nextOpen && onClose()} open={open}>
+      <SheetContent className="w-full sm:max-w-lg">
+        <SheetHeader>
+          <SheetTitle>Add submilestone</SheetTitle>
+          <SheetDescription>
+            Add a scoped packet row to the active milestone.
+          </SheetDescription>
+        </SheetHeader>
+        <SheetPanel>{body}</SheetPanel>
+        <SheetFooter>{footer}</SheetFooter>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function packetMilestoneFormDraftFromGroup(
+  group: PacketMilestoneGroup
+): PacketMilestoneFormDraft {
+  return {
+    budgetDollars: centsToDollarsInput(group.milestone.budgetCents),
+    dayEnd: String(group.milestone.dayEnd),
+    dayStart: String(group.milestone.dayStart),
+    milestoneKey: group.milestone.key,
+    mode: "edit",
+    name: group.milestone.name,
+    order: group.milestone.order,
+    submilestones: group.submilestones.map((submilestone, index) => {
+      const budgetCents =
+        submilestone.budgetCents ?? group.fallbackBudgets[index] ?? 0;
+      const durationDays =
+        submilestone.durationDays ?? group.fallbackDurations[index] ?? 1;
+      const startDay =
+        submilestone.startDay ??
+        group.milestone.dayStart + group.fallbackStartOffsets[index];
+      return {
+        budgetDollars: centsToDollarsInput(budgetCents),
+        dayEnd: String(startDay + durationDays),
+        key: submilestone.key,
+        name: submilestone.name,
+        order: submilestone.order ?? index + 1,
+        startDay: String(startDay),
+      };
+    }),
+  };
+}
+
+function formatPacketWindow({
+  dateDisplayMode,
+  dayEnd,
+  dayStart,
+  proposedStartDate,
+}: {
+  dateDisplayMode: "relative" | "real";
+  dayEnd: number;
+  dayStart: number;
+  proposedStartDate: string;
+}) {
+  if (dateDisplayMode === "real" && isValidProposalStartDate(proposedStartDate)) {
+    return `${formatPacketDate(
+      dateFromProposalDayOffset(proposedStartDate, dayStart)
+    )} to ${formatPacketDate(
+      dateFromProposalDayOffset(proposedStartDate, dayEnd)
+    )}`;
+  }
+  return `Day ${dayStart} to ${dayEnd}`;
+}
+
+function formatPacketDate(date: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+    year: "numeric",
+  }).format(new Date(`${date}T00:00:00.000Z`));
+}
+
+function isValidProposalStartDate(date: string) {
+  return Boolean(date) && isValidIsoDateOnly(date);
+}
+
+function packetMilestoneDraftPreview(draft: PacketMilestoneFormDraft) {
+  const draftDayStart = Math.max(0, parseInteger(draft.dayStart));
+  const draftDayEnd = Math.max(draftDayStart, parseInteger(draft.dayEnd));
+  const draftBudgetCents = Math.max(0, dollarsInputToCents(draft.budgetDollars));
+  const submilestoneWindows = draft.submilestones
+    .map((submilestone) => {
+      const startDay = parseRequiredInteger(submilestone.startDay);
+      const dayEnd = parseRequiredInteger(submilestone.dayEnd);
+      const budgetCents = dollarsInputToOptionalCents(
+        submilestone.budgetDollars
+      );
+      if (startDay === null || dayEnd === null) {
+        return null;
+      }
+      return {
+        budgetCents:
+          budgetCents === undefined || budgetCents < 0 ? 0 : budgetCents,
+        dayEnd: Math.max(startDay + 1, dayEnd),
+        dayStart: Math.max(0, startDay),
+      };
+    })
+    .filter(
+      (
+        submilestone
+      ): submilestone is {
+        budgetCents: number;
+        dayEnd: number;
+        dayStart: number;
+      } => Boolean(submilestone)
+    );
+
+  if (submilestoneWindows.length === 0) {
+    return {
+      budgetCents: draftBudgetCents,
+      dayEnd: draftDayEnd,
+      dayStart: draftDayStart,
+      durationDays: Math.max(1, draftDayEnd - draftDayStart),
+    };
+  }
+
+  const dayStart = Math.min(
+    ...submilestoneWindows.map((submilestone) => submilestone.dayStart)
+  );
+  const dayEnd = Math.max(
+    ...submilestoneWindows.map((submilestone) => submilestone.dayEnd)
+  );
+  return {
+    budgetCents: submilestoneWindows.reduce(
+      (total, submilestone) => total + submilestone.budgetCents,
+      0
+    ),
+    dayEnd,
+    dayStart,
+    durationDays: Math.max(1, dayEnd - dayStart),
+  };
+}
+
+function normalizePacketMilestoneFormDraft(
+  draft: PacketMilestoneFormDraft
+): PacketMilestonePatch | null {
+  const name = draft.name.trim();
+  const draftDayStart = parseRequiredInteger(draft.dayStart);
+  const draftDayEnd = parseRequiredInteger(draft.dayEnd);
+  const draftBudgetCents = dollarsInputToCents(draft.budgetDollars);
+  if (!name) {
+    toast.error("Milestone scope is required.");
+    return null;
+  }
+  if (
+    draftDayStart === null ||
+    draftDayEnd === null ||
+    draftDayStart < 0 ||
+    draftDayEnd < draftDayStart
+  ) {
+    toast.error("Milestone window is invalid.");
+    return null;
+  }
+  if (draftBudgetCents < 0) {
+    toast.error("Milestone budget is invalid.");
+    return null;
+  }
+  const submilestones = draft.submilestones
+    .map((submilestone, index) => {
+      const submilestoneName = submilestone.name.trim();
+      if (!submilestoneName) {
+        return null;
+      }
+      const startDay = parseRequiredInteger(submilestone.startDay);
+      const dayEnd = parseRequiredInteger(submilestone.dayEnd);
+      const submilestoneBudgetCents = dollarsInputToOptionalCents(
+        submilestone.budgetDollars
+      );
+      if (startDay === null || startDay < 0) {
+        toast.error("Submilestone start day is invalid.");
+        return null;
+      }
+      if (dayEnd === null || dayEnd <= startDay) {
+        toast.error("Submilestone end day is invalid.");
+        return null;
+      }
+      if (submilestoneBudgetCents !== undefined && submilestoneBudgetCents < 0) {
+        toast.error("Submilestone budget is invalid.");
+        return null;
+      }
+      return {
+        ...(submilestoneBudgetCents === undefined
+          ? {}
+          : { budgetCents: submilestoneBudgetCents }),
+        durationDays: dayEnd - startDay,
+        key: submilestone.key,
+        name: submilestoneName,
+        order: index + 1,
+        startDay,
+      };
+    })
+    .filter((submilestone): submilestone is PacketSubmilestonePatch =>
+      Boolean(submilestone)
+    );
+  const submilestoneWindows = submilestones
+    .map((submilestone) => {
+      const startDay = submilestone.startDay;
+      const durationDays = submilestone.durationDays;
+      if (startDay === undefined || durationDays === undefined) {
+        return null;
+      }
+      return {
+        budgetCents: submilestone.budgetCents ?? 0,
+        dayEnd: startDay + durationDays,
+        dayStart: startDay,
+      };
+    })
+    .filter(
+      (
+        submilestone
+      ): submilestone is {
+        budgetCents: number;
+        dayEnd: number;
+        dayStart: number;
+      } => Boolean(submilestone)
+    );
+  const computedDayStart =
+    submilestoneWindows.length === 0
+      ? draftDayStart
+      : Math.min(
+          ...submilestoneWindows.map((submilestone) => submilestone.dayStart)
+        );
+  const computedDayEnd =
+    submilestoneWindows.length === 0
+      ? draftDayEnd
+      : Math.max(
+          ...submilestoneWindows.map((submilestone) => submilestone.dayEnd)
+        );
+  const computedBudgetCents =
+    submilestoneWindows.length === 0
+      ? draftBudgetCents
+      : submilestoneWindows.reduce(
+          (total, submilestone) => total + submilestone.budgetCents,
+          0
+        );
+
+  return {
+    budgetCents: computedBudgetCents,
+    dayEnd: computedDayEnd,
+    dayStart: computedDayStart,
+    durationDays: Math.max(1, computedDayEnd - computedDayStart),
+    name,
+    submilestones,
+  };
+}
+
+function uniquePacketKey(
+  value: string,
+  fallback: string,
+  existingKeys: Set<string>
+) {
+  const base =
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") ||
+    fallback
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") ||
+    "item";
+  let candidate = base;
+  let suffix = 2;
+  while (existingKeys.has(candidate)) {
+    candidate = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
+}
+
 function proposalPacketMilestoneGroups(detail: ProductionProposalDetail) {
   const submilestonesByMilestone = new Map<string, ProductionSubmilestone[]>();
   for (const submilestone of detail.submilestones ?? []) {
@@ -3421,6 +5009,7 @@ function proposalPacketMilestoneGroups(detail: ProductionProposalDetail) {
 
       return {
         fallbackBudgets,
+        fallbackDurations,
         fallbackStartOffsets,
         milestone,
         submilestones,
@@ -3542,18 +5131,27 @@ function iconForMilestoneKey(key: string, name?: string): IsometricIconKey {
   return "change";
 }
 
-function Section({ children, title }: { children: ReactNode; title: string }) {
+function Section({
+  action,
+  children,
+  title,
+}: {
+  action?: ReactNode;
+  children: ReactNode;
+  title: string;
+}) {
   return (
     <Card>
-      <CardHeader className="border-b p-4">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 border-b p-4">
         <CardTitle className="text-base">{title}</CardTitle>
+        {action}
       </CardHeader>
       <CardContent className="p-4">{children}</CardContent>
     </Card>
   );
 }
 
-function DetailGrid({ rows }: { rows: [string, string][] }) {
+function DetailGrid({ rows }: { rows: [string, ReactNode][] }) {
   return (
     <dl className="grid gap-3 text-sm">
       {rows.map(([label, value]) => (
@@ -3656,6 +5254,40 @@ function parseInterestRateDraftToBps(value: string, fallback: number) {
 function parseInteger(value: string) {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseRequiredInteger(value: string) {
+  const normalized = value.trim();
+  if (!/^\d+$/.test(normalized)) {
+    return null;
+  }
+  return Number.parseInt(normalized, 10);
+}
+
+function digitDraftValue(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+function centsToDollarsInput(cents: number) {
+  return String(Math.round(cents / 100));
+}
+
+function dollarsInputToCents(value: string) {
+  const normalized = value.replace(/[$,\s]/g, "");
+  if (!normalized) {
+    return 0;
+  }
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) : -1;
+}
+
+function dollarsInputToOptionalCents(value: string) {
+  const normalized = value.replace(/[$,\s]/g, "");
+  if (!normalized) {
+    return undefined;
+  }
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) : -1;
 }
 
 function calculateUnapprovedBudgetBps(

@@ -347,7 +347,7 @@ describe("production proposal foundation", () => {
     expect(closed.buildMilestones).toHaveLength(1);
     expect(closed.buildSubmilestones).toHaveLength(1);
     expect(closed.plannedDraws[0]).toMatchObject({
-      amountCents: 40_000_000,
+      amountCents: 16_000_000,
       status: "planned",
     });
     expect(closed.auditEvents.map((event: any) => event.eventType)).toEqual(
@@ -471,12 +471,12 @@ describe("production proposal foundation", () => {
       title: "Foundation material package",
     });
     expect(detail.submilestones).toHaveLength(1);
-    expect(detail.proposal.totalBudgetCents).toBe(70_000_000);
+    expect(detail.proposal.totalBudgetCents).toBe(40_000_000);
     expect(detail.milestones[0]).toMatchObject({
-      budgetCents: 70_000_000,
-      drawAvailabilityCents: 56_000_000,
+      budgetCents: 40_000_000,
+      drawAvailabilityCents: 32_000_000,
     });
-    expect(detail.draws[0]).toMatchObject({ amountCents: 56_000_000 });
+    expect(detail.draws[0]).toMatchObject({ amountCents: 32_000_000 });
 
     await t.mutation((api as any).production_proposals.submitProposal, {
       proposalId,
@@ -512,7 +512,7 @@ describe("production proposal foundation", () => {
       quantity: 2.5,
       relevantSubmilestoneKeys: ["forms"],
     });
-    expect(buildDetail.build.totalBudgetCents).toBe(70_000_000);
+    expect(buildDetail.build.totalBudgetCents).toBe(40_000_000);
     expect(buildDetail.submilestones).toHaveLength(1);
 
     const addedItemId = await t.mutation(
@@ -556,7 +556,7 @@ describe("production proposal foundation", () => {
         }),
       ]),
     );
-    expect(buildDetailAfterUpdate.build.totalBudgetCents).toBe(71_750_000);
+    expect(buildDetailAfterUpdate.build.totalBudgetCents).toBe(41_750_000);
 
     await t.mutation(
       (api as any).production_proposals.deleteActiveBuildCostItem,
@@ -572,7 +572,7 @@ describe("production proposal foundation", () => {
       { buildId: String(closing.buildId), workosOrganizationId: ORG },
     );
     expect(buildDetailAfterDelete.costItems).toHaveLength(1);
-    expect(buildDetailAfterDelete.build.totalBudgetCents).toBe(70_000_000);
+    expect(buildDetailAfterDelete.build.totalBudgetCents).toBe(40_000_000);
   });
 
   test("enforces proposal-scoped builder staff material permissions", async () => {
@@ -1878,9 +1878,10 @@ describe("production proposal foundation", () => {
     );
 
     expect(detail.milestones[0]).toMatchObject({
+      budgetCents: 20_000_000,
       dayEnd: 13,
-      dayStart: 3,
-      durationDays: 10,
+      dayStart: 8,
+      durationDays: 5,
       key: "foundation",
     });
     expect(detail.submilestones[0]).toMatchObject({
@@ -1975,12 +1976,12 @@ describe("production proposal foundation", () => {
         title: "Foundation material package",
       }),
     ]);
-    expect(detail.proposal.totalBudgetCents).toBe(65_000_000);
+    expect(detail.proposal.totalBudgetCents).toBe(35_000_000);
     expect(detail.milestones[0]).toMatchObject({
-      budgetCents: 65_000_000,
-      drawAvailabilityCents: 52_000_000,
+      budgetCents: 35_000_000,
+      drawAvailabilityCents: 28_000_000,
     });
-    expect(detail.draws[0]).toMatchObject({ amountCents: 52_000_000 });
+    expect(detail.draws[0]).toMatchObject({ amountCents: 28_000_000 });
 
     const workspace = await t.query(
       (api as any).production_proposals.getProductionTimelineWorkspace,
@@ -2310,6 +2311,20 @@ describe("production proposal foundation", () => {
       proposalId,
       workosOrganizationId: ORG,
     });
+    await t.mutation(
+      (api as any).production_proposals.updateProductionProposalProposedStartDate,
+      {
+        proposalId,
+        proposedStartDate: "2025-03-10",
+        workosOrganizationId: ORG,
+      },
+    );
+    const updatedSubmitted = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(updatedSubmitted.proposal.proposedStartDate).toBe("2025-03-10");
+
     await t.mutation((api as any).production_proposals.approveProposal, {
       permitWaiverReason: "Permit packet approved offline.",
       proposalId,
@@ -2333,7 +2348,7 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.getProposalDetail,
       { proposalId, workosOrganizationId: ORG },
     );
-    expect(closed.proposal.proposedStartDate).toBe("2025-04-15");
+    expect(closed.proposal.proposedStartDate).toBe("2025-03-10");
     expect(closed.activeBuild?._id).toBe(closing.buildId);
     expect(closed.activeBuild?.startDate).toBe("2025-05-01");
   });
@@ -3272,8 +3287,8 @@ describe("production proposal foundation", () => {
     });
     expect(workspace.milestones).toHaveLength(2);
     expect(workspace.milestones[0]).toMatchObject({
-      budgetCents: 50_000_000,
-      drawAvailabilityCents: 40_000_000,
+      budgetCents: 20_000_000,
+      drawAvailabilityCents: 16_000_000,
       icon: "foundation",
       milestoneKey: "foundation",
       status: "ready",
@@ -3290,16 +3305,16 @@ describe("production proposal foundation", () => {
     });
     expect(workspace.draws).toEqual([
       expect.objectContaining({
-        amountCents: 40_000_000,
+        amountCents: 16_000_000,
         drawKey: "draw-01",
         itemMilestoneKey: "foundation",
-        x: 20,
+        x: 8,
       }),
       expect.objectContaining({
-        amountCents: 60_000_000,
+        amountCents: 24_000_000,
         drawKey: "draw-02",
         itemMilestoneKey: "framing",
-        x: 48,
+        x: 34,
       }),
     ]);
     expect(workspace.capitalEvents).toEqual([
@@ -3938,6 +3953,7 @@ describe("production proposal foundation", () => {
             key: "forms",
             name: "Forms revised",
             order: 1,
+            startDay: 3,
           },
         ],
         workosOrganizationId: ORG,
@@ -3957,7 +3973,16 @@ describe("production proposal foundation", () => {
           order: 2,
           policyState: "Draft proposal policy",
           status: "ready",
-          submilestones: [{ key: "walls", name: "Wall framing", order: 1 }],
+          submilestones: [
+            {
+              budgetCents: 30_000_000,
+              durationDays: 22,
+              key: "walls",
+              name: "Wall framing",
+              order: 1,
+              startDay: 24,
+            },
+          ],
           x: 24,
         },
         proposalId,
@@ -3998,9 +4023,10 @@ describe("production proposal foundation", () => {
       workspace.milestones.map((milestone: any) => milestone.milestoneKey),
     ).toEqual(["foundation", "framing"]);
     expect(workspace.milestones[0]).toMatchObject({
-      budgetCents: 42_000_000,
+      budgetCents: 18_000_000,
+      durationDays: 9,
       name: "Foundation revised",
-      x: 1,
+      x: 3,
     });
     expect(workspace.draws).toEqual(
       expect.arrayContaining([
@@ -4460,7 +4486,7 @@ describe("production proposal foundation", () => {
       role: "Foundation contractor",
     });
     expect(workspace.draws[0]).toMatchObject({
-      amountCents: 40_000_000,
+      amountCents: 20_000_000,
       requestNote: "Foundation reimbursement requested.",
       requestReviewNote: "Evidence and policy review complete.",
       releaseNote: "Released after admin approval.",

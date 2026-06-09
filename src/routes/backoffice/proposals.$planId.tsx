@@ -116,7 +116,7 @@ type ProposalReviewRouteTab = NonNullable<ProposalReviewSearch["tab"]>;
 export function resolveProposalReviewRouteTab(
   search: ProposalReviewSearch,
 ): ProposalReviewRouteTab {
-  return search.tab ?? "timeline";
+  return search.tab ?? "packet";
 }
 
 export function shouldLoadProposalCalendarWorkspace(
@@ -367,11 +367,20 @@ function ProposalReviewRoute() {
   const updateProductionTimelineDraw = useMutation(
     api.production_proposals.updateProductionTimelineDraw,
   );
+  const createProductionTimelineMilestone = useMutation(
+    api.production_proposals.createProductionTimelineMilestone,
+  );
+  const updateProductionTimelineMilestone = useMutation(
+    api.production_proposals.updateProductionTimelineMilestone,
+  );
   const updateProductionProposalApprovedAmount = useMutation(
     api.production_proposals.updateProductionProposalApprovedAmount,
   );
   const updateProductionProposalInterestRate = useMutation(
     api.production_proposals.updateProductionProposalInterestRate,
+  );
+  const updateProductionProposalProposedStartDate = useMutation(
+    api.production_proposals.updateProductionProposalProposedStartDate,
   );
   const reviseProposalMilestoneSchedule = useMutation(
     (api as any).production_proposals.reviseProposalMilestoneSchedule,
@@ -665,6 +674,16 @@ function ProposalReviewRoute() {
             workosOrganizationId,
           })
         }
+        onUpdateProposedStartDate={
+          canUseAppPermission(appPermissions, "milestone", "update")
+            ? (proposedStartDate) =>
+                updateProductionProposalProposedStartDate({
+                  proposalId,
+                  proposedStartDate,
+                  workosOrganizationId,
+                })
+            : undefined
+        }
         onRequestChanges={(reason) =>
           requestProductionChanges({
             proposalId,
@@ -694,6 +713,27 @@ function ProposalReviewRoute() {
                       workosOrganizationId,
                     })
                 ).then(() => toast.success("Draw schedule updated."))
+            : undefined
+        }
+        onUpdatePacketMilestone={
+          canUseAppPermission(appPermissions, "milestone", "update")
+            ? (milestoneKey, patch) =>
+                updateProductionTimelineMilestone({
+                  ...patch,
+                  milestoneKey,
+                  proposalId,
+                  workosOrganizationId,
+                }).then(() => toast.success("Milestone updated."))
+            : undefined
+        }
+        onCreatePacketMilestone={
+          canUseAppPermission(appPermissions, "milestone", "create")
+            ? (milestone) =>
+                createProductionTimelineMilestone({
+                  milestone,
+                  proposalId,
+                  workosOrganizationId,
+                }).then(() => toast.success("Milestone added."))
             : undefined
         }
         onChangeCalendarTimeframe={(timeframe) =>
