@@ -62,7 +62,6 @@ function MarketingPage(): ReactElement {
   const rootRef = useRef<HTMLElement>(null);
   const pinRef = useRef<HTMLDivElement>(null);
   const renderRef = useRef<HTMLDivElement>(null);
-  const returnRenderRef = useRef<HTMLDivElement>(null);
   const blueprintRef = useRef<HTMLImageElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const nextCueRef = useRef<HTMLDivElement>(null);
@@ -73,7 +72,6 @@ function MarketingPage(): ReactElement {
     nextCueRef,
     pinRef,
     renderRef,
-    returnRenderRef,
     rootRef,
   });
 
@@ -94,15 +92,6 @@ function MarketingPage(): ReactElement {
               <img
                 alt=""
                 className="mkt-hero-render"
-                decoding="async"
-                fetchPriority="high"
-                src={renderAsset}
-              />
-            </div>
-            <div className="mkt-return-render-layer" ref={returnRenderRef}>
-              <img
-                alt=""
-                className="mkt-hero-render mkt-return-render-image"
                 decoding="async"
                 fetchPriority="high"
                 src={renderAsset}
@@ -140,23 +129,6 @@ function MarketingPage(): ReactElement {
                   wordAnimationStart="top top"
                 >
                   And a team thats with you from the start
-                </ScrollReveal>
-                <ScrollReveal
-                  aria-hidden="true"
-                  as="span"
-                  baseOpacity={0}
-                  baseRotation={0.9}
-                  blurStrength={1}
-                  containerClassName="mkt-headline-state mkt-headline-tertiary"
-                  rotationEnd="+=55%"
-                  rotationStart="top+=58% top"
-                  textAs="span"
-                  textClassName="mkt-headline-tertiary-text"
-                  triggerRef={rootRef}
-                  wordAnimationEnd="+=62%"
-                  wordAnimationStart="top+=58% top"
-                >
-                  And a team thats with you to closing
                 </ScrollReveal>
               </h1>
               <p className="mkt-hero-subcopy">
@@ -205,7 +177,6 @@ function useMarketingScrollScene({
   nextCueRef,
   pinRef,
   renderRef,
-  returnRenderRef,
   rootRef,
 }: {
   blueprintRef: React.RefObject<HTMLImageElement | null>;
@@ -213,7 +184,6 @@ function useMarketingScrollScene({
   nextCueRef: React.RefObject<HTMLDivElement | null>;
   pinRef: React.RefObject<HTMLDivElement | null>;
   renderRef: React.RefObject<HTMLDivElement | null>;
-  returnRenderRef: React.RefObject<HTMLDivElement | null>;
   rootRef: React.RefObject<HTMLElement | null>;
 }) {
   useEffect(() => {
@@ -224,7 +194,6 @@ function useMarketingScrollScene({
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
     if (media.matches) {
       renderRef.current?.classList.add("mkt-render-reduced");
-      returnRenderRef.current?.classList.add("mkt-render-reduced");
       return;
     }
 
@@ -246,7 +215,7 @@ function useMarketingScrollScene({
             defaults: { ease: "none" },
             scrollTrigger: {
               anticipatePin: 1,
-              end: "+=290%",
+              end: "+=210%",
               pin: pinRef.current,
               scrub: true,
               start: "top top",
@@ -283,64 +252,11 @@ function useMarketingScrollScene({
               0.035,
             )
             .to(
-              ".mkt-headline-secondary",
-              {
-                duration: 0.22,
-                filter: "blur(1.5px)",
-                opacity: 0,
-                y: -30,
-              },
-              0.58,
-            )
-            .to(
-              returnRenderRef.current,
-              {
-                "--return-x": "92%",
-                "--return-y": "10%",
-                "--return-r1": "194vmax",
-                "--return-r2": "222vmax",
-                "--return-r3": "174vmax",
-                "--return-r4": "204vmax",
-                "--return-r5": "164vmax",
-                "--return-r6": "194vmax",
-                "--return-r7": "156vmax",
-                "--return-r8": "184vmax",
-                duration: 0.36,
-              },
-              0.62,
-            )
-            .to(
-              ".mkt-blueprint-grid",
-              {
-                duration: 0.32,
-                opacity: 0.18,
-              },
-              0.64,
-            )
-            .to(
-              ".mkt-underwriting-state",
-              {
-                duration: 0.18,
-                opacity: 0,
-                y: -16,
-              },
-              0.66,
-            )
-            .to(
-              ".mkt-credential-state",
-              {
-                duration: 0.22,
-                opacity: 1,
-                y: 0,
-              },
-              0.72,
-            )
-            .to(
               contentRef.current,
               {
-                y: -18,
+                y: -10,
               },
-              0.68,
+              0.58,
             )
             .to(
               blueprintRef.current,
@@ -348,7 +264,7 @@ function useMarketingScrollScene({
                 filter: "saturate(1.1) contrast(1.05)",
                 scale: 1.035,
               },
-              0.52,
+              0.48,
             )
             .to(
               nextCueRef.current,
@@ -356,7 +272,7 @@ function useMarketingScrollScene({
                 opacity: 1,
                 y: 0,
               },
-              0.9,
+              0.78,
             );
         }, rootRef);
 
@@ -374,7 +290,6 @@ function useMarketingScrollScene({
     nextCueRef,
     pinRef,
     renderRef,
-    returnRenderRef,
     rootRef,
   ]);
 }

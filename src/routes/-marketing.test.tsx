@@ -36,8 +36,8 @@ describe("MarketingPage", () => {
     expect(markup).toContain(">And</span>");
     expect(markup).toContain(">thats</span>");
     expect(markup).toContain(">start</span>");
-    expect(markup).toContain("mkt-headline-tertiary");
-    expect(markup).toContain(">closing</span>");
+    expect(markup).not.toContain("mkt-headline-tertiary");
+    expect(markup).not.toContain(">closing</span>");
     expect(markup).toContain("Explore build financing");
     expect(markup).toContain("See investor platform");
     expect(markup).toContain("/assets/CleanShot Jun 8 Hero Section Blueprint.png");
