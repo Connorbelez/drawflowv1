@@ -919,7 +919,7 @@ export function TimelineWorkspace({
   const [progressValue, setProgressValue] = useState(
     workspaceInitialState.progressValue,
   );
-  const [probeValue, setProbeValue] = useState<number | null>(null);
+  const [probeValue, setProbeValue] = useTimelineProbeState();
   const [activeDrawId, setActiveDrawId] = useState<string | null>(null);
   const [activeCapitalSpikeId, setActiveCapitalSpikeId] = useState<
     string | null
@@ -4986,6 +4986,75 @@ interface ShareTimelineMenuProps {
   shareUrl: string;
 }
 
+export function normalizeTimelineProbeValue(value: number | null) {
+  if (value === null) {
+    return null;
+  }
+
+  return Number.isFinite(value) ? Math.round(value) : null;
+}
+
+function useTimelineProbeState() {
+  const [probeValue, setProbeValueState] = useState<number | null>(null);
+  const committedValueRef = useRef<number | null>(null);
+  const pendingValueRef = useRef<number | null>(null);
+  const frameRef = useRef<number | null>(null);
+
+  const commitProbeValue = useCallback((value: number | null) => {
+    const nextValue = normalizeTimelineProbeValue(value);
+    if (committedValueRef.current === nextValue) {
+      return;
+    }
+
+    committedValueRef.current = nextValue;
+    setProbeValueState(nextValue);
+  }, []);
+
+  const setProbeValue = useCallback(
+    (value: number | null) => {
+      const nextValue = normalizeTimelineProbeValue(value);
+      pendingValueRef.current = nextValue;
+
+      if (nextValue === null) {
+        if (frameRef.current !== null) {
+          window.cancelAnimationFrame(frameRef.current);
+          frameRef.current = null;
+        }
+        commitProbeValue(null);
+        return;
+      }
+
+      if (committedValueRef.current === nextValue) {
+        return;
+      }
+
+      if (frameRef.current !== null) {
+        return;
+      }
+
+      frameRef.current = window.requestAnimationFrame(() => {
+        frameRef.current = null;
+        const pendingValue = pendingValueRef.current;
+        pendingValueRef.current = null;
+        commitProbeValue(pendingValue);
+      });
+    },
+    [commitProbeValue],
+  );
+
+  useEffect(
+    () => () => {
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+      }
+    },
+    [],
+  );
+
+  return [probeValue, setProbeValue] as const;
+}
+
 function TimelineDemoSettingsNotice() {
   return (
     <div
@@ -6005,7 +6074,7 @@ export function buildCashflowChartData(
   range: Required<TimelineRange>,
   startingCash = STARTING_CASH,
 ): CashflowDatum[] {
-  const milestoneBars = buildMilestoneCostBars(accountingData, range);
+  const milestoneBars = buildMilestoneCostBars(items, range);
   const milestoneDays = items
     .filter((item) => item.data)
     .flatMap((item) => [item.x, getMilestoneEndX(item)]);
@@ -6060,6 +6129,7 @@ export function buildCashflowChartData(
       dayEvents.find((point) => point.event === "draw") ??
       dayEvents.find((point) => point.event === "cashInfusion") ??
       dayEvents.find((point) => point.event === "capitalSpike") ??
+      dayEvents.find((point) => point.drawCapacityUnlocked > 0) ??
       dayEvents[0];
 
     return {
@@ -6105,7 +6175,7 @@ function buildCashflowChartEventDays(
 }
 
 function buildMilestoneCostBars(
-  accountingData: CashflowDatum[],
+  items: TimelineItem<DemoMilestone>[],
   range: Required<TimelineRange>,
 ): Array<{
   amount: number;
@@ -6113,38 +6183,26 @@ function buildMilestoneCostBars(
   endDay: number;
   reimbursableAmount: number;
 }> {
-  return accountingData
-    .filter((point) => point.event === "milestone" && point.budget > 0)
-    .map((point) => {
-      const amount = Math.max(0, Math.round(point.budget));
-      const milestoneTotalBudget =
-        typeof point.milestoneTotalBudget === "number" &&
-        Number.isFinite(point.milestoneTotalBudget) &&
-        point.milestoneTotalBudget > 0
-          ? point.milestoneTotalBudget
-          : amount;
-      const milestoneDrawAvailability =
-        typeof point.milestoneDrawAvailability === "number" &&
-        Number.isFinite(point.milestoneDrawAvailability)
-          ? Math.max(0, point.milestoneDrawAvailability)
-          : milestoneTotalBudget;
-      const reimbursableAmount = Math.min(
-        amount,
-        Math.round((amount * milestoneDrawAvailability) / milestoneTotalBudget),
+  return items
+    .filter(
+      (
+        item,
+      ): item is TimelineItem<DemoMilestone> & { data: DemoMilestone } =>
+        Boolean(item.data),
+    )
+    .map((item) => {
+      const schedule = getMilestonePaymentSchedule(item);
+      const amount = Math.max(0, Math.round(schedule.totalAmount));
+      const milestoneDrawAvailability = getMilestoneDrawAvailabilityAmount(
+        item.data,
       );
+      const reimbursableAmount = Math.min(amount, milestoneDrawAvailability);
 
       return {
         amount,
-        day: Math.round(clampNumber(point.day, range.min, range.max)),
+        day: Math.round(clampNumber(schedule.startX, range.min, range.max)),
         endDay: Math.round(
-          clampNumber(
-            typeof point.milestoneEndDay === "number" &&
-              Number.isFinite(point.milestoneEndDay)
-              ? point.milestoneEndDay
-              : point.day,
-            range.min,
-            range.max,
-          ),
+          clampNumber(schedule.endX, range.min, range.max),
         ),
         reimbursableAmount,
       };

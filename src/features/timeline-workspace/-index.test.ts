@@ -19,6 +19,7 @@ import {
   interpolateLinearCashOnHand,
   interpolateDrawAvailability,
   normalizeTimelineShareStateForRoute,
+  normalizeTimelineProbeValue,
   relabelTimelineDraws,
   resolveDemoLiveBuildHref,
   resolveSelectedDrawDate,
@@ -32,6 +33,14 @@ import type {
 import { getMilestoneDrawAvailabilityAmount } from "./-timeline-share-snapshot.ts";
 
 describe("timeline cash shortfall logic", () => {
+  test("normalizes chart probe movement to day-level state updates", () => {
+    expect(normalizeTimelineProbeValue(null)).toBeNull();
+    expect(normalizeTimelineProbeValue(Number.NaN)).toBeNull();
+    expect(normalizeTimelineProbeValue(12.2)).toBe(12);
+    expect(normalizeTimelineProbeValue(12.49)).toBe(12);
+    expect(normalizeTimelineProbeValue(12.5)).toBe(13);
+  });
+
   test("builds lender approval start dates at UTC midnight", () => {
     expect(getDemoApprovalStartDate(Date.UTC(2026, 4, 28, 17, 30))).toBe(
       Date.UTC(2026, 4, 28),
@@ -431,9 +440,14 @@ describe("timeline cash shortfall logic", () => {
       ),
     ).toBe(90_000);
     expect(chartData.find((point) => point.day === 12)).toMatchObject({
-      budget: 15_000,
-      outOfPocketBudget: 3_750,
-      reimbursableBudget: 11_250,
+      budget: 120_000,
+      outOfPocketBudget: 30_000,
+      reimbursableBudget: 90_000,
+    });
+    expect(chartData.find((point) => point.day === 16)).toMatchObject({
+      budget: 0,
+      outOfPocketBudget: 0,
+      reimbursableBudget: 0,
     });
   });
 
@@ -675,7 +689,7 @@ describe("timeline cash shortfall logic", () => {
       chartData.reduce((total, point) => total + point.budget, 0),
     ).toBe(280_000);
     expect(chartData.find((point) => point.day === 0)).toMatchObject({
-      budget: 9_333,
+      budget: 280_000,
       cashOnHand: 390_667,
       event: "milestone",
     });
@@ -1117,7 +1131,7 @@ describe("timeline cash shortfall logic", () => {
     );
   });
 
-  test("cashflow chart aggregates daily milestone spend from accounting rows", () => {
+  test("cashflow chart places the milestone cost gate on the start day", () => {
     const items: TimelineItem<DemoMilestone>[] = [
       {
         data: {
@@ -1158,13 +1172,19 @@ describe("timeline cash shortfall logic", () => {
     expect(
       chartData.find((point) => point.id === "milestone-cost-gate-10"),
     ).toMatchObject({
-      budget: 50_000,
+      budget: 100_000,
       day: 10,
       milestoneEndDay: 14,
     });
-    expect(chartData.some((point) => point.id.includes("distributed"))).toBe(
-      false,
-    );
+    expect(chartData.find((point) => point.day === 12)).toMatchObject({
+      budget: 0,
+      cashOnHand: 80_000,
+    });
+    expect(
+      chartData.some(
+        (point) => point.id.includes("distributed") && point.budget > 0,
+      ),
+    ).toBe(false);
     expect(interpolateLinearCashOnHand(chartData, 12)).toBe(80_000);
   });
 

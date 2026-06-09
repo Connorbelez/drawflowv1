@@ -102,6 +102,7 @@ type ProposalReviewSearch = {
     | "contractors"
     | "draws"
     | "gantt"
+    | "milestones"
     | "materials"
     | "packet"
     | "review"
@@ -109,6 +110,40 @@ type ProposalReviewSearch = {
     | "timeline";
   timeframe?: CalendarTimeframe;
 };
+
+type ProposalReviewRouteTab = NonNullable<ProposalReviewSearch["tab"]>;
+
+export function resolveProposalReviewRouteTab(
+  search: ProposalReviewSearch,
+): ProposalReviewRouteTab {
+  return search.tab ?? "timeline";
+}
+
+export function shouldLoadProposalCalendarWorkspace(
+  activeTab: ProposalReviewRouteTab,
+) {
+  return activeTab === "calendar";
+}
+
+export function shouldLoadProposalContractorPlanning(
+  activeTab: ProposalReviewRouteTab,
+) {
+  return (
+    activeTab === "contractors" ||
+    activeTab === "gantt" ||
+    activeTab === "milestones"
+  );
+}
+
+export function shouldLoadProposalReviewBuilders(
+  activeTab: ProposalReviewRouteTab,
+) {
+  return activeTab === "review";
+}
+
+export function shouldMountProposalStaffPanel(activeTab: ProposalReviewRouteTab) {
+  return activeTab === "staff";
+}
 
 export const Route = createFileRoute("/backoffice/proposals/$planId")({
   ssr: false,
@@ -125,6 +160,7 @@ export const Route = createFileRoute("/backoffice/proposals/$planId")({
       search.tab === "contractors" ||
       search.tab === "draws" ||
       search.tab === "gantt" ||
+      search.tab === "milestones" ||
       search.tab === "materials" ||
       search.tab === "packet" ||
       search.tab === "review" ||
@@ -200,6 +236,12 @@ function ProposalReviewRoute() {
     [],
   );
   const joinSession = useMutation(api.proposal_collaboration.joinSession);
+  const activeReviewTab = resolveProposalReviewRouteTab(search);
+  const loadCalendarWorkspace =
+    shouldLoadProposalCalendarWorkspace(activeReviewTab);
+  const loadContractorPlanning =
+    shouldLoadProposalContractorPlanning(activeReviewTab);
+  const loadReviewBuilders = shouldLoadProposalReviewBuilders(activeReviewTab);
   const collabToken = useMemo(
     () =>
       typeof window === "undefined"
@@ -248,12 +290,26 @@ function ProposalReviewRoute() {
           workosOrganizationId,
         },
   );
+  const productionContractorPlanningQuery = useQuery(
+    (api as any).production_proposals.getProposalContractorPlanning,
+    visualFixtureEnabled || !productionDetail || !loadContractorPlanning
+      ? "skip"
+      : {
+          proposalId: planId as Id<"buildProposals">,
+          workosOrganizationId,
+        },
+  );
   const productionWorkspace = visualFixtureEnabled
     ? getVisualParityTimelineWorkspace(planId)
-    : productionWorkspaceQuery;
+    : productionWorkspaceQuery
+      ? {
+          ...productionWorkspaceQuery,
+          contractorPlanning: productionContractorPlanningQuery ?? undefined,
+        }
+      : productionWorkspaceQuery;
   const productionCalendarWorkspaceQuery = useQuery(
     (api as any).production_proposals.getProposalCalendarWorkspace,
-    visualFixtureEnabled || !productionDetail
+    visualFixtureEnabled || !productionDetail || !loadCalendarWorkspace
       ? "skip"
       : {
           proposalId: planId as Id<"buildProposals">,
@@ -262,7 +318,7 @@ function ProposalReviewRoute() {
   );
   const calendarAssignableParticipantsQuery = useQuery(
     (api as any).production_proposals.listProposalCalendarAssignableParticipants,
-    visualFixtureEnabled || !productionDetail
+    visualFixtureEnabled || !productionDetail || !loadCalendarWorkspace
       ? "skip"
       : {
           proposalId: planId as Id<"buildProposals">,
@@ -271,7 +327,7 @@ function ProposalReviewRoute() {
   );
   const buildersQuery = useQuery(
     api.production_proposals.listBrokerageBuilders,
-    visualFixtureEnabled || !productionDetail
+    visualFixtureEnabled || !productionDetail || !loadReviewBuilders
       ? "skip"
       : { workosOrganizationId },
   );
@@ -405,6 +461,11 @@ function ProposalReviewRoute() {
       ["contractor", "create"],
       ["contractor", "update"],
     ]);
+    const canViewContractors = canUseAppPermission(
+      appPermissions,
+      "contractor",
+      "view",
+    );
     const calendarAdapterActions: ProposalCalendarAdapterActions = {
       addEvidenceDueDate: canUseAppPermission(
         appPermissions,
@@ -477,23 +538,35 @@ function ProposalReviewRoute() {
         }
         staff={
           visualFixtureEnabled ? undefined : (
-            <BuilderStaffPermissionsPanel
-              proposalId={proposalId}
-              scope="proposal"
-              workosOrganizationId={workosOrganizationId}
-            />
+            shouldMountProposalStaffPanel(activeReviewTab) ? (
+              <BuilderStaffPermissionsPanel
+                proposalId={proposalId}
+                scope="proposal"
+                workosOrganizationId={workosOrganizationId}
+              />
+            ) : (
+              <DeferredProposalTabPanel label="Staff permissions" />
+            )
           )
         }
         materialPlanningActions={materialPlanningActions}
         contractors={
-          <ProductionContractorPlanningTab
-            canMutate={canMutateContractors}
-            initialRole="lender"
-            persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
-            proposalId={proposalId}
-            workspace={productionWorkspace}
-            workosOrganizationId={workosOrganizationId}
-          />
+          canViewContractors ? (
+            activeReviewTab === "contractors" &&
+            loadContractorPlanning &&
+            productionContractorPlanningQuery === undefined ? (
+              <DeferredProposalTabPanel label="Contractor planning" loading />
+            ) : (
+              <ProductionContractorPlanningTab
+                canMutate={canMutateContractors}
+                initialRole="lender"
+                persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
+                proposalId={proposalId}
+                workspace={productionWorkspace}
+                workosOrganizationId={workosOrganizationId}
+              />
+            )
+          ) : undefined
         }
         gantt={
           <ProductionProposalTimelineGanttWorkspace
@@ -714,6 +787,25 @@ function ProposalReviewRoute() {
   }
 
   return <ProductionProposalNotFound planId={planId} />;
+}
+
+function DeferredProposalTabPanel({
+  label,
+  loading = false,
+}: {
+  label: string;
+  loading?: boolean;
+}) {
+  return (
+    <Frame>
+      <FramePanel className="flex min-h-40 items-center justify-center p-6">
+        <div className="flex items-center gap-2 text-muted-foreground text-sm">
+          {loading ? <Loader2 className="size-4 animate-spin" /> : null}
+          {loading ? `Loading ${label.toLowerCase()}...` : label}
+        </div>
+      </FramePanel>
+    </Frame>
+  );
 }
 
 function ProductionProposalNotFound({ planId }: { planId: string }) {

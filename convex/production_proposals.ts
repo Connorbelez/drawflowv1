@@ -5716,6 +5716,7 @@ export const removeProposalBuilderStaffMember = authenticatedMutation
 
 export const getProductionTimelineWorkspace = authenticatedQuery
   .input({
+    includeContractorPlanning: v.optional(v.boolean()),
     proposalId: v.id("buildProposals"),
     workosOrganizationId: v.string(),
   })
@@ -5757,7 +5758,9 @@ export const getProductionTimelineWorkspace = authenticatedQuery
         "by_proposal",
         args.proposalId,
       ),
-      collectByIndex(ctx, "proposalDocuments", "by_proposal", args.proposalId),
+      args.includeContractorPlanning
+        ? collectByIndex(ctx, "proposalDocuments", "by_proposal", args.proposalId)
+        : Promise.resolve([]),
       collectByIndex(
         ctx,
         "proposalEvidenceAssets",
@@ -5837,11 +5840,8 @@ export const getProductionTimelineWorkspace = authenticatedQuery
               })),
           ]
         : [],
-      contractorPlanning: canUseAppPermission(
-        appPermissions,
-        "contractor",
-        "view",
-      )
+      contractorPlanning: args.includeContractorPlanning &&
+        canUseAppPermission(appPermissions, "contractor", "view")
         ? await proposalContractorPlanningProjection(ctx, {
             auth,
             documents: documentRows,
@@ -6034,6 +6034,44 @@ export const getProductionTimelineWorkspace = authenticatedQuery
       },
       proposal: auth.proposal,
     };
+  })
+  .public();
+
+export const getProposalContractorPlanning = authenticatedQuery
+  .input({
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    const appPermissions = await proposalAppPermissionProjection(ctx, auth);
+    if (!canUseAppPermission(appPermissions, "contractor", "view")) {
+      return null;
+    }
+
+    const [documents, milestones, submilestones] = await Promise.all([
+      collectByIndex(ctx, "proposalDocuments", "by_proposal", args.proposalId),
+      collectByIndex(ctx, "proposalMilestones", "by_proposal", args.proposalId),
+      collectByIndex(
+        ctx,
+        "proposalSubmilestones",
+        "by_proposal",
+        args.proposalId,
+      ),
+    ]);
+
+    return await proposalContractorPlanningProjection(ctx, {
+      auth,
+      documents,
+      milestones,
+      proposalId: args.proposalId,
+      submilestones,
+    });
   })
   .public();
 
@@ -8501,8 +8539,6 @@ export const getProposalDetailByString = authenticatedQuery
       submilestones,
       costItems,
       draws,
-      events,
-      auditEvents,
       permitWaiver,
     ] = await Promise.all([
       collectByIndex(ctx, "proposalDocuments", "by_proposal", proposalId),
@@ -8515,34 +8551,11 @@ export const getProposalDetailByString = authenticatedQuery
         "by_proposal",
         proposalId,
       ),
-      collectByIndex(ctx, "proposalEvents", "by_proposal", proposalId),
-      ctx.db
-        .query("auditEvents")
-        .withIndex("by_entity", (q) =>
-          q.eq("entityType", "buildProposal").eq("entityId", proposalId),
-        )
-        .collect(),
       getPermitWaiver(ctx, proposalId),
     ]);
     const activeBuild = auth.proposal.activeBuildId
       ? await ctx.db.get(auth.proposal.activeBuildId)
       : null;
-    const buildMilestones = activeBuild
-      ? await collectByIndex(
-          ctx,
-          "buildMilestones",
-          "by_build",
-          activeBuild._id,
-        )
-      : [];
-    const buildSubmilestones = activeBuild
-      ? await collectByIndex(
-          ctx,
-          "buildSubmilestones",
-          "by_build",
-          activeBuild._id,
-        )
-      : [];
     const plannedDraws = activeBuild
       ? await collectByIndex(
           ctx,
@@ -8559,13 +8572,9 @@ export const getProposalDetailByString = authenticatedQuery
         auth.proposal,
         auth.brokerage,
       ),
-      auditEvents,
-      buildMilestones,
-      buildSubmilestones,
       costItems,
       documents: await withDocumentStorageUrls(ctx, documents),
       draws,
-      events,
       milestones,
       permitWaiver,
       plannedDraws,

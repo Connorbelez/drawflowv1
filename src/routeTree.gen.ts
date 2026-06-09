@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as RoadmapRouteImport } from './routes/roadmap'
 import { Route as ProtectedAccessRouteImport } from './routes/protected-access'
 import { Route as ProposalPreviewRouteImport } from './routes/proposal-preview'
+import { Route as MarketingRouteImport } from './routes/marketing'
 import { Route as CallbackRouteImport } from './routes/callback'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as DemoRouteRouteImport } from './routes/demo/route'
@@ -99,6 +100,11 @@ const ProtectedAccessRoute = ProtectedAccessRouteImport.update({
 const ProposalPreviewRoute = ProposalPreviewRouteImport.update({
   id: '/proposal-preview',
   path: '/proposal-preview',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MarketingRoute = MarketingRouteImport.update({
+  id: '/marketing',
+  path: '/marketing',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CallbackRoute = CallbackRouteImport.update({
@@ -510,6 +516,7 @@ export interface FileRoutesByFullPath {
   '/demo': typeof DemoRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/callback': typeof CallbackRoute
+  '/marketing': typeof MarketingRoute
   '/proposal-preview': typeof ProposalPreviewRoute
   '/protected-access': typeof ProtectedAccessRoute
   '/roadmap': typeof RoadmapRoute
@@ -585,6 +592,7 @@ export interface FileRoutesByTo {
   '/demo': typeof DemoRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/callback': typeof CallbackRoute
+  '/marketing': typeof MarketingRoute
   '/proposal-preview': typeof ProposalPreviewRoute
   '/protected-access': typeof ProtectedAccessRoute
   '/roadmap': typeof RoadmapRoute
@@ -650,6 +658,7 @@ export interface FileRoutesById {
   '/demo': typeof DemoRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/callback': typeof CallbackRoute
+  '/marketing': typeof MarketingRoute
   '/proposal-preview': typeof ProposalPreviewRoute
   '/protected-access': typeof ProtectedAccessRoute
   '/roadmap': typeof RoadmapRoute
@@ -730,6 +739,7 @@ export interface FileRouteTypes {
     | '/demo'
     | '/about'
     | '/callback'
+    | '/marketing'
     | '/proposal-preview'
     | '/protected-access'
     | '/roadmap'
@@ -805,6 +815,7 @@ export interface FileRouteTypes {
     | '/demo'
     | '/about'
     | '/callback'
+    | '/marketing'
     | '/proposal-preview'
     | '/protected-access'
     | '/roadmap'
@@ -869,6 +880,7 @@ export interface FileRouteTypes {
     | '/demo'
     | '/about'
     | '/callback'
+    | '/marketing'
     | '/proposal-preview'
     | '/protected-access'
     | '/roadmap'
@@ -948,6 +960,7 @@ export interface RootRouteChildren {
   DemoRouteRoute: typeof DemoRouteRouteWithChildren
   AboutRoute: typeof AboutRoute
   CallbackRoute: typeof CallbackRoute
+  MarketingRoute: typeof MarketingRoute
   ProposalPreviewRoute: typeof ProposalPreviewRoute
   ProtectedAccessRoute: typeof ProtectedAccessRoute
   RoadmapRoute: typeof RoadmapRoute
@@ -979,6 +992,13 @@ declare module '@tanstack/react-router' {
       path: '/proposal-preview'
       fullPath: '/proposal-preview'
       preLoaderRoute: typeof ProposalPreviewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/marketing': {
+      id: '/marketing'
+      path: '/marketing'
+      fullPath: '/marketing'
+      preLoaderRoute: typeof MarketingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/callback': {
@@ -1850,6 +1870,7 @@ const rootRouteChildren: RootRouteChildren = {
   DemoRouteRoute: DemoRouteRouteWithChildren,
   AboutRoute: AboutRoute,
   CallbackRoute: CallbackRoute,
+  MarketingRoute: MarketingRoute,
   ProposalPreviewRoute: ProposalPreviewRoute,
   ProtectedAccessRoute: ProtectedAccessRoute,
   RoadmapRoute: RoadmapRoute,

@@ -48,6 +48,32 @@ export type BuilderProposalSearch = {
   timeframe?: CalendarTimeframe;
 };
 
+type BuilderProposalRouteTab = NonNullable<BuilderProposalSearch["tab"]>;
+
+export function resolveBuilderProposalRouteTab(
+  search: BuilderProposalSearch,
+): BuilderProposalRouteTab {
+  return search.tab ?? "timeline";
+}
+
+export function shouldLoadBuilderProposalCalendarWorkspace(
+  activeTab: BuilderProposalRouteTab,
+) {
+  return activeTab === "calendar";
+}
+
+export function shouldLoadBuilderProposalContractorPlanning(
+  activeTab: BuilderProposalRouteTab,
+) {
+  return activeTab === "contractors" || activeTab === "gantt";
+}
+
+export function shouldMountBuilderProposalStaffPanel(
+  activeTab: BuilderProposalRouteTab,
+) {
+  return activeTab === "staff";
+}
+
 export const Route = createFileRoute("/builder/proposals/$proposalId/")({
   ssr: false,
   validateSearch: (search: Record<string, unknown>): BuilderProposalSearch => {
@@ -114,6 +140,11 @@ export function BuilderProductionProposalWorkspace({
   const [visualCostItems, setVisualCostItems] = useState(
     () => visualProposalDetail.costItems ?? [],
   );
+  const activeProposalTab = resolveBuilderProposalRouteTab(search);
+  const loadCalendarWorkspace =
+    shouldLoadBuilderProposalCalendarWorkspace(activeProposalTab);
+  const loadContractorPlanning =
+    shouldLoadBuilderProposalContractorPlanning(activeProposalTab);
   useEffect(() => {
     setVisualCostItems(visualProposalDetail.costItems ?? []);
   }, [visualProposalDetail]);
@@ -154,9 +185,23 @@ export function BuilderProductionProposalWorkspace({
           workosOrganizationId,
         },
   );
+  const contractorPlanningQuery = useQuery(
+    (api as any).production_proposals.getProposalContractorPlanning,
+    visualFixtureEnabled || !loadContractorPlanning
+      ? "skip"
+      : {
+          proposalId: typedProposalId,
+          workosOrganizationId,
+        },
+  );
   const workspace = visualFixtureEnabled
     ? getVisualParityTimelineWorkspace(proposalId)
-    : workspaceQuery;
+    : workspaceQuery
+      ? {
+          ...workspaceQuery,
+          contractorPlanning: contractorPlanningQuery ?? undefined,
+        }
+      : workspaceQuery;
   const detailQuery = useQuery(
     api.production_proposals.getProposalDetailByString,
     visualFixtureEnabled
@@ -171,7 +216,7 @@ export function BuilderProductionProposalWorkspace({
     : detailQuery;
   const calendarWorkspaceQuery = useQuery(
     (api as any).production_proposals.getProposalCalendarWorkspace,
-    visualFixtureEnabled
+    visualFixtureEnabled || !loadCalendarWorkspace
       ? "skip"
       : {
           proposalId: typedProposalId,
@@ -414,14 +459,23 @@ export function BuilderProductionProposalWorkspace({
           />
         </TabsPanel>
         <TabsPanel className={proposalTabPanelClassName} value="contractors">
-          <ProductionContractorPlanningTab
-            canMutate={canMutateContractors}
-            initialRole="builder"
-            persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
-            proposalId={typedProposalId}
-            workspace={workspace}
-            workosOrganizationId={workosOrganizationId}
-          />
+          {activeProposalTab === "contractors" &&
+          loadContractorPlanning &&
+          contractorPlanningQuery === undefined ? (
+            <DeferredBuilderProposalTabPanel
+              label="Contractor planning"
+              loading
+            />
+          ) : (
+            <ProductionContractorPlanningTab
+              canMutate={canMutateContractors}
+              initialRole="builder"
+              persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
+              proposalId={typedProposalId}
+              workspace={workspace}
+              workosOrganizationId={workosOrganizationId}
+            />
+          )}
         </TabsPanel>
         <TabsPanel className={proposalTabPanelClassName} value="materials">
           <MaterialPlanningTab
@@ -435,16 +489,39 @@ export function BuilderProductionProposalWorkspace({
         </TabsPanel>
         {visualFixtureEnabled || !includeStaffTab ? null : (
           <TabsPanel className={proposalTabPanelClassName} value="staff">
-            <BuilderStaffPermissionsPanel
-              proposalId={typedProposalId}
-              scope="proposal"
-              workosOrganizationId={workosOrganizationId}
-            />
+            {shouldMountBuilderProposalStaffPanel(activeProposalTab) ? (
+              <BuilderStaffPermissionsPanel
+                proposalId={typedProposalId}
+                scope="proposal"
+                workosOrganizationId={workosOrganizationId}
+              />
+            ) : (
+              <DeferredBuilderProposalTabPanel label="Staff permissions" />
+            )}
           </TabsPanel>
         )}
         </div>
       </Tabs>
     </section>
+  );
+}
+
+function DeferredBuilderProposalTabPanel({
+  label,
+  loading = false,
+}: {
+  label: string;
+  loading?: boolean;
+}) {
+  return (
+    <Frame>
+      <FramePanel className="flex min-h-40 items-center justify-center p-6">
+        <div className="flex items-center gap-2 text-muted-foreground text-sm">
+          {loading ? <Loader2 className="size-4 animate-spin" /> : null}
+          {loading ? `Loading ${label.toLowerCase()}...` : label}
+        </div>
+      </FramePanel>
+    </Frame>
   );
 }
 

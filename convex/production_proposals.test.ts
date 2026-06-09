@@ -1986,14 +1986,20 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.getProductionTimelineWorkspace,
       { proposalId, workosOrganizationId: ORG },
     );
-    expect(workspace.contractorPlanning.proposalContractors).toEqual([
+    expect(workspace.contractorPlanning).toBeUndefined();
+
+    const contractorPlanning = await t.query(
+      (api as any).production_proposals.getProposalContractorPlanning,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(contractorPlanning.proposalContractors).toEqual([
       expect.objectContaining({
         name: "Apex Concrete Works",
         role: "Foundation contractor",
         status: "active",
       }),
     ]);
-    expect(workspace.contractorPlanning.milestoneAssignments).toEqual([
+    expect(contractorPlanning.milestoneAssignments).toEqual([
       expect.objectContaining({
         contractorName: "Apex Concrete Works",
         estimatedCostCents: 3_000_000,
@@ -2295,6 +2301,10 @@ describe("production proposal foundation", () => {
       { proposalId: String(proposalId), workosOrganizationId: ORG },
     );
     expect(byString.proposal.proposedStartDate).toBe("2025-04-15");
+    expect(byString.auditEvents).toBeUndefined();
+    expect(byString.buildMilestones).toBeUndefined();
+    expect(byString.buildSubmilestones).toBeUndefined();
+    expect(byString.events).toBeUndefined();
 
     await t.mutation((api as any).production_proposals.submitProposal, {
       proposalId,

@@ -69,6 +69,11 @@ import {
   buildReviewChartData,
   getDefaultApprovalStartDateInput,
   ProposalReviewSurface,
+  resolveProposalReviewRouteTab,
+  shouldLoadProposalCalendarWorkspace,
+  shouldLoadProposalContractorPlanning,
+  shouldLoadProposalReviewBuilders,
+  shouldMountProposalStaffPanel,
   validateApprovalStartDate,
 } from "./proposals.$planId";
 
@@ -459,5 +464,33 @@ describe("ProposalReviewSurface", () => {
         .map((tab) => tab.textContent),
     ).toEqual(["Timeline"]);
     expect(screen.queryByRole("tab", { name: "Adjustments" })).toBeNull();
+  });
+});
+
+describe("proposal review subscription gates", () => {
+  test("keeps the default timeline route on lean workspace subscriptions", () => {
+    const activeTab = resolveProposalReviewRouteTab({});
+
+    expect(activeTab).toBe("timeline");
+    expect(shouldLoadProposalCalendarWorkspace(activeTab)).toBe(false);
+    expect(shouldLoadProposalContractorPlanning(activeTab)).toBe(false);
+    expect(shouldLoadProposalReviewBuilders(activeTab)).toBe(false);
+    expect(shouldMountProposalStaffPanel(activeTab)).toBe(false);
+  });
+
+  test("loads heavyweight subscriptions only for the tabs that need them", () => {
+    expect(shouldLoadProposalCalendarWorkspace("calendar")).toBe(true);
+    expect(shouldLoadProposalCalendarWorkspace("timeline")).toBe(false);
+
+    expect(shouldLoadProposalContractorPlanning("contractors")).toBe(true);
+    expect(shouldLoadProposalContractorPlanning("gantt")).toBe(true);
+    expect(shouldLoadProposalContractorPlanning("milestones")).toBe(true);
+    expect(shouldLoadProposalContractorPlanning("timeline")).toBe(false);
+
+    expect(shouldLoadProposalReviewBuilders("review")).toBe(true);
+    expect(shouldLoadProposalReviewBuilders("timeline")).toBe(false);
+
+    expect(shouldMountProposalStaffPanel("staff")).toBe(true);
+    expect(shouldMountProposalStaffPanel("timeline")).toBe(false);
   });
 });

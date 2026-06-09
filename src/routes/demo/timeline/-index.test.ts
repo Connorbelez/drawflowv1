@@ -833,7 +833,7 @@ describe("timeline cash shortfall logic", () => {
     );
   });
 
-  test("cashflow chart aggregates daily milestone spend from accounting rows", () => {
+  test("cashflow chart places the milestone cost gate on the start day", () => {
     const items: TimelineItem<DemoMilestone>[] = [
       {
         data: {
@@ -874,13 +874,19 @@ describe("timeline cash shortfall logic", () => {
     expect(
       chartData.find((point) => point.id === "milestone-cost-gate-10"),
     ).toMatchObject({
-      budget: 50_000,
+      budget: 100_000,
       day: 10,
       milestoneEndDay: 14,
     });
-    expect(chartData.some((point) => point.id.includes("distributed"))).toBe(
-      false,
-    );
+    expect(chartData.find((point) => point.day === 12)).toMatchObject({
+      budget: 0,
+      cashOnHand: 80_000,
+    });
+    expect(
+      chartData.some(
+        (point) => point.id.includes("distributed") && point.budget > 0,
+      ),
+    ).toBe(false);
     expect(interpolateLinearCashOnHand(chartData, 12)).toBe(80_000);
   });
 
