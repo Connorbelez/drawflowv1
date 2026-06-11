@@ -19,15 +19,21 @@ import {
   UserRound,
   UsersRound,
 } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useGSAP } from "@gsap/react";
+import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { useRef } from "react";
 import type { ReactElement } from "react";
 
 import { Button } from "#/components/ui/button.tsx";
+import { Header as DirectionalHoverHeader } from "#/components/directional-hover-header/header.tsx";
 import ScrollReveal from "#/components/ScrollReveal.jsx";
 import { Card } from "#/components/ui/card.tsx";
 import "./-marketing.css";
 
 export const Route = createFileRoute("/marketing")({
+  // Static marketing surface: no loaders, no server data, client-rendered for GSAP.
+  ssr: false,
   component: MarketingPage,
   head: () => ({
     meta: [
@@ -57,15 +63,20 @@ export const Route = createFileRoute("/marketing")({
 
 const renderAsset = "/assets/CleanShot Jun 8 Hero Section Blueprint.png";
 const blueprintAsset = "/assets/Blueprint Style Rendering Jun 8 2026 (1).png";
+const buildFinancingAsset = "/assets/fairlend-path-gta-sixplex-lane-suite.webp";
+const micInvestingAsset = "/assets/fairlend-path-mic-investing.webp";
+const privateMortgagesAsset = "/assets/fairlend-path-private-mortgages.webp";
 
 function MarketingPage(): ReactElement {
   const rootRef = useRef<HTMLElement>(null);
+  const heroScrollRef = useRef<HTMLElement>(null);
   const pinRef = useRef<HTMLDivElement>(null);
   const renderRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
   useMarketingScrollScene({
     contentRef,
+    heroScrollRef,
     pinRef,
     renderRef,
     rootRef,
@@ -73,7 +84,11 @@ function MarketingPage(): ReactElement {
 
   return (
     <main className="mkt-shell" ref={rootRef}>
-      <section className="mkt-hero-scroll" aria-labelledby="marketing-hero-title">
+      <section
+        className="mkt-hero-scroll"
+        aria-labelledby="marketing-hero-title"
+        ref={heroScrollRef}
+      >
         <div className="mkt-hero-pinned" ref={pinRef}>
           <div aria-hidden className="mkt-media-stage">
             <img
@@ -97,7 +112,7 @@ function MarketingPage(): ReactElement {
             <div className="mkt-bottom-fade" />
           </div>
 
-          <MarketingNav />
+          <DirectionalHoverHeader />
 
           <div className="mkt-hero-content" ref={contentRef}>
             <div className="mkt-hero-copy">
@@ -122,7 +137,7 @@ function MarketingPage(): ReactElement {
                   rotationStart="top top"
                   textAs="span"
                   textClassName="mkt-headline-secondary-text"
-                  triggerRef={rootRef}
+                  triggerRef={heroScrollRef}
                   wordAnimationEnd="+=50%"
                   wordAnimationStart="top top"
                 >
@@ -167,134 +182,124 @@ function MarketingPage(): ReactElement {
 
 function useMarketingScrollScene({
   contentRef,
+  heroScrollRef,
   pinRef,
   renderRef,
   rootRef,
 }: {
   contentRef: React.RefObject<HTMLDivElement | null>;
+  heroScrollRef: React.RefObject<HTMLElement | null>;
   pinRef: React.RefObject<HTMLDivElement | null>;
   renderRef: React.RefObject<HTMLDivElement | null>;
   rootRef: React.RefObject<HTMLElement | null>;
 }) {
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
+  useGSAP(
+    () => {
+      const section = heroScrollRef.current;
+      const pinEl = pinRef.current;
+      const renderEl = renderRef.current;
+      const contentEl = contentRef.current;
 
-    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
-    if (media.matches) {
-      renderRef.current?.classList.add("mkt-render-reduced");
-      return;
-    }
+      if (!section || !pinEl || !renderEl || !contentEl) {
+        return;
+      }
 
-    let active = true;
-    let cleanup = () => {};
+      const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+      if (media.matches) {
+        renderEl.classList.add("mkt-render-reduced");
+        return () => {
+          renderEl.classList.remove("mkt-render-reduced");
+        };
+      }
 
-    Promise.all([import("gsap"), import("gsap/ScrollTrigger")]).then(
-      ([gsapModule, scrollTriggerModule]) => {
+      gsap.registerPlugin(ScrollTrigger);
+
+      const timeline = gsap.timeline({
+        defaults: { ease: "none" },
+        scrollTrigger: {
+          anticipatePin: 1,
+          end: "+=115%",
+          invalidateOnRefresh: true,
+          pin: pinEl,
+          scrub: true,
+          start: "top top",
+          trigger: section,
+        },
+      });
+
+      const heroScrollTrigger = timeline.scrollTrigger;
+
+      timeline
+        .to(
+          renderEl,
+          {
+            duration: 0.72,
+            "--mask-x": "112%",
+            "--mask-y": "-8%",
+            "--r1": "0vmax",
+            "--r2": "4vmax",
+            "--r3": "0vmax",
+            "--r4": "3vmax",
+            "--r5": "0vmax",
+            "--r6": "2.5vmax",
+            "--r7": "0vmax",
+            "--r8": "2vmax",
+          },
+          0,
+        )
+        .to(
+          ".mkt-headline-primary",
+          {
+            duration: 0.24,
+            filter: "blur(2px)",
+            opacity: 0,
+            scale: 0.985,
+            y: -34,
+          },
+          0.035,
+        )
+        .to(
+          ".mkt-headline-secondary",
+          {
+            duration: 0.16,
+            opacity: 1,
+          },
+          0.075,
+        )
+        .to(
+          contentEl,
+          {
+            duration: 0.32,
+            y: -10,
+          },
+          0.16,
+        );
+
+      let active = true;
+      const refreshScene = () => {
         if (!active) {
           return;
         }
 
-        const gsap = gsapModule.default;
-        const { ScrollTrigger } = scrollTriggerModule;
-        gsap.registerPlugin(ScrollTrigger);
+        ScrollTrigger.refresh();
+        heroScrollTrigger?.update();
+      };
 
-        const ctx = gsap.context(() => {
-          const timeline = gsap.timeline({
-            defaults: { ease: "none" },
-            scrollTrigger: {
-              anticipatePin: 1,
-              end: "+=150%",
-              pin: pinRef.current,
-              scrub: true,
-              start: "top top",
-              trigger: rootRef.current?.querySelector(".mkt-hero-scroll"),
-            },
-          });
+      const refreshFrame = requestAnimationFrame(refreshScene);
 
-          timeline
-            .to(
-              renderRef.current,
-              {
-                "--mask-x": "112%",
-                "--mask-y": "-8%",
-                "--r1": "0vmax",
-                "--r2": "4vmax",
-                "--r3": "0vmax",
-                "--r4": "3vmax",
-                "--r5": "0vmax",
-                "--r6": "2.5vmax",
-                "--r7": "0vmax",
-                "--r8": "2vmax",
-              },
-              0,
-            )
-            .to(
-              ".mkt-headline-primary",
-              {
-                duration: 0.24,
-                filter: "blur(2px)",
-                opacity: 0,
-                scale: 0.985,
-                y: -34,
-              },
-              0.035,
-            )
-            .to(
-              ".mkt-headline-secondary",
-              {
-                duration: 0.16,
-                opacity: 1,
-              },
-              0.075,
-            )
-            .to(
-              contentRef.current,
-              {
-                y: -10,
-              },
-              0.58,
-            );
-        }, rootRef);
+      Promise.all([
+        ...Array.from(section.querySelectorAll("img"), (image) =>
+          image.complete ? Promise.resolve() : image.decode?.().catch(() => undefined),
+        ),
+        document.fonts?.ready ?? Promise.resolve(),
+      ]).then(refreshScene);
 
-        cleanup = () => ctx.revert();
-      },
-    );
-
-    return () => {
-      active = false;
-      cleanup();
-    };
-  }, [
-    contentRef,
-    pinRef,
-    renderRef,
-    rootRef,
-  ]);
-}
-
-function MarketingNav(): ReactElement {
-  const navItems = ["Borrowers", "Builders", "Investors", "About", "Resources"];
-
-  return (
-    <header className="mkt-nav">
-      <Link aria-label="Fairlend Capital marketing home" className="mkt-brand" to="/marketing">
-        <span>Fairlend</span>
-        <small>Capital</small>
-      </Link>
-      <nav aria-label="Fairlend marketing navigation">
-        {navItems.map((item) => (
-          <a href={`#${item.toLowerCase()}`} key={item}>
-            {item}
-          </a>
-        ))}
-      </nav>
-      <Button className="mkt-nav-action" render={<Link to="/builder/proposals/new" />}>
-        Talk to Fairlend
-        <ArrowRight aria-hidden="true" />
-      </Button>
-    </header>
+      return () => {
+        active = false;
+        cancelAnimationFrame(refreshFrame);
+      };
+    },
+    { dependencies: [], scope: rootRef },
   );
 }
 
@@ -435,19 +440,19 @@ function MarketingProof(): ReactElement {
       eyebrow: "Builders",
       title: "Build financing",
       copy: "Construction loans and bridge financing for builders who move projects forward.",
-      image: blueprintAsset,
+      image: buildFinancingAsset,
     },
     {
       eyebrow: "Investors",
       title: "Invest with our MIC",
       copy: "Access a diversified portfolio of private mortgages backed by real Canadian assets.",
-      image: renderAsset,
+      image: micInvestingAsset,
     },
     {
       eyebrow: "Borrowers",
       title: "Private 1st & 2nd mortgages",
       copy: "Flexible mortgage solutions for real estate investors and homeowners.",
-      image: renderAsset,
+      image: privateMortgagesAsset,
     },
   ];
 
@@ -471,20 +476,16 @@ function MarketingProof(): ReactElement {
 
   const team = [
     {
-      name: "Maya",
-      role: "Capital",
+      name: "Connor Beleznay",
+      role: "CTO",
     },
     {
-      name: "Daniel",
-      role: "Credit",
+      name: "Austin Krystek",
+      role: "COO",
     },
     {
-      name: "Sofia",
-      role: "Operations",
-    },
-    {
-      name: "Aamir",
-      role: "Builder success",
+      name: "Bogdan Krystek",
+      role: "CFO",
     },
   ];
 
@@ -613,7 +614,11 @@ function MarketingProof(): ReactElement {
             </div>
           ))}
         </div>
-        <Button className="mkt-team-action" render={<Link to="/marketing#about" />} variant="outline">
+        <Button
+          className="mkt-team-action"
+          render={<Link hash="about" preload="intent" to="/marketing" viewTransition />}
+          variant="outline"
+        >
           Meet the team
           <ArrowRight aria-hidden="true" />
         </Button>
@@ -627,7 +632,10 @@ function MarketingProof(): ReactElement {
             <p>We are growing and always looking for driven, curious, and kind people.</p>
           </div>
         </div>
-        <Button className="mkt-careers-action" render={<Link to="/marketing#careers" />}>
+        <Button
+          className="mkt-careers-action"
+          render={<Link hash="careers" preload="intent" to="/marketing" viewTransition />}
+        >
           View open roles
           <ArrowRight aria-hidden="true" />
         </Button>

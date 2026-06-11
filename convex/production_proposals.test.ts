@@ -2403,13 +2403,42 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
+    await t.mutation((api as any).production_proposals.submitProposal, {
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+
+    const submittedUploadUrl = await t.mutation(
+      (api as any).production_proposals.generateProposalDocumentUploadUrl,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(submittedUploadUrl).toContain("http");
+    await t.mutation((api as any).production_proposals.addProposalDocument, {
+      documentType: "permit",
+      fileName: "issued-permit.pdf",
+      mimeType: "application/pdf",
+      proposalId,
+      sizeBytes: 1024,
+      workosOrganizationId: ORG,
+    });
 
     const detail = await t.query(
       (api as any).production_proposals.getProposalDetail,
       { proposalId, workosOrganizationId: ORG },
     );
-    expect(detail.documents[0]).toMatchObject({
+    expect(
+      detail.documents.find((document: any) => document.fileName === "scope.pdf"),
+    ).toMatchObject({
       fileName: "scope.pdf",
+      storageUrl: null,
+    });
+    expect(
+      detail.documents.find(
+        (document: any) => document.fileName === "issued-permit.pdf",
+      ),
+    ).toMatchObject({
+      documentType: "permit",
+      fileName: "issued-permit.pdf",
       storageUrl: null,
     });
   });

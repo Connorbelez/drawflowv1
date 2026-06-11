@@ -10,12 +10,6 @@ import {
   type TimelineItem,
   type TimelineMarker,
 } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
-import { BuilderStaffPermissionsPanel } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
-import {
-  canUseAppPermission,
-  filterMaterialPlanningActionsForPermissions,
-  hasAnyAppPermission,
-} from "#/features/builder-staff/app-permissions.ts";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -35,23 +29,6 @@ import {
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
-import { ProductionProposalReviewSurface } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
-import { ProductionProposalMilestoneWorksheetContainer } from "#/features/production-proposals/ProductionProposalMilestoneWorksheetContainer.tsx";
-import {
-  createProposalCalendarEditHandler,
-  type ProposalCalendarAdapterActions,
-} from "#/features/calendar-workspace/adapters/proposalCalendarAdapter.ts";
-import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
-import { ProductionContractorPlanningTab } from "#/features/production-proposals/ProductionContractorPlanningTab.tsx";
-import { ProductionProposalTimelineGanttWorkspace } from "#/features/production-proposals/ProductionProposalGanttWorkspace.tsx";
-import { ProductionTimelineWorkspace } from "#/features/production-proposals/ProductionTimelineWorkspace.tsx";
-import {
-  createVisualParityCostItem,
-  getVisualParityProposalDetail,
-  getVisualParityTimelineWorkspace,
-  isProductionVisualParityFixtureEnabled,
-} from "#/features/production-proposals/visualParityFixtures.ts";
-import { Textarea } from "#/components/ui/textarea.tsx";
 import {
   Table,
   TableBody,
@@ -60,16 +37,33 @@ import {
   TableHeader,
   TableRow,
 } from "#/components/ui/table.tsx";
-import { cn } from "#/lib/utils.ts";
-import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
+import { Textarea } from "#/components/ui/textarea.tsx";
+import {
+  canUseAppPermission,
+  filterMaterialPlanningActionsForPermissions,
+  hasAnyAppPermission,
+} from "#/features/builder-staff/app-permissions.ts";
+import { BuilderStaffPermissionsPanel } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
+import {
+  createProposalCalendarEditHandler,
+  type ProposalCalendarAdapterActions,
+} from "#/features/calendar-workspace/adapters/proposalCalendarAdapter.ts";
+import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
+import { ProductionContractorPlanningTab } from "#/features/production-proposals/ProductionContractorPlanningTab.tsx";
+import { ProductionProposalTimelineGanttWorkspace } from "#/features/production-proposals/ProductionProposalGanttWorkspace.tsx";
+import { ProductionProposalMilestoneWorksheetContainer } from "#/features/production-proposals/ProductionProposalMilestoneWorksheetContainer.tsx";
+import { ProductionProposalReviewSurface } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
+import { ProductionTimelineWorkspace } from "#/features/production-proposals/ProductionTimelineWorkspace.tsx";
+import {
+  createVisualParityCostItem,
+  getVisualParityProposalDetail,
+  getVisualParityTimelineWorkspace,
+  isProductionVisualParityFixtureEnabled,
+} from "#/features/production-proposals/visualParityFixtures.ts";
 import {
   MilestoneCard,
   type MilestoneCardUpdate,
 } from "#/features/timeline-workspace/-MilestoneCard.tsx";
-import { TimelineEndNodeButton } from "#/features/timeline-workspace/-TimelineEndNodeButton.tsx";
-import { getMilestoneEndX } from "#/features/timeline-workspace/-timeline-milestone-schedule.ts";
-import type { DemoMilestone } from "#/features/timeline-workspace/-timeline-share-snapshot.ts";
 import {
   TimelineCashflowCompoundChart,
   type TimelineCashflowCompoundDatum,
@@ -80,6 +74,12 @@ import {
   type TimelineDrawAvailabilityDatum,
   type TimelineDrawAvailabilityReferenceLine,
 } from "#/features/timeline-workspace/-TimelineDrawAvailabilityChart.tsx";
+import { TimelineEndNodeButton } from "#/features/timeline-workspace/-TimelineEndNodeButton.tsx";
+import { getMilestoneEndX } from "#/features/timeline-workspace/-timeline-milestone-schedule.ts";
+import type { DemoMilestone } from "#/features/timeline-workspace/-timeline-share-snapshot.ts";
+import { cn } from "#/lib/utils.ts";
+import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
 
 const PROPOSAL_REVIEW_TIMELINE_SIZING = {
   cardWidth: 232,
@@ -114,19 +114,19 @@ type ProposalReviewSearch = {
 type ProposalReviewRouteTab = NonNullable<ProposalReviewSearch["tab"]>;
 
 export function resolveProposalReviewRouteTab(
-  search: ProposalReviewSearch,
+  search: ProposalReviewSearch
 ): ProposalReviewRouteTab {
   return search.tab ?? "packet";
 }
 
 export function shouldLoadProposalCalendarWorkspace(
-  activeTab: ProposalReviewRouteTab,
+  activeTab: ProposalReviewRouteTab
 ) {
   return activeTab === "calendar";
 }
 
 export function shouldLoadProposalContractorPlanning(
-  activeTab: ProposalReviewRouteTab,
+  activeTab: ProposalReviewRouteTab
 ) {
   return (
     activeTab === "contractors" ||
@@ -136,12 +136,14 @@ export function shouldLoadProposalContractorPlanning(
 }
 
 export function shouldLoadProposalReviewBuilders(
-  activeTab: ProposalReviewRouteTab,
+  activeTab: ProposalReviewRouteTab
 ) {
   return activeTab === "review";
 }
 
-export function shouldMountProposalStaffPanel(activeTab: ProposalReviewRouteTab) {
+export function shouldMountProposalStaffPanel(
+  activeTab: ProposalReviewRouteTab
+) {
   return activeTab === "staff";
 }
 
@@ -196,10 +198,10 @@ function ProposalReviewRoute() {
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
   const visualProposalDetail = useMemo(
     () => getVisualParityProposalDetail(planId),
-    [planId],
+    [planId]
   );
   const [visualCostItems, setVisualCostItems] = useState(
-    () => visualProposalDetail.costItems ?? [],
+    () => visualProposalDetail.costItems ?? []
   );
   useEffect(() => {
     setVisualCostItems(visualProposalDetail.costItems ?? []);
@@ -214,12 +216,12 @@ function ProposalReviewRoute() {
       },
       delete: (item: { _id: string }) => {
         setVisualCostItems((current) =>
-          current.filter((candidate) => candidate._id !== item._id),
+          current.filter((candidate) => candidate._id !== item._id)
         );
       },
       update: (
         item: { _id: string },
-        payload: Parameters<typeof createVisualParityCostItem>[0],
+        payload: Parameters<typeof createVisualParityCostItem>[0]
       ) => {
         setVisualCostItems((current) =>
           current.map((candidate) =>
@@ -228,12 +230,12 @@ function ProposalReviewRoute() {
                   ...createVisualParityCostItem(payload, candidate._id),
                   _id: item._id,
                 }
-              : candidate,
-          ),
+              : candidate
+          )
         );
       },
     }),
-    [],
+    []
   );
   const joinSession = useMutation(api.proposal_collaboration.joinSession);
   const activeReviewTab = resolveProposalReviewRouteTab(search);
@@ -247,7 +249,7 @@ function ProposalReviewRoute() {
       typeof window === "undefined"
         ? null
         : new URLSearchParams(window.location.search).get("collab"),
-    [],
+    []
   );
   const [collabJoinState, setCollabJoinState] = useState<
     "idle" | "joined" | "joining"
@@ -267,7 +269,7 @@ function ProposalReviewRoute() {
         toast.error(
           error instanceof Error
             ? error.message
-            : "Unable to join live collaboration.",
+            : "Unable to join live collaboration."
         );
       });
   }, [collabJoinState, collabToken, joinSession, workosOrganizationId]);
@@ -276,7 +278,7 @@ function ProposalReviewRoute() {
     api.production_proposals.getProposalDetailByString,
     visualFixtureEnabled || collabJoinState === "joining"
       ? "skip"
-      : { proposalId: planId, workosOrganizationId },
+      : { proposalId: planId, workosOrganizationId }
   );
   const productionDetail = visualFixtureEnabled
     ? { ...visualProposalDetail, costItems: visualCostItems }
@@ -288,7 +290,7 @@ function ProposalReviewRoute() {
       : {
           proposalId: planId as Id<"buildProposals">,
           workosOrganizationId,
-        },
+        }
   );
   const productionContractorPlanningQuery = useQuery(
     (api as any).production_proposals.getProposalContractorPlanning,
@@ -297,7 +299,7 @@ function ProposalReviewRoute() {
       : {
           proposalId: planId as Id<"buildProposals">,
           workosOrganizationId,
-        },
+        }
   );
   const productionWorkspace = visualFixtureEnabled
     ? getVisualParityTimelineWorkspace(planId)
@@ -314,103 +316,110 @@ function ProposalReviewRoute() {
       : {
           proposalId: planId as Id<"buildProposals">,
           workosOrganizationId,
-        },
+        }
   );
   const calendarAssignableParticipantsQuery = useQuery(
-    (api as any).production_proposals.listProposalCalendarAssignableParticipants,
+    (api as any).production_proposals
+      .listProposalCalendarAssignableParticipants,
     visualFixtureEnabled || !productionDetail || !loadCalendarWorkspace
       ? "skip"
       : {
           proposalId: planId as Id<"buildProposals">,
           workosOrganizationId,
-        },
+        }
   );
   const buildersQuery = useQuery(
     api.production_proposals.listBrokerageBuilders,
     visualFixtureEnabled || !productionDetail || !loadReviewBuilders
       ? "skip"
-      : { workosOrganizationId },
+      : { workosOrganizationId }
   );
   const requestProductionChanges = useMutation(
-    api.production_proposals.requestChanges,
+    api.production_proposals.requestChanges
   );
   const assignDraftBuilder = useMutation(
-    api.production_proposals.assignDraftBuilder,
+    api.production_proposals.assignDraftBuilder
   );
   const unassignDraftBuilder = useMutation(
-    api.production_proposals.unassignDraftBuilder,
+    api.production_proposals.unassignDraftBuilder
   );
   const createDraftProposalClaimLink = useMutation(
-    api.production_proposals.createDraftProposalClaimLink,
+    api.production_proposals.createDraftProposalClaimLink
   );
   const rejectProductionProposal = useMutation(
-    api.production_proposals.rejectProposal,
+    api.production_proposals.rejectProposal
   );
   const approveProductionProposal = useMutation(
-    api.production_proposals.approveProposal,
+    api.production_proposals.approveProposal
   );
   const recordProductionClosing = useMutation(
-    api.production_proposals.recordOfflineClosing,
+    api.production_proposals.recordOfflineClosing
   );
   const createProposalCostItem = useMutation(
-    api.production_proposals.createProposalCostItem,
+    api.production_proposals.createProposalCostItem
   );
   const updateProposalCostItem = useMutation(
-    api.production_proposals.updateProposalCostItem,
+    api.production_proposals.updateProposalCostItem
   );
   const deleteProposalCostItem = useMutation(
-    api.production_proposals.deleteProposalCostItem,
+    api.production_proposals.deleteProposalCostItem
   );
   const updateProductionDrawScheduleRow = useMutation(
-    api.production_proposals.updateSubmittedProposalDrawScheduleRow,
+    api.production_proposals.updateSubmittedProposalDrawScheduleRow
   );
   const updateProductionTimelineDraw = useMutation(
-    api.production_proposals.updateProductionTimelineDraw,
+    api.production_proposals.updateProductionTimelineDraw
   );
   const createProductionTimelineMilestone = useMutation(
-    api.production_proposals.createProductionTimelineMilestone,
+    api.production_proposals.createProductionTimelineMilestone
   );
   const updateProductionTimelineMilestone = useMutation(
-    api.production_proposals.updateProductionTimelineMilestone,
+    api.production_proposals.updateProductionTimelineMilestone
   );
   const updateProductionProposalApprovedAmount = useMutation(
-    api.production_proposals.updateProductionProposalApprovedAmount,
+    api.production_proposals.updateProductionProposalApprovedAmount
   );
   const updateProductionProposalInterestRate = useMutation(
-    api.production_proposals.updateProductionProposalInterestRate,
+    api.production_proposals.updateProductionProposalInterestRate
   );
   const updateProductionProposalProposedStartDate = useMutation(
-    api.production_proposals.updateProductionProposalProposedStartDate,
+    api.production_proposals.updateProductionProposalProposedStartDate
+  );
+  const generateProposalDocumentUploadUrl = useMutation(
+    api.production_proposals.generateProposalDocumentUploadUrl
+  );
+  const addProposalDocument = useMutation(
+    (api as any).production_proposals.addProposalDocument
   );
   const reviseProposalMilestoneSchedule = useMutation(
-    (api as any).production_proposals.reviseProposalMilestoneSchedule,
+    (api as any).production_proposals.reviseProposalMilestoneSchedule
   );
   const reviseProposalDrawTiming = useMutation(
-    (api as any).production_proposals.reviseProposalDrawTiming,
+    (api as any).production_proposals.reviseProposalDrawTiming
   );
   const setEvidenceDueDate = useMutation(
-    (api as any).production_proposals.setEvidenceDueDate,
+    (api as any).production_proposals.setEvidenceDueDate
   );
   const setReviewTargetDate = useMutation(
-    (api as any).production_proposals.setReviewTargetDate,
+    (api as any).production_proposals.setReviewTargetDate
   );
   const saveCalendarView = useMutation(
-    (api as any).production_proposals.saveCalendarView,
+    (api as any).production_proposals.saveCalendarView
   );
   const createProposalReminderCalendarEvent = useMutation(
-    (api as any).production_proposals.createProposalReminderCalendarEvent,
+    (api as any).production_proposals.createProposalReminderCalendarEvent
   );
   const updateProposalReminderCalendarEvent = useMutation(
-    (api as any).production_proposals.updateProposalReminderCalendarEvent,
+    (api as any).production_proposals.updateProposalReminderCalendarEvent
   );
   const deleteProposalReminderCalendarEvent = useMutation(
-    (api as any).production_proposals.deleteProposalReminderCalendarEvent,
+    (api as any).production_proposals.deleteProposalReminderCalendarEvent
   );
   const createCalendarSyncSubscription = useMutation(
-    (api as any).production_proposals.createCalendarSyncSubscription,
+    (api as any).production_proposals.createCalendarSyncSubscription
   );
   const recordExternalCalendarSyncChange = useMutation(
-    (api as any).production_proposals.recordExternalCalendarSyncChange,
+    (api as any).production_proposals.recordExternalCalendarSyncChange
   );
 
   if (collabJoinState === "joining") {
@@ -436,36 +445,40 @@ function ProposalReviewRoute() {
       ["submilestone", "delete"],
       ["submilestone", "update"],
     ]);
+    const canUploadProposalDocuments = canUseAppPermission(
+      appPermissions,
+      "evidence",
+      "create"
+    );
     const proposalEditorPersistenceMode =
       visualFixtureEnabled || !canEditProposalMilestones ? "noop" : "convex";
-    const materialPlanningActions =
-      filterMaterialPlanningActionsForPermissions(
-        appPermissions,
-        visualFixtureEnabled
-          ? visualMaterialPlanningActions
-          : {
-              create: (payload) =>
-                createProposalCostItem({
-                  ...payload,
-                  proposalId,
-                  workosOrganizationId,
-                }).then(() => toast.success("Cost item added.")),
-              delete: (item, reason) =>
-                deleteProposalCostItem({
-                  itemId: item._id as any,
-                  proposalId,
-                  reason,
-                  workosOrganizationId,
-                }).then(() => toast.success("Cost item removed.")),
-              update: (item, payload) =>
-                updateProposalCostItem({
-                  ...payload,
-                  itemId: item._id as any,
-                  proposalId,
-                  workosOrganizationId,
-                }).then(() => toast.success("Cost item updated.")),
-            },
-      );
+    const materialPlanningActions = filterMaterialPlanningActionsForPermissions(
+      appPermissions,
+      visualFixtureEnabled
+        ? visualMaterialPlanningActions
+        : {
+            create: (payload) =>
+              createProposalCostItem({
+                ...payload,
+                proposalId,
+                workosOrganizationId,
+              }).then(() => toast.success("Cost item added.")),
+            delete: (item, reason) =>
+              deleteProposalCostItem({
+                itemId: item._id as any,
+                proposalId,
+                reason,
+                workosOrganizationId,
+              }).then(() => toast.success("Cost item removed.")),
+            update: (item, payload) =>
+              updateProposalCostItem({
+                ...payload,
+                itemId: item._id as any,
+                proposalId,
+                workosOrganizationId,
+              }).then(() => toast.success("Cost item updated.")),
+          }
+    );
     const canMutateContractors = hasAnyAppPermission(appPermissions, [
       ["contractor", "create"],
       ["contractor", "update"],
@@ -473,13 +486,13 @@ function ProposalReviewRoute() {
     const canViewContractors = canUseAppPermission(
       appPermissions,
       "contractor",
-      "view",
+      "view"
     );
     const calendarAdapterActions: ProposalCalendarAdapterActions = {
       addEvidenceDueDate: canUseAppPermission(
         appPermissions,
         "evidence",
-        "update",
+        "update"
       )
         ? (input) =>
             setEvidenceDueDate({
@@ -491,7 +504,7 @@ function ProposalReviewRoute() {
       addReviewTargetDate: canUseAppPermission(
         appPermissions,
         "reminder",
-        "create",
+        "create"
       )
         ? (input) =>
             setReviewTargetDate({
@@ -511,7 +524,7 @@ function ProposalReviewRoute() {
       reviseMilestoneSchedule: canUseAppPermission(
         appPermissions,
         "milestone",
-        "update",
+        "update"
       )
         ? (input) =>
             reviseProposalMilestoneSchedule({
@@ -529,36 +542,11 @@ function ProposalReviewRoute() {
       <ProductionProposalReviewSurface
         builders={buildersQuery ?? []}
         calendarAdapterActions={calendarAdapterActions}
-        calendarAssignableParticipants={calendarAssignableParticipantsQuery ?? []}
+        calendarAssignableParticipants={
+          calendarAssignableParticipantsQuery ?? []
+        }
         calendarTimeframe={search.timeframe}
         calendarWorkspace={productionCalendarWorkspaceQuery as any}
-        detail={productionDetail}
-        initialActiveTab={search.tab}
-        milestones={
-          <ProductionProposalMilestoneWorksheetContainer
-            contractorPlanning={productionWorkspace.contractorPlanning}
-            detail={productionDetail}
-            persistenceMode={proposalEditorPersistenceMode}
-            proposalId={proposalId}
-            showHeading
-            templateTitle={productionDetail.proposal.buildName}
-            workosOrganizationId={workosOrganizationId}
-          />
-        }
-        staff={
-          visualFixtureEnabled ? undefined : (
-            shouldMountProposalStaffPanel(activeReviewTab) ? (
-              <BuilderStaffPermissionsPanel
-                proposalId={proposalId}
-                scope="proposal"
-                workosOrganizationId={workosOrganizationId}
-              />
-            ) : (
-              <DeferredProposalTabPanel label="Staff permissions" />
-            )
-          )
-        }
-        materialPlanningActions={materialPlanningActions}
         contractors={
           canViewContractors ? (
             activeReviewTab === "contractors" &&
@@ -571,33 +559,31 @@ function ProposalReviewRoute() {
                 initialRole="lender"
                 persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
                 proposalId={proposalId}
-                workspace={productionWorkspace}
                 workosOrganizationId={workosOrganizationId}
+                workspace={productionWorkspace}
               />
             )
           ) : undefined
         }
+        detail={productionDetail}
         gantt={
           <ProductionProposalTimelineGanttWorkspace
             persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
             proposalId={proposalId}
-            workspace={productionWorkspace}
             workosOrganizationId={workosOrganizationId}
+            workspace={productionWorkspace}
           />
         }
-        timeline={
-          <ProductionTimelineWorkspace
-            backofficeHref={`/backoffice/proposals/${planId}`}
-            embedded
-            initialRole="lender"
-            persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
-            appPermissions={appPermissions}
-            prejoinedCollabToken={
-              collabJoinState === "joined" ? collabToken : null
-            }
-            proposalHref={`/builder/proposals/${planId}`}
+        initialActiveTab={search.tab}
+        materialPlanningActions={materialPlanningActions}
+        milestones={
+          <ProductionProposalMilestoneWorksheetContainer
+            contractorPlanning={productionWorkspace.contractorPlanning}
+            detail={productionDetail}
+            persistenceMode={proposalEditorPersistenceMode}
             proposalId={proposalId}
-            workspace={productionWorkspace}
+            showHeading
+            templateTitle={productionDetail.proposal.buildName}
             workosOrganizationId={workosOrganizationId}
           />
         }
@@ -611,8 +597,31 @@ function ProposalReviewRoute() {
             toast.success("Proposal approved.", {
               description:
                 "The proposal is ready for closing. Live build controls stay locked until closing is recorded.",
-            }),
+            })
           )
+        }
+        onAssignBuilder={(builderProfileId) =>
+          assignDraftBuilder({
+            builderProfileId: builderProfileId as Id<"builderProfiles">,
+            proposalId,
+            workosOrganizationId,
+          })
+        }
+        onChangeCalendarTimeframe={(timeframe) =>
+          void navigate({
+            params: { planId },
+            replace: true,
+            search: { ...search, timeframe },
+            to: "/backoffice/proposals/$planId",
+          })
+        }
+        onChangeReviewTab={(tab) =>
+          void navigate({
+            params: { planId },
+            replace: true,
+            search: { ...search, tab },
+            to: "/backoffice/proposals/$planId",
+          })
         }
         onClose={(buildStartDate, reason) =>
           recordProductionClosing({
@@ -634,6 +643,60 @@ function ProposalReviewRoute() {
             });
           })
         }
+        onCommitCalendarEdit={commitCalendarEdit}
+        onCreateCalendarReminderEvent={
+          canUseAppPermission(appPermissions, "reminder", "create")
+            ? (input) =>
+                createProposalReminderCalendarEvent({
+                  ...input,
+                  proposalId,
+                  workosOrganizationId,
+                })
+            : undefined
+        }
+        onCreateCalendarSyncSubscription={(input) =>
+          createCalendarSyncSubscription({
+            ...input,
+            proposalId:
+              input.surface === "proposal"
+                ? (input.sourceId as Id<"buildProposals">)
+                : undefined,
+            workosOrganizationId,
+          })
+        }
+        onCreateClaimLink={() =>
+          createDraftProposalClaimLink({
+            proposalId,
+            workosOrganizationId,
+          })
+        }
+        onCreatePacketMilestone={
+          canUseAppPermission(appPermissions, "milestone", "create")
+            ? (milestone) =>
+                createProductionTimelineMilestone({
+                  milestone,
+                  proposalId,
+                  workosOrganizationId,
+                }).then(() => toast.success("Milestone added."))
+            : undefined
+        }
+        onDeleteCalendarReminderEvent={
+          canUseAppPermission(appPermissions, "reminder", "delete")
+            ? (input) =>
+                deleteProposalReminderCalendarEvent({
+                  ...input,
+                  eventId: input.eventId as Id<"calendarReminderEvents">,
+                  proposalId,
+                  workosOrganizationId,
+                })
+            : undefined
+        }
+        onRecordExternalCalendarSyncChange={(input) =>
+          recordExternalCalendarSyncChange({
+            ...input,
+            workosOrganizationId,
+          })
+        }
         onReject={(reason) =>
           rejectProductionProposal({
             proposalId,
@@ -641,21 +704,22 @@ function ProposalReviewRoute() {
             workosOrganizationId,
           }).then(() => toast.success("Proposal rejected."))
         }
-        onAssignBuilder={(builderProfileId) =>
-          assignDraftBuilder({
-            builderProfileId: builderProfileId as Id<"builderProfiles">,
+        onRequestChanges={(reason) =>
+          requestProductionChanges({
             proposalId,
+            reason,
+            workosOrganizationId,
+          }).then(() => toast.success("Changes requested."))
+        }
+        onSaveCalendarView={(input) =>
+          saveCalendarView({
+            ...input,
+            surface: "proposal",
             workosOrganizationId,
           })
         }
         onUnassignBuilder={() =>
           unassignDraftBuilder({
-            proposalId,
-            workosOrganizationId,
-          })
-        }
-        onCreateClaimLink={() =>
-          createDraftProposalClaimLink({
             proposalId,
             workosOrganizationId,
           })
@@ -667,29 +731,16 @@ function ProposalReviewRoute() {
             workosOrganizationId,
           })
         }
-        onUpdateInterestRate={(interestAnnualBps) =>
-          updateProductionProposalInterestRate({
-            interestAnnualBps,
-            proposalId,
-            workosOrganizationId,
-          })
-        }
-        onUpdateProposedStartDate={
-          canUseAppPermission(appPermissions, "milestone", "update")
-            ? (proposedStartDate) =>
-                updateProductionProposalProposedStartDate({
+        onUpdateCalendarReminderEvent={
+          canUseAppPermission(appPermissions, "reminder", "update")
+            ? (input) =>
+                updateProposalReminderCalendarEvent({
+                  ...input,
+                  eventId: input.eventId as Id<"calendarReminderEvents">,
                   proposalId,
-                  proposedStartDate,
                   workosOrganizationId,
                 })
             : undefined
-        }
-        onRequestChanges={(reason) =>
-          requestProductionChanges({
-            proposalId,
-            reason,
-            workosOrganizationId,
-          }).then(() => toast.success("Changes requested."))
         }
         onUpdateDraw={
           canUseAppPermission(appPermissions, "draw", "update")
@@ -715,6 +766,13 @@ function ProposalReviewRoute() {
                 ).then(() => toast.success("Draw schedule updated."))
             : undefined
         }
+        onUpdateInterestRate={(interestAnnualBps) =>
+          updateProductionProposalInterestRate({
+            interestAnnualBps,
+            proposalId,
+            workosOrganizationId,
+          })
+        }
         onUpdatePacketMilestone={
           canUseAppPermission(appPermissions, "milestone", "update")
             ? (milestoneKey, patch) =>
@@ -726,87 +784,76 @@ function ProposalReviewRoute() {
                 }).then(() => toast.success("Milestone updated."))
             : undefined
         }
-        onCreatePacketMilestone={
-          canUseAppPermission(appPermissions, "milestone", "create")
-            ? (milestone) =>
-                createProductionTimelineMilestone({
-                  milestone,
+        onUpdateProposedStartDate={
+          canUseAppPermission(appPermissions, "milestone", "update")
+            ? (proposedStartDate) =>
+                updateProductionProposalProposedStartDate({
                   proposalId,
-                  workosOrganizationId,
-                }).then(() => toast.success("Milestone added."))
-            : undefined
-        }
-        onChangeCalendarTimeframe={(timeframe) =>
-          void navigate({
-            params: { planId },
-            replace: true,
-            search: { ...search, timeframe },
-            to: "/backoffice/proposals/$planId",
-          })
-        }
-        onChangeReviewTab={(tab) =>
-          void navigate({
-            params: { planId },
-            replace: true,
-            search: { ...search, tab },
-            to: "/backoffice/proposals/$planId",
-          })
-        }
-        onCommitCalendarEdit={commitCalendarEdit}
-        onCreateCalendarReminderEvent={
-          canUseAppPermission(appPermissions, "reminder", "create")
-            ? (input) =>
-                createProposalReminderCalendarEvent({
-                  ...input,
-                  proposalId,
+                  proposedStartDate,
                   workosOrganizationId,
                 })
             : undefined
         }
-        onCreateCalendarSyncSubscription={(input) =>
-          createCalendarSyncSubscription({
-            ...input,
-            proposalId:
-              input.surface === "proposal"
-                ? (input.sourceId as Id<"buildProposals">)
-                : undefined,
-            workosOrganizationId,
-          })
-        }
-        onDeleteCalendarReminderEvent={
-          canUseAppPermission(appPermissions, "reminder", "delete")
-            ? (input) =>
-                deleteProposalReminderCalendarEvent({
-                  ...input,
-                  eventId: input.eventId as Id<"calendarReminderEvents">,
+        onUploadPermitDocument={
+          canUploadProposalDocuments
+            ? async (file) => {
+                const uploadUrl = await generateProposalDocumentUploadUrl({
                   proposalId,
                   workosOrganizationId,
-                })
-            : undefined
-        }
-        onRecordExternalCalendarSyncChange={(input) =>
-          recordExternalCalendarSyncChange({
-            ...input,
-            workosOrganizationId,
-          })
-        }
-        onSaveCalendarView={(input) =>
-          saveCalendarView({
-            ...input,
-            surface: "proposal",
-            workosOrganizationId,
-          })
-        }
-        onUpdateCalendarReminderEvent={
-          canUseAppPermission(appPermissions, "reminder", "update")
-            ? (input) =>
-                updateProposalReminderCalendarEvent({
-                  ...input,
-                  eventId: input.eventId as Id<"calendarReminderEvents">,
+                });
+                const response = await fetch(uploadUrl, {
+                  body: file,
+                  headers: {
+                    "Content-Type": file.type || "application/pdf",
+                  },
+                  method: "POST",
+                });
+                if (!response.ok) {
+                  throw new Error(`Permit upload failed for ${file.name}.`);
+                }
+                const { storageId } = (await response.json()) as {
+                  storageId: string;
+                };
+                await addProposalDocument({
+                  documentType: "permit",
+                  fileName: file.name,
+                  mimeType: file.type || "application/pdf",
                   proposalId,
+                  sizeBytes: file.size,
+                  storageId: storageId as Id<"_storage">,
                   workosOrganizationId,
-                })
+                });
+              }
             : undefined
+        }
+        staff={
+          visualFixtureEnabled ? undefined : shouldMountProposalStaffPanel(
+              activeReviewTab
+            ) ? (
+            <BuilderStaffPermissionsPanel
+              proposalId={proposalId}
+              scope="proposal"
+              workosOrganizationId={workosOrganizationId}
+            />
+          ) : (
+            <DeferredProposalTabPanel label="Staff permissions" />
+          )
+        }
+        timeline={
+          <ProductionTimelineWorkspace
+            appPermissions={appPermissions}
+            backofficeHref={`/backoffice/proposals/${planId}`}
+            embedded
+            initialRole="lender"
+            persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
+            prejoinedCollabToken={
+              collabJoinState === "joined" ? collabToken : null
+            }
+            proposalHref={`/builder/proposals/${planId}`}
+            proposalId={proposalId}
+            workosOrganizationId={workosOrganizationId}
+            workspace={productionWorkspace}
+          />
         }
       />
     );
@@ -918,7 +965,7 @@ export function ProposalReviewSurface({
   const [adminNote, setAdminNote] = useState("");
   const [rejectReason, setRejectReason] = useState("");
   const [decisionModal, setDecisionModal] = useState<DecisionModal | null>(
-    null,
+    null
   );
   const [isApproving, setIsApproving] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
@@ -929,20 +976,20 @@ export function ProposalReviewSurface({
   const chartData = useMemo(() => buildReviewChartData(viewModel), [viewModel]);
   const timelineItems = useMemo(
     () => buildTimelineItems(viewModel),
-    [viewModel],
+    [viewModel]
   );
   const timelineMarkers = useMemo(
     () => buildProposalTimelineMarkers(viewModel),
-    [viewModel],
+    [viewModel]
   );
   const startingCash = centsToDollars(viewModel?.plan?.startingCashCents ?? 0);
   const timelineRange = useMemo(
     () => ({ max: chartData.maxDay + 10, min: 0, unit: "days" as const }),
-    [chartData.maxDay],
+    [chartData.maxDay]
   );
   const xDomain = useMemo(
     () => [timelineRange.min, timelineRange.max] as [number, number],
-    [timelineRange.max, timelineRange.min],
+    [timelineRange.max, timelineRange.min]
   );
   const probeReferenceLines = useMemo(
     () =>
@@ -950,9 +997,9 @@ export function ProposalReviewSurface({
         probeValue,
         chartData.cashflow,
         chartData.drawAvailability,
-        startingCash,
+        startingCash
       ),
-    [chartData.cashflow, chartData.drawAvailability, probeValue, startingCash],
+    [chartData.cashflow, chartData.drawAvailability, probeValue, startingCash]
   );
   const snapshotMilestones = viewModel?.snapshot?.milestones ?? [];
   const workingMilestones = viewModel?.workingCopy?.milestones ?? [];
@@ -962,13 +1009,13 @@ export function ProposalReviewSurface({
   const canEditTimeline = plan?.status === "submitted";
   const approvalValidation = useMemo(
     () => validateApprovalStartDate(startDate, plan?.status),
-    [plan?.status, startDate],
+    [plan?.status, startDate]
   );
   const canAttemptApproval = plan?.status === "submitted" && !terminalBuild;
 
   const openApproveModal = useCallback(() => {
     setStartDate(
-      (current) => current || getDefaultApprovalStartDateInput(plan),
+      (current) => current || getDefaultApprovalStartDateInput(plan)
     );
     setDecisionModal("approve");
   }, [plan]);
@@ -989,7 +1036,7 @@ export function ProposalReviewSurface({
       }
 
       const milestone = workingMilestones.find(
-        (row: ProposalReviewMilestone) => row.milestoneKey === milestoneKey,
+        (row: ProposalReviewMilestone) => row.milestoneKey === milestoneKey
       );
       if (!milestone) {
         return;
@@ -999,7 +1046,7 @@ export function ProposalReviewSurface({
         milestone,
         milestoneKey,
         patch,
-        planId,
+        planId
       );
       if (!mutationArgs) {
         return;
@@ -1011,11 +1058,11 @@ export function ProposalReviewSurface({
         })
         .catch((error) => {
           toast.error(
-            error instanceof Error ? error.message : "Milestone update failed.",
+            error instanceof Error ? error.message : "Milestone update failed."
           );
         });
     },
-    [canEditTimeline, planId, updateMilestone, workingMilestones],
+    [canEditTimeline, planId, updateMilestone, workingMilestones]
   );
 
   if (viewModel === undefined) {
@@ -1178,7 +1225,7 @@ export function ProposalReviewSurface({
                     getItemEndValue={(item) =>
                       workingMilestones.find(
                         (row: ProposalReviewMilestone) =>
-                          row.milestoneKey === item.id,
+                          row.milestoneKey === item.id
                       )?.dayEnd ?? getMilestoneEndX(item)
                     }
                     hoverValue={probeValue}
@@ -1242,7 +1289,7 @@ export function ProposalReviewSurface({
                   onCommit={(milestoneKey, patch) => {
                     const milestone = workingMilestones.find(
                       (row: ProposalReviewMilestone) =>
-                        row.milestoneKey === milestoneKey,
+                        row.milestoneKey === milestoneKey
                     );
                     if (!milestone) {
                       return;
@@ -1252,7 +1299,7 @@ export function ProposalReviewSurface({
                       milestone,
                       milestoneKey,
                       patch,
-                      planId,
+                      planId
                     );
                     if (!mutationArgs) {
                       return;
@@ -1266,7 +1313,7 @@ export function ProposalReviewSurface({
                         toast.error(
                           error instanceof Error
                             ? error.message
-                            : "Milestone update failed.",
+                            : "Milestone update failed."
                         );
                       });
                   }}
@@ -1276,7 +1323,7 @@ export function ProposalReviewSurface({
                   label="Draws"
                   rows={workingDraws.map((draw: any) => {
                     const frozen = snapshotDraws.find(
-                      (row: any) => row.sourceTimelineDrawId === draw._id,
+                      (row: any) => row.sourceTimelineDrawId === draw._id
                     );
                     return {
                       id: draw.drawKey,
@@ -1529,7 +1576,7 @@ function MilestoneAdjustmentsTable({
           <TableBody>
             {milestones.map((milestone) => {
               const frozen = snapshotMilestones.find(
-                (row) => row.sourceTimelineMilestoneId === milestone._id,
+                (row) => row.sourceTimelineMilestoneId === milestone._id
               );
               const workingStart = milestone.x ?? milestone.dayStart;
               const snapshotCostDiff =
@@ -1724,7 +1771,7 @@ function ComparisonTable({
                       defaultValue={Math.round(row.working / 100)}
                       onBlur={(event) => {
                         const nextValue = Math.round(
-                          Number(event.currentTarget.value) * 100,
+                          Number(event.currentTarget.value) * 100
                         );
                         if (Number.isFinite(nextValue)) {
                           void row.onCommit(nextValue);
@@ -1732,7 +1779,7 @@ function ComparisonTable({
                       }}
                       type="number"
                     />
-                    {row.snapshot !== row.working ? (
+                    {row.snapshot === row.working ? null : (
                       <Badge
                         className={cn("shrink-0")}
                         data-ixc-ref="UI-DIFF-PILL"
@@ -1740,7 +1787,7 @@ function ComparisonTable({
                       >
                         diff
                       </Badge>
-                    ) : null}
+                    )}
                   </div>
                 </TableCell>
               </TableRow>
@@ -1756,7 +1803,7 @@ export function buildProposalMilestoneMutationArgs(
   milestone: ProposalReviewMilestone,
   milestoneKey: string,
   patch: MilestoneCardUpdate,
-  planId: string,
+  planId: string
 ) {
   const mutationArgs: {
     budgetCents?: number;
@@ -1775,9 +1822,9 @@ export function buildProposalMilestoneMutationArgs(
   }
 
   const nextDayStart =
-    patch.x !== undefined
-      ? Math.round(patch.x)
-      : Math.round(milestone.x ?? milestone.dayStart);
+    patch.x === undefined
+      ? Math.round(milestone.x ?? milestone.dayStart)
+      : Math.round(patch.x);
 
   if (patch.x !== undefined) {
     mutationArgs.dayStart = nextDayStart;
@@ -1814,7 +1861,7 @@ export function buildProposalTimelineMarkers(viewModel: any): TimelineMarker[] {
     ...capitalEvents
       .filter(
         (event: ProposalReviewCapitalEvent) =>
-          !isInitialBorrowerCapitalEvent(event.label),
+          !isInitialBorrowerCapitalEvent(event.label)
       )
       .map((event: ProposalReviewCapitalEvent) => ({
         id: `capital-spike-${event.capitalEventKey}`,
@@ -1830,7 +1877,7 @@ export function buildProposalTimelineMarkers(viewModel: any): TimelineMarker[] {
 }
 
 export function buildProposalTimelineItems(
-  viewModel: any,
+  viewModel: any
 ): TimelineItem<DemoMilestone>[] {
   return (viewModel?.workingCopy?.milestones ?? []).map(
     (milestone: ProposalReviewMilestone) => ({
@@ -1844,7 +1891,7 @@ export function buildProposalTimelineItems(
         policy: milestone.policyState,
         status: proposalMilestoneStatusMap[milestone.status] ?? "upcoming",
         subMilestones: (milestone.submilestoneSnapshot ?? []).map(
-          (row) => row.name,
+          (row) => row.name
         ),
       },
       eyebrow: `Milestone ${milestone.order}`,
@@ -1854,7 +1901,7 @@ export function buildProposalTimelineItems(
       markerLabel: milestone.markerLabel ?? String(milestone.order),
       tone: milestone.tone,
       x: milestone.x ?? milestone.dayStart,
-    }),
+    })
   );
 }
 
@@ -1915,7 +1962,7 @@ export function buildReviewChartData(viewModel: any) {
       amount: centsToDollars(row.budgetCents),
       day: row.dayStart,
       drawCapacityUnlocked: centsToDollars(
-        row.drawAvailabilityCents ?? row.budgetCents,
+        row.drawAvailabilityCents ?? row.budgetCents
       ),
       event: "milestone" as const,
       id: row.milestoneKey,
@@ -2008,7 +2055,7 @@ export function buildReviewChartData(viewModel: any) {
   const drawAvailability = availabilityEvents.map((event) => {
     totalInterestAccrued += calculateProposalDailyCompoundedInterest(
       releasedDraw + totalInterestAccrued,
-      event.day - previousAvailabilityDay,
+      event.day - previousAvailabilityDay
     );
     previousAvailabilityDay = event.day;
 
@@ -2030,7 +2077,7 @@ export function buildReviewChartData(viewModel: any) {
     30,
     ...milestones.map((row: any) => row.dayEnd),
     ...draws.map((row: any) => row.x),
-    ...capitalEvents.map((row: any) => row.x),
+    ...capitalEvents.map((row: any) => row.x)
   );
   const maxValue = Math.max(
     100_000,
@@ -2044,7 +2091,7 @@ export function buildReviewChartData(viewModel: any) {
       row.additionalAvailableDraw,
       row.interestBearingDraw,
       row.totalAvailableDraw,
-    ]),
+    ])
   );
   return {
     cashflow,
@@ -2052,7 +2099,7 @@ export function buildReviewChartData(viewModel: any) {
     maxDay,
     maxValue,
     ticks: Array.from({ length: 6 }, (_, index) =>
-      Math.round((maxDay / 5) * index),
+      Math.round((maxDay / 5) * index)
     ),
   };
 }
@@ -2061,7 +2108,7 @@ export function buildProposalProbeReferenceLines(
   probeValue: number | null,
   cashflow: TimelineCashflowCompoundDatum[],
   drawAvailability: TimelineDrawAvailabilityDatum[],
-  startingCash: number,
+  startingCash: number
 ): {
   cashflow: TimelineCashflowReferenceLine[];
   drawAvailability: TimelineDrawAvailabilityReferenceLine[];
@@ -2073,11 +2120,11 @@ export function buildProposalProbeReferenceLines(
   const probeCashOnHand = interpolateProposalCashOnHand(
     cashflow,
     probeValue,
-    startingCash,
+    startingCash
   );
   const probeDrawAvailability = interpolateProposalDrawAvailability(
     drawAvailability,
-    Math.round(probeValue),
+    Math.round(probeValue)
   );
 
   return {
@@ -2097,13 +2144,13 @@ export function buildProposalProbeReferenceLines(
       {
         label: [
           `Delta ${formatProbeMoney(
-            probeDrawAvailability.additionalAvailableDraw,
+            probeDrawAvailability.additionalAvailableDraw
           )}`,
           `Interest-bearing ${formatProbeMoney(
-            probeDrawAvailability.interestBearingDraw,
+            probeDrawAvailability.interestBearingDraw
           )}`,
           `Total interest ${formatProbeMoney(
-            probeDrawAvailability.totalInterestAccrued,
+            probeDrawAvailability.totalInterestAccrued
           )}`,
         ],
         opacity: 0.82,
@@ -2118,14 +2165,14 @@ export function buildProposalProbeReferenceLines(
 function interpolateProposalCashOnHand(
   data: TimelineCashflowCompoundDatum[],
   value: number,
-  startingCash: number,
+  startingCash: number
 ) {
   if (data.length === 0) {
     return startingCash;
   }
 
   const sorted = [...data].sort(
-    (a, b) => a.day - b.day || a.id.localeCompare(b.id),
+    (a, b) => a.day - b.day || a.id.localeCompare(b.id)
   );
   let previous = sorted[0];
 
@@ -2159,7 +2206,7 @@ function interpolateProposalCashOnHand(
 
 function interpolateProposalDrawAvailability(
   data: TimelineDrawAvailabilityDatum[],
-  value: number,
+  value: number
 ) {
   const fallback: TimelineDrawAvailabilityDatum = {
     additionalAvailableDraw: 0,
@@ -2191,14 +2238,14 @@ function interpolateProposalDrawAvailability(
       current.totalInterestAccrued +
       calculateProposalDailyCompoundedInterest(
         current.interestBearingDraw + current.totalInterestAccrued,
-        Math.max(0, value - current.day),
+        Math.max(0, value - current.day)
       ),
   };
 }
 
 function calculateProposalDailyCompoundedInterest(
   principal: number,
-  elapsedDays: number,
+  elapsedDays: number
 ) {
   if (principal <= 0 || elapsedDays <= 0) {
     return 0;
@@ -2243,7 +2290,7 @@ export function getDefaultApprovalStartDateInput(plan?: {
 
 export function validateApprovalStartDate(
   startDate: string,
-  status?: string,
+  status?: string
 ):
   | {
       message: string;

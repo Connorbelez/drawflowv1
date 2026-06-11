@@ -1077,6 +1077,47 @@ describe("ProductionProposalReviewSurface", () => {
     expect(screen.queryByText("Day 4 to 6")).toBeNull();
   });
 
+  test("renders the packet permit upload field and uploads the selected permit", async () => {
+    const onUploadPermitDocument = vi.fn().mockResolvedValue(undefined);
+    const file = new File(["permit"], "issued-permit.pdf", {
+      type: "application/pdf",
+    });
+
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          documents: [],
+          permitWaiver: null,
+          proposal: {
+            ...proposalDetail.proposal,
+            status: "submitted",
+          },
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+        onUploadPermitDocument={onUploadPermitDocument}
+        timeline={<div data-testid="timeline-slot">Timeline workspace</div>}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Packet" }));
+
+    expect(screen.getByText("Permit packet")).toBeTruthy();
+    expect(screen.getAllByText("Permit missing").length).toBeGreaterThan(0);
+
+    fireEvent.change(screen.getByLabelText("Select permit document"), {
+      target: { files: [file] },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Upload permit" }));
+
+    await waitFor(() =>
+      expect(onUploadPermitDocument).toHaveBeenCalledWith(file),
+    );
+  });
+
   test("edits packet milestone and submilestones inline", async () => {
     const onUpdatePacketMilestone = vi.fn().mockResolvedValue(undefined);
 

@@ -5,12 +5,12 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
-import { BuilderStaffPermissionsPanel } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
 import {
   canUseAppPermission,
   filterMaterialPlanningActionsForPermissions,
   hasAnyAppPermission,
 } from "#/features/builder-staff/app-permissions.ts";
+import { BuilderStaffPermissionsPanel } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
 import {
   createProposalCalendarEditHandler,
   type ProposalCalendarAdapterActions,
@@ -22,8 +22,8 @@ import type {
   CalendarTimeframe,
 } from "#/features/calendar-workspace/calendarTypes.ts";
 import { ProductionContractorPlanningTab } from "#/features/production-proposals/ProductionContractorPlanningTab.tsx";
-import { ProductionProposalMilestoneWorksheetContainer } from "#/features/production-proposals/ProductionProposalMilestoneWorksheetContainer.tsx";
 import { ProductionProposalTimelineGanttWorkspace } from "#/features/production-proposals/ProductionProposalGanttWorkspace.tsx";
+import { ProductionProposalMilestoneWorksheetContainer } from "#/features/production-proposals/ProductionProposalMilestoneWorksheetContainer.tsx";
 import {
   ProductionProposalReviewSurface,
   type ProductionReviewTab,
@@ -46,19 +46,19 @@ export type BuilderProposalSearch = {
 type BuilderProposalRouteTab = ProductionReviewTab;
 
 export function resolveBuilderProposalRouteTab(
-  search: BuilderProposalSearch,
+  search: BuilderProposalSearch
 ): BuilderProposalRouteTab {
   return search.tab ?? "packet";
 }
 
 export function shouldLoadBuilderProposalCalendarWorkspace(
-  activeTab: BuilderProposalRouteTab,
+  activeTab: BuilderProposalRouteTab
 ) {
   return activeTab === "calendar";
 }
 
 export function shouldLoadBuilderProposalContractorPlanning(
-  activeTab: BuilderProposalRouteTab,
+  activeTab: BuilderProposalRouteTab
 ) {
   return (
     activeTab === "contractors" ||
@@ -68,7 +68,7 @@ export function shouldLoadBuilderProposalContractorPlanning(
 }
 
 export function shouldMountBuilderProposalStaffPanel(
-  activeTab: BuilderProposalRouteTab,
+  activeTab: BuilderProposalRouteTab
 ) {
   return activeTab === "staff";
 }
@@ -139,10 +139,10 @@ export function BuilderProductionProposalWorkspace({
   const typedProposalId = proposalId as Id<"buildProposals">;
   const visualProposalDetail = useMemo(
     () => getVisualParityProposalDetail(proposalId),
-    [proposalId],
+    [proposalId]
   );
   const [visualCostItems, setVisualCostItems] = useState(
-    () => visualProposalDetail.costItems ?? [],
+    () => visualProposalDetail.costItems ?? []
   );
   const activeProposalTab = resolveBuilderProposalRouteTab(search);
   const loadCalendarWorkspace =
@@ -162,23 +162,26 @@ export function BuilderProductionProposalWorkspace({
       },
       delete: (item: { _id: string }) => {
         setVisualCostItems((current) =>
-          current.filter((candidate) => candidate._id !== item._id),
+          current.filter((candidate) => candidate._id !== item._id)
         );
       },
       update: (
         item: { _id: string },
-        payload: Parameters<typeof createVisualParityCostItem>[0],
+        payload: Parameters<typeof createVisualParityCostItem>[0]
       ) => {
         setVisualCostItems((current) =>
           current.map((candidate) =>
             candidate._id === item._id
-              ? { ...createVisualParityCostItem(payload, candidate._id), _id: item._id }
-              : candidate,
-          ),
+              ? {
+                  ...createVisualParityCostItem(payload, candidate._id),
+                  _id: item._id,
+                }
+              : candidate
+          )
         );
       },
     }),
-    [],
+    []
   );
   const workspaceQuery = useQuery(
     api.production_proposals.getProductionTimelineWorkspace,
@@ -187,7 +190,7 @@ export function BuilderProductionProposalWorkspace({
       : {
           proposalId: typedProposalId,
           workosOrganizationId,
-        },
+        }
   );
   const contractorPlanningQuery = useQuery(
     (api as any).production_proposals.getProposalContractorPlanning,
@@ -196,7 +199,7 @@ export function BuilderProductionProposalWorkspace({
       : {
           proposalId: typedProposalId,
           workosOrganizationId,
-        },
+        }
   );
   const workspace = visualFixtureEnabled
     ? getVisualParityTimelineWorkspace(proposalId)
@@ -213,7 +216,7 @@ export function BuilderProductionProposalWorkspace({
       : {
           proposalId,
           workosOrganizationId,
-        },
+        }
   );
   const detail = visualFixtureEnabled
     ? { ...visualProposalDetail, costItems: visualCostItems }
@@ -225,73 +228,80 @@ export function BuilderProductionProposalWorkspace({
       : {
           proposalId: typedProposalId,
           workosOrganizationId,
-        },
+        }
   );
   const calendarAssignableParticipantsQuery = useQuery(
-    (api as any).production_proposals.listProposalCalendarAssignableParticipants,
+    (api as any).production_proposals
+      .listProposalCalendarAssignableParticipants,
     visualFixtureEnabled || !detail || !loadCalendarWorkspace
       ? "skip"
       : {
           proposalId: typedProposalId,
           workosOrganizationId,
-        },
+        }
   );
   const createProposalCostItem = useMutation(
-    api.production_proposals.createProposalCostItem,
+    api.production_proposals.createProposalCostItem
   );
   const updateProposalCostItem = useMutation(
-    api.production_proposals.updateProposalCostItem,
+    api.production_proposals.updateProposalCostItem
   );
   const deleteProposalCostItem = useMutation(
-    api.production_proposals.deleteProposalCostItem,
+    api.production_proposals.deleteProposalCostItem
   );
   const updateProductionDrawScheduleRow = useMutation(
-    api.production_proposals.updateSubmittedProposalDrawScheduleRow,
+    api.production_proposals.updateSubmittedProposalDrawScheduleRow
   );
   const updateProductionTimelineDraw = useMutation(
-    api.production_proposals.updateProductionTimelineDraw,
+    api.production_proposals.updateProductionTimelineDraw
   );
   const createProductionTimelineMilestone = useMutation(
-    api.production_proposals.createProductionTimelineMilestone,
+    api.production_proposals.createProductionTimelineMilestone
   );
   const updateProductionTimelineMilestone = useMutation(
-    api.production_proposals.updateProductionTimelineMilestone,
+    api.production_proposals.updateProductionTimelineMilestone
   );
   const updateProductionProposalProposedStartDate = useMutation(
-    api.production_proposals.updateProductionProposalProposedStartDate,
+    api.production_proposals.updateProductionProposalProposedStartDate
+  );
+  const generateProposalDocumentUploadUrl = useMutation(
+    api.production_proposals.generateProposalDocumentUploadUrl
+  );
+  const addProposalDocument = useMutation(
+    (api as any).production_proposals.addProposalDocument
   );
   const reviseProposalMilestoneSchedule = useMutation(
-    (api as any).production_proposals.reviseProposalMilestoneSchedule,
+    (api as any).production_proposals.reviseProposalMilestoneSchedule
   );
   const reviseProposalDrawTiming = useMutation(
-    (api as any).production_proposals.reviseProposalDrawTiming,
+    (api as any).production_proposals.reviseProposalDrawTiming
   );
   const setEvidenceDueDate = useMutation(
-    (api as any).production_proposals.setEvidenceDueDate,
+    (api as any).production_proposals.setEvidenceDueDate
   );
   const setReviewTargetDate = useMutation(
-    (api as any).production_proposals.setReviewTargetDate,
+    (api as any).production_proposals.setReviewTargetDate
   );
   const saveCalendarView = useMutation(
-    (api as any).production_proposals.saveCalendarView,
+    (api as any).production_proposals.saveCalendarView
   );
   const createProposalReminderCalendarEvent = useMutation(
-    (api as any).production_proposals.createProposalReminderCalendarEvent,
+    (api as any).production_proposals.createProposalReminderCalendarEvent
   );
   const updateProposalReminderCalendarEvent = useMutation(
-    (api as any).production_proposals.updateProposalReminderCalendarEvent,
+    (api as any).production_proposals.updateProposalReminderCalendarEvent
   );
   const deleteProposalReminderCalendarEvent = useMutation(
-    (api as any).production_proposals.deleteProposalReminderCalendarEvent,
+    (api as any).production_proposals.deleteProposalReminderCalendarEvent
   );
   const createCalendarSyncSubscription = useMutation(
-    (api as any).production_proposals.createCalendarSyncSubscription,
+    (api as any).production_proposals.createCalendarSyncSubscription
   );
   const recordExternalCalendarSyncChange = useMutation(
-    (api as any).production_proposals.recordExternalCalendarSyncChange,
+    (api as any).production_proposals.recordExternalCalendarSyncChange
   );
 
-  if (!workspace || !detail) {
+  if (!(workspace && detail)) {
     return (
       <div className="grid min-h-[24rem] place-items-center">
         <div className="flex items-center gap-2 rounded-lg border bg-background p-4 text-sm">
@@ -310,7 +320,7 @@ export function BuilderProductionProposalWorkspace({
   const canViewContractors = canUseAppPermission(
     appPermissions,
     "contractor",
-    "view",
+    "view"
   );
   const canEditProposalMilestones = hasAnyAppPermission(appPermissions, [
     ["milestone", "create"],
@@ -320,6 +330,11 @@ export function BuilderProductionProposalWorkspace({
     ["submilestone", "delete"],
     ["submilestone", "update"],
   ]);
+  const canUploadProposalDocuments = canUseAppPermission(
+    appPermissions,
+    "evidence",
+    "create"
+  );
   const proposalEditorPersistenceMode =
     visualFixtureEnabled || !canEditProposalMilestones ? "noop" : "convex";
   const materialPlanningActions = filterMaterialPlanningActionsForPermissions(
@@ -347,13 +362,13 @@ export function BuilderProductionProposalWorkspace({
               proposalId: typedProposalId,
               workosOrganizationId,
             }).then(() => toast.success("Cost item updated.")),
-        },
+        }
   );
   const calendarAdapterActions: ProposalCalendarAdapterActions = {
     addEvidenceDueDate: canUseAppPermission(
       appPermissions,
       "evidence",
-      "update",
+      "update"
     )
       ? (input) =>
           setEvidenceDueDate({
@@ -365,7 +380,7 @@ export function BuilderProductionProposalWorkspace({
     addReviewTargetDate: canUseAppPermission(
       appPermissions,
       "reminder",
-      "create",
+      "create"
     )
       ? (input) =>
           setReviewTargetDate({
@@ -385,7 +400,7 @@ export function BuilderProductionProposalWorkspace({
     reviseMilestoneSchedule: canUseAppPermission(
       appPermissions,
       "milestone",
-      "update",
+      "update"
     )
       ? (input) =>
           reviseProposalMilestoneSchedule({
@@ -424,8 +439,8 @@ export function BuilderProductionProposalWorkspace({
               initialRole="builder"
               persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
               proposalId={typedProposalId}
-              workspace={workspace}
               workosOrganizationId={workosOrganizationId}
+              workspace={workspace}
             />
           )
         ) : undefined
@@ -435,8 +450,8 @@ export function BuilderProductionProposalWorkspace({
         <ProductionProposalTimelineGanttWorkspace
           persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
           proposalId={typedProposalId}
-          workspace={workspace}
           workosOrganizationId={workosOrganizationId}
+          workspace={workspace}
         />
       }
       initialActiveTab={activeProposalTab}
@@ -449,34 +464,6 @@ export function BuilderProductionProposalWorkspace({
           proposalId={typedProposalId}
           showHeading
           templateTitle={detail.proposal.buildName}
-          workosOrganizationId={workosOrganizationId}
-        />
-      }
-      staff={
-        visualFixtureEnabled || !includeStaffTab ? undefined : (
-          <>
-            {shouldMountBuilderProposalStaffPanel(activeProposalTab) ? (
-              <BuilderStaffPermissionsPanel
-                proposalId={typedProposalId}
-                scope="proposal"
-                workosOrganizationId={workosOrganizationId}
-              />
-            ) : (
-              <DeferredBuilderProposalTabPanel label="Staff permissions" />
-            )}
-          </>
-        )
-      }
-      timeline={
-        <ProductionTimelineWorkspace
-          appPermissions={appPermissions}
-          backofficeHref={`/backoffice/proposals/${proposalId}`}
-          embedded
-          initialRole="builder"
-          persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
-          proposalHref={`${routeBase}/proposals/${proposalId}`}
-          proposalId={typedProposalId}
-          workspace={workspace}
           workosOrganizationId={workosOrganizationId}
         />
       }
@@ -612,6 +599,66 @@ export function BuilderProductionProposalWorkspace({
                 workosOrganizationId,
               }).then(() => toast.success("Proposed start date updated."))
           : undefined
+      }
+      onUploadPermitDocument={
+        canUploadProposalDocuments
+          ? async (file) => {
+              const uploadUrl = await generateProposalDocumentUploadUrl({
+                proposalId: typedProposalId,
+                workosOrganizationId,
+              });
+              const response = await fetch(uploadUrl, {
+                body: file,
+                headers: {
+                  "Content-Type": file.type || "application/pdf",
+                },
+                method: "POST",
+              });
+              if (!response.ok) {
+                throw new Error(`Permit upload failed for ${file.name}.`);
+              }
+              const { storageId } = (await response.json()) as {
+                storageId: string;
+              };
+              await addProposalDocument({
+                documentType: "permit",
+                fileName: file.name,
+                mimeType: file.type || "application/pdf",
+                proposalId: typedProposalId,
+                sizeBytes: file.size,
+                storageId: storageId as Id<"_storage">,
+                workosOrganizationId,
+              });
+            }
+          : undefined
+      }
+      staff={
+        visualFixtureEnabled || !includeStaffTab ? undefined : (
+          <>
+            {shouldMountBuilderProposalStaffPanel(activeProposalTab) ? (
+              <BuilderStaffPermissionsPanel
+                proposalId={typedProposalId}
+                scope="proposal"
+                workosOrganizationId={workosOrganizationId}
+              />
+            ) : (
+              <DeferredBuilderProposalTabPanel label="Staff permissions" />
+            )}
+          </>
+        )
+      }
+      timeline={
+        <ProductionTimelineWorkspace
+          appPermissions={appPermissions}
+          backofficeHref={`/backoffice/proposals/${proposalId}`}
+          embedded
+          initialRole="builder"
+          persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
+          proposalHref={`${routeBase}/proposals/${proposalId}`}
+          proposalId={typedProposalId}
+          workosOrganizationId={workosOrganizationId}
+          workspace={workspace}
+        />
       }
     />
   );

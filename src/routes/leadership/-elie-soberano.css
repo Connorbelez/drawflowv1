@@ -1,0 +1,181 @@
+.leadership-page {
+  --leadership-paper: #faf5ec;
+  --leadership-pine: #073c33;
+  --leadership-blueprint: #4d83b6;
+  --leadership-terracotta: #c9643e;
+  --leadership-eucalyptus: #d9e7d6;
+  --leadership-graphite: #262c2a;
+
+  min-height: 100svh;
+  overflow-x: clip;
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--leadership-blueprint) 10%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      0deg,
+      color-mix(in srgb, var(--leadership-blueprint) 8%, transparent) 1px,
+      transparent 1px
+    ),
+    var(--leadership-paper);
+  background-size: 96px 96px;
+  color: var(--leadership-pine);
+  font-family:
+    "Avenir Next", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont,
+    sans-serif;
+}
+
+.leadership-page *,
+.leadership-page *::before,
+.leadership-page *::after {
+  box-sizing: border-box;
+}
+
+.leadership-skip-link {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  z-index: 100;
+  transform: translateY(-160%);
+  border: 1px solid var(--leadership-pine);
+  background: var(--leadership-paper);
+  color: var(--leadership-pine);
+  padding: 0.75rem 1rem;
+  text-decoration: none;
+}
+
+.leadership-skip-link:focus {
+  transform: translateY(0);
+}
+
+.leadership-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.leadership-artboard-stack {
+  display: grid;
+  gap: 0;
+  width: 100%;
+  margin: 0 auto;
+  background: var(--leadership-paper);
+}
+
+.leadership-artboard {
+  position: relative;
+  width: min(100%, var(--artboard-width, 1672px));
+  margin-inline: auto;
+  overflow: hidden;
+  background: var(--leadership-paper);
+  isolation: isolate;
+}
+
+.leadership-artboard__image {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0;
+  border: 0;
+}
+
+.leadership-artboard--short-bio {
+  --artboard-width: 1577px;
+}
+
+.leadership-artboard--credentials {
+  --artboard-width: 1717px;
+}
+
+.leadership-artboard--thesis {
+  --artboard-width: 1915px;
+  background: var(--leadership-pine);
+}
+
+.leadership-hotspot {
+  position: absolute;
+  z-index: 5;
+  display: block;
+  border-radius: 4px;
+  color: transparent;
+  text-decoration: none;
+  outline: none;
+}
+
+.leadership-hotspot:focus-visible {
+  outline: 3px solid var(--leadership-terracotta);
+  outline-offset: 4px;
+  background: rgb(250 245 236 / 12%);
+}
+
+.leadership-hotspot--hero-interview {
+  left: 52.4%;
+  top: 82.3%;
+  width: 19.5%;
+  height: 7.4%;
+}
+
+.leadership-hotspot--hero-thesis {
+  left: 76.1%;
+  top: 82.3%;
+  width: 19.9%;
+  height: 7.4%;
+}
+
+.leadership-hotspot--thesis-link {
+  left: 29.2%;
+  top: 77.2%;
+  width: 15.6%;
+  height: 4.9%;
+}
+
+.leadership-hotspot--expertise-invite {
+  left: 2.1%;
+  top: 91.6%;
+  width: 34.6%;
+  height: 5.4%;
+}
+
+.leadership-hotspot--quotes-copy {
+  left: 57.9%;
+  top: 90.7%;
+  width: 19.3%;
+  height: 6.3%;
+}
+
+.leadership-hotspot--quotes-interview {
+  left: 82%;
+  top: 91.1%;
+  width: 13.2%;
+  height: 4.7%;
+}
+
+.leadership-hotspot--contact-media {
+  left: 15%;
+  top: 76%;
+  width: 51.2%;
+  height: 11.3%;
+}
+
+.leadership-hotspot--download-kit {
+  left: 71.8%;
+  top: 79.2%;
+  width: 17%;
+  height: 7%;
+}
+
+@media (max-width: 760px) {
+  .leadership-page {
+    background-size: 56px 56px;
+  }
+
+  .leadership-artboard {
+    width: 100%;
+  }
+}

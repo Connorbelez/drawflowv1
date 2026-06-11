@@ -10,6 +10,9 @@ import { defineConfig } from "vitest/config";
 const rootDir = dirname(fileURLToPath(import.meta.url));
 
 const config = defineConfig({
+  optimizeDeps: {
+    include: ["gsap", "gsap/ScrollTrigger", "@gsap/react"],
+  },
   resolve: {
     alias: {
       eventemitter3: resolve(rootDir, "node_modules/eventemitter3/index.mjs"),
