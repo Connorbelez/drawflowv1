@@ -1,11 +1,6 @@
 "use client";
 
 import type { ReactElement } from "react";
-
-import type {
-  DashboardMetric,
-  MetricDrilldownItem,
-} from "#/features/backoffice-dashboard/mock-data.ts";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Card, CardDescription, CardTitle } from "#/components/ui/card.tsx";
@@ -18,6 +13,10 @@ import {
   SheetTitle,
 } from "#/components/ui/sheet.tsx";
 import { getMetricSectionHref } from "#/features/backoffice-dashboard/metric-drilldown.ts";
+import type {
+  DashboardMetric,
+  MetricDrilldownItem,
+} from "#/features/backoffice-dashboard/mock-data.ts";
 
 function MetricDetailRow({
   item,
@@ -30,7 +29,9 @@ function MetricDetailRow({
         <div className="min-w-0 space-y-1">
           <CardTitle className="truncate text-base">{item.title}</CardTitle>
           {item.subtitle ? (
-            <CardDescription className="text-xs">{item.subtitle}</CardDescription>
+            <CardDescription className="text-xs">
+              {item.subtitle}
+            </CardDescription>
           ) : null}
         </div>
         {item.badgeLabel ? (
@@ -74,14 +75,18 @@ export function MetricDetailSheet({
               <SheetDescription>{metric.detail}</SheetDescription>
             </div>
             <div className="shrink-0 text-right">
-              <div className="font-semibold text-3xl tracking-tight">{metric.value}</div>
+              <div className="font-semibold text-3xl tracking-tight">
+                {metric.value}
+              </div>
               {metric.trend ? (
-                <p className="mt-1 text-muted-foreground text-xs">{metric.trend}</p>
+                <p className="mt-1 text-muted-foreground text-xs">
+                  {metric.trend}
+                </p>
               ) : null}
             </div>
           </div>
         </SheetHeader>
-        <ScrollArea className="min-h-0 flex-1" scrollFade scrollbarGutter>
+        <ScrollArea className="min-h-0 flex-1" scrollbarGutter scrollFade>
           <div className="flex flex-col gap-3 p-4">
             {items.length ? (
               items.map((item) => <MetricDetailRow item={item} key={item.id} />)

@@ -24,15 +24,12 @@ import {
   useRef,
   useState,
 } from "react";
-
-import {
-  FieldRichTextEditor,
-} from "#/components/rich-text/field-rich-text.tsx";
 import {
   Sortable,
   SortableItem,
   SortableItemHandle,
 } from "#/components/reui/sortable.tsx";
+import { FieldRichTextEditor } from "#/components/rich-text/field-rich-text.tsx";
 import {
   Autocomplete,
   AutocompleteGroup,
@@ -1743,7 +1740,9 @@ function withSubMilestoneDetails(
   };
 }
 
-function defaultGuidanceForRow(row: TimelineMilestoneWorksheetRow): SiteVisitGuidanceHtml {
+function defaultGuidanceForRow(
+  row: TimelineMilestoneWorksheetRow
+): SiteVisitGuidanceHtml {
   return {
     cameraAngles: guidanceLinesToHtml([
       "Wide shot showing the full milestone work area.",

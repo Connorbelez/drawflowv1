@@ -24,10 +24,10 @@ function RouteComponent() {
     workosOrganizationId,
   }) as BrokerageDrawsResult | undefined;
   const approveDraw = useMutation(
-    api.production_proposals.approveActiveBuildDraw,
+    api.production_proposals.approveActiveBuildDraw
   );
   const rejectDraw = useMutation(
-    api.production_proposals.rejectActiveBuildDraw,
+    api.production_proposals.rejectActiveBuildDraw
   );
 
   const onApproveDraw = useCallback(
@@ -39,7 +39,7 @@ function RouteComponent() {
         workosOrganizationId,
       });
     },
-    [approveDraw, workosOrganizationId],
+    [approveDraw, workosOrganizationId]
   );
 
   const onRejectDraw = useCallback(
@@ -51,7 +51,7 @@ function RouteComponent() {
         workosOrganizationId,
       });
     },
-    [rejectDraw, workosOrganizationId],
+    [rejectDraw, workosOrganizationId]
   );
 
   return (

@@ -1,9 +1,9 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute('/backoffice/builders/builderId')({
+export const Route = createFileRoute("/backoffice/builders/builderId")({
   component: RouteComponent,
-})
+});
 
 function RouteComponent() {
-  return <div>Hello "/backoffice/builders/builderId"!</div>
+  return <div>Hello "/backoffice/builders/builderId"!</div>;
 }

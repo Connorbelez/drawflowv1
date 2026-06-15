@@ -1,14 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
-
-import { api } from "../../../../convex/_generated/api";
-import type { Id } from "../../../../convex/_generated/dataModel";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { ContractorDetailSurface } from "#/features/contractors/ContractorDetailSurface.tsx";
 import {
   getVisualContractorDetail,
   isProductionVisualParityFixtureEnabled,
 } from "#/features/contractors/contractorVisualFixtures.ts";
+import { api } from "../../../../convex/_generated/api";
+import type { Id } from "../../../../convex/_generated/dataModel";
 
 export const Route = createFileRoute("/builder/contractors/$contractorId")({
   staticData: {
@@ -33,7 +32,7 @@ function BuilderContractorRoute() {
       : {
           contractorId: contractorId as Id<"contractorProfiles">,
           workosOrganizationId,
-        },
+        }
   );
   const detail = visualFixture
     ? getVisualContractorDetail(contractorId)

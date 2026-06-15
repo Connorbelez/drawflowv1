@@ -1,4 +1,4 @@
-import { EventType, type AGUIEvent } from "@ag-ui/core";
+import { type AGUIEvent, EventType } from "@ag-ui/core";
 import { toolDefinition } from "@tanstack/ai";
 import { v } from "convex/values";
 import OpenAI from "openai";
@@ -125,7 +125,7 @@ const traceEventInput = v.object({
     v.literal("running"),
     v.literal("needs_input"),
     v.literal("succeeded"),
-    v.literal("failed"),
+    v.literal("failed")
   ),
 });
 
@@ -134,7 +134,7 @@ const _drawFlowAssistantToolDefinitions = MUTATION_ACTION_KEYS.map((name) =>
     description: `DrawFlow assistant closed-catalog mutation action: ${name}`,
     inputSchema: z.object({}).passthrough(),
     name,
-  }),
+  })
 );
 
 export const getProviderStatus = authenticatedAction
@@ -147,10 +147,10 @@ export const getProviderStatus = authenticatedAction
       provider: v.union(
         v.literal("openai"),
         v.literal("openrouter"),
-        v.literal("unconfigured"),
+        v.literal("unconfigured")
       ),
       readOnly: v.boolean(),
-    }),
+    })
   )
   .handler(async () => {
     const openaiConfigured = Boolean(process.env.OPENAI_API_KEY);
@@ -165,7 +165,7 @@ export const getProviderStatus = authenticatedAction
       openaiConfigured,
       openrouterConfigured,
       provider,
-      readOnly: !openaiConfigured && !openrouterConfigured,
+      readOnly: !(openaiConfigured || openrouterConfigured),
     };
   })
   .public();
@@ -182,7 +182,7 @@ export const runAssistantTurn = authenticatedAction
       model: v.string(),
       provider: v.union(v.literal("openai"), v.literal("openrouter")),
       text: v.string(),
-    }),
+    })
   )
   .handler(async (ctx, args) => {
     if (ctx.viewer.organizationId !== args.workosOrganizationId) {
@@ -382,7 +382,7 @@ export const commitActionPlan = authenticatedMutation
           ...normalizeRecord(item.input, "stored assistant action input"),
           ...normalizeRecord(
             editedInputs[item.clientRequestId] ?? {},
-            "edited assistant action input",
+            "edited assistant action input"
           ),
         },
         status: editedInputs[item.clientRequestId] ? "edited" : "accepted",
@@ -415,7 +415,7 @@ export const commitActionPlan = authenticatedMutation
                 }
               : rejected.has(stored.clientRequestId)
                 ? { ...stored, status: "rejected" }
-                : stored,
+                : stored
           ),
           rejectedClientRequestIds: [...rejected],
           status: "failed",
@@ -444,7 +444,7 @@ export const commitActionPlan = authenticatedMutation
       committedAt: now,
       items: planItems.map((stored) => {
         const acceptedItem = acceptedItems.find(
-          (item) => item.clientRequestId === stored.clientRequestId,
+          (item) => item.clientRequestId === stored.clientRequestId
         );
         if (acceptedItem) {
           return {
@@ -543,7 +543,7 @@ async function validateActionForPreview(
     actionKey: string;
     clientRequestId: string;
     input: AssistantActionInput;
-  },
+  }
 ): Promise<AssistantPlanItem> {
   const actionKey = parseActionKey(action.actionKey);
   if (isReadonlyActionKey(actionKey)) {
@@ -571,7 +571,7 @@ async function validateActionForPreview(
 async function validateActionForCommit(
   ctx: MutationCtx,
   auth: AssistantAuth,
-  item: AssistantPlanItem,
+  item: AssistantPlanItem
 ): Promise<ValidationResult> {
   try {
     if (isReadonlyActionKey(item.actionKey)) {
@@ -606,16 +606,22 @@ async function buildMutationPreviewItem(
     actionKey: AssistantActionKey;
     clientRequestId: string;
     input: AssistantActionInput;
-  },
+  }
 ): Promise<AssistantPlanItem> {
   if (!isMutationActionKey(action.actionKey)) {
-    throw new Error(`Assistant action is not in the mutation catalog: ${action.actionKey}`);
+    throw new Error(
+      `Assistant action is not in the mutation catalog: ${action.actionKey}`
+    );
   }
   switch (action.actionKey) {
     case "update_proposal_milestone_schedule": {
       const proposalAuth = await authorizeProposal(ctx, auth, action.input);
       requireProposalWrite(proposalAuth);
-      const milestone = await getProposalMilestone(ctx, action.input, proposalAuth.proposal._id);
+      const milestone = await getProposalMilestone(
+        ctx,
+        action.input,
+        proposalAuth.proposal._id
+      );
       const dayStart = requiredNumber(action.input.dayStart, "dayStart");
       const dayEnd = requiredNumber(action.input.dayEnd, "dayEnd");
       validateDayRange(dayStart, dayEnd);
@@ -635,14 +641,21 @@ async function buildMutationPreviewItem(
     case "update_proposal_milestone_budget": {
       const proposalAuth = await authorizeProposal(ctx, auth, action.input);
       requireProposalWrite(proposalAuth);
-      const milestone = await getProposalMilestone(ctx, action.input, proposalAuth.proposal._id);
-      const budgetCents = requiredPositiveCents(action.input.budgetCents, "Milestone budget must be greater than zero.");
+      const milestone = await getProposalMilestone(
+        ctx,
+        action.input,
+        proposalAuth.proposal._id
+      );
+      const budgetCents = requiredPositiveCents(
+        action.input.budgetCents,
+        "Milestone budget must be greater than zero."
+      );
       return previewItem(action, {
         after: {
           budgetCents,
           drawAvailabilityCents: calculateDrawAvailability(
             budgetCents,
-            proposalAuth.proposal.borrowerCoPayBps,
+            proposalAuth.proposal.borrowerCoPayBps
           ),
         },
         before: {
@@ -659,15 +672,29 @@ async function buildMutationPreviewItem(
       const proposalAuth = await authorizeProposal(ctx, auth, action.input);
       requireProposalWrite(proposalAuth);
       const drawKey = requiredString(action.input.drawKey, "drawKey");
-      const existing = await findProposalDraw(ctx, proposalAuth.proposal._id, drawKey);
+      const existing = await findProposalDraw(
+        ctx,
+        proposalAuth.proposal._id,
+        drawKey
+      );
       if (existing) {
         throw new Error("Proposal draw already exists.");
       }
-      const amountCents = requiredPositiveCents(action.input.amountCents, "Draw amount must be greater than zero.");
-      const timingDay = requiredNonNegativeDay(action.input.timingDay, "timingDay");
+      const amountCents = requiredPositiveCents(
+        action.input.amountCents,
+        "Draw amount must be greater than zero."
+      );
+      const timingDay = requiredNonNegativeDay(
+        action.input.timingDay,
+        "timingDay"
+      );
       const milestoneKey = optionalString(action.input.milestoneKey);
       if (milestoneKey) {
-        await getProposalMilestoneByKey(ctx, proposalAuth.proposal._id, milestoneKey);
+        await getProposalMilestoneByKey(
+          ctx,
+          proposalAuth.proposal._id,
+          milestoneKey
+        );
       }
       return previewItem(action, {
         after: { amountCents, drawKey, milestoneKey, timingDay },
@@ -681,11 +708,18 @@ async function buildMutationPreviewItem(
     case "update_proposal_planned_draw": {
       const proposalAuth = await authorizeProposal(ctx, auth, action.input);
       requireProposalWrite(proposalAuth);
-      const draw = await getProposalDraw(ctx, action.input, proposalAuth.proposal._id);
+      const draw = await getProposalDraw(
+        ctx,
+        action.input,
+        proposalAuth.proposal._id
+      );
       const amountCents =
         action.input.amountCents === undefined
           ? draw.amountCents
-          : requiredPositiveCents(action.input.amountCents, "Draw amount must be greater than zero.");
+          : requiredPositiveCents(
+              action.input.amountCents,
+              "Draw amount must be greater than zero."
+            );
       const timingDay =
         action.input.timingDay === undefined
           ? draw.timingDay
@@ -705,7 +739,11 @@ async function buildMutationPreviewItem(
     case "delete_proposal_planned_draw": {
       const proposalAuth = await authorizeProposal(ctx, auth, action.input);
       requireProposalWrite(proposalAuth);
-      const draw = await getProposalDraw(ctx, action.input, proposalAuth.proposal._id);
+      const draw = await getProposalDraw(
+        ctx,
+        action.input,
+        proposalAuth.proposal._id
+      );
       return previewItem(action, {
         after: null,
         before: draw,
@@ -730,7 +768,11 @@ async function buildMutationPreviewItem(
     case "cancel_active_build_site_visit": {
       const buildAuth = await authorizeActiveBuild(ctx, auth, action.input);
       requireBackofficeWrite(buildAuth.roles);
-      const milestone = await getBuildMilestone(ctx, action.input, buildAuth.build._id);
+      const milestone = await getBuildMilestone(
+        ctx,
+        action.input,
+        buildAuth.build._id
+      );
       return previewItem(action, {
         after: action.input,
         before: milestone.completionReview?.siteVisit ?? null,
@@ -748,26 +790,36 @@ async function buildMutationPreviewItem(
       requireReason(action.input.reason);
       const entity =
         action.actionKey === "request_active_build_draw_plan_revision"
-          ? await findBuildDraw(ctx, buildAuth.build._id, optionalString(action.input.drawKey) ?? "")
+          ? await findBuildDraw(
+              ctx,
+              buildAuth.build._id,
+              optionalString(action.input.drawKey) ?? ""
+            )
           : await getBuildMilestone(ctx, action.input, buildAuth.build._id);
       if (
         action.actionKey === "request_active_build_draw_plan_revision" &&
         action.input.amountCents !== undefined
       ) {
-        requiredPositiveCents(action.input.amountCents, "Draw amount must be greater than zero.");
+        requiredPositiveCents(
+          action.input.amountCents,
+          "Draw amount must be greater than zero."
+        );
       }
       if (
         action.actionKey === "request_active_build_milestone_budget_revision" &&
         action.input.budgetCents !== undefined
       ) {
-        requiredPositiveCents(action.input.budgetCents, "Milestone budget must be greater than zero.");
+        requiredPositiveCents(
+          action.input.budgetCents,
+          "Milestone budget must be greater than zero."
+        );
       }
       if (
         action.actionKey === "request_active_build_milestone_schedule_revision"
       ) {
         validateDayRange(
           requiredNumber(action.input.dayStart, "dayStart"),
-          requiredNumber(action.input.dayEnd, "dayEnd"),
+          requiredNumber(action.input.dayEnd, "dayEnd")
         );
       }
       return previewItem(action, {
@@ -778,7 +830,7 @@ async function buildMutationPreviewItem(
             ? String(entity.label)
             : entity && "name" in entity
               ? String(entity.name)
-              : optionalString(action.input.drawKey) ?? "Requested draw plan",
+              : (optionalString(action.input.drawKey) ?? "Requested draw plan"),
         entityType:
           action.actionKey === "request_active_build_draw_plan_revision"
             ? "plannedDrawScheduleRow"
@@ -794,7 +846,7 @@ async function buildMutationPreviewItem(
 async function applyAcceptedAction(
   ctx: MutationCtx,
   auth: AssistantAuth,
-  item: AssistantPlanItem,
+  item: AssistantPlanItem
 ) {
   switch (item.actionKey) {
     case "update_proposal_milestone_schedule":
@@ -833,11 +885,15 @@ async function applyAcceptedAction(
 async function applyProposalMilestoneSchedule(
   ctx: MutationCtx,
   auth: AssistantAuth,
-  input: AssistantActionInput,
+  input: AssistantActionInput
 ) {
   const proposalAuth = await authorizeProposal(ctx, auth, input);
   requireProposalWrite(proposalAuth);
-  const milestone = await getProposalMilestone(ctx, input, proposalAuth.proposal._id);
+  const milestone = await getProposalMilestone(
+    ctx,
+    input,
+    proposalAuth.proposal._id
+  );
   const dayStart = Math.round(requiredNumber(input.dayStart, "dayStart"));
   const dayEnd = Math.round(requiredNumber(input.dayEnd, "dayEnd"));
   validateDayRange(dayStart, dayEnd);
@@ -868,7 +924,9 @@ async function applyProposalMilestoneSchedule(
     entityType: "proposalMilestone",
     newState,
     priorState,
-    reason: optionalString(input.reason) ?? "Assistant HITL proposal schedule update.",
+    reason:
+      optionalString(input.reason) ??
+      "Assistant HITL proposal schedule update.",
     revisionType: "assistant.proposal.milestone.schedule",
   });
   return { milestoneId: milestone._id };
@@ -877,18 +935,22 @@ async function applyProposalMilestoneSchedule(
 async function applyProposalMilestoneBudget(
   ctx: MutationCtx,
   auth: AssistantAuth,
-  input: AssistantActionInput,
+  input: AssistantActionInput
 ) {
   const proposalAuth = await authorizeProposal(ctx, auth, input);
   requireProposalWrite(proposalAuth);
-  const milestone = await getProposalMilestone(ctx, input, proposalAuth.proposal._id);
+  const milestone = await getProposalMilestone(
+    ctx,
+    input,
+    proposalAuth.proposal._id
+  );
   const budgetCents = requiredPositiveCents(
     input.budgetCents,
-    "Milestone budget must be greater than zero.",
+    "Milestone budget must be greater than zero."
   );
   const drawAvailabilityCents = calculateDrawAvailability(
     budgetCents,
-    proposalAuth.proposal.borrowerCoPayBps,
+    proposalAuth.proposal.borrowerCoPayBps
   );
   const now = Date.now();
   const priorState = {
@@ -913,7 +975,7 @@ async function applyProposalMilestoneBudget(
 async function applyCreateProposalDraw(
   ctx: MutationCtx,
   auth: AssistantAuth,
-  input: AssistantActionInput,
+  input: AssistantActionInput
 ) {
   const proposalAuth = await authorizeProposal(ctx, auth, input);
   requireProposalWrite(proposalAuth);
@@ -921,17 +983,24 @@ async function applyCreateProposalDraw(
   if (await findProposalDraw(ctx, proposalAuth.proposal._id, drawKey)) {
     throw new Error("Proposal draw already exists.");
   }
-  const amountCents = requiredPositiveCents(input.amountCents, "Draw amount must be greater than zero.");
+  const amountCents = requiredPositiveCents(
+    input.amountCents,
+    "Draw amount must be greater than zero."
+  );
   const timingDay = requiredNonNegativeDay(input.timingDay, "timingDay");
   const milestoneKey = optionalString(input.milestoneKey);
   const milestone = milestoneKey
-    ? await getProposalMilestoneByKey(ctx, proposalAuth.proposal._id, milestoneKey)
+    ? await getProposalMilestoneByKey(
+        ctx,
+        proposalAuth.proposal._id,
+        milestoneKey
+      )
     : null;
   const draws = await collectByIndex(
     ctx,
     "proposalDrawScheduleRows",
     "by_proposal",
-    proposalAuth.proposal._id,
+    proposalAuth.proposal._id
   );
   const now = Date.now();
   const drawId = await ctx.db.insert("proposalDrawScheduleRows", {
@@ -968,14 +1037,18 @@ async function applyCreateProposalDraw(
 async function applyUpdateProposalDraw(
   ctx: MutationCtx,
   auth: AssistantAuth,
-  input: AssistantActionInput,
+  input: AssistantActionInput
 ) {
   const proposalAuth = await authorizeProposal(ctx, auth, input);
   requireProposalWrite(proposalAuth);
   const draw = await getProposalDraw(ctx, input, proposalAuth.proposal._id);
   const milestoneKey = optionalString(input.milestoneKey);
   const milestone = milestoneKey
-    ? await getProposalMilestoneByKey(ctx, proposalAuth.proposal._id, milestoneKey)
+    ? await getProposalMilestoneByKey(
+        ctx,
+        proposalAuth.proposal._id,
+        milestoneKey
+      )
     : null;
   const patch = {
     ...(input.amountCents === undefined
@@ -983,7 +1056,7 @@ async function applyUpdateProposalDraw(
       : {
           amountCents: requiredPositiveCents(
             input.amountCents,
-            "Draw amount must be greater than zero.",
+            "Draw amount must be greater than zero."
           ),
         }),
     ...(input.label === undefined
@@ -993,7 +1066,9 @@ async function applyUpdateProposalDraw(
     ...(milestone ? { proposalMilestoneId: milestone._id } : {}),
     ...(input.order === undefined
       ? {}
-      : { order: Math.max(1, Math.round(requiredNumber(input.order, "order"))) }),
+      : {
+          order: Math.max(1, Math.round(requiredNumber(input.order, "order"))),
+        }),
     ...(input.timingDay === undefined
       ? {}
       : {
@@ -1019,7 +1094,7 @@ async function applyUpdateProposalDraw(
 async function applyDeleteProposalDraw(
   ctx: MutationCtx,
   auth: AssistantAuth,
-  input: AssistantActionInput,
+  input: AssistantActionInput
 ) {
   const proposalAuth = await authorizeProposal(ctx, auth, input);
   requireProposalWrite(proposalAuth);
@@ -1043,7 +1118,7 @@ async function previewReminderAction(
     clientRequestId: string;
     input: AssistantActionInput;
   },
-  proposalAuth: ProposalAuth,
+  proposalAuth: ProposalAuth
 ) {
   const event =
     action.actionKey === "create_proposal_reminder"
@@ -1072,12 +1147,15 @@ async function previewReminderAction(
 async function applyCreateReminder(
   ctx: MutationCtx,
   auth: AssistantAuth,
-  input: AssistantActionInput,
+  input: AssistantActionInput
 ) {
   const proposalAuth = await authorizeProposal(ctx, auth, input);
   requireProposalWrite(proposalAuth);
   const title = requiredString(input.title, "Reminder title is required.");
-  const startsAt = normalizeIsoDate(input.startsAt, "Reminder start date is invalid.");
+  const startsAt = normalizeIsoDate(
+    input.startsAt,
+    "Reminder start date is invalid."
+  );
   const endsAt =
     input.endsAt === undefined
       ? undefined
@@ -1118,7 +1196,7 @@ async function applyCreateReminder(
 async function applyUpdateReminder(
   ctx: MutationCtx,
   auth: AssistantAuth,
-  input: AssistantActionInput,
+  input: AssistantActionInput
 ) {
   const proposalAuth = await authorizeProposal(ctx, auth, input);
   requireProposalWrite(proposalAuth);
@@ -1165,7 +1243,7 @@ async function applyUpdateReminder(
 async function applyCancelReminder(
   ctx: MutationCtx,
   auth: AssistantAuth,
-  input: AssistantActionInput,
+  input: AssistantActionInput
 ) {
   const proposalAuth = await authorizeProposal(ctx, auth, input);
   requireProposalWrite(proposalAuth);
@@ -1194,7 +1272,7 @@ async function previewTargetDateAction(
     actionKey: AssistantActionKey;
     clientRequestId: string;
     input: AssistantActionInput;
-  },
+  }
 ) {
   const targetAuth = action.input.buildId
     ? await authorizeActiveBuild(ctx, auth, action.input)
@@ -1222,7 +1300,7 @@ async function previewTargetDateAction(
 async function applyCalendarTargetDate(
   ctx: MutationCtx,
   auth: AssistantAuth,
-  input: AssistantActionInput,
+  input: AssistantActionInput
 ) {
   const targetAuth = input.buildId
     ? await authorizeActiveBuild(ctx, auth, input)
@@ -1234,11 +1312,12 @@ async function applyCalendarTargetDate(
   }
   const proposal = targetAuth.proposal;
   const build: Doc<"activeBuilds"> | undefined =
-    "build" in targetAuth
-      ? (targetAuth as ActiveBuildAuth).build
-      : undefined;
+    "build" in targetAuth ? (targetAuth as ActiveBuildAuth).build : undefined;
   const dateKind = parseTargetDateKind(input.dateKind);
-  const targetDate = normalizeIsoDate(input.targetDate, "Target date is invalid.");
+  const targetDate = normalizeIsoDate(
+    input.targetDate,
+    "Target date is invalid."
+  );
   const entityKey =
     optionalString(input.drawKey) ??
     optionalString(input.milestoneKey) ??
@@ -1254,15 +1333,15 @@ async function applyCalendarTargetDate(
       q
         .eq("entityType", entityType)
         .eq("entityKey", entityKey)
-        .eq("dateKind", dateKind),
+        .eq("dateKind", dateKind)
     )
     .collect()
     .then((rows) =>
       rows.find(
         (row) =>
           String(row.buildId ?? "") === String(build?._id ?? "") &&
-          String(row.proposalId ?? "") === String(proposal._id),
-      ),
+          String(row.proposalId ?? "") === String(proposal._id)
+      )
     );
   const now = Date.now();
   const payload: {
@@ -1312,12 +1391,15 @@ async function applyCalendarTargetDate(
 async function applyScheduleSiteVisit(
   ctx: MutationCtx,
   auth: AssistantAuth,
-  input: AssistantActionInput,
+  input: AssistantActionInput
 ) {
   const buildAuth = await authorizeActiveBuild(ctx, auth, input);
   requireBackofficeWrite(buildAuth.roles);
   const milestone = await getBuildMilestone(ctx, input, buildAuth.build._id);
-  const requestedDay = requiredNonNegativeDay(input.requestedDay, "requestedDay");
+  const requestedDay = requiredNonNegativeDay(
+    input.requestedDay,
+    "requestedDay"
+  );
   const now = Date.now();
   const visitId = `assistant_visit_${milestone.key}_${now}`;
   const visit = {
@@ -1351,12 +1433,15 @@ async function applyScheduleSiteVisit(
 async function applyRescheduleSiteVisit(
   ctx: MutationCtx,
   auth: AssistantAuth,
-  input: AssistantActionInput,
+  input: AssistantActionInput
 ) {
   const buildAuth = await authorizeActiveBuild(ctx, auth, input);
   requireBackofficeWrite(buildAuth.roles);
   const visit = await getSiteVisit(ctx, input, buildAuth.build._id);
-  const requestedDay = requiredNonNegativeDay(input.requestedDay, "requestedDay");
+  const requestedDay = requiredNonNegativeDay(
+    input.requestedDay,
+    "requestedDay"
+  );
   const patch = {
     note: optionalString(input.reason) ?? visit.note,
     requestedDay,
@@ -1378,7 +1463,7 @@ async function applyRescheduleSiteVisit(
 async function applyCancelSiteVisit(
   ctx: MutationCtx,
   auth: AssistantAuth,
-  input: AssistantActionInput,
+  input: AssistantActionInput
 ) {
   const buildAuth = await authorizeActiveBuild(ctx, auth, input);
   requireBackofficeWrite(buildAuth.roles);
@@ -1402,7 +1487,7 @@ async function applyCancelSiteVisit(
 async function applyActiveBuildRevisionRequest(
   ctx: MutationCtx,
   auth: AssistantAuth,
-  item: AssistantPlanItem,
+  item: AssistantPlanItem
 ) {
   const input = item.input;
   const buildAuth = await authorizeActiveBuild(ctx, auth, input);
@@ -1462,7 +1547,7 @@ async function authorizeOrganization(
   ctx: (QueryCtx | MutationCtx) & {
     viewer: { organizationId?: string; roles: RoleSlug[]; subject: string };
   },
-  workosOrganizationId: string,
+  workosOrganizationId: string
 ): Promise<AssistantAuth> {
   if (ctx.viewer.organizationId !== workosOrganizationId) {
     throw new Error("Forbidden: organization scope");
@@ -1470,7 +1555,7 @@ async function authorizeOrganization(
   const brokerage = await ctx.db
     .query("brokerages")
     .withIndex("by_workos_organization", (q) =>
-      q.eq("workosOrganizationId", workosOrganizationId),
+      q.eq("workosOrganizationId", workosOrganizationId)
     )
     .unique();
   if (!brokerage || brokerage.status !== "active") {
@@ -1488,9 +1573,14 @@ async function authorizeOrganization(
 async function authorizeProposal(
   ctx: QueryCtx | MutationCtx,
   auth: AssistantAuth,
-  input: AssistantActionInput,
+  input: AssistantActionInput
 ): Promise<ProposalAuth> {
-  const proposalId = requiredId<"buildProposals">(ctx, "buildProposals", input.proposalId, "proposalId");
+  const proposalId = requiredId<"buildProposals">(
+    ctx,
+    "buildProposals",
+    input.proposalId,
+    "proposalId"
+  );
   const proposal = await ctx.db.get(proposalId);
   if (
     !proposal ||
@@ -1513,7 +1603,7 @@ async function authorizeProposal(
     .withIndex("by_builder_user", (q) =>
       q
         .eq("builderProfileId", proposal.builderProfileId!)
-        .eq("workosUserId", auth.subject),
+        .eq("workosUserId", auth.subject)
     )
     .unique();
   if (!link || link.status !== "active") {
@@ -1525,9 +1615,14 @@ async function authorizeProposal(
 async function authorizeActiveBuild(
   ctx: QueryCtx | MutationCtx,
   auth: AssistantAuth,
-  input: AssistantActionInput,
+  input: AssistantActionInput
 ): Promise<ActiveBuildAuth> {
-  const buildId = requiredId<"activeBuilds">(ctx, "activeBuilds", input.buildId, "buildId");
+  const buildId = requiredId<"activeBuilds">(
+    ctx,
+    "activeBuilds",
+    input.buildId,
+    "buildId"
+  );
   const build = await ctx.db.get(buildId);
   if (
     !build ||
@@ -1540,7 +1635,7 @@ async function authorizeActiveBuild(
   if (!proposal || proposal.brokerageId !== auth.brokerage._id) {
     throw new Error("Forbidden: active build proposal scope");
   }
-  if (!isBackoffice(auth.roles) && !isBuilder(auth.roles)) {
+  if (!(isBackoffice(auth.roles) || isBuilder(auth.roles))) {
     throw new Error("Forbidden: active build scope");
   }
   return { ...auth, build, proposal };
@@ -1549,7 +1644,7 @@ async function authorizeActiveBuild(
 async function requireThread(
   ctx: QueryCtx | MutationCtx,
   threadId: Id<"assistantThreads">,
-  workosOrganizationId: string,
+  workosOrganizationId: string
 ) {
   const thread = await ctx.db.get(threadId);
   if (!thread || thread.organizationId !== workosOrganizationId) {
@@ -1607,7 +1702,7 @@ function previewItem(
     mutationName?: string;
     reasonRequired: boolean;
     warnings?: string[];
-  },
+  }
 ): AssistantPlanItem {
   return {
     actionKey: action.actionKey,
@@ -1627,24 +1722,24 @@ function previewItem(
 async function getProposalMilestone(
   ctx: QueryCtx | MutationCtx,
   input: AssistantActionInput,
-  proposalId: Id<"buildProposals">,
+  proposalId: Id<"buildProposals">
 ) {
   return await getProposalMilestoneByKey(
     ctx,
     proposalId,
-    requiredString(input.milestoneKey, "milestoneKey"),
+    requiredString(input.milestoneKey, "milestoneKey")
   );
 }
 
 async function getProposalMilestoneByKey(
   ctx: QueryCtx | MutationCtx,
   proposalId: Id<"buildProposals">,
-  milestoneKey: string,
+  milestoneKey: string
 ) {
   const milestone = await ctx.db
     .query("proposalMilestones")
     .withIndex("by_proposal_key", (q) =>
-      q.eq("proposalId", proposalId).eq("key", milestoneKey),
+      q.eq("proposalId", proposalId).eq("key", milestoneKey)
     )
     .unique();
   if (!milestone) {
@@ -1656,13 +1751,13 @@ async function getProposalMilestoneByKey(
 async function getBuildMilestone(
   ctx: QueryCtx | MutationCtx,
   input: AssistantActionInput,
-  buildId: Id<"activeBuilds">,
+  buildId: Id<"activeBuilds">
 ) {
   const milestoneKey = requiredString(input.milestoneKey, "milestoneKey");
   const milestone = await ctx.db
     .query("buildMilestones")
     .withIndex("by_build_key", (q) =>
-      q.eq("buildId", buildId).eq("key", milestoneKey),
+      q.eq("buildId", buildId).eq("key", milestoneKey)
     )
     .unique();
   if (!milestone) {
@@ -1674,12 +1769,12 @@ async function getBuildMilestone(
 async function findProposalDraw(
   ctx: QueryCtx | MutationCtx,
   proposalId: Id<"buildProposals">,
-  drawKey: string,
+  drawKey: string
 ) {
   return await ctx.db
     .query("proposalDrawScheduleRows")
     .withIndex("by_proposal_key", (q) =>
-      q.eq("proposalId", proposalId).eq("drawKey", drawKey),
+      q.eq("proposalId", proposalId).eq("drawKey", drawKey)
     )
     .unique();
 }
@@ -1687,12 +1782,12 @@ async function findProposalDraw(
 async function getProposalDraw(
   ctx: QueryCtx | MutationCtx,
   input: AssistantActionInput,
-  proposalId: Id<"buildProposals">,
+  proposalId: Id<"buildProposals">
 ) {
   const draw = await findProposalDraw(
     ctx,
     proposalId,
-    requiredString(input.drawKey, "drawKey"),
+    requiredString(input.drawKey, "drawKey")
   );
   if (!draw) {
     throw new Error("Proposal draw schedule row not found.");
@@ -1703,13 +1798,13 @@ async function getProposalDraw(
 async function findBuildDraw(
   ctx: QueryCtx | MutationCtx,
   buildId: Id<"activeBuilds">,
-  drawKey: string,
+  drawKey: string
 ) {
   const draws = (await collectByIndex(
     ctx,
     "plannedDrawScheduleRows",
     "by_build",
-    buildId,
+    buildId
   )) as Doc<"plannedDrawScheduleRows">[];
   return draws.find((row) => row.drawKey === drawKey) ?? null;
 }
@@ -1717,13 +1812,13 @@ async function findBuildDraw(
 async function getReminder(
   ctx: QueryCtx | MutationCtx,
   input: AssistantActionInput,
-  proposalId: Id<"buildProposals">,
+  proposalId: Id<"buildProposals">
 ) {
   const eventId = requiredId<"calendarReminderEvents">(
     ctx,
     "calendarReminderEvents",
     input.eventId,
-    "eventId",
+    "eventId"
   );
   const event = await ctx.db.get(eventId);
   if (!event || event.proposalId !== proposalId) {
@@ -1735,7 +1830,7 @@ async function getReminder(
 async function getSiteVisit(
   ctx: QueryCtx | MutationCtx,
   input: AssistantActionInput,
-  buildId: Id<"activeBuilds">,
+  buildId: Id<"activeBuilds">
 ) {
   const visitId = requiredString(input.visitId, "visitId");
   const visit = await ctx.db
@@ -1751,7 +1846,7 @@ async function getSiteVisit(
 async function touchProposal(
   ctx: MutationCtx,
   auth: ProposalAuth,
-  now: number,
+  now: number
 ) {
   await ctx.db.patch(auth.proposal._id, {
     updatedAt: now,
@@ -1762,17 +1857,17 @@ async function touchProposal(
 async function recalculateProposalBudget(
   ctx: MutationCtx,
   auth: ProposalAuth,
-  now: number,
+  now: number
 ) {
   const milestones = await collectByIndex(
     ctx,
     "proposalMilestones",
     "by_proposal",
-    auth.proposal._id,
+    auth.proposal._id
   );
   const totalBudgetCents = milestones.reduce(
     (total: number, milestone: any) => total + milestone.budgetCents,
-    0,
+    0
   );
   await ctx.db.patch(auth.proposal._id, {
     totalBudgetCents,
@@ -1784,17 +1879,17 @@ async function recalculateProposalBudget(
 async function ensureProposalPolicyLimitCoversDraws(
   ctx: MutationCtx,
   auth: ProposalAuth,
-  now: number,
+  now: number
 ) {
   const draws = await collectByIndex(
     ctx,
     "proposalDrawScheduleRows",
     "by_proposal",
-    auth.proposal._id,
+    auth.proposal._id
   );
   const totalDrawAmountCents = draws.reduce(
     (total: number, draw: any) => total + draw.amountCents,
-    0,
+    0
   );
   if (totalDrawAmountCents > auth.proposal.lenderDrawPolicyLimitCents) {
     await ctx.db.patch(auth.proposal._id, {
@@ -1817,7 +1912,7 @@ async function writeScheduleRevision(
     priorState: unknown;
     reason: string;
     revisionType: string;
-  },
+  }
 ) {
   await ctx.db.insert("scheduleRevisionRecords", {
     brokerageId: auth.brokerage._id,
@@ -1847,7 +1942,7 @@ async function writeProposalAudit(
     priorState?: unknown;
     reason?: string;
     warnings?: string[];
-  },
+  }
 ) {
   await ctx.db.insert("auditEvents", {
     actorRoles: auth.roles,
@@ -1884,7 +1979,7 @@ async function writeActiveBuildAudit(
     priorState?: unknown;
     reason?: string;
     warnings?: string[];
-  },
+  }
 ) {
   await writeProposalAudit(ctx, auth, input);
 }
@@ -1893,10 +1988,12 @@ async function collectByIndex(
   ctx: QueryCtx | MutationCtx,
   table: string,
   indexName: string,
-  value: unknown,
+  value: unknown
 ) {
   return await (ctx.db.query(table as any) as any)
-    .withIndex(indexName, (q: any) => q.eq(indexName.includes("build") ? "buildId" : "proposalId", value))
+    .withIndex(indexName, (q: any) =>
+      q.eq(indexName.includes("build") ? "buildId" : "proposalId", value)
+    )
     .collect();
 }
 
@@ -1910,23 +2007,27 @@ function parseActionKey(value: string): AssistantActionKey {
   throw new Error(`Assistant action is outside the closed catalog: ${value}`);
 }
 
-function isMutationActionKey(value: AssistantActionKey): value is MutationActionKey {
+function isMutationActionKey(
+  value: AssistantActionKey
+): value is MutationActionKey {
   return (MUTATION_ACTION_KEYS as readonly string[]).includes(value);
 }
 
-function isReadonlyActionKey(value: AssistantActionKey): value is ReadonlyClientActionKey {
+function isReadonlyActionKey(
+  value: AssistantActionKey
+): value is ReadonlyClientActionKey {
   return (READONLY_CLIENT_ACTION_KEYS as readonly string[]).includes(value);
 }
 
 function isBackoffice(roles: readonly RoleSlug[]) {
   return roles.some((role) =>
-    (BACKOFFICE_ROLES as readonly RoleSlug[]).includes(role),
+    (BACKOFFICE_ROLES as readonly RoleSlug[]).includes(role)
   );
 }
 
 function isBuilder(roles: readonly RoleSlug[]) {
   return roles.some((role) =>
-    (BUILDER_ROLES as readonly RoleSlug[]).includes(role),
+    (BUILDER_ROLES as readonly RoleSlug[]).includes(role)
   );
 }
 
@@ -1942,7 +2043,10 @@ function parseTargetDateKind(value: unknown) {
   throw new Error("Calendar target date kind is not supported.");
 }
 
-function calculateDrawAvailability(budgetCents: number, borrowerCoPayBps: number) {
+function calculateDrawAvailability(
+  budgetCents: number,
+  borrowerCoPayBps: number
+) {
   return Math.round((budgetCents * (TOTAL_BPS - borrowerCoPayBps)) / TOTAL_BPS);
 }
 
@@ -1968,7 +2072,7 @@ function requiredId<TableName extends TableNames>(
   ctx: QueryCtx | MutationCtx,
   tableName: TableName,
   value: unknown,
-  field: string,
+  field: string
 ) {
   if (typeof value !== "string") {
     throw new Error(`${field} is required.`);
@@ -1981,7 +2085,9 @@ function requiredId<TableName extends TableNames>(
 }
 
 function maybeId<TableName extends TableNames>(value: unknown) {
-  return typeof value === "string" && value ? (value as Id<TableName>) : undefined;
+  return typeof value === "string" && value
+    ? (value as Id<TableName>)
+    : undefined;
 }
 
 function requiredString(value: unknown, field: string) {

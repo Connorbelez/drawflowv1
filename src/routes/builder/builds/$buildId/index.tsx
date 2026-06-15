@@ -2,14 +2,14 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
-import { BuilderStaffPermissionsPanel } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
-import { canUseAppPermission } from "#/features/builder-staff/app-permissions.ts";
+import type { BuildDetailSubTab } from "#/features/backoffice-build-detail/BuildDetailTabs.tsx";
 import {
-  ProductionBuildDetailSurface,
   type ProductionBuildDetail,
   type ProductionBuildDetailActions,
+  ProductionBuildDetailSurface,
 } from "#/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx";
-import type { BuildDetailSubTab } from "#/features/backoffice-build-detail/BuildDetailTabs.tsx";
+import { canUseAppPermission } from "#/features/builder-staff/app-permissions.ts";
+import { BuilderStaffPermissionsPanel } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import {
   getVisualParityActiveBuildDetail,
@@ -109,7 +109,7 @@ export function BuilderBuildWorkspaceRoute({
       : {
           buildId,
           workosOrganizationId,
-        },
+        }
   );
   const effectiveProductionBuild = visualFixtureEnabled
     ? getVisualParityActiveBuildDetail(buildId)
@@ -124,7 +124,7 @@ export function BuilderBuildWorkspaceRoute({
             buildId: activeBuildIdForWorkspace,
             workosOrganizationId,
           }
-        : "skip",
+        : "skip"
   );
   const effectiveTimelineWorkspace = visualFixtureEnabled
     ? getVisualParityActiveBuildTimelineWorkspace(buildId)
@@ -138,16 +138,16 @@ export function BuilderBuildWorkspaceRoute({
             buildId: activeBuildIdForWorkspace,
             workosOrganizationId,
           }
-        : "skip",
+        : "skip"
   );
   const requestDraw = useMutation(
-    api.production_proposals.requestActiveBuildDraw,
+    api.production_proposals.requestActiveBuildDraw
   );
   const requestFacilityChange = useMutation(
-    (api as any).production_proposals.requestActiveBuildFacilityChange,
+    (api as any).production_proposals.requestActiveBuildFacilityChange
   );
   const submitMilestoneCompletion = useMutation(
-    (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
+    (api as any).production_proposals.submitActiveBuildMilestoneCompletion
   );
 
   const onChangeTab = (tab: BuildDetailSubTab) =>
@@ -224,7 +224,7 @@ export function BuilderBuildWorkspaceRoute({
     requestFacilityChange: canUseAppPermission(
       appPermissions,
       "capitalEvent",
-      "create",
+      "create"
     )
       ? (input) =>
           requestFacilityChange({
@@ -236,7 +236,7 @@ export function BuilderBuildWorkspaceRoute({
     requestLoanFacilityDateChange: canUseAppPermission(
       appPermissions,
       "capitalEvent",
-      "create",
+      "create"
     )
       ? (input) =>
           requestFacilityChange({
@@ -250,7 +250,7 @@ export function BuilderBuildWorkspaceRoute({
     startMilestoneWork: canUseAppPermission(
       appPermissions,
       "milestone",
-      "update",
+      "update"
     )
       ? () => undefined
       : undefined,
@@ -283,12 +283,12 @@ export function BuilderBuildWorkspaceRoute({
       actions={actions}
       activeBuildId={activeBuildId}
       activeTab={search.tab ?? "details"}
-      calendarTimeframe={search.timeframe}
-      calendarWorkspace={calendarWorkspaceQuery as any}
       breadcrumbRootHref={routeBase}
       breadcrumbRootLabel="Builder"
       breadcrumbSectionHref={`${routeBase}/builds`}
       breadcrumbSectionLabel="Live Builds"
+      calendarTimeframe={search.timeframe}
+      calendarWorkspace={calendarWorkspaceQuery as any}
       contractorDetailHrefFor={
         enableContractorLinks
           ? (contractorId) => `/builder/contractors/${contractorId}`
@@ -296,8 +296,8 @@ export function BuilderBuildWorkspaceRoute({
       }
       detail={detail}
       milestoneKey={search.milestone}
-      onChangeMilestone={onChangeMilestone}
       onChangeCalendarTimeframe={onChangeCalendarTimeframe}
+      onChangeMilestone={onChangeMilestone}
       onChangeRail={onChangeRail}
       onChangeTab={onChangeTab}
       rail={search.rail}
@@ -311,12 +311,19 @@ export function BuilderBuildWorkspaceRoute({
         )
       }
       timelineWorkspace={effectiveTimelineWorkspace as any}
+      viewerRole="builder"
       visibleTabs={
         includeStaffTab
           ? undefined
-          : ["details", "timeline", "evidence", "materials", "calendar", "gantt"]
+          : [
+              "details",
+              "timeline",
+              "evidence",
+              "materials",
+              "calendar",
+              "gantt",
+            ]
       }
-      viewerRole="builder"
       workosOrganizationId={workosOrganizationId}
     />
   );

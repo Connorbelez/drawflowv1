@@ -7,34 +7,34 @@ import { formatCents, formatDate, formatRelative, initialsFor } from "./format";
 
 export interface MilestoneSheetData {
   canStartWork?: boolean;
+  column: string;
+  contractors: { name: string; initials: string; role?: string }[];
+  drawGroupKey: string;
   milestoneKey: string;
   name: string;
-  column: string;
-  drawGroupKey: string;
-  requestedAmountCents?: number;
-  submittedAt?: number;
-  contractors: { name: string; initials: string; role?: string }[];
   recentEvents: {
     _id: string;
     title: string;
     actor: string;
     createdAt: number;
   }[];
+  requestedAmountCents?: number;
+  submittedAt?: number;
 }
 
 interface MilestoneDetailSheetProps {
-  data: MilestoneSheetData | null;
-  pending?: boolean;
-  errorMessage?: string;
   assignmentsSourceLabel?: string;
+  data: MilestoneSheetData | null;
+  errorMessage?: string;
   eventsSourceLabel?: string;
   onApprove: (milestoneKey: string, note?: string) => Promise<void> | void;
   onAssignContractor?: (milestoneKey: string) => void;
-  onRequestInfo?: (milestoneKey: string, note: string) => void;
   onAssignVisit?: (milestoneKey: string) => void;
-  onReject?: (milestoneKey: string) => void;
-  onStartWork?: (milestoneKey: string, note?: string) => Promise<void> | void;
   onClose: () => void;
+  onReject?: (milestoneKey: string) => void;
+  onRequestInfo?: (milestoneKey: string, note: string) => void;
+  onStartWork?: (milestoneKey: string, note?: string) => Promise<void> | void;
+  pending?: boolean;
 }
 
 export function MilestoneDetailSheet({
@@ -58,15 +58,21 @@ export function MilestoneDetailSheet({
   }, [data?.milestoneKey]);
 
   useEffect(() => {
-    if (!data) return;
+    if (!data) {
+      return;
+    }
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [data, onClose]);
 
-  if (!data) return null;
+  if (!data) {
+    return null;
+  }
   return (
     <div
       aria-label="Milestone detail"
@@ -130,7 +136,9 @@ export function MilestoneDetailSheet({
             Assignments · {assignmentsSourceLabel}
           </h3>
           {data.contractors.length === 0 ? (
-            <p className="text-muted-foreground text-xs">No contractors assigned.</p>
+            <p className="text-muted-foreground text-xs">
+              No contractors assigned.
+            </p>
           ) : (
             <ul className="space-y-2">
               {data.contractors.map((c) => (
@@ -138,13 +146,15 @@ export function MilestoneDetailSheet({
                   className="flex min-w-0 items-center gap-3 rounded-lg border border-border bg-background/60 p-2"
                   key={`${c.name}-${c.role ?? ""}`}
                 >
-                  <span className="grid size-8 place-items-center rounded-full bg-primary/30 text-xs font-semibold">
+                  <span className="grid size-8 place-items-center rounded-full bg-primary/30 font-semibold text-xs">
                     {c.initials || initialsFor(c.name)}
                   </span>
                   <div className="min-w-0 text-sm">
                     <p className="break-words">{c.name}</p>
                     {c.role ? (
-                      <p className="text-[11px] text-muted-foreground">{c.role}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {c.role}
+                      </p>
                     ) : null}
                   </div>
                 </li>
@@ -167,7 +177,7 @@ export function MilestoneDetailSheet({
                   key={event._id}
                 >
                   <p className="font-semibold">{event.title}</p>
-                  <p className="text-muted-foreground text-[11px]">
+                  <p className="text-[11px] text-muted-foreground">
                     {event.actor} · {formatRelative(event.createdAt)}
                   </p>
                 </li>
@@ -215,7 +225,7 @@ export function MilestoneDetailSheet({
             </Button>
           ) : null}
           <button
-            className="rounded-md border border-primary/40 bg-primary/30 px-3 py-2 text-sm font-medium disabled:opacity-50"
+            className="rounded-md border border-primary/40 bg-primary/30 px-3 py-2 font-medium text-sm disabled:opacity-50"
             data-testid="milestone-detail-sheet-approve"
             disabled={pending}
             onClick={() => onApprove(data.milestoneKey, note || undefined)}
@@ -251,7 +261,7 @@ export function MilestoneDetailSheet({
               Assign site visit
             </button>
             <button
-              className="flex-1 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive hover:bg-destructive/20"
+              className="flex-1 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-destructive text-xs hover:bg-destructive/20"
               data-testid="milestone-detail-sheet-reject"
               onClick={() => onReject?.(data.milestoneKey)}
               type="button"

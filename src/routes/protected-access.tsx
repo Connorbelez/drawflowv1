@@ -1,12 +1,20 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 
-import { Frame, FrameDescription, FramePanel, FrameTitle } from "#/components/ui/frame.tsx";
-import { takeProposalClaimReturnPath } from "#/lib/proposal-claim-return.ts";
+import {
+  Frame,
+  FrameDescription,
+  FramePanel,
+  FrameTitle,
+} from "#/components/ui/frame.tsx";
 import { roleLabel, type Workspace } from "#/lib/auth/rbac.ts";
+import { takeProposalClaimReturnPath } from "#/lib/proposal-claim-return.ts";
 
 type ProtectedAccessSearch = {
-  reason?: "missing-organization" | "no-workspace-access" | "onboarding-required";
+  reason?:
+    | "missing-organization"
+    | "no-workspace-access"
+    | "onboarding-required";
   workspace?: Workspace;
 };
 

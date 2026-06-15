@@ -11,7 +11,24 @@ const rootDir = dirname(fileURLToPath(import.meta.url));
 
 const config = defineConfig({
   optimizeDeps: {
-    include: ["gsap", "gsap/ScrollTrigger", "@gsap/react"],
+    exclude: [
+      "@tanstack/react-devtools",
+      "@tanstack/react-query-devtools",
+      "convex",
+      "nuqs",
+      "nuqs/adapters/tanstack-router",
+    ],
+    include: [
+      "@gsap/react",
+      "@tanstack/router-core",
+      "@tanstack/router-core/isServer",
+      "@tanstack/router-core/ssr/client",
+      "dayjs",
+      "eventemitter3",
+      "gsap",
+      "gsap/ScrollTrigger",
+      "seroval",
+    ],
   },
   resolve: {
     alias: {
@@ -31,6 +48,9 @@ const config = defineConfig({
     nitro(),
     viteReact(),
   ],
+  server: {
+    strictPort: true,
+  },
   test: {
     exclude: ["**/node_modules/**", "**/dist/**", "**/tests/e2e/**"],
     passWithNoTests: true,

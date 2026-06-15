@@ -1,10 +1,7 @@
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { ArrowLeft, BadgeCheck, Link2, Plus, UserRound } from "lucide-react";
 import { useMemo, useState } from "react";
-
-import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -19,19 +16,21 @@ import {
   NativeSelectOption,
 } from "#/components/ui/native-select.tsx";
 import {
-  ContractorQuickAddDrawer,
   type ContractorProfileDraft,
+  ContractorQuickAddDrawer,
 } from "#/features/contractors/ContractorQuickAddDrawer.tsx";
+import {
+  getVisualContractorList,
+  isProductionVisualParityFixtureEnabled,
+} from "#/features/contractors/contractorVisualFixtures.ts";
 import {
   buildWorkosUserOptions,
   VISUAL_WORKOS_USER_OPTIONS,
   WorkosUserAutocomplete,
 } from "#/features/contractors/WorkosUserAutocomplete.tsx";
-import {
-  getVisualContractorList,
-  isProductionVisualParityFixtureEnabled,
-} from "#/features/contractors/contractorVisualFixtures.ts";
 import { requireUserManagementWriteAccess } from "#/lib/auth/rbac.ts";
+import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
 
 export const Route = createFileRoute("/backoffice/onboard-contractor")({
   beforeLoad: ({ context, location }) =>
@@ -63,11 +62,11 @@ function RouteComponent() {
       ? "skip"
       : {
           workosOrganizationId,
-        },
+        }
   );
   const workosProjection = useQuery(
     api.workosProjection.listUserManagement,
-    visualFixture ? "skip" : {},
+    visualFixture ? "skip" : {}
   );
   const result = visualFixture ? getVisualContractorList() : liveResult;
   const workosUserOptions = useMemo(
@@ -75,10 +74,12 @@ function RouteComponent() {
       visualFixture
         ? VISUAL_WORKOS_USER_OPTIONS
         : buildWorkosUserOptions(workosProjection, workosOrganizationId),
-    [visualFixture, workosProjection, workosOrganizationId],
+    [visualFixture, workosProjection, workosOrganizationId]
   );
   const createContractor = useMutation(contractorApi.createContractorProfile);
-  const linkAccount = useMutation(contractorApi.linkContractorProfileToWorkosUser);
+  const linkAccount = useMutation(
+    contractorApi.linkContractorProfileToWorkosUser
+  );
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedContractorId, setSelectedContractorId] = useState("");
   const [workosUserId, setWorkosUserId] = useState("");
@@ -90,9 +91,9 @@ function RouteComponent() {
   const selectedContractor = useMemo(
     () =>
       contractors.find(
-        (contractor: any) => contractor._id === selectedContractorId,
+        (contractor: any) => contractor._id === selectedContractorId
       ) ?? contractors[0],
-    [contractors, selectedContractorId],
+    [contractors, selectedContractorId]
   );
 
   const createProfile = async ({
@@ -115,7 +116,9 @@ function RouteComponent() {
   const submitLink = async (event: React.FormEvent) => {
     event.preventDefault();
     const contractorId = selectedContractor?._id;
-    if (!contractorId || !workosUserId.trim() || pending) return;
+    if (!(contractorId && workosUserId.trim()) || pending) {
+      return;
+    }
     setPending(true);
     setError("");
     setMessage("");
@@ -146,9 +149,7 @@ function RouteComponent() {
               <ArrowLeft className="size-4" />
               Contractors
             </Link>
-            <h1 className="mt-3 font-semibold text-2xl">
-              Onboard contractor
-            </h1>
+            <h1 className="mt-3 font-semibold text-2xl">Onboard contractor</h1>
             <p className="mt-2 max-w-3xl text-muted-foreground text-sm">
               Create the operating profile, connect the authenticated account,
               then assign the contractor to build and milestone work.
@@ -171,9 +172,7 @@ function RouteComponent() {
             icon={<Link2 className="size-4" />}
             label="Identity"
             state={
-              selectedContractor?.accountWorkosUserId
-                ? "Linked"
-                : "Optional"
+              selectedContractor?.accountWorkosUserId ? "Linked" : "Optional"
             }
             title="WorkOS user"
           />
@@ -217,9 +216,7 @@ function RouteComponent() {
                 {selectedContractor ? (
                   <div className="rounded-lg border bg-background/60 p-3 text-sm">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-semibold">
-                        {selectedContractor.name}
-                      </p>
+                      <p className="font-semibold">{selectedContractor.name}</p>
                       <Badge variant="outline">
                         {selectedContractor.kind ?? "company"}
                       </Badge>
@@ -257,7 +254,9 @@ function RouteComponent() {
                     <p className="text-success text-xs">{message}</p>
                   ) : null}
                   <Button
-                    disabled={!selectedContractor || !workosUserId.trim() || pending}
+                    disabled={
+                      !(selectedContractor && workosUserId.trim()) || pending
+                    }
                     type="submit"
                   >
                     <Link2 />

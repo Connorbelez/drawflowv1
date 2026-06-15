@@ -1,5 +1,3 @@
-import type { ReactNode } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Agreement03Icon,
   BankIcon,
@@ -15,6 +13,8 @@ import {
   UserMultipleIcon,
   UserSettings01Icon,
 } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import type { ReactNode } from "react";
 import type { FileRoutesByTo } from "#/routeTree.gen";
 
 /** Typed link target — every entry here resolves through the TanStack router. */
@@ -210,7 +210,11 @@ export function isNavItemActive(
   item: SidebarNavItem,
   pathname: string
 ): boolean {
-  if (pathname === item.to) return true;
-  if (!item.matchPrefix) return false;
+  if (pathname === item.to) {
+    return true;
+  }
+  if (!item.matchPrefix) {
+    return false;
+  }
   return pathname.startsWith(`${item.to}/`);
 }

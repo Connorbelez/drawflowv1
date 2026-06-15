@@ -311,6 +311,9 @@ export interface BuildWorkspaceActions {
   applyIssueQuickFix: (issue: WorkspaceIssue) => Promise<void>;
   applyRecommendedPlan: () => Promise<void>;
   approveMilestone: (milestoneId: string, reason: string) => Promise<void>;
+  assignContractorToMilestone?: (
+    input: BuildWorkspaceAssignContractorInput
+  ) => Promise<void>;
   batchMoveMilestoneDates: (
     milestoneMoves: {
       milestoneId: string;
@@ -322,7 +325,13 @@ export interface BuildWorkspaceActions {
     sourceId?: string
   ) => Promise<void>;
   claimSiteVisit: (milestoneId: string) => Promise<void>;
+  createAndAssignContractor?: (
+    input: BuildWorkspaceCreateAndAssignContractorInput
+  ) => Promise<void>;
   dismissIssue: (issue: WorkspaceIssue, reason?: string) => Promise<void>;
+  listSubmilestoneParentTargets?: (
+    milestoneId: string
+  ) => SubmilestoneParentTarget[];
   mergeDrawGroups: (
     sourceDrawGroupId: string,
     targetDrawGroupId: string
@@ -337,9 +346,6 @@ export interface BuildWorkspaceActions {
     milestoneId: string,
     drawGroupId: string
   ) => Promise<void>;
-  listSubmilestoneParentTargets?: (
-    milestoneId: string
-  ) => SubmilestoneParentTarget[];
   moveSubmilestoneToParent?: (
     milestoneId: string,
     parentMilestoneKey: string
@@ -366,6 +372,7 @@ export interface BuildWorkspaceActions {
     includedMilestoneIds?: string[]
   ) => Promise<{ token?: string; url?: string; visitId?: string } | void>;
   resetWorkspace: () => Promise<void>;
+  resolveContractorMilestoneKey?: (milestoneId: string) => string;
   reviewEvidence: (
     milestoneId: string,
     accepted: boolean,
@@ -395,6 +402,10 @@ export interface BuildWorkspaceActions {
     milestoneId: string,
     report: SiteVisitReportDraft
   ) => Promise<void>;
+  updateDrawGroup?: (
+    drawGroupId: string,
+    patch: DrawGroupPatch
+  ) => Promise<void>;
   updateForecastDates: (
     milestoneId: string,
     startAt: Date,
@@ -405,23 +416,12 @@ export interface BuildWorkspaceActions {
     milestoneId: string,
     patch: MilestonePatch
   ) => Promise<void>;
-  updateDrawGroup?: (
-    drawGroupId: string,
-    patch: DrawGroupPatch
-  ) => Promise<void>;
   updateProgress: (milestoneId: string, progress: number) => Promise<void>;
   uploadEvidence: (
     milestoneId: string,
     file: File,
     geofencePassed: boolean
   ) => Promise<void>;
-  assignContractorToMilestone?: (
-    input: BuildWorkspaceAssignContractorInput
-  ) => Promise<void>;
-  createAndAssignContractor?: (
-    input: BuildWorkspaceCreateAndAssignContractorInput
-  ) => Promise<void>;
-  resolveContractorMilestoneKey?: (milestoneId: string) => string;
 }
 
 export interface BuildWorkspaceState {
@@ -430,6 +430,7 @@ export interface BuildWorkspaceState {
   budget: BudgetSummary;
   build: BuildSummary;
   compilationStatus: "upToDate" | "updating" | "blocked" | "failed";
+  contractorPlanning?: ContractorPlanningModel | null;
   dependencies: MilestoneDependency[];
   drawGroups: DrawGroup[];
   isLoading: boolean;
@@ -446,7 +447,6 @@ export interface BuildWorkspaceState {
   timelineBaseDate?: Date;
   validationErrors: string[];
   validationWarnings: string[];
-  contractorPlanning?: ContractorPlanningModel | null;
 }
 
 export type BuildWorkspaceAdapter = BuildWorkspaceState & BuildWorkspaceActions;

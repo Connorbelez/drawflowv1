@@ -1,4 +1,3 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   ArrowRight01Icon,
   BankIcon,
@@ -7,6 +6,7 @@ import {
   UserGroupIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
 import type { ReactElement } from "react";
 
@@ -90,31 +90,35 @@ function AboutFairlendPage(): ReactElement {
       <CapitalGapVariantC />
       <CapitalGapVariantD />
 
-      <section className="about-principles about-editorial-section" aria-labelledby="about-principles-title">
-        <VerticalSectionLabel number="05" label="Principles" />
+      <section
+        aria-labelledby="about-principles-title"
+        className="about-principles about-editorial-section"
+      >
+        <VerticalSectionLabel label="Principles" number="05" />
         <div className="about-editorial-section__body about-principles__body">
           <div className="about-principles__heading">
             <p className="about-kicker">Our principles</p>
             <h2 id="about-principles-title">The lending decision has rules.</h2>
           </div>
           <div className="about-principles__grid">
-            {principles.map((principle, index) => {
-              return (
-                <article className="about-principle-card" key={principle.title}>
-                  <span className="about-principle-card__index">
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
-                  <h3>{principle.title}</h3>
-                  <p>{principle.body}</p>
-                </article>
-              );
-            })}
+            {principles.map((principle, index) => (
+              <article className="about-principle-card" key={principle.title}>
+                <span className="about-principle-card__index">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+                <h3>{principle.title}</h3>
+                <p>{principle.body}</p>
+              </article>
+            ))}
           </div>
         </div>
       </section>
 
-      <section className="about-technology about-editorial-section" aria-labelledby="about-technology-title">
-        <VerticalSectionLabel number="06" label="Assisted Review" />
+      <section
+        aria-labelledby="about-technology-title"
+        className="about-technology about-editorial-section"
+      >
+        <VerticalSectionLabel label="Assisted Review" number="06" />
         <div className="about-editorial-section__body about-technology__body">
           <div className="about-technology__header">
             <p className="about-kicker">Where technology fits</p>
@@ -133,19 +137,26 @@ function AboutFairlendPage(): ReactElement {
                 review, and unclear next steps.
               </p>
             </article>
-            <article className="about-technology__panel about-technology__panel--active" role="listitem">
+            <article
+              className="about-technology__panel about-technology__panel--active"
+              role="listitem"
+            >
               <span>Fairlend assisted review</span>
               <p>
                 Technology improves intake, organizes project information,
-                supports faster review, and creates a clearer borrower experience.
+                supports faster review, and creates a clearer borrower
+                experience.
               </p>
             </article>
           </div>
         </div>
       </section>
 
-      <section className="about-human about-editorial-section" aria-labelledby="about-human-title">
-        <VerticalSectionLabel number="07" label="Human Judgment" />
+      <section
+        aria-labelledby="about-human-title"
+        className="about-human about-editorial-section"
+      >
+        <VerticalSectionLabel label="Human Judgment" number="07" />
         <div className="about-editorial-section__body about-human__body">
           <div className="about-human__image-wrap">
             <img
@@ -160,8 +171,8 @@ function AboutFairlendPage(): ReactElement {
             <div className="about-prose">
               <p>
                 No algorithm can fully understand a construction plan, a
-                borrower&apos;s constraints, a zoning pathway, a draw schedule, a
-                valuation question, or the real-world risk of a project.
+                borrower&apos;s constraints, a zoning pathway, a draw schedule,
+                a valuation question, or the real-world risk of a project.
               </p>
               <p>
                 That is why Fairlend combines structured intake and
@@ -193,8 +204,11 @@ function AboutFairlendPage(): ReactElement {
 
 function CapitalGapVariantA(): ReactElement {
   return (
-    <section className="about-concept-section about-capital-a" aria-labelledby="about-capital-a-title">
-      <VerticalSectionLabel number="04A" label="Capital Gap" />
+    <section
+      aria-labelledby="about-capital-a-title"
+      className="about-concept-section about-capital-a"
+    >
+      <VerticalSectionLabel label="Capital Gap" number="04A" />
       <div className="about-concept-section__body about-capital-a__body">
         <div className="about-capital-a__heading">
           <p className="about-kicker">Why capital matters</p>
@@ -208,7 +222,11 @@ function CapitalGapVariantA(): ReactElement {
           className="about-capital-a__documents"
           src="/assets/fairlend-about-concepts/capital-a-document-stack.png"
         />
-        <div className="about-capital-a__table" role="list" aria-label="Where small housing projects hit capital friction">
+        <div
+          aria-label="Where small housing projects hit capital friction"
+          className="about-capital-a__table"
+          role="list"
+        >
           <article role="listitem">
             <span>01</span>
             <h3>Homeowner</h3>
@@ -226,7 +244,9 @@ function CapitalGapVariantA(): ReactElement {
           <article role="listitem">
             <span>03</span>
             <h3>Property owner</h3>
-            <p>You may have a viable rental conversion or infill opportunity.</p>
+            <p>
+              You may have a viable rental conversion or infill opportunity.
+            </p>
             <p>But the project may not fit a traditional lending box.</p>
             <p>Asset type, zoning, and income profile can block financing.</p>
           </article>
@@ -242,8 +262,11 @@ function CapitalGapVariantA(): ReactElement {
 
 function CapitalGapVariantC(): ReactElement {
   return (
-    <section className="about-concept-section about-capital-c" aria-labelledby="about-capital-c-title">
-      <VerticalSectionLabel number="04C" label="Capital Gap" />
+    <section
+      aria-labelledby="about-capital-c-title"
+      className="about-concept-section about-capital-c"
+    >
+      <VerticalSectionLabel label="Capital Gap" number="04C" />
       <div className="about-concept-section__body about-capital-c__body">
         <div className="about-capital-c__copy">
           <p className="about-kicker">Feasibility ledger</p>
@@ -255,7 +278,11 @@ function CapitalGapVariantC(): ReactElement {
             pressure together so the structure reflects the work in front of it.
           </p>
         </div>
-        <div className="about-capital-c__ledger" role="table" aria-label="Capital gap ledger">
+        <div
+          aria-label="Capital gap ledger"
+          className="about-capital-c__ledger"
+          role="table"
+        >
           <div className="about-capital-c__ledger-head" role="row">
             <span role="columnheader">Feasibility pressure</span>
             <span role="columnheader">Impact</span>
@@ -313,10 +340,16 @@ function CapitalGapVariantC(): ReactElement {
 
 function CapitalGapVariantD(): ReactElement {
   return (
-    <section className="about-concept-section about-capital-d" aria-labelledby="about-capital-d-title">
-      <VerticalSectionLabel number="04D" label="Capital Gap" />
+    <section
+      aria-labelledby="about-capital-d-title"
+      className="about-concept-section about-capital-d"
+    >
+      <VerticalSectionLabel label="Capital Gap" number="04D" />
       <div className="about-concept-section__body about-capital-d__body">
-        <div className="about-capital-d__strips" aria-label="Capital timing sequence">
+        <div
+          aria-label="Capital timing sequence"
+          className="about-capital-d__strips"
+        >
           <img
             alt="Capital timing sequence: equity exists, cash is tied up, draws lag the work"
             src="/assets/fairlend-about-concepts/capital-d-paper-strips.png"
@@ -342,8 +375,11 @@ function CapitalGapVariantD(): ReactElement {
 
 function NextStepVariantB(): ReactElement {
   return (
-    <section className="about-concept-section about-next-b" aria-labelledby="about-next-b-title">
-      <VerticalSectionLabel number="08B" label="Next Step" />
+    <section
+      aria-labelledby="about-next-b-title"
+      className="about-concept-section about-next-b"
+    >
+      <VerticalSectionLabel label="Next Step" number="08B" />
       <div className="about-concept-section__body about-next-b__body">
         <img
           alt="Project intake slip marked ready"
@@ -364,19 +400,33 @@ function NextStepVariantB(): ReactElement {
             <span>the work stalls.</span>
           </h2>
           <p>
-            The right structure. The right timing. The right capital.
-            Fairlend helps you align the pieces before costs rise and momentum slips.
+            The right structure. The right timing. The right capital. Fairlend
+            helps you align the pieces before costs rise and momentum slips.
           </p>
           <Link className="about-next-b__banner" to="/start">
             Explore financing options
-            <HugeiconsIcon aria-hidden="true" icon={ArrowRight01Icon} strokeWidth={2} />
+            <HugeiconsIcon
+              aria-hidden="true"
+              icon={ArrowRight01Icon}
+              strokeWidth={2}
+            />
           </Link>
-          <Link className="about-inline-cta about-next-b__founder" to="/leadership/elie-soberano">
+          <Link
+            className="about-inline-cta about-next-b__founder"
+            to="/leadership/elie-soberano"
+          >
             Founder story
-            <HugeiconsIcon aria-hidden="true" icon={ArrowRight01Icon} strokeWidth={2} />
+            <HugeiconsIcon
+              aria-hidden="true"
+              icon={ArrowRight01Icon}
+              strokeWidth={2}
+            />
           </Link>
         </div>
-        <div className="about-next-b__meta" aria-label="Fairlend blue section focus">
+        <div
+          aria-label="Fairlend blue section focus"
+          className="about-next-b__meta"
+        >
           <span>Greater Toronto Area</span>
           <span>Construction draws</span>
           <span>Private lending</span>
@@ -388,8 +438,11 @@ function NextStepVariantB(): ReactElement {
 
 function NextStepVariantC(): ReactElement {
   return (
-    <section className="about-concept-section about-next-c" aria-labelledby="about-next-c-title">
-      <VerticalSectionLabel number="08C" label="Next Step" />
+    <section
+      aria-labelledby="about-next-c-title"
+      className="about-concept-section about-next-c"
+    >
+      <VerticalSectionLabel label="Next Step" number="08C" />
       <div className="about-concept-section__body about-next-c__body">
         <div className="about-next-c__panel">
           <p className="about-next-c__kicker">Next step</p>
@@ -398,9 +451,7 @@ function NextStepVariantC(): ReactElement {
             <span>talk through</span>
             <span>the fit?</span>
           </h2>
-          <p>
-            Explore the financing path that matches what you are building.
-          </p>
+          <p>Explore the financing path that matches what you are building.</p>
           <div className="about-final__actions">
             <Button
               className="about-button about-button--lime"
@@ -408,7 +459,11 @@ function NextStepVariantC(): ReactElement {
               size="xl"
             >
               Explore Financing Options
-              <HugeiconsIcon aria-hidden="true" icon={ArrowRight01Icon} strokeWidth={2} />
+              <HugeiconsIcon
+                aria-hidden="true"
+                icon={ArrowRight01Icon}
+                strokeWidth={2}
+              />
             </Button>
             <Button
               className="about-button about-button--paper"
@@ -417,13 +472,21 @@ function NextStepVariantC(): ReactElement {
               variant="outline"
             >
               Meet the Founder
-              <HugeiconsIcon aria-hidden="true" icon={UserGroupIcon} strokeWidth={2} />
+              <HugeiconsIcon
+                aria-hidden="true"
+                icon={UserGroupIcon}
+                strokeWidth={2}
+              />
             </Button>
           </div>
         </div>
-        <aside className="about-next-c__rail" aria-label="Fairlend focus areas">
+        <aside aria-label="Fairlend focus areas" className="about-next-c__rail">
           <article>
-            <HugeiconsIcon aria-hidden="true" icon={Location01Icon} strokeWidth={1.7} />
+            <HugeiconsIcon
+              aria-hidden="true"
+              icon={Location01Icon}
+              strokeWidth={1.7}
+            />
             <p>
               Greater Toronto Area
               <br />
@@ -431,7 +494,11 @@ function NextStepVariantC(): ReactElement {
             </p>
           </article>
           <article>
-            <HugeiconsIcon aria-hidden="true" icon={Tag01Icon} strokeWidth={1.7} />
+            <HugeiconsIcon
+              aria-hidden="true"
+              icon={Tag01Icon}
+              strokeWidth={1.7}
+            />
             <p>
               Mortgage strategy,
               <br />
@@ -441,7 +508,11 @@ function NextStepVariantC(): ReactElement {
             </p>
           </article>
           <article>
-            <HugeiconsIcon aria-hidden="true" icon={BankIcon} strokeWidth={1.7} />
+            <HugeiconsIcon
+              aria-hidden="true"
+              icon={BankIcon}
+              strokeWidth={1.7}
+            />
             <p>
               Private lending for
               <br />
@@ -459,7 +530,10 @@ function NextStepVariantC(): ReactElement {
 function AboutReferenceFold(): ReactElement {
   return (
     <div className="about-reference">
-      <header className="about-reference__masthead" aria-label="Fairlend public navigation">
+      <header
+        aria-label="Fairlend public navigation"
+        className="about-reference__masthead"
+      >
         <Link
           aria-label="Fairlend Canadian Housing Capital home"
           className="about-reference__logo"
@@ -472,7 +546,7 @@ function AboutReferenceFold(): ReactElement {
             src={`${extractedAssetPath}/logo-lockup.png`}
           />
         </Link>
-        <nav className="about-reference__nav" aria-label="Primary">
+        <nav aria-label="Primary" className="about-reference__nav">
           <Link to="/start">Financing Options</Link>
           <Link to="/construction-draw-financing">Who We Finance</Link>
           <Link to="/resources">Resources</Link>
@@ -486,17 +560,30 @@ function AboutReferenceFold(): ReactElement {
         <span className="about-reference__path">/About</span>
       </header>
 
-      <section className="about-reference__hero" aria-labelledby="about-hero-title">
-        <div className="about-reference__columns" aria-hidden="true">
-          {["02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"].map(
-            (column) => (
-              <span key={column}>{column}</span>
-            ),
-          )}
+      <section
+        aria-labelledby="about-hero-title"
+        className="about-reference__hero"
+      >
+        <div aria-hidden="true" className="about-reference__columns">
+          {[
+            "02",
+            "03",
+            "04",
+            "05",
+            "06",
+            "07",
+            "08",
+            "09",
+            "10",
+            "11",
+            "12",
+          ].map((column) => (
+            <span key={column}>{column}</span>
+          ))}
         </div>
         <div className="about-reference__left">
-          <SectionMarker number="01" label="About Fairlend" />
-          <h1 id="about-hero-title" aria-label="About Fairlend">
+          <SectionMarker label="About Fairlend" number="01" />
+          <h1 aria-label="About Fairlend" id="about-hero-title">
             <img
               alt=""
               aria-hidden="true"
@@ -529,7 +616,10 @@ function AboutReferenceFold(): ReactElement {
           />
         </div>
 
-        <div className="about-reference__collage" aria-label="Fairlend housing financing document collage">
+        <div
+          aria-label="Fairlend housing financing document collage"
+          className="about-reference__collage"
+        >
           <img
             alt="A multiplex housing project under construction."
             className="about-reference__construction"
@@ -586,8 +676,11 @@ function AboutReferenceFold(): ReactElement {
       </section>
 
       <div className="about-reference__lower">
-        <section className="about-reference__who" aria-labelledby="about-who-title">
-          <SectionMarker number="02" label="Who We Are" />
+        <section
+          aria-labelledby="about-who-title"
+          className="about-reference__who"
+        >
+          <SectionMarker label="Who We Are" number="02" />
           <div className="about-reference__who-grid">
             <div>
               <h2 id="about-who-title">Who We Are</h2>
@@ -618,8 +711,11 @@ function AboutReferenceFold(): ReactElement {
           </div>
         </section>
 
-        <section className="about-reference__finance" aria-labelledby="about-finance-title">
-          <SectionMarker number="03" label="What We Finance" />
+        <section
+          aria-labelledby="about-finance-title"
+          className="about-reference__finance"
+        >
+          <SectionMarker label="What We Finance" number="03" />
           <img
             alt="Blueprint-style board listing multiplexes, garden suites, purpose-built rentals, property conversions, construction financing, and bridge financing."
             className="about-reference__finance-board"

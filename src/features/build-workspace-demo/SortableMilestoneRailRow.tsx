@@ -14,11 +14,7 @@ import {
   ContextMenuTrigger,
 } from "#/components/ui/context-menu.tsx";
 import { cn } from "#/lib/utils.ts";
-import type {
-  Milestone,
-  MilestoneStatus,
-  WorkspaceIssue,
-} from "./types";
+import type { Milestone, MilestoneStatus, WorkspaceIssue } from "./types";
 import { useBuildWorkspace } from "./workspace-adapter";
 
 type MilestoneHighlightTone = "selected" | "blocking" | "blocked";
@@ -350,10 +346,7 @@ export function SortableMilestoneRailRow({
 
   return (
     <ContextMenu>
-      <ContextMenuTrigger
-        className="contents"
-        render={<div />}
-      >
+      <ContextMenuTrigger className="contents" render={<div />}>
         {row}
       </ContextMenuTrigger>
       <ContextMenuContent className="w-64">

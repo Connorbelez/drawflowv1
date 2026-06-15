@@ -2,8 +2,6 @@ import { useRouter, useRouterState } from "@tanstack/react-router";
 import { Bot, Search } from "lucide-react";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { cn } from "#/lib/utils.ts";
-import { SidebarInset, SidebarProvider } from "#/components/ui/sidebar.tsx";
 import { AppHeader } from "#/components/app-header.tsx";
 import { AppSidebar, type AppSidebarProps } from "#/components/app-sidebar.tsx";
 import { DecorIcon } from "#/components/decor-icon.tsx";
@@ -21,8 +19,10 @@ import {
   CommandPanel,
   CommandShortcut,
 } from "#/components/ui/command.tsx";
-import { DrawFlowAssistant } from "#/features/assistant/DrawFlowAssistant.tsx";
+import { SidebarInset, SidebarProvider } from "#/components/ui/sidebar.tsx";
 import { buildAssistantRouteContext } from "#/features/assistant/assistantRouteContext.ts";
+import { DrawFlowAssistant } from "#/features/assistant/DrawFlowAssistant.tsx";
+import { cn } from "#/lib/utils.ts";
 
 export type AppShellProps = {
   children: ReactNode;
@@ -61,7 +61,7 @@ export function AppShell({
         routerState,
         userId,
       }),
-    [organizationId, role, roles, routerState, userId],
+    [organizationId, role, roles, routerState, userId]
   );
 
   const openAssistant = useCallback(() => {
@@ -103,7 +103,7 @@ export function AppShell({
         </div>
         <div
           aria-hidden="true"
-          className="pointer-events-none fixed inset-x-0 top-14 z-[54] hidden border-t border-border md:block"
+          className="pointer-events-none fixed inset-x-0 top-14 z-[54] hidden border-border border-t md:block"
           data-testid="app-shell-junction-rule"
         />
         {/* Junction mark sits above the shared shell hairline so the seam never breaks. */}

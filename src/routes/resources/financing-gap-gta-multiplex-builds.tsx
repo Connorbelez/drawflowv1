@@ -5,7 +5,9 @@ import {
   getArticlePageHead,
 } from "#/features/fairlend-public/fairlend-public-pages.tsx";
 
-export const Route = createFileRoute("/resources/financing-gap-gta-multiplex-builds")({
+export const Route = createFileRoute(
+  "/resources/financing-gap-gta-multiplex-builds"
+)({
   component: FinancingGapArticle,
   head: () => getArticlePageHead("financingGap"),
 });

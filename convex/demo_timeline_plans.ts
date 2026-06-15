@@ -10,17 +10,17 @@ import {
   MOCK_STAFF_PERSONA,
 } from "./demo_personas";
 import {
-  generateSiteVisitToken,
-  hashSiteVisitToken,
-  validateIncludedSiteVisitMilestones,
-} from "./demo_site_visit_tokens";
-import {
   defaultSiteVisitGuidance,
   guidanceItemsToGuidance,
   guidanceToItems,
   normalizeSiteVisitGuidance,
   type SiteVisitGuidance,
 } from "./demo_site_visit_guidance";
+import {
+  generateSiteVisitToken,
+  hashSiteVisitToken,
+  validateIncludedSiteVisitMilestones,
+} from "./demo_site_visit_tokens";
 import {
   internalMutation,
   publicMutation,
@@ -421,7 +421,11 @@ export function normalizeSetupPayload(input: {
         order,
         siteVisitGuidance: normalizeSiteVisitGuidance(
           milestone.siteVisitGuidance,
-          defaultSiteVisitGuidance(milestone.key, milestone.name, submilestoneNames)
+          defaultSiteVisitGuidance(
+            milestone.key,
+            milestone.name,
+            submilestoneNames
+          )
         ),
         submilestoneSnapshot: toSubmilestoneSnapshot(
           milestone.submilestones ?? [],
@@ -934,10 +938,14 @@ async function enrichTimelineMilestonesWithLiveSubmilestones(
     return milestones;
   }
 
-  const byMilestoneKey = new Map<string, Map<string, (typeof submilestoneRows)[0]>>();
+  const byMilestoneKey = new Map<
+    string,
+    Map<string, (typeof submilestoneRows)[0]>
+  >();
   for (const row of submilestoneRows) {
     const milestoneRows =
-      byMilestoneKey.get(row.milestoneKey) ?? new Map<string, (typeof submilestoneRows)[0]>();
+      byMilestoneKey.get(row.milestoneKey) ??
+      new Map<string, (typeof submilestoneRows)[0]>();
     milestoneRows.set(row.key, row);
     byMilestoneKey.set(row.milestoneKey, milestoneRows);
   }
@@ -2280,7 +2288,10 @@ async function syncPromotedSubmilestones(
   const existingByKey = new Map(existing.map((row) => [row.key, row]));
   const now = Date.now();
 
-  for (const [index, snapshot] of input.milestone.submilestoneSnapshot.entries()) {
+  for (const [
+    index,
+    snapshot,
+  ] of input.milestone.submilestoneSnapshot.entries()) {
     const key =
       snapshot.key ??
       `${input.milestone.milestoneKey}-sub-${String(index + 1).padStart(2, "0")}`;
@@ -2914,7 +2925,9 @@ async function insertTimelineMilestoneFromInput(
       defaultSiteVisitGuidance(
         milestoneInput.milestoneKey,
         milestoneInput.name,
-        (milestoneInput.submilestones ?? []).map((submilestone) => submilestone.name)
+        (milestoneInput.submilestones ?? []).map(
+          (submilestone) => submilestone.name
+        )
       )
     ),
     milestoneKey: milestoneInput.milestoneKey,
@@ -3970,7 +3983,10 @@ export const demo_requestTimelineSiteVisit = publicMutation
       args.milestoneKey
     );
     const milestones = await timelineMilestones(ctx, plan._id);
-    const guidanceByMilestone = await timelineGuidanceByMilestone(ctx, plan._id);
+    const guidanceByMilestone = await timelineGuidanceByMilestone(
+      ctx,
+      plan._id
+    );
     const milestoneByKey = new Map(
       milestones.map((milestone) => [milestone.milestoneKey, milestone])
     );

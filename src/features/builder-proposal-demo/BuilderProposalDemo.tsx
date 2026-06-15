@@ -20,13 +20,8 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-import { AppSidebar } from "#/components/app-sidebar.tsx";
 import { GoogleAddressAutocomplete } from "#/components/address/GoogleAddressAutocomplete.tsx";
-import {
-  BuildPermitViewerDrawer,
-  firstPermitDocument,
-  type BuildPermitViewerDocument,
-} from "#/features/build-permit-viewer/BuildPermitViewerDrawer.tsx";
+import { AppSidebar } from "#/components/app-sidebar.tsx";
 import {
   Sortable,
   SortableItem,
@@ -52,6 +47,11 @@ import {
   TabsList,
   TabsTrigger,
 } from "#/components/ui/tabs.tsx";
+import {
+  type BuildPermitViewerDocument,
+  BuildPermitViewerDrawer,
+  firstPermitDocument,
+} from "#/features/build-permit-viewer/BuildPermitViewerDrawer.tsx";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { CinematicRoadmap } from "./CinematicRoadmap";
 import { useBuilderProposalDemo } from "./convex-builder-proposal-adapter";
@@ -1039,7 +1039,7 @@ export function BuilderNewProposalRoute({
       file,
       fileName: file.name,
       mimeType: file.type || "application/pdf",
-    })),
+    }))
   );
 
   async function handleCreateDraft() {
@@ -2013,6 +2013,7 @@ function MilestoneEditorScreen({
       eyebrow={`${projection.draft.templateTitle ?? "Template"} / original budget ${formatCurrency(
         projection.draft.originalBudgetCents
       )}`}
+      permit={permit}
       rightPanel={
         <CinematicRoadmap
           animated={isGeneratingAnim}
@@ -2022,7 +2023,6 @@ function MilestoneEditorScreen({
           milestones={effectiveMilestones}
         />
       }
-      permit={permit}
       step="milestones"
       title="Curate milestone scope"
     >
@@ -2600,6 +2600,7 @@ function BoundaryScreen({
         </SecondaryButton>
       }
       eyebrow={`${projection.draft.proposalNumber} / workspace_ready`}
+      permit={permit}
       rightPanel={
         <CinematicRoadmap
           animated={false}
@@ -2609,7 +2610,6 @@ function BoundaryScreen({
           milestones={projection.milestones}
         />
       }
-      permit={permit}
       step="boundary"
       title="Build Workspace starts here"
     >

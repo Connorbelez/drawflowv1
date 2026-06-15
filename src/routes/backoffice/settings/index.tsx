@@ -17,10 +17,6 @@ import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Card } from "#/components/ui/card.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
-import {
-  getVisualParitySettings,
-  isProductionVisualParityFixtureEnabled,
-} from "#/features/production-proposals/visualParityFixtures.ts";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import {
@@ -40,11 +36,20 @@ import {
   TableRow,
 } from "#/components/ui/table.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
-import { coerceSiteVisitGuidance } from "#/lib/site-visit-guidance.ts";
-import { cn } from "#/lib/utils.ts";
-import { api } from "../../../../convex/_generated/api";
 import {
-  TOTAL_BPS,
+  getVisualParitySettings,
+  isProductionVisualParityFixtureEnabled,
+} from "#/features/production-proposals/visualParityFixtures.ts";
+import {
+  getCashflowCompoundExtent,
+  TimelineCashflowCompoundChart,
+  type TimelineCashflowCompoundDatum,
+} from "#/features/timeline-workspace/-TimelineCashflowCompoundChart.tsx";
+import {
+  type TimelineMilestoneWorksheetRow,
+  TimelineMilestoneWorksheetTable,
+} from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
+import {
   createBlankScenario,
   duplicateScenario,
   formatBps,
@@ -52,27 +57,22 @@ import {
   getActiveScenario,
   includedDurationDays,
   includedPocTotalBps,
+  milestoneEndDay,
+  milestoneStartDay,
   normalizeTimelineSettingsProjection,
   parsePercentToBps,
   scenarioDrawTotalBps,
   TIMELINE_DEMO_SETTINGS_CONTRACT_REFS,
-  milestoneEndDay,
-  milestoneStartDay,
   type TimelineSettingsDrawDraft,
   type TimelineSettingsScenarioDraft,
   type TimelineSettingsTemplateDraft,
+  TOTAL_BPS,
   validateScenarioDrafts,
   validateTemplateDraft,
 } from "#/features/timeline-workspace/-timeline-demo-settings-adapter.ts";
-import {
-  getCashflowCompoundExtent,
-  TimelineCashflowCompoundChart,
-  type TimelineCashflowCompoundDatum,
-} from "#/features/timeline-workspace/-TimelineCashflowCompoundChart.tsx";
-import {
-  TimelineMilestoneWorksheetTable,
-  type TimelineMilestoneWorksheetRow,
-} from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
+import { coerceSiteVisitGuidance } from "#/lib/site-visit-guidance.ts";
+import { cn } from "#/lib/utils.ts";
+import { api } from "../../../../convex/_generated/api";
 
 export const Route = createFileRoute("/backoffice/settings/")({
   component: RouteComponent,
@@ -120,52 +120,52 @@ function RouteComponent() {
   const context = Route.useRouteContext();
   const workosOrganizationId = context.organizationId as string;
   const roleSlugs = [context.role, ...(context.roles ?? [])].filter(
-    (role): role is string => typeof role === "string",
+    (role): role is string => typeof role === "string"
   );
   const canCreateProductionTemplate = roleSlugs.some((role) =>
     ["admin", "principle-broker", "principal-broker"].includes(
-      role.trim().toLowerCase(),
-    ),
+      role.trim().toLowerCase()
+    )
   );
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
   const productionSettingsQuery = useQuery(
     api.production_proposals.getProductionProposalSettings,
-    visualFixtureEnabled ? "skip" : { workosOrganizationId },
+    visualFixtureEnabled ? "skip" : { workosOrganizationId }
   );
   const productionSettings = visualFixtureEnabled
     ? getVisualParitySettings()
     : productionSettingsQuery;
   const seedProductionDefaultsToProd = useMutation(
-    api.production_proposals.seedProductionDefaultsToProd,
+    api.production_proposals.seedProductionDefaultsToProd
   );
   const saveProductionTemplate = useMutation(
-    api.production_proposals.saveProductionProposalTemplateConfiguration,
+    api.production_proposals.saveProductionProposalTemplateConfiguration
   );
   const createProductionTemplate = useMutation(
-    api.production_proposals.createProductionProposalTemplate,
+    api.production_proposals.createProductionProposalTemplate
   );
   const deleteProductionScenario = useMutation(
-    api.production_proposals.deleteProductionDrawScenario,
+    api.production_proposals.deleteProductionDrawScenario
   );
   const resetProductionTemplate = useMutation(
-    api.production_proposals.resetProductionTemplateToDefaults,
+    api.production_proposals.resetProductionTemplateToDefaults
   );
   const resetProductionScenario = useMutation(
-    api.production_proposals.resetProductionDrawScenarioToDefaults,
+    api.production_proposals.resetProductionDrawScenarioToDefaults
   );
   const settings = useQuery(api.demo_settings.getTimelineDemoSettings, {});
   const seedDefaults = useMutation(api.demo_settings.seedTimelineDemoDefaults);
   const saveTemplate = useMutation(
-    api.demo_settings.saveTimelineTemplateConfiguration,
+    api.demo_settings.saveTimelineTemplateConfiguration
   );
   const deleteScenarioMutation = useMutation(
-    api.demo_settings.deleteTimelineDrawScenario,
+    api.demo_settings.deleteTimelineDrawScenario
   );
   const resetTemplate = useMutation(
-    api.demo_settings.resetTimelineTemplateToDefaults,
+    api.demo_settings.resetTimelineTemplateToDefaults
   );
   const resetScenario = useMutation(
-    api.demo_settings.resetTimelineDrawScenarioToDefaults,
+    api.demo_settings.resetTimelineDrawScenarioToDefaults
   );
 
   return (
@@ -173,7 +173,7 @@ function RouteComponent() {
       <div className="mx-auto grid max-w-[1800px] gap-5">
         <header className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
           <div>
-            <Badge variant="outline" className="mb-3 w-fit">
+            <Badge className="mb-3 w-fit" variant="outline">
               Backoffice / Settings
             </Badge>
             <h1 className="font-semibold text-3xl tracking-normal sm:text-4xl">
@@ -200,6 +200,23 @@ function RouteComponent() {
             seedConfirmTitle: "Seed production defaults?",
             title: "Settings workspace",
           }}
+          onCreateTemplate={
+            canCreateProductionTemplate
+              ? (template) =>
+                  createProductionTemplate({
+                    milestones: template.milestones,
+                    scenarios: template.scenarios,
+                    template: {
+                      description: template.description,
+                      isDefault: template.isDefault,
+                      summary: template.summary,
+                      templateKey: template.templateKey,
+                      title: template.title,
+                    },
+                    workosOrganizationId,
+                  })
+              : undefined
+          }
           onDeleteScenario={(template, scenario) =>
             deleteProductionScenario({
               scenarioKey: scenario.scenarioKey,
@@ -219,23 +236,6 @@ function RouteComponent() {
               templateKey: template.templateKey,
               workosOrganizationId,
             })
-          }
-          onCreateTemplate={
-            canCreateProductionTemplate
-              ? (template) =>
-                  createProductionTemplate({
-                    milestones: template.milestones,
-                    scenarios: template.scenarios,
-                    template: {
-                      description: template.description,
-                      isDefault: template.isDefault,
-                      summary: template.summary,
-                      templateKey: template.templateKey,
-                      title: template.title,
-                    },
-                    workosOrganizationId,
-                  })
-              : undefined
           }
           onSaveTemplate={(template) =>
             saveProductionTemplate({
@@ -347,21 +347,21 @@ export function TimelineSettingsWorkspace({
 }: {
   labels: TimelineSettingsWorkspaceLabels;
   onCreateTemplate?: (
-    template: TimelineSettingsTemplateDraft,
+    template: TimelineSettingsTemplateDraft
   ) => Promise<TimelineSettingsMutationResult>;
   onDeleteScenario: (
     template: TimelineSettingsTemplateDraft,
-    scenario: TimelineSettingsScenarioDraft,
+    scenario: TimelineSettingsScenarioDraft
   ) => Promise<TimelineSettingsMutationResult>;
   onResetScenario: (
     template: TimelineSettingsTemplateDraft,
-    scenarioKey: string,
+    scenarioKey: string
   ) => Promise<TimelineSettingsMutationResult>;
   onResetTemplate: (
-    template: TimelineSettingsTemplateDraft,
+    template: TimelineSettingsTemplateDraft
   ) => Promise<TimelineSettingsMutationResult>;
   onSaveTemplate: (
-    template: TimelineSettingsTemplateDraft,
+    template: TimelineSettingsTemplateDraft
   ) => Promise<TimelineSettingsMutationResult>;
   onSeedDefaults: () => Promise<TimelineSettingsMutationResult>;
   seedSuccessMessage?: (result: any) => string;
@@ -371,7 +371,7 @@ export function TimelineSettingsWorkspace({
   const prefersReducedMotion = useReducedMotion();
   const canonicalTemplates = useMemo(
     () => normalizeTimelineSettingsProjection(settings),
-    [settings],
+    [settings]
   );
   const [drafts, setDrafts] = useState<TimelineSettingsTemplateDraft[]>([]);
   const [selectedTemplateKey, setSelectedTemplateKey] = useState("");
@@ -383,10 +383,10 @@ export function TimelineSettingsWorkspace({
   const [actionError, setActionError] = useState("");
   const [saving, setSaving] = useState(false);
   const [dirtyTemplates, setDirtyTemplates] = useState<Record<string, boolean>>(
-    {},
+    {}
   );
   const [dirtyScenarios, setDirtyScenarios] = useState<Record<string, boolean>>(
-    {},
+    {}
   );
 
   useEffect(() => {
@@ -394,13 +394,11 @@ export function TimelineSettingsWorkspace({
       setDrafts([]);
       return;
     }
-    setDrafts((current) =>
-      current.length > 0 ? current : canonicalTemplates,
-    );
+    setDrafts((current) => (current.length > 0 ? current : canonicalTemplates));
     setSelectedTemplateKey((current) =>
       canonicalTemplates.some((template) => template.templateKey === current)
         ? current
-        : canonicalTemplates[0]?.templateKey || "",
+        : canonicalTemplates[0]?.templateKey || ""
     );
     setSelectedScenarioKeyByTemplate((current) => {
       const next = { ...current };
@@ -423,7 +421,7 @@ export function TimelineSettingsWorkspace({
     ? (selectedTemplate.scenarios.find(
         (scenario) =>
           scenario.scenarioKey ===
-          selectedScenarioKeyByTemplate[selectedTemplate.templateKey],
+          selectedScenarioKeyByTemplate[selectedTemplate.templateKey]
       ) ??
       selectedTemplate.scenarios[0] ??
       null)
@@ -431,8 +429,8 @@ export function TimelineSettingsWorkspace({
   const selectedTemplatePersisted = Boolean(
     selectedTemplate &&
       canonicalTemplates.some(
-        (template) => template.templateKey === selectedTemplate.templateKey,
-      ),
+        (template) => template.templateKey === selectedTemplate.templateKey
+      )
   );
   const templateValidation = selectedTemplate
     ? validateTemplateDraft(selectedTemplate)
@@ -447,7 +445,7 @@ export function TimelineSettingsWorkspace({
     selectedTemplate &&
       metadataValidation.ok &&
       templateValidation.ok &&
-      scenarioValidation.ok,
+      scenarioValidation.ok
   );
   const tabMotionCustom = {
     direction: activeTab === "scenarios" ? 1 : -1,
@@ -467,13 +465,13 @@ export function TimelineSettingsWorkspace({
         ? (result as { settings?: unknown }).settings
         : result;
     const nextTemplates = normalizeTimelineSettingsProjection(
-      projection as any,
+      projection as any
     );
     setDrafts(nextTemplates);
     setSelectedTemplateKey((current) =>
       nextTemplates.some((template) => template.templateKey === current)
         ? current
-        : nextTemplates[0]?.templateKey || "",
+        : nextTemplates[0]?.templateKey || ""
     );
     setSelectedScenarioKeyByTemplate(
       Object.fromEntries(
@@ -482,8 +480,8 @@ export function TimelineSettingsWorkspace({
           getActiveScenario(template)?.scenarioKey ||
             template.scenarios[0]?.scenarioKey ||
             "",
-        ]),
-      ),
+        ])
+      )
     );
     setDirtyTemplates({});
     setDirtyScenarios({});
@@ -491,9 +489,9 @@ export function TimelineSettingsWorkspace({
 
   function updateSelectedTemplate(
     updater: (
-      template: TimelineSettingsTemplateDraft,
+      template: TimelineSettingsTemplateDraft
     ) => TimelineSettingsTemplateDraft,
-    dirtyKind: "scenario" | "template",
+    dirtyKind: "scenario" | "template"
   ) {
     if (!selectedTemplate) {
       return;
@@ -502,8 +500,8 @@ export function TimelineSettingsWorkspace({
     const nextTemplate = updater(selectedTemplate);
     setDrafts((current) =>
       current.map((template) =>
-        template.templateKey === currentKey ? nextTemplate : template,
-      ),
+        template.templateKey === currentKey ? nextTemplate : template
+      )
     );
     if (nextTemplate.templateKey !== currentKey) {
       setSelectedTemplateKey(nextTemplate.templateKey);
@@ -521,14 +519,14 @@ export function TimelineSettingsWorkspace({
     if (dirtyKind === "template") {
       setDirtyTemplates((current) => ({
         ...Object.fromEntries(
-          Object.entries(current).filter(([key]) => key !== currentKey),
+          Object.entries(current).filter(([key]) => key !== currentKey)
         ),
         [nextTemplate.templateKey]: true,
       }));
     } else {
       setDirtyScenarios((current) => ({
         ...Object.fromEntries(
-          Object.entries(current).filter(([key]) => key !== currentKey),
+          Object.entries(current).filter(([key]) => key !== currentKey)
         ),
         [nextTemplate.templateKey]: true,
       }));
@@ -566,7 +564,7 @@ export function TimelineSettingsWorkspace({
       setTemplatesFromResult(result);
       toast.success(
         seedSuccessMessage?.(result) ??
-          `Seeded ${canonicalTemplates.length} templates.`,
+          `Seeded ${canonicalTemplates.length} templates.`
       );
       setPendingConfirmation(null);
     } catch (error) {
@@ -579,9 +577,9 @@ export function TimelineSettingsWorkspace({
   }
 
   async function handleSaveTemplate() {
-    if (!selectedTemplate || !canSave) {
+    if (!(selectedTemplate && canSave)) {
       setActionError(
-        "Resolve template, worksheet, and scenario validation before saving.",
+        "Resolve template, worksheet, and scenario validation before saving."
       );
       return;
     }
@@ -589,14 +587,14 @@ export function TimelineSettingsWorkspace({
     setActionError("");
     try {
       const persisted = canonicalTemplates.some(
-        (template) => template.templateKey === selectedTemplate.templateKey,
+        (template) => template.templateKey === selectedTemplate.templateKey
       );
       const result =
         !persisted && onCreateTemplate
           ? await onCreateTemplate(selectedTemplate)
           : await onSaveTemplate(selectedTemplate);
       toast.success(
-        `${selectedTemplate.title} ${persisted || !onCreateTemplate ? "saved" : "created"}.`,
+        `${selectedTemplate.title} ${persisted || !onCreateTemplate ? "saved" : "created"}.`
       );
       setTemplatesFromResult(result);
       setPendingConfirmation(null);
@@ -618,12 +616,12 @@ export function TimelineSettingsWorkspace({
       return;
     }
     const canonicalTemplate = canonicalTemplates.find(
-      (template) => template.templateKey === selectedTemplate.templateKey,
+      (template) => template.templateKey === selectedTemplate.templateKey
     );
     const persisted = Boolean(
       canonicalTemplate?.scenarios.some(
-        (row) => row.scenarioKey === scenario.scenarioKey,
-      ),
+        (row) => row.scenarioKey === scenario.scenarioKey
+      )
     );
     if (persisted) {
       try {
@@ -642,10 +640,10 @@ export function TimelineSettingsWorkspace({
       (template) => ({
         ...template,
         scenarios: template.scenarios.filter(
-          (row) => row.scenarioKey !== scenario.scenarioKey,
+          (row) => row.scenarioKey !== scenario.scenarioKey
         ),
       }),
-      "scenario",
+      "scenario"
     );
   }
 
@@ -764,7 +762,7 @@ export function TimelineSettingsWorkspace({
                   "grid min-h-[760px] gap-0",
                   activeTab === "scenarios"
                     ? "lg:grid-cols-[150px_minmax(0,1fr)]"
-                    : "lg:grid-cols-[300px_minmax(0,1fr)]",
+                    : "lg:grid-cols-[300px_minmax(0,1fr)]"
                 )}
                 layout={!prefersReducedMotion}
                 transition={tabMotionTransition}
@@ -778,11 +776,11 @@ export function TimelineSettingsWorkspace({
                     setActionError("");
                   }}
                   persistedTemplateKeys={canonicalTemplates.map(
-                    (template) => template.templateKey,
+                    (template) => template.templateKey
                   )}
+                  reducedMotion={Boolean(prefersReducedMotion)}
                   selectedTemplateKey={selectedTemplate?.templateKey ?? ""}
                   templates={drafts}
-                  reducedMotion={Boolean(prefersReducedMotion)}
                 />
 
                 {selectedTemplate ? (
@@ -807,7 +805,7 @@ export function TimelineSettingsWorkspace({
                     </div>
 
                     {actionError ? (
-                      <div className="border-b border-destructive/20 bg-destructive/10 px-4 py-3 text-destructive text-sm">
+                      <div className="border-destructive/20 border-b bg-destructive/10 px-4 py-3 text-destructive text-sm">
                         {actionError}
                       </div>
                     ) : null}
@@ -833,7 +831,7 @@ export function TimelineSettingsWorkspace({
                               !canonicalTemplates.some(
                                 (template) =>
                                   template.templateKey ===
-                                  selectedTemplate.templateKey,
+                                  selectedTemplate.templateKey
                               )
                             }
                             metadataValidation={metadataValidation}
@@ -864,7 +862,7 @@ export function TimelineSettingsWorkspace({
                               }
                               const duplicated = duplicateScenario(
                                 selectedScenario,
-                                selectedTemplate.scenarios,
+                                selectedTemplate.scenarios
                               );
                               updateSelectedTemplate(
                                 (template) => ({
@@ -874,7 +872,7 @@ export function TimelineSettingsWorkspace({
                                     duplicated,
                                   ],
                                 }),
-                                "scenario",
+                                "scenario"
                               );
                               setSelectedScenarioKeyByTemplate((current) => ({
                                 ...current,
@@ -885,14 +883,14 @@ export function TimelineSettingsWorkspace({
                             onNew={() => {
                               const created = createBlankScenario(
                                 selectedTemplate.scenarios,
-                                selectedTemplate,
+                                selectedTemplate
                               );
                               updateSelectedTemplate(
                                 (template) => ({
                                   ...template,
                                   scenarios: [...template.scenarios, created],
                                 }),
-                                "scenario",
+                                "scenario"
                               );
                               setSelectedScenarioKeyByTemplate((current) => ({
                                 ...current,
@@ -922,10 +920,10 @@ export function TimelineSettingsWorkspace({
                                       isActive:
                                         scenario.scenarioKey ===
                                         selectedScenario.scenarioKey,
-                                    }),
+                                    })
                                   ),
                                 }),
-                                "scenario",
+                                "scenario"
                               );
                             }}
                             onUpdate={(updater) =>
@@ -950,6 +948,7 @@ export function TimelineSettingsWorkspace({
         isCreate={Boolean(selectedTemplate && !selectedTemplatePersisted)}
         kind={pendingConfirmation}
         labels={labels}
+        metadataValidation={metadataValidation}
         onClose={() => setPendingConfirmation(null)}
         onConfirm={
           pendingConfirmation === "seed"
@@ -960,7 +959,6 @@ export function TimelineSettingsWorkspace({
         scenario={selectedScenario}
         scenarioValidation={scenarioValidation}
         template={selectedTemplate}
-        metadataValidation={metadataValidation}
         templateValidation={templateValidation}
       />
     </>
@@ -976,11 +974,11 @@ function StatusStrip({
 }) {
   const milestoneCount = templates.reduce(
     (total, template) => total + template.milestones.length,
-    0,
+    0
   );
   const scenarioCount = templates.reduce(
     (total, template) => total + template.scenarios.length,
-    0,
+    0
   );
   const readyCount =
     settings?.completeness?.readyTemplateCount ??
@@ -1011,7 +1009,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function validateTemplateMetadata(
   template: TimelineSettingsTemplateDraft,
-  templates: TimelineSettingsTemplateDraft[],
+  templates: TimelineSettingsTemplateDraft[]
 ) {
   const errors: Record<string, string> = {};
   const templateKey = template.templateKey.trim();
@@ -1037,7 +1035,7 @@ function validateTemplateMetadata(
 
 function createNewTemplateDraft(
   existing: TimelineSettingsTemplateDraft[],
-  source: TimelineSettingsTemplateDraft | null,
+  source: TimelineSettingsTemplateDraft | null
 ): TimelineSettingsTemplateDraft {
   const title = source ? `${source.title} Custom` : "New Production Template";
   const templateKey = uniqueTemplateKey(slugTemplateKey(title), existing);
@@ -1153,9 +1151,11 @@ function createNewTemplateDraft(
 
 function uniqueTemplateKey(
   baseKey: string,
-  existing: TimelineSettingsTemplateDraft[],
+  existing: TimelineSettingsTemplateDraft[]
 ) {
-  const existingKeys = new Set(existing.map((template) => template.templateKey));
+  const existingKeys = new Set(
+    existing.map((template) => template.templateKey)
+  );
   if (!existingKeys.has(baseKey)) {
     return baseKey;
   }
@@ -1192,9 +1192,7 @@ function EmptySeedState({
       <FramePanel className="max-w-lg bg-muted/40 text-center">
         <Database className="mx-auto mb-3 size-8 text-primary" />
         <h3 className="font-semibold text-xl">{title}</h3>
-        <p className="mt-2 text-muted-foreground text-sm leading-6">
-          {body}
-        </p>
+        <p className="mt-2 text-muted-foreground text-sm leading-6">{body}</p>
         <Button className="mt-4" onClick={onSeed}>
           {seedButtonLabel}
         </Button>
@@ -1225,7 +1223,7 @@ function TemplateRail({
   const persistedTemplateKeySet = new Set(persistedTemplateKeys);
   return (
     <motion.aside
-      className="border-b bg-muted/20 p-3 lg:border-b-0 lg:border-r"
+      className="border-b bg-muted/20 p-3 lg:border-r lg:border-b-0"
       layout={!reducedMotion}
       transition={
         reducedMotion
@@ -1247,7 +1245,7 @@ function TemplateRail({
                 "grid min-w-0 gap-1 overflow-hidden rounded-lg p-3 text-left text-sm transition hover:border-primary/50",
                 selectedTemplateKey === template.templateKey &&
                   "border-primary/60 bg-primary/10",
-                activeTab === "scenarios" && "p-2",
+                activeTab === "scenarios" && "p-2"
               )}
               key={template.templateKey}
               onClick={() => onSelect(template.templateKey)}
@@ -1262,11 +1260,11 @@ function TemplateRail({
                     Unsaved
                   </Badge>
                 ) : null}
-                {!persisted ? (
+                {persisted ? null : (
                   <Badge className="shrink-0" variant="outline">
                     Draft
                   </Badge>
-                ) : null}
+                )}
               </div>
               <span className="min-w-0 truncate text-muted-foreground text-xs">
                 {template.milestones.length} milestones, {formatBps(totalPoc)},{" "}
@@ -1274,8 +1272,8 @@ function TemplateRail({
               </span>
               {activeScenario ? (
                 <Badge
+                  className="min-w-0 max-w-full justify-start overflow-hidden whitespace-nowrap"
                   variant="success"
-                  className="max-w-full min-w-0 justify-start overflow-hidden whitespace-nowrap"
                 >
                   <span className="min-w-0 truncate">
                     Active: {activeScenario.name}
@@ -1283,8 +1281,8 @@ function TemplateRail({
                 </Badge>
               ) : (
                 <Badge
+                  className="min-w-0 max-w-full justify-start overflow-hidden whitespace-nowrap"
                   variant="warning"
-                  className="max-w-full min-w-0 justify-start overflow-hidden whitespace-nowrap"
                 >
                   <span className="min-w-0 truncate">
                     Missing active scenario
@@ -1312,8 +1310,8 @@ function TemplateSettingsTab({
   onReset: () => void;
   onUpdate: (
     updater: (
-      template: TimelineSettingsTemplateDraft,
-    ) => TimelineSettingsTemplateDraft,
+      template: TimelineSettingsTemplateDraft
+    ) => TimelineSettingsTemplateDraft
   ) => void;
   template: TimelineSettingsTemplateDraft;
   validation: ReturnType<typeof validateTemplateDraft>;
@@ -1362,8 +1360,8 @@ function TemplateIdentityPanel({
   metadataValidation: ReturnType<typeof validateTemplateMetadata>;
   onUpdate: (
     updater: (
-      template: TimelineSettingsTemplateDraft,
-    ) => TimelineSettingsTemplateDraft,
+      template: TimelineSettingsTemplateDraft
+    ) => TimelineSettingsTemplateDraft
   ) => void;
   template: TimelineSettingsTemplateDraft;
 }) {
@@ -1461,13 +1459,13 @@ function TemplateIdentityPanel({
 }
 
 function templateToWorksheetRows(
-  template: TimelineSettingsTemplateDraft,
+  template: TimelineSettingsTemplateDraft
 ): TimelineMilestoneWorksheetRow[] {
   return template.milestones
     .slice()
     .sort(
       (a, b) =>
-        a.order - b.order || a.milestoneKey.localeCompare(b.milestoneKey),
+        a.order - b.order || a.milestoneKey.localeCompare(b.milestoneKey)
     )
     .map((milestone, index) => ({
       baseItemId: milestone.milestoneKey,
@@ -1505,7 +1503,7 @@ function templateToWorksheetRows(
 
 function worksheetRowsToTemplate(
   template: TimelineSettingsTemplateDraft,
-  rows: TimelineMilestoneWorksheetRow[],
+  rows: TimelineMilestoneWorksheetRow[]
 ): TimelineSettingsTemplateDraft {
   return {
     ...template,
@@ -1526,7 +1524,7 @@ function worksheetRowsToTemplate(
         order: subOrder,
         percentageBps: finiteBps(
           submilestone.percentageBps ??
-            parsePercentToBps(submilestone.percentageText ?? "0"),
+            parsePercentToBps(submilestone.percentageText ?? "0")
         ),
         submilestoneKey: submilestone.id,
       })),
@@ -1555,8 +1553,8 @@ function ScenarioSettingsTab({
   onSetActive: () => void;
   onUpdate: (
     updater: (
-      template: TimelineSettingsTemplateDraft,
-    ) => TimelineSettingsTemplateDraft,
+      template: TimelineSettingsTemplateDraft
+    ) => TimelineSettingsTemplateDraft
   ) => void;
   selectedScenario: TimelineSettingsScenarioDraft | null;
   template: TimelineSettingsTemplateDraft;
@@ -1668,7 +1666,7 @@ function ScenarioSettingsTab({
                 onUpdate((current) =>
                   updateScenario(current, selectedScenario.scenarioKey, {
                     name: event.target.value,
-                  }),
+                  })
                 )
               }
               value={selectedScenario.name}
@@ -1679,7 +1677,7 @@ function ScenarioSettingsTab({
                 onUpdate((current) =>
                   updateScenario(current, selectedScenario.scenarioKey, {
                     description: event.target.value,
-                  }),
+                  })
                 )
               }
               value={selectedScenario.description}
@@ -1719,25 +1717,25 @@ function ScenarioSettingsTab({
                       onUpdate((current) =>
                         updateScenario(current, selectedScenario.scenarioKey, {
                           draws: selectedScenario.draws.filter(
-                            (row) => row.drawKey !== draw.drawKey,
+                            (row) => row.drawKey !== draw.drawKey
                           ),
-                        }),
+                        })
                       )
                     }
                     onUpdateDraw={(nextDraw) =>
                       onUpdate((current) =>
                         updateScenario(current, selectedScenario.scenarioKey, {
                           draws: selectedScenario.draws.map((row) =>
-                            row.drawKey === draw.drawKey ? nextDraw : row,
+                            row.drawKey === draw.drawKey ? nextDraw : row
                           ),
-                        }),
+                        })
                       )
                     }
                     timingError={getScenarioDrawValidationError(
                       validation,
                       selectedScenario.scenarioKey,
                       draw.drawKey,
-                      "timingDayWindow",
+                      "timingDayWindow"
                     )}
                   />
                 ))}
@@ -1747,7 +1745,7 @@ function ScenarioSettingsTab({
           <FramePanel
             className={cn(
               "flex flex-wrap items-center justify-between gap-3 p-3 text-sm",
-              validation.ok ? "bg-success/10" : "bg-destructive/10",
+              validation.ok ? "bg-success/10" : "bg-destructive/10"
             )}
           >
             <Button
@@ -1766,7 +1764,7 @@ function ScenarioSettingsTab({
                           (selectedScenario.draws.at(-1)?.timingDay ?? 0) + 14,
                       },
                     ],
-                  }),
+                  })
                 )
               }
               variant="outline"
@@ -1836,8 +1834,8 @@ function ScenarioDrawRow({
       </TableCell>
       <TableCell>
         <Input
-          aria-label={`${draw.label} timing day`}
           aria-invalid={timingError ? true : undefined}
+          aria-label={`${draw.label} timing day`}
           inputMode="numeric"
           onBlur={() => {
             setEditingTimingDay(false);
@@ -1908,10 +1906,10 @@ function ScenarioDrawRow({
 
 function getScenarioValidationMessages(
   validation: ReturnType<typeof validateScenarioDrafts>,
-  scenarioKey: string,
+  scenarioKey: string
 ) {
   const scenarioEntries = Object.entries(validation.errors).filter(([key]) =>
-    isScenarioValidationKey(key, scenarioKey),
+    isScenarioValidationKey(key, scenarioKey)
   );
   const visibleEntries =
     scenarioEntries.length > 0
@@ -1932,18 +1930,13 @@ function getScenarioDrawValidationError(
   validation: ReturnType<typeof validateScenarioDrafts>,
   scenarioKey: string,
   drawKey: string,
-  field: string,
+  field: string
 ) {
-  return validation.errors[
-    `scenario:${scenarioKey}:draw:${drawKey}:${field}`
-  ];
+  return validation.errors[`scenario:${scenarioKey}:draw:${drawKey}:${field}`];
 }
 
 function isScenarioValidationKey(key: string, scenarioKey: string) {
-  return (
-    key === "activeScenario" ||
-    key.startsWith(`scenario:${scenarioKey}:`)
-  );
+  return key === "activeScenario" || key.startsWith(`scenario:${scenarioKey}:`);
 }
 
 function normalizeIntegerInput(value: string) {
@@ -1982,10 +1975,10 @@ function SettingsCashflowPreview({
 }) {
   const defaultStartingCash = useMemo(
     () => getSettingsStartingCashDollars(template),
-    [template],
+    [template]
   );
   const [startingCashText, setStartingCashText] = useState(() =>
-    formatDollarInputValue(defaultStartingCash),
+    formatDollarInputValue(defaultStartingCash)
   );
   const parsedStartingCash = parseDollarInputToDollars(startingCashText);
   const startingCash = Number.isFinite(parsedStartingCash)
@@ -1993,7 +1986,7 @@ function SettingsCashflowPreview({
     : defaultStartingCash;
   const data = useMemo(
     () => buildSettingsCashflowChartData(template, scenario, startingCash),
-    [scenario, startingCash, template],
+    [scenario, startingCash, template]
   );
   const extent = getCashflowCompoundExtent(data);
   const maxDay = Math.max(30, ...data.map((row) => row.day));
@@ -2032,12 +2025,12 @@ function SettingsCashflowPreview({
               }}
               onChange={(event) => {
                 const nextStartingCash = parseDollarInputToDollars(
-                  event.target.value,
+                  event.target.value
                 );
                 setStartingCashText(
                   Number.isFinite(nextStartingCash)
                     ? formatDollarInputValue(nextStartingCash)
-                    : event.target.value,
+                    : event.target.value
                 );
               }}
               value={startingCashText}
@@ -2171,7 +2164,7 @@ function ConfirmationModal({
             </Card>
           </div>
         ) : null}
-        {!isSeed && (!canSave || !scenarioValidation.ok) ? (
+        {!isSeed && !(canSave && scenarioValidation.ok) ? (
           <FramePanel className="border-destructive/30 bg-destructive/10 p-3 text-destructive text-sm">
             {Object.values(metadataValidation.errors)[0] ??
               Object.values(templateValidation.errors)[0] ??
@@ -2183,10 +2176,7 @@ function ConfirmationModal({
           <Button onClick={onClose} type="button" variant="outline">
             Cancel
           </Button>
-          <Button
-            disabled={saving || (!isSeed && !canSave)}
-            onClick={onConfirm}
-          >
+          <Button disabled={saving || !(isSeed || canSave)} onClick={onConfirm}>
             {saving
               ? "Working..."
               : isSeed
@@ -2220,23 +2210,21 @@ function TraceBadge({ ids }: { ids: readonly string[] }) {
 function tabClass(active: boolean) {
   return cn(
     "rounded-md px-3 py-1.5 font-medium text-sm transition",
-    active
-      ? "bg-background text-foreground shadow-xs"
-      : "text-muted-foreground",
+    active ? "bg-background text-foreground shadow-xs" : "text-muted-foreground"
   );
 }
 
 function updateScenario(
   template: TimelineSettingsTemplateDraft,
   scenarioKey: string,
-  patch: Partial<TimelineSettingsScenarioDraft>,
+  patch: Partial<TimelineSettingsScenarioDraft>
 ): TimelineSettingsTemplateDraft {
   return {
     ...template,
     scenarios: template.scenarios.map((scenario) =>
       scenario.scenarioKey === scenarioKey
         ? { ...scenario, ...patch }
-        : scenario,
+        : scenario
     ),
   };
 }
@@ -2244,7 +2232,7 @@ function updateScenario(
 export function buildSettingsCashflowChartData(
   template: TimelineSettingsTemplateDraft,
   scenario: TimelineSettingsScenarioDraft | null,
-  startingCash = getSettingsStartingCashDollars(template),
+  startingCash = getSettingsStartingCashDollars(template)
 ): TimelineCashflowCompoundDatum[] {
   let cashOnHand = startingCash;
   const projectBudgetDollars = SETTINGS_SAMPLE_PROJECT_BUDGET_DOLLARS;
@@ -2259,7 +2247,7 @@ export function buildSettingsCashflowChartData(
 
       return {
         amount: Math.round(
-          (projectBudgetDollars * milestone.percentageBps) / TOTAL_BPS,
+          (projectBudgetDollars * milestone.percentageBps) / TOTAL_BPS
         ),
         day: startDay,
         id: `milestone:${milestone.milestoneKey}`,
@@ -2311,7 +2299,7 @@ export function buildSettingsCashflowChartData(
 }
 
 function getSettingsStartingCashDollars(
-  template: TimelineSettingsTemplateDraft,
+  template: TimelineSettingsTemplateDraft
 ) {
   const firstMilestone = template.milestones
     .filter((row) => row.included)
@@ -2322,7 +2310,7 @@ function getSettingsStartingCashDollars(
     ? Math.round(
         (SETTINGS_SAMPLE_PROJECT_BUDGET_DOLLARS *
           firstMilestone.percentageBps) /
-          TOTAL_BPS,
+          TOTAL_BPS
       )
     : 0;
 }
@@ -2352,8 +2340,8 @@ function formatCompactDollarLabel(value: number) {
     return `${sign}$${Number.isInteger(absolute / 1_000_000) ? String(absolute / 1_000_000) : (absolute / 1_000_000).toFixed(1)}M`;
   }
 
-  if (absolute >= 1_000) {
-    return `${sign}$${Math.round(absolute / 1_000)}K`;
+  if (absolute >= 1000) {
+    return `${sign}$${Math.round(absolute / 1000)}K`;
   }
 
   return `${sign}$${Math.round(absolute)}`;

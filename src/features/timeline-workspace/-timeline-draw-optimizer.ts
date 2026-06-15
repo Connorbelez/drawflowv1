@@ -83,7 +83,7 @@ interface PlanState {
 }
 
 export function optimizeTimelineDrawSchedule(
-  input: TimelineDrawOptimizationInput,
+  input: TimelineDrawOptimizationInput
 ): TimelineDrawOptimizationResult {
   const range = normalizeRange(input.range);
   const startingCash = normalizeCurrency(input.startingCash);
@@ -114,7 +114,7 @@ export function optimizeTimelineDrawSchedule(
   }
 
   const demandLevels = uniqueSortedPositiveCurrencyValues(
-    ledger.constraints.map((constraint) => constraint.requiredCumulativeDraw),
+    ledger.constraints.map((constraint) => constraint.requiredCumulativeDraw)
   );
   const memo = new Map<string, PlanState | null>();
 
@@ -123,12 +123,12 @@ export function optimizeTimelineDrawSchedule(
   // draw level only lands on one of the future reserve demand levels.
   const solve = (
     startConstraintIndex: number,
-    cumulativeDrawn: number,
+    cumulativeDrawn: number
   ): PlanState | null => {
     const nextConstraintIndex = ledger.constraints.findIndex(
       (constraint, index) =>
         index >= startConstraintIndex &&
-        constraint.requiredCumulativeDraw > cumulativeDrawn,
+        constraint.requiredCumulativeDraw > cumulativeDrawn
     );
 
     if (nextConstraintIndex === -1) {
@@ -192,7 +192,7 @@ export function optimizeTimelineDrawSchedule(
   if (!plan) {
     const firstBlockingConstraint = ledger.constraints.find(
       (constraint) =>
-        latestDrawXBeforeConstraint(constraint.day, range) === null,
+        latestDrawXBeforeConstraint(constraint.day, range) === null
     );
 
     return {
@@ -225,7 +225,7 @@ export function optimizeTimelineDrawSchedule(
   const interestCost = plan.steps.reduce(
     (total, step) =>
       total + calculateInterestCost(step.amount, step.x, range.max),
-    0,
+    0
   );
 
   return {
@@ -242,7 +242,7 @@ function buildDrawConstraintLedger(
   input: TimelineDrawOptimizationInput,
   range: Required<TimelineRange>,
   startingCash: number,
-  reserve: number,
+  reserve: number
 ):
   | { constraints: DrawConstraint[]; status: "ready" }
   | { reason: string; status: "infeasible" } {
@@ -314,7 +314,7 @@ function buildDrawConstraintLedger(
 function buildOptimizerEvents(
   items: TimelineItem<DemoMilestone>[],
   capitalSpikes: DemoCapitalSpike[],
-  range: Required<TimelineRange>,
+  range: Required<TimelineRange>
 ): OptimizerEvent[] {
   return [
     ...items
@@ -330,7 +330,9 @@ function buildOptimizerEvents(
           type: "spend" as const,
         }));
         const capacityEvent = {
-          amount: normalizeCurrency(getMilestoneDrawAvailabilityAmount(item.data)),
+          amount: normalizeCurrency(
+            getMilestoneDrawAvailabilityAmount(item.data)
+          ),
           day: clampNumber(getMilestoneEndX(item), range.min, range.max),
           id: `${item.id}-completion-capacity`,
           label: `${item.data?.name ?? item.label ?? "Milestone"} completion capacity`,
@@ -357,12 +359,12 @@ function buildOptimizerEvents(
     }),
   ].sort(
     (a, b) =>
-      a.day - b.day || a.sortOrder - b.sortOrder || a.id.localeCompare(b.id),
+      a.day - b.day || a.sortOrder - b.sortOrder || a.id.localeCompare(b.id)
   );
 }
 
 function getMilestoneSpendSortOrder(
-  kind: ReturnType<typeof buildMilestoneSpendEvents>[number]["kind"],
+  kind: ReturnType<typeof buildMilestoneSpendEvents>[number]["kind"]
 ) {
   if (kind === "initial") {
     return 1;
@@ -391,7 +393,7 @@ function formatAvailabilityInfeasibleReason({
 
 function latestDrawXBeforeConstraint(
   constraintDay: number,
-  range: Required<TimelineRange>,
+  range: Required<TimelineRange>
 ) {
   const constraintCalendarDay = Math.round(constraintDay);
   const minCalendarDay = Math.round(range.min);
@@ -406,7 +408,7 @@ function latestDrawXBeforeConstraint(
 function calculateInterestCost(
   principal: number,
   drawX: number,
-  rangeMax: number,
+  rangeMax: number
 ) {
   const elapsedDays = Math.max(0, rangeMax - drawX);
   if (principal <= 0 || elapsedDays <= 0) {
@@ -441,7 +443,7 @@ function isBetterPlan(candidate: PlanState, incumbent: PlanState | null) {
 
 function findDrawOwner(
   items: TimelineItem<DemoMilestone>[],
-  drawX: number,
+  drawX: number
 ): TimelineItem<DemoMilestone> | undefined {
   return items
     .filter((item) => item.data && getMilestoneEndX(item) <= drawX)

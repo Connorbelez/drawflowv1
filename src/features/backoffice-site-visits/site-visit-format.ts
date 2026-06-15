@@ -38,7 +38,7 @@ export function operationalStatusLabel(status: SiteVisitOperationalStatus) {
 }
 
 export function operationalStatusBadgeVariant(
-  status: SiteVisitOperationalStatus,
+  status: SiteVisitOperationalStatus
 ): "default" | "destructive" | "outline" | "secondary" | "success" | "warning" {
   switch (status) {
     case "open":
@@ -57,7 +57,7 @@ export function operationalStatusBadgeVariant(
 }
 
 export function tokenStateLabel(
-  tokenState: BrokerageSiteVisitRow["tokenState"],
+  tokenState: BrokerageSiteVisitRow["tokenState"]
 ) {
   switch (tokenState) {
     case "live":

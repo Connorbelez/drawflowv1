@@ -458,7 +458,7 @@ export function MaterialPlanningTab({
 
       <Sheet
         onOpenChange={(open) => {
-          if (!open && !pending) {
+          if (!(open || pending)) {
             setActiveEditor(null);
           }
         }}

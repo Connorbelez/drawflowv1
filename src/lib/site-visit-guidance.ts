@@ -59,11 +59,7 @@ export function coerceSiteVisitGuidance(
     whatToVerify: coerceGuidanceField(guidance?.whatToVerify),
   };
 
-  if (
-    !normalized.cameraAngles &&
-    !normalized.whatToVerify &&
-    fallback
-  ) {
+  if (!(normalized.cameraAngles || normalized.whatToVerify) && fallback) {
     return coerceSiteVisitGuidance(fallback);
   }
 
@@ -71,7 +67,7 @@ export function coerceSiteVisitGuidance(
 }
 
 export function isSiteVisitGuidanceHtmlEmpty(guidance: SiteVisitGuidanceHtml) {
-  return !guidance.cameraAngles.trim() && !guidance.whatToVerify.trim();
+  return !(guidance.cameraAngles.trim() || guidance.whatToVerify.trim());
 }
 
 export function guidanceHtmlExceedsMaxLength(guidance: SiteVisitGuidanceHtml) {

@@ -23,13 +23,13 @@ import {
 } from "#/components/ui/card.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import {
+  type ContractorProfileDraft,
+  ContractorQuickAddDrawer,
+} from "./ContractorQuickAddDrawer";
+import {
   WorkosUserAutocomplete,
   type WorkosUserOption,
 } from "./WorkosUserAutocomplete";
-import {
-  ContractorQuickAddDrawer,
-  type ContractorProfileDraft,
-} from "./ContractorQuickAddDrawer";
 
 export type ContractorDetailView = {
   performance?: {
@@ -49,7 +49,11 @@ export type ContractorDetailView = {
     defaultPayRateCents?: number;
     defaultPayRateUnit?: string;
     email?: string;
-    equipment?: Array<{ equipmentKey?: string; name: string; quantity?: number }>;
+    equipment?: Array<{
+      equipmentKey?: string;
+      name: string;
+      quantity?: number;
+    }>;
     kind?: "company" | "individual";
     name: string;
     phone?: string;
@@ -131,8 +135,7 @@ export function ContractorDetailSurface({
   backLabel,
   buildHrefForWorkHistory,
   detail,
-  emptyWorkHistory =
-    "No build or milestone assignments have been recorded for this contractor.",
+  emptyWorkHistory = "No build or milestone assignments have been recorded for this contractor.",
   management,
   rightRailFooter,
 }: {
@@ -171,10 +174,14 @@ export function ContractorDetailSurface({
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Badge variant={profile.accountWorkosUserId ? "success" : "outline"}>
+            <Badge
+              variant={profile.accountWorkosUserId ? "success" : "outline"}
+            >
               {profile.accountWorkosUserId ? "Account linked" : "Profile only"}
             </Badge>
-            <Badge variant={profile.status === "inactive" ? "outline" : "secondary"}>
+            <Badge
+              variant={profile.status === "inactive" ? "outline" : "secondary"}
+            >
               {profile.status === "inactive" ? "Inactive" : "Active"}
             </Badge>
             {management ? (
@@ -217,8 +224,8 @@ export function ContractorDetailSurface({
             value={String(
               workHistory.reduce(
                 (sum, row) => sum + row.evidencePhotos.length,
-                0,
-              ),
+                0
+              )
             )}
           />
         </section>
@@ -269,7 +276,7 @@ export function ContractorDetailSurface({
                         <ChipList
                           empty="Milestone-level assignment"
                           values={row.submilestones.map(
-                            (submilestone) => submilestone.name,
+                            (submilestone) => submilestone.name
                           )}
                         />
                         <div className="grid gap-2 border-t pt-3 sm:grid-cols-3">
@@ -283,7 +290,9 @@ export function ContractorDetailSurface({
                           />
                           <MiniStat
                             label="Hours"
-                            value={formatHours(row.actualHours ?? row.estimatedHours)}
+                            value={formatHours(
+                              row.actualHours ?? row.estimatedHours
+                            )}
                           />
                           {row.costNotes ? (
                             <p className="text-muted-foreground text-xs sm:col-span-3">
@@ -318,7 +327,8 @@ export function ContractorDetailSurface({
                                     {photo.label}
                                   </p>
                                   <p className="truncate text-muted-foreground">
-                                    {photo.submilestoneKey ?? photo.milestoneKey}
+                                    {photo.submilestoneKey ??
+                                      photo.milestoneKey}
                                   </p>
                                 </figcaption>
                               </figure>
@@ -345,7 +355,7 @@ export function ContractorDetailSurface({
                     profile.defaultPayRateCents
                       ? centsPerUnit(
                           profile.defaultPayRateCents,
-                          profile.defaultPayRateUnit,
+                          profile.defaultPayRateUnit
                         )
                       : "Unset"
                   }
@@ -355,23 +365,29 @@ export function ContractorDetailSurface({
                 <ChipList
                   empty="No capabilities"
                   label="Capabilities"
-                  values={(profile.capabilities ?? []).map((capability) => capability.label)}
+                  values={(profile.capabilities ?? []).map(
+                    (capability) => capability.label
+                  )}
                 />
                 <ChipList
                   empty="No equipment"
                   label="Equipment"
-                  values={(profile.equipment ?? []).map((equipment) => equipment.name)}
+                  values={(profile.equipment ?? []).map(
+                    (equipment) => equipment.name
+                  )}
                 />
                 {management ? (
                   <div className="grid gap-2 border-t pt-3">
                     {management.error ? (
-                      <p className="text-destructive text-xs">{management.error}</p>
+                      <p className="text-destructive text-xs">
+                        {management.error}
+                      </p>
                     ) : null}
                     <Button
                       disabled={management.pending}
                       onClick={() =>
                         management.onSetStatus(
-                          profile.status === "inactive" ? "active" : "inactive",
+                          profile.status === "inactive" ? "active" : "inactive"
                         )
                       }
                       type="button"
@@ -396,11 +412,15 @@ export function ContractorDetailSurface({
                 <CardContent className="grid gap-3 p-4 pt-0">
                   <DetailRow
                     label="Active assignments"
-                    value={String(detail.intelligence.activeBuildAssignmentCount ?? 0)}
+                    value={String(
+                      detail.intelligence.activeBuildAssignmentCount ?? 0
+                    )}
                   />
                   <DetailRow
                     label="Planned assignments"
-                    value={String(detail.intelligence.plannedAssignmentCount ?? 0)}
+                    value={String(
+                      detail.intelligence.plannedAssignmentCount ?? 0
+                    )}
                   />
                   <DetailRow
                     label="Scheduled hours"
@@ -418,14 +438,16 @@ export function ContractorDetailSurface({
                   <ChipList
                     empty="No capability analytics yet"
                     label="Capability analytics"
-                    values={(detail.intelligence.capabilityPerformance ?? []).map(
+                    values={(
+                      detail.intelligence.capabilityPerformance ?? []
+                    ).map(
                       (row) =>
                         `${row.label}: ${
                           row.averageRating === null ||
                           row.averageRating === undefined
                             ? "unrated"
                             : `${row.averageRating}/5`
-                        }`,
+                        }`
                     )}
                   />
                 </CardContent>
@@ -439,7 +461,10 @@ export function ContractorDetailSurface({
                 </CardHeader>
                 <CardContent className="grid gap-2 p-4 pt-0">
                   {(detail.identityLinks ?? []).map((link) => (
-                    <div className="rounded-lg border bg-background/60 p-3" key={link._id}>
+                    <div
+                      className="rounded-lg border bg-background/60 p-3"
+                      key={link._id}
+                    >
                       <p className="font-medium text-sm">{link.peerName}</p>
                       <p className="mt-1 text-muted-foreground text-xs">
                         {link.status}
@@ -456,7 +481,9 @@ export function ContractorDetailSurface({
             {accountLink ? (
               <Card>
                 <CardHeader className="p-4">
-                  <CardTitle className="text-base">Contractor account</CardTitle>
+                  <CardTitle className="text-base">
+                    Contractor account
+                  </CardTitle>
                 </CardHeader>
                 <CardContent className="grid gap-3 p-4 pt-0">
                   <p className="text-muted-foreground text-sm">
@@ -471,12 +498,13 @@ export function ContractorDetailSurface({
                       value={accountLink.workosUserId}
                     />
                     {accountLink.error ? (
-                      <p className="text-destructive text-xs">{accountLink.error}</p>
+                      <p className="text-destructive text-xs">
+                        {accountLink.error}
+                      </p>
                     ) : null}
                     <Button
                       disabled={
-                        !accountLink.workosUserId.trim() ||
-                        accountLink.pending
+                        !accountLink.workosUserId.trim() || accountLink.pending
                       }
                       type="submit"
                     >
@@ -586,24 +614,29 @@ function centsPerUnit(value: number, unit = "hour") {
 }
 
 function formatCurrencyCents(value?: number) {
-  if (typeof value !== "number") return "Unset";
+  if (typeof value !== "number") {
+    return "Unset";
+  }
   return `$${Math.round(value / 100).toLocaleString()}`;
 }
 
 function formatHours(value?: number) {
-  if (typeof value !== "number") return "Unset";
+  if (typeof value !== "number") {
+    return "Unset";
+  }
   return `${value.toLocaleString()}h`;
 }
 
 function contractorProfileToDraft(
-  profile: ContractorDetailView["profile"],
+  profile: ContractorDetailView["profile"]
 ): ContractorProfileDraft {
   return {
     availabilityWindows:
       (profile.availabilityWindows as ContractorProfileDraft["availabilityWindows"]) ??
       [],
     capabilities: (profile.capabilities ?? []).map((capability) => ({
-      capabilityKey: capability.capabilityKey ?? slugFromLabel(capability.label),
+      capabilityKey:
+        capability.capabilityKey ?? slugFromLabel(capability.label),
       label: capability.label,
       milestoneArchetypeKey: capability.milestoneArchetypeKey,
       trade: capability.trade,

@@ -66,7 +66,7 @@ function BackofficeUnassignedDraftsRoute() {
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
   const draftsQuery = useQuery(
     api.production_proposals.listUnassignedDraftProposals,
-    visualFixtureEnabled ? "skip" : { workosOrganizationId },
+    visualFixtureEnabled ? "skip" : { workosOrganizationId }
   );
   const drafts = visualFixtureEnabled ? visualDrafts : draftsQuery?.drafts;
 

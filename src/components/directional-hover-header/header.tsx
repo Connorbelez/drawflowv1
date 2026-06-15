@@ -1,17 +1,16 @@
 import { Link } from "@tanstack/react-router";
-import { useState, useRef, useCallback, useEffect } from "react";
-import type { KeyboardEvent as ReactKeyboardEvent } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, ChevronDown, ChevronLeft, Menu, X } from "lucide-react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { cn } from "#/lib/utils.ts";
+import { MegaMenu } from "./header/mega-menu";
 import {
   fairlendNavLinks,
   NAV_LINKS,
   type NavLink,
   type NavMenu,
 } from "./header/nav-data";
-import { MegaMenu } from "./header/mega-menu";
-
-import { cn } from "#/lib/utils.ts";
 
 type Direction = "ltr" | "rtl";
 const SHELL_EASE = [0.16, 1, 0.3, 1] as [number, number, number, number];
@@ -20,7 +19,7 @@ const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function hasNavigableLink(
-  link?: NavLink["link"],
+  link?: NavLink["link"]
 ): link is NonNullable<NavLink["link"]> {
   return Boolean(link);
 }
@@ -29,8 +28,8 @@ function Logo() {
   return (
     <Link
       {...fairlendNavLinks.home}
-      className="mkt-dhh-brand"
       aria-label="Fairlend Capital marketing home"
+      className="mkt-dhh-brand"
       preload="intent"
       viewTransition
     >
@@ -42,13 +41,13 @@ function Logo() {
 
 const ChevronIcon = ({ open }: { open: boolean }) => (
   <motion.span
-    className="inline-flex text-current"
     animate={{ rotate: open ? 180 : 0 }}
+    aria-hidden
+    className="inline-flex text-current"
     transition={{
       duration: 0.2,
       ease: SHELL_EASE,
     }}
-    aria-hidden
   >
     <ChevronDown className="size-3.5" strokeWidth={1.6} />
   </motion.span>
@@ -107,13 +106,16 @@ function HeaderActions({
     <div
       className={cn(
         "flex items-center gap-3",
-        mobile && "grid w-full grid-cols-2 gap-4",
+        mobile && "grid w-full grid-cols-2 gap-4"
       )}
     >
       <Link
         {...fairlendNavLinks.backoffice}
+        className={cn(
+          "mkt-dhh-action mkt-dhh-action-secondary",
+          mobile && "mkt-dhh-action-mobile"
+        )}
         onClick={onAction}
-        className={cn("mkt-dhh-action mkt-dhh-action-secondary", mobile && "mkt-dhh-action-mobile")}
         preload="intent"
         viewTransition
       >
@@ -121,16 +123,16 @@ function HeaderActions({
       </Link>
       <Link
         {...fairlendNavLinks.startMultiplex}
+        className={cn(
+          "mkt-dhh-action mkt-dhh-action-primary",
+          mobile && "mkt-dhh-action-mobile"
+        )}
         onClick={onAction}
-        className={cn("mkt-dhh-action mkt-dhh-action-primary", mobile && "mkt-dhh-action-mobile")}
         preload="intent"
         viewTransition
       >
         Start a file
-        <ArrowRight
-          className="size-3.5 shrink-0"
-          strokeWidth={1.6}
-        />
+        <ArrowRight className="size-3.5 shrink-0" strokeWidth={1.6} />
       </Link>
     </div>
   );
@@ -151,7 +153,9 @@ export function Header() {
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const openMenu = useCallback((menu: NavMenu, index: number) => {
-    if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
+    if (leaveTimerRef.current) {
+      clearTimeout(leaveTimerRef.current);
+    }
     if (activeIndexRef.current !== -1 && index !== activeIndexRef.current) {
       setDirection(index > activeIndexRef.current ? "rtl" : "ltr");
     }
@@ -160,7 +164,9 @@ export function Header() {
   }, []);
 
   const closeDesktopMenu = useCallback(() => {
-    if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
+    if (leaveTimerRef.current) {
+      clearTimeout(leaveTimerRef.current);
+    }
     setActiveMenu(null);
     activeIndexRef.current = -1;
   }, []);
@@ -172,7 +178,9 @@ export function Header() {
   }, [closeDesktopMenu]);
 
   const cancelClose = useCallback(() => {
-    if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
+    if (leaveTimerRef.current) {
+      clearTimeout(leaveTimerRef.current);
+    }
   }, []);
 
   const closeMobileMenu = useCallback(() => {
@@ -182,7 +190,7 @@ export function Header() {
 
   const focusFirstDesktopMenuItem = useCallback(() => {
     const firstItem = megaMenuRef.current?.querySelector<HTMLElement>(
-      '[data-mega-menu-item="true"]',
+      '[data-mega-menu-item="true"]'
     );
     firstItem?.focus();
   }, []);
@@ -199,7 +207,9 @@ export function Header() {
       for (let count = 0; count < total; count++) {
         nextIndex = (nextIndex + step + total) % total;
         const nextItem = desktopItemRefs.current[nextIndex];
-        if (!nextItem) continue;
+        if (!nextItem) {
+          continue;
+        }
 
         nextItem.focus();
 
@@ -213,7 +223,7 @@ export function Header() {
         break;
       }
     },
-    [cancelClose, closeDesktopMenu, openMenu],
+    [cancelClose, closeDesktopMenu, openMenu]
   );
 
   const handleDesktopItemKeyDown = useCallback(
@@ -237,7 +247,9 @@ export function Header() {
         return;
       }
 
-      if (!link.menu) return;
+      if (!link.menu) {
+        return;
+      }
 
       if (
         event.key === "ArrowDown" ||
@@ -270,11 +282,13 @@ export function Header() {
       focusFirstDesktopMenuItem,
       moveDesktopFocus,
       openMenu,
-    ],
+    ]
   );
 
   useEffect(() => {
-    if (!isMobileMenuOpen) return;
+    if (!isMobileMenuOpen) {
+      return;
+    }
 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -284,14 +298,19 @@ export function Header() {
     };
   }, [isMobileMenuOpen]);
 
-  useEffect(() => {
-    return () => {
-      if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
-    };
-  }, []);
+  useEffect(
+    () => () => {
+      if (leaveTimerRef.current) {
+        clearTimeout(leaveTimerRef.current);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
-    if (!isMobileMenuOpen) return;
+    if (!isMobileMenuOpen) {
+      return;
+    }
 
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -299,20 +318,30 @@ export function Header() {
         return;
       }
 
-      if (event.key !== "Tab") return;
+      if (event.key !== "Tab") {
+        return;
+      }
 
       const container = shellRef.current;
-      if (!container) return;
+      if (!container) {
+        return;
+      }
 
       const focusableElements = Array.from(
-        container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+        container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
       ).filter((element) => {
-        if (element.getAttribute("aria-hidden") === "true") return false;
-        if ("disabled" in element && element.disabled) return false;
+        if (element.getAttribute("aria-hidden") === "true") {
+          return false;
+        }
+        if ("disabled" in element && element.disabled) {
+          return false;
+        }
         return element.offsetParent !== null;
       });
 
-      if (focusableElements.length === 0) return;
+      if (focusableElements.length === 0) {
+        return;
+      }
 
       const firstElement = focusableElements[0];
       const lastElement = focusableElements[focusableElements.length - 1];
@@ -341,7 +370,9 @@ export function Header() {
   }, [closeMobileMenu, isMobileMenuOpen]);
 
   useEffect(() => {
-    if (!isMobileMenuOpen) return;
+    if (!isMobileMenuOpen) {
+      return;
+    }
 
     const frame = requestAnimationFrame(() => {
       const focusTarget = mobileMenu
@@ -384,28 +415,22 @@ export function Header() {
   return (
     <header className="mkt-dhh-header">
       <div
+        className={cn("mkt-dhh-shell", {
+          "mkt-dhh-shell-closed": !(isDesktopMenuVisible || isMobileMenuOpen),
+          "mkt-dhh-shell-desktop-open": isDesktopMenuVisible,
+          "mkt-dhh-shell-mobile-open": isMobileMenuOpen,
+          "mkt-dhh-shell-clipped": !(isDesktopMenuVisible || isMobileMenuOpen),
+        })}
         ref={shellRef}
-        className={cn(
-          "mkt-dhh-shell",
-          {
-            "mkt-dhh-shell-closed":
-              !isDesktopMenuVisible && !isMobileMenuOpen,
-            "mkt-dhh-shell-desktop-open":
-              isDesktopMenuVisible,
-            "mkt-dhh-shell-mobile-open":
-              isMobileMenuOpen,
-            "mkt-dhh-shell-clipped": !isDesktopMenuVisible && !isMobileMenuOpen,
-          },
-        )}
       >
         <div className="mkt-dhh-bar">
           <div className="mkt-dhh-brand-slot">
             {isMobileMenuOpen && mobileMenu ? (
               <button
+                className="mkt-dhh-back"
+                onClick={() => setMobileMenu(null)}
                 ref={mobileBackButtonRef}
                 type="button"
-                onClick={() => setMobileMenu(null)}
-                className="mkt-dhh-back"
               >
                 <ChevronLeft className="size-4.5" strokeWidth={2} />
                 Back
@@ -416,21 +441,21 @@ export function Header() {
           </div>
 
           <nav
-            className="mkt-dhh-desktop-nav"
             aria-label="Fairlend marketing navigation"
+            className="mkt-dhh-desktop-nav"
           >
             {NAV_LINKS.map((link, linkIndex) => {
               const hasMenu = !!link.menu;
               const isOpen = hasMenu && activeMenu?.id === link.menu!.id;
               const itemClassName = cn(
                 "mkt-dhh-nav-item",
-                isOpen && "mkt-dhh-nav-item-open",
+                isOpen && "mkt-dhh-nav-item-open"
               );
 
               return (
                 <div
-                  key={link.label}
                   className="relative"
+                  key={link.label}
                   onMouseEnter={() => {
                     if (hasMenu) {
                       cancelClose();
@@ -443,10 +468,10 @@ export function Header() {
                 >
                   {hasMenu ? (
                     <button
-                      ref={(node) => {
-                        desktopItemRefs.current[linkIndex] = node;
-                      }}
-                      type="button"
+                      aria-controls="desktop-mega-menu"
+                      aria-expanded={isOpen}
+                      aria-haspopup="menu"
+                      className={itemClassName}
                       onFocus={() => {
                         cancelClose();
                         openMenu(link.menu!, linkIndex);
@@ -454,10 +479,10 @@ export function Header() {
                       onKeyDown={(event) =>
                         handleDesktopItemKeyDown(event, link, linkIndex)
                       }
-                      className={itemClassName}
-                      aria-expanded={isOpen}
-                      aria-haspopup="menu"
-                      aria-controls="desktop-mega-menu"
+                      ref={(node) => {
+                        desktopItemRefs.current[linkIndex] = node;
+                      }}
+                      type="button"
                     >
                       {link.label}
                       <ChevronIcon open={isOpen} />
@@ -465,30 +490,30 @@ export function Header() {
                   ) : hasNavigableLink(link.link) ? (
                     <Link
                       {...link.link}
-                      ref={(node) => {
-                        desktopItemRefs.current[linkIndex] = node;
-                      }}
+                      className={itemClassName}
                       onFocus={closeDesktopMenu}
                       onKeyDown={(event) =>
                         handleDesktopItemKeyDown(event, link, linkIndex)
                       }
-                      className={itemClassName}
                       preload="intent"
+                      ref={(node) => {
+                        desktopItemRefs.current[linkIndex] = node;
+                      }}
                       viewTransition
                     >
                       {link.label}
                     </Link>
                   ) : (
                     <button
-                      ref={(node) => {
-                        desktopItemRefs.current[linkIndex] = node;
-                      }}
-                      type="button"
+                      className={itemClassName}
                       onFocus={closeDesktopMenu}
                       onKeyDown={(event) =>
                         handleDesktopItemKeyDown(event, link, linkIndex)
                       }
-                      className={itemClassName}
+                      ref={(node) => {
+                        desktopItemRefs.current[linkIndex] = node;
+                      }}
+                      type="button"
                     >
                       {link.label}
                     </button>
@@ -503,15 +528,15 @@ export function Header() {
           </div>
 
           <button
-            ref={mobileToggleRef}
-            type="button"
-            onClick={isMobileMenuOpen ? closeMobileMenu : openMobileMenu}
-            className="mkt-dhh-mobile-toggle"
+            aria-controls="mobile-navigation"
+            aria-expanded={isMobileMenuOpen}
             aria-label={
               isMobileMenuOpen ? "Close mobile menu" : "Open mobile menu"
             }
-            aria-expanded={isMobileMenuOpen}
-            aria-controls="mobile-navigation"
+            className="mkt-dhh-mobile-toggle"
+            onClick={isMobileMenuOpen ? closeMobileMenu : openMobileMenu}
+            ref={mobileToggleRef}
+            type="button"
           >
             {isMobileMenuOpen ? (
               <X className="size-6" strokeWidth={2} />
@@ -522,122 +547,122 @@ export function Header() {
         </div>
 
         <MegaMenu
-          menu={isMobileMenuOpen ? null : activeMenu}
           direction={direction}
-          panelRef={megaMenuRef}
-          onMouseEnter={cancelClose}
-          onMouseLeave={scheduleClose}
+          menu={isMobileMenuOpen ? null : activeMenu}
           onEscape={() => {
             const activeIndex = activeIndexRef.current;
             closeDesktopMenu();
-            if (activeIndex >= 0) focusDesktopItem(activeIndex);
+            if (activeIndex >= 0) {
+              focusDesktopItem(activeIndex);
+            }
           }}
+          onMouseEnter={cancelClose}
+          onMouseLeave={scheduleClose}
+          panelRef={megaMenuRef}
         />
         <AnimatePresence initial={false} mode="wait">
           {isMobileMenuOpen && (
             <motion.div
-              id="mobile-navigation"
-              key="mobile-navigation"
-              initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 12 }}
-              transition={{ duration: 0.24, ease: SHELL_EASE }}
               className="mkt-dhh-mobile-panel"
+              exit={{ opacity: 0, y: 12 }}
+              id="mobile-navigation"
+              initial={{ opacity: 0, y: 12 }}
+              key="mobile-navigation"
+              transition={{ duration: 0.24, ease: SHELL_EASE }}
             >
               <div className="mkt-dhh-mobile-layout">
                 <div className="mkt-dhh-mobile-scroll">
-                  <AnimatePresence mode="wait" initial={false}>
+                  <AnimatePresence initial={false} mode="wait">
                     {mobileMenu ? (
                       <motion.div
+                        animate="center"
+                        className="space-y-0"
+                        exit="exit"
+                        initial="enter"
                         key={mobileMenu.id}
                         variants={panelVariants}
-                        initial="enter"
-                        animate="center"
-                        exit="exit"
-                        className="space-y-0"
                       >
                         {mobileMenu.columns.map((column, index) => (
                           <motion.section
-                            key={column.heading}
-                            variants={itemVariants}
-                            initial="hidden"
                             animate="visible"
                             className={cn(
                               "mkt-dhh-mobile-section",
                               index !== 0 && "mkt-dhh-mobile-section-divided",
-                              column.accent && "mkt-dhh-mobile-section-accent",
+                              column.accent && "mkt-dhh-mobile-section-accent"
                             )}
+                            initial="hidden"
+                            key={column.heading}
+                            variants={itemVariants}
                           >
                             <p className="mkt-dhh-mobile-heading">
                               {column.heading}
                             </p>
                             <motion.div
-                              variants={listVariants}
-                              initial="hidden"
                               animate="visible"
                               className="mkt-dhh-mobile-link-list"
+                              initial="hidden"
+                              variants={listVariants}
                             >
-                              {column.items.map((item) => (
+                              {column.items.map((item) =>
                                 item.link ? (
-                                <motion.div
-                                  key={item.label}
-                                  variants={itemVariants}
-                                >
-                                  <Link
-                                    {...item.link}
-                                    onClick={closeMobileMenu}
-                                    className="mkt-dhh-mobile-link"
-                                    preload="intent"
-                                    viewTransition
+                                  <motion.div
+                                    key={item.label}
+                                    variants={itemVariants}
                                   >
-                                    <span className="mkt-dhh-mobile-link-label">
-                                      {item.label}
-                                    </span>
-                                    {item.description && (
-                                      <span className="mkt-dhh-mobile-link-description">
-                                        {item.description}
+                                    <Link
+                                      {...item.link}
+                                      className="mkt-dhh-mobile-link"
+                                      onClick={closeMobileMenu}
+                                      preload="intent"
+                                      viewTransition
+                                    >
+                                      <span className="mkt-dhh-mobile-link-label">
+                                        {item.label}
                                       </span>
-                                    )}
-                                  </Link>
-                                </motion.div>
+                                      {item.description && (
+                                        <span className="mkt-dhh-mobile-link-description">
+                                          {item.description}
+                                        </span>
+                                      )}
+                                    </Link>
+                                  </motion.div>
                                 ) : null
-                              ))}
+                              )}
                             </motion.div>
                           </motion.section>
                         ))}
                       </motion.div>
                     ) : (
                       <motion.div
-                        key="root-mobile-menu"
-                        variants={panelVariants}
-                        initial="enter"
                         animate="center"
                         exit="exit"
+                        initial="enter"
+                        key="root-mobile-menu"
+                        variants={panelVariants}
                       >
                         <motion.div
-                          variants={listVariants}
-                          initial="hidden"
                           animate="visible"
                           className="space-y-0"
+                          initial="hidden"
+                          variants={listVariants}
                         >
                           {NAV_LINKS.map((link) => {
                             const hasMenu = !!link.menu;
 
                             return (
                               <motion.div
+                                className="mkt-dhh-mobile-root-item"
                                 key={link.label}
                                 variants={itemVariants}
-                                className="mkt-dhh-mobile-root-item"
                               >
                                 {hasMenu ? (
                                   <button
-                                    type="button"
-                                    onClick={() => setMobileMenu(link.menu!)}
                                     className="mkt-dhh-mobile-root-button"
+                                    onClick={() => setMobileMenu(link.menu!)}
+                                    type="button"
                                   >
-                                    <span>
-                                      {link.label}
-                                    </span>
+                                    <span>{link.label}</span>
                                     <span>
                                       <ArrowRight
                                         className="size-4.5"
@@ -648,23 +673,19 @@ export function Header() {
                                 ) : hasNavigableLink(link.link) ? (
                                   <Link
                                     {...link.link}
-                                    onClick={closeMobileMenu}
                                     className="mkt-dhh-mobile-root-link"
+                                    onClick={closeMobileMenu}
                                     preload="intent"
                                     viewTransition
                                   >
-                                    <span>
-                                      {link.label}
-                                    </span>
+                                    <span>{link.label}</span>
                                   </Link>
                                 ) : (
                                   <button
-                                    type="button"
                                     className="mkt-dhh-mobile-root-button"
+                                    type="button"
                                   >
-                                    <span>
-                                      {link.label}
-                                    </span>
+                                    <span>{link.label}</span>
                                   </button>
                                 )}
                               </motion.div>

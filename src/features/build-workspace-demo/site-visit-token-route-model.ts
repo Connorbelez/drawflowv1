@@ -56,8 +56,8 @@ export function formatSiteVisitBytes(value: number) {
   if (value >= 1_000_000) {
     return `${trimDecimal(value / 1_000_000)} MB`;
   }
-  if (value >= 1_000) {
-    return `${trimDecimal(value / 1_000)} KB`;
+  if (value >= 1000) {
+    return `${trimDecimal(value / 1000)} KB`;
   }
   return `${value} B`;
 }

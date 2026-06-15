@@ -10,10 +10,10 @@ import {
   CardHeader,
   CardTitle,
 } from "#/components/ui/card.tsx";
+import { TimelineWorkspace } from "#/features/timeline-workspace";
+import { convexWorkspaceToTimelineState } from "#/features/timeline-workspace/-timeline-convex-adapter";
 import { api } from "../../../../../../convex/_generated/api";
 import { MOCK_BUILDER_PERSONA } from "../../../../../../convex/demo_personas";
-import { convexWorkspaceToTimelineState } from "#/features/timeline-workspace/-timeline-convex-adapter";
-import { TimelineWorkspace } from "#/features/timeline-workspace";
 
 export const Route = createFileRoute("/builder/demo/dashboard/builds/$buildId")(
   {

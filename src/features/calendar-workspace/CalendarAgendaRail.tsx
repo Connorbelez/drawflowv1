@@ -1,9 +1,19 @@
 "use client";
 
-import { AlertTriangle, CalendarClock, CheckSquare, CircleDollarSign } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarClock,
+  CheckSquare,
+  CircleDollarSign,
+} from "lucide-react";
 
 import { Badge } from "#/components/ui/badge.tsx";
-import { Card, CardContent, CardHeader, CardTitle } from "#/components/ui/card.tsx";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "#/components/ui/card.tsx";
 import { cn } from "#/lib/utils.ts";
 import { CalendarOverflowMenu } from "./CalendarContextMenu";
 import {
@@ -12,8 +22,8 @@ import {
   eventNeedsAction,
   formatCentsCompact,
   formatDateRange,
-  groupedByBucket,
   groupEventsByDate,
+  groupedByBucket,
 } from "./calendarEventProjection";
 import type {
   CalendarAction,
@@ -73,33 +83,40 @@ export function CalendarAgendaRail({
                 <CardHeader className="p-3 pb-2">
                   <CardTitle className="flex items-center justify-between gap-2 text-sm">
                     <span>{date}</span>
-                    <Badge variant="outline">{byDate.get(date)?.length ?? 0}</Badge>
+                    <Badge variant="outline">
+                      {byDate.get(date)?.length ?? 0}
+                    </Badge>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="grid gap-2 p-3 pt-0">
                   {groupedByBucket(byDate.get(date) ?? []).map((group) => (
                     <div className="grid gap-1.5" key={group.bucket}>
-                      <p className="text-muted-foreground text-[0.68rem] uppercase">
+                      <p className="text-[0.68rem] text-muted-foreground uppercase">
                         {bucketLabel(group.bucket)}
                       </p>
                       {group.events.map((event) => {
-                        const amount = formatCentsCompact(event.metrics?.amountCents);
+                        const amount = formatCentsCompact(
+                          event.metrics?.amountCents
+                        );
                         return (
                           <div
-                            aria-label={buildAgendaEventAriaLabel(event, amount)}
+                            aria-label={buildAgendaEventAriaLabel(
+                              event,
+                              amount
+                            )}
                             className={cn(
-                              "grid w-full grid-cols-[auto_1fr_auto] items-start gap-2 rounded-md border bg-background/80 p-2 text-left text-xs text-foreground transition hover:bg-accent/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-border/80 dark:bg-muted/35 dark:hover:bg-accent/35",
+                              "grid w-full grid-cols-[auto_1fr_auto] items-start gap-2 rounded-md border bg-background/80 p-2 text-left text-foreground text-xs transition hover:bg-accent/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-border/80 dark:bg-muted/35 dark:hover:bg-accent/35",
                               selectedEventId === event.id &&
-                                "border-primary bg-primary/10 dark:bg-primary/15",
+                                "border-primary bg-primary/10 dark:bg-primary/15"
                             )}
                             data-testid={`calendar-agenda-event-${event.id}`}
                             key={`${date}-${event.id}`}
+                            onClick={() => onSelectEvent(event)}
                             onKeyDown={(keyboardEvent) => {
                               if (keyboardEvent.key === "Enter") {
                                 onSelectEvent(event);
                               }
                             }}
-                            onClick={() => onSelectEvent(event)}
                             role="button"
                             tabIndex={0}
                           >
@@ -151,7 +168,7 @@ export function CalendarAgendaRail({
 
 function buildAgendaEventAriaLabel(
   event: DrawFlowCalendarEvent,
-  amount: string | null,
+  amount: string | null
 ) {
   return [
     event.title,
@@ -177,7 +194,7 @@ function EventGlyph({ event }: { event: DrawFlowCalendarEvent }) {
         ? "border-primary/40 bg-primary/10 text-primary dark:border-primary/55 dark:bg-primary/20"
         : eventNeedsAction(event)
           ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:border-amber-300/50 dark:bg-amber-300/15 dark:text-amber-200"
-          : "bg-muted/60 dark:border-border dark:bg-background/40 dark:text-muted-foreground",
+          : "bg-muted/60 dark:border-border dark:bg-background/40 dark:text-muted-foreground"
   );
   if (event.status === "blocked" || event.status === "overdue") {
     return <AlertTriangle className={className} />;

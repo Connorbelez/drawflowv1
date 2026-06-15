@@ -1,11 +1,4 @@
 import { v } from "convex/values";
-
-import {
-  publicMutation,
-  publicQuery,
-  withMutationTiming,
-  withQueryTiming,
-} from "./fluent";
 import { DEMO_PERSONAS } from "./demo_personas";
 import {
   coerceSiteVisitGuidanceInput,
@@ -18,6 +11,12 @@ import {
   type SiteVisitGuidance,
   type SiteVisitGuidanceField,
 } from "./demo_site_visit_guidance";
+import {
+  publicMutation,
+  publicQuery,
+  withMutationTiming,
+  withQueryTiming,
+} from "./fluent";
 import type { DatabaseReader, DatabaseWriter, Doc } from "./types";
 
 const SEED_VERSION = 2;
@@ -176,7 +175,9 @@ type MilestoneInputDraft = Omit<MilestoneInput, "siteVisitGuidance"> & {
   siteVisitGuidance?: DemoSettingsSiteVisitGuidanceInput;
 };
 
-function normalizeMilestoneInputs(rows: MilestoneInputDraft[]): MilestoneInput[] {
+function normalizeMilestoneInputs(
+  rows: MilestoneInputDraft[]
+): MilestoneInput[] {
   return rows.map((row) => ({
     ...row,
     siteVisitGuidance: row.siteVisitGuidance
@@ -250,11 +251,14 @@ const DEFAULT_TEMPLATES: SeedTemplate[] = [
         "Flooring",
         "Fixture set",
       ]),
-      milestone("closeout", "Final inspection & closeout", 1280, 4, "closeout", [
-        "Punch list",
-        "Final inspection",
-        "Closeout package",
-      ]),
+      milestone(
+        "closeout",
+        "Final inspection & closeout",
+        1280,
+        4,
+        "closeout",
+        ["Punch list", "Final inspection", "Closeout package"]
+      ),
     ],
     scenarios: [
       scenario("standard_reimbursement", "Standard reimbursement", true, [
@@ -262,7 +266,13 @@ const DEFAULT_TEMPLATES: SeedTemplate[] = [
         draw("draw-02", "Draw 02", 39, 2500, "Framing verified"),
         draw("draw-03", "Draw 03", 64, 2500, "Rough-in approved"),
         draw("draw-04", "Draw 04", 108, 2000, "Envelope and drywall reviewed"),
-        draw("draw-05", "Draw 05", 125, 1000, "Finishes accepted before closeout"),
+        draw(
+          "draw-05",
+          "Draw 05",
+          125,
+          1000,
+          "Finishes accepted before closeout"
+        ),
       ]),
       scenario("conservative_review_lag", "Conservative review lag", false, [
         draw("draw-01", "Draw 01", 18, 1800, "Foundation plus review lag"),
@@ -281,20 +291,59 @@ const DEFAULT_TEMPLATES: SeedTemplate[] = [
       "Selective renovation path for quicker inspection cadence and lighter scope.",
     isDefault: false,
     milestones: [
-      milestone("renovation-permits", "Permit updates and mobilization", 800, 10, "foundation", ["Permit update", "Site protection"]),
-      milestone("selective-demo", "Selective demolition", 1400, 16, "change", ["Interior demo", "Waste removal"]),
-      milestone("structural-repairs", "Structural repairs", 1800, 18, "framing", ["Beam repairs", "Blocking"]),
-      milestone("envelope-repairs", "Envelope repairs", 1500, 12, "exterior", ["Flashing", "Window repairs"]),
-      milestone("rough-in-refresh", "Rough-in refresh", 1500, 14, "roughIn", ["Electrical", "Plumbing"]),
-      milestone("interior-rebuild", "Interior rebuild", 2200, 14, "finishes", ["Drywall", "Millwork"]),
-      milestone("renovation-closeout", "Inspection closeout", 800, 2, "closeout", ["Deficiency list", "Final signoff"]),
+      milestone(
+        "renovation-permits",
+        "Permit updates and mobilization",
+        800,
+        10,
+        "foundation",
+        ["Permit update", "Site protection"]
+      ),
+      milestone("selective-demo", "Selective demolition", 1400, 16, "change", [
+        "Interior demo",
+        "Waste removal",
+      ]),
+      milestone(
+        "structural-repairs",
+        "Structural repairs",
+        1800,
+        18,
+        "framing",
+        ["Beam repairs", "Blocking"]
+      ),
+      milestone("envelope-repairs", "Envelope repairs", 1500, 12, "exterior", [
+        "Flashing",
+        "Window repairs",
+      ]),
+      milestone("rough-in-refresh", "Rough-in refresh", 1500, 14, "roughIn", [
+        "Electrical",
+        "Plumbing",
+      ]),
+      milestone("interior-rebuild", "Interior rebuild", 2200, 14, "finishes", [
+        "Drywall",
+        "Millwork",
+      ]),
+      milestone(
+        "renovation-closeout",
+        "Inspection closeout",
+        800,
+        2,
+        "closeout",
+        ["Deficiency list", "Final signoff"]
+      ),
     ],
     scenarios: [
       scenario("quick_inspection", "Quick inspection", true, [
         draw("draw-01", "Draw 01", 33, 2200, "Demolition complete"),
         draw("draw-02", "Draw 02", 57, 2800, "Structure reviewed"),
         draw("draw-03", "Draw 03", 93, 3000, "Rough-in refresh complete"),
-        draw("draw-04", "Draw 04", 111, 2000, "Interior rebuild substantially complete"),
+        draw(
+          "draw-04",
+          "Draw 04",
+          111,
+          2000,
+          "Interior rebuild substantially complete"
+        ),
       ]),
     ],
     summary: "7 milestones, 100.00% PoC, 86 days",
@@ -306,13 +355,58 @@ const DEFAULT_TEMPLATES: SeedTemplate[] = [
       "Multi-unit build template with heavier envelope and closeout coordination.",
     isDefault: false,
     milestones: [
-      milestone("multiplex-sitework", "Sitework and servicing", 900, 18, "foundation", ["Survey", "Civil servicing"]),
-      milestone("multiplex-foundation", "Foundation podium", 1600, 26, "foundation", ["Footings", "Foundation walls"]),
-      milestone("multiplex-framing", "Multi-plex framing", 2200, 30, "framing", ["Floor framing", "Party walls"]),
-      milestone("multiplex-rough-in", "Stacked rough-ins", 1800, 28, "roughIn", ["Electrical stacks", "Mechanical shafts"]),
-      milestone("multiplex-envelope", "Envelope and windows", 1500, 18, "exterior", ["Windows", "Cladding"]),
-      milestone("multiplex-finishes", "Suite finishes", 1400, 20, "finishes", ["Drywall", "Cabinets"]),
-      milestone("multiplex-closeout", "Occupancy closeout", 600, 6, "closeout", ["Life safety", "Occupancy package"]),
+      milestone(
+        "multiplex-sitework",
+        "Sitework and servicing",
+        900,
+        18,
+        "foundation",
+        ["Survey", "Civil servicing"]
+      ),
+      milestone(
+        "multiplex-foundation",
+        "Foundation podium",
+        1600,
+        26,
+        "foundation",
+        ["Footings", "Foundation walls"]
+      ),
+      milestone(
+        "multiplex-framing",
+        "Multi-plex framing",
+        2200,
+        30,
+        "framing",
+        ["Floor framing", "Party walls"]
+      ),
+      milestone(
+        "multiplex-rough-in",
+        "Stacked rough-ins",
+        1800,
+        28,
+        "roughIn",
+        ["Electrical stacks", "Mechanical shafts"]
+      ),
+      milestone(
+        "multiplex-envelope",
+        "Envelope and windows",
+        1500,
+        18,
+        "exterior",
+        ["Windows", "Cladding"]
+      ),
+      milestone("multiplex-finishes", "Suite finishes", 1400, 20, "finishes", [
+        "Drywall",
+        "Cabinets",
+      ]),
+      milestone(
+        "multiplex-closeout",
+        "Occupancy closeout",
+        600,
+        6,
+        "closeout",
+        ["Life safety", "Occupancy package"]
+      ),
     ],
     scenarios: [
       scenario("standard_multiplex", "Standard multi-plex", true, [
@@ -579,7 +673,11 @@ export const deleteTimelineDrawScenario = publicMutation
   })
   .returns(v.any())
   .handler(async (ctx, args) => {
-    const scenarioRow = await getScenario(ctx, args.templateKey, args.scenarioKey);
+    const scenarioRow = await getScenario(
+      ctx,
+      args.templateKey,
+      args.scenarioKey
+    );
     if (!scenarioRow) {
       return await buildSettingsProjection(ctx);
     }
@@ -725,7 +823,8 @@ function draw(
 async function buildSettingsProjection(ctx: ReadCtx) {
   const templates = await ctx.db.query("demo_timelineTemplates").take(20);
   const sortedTemplates = [...templates].sort(
-    (a, b) => a.sortOrder - b.sortOrder || a.templateKey.localeCompare(b.templateKey)
+    (a, b) =>
+      a.sortOrder - b.sortOrder || a.templateKey.localeCompare(b.templateKey)
   );
   const templateProjections = [];
 
@@ -798,7 +897,10 @@ async function seedDefaults(ctx: WriteCtx) {
     if (await upsertTemplate(ctx, templateRow, templateIndex, false)) {
       inserted.templates += 1;
     }
-    for (const [milestoneIndex, milestoneRow] of templateRow.milestones.entries()) {
+    for (const [
+      milestoneIndex,
+      milestoneRow,
+    ] of templateRow.milestones.entries()) {
       if (
         await insertMissingMilestone(
           ctx,
@@ -831,7 +933,10 @@ async function seedDefaults(ctx: WriteCtx) {
       inserted.guidanceItems += guidanceResult.guidanceItems;
     }
     const existingScenarios = await listScenarios(ctx, templateRow.templateKey);
-    for (const [scenarioIndex, scenarioRow] of templateRow.scenarios.entries()) {
+    for (const [
+      scenarioIndex,
+      scenarioRow,
+    ] of templateRow.scenarios.entries()) {
       if (
         await upsertScenario(
           ctx,
@@ -899,13 +1004,19 @@ async function upsertDemoPersonas(ctx: WriteCtx) {
 }
 
 async function clearTimelineDemoSettings(ctx: WriteCtx) {
-  for (const row of await ctx.db.query("demo_timelineDrawScenarioDraws").take(500)) {
+  for (const row of await ctx.db
+    .query("demo_timelineDrawScenarioDraws")
+    .take(500)) {
     await ctx.db.delete(row._id);
   }
-  for (const row of await ctx.db.query("demo_timelineDrawScenarios").take(200)) {
+  for (const row of await ctx.db
+    .query("demo_timelineDrawScenarios")
+    .take(200)) {
     await ctx.db.delete(row._id);
   }
-  for (const row of await ctx.db.query("demo_timelineTemplateSubmilestones").take(500)) {
+  for (const row of await ctx.db
+    .query("demo_timelineTemplateSubmilestones")
+    .take(500)) {
     await ctx.db.delete(row._id);
   }
   for (const row of await ctx.db
@@ -918,7 +1029,9 @@ async function clearTimelineDemoSettings(ctx: WriteCtx) {
     .take(200)) {
     await ctx.db.delete(row._id);
   }
-  for (const row of await ctx.db.query("demo_timelineTemplateMilestones").take(200)) {
+  for (const row of await ctx.db
+    .query("demo_timelineTemplateMilestones")
+    .take(200)) {
     await ctx.db.delete(row._id);
   }
   for (const row of await ctx.db.query("demo_timelineTemplates").take(100)) {
@@ -937,7 +1050,9 @@ async function upsertTemplate(
 ) {
   const existing = await ctx.db
     .query("demo_timelineTemplates")
-    .withIndex("by_template", (q) => q.eq("templateKey", templateRow.templateKey))
+    .withIndex("by_template", (q) =>
+      q.eq("templateKey", templateRow.templateKey)
+    )
     .unique();
   if (existing && !overwrite) {
     return false;
@@ -967,7 +1082,11 @@ async function insertMissingMilestone(
   milestoneRow: SeedMilestone,
   order: number
 ) {
-  const existing = await getMilestone(ctx, templateKey, milestoneRow.milestoneKey);
+  const existing = await getMilestone(
+    ctx,
+    templateKey,
+    milestoneRow.milestoneKey
+  );
   if (existing) {
     return false;
   }
@@ -995,9 +1114,9 @@ async function insertMissingSubmilestone(
   row: SeedSubmilestone,
   order: number
 ) {
-  const existing = (await listSubmilestones(ctx, templateKey, milestoneKey)).find(
-    (subRow) => subRow.submilestoneKey === row.submilestoneKey
-  );
+  const existing = (
+    await listSubmilestones(ctx, templateKey, milestoneKey)
+  ).find((subRow) => subRow.submilestoneKey === row.submilestoneKey);
   if (existing) {
     return false;
   }
@@ -1029,12 +1148,15 @@ async function insertMissingTemplateGuidance(
   if (existing) {
     return { guidanceItems: 0, guidanceMilestones: 0 };
   }
-  const guidanceId = await ctx.db.insert("demo_timelineTemplateMilestoneGuidance", {
-    createdAt: NOW,
-    milestoneKey: milestoneRow.milestoneKey,
-    templateKey,
-    updatedAt: NOW,
-  });
+  const guidanceId = await ctx.db.insert(
+    "demo_timelineTemplateMilestoneGuidance",
+    {
+      createdAt: NOW,
+      milestoneKey: milestoneRow.milestoneKey,
+      templateKey,
+      updatedAt: NOW,
+    }
+  );
   const items = guidanceToItems(
     milestoneRow.siteVisitGuidance,
     defaultSiteVisitGuidance(
@@ -1320,16 +1442,23 @@ async function replaceTemplateGuidance(
   templateKey: string,
   row: MilestoneInput
 ) {
-  const existing = await getTemplateGuidance(ctx, templateKey, row.milestoneKey);
+  const existing = await getTemplateGuidance(
+    ctx,
+    templateKey,
+    row.milestoneKey
+  );
   if (existing) {
     await deleteTemplateGuidance(ctx, existing._id);
   }
-  const guidanceId = await ctx.db.insert("demo_timelineTemplateMilestoneGuidance", {
-    createdAt: NOW,
-    milestoneKey: row.milestoneKey,
-    templateKey,
-    updatedAt: NOW,
-  });
+  const guidanceId = await ctx.db.insert(
+    "demo_timelineTemplateMilestoneGuidance",
+    {
+      createdAt: NOW,
+      milestoneKey: row.milestoneKey,
+      templateKey,
+      updatedAt: NOW,
+    }
+  );
   const guidance = normalizeSiteVisitGuidance(
     row.siteVisitGuidance,
     defaultSiteVisitGuidance(
@@ -1358,7 +1487,8 @@ async function listScenarios(ctx: ReadCtx, templateKey: string) {
     .withIndex("by_template", (q) => q.eq("templateKey", templateKey))
     .take(50);
   return rows.sort(
-    (a, b) => a.sortOrder - b.sortOrder || a.scenarioKey.localeCompare(b.scenarioKey)
+    (a, b) =>
+      a.sortOrder - b.sortOrder || a.scenarioKey.localeCompare(b.scenarioKey)
   );
 }
 
@@ -1386,7 +1516,9 @@ async function listScenarioDraws(
       q.eq("templateKey", templateKey).eq("scenarioKey", scenarioKey)
     )
     .take(100);
-  return rows.sort((a, b) => a.order - b.order || a.drawKey.localeCompare(b.drawKey));
+  return rows.sort(
+    (a, b) => a.order - b.order || a.drawKey.localeCompare(b.drawKey)
+  );
 }
 
 async function insertEvent(
@@ -1409,12 +1541,16 @@ function templateStatus(
   scenarios: { draws: unknown[]; isActive: boolean }[]
 ) {
   const expected = requiredSeedTemplate(templateKey);
-  const activeCount = scenarios.filter((scenarioRow) => scenarioRow.isActive).length;
+  const activeCount = scenarios.filter(
+    (scenarioRow) => scenarioRow.isActive
+  ).length;
   return {
     activeScenarioCount: activeCount,
     hasActiveScenario: activeCount === 1,
     hasRequiredMilestones: milestones.length >= expected.milestones.length,
-    hasScenarioDraws: scenarios.every((scenarioRow) => scenarioRow.draws.length > 0),
+    hasScenarioDraws: scenarios.every(
+      (scenarioRow) => scenarioRow.draws.length > 0
+    ),
     scenarioCount: scenarios.length,
     totalDurationDays: sumBy(
       milestones as { durationDays: number; included: boolean }[],
@@ -1438,7 +1574,9 @@ function settingsCompleteness(
       (templateRow) => templateRow.templateKey
     ).filter(
       (templateKey) =>
-        !templates.some((templateRow) => templateRow.templateKey === templateKey)
+        !templates.some(
+          (templateRow) => templateRow.templateKey === templateKey
+        )
     ),
     readyTemplateCount: templates.filter(
       (templateRow) =>
@@ -1548,17 +1686,15 @@ function assertHardCodedDefaultTemplatesConform() {
   for (const templateRow of DEFAULT_TEMPLATES) {
     const milestones = templateRow.milestones.map(toMilestoneInput);
     validateTemplateRows(milestones);
-    validateScenarios(
-      templateRow.scenarios.map(toScenarioInput),
-      milestones
-    );
+    validateScenarios(templateRow.scenarios.map(toScenarioInput), milestones);
   }
 }
 
 function validateMilestoneHandoffGaps(rows: MilestoneScheduleInput[]) {
   const included = sortedIncludedMilestones(rows);
   for (let index = 0; index < included.length - 1; index += 1) {
-    const gap = milestoneStartDay(included, index + 1) - milestoneEndDay(included, index);
+    const gap =
+      milestoneStartDay(included, index + 1) - milestoneEndDay(included, index);
     if (gap > TIMELINE_DEMO_SETTINGS_HANDOFF_GAP_DAYS) {
       throw new Error(
         `Milestone handoff gap cannot exceed ${TIMELINE_DEMO_SETTINGS_HANDOFF_GAP_DAYS} days.`
@@ -1662,7 +1798,7 @@ function buildMilestoneDrawWindows(
   for (let index = 0; index < included.length - 1; index += 1) {
     const row = included[index];
     const next = included[index + 1];
-    if (!row || !next) {
+    if (!(row && next)) {
       continue;
     }
     windows.push({
@@ -1705,7 +1841,10 @@ function sortedIncludedMilestones(rows: MilestoneScheduleInput[]) {
   return rows
     .filter((row) => row.included)
     .slice()
-    .sort((a, b) => a.order - b.order || a.milestoneKey.localeCompare(b.milestoneKey));
+    .sort(
+      (a, b) =>
+        a.order - b.order || a.milestoneKey.localeCompare(b.milestoneKey)
+    );
 }
 
 function milestoneStartDay(rows: MilestoneScheduleInput[], index: number) {

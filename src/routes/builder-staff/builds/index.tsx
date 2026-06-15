@@ -19,7 +19,7 @@ function BuilderStaffBuildsRoute() {
   const workosOrganizationId = context.organizationId as string;
   const staffWorkspace = useQuery(
     api.production_proposals.listBuilderStaffWorkspace,
-    { workosOrganizationId },
+    { workosOrganizationId }
   );
 
   if (!staffWorkspace) {

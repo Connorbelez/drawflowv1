@@ -67,20 +67,25 @@ export function bucketLabel(bucket: CalendarTimeBucket): string {
 }
 
 export function normalizeCalendarWarning(
-  warning: CalendarEventWarning | string,
+  warning: CalendarEventWarning | string
 ): CalendarEventWarning {
   if (typeof warning !== "string") {
     return warning;
   }
-  const severity =
-    /blocked|expired|overdue|pressure|unverified|policy/i.test(warning)
-      ? "warning"
-      : "info";
-  return { id: warning.toLowerCase().replace(/[^a-z0-9]+/g, "-"), label: warning, severity };
+  const severity = /blocked|expired|overdue|pressure|unverified|policy/i.test(
+    warning
+  )
+    ? "warning"
+    : "info";
+  return {
+    id: warning.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+    label: warning,
+    severity,
+  };
 }
 
 export function normalizeCalendarEvent(
-  event: DrawFlowCalendarEvent,
+  event: DrawFlowCalendarEvent
 ): DrawFlowCalendarEvent {
   return {
     ...event,
@@ -89,7 +94,7 @@ export function normalizeCalendarEvent(
 }
 
 export function normalizeCalendarEvents(
-  events: DrawFlowCalendarEvent[] | undefined,
+  events: DrawFlowCalendarEvent[] | undefined
 ): DrawFlowCalendarEvent[] {
   return (events ?? [])
     .filter((event) => !isSuppressedCalendarEvent(event))
@@ -103,13 +108,13 @@ function isSuppressedCalendarEvent(event: DrawFlowCalendarEvent): boolean {
     return true;
   }
   return /borrower\s+working[-\s]capital\s+exposure/i.test(
-    `${event.title} ${event.subtitle ?? ""}`,
+    `${event.title} ${event.subtitle ?? ""}`
   );
 }
 
 export function compareCalendarEvents(
   left: DrawFlowCalendarEvent,
-  right: DrawFlowCalendarEvent,
+  right: DrawFlowCalendarEvent
 ): number {
   return (
     left.startsAt.localeCompare(right.startsAt) ||
@@ -121,11 +126,14 @@ export function compareCalendarEvents(
 
 export function applyCalendarFilters(
   events: DrawFlowCalendarEvent[],
-  filters: CalendarFilters,
+  filters: CalendarFilters
 ): DrawFlowCalendarEvent[] {
   const query = filters.search?.trim().toLowerCase();
   return events.filter((event) => {
-    if (filters.eventKinds?.length && !filters.eventKinds.includes(event.kind)) {
+    if (
+      filters.eventKinds?.length &&
+      !filters.eventKinds.includes(event.kind)
+    ) {
       return false;
     }
     if (filters.statuses?.length && !filters.statuses.includes(event.status)) {
@@ -137,10 +145,18 @@ export function applyCalendarFilters(
     if (filters.drawGroupKey && event.drawGroupKey !== filters.drawGroupKey) {
       return false;
     }
-    if (filters.assigneeUserId && event.assigneeUserId !== filters.assigneeUserId) {
+    if (
+      filters.assigneeUserId &&
+      event.assigneeUserId !== filters.assigneeUserId
+    ) {
       return false;
     }
-    if (filters.riskOnly && event.warnings.length === 0 && event.status !== "blocked" && event.status !== "overdue") {
+    if (
+      filters.riskOnly &&
+      event.warnings.length === 0 &&
+      event.status !== "blocked" &&
+      event.status !== "overdue"
+    ) {
       return false;
     }
     if (filters.overdueOnly && event.status !== "overdue") {
@@ -149,10 +165,19 @@ export function applyCalendarFilters(
     if (filters.needsAction && !eventNeedsAction(event)) {
       return false;
     }
-    if (filters.editableOnly && !event.editable.canMove && !event.editable.canResizeEnd && !event.editable.canChangeStatus) {
+    if (
+      filters.editableOnly &&
+      !event.editable.canMove &&
+      !event.editable.canResizeEnd &&
+      !event.editable.canChangeStatus
+    ) {
       return false;
     }
-    if (filters.immutableActuals && event.status !== "immutable" && !event.editable.immutableReason) {
+    if (
+      filters.immutableActuals &&
+      event.status !== "immutable" &&
+      !event.editable.immutableReason
+    ) {
       return false;
     }
     if (
@@ -195,7 +220,7 @@ export function isoToday(): string {
 
 export function dateFromIso(iso: string): Date {
   const [year, month, day] = iso.slice(0, 10).split("-").map(Number);
-  if (!year || !month || !day) {
+  if (!(year && month && day)) {
     return new Date(iso);
   }
   return new Date(year, month - 1, day);
@@ -214,7 +239,8 @@ export function addDaysIso(iso: string, days: number): string {
 export function daysBetweenIso(startIso: string, endIso: string): number {
   const start = dateFromIso(startIso);
   const end = dateFromIso(endIso);
-  const ms = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate()) -
+  const ms =
+    Date.UTC(end.getFullYear(), end.getMonth(), end.getDate()) -
     Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
   return Math.round(ms / 86_400_000);
 }
@@ -236,13 +262,15 @@ export function monthEndIso(year: number, monthIndex: number): string {
 
 export function eventTouchesDate(
   event: DrawFlowCalendarEvent,
-  dateIso: string,
+  dateIso: string
 ): boolean {
-  return event.startsAt <= dateIso && (event.endsAt ?? event.startsAt) >= dateIso;
+  return (
+    event.startsAt <= dateIso && (event.endsAt ?? event.startsAt) >= dateIso
+  );
 }
 
 export function groupEventsByDate(
-  events: DrawFlowCalendarEvent[],
+  events: DrawFlowCalendarEvent[]
 ): Map<string, DrawFlowCalendarEvent[]> {
   const map = new Map<string, DrawFlowCalendarEvent[]>();
   for (const event of events) {
@@ -263,7 +291,7 @@ export function groupEventsByDate(
 }
 
 export function groupedByBucket(
-  events: DrawFlowCalendarEvent[],
+  events: DrawFlowCalendarEvent[]
 ): Array<{ bucket: CalendarTimeBucket; events: DrawFlowCalendarEvent[] }> {
   return calendarTimeBuckets
     .map((bucket) => ({
@@ -288,7 +316,9 @@ export function formatCentsCompact(cents?: number): string | null {
   }).format(cents / 100);
 }
 
-export function formatDateRange(event: Pick<DrawFlowCalendarEvent, "startsAt" | "endsAt" | "timeBucket">): string {
+export function formatDateRange(
+  event: Pick<DrawFlowCalendarEvent, "startsAt" | "endsAt" | "timeBucket">
+): string {
   const start = event.startsAt.slice(0, 10);
   const end = event.endsAt?.slice(0, 10);
   if (!end || end === start) {
@@ -299,10 +329,14 @@ export function formatDateRange(event: Pick<DrawFlowCalendarEvent, "startsAt" | 
 
 export function buildIcsForEvents(
   events: DrawFlowCalendarEvent[],
-  calendarName: string,
+  calendarName: string
 ): string {
   const escape = (value: string) =>
-    value.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
+    value
+      .replace(/\\/g, "\\\\")
+      .replace(/\n/g, "\\n")
+      .replace(/,/g, "\\,")
+      .replace(/;/g, "\\;");
   const timestamp = `${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z`;
   const dateValue = (value: string) => value.slice(0, 10).replace(/-/g, "");
   const dateTimeValue = (value: string, fallbackHour: string) => {
@@ -321,16 +355,22 @@ export function buildIcsForEvents(
   ];
   for (const event of events.sort(compareCalendarEvents)) {
     const start = dateValue(event.startsAt);
-    const end = dateValue(addDaysIso(event.endsAt ?? event.startsAt, event.allDay ? 1 : 0));
+    const end = dateValue(
+      addDaysIso(event.endsAt ?? event.startsAt, event.allDay ? 1 : 0)
+    );
     lines.push(
       "BEGIN:VEVENT",
       `UID:${escape(event.id)}@drawflow.fairlend.ca`,
       `DTSTAMP:${timestamp}`,
-      event.allDay ? `DTSTART;VALUE=DATE:${start}` : `DTSTART:${dateTimeValue(event.startsAt, "09")}`,
-      event.allDay ? `DTEND;VALUE=DATE:${end}` : `DTEND:${dateTimeValue(event.endsAt ?? event.startsAt, "10")}`,
+      event.allDay
+        ? `DTSTART;VALUE=DATE:${start}`
+        : `DTSTART:${dateTimeValue(event.startsAt, "09")}`,
+      event.allDay
+        ? `DTEND;VALUE=DATE:${end}`
+        : `DTEND:${dateTimeValue(event.endsAt ?? event.startsAt, "10")}`,
       `SUMMARY:${escape(event.title)}`,
       `DESCRIPTION:${escape([event.subtitle, event.kind, event.status, ...event.warnings.map((warning) => warning.label)].filter(Boolean).join(" | "))}`,
-      "END:VEVENT",
+      "END:VEVENT"
     );
   }
   lines.push("END:VCALENDAR");

@@ -2,9 +2,6 @@
 
 import { useMutation } from "convex/react";
 import { useState } from "react";
-
-import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
 import { Button } from "#/components/ui/button.tsx";
 import {
   Card,
@@ -13,10 +10,12 @@ import {
   CardTitle,
 } from "#/components/ui/card.tsx";
 import {
-  ContractorQuickAddDrawer,
   type ContractorDrawerAvailableContractor,
   type ContractorProfileDraft,
+  ContractorQuickAddDrawer,
 } from "#/features/contractors/ContractorQuickAddDrawer.tsx";
+import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
 import { initialsFor } from "./format";
 
 type AttachedContractor = {
@@ -53,11 +52,11 @@ interface ContractorActions {
 }
 
 interface ContractorsCardProps {
-  buildId: Id<"demo_builds"> | string;
-  contractors: AttachedContractor[];
-  availableContractors: AvailableContractor[];
   actions?: ContractorActions;
+  availableContractors: AvailableContractor[];
+  buildId: Id<"demo_builds"> | string;
   contractorDetailHrefFor?: (contractorId: string) => string;
+  contractors: AttachedContractor[];
 }
 
 export function ContractorsCard({
@@ -132,7 +131,7 @@ export function ContractorsCard({
                     ) : (
                       contractor.name
                     )}
-                    <span className="ml-2 text-[11px] font-normal text-muted-foreground">
+                    <span className="ml-2 font-normal text-[11px] text-muted-foreground">
                       {contractor.role}
                     </span>
                   </p>
@@ -219,10 +218,10 @@ function DemoContractorBuildQuickAddDrawer({
   open: boolean;
 }) {
   const demoAttach = useMutation(
-    api.demo_drawflow_backoffice.demo_attachContractorToBuild,
+    api.demo_drawflow_backoffice.demo_attachContractorToBuild
   );
   const demoCreate = useMutation(
-    api.demo_drawflow_backoffice.demo_createAndAttachContractor,
+    api.demo_drawflow_backoffice.demo_createAndAttachContractor
   );
 
   return (
@@ -247,7 +246,9 @@ function DemoContractorBuildQuickAddDrawer({
             kind: contractor.kind,
             name: contractor.name,
             phone: contractor.phone,
-            skills: contractor.capabilities.map((capability) => capability.label),
+            skills: contractor.capabilities.map(
+              (capability) => capability.label
+            ),
             trades: contractor.trades,
           },
           role: role ?? contractor.trades[0] ?? "Contractor",

@@ -2,19 +2,18 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import { LifeBuoy, Loader2 } from "lucide-react";
 import { useState } from "react";
-
-import {
-  BuilderTimelineDashboardSurface,
-  type TimelinePlanRow,
-} from "#/features/builder-dashboard/BuilderTimelineDashboard.tsx";
-import { BuilderFirstRun } from "#/features/builder-onboarding/BuilderFirstRun.tsx";
-import { resolveBuilderHomeView } from "#/features/builder-onboarding/onboarding-gate.ts";
 import {
   Frame,
   FrameDescription,
   FramePanel,
   FrameTitle,
 } from "#/components/ui/frame.tsx";
+import {
+  BuilderTimelineDashboardSurface,
+  type TimelinePlanRow,
+} from "#/features/builder-dashboard/BuilderTimelineDashboard.tsx";
+import { BuilderFirstRun } from "#/features/builder-onboarding/BuilderFirstRun.tsx";
+import { resolveBuilderHomeView } from "#/features/builder-onboarding/onboarding-gate.ts";
 import {
   type ProductionKanban,
   toTimelineRows,
@@ -55,23 +54,19 @@ export function BuilderProductionHomeWorkspace({
   // not dismissed) sees the welcome flow before the dashboard. Fixtures bypass.
   const onboardingQuery = useQuery(
     api.production_proposals.getBuilderOnboardingState,
-    visualFixtureEnabled || isStaffWorkspace
-      ? "skip"
-      : { workosOrganizationId },
+    visualFixtureEnabled || isStaffWorkspace ? "skip" : { workosOrganizationId }
   );
   const [forceDashboard, setForceDashboard] = useState(false);
 
   const kanbanQuery = useQuery(
     api.production_proposals.listProposalKanban,
-    visualFixtureEnabled || isStaffWorkspace
-      ? "skip"
-      : { workosOrganizationId },
+    visualFixtureEnabled || isStaffWorkspace ? "skip" : { workosOrganizationId }
   );
   const staffWorkspaceQuery = useQuery(
     api.production_proposals.listBuilderStaffWorkspace,
     visualFixtureEnabled || !isStaffWorkspace
       ? "skip"
-      : { workosOrganizationId },
+      : { workosOrganizationId }
   );
   const kanban = visualFixtureEnabled ? getVisualParityKanban() : kanbanQuery;
   const rows: TimelinePlanRow[] = isStaffWorkspace
@@ -81,8 +76,8 @@ export function BuilderProductionHomeWorkspace({
       ]
     : toTimelineRows(
         (kanban as ProductionKanban | undefined)?.columns.flatMap(
-          (column) => column.cards,
-        ) ?? [],
+          (column) => column.cards
+        ) ?? []
       );
 
   const view = resolveBuilderHomeView({
@@ -96,7 +91,7 @@ export function BuilderProductionHomeWorkspace({
           hasProposals: true,
           isBuilder: true,
         }
-      : onboardingQuery ?? undefined,
+      : (onboardingQuery ?? undefined),
   });
 
   if (view === "loading") {
@@ -121,7 +116,7 @@ export function BuilderProductionHomeWorkspace({
   }
 
   if (
-    (!isStaffWorkspace && !kanban) ||
+    !(isStaffWorkspace || kanban) ||
     (isStaffWorkspace && !staffWorkspaceQuery)
   ) {
     return <BuilderHomeLoading />;

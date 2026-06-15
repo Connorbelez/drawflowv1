@@ -22,7 +22,7 @@ export function drawStatusLabel(status: ProductionDrawStatus): string {
 }
 
 export function drawBadgeVariant(
-  status: ProductionDrawStatus,
+  status: ProductionDrawStatus
 ): NonNullable<ComponentProps<typeof Badge>["variant"]> {
   if (status === "released") {
     return "success";

@@ -5,15 +5,14 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import {
   ArrowRightIcon,
   CalendarDaysIcon,
-  CheckCircle2Icon,
   GitCommitHorizontalIcon,
   HammerIcon,
   ShieldCheckIcon,
   SparklesIcon,
   WrenchIcon,
 } from "lucide-react";
-import { useRef, useState } from "react";
 import type { ReactElement } from "react";
+import { useRef, useState } from "react";
 
 import Header from "#/components/Header";
 import { Badge } from "#/components/ui/badge";
@@ -48,23 +47,23 @@ export const Route = createFileRoute("/roadmap")({
 type ChangeCategory = "Feature" | "Improvement" | "Bug Fix";
 
 interface RoadmapChange {
-  category: ChangeCategory;
-  title: string;
   body: string;
+  category: ChangeCategory;
   commits: string[];
+  title: string;
 }
 
 interface RoadmapRelease {
-  id: string;
-  title: string;
-  date: string;
-  summary: string;
+  changes: RoadmapChange[];
   commits: string[];
+  date: string;
+  id: string;
   image?: {
     alt: string;
     src: string;
   };
-  changes: RoadmapChange[];
+  summary: string;
+  title: string;
 }
 
 const categoryConfig: Record<
@@ -379,11 +378,11 @@ function Hero(): ReactElement {
     >
       <div
         aria-hidden="true"
-        className="-z-10 absolute inset-0 bg-[radial-gradient(circle_at_75%_12%,oklch(0.841_0.238_128.85/0.28),transparent_28rem),radial-gradient(circle_at_10%_30%,oklch(0.54_0.14_240/0.1),transparent_22rem)] dark:hidden"
+        className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_75%_12%,oklch(0.841_0.238_128.85/0.28),transparent_28rem),radial-gradient(circle_at_10%_30%,oklch(0.54_0.14_240/0.1),transparent_22rem)] dark:hidden"
       />
       <div
         aria-hidden="true"
-        className="-z-10 absolute inset-0 hidden bg-[radial-gradient(circle_at_76%_12%,oklch(0.768_0.233_130.85/0.18),transparent_30rem),radial-gradient(circle_at_8%_24%,oklch(0.54_0.14_240/0.13),transparent_24rem),linear-gradient(180deg,oklch(0.21_0.006_285.885/0.62),transparent_58%)] dark:block"
+        className="absolute inset-0 -z-10 hidden bg-[radial-gradient(circle_at_76%_12%,oklch(0.768_0.233_130.85/0.18),transparent_30rem),radial-gradient(circle_at_8%_24%,oklch(0.54_0.14_240/0.13),transparent_24rem),linear-gradient(180deg,oklch(0.21_0.006_285.885/0.62),transparent_58%)] dark:block"
       />
       <div
         aria-hidden="true"

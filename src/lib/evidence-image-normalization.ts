@@ -29,8 +29,12 @@ export function isHeicLikeEvidenceImage(input: {
 }
 
 export function evidenceMimeTypeForFile(file: Pick<File, "name" | "type">) {
-  if (file.type) return file.type;
-  if (isHeicLikeEvidenceImage({ fileName: file.name })) return "image/heic";
+  if (file.type) {
+    return file.type;
+  }
+  if (isHeicLikeEvidenceImage({ fileName: file.name })) {
+    return "image/heic";
+  }
   return "application/octet-stream";
 }
 
@@ -44,7 +48,7 @@ export function browserSafeEvidenceImageName(fileName: string) {
 
 export async function convertHeicEvidenceBlobToJpeg(
   blob: Blob,
-  fileName = "evidence-image.heic",
+  fileName = "evidence-image.heic"
 ) {
   const { default: heic2any } = await import("heic2any");
   const converted = await heic2any({

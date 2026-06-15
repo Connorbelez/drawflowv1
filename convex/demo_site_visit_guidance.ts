@@ -80,11 +80,7 @@ export function normalizeSiteVisitGuidance(
 ): SiteVisitGuidance {
   const normalized = coerceSiteVisitGuidanceInput(guidance);
 
-  if (
-    !normalized.cameraAngles &&
-    !normalized.whatToVerify &&
-    fallback
-  ) {
+  if (!(normalized.cameraAngles || normalized.whatToVerify) && fallback) {
     return normalizeSiteVisitGuidance(fallback);
   }
 
@@ -140,11 +136,11 @@ export function guidanceItemsToGuidance(
   const guidance = {
     whatToVerify:
       whatToVerifyItems.length === 1
-        ? whatToVerifyItems[0]?.text ?? ""
+        ? (whatToVerifyItems[0]?.text ?? "")
         : guidanceLinesToHtml(whatToVerifyItems.map((item) => item.text)),
     cameraAngles:
       cameraAngleItems.length === 1
-        ? cameraAngleItems[0]?.text ?? ""
+        ? (cameraAngleItems[0]?.text ?? "")
         : guidanceLinesToHtml(cameraAngleItems.map((item) => item.text)),
   };
 
@@ -205,9 +201,12 @@ export function defaultSiteVisitGuidance(
       "Context photo tying completed work back to the stamped plan.",
     ]),
     whatToVerify: defaultGuidanceListHtml(
-      checkpoints.slice(0, 4).map((checkpoint) => {
-        return `${checkpoint} is complete, visible, and consistent with the approved scope.`;
-      })
+      checkpoints
+        .slice(0, 4)
+        .map(
+          (checkpoint) =>
+            `${checkpoint} is complete, visible, and consistent with the approved scope.`
+        )
     ),
   };
 }

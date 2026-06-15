@@ -7,6 +7,7 @@ import {
   Scripts,
   useRouter,
 } from "@tanstack/react-router";
+import type { ErrorComponentProps } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { createServerFn } from "@tanstack/react-start";
 import { getAuth } from "@workos/authkit-tanstack-react-start";
@@ -14,6 +15,8 @@ import type { ConvexReactClient } from "convex/react";
 import { NuqsAdapter } from "nuqs/adapters/tanstack-router";
 import type { ReactElement, ReactNode } from "react";
 
+import { Button } from "#/components/ui/button.tsx";
+import { Card } from "#/components/ui/card.tsx";
 import { Toaster } from "../components/ui/sonner";
 import { TooltipProvider } from "../components/ui/tooltip";
 import ConvexProvider from "../integrations/convex/provider";
@@ -124,6 +127,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
       },
     ],
   }),
+  errorComponent: RootError,
   notFoundComponent: RootNotFound,
   shellComponent: RootDocument,
 });
@@ -201,19 +205,55 @@ export function RootDocument({ children }: RootDocumentProps): ReactElement {
 function RootNotFound(): ReactElement {
   return (
     <main className="grid min-h-[calc(100vh-4rem)] place-items-center bg-bg-base p-6 text-foreground">
-      <section className="w-full max-w-xl rounded-lg border bg-background p-6">
+      <Card className="w-full max-w-xl p-6">
         <p className="font-medium text-muted-foreground text-sm">404</p>
         <h1 className="mt-2 font-semibold text-2xl">Page not found</h1>
         <p className="mt-2 text-muted-foreground text-sm">
           This DrawFlow route does not exist or is no longer available.
         </p>
-        <a
-          className="mt-5 inline-flex h-10 items-center rounded-md bg-primary px-4 font-medium text-primary-foreground text-sm"
-          href="/backoffice"
-        >
+        <Button className="mt-5" render={<a href="/backoffice" />}>
           Back to backoffice
-        </a>
-      </section>
+        </Button>
+      </Card>
+    </main>
+  );
+}
+
+export function RootError({ error, reset }: ErrorComponentProps): ReactElement {
+  const message =
+    error instanceof Error && error.message
+      ? error.message
+      : "An unexpected DrawFlow route error occurred.";
+  const retryRoute = () => {
+    if (typeof window !== "undefined") {
+      window.location.reload();
+      return;
+    }
+
+    reset();
+  };
+
+  return (
+    <main className="grid min-h-[calc(100vh-4rem)] place-items-center bg-bg-base p-6 text-foreground">
+      <Card className="w-full max-w-2xl p-6">
+        <p className="font-medium text-destructive text-sm">Route error</p>
+        <h1 className="mt-2 font-semibold text-2xl">
+          DrawFlow could not load this screen.
+        </h1>
+        <p className="mt-2 text-muted-foreground text-sm">
+          The route failed while loading. Refresh the screen or return to the
+          workspace.
+        </p>
+        <pre className="mt-4 max-h-40 overflow-auto rounded-md bg-muted p-3 text-muted-foreground text-xs">
+          {message}
+        </pre>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Button onClick={retryRoute}>Try again</Button>
+          <Button render={<a href="/backoffice" />} variant="outline">
+            Back to backoffice
+          </Button>
+        </div>
+      </Card>
     </main>
   );
 }

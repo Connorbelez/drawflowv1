@@ -2,12 +2,7 @@ import type React from "react";
 
 export type CalendarSurface = "proposal" | "activeBuild";
 
-export type CalendarTimeframe =
-  | "day"
-  | "week"
-  | "month"
-  | "quarter"
-  | "agenda";
+export type CalendarTimeframe = "day" | "week" | "month" | "quarter" | "agenda";
 
 export type CalendarTimeBucket =
   | "allDay"
@@ -57,11 +52,11 @@ export interface CalendarEventWarning {
 }
 
 export interface CalendarEditCapability {
-  canMove: boolean;
-  canResizeStart: boolean;
-  canResizeEnd: boolean;
   canChangeAssignee: boolean;
   canChangeStatus: boolean;
+  canMove: boolean;
+  canResizeEnd: boolean;
+  canResizeStart: boolean;
   immutableReason?: string;
   requiredReason?: "none" | "scheduleChange" | "materialDecision" | "override";
 }
@@ -82,18 +77,12 @@ export interface CalendarAssignableParticipant {
 }
 
 export interface DrawFlowCalendarEvent {
-  id: string;
-  organizationId: string;
-  surface: CalendarSurface;
-  kind: CalendarEventKind;
-  status: CalendarEventStatus;
-  title: string;
-  subtitle?: string;
-  startsAt: string;
-  endsAt?: string;
   allDay: boolean;
-  timeBucket: CalendarTimeBucket;
-  timezone: string;
+  assigneeUserId?: string;
+  auditRequired: boolean;
+  drawGroupKey?: string;
+  editable: CalendarEditCapability;
+  endsAt?: string;
   entity:
     | { type: "proposal"; id: string }
     | { type: "activeBuild"; id: string }
@@ -103,21 +92,27 @@ export interface DrawFlowCalendarEvent {
     | { type: "evidencePackage"; id: string }
     | { type: "loanFacility"; id: string }
     | { type: "calendarReminder"; id: string };
-  relatedEntityIds: string[];
-  ownerUserId?: string;
-  assigneeUserId?: string;
-  participants?: CalendarAssignableParticipant[];
+  id: string;
+  kind: CalendarEventKind;
   location?: string;
-  drawGroupKey?: string;
-  milestoneKey?: string;
-  warnings: CalendarEventWarning[];
   metrics?: {
     amountCents?: number;
     budgetCents?: number;
     progressPercent?: number;
   };
-  editable: CalendarEditCapability;
-  auditRequired: boolean;
+  milestoneKey?: string;
+  organizationId: string;
+  ownerUserId?: string;
+  participants?: CalendarAssignableParticipant[];
+  relatedEntityIds: string[];
+  startsAt: string;
+  status: CalendarEventStatus;
+  subtitle?: string;
+  surface: CalendarSurface;
+  timeBucket: CalendarTimeBucket;
+  timezone: string;
+  title: string;
+  warnings: CalendarEventWarning[];
 }
 
 export interface CalendarSavedView {
@@ -177,20 +172,20 @@ export interface CalendarActionContext {
 }
 
 export interface CalendarAction {
-  id: string;
-  label: string;
-  description?: string;
-  icon?: React.ReactNode;
-  tone?: "default" | "warning" | "destructive";
+  appliesTo: "event" | "date" | "dateRange" | "selection";
   availability:
     | { state: "enabled" }
     | { state: "disabled"; reason: string }
     | { state: "hidden"; reason: string };
-  requiresReason: boolean;
-  requiresConfirmation: boolean;
-  appliesTo: "event" | "date" | "dateRange" | "selection";
+  description?: string;
+  icon?: React.ReactNode;
+  id: string;
   isVisible?: (context: CalendarActionContext) => boolean;
+  label: string;
   onSelect: (context: CalendarActionContext) => Promise<unknown> | unknown;
+  requiresConfirmation: boolean;
+  requiresReason: boolean;
+  tone?: "default" | "warning" | "destructive";
 }
 
 export interface CalendarEditRequest {

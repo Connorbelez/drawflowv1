@@ -40,22 +40,23 @@ export function BuilderProductionProposalsWorkspace({
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
   const kanbanQuery = useQuery(
     api.production_proposals.listProposalKanban,
-    visualFixtureEnabled || isStaffWorkspace
-      ? "skip"
-      : { workosOrganizationId },
+    visualFixtureEnabled || isStaffWorkspace ? "skip" : { workosOrganizationId }
   );
   const staffWorkspaceQuery = useQuery(
     api.production_proposals.listBuilderStaffWorkspace,
     visualFixtureEnabled || !isStaffWorkspace
       ? "skip"
-      : { workosOrganizationId },
+      : { workosOrganizationId }
   );
   const kanban = visualFixtureEnabled ? getVisualParityKanban() : kanbanQuery;
   const rows: TimelinePlanRow[] = isStaffWorkspace
     ? ((staffWorkspaceQuery?.proposalRows ?? []) as TimelinePlanRow[])
     : toTimelineRows(kanban?.columns.flatMap((column) => column.cards) ?? []);
 
-  if ((!isStaffWorkspace && !kanban) || (isStaffWorkspace && !staffWorkspaceQuery)) {
+  if (
+    !(isStaffWorkspace || kanban) ||
+    (isStaffWorkspace && !staffWorkspaceQuery)
+  ) {
     return (
       <div className="grid min-h-[24rem] place-items-center">
         <div className="flex items-center gap-2 rounded-lg border bg-background p-4 text-sm">

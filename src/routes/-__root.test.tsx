@@ -71,7 +71,7 @@ vi.mock("../integrations/workos/provider", () => ({
   ),
 }));
 
-import { RootDocument } from "./__root.tsx";
+import { RootDocument, RootError } from "./__root.tsx";
 
 describe("RootDocument", () => {
   test("mounts the global toast renderer for sonner feedback", () => {
@@ -83,5 +83,21 @@ describe("RootDocument", () => {
 
     expect(markup).toContain('data-testid="global-toaster"');
     expect(markup).toContain('data-position="top-right"');
+  });
+});
+
+describe("RootError", () => {
+  test("renders a recoverable route error surface", () => {
+    const markup = renderToStaticMarkup(
+      <RootError
+        error={new Error("Failed to fetch dynamically imported module")}
+        reset={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain("DrawFlow could not load this screen.");
+    expect(markup).toContain("Failed to fetch dynamically imported module");
+    expect(markup).toContain("Try again");
+    expect(markup).toContain("Back to backoffice");
   });
 });

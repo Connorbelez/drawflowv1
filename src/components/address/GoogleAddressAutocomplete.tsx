@@ -29,10 +29,7 @@ interface GoogleAddressAutocompleteProps {
   label?: React.ReactNode;
   labelClassName?: string;
   name?: string;
-  onChange: (
-    value: string,
-    meta?: { source: "selection" | "typing" }
-  ) => void;
+  onChange: (value: string, meta?: { source: "selection" | "typing" }) => void;
   onPlaceSelect?: (
     suggestion: GoogleAddressSuggestion,
     details: GoogleAddressPlaceDetails | null
@@ -158,7 +155,8 @@ export function GoogleAddressAutocomplete({
     onResolvingChange?.(true);
     try {
       const details = await fetchGoogleAddressPlaceDetails(suggestion);
-      selectedQueryRef.current = details?.formattedAddress ?? suggestion.description;
+      selectedQueryRef.current =
+        details?.formattedAddress ?? suggestion.description;
       setSuggestions([]);
       setOpen(false);
       onPlaceSelect(suggestion, details);

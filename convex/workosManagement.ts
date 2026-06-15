@@ -95,10 +95,7 @@ interface WorkosProvisionClient {
       email: string;
       emailVerified: boolean;
     }): Promise<WorkosProvisionUser>;
-    listInvitations(args: {
-      email: string;
-      organizationId: string;
-    }): Promise<{
+    listInvitations(args: { email: string; organizationId: string }): Promise<{
       autoPagination(): Promise<WorkosProvisionInvitation[]>;
     }>;
     listOrganizationMemberships(args: {
@@ -108,9 +105,7 @@ interface WorkosProvisionClient {
     }): Promise<{
       autoPagination(): Promise<WorkosProvisionMembership[]>;
     }>;
-    listUsers(args: {
-      email: string;
-    }): Promise<{
+    listUsers(args: { email: string }): Promise<{
       autoPagination(): Promise<WorkosProvisionUser[]>;
     }>;
     reactivateOrganizationMembership(
@@ -805,9 +800,8 @@ async function findWorkosUserByEmail(
     await workos.userManagement.listUsers({ email })
   ).autoPagination();
   return (
-    existingUsers.find(
-      (user) => user.email.trim().toLowerCase() === email
-    ) ?? null
+    existingUsers.find((user) => user.email.trim().toLowerCase() === email) ??
+    null
   );
 }
 
@@ -840,10 +834,7 @@ async function ensureWorkosMembershipRole(
   }
 
   const roleSlugs = [
-    ...new Set([
-      ...workosMembershipRoleSlugs(existing),
-      args.roleSlug,
-    ]),
+    ...new Set([...workosMembershipRoleSlugs(existing), args.roleSlug]),
   ];
   return await workos.userManagement.updateOrganizationMembership(existing.id, {
     roleSlugs,
@@ -891,7 +882,7 @@ async function resendLatestPendingBuilderStaffInvitation(
     );
   const latest = pending[0];
   if (!latest) {
-    return undefined;
+    return;
   }
   const invitation = await workos.userManagement.resendInvitation(latest.id);
   return invitation.id || latest.id;

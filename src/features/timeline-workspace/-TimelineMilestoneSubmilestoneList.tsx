@@ -74,7 +74,7 @@ export function TimelineMilestoneSubmilestoneList({
 
   const doneCount = submilestones.filter((row) => row.status === "done").length;
   const activeCount = submilestones.filter(
-    (row) => row.status === "in_progress",
+    (row) => row.status === "in_progress"
   ).length;
 
   return (
@@ -98,7 +98,7 @@ export function TimelineMilestoneSubmilestoneList({
           const fallbackSubmilestoneBudgetCents = allocateFallbackBudgetCents(
             fallbackBudgetCents,
             submilestones.length,
-            submilestone.order - 1,
+            submilestone.order - 1
           );
           const budgetCents =
             submilestone.budgetCents ?? fallbackSubmilestoneBudgetCents ?? 0;
@@ -107,7 +107,7 @@ export function TimelineMilestoneSubmilestoneList({
           const canEditDuration = Boolean(onUpdateDuration);
           const durationDays = Math.max(
             1,
-            Math.round(submilestone.durationDays ?? 1),
+            Math.round(submilestone.durationDays ?? 1)
           );
           return (
             <li
@@ -116,12 +116,12 @@ export function TimelineMilestoneSubmilestoneList({
             >
               <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
                 <EditableFilterChip
+                  className="w-full justify-start"
                   Icon={
                     submilestone.status ? (
                       <SubmilestoneStatusIcon status={submilestone.status} />
                     ) : undefined
                   }
-                  className="w-full justify-start"
                   labelKey={submilestone.name}
                   testId={`${testIdPrefix}-chip-${submilestone.key}`}
                   tone={budgetCents <= 0 ? "neutral" : "accent"}
@@ -155,7 +155,7 @@ export function TimelineMilestoneSubmilestoneList({
                         {submilestone.description}
                       </p>
                     ) : null}
-                    {submilestone.durationDays !== undefined ? (
+                    {submilestone.durationDays === undefined ? null : (
                       <EditableNumberChip
                         ariaLabel={`${submilestone.name} duration`}
                         className={
@@ -170,7 +170,7 @@ export function TimelineMilestoneSubmilestoneList({
                         onCommit={(value) =>
                           onUpdateDuration?.(
                             submilestone.key,
-                            Math.max(1, Math.round(value)),
+                            Math.max(1, Math.round(value))
                           )
                         }
                         reserveWidth="4.8rem"
@@ -180,7 +180,7 @@ export function TimelineMilestoneSubmilestoneList({
                         value={durationDays}
                         weight="medium"
                       />
-                    ) : null}
+                    )}
                   </div>
                 ) : null}
               </div>
@@ -195,7 +195,7 @@ export function TimelineMilestoneSubmilestoneList({
 function allocateFallbackBudgetCents(
   totalCents: number | undefined,
   count: number,
-  index: number,
+  index: number
 ) {
   if (totalCents === undefined || count <= 0 || index < 0) {
     return;

@@ -6,7 +6,6 @@ import {
   normalizeRoleSlugs,
 } from "./authz";
 import { publicMutation } from "./fluent";
-import type { Id } from "./types";
 import {
   assertCanManageSession,
   assertParticipantCanEdit,
@@ -37,6 +36,7 @@ import {
   upsertSessionParticipant,
   writeCollaborationAuditEvent,
 } from "./proposal_collaboration_model";
+import type { Id } from "./types";
 
 const collaborationPermission = v.union(v.literal("view"), v.literal("edit"));
 
@@ -211,7 +211,7 @@ export const inviteParticipant = authenticatedMutation
       sessionId: args.sessionId,
       workosOrganizationId: args.workosOrganizationId,
     });
-    if (!args.targetWorkosUserId && !args.inviteEmail?.trim()) {
+    if (!(args.targetWorkosUserId || args.inviteEmail?.trim())) {
       throw new Error("An invite target is required.");
     }
     let participantId: Id<"proposalCollaborationParticipants">;
@@ -224,7 +224,10 @@ export const inviteParticipant = authenticatedMutation
       const roles = normalizeRoleSlugs(membership.roleSlugs);
       const participant = await upsertSessionParticipant(ctx, {
         authRoles: roles,
-        displayName: await displayNameForWorkosUser(ctx, args.targetWorkosUserId),
+        displayName: await displayNameForWorkosUser(
+          ctx,
+          args.targetWorkosUserId
+        ),
         invitedByWorkosUserId: auth.subject,
         permission: args.permission,
         session,
@@ -256,14 +259,17 @@ export const inviteParticipant = authenticatedMutation
         await ctx.db.patch(existing._id, patch);
         participantId = existing._id;
       } else {
-        participantId = await ctx.db.insert("proposalCollaborationParticipants", {
-          ...patch,
-          brokerageId: session.brokerageId,
-          createdAt: now,
-          organizationId: session.organizationId,
-          proposalId: session.proposalId,
-          sessionId: session._id,
-        });
+        participantId = await ctx.db.insert(
+          "proposalCollaborationParticipants",
+          {
+            ...patch,
+            brokerageId: session.brokerageId,
+            createdAt: now,
+            organizationId: session.organizationId,
+            proposalId: session.proposalId,
+            sessionId: session._id,
+          }
+        );
       }
     }
     await writeCollaborationAuditEvent(ctx, {
@@ -372,7 +378,10 @@ export const stopSession = authenticatedMutation
       command: "stopSession",
       eventType: "proposal.collaboration.stopped",
       newState: JSON.stringify({ sessionId: session._id, status: "inactive" }),
-      priorState: JSON.stringify({ sessionId: session._id, status: session.status }),
+      priorState: JSON.stringify({
+        sessionId: session._id,
+        status: session.status,
+      }),
       proposal: auth.proposal,
       reason: args.reason,
     });
@@ -409,7 +418,9 @@ export const getSession = authenticatedQuery
       participantRows
         .sort((a, b) => a.createdAt - b.createdAt)
         .map(async (participant) => {
-          if (!(session.initiatorSide === "broker" && participant.workosUserId)) {
+          if (
+            !(session.initiatorSide === "broker" && participant.workosUserId)
+          ) {
             return { ...participant, assignableBuilderProfileId: null };
           }
           try {
@@ -469,7 +480,9 @@ export const assignSessionToBuilder = authenticatedMutation
       workosOrganizationId: args.workosOrganizationId,
     });
     if (session.initiatorSide !== "broker") {
-      throw new Error("Assign-to-builder is only available for broker sessions.");
+      throw new Error(
+        "Assign-to-builder is only available for broker sessions."
+      );
     }
     const participant = await getParticipantForUser(
       ctx,
@@ -636,15 +649,16 @@ export const presenceHeartbeat = authenticatedMutation
       sessionToken: v.string(),
     })
   )
-  .handler(async (ctx, args) => {
-    return await heartbeatPresence(ctx, {
-      interval: args.interval,
-      roomId: args.roomId,
-      sessionId: args.sessionId,
-      userId: args.userId,
-      workosUserId: ctx.viewer.subject,
-    });
-  })
+  .handler(
+    async (ctx, args) =>
+      await heartbeatPresence(ctx, {
+        interval: args.interval,
+        roomId: args.roomId,
+        sessionId: args.sessionId,
+        userId: args.userId,
+        workosUserId: ctx.viewer.subject,
+      })
+  )
   .public();
 
 export const listPresence = authenticatedQuery
@@ -682,7 +696,9 @@ export const updatePresenceData = authenticatedMutation
 export const presenceDisconnect = publicMutation
   .input({ sessionToken: v.string() })
   .returns(v.null())
-  .handler(async (ctx, args) => await disconnectPresence(ctx, args.sessionToken))
+  .handler(
+    async (ctx, args) => await disconnectPresence(ctx, args.sessionToken)
+  )
   .public();
 
 async function authorizeSessionManager(
@@ -770,7 +786,8 @@ async function updateUserParticipantPermission(
   return await upsertSessionParticipant(ctx, {
     authRoles: roles,
     displayName: await displayNameForWorkosUser(ctx, input.targetWorkosUserId),
-    invitedByWorkosUserId: input.prior?.invitedByWorkosUserId ?? input.authSubject,
+    invitedByWorkosUserId:
+      input.prior?.invitedByWorkosUserId ?? input.authSubject,
     permission: input.permission,
     session: input.session,
     source: input.prior?.source ?? "invite",

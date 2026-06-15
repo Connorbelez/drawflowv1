@@ -5,7 +5,7 @@ const demoTimelineStatusValidator = v.union(
   v.literal("complete"),
   v.literal("ready"),
   v.literal("review"),
-  v.literal("upcoming"),
+  v.literal("upcoming")
 );
 
 const demoTimelineIconValidator = v.union(
@@ -19,7 +19,7 @@ const demoTimelineIconValidator = v.union(
   v.literal("kitchen"),
   v.literal("plumbing"),
   v.literal("roofing"),
-  v.literal("roughIn"),
+  v.literal("roughIn")
 );
 
 const demoTimelineToneValidator = v.optional(
@@ -28,14 +28,14 @@ const demoTimelineToneValidator = v.optional(
     v.literal("blocked"),
     v.literal("complete"),
     v.literal("upcoming"),
-    v.literal("warning"),
-  ),
+    v.literal("warning")
+  )
 );
 
 const demoTimelineSnapshotSubmilestoneStatusValidator = v.union(
   v.literal("todo"),
   v.literal("in_progress"),
-  v.literal("done"),
+  v.literal("done")
 );
 
 const demoTimelineSnapshotSubmilestoneValidator = v.object({
@@ -63,7 +63,7 @@ const demoTimelineMilestoneDataValidator = v.object({
       qualityNote: v.optional(v.string()),
       qualityRating: v.optional(v.number()),
       submittedAt: v.string(),
-    }),
+    })
   ),
   completionPaymentAmount: v.optional(v.number()),
   completionReview: v.optional(
@@ -80,10 +80,10 @@ const demoTimelineMilestoneDataValidator = v.object({
           tokenExpiresAt: v.optional(v.number()),
           url: v.optional(v.string()),
           visitId: v.optional(v.string()),
-        }),
+        })
       ),
       status: v.union(v.literal("approved"), v.literal("revisionRequested")),
-    }),
+    })
   ),
   draw: v.string(),
   drawAvailabilityAmount: v.optional(v.number()),
@@ -101,9 +101,9 @@ const demoTimelineMilestoneDataValidator = v.object({
           previewUrl: v.optional(v.string()),
           size: v.number(),
           tag: v.string(),
-        }),
+        })
       ),
-    }),
+    })
   ),
   icon: demoTimelineIconValidator,
   initialPaymentAmount: v.optional(v.number()),
@@ -113,7 +113,7 @@ const demoTimelineMilestoneDataValidator = v.object({
   status: demoTimelineStatusValidator,
   subMilestones: v.optional(v.array(v.string())),
   submilestoneDetails: v.optional(
-    v.array(demoTimelineSnapshotSubmilestoneValidator),
+    v.array(demoTimelineSnapshotSubmilestoneValidator)
   ),
 });
 
@@ -142,8 +142,8 @@ const demoTimelineDrawValidator = v.object({
       v.literal("draft"),
       v.literal("requested"),
       v.literal("approved"),
-      v.literal("rejected"),
-    ),
+      v.literal("rejected")
+    )
   ),
   reviewedAt: v.optional(v.string()),
   requestedAt: v.optional(v.string()),
@@ -173,31 +173,31 @@ const demoTimelinePlanStatusValidator = v.union(
   v.literal("draft"),
   v.literal("submitted"),
   v.literal("approved"),
-  v.literal("archived"),
+  v.literal("archived")
 );
 
 const demoTimelineDrawStatusValidator = v.union(
   v.literal("draft"),
   v.literal("requested"),
   v.literal("approved"),
-  v.literal("rejected"),
+  v.literal("rejected")
 );
 
 const demoTimelineCapitalEventKindValidator = v.union(
   v.literal("cost"),
-  v.literal("cashInfusion"),
+  v.literal("cashInfusion")
 );
 
 const demoTimelineModificationRequestTypeValidator = v.union(
   v.literal("createMilestone"),
   v.literal("deleteMilestone"),
-  v.literal("updateMilestoneBudget"),
+  v.literal("updateMilestoneBudget")
 );
 
 const demoTimelineModificationRequestStatusValidator = v.union(
   v.literal("requested"),
   v.literal("approved"),
-  v.literal("rejected"),
+  v.literal("rejected")
 );
 
 const demoTimelineSiteVisitStatusValidator = v.union(
@@ -205,12 +205,12 @@ const demoTimelineSiteVisitStatusValidator = v.union(
   v.literal("in_progress"),
   v.literal("complete"),
   v.literal("expired"),
-  v.literal("superseded"),
+  v.literal("superseded")
 );
 
 const demoSiteVisitGuidanceKindValidator = v.union(
   v.literal("whatToVerify"),
-  v.literal("cameraAngle"),
+  v.literal("cameraAngle")
 );
 
 const demoTimelineSubmilestoneSnapshotValidator = v.object({
@@ -221,7 +221,7 @@ const demoTimelineSubmilestoneSnapshotValidator = v.object({
   name: v.string(),
   order: v.number(),
   status: v.optional(
-    v.union(v.literal("todo"), v.literal("in_progress"), v.literal("done")),
+    v.union(v.literal("todo"), v.literal("in_progress"), v.literal("done"))
   ),
 });
 
@@ -229,32 +229,32 @@ const productionProposalStatusValidator = v.union(
   v.literal("draft"),
   v.literal("submitted"),
   v.literal("approved"),
-  v.literal("closed"),
+  v.literal("closed")
 );
 
 const productionReviewOutcomeValidator = v.union(
   v.literal("none"),
   v.literal("requested_changes"),
   v.literal("rejected"),
-  v.literal("approved"),
+  v.literal("approved")
 );
 
 const productionDocumentTypeValidator = v.union(
   v.literal("permit"),
   v.literal("budget"),
   v.literal("plan"),
-  v.literal("supporting"),
+  v.literal("supporting")
 );
 
 const productionDocumentStatusValidator = v.union(
   v.literal("uploaded"),
   v.literal("linked"),
-  v.literal("waived"),
+  v.literal("waived")
 );
 
 const siteVisitGuidanceFieldValidator = v.union(
   v.string(),
-  v.array(v.string()),
+  v.array(v.string())
 );
 
 const siteVisitGuidanceValidator = v.object({
@@ -264,12 +264,12 @@ const siteVisitGuidanceValidator = v.object({
 
 const richTextFormatValidator = v.union(
   v.literal("plain_text"),
-  v.literal("html"),
+  v.literal("html")
 );
 
 const productionBuildStatusValidator = v.union(
   v.literal("active"),
-  v.literal("future_start"),
+  v.literal("future_start")
 );
 
 const productionBuildDrawStatusValidator = v.union(
@@ -277,47 +277,47 @@ const productionBuildDrawStatusValidator = v.union(
   v.literal("requested"),
   v.literal("approved"),
   v.literal("rejected"),
-  v.literal("released"),
+  v.literal("released")
 );
 
 const contractorKindValidator = v.union(
   v.literal("company"),
-  v.literal("individual"),
+  v.literal("individual")
 );
 
 const contractorPayRateUnitValidator = v.union(
   v.literal("hour"),
   v.literal("day"),
-  v.literal("fixed"),
+  v.literal("fixed")
 );
 
 const contractorOnboardingStatusValidator = v.union(
   v.literal("profile_only"),
   v.literal("invited"),
-  v.literal("account_linked"),
+  v.literal("account_linked")
 );
 
 const milestoneContractorAssignmentStatusValidator = v.union(
   v.literal("planned"),
   v.literal("active"),
   v.literal("completed"),
-  v.literal("removed"),
+  v.literal("removed")
 );
 
 const contractorQualityRatingSourceValidator = v.union(
   v.literal("builder_evidence"),
   v.literal("site_visit"),
-  v.literal("backoffice"),
+  v.literal("backoffice")
 );
 
 const productionCostItemTypeValidator = v.union(
   v.literal("material"),
-  v.literal("equipment"),
+  v.literal("equipment")
 );
 
 const builderStaffPermissionScopeValidator = v.union(
   v.literal("proposal"),
-  v.literal("activeBuild"),
+  v.literal("activeBuild")
 );
 
 const builderStaffPermissionResourceValidator = v.union(
@@ -328,40 +328,40 @@ const builderStaffPermissionResourceValidator = v.union(
   v.literal("contractor"),
   v.literal("material"),
   v.literal("capitalEvent"),
-  v.literal("reminder"),
+  v.literal("reminder")
 );
 
 const productionOutboxStatusValidator = v.union(
   v.literal("pending"),
   v.literal("processed"),
-  v.literal("failed"),
+  v.literal("failed")
 );
 
 const proposalCollaborationSessionStatusValidator = v.union(
   v.literal("active"),
-  v.literal("inactive"),
+  v.literal("inactive")
 );
 
 const proposalCollaborationInitiatorSideValidator = v.union(
   v.literal("broker"),
-  v.literal("builder"),
+  v.literal("builder")
 );
 
 const proposalCollaborationPermissionValidator = v.union(
   v.literal("view"),
-  v.literal("edit"),
+  v.literal("edit")
 );
 
 const proposalCollaborationParticipantStatusValidator = v.union(
   v.literal("invited"),
   v.literal("joined"),
-  v.literal("revoked"),
+  v.literal("revoked")
 );
 
 const proposalCollaborationParticipantSourceValidator = v.union(
   v.literal("creator"),
   v.literal("share-link"),
-  v.literal("invite"),
+  v.literal("invite")
 );
 
 export default defineSchema({
@@ -393,7 +393,7 @@ export default defineSchema({
         openWarnings: v.optional(v.number()),
         percentComplete: v.optional(v.number()),
         siteVisitsOpen: v.optional(v.number()),
-      }),
+      })
     ),
     borrowerCoPayBps: v.optional(v.number()),
     borrowerCoPayCents: v.optional(v.number()),
@@ -480,7 +480,7 @@ export default defineSchema({
     frozenAt: v.optional(v.number()),
     milestoneId: v.union(
       v.id("demo_milestones"),
-      v.id("demo_timelineMilestones"),
+      v.id("demo_timelineMilestones")
     ),
     milestoneKey: v.string(),
     reviewStatus: v.string(),
@@ -592,7 +592,7 @@ export default defineSchema({
     createdAt: v.number(),
     milestoneId: v.union(
       v.id("demo_milestones"),
-      v.id("demo_timelineMilestones"),
+      v.id("demo_timelineMilestones")
     ),
     milestoneKey: v.string(),
     notes: v.string(),
@@ -605,7 +605,7 @@ export default defineSchema({
     createdAt: v.number(),
     milestoneId: v.union(
       v.id("demo_milestones"),
-      v.id("demo_timelineMilestones"),
+      v.id("demo_timelineMilestones")
     ),
     milestoneKey: v.string(),
     originalApprovedCents: v.number(),
@@ -623,7 +623,7 @@ export default defineSchema({
     createdAt: v.number(),
     milestoneId: v.union(
       v.id("demo_milestones"),
-      v.id("demo_timelineMilestones"),
+      v.id("demo_timelineMilestones")
     ),
     milestoneKey: v.string(),
     notes: v.optional(v.string()),
@@ -646,7 +646,7 @@ export default defineSchema({
     createdAt: v.number(),
     milestoneId: v.union(
       v.id("demo_milestones"),
-      v.id("demo_timelineMilestones"),
+      v.id("demo_timelineMilestones")
     ),
     milestoneKey: v.string(),
     milestoneName: v.string(),
@@ -721,7 +721,7 @@ export default defineSchema({
         name: v.string(),
         percentageBps: v.number(),
         type: v.string(),
-      }),
+      })
     ),
     orgKey: v.string(),
     seedVersion: v.number(),
@@ -1212,7 +1212,7 @@ export default defineSchema({
     status: v.union(
       v.literal("active"),
       v.literal("disabled"),
-      v.literal("expired"),
+      v.literal("expired")
     ),
     updatedAt: v.number(),
   })
@@ -1247,7 +1247,7 @@ export default defineSchema({
     orgKey: v.optional(v.string()),
     scenario: v.string(),
     sourceTimelineCapitalEventId: v.optional(
-      v.id("demo_timelineCapitalEvents"),
+      v.id("demo_timelineCapitalEvents")
     ),
     updatedAt: v.number(),
   })
@@ -1330,7 +1330,7 @@ export default defineSchema({
     status: v.union(
       v.literal("todo"),
       v.literal("in_progress"),
-      v.literal("done"),
+      v.literal("done")
     ),
     budgetCents: v.optional(v.number()),
     durationDays: v.optional(v.number()),
@@ -1489,7 +1489,7 @@ export default defineSchema({
     status: v.union(
       v.literal("suggested"),
       v.literal("verified"),
-      v.literal("rejected"),
+      v.literal("rejected")
     ),
     confidence: v.optional(v.number()),
     reason: v.optional(v.string()),
@@ -1833,8 +1833,8 @@ export default defineSchema({
         v.literal("draft"),
         v.literal("requested"),
         v.literal("approved"),
-        v.literal("rejected"),
-      ),
+        v.literal("rejected")
+      )
     ),
     requestedAt: v.optional(v.string()),
     reviewedAt: v.optional(v.string()),
@@ -1893,7 +1893,7 @@ export default defineSchema({
     requestType: v.union(
       v.literal("createMilestone"),
       v.literal("deleteMilestone"),
-      v.literal("updateMilestoneBudget"),
+      v.literal("updateMilestoneBudget")
     ),
     reviewNote: v.optional(v.string()),
     reviewedAt: v.optional(v.number()),
@@ -1902,7 +1902,7 @@ export default defineSchema({
     status: v.union(
       v.literal("requested"),
       v.literal("approved"),
-      v.literal("rejected"),
+      v.literal("rejected")
     ),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -1940,7 +1940,7 @@ export default defineSchema({
     status: v.union(
       v.literal("active"),
       v.literal("claimed"),
-      v.literal("revoked"),
+      v.literal("revoked")
     ),
     createdByWorkosUserId: v.string(),
     claimedByWorkosUserId: v.optional(v.string()),
@@ -2052,7 +2052,7 @@ export default defineSchema({
       v.literal("week"),
       v.literal("month"),
       v.literal("quarter"),
-      v.literal("agenda"),
+      v.literal("agenda")
     ),
     updatedAt: v.number(),
     viewKey: v.string(),
@@ -2068,7 +2068,7 @@ export default defineSchema({
       v.literal("evidenceDue"),
       v.literal("reviewTarget"),
       v.literal("adminDecisionTarget"),
-      v.literal("drawReleaseTarget"),
+      v.literal("drawReleaseTarget")
     ),
     drawKey: v.optional(v.string()),
     entityKey: v.string(),
@@ -2096,11 +2096,11 @@ export default defineSchema({
           v.literal("workosUser"),
           v.literal("builderProfile"),
           v.literal("contractorProfile"),
-          v.literal("externalEmail"),
+          v.literal("externalEmail")
         ),
         role: v.optional(v.string()),
         workosUserId: v.optional(v.string()),
-      }),
+      })
     ),
     brokerageId: v.id("brokerages"),
     createdAt: v.number(),
@@ -2109,7 +2109,7 @@ export default defineSchema({
     endsAt: v.optional(v.string()),
     externalEventId: v.optional(v.string()),
     externalProvider: v.optional(
-      v.union(v.literal("google"), v.literal("outlook"), v.literal("ics")),
+      v.union(v.literal("google"), v.literal("outlook"), v.literal("ics"))
     ),
     location: v.optional(v.string()),
     organizationId: v.string(),
@@ -2138,14 +2138,14 @@ export default defineSchema({
     provider: v.union(
       v.literal("ics"),
       v.literal("google"),
-      v.literal("outlook"),
+      v.literal("outlook")
     ),
     sourceBuildId: v.optional(v.id("activeBuilds")),
     sourceProposalId: v.optional(v.id("buildProposals")),
     status: v.union(
       v.literal("active"),
       v.literal("paused"),
-      v.literal("revoked"),
+      v.literal("revoked")
     ),
     subscriptionKey: v.string(),
     surface: v.union(v.literal("proposal"), v.literal("activeBuild")),
@@ -2164,12 +2164,12 @@ export default defineSchema({
     provider: v.union(
       v.literal("ics"),
       v.literal("google"),
-      v.literal("outlook"),
+      v.literal("outlook")
     ),
     status: v.union(
       v.literal("pendingReview"),
       v.literal("applied"),
-      v.literal("rejected"),
+      v.literal("rejected")
     ),
     subscriptionId: v.optional(v.id("calendarSyncSubscriptions")),
     updatedAt: v.number(),
@@ -2217,7 +2217,7 @@ export default defineSchema({
       v.literal("user"),
       v.literal("assistant"),
       v.literal("system"),
-      v.literal("tool"),
+      v.literal("tool")
     ),
     threadId: v.id("assistantThreads"),
   })
@@ -2241,7 +2241,7 @@ export default defineSchema({
       v.literal("preview"),
       v.literal("committed"),
       v.literal("failed"),
-      v.literal("cancelled"),
+      v.literal("cancelled")
     ),
     threadId: v.optional(v.id("assistantThreads")),
     updatedAt: v.number(),
@@ -2263,7 +2263,7 @@ export default defineSchema({
       v.literal("running"),
       v.literal("needs_input"),
       v.literal("succeeded"),
-      v.literal("failed"),
+      v.literal("failed")
     ),
     threadId: v.id("assistantThreads"),
   })
@@ -2294,7 +2294,7 @@ export default defineSchema({
         activeMilestoneKey: v.optional(v.string()),
         selectedPanelOpen: v.boolean(),
         straightLine: v.boolean(),
-      }),
+      })
     ),
     timelineMinimumCashReserveCents: v.optional(v.number()),
     timelineStartingCashCents: v.optional(v.number()),
@@ -2478,7 +2478,7 @@ export default defineSchema({
     requestedPayload: v.any(),
     requestType: v.union(
       v.literal("principalIncrease"),
-      v.literal("paybackExtension"),
+      v.literal("paybackExtension")
     ),
     reviewNote: v.optional(v.string()),
     reviewedAt: v.optional(v.number()),
@@ -2487,7 +2487,7 @@ export default defineSchema({
     status: v.union(
       v.literal("requested"),
       v.literal("approved"),
-      v.literal("rejected"),
+      v.literal("rejected")
     ),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -2520,7 +2520,7 @@ export default defineSchema({
     status: v.union(
       v.literal("planned"),
       v.literal("in_progress"),
-      v.literal("complete"),
+      v.literal("complete")
     ),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -2544,7 +2544,7 @@ export default defineSchema({
     status: v.union(
       v.literal("planned"),
       v.literal("in_progress"),
-      v.literal("complete"),
+      v.literal("complete")
     ),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -2612,7 +2612,7 @@ export default defineSchema({
     status: v.union(
       v.literal("requested"),
       v.literal("complete"),
-      v.literal("cancelled"),
+      v.literal("cancelled")
     ),
     requestedDay: v.number(),
     requestedAt: v.string(),
@@ -2639,7 +2639,7 @@ export default defineSchema({
     eventType: v.union(
       v.literal("borrower_copay"),
       v.literal("draw_release"),
-      v.literal("cost"),
+      v.literal("cost")
     ),
     label: v.string(),
     amountCents: v.number(),
@@ -2692,7 +2692,7 @@ export default defineSchema({
       v.literal("active"),
       v.literal("inactive"),
       v.literal("pending"),
-      v.literal("deleted"),
+      v.literal("deleted")
     ),
     roleSlug: v.optional(v.string()),
     roleSlugs: v.array(v.string()),
@@ -2752,7 +2752,7 @@ export default defineSchema({
       v.literal("processing"),
       v.literal("processed"),
       v.literal("failed"),
-      v.literal("skipped"),
+      v.literal("skipped")
     ),
     processedAt: v.optional(v.number()),
     error: v.optional(v.string()),

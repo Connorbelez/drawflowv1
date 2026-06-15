@@ -216,16 +216,13 @@ function geocodeGoogleAddressSuggestion(
   const geocoder = new geocoderCtor();
 
   return new Promise((resolve, reject) => {
-    geocoder.geocode(
-      { placeId: suggestion.placeId },
-      (results, status) => {
-        if (status !== okStatus) {
-          reject(new Error(`Google geocoding failed: ${status}`));
-          return;
-        }
-        resolve(normalizePlaceDetails(results?.[0] ?? null, suggestion));
+    geocoder.geocode({ placeId: suggestion.placeId }, (results, status) => {
+      if (status !== okStatus) {
+        reject(new Error(`Google geocoding failed: ${status}`));
+        return;
       }
-    );
+      resolve(normalizePlaceDetails(results?.[0] ?? null, suggestion));
+    });
   });
 }
 

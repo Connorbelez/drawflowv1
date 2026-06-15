@@ -53,9 +53,13 @@ export const convertEvidenceImagePreview = publicAction
   .internal();
 
 function isAllowedConvexStorageUrl(url: URL) {
-  if (url.protocol !== "https:") return false;
-  if (!url.pathname.includes("/api/storage/")) return false;
+  if (url.protocol !== "https:") {
+    return false;
+  }
+  if (!url.pathname.includes("/api/storage/")) {
+    return false;
+  }
   return ALLOWED_CONVEX_STORAGE_HOST_SUFFIXES.some((suffix) =>
-    url.hostname.endsWith(suffix),
+    url.hostname.endsWith(suffix)
   );
 }

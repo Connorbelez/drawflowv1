@@ -20,11 +20,14 @@ export const Route = createFileRoute("/backoffice/site-visits")({
 function RouteComponent() {
   const context = Route.useRouteContext();
   const workosOrganizationId = context.organizationId as string;
-  const siteVisits = useQuery(api.production_proposals.listBrokerageSiteVisits, {
-    workosOrganizationId,
-  }) as BrokerageSiteVisitsResult | undefined;
+  const siteVisits = useQuery(
+    api.production_proposals.listBrokerageSiteVisits,
+    {
+      workosOrganizationId,
+    }
+  ) as BrokerageSiteVisitsResult | undefined;
   const cancelSiteVisit = useMutation(
-    api.production_proposals.cancelActiveBuildSiteVisit,
+    api.production_proposals.cancelActiveBuildSiteVisit
   );
 
   const onCancelVisit = useCallback(
@@ -36,7 +39,7 @@ function RouteComponent() {
         workosOrganizationId,
       });
     },
-    [cancelSiteVisit, workosOrganizationId],
+    [cancelSiteVisit, workosOrganizationId]
   );
 
   return (

@@ -94,14 +94,14 @@ export function validateIncludedSiteVisitMilestones({
     }
     if (index > selectedIndex) {
       throw new Error(
-        "Site visit can only include current and previous milestones",
+        "Site visit can only include current and previous milestones"
       );
     }
   }
 
   return uniqueKeys.sort(
     (left, right) =>
-      milestoneOrder.indexOf(left) - milestoneOrder.indexOf(right),
+      milestoneOrder.indexOf(left) - milestoneOrder.indexOf(right)
   );
 }
 

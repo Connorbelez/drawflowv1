@@ -1,23 +1,35 @@
 "use client";
 
+import { EventType } from "@ag-ui/core";
 import {
   AssistantRuntimeProvider,
+  type ChatModelAdapter,
   ComposerPrimitive,
   MessagePartPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
   useLocalRuntime,
-  type ChatModelAdapter,
 } from "@assistant-ui/react";
-import { EventType } from "@ag-ui/core";
 import { useAction, useMutation } from "convex/react";
-import { Bot, Check, GitPullRequestArrow, Send, Sparkles, X } from "lucide-react";
+import {
+  Bot,
+  Check,
+  GitPullRequestArrow,
+  Send,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api } from "../../../convex/_generated/api";
 import { Button } from "#/components/ui/button.tsx";
-import { Card, CardHeader, CardPanel, CardTitle } from "#/components/ui/card.tsx";
+import {
+  Card,
+  CardHeader,
+  CardPanel,
+  CardTitle,
+} from "#/components/ui/card.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { cn } from "#/lib/utils.ts";
+import { api } from "../../../convex/_generated/api";
 import type { DrawFlowAssistantRouteContext } from "./assistantRouteContext.ts";
 
 type DrawFlowAssistantProps = {
@@ -51,7 +63,9 @@ const EXAMPLE_PREVIEW_ITEMS: PreviewItem[] = [
     entityLabel: "Second milestone",
     entityType: "proposalMilestone",
     status: "preview",
-    validation: { warnings: ["Revalidates against current route state before commit."] },
+    validation: {
+      warnings: ["Revalidates against current route state before commit."],
+    },
   },
   {
     actionKey: "create_proposal_planned_draw",
@@ -74,20 +88,20 @@ export function DrawFlowAssistant({
   const [planId, setPlanId] = useState<string | null>(null);
   const [commitMessage, setCommitMessage] = useState<string | null>(null);
   const [previewItems, setPreviewItems] = useState<PreviewItem[]>(
-    EXAMPLE_PREVIEW_ITEMS,
+    EXAMPLE_PREVIEW_ITEMS
   );
   const ensureThread = useMutation((api as any).assistant.ensureThread);
   const createActionPlan = useMutation((api as any).assistant.createActionPlan);
   const commitActionPlan = useMutation((api as any).assistant.commitActionPlan);
   const createNavigationTrace = useMutation(
-    (api as any).assistant.createNavigationTrace,
+    (api as any).assistant.createNavigationTrace
   );
   const recordTrace = useMutation((api as any).assistant.recordTraceEvent);
   const providerStatus = useAction((api as any).assistant.getProviderStatus);
   const runAssistantTurn = useAction((api as any).assistant.runAssistantTurn);
 
   useEffect(() => {
-    if (!open || !routeContext.organizationId) {
+    if (!(open && routeContext.organizationId)) {
       return;
     }
     let cancelled = false;
@@ -113,7 +127,7 @@ export function DrawFlowAssistant({
         const organizationId = routeContext.organizationId;
         if (!organizationId) {
           return assistantText(
-            "Sign in to a WorkOS organization before using the DrawFlow assistant.",
+            "Sign in to a WorkOS organization before using the DrawFlow assistant."
           );
         }
         const status = await providerStatus({});
@@ -131,7 +145,7 @@ export function DrawFlowAssistant({
         }
         if (status.readOnly) {
           return assistantText(
-            "Model-backed actions are unavailable because OPENAI_API_KEY or OPENROUTER_API_KEY is missing on the server. I can still help explain this route and show the HITL action preview pattern.",
+            "Model-backed actions are unavailable because OPENAI_API_KEY or OPENROUTER_API_KEY is missing on the server. I can still help explain this route and show the HITL action preview pattern."
           );
         }
         const readonlyAction = buildReadonlyClientAction(prompt, routeContext);
@@ -150,7 +164,7 @@ export function DrawFlowAssistant({
           window.dispatchEvent(
             new CustomEvent("drawflow-assistant:readonly-action", {
               detail: readonlyAction,
-            }),
+            })
           );
           return assistantText(readonlyAction.message);
         }
@@ -187,7 +201,7 @@ export function DrawFlowAssistant({
       routeContext,
       runAssistantTurn,
       threadId,
-    ],
+    ]
   );
 
   const runtime = useLocalRuntime(modelAdapter);
@@ -196,11 +210,11 @@ export function DrawFlowAssistant({
     (clientRequestId: string, status: "accepted" | "rejected") => {
       setPreviewItems((items) =>
         items.map((item) =>
-          item.clientRequestId === clientRequestId ? { ...item, status } : item,
-        ),
+          item.clientRequestId === clientRequestId ? { ...item, status } : item
+        )
       );
     },
-    [],
+    []
   );
   const handlePreviewAfterChange = useCallback(
     (clientRequestId: string, value: string) => {
@@ -208,23 +222,31 @@ export function DrawFlowAssistant({
         items.map((item) =>
           item.clientRequestId === clientRequestId
             ? { ...item, after: parsePreviewValue(value), status: "edited" }
-            : item,
-        ),
+            : item
+        )
       );
     },
-    [],
+    []
   );
   const handleCommitAccepted = useCallback(async () => {
     if (!routeContext.organizationId) {
-      setCommitMessage("Join an organization before confirming assistant actions.");
+      setCommitMessage(
+        "Join an organization before confirming assistant actions."
+      );
       return;
     }
     if (!planId) {
-      setCommitMessage("Ask the assistant to prepare a persisted action batch first.");
+      setCommitMessage(
+        "Ask the assistant to prepare a persisted action batch first."
+      );
       return;
     }
-    const acceptedItems = previewItems.filter((item) => item.status !== "rejected");
-    const rejectedItems = previewItems.filter((item) => item.status === "rejected");
+    const acceptedItems = previewItems.filter(
+      (item) => item.status !== "rejected"
+    );
+    const rejectedItems = previewItems.filter(
+      (item) => item.status === "rejected"
+    );
     const editedInputs: Record<string, Record<string, unknown>> = {};
     for (const item of acceptedItems) {
       if (item.status !== "edited") {
@@ -232,25 +254,29 @@ export function DrawFlowAssistant({
       }
       if (!isRecord(item.after)) {
         setCommitMessage(
-          `Fix ${item.entityLabel}: edited after value must be a JSON object.`,
+          `Fix ${item.entityLabel}: edited after value must be a JSON object.`
         );
         return;
       }
       editedInputs[item.clientRequestId] = item.after;
     }
     const outcome = await commitActionPlan({
-      acceptedClientRequestIds: acceptedItems.map((item) => item.clientRequestId),
+      acceptedClientRequestIds: acceptedItems.map(
+        (item) => item.clientRequestId
+      ),
       editedInputs,
       planId,
-      rejectedClientRequestIds: rejectedItems.map((item) => item.clientRequestId),
+      rejectedClientRequestIds: rejectedItems.map(
+        (item) => item.clientRequestId
+      ),
       workosOrganizationId: routeContext.organizationId,
     });
     if (outcome?.ok) {
       setCommitMessage("Accepted assistant batch committed.");
       setPreviewItems((items) =>
         items.map((item) =>
-          item.status === "rejected" ? item : { ...item, status: "accepted" },
-        ),
+          item.status === "rejected" ? item : { ...item, status: "accepted" }
+        )
       );
       return;
     }
@@ -266,8 +292,8 @@ export function DrawFlowAssistant({
                   warnings: item.validation?.warnings ?? [],
                 },
               }
-            : item,
-        ),
+            : item
+        )
       );
     }
   }, [commitActionPlan, planId, previewItems, routeContext.organizationId]);
@@ -303,7 +329,7 @@ export function DrawFlowAssistant({
           aria-modal="false"
           className={cn(
             "fixed right-0 bottom-0 z-50 flex h-[100svh] w-full max-w-full flex-col border-l bg-background text-foreground shadow-2xl outline-none",
-            "sm:right-4 sm:bottom-4 sm:h-[min(760px,calc(100svh-2rem))] sm:w-[480px] sm:rounded-xl sm:border",
+            "sm:right-4 sm:bottom-4 sm:h-[min(760px,calc(100svh-2rem))] sm:w-[480px] sm:rounded-xl sm:border"
           )}
           data-testid="drawflow-assistant-surface"
           role="dialog"
@@ -354,7 +380,11 @@ export function DrawFlowAssistant({
               </ThreadPrimitive.Empty>
               <ThreadPrimitive.Messages>
                 {({ message }) =>
-                  message.role === "user" ? <UserMessage /> : <AssistantMessage />
+                  message.role === "user" ? (
+                    <UserMessage />
+                  ) : (
+                    <AssistantMessage />
+                  )
                 }
               </ThreadPrimitive.Messages>
               <AssistantPreviewBatch
@@ -428,7 +458,7 @@ function AssistantPreviewBatch({
   onCommitAccepted: () => void;
   onStatusChange: (
     clientRequestId: string,
-    status: "accepted" | "rejected",
+    status: "accepted" | "rejected"
   ) => void;
 }) {
   const accepted = items.filter((item) => item.status !== "rejected").length;
@@ -498,13 +528,15 @@ function AssistantPreviewBatch({
           </div>
         ))}
         <div className="flex items-center justify-between border-t pt-3 text-xs">
-          <span className="text-muted-foreground">{accepted} accepted in batch</span>
+          <span className="text-muted-foreground">
+            {accepted} accepted in batch
+          </span>
           <Button onClick={onCommitAccepted} size="sm" variant="secondary">
             Confirm accepted batch
           </Button>
         </div>
         {commitMessage ? (
-          <p data-testid="assistant-commit-message" className="text-xs">
+          <p className="text-xs" data-testid="assistant-commit-message">
             {commitMessage}
           </p>
         ) : null}
@@ -541,8 +573,12 @@ function EditablePreviewValue({
       <textarea
         aria-label={`Edit ${label.toLowerCase()} value for ${clientRequestId}`}
         className="min-h-16 min-w-0 resize-y rounded border bg-background px-2 py-1 font-mono text-[11px]"
-        onChange={(event) => onChange(clientRequestId, event.currentTarget.value)}
-        value={value === null || value === undefined ? "" : JSON.stringify(value)}
+        onChange={(event) =>
+          onChange(clientRequestId, event.currentTarget.value)
+        }
+        value={
+          value === null || value === undefined ? "" : JSON.stringify(value)
+        }
       />
     </label>
   );
@@ -589,7 +625,7 @@ type PlannedAction = {
 
 function buildClosedCatalogActions(
   prompt: string,
-  routeContext: DrawFlowAssistantRouteContext,
+  routeContext: DrawFlowAssistantRouteContext
 ):
   | { actions: PlannedAction[]; kind: "actions"; message: string }
   | { actions: []; kind: "none"; message?: never }
@@ -706,7 +742,7 @@ function buildClosedCatalogActions(
 
 function buildReadonlyClientAction(
   prompt: string,
-  routeContext: DrawFlowAssistantRouteContext,
+  routeContext: DrawFlowAssistantRouteContext
 ) {
   const normalized = prompt.toLowerCase();
   if (normalized.includes("focus") && routeContext.selectedMilestoneKey) {
@@ -749,7 +785,8 @@ function actionsToPreviewItems(actions: PlannedAction[]): PreviewItem[] {
             : action.actionKey,
       entityType: action.actionKey.includes("draw")
         ? "draw"
-        : action.actionKey.includes("calendar") || action.actionKey.includes("reminder")
+        : action.actionKey.includes("calendar") ||
+            action.actionKey.includes("reminder")
           ? "calendar"
           : "milestone",
       input: action.input,

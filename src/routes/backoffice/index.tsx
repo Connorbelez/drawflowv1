@@ -16,7 +16,6 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronDown,
-  PanelRightClose,
   CircleAlert,
   ClipboardCheck,
   Eye,
@@ -24,6 +23,7 @@ import {
   Filter,
   Loader2,
   MoreHorizontal,
+  PanelRightClose,
   Plus,
   Search,
   Trash2,
@@ -334,10 +334,7 @@ export function BackofficeDashboard({
     proposal: ProposalKanbanCard,
     builderProfileId: string
   ) => Promise<unknown>;
-  onDeleteActiveBuild: (
-    build: ActiveBuild,
-    reason: string
-  ) => Promise<unknown>;
+  onDeleteActiveBuild: (build: ActiveBuild, reason: string) => Promise<unknown>;
   onDeleteDraft: (proposal: ProposalKanbanCard) => Promise<unknown>;
   onOpenUnassignedDrafts: () => Promise<unknown> | unknown;
   onStartNewBuildWorkflow: () => Promise<unknown> | unknown;
@@ -564,10 +561,7 @@ export function ActiveBuildsCard({
   onStartNewBuildWorkflow,
 }: {
   builds: ActiveBuild[];
-  onDeleteActiveBuild: (
-    build: ActiveBuild,
-    reason: string
-  ) => Promise<unknown>;
+  onDeleteActiveBuild: (build: ActiveBuild, reason: string) => Promise<unknown>;
   onOpenUnassignedDrafts: () => Promise<unknown> | unknown;
   onStartNewBuildWorkflow: () => Promise<unknown> | unknown;
 }) {
@@ -864,60 +858,61 @@ export function SubmittedProposalsCard({
   submittedProposals: ProposalKanbanCard[];
 }) {
   const navigate = useNavigate();
-  const [archiveTarget, setArchiveTarget] =
-    useState<ProposalKanbanCard | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<ProposalKanbanCard | null>(
+    null
+  );
   const reviewCount = submittedProposals.length;
   const closingCount = approvedPendingClosing.length;
 
   return (
     <>
-    <Card id="submitted-proposals">
-      <CardHeader className="gap-3 border-b p-4">
-        <CardTitle className="text-base">Submitted Proposals</CardTitle>
-        <CardDescription>
-          Lender-admin review queue and approved proposals pending closing
-        </CardDescription>
-        <CardAction className="row-span-1">
-          <Badge variant={reviewCount + closingCount ? "warning" : "outline"}>
-            {reviewCount} submitted · {closingCount} closing
-          </Badge>
-        </CardAction>
-      </CardHeader>
-      <CardContent className="space-y-0 p-0">
-        <ProposalQueueTable
-          emptyLabel="No submitted proposals are waiting for admin approval."
-          onArchiveRequest={setArchiveTarget}
-          onPrimaryAction={(proposal) => {
-            navigate({
-              params: { planId: proposal.proposalId ?? proposal.id },
-              to: "/backoffice/proposals/$planId",
-            });
-          }}
-          primaryActionLabel="Review"
-          proposals={submittedProposals}
-          showArchive
-          title="Submitted for lender review"
-        />
-        <ProposalQueueTable
-          emptyLabel="No approved proposals are pending closing."
-          onOpenProposal={onOpenProposal}
-          onPrimaryAction={onOpenProposal}
-          onRecordClosing={onRecordClosing}
-          primaryActionLabel="Details"
-          proposals={approvedPendingClosing}
-          title="Approved, pending closing"
-        />
-      </CardContent>
-    </Card>
-    <ArchiveProposalDialog
-      onArchive={onArchiveProposal}
-      onOpenChange={(open) => {
-        if (!open) {
-          setArchiveTarget(null);
-        }
-      }}
-      proposal={archiveTarget}
-    />
+      <Card id="submitted-proposals">
+        <CardHeader className="gap-3 border-b p-4">
+          <CardTitle className="text-base">Submitted Proposals</CardTitle>
+          <CardDescription>
+            Lender-admin review queue and approved proposals pending closing
+          </CardDescription>
+          <CardAction className="row-span-1">
+            <Badge variant={reviewCount + closingCount ? "warning" : "outline"}>
+              {reviewCount} submitted · {closingCount} closing
+            </Badge>
+          </CardAction>
+        </CardHeader>
+        <CardContent className="space-y-0 p-0">
+          <ProposalQueueTable
+            emptyLabel="No submitted proposals are waiting for admin approval."
+            onArchiveRequest={setArchiveTarget}
+            onPrimaryAction={(proposal) => {
+              navigate({
+                params: { planId: proposal.proposalId ?? proposal.id },
+                to: "/backoffice/proposals/$planId",
+              });
+            }}
+            primaryActionLabel="Review"
+            proposals={submittedProposals}
+            showArchive
+            title="Submitted for lender review"
+          />
+          <ProposalQueueTable
+            emptyLabel="No approved proposals are pending closing."
+            onOpenProposal={onOpenProposal}
+            onPrimaryAction={onOpenProposal}
+            onRecordClosing={onRecordClosing}
+            primaryActionLabel="Details"
+            proposals={approvedPendingClosing}
+            title="Approved, pending closing"
+          />
+        </CardContent>
+      </Card>
+      <ArchiveProposalDialog
+        onArchive={onArchiveProposal}
+        onOpenChange={(open) => {
+          if (!open) {
+            setArchiveTarget(null);
+          }
+        }}
+        proposal={archiveTarget}
+      />
     </>
   );
 }
@@ -1551,7 +1546,10 @@ function ProposalContextMenu({
                 </ContextMenuItem>
               ) : null}
               {showDelete ? (
-                <ContextMenuItem onClick={onDeleteRequest} variant="destructive">
+                <ContextMenuItem
+                  onClick={onDeleteRequest}
+                  variant="destructive"
+                >
                   <Trash2 aria-hidden />
                   Delete draft
                 </ContextMenuItem>
@@ -1613,7 +1611,9 @@ function SubmittedProposalContextMenu({
       <ContextMenuTrigger render={children} />
       <ContextMenuContent className="w-56">
         <ContextMenuGroup>
-          <ContextMenuLabel className="truncate">{proposal.name}</ContextMenuLabel>
+          <ContextMenuLabel className="truncate">
+            {proposal.name}
+          </ContextMenuLabel>
           <ContextMenuSeparator />
           <ContextMenuItem onClick={onOpen}>
             <FileText aria-hidden />
@@ -1861,7 +1861,10 @@ export function ArchiveProposalDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="px-6 pb-2">
-          <label className="grid gap-2 text-sm" htmlFor="archive-proposal-reason">
+          <label
+            className="grid gap-2 text-sm"
+            htmlFor="archive-proposal-reason"
+          >
             <span>Archive reason</span>
             <Textarea
               data-testid="archive-proposal-reason"
@@ -1955,7 +1958,10 @@ function DeleteActiveBuildDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="px-6 pb-2">
-          <label className="grid gap-2 text-sm" htmlFor="delete-active-build-reason">
+          <label
+            className="grid gap-2 text-sm"
+            htmlFor="delete-active-build-reason"
+          >
             <span>Delete reason</span>
             <Textarea
               data-testid="delete-active-build-reason"

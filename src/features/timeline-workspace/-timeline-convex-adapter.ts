@@ -1,14 +1,14 @@
 import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
+import {
+  mapSubmilestoneSnapshotRows,
+  type TimelineSubmilestoneSnapshotRow,
+} from "./-timeline-milestone-submilestones.ts";
 import type {
   DemoCapitalSpike,
   DemoDraw,
   DemoMilestone,
   TimelineShareState,
 } from "./-timeline-share-snapshot.ts";
-import {
-  mapSubmilestoneSnapshotRows,
-  type TimelineSubmilestoneSnapshotRow,
-} from "./-timeline-milestone-submilestones.ts";
 
 const statusMap = {
   complete: "complete",

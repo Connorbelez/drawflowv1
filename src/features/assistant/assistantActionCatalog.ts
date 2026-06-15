@@ -46,7 +46,8 @@ export const assistantToolDefinitions = {
     name: "create_proposal_planned_draw",
   }),
   openProposalRoute: toolDefinition({
-    description: "Open a Build Proposal route as an immediate read-only client action.",
+    description:
+      "Open a Build Proposal route as an immediate read-only client action.",
     inputSchema: z.object({ proposalId: idLike }),
     name: "open_proposal_route",
   }),

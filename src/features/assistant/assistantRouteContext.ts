@@ -42,7 +42,10 @@ export function buildAssistantRouteContext({
   userId?: string | null;
 }): DrawFlowAssistantRouteContext {
   const matches = routerState.matches ?? [];
-  const params = Object.assign({}, ...matches.map((match) => match.params ?? {}));
+  const params = Object.assign(
+    {},
+    ...matches.map((match) => match.params ?? {})
+  );
   const search = {
     ...(routerState.location.search ?? {}),
     ...Object.assign({}, ...matches.map((match) => match.search ?? {})),
@@ -53,7 +56,7 @@ export function buildAssistantRouteContext({
   const selectedPanel = stringValue(search.tab ?? search.panel);
   const selectedCalendarEventId = stringValue(search.eventId);
   const selectedMilestoneKey = stringValue(
-    search.milestoneKey ?? search.activeMilestoneKey,
+    search.milestoneKey ?? search.activeMilestoneKey
   );
   const selectedDrawKey = stringValue(search.drawKey ?? search.activeDrawId);
   const calendarSurface =

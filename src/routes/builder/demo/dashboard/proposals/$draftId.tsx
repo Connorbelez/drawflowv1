@@ -1,10 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import { Loader2 } from "lucide-react";
-
-import { api } from "../../../../../../convex/_generated/api";
-import { convexWorkspaceToTimelineState } from "#/features/timeline-workspace/-timeline-convex-adapter";
 import { TimelineWorkspace } from "#/features/timeline-workspace";
+import { convexWorkspaceToTimelineState } from "#/features/timeline-workspace/-timeline-convex-adapter";
+import { api } from "../../../../../../convex/_generated/api";
 
 export const Route = createFileRoute(
   "/builder/demo/dashboard/proposals/$draftId"

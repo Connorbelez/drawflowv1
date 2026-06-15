@@ -34,7 +34,7 @@ function BuilderProductionProposalRoadmapCompatibilityRoute() {
       typeof window === "undefined"
         ? null
         : new URLSearchParams(window.location.search).get("collab"),
-    [],
+    []
   );
   const [collabJoinState, setCollabJoinState] = useState<
     "idle" | "joined" | "joining"
@@ -54,7 +54,7 @@ function BuilderProductionProposalRoadmapCompatibilityRoute() {
         toast.error(
           error instanceof Error
             ? error.message
-            : "Unable to join live collaboration.",
+            : "Unable to join live collaboration."
         );
       });
   }, [collabJoinState, collabToken, joinSession, workosOrganizationId]);
@@ -66,7 +66,7 @@ function BuilderProductionProposalRoadmapCompatibilityRoute() {
       : {
           proposalId: typedProposalId,
           workosOrganizationId,
-        },
+        }
   );
   const workspace = visualFixtureEnabled
     ? getVisualParityTimelineWorkspace(proposalId)
@@ -78,7 +78,7 @@ function BuilderProductionProposalRoadmapCompatibilityRoute() {
       : {
           proposalId,
           workosOrganizationId,
-        },
+        }
   );
   const detail = visualFixtureEnabled
     ? getVisualParityProposalDetail(proposalId)
@@ -101,19 +101,19 @@ function BuilderProductionProposalRoadmapCompatibilityRoute() {
     <ProductionTimelineWorkspace
       appPermissions={detail?.appPermissions}
       backofficeHref={`/backoffice/proposals/${proposalId}`}
-      initialRole="builder"
-      persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
-      prejoinedCollabToken={collabJoinState === "joined" ? collabToken : null}
       headerActions={
         <BuildPermitViewerDrawer
           permit={firstPermitDocument(detail?.documents)}
           size="sm"
         />
       }
+      initialRole="builder"
+      persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
+      prejoinedCollabToken={collabJoinState === "joined" ? collabToken : null}
       proposalHref={`/builder/proposals/${proposalId}`}
       proposalId={typedProposalId}
-      workspace={workspace}
       workosOrganizationId={workosOrganizationId}
+      workspace={workspace}
     />
   );
 }

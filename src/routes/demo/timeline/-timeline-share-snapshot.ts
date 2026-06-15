@@ -442,7 +442,9 @@ function normalizeMilestoneData(
       : { initialPaymentAmount: normalized.initialPaymentAmount }),
     name: normalized.name,
     policy: normalized.policy,
-    ...(normalized.siteVisitGuidance ? { siteVisitGuidance: normalized.siteVisitGuidance } : {}),
+    ...(normalized.siteVisitGuidance
+      ? { siteVisitGuidance: normalized.siteVisitGuidance }
+      : {}),
     status: normalized.status,
     subMilestones: submilestoneDetails
       ? submilestoneNames(submilestoneDetails)
@@ -626,11 +628,11 @@ function normalizeSiteVisitGuidance(
   guidance: DemoMilestone["siteVisitGuidance"] | undefined
 ): SiteVisitGuidanceHtml | undefined {
   if (!guidance) {
-    return undefined;
+    return;
   }
   const normalized = coerceSiteVisitGuidance(guidance);
   if (isSiteVisitGuidanceHtmlEmpty(normalized)) {
-    return undefined;
+    return;
   }
   return normalized;
 }

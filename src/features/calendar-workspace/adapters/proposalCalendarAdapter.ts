@@ -39,17 +39,20 @@ export type CalendarTargetDateHandler = (input: {
 
 export function buildProposalCalendarWorkspaceFromDetail(
   detail: any,
-  options: { baseDate?: string; organizationId?: string } = {},
+  options: { baseDate?: string; organizationId?: string } = {}
 ): DrawFlowCalendarWorkspaceData {
   const proposal = detail.proposal ?? {};
-  const organizationId = options.organizationId ?? proposal.organizationId ?? "visual-fixture";
+  const organizationId =
+    options.organizationId ?? proposal.organizationId ?? "visual-fixture";
   const baseDate = resolveProposalCalendarBaseDate(
     options.baseDate,
     detail.activeBuild?.startDate,
-    proposal.proposedStartDate,
+    proposal.proposedStartDate
   );
   const events: DrawFlowCalendarEvent[] = [];
-  const milestones = (detail.milestones ?? []).slice().sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
+  const milestones = (detail.milestones ?? [])
+    .slice()
+    .sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
   const draws = detail.draws ?? detail.plannedDraws ?? [];
 
   for (const milestone of milestones) {
@@ -63,10 +66,15 @@ export function buildProposalCalendarWorkspaceFromDetail(
           canMove: proposal.status !== "closed",
           canResizeEnd: proposal.status !== "closed",
           canResizeStart: proposal.status !== "closed",
-          requiredReason: proposal.status === "draft" ? "none" : "scheduleChange",
+          requiredReason:
+            proposal.status === "draft" ? "none" : "scheduleChange",
         },
         endsAt: addDaysIso(baseDate, milestone.dayEnd ?? 0),
-        entity: { id: String(milestone._id ?? milestone.key), key: milestone.key, type: "milestone" },
+        entity: {
+          id: String(milestone._id ?? milestone.key),
+          key: milestone.key,
+          type: "milestone",
+        },
         id: `proposal:milestone:${milestone.key}`,
         kind: "milestone",
         metrics: {
@@ -86,15 +94,17 @@ export function buildProposalCalendarWorkspaceFromDetail(
         warnings: (milestone.dependencyKeys ?? []).map((key: string) => ({
           label: `Depends on ${key}`,
         })),
-      }),
+      })
     );
   }
 
   for (const submilestone of detail.submilestones ?? []) {
-    const parent = milestones.find((milestone: any) => milestone.key === submilestone.milestoneKey);
+    const parent = milestones.find(
+      (milestone: any) => milestone.key === submilestone.milestoneKey
+    );
     const startsAt = addDaysIso(
       baseDate,
-      submilestone.startDay ?? parent?.dayStart ?? 0,
+      submilestone.startDay ?? parent?.dayStart ?? 0
     );
     events.push(
       normalizeCalendarEvent({
@@ -106,10 +116,18 @@ export function buildProposalCalendarWorkspaceFromDetail(
           canMove: proposal.status !== "closed",
           canResizeEnd: proposal.status !== "closed",
           canResizeStart: false,
-          requiredReason: proposal.status === "draft" ? "none" : "scheduleChange",
+          requiredReason:
+            proposal.status === "draft" ? "none" : "scheduleChange",
         },
-        endsAt: addDaysIso(startsAt, Math.max(1, submilestone.durationDays ?? 1)),
-        entity: { id: String(submilestone._id ?? submilestone.key), key: submilestone.key, type: "milestone" },
+        endsAt: addDaysIso(
+          startsAt,
+          Math.max(1, submilestone.durationDays ?? 1)
+        ),
+        entity: {
+          id: String(submilestone._id ?? submilestone.key),
+          key: submilestone.key,
+          type: "milestone",
+        },
         id: `proposal:submilestone:${submilestone.key}`,
         kind: "submilestone",
         metrics: { budgetCents: submilestone.budgetCents },
@@ -124,7 +142,7 @@ export function buildProposalCalendarWorkspaceFromDetail(
         timezone: "America/Toronto",
         title: submilestone.name,
         warnings: [],
-      }),
+      })
     );
   }
 
@@ -140,9 +158,14 @@ export function buildProposalCalendarWorkspaceFromDetail(
           canMove: proposal.status !== "closed",
           canResizeEnd: false,
           canResizeStart: false,
-          requiredReason: proposal.status === "draft" ? "none" : "scheduleChange",
+          requiredReason:
+            proposal.status === "draft" ? "none" : "scheduleChange",
         },
-        entity: { id: String(draw._id ?? draw.drawKey), key: draw.drawKey, type: "draw" },
+        entity: {
+          id: String(draw._id ?? draw.drawKey),
+          key: draw.drawKey,
+          type: "draw",
+        },
         id: `proposal:draw:${draw.drawKey}`,
         kind: "draw",
         metrics: { amountCents: draw.amountCents },
@@ -157,7 +180,7 @@ export function buildProposalCalendarWorkspaceFromDetail(
         timezone: "America/Toronto",
         title: draw.label,
         warnings: [],
-      }),
+      })
     );
   }
 
@@ -190,7 +213,7 @@ export function buildProposalCalendarWorkspaceFromDetail(
           document.documentType === "permit" && document.status === "missing"
             ? [{ label: "Permit missing" }]
             : [],
-      }),
+      })
     );
   }
 
@@ -211,18 +234,51 @@ export function buildProposalCalendarWorkspaceFromDetail(
 }
 
 export function buildProposalCalendarActions(
-  actions: ProposalCalendarAdapterActions,
+  actions: ProposalCalendarAdapterActions
 ): CalendarAction[] {
   return [
-    eventAction("open-proposal-event", "Open detail", "Review this calendar event.", async () => {}),
-    eventAction("revise-proposal-milestone", "Move proposal dates", "Adjust planned milestone dates.", async () => {}, Boolean(actions.reviseMilestoneSchedule)),
-    eventAction("revise-proposal-draw", "Edit draw timing", "Adjust planned reimbursement timing.", async () => {}, Boolean(actions.reviseDrawTiming)),
-    dateAction("add-proposal-evidence-due", "Add evidence due date", "Create an explicit evidence date assumption.", async (context) => {
-      if (context.date) await actions.addEvidenceDueDate?.({ targetDate: context.date });
-    }, Boolean(actions.addEvidenceDueDate)),
-    dateAction("add-proposal-review-target", "Add review lag target", "Create a proposal review/site-visit lag assumption.", async (context) => {
-      if (context.date) await actions.addReviewTargetDate?.({ targetDate: context.date });
-    }, Boolean(actions.addReviewTargetDate)),
+    eventAction(
+      "open-proposal-event",
+      "Open detail",
+      "Review this calendar event.",
+      async () => {}
+    ),
+    eventAction(
+      "revise-proposal-milestone",
+      "Move proposal dates",
+      "Adjust planned milestone dates.",
+      async () => {},
+      Boolean(actions.reviseMilestoneSchedule)
+    ),
+    eventAction(
+      "revise-proposal-draw",
+      "Edit draw timing",
+      "Adjust planned reimbursement timing.",
+      async () => {},
+      Boolean(actions.reviseDrawTiming)
+    ),
+    dateAction(
+      "add-proposal-evidence-due",
+      "Add evidence due date",
+      "Create an explicit evidence date assumption.",
+      async (context) => {
+        if (context.date) {
+          await actions.addEvidenceDueDate?.({ targetDate: context.date });
+        }
+      },
+      Boolean(actions.addEvidenceDueDate)
+    ),
+    dateAction(
+      "add-proposal-review-target",
+      "Add review lag target",
+      "Create a proposal review/site-visit lag assumption.",
+      async (context) => {
+        if (context.date) {
+          await actions.addReviewTargetDate?.({ targetDate: context.date });
+        }
+      },
+      Boolean(actions.addReviewTargetDate)
+    ),
   ];
 }
 
@@ -233,9 +289,15 @@ export function createProposalCalendarEditHandler(input: {
   const baseDate = resolveProposalCalendarBaseDate(input.baseDate);
   return async (request: CalendarEditRequest) => {
     const event = request.event;
-    if ((event.kind === "milestone" || event.kind === "submilestone") && event.milestoneKey) {
+    if (
+      (event.kind === "milestone" || event.kind === "submilestone") &&
+      event.milestoneKey
+    ) {
       await input.actions.reviseMilestoneSchedule?.({
-        dayEnd: daysBetweenIso(baseDate, request.nextEndsAt ?? request.nextStartsAt),
+        dayEnd: daysBetweenIso(
+          baseDate,
+          request.nextEndsAt ?? request.nextStartsAt
+        ),
         dayStart: daysBetweenIso(baseDate, request.nextStartsAt),
         milestoneKey: event.milestoneKey,
         reason: request.reason,
@@ -273,13 +335,17 @@ function eventAction(
   label: string,
   description: string,
   onSelect: CalendarAction["onSelect"],
-  enabled = true,
+  enabled = true
 ): CalendarAction {
   return {
     appliesTo: "event",
     availability: enabled
       ? { state: "enabled" }
-      : { reason: "This proposal state or viewer role cannot perform that calendar action.", state: "disabled" },
+      : {
+          reason:
+            "This proposal state or viewer role cannot perform that calendar action.",
+          state: "disabled",
+        },
     description,
     id,
     label,
@@ -294,7 +360,7 @@ function dateAction(
   label: string,
   description: string,
   onSelect: CalendarAction["onSelect"],
-  enabled = true,
+  enabled = true
 ): CalendarAction {
   return {
     appliesTo: "date",
@@ -312,11 +378,41 @@ function dateAction(
 
 function defaultCalendarSavedViews(): CalendarSavedView[] {
   return [
-    { filters: { surface: "proposal" } as any, id: "proposal-feasibility", isDefault: true, label: "Proposal feasibility", timeframe: "month" },
-    { filters: { needsAction: true }, id: "my-week", isDefault: false, label: "My week", timeframe: "week" },
-    { filters: { eventKinds: ["draw", "drawGroup", "loan"] }, id: "capital-release", isDefault: false, label: "Capital release", timeframe: "month" },
-    { filters: { eventKinds: ["evidence", "review", "adminDecision"] }, id: "evidence-review", isDefault: false, label: "Evidence and review", timeframe: "agenda" },
-    { filters: { statuses: ["overdue", "blocked"] }, id: "overdue-blocked", isDefault: false, label: "Overdue and blocked", timeframe: "agenda" },
+    {
+      filters: { surface: "proposal" } as any,
+      id: "proposal-feasibility",
+      isDefault: true,
+      label: "Proposal feasibility",
+      timeframe: "month",
+    },
+    {
+      filters: { needsAction: true },
+      id: "my-week",
+      isDefault: false,
+      label: "My week",
+      timeframe: "week",
+    },
+    {
+      filters: { eventKinds: ["draw", "drawGroup", "loan"] },
+      id: "capital-release",
+      isDefault: false,
+      label: "Capital release",
+      timeframe: "month",
+    },
+    {
+      filters: { eventKinds: ["evidence", "review", "adminDecision"] },
+      id: "evidence-review",
+      isDefault: false,
+      label: "Evidence and review",
+      timeframe: "agenda",
+    },
+    {
+      filters: { statuses: ["overdue", "blocked"] },
+      id: "overdue-blocked",
+      isDefault: false,
+      label: "Overdue and blocked",
+      timeframe: "agenda",
+    },
   ];
 }
 

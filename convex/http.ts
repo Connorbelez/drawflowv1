@@ -1,6 +1,6 @@
 import { httpRouter } from "convex/server";
-import { httpAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
+import { httpAction } from "./_generated/server";
 import { authKit } from "./auth";
 
 const http = httpRouter();
@@ -16,7 +16,7 @@ http.route({
     try {
       const previewBytes = await ctx.runAction(
         (internal as any).evidence_preview.convertEvidenceImagePreview,
-        { sourceUrl },
+        { sourceUrl }
       );
       return new Response(new Uint8Array(previewBytes), {
         headers: {
@@ -47,7 +47,7 @@ http.route({
     try {
       const ics = await ctx.runQuery(
         (api as any).production_proposals.getCalendarSubscriptionIcs,
-        { subscriptionKey },
+        { subscriptionKey }
       );
       return new Response(ics, {
         headers: {

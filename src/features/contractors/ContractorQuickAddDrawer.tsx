@@ -155,7 +155,7 @@ export function ContractorQuickAddDrawer({
   title = "Add contractor",
 }: ContractorQuickAddDrawerProps) {
   const [mode, setMode] = useState<"new" | "existing">(
-    onAttachExisting && availableContractors.length > 0 ? "existing" : "new",
+    onAttachExisting && availableContractors.length > 0 ? "existing" : "new"
   );
   const [form, setForm] = useState(() => formFromInitialDraft(initialDraft));
   const [selectedExistingId, setSelectedExistingId] = useState("");
@@ -164,7 +164,7 @@ export function ContractorQuickAddDrawer({
   const [error, setError] = useState("");
   const updateForm = <K extends keyof ContractorQuickAddForm>(
     key: K,
-    value: ContractorQuickAddForm[K],
+    value: ContractorQuickAddForm[K]
   ) => {
     setForm((prev) => ({
       ...prev,
@@ -177,16 +177,12 @@ export function ContractorQuickAddDrawer({
     return availableContractors
       .filter((contractor) =>
         q
-          ? [
-              contractor.name,
-              contractor.city,
-              ...(contractor.trades ?? []),
-            ]
+          ? [contractor.name, contractor.city, ...(contractor.trades ?? [])]
               .filter(Boolean)
               .join(" ")
               .toLowerCase()
               .includes(q)
-          : true,
+          : true
       )
       .slice(0, 8);
   }, [availableContractors, query]);
@@ -209,18 +205,26 @@ export function ContractorQuickAddDrawer({
     setSelectedExistingId("");
     setQuery("");
     setError("");
-    setMode(onAttachExisting && availableContractors.length > 0 ? "existing" : "new");
+    setMode(
+      onAttachExisting && availableContractors.length > 0 ? "existing" : "new"
+    );
   };
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      return;
+    }
     setForm(formFromInitialDraft(initialDraft));
-    setMode(onAttachExisting && availableContractors.length > 0 ? "existing" : "new");
+    setMode(
+      onAttachExisting && availableContractors.length > 0 ? "existing" : "new"
+    );
   }, [availableContractors.length, initialDraft, onAttachExisting, open]);
 
   const submitNew = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!canCreate) return;
+    if (!canCreate) {
+      return;
+    }
     setPending(true);
     setError("");
     try {
@@ -271,12 +275,16 @@ export function ContractorQuickAddDrawer({
 
   const submitExisting = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!canAttach || !onAttachExisting) return;
+    if (!(canAttach && onAttachExisting)) {
+      return;
+    }
     setPending(true);
     setError("");
     try {
       await onAttachExisting({
-        assignmentCost: showAssignmentCost ? assignmentCostFromForm(form) : undefined,
+        assignmentCost: showAssignmentCost
+          ? assignmentCostFromForm(form)
+          : undefined,
         contractorId: selectedExistingId,
         role: form.role.trim(),
       });
@@ -299,11 +307,17 @@ export function ContractorQuickAddDrawer({
           </p>
           {onAttachExisting ? (
             <div className="mt-2 inline-flex w-fit rounded-lg border bg-muted/40 p-1">
-              <ModeButton active={mode === "existing"} onClick={() => setMode("existing")}>
+              <ModeButton
+                active={mode === "existing"}
+                onClick={() => setMode("existing")}
+              >
                 <Link2 className="size-3.5" />
                 Existing
               </ModeButton>
-              <ModeButton active={mode === "new"} onClick={() => setMode("new")}>
+              <ModeButton
+                active={mode === "new"}
+                onClick={() => setMode("new")}
+              >
                 <Plus className="size-3.5" />
                 New
               </ModeButton>
@@ -313,7 +327,11 @@ export function ContractorQuickAddDrawer({
 
         <DrawerPanel className="grid gap-4">
           {mode === "existing" && onAttachExisting ? (
-            <form className="grid gap-4" id="contractor-existing-form" onSubmit={submitExisting}>
+            <form
+              className="grid gap-4"
+              id="contractor-existing-form"
+              onSubmit={submitExisting}
+            >
               <Field label="Find contractor">
                 <span className="relative block">
                   <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -341,7 +359,7 @@ export function ContractorQuickAddDrawer({
                         "flex min-w-0 items-center gap-3 rounded-lg border p-3 text-left text-sm transition-colors",
                         selectedExistingId === contractor._id
                           ? "border-primary bg-primary/10"
-                          : "bg-card hover:bg-accent",
+                          : "bg-card hover:bg-accent"
                       )}
                       key={contractor._id}
                       onClick={() => {
@@ -356,7 +374,7 @@ export function ContractorQuickAddDrawer({
                           setForm((prev) => ({
                             ...prev,
                             assignmentRate: centsToMoney(
-                              contractor.defaultPayRateCents,
+                              contractor.defaultPayRateCents
                             ),
                             assignmentRateUnit:
                               contractor.defaultPayRateUnit ?? "hour",
@@ -396,7 +414,11 @@ export function ContractorQuickAddDrawer({
               ) : null}
             </form>
           ) : (
-            <form className="grid gap-4" id="contractor-new-form" onSubmit={submitNew}>
+            <form
+              className="grid gap-4"
+              id="contractor-new-form"
+              onSubmit={submitNew}
+            >
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Name">
                   <Input
@@ -415,12 +437,14 @@ export function ContractorQuickAddDrawer({
                     onChange={(event) =>
                       updateForm(
                         "kind",
-                        event.currentTarget.value as "company" | "individual",
+                        event.currentTarget.value as "company" | "individual"
                       )
                     }
                     value={form.kind}
                   >
-                    <NativeSelectOption value="company">Company</NativeSelectOption>
+                    <NativeSelectOption value="company">
+                      Company
+                    </NativeSelectOption>
                     <NativeSelectOption value="individual">
                       Individual
                     </NativeSelectOption>
@@ -453,17 +477,16 @@ export function ContractorQuickAddDrawer({
                       onChange={(event) =>
                         updateForm(
                           "payRateUnit",
-                          event.currentTarget.value as
-                            | "hour"
-                            | "day"
-                            | "fixed",
+                          event.currentTarget.value as "hour" | "day" | "fixed"
                         )
                       }
                       value={form.payRateUnit}
                     >
                       <NativeSelectOption value="hour">Hour</NativeSelectOption>
                       <NativeSelectOption value="day">Day</NativeSelectOption>
-                      <NativeSelectOption value="fixed">Fixed</NativeSelectOption>
+                      <NativeSelectOption value="fixed">
+                        Fixed
+                      </NativeSelectOption>
                     </NativeSelect>
                   </div>
                 </Field>
@@ -514,7 +537,7 @@ export function ContractorQuickAddDrawer({
                         <NativeSelectOption key={day} value={String(index)}>
                           {day}
                         </NativeSelectOption>
-                      ),
+                      )
                     )}
                   </NativeSelect>
                 </Field>
@@ -603,7 +626,11 @@ export function ContractorQuickAddDrawer({
           </DrawerClose>
           <Button
             disabled={mode === "existing" ? !canAttach : !canCreate}
-            form={mode === "existing" ? "contractor-existing-form" : "contractor-new-form"}
+            form={
+              mode === "existing"
+                ? "contractor-existing-form"
+                : "contractor-new-form"
+            }
             type="submit"
           >
             {mode === "existing" ? <Link2 /> : <Plus />}
@@ -628,7 +655,7 @@ function AssignmentCostFields({
 }) {
   const updateForm = <K extends keyof ContractorQuickAddForm>(
     key: K,
-    value: ContractorQuickAddForm[K],
+    value: ContractorQuickAddForm[K]
   ) => {
     setForm((prev) => ({
       ...prev,
@@ -664,10 +691,7 @@ function AssignmentCostFields({
               onChange={(event) =>
                 updateForm(
                   "assignmentRateUnit",
-                  event.currentTarget.value as
-                    | "hour"
-                    | "day"
-                    | "fixed",
+                  event.currentTarget.value as "hour" | "day" | "fixed"
                 )
               }
               value={form.assignmentRateUnit}
@@ -771,7 +795,7 @@ function ModeButton({
     <button
       className={cn(
         "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm",
-        active ? "bg-background shadow-xs/5" : "text-muted-foreground",
+        active ? "bg-background shadow-xs/5" : "text-muted-foreground"
       )}
       onClick={onClick}
       type="button"
@@ -814,13 +838,17 @@ function optional(value: string) {
 
 function parseMoneyCents(value: string) {
   const parsed = Number.parseFloat(value);
-  if (!Number.isFinite(parsed) || parsed < 0) return undefined;
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return;
+  }
   return Math.round(parsed * 100);
 }
 
 function parseHours(value: string) {
   const parsed = Number.parseFloat(value);
-  if (!Number.isFinite(parsed) || parsed < 0) return undefined;
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return;
+  }
   return Math.round(parsed * 100) / 100;
 }
 
@@ -830,13 +858,12 @@ function centsToMoney(value: number) {
 
 function assignmentCostFromForm(
   form: ContractorQuickAddForm,
-  fallbackRateCents?: number,
+  fallbackRateCents?: number
 ): ContractorAssignmentCostDraft {
   return {
     actualCostCents: parseMoneyCents(form.actualCost),
     actualHours: parseHours(form.actualHours),
-    agreedRateCents:
-      parseMoneyCents(form.assignmentRate) ?? fallbackRateCents,
+    agreedRateCents: parseMoneyCents(form.assignmentRate) ?? fallbackRateCents,
     agreedRateUnit: form.assignmentRateUnit,
     costNotes: optional(form.costNotes),
     estimatedCostCents: parseMoneyCents(form.estimatedCost),
@@ -846,7 +873,9 @@ function assignmentCostFromForm(
 
 function timeToMinute(value: string) {
   const [hour, minute] = value.split(":").map((part) => Number(part));
-  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return 0;
+  if (!(Number.isFinite(hour) && Number.isFinite(minute))) {
+    return 0;
+  }
   return Math.max(0, Math.min(24 * 60, hour * 60 + minute));
 }
 
@@ -859,9 +888,11 @@ function titleCase(value: string) {
 }
 
 function formFromInitialDraft(
-  draft?: Partial<ContractorProfileDraft>,
+  draft?: Partial<ContractorProfileDraft>
 ): ContractorQuickAddForm {
-  if (!draft) return { ...EMPTY_FORM };
+  if (!draft) {
+    return { ...EMPTY_FORM };
+  }
   const availability = draft.availabilityWindows?.[0];
   return {
     ...EMPTY_FORM,

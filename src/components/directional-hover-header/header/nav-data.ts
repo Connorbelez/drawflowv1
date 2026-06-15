@@ -26,7 +26,9 @@ export type NavLink = {
 export const fairlendNavLinks = {
   home: linkOptions({ to: "/marketing" }),
   about: linkOptions({ to: "/about" }),
-  affordableHousing: linkOptions({ to: "/affordable-sustainable-rental-housing" }),
+  affordableHousing: linkOptions({
+    to: "/affordable-sustainable-rental-housing",
+  }),
   backoffice: linkOptions({ to: "/backoffice" }),
   cmhcMliSelect: linkOptions({ to: "/cmhc-mli-select-multiplex-financing" }),
   constructionDraws: linkOptions({ to: "/construction-draw-financing" }),
@@ -37,13 +39,27 @@ export const fairlendNavLinks = {
   multiplex: linkOptions({ to: "/multiplex-financing-gta" }),
   press: linkOptions({ to: "/press" }),
   resources: linkOptions({ to: "/resources" }),
-  resourceCmhc: linkOptions({ to: "/resources/cmhc-mli-select-guide-for-multiplex-builds" }),
-  resourceDraws: linkOptions({ to: "/resources/construction-draws-small-builders" }),
-  resourceFinancingGap: linkOptions({ to: "/resources/financing-gap-gta-multiplex-builds" }),
-  resourceGardenSuites: linkOptions({ to: "/resources/garden-suites-family-suitable-rental-supply" }),
-  resourceHousingCapital: linkOptions({ to: "/resources/private-capital-affordable-housing" }),
-  resourceHousingReturns: linkOptions({ to: "/resources/sustainable-rental-housing-investor-returns" }),
-  resourceMultiplexCompare: linkOptions({ to: "/resources/multiplex-vs-garden-suite-vs-laneway-suite" }),
+  resourceCmhc: linkOptions({
+    to: "/resources/cmhc-mli-select-guide-for-multiplex-builds",
+  }),
+  resourceDraws: linkOptions({
+    to: "/resources/construction-draws-small-builders",
+  }),
+  resourceFinancingGap: linkOptions({
+    to: "/resources/financing-gap-gta-multiplex-builds",
+  }),
+  resourceGardenSuites: linkOptions({
+    to: "/resources/garden-suites-family-suitable-rental-supply",
+  }),
+  resourceHousingCapital: linkOptions({
+    to: "/resources/private-capital-affordable-housing",
+  }),
+  resourceHousingReturns: linkOptions({
+    to: "/resources/sustainable-rental-housing-investor-returns",
+  }),
+  resourceMultiplexCompare: linkOptions({
+    to: "/resources/multiplex-vs-garden-suite-vs-laneway-suite",
+  }),
   start: linkOptions({ to: "/start" }),
   startBroker: linkOptions({ to: "/start/broker" }),
   startBuilder: linkOptions({ to: "/start/builder" }),

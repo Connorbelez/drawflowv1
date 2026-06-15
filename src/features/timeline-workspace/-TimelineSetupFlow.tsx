@@ -34,21 +34,21 @@ import {
   parseCurrencyToCents,
 } from "#/features/builder-proposal-demo/template-helpers.ts";
 import {
-  type BudgetWorkbookProposalDraft,
-  parseBudgetWorkbookFile,
-} from "#/features/proposal-import/budget-workbook-schema.ts";
-import {
   isValidIsoDateOnly,
   todayIsoDate,
 } from "#/features/production-proposals/proposalScheduleDates.ts";
+import {
+  type BudgetWorkbookProposalDraft,
+  parseBudgetWorkbookFile,
+} from "#/features/proposal-import/budget-workbook-schema.ts";
 import { coerceSiteVisitGuidance } from "#/lib/site-visit-guidance.ts";
 import { cn } from "#/lib/utils.ts";
 import {
   type TimelineMilestoneWorksheetContractorAssignment,
   type TimelineMilestoneWorksheetContractorOption,
   type TimelineMilestoneWorksheetCostItem,
-  type TimelineScheduleDisplayMode,
   TimelineMilestoneWorksheetTable,
+  type TimelineScheduleDisplayMode,
 } from "./-TimelineMilestoneWorksheetTable.tsx";
 import { mapSubmilestoneSnapshotRows } from "./-timeline-milestone-submilestones.ts";
 import type {

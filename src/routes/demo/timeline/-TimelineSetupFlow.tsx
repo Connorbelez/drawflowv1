@@ -18,8 +18,8 @@ import {
   useRef,
   useState,
 } from "react";
-import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
 import { GoogleAddressAutocomplete } from "#/components/address/GoogleAddressAutocomplete.tsx";
+import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { cn } from "#/lib/utils.ts";
 import {
@@ -464,7 +464,8 @@ const TEMPLATE_THUMBNAILS: Record<string, string> = {
   four_plex: "/drawflow-template-thumbnails/four-plex-blueprint.svg",
   multiplex_build:
     "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
-  "multiplex-build": "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
+  "multiplex-build":
+    "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
   single_family_full_build:
     "/drawflow-template-thumbnails/single-family-full-build-blueprint.png",
   "single-family-full-build":

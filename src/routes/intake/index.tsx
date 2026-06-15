@@ -1824,10 +1824,7 @@ function CapitalFeatureSection(): ReactElement {
   ] as const;
 
   return (
-    <section
-      aria-labelledby="bp-workflow-title"
-      className="bp-capital-feature"
-    >
+    <section aria-labelledby="bp-workflow-title" className="bp-capital-feature">
       <div className="bp-capital-feature-copy">
         <span>Milestone-backed draw room</span>
         <h2 id="bp-workflow-title">
@@ -1856,7 +1853,10 @@ function CapitalFeatureSection(): ReactElement {
         className="bp-capital-milestone-timeline"
       >
         {milestoneUnlocks.map((milestone) => (
-          <TimelineItem className="bp-capital-milestone-item" key={milestone.id}>
+          <TimelineItem
+            className="bp-capital-milestone-item"
+            key={milestone.id}
+          >
             <TimelineDot className="bp-capital-milestone-dot">
               {milestone.id === "foundation" ? null : (
                 <Check aria-hidden="true" strokeWidth={2} />
@@ -1884,7 +1884,7 @@ function CapitalFeatureSection(): ReactElement {
         ))}
       </Timeline>
 
-      <div className="bp-capital-feature-art" aria-hidden="true">
+      <div aria-hidden="true" className="bp-capital-feature-art">
         <img
           alt=""
           aria-hidden="true"
@@ -1903,7 +1903,7 @@ function CapitalFeatureSection(): ReactElement {
         </span>
       </div>
 
-      <div className="bp-capital-feature-stats" aria-label="Draw plan benefits">
+      <div aria-label="Draw plan benefits" className="bp-capital-feature-stats">
         {[
           ["0", "forced draw schedule"],
           ["3-day", "draw SLA target"],
@@ -1929,7 +1929,7 @@ function BuilderSqueezeSection(): ReactElement {
       <div className="bp-squeeze-stage">
         <BlueprintDraftingGrid />
 
-        <div className="bp-squeeze-brand" aria-label="DrawFlow by FairLend">
+        <div aria-label="DrawFlow by FairLend" className="bp-squeeze-brand">
           <img
             alt=""
             aria-hidden="true"
@@ -1957,12 +1957,12 @@ function BuilderSqueezeSection(): ReactElement {
           </p>
         </div>
 
-        <div className="bp-rigid-plan" aria-label="Rigid three draw schedule">
+        <div aria-label="Rigid three draw schedule" className="bp-rigid-plan">
           <div className="bp-rigid-heading">
             <h3>Rigid 3-Draw Schedule</h3>
             <p>Capital doesn&apos;t match the real build.</p>
           </div>
-          <div className="bp-cash-stress-legend" aria-hidden="true">
+          <div aria-hidden="true" className="bp-cash-stress-legend">
             <span />
             <p>
               Cash stress
@@ -1990,7 +1990,13 @@ function BuilderSqueezeSection(): ReactElement {
               alt={note.alt}
               className={`bp-rigid-note ${note.className}`}
               decoding="async"
-              height={note.className === "is-draw-2" ? 170 : note.className === "is-draw-1" ? 176 : 174}
+              height={
+                note.className === "is-draw-2"
+                  ? 170
+                  : note.className === "is-draw-1"
+                    ? 176
+                    : 174
+              }
               key={note.alt}
               src={note.src}
               width={note.className === "is-draw-1" ? 134 : 132}
@@ -1998,15 +2004,27 @@ function BuilderSqueezeSection(): ReactElement {
           ))}
           <div className="bp-rigid-callouts">
             <p>
-              <img alt="" aria-hidden="true" src={`${extractedSqueezeAssetBase}/warning-triangle.svg`} />
+              <img
+                alt=""
+                aria-hidden="true"
+                src={`${extractedSqueezeAssetBase}/warning-triangle.svg`}
+              />
               <span>Cash leaves early before costs hit.</span>
             </p>
             <p>
-              <img alt="" aria-hidden="true" src={`${extractedSqueezeAssetBase}/warning-triangle.svg`} />
+              <img
+                alt=""
+                aria-hidden="true"
+                src={`${extractedSqueezeAssetBase}/warning-triangle.svg`}
+              />
               <span>Money sits idle while work continues.</span>
             </p>
             <p>
-              <img alt="" aria-hidden="true" src={`${extractedSqueezeAssetBase}/warning-triangle.svg`} />
+              <img
+                alt=""
+                aria-hidden="true"
+                src={`${extractedSqueezeAssetBase}/warning-triangle.svg`}
+              />
               <span>Gaps appear before the next draw.</span>
             </p>
           </div>
@@ -2048,7 +2066,7 @@ function BuilderSqueezeSection(): ReactElement {
             <h3>Milestone Draw Plan</h3>
             <p>Capital follows approved progress.</p>
           </div>
-          <div className="bp-aligned-legend" aria-hidden="true">
+          <div aria-hidden="true" className="bp-aligned-legend">
             <span />
             <p>
               Aligned capital
@@ -2064,7 +2082,10 @@ function BuilderSqueezeSection(): ReactElement {
             width={654}
           />
           {milestoneUnlocksForSqueeze.map((milestone) => (
-            <div className={`bp-milestone-node ${milestone.className}`} key={milestone.label}>
+            <div
+              className={`bp-milestone-node ${milestone.className}`}
+              key={milestone.label}
+            >
               <img
                 alt={`${milestone.label} unlock tag ${milestone.amount}`}
                 height={70}
@@ -2088,13 +2109,21 @@ function BuilderSqueezeSection(): ReactElement {
         <div className="bp-squeeze-bottom">
           <div className="bp-squeeze-panel bp-squeeze-panel-risk">
             <div className="bp-squeeze-panel-title">
-              <img alt="" aria-hidden="true" src={`${extractedSqueezeAssetBase}/warning-triangle.svg`} />
+              <img
+                alt=""
+                aria-hidden="true"
+                src={`${extractedSqueezeAssetBase}/warning-triangle.svg`}
+              />
               <h3>Cash Gap Risk</h3>
             </div>
             <div className="bp-squeeze-panel-items">
               {cashGapRisks.map((item) => (
                 <article className="bp-squeeze-panel-item" key={item.title}>
-                  <img alt="" aria-hidden="true" src={`${extractedSqueezeAssetBase}/${item.icon}`} />
+                  <img
+                    alt=""
+                    aria-hidden="true"
+                    src={`${extractedSqueezeAssetBase}/${item.icon}`}
+                  />
                   <div>
                     <h4>{item.title}</h4>
                     <p>{item.body}</p>
@@ -2115,13 +2144,21 @@ function BuilderSqueezeSection(): ReactElement {
 
           <div className="bp-squeeze-panel bp-squeeze-panel-approved">
             <div className="bp-squeeze-panel-title">
-              <img alt="" aria-hidden="true" src={`${extractedSqueezeAssetBase}/approved-check-circle.svg`} />
+              <img
+                alt=""
+                aria-hidden="true"
+                src={`${extractedSqueezeAssetBase}/approved-check-circle.svg`}
+              />
               <h3>Capital Unlocks With Approved Work</h3>
             </div>
             <div className="bp-squeeze-panel-items">
               {approvedWorkBenefits.map((item) => (
                 <article className="bp-squeeze-panel-item" key={item.title}>
-                  <img alt="" aria-hidden="true" src={`${extractedSqueezeAssetBase}/${item.icon}`} />
+                  <img
+                    alt=""
+                    aria-hidden="true"
+                    src={`${extractedSqueezeAssetBase}/${item.icon}`}
+                  />
                   <div>
                     <h4>{item.title}</h4>
                     <p>{item.body}</p>
@@ -2137,7 +2174,10 @@ function BuilderSqueezeSection(): ReactElement {
 }
 
 function BlueprintDraftingGrid(): ReactElement {
-  const minorVerticalLines = Array.from({ length: 21 }, (_, index) => index * 5);
+  const minorVerticalLines = Array.from(
+    { length: 21 },
+    (_, index) => index * 5
+  );
   const minorHorizontalLines = Array.from(
     { length: 12 },
     (_, index) => index * 9
@@ -2253,7 +2293,8 @@ function PlanBeforeBorrowSection(): ReactElement {
                 "We run the CMHC requirement list with underwriting context, then help fill the gaps through direct consulting and a vetted professional network.",
               eyebrow: "Readiness",
               id: "cmhc-readiness",
-              title: "Checklist gaps get surfaced while they are still fixable.",
+              title:
+                "Checklist gaps get surfaced while they are still fixable.",
               className: "bp-handoff-card is-checklist",
             }}
           >
@@ -2298,7 +2339,8 @@ function PlanBeforeBorrowSection(): ReactElement {
                 "FairLend gives builders access to build advisors, financing advisors, energy simulation and certification pros, project managers, architects, designers, lawyers, contractors, suppliers, investors, and consultants.",
               eyebrow: "Network plan",
               id: "professional-network",
-              title: "Unlock a growing network of professionals who keep multiplex builds moving.",
+              title:
+                "Unlock a growing network of professionals who keep multiplex builds moving.",
               className: "bp-handoff-card is-network",
             }}
           >
@@ -2312,17 +2354,31 @@ function PlanBeforeBorrowSection(): ReactElement {
 
 function HandoffMapGraphic(): ReactElement {
   return (
-    <div className="bp-handoff-graphic bp-handoff-map" aria-hidden="true">
-      <svg viewBox="0 0 720 330" role="img">
+    <div aria-hidden="true" className="bp-handoff-graphic bp-handoff-map">
+      <svg role="img" viewBox="0 0 720 330">
         <defs>
           <filter id="bp-handoff-rough">
-            <feTurbulence baseFrequency="0.9" numOctaves="2" seed="8" type="fractalNoise" />
+            <feTurbulence
+              baseFrequency="0.9"
+              numOctaves="2"
+              seed="8"
+              type="fractalNoise"
+            />
             <feDisplacementMap in="SourceGraphic" scale="1.4" />
           </filter>
         </defs>
-        <path className="bp-handoff-map-grid" d="M40 44 H682 M40 104 H682 M40 164 H682 M40 224 H682 M40 284 H682 M88 26 V300 M208 26 V300 M328 26 V300 M448 26 V300 M568 26 V300" />
-        <path className="bp-handoff-map-stall" d="M104 82 C176 90 174 166 244 158 C320 150 302 238 384 224 C470 210 464 108 548 116" />
-        <path className="bp-handoff-map-flow" d="M112 248 C178 232 224 210 274 190 C326 170 358 150 414 126 C472 98 528 82 614 76" />
+        <path
+          className="bp-handoff-map-grid"
+          d="M40 44 H682 M40 104 H682 M40 164 H682 M40 224 H682 M40 284 H682 M88 26 V300 M208 26 V300 M328 26 V300 M448 26 V300 M568 26 V300"
+        />
+        <path
+          className="bp-handoff-map-stall"
+          d="M104 82 C176 90 174 166 244 158 C320 150 302 238 384 224 C470 210 464 108 548 116"
+        />
+        <path
+          className="bp-handoff-map-flow"
+          d="M112 248 C178 232 224 210 274 190 C326 170 358 150 414 126 C472 98 528 82 614 76"
+        />
         <g className="bp-handoff-map-nodes">
           <circle cx="112" cy="248" r="16" />
           <circle cx="274" cy="190" r="16" />
@@ -2336,15 +2392,27 @@ function HandoffMapGraphic(): ReactElement {
           <path d="m606 76 9 9 19-24" />
         </g>
         <g className="bp-handoff-map-labels">
-          <text x="82" y="292">Builder</text>
-          <text x="238" y="222">Broker</text>
-          <text x="372" y="92">Architect</text>
-          <text x="564" y="118">Consultant</text>
+          <text x="82" y="292">
+            Builder
+          </text>
+          <text x="238" y="222">
+            Broker
+          </text>
+          <text x="372" y="92">
+            Architect
+          </text>
+          <text x="564" y="118">
+            Consultant
+          </text>
         </g>
         <g className="bp-handoff-map-center">
           <rect height="70" rx="14" width="172" x="344" y="174" />
-          <text x="370" y="207">FairLend</text>
-          <text x="370" y="228">30+ yr build desk</text>
+          <text x="370" y="207">
+            FairLend
+          </text>
+          <text x="370" y="228">
+            30+ yr build desk
+          </text>
         </g>
       </svg>
       <div className="bp-handoff-map-legend">
@@ -2358,9 +2426,18 @@ function HandoffMapGraphic(): ReactElement {
 
 function CmhcChecklistGraphic(): ReactElement {
   return (
-    <div className="bp-handoff-graphic bp-cmhc-checklist" aria-hidden="true">
-      {["CMHC evidence", "Underwriting story", "Advisor fix", "Network handoff"].map((item, index) => (
-        <div className="bp-cmhc-row" key={item} style={{ "--row-index": index } as CSSProperties}>
+    <div aria-hidden="true" className="bp-handoff-graphic bp-cmhc-checklist">
+      {[
+        "CMHC evidence",
+        "Underwriting story",
+        "Advisor fix",
+        "Network handoff",
+      ].map((item, index) => (
+        <div
+          className="bp-cmhc-row"
+          key={item}
+          style={{ "--row-index": index } as CSSProperties}
+        >
           <span>
             <Check aria-hidden="true" strokeWidth={2.3} />
           </span>
@@ -2374,7 +2451,7 @@ function CmhcChecklistGraphic(): ReactElement {
 
 function DrawAvailabilityMockup(): ReactElement {
   return (
-    <div className="bp-handoff-graphic bp-draw-mockup" aria-hidden="true">
+    <div aria-hidden="true" className="bp-handoff-graphic bp-draw-mockup">
       <div className="bp-draw-phone">
         <div className="bp-draw-phone-top">
           <span>Available now</span>
@@ -2523,8 +2600,8 @@ function ProfessionalNetworkBeamGraphic(): ReactElement {
       ))}
       {nodes.map(({ className, ref }, index) => (
         <AnimatedBeam
-          beamClassName="bp-network-beam-active"
           basePathClassName="bp-network-beam-base"
+          beamClassName="bp-network-beam-active"
           className={`bp-network-beam ${className}`}
           containerRef={containerRef}
           curvature={index % 2 === 0 ? 38 : -34}
@@ -2557,12 +2634,21 @@ function ProfessionalNetworkBeamGraphic(): ReactElement {
 
 function FieldSupportGraphic(): ReactElement {
   return (
-    <div className="bp-handoff-graphic bp-field-support" aria-hidden="true">
+    <div aria-hidden="true" className="bp-handoff-graphic bp-field-support">
       <svg viewBox="0 0 360 260">
-        <path className="bp-field-lot" d="M42 198 L182 128 L318 188 L178 236 Z" />
-        <path className="bp-field-house" d="M132 132 L190 96 L258 132 L258 196 L132 196 Z" />
+        <path
+          className="bp-field-lot"
+          d="M42 198 L182 128 L318 188 L178 236 Z"
+        />
+        <path
+          className="bp-field-house"
+          d="M132 132 L190 96 L258 132 L258 196 L132 196 Z"
+        />
         <path className="bp-field-roof" d="M118 134 L190 88 L272 134" />
-        <path className="bp-field-route" d="M58 210 C82 178 118 184 144 162 C170 140 188 122 224 118" />
+        <path
+          className="bp-field-route"
+          d="M58 210 C82 178 118 184 144 162 C170 140 188 122 224 118"
+        />
         <circle className="bp-field-pin" cx="224" cy="118" r="15" />
         <path className="bp-field-check" d="m217 117 6 7 13-16" />
       </svg>
@@ -2595,7 +2681,7 @@ function FairLendOperatingSystemSection(): ReactElement {
       </div>
 
       <div className="bp-system-board">
-        <div className="bp-system-rail" aria-hidden="true">
+        <div aria-hidden="true" className="bp-system-rail">
           <span />
           <span />
           <span />
@@ -2635,7 +2721,9 @@ function StartWithPropertySection({
       <div aria-hidden="true" className="bp-start-drawing" />
       <div className="bp-start-copy">
         <span>Bring us in early</span>
-        <h2 id="bp-start-title">Send the build before it gets expensive to fix.</h2>
+        <h2 id="bp-start-title">
+          Send the build before it gets expensive to fix.
+        </h2>
         <p>
           FairLend sits down with the builder and their advisors, runs the CMHC
           and underwriting checks, pressure-tests the plan, and turns approved

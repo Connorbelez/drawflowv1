@@ -130,7 +130,7 @@ function ReferenceLineLabel({
     Number.isFinite(width) && width > 0
       ? Math.min(
           Math.max(x, estimatedHalfWidth + 8),
-          Math.max(estimatedHalfWidth + 8, width - estimatedHalfWidth - 8),
+          Math.max(estimatedHalfWidth + 8, width - estimatedHalfWidth - 8)
         )
       : x;
 
@@ -327,7 +327,7 @@ export function EvilComposedChart<
   TAreaConfig
 >) {
   const [selectedDataKey, setSelectedDataKey] = useState<string | null>(
-    defaultSelectedDataKey,
+    defaultSelectedDataKey
   );
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const { loadingData, onShimmerExit } = useLoadingData(isLoading, loadingBars);
@@ -345,7 +345,7 @@ export function EvilComposedChart<
         onSelectionChange(newSelectedDataKey);
       }
     },
-    [onSelectionChange, isClickable],
+    [onSelectionChange, isClickable]
   );
 
   // Combined config for legend and tooltip
@@ -524,7 +524,7 @@ export function EvilComposedChart<
         {!isLoading &&
           Object.keys(barConfig).map((dataKey) => {
             const isGlowing = glowingBars.includes(
-              dataKey as NumericDataKeys<TData>,
+              dataKey as NumericDataKeys<TData>
             );
             const isSelectedDataKey =
               selectedDataKey === null || selectedDataKey === dataKey;
@@ -543,7 +543,6 @@ export function EvilComposedChart<
                 fill={`url(#${chartId}-bar-colors-${dataKey})`}
                 key={`bar-${dataKey}`}
                 radius={barRadius}
-                stackId={resolveBarStackId(barStackId, dataKey)}
                 shape={(props: unknown) => {
                   const barProps = props as BarShapeProps;
                   const index = barProps.index as number;
@@ -589,7 +588,7 @@ export function EvilComposedChart<
                           return;
                         }
                         handleSelectionChange(
-                          selectedDataKey === dataKey ? null : dataKey,
+                          selectedDataKey === dataKey ? null : dataKey
                         );
                       }}
                       onMouseEnter={() => {
@@ -600,6 +599,7 @@ export function EvilComposedChart<
                     />
                   );
                 }}
+                stackId={resolveBarStackId(barStackId, dataKey)}
                 style={
                   isClickable || enableHoverHighlight
                     ? { cursor: "pointer" }
@@ -615,7 +615,7 @@ export function EvilComposedChart<
             const _opacity = getOpacity(isClickable, selectedDataKey, dataKey);
             const hasSelection = selectedDataKey !== null;
             const isGlowing = glowingLines.includes(
-              dataKey as NumericDataKeys<TData>,
+              dataKey as NumericDataKeys<TData>
             );
 
             const getFilter = () => {
@@ -729,7 +729,7 @@ export function EvilComposedChart<
                 style={{ cursor: "pointer" }}
                 x={marker.x}
               />
-            ) : null,
+            ) : null
           )}
 
         {/* ======== CHART STYLES ======== */}
@@ -817,7 +817,7 @@ export function EvilComposedChart<
 const getOpacity = (
   isClickable: boolean,
   selectedDataKey: string | null,
-  dataKey: string,
+  dataKey: string
 ) => {
   if (!isClickable || selectedDataKey === null) {
     return { stroke: 1, dot: 1 };
@@ -832,7 +832,7 @@ function resolveBarStackId<TBarConfig extends Record<string, unknown>>(
     | string
     | Partial<Record<keyof TBarConfig & string, string>>
     | undefined,
-  dataKey: string,
+  dataKey: string
 ) {
   if (typeof stackId === "string") {
     return stackId;
@@ -1012,7 +1012,7 @@ const CustomBar = ({
 export function getMinimumWidthBarX(
   x: number,
   width: number,
-  renderedWidth: number,
+  renderedWidth: number
 ) {
   return x - (renderedWidth - width) / 2;
 }
@@ -1117,7 +1117,7 @@ const AreaFillGradientStyle = ({
   const renderStops = (
     dataKey: string,
     colorsCount: number,
-    reverse = false,
+    reverse = false
   ) => (
     <>
       {Array.from({ length: colorsCount }, (_, index) => {
@@ -1623,7 +1623,7 @@ const LineGlowFilterStyle = ({
 const generateEasedGradientStops = (
   steps = 17,
   minOpacity = 0.05,
-  maxOpacity = 0.9,
+  maxOpacity = 0.9
 ) =>
   Array.from({ length: steps }, (_, i) => {
     const t = i / (steps - 1);
@@ -1647,7 +1647,7 @@ export function useLoadingData(isLoading: boolean, loadingBars = 12) {
   const loadingData = useMemo(
     () => getLoadingData(loadingBars, 20, 80),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [loadingBars, loadingDataKey],
+    [loadingBars, loadingDataKey]
   );
 
   return { loadingData, onShimmerExit };

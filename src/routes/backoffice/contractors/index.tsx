@@ -1,30 +1,23 @@
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
-import {
-  CalendarClock,
-  Gauge,
-  Plus,
-  UserRound,
-  Wrench,
-} from "lucide-react";
+import { CalendarClock, Gauge, Plus, UserRound, Wrench } from "lucide-react";
 import { useMemo, useState } from "react";
-
-import { api } from "../../../../convex/_generated/api";
 import { Button } from "#/components/ui/button.tsx";
 import { Card, CardHeader, CardTitle } from "#/components/ui/card.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import {
-  ContractorQuickAddDrawer,
   type ContractorProfileDraft,
+  ContractorQuickAddDrawer,
 } from "#/features/contractors/ContractorQuickAddDrawer.tsx";
 import {
-  ContractorRosterTable,
   type ContractorRosterRow,
+  ContractorRosterTable,
 } from "#/features/contractors/ContractorRosterTable.tsx";
 import {
   getVisualContractorList,
   isProductionVisualParityFixtureEnabled,
 } from "#/features/contractors/contractorVisualFixtures.ts";
+import { api } from "../../../../convex/_generated/api";
 
 export const Route = createFileRoute("/backoffice/contractors/")({
   staticData: {
@@ -49,7 +42,7 @@ function RouteComponent() {
       : {
           includeInactive: true,
           workosOrganizationId,
-        },
+        }
   );
   const result = visualFixture ? getVisualContractorList() : liveResult;
   const createContractor = useMutation(contractorApi.createContractorProfile);
@@ -57,14 +50,18 @@ function RouteComponent() {
   const capabilityCount = result?.summary?.capabilityKeys?.length ?? 0;
   const contractors = (result?.contractors ?? []) as ContractorRosterRow[];
   const activeCount = contractors.filter(
-    (contractor) => (contractor.status ?? "active") === "active",
+    (contractor) => (contractor.status ?? "active") === "active"
   ).length;
   const averageRate = useMemo(() => {
     const rates = contractors
       .map((contractor) => contractor.defaultPayRateCents)
       .filter((rate: unknown): rate is number => typeof rate === "number");
-    if (rates.length === 0) return null;
-    return Math.round(rates.reduce((sum, rate) => sum + rate, 0) / rates.length);
+    if (rates.length === 0) {
+      return null;
+    }
+    return Math.round(
+      rates.reduce((sum, rate) => sum + rate, 0) / rates.length
+    );
   }, [contractors]);
 
   const createProfile = async ({

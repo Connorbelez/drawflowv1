@@ -137,7 +137,10 @@ export function getMilestoneEndX(item: TimelineItem<DemoMilestone>): number {
     return getMilestonePlannedEndX(item);
   }
 
-  return Math.max(startX, normalizeNumber(claimedDay, getMilestonePlannedEndX(item)));
+  return Math.max(
+    startX,
+    normalizeNumber(claimedDay, getMilestonePlannedEndX(item))
+  );
 }
 
 export function resolveDefaultDrawX(
@@ -201,7 +204,11 @@ export function buildMilestoneSpendEvents(
   }
 
   events.push(
-    ...buildDistributedMilestoneSpendEvents(schedule, milestoneId, milestoneName)
+    ...buildDistributedMilestoneSpendEvents(
+      schedule,
+      milestoneId,
+      milestoneName
+    )
   );
 
   if (schedule.completionPaymentAmount > 0) {

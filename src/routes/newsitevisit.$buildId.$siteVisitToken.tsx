@@ -1,8 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { ConvexHttpClient } from "convex/browser";
-
-import { api } from "../../convex/_generated/api";
 import { SiteVisitTokenRoute } from "#/features/build-workspace-demo/SiteVisitTokenRoute.tsx";
+import { api } from "../../convex/_generated/api";
 
 const convexUrl =
   process.env.VITE_CONVEX_URL ?? import.meta.env.VITE_CONVEX_URL;
@@ -24,7 +23,7 @@ export const Route = createFileRoute("/newsitevisit/$buildId/$siteVisitToken")({
             {
               buildId: params.buildId,
               token: params.siteVisitToken,
-            },
+            }
           );
     return { source, state };
   },

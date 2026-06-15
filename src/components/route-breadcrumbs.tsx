@@ -42,14 +42,12 @@ declare module "@tanstack/react-router" {
 export function RouteBreadcrumbs(): ReactElement | null {
   const routeBreadcrumbs = useRouterState({
     select: (state) =>
-      state.matches
-        .map((match) =>
-          resolveRouteBreadcrumb(match as RouteMatchWithBreadcrumb)
-        ),
+      state.matches.map((match) =>
+        resolveRouteBreadcrumb(match as RouteMatchWithBreadcrumb)
+      ),
   });
   const breadcrumbs = routeBreadcrumbs.filter(
-    (breadcrumb): breadcrumb is ResolvedRouteBreadcrumb =>
-    Boolean(breadcrumb)
+    (breadcrumb): breadcrumb is ResolvedRouteBreadcrumb => Boolean(breadcrumb)
   );
 
   if (breadcrumbs.length === 0) {

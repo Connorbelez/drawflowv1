@@ -8,12 +8,12 @@ import {
 } from "#/lib/site-visit-guidance.ts";
 import type { TimelineSetupTemplate } from "./-TimelineSetupFlow.tsx";
 import { normalizeMilestoneTimelineItems } from "./-timeline-milestone-schedule.ts";
-import { ISOMETRIC_ICON_KEYS } from "./-timeline-share-snapshot.ts";
 import type {
   DemoDraw,
   DemoMilestone,
   IsometricIconKey,
 } from "./-timeline-share-snapshot.ts";
+import { ISOMETRIC_ICON_KEYS } from "./-timeline-share-snapshot.ts";
 
 export const TIMELINE_DEMO_SETTINGS_CONTRACT_REFS = {
   adapter: [
@@ -788,10 +788,9 @@ function normalizeGuidanceItems(
       "Wide shot showing the full milestone work area.",
       "Close-up of the highest-risk connection, fixture, or finish.",
     ],
-    whatToVerify: (
-      submilestones.length
-        ? submilestones.map((submilestone) => submilestone.name)
-        : [name]
+    whatToVerify: (submilestones.length
+      ? submilestones.map((submilestone) => submilestone.name)
+      : [name]
     )
       .slice(0, 4)
       .map(
@@ -810,8 +809,7 @@ function normalizeSubmilestone(
     name: stringValue(row.name),
     order: numberValue(row.order, 0),
     percentageBps: numberValue(row.percentageBps, 0),
-    submilestoneKey:
-      stringValue(row.submilestoneKey) || stringValue(row.key),
+    submilestoneKey: stringValue(row.submilestoneKey) || stringValue(row.key),
   };
 }
 

@@ -157,7 +157,9 @@ const screens = [
     waitFor: async (page) => {
       await page.getByText("Production proposal settings").waitFor();
       await page.getByText("Proposal-flow foundation").waitFor();
-      await page.getByTestId("timeline-settings-template-blueprint-table").waitFor();
+      await page
+        .getByTestId("timeline-settings-template-blueprint-table")
+        .waitFor();
     },
   },
   {
@@ -198,7 +200,7 @@ const server = spawn(
       VITE_DRAWFLOW_VISUAL_PARITY_FIXTURE: "1",
     },
     stdio: ["ignore", "pipe", "pipe"],
-  },
+  }
 );
 
 let serverOutput = "";
@@ -229,7 +231,7 @@ try {
           "reports",
           "production-timeline-migration",
           screen.id,
-          `${viewport.label}.png`,
+          `${viewport.label}.png`
         );
         mkdirSync(dirname(outPath), { recursive: true });
         await page.screenshot({
@@ -240,7 +242,7 @@ try {
         });
         await page.close();
         console.log(
-          `${screen.id} ${viewport.label}: ${outPath.replace(`${root}/`, "")}`,
+          `${screen.id} ${viewport.label}: ${outPath.replace(`${root}/`, "")}`
         );
       }
     }
@@ -273,7 +275,9 @@ async function selectMilestone(page, milestoneKey) {
 
 async function selectDraw(page, milestoneKey) {
   await waitForWorkspace(page);
-  const marker = page.getByTestId(`timeline-draw-marker-${milestoneKey}`).first();
+  const marker = page
+    .getByTestId(`timeline-draw-marker-${milestoneKey}`)
+    .first();
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       await marker.waitFor({ state: "visible" });
@@ -306,6 +310,6 @@ async function waitForServer() {
   }
 
   throw new Error(
-    `Timed out waiting for ${baseUrl}. Last error: ${lastError}\n${serverOutput}`,
+    `Timed out waiting for ${baseUrl}. Last error: ${lastError}\n${serverOutput}`
   );
 }

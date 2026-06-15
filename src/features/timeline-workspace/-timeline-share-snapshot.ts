@@ -199,11 +199,11 @@ export interface TimelineShareSnapshotV2 {
   currentDay: number;
   draws: DemoDraw[];
   items: DemoTimelineSnapshotItem[];
+  minimumCashReserve: number;
   payloadVersion: 2;
   progressValue: number;
   range: TimelineRange;
   selectedPanelOpen: boolean;
-  minimumCashReserve: number;
   snapshotSummary: string;
   startingCash: number;
   straightLine: boolean;
@@ -217,10 +217,10 @@ export interface TimelineShareSnapshotInput {
   currentDay: number;
   draws: DemoDraw[];
   items: TimelineItem<DemoMilestone>[];
+  minimumCashReserve?: number;
   progressValue: number;
   range: TimelineRange;
   selectedPanelOpen: boolean;
-  minimumCashReserve?: number;
   startingCash: number;
   straightLine: boolean;
   title?: string;
@@ -233,10 +233,10 @@ export interface TimelineShareState {
   currentDay: number;
   draws: DemoDraw[];
   items: TimelineItem<DemoMilestone>[];
+  minimumCashReserve: number;
   progressValue: number;
   range: TimelineRange;
   selectedPanelOpen: boolean;
-  minimumCashReserve: number;
   startingCash: number;
   straightLine: boolean;
 }
@@ -436,7 +436,7 @@ function normalizeApprovedDrawLimitState(
 
 function normalizeOptionalNonNegativeNumber(value: unknown) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
-    return undefined;
+    return;
   }
   return Math.max(0, Math.round(value));
 }
@@ -519,7 +519,9 @@ function normalizeMilestoneData(
       : { initialPaymentAmount: normalized.initialPaymentAmount }),
     name: normalized.name,
     policy: normalized.policy,
-    ...(normalized.siteVisitGuidance ? { siteVisitGuidance: normalized.siteVisitGuidance } : {}),
+    ...(normalized.siteVisitGuidance
+      ? { siteVisitGuidance: normalized.siteVisitGuidance }
+      : {}),
     status: normalized.status,
     subMilestones: submilestoneDetails
       ? submilestoneNames(submilestoneDetails)
@@ -544,7 +546,10 @@ function normalizeCompletionClaim(
   const qualityRating =
     claim.qualityRating === undefined
       ? undefined
-      : Math.max(1, Math.min(5, Math.round(normalizeNumber(claim.qualityRating, 0))));
+      : Math.max(
+          1,
+          Math.min(5, Math.round(normalizeNumber(claim.qualityRating, 0)))
+        );
 
   return {
     ...(actualCost === undefined ? {} : { actualCost }),
@@ -710,11 +715,11 @@ function normalizeSiteVisitGuidance(
   guidance: DemoMilestone["siteVisitGuidance"] | undefined
 ): SiteVisitGuidanceHtml | undefined {
   if (!guidance) {
-    return undefined;
+    return;
   }
   const normalized = coerceSiteVisitGuidance(guidance);
   if (isSiteVisitGuidanceHtmlEmpty(normalized)) {
-    return undefined;
+    return;
   }
   return normalized;
 }

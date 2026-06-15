@@ -2,20 +2,21 @@
 
 import { useQuery } from "convex/react";
 import { Loader2 } from "lucide-react";
-
-import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
 import { convexWorkspaceToTimelineState } from "#/features/timeline-workspace/-timeline-convex-adapter";
 import { TimelineWorkspace } from "#/features/timeline-workspace/index";
+import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
 
 interface BuildTimelinePanelProps {
   timelinePlanId: Id<"demo_timelinePlans"> | null;
 }
 
-export function BuildTimelinePanel({ timelinePlanId }: BuildTimelinePanelProps) {
+export function BuildTimelinePanel({
+  timelinePlanId,
+}: BuildTimelinePanelProps) {
   const workspace = useQuery(
     api.demo_timeline_plans.demo_getTimelinePlanWorkspace,
-    timelinePlanId ? { planId: timelinePlanId } : "skip",
+    timelinePlanId ? { planId: timelinePlanId } : "skip"
   );
 
   if (!timelinePlanId) {
@@ -39,7 +40,7 @@ export function BuildTimelinePanel({ timelinePlanId }: BuildTimelinePanelProps) 
         className="grid place-items-center rounded-xl border border-border bg-card p-12"
         data-testid="build-detail-timeline-loading"
       >
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2 text-muted-foreground text-sm">
           <Loader2 className="size-4 animate-spin" />
           Loading timeline plan…
         </div>

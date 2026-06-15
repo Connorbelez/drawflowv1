@@ -38,17 +38,19 @@ const milestonePriorityCopy: Record<MilestoneKanbanCard["priority"], string> = {
 
 function findColumnName(
   columns: DashboardKanbanColumn[],
-  columnId: string,
+  columnId: string
 ): string {
   return columns.find((column) => column.id === columnId)?.name ?? columnId;
 }
 
 function findColumnDescription(
   columns: DashboardKanbanColumn[],
-  columnId: string,
+  columnId: string
 ): string | undefined {
   const column = columns.find((entry) => entry.id === columnId);
-  return typeof column?.description === "string" ? column.description : undefined;
+  return typeof column?.description === "string"
+    ? column.description
+    : undefined;
 }
 
 function DetailRow({
@@ -85,7 +87,9 @@ export function MilestoneCardDetailSheet({
   columns: DashboardKanbanColumn[];
   onOpenChange: (open: boolean) => void;
 }): ReactElement | null {
-  if (!card) return null;
+  if (!card) {
+    return null;
+  }
 
   const stageName = findColumnName(columns, card.column);
   const stageDescription = findColumnDescription(columns, card.column);
@@ -105,7 +109,7 @@ export function MilestoneCardDetailSheet({
           </div>
           <SheetTitle className="pr-8">{card.name}</SheetTitle>
           <SheetDescription className="flex items-center gap-1.5">
-            <Building2 className="size-3.5 shrink-0" aria-hidden />
+            <Building2 aria-hidden className="size-3.5 shrink-0" />
             <span className="truncate">{card.address}</span>
           </SheetDescription>
         </SheetHeader>
@@ -174,7 +178,10 @@ export function MilestoneCardDetailSheet({
                     </code>
                   }
                 />
-                <DetailRow label="Card" value={<code className="font-mono text-xs">{card.id}</code>} />
+                <DetailRow
+                  label="Card"
+                  value={<code className="font-mono text-xs">{card.id}</code>}
+                />
               </dl>
             </section>
           </div>
@@ -200,11 +207,13 @@ export function ProposalCardDetailSheet({
   columns: DashboardKanbanColumn[];
   onOpenChange: (open: boolean) => void;
 }): ReactElement | null {
-  if (!card) return null;
+  if (!card) {
+    return null;
+  }
 
   const stageName = findColumnName(columns, card.column);
   const hasMockFlags = Boolean(
-    card.isMockAddress || card.isMockBuilder || card.isMockLtv,
+    card.isMockAddress || card.isMockBuilder || card.isMockLtv
   );
 
   return (
@@ -222,7 +231,7 @@ export function ProposalCardDetailSheet({
           </div>
           <SheetTitle className="pr-8">{card.name}</SheetTitle>
           <SheetDescription className="flex items-center gap-1.5">
-            <Building2 className="size-3.5 shrink-0" aria-hidden />
+            <Building2 aria-hidden className="size-3.5 shrink-0" />
             <span className="truncate">{card.address}</span>
           </SheetDescription>
         </SheetHeader>
@@ -243,7 +252,7 @@ export function ProposalCardDetailSheet({
                 </p>
                 <p className="mt-2 font-semibold text-2xl tabular-nums tracking-tight">
                   {card.ltv}
-                  <span className="ml-0.5 text-muted-foreground text-base">
+                  <span className="ml-0.5 text-base text-muted-foreground">
                     %
                   </span>
                 </p>
@@ -290,10 +299,7 @@ export function ProposalCardDetailSheet({
                   className="size-4 shrink-0 text-warning-foreground"
                 />
                 <div className="flex-1 space-y-1">
-                  <p
-                    className="font-medium text-sm"
-                    id="proposal-mock-notice"
-                  >
+                  <p className="font-medium text-sm" id="proposal-mock-notice">
                     Mock data in this proposal
                   </p>
                   <ul className="flex flex-wrap gap-1">

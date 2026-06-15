@@ -1,17 +1,17 @@
 "use client";
 
 import {
+  type Announcements,
   DndContext,
+  type DragEndEvent,
   DragOverlay,
+  type DragStartEvent,
   KeyboardSensor,
   PointerSensor,
   useDraggable,
   useDroppable,
   useSensor,
   useSensors,
-  type Announcements,
-  type DragEndEvent,
-  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   AlertTriangle,
@@ -62,10 +62,10 @@ import { initialsFor } from "#/features/backoffice-build-detail/format.ts";
 import { cn } from "#/lib/utils.ts";
 
 import {
-  ContractorQuickAddDrawer,
   type ContractorAssignmentCostDraft,
   type ContractorDrawerAvailableContractor,
   type ContractorProfileDraft,
+  ContractorQuickAddDrawer,
 } from "./ContractorQuickAddDrawer.tsx";
 
 export type ContractorPlanningMilestone = {
@@ -193,12 +193,16 @@ const milestoneDropId = (milestoneKey: string) => `milestone:${milestoneKey}`;
 
 function parseContractorDragId(id: string | number) {
   const value = String(id);
-  return value.startsWith("contractor:") ? value.slice("contractor:".length) : null;
+  return value.startsWith("contractor:")
+    ? value.slice("contractor:".length)
+    : null;
 }
 
 function parseMilestoneDropId(id: string | number) {
   const value = String(id);
-  return value.startsWith("milestone:") ? value.slice("milestone:".length) : null;
+  return value.startsWith("milestone:")
+    ? value.slice("milestone:".length)
+    : null;
 }
 
 export function ContractorPlanningPanel({
@@ -214,15 +218,18 @@ export function ContractorPlanningPanel({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilter>("all");
+  const [assignmentFilter, setAssignmentFilter] =
+    useState<AssignmentFilter>("all");
   const [tradeFilter, setTradeFilter] = useState("all");
-  const [selectedContractorId, setSelectedContractorId] = useState<string | null>(
-    null,
+  const [selectedContractorId, setSelectedContractorId] = useState<
+    string | null
+  >(null);
+  const [assignDialog, setAssignDialog] = useState<AssignDialogState | null>(
+    null
   );
-  const [assignDialog, setAssignDialog] = useState<AssignDialogState | null>(null);
-  const [draggingContractorId, setDraggingContractorId] = useState<string | null>(
-    null,
-  );
+  const [draggingContractorId, setDraggingContractorId] = useState<
+    string | null
+  >(null);
   const [form, setForm] = useState<AssignmentForm>({
     contractorId: "",
     estimatedCost: "",
@@ -240,7 +247,7 @@ export function ContractorPlanningPanel({
     for (const assignment of assignments) {
       counts.set(
         assignment.contractorId,
-        (counts.get(assignment.contractorId) ?? 0) + 1,
+        (counts.get(assignment.contractorId) ?? 0) + 1
       );
     }
     return counts;
@@ -261,9 +268,8 @@ export function ContractorPlanningPanel({
   const filteredContractors = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     return proposalContractors.filter((contractor) => {
-      const assignmentCount = assignmentCountByContractor.get(
-        contractor.contractorId,
-      ) ?? 0;
+      const assignmentCount =
+        assignmentCountByContractor.get(contractor.contractorId) ?? 0;
       if (assignmentFilter === "assigned" && assignmentCount === 0) {
         return false;
       }
@@ -303,18 +309,18 @@ export function ContractorPlanningPanel({
       map.set(
         milestone.milestoneKey,
         assignments.filter(
-          (assignment) => assignment.milestoneKey === milestone.milestoneKey,
-        ),
+          (assignment) => assignment.milestoneKey === milestone.milestoneKey
+        )
       );
     }
     return map;
   }, [assignments, milestones]);
 
   const activeMilestone = milestones.find(
-    (milestone) => milestone.milestoneKey === form.milestoneKey,
+    (milestone) => milestone.milestoneKey === form.milestoneKey
   );
   const dialogContractor = proposalContractors.find(
-    (contractor) => contractor.contractorId === form.contractorId,
+    (contractor) => contractor.contractorId === form.contractorId
   );
   const canAssign =
     Boolean(onAssignToMilestone) &&
@@ -326,10 +332,12 @@ export function ContractorPlanningPanel({
 
   const openAssignDialog = (contractorId: string, milestoneKey: string) => {
     const contractor = proposalContractors.find(
-      (row) => row.contractorId === contractorId,
+      (row) => row.contractorId === contractorId
     );
-    const milestone = milestones.find((row) => row.milestoneKey === milestoneKey);
-    if (!contractor || !milestone) {
+    const milestone = milestones.find(
+      (row) => row.milestoneKey === milestoneKey
+    );
+    if (!(contractor && milestone)) {
       return;
     }
     setError("");
@@ -355,12 +363,14 @@ export function ContractorPlanningPanel({
 
   const handleDragEnd = (event: DragEndEvent) => {
     setDraggingContractorId(null);
-    if (!canMutate || !onAssignToMilestone) {
+    if (!(canMutate && onAssignToMilestone)) {
       return;
     }
     const contractorId = parseContractorDragId(event.active.id);
-    const milestoneKey = event.over ? parseMilestoneDropId(event.over.id) : null;
-    if (!contractorId || !milestoneKey) {
+    const milestoneKey = event.over
+      ? parseMilestoneDropId(event.over.id)
+      : null;
+    if (!(contractorId && milestoneKey)) {
       return;
     }
     openAssignDialog(contractorId, milestoneKey);
@@ -368,7 +378,7 @@ export function ContractorPlanningPanel({
 
   const submitAssignment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!canAssign || !onAssignToMilestone) {
+    if (!(canAssign && onAssignToMilestone)) {
       return;
     }
     setPending(true);
@@ -398,12 +408,12 @@ export function ContractorPlanningPanel({
   };
 
   const draggingContractor = proposalContractors.find(
-    (contractor) => contractor.contractorId === draggingContractorId,
+    (contractor) => contractor.contractorId === draggingContractorId
   );
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor),
+    useSensor(KeyboardSensor)
   );
 
   const dragAnnouncements = useMemo<Announcements>(
@@ -411,8 +421,8 @@ export function ContractorPlanningPanel({
       onDragStart({ active }) {
         const contractorId = parseContractorDragId(active.id);
         const name =
-          proposalContractors.find((row) => row.contractorId === contractorId)?.name ??
-          "contractor";
+          proposalContractors.find((row) => row.contractorId === contractorId)
+            ?.name ?? "contractor";
         return `Picked up ${name} from the proposal roster`;
       },
       onDragOver({ over }) {
@@ -420,19 +430,23 @@ export function ContractorPlanningPanel({
           return "";
         }
         const milestoneKey = parseMilestoneDropId(over.id);
-        const name = milestones.find((row) => row.milestoneKey === milestoneKey)?.name;
+        const name = milestones.find(
+          (row) => row.milestoneKey === milestoneKey
+        )?.name;
         return name ? `Over milestone ${name}` : "";
       },
       onDragEnd({ active, over }) {
         const contractorId = parseContractorDragId(active.id);
         const name =
-          proposalContractors.find((row) => row.contractorId === contractorId)?.name ??
-          "contractor";
+          proposalContractors.find((row) => row.contractorId === contractorId)
+            ?.name ?? "contractor";
         if (!over) {
           return `Cancelled drop for ${name}`;
         }
         const milestoneKey = parseMilestoneDropId(over.id);
-        const milestoneName = milestones.find((row) => row.milestoneKey === milestoneKey)?.name;
+        const milestoneName = milestones.find(
+          (row) => row.milestoneKey === milestoneKey
+        )?.name;
         return milestoneName
           ? `Dropped ${name} on ${milestoneName}`
           : `Dropped ${name}`;
@@ -440,16 +454,16 @@ export function ContractorPlanningPanel({
       onDragCancel({ active }) {
         const contractorId = parseContractorDragId(active.id);
         const name =
-          proposalContractors.find((row) => row.contractorId === contractorId)?.name ??
-          "contractor";
+          proposalContractors.find((row) => row.contractorId === contractorId)
+            ?.name ?? "contractor";
         return `Cancelled dragging ${name}`;
       },
     }),
-    [milestones, proposalContractors],
+    [milestones, proposalContractors]
   );
 
   const selectedContractor = proposalContractors.find(
-    (contractor) => contractor.contractorId === selectedContractorId,
+    (contractor) => contractor.contractorId === selectedContractorId
   );
 
   const conflictCount = planning?.conflicts?.length ?? 0;
@@ -457,19 +471,22 @@ export function ContractorPlanningPanel({
   return (
     <Frame data-testid="proposal-contractor-planning">
       <FramePanel className="flex flex-col gap-0 overflow-hidden p-0">
-        <header className="border-b border-border/70 px-5 py-5 sm:px-6">
+        <header className="border-border/70 border-b px-5 py-5 sm:px-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="max-w-2xl">
-              <h2 className="font-semibold text-lg tracking-tight">Contractor planning</h2>
+              <h2 className="font-semibold text-lg tracking-tight">
+                Contractor planning
+              </h2>
               <p className="mt-1.5 text-muted-foreground text-sm leading-relaxed">
-                Build the proposal crew roster, assign contractors to milestones, and
-                review permit fit and schedule signals before submission.
+                Build the proposal crew roster, assign contractors to
+                milestones, and review permit fit and schedule signals before
+                submission.
               </p>
             </div>
             <Button
               className="shrink-0"
               data-testid="proposal-add-contractor"
-              disabled={!canMutate || !(onCreateAndAttach || onAttachExisting)}
+              disabled={!(canMutate && (onCreateAndAttach || onAttachExisting))}
               onClick={() => setDrawerOpen(true)}
               type="button"
             >
@@ -513,11 +530,11 @@ export function ContractorPlanningPanel({
           >
             <div className="mt-5 grid min-h-[min(28rem,calc(100vh-22rem))] overflow-hidden rounded-xl border border-border/80 bg-muted/15 lg:grid-cols-[minmax(16rem,20rem)_minmax(0,1fr)]">
               <ContractorRosterPanel
+                assignmentCountByContractor={assignmentCountByContractor}
                 assignmentFilter={assignmentFilter}
                 canDrag={canMutate && Boolean(onAssignToMilestone)}
-                contractors={filteredContractors}
-                assignmentCountByContractor={assignmentCountByContractor}
                 className="min-h-0 border-border/70 lg:border-r"
+                contractors={filteredContractors}
                 onAssignmentFilterChange={setAssignmentFilter}
                 onSearchChange={setSearchQuery}
                 onSelectContractor={setSelectedContractorId}
@@ -555,14 +572,14 @@ export function ContractorPlanningPanel({
                     <ContractorProfileCard
                       assignmentCount={
                         assignmentCountByContractor.get(
-                          draggingContractor.contractorId,
+                          draggingContractor.contractorId
                         ) ?? 0
                       }
                       contractor={draggingContractor}
                       isDragging
                     />
                   </DragOverlay>,
-                  document.body,
+                  document.body
                 )
               : null}
           </DndContext>
@@ -570,13 +587,15 @@ export function ContractorPlanningPanel({
 
         <section
           aria-label="Planning intelligence"
-          className="border-t border-border/70 bg-muted/10 px-5 py-8 sm:px-6"
+          className="border-border/70 border-t bg-muted/10 px-5 py-8 sm:px-6"
         >
           <div className="mb-6 max-w-2xl">
-            <h3 className="font-semibold text-base tracking-tight">Planning intelligence</h3>
+            <h3 className="font-semibold text-base tracking-tight">
+              Planning intelligence
+            </h3>
             <p className="mt-1 text-muted-foreground text-sm">
-              Permit signals, recommended crew, and schedule overlap from the current
-              proposal roadmap.
+              Permit signals, recommended crew, and schedule overlap from the
+              current proposal roadmap.
             </p>
           </div>
           <PlanningInsightsSection planning={planning} />
@@ -608,7 +627,8 @@ export function ContractorPlanningPanel({
         description={`Add a contractor to this ${roleLabel} planning roster with schedule, equipment, capability, and pay details.`}
         onAttachExisting={
           onAttachExisting
-            ? ({ contractorId, role }) => onAttachExisting({ contractorId, role })
+            ? ({ contractorId, role }) =>
+                onAttachExisting({ contractorId, role })
             : undefined
         }
         onCreate={({ contractor, role }) =>
@@ -638,7 +658,7 @@ function PlanningMetric({
       <dd
         className={cn(
           "mt-0.5 font-semibold text-xl tabular-nums tracking-tight",
-          tone === "warning" && value > 0 && "text-destructive",
+          tone === "warning" && value > 0 && "text-destructive"
         )}
       >
         {value}
@@ -657,10 +677,12 @@ function AssignmentWorkflowBar({
   return (
     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
       <div>
-        <h3 className="font-semibold text-base tracking-tight">Crew assignment</h3>
+        <h3 className="font-semibold text-base tracking-tight">
+          Crew assignment
+        </h3>
         <p className="mt-1 max-w-xl text-muted-foreground text-sm">
-          Select a contractor from the roster, then drag onto a milestone or use Assign
-          crew.
+          Select a contractor from the roster, then drag onto a milestone or use
+          Assign crew.
         </p>
       </div>
       <ol className="flex flex-wrap items-center gap-2 text-sm">
@@ -669,7 +691,7 @@ function AssignmentWorkflowBar({
             "rounded-lg border px-3 py-1.5",
             selectedContractorName
               ? "border-primary/35 bg-primary/8 text-foreground"
-              : "border-border/80 bg-background text-muted-foreground",
+              : "border-border/80 bg-background text-muted-foreground"
           )}
         >
           <span className="font-medium">1.</span> Select contractor
@@ -682,7 +704,7 @@ function AssignmentWorkflowBar({
             "rounded-lg border px-3 py-1.5",
             isDragging
               ? "border-primary/35 bg-primary/8 text-foreground"
-              : "border-border/80 bg-background text-muted-foreground",
+              : "border-border/80 bg-background text-muted-foreground"
           )}
         >
           <span className="font-medium">2.</span>{" "}
@@ -690,7 +712,10 @@ function AssignmentWorkflowBar({
         </li>
         {selectedContractorName ? (
           <li className="w-full text-muted-foreground text-xs lg:ms-2 lg:w-auto">
-            Active: <span className="font-medium text-foreground">{selectedContractorName}</span>
+            Active:{" "}
+            <span className="font-medium text-foreground">
+              {selectedContractorName}
+            </span>
           </li>
         ) : null}
       </ol>
@@ -731,7 +756,7 @@ function ContractorRosterPanel({
 }) {
   return (
     <section className={cn("flex h-full min-h-0 flex-col", className)}>
-      <header className="grid gap-3 border-b border-border/70 bg-background/50 px-4 py-4">
+      <header className="grid gap-3 border-border/70 border-b bg-background/50 px-4 py-4">
         <div className="flex items-center justify-between gap-2">
           <p className="font-medium text-sm">Proposal roster</p>
           <Badge className="tabular-nums" variant="outline">
@@ -756,13 +781,19 @@ function ContractorRosterPanel({
             aria-label="Filter by assignment status"
             className="w-full"
             onChange={(event) => {
-              onAssignmentFilterChange(event.currentTarget.value as AssignmentFilter);
+              onAssignmentFilterChange(
+                event.currentTarget.value as AssignmentFilter
+              );
             }}
             value={assignmentFilter}
           >
             <NativeSelectOption value="all">All roster</NativeSelectOption>
-            <NativeSelectOption value="unassigned">Unassigned</NativeSelectOption>
-            <NativeSelectOption value="assigned">On milestones</NativeSelectOption>
+            <NativeSelectOption value="unassigned">
+              Unassigned
+            </NativeSelectOption>
+            <NativeSelectOption value="assigned">
+              On milestones
+            </NativeSelectOption>
           </NativeSelect>
           <NativeSelect
             aria-label="Filter by trade"
@@ -873,7 +904,7 @@ function ContractorProfileCard({
         isSelected && "border-primary/45 ring-1 ring-primary/25",
         isDragging && "opacity-40 shadow-md",
         isDraggable && "cursor-grab touch-none active:cursor-grabbing",
-        isInteractive && "hover:border-primary/30",
+        isInteractive && "hover:border-primary/30"
       )}
       data-testid={`contractor-card-${contractor.contractorId}`}
       render={
@@ -921,12 +952,20 @@ function ContractorProfileCardBody({
         {initialsFor(contractor.name)}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate font-medium text-sm">{contractor.name}</span>
-        <span className="block truncate text-muted-foreground text-xs">{contractor.role}</span>
+        <span className="block truncate font-medium text-sm">
+          {contractor.name}
+        </span>
+        <span className="block truncate text-muted-foreground text-xs">
+          {contractor.role}
+        </span>
         {contractor.trades && contractor.trades.length > 0 ? (
           <span className="mt-1.5 flex flex-wrap gap-1">
             {contractor.trades.slice(0, 3).map((trade) => (
-              <Badge className="font-normal text-xs" key={trade} variant="outline">
+              <Badge
+                className="font-normal text-xs"
+                key={trade}
+                variant="outline"
+              >
                 {trade}
               </Badge>
             ))}
@@ -953,7 +992,10 @@ function MilestoneAssignmentPanel({
   proposalContractors,
   selectedContractorId,
 }: {
-  assignmentsByMilestone: Map<string, NonNullable<ContractorPlanningModel["milestoneAssignments"]>>;
+  assignmentsByMilestone: Map<
+    string,
+    NonNullable<ContractorPlanningModel["milestoneAssignments"]>
+  >;
   canMutate: boolean;
   className?: string;
   draggingContractorId: string | null;
@@ -967,17 +1009,20 @@ function MilestoneAssignmentPanel({
 
   return (
     <section className={cn("flex h-full min-h-0 flex-col", className)}>
-      <header className="border-b border-border/70 bg-background/50 px-4 py-4">
+      <header className="border-border/70 border-b bg-background/50 px-4 py-4">
         <p className="font-medium text-sm">Milestone assignments</p>
         <p className="mt-1 text-muted-foreground text-xs">
-          {milestones.length} milestone{milestones.length === 1 ? "" : "s"} on this proposal
+          {milestones.length} milestone{milestones.length === 1 ? "" : "s"} on
+          this proposal
         </p>
       </header>
       <ScrollArea className="min-h-0 flex-1 [--scroll-area-thumb-bg:var(--muted-foreground)]">
         <div className="grid gap-3 p-4">
           {milestones.map((milestone) => (
             <DroppableMilestoneCard
-              assignments={assignmentsByMilestone.get(milestone.milestoneKey) ?? []}
+              assignments={
+                assignmentsByMilestone.get(milestone.milestoneKey) ?? []
+              }
               canMutate={canMutate}
               isDragging={isDragging}
               key={milestone.milestoneKey}
@@ -1027,7 +1072,7 @@ function DroppableMilestoneCard({
     <Frame
       className={cn(
         "motion-safe:transition-[opacity,box-shadow] motion-reduce:transition-none",
-        isOver && "ring-1 ring-primary/25",
+        isOver && "ring-1 ring-primary/25"
       )}
       data-testid={`proposal-milestone-drop-${milestone.milestoneKey}`}
       ref={setNodeRef}
@@ -1035,15 +1080,17 @@ function DroppableMilestoneCard({
       <FramePanel
         className={cn(
           "flex flex-col gap-0 p-0 motion-safe:transition-[border-color,background-color] motion-reduce:transition-none",
-          isOver && "border-primary/45 bg-primary/5",
+          isOver && "border-primary/45 bg-primary/5"
         )}
       >
-        <FrameHeader className="flex-row items-center justify-between gap-3 border-b border-border/60 py-3">
+        <FrameHeader className="flex-row items-center justify-between gap-3 border-border/60 border-b py-3">
           <div className="flex min-w-0 items-center gap-2">
             <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/12 text-primary">
               <Hammer className="size-4" />
             </span>
-            <FrameTitle className="truncate text-base">{milestone.name}</FrameTitle>
+            <FrameTitle className="truncate text-base">
+              {milestone.name}
+            </FrameTitle>
           </div>
           <Badge className="shrink-0 tabular-nums" variant="outline">
             {assignments.length} crew
@@ -1056,7 +1103,9 @@ function DroppableMilestoneCard({
               aria-label={`Drop zone for ${milestone.name}`}
               className={cn(
                 "rounded-lg border border-dashed px-3 py-3 text-center text-muted-foreground text-xs motion-safe:transition-colors motion-reduce:transition-none",
-                isOver ? "border-primary/40 bg-primary/8" : "border-border/80 bg-muted/15",
+                isOver
+                  ? "border-primary/40 bg-primary/8"
+                  : "border-border/80 bg-muted/15"
               )}
               role="region"
             >
@@ -1065,7 +1114,9 @@ function DroppableMilestoneCard({
           ) : null}
 
           {assignments.length === 0 ? (
-            <p className="text-muted-foreground text-xs">No crew assigned yet.</p>
+            <p className="text-muted-foreground text-xs">
+              No crew assigned yet.
+            </p>
           ) : (
             <ul className="divide-y divide-border/60 rounded-lg border border-border/60 bg-muted/10">
               {assignments.map((assignment) => (
@@ -1100,7 +1151,7 @@ function DroppableMilestoneCard({
           )}
         </div>
 
-        <FrameFooter className="border-t border-border/60 py-3">
+        <FrameFooter className="border-border/60 border-t py-3">
           <Button
             className="w-full sm:w-auto"
             data-testid={`proposal-milestone-assign-contractor-${milestone.milestoneKey}`}
@@ -1149,7 +1200,9 @@ function AssignmentDialog({
   setForm: Dispatch<SetStateAction<AssignmentForm>>;
   submitAssignment: (event: FormEvent<HTMLFormElement>) => void;
 }) {
-  const milestone = milestones.find((row) => row.milestoneKey === form.milestoneKey);
+  const milestone = milestones.find(
+    (row) => row.milestoneKey === form.milestoneKey
+  );
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
@@ -1160,7 +1213,8 @@ function AssignmentDialog({
         <DialogHeader>
           <DialogTitle>Assign contractor to milestone</DialogTitle>
           <DialogDescription>
-            {contractor?.name ?? "Contractor"} on {milestone?.name ?? "milestone"}
+            {contractor?.name ?? "Contractor"} on{" "}
+            {milestone?.name ?? "milestone"}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="min-h-[20rem]">
@@ -1185,7 +1239,9 @@ function AssignmentDialog({
               />
             </Field>
             <Field>
-              <FieldLabel htmlFor="assign-contractor-submilestone">Submilestone</FieldLabel>
+              <FieldLabel htmlFor="assign-contractor-submilestone">
+                Submilestone
+              </FieldLabel>
               <NativeSelect
                 className="w-full"
                 id="assign-contractor-submilestone"
@@ -1197,16 +1253,25 @@ function AssignmentDialog({
                 }}
                 value={form.submilestoneKey}
               >
-                <NativeSelectOption value="">Milestone level</NativeSelectOption>
-                {(activeMilestone?.submilestoneSnapshot ?? []).map((submilestone) => (
-                  <NativeSelectOption key={submilestone.key} value={submilestone.key}>
-                    {submilestone.name}
-                  </NativeSelectOption>
-                ))}
+                <NativeSelectOption value="">
+                  Milestone level
+                </NativeSelectOption>
+                {(activeMilestone?.submilestoneSnapshot ?? []).map(
+                  (submilestone) => (
+                    <NativeSelectOption
+                      key={submilestone.key}
+                      value={submilestone.key}
+                    >
+                      {submilestone.name}
+                    </NativeSelectOption>
+                  )
+                )}
               </NativeSelect>
             </Field>
             <Field>
-              <FieldLabel htmlFor="assign-contractor-hours">Estimated hours</FieldLabel>
+              <FieldLabel htmlFor="assign-contractor-hours">
+                Estimated hours
+              </FieldLabel>
               <Input
                 id="assign-contractor-hours"
                 inputMode="decimal"
@@ -1223,7 +1288,9 @@ function AssignmentDialog({
               />
             </Field>
             <Field>
-              <FieldLabel htmlFor="assign-contractor-cost">Estimated cost</FieldLabel>
+              <FieldLabel htmlFor="assign-contractor-cost">
+                Estimated cost
+              </FieldLabel>
               <Input
                 id="assign-contractor-cost"
                 inputMode="decimal"
@@ -1240,7 +1307,10 @@ function AssignmentDialog({
               />
             </Field>
             {error ? (
-              <p className="text-destructive text-sm md:col-span-2" role="alert">
+              <p
+                className="text-destructive text-sm md:col-span-2"
+                role="alert"
+              >
                 {error}
               </p>
             ) : null}
@@ -1250,7 +1320,12 @@ function AssignmentDialog({
           <DialogClose render={<Button type="button" variant="outline" />}>
             Cancel
           </DialogClose>
-          <Button disabled={!canAssign} form="assign-contractor-form" loading={pending} type="submit">
+          <Button
+            disabled={!canAssign}
+            form="assign-contractor-form"
+            loading={pending}
+            type="submit"
+          >
             <UserPlus />
             Confirm assignment
           </Button>
@@ -1290,7 +1365,9 @@ function PlanningInsightsSection({
         <div className="mt-4 grid gap-4">
           <ChipList
             empty="No permit or roadmap material signal detected yet."
-            values={(planning?.materialSignals ?? []).map((signal) => signal.label)}
+            values={(planning?.materialSignals ?? []).map(
+              (signal) => signal.label
+            )}
           />
           <div className="grid gap-2">
             {(planning?.recommendations ?? []).slice(0, 4).map((row) => (
@@ -1304,7 +1381,9 @@ function PlanningInsightsSection({
                 </div>
                 <p className="mt-1 text-muted-foreground text-xs">
                   {row.matchedSignals.length > 0
-                    ? row.matchedSignals.map((signal) => signal.label).join(", ")
+                    ? row.matchedSignals
+                        .map((signal) => signal.label)
+                        .join(", ")
                     : "General fit"}
                 </p>
               </div>
@@ -1330,8 +1409,8 @@ function PlanningInsightsSection({
                   {conflict.contractorName}
                 </p>
                 <p className="mt-1 text-muted-foreground text-xs">
-                  Day {conflict.overlapStartDay}-{conflict.overlapEndDay}: {conflict.leftLabel}{" "}
-                  overlaps {conflict.rightLabel}.
+                  Day {conflict.overlapStartDay}-{conflict.overlapEndDay}:{" "}
+                  {conflict.leftLabel} overlaps {conflict.rightLabel}.
                 </p>
               </div>
             ))
@@ -1348,8 +1427,8 @@ function PlanningInsightsSection({
               >
                 <p className="truncate font-medium text-sm">{row.name}</p>
                 <p className="mt-1 text-muted-foreground text-xs tabular-nums">
-                  {row.scheduledHours}h scheduled · {row.utilizationPercent ?? 0}% of weekly
-                  window
+                  {row.scheduledHours}h scheduled ·{" "}
+                  {row.utilizationPercent ?? 0}% of weekly window
                 </p>
               </div>
             ))}
@@ -1362,12 +1441,16 @@ function PlanningInsightsSection({
 
 function moneyToCents(value: string) {
   const parsed = Number.parseFloat(value);
-  if (!Number.isFinite(parsed) || parsed < 0) return undefined;
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return;
+  }
   return Math.round(parsed * 100);
 }
 
 function hoursFromInput(value: string) {
   const parsed = Number.parseFloat(value);
-  if (!Number.isFinite(parsed) || parsed < 0) return undefined;
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return;
+  }
   return Math.round(parsed * 100) / 100;
 }

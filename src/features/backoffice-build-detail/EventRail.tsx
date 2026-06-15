@@ -11,38 +11,44 @@ import { formatRelative } from "./format";
 
 interface RailEvent {
   _id: string;
+  createdAt: number;
   eventType: string;
   payloadPreview: string;
-  createdAt: number;
 }
 
 interface AuditEvent {
   _id: string;
-  eventType: string;
+  actorPersona: string;
+  afterSummary?: string;
+  beforeSummary?: string;
+  createdAt: number;
   entityLabel?: string;
   entityType: string;
-  createdAt: number;
-  beforeSummary?: string;
-  afterSummary?: string;
-  actorPersona: string;
+  eventType: string;
 }
 
 interface EventRailPanelProps {
-  quickActionEvents: RailEvent[];
   auditEvents: AuditEvent[];
-  onView?: (event: RailEvent) => void;
   onResolve?: (event: RailEvent) => void;
+  onView?: (event: RailEvent) => void;
+  quickActionEvents: RailEvent[];
 }
 
 interface EventRailSheetProps extends EventRailPanelProps {
-  open: boolean;
   onOpenChange: (open: boolean) => void;
+  open: boolean;
 }
 
 function eventIcon(eventType: string): string {
-  if (eventType.includes("milestone")) return "🚩";
-  if (eventType.includes("site")) return "📝";
-  if (eventType.includes("draw")) return "💵";
+  if (eventType.includes("milestone")) {
+    return "🚩";
+  }
+  if (eventType.includes("site")) {
+    return "📝";
+  }
+  if (eventType.includes("draw")) {
+    return "💵";
+  }
   return "•";
 }
 
@@ -50,19 +56,24 @@ function eventTitle(eventType: string): string {
   if (
     eventType.includes("milestoneCompleted") ||
     eventType.includes("milestone.completion")
-  )
+  ) {
     return "Builder completed milestone";
+  }
   if (
     eventType.includes("siteVisitCompleted") ||
     eventType.includes("site_visit.completed")
-  )
+  ) {
     return "Site visit complete";
+  }
   if (
     eventType.includes("drawRequested") ||
     eventType.includes("draw.requested")
-  )
+  ) {
     return "Draw requested";
-  if (eventType.includes("drawApproved")) return "Draw approved";
+  }
+  if (eventType.includes("drawApproved")) {
+    return "Draw approved";
+  }
   return eventType.replace(/[._]/g, " ");
 }
 
@@ -73,11 +84,11 @@ export function EventRailPanel({
   onResolve,
 }: EventRailPanelProps): ReactNode {
   return (
-    <div
-      className="flex flex-col gap-4"
-      data-testid="build-detail-rail"
-    >
-      <RailSection count={quickActionEvents.length} title="Events + Quick Action">
+    <div className="flex flex-col gap-4" data-testid="build-detail-rail">
+      <RailSection
+        count={quickActionEvents.length}
+        title="Events + Quick Action"
+      >
         {quickActionEvents.length === 0 ? (
           <p className="text-muted-foreground text-xs">No actionable events.</p>
         ) : (
@@ -233,7 +244,7 @@ function RailSection({
         </h4>
         <span
           className={cn(
-            "rounded-full bg-muted px-2 py-0.5 text-[11px] text-foreground",
+            "rounded-full bg-muted px-2 py-0.5 text-[11px] text-foreground"
           )}
         >
           {count}

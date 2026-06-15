@@ -12,19 +12,19 @@ export const Route = createFileRoute("/backoffice")({
       roles: [context.role, ...(context.roles ?? [])],
       workspace: "backoffice",
     }),
-	staticData: {
-		breadcrumb: {
-			label: "Backoffice",
-			to: "/backoffice",
-		},
-	},
-	component: RouteComponent,
+  staticData: {
+    breadcrumb: {
+      label: "Backoffice",
+      to: "/backoffice",
+    },
+  },
+  component: RouteComponent,
 });
 
 function RouteComponent() {
-	return (
-		<AppShell>
-			<Outlet />
-		</AppShell>
-	);
+  return (
+    <AppShell>
+      <Outlet />
+    </AppShell>
+  );
 }

@@ -37,7 +37,10 @@ function SubmilestoneStatusIcon({
   }
 
   return (
-    <Circle aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+    <Circle
+      aria-hidden="true"
+      className="size-3.5 shrink-0 text-muted-foreground"
+    />
   );
 }
 
@@ -96,7 +99,9 @@ export function TimelineMilestoneSubmilestoneList({
         {submilestones.map((submilestone) => {
           const supplementalMeta =
             formatSubmilestoneSupplementalMeta(submilestone);
-          const budgetDollars = Math.round((submilestone.budgetCents ?? 0) / 100);
+          const budgetDollars = Math.round(
+            (submilestone.budgetCents ?? 0) / 100
+          );
           return (
             <li
               data-testid={`${testIdPrefix}-${submilestone.key}`}
@@ -104,15 +109,19 @@ export function TimelineMilestoneSubmilestoneList({
             >
               <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
                 <EditableFilterChip
+                  className="w-full justify-start"
                   Icon={
                     submilestone.status ? (
                       <SubmilestoneStatusIcon status={submilestone.status} />
                     ) : undefined
                   }
-                  className="w-full justify-start"
                   labelKey={submilestone.name}
                   testId={`${testIdPrefix}-chip-${submilestone.key}`}
-                  tone={submilestone.budgetCents === undefined ? "neutral" : "accent"}
+                  tone={
+                    submilestone.budgetCents === undefined
+                      ? "neutral"
+                      : "accent"
+                  }
                   type="value"
                 />
                 <EditableNumberChip
@@ -133,7 +142,7 @@ export function TimelineMilestoneSubmilestoneList({
                 {submilestone.status ? (
                   <span className="sr-only">Status: {submilestone.status}</span>
                 ) : null}
-                {(submilestone.description || supplementalMeta) ? (
+                {submilestone.description || supplementalMeta ? (
                   <div className="col-span-2 min-w-0 px-2.5">
                     {submilestone.description ? (
                       <p

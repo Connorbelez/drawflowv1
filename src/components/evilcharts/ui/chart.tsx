@@ -126,8 +126,8 @@ function ChartContainer({
       >
         <ChartStyle config={config} id={chartId} />
         <RechartsPrimitive.ResponsiveContainer
-          className="min-h-0 w-full flex-1"
           aspect={aspect}
+          className="min-h-0 w-full flex-1"
           debounce={debounce}
           height={height}
           initialDimension={initialDimension}

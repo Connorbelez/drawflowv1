@@ -4,6 +4,10 @@ import { useMutation } from "convex/react";
 import { useMemo, useState } from "react";
 
 import { BuildWorkspaceDemo } from "#/features/build-workspace-demo/BuildWorkspaceDemo.tsx";
+import {
+  contractorPlanningFromProductionDetail,
+  parseGanttMilestoneScopeId,
+} from "#/features/build-workspace-demo/build-workspace-contractor-planning.ts";
 import type {
   AddMilestoneInput,
   AuditEvent,
@@ -21,10 +25,6 @@ import type {
   WorkspaceIssue,
   WorkspaceRole,
 } from "#/features/build-workspace-demo/types.ts";
-import {
-  contractorPlanningFromProductionDetail,
-  parseGanttMilestoneScopeId,
-} from "#/features/build-workspace-demo/build-workspace-contractor-planning.ts";
 import { BuildWorkspaceProvider } from "#/features/build-workspace-demo/workspace-adapter.tsx";
 import { normalizeEvidenceFileForUpload } from "#/lib/evidence-image-normalization.ts";
 import { api } from "../../../convex/_generated/api";
@@ -60,37 +60,37 @@ export function ActiveBuildGanttWorkspace({
 }: ActiveBuildGanttWorkspaceProps) {
   const productionApi = (api as any).production_proposals;
   const updateMilestoneMutation = useMutation(
-    productionApi.updateActiveBuildTimelineMilestone,
+    productionApi.updateActiveBuildTimelineMilestone
   );
   const createMilestoneMutation = useMutation(
-    productionApi.createActiveBuildTimelineMilestone,
+    productionApi.createActiveBuildTimelineMilestone
   );
   const createEvidenceMutation = useMutation(
-    productionApi.createActiveBuildTimelineEvidenceAsset,
+    productionApi.createActiveBuildTimelineEvidenceAsset
   );
   const generateEvidenceUploadUrl = useMutation(
-    productionApi.generateActiveBuildEvidenceUploadUrl,
+    productionApi.generateActiveBuildEvidenceUploadUrl
   );
   const submitCompletionClaim = useMutation(
-    productionApi.submitActiveBuildMilestoneCompletion,
+    productionApi.submitActiveBuildMilestoneCompletion
   );
   const approveMilestone = useMutation(
-    productionApi.approveActiveBuildMilestone,
+    productionApi.approveActiveBuildMilestone
   );
   const rejectMilestone = useMutation(productionApi.rejectActiveBuildMilestone);
   const requestMoreInfo = useMutation(
-    productionApi.requestActiveBuildMilestoneInfo,
+    productionApi.requestActiveBuildMilestoneInfo
   );
   const requestSiteVisit = useMutation(
-    productionApi.assignActiveBuildSiteVisit,
+    productionApi.assignActiveBuildSiteVisit
   );
   const recordSiteVisit = useMutation(productionApi.recordActiveBuildSiteVisit);
   const reviewEvidence = useMutation(productionApi.reviewActiveBuildEvidence);
   const assignContractorToMilestone = useMutation(
-    productionApi.assignActiveBuildContractorToMilestone,
+    productionApi.assignActiveBuildContractorToMilestone
   );
   const attachContractor = useMutation(
-    productionApi.attachActiveBuildContractor,
+    productionApi.attachActiveBuildContractor
   );
   const createContractor = useMutation(productionApi.createContractorProfile);
   const createDraw = useMutation(productionApi.createActiveBuildTimelineDraw);
@@ -102,7 +102,7 @@ export function ActiveBuildGanttWorkspace({
   const [activePlanId, setActivePlanId] =
     useState<OptimizationPlanId>("capitalConstrained");
   const [dismissedIssueKeys, setDismissedIssueKeys] = useState(
-    () => new Set<string>(),
+    () => new Set<string>()
   );
 
   const mapped = useMemo(
@@ -122,14 +122,14 @@ export function ActiveBuildGanttWorkspace({
       role,
       selectedMilestoneId,
       timelineWorkspace,
-    ],
+    ]
   );
   const selectedId = selectedMilestoneId || mapped.selectedMilestoneId;
   const dependencies = mapped.dependencies;
 
   const contractorPlanning = useMemo(
     () => contractorPlanningFromProductionDetail(detail),
-    [detail],
+    [detail]
   );
 
   const adapter = useMemo<BuildWorkspaceAdapter>(
@@ -193,13 +193,15 @@ export function ActiveBuildGanttWorkspace({
       selectedMilestoneId: selectedId,
       addDependency: async (fromMilestoneId, toMilestoneId) => {
         const target = detail.milestones.find(
-          (milestone) => milestone.key === toMilestoneId,
+          (milestone) => milestone.key === toMilestoneId
         );
-        if (!target) return;
+        if (!target) {
+          return;
+        }
         await updateMilestoneMutation({
           buildId,
           dependencyKeys: Array.from(
-            new Set([...(target.dependencyKeys ?? []), fromMilestoneId]),
+            new Set([...(target.dependencyKeys ?? []), fromMilestoneId])
           ),
           milestoneKey: toMilestoneId,
           workosOrganizationId,
@@ -212,7 +214,7 @@ export function ActiveBuildGanttWorkspace({
           : nextOrder * 14;
         const durationDays = Math.max(
           1,
-          Math.round(input.estimatedDurationDays),
+          Math.round(input.estimatedDurationDays)
         );
         await createMilestoneMutation({
           buildId,
@@ -274,13 +276,13 @@ export function ActiveBuildGanttWorkspace({
               buildId,
               dayEnd: dayFromDate(
                 detail.build.startDate,
-                move.endAt ?? move.startAt,
+                move.endAt ?? move.startAt
               ),
               dayStart: dayFromDate(detail.build.startDate, move.startAt),
               milestoneKey: move.milestoneId,
               workosOrganizationId,
-            }),
-          ),
+            })
+          )
         );
         void reason;
       },
@@ -294,12 +296,14 @@ export function ActiveBuildGanttWorkspace({
       },
       mergeDrawGroups: async (sourceDrawGroupId, targetDrawGroupId) => {
         const source = detail.draws.find(
-          (draw) => draw.drawKey === sourceDrawGroupId,
+          (draw) => draw.drawKey === sourceDrawGroupId
         );
         const target = detail.draws.find(
-          (draw) => draw.drawKey === targetDrawGroupId,
+          (draw) => draw.drawKey === targetDrawGroupId
         );
-        if (!(source && target)) return;
+        if (!(source && target)) {
+          return;
+        }
         await updateDraw({
           amountCents: source.amountCents + target.amountCents,
           buildId,
@@ -340,16 +344,18 @@ export function ActiveBuildGanttWorkspace({
       },
       removeDependency: async (dependencyId) => {
         const dependency = dependencies.find(
-          (item) => item.id === dependencyId,
+          (item) => item.id === dependencyId
         );
         const target = detail.milestones.find(
-          (milestone) => milestone.key === dependency?.toMilestoneId,
+          (milestone) => milestone.key === dependency?.toMilestoneId
         );
-        if (!(dependency && target)) return;
+        if (!(dependency && target)) {
+          return;
+        }
         await updateMilestoneMutation({
           buildId,
           dependencyKeys: (target.dependencyKeys ?? []).filter(
-            (key) => key !== dependency.fromMilestoneId,
+            (key) => key !== dependency.fromMilestoneId
           ),
           milestoneKey: target.key,
           workosOrganizationId,
@@ -358,10 +364,12 @@ export function ActiveBuildGanttWorkspace({
       reorderMilestone: async (milestoneId, direction) => {
         const sorted = [...detail.milestones].sort((a, b) => a.order - b.order);
         const fromIndex = sorted.findIndex(
-          (milestone) => milestone.key === milestoneId,
+          (milestone) => milestone.key === milestoneId
         );
         const toIndex = direction === "up" ? fromIndex - 1 : fromIndex + 1;
-        if (fromIndex < 0 || toIndex < 0 || toIndex >= sorted.length) return;
+        if (fromIndex < 0 || toIndex < 0 || toIndex >= sorted.length) {
+          return;
+        }
         await Promise.all([
           updateMilestoneMutation({
             buildId,
@@ -424,17 +432,17 @@ export function ActiveBuildGanttWorkspace({
       setActivePlan: setActivePlanId,
       setDependencyHardness: async (
         dependencyId: string,
-        _hardness: DependencyHardness,
+        _hardness: DependencyHardness
       ) => {
         const dependency = dependencies.find(
-          (item) => item.id === dependencyId,
+          (item) => item.id === dependencyId
         );
         if (dependency) {
           await updateMilestoneMutation({
             buildId,
             dependencyKeys:
               detail.milestones.find(
-                (milestone) => milestone.key === dependency.toMilestoneId,
+                (milestone) => milestone.key === dependency.toMilestoneId
               )?.dependencyKeys ?? [],
             milestoneKey: dependency.toMilestoneId,
             workosOrganizationId,
@@ -452,12 +460,14 @@ export function ActiveBuildGanttWorkspace({
       setRole,
       splitDrawGroup: async (drawGroupId, afterMilestoneId) => {
         const source = detail.draws.find(
-          (draw) => draw.drawKey === drawGroupId,
+          (draw) => draw.drawKey === drawGroupId
         );
         const milestone = detail.milestones.find(
-          (item) => item.key === afterMilestoneId,
+          (item) => item.key === afterMilestoneId
         );
-        if (!(source && milestone)) return;
+        if (!(source && milestone)) {
+          return;
+        }
         await createDraw({
           amountCents: milestone.drawAvailabilityCents,
           buildId,
@@ -471,7 +481,7 @@ export function ActiveBuildGanttWorkspace({
       },
       submitCompletionClaim: async (milestoneId, requestedAmountCents) => {
         const milestone = detail.milestones.find(
-          (item) => item.key === milestoneId,
+          (item) => item.key === milestoneId
         );
         await submitCompletionClaim({
           actualCostCents: requestedAmountCents,
@@ -487,12 +497,14 @@ export function ActiveBuildGanttWorkspace({
       submitProposal: async () => undefined,
       submitSiteVisitReport: async (
         milestoneId: string,
-        report: SiteVisitReportDraft,
+        report: SiteVisitReportDraft
       ) => {
         const visit = detail.siteVisits
           ?.filter((item) => item.milestoneKey === milestoneId)
           .at(-1);
-        if (!visit) return;
+        if (!visit) {
+          return;
+        }
         await recordSiteVisit({
           buildId,
           milestoneKey: milestoneId,
@@ -525,7 +537,7 @@ export function ActiveBuildGanttWorkspace({
             : {
                 durationDays: Math.max(
                   1,
-                  Math.round(patch.estimatedDurationDays),
+                  Math.round(patch.estimatedDurationDays)
                 ),
               }),
           ...(patch.evidenceStatus === undefined
@@ -623,7 +635,7 @@ export function ActiveBuildGanttWorkspace({
       updateDraw,
       updateMilestoneMutation,
       workosOrganizationId,
-    ],
+    ]
   );
 
   return (
@@ -685,10 +697,10 @@ function mapActiveBuildWorkspace({
   | "uploadEvidence"
 > {
   const sortedMilestones = [...detail.milestones].sort(
-    (a, b) => a.order - b.order || a.key.localeCompare(b.key),
+    (a, b) => a.order - b.order || a.key.localeCompare(b.key)
   );
   const sortedDraws = [...detail.draws].sort(
-    (a, b) => a.order - b.order || a.drawKey.localeCompare(b.drawKey),
+    (a, b) => a.order - b.order || a.drawKey.localeCompare(b.drawKey)
   );
   const evidenceByMilestone = new Map<
     string,
@@ -702,7 +714,7 @@ function mapActiveBuildWorkspace({
   const drawByMilestone = new Map(
     sortedDraws
       .filter((draw) => draw.milestoneKey)
-      .map((draw) => [draw.milestoneKey as string, draw]),
+      .map((draw) => [draw.milestoneKey as string, draw])
   );
   const currentDay =
     typeof timelineWorkspace?.plan?.currentDay === "number"
@@ -718,20 +730,20 @@ function mapActiveBuildWorkspace({
         isSystem: false,
         toMilestoneId: milestone.key,
         type: "hard_blocker",
-      })),
+      }))
   );
   const milestones: Milestone[] = sortedMilestones.map((milestone) => {
     const draw = drawByMilestone.get(milestone.key) ?? sortedDraws[0];
     const evidenceAssets = evidenceByMilestone.get(milestone.key) ?? [];
     const siteVisits =
       detail.siteVisits?.filter(
-        (visit) => visit.milestoneKey === milestone.key,
+        (visit) => visit.milestoneKey === milestone.key
       ) ?? [];
     return {
       actualCost: centsToDollars(
         typeof milestone.completionClaim?.actualCostCents === "number"
           ? milestone.completionClaim.actualCostCents
-          : milestone.budgetCents,
+          : milestone.budgetCents
       ),
       blockedByKeys: milestone.dependencyKeys ?? [],
       blockingKeys: sortedMilestones
@@ -771,7 +783,7 @@ function mapActiveBuildWorkspace({
       id: milestone.key,
       isDragLocked: Boolean(milestone.isDragLocked),
       issues: issues.filter((issue) =>
-        issue.milestoneIds.includes(milestone.key),
+        issue.milestoneIds.includes(milestone.key)
       ),
       lane: draw?.drawKey ?? `draw-${milestone.order}`,
       name: milestone.name,
@@ -800,7 +812,7 @@ function mapActiveBuildWorkspace({
           ]
         : [],
       siteVisitRequested: siteVisits.some(
-        (visit) => visit.status === "requested",
+        (visit) => visit.status === "requested"
       ),
       siteVisits: siteVisits.map((visit) => ({
         assignedPersona: "site_visitor",
@@ -820,22 +832,22 @@ function mapActiveBuildWorkspace({
       startAt: dateFromDay(detail.build.startDate, milestone.dayStart),
       status: mapMilestoneStatus(milestone, currentDay, sortedMilestones),
       warningCount: issues.filter((issue) =>
-        issue.milestoneIds.includes(milestone.key),
+        issue.milestoneIds.includes(milestone.key)
       ).length,
     };
   });
   const drawGroups: DrawGroup[] = sortedDraws.map((draw, index) => {
     const scopedMilestones = milestones.filter(
-      (milestone) => milestone.drawGroupId === draw.drawKey,
+      (milestone) => milestone.drawGroupId === draw.drawKey
     );
     const fallbackMilestone = sortedMilestones.find(
-      (milestone) => milestone.key === draw.milestoneKey,
+      (milestone) => milestone.key === draw.milestoneKey
     );
     const firstOrder =
       Math.min(
         ...scopedMilestones.map((milestone) =>
-          sortedMilestones.findIndex((item) => item.key === milestone.id),
-        ),
+          sortedMilestones.findIndex((item) => item.key === milestone.id)
+        )
       ) ||
       fallbackMilestone?.order - 1 ||
       index;
@@ -844,11 +856,11 @@ function mapActiveBuildWorkspace({
       eligibleAt: dateFromDay(detail.build.startDate, draw.timingDay),
       endAt: dateFromDay(
         detail.build.startDate,
-        Math.max(draw.timingDay, fallbackMilestone?.dayEnd ?? draw.timingDay),
+        Math.max(draw.timingDay, fallbackMilestone?.dayEnd ?? draw.timingDay)
       ),
       id: draw.drawKey,
       issues: issues.filter((issue) =>
-        issue.drawGroupIds.includes(draw.drawKey),
+        issue.drawGroupIds.includes(draw.drawKey)
       ),
       label: draw.label,
       order: draw.order,
@@ -857,14 +869,14 @@ function mapActiveBuildWorkspace({
       rowSpan: Math.max(1, scopedMilestones.length || 1),
       startAt: dateFromDay(
         detail.build.startDate,
-        fallbackMilestone?.dayStart ?? draw.timingDay,
+        fallbackMilestone?.dayStart ?? draw.timingDay
       ),
       status: mapDrawStatus(draw),
       totalExposure: centsToDollars(draw.amountCents),
       warningState: issues.some(
         (issue) =>
           issue.drawGroupIds.includes(draw.drawKey) &&
-          issue.severity === "blocking",
+          issue.severity === "blocking"
       )
         ? "critical"
         : issues.some((issue) => issue.drawGroupIds.includes(draw.drawKey))
@@ -900,7 +912,7 @@ function mapActiveBuildWorkspace({
       relatedEntity: detail.build._id,
       status: "pending",
       timestamp: new Date(event.createdAt).toISOString(),
-    }),
+    })
   );
 
   return {
@@ -908,15 +920,15 @@ function mapActiveBuildWorkspace({
     auditEvents,
     budget: {
       borrowerWorkingCapitalLimit: centsToDollars(
-        detail.capitalPlan?.borrowerWorkingCapitalLimitCents ?? 0,
+        detail.capitalPlan?.borrowerWorkingCapitalLimitCents ?? 0
       ),
       drawFeeBps: 0,
       interestRatePct: (detail.loanFacility?.interestAnnualBps ?? 0) / 100,
       lenderDrawPolicyLimit: centsToDollars(
-        detail.capitalPlan?.lenderDrawPolicyLimitCents ?? 0,
+        detail.capitalPlan?.lenderDrawPolicyLimitCents ?? 0
       ),
       requestedLoanAmount: centsToDollars(
-        detail.loanFacility?.principalCents ?? 0,
+        detail.loanFacility?.principalCents ?? 0
       ),
       totalBuildBudget: centsToDollars(detail.build.totalBudgetCents),
       version: detail.capitalPlan?.version ?? 1,
@@ -956,11 +968,11 @@ function mapActiveBuildWorkspace({
 
 function buildWorkspaceIssues(
   detail: ProductionBuildDetail,
-  dismissedIssueKeys: Set<string>,
+  dismissedIssueKeys: Set<string>
 ): WorkspaceIssue[] {
   const issues: WorkspaceIssue[] = [];
   const knownMilestones = new Set(
-    detail.milestones.map((milestone) => milestone.key),
+    detail.milestones.map((milestone) => milestone.key)
   );
   for (const milestone of detail.milestones) {
     for (const dependencyKey of milestone.dependencyKeys ?? []) {
@@ -973,7 +985,7 @@ function buildWorkspaceIssues(
             milestoneIds: [milestone.key],
             severity: "blocking",
             title: "Missing dependency",
-          }),
+          })
         );
       }
     }
@@ -991,7 +1003,7 @@ function buildWorkspaceIssues(
           milestoneIds: [milestone.key],
           severity: "warning",
           title: "Evidence review pending",
-        }),
+        })
       );
     }
     if (
@@ -1007,7 +1019,7 @@ function buildWorkspaceIssues(
           milestoneIds: [milestone.key],
           severity: "warning",
           title: "Location unverified",
-        }),
+        })
       );
     }
   }
@@ -1021,12 +1033,12 @@ function buildWorkspaceIssues(
           message: `${draw.label} was rejected and needs borrower correction.`,
           severity: "blocking",
           title: "Draw rejected",
-        }),
+        })
       );
     }
   }
   return issues.filter(
-    (issue) => !dismissedIssueKeys.has(`${issue.id}:${issue.conditionHash}`),
+    (issue) => !dismissedIssueKeys.has(`${issue.id}:${issue.conditionHash}`)
   );
 }
 
@@ -1063,12 +1075,12 @@ function issueRow(input: {
 
 function buildOptimizationPlans(
   detail: ProductionBuildDetail,
-  drawGroups: DrawGroup[],
+  drawGroups: DrawGroup[]
 ): OptimizationPlan[] {
   const totalFees = drawGroups.length * 500;
   const exposure = drawGroups.reduce(
     (max, draw) => Math.max(max, draw.totalExposure),
-    0,
+    0
   );
   const principal = centsToDollars(detail.loanFacility?.principalCents ?? 0);
   return [
@@ -1087,8 +1099,8 @@ function buildOptimizationPlans(
       durationDays: Math.max(
         1,
         Math.round(
-          Math.max(...detail.milestones.map((m) => m.dayEnd), 1) * 0.85,
-        ),
+          Math.max(...detail.milestones.map((m) => m.dayEnd), 1) * 0.85
+        )
       ),
       id: "fastest",
       label: "Fastest",
@@ -1104,7 +1116,7 @@ function buildOptimizationPlans(
       id: "capitalConstrained",
       label: "Capital-Constrained",
       peakWorkingCapital: centsToDollars(
-        detail.capitalPlan?.borrowerWorkingCapitalLimitCents ?? 0,
+        detail.capitalPlan?.borrowerWorkingCapitalLimitCents ?? 0
       ),
       projectedInterest: Math.round(principal * 0.028),
       summary:
@@ -1118,10 +1130,14 @@ function buildOptimizationPlans(
 function mapMilestoneStatus(
   milestone: ProductionBuildDetail["milestones"][number],
   currentDay: number,
-  milestones: ProductionBuildDetail["milestones"],
+  milestones: ProductionBuildDetail["milestones"]
 ) {
-  if (milestone.status === "complete") return "approved";
-  if (milestone.completionClaim) return "underReview";
+  if (milestone.status === "complete") {
+    return "approved";
+  }
+  if (milestone.completionClaim) {
+    return "underReview";
+  }
   if (
     String(milestone.evidenceState ?? "")
       .toLowerCase()
@@ -1136,39 +1152,59 @@ function mapMilestoneStatus(
   ) {
     return "evidenceSubmitted";
   }
-  if (milestone.status === "in_progress") return "inProgress";
+  if (milestone.status === "in_progress") {
+    return "inProgress";
+  }
   if (dependencyBlockers(milestone, milestones).length > 0) {
     return currentDay >= milestone.dayStart ? "blocked" : "notStarted";
   }
-  if (currentDay >= milestone.dayStart) return "inProgress";
+  if (currentDay >= milestone.dayStart) {
+    return "inProgress";
+  }
   return "notStarted";
 }
 
 function mapEvidenceStatus(
-  milestone: ProductionBuildDetail["milestones"][number],
+  milestone: ProductionBuildDetail["milestones"][number]
 ): EvidenceStatus {
   const state = String(milestone.evidenceState ?? "").toLowerCase();
-  if (state.includes("accepted") || state.includes("approved"))
+  if (state.includes("accepted") || state.includes("approved")) {
     return "accepted";
-  if (state.includes("info") || state.includes("rejected")) return "needsInfo";
-  if (state.includes("location")) return "locationUnverified";
-  if (state.includes("submitted") || state.includes("completion"))
+  }
+  if (state.includes("info") || state.includes("rejected")) {
+    return "needsInfo";
+  }
+  if (state.includes("location")) {
+    return "locationUnverified";
+  }
+  if (state.includes("submitted") || state.includes("completion")) {
     return "submitted";
-  if (state.includes("draft")) return "draft";
+  }
+  if (state.includes("draft")) {
+    return "draft";
+  }
   return "notStarted";
 }
 
 function mapDrawStatus(draw: ProductionBuildDetail["draws"][number]) {
-  if (draw.status === "released") return "released";
-  if (draw.status === "approved") return "readyForRelease";
-  if (draw.status === "requested") return "evidencePending";
-  if (draw.status === "rejected") return "blocked";
+  if (draw.status === "released") {
+    return "released";
+  }
+  if (draw.status === "approved") {
+    return "readyForRelease";
+  }
+  if (draw.status === "requested") {
+    return "evidencePending";
+  }
+  if (draw.status === "rejected") {
+    return "blocked";
+  }
   return "planned";
 }
 
 function dependencyBlockers(
   milestone: ProductionBuildDetail["milestones"][number],
-  milestones: ProductionBuildDetail["milestones"],
+  milestones: ProductionBuildDetail["milestones"]
 ) {
   const byKey = new Map(milestones.map((item) => [item.key, item]));
   return (milestone.dependencyKeys ?? [])
@@ -1178,11 +1214,21 @@ function dependencyBlockers(
 }
 
 function evidenceStateLabel(status: EvidenceStatus) {
-  if (status === "accepted") return "Accepted";
-  if (status === "needsInfo") return "Info requested";
-  if (status === "locationUnverified") return "Location unverified";
-  if (status === "submitted") return "Submitted package";
-  if (status === "draft") return "Draft package";
+  if (status === "accepted") {
+    return "Accepted";
+  }
+  if (status === "needsInfo") {
+    return "Info requested";
+  }
+  if (status === "locationUnverified") {
+    return "Location unverified";
+  }
+  if (status === "submitted") {
+    return "Submitted package";
+  }
+  if (status === "draft") {
+    return "Draft package";
+  }
   return "Not started";
 }
 

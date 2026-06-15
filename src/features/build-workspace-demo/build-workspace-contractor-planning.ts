@@ -80,16 +80,16 @@ export function parseGanttMilestoneScopeId(ganttMilestoneId: string): {
 }
 
 export function contractorPlanningFromProductionDetail(
-  detail: ProductionContractorSource,
+  detail: ProductionContractorSource
 ): ContractorPlanningModel {
   const milestoneNameByKey = new Map(
-    detail.milestones.map((milestone) => [milestone.key, milestone.name]),
+    detail.milestones.map((milestone) => [milestone.key, milestone.name])
   );
   const submilestoneNameByKey = new Map(
     (detail.submilestones ?? []).map((submilestone) => [
       `${submilestone.milestoneKey}:${submilestone.key}`,
       submilestone.name,
-    ]),
+    ])
   );
 
   const proposalContractors = (detail.contractors ?? []).map((contractor) => ({
@@ -115,37 +115,39 @@ export function contractorPlanningFromProductionDetail(
       defaultPayRateUnit: contractor.defaultPayRateUnit,
       name: contractor.name,
       trades: contractor.trades,
-    }),
+    })
   );
 
-  const milestoneAssignments = (detail.milestoneContractorAssignments ?? []).map(
-    (assignment) => ({
-      _id: assignment._id,
-      contractorId: String(assignment.contractorId),
-      contractorName:
-        assignment.contractor?.name ??
-        proposalContractors.find(
-          (contractor) => contractor.contractorId === String(assignment.contractorId),
-        )?.name ??
-        availableContractors.find(
-          (contractor) => contractor._id === String(assignment.contractorId),
-        )?.name ??
-        "Assigned contractor",
-      estimatedCostCents: assignment.estimatedCostCents,
-      estimatedHours: assignment.estimatedHours,
-      milestoneKey: assignment.milestoneKey,
-      milestoneName:
-        milestoneNameByKey.get(assignment.milestoneKey) ?? assignment.milestoneKey,
-      role: assignment.role,
-      status: assignment.status,
-      submilestoneKey: assignment.submilestoneKey,
-      submilestoneName: assignment.submilestoneKey
-        ? submilestoneNameByKey.get(
-            `${assignment.milestoneKey}:${assignment.submilestoneKey}`,
-          )
-        : undefined,
-    }),
-  );
+  const milestoneAssignments = (
+    detail.milestoneContractorAssignments ?? []
+  ).map((assignment) => ({
+    _id: assignment._id,
+    contractorId: String(assignment.contractorId),
+    contractorName:
+      assignment.contractor?.name ??
+      proposalContractors.find(
+        (contractor) =>
+          contractor.contractorId === String(assignment.contractorId)
+      )?.name ??
+      availableContractors.find(
+        (contractor) => contractor._id === String(assignment.contractorId)
+      )?.name ??
+      "Assigned contractor",
+    estimatedCostCents: assignment.estimatedCostCents,
+    estimatedHours: assignment.estimatedHours,
+    milestoneKey: assignment.milestoneKey,
+    milestoneName:
+      milestoneNameByKey.get(assignment.milestoneKey) ??
+      assignment.milestoneKey,
+    role: assignment.role,
+    status: assignment.status,
+    submilestoneKey: assignment.submilestoneKey,
+    submilestoneName: assignment.submilestoneKey
+      ? submilestoneNameByKey.get(
+          `${assignment.milestoneKey}:${assignment.submilestoneKey}`
+        )
+      : undefined,
+  }));
 
   return {
     availableContractors,
@@ -155,7 +157,7 @@ export function contractorPlanningFromProductionDetail(
 }
 
 export function contractorPlanningFromTimelinePlanning(
-  planning: ContractorPlanningModel | null | undefined,
+  planning: ContractorPlanningModel | null | undefined
 ): ContractorPlanningModel | null {
   if (!planning) {
     return null;

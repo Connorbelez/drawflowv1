@@ -1,11 +1,22 @@
 "use client";
 
+import {
+  AlertTriangle,
+  CalendarDays,
+  CircleDollarSign,
+  Lock,
+  MoveRight,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CalendarDays, CircleDollarSign, Lock, MoveRight } from "lucide-react";
 
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
-import { Card, CardContent, CardHeader, CardTitle } from "#/components/ui/card.tsx";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "#/components/ui/card.tsx";
 import {
   Drawer,
   DrawerContent,
@@ -63,22 +74,26 @@ export function CalendarEventDetailDrawer({
     ? event.editable.requiredReason !== "none"
     : false;
   const canSubmitDateEdit = useMemo(() => {
-    if (!event || !startsAt) {
+    if (!(event && startsAt)) {
       return false;
     }
-    if (!event.editable.canMove && !event.editable.canResizeEnd) {
+    if (!(event.editable.canMove || event.editable.canResizeEnd)) {
       return false;
     }
     if (reasonRequired && !reason.trim()) {
       return false;
     }
-    return startsAt !== event.startsAt || (endsAt || undefined) !== event.endsAt;
+    return (
+      startsAt !== event.startsAt || (endsAt || undefined) !== event.endsAt
+    );
   }, [endsAt, event, reason, reasonRequired, startsAt]);
 
   return (
     <Drawer
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open) {
+          onClose();
+        }
       }}
       open={Boolean(event)}
       position="right"
@@ -90,8 +105,12 @@ export function CalendarEventDetailDrawer({
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <Badge variant="outline">{event.kind}</Badge>
-                  <DrawerTitle className="mt-2 truncate">{event.title}</DrawerTitle>
-                  <DrawerDescription>{formatDateRange(event)}</DrawerDescription>
+                  <DrawerTitle className="mt-2 truncate">
+                    {event.title}
+                  </DrawerTitle>
+                  <DrawerDescription>
+                    {formatDateRange(event)}
+                  </DrawerDescription>
                 </div>
                 <CalendarOverflowMenu
                   actions={actions}
@@ -116,7 +135,9 @@ export function CalendarEventDetailDrawer({
                       <Input
                         disabled={!event.editable.canMove}
                         id="calendar-event-start"
-                        onChange={(inputEvent) => setStartsAt(inputEvent.target.value)}
+                        onChange={(inputEvent) =>
+                          setStartsAt(inputEvent.target.value)
+                        }
                         type="date"
                         value={startsAt}
                       />
@@ -126,7 +147,9 @@ export function CalendarEventDetailDrawer({
                       <Input
                         disabled={!event.editable.canResizeEnd}
                         id="calendar-event-end"
-                        onChange={(inputEvent) => setEndsAt(inputEvent.target.value)}
+                        onChange={(inputEvent) =>
+                          setEndsAt(inputEvent.target.value)
+                        }
                         type="date"
                         value={endsAt}
                       />
@@ -145,7 +168,9 @@ export function CalendarEventDetailDrawer({
                       </Label>
                       <Textarea
                         id="calendar-event-reason"
-                        onChange={(inputEvent) => setReason(inputEvent.target.value)}
+                        onChange={(inputEvent) =>
+                          setReason(inputEvent.target.value)
+                        }
                         placeholder="Record the reason for the schedule change."
                         value={reason}
                       />
@@ -154,9 +179,12 @@ export function CalendarEventDetailDrawer({
                   <Button
                     disabled={!canSubmitDateEdit}
                     onClick={() => {
-                      if (!event || !startsAt) return;
+                      if (!(event && startsAt)) {
+                        return;
+                      }
                       onRequestEdit({
-                        changeType: startsAt !== event.startsAt ? "move" : "resizeEnd",
+                        changeType:
+                          startsAt === event.startsAt ? "resizeEnd" : "move",
                         event,
                         nextEndsAt: endsAt || undefined,
                         nextStartsAt: startsAt,
@@ -178,8 +206,14 @@ export function CalendarEventDetailDrawer({
                 </CardHeader>
                 <CardContent className="grid gap-2 p-4 pt-0 text-sm">
                   <DetailRow label="Status" value={event.status} />
-                  <DetailRow label="Milestone" value={event.milestoneKey ?? "None"} />
-                  <DetailRow label="Draw group" value={event.drawGroupKey ?? "None"} />
+                  <DetailRow
+                    label="Milestone"
+                    value={event.milestoneKey ?? "None"}
+                  />
+                  <DetailRow
+                    label="Draw group"
+                    value={event.drawGroupKey ?? "None"}
+                  />
                   <DetailRow label="Timezone" value={event.timezone} />
                 </CardContent>
               </Card>
@@ -194,11 +228,15 @@ export function CalendarEventDetailDrawer({
                   <CardContent className="grid gap-2 p-4 pt-0 text-sm">
                     <DetailRow
                       label="Amount"
-                      value={formatCentsCompact(event.metrics?.amountCents) ?? "None"}
+                      value={
+                        formatCentsCompact(event.metrics?.amountCents) ?? "None"
+                      }
                     />
                     <DetailRow
                       label="Budget"
-                      value={formatCentsCompact(event.metrics?.budgetCents) ?? "None"}
+                      value={
+                        formatCentsCompact(event.metrics?.budgetCents) ?? "None"
+                      }
                     />
                   </CardContent>
                 </Card>
@@ -213,7 +251,11 @@ export function CalendarEventDetailDrawer({
                   </CardHeader>
                   <CardContent className="grid gap-2 p-4 pt-0">
                     {event.warnings.map((warning) => (
-                      <Badge className="justify-start" key={warning.id ?? warning.label} variant="outline">
+                      <Badge
+                        className="justify-start"
+                        key={warning.id ?? warning.label}
+                        variant="outline"
+                      >
                         {warning.label}
                       </Badge>
                     ))}

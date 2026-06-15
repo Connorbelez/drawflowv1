@@ -1,10 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-
-import {
-  type BuilderProposalSearch,
-  BuilderProductionProposalWorkspace,
-} from "#/routes/builder/proposals/$proposalId/index.tsx";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
+import {
+  BuilderProductionProposalWorkspace,
+  type BuilderProposalSearch,
+} from "#/routes/builder/proposals/$proposalId/index.tsx";
 
 export const Route = createFileRoute("/builder-staff/proposals/$proposalId/")({
   ssr: false,

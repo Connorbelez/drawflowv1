@@ -2,22 +2,21 @@
 
 import { useMutation } from "convex/react";
 import { useMemo } from "react";
-
-import {
-  convexWorkspaceToTimelineState,
-  type ConvexTimelineWorkspace,
-} from "#/features/timeline-workspace/-timeline-convex-adapter.ts";
-import {
-  TimelineWorkspace,
-  type TimelineModificationRequestView,
-  type TimelineWorkspacePersistence,
-} from "#/features/timeline-workspace/index.tsx";
 import {
   ACTIVE_BUILD_TIMELINE_EDIT_PERMISSION_CHECKS,
+  type BuilderStaffAppPermissions,
   canUseAppPermission,
   hasAnyAppPermission,
-  type BuilderStaffAppPermissions,
 } from "#/features/builder-staff/app-permissions.ts";
+import {
+  type ConvexTimelineWorkspace,
+  convexWorkspaceToTimelineState,
+} from "#/features/timeline-workspace/-timeline-convex-adapter.ts";
+import {
+  type TimelineModificationRequestView,
+  TimelineWorkspace,
+  type TimelineWorkspacePersistence,
+} from "#/features/timeline-workspace/index.tsx";
 
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -28,6 +27,7 @@ export interface ActiveBuildTimelineWorkspaceProps {
   buildHref: string;
   buildId: Id<"activeBuilds">;
   initialRole?: "builder" | "lender";
+  workosOrganizationId: string;
   workspace: ConvexTimelineWorkspace & {
     modificationRequests?: TimelineModificationRequestView[];
     proposal: {
@@ -38,7 +38,6 @@ export interface ActiveBuildTimelineWorkspaceProps {
       totalBudgetCents: number;
     };
   };
-  workosOrganizationId: string;
 }
 
 export function ActiveBuildTimelineWorkspace({
@@ -52,83 +51,85 @@ export function ActiveBuildTimelineWorkspace({
 }: ActiveBuildTimelineWorkspaceProps) {
   const productionApi = (api as any).production_proposals;
   const updatePlanState = useMutation(
-    productionApi.updateActiveBuildTimelinePlanState,
+    productionApi.updateActiveBuildTimelinePlanState
   );
   const createMilestone = useMutation(
-    productionApi.createActiveBuildTimelineMilestone,
+    productionApi.createActiveBuildTimelineMilestone
   );
   const updateMilestone = useMutation(
-    productionApi.updateActiveBuildTimelineMilestone,
+    productionApi.updateActiveBuildTimelineMilestone
   );
   const deleteMilestone = useMutation(
-    productionApi.deleteActiveBuildTimelineMilestone,
+    productionApi.deleteActiveBuildTimelineMilestone
   );
   const createDraw = useMutation(productionApi.createActiveBuildTimelineDraw);
   const updateDraw = useMutation(productionApi.updateActiveBuildTimelineDraw);
   const deleteDraw = useMutation(productionApi.deleteActiveBuildTimelineDraw);
   const createCapitalEvent = useMutation(
-    productionApi.createActiveBuildTimelineCapitalEvent,
+    productionApi.createActiveBuildTimelineCapitalEvent
   );
   const createCashInfusion = useMutation(
-    productionApi.createActiveBuildTimelineCashInfusion,
+    productionApi.createActiveBuildTimelineCashInfusion
   );
   const updateCapitalEvent = useMutation(
-    productionApi.updateActiveBuildTimelineCapitalEvent,
+    productionApi.updateActiveBuildTimelineCapitalEvent
   );
   const deleteCapitalEvent = useMutation(
-    productionApi.deleteActiveBuildTimelineCapitalEvent,
+    productionApi.deleteActiveBuildTimelineCapitalEvent
   );
   const generateEvidenceUploadUrl = useMutation(
-    productionApi.generateActiveBuildEvidenceUploadUrl,
+    productionApi.generateActiveBuildEvidenceUploadUrl
   );
   const createEvidenceAsset = useMutation(
-    productionApi.createActiveBuildTimelineEvidenceAsset,
+    productionApi.createActiveBuildTimelineEvidenceAsset
   );
   const updateEvidenceAsset = useMutation(
-    productionApi.updateActiveBuildTimelineEvidenceAsset,
+    productionApi.updateActiveBuildTimelineEvidenceAsset
   );
   const deleteEvidenceAsset = useMutation(
-    productionApi.deleteActiveBuildTimelineEvidenceAsset,
+    productionApi.deleteActiveBuildTimelineEvidenceAsset
   );
   const submitMilestoneCompletion = useMutation(
-    productionApi.submitActiveBuildMilestoneCompletion,
+    productionApi.submitActiveBuildMilestoneCompletion
   );
-  const approveMilestone = useMutation(productionApi.approveActiveBuildMilestone);
+  const approveMilestone = useMutation(
+    productionApi.approveActiveBuildMilestone
+  );
   const requestMilestoneInfo = useMutation(
-    productionApi.requestActiveBuildMilestoneInfo,
+    productionApi.requestActiveBuildMilestoneInfo
   );
   const requestDraw = useMutation(productionApi.requestActiveBuildDraw);
   const approveDraw = useMutation(productionApi.approveActiveBuildDraw);
   const rejectDraw = useMutation(productionApi.rejectActiveBuildDraw);
   const requestMilestoneSiteVisit = useMutation(
-    productionApi.assignActiveBuildSiteVisit,
+    productionApi.assignActiveBuildSiteVisit
   );
   const recordMilestoneSiteVisit = useMutation(
-    productionApi.recordActiveBuildSiteVisit,
+    productionApi.recordActiveBuildSiteVisit
   );
 
   const initialState = useMemo(
     () => convexWorkspaceToTimelineState(workspace),
-    [workspace],
+    [workspace]
   );
   const hasTimelineEditPermission = hasAnyAppPermission(
     appPermissions,
-    ACTIVE_BUILD_TIMELINE_EDIT_PERMISSION_CHECKS,
+    ACTIVE_BUILD_TIMELINE_EDIT_PERMISSION_CHECKS
   );
   const canCreateCapitalEvent = canUseAppPermission(
     appPermissions,
     "capitalEvent",
-    "create",
+    "create"
   );
   const canUpdateCapitalEvent = canUseAppPermission(
     appPermissions,
     "capitalEvent",
-    "update",
+    "update"
   );
   const canDeleteCapitalEvent = canUseAppPermission(
     appPermissions,
     "capitalEvent",
-    "delete",
+    "delete"
   );
   const canCreateDraw = canUseAppPermission(appPermissions, "draw", "create");
   const canUpdateDraw = canUseAppPermission(appPermissions, "draw", "update");
@@ -136,17 +137,17 @@ export function ActiveBuildTimelineWorkspace({
   const canCreateEvidence = canUseAppPermission(
     appPermissions,
     "evidence",
-    "create",
+    "create"
   );
   const canUpdateEvidence = canUseAppPermission(
     appPermissions,
     "evidence",
-    "update",
+    "update"
   );
   const canDeleteEvidence = canUseAppPermission(
     appPermissions,
     "evidence",
-    "delete",
+    "delete"
   );
   const canCreateMilestone =
     canUseAppPermission(appPermissions, "milestone", "create") ||
@@ -160,7 +161,7 @@ export function ActiveBuildTimelineWorkspace({
   const canCreateReminder = canUseAppPermission(
     appPermissions,
     "reminder",
-    "create",
+    "create"
   );
   const rejectForbidden = () =>
     Promise.reject(new Error("You do not have permission for this action."));
@@ -280,37 +281,37 @@ export function ActiveBuildTimelineWorkspace({
             })
           : rejectForbidden(),
       reviewDrawRequest: (input) =>
-        !canUpdateDraw
-          ? rejectForbidden()
-          : input.status === "rejected"
-          ? rejectDraw({
-              buildId,
-              drawKey: input.drawKey,
-              note: input.note,
-              workosOrganizationId,
-            })
-          : approveDraw({
-              buildId,
-              drawKey: input.drawKey,
-              note: input.note,
-              workosOrganizationId,
-            }),
+        canUpdateDraw
+          ? input.status === "rejected"
+            ? rejectDraw({
+                buildId,
+                drawKey: input.drawKey,
+                note: input.note,
+                workosOrganizationId,
+              })
+            : approveDraw({
+                buildId,
+                drawKey: input.drawKey,
+                note: input.note,
+                workosOrganizationId,
+              })
+          : rejectForbidden(),
       reviewMilestoneCompletion: (input) =>
-        !canUpdateMilestone
-          ? rejectForbidden()
-          : input.status === "approved"
-          ? approveMilestone({
-              buildId,
-              milestoneKey: input.milestoneKey,
-              note: input.note,
-              workosOrganizationId,
-            })
-          : requestMilestoneInfo({
-              buildId,
-              milestoneKey: input.milestoneKey,
-              note: input.note ?? "More information requested.",
-              workosOrganizationId,
-            }),
+        canUpdateMilestone
+          ? input.status === "approved"
+            ? approveMilestone({
+                buildId,
+                milestoneKey: input.milestoneKey,
+                note: input.note,
+                workosOrganizationId,
+              })
+            : requestMilestoneInfo({
+                buildId,
+                milestoneKey: input.milestoneKey,
+                note: input.note ?? "More information requested.",
+                workosOrganizationId,
+              })
+          : rejectForbidden(),
       submitDrawRequest: (input) =>
         canUpdateDraw
           ? requestDraw({
@@ -411,7 +412,7 @@ export function ActiveBuildTimelineWorkspace({
       updateMilestone,
       updatePlanState,
       workosOrganizationId,
-    ],
+    ]
   );
 
   return (
@@ -441,7 +442,10 @@ function normalizeTimelineMilestoneInput(input: any) {
   const durationDays = Math.max(1, Math.round(input.durationDays ?? 1));
   return {
     budgetCents: Math.max(0, Math.round(input.budgetCents ?? 0)),
-    dayEnd: Math.max(dayStart, Math.round(input.dayEnd ?? dayStart + durationDays)),
+    dayEnd: Math.max(
+      dayStart,
+      Math.round(input.dayEnd ?? dayStart + durationDays)
+    ),
     dayStart,
     dependencyKeys: input.dependencyKeys ?? [],
     drawAvailabilityCents:
@@ -527,12 +531,14 @@ function applyActiveBuildModification(
     deleteMilestone: (args: any) => Promise<unknown>;
     updateMilestone: (args: any) => Promise<unknown>;
     workosOrganizationId: string;
-  },
+  }
 ) {
   if (input.requestType === "createMilestone") {
     return mutations.createMilestone({
       buildId: mutations.buildId,
-      milestone: normalizeTimelineMilestoneInput(input.requestedPayload?.milestone),
+      milestone: normalizeTimelineMilestoneInput(
+        input.requestedPayload?.milestone
+      ),
       workosOrganizationId: mutations.workosOrganizationId,
     });
   }

@@ -1,14 +1,14 @@
+import { memo } from "react";
 import { EvilComposedChart } from "#/components/evilcharts/charts/composed-chart.tsx";
 import type { ChartConfig } from "#/components/evilcharts/ui/chart.tsx";
-import { memo } from "react";
 
 export interface TimelineDrawAvailabilityDatum {
   additionalAvailableDraw: number;
   day: number;
   interestBearingDraw: number;
   name: string;
-  totalInterestAccrued: number;
   totalAvailableDraw: number;
+  totalInterestAccrued: number;
   [key: string]: unknown;
 }
 
@@ -59,80 +59,86 @@ export const timelineDrawAvailabilityChartConfig = {
   },
 } satisfies ChartConfig;
 
-export const TimelineDrawAvailabilityChart = memo(function TimelineDrawAvailabilityChart({
-  className = "mt-3 h-[220px] min-w-0 sm:h-[210px]",
-  data,
-  formatMoney,
-  formatTimelineDay,
-  onProbeChange,
-  referenceLines,
-  testId,
-  xDomain,
-  xTicks,
-  yAxisWidth = 58,
-  yDomain,
-}: TimelineDrawAvailabilityChartProps) {
-  const chart = (
-    <EvilComposedChart
-      activeDotVariant="default"
-      areaConfig={{
-        interestBearingDraw: timelineDrawAvailabilityChartConfig.interestBearingDraw,
-        additionalAvailableDraw:
-          timelineDrawAvailabilityChartConfig.additionalAvailableDraw,
-      }}
-      areaCurveType="stepAfter"
-      areaOpacity={0.18}
-      areaStacked
-      areaVariant="gradient"
-      barConfig={{}}
-      chartProps={{
-        margin: { bottom: 0, left: 0, right: 12, top: 48 },
-        onMouseLeave: () => onProbeChange?.(null),
-        onMouseMove: (state: unknown) => {
-          const nextValue = getChartProbeValue(state);
-          if (nextValue !== null) {
-            onProbeChange?.(nextValue);
-          }
-        },
-      }}
-      className={className}
-      curveType="stepAfter"
-      data={data}
-      dotVariant="default"
-      hideLegend
-      lineConfig={{
-        interestBearingDraw: timelineDrawAvailabilityChartConfig.interestBearingDraw,
-        totalAvailableDraw: timelineDrawAvailabilityChartConfig.totalAvailableDraw,
-      }}
-      referenceLines={referenceLines}
-      strokeVariant="solid"
-      tooltipRoundness="xl"
-      tooltipVariant="frosted-glass"
-      xAxisProps={{
-        domain: xDomain,
-        height: 26,
-        tickFormatter: formatTimelineDay,
-        ticks: xTicks,
-        type: "number",
-      }}
-      xDataKey="day"
-      yAxisProps={{
-        domain: yDomain,
-        tickFormatter: formatMoney,
-        width: yAxisWidth,
-      }}
-      yDataKey="totalAvailableDraw"
-    />
-  );
+export const TimelineDrawAvailabilityChart = memo(
+  function TimelineDrawAvailabilityChart({
+    className = "mt-3 h-[220px] min-w-0 sm:h-[210px]",
+    data,
+    formatMoney,
+    formatTimelineDay,
+    onProbeChange,
+    referenceLines,
+    testId,
+    xDomain,
+    xTicks,
+    yAxisWidth = 58,
+    yDomain,
+  }: TimelineDrawAvailabilityChartProps) {
+    const chart = (
+      <EvilComposedChart
+        activeDotVariant="default"
+        areaConfig={{
+          interestBearingDraw:
+            timelineDrawAvailabilityChartConfig.interestBearingDraw,
+          additionalAvailableDraw:
+            timelineDrawAvailabilityChartConfig.additionalAvailableDraw,
+        }}
+        areaCurveType="stepAfter"
+        areaOpacity={0.18}
+        areaStacked
+        areaVariant="gradient"
+        barConfig={{}}
+        chartProps={{
+          margin: { bottom: 0, left: 0, right: 12, top: 48 },
+          onMouseLeave: () => onProbeChange?.(null),
+          onMouseMove: (state: unknown) => {
+            const nextValue = getChartProbeValue(state);
+            if (nextValue !== null) {
+              onProbeChange?.(nextValue);
+            }
+          },
+        }}
+        className={className}
+        curveType="stepAfter"
+        data={data}
+        dotVariant="default"
+        hideLegend
+        lineConfig={{
+          interestBearingDraw:
+            timelineDrawAvailabilityChartConfig.interestBearingDraw,
+          totalAvailableDraw:
+            timelineDrawAvailabilityChartConfig.totalAvailableDraw,
+        }}
+        referenceLines={referenceLines}
+        strokeVariant="solid"
+        tooltipRoundness="xl"
+        tooltipVariant="frosted-glass"
+        xAxisProps={{
+          domain: xDomain,
+          height: 26,
+          tickFormatter: formatTimelineDay,
+          ticks: xTicks,
+          type: "number",
+        }}
+        xDataKey="day"
+        yAxisProps={{
+          domain: yDomain,
+          tickFormatter: formatMoney,
+          width: yAxisWidth,
+        }}
+        yDataKey="totalAvailableDraw"
+      />
+    );
 
-  return testId ? <div data-testid={testId}>{chart}</div> : chart;
-}, areTimelineDrawAvailabilityChartPropsEqual);
+    return testId ? <div data-testid={testId}>{chart}</div> : chart;
+  },
+  areTimelineDrawAvailabilityChartPropsEqual
+);
 
 TimelineDrawAvailabilityChart.displayName = "TimelineDrawAvailabilityChart";
 
 function areTimelineDrawAvailabilityChartPropsEqual(
   previous: TimelineDrawAvailabilityChartProps,
-  next: TimelineDrawAvailabilityChartProps,
+  next: TimelineDrawAvailabilityChartProps
 ) {
   return (
     previous.className === next.className &&
@@ -151,7 +157,7 @@ function areTimelineDrawAvailabilityChartPropsEqual(
 
 function sameNumberTuple(
   previous: readonly [number, number],
-  next: readonly [number, number],
+  next: readonly [number, number]
 ) {
   return previous[0] === next[0] && previous[1] === next[1];
 }

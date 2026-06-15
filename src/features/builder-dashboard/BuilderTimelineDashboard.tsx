@@ -65,14 +65,14 @@ export function BuilderTimelineDashboardSurface({
   const liveBuilds = useMemo(
     () =>
       rows.filter((row: TimelinePlanRow) =>
-        row.kind ? row.kind === "activeBuild" : row.status === "approved",
+        row.kind ? row.kind === "activeBuild" : row.status === "approved"
       ),
     [rows]
   );
   const proposalRows = useMemo(
     () =>
       rows.filter((row: TimelinePlanRow) =>
-        row.kind ? row.kind === "proposal" : row.status !== "approved",
+        row.kind ? row.kind === "proposal" : row.status !== "approved"
       ),
     [rows]
   );
@@ -119,12 +119,12 @@ export function BuilderTimelineDashboardSurface({
           {liveBuilds.length ? (
             <TimelinePlanTable
               actionLabel="Open live build"
-              rows={liveBuilds}
               onOpen={(row) =>
                 onNavigate(liveBuildRoute, {
                   buildId: resolveBuildKey(row),
                 })
               }
+              rows={liveBuilds}
             />
           ) : (
             <div className="p-4 text-muted-foreground text-sm">
@@ -147,12 +147,12 @@ export function BuilderTimelineDashboardSurface({
           {proposalRows.length ? (
             <TimelinePlanTable
               actionLabel="Open proposal"
-              rows={proposalRows}
               onOpen={(row) =>
                 onNavigate("/builder/demo/dashboard/proposals/$draftId", {
                   draftId: row.planId,
                 })
               }
+              rows={proposalRows}
             />
           ) : (
             <div className="p-4 text-muted-foreground text-sm">
@@ -220,7 +220,6 @@ export function BuilderProposalListSurface({
         <CardContent className="p-0">
           {rows.length ? (
             <TimelinePlanTable
-              rows={rows}
               onOpen={(row) =>
                 isLiveBuildRow(row)
                   ? onNavigate(liveBuildRoute, {
@@ -230,6 +229,7 @@ export function BuilderProposalListSurface({
                       draftId: row.planId,
                     })
               }
+              rows={rows}
             />
           ) : (
             <div className="p-4 text-muted-foreground text-sm">
@@ -258,7 +258,7 @@ export function BuilderLiveBuildListSurface({
   const liveRows = useMemo(
     () =>
       rows.filter((row: TimelinePlanRow) =>
-        row.kind ? row.kind === "activeBuild" : row.status === "approved",
+        row.kind ? row.kind === "activeBuild" : row.status === "approved"
       ),
     [rows]
   );
@@ -298,12 +298,12 @@ export function BuilderLiveBuildListSurface({
           {liveRows.length ? (
             <TimelinePlanTable
               actionLabel="Open live build"
-              rows={liveRows}
               onOpen={(row) =>
                 onNavigate(liveBuildRoute, {
                   buildId: resolveBuildKey(row),
                 })
               }
+              rows={liveRows}
             />
           ) : (
             <div className="p-4 text-muted-foreground text-sm">

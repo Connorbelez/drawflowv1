@@ -1,4 +1,4 @@
-import { Link, createFileRoute, linkOptions } from "@tanstack/react-router";
+import { createFileRoute, Link, linkOptions } from "@tanstack/react-router";
 import {
   ArrowUpRight,
   Building2,
@@ -126,13 +126,13 @@ function MultiplexPage() {
   return (
     <main className="mx-page">
       <MultiplexStyles />
-      <nav className="mx-nav" aria-label="Fairlend multiplex navigation">
+      <nav aria-label="Fairlend multiplex navigation" className="mx-nav">
         <Link
           {...homeLink}
+          aria-label="Fairlend Capital home"
           className="mx-brand"
           preload="intent"
           viewTransition
-          aria-label="Fairlend Capital home"
         >
           <span className="mx-brand-mark">FL</span>
           <span>
@@ -140,7 +140,7 @@ function MultiplexPage() {
             <small>Capital</small>
           </span>
         </Link>
-        <div className="mx-nav-links" aria-label="Page sections">
+        <div aria-label="Page sections" className="mx-nav-links">
           <a href="#fit">Fit</a>
           <a href="#structure">Structure</a>
           <a href="#review">Review</a>
@@ -159,7 +159,7 @@ function MultiplexPage() {
         </Button>
       </nav>
 
-      <section className="mx-hero" aria-labelledby="multiplex-hero-title">
+      <section aria-labelledby="multiplex-hero-title" className="mx-hero">
         <div className="mx-hero-copy">
           <p className="mx-kicker">GTA multiplex financing dossier</p>
           <h1 id="multiplex-hero-title">
@@ -173,59 +173,64 @@ function MultiplexPage() {
           <div className="mx-hero-actions">
             <Button
               className="mx-primary-button"
-              size="lg"
               render={
-                <Link
-                  {...startMultiplexLink}
-                  preload="intent"
-                  viewTransition
-                />
+                <Link {...startMultiplexLink} preload="intent" viewTransition />
               }
+              size="lg"
             >
               Submit a multiplex file
               <ArrowUpRight aria-hidden />
             </Button>
             <Button
               className="mx-outline-button"
-              size="lg"
-              variant="outline"
               render={
                 <Link {...financingGapLink} preload="intent" viewTransition />
               }
+              size="lg"
+              variant="outline"
             >
               Read financing gap guide
             </Button>
           </div>
         </div>
 
-        <div className="mx-hero-visual" aria-label="Multiplex financing blueprint">
+        <div
+          aria-label="Multiplex financing blueprint"
+          className="mx-hero-visual"
+        >
           <div className="mx-blueprint-board">
             <img
-              src={`${assetBase}/multiplex-warm-blueprint.webp`}
               alt="Warm blueprint study of a multiplex financing website and construction plates"
+              src={`${assetBase}/multiplex-warm-blueprint.webp`}
             />
             <div className="mx-board-note">
               <span>Review lane</span>
               <strong>Budget, draws, permits, debt, rent assumptions</strong>
             </div>
           </div>
-          <div className="mx-hero-ticket" aria-label="Fairlend review focus">
+          <div aria-label="Fairlend review focus" className="mx-hero-ticket">
             <span>Planning meets capital</span>
             <strong>Private capital for well-planned housing projects.</strong>
           </div>
         </div>
       </section>
 
-      <section className="mx-city-strip" aria-label="GTA service areas">
+      <section aria-label="GTA service areas" className="mx-city-strip">
         {cityBands.map((city) => (
           <span key={city}>{city}</span>
         ))}
       </section>
 
-      <section className="mx-section mx-fit" id="fit" aria-labelledby="fit-title">
+      <section
+        aria-labelledby="fit-title"
+        className="mx-fit mx-section"
+        id="fit"
+      >
         <div className="mx-section-head">
           <p className="mx-kicker">Project fit</p>
-          <h2 id="fit-title">Built for files that need structure, not slogans.</h2>
+          <h2 id="fit-title">
+            Built for files that need structure, not slogans.
+          </h2>
         </div>
         <Frame className="mx-frame">
           <FramePanel className="mx-fit-panel">
@@ -250,14 +255,14 @@ function MultiplexPage() {
       </section>
 
       <section
+        aria-labelledby="structure-title"
         className="mx-section mx-structure"
         id="structure"
-        aria-labelledby="structure-title"
       >
         <div className="mx-structure-visual">
           <img
-            src={`${assetBase}/multiplex-blueprint-plate.webp`}
             alt="Fairlend blueprint reference with construction financing card system"
+            src={`${assetBase}/multiplex-blueprint-plate.webp`}
           />
         </div>
         <div className="mx-structure-copy">
@@ -286,7 +291,7 @@ function MultiplexPage() {
         </div>
       </section>
 
-      <section className="mx-review" id="review" aria-labelledby="review-title">
+      <section aria-labelledby="review-title" className="mx-review" id="review">
         <div className="mx-review-copy">
           <p className="mx-kicker">Review sequence</p>
           <h2 id="review-title">A practical path from site to terms lane.</h2>
@@ -307,7 +312,10 @@ function MultiplexPage() {
         </div>
       </section>
 
-      <section className="mx-section mx-dossier" aria-labelledby="dossier-title">
+      <section
+        aria-labelledby="dossier-title"
+        className="mx-dossier mx-section"
+      >
         <div className="mx-dossier-card">
           <p className="mx-kicker">Submission docket</p>
           <h2 id="dossier-title">Bring enough context for a real answer.</h2>
@@ -326,7 +334,7 @@ function MultiplexPage() {
             <ArrowUpRight aria-hidden />
           </Button>
         </div>
-        <div className="mx-dossier-grid" aria-label="Useful documents">
+        <div aria-label="Useful documents" className="mx-dossier-grid">
           {dossierItems.map((item) => (
             <div className="mx-dossier-item" key={item}>
               <FileSearch aria-hidden />
@@ -336,37 +344,47 @@ function MultiplexPage() {
         </div>
       </section>
 
-      <section className="mx-section mx-proof" aria-labelledby="proof-title">
+      <section aria-labelledby="proof-title" className="mx-proof mx-section">
         <div className="mx-proof-image">
           <img
-            src={`${assetBase}/multiplex-builder-grid.webp`}
             alt="Construction and planning reference grid from the Fairlend brand system"
+            src={`${assetBase}/multiplex-builder-grid.webp`}
           />
         </div>
         <div className="mx-proof-copy">
           <p className="mx-kicker">Why early review matters</p>
-          <h2 id="proof-title">The gap usually appears before the build starts.</h2>
+          <h2 id="proof-title">
+            The gap usually appears before the build starts.
+          </h2>
           <div className="mx-proof-list">
             <article>
               <Calculator aria-hidden />
               <h3>Budget realism</h3>
-              <p>Hard costs, soft costs, contingency, and carrying costs need one model.</p>
+              <p>
+                Hard costs, soft costs, contingency, and carrying costs need one
+                model.
+              </p>
             </article>
             <article>
               <Ruler aria-hidden />
               <h3>Draw timing</h3>
-              <p>Interest discipline depends on when funds are actually released.</p>
+              <p>
+                Interest discipline depends on when funds are actually released.
+              </p>
             </article>
             <article>
               <MapPinned aria-hidden />
               <h3>Local execution</h3>
-              <p>GTA municipality, site access, scope, and rental thesis all matter.</p>
+              <p>
+                GTA municipality, site access, scope, and rental thesis all
+                matter.
+              </p>
             </article>
           </div>
         </div>
       </section>
 
-      <section className="mx-final" aria-labelledby="final-title">
+      <section aria-labelledby="final-title" className="mx-final">
         <div>
           <p className="mx-kicker">Start with the file</p>
           <h2 id="final-title">
@@ -376,19 +394,19 @@ function MultiplexPage() {
         <div className="mx-final-actions">
           <Button
             className="mx-final-button"
-            size="lg"
             render={
               <Link {...startMultiplexLink} preload="intent" viewTransition />
             }
+            size="lg"
           >
             Start project review
             <ArrowUpRight aria-hidden />
           </Button>
           <Button
             className="mx-final-outline"
+            render={<Link {...mliSelectLink} preload="intent" viewTransition />}
             size="lg"
             variant="outline"
-            render={<Link {...mliSelectLink} preload="intent" viewTransition />}
           >
             Check MLI Select readiness
           </Button>

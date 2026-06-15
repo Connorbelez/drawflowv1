@@ -103,10 +103,10 @@ import {
   SheetTitle,
 } from "#/components/ui/sheet.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
-import { cn } from "#/lib/utils.ts";
 import { ContractorQuickAddDrawer } from "#/features/contractors/ContractorQuickAddDrawer.tsx";
 import { ProductionProposalDrawScheduleEditor } from "#/features/production-proposals/ProductionProposalDrawScheduleEditor.tsx";
 import { TimelineMilestoneContractorList } from "#/features/timeline-workspace/TimelineMilestoneContractorList.tsx";
+import { cn } from "#/lib/utils.ts";
 import { parseGanttMilestoneScopeId } from "./build-workspace-contractor-planning.ts";
 import { SortableMilestoneRailRow } from "./SortableMilestoneRailRow";
 import type {
@@ -1200,7 +1200,8 @@ function GanttRoadmap({
   zoom: number;
 }) {
   const workspace = useBuildWorkspace();
-  const scheduleBaseDate = workspace.timelineBaseDate ?? initialScheduleBaseDate(workspace.milestones);
+  const scheduleBaseDate =
+    workspace.timelineBaseDate ?? initialScheduleBaseDate(workspace.milestones);
   const [selectedMilestoneIds, setSelectedMilestoneIds] =
     useState<SelectedMilestoneIds>(() => new Set());
   const [batchShiftPreview, setBatchShiftPreview] =
@@ -2161,11 +2162,11 @@ function MilestoneBlock({
                 onTimelineClick(milestone.id, event);
               }
             }}
+            role="button"
             style={{
               scrollMarginLeft:
                 "calc(var(--gantt-leading-sidebar-width) + var(--gantt-kibo-sidebar-width) + 2rem)",
             }}
-            role="button"
             tabIndex={0}
           >
             <span
@@ -2205,8 +2206,7 @@ function MilestoneBlock({
               endAt: milestone.endAt,
               startAt: milestone.startAt,
             })}{" "}
-            /{" "}
-            {compactMoney(milestone.estimatedCost)}
+            / {compactMoney(milestone.estimatedCost)}
           </div>
           <IssueList
             issues={milestone.issues}
@@ -2301,12 +2301,15 @@ function DrawGroupDetailSheet({
   const [drawAmounts, setDrawAmounts] = useState<Record<string, string>>({});
   const [drawLabels, setDrawLabels] = useState<Record<string, string>>({});
   const [drawTimingDays, setDrawTimingDays] = useState<Record<string, string>>(
-    {},
+    {}
   );
   const [error, setError] = useState("");
   const canEditDraws =
     Boolean(workspace.updateDrawGroup) &&
-    !(workspace.mode === "proposal" && workspace.build.proposalStatus === "submitted");
+    !(
+      workspace.mode === "proposal" &&
+      workspace.build.proposalStatus === "submitted"
+    );
   const timingDay = draw.timingDay ?? 0;
 
   useEffect(() => {
@@ -2319,11 +2322,14 @@ function DrawGroupDetailSheet({
     setError("");
   }, [draw.amount, draw.id, draw.label, open, timingDay]);
 
-  const updateDraw = async (_drawKey: string, patch: {
-    amountCents: number;
-    label: string;
-    timingDay: number;
-  }) => {
+  const updateDraw = async (
+    _drawKey: string,
+    patch: {
+      amountCents: number;
+      label: string;
+      timingDay: number;
+    }
+  ) => {
     if (!workspace.updateDrawGroup) {
       return;
     }
@@ -2337,7 +2343,7 @@ function DrawGroupDetailSheet({
       await workspace.updateDrawGroup(draw.id, drawPatch);
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "Unable to update draw.",
+        caught instanceof Error ? caught.message : "Unable to update draw."
       );
     }
   };
@@ -2453,7 +2459,7 @@ function MilestoneDetailSheet({
     parseGanttMilestoneScopeId(milestone.id).milestoneKey;
   const contractorScope = parseGanttMilestoneScopeId(milestone.id);
   const canAssignContractor = Boolean(
-    workspace.assignContractorToMilestone || workspace.createAndAssignContractor,
+    workspace.assignContractorToMilestone || workspace.createAndAssignContractor
   );
   const contractorOptions =
     workspace.contractorPlanning?.availableContractors ??
@@ -2765,7 +2771,7 @@ function MilestoneDetailSheet({
                   <Button
                     className="self-end"
                     data-testid="move-to-parent-milestone"
-                    disabled={!canMoveParent || !parentTarget}
+                    disabled={!(canMoveParent && parentTarget)}
                     onClick={() =>
                       parentTarget &&
                       void workspace.moveSubmilestoneToParent?.(

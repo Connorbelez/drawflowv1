@@ -1,6 +1,12 @@
 "use client";
 
-import { CalendarDays, CheckCircle2, Circle, Loader2, MapPin } from "lucide-react";
+import {
+  CalendarDays,
+  CheckCircle2,
+  Circle,
+  Loader2,
+  MapPin,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { formatCents, formatDate } from "./format";
@@ -13,33 +19,33 @@ export type KanbanColumn =
   | "NeedsApproval";
 
 export interface KanbanSubmilestone {
-  key: string;
-  name: string;
-  status: "todo" | "in_progress" | "done";
-  order: number;
   budgetCents?: number;
   durationDays?: number;
+  key: string;
+  name: string;
+  order: number;
+  status: "todo" | "in_progress" | "done";
 }
 
 export interface KanbanCardData {
-  milestoneKey: string;
-  milestoneId: string;
-  name: string;
-  code: string;
-  type: string;
-  status: string;
-  column: KanbanColumn;
-  drawGroupKey: string;
   approvedValueCents: number;
-  requestedAmountCents?: number;
-  progressPercent: number;
-  forecastStartDate?: string;
-  forecastEndDate?: string;
-  submittedAt?: number;
-  requiresSiteVisit: boolean;
-  evidenceReviewStatus?: string;
+  code: string;
+  column: KanbanColumn;
   contractors: { name: string; initials: string }[];
+  drawGroupKey: string;
+  evidenceReviewStatus?: string;
+  forecastEndDate?: string;
+  forecastStartDate?: string;
+  milestoneId: string;
+  milestoneKey: string;
+  name: string;
+  progressPercent: number;
+  requestedAmountCents?: number;
+  requiresSiteVisit: boolean;
+  status: string;
   submilestones: KanbanSubmilestone[];
+  submittedAt?: number;
+  type: string;
 }
 
 const COLUMNS: { key: KanbanColumn; label: string; accent: string }[] = [
@@ -58,10 +64,7 @@ const COLUMNS: { key: KanbanColumn; label: string; accent: string }[] = [
   },
 ];
 
-const STATUS_TONE: Record<
-  string,
-  { label: string; className: string }
-> = {
+const STATUS_TONE: Record<string, { label: string; className: string }> = {
   completion_approved: {
     label: "Approved",
     className: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
@@ -100,8 +103,8 @@ interface MilestoneKanbanProps {
   cards: KanbanCardData[];
   onAssignContractor?: (card: KanbanCardData) => void;
   onCardClick: (card: KanbanCardData) => void;
-  showCompleted?: boolean;
   onToggleShowCompleted?: () => void;
+  showCompleted?: boolean;
 }
 
 export function MilestoneKanban({
@@ -127,68 +130,68 @@ export function MilestoneKanban({
       id="kanban"
     >
       <FramePanel className="p-3 sm:p-4">
-      <header className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h3 className="font-semibold text-sm">Milestone Kanban</h3>
-          <p className="text-[11px] text-muted-foreground">
-            Read-only projection · drag locked · click a card for full detail
-          </p>
-        </div>
-        <label className="flex items-center justify-between gap-2 text-muted-foreground text-xs sm:justify-start">
-          <span>Show completed</span>
-          <button
-            aria-pressed={showCompleted}
-            className="min-h-8 rounded-md border border-border bg-card px-2 py-1 text-xs"
-            data-testid="kanban-toggle-show-completed"
-            onClick={onToggleShowCompleted}
-            type="button"
-          >
-            {showCompleted ? "On" : "Off"}
-          </button>
-        </label>
-      </header>
-      <div className="-mx-3 overflow-x-auto px-3 sm:mx-0 sm:px-0">
-        <div className="grid min-w-[62rem] grid-cols-5 gap-3 rounded-lg border border-border bg-background/30 p-3">
-          {COLUMNS.map((col) => {
-            const list = byColumn.get(col.key) ?? [];
-            return (
-              <div
-                className="flex min-w-0 flex-col gap-2"
-                data-column={col.key}
-                data-testid={`kanban-col-${col.key}`}
-                key={col.key}
-              >
-                <h4 className="flex items-center justify-between px-1 text-[11px] text-muted-foreground uppercase tracking-wider">
-                  <span className="truncate">{col.label}</span>
-                  <span className="rounded-full bg-card px-1.5 py-0.5 text-[10px] text-foreground">
-                    {list.length}
-                  </span>
-                </h4>
-                <div className="flex flex-col gap-2">
-                  {list.length === 0 ? (
-                    <p className="rounded-md border border-dashed border-border p-3 text-[11px] text-muted-foreground">
-                      No milestones in this column.
-                    </p>
-                  ) : null}
-                  {list.map((card) => (
-                    <MilestoneCard
-                      card={card}
-                      columnAccent={col.accent}
-                      key={card.milestoneId}
-                      onAssign={
-                        onAssignContractor
-                          ? () => onAssignContractor(card)
-                          : undefined
-                      }
-                      onClick={() => onCardClick(card)}
-                    />
-                  ))}
+        <header className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="font-semibold text-sm">Milestone Kanban</h3>
+            <p className="text-[11px] text-muted-foreground">
+              Read-only projection · drag locked · click a card for full detail
+            </p>
+          </div>
+          <label className="flex items-center justify-between gap-2 text-muted-foreground text-xs sm:justify-start">
+            <span>Show completed</span>
+            <button
+              aria-pressed={showCompleted}
+              className="min-h-8 rounded-md border border-border bg-card px-2 py-1 text-xs"
+              data-testid="kanban-toggle-show-completed"
+              onClick={onToggleShowCompleted}
+              type="button"
+            >
+              {showCompleted ? "On" : "Off"}
+            </button>
+          </label>
+        </header>
+        <div className="-mx-3 overflow-x-auto px-3 sm:mx-0 sm:px-0">
+          <div className="grid min-w-[62rem] grid-cols-5 gap-3 rounded-lg border border-border bg-background/30 p-3">
+            {COLUMNS.map((col) => {
+              const list = byColumn.get(col.key) ?? [];
+              return (
+                <div
+                  className="flex min-w-0 flex-col gap-2"
+                  data-column={col.key}
+                  data-testid={`kanban-col-${col.key}`}
+                  key={col.key}
+                >
+                  <h4 className="flex items-center justify-between px-1 text-[11px] text-muted-foreground uppercase tracking-wider">
+                    <span className="truncate">{col.label}</span>
+                    <span className="rounded-full bg-card px-1.5 py-0.5 text-[10px] text-foreground">
+                      {list.length}
+                    </span>
+                  </h4>
+                  <div className="flex flex-col gap-2">
+                    {list.length === 0 ? (
+                      <p className="rounded-md border border-border border-dashed p-3 text-[11px] text-muted-foreground">
+                        No milestones in this column.
+                      </p>
+                    ) : null}
+                    {list.map((card) => (
+                      <MilestoneCard
+                        card={card}
+                        columnAccent={col.accent}
+                        key={card.milestoneId}
+                        onAssign={
+                          onAssignContractor
+                            ? () => onAssignContractor(card)
+                            : undefined
+                        }
+                        onClick={() => onCardClick(card)}
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
       </FramePanel>
     </Frame>
   );
@@ -206,8 +209,12 @@ function MilestoneCard({
   onClick: () => void;
 }) {
   const tone = STATUS_TONE[card.status];
-  const submilestoneDone = card.submilestones.filter((s) => s.status === "done").length;
-  const submilestoneInProg = card.submilestones.filter((s) => s.status === "in_progress").length;
+  const submilestoneDone = card.submilestones.filter(
+    (s) => s.status === "done"
+  ).length;
+  const submilestoneInProg = card.submilestones.filter(
+    (s) => s.status === "in_progress"
+  ).length;
   const submilestoneTotal = card.submilestones.length;
   const previewSubmilestones = card.submilestones.slice(0, 3);
   return (
@@ -229,10 +236,10 @@ function MilestoneCard({
     >
       <header className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+          <p className="truncate font-mono text-[10px] text-muted-foreground uppercase tracking-wider">
             {card.code} · {card.drawGroupKey.toUpperCase()}
           </p>
-          <p className="truncate font-semibold text-xs text-foreground">
+          <p className="truncate font-semibold text-foreground text-xs">
             {card.name}
           </p>
         </div>
@@ -255,14 +262,14 @@ function MilestoneCard({
             style={{ width: `${Math.min(100, card.progressPercent)}%` }}
           />
         </div>
-        <span className="tabular-nums text-[10px] text-muted-foreground">
+        <span className="text-[10px] text-muted-foreground tabular-nums">
           {card.progressPercent}%
         </span>
       </div>
 
       <dl className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-[10px]">
         <dt className="text-muted-foreground">Budget</dt>
-        <dd className="text-right font-medium tabular-nums text-foreground">
+        <dd className="text-right font-medium text-foreground tabular-nums">
           {formatCents(card.approvedValueCents, { compact: true })}
         </dd>
         <dt className="text-muted-foreground">Start</dt>
@@ -294,10 +301,7 @@ function MilestoneCard({
           </div>
           <ul className="mt-1 space-y-0.5">
             {previewSubmilestones.map((s) => (
-              <li
-                className="flex items-center gap-1.5 text-[10px]"
-                key={s.key}
-              >
+              <li className="flex items-center gap-1.5 text-[10px]" key={s.key}>
                 <SubmilestoneIcon status={s.status} />
                 <span
                   className={
@@ -330,7 +334,7 @@ function MilestoneCard({
             {card.contractors.slice(0, 3).map((c) => (
               <span
                 aria-label={c.name}
-                className="grid size-5 place-items-center rounded-full border border-card bg-primary/30 text-[9px] font-semibold"
+                className="grid size-5 place-items-center rounded-full border border-card bg-primary/30 font-semibold text-[9px]"
                 key={`${card.milestoneKey}-${c.name}`}
                 title={c.name}
               >
@@ -344,9 +348,7 @@ function MilestoneCard({
             ) : null}
           </div>
         ) : (
-          <span className="text-[10px] text-muted-foreground">
-            Unassigned
-          </span>
+          <span className="text-[10px] text-muted-foreground">Unassigned</span>
         )}
         <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
           {onAssign ? (
@@ -414,9 +416,15 @@ function SubmilestoneIcon({
 
 function daysUntil(iso: string): string {
   const target = Date.parse(iso);
-  if (Number.isNaN(target)) return "";
+  if (Number.isNaN(target)) {
+    return "";
+  }
   const diffDays = Math.round((target - Date.now()) / 86_400_000);
-  if (diffDays === 0) return "today";
-  if (diffDays > 0) return `in ${diffDays}d`;
+  if (diffDays === 0) {
+    return "today";
+  }
+  if (diffDays > 0) {
+    return `in ${diffDays}d`;
+  }
   return `${Math.abs(diffDays)}d ago`;
 }
