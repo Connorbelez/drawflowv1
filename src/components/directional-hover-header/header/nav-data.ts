@@ -24,7 +24,7 @@ export type NavLink = {
 };
 
 export const fairlendNavLinks = {
-  home: linkOptions({ to: "/marketing" }),
+  home: linkOptions({ to: "/" }),
   about: linkOptions({ to: "/about" }),
   affordableHousing: linkOptions({
     to: "/affordable-sustainable-rental-housing",

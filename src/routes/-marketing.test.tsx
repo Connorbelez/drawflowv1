@@ -124,10 +124,11 @@ vi.mock("@tanstack/react-router", () => ({
   ),
 }));
 
+import { Route as HomeRoute } from "./index.tsx";
 import { Route } from "./marketing.tsx";
 
 const MarketingPage = Route.options.component as ComponentType;
-
+const HomePage = HomeRoute.options.component as ComponentType;
 matchMediaMatches = (query: string) => query === "(min-width: 1024px)";
 
 describe("MarketingPage", () => {
@@ -288,4 +289,13 @@ describe("MarketingPage", () => {
       0.04
     );
   });
+  test("mounts the marketing surface at the root route", () => {
+    const markup = renderToStaticMarkup(<HomePage />);
+
+    expect(HomeRoute.options.ssr).toBe(false);
+    expect(markup).toContain("Building a fair");
+    expect(markup).toContain("future for lending");
+    expect(HomeRoute.options.head?.()).toEqual(Route.options.head?.());
+  });
+
 });

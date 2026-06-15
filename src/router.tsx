@@ -11,9 +11,9 @@ export function getRouter() {
     context,
     scrollRestoration: true,
     getScrollRestorationKey: (location) => {
-      // /marketing uses GSAP ScrollTrigger pin — pathname-based restoration
-      // races pin layout and leaves the hero scrub desynced.
-      if (location.pathname === "/marketing") {
+      // Marketing homepage uses GSAP ScrollTrigger pin — pathname-based
+      // restoration races pin layout and leaves the hero scrub desynced.
+      if (location.pathname === "/" || location.pathname === "/marketing") {
         return location.state.__TSR_key!;
       }
 

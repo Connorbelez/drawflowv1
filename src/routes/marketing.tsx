@@ -34,30 +34,7 @@ export const Route = createFileRoute("/marketing")({
   // Static marketing surface: no loaders, no server data, client-rendered for GSAP.
   ssr: false,
   component: MarketingPage,
-  head: () => ({
-    meta: [
-      {
-        title: "FairLend Capital | Construction draw financing",
-      },
-      {
-        name: "description",
-        content:
-          "Build financing, private mortgages, and investor access for Canadian housing, underwritten with DrawFlow transparency.",
-      },
-    ],
-    links: [
-      {
-        rel: "preload",
-        as: "image",
-        href: "/assets/CleanShot Jun 8 Hero Section Blueprint.png",
-      },
-      {
-        rel: "preload",
-        as: "image",
-        href: "/assets/Blueprint Style Rendering Jun 8 2026 (1).png",
-      },
-    ],
-  }),
+  head: getMarketingPageHead,
 });
 
 const renderAsset = "/assets/CleanShot Jun 8 Hero Section Blueprint.png";
@@ -894,12 +871,7 @@ function MarketingProof(): ReactElement {
         <Button
           className="mkt-team-action"
           render={
-            <Link
-              hash="about"
-              preload="intent"
-              to="/marketing"
-              viewTransition
-            />
+            <Link hash="about" preload="intent" to="/" viewTransition />
           }
           variant="outline"
         >
@@ -926,12 +898,7 @@ function MarketingProof(): ReactElement {
         <Button
           className="mkt-careers-action"
           render={
-            <Link
-              hash="careers"
-              preload="intent"
-              to="/marketing"
-              viewTransition
-            />
+            <Link hash="careers" preload="intent" to="/" viewTransition />
           }
         >
           View open roles
@@ -941,11 +908,7 @@ function MarketingProof(): ReactElement {
 
       <footer className="mkt-footer" id="resources">
         <div className="mkt-footer-brand">
-          <Link
-            aria-label="Fairlend Capital marketing home"
-            className="mkt-brand"
-            to="/marketing"
-          >
+          <Link aria-label="Fairlend Capital home" className="mkt-brand" to="/">
             <span>Fairlend</span>
             <small>Capital</small>
           </Link>
@@ -971,12 +934,12 @@ function MarketingProof(): ReactElement {
                   Documents: "/resources",
                   About: "/about",
                   Leadership: "/leadership/elie-soberano",
-                  Careers: "/marketing#careers",
+                  Careers: "/#careers",
                   Contact: "/contact",
                 };
 
                 return (
-                  <a href={hrefByLabel[link] ?? "/marketing"} key={link}>
+                  <a href={hrefByLabel[link] ?? "/"} key={link}>
                     {link}
                   </a>
                 );
@@ -1017,4 +980,32 @@ function MarketingProof(): ReactElement {
       </footer>
     </>
   );
+}
+
+
+function getMarketingPageHead() {
+  return {
+    meta: [
+      {
+        title: "FairLend Capital | Construction draw financing",
+      },
+      {
+        name: "description",
+        content:
+          "Build financing, private mortgages, and investor access for Canadian housing, underwritten with DrawFlow transparency.",
+      },
+    ],
+    links: [
+      {
+        rel: "preload",
+        as: "image",
+        href: "/assets/CleanShot Jun 8 Hero Section Blueprint.png",
+      },
+      {
+        rel: "preload",
+        as: "image",
+        href: "/assets/Blueprint Style Rendering Jun 8 2026 (1).png",
+      },
+    ],
+  };
 }

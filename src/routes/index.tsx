@@ -1,15 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
+import type { ComponentType } from "react";
 
-import {
-  FairlendPublicPage,
-  getCorePageHead,
-} from "#/features/fairlend-public/fairlend-public-pages.tsx";
+import { Route as MarketingRoute } from "./marketing.tsx";
 
 export const Route = createFileRoute("/")({
+  // Root homepage uses marketing GSAP scene; keep SSR off like /marketing.
+  ssr: false,
   component: HomePage,
-  head: () => getCorePageHead("home"),
+  head: getHomePageHead,
 });
 
 function HomePage() {
-  return <FairlendPublicPage pageId="home" />;
+  const MarketingPage = MarketingRoute.options.component as ComponentType;
+
+  return <MarketingPage />;
+}
+
+function getHomePageHead() {
+  return MarketingRoute.options.head?.();
 }
