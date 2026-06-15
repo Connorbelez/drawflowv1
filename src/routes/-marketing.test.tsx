@@ -10,10 +10,12 @@ const gsapMocks = vi.hoisted(() => {
     update: vi.fn(),
   };
   const timeline = {
+    fromTo: vi.fn(),
     scrollTrigger,
     to: vi.fn(),
   };
   timeline.to.mockImplementation(() => timeline);
+  timeline.fromTo.mockImplementation(() => timeline);
 
   return {
     CustomEase: {
@@ -24,6 +26,7 @@ const gsapMocks = vi.hoisted(() => {
     },
     gsap: {
       registerPlugin: vi.fn(),
+      set: vi.fn(),
       timeline: vi.fn(() => timeline),
     },
     scrollTrigger,
@@ -31,12 +34,14 @@ const gsapMocks = vi.hoisted(() => {
   };
 });
 
+let matchMediaMatches: (query: string) => boolean;
+
 beforeAll(() => {
   const matchMedia = vi.fn().mockImplementation((query: string) => ({
     addEventListener: vi.fn(),
     addListener: vi.fn(),
     dispatchEvent: vi.fn(),
-    matches: query === "(min-width: 1024px)",
+    matches: matchMediaMatches(query),
     media: query,
     onchange: null,
     removeEventListener: vi.fn(),
@@ -73,6 +78,7 @@ beforeAll(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  matchMediaMatches = (query: string) => query === "(min-width: 1024px)";
 });
 
 vi.mock("@gsap/react", async () => {
@@ -122,6 +128,8 @@ import { Route } from "./marketing.tsx";
 
 const MarketingPage = Route.options.component as ComponentType;
 
+matchMediaMatches = (query: string) => query === "(min-width: 1024px)";
+
 describe("MarketingPage", () => {
   test("renders the Fairlend hero with both reveal assets and primary CTAs", () => {
     const markup = renderToStaticMarkup(<MarketingPage />);
@@ -133,11 +141,18 @@ describe("MarketingPage", () => {
     expect(markup).toContain("Borrow <br/> Build <br/> Lend <br/> In one place");
     expect(markup).toContain("funded deal experience");
     expect(markup).toContain("Ontario lending discipline");
+    expect(markup.match(/Brokerage Licence #13827/g)).toHaveLength(2);
+    expect(markup.match(/Administrator Licence #13828/g)).toHaveLength(2);
+    expect(markup).toContain('aria-label="Fairlend regulatory licences"');
+    expect(markup).toContain(
+      'aria-label="Fairlend footer regulatory licences"',
+    );
     expect(markup).not.toContain("mkt-headline-secondary");
     expect(markup).not.toContain("scroll-reveal-text");
     expect(markup).not.toContain("A lending file that stays legible");
     expect(markup).toContain("Explore build financing");
     expect(markup).toContain("See investor platform");
+    expect(markup).toContain("mkt-stick-overlap");
     expect(markup).toContain("/assets/CleanShot Jun 8 Hero Section Blueprint.png");
     expect(markup).toContain(
       "/assets/Blueprint Style Rendering Jun 8 2026 (1).png",
@@ -183,6 +198,7 @@ describe("MarketingPage", () => {
     expect(gsapMocks.gsap.timeline).toHaveBeenCalledWith(
       expect.objectContaining({
         scrollTrigger: expect.objectContaining({
+          end: "+=145%",
           pin: expect.any(HTMLDivElement),
           scrub: true,
           start: "top top",
@@ -201,6 +217,75 @@ describe("MarketingPage", () => {
       }),
       0.04,
     );
+    expect(gsapMocks.timeline.to).toHaveBeenCalledWith(
+      expect.any(HTMLDivElement),
+      expect.objectContaining({
+        opacity: 0.86,
+        rotate: -2.8,
+        scale: 0.88,
+        yPercent: -3,
+      }),
+      0.62,
+    );
+    expect(gsapMocks.timeline.fromTo).toHaveBeenCalledWith(
+      expect.any(HTMLDivElement),
+      expect.objectContaining({
+        scale: 0.97,
+        y: expect.any(Function),
+      }),
+      expect.objectContaining({
+        scale: 1,
+        y: 0,
+      }),
+      0.62,
+    );
     expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  test("initializes a mobile parallax scene below the desktop breakpoint", () => {
+    matchMediaMatches = (query: string) =>
+      query === "(prefers-reduced-motion: reduce)" ? false : false;
+
+    render(<MarketingPage />);
+
+    expect(gsapMocks.gsap.timeline).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scrollTrigger: expect.objectContaining({
+          end: "+=92%",
+          scrub: true,
+          start: "top top",
+        }),
+      })
+    );
+    expect(gsapMocks.timeline.fromTo).toHaveBeenCalledWith(
+      expect.any(HTMLElement),
+      expect.objectContaining({
+        "--mask-x": "82%",
+        "--r1": "29vmax",
+        "--r2": "45.5vmax",
+      }),
+      expect.objectContaining({
+        "--mask-x": "112%",
+        "--r1": "0vmax",
+        "--r2": "4vmax",
+        scale: 1.06,
+      }),
+      0
+    );
+    expect(gsapMocks.timeline.to).toHaveBeenCalledWith(
+      expect.any(HTMLElement),
+      expect.objectContaining({
+        ease: "custom:M0,0 C0.74,0 0.18,1 1,1",
+        y: expect.any(Function),
+      }),
+      0.28
+    );
+    expect(gsapMocks.timeline.to).not.toHaveBeenCalledWith(
+      expect.any(HTMLElement),
+      expect.objectContaining({
+        ease: "custom:M0,0 C0.74,0 0.18,1 1,1",
+      }),
+      0.04
+    );
   });
 });

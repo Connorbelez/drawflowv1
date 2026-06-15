@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { ArrowRight, ChevronDown } from "lucide-react";
 import { type ReactElement, useEffect, useMemo, useState } from "react";
 
+import DotField from "#/components/DotField.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Card } from "#/components/ui/card.tsx";
 
@@ -137,6 +138,18 @@ export function FairlendInvestorOverview(): ReactElement {
           data-investor-section="investor-overview"
           id="investor-overview"
         >
+          <DotField
+            aria-hidden="true"
+            bulgeStrength={34}
+            className="fairlend-investor-hero-dot-field"
+            cursorRadius={260}
+            dotRadius={2}
+            dotSpacing={16}
+            glowColor="rgb(10 48 39)"
+            glowRadius={190}
+            gradientFrom="rgb(255 248 236 / 14%)"
+            gradientTo="rgb(255 248 236 / 14%)"
+          />
           <div className="fairlend-investor-hero-copy">
             <SectionMarker label="Investor Overview" number="01" tone="dark" />
             <h1

@@ -90,6 +90,13 @@ describe("Investors route", () => {
     expect(markup).toContain('data-investor-section="investor-paths"');
   });
 
+  test("renders the interactive DotField layer behind the investor hero", () => {
+    const markup = renderToStaticMarkup(<InvestorsPage />);
+
+    expect(markup).toContain("fairlend-investor-hero-dot-field");
+    expect(markup).toContain("<canvas");
+  });
+
   test("preloads the above-fold June 14 investor assets", () => {
     const head = Route.options.head();
 

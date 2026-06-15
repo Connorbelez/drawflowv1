@@ -139,8 +139,8 @@
       "source": "artifacts/visual-assets/investor-opportunity-card/crops/investment-opportunity-card.png",
       "alpha": "transparent WebP alpha with card shadow preserved",
       "metadata": {
-        "width": 477,
-        "height": 393,
+        "width": 1200,
+        "height": 989,
         "hasAlphaChannel": true,
         "hasTransparentPixels": true
       }

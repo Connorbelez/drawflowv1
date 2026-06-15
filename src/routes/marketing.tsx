@@ -67,11 +67,16 @@ const buildFinancingAsset =
 const multiplexAsset = "/assets/fairlend-path-gta-sixplex-lane-suite.webp";
 const micInvestingAsset = "/assets/fairlend-path-mic-investing.webp";
 const privateMortgagesAsset = "/assets/fairlend-path-private-mortgages.webp";
+const fairlendLicences = [
+  "Brokerage Licence #13827",
+  "Administrator Licence #13828",
+] as const;
 
 function MarketingPage(): ReactElement {
   const rootRef = useRef<HTMLElement>(null);
   const heroScrollRef = useRef<HTMLElement>(null);
   const pinRef = useRef<HTMLDivElement>(null);
+  const proofOverlapRef = useRef<HTMLDivElement>(null);
   const renderRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -79,6 +84,7 @@ function MarketingPage(): ReactElement {
     contentRef,
     heroScrollRef,
     pinRef,
+    proofOverlapRef,
     renderRef,
     rootRef,
   });
@@ -132,6 +138,10 @@ function MarketingPage(): ReactElement {
                       for real Canadian housing, underwritten with transparency
                       and discipline.
                     </p>
+                    <LicenceList
+                      ariaLabel="Fairlend regulatory licences"
+                      className="mkt-hero-licences"
+                    />
                   </div>
 
                   <TrustRail />
@@ -167,7 +177,9 @@ function MarketingPage(): ReactElement {
         </div>
       </section>
 
-      <MarketingProof />
+      <div className="mkt-stick-overlap" ref={proofOverlapRef}>
+        <MarketingProof />
+      </div>
     </main>
   );
 }
@@ -176,12 +188,14 @@ function useMarketingScrollScene({
   contentRef,
   heroScrollRef,
   pinRef,
+  proofOverlapRef,
   renderRef,
   rootRef,
 }: {
   contentRef: React.RefObject<HTMLDivElement | null>;
   heroScrollRef: React.RefObject<HTMLElement | null>;
   pinRef: React.RefObject<HTMLDivElement | null>;
+  proofOverlapRef: React.RefObject<HTMLDivElement | null>;
   renderRef: React.RefObject<HTMLDivElement | null>;
   rootRef: React.RefObject<HTMLElement | null>;
 }) {
@@ -189,6 +203,7 @@ function useMarketingScrollScene({
     () => {
       const section = heroScrollRef.current;
       const pinEl = pinRef.current;
+      const proofOverlapEl = proofOverlapRef.current;
       const renderEl = renderRef.current;
       const contentEl = contentRef.current;
       const leftStack =
@@ -197,23 +212,30 @@ function useMarketingScrollScene({
         contentEl?.querySelector<HTMLElement>(".mkt-left-track");
 
       if (
-        !(section && pinEl && renderEl && contentEl && leftStack && leftTrack)
+        !(
+          section &&
+          pinEl &&
+          proofOverlapEl &&
+          renderEl &&
+          contentEl &&
+          leftStack &&
+          leftTrack
+        )
       ) {
         return;
       }
 
       const media = window.matchMedia("(prefers-reduced-motion: reduce)");
       const desktopMedia = window.matchMedia("(min-width: 1024px)");
-      if (!desktopMedia.matches) {
-        return;
-      }
 
       if (media.matches) {
         renderEl.classList.add("mkt-render-reduced");
         leftStack.classList.add("mkt-left-stack-reduced");
+        proofOverlapEl.classList.add("mkt-stick-overlap-reduced");
         return () => {
           renderEl.classList.remove("mkt-render-reduced");
           leftStack.classList.remove("mkt-left-stack-reduced");
+          proofOverlapEl.classList.remove("mkt-stick-overlap-reduced");
         };
       }
 
@@ -223,11 +245,126 @@ function useMarketingScrollScene({
         "M0,0 C0.74,0 0.18,1 1,1"
       );
 
+      if (!desktopMedia.matches) {
+        const blueprintEl =
+          section.querySelector<HTMLElement>(".mkt-hero-blueprint");
+
+        gsap.set([pinEl, blueprintEl, renderEl, proofOverlapEl, leftTrack], {
+          force3D: true,
+          transformOrigin: "50% 50%",
+        });
+
+        const timeline = gsap.timeline({
+          defaults: { ease: "none" },
+          scrollTrigger: {
+            end: "+=92%",
+            invalidateOnRefresh: true,
+            scrub: true,
+            start: "top top",
+            trigger: section,
+          },
+        });
+
+        const heroScrollTrigger = timeline.scrollTrigger;
+
+        timeline
+          .fromTo(
+            blueprintEl,
+            { scale: 1.03, yPercent: 2 },
+            { duration: 1, scale: 1.1, yPercent: -4 },
+            0
+          )
+          .fromTo(
+            renderEl,
+            {
+              "--mask-x": "82%",
+              "--mask-y": "52%",
+              "--r1": "29vmax",
+              "--r2": "45.5vmax",
+              "--r3": "19.5vmax",
+              "--r4": "35vmax",
+              "--r5": "21.5vmax",
+              "--r6": "38vmax",
+              "--r7": "19.5vmax",
+              "--r8": "34vmax",
+              scale: 1,
+              yPercent: 0,
+            },
+            {
+              "--mask-x": "112%",
+              "--mask-y": "-8%",
+              "--r1": "0vmax",
+              "--r2": "4vmax",
+              "--r3": "0vmax",
+              "--r4": "3vmax",
+              "--r5": "0vmax",
+              "--r6": "2.5vmax",
+              "--r7": "0vmax",
+              "--r8": "2vmax",
+              duration: 1,
+              scale: 1.06,
+              yPercent: -4,
+            },
+            0
+          )
+          .to(
+            leftTrack,
+            {
+              duration: 0.5,
+              ease: panelGateEase,
+              y: () => -leftStack.clientHeight,
+            },
+            0.28
+          )
+          .to(
+            contentEl,
+            {
+              duration: 0.72,
+              opacity: 0.9,
+              yPercent: -3.5,
+            },
+            0
+          )
+          .to(
+            pinEl,
+            {
+              duration: 0.28,
+              opacity: 0.88,
+              rotate: -1.8,
+              scale: 0.9,
+              yPercent: -2,
+            },
+            0.72
+          )
+          .fromTo(
+            proofOverlapEl,
+            {
+              scale: 0.98,
+              y: () => window.innerHeight * 0.12,
+            },
+            {
+              duration: 0.28,
+              scale: 1,
+              y: 0,
+            },
+            0.72
+          );
+
+        const refreshFrame = requestAnimationFrame(() => {
+          ScrollTrigger.refresh();
+          heroScrollTrigger?.update();
+        });
+
+        return () => {
+          cancelAnimationFrame(refreshFrame);
+        };
+      }
+
       const timeline = gsap.timeline({
         defaults: { ease: "none" },
         scrollTrigger: {
           anticipatePin: 1,
-          end: "+=115%",
+          end: "+=145%",
           invalidateOnRefresh: true,
           pin: pinEl,
           scrub: true,
@@ -238,11 +375,16 @@ function useMarketingScrollScene({
 
       const heroScrollTrigger = timeline.scrollTrigger;
 
+      gsap.set([pinEl, proofOverlapEl], {
+        force3D: true,
+        transformOrigin: "50% 50%",
+      });
+
       timeline
         .to(
           renderEl,
           {
-            duration: 0.72,
+            duration: 0.62,
             "--mask-x": "112%",
             "--mask-y": "-8%",
             "--r1": "0vmax",
@@ -264,6 +406,39 @@ function useMarketingScrollScene({
             y: () => -leftStack.clientHeight,
           },
           0.04
+        )
+        .to(
+          contentEl,
+          {
+            duration: 0.34,
+            opacity: 0.78,
+            yPercent: -3,
+          },
+          0.62
+        )
+        .to(
+          pinEl,
+          {
+            duration: 0.38,
+            opacity: 0.86,
+            rotate: -2.8,
+            scale: 0.88,
+            yPercent: -3,
+          },
+          0.62
+        )
+        .fromTo(
+          proofOverlapEl,
+          {
+            scale: 0.97,
+            y: () => window.innerHeight * 0.16,
+          },
+          {
+            duration: 0.38,
+            scale: 1,
+            y: 0,
+          },
+          0.62
         );
 
       let active = true;
@@ -344,6 +519,22 @@ function TrustRail(): ReactElement {
         </div>
       ))}
     </div>
+  );
+}
+
+function LicenceList({
+  ariaLabel,
+  className,
+}: {
+  ariaLabel: string;
+  className: string;
+}): ReactElement {
+  return (
+    <ul aria-label={ariaLabel} className={className}>
+      {fairlendLicences.map((licence) => (
+        <li key={licence}>{licence}</li>
+      ))}
+    </ul>
   );
 }
 
@@ -807,6 +998,10 @@ function MarketingProof(): ReactElement {
             <MapPin aria-hidden="true" />
             Toronto, Ontario
           </span>
+          <LicenceList
+            ariaLabel="Fairlend footer regulatory licences"
+            className="mkt-footer-licences"
+          />
           <div>
             <ExternalLink aria-hidden="true" />
             <Share2 aria-hidden="true" />

@@ -156,6 +156,8 @@ body:has(.fairlend-investor-overview)
 }
 
 .fairlend-investor-overview__hero {
+  position: relative;
+  isolation: isolate;
   min-height: clamp(580px, calc(100svh - var(--fairlend-nav-height)), 720px);
   overflow: hidden;
   padding: clamp(34px, 4vw, 58px) var(--fairlend-page-pad)
@@ -163,12 +165,18 @@ body:has(.fairlend-investor-overview)
   background:
     radial-gradient(circle at 48% 12%, rgb(243 238 229 / 8%), transparent 18rem),
     linear-gradient(180deg, rgb(255 248 236 / 7%), rgb(255 248 236 / 3%)),
-    radial-gradient(circle, rgb(255 248 236 / 14%) 1px, transparent 1.35px),
     url("/assets/fairlend-investor-overview/hero-noise-texture.webp"),
     var(--fairlend-hero-green);
-  background-size: auto, auto, 18px 18px, 240px 225px, auto;
-  background-blend-mode: normal, screen, normal, soft-light, normal;
+  background-size: auto, auto, 240px 225px, auto;
+  background-blend-mode: normal, screen, soft-light, normal;
   color: var(--fairlend-cream);
+}
+
+.fairlend-investor-hero-dot-field {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
 }
 
 .fairlend-investor-rail {
@@ -365,6 +373,7 @@ body:has(.fairlend-investor-overview)
 
 .fairlend-investor-collage {
   position: relative;
+  z-index: 2;
   grid-column: 7 / span 6;
   align-self: stretch;
   min-width: 0;
