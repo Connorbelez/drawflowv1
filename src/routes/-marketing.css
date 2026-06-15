@@ -695,7 +695,7 @@
   grid-template-columns: minmax(360px, var(--mkt-copy-width)) minmax(280px, 0.82fr);
   column-gap: clamp(48px, 8vw, 150px);
   width: min(100% - var(--mkt-artboard-gutter), 1888px);
-  height: calc(100svh - 138px);
+  height: 100%;
   min-height: 560px;
   margin: 0 auto;
   pointer-events: none;
@@ -778,7 +778,7 @@
   color: var(--mkt-ink);
   font-family: var(--mkt-display);
   font-weight: 700;
-  font-size: clamp(4rem, 5vw, 6.35rem);
+  font-size: clamp(5.54rem, 6.09vw, 92px);
   line-height: 0.92;
   letter-spacing: 0;
   will-change: transform, opacity;
@@ -893,7 +893,7 @@
   color: var(--mkt-ink);
   font-family: var(--mkt-display);
   font-weight: 700;
-  font-size: clamp(3.2rem, 4.1vw, 5.35rem);
+  font-size: clamp(4.81rem, 6.17vw, 7.5rem);
   line-height: 0.94;
   letter-spacing: 0;
 }
@@ -1928,11 +1928,11 @@
   }
 
   .mkt-headline {
-    font-size: clamp(5.1rem, 5.1vw, 7.2rem);
+    font-size: clamp(7.06rem, 7.06vw, 8rem);
   }
 
   .mkt-authority-panel h2 {
-    font-size: clamp(4rem, 4.4vw, 6rem);
+    font-size: clamp(6.02rem, 6.62vw, 7.5rem);
   }
 
   .mkt-nav,
@@ -2077,7 +2077,7 @@
   }
 
   .mkt-hero-content {
-    height: calc(100svh - 104px);
+    height: 100%;
   }
 
   .mkt-hero-copy {
@@ -2756,20 +2756,34 @@
     display: none;
   }
 
-  .mkt-hero-copy {
+  .mkt-hero-panel {
     display: flex;
     height: 100%;
+    min-height: 0;
+    flex-direction: column;
+  }
+
+  .mkt-hero-copy {
+    display: flex;
+    flex: 1 1 auto;
+    height: auto;
     min-height: 0;
     flex-direction: column;
     padding-top: 0;
   }
 
   .mkt-trust-rail {
+    order: 2;
     grid-template-columns: 1fr;
     gap: 10px;
     width: min(100%, 430px);
     margin-top: auto;
     padding-bottom: 0;
+  }
+
+  .mkt-hero-actions {
+    order: 3;
+    margin-top: 22px;
   }
 
   .mkt-trust-item {
