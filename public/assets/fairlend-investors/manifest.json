@@ -13,8 +13,8 @@
     "10-request-investor-information.png"
   ],
   "outputRoot": "public/assets/fairlend-investors",
-  "assetCount": 50,
-  "webpCount": 47,
+  "assetCount": 51,
+  "webpCount": 48,
   "svgCount": 3,
   "discreteAssetStrategy": [
     "Extract reusable photographic/render plates from the mockups as transparent WebP files.",
@@ -23,7 +23,7 @@
     "Do not extract live text, buttons, form fields, ruled table cells, or simple layout boxes as images; those should be implemented as HTML/CSS so the final page remains accessible and responsive."
   ],
   "coverageNotes": {
-    "investors.hero": "Hero building plate, dark blueprint elevation panel, monogram tile, global paper grain, drafting fragments, grid mask, and vector mark cover the non-text visual assets.",
+    "investors.hero": "Hero building plate, investor opportunity card, dark blueprint elevation panel, monogram tile, global paper grain, drafting fragments, grid mask, and vector mark cover the non-text visual assets.",
     "investors.thesis": "Midrise render, elevation, site plan, GTA map, permit card, paper grain, drafting fragments, grid mask, ruled lines, and vector mark cover the planning-board collage.",
     "investors.private-credit-overview": "Collateral plate, security structure, borrower obligations, loan agreement, risk ledger, and paper grain cover the explainer diagram assets.",
     "investors.why-housing-finance": "Central building cutout, site plan, blueprint section, homes node, paper grain, drafting fragments, and grid mask cover the network/architectural visuals.",
@@ -37,6 +37,7 @@
   "coverage": {
     "investors.hero": [
       "imagery/hero-midrise-building.webp",
+      "generated/investment-opportunity-card.webp",
       "blueprints/hero-blueprint-elevation-panel.webp",
       "marks/hero-monogram-tile.webp",
       "imagery/hero-architecture-collage.webp",
@@ -128,6 +129,24 @@
     ]
   },
   "assets": [
+    {
+      "slug": "investment-opportunity-card",
+      "group": "generated",
+      "kind": "transparent-marketing-card",
+      "usage": "Generated standalone investor opportunity card image for the investor hero.",
+      "sections": [
+        "investors.hero"
+      ],
+      "file": "generated/investment-opportunity-card.webp",
+      "source": "artifacts/visual-assets/investor-opportunity-card/crops/investment-opportunity-card.png",
+      "alpha": "transparent WebP alpha with card shadow preserved",
+      "metadata": {
+        "width": 477,
+        "height": 393,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
     {
       "slug": "hero-midrise-building",
       "group": "imagery",
