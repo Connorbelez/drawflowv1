@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320" fill="none">
+  <g stroke="#315E78" stroke-opacity=".22" stroke-width="1">
+    <path d="M0 40H320M0 80H320M0 120H320M0 160H320M0 200H320M0 240H320M0 280H320"/>
+    <path d="M40 0V320M80 0V320M120 0V320M160 0V320M200 0V320M240 0V320M280 0V320"/>
+  </g>
+  <g stroke="#315E78" stroke-opacity=".13" stroke-width=".5">
+    <path d="M0 20H320M0 60H320M0 100H320M0 140H320M0 180H320M0 220H320M0 260H320M0 300H320"/>
+    <path d="M20 0V320M60 0V320M100 0V320M140 0V320M180 0V320M220 0V320M260 0V320M300 0V320"/>
+  </g>
+</svg>

@@ -1,0 +1,1141 @@
+{
+  "sourceMockups": "public/designConcepts/investors/*.png",
+  "inspectedMockups": [
+    "01-hero.png",
+    "02-investment-thesis.png",
+    "03-private-credit-overview.png",
+    "04-why-housing-finance.png",
+    "05-affordable-sustainable-rental-housing.png",
+    "06-risk-management.png",
+    "07-underwriting-discipline.png",
+    "08-borrower-project-types.png",
+    "09-compliance-disclaimers.png",
+    "10-request-investor-information.png"
+  ],
+  "outputRoot": "public/assets/fairlend-investors",
+  "assetCount": 50,
+  "webpCount": 47,
+  "svgCount": 3,
+  "discreteAssetStrategy": [
+    "Extract reusable photographic/render plates from the mockups as transparent WebP files.",
+    "Extract architectural drawings, drafting fragments, stamps, diagrams, and document props as alpha WebP overlays when they appear as raster art in the mockups.",
+    "Generate reusable SVG masks for repeatable drafting grids, ruled document lines, and the simplified Fairlend mark when vector composition is cleaner than raster extraction.",
+    "Do not extract live text, buttons, form fields, ruled table cells, or simple layout boxes as images; those should be implemented as HTML/CSS so the final page remains accessible and responsive."
+  ],
+  "coverageNotes": {
+    "investors.hero": "Hero building plate, dark blueprint elevation panel, monogram tile, global paper grain, drafting fragments, grid mask, and vector mark cover the non-text visual assets.",
+    "investors.thesis": "Midrise render, elevation, site plan, GTA map, permit card, paper grain, drafting fragments, grid mask, ruled lines, and vector mark cover the planning-board collage.",
+    "investors.private-credit-overview": "Collateral plate, security structure, borrower obligations, loan agreement, risk ledger, and paper grain cover the explainer diagram assets.",
+    "investors.why-housing-finance": "Central building cutout, site plan, blueprint section, homes node, paper grain, drafting fragments, and grid mask cover the network/architectural visuals.",
+    "investors.why-affordable-sustainable": "Four typology images, section drawing, and paper grain cover the typology strip and supporting architectural graphic.",
+    "investors.risk-management": "Elevation linework, risk-aware stamp, paper grain, and ruled-line SVG cover the visual layer; the risk register itself should be HTML/CSS.",
+    "investors.underwriting": "Underwriting wheel, loan-file dossier, footer elevation, and paper grain cover the non-text visual assets.",
+    "investors.borrower-project-types": "Six project images, six blueprint inserts/panels, left elevation, and paper grain cover the dossier-board visual assets.",
+    "investors.disclaimers": "Top building linework, counsel-review panel, paper grain, drafting fragments, grid mask, and ruled-line SVG cover the disclosure visual assets.",
+    "investors.request-info": "Building strip, two drafting fragments, paper grain, drafting overlay, grid mask, and vector mark cover the CTA visual layer; the form remains HTML/CSS."
+  },
+  "coverage": {
+    "investors.hero": [
+      "imagery/hero-midrise-building.webp",
+      "blueprints/hero-blueprint-elevation-panel.webp",
+      "marks/hero-monogram-tile.webp",
+      "imagery/hero-architecture-collage.webp",
+      "patterns/paper-grain-overlay.webp",
+      "patterns/architectural-drafting-fragments.webp",
+      "patterns/blueprint-grid-mask.svg",
+      "marks/fairlend-monogram-line.svg"
+    ],
+    "investors.thesis": [
+      "imagery/thesis-midrise-render.webp",
+      "blueprints/thesis-blueprint-elevation.webp",
+      "blueprints/thesis-site-plan.webp",
+      "blueprints/thesis-gta-context-map.webp",
+      "documents/thesis-building-permit-card.webp",
+      "patterns/paper-grain-overlay.webp",
+      "patterns/architectural-drafting-fragments.webp",
+      "patterns/blueprint-grid-mask.svg",
+      "patterns/ruled-document-lines.svg",
+      "marks/fairlend-monogram-line.svg"
+    ],
+    "investors.private-credit-overview": [
+      "diagrams/private-credit-collateral-plate.webp",
+      "diagrams/private-credit-security-structure.webp",
+      "diagrams/private-credit-borrower-obligations.webp",
+      "documents/private-credit-loan-agreement.webp",
+      "diagrams/private-credit-risk-ledger.webp",
+      "patterns/paper-grain-overlay.webp"
+    ],
+    "investors.why-housing-finance": [
+      "imagery/housing-finance-central-building.webp",
+      "blueprints/housing-finance-site-plan.webp",
+      "blueprints/housing-finance-blueprint-section.webp",
+      "diagrams/housing-finance-homes-node.webp",
+      "patterns/paper-grain-overlay.webp",
+      "patterns/architectural-drafting-fragments.webp",
+      "patterns/blueprint-grid-mask.svg"
+    ],
+    "investors.why-affordable-sustainable": [
+      "imagery/affordable-garden-suite.webp",
+      "imagery/affordable-multiplex.webp",
+      "imagery/affordable-rental-infill.webp",
+      "imagery/affordable-sustainable-retrofit.webp",
+      "blueprints/affordable-section-drawing.webp",
+      "patterns/paper-grain-overlay.webp"
+    ],
+    "investors.risk-management": [
+      "blueprints/risk-management-elevation-linework.webp",
+      "stamps/risk-management-risk-aware-stamp.webp",
+      "patterns/paper-grain-overlay.webp",
+      "patterns/ruled-document-lines.svg"
+    ],
+    "investors.underwriting": [
+      "diagrams/underwriting-wheel.webp",
+      "documents/underwriting-loan-file-dossier.webp",
+      "blueprints/underwriting-footer-elevation.webp",
+      "patterns/paper-grain-overlay.webp"
+    ],
+    "investors.borrower-project-types": [
+      "imagery/project-types-multiplex.webp",
+      "imagery/project-types-garden-suite.webp",
+      "imagery/project-types-construction-draw.webp",
+      "imagery/project-types-small-developer.webp",
+      "imagery/project-types-private-mortgage.webp",
+      "imagery/project-types-rental-pathway.webp",
+      "blueprints/project-types-left-elevation.webp",
+      "blueprints/project-types-multiplex-plan.webp",
+      "blueprints/project-types-lane-plan.webp",
+      "blueprints/project-types-construction-blueprint.webp",
+      "blueprints/project-types-developer-blueprint.webp",
+      "blueprints/project-types-rental-plan-blueprint.webp",
+      "patterns/paper-grain-overlay.webp"
+    ],
+    "investors.disclaimers": [
+      "blueprints/disclosures-top-building-linework.webp",
+      "stamps/disclosures-counsel-review-stamp.webp",
+      "patterns/paper-grain-overlay.webp",
+      "patterns/architectural-drafting-fragments.webp",
+      "patterns/blueprint-grid-mask.svg",
+      "patterns/ruled-document-lines.svg"
+    ],
+    "investors.request-info": [
+      "imagery/request-info-building-strip.webp",
+      "blueprints/request-info-blueprint-top-fragment.webp",
+      "blueprints/request-info-blueprint-center-fragment.webp",
+      "patterns/paper-grain-overlay.webp",
+      "patterns/architectural-drafting-fragments.webp",
+      "patterns/blueprint-grid-mask.svg",
+      "marks/fairlend-monogram-line.svg"
+    ]
+  },
+  "assets": [
+    {
+      "slug": "hero-midrise-building",
+      "group": "imagery",
+      "kind": "rectangular-photo-plate",
+      "usage": "Hero residential rental building plate, right side of the opening fold.",
+      "sections": [
+        "investors.hero"
+      ],
+      "file": "imagery/hero-midrise-building.webp",
+      "source": "public/designConcepts/investors/01-hero.png bbox=(836, 205, 1536, 1006)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 700,
+        "height": 801,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "hero-blueprint-elevation-panel",
+      "group": "blueprints",
+      "kind": "blueprint-panel",
+      "usage": "Dark trust-blue elevation panel behind the hero building.",
+      "sections": [
+        "investors.hero"
+      ],
+      "file": "blueprints/hero-blueprint-elevation-panel.webp",
+      "source": "public/designConcepts/investors/01-hero.png bbox=(1134, 0, 1536, 430)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 402,
+        "height": 430,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "hero-monogram-tile",
+      "group": "marks",
+      "kind": "brand-tile",
+      "usage": "Pale mint Fairlend monogram tile used as a hero brand anchor.",
+      "sections": [
+        "investors.hero"
+      ],
+      "file": "marks/hero-monogram-tile.webp",
+      "source": "public/designConcepts/investors/01-hero.png bbox=(1312, 742, 1503, 902)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 191,
+        "height": 160,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "hero-architecture-collage",
+      "group": "imagery",
+      "kind": "architecture-collage",
+      "usage": "Hero right-side architecture collage preserving the reference photo, blueprint, street, stamp, and soft paper blend without embedding page text.",
+      "sections": [
+        "investors.hero"
+      ],
+      "file": "imagery/hero-architecture-collage.webp",
+      "source": "public/designConcepts/investors/01-hero.png bbox=(610, 0, 1536, 1024)",
+      "alpha": "paper-keyed transparent alpha",
+      "metadata": {
+        "width": 926,
+        "height": 1024,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "thesis-midrise-render",
+      "group": "imagery",
+      "kind": "rectangular-render-plate",
+      "usage": "Investment thesis mid-rise rental render.",
+      "sections": [
+        "investors.thesis"
+      ],
+      "file": "imagery/thesis-midrise-render.webp",
+      "source": "public/designConcepts/investors/02-investment-thesis.png bbox=(671, 58, 1244, 508)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 573,
+        "height": 450,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "thesis-blueprint-elevation",
+      "group": "blueprints",
+      "kind": "blueprint-panel",
+      "usage": "Investment thesis dark-blue elevation panel.",
+      "sections": [
+        "investors.thesis"
+      ],
+      "file": "blueprints/thesis-blueprint-elevation.webp",
+      "source": "public/designConcepts/investors/02-investment-thesis.png bbox=(1244, 58, 1536, 508)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 292,
+        "height": 450,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "thesis-site-plan",
+      "group": "blueprints",
+      "kind": "site-plan-linework",
+      "usage": "Site-plan drawing plate for the thesis planning-board collage.",
+      "sections": [
+        "investors.thesis"
+      ],
+      "file": "blueprints/thesis-site-plan.webp",
+      "source": "public/designConcepts/investors/02-investment-thesis.png bbox=(912, 511, 1244, 763)",
+      "alpha": "paper-keyed transparent alpha",
+      "metadata": {
+        "width": 332,
+        "height": 252,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "thesis-gta-context-map",
+      "group": "blueprints",
+      "kind": "context-map",
+      "usage": "GTA context-map fragment for the investment thesis collage.",
+      "sections": [
+        "investors.thesis"
+      ],
+      "file": "blueprints/thesis-gta-context-map.webp",
+      "source": "public/designConcepts/investors/02-investment-thesis.png bbox=(671, 511, 912, 763)",
+      "alpha": "paper-keyed transparent alpha",
+      "metadata": {
+        "width": 241,
+        "height": 252,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "thesis-building-permit-card",
+      "group": "documents",
+      "kind": "permit-card",
+      "usage": "Permit-card visual used in the thesis memo board.",
+      "sections": [
+        "investors.thesis"
+      ],
+      "file": "documents/thesis-building-permit-card.webp",
+      "source": "public/designConcepts/investors/02-investment-thesis.png bbox=(1282, 541, 1508, 763)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 226,
+        "height": 222,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "private-credit-collateral-plate",
+      "group": "diagrams",
+      "kind": "collateral-document-plate",
+      "usage": "Real estate collateral document block in the private-credit explainer.",
+      "sections": [
+        "investors.private-credit-overview"
+      ],
+      "file": "diagrams/private-credit-collateral-plate.webp",
+      "source": "public/designConcepts/investors/03-private-credit-overview.png bbox=(54, 375, 321, 829)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 267,
+        "height": 454,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "private-credit-security-structure",
+      "group": "diagrams",
+      "kind": "security-structure-block",
+      "usage": "Dark security-structure block from the private-credit diagram.",
+      "sections": [
+        "investors.private-credit-overview"
+      ],
+      "file": "diagrams/private-credit-security-structure.webp",
+      "source": "public/designConcepts/investors/03-private-credit-overview.png bbox=(353, 404, 554, 819)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 201,
+        "height": 415,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "private-credit-borrower-obligations",
+      "group": "diagrams",
+      "kind": "borrower-obligations-sheet",
+      "usage": "Borrower obligations document sheet in the private-credit diagram.",
+      "sections": [
+        "investors.private-credit-overview"
+      ],
+      "file": "diagrams/private-credit-borrower-obligations.webp",
+      "source": "public/designConcepts/investors/03-private-credit-overview.png bbox=(592, 404, 894, 830)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 302,
+        "height": 426,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "private-credit-loan-agreement",
+      "group": "documents",
+      "kind": "loan-agreement-sheet",
+      "usage": "Loan agreement document overlay.",
+      "sections": [
+        "investors.private-credit-overview"
+      ],
+      "file": "documents/private-credit-loan-agreement.webp",
+      "source": "public/designConcepts/investors/03-private-credit-overview.png bbox=(774, 600, 947, 857)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 173,
+        "height": 257,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "private-credit-risk-ledger",
+      "group": "diagrams",
+      "kind": "risk-ledger-panel",
+      "usage": "Risk ledger panel for the private-credit education section.",
+      "sections": [
+        "investors.private-credit-overview"
+      ],
+      "file": "diagrams/private-credit-risk-ledger.webp",
+      "source": "public/designConcepts/investors/03-private-credit-overview.png bbox=(982, 219, 1480, 880)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 498,
+        "height": 661,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "housing-finance-central-building",
+      "group": "imagery",
+      "kind": "building-render-cutout",
+      "usage": "Central residential building anchor for the housing-finance network.",
+      "sections": [
+        "investors.why-housing-finance"
+      ],
+      "file": "imagery/housing-finance-central-building.webp",
+      "source": "public/designConcepts/investors/04-why-housing-finance.png bbox=(523, 399, 941, 654)",
+      "alpha": "paper-keyed transparent alpha",
+      "metadata": {
+        "width": 418,
+        "height": 255,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "housing-finance-site-plan",
+      "group": "blueprints",
+      "kind": "site-plan-linework",
+      "usage": "Lower site-plan drawing behind the housing-finance network.",
+      "sections": [
+        "investors.why-housing-finance"
+      ],
+      "file": "blueprints/housing-finance-site-plan.webp",
+      "source": "public/designConcepts/investors/04-why-housing-finance.png bbox=(489, 669, 1026, 961)",
+      "alpha": "paper-keyed transparent alpha",
+      "metadata": {
+        "width": 537,
+        "height": 292,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "housing-finance-blueprint-section",
+      "group": "blueprints",
+      "kind": "blueprint-panel",
+      "usage": "Right-side blue building section panel.",
+      "sections": [
+        "investors.why-housing-finance"
+      ],
+      "file": "blueprints/housing-finance-blueprint-section.webp",
+      "source": "public/designConcepts/investors/04-why-housing-finance.png bbox=(1189, 344, 1536, 653)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 347,
+        "height": 309,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "housing-finance-homes-node",
+      "group": "diagrams",
+      "kind": "network-node",
+      "usage": "Pale mint homes node for the housing-finance relationship map.",
+      "sections": [
+        "investors.why-housing-finance"
+      ],
+      "file": "diagrams/housing-finance-homes-node.webp",
+      "source": "public/designConcepts/investors/04-why-housing-finance.png bbox=(758, 119, 996, 323)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 238,
+        "height": 204,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "affordable-garden-suite",
+      "group": "imagery",
+      "kind": "typology-photo",
+      "usage": "Garden suite typology image.",
+      "sections": [
+        "investors.why-affordable-sustainable"
+      ],
+      "file": "imagery/affordable-garden-suite.webp",
+      "source": "public/designConcepts/investors/05-affordable-sustainable-rental-housing.png bbox=(36, 360, 391, 664)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 355,
+        "height": 304,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "affordable-multiplex",
+      "group": "imagery",
+      "kind": "typology-photo",
+      "usage": "Multiplex typology image.",
+      "sections": [
+        "investors.why-affordable-sustainable"
+      ],
+      "file": "imagery/affordable-multiplex.webp",
+      "source": "public/designConcepts/investors/05-affordable-sustainable-rental-housing.png bbox=(400, 360, 763, 664)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 363,
+        "height": 304,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "affordable-rental-infill",
+      "group": "imagery",
+      "kind": "typology-photo",
+      "usage": "Rental infill typology image.",
+      "sections": [
+        "investors.why-affordable-sustainable"
+      ],
+      "file": "imagery/affordable-rental-infill.webp",
+      "source": "public/designConcepts/investors/05-affordable-sustainable-rental-housing.png bbox=(773, 360, 1120, 664)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 347,
+        "height": 304,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "affordable-sustainable-retrofit",
+      "group": "imagery",
+      "kind": "typology-photo",
+      "usage": "Sustainable retrofit typology image.",
+      "sections": [
+        "investors.why-affordable-sustainable"
+      ],
+      "file": "imagery/affordable-sustainable-retrofit.webp",
+      "source": "public/designConcepts/investors/05-affordable-sustainable-rental-housing.png bbox=(1129, 360, 1495, 664)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 366,
+        "height": 304,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "affordable-section-drawing",
+      "group": "blueprints",
+      "kind": "section-linework",
+      "usage": "Missing-middle section drawing and land-use diagram.",
+      "sections": [
+        "investors.why-affordable-sustainable"
+      ],
+      "file": "blueprints/affordable-section-drawing.webp",
+      "source": "public/designConcepts/investors/05-affordable-sustainable-rental-housing.png bbox=(959, 714, 1415, 910)",
+      "alpha": "paper-keyed transparent alpha",
+      "metadata": {
+        "width": 456,
+        "height": 196,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "risk-management-elevation-linework",
+      "group": "blueprints",
+      "kind": "elevation-linework",
+      "usage": "Risk-management building elevation linework.",
+      "sections": [
+        "investors.risk-management"
+      ],
+      "file": "blueprints/risk-management-elevation-linework.webp",
+      "source": "public/designConcepts/investors/06-risk-management.png bbox=(1219, 145, 1693, 626)",
+      "alpha": "paper-keyed transparent alpha",
+      "metadata": {
+        "width": 474,
+        "height": 481,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "risk-management-risk-aware-stamp",
+      "group": "stamps",
+      "kind": "copper-stamp",
+      "usage": "Circular risk-aware stamp.",
+      "sections": [
+        "investors.risk-management"
+      ],
+      "file": "stamps/risk-management-risk-aware-stamp.webp",
+      "source": "public/designConcepts/investors/06-risk-management.png bbox=(1074, 41, 1256, 187)",
+      "alpha": "paper-keyed transparent alpha",
+      "metadata": {
+        "width": 182,
+        "height": 146,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "underwriting-wheel",
+      "group": "diagrams",
+      "kind": "underwriting-wheel",
+      "usage": "Underwriting discipline wheel around the central loan memorandum.",
+      "sections": [
+        "investors.underwriting"
+      ],
+      "file": "diagrams/underwriting-wheel.webp",
+      "source": "public/designConcepts/investors/07-underwriting-discipline.png bbox=(379, 248, 873, 781)",
+      "alpha": "paper-keyed transparent alpha",
+      "metadata": {
+        "width": 494,
+        "height": 533,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "underwriting-loan-file-dossier",
+      "group": "documents",
+      "kind": "loan-file-dossier",
+      "usage": "Loan-file dossier with appraisal, budget, permits, and exit-plan tabs.",
+      "sections": [
+        "investors.underwriting"
+      ],
+      "file": "documents/underwriting-loan-file-dossier.webp",
+      "source": "public/designConcepts/investors/07-underwriting-discipline.png bbox=(1115, 169, 1469, 795)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 354,
+        "height": 626,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "underwriting-footer-elevation",
+      "group": "blueprints",
+      "kind": "elevation-linework",
+      "usage": "Small footer elevation drawing used under the underwriting section.",
+      "sections": [
+        "investors.underwriting"
+      ],
+      "file": "blueprints/underwriting-footer-elevation.webp",
+      "source": "public/designConcepts/investors/07-underwriting-discipline.png bbox=(1076, 856, 1420, 941)",
+      "alpha": "paper-keyed transparent alpha",
+      "metadata": {
+        "width": 344,
+        "height": 85,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "project-types-multiplex",
+      "group": "imagery",
+      "kind": "project-type-photo",
+      "usage": "Multiplex project-type image.",
+      "sections": [
+        "investors.borrower-project-types"
+      ],
+      "file": "imagery/project-types-multiplex.webp",
+      "source": "public/designConcepts/investors/08-borrower-project-types.png bbox=(502, 58, 771, 310)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 269,
+        "height": 252,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "project-types-garden-suite",
+      "group": "imagery",
+      "kind": "project-type-photo",
+      "usage": "Garden-suite / laneway-suite project-type image.",
+      "sections": [
+        "investors.borrower-project-types"
+      ],
+      "file": "imagery/project-types-garden-suite.webp",
+      "source": "public/designConcepts/investors/08-borrower-project-types.png bbox=(1077, 58, 1359, 310)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 282,
+        "height": 252,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "project-types-construction-draw",
+      "group": "imagery",
+      "kind": "project-type-photo",
+      "usage": "Construction draw financing project-type image.",
+      "sections": [
+        "investors.borrower-project-types"
+      ],
+      "file": "imagery/project-types-construction-draw.webp",
+      "source": "public/designConcepts/investors/08-borrower-project-types.png bbox=(502, 342, 771, 578)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 269,
+        "height": 236,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "project-types-small-developer",
+      "group": "imagery",
+      "kind": "project-type-photo",
+      "usage": "Small developer rental housing project-type image.",
+      "sections": [
+        "investors.borrower-project-types"
+      ],
+      "file": "imagery/project-types-small-developer.webp",
+      "source": "public/designConcepts/investors/08-borrower-project-types.png bbox=(1048, 342, 1359, 578)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 311,
+        "height": 236,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "project-types-private-mortgage",
+      "group": "imagery",
+      "kind": "project-type-photo",
+      "usage": "Private mortgage solution project-type image.",
+      "sections": [
+        "investors.borrower-project-types"
+      ],
+      "file": "imagery/project-types-private-mortgage.webp",
+      "source": "public/designConcepts/investors/08-borrower-project-types.png bbox=(516, 655, 708, 880)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 192,
+        "height": 225,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "project-types-rental-pathway",
+      "group": "imagery",
+      "kind": "project-type-photo",
+      "usage": "Longer-term rental pathway project-type image.",
+      "sections": [
+        "investors.borrower-project-types"
+      ],
+      "file": "imagery/project-types-rental-pathway.webp",
+      "source": "public/designConcepts/investors/08-borrower-project-types.png bbox=(885, 655, 1199, 880)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 314,
+        "height": 225,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "project-types-left-elevation",
+      "group": "blueprints",
+      "kind": "elevation-linework",
+      "usage": "Left-side elevation drawing in the borrower/project-types section.",
+      "sections": [
+        "investors.borrower-project-types"
+      ],
+      "file": "blueprints/project-types-left-elevation.webp",
+      "source": "public/designConcepts/investors/08-borrower-project-types.png bbox=(39, 711, 352, 887)",
+      "alpha": "paper-keyed transparent alpha",
+      "metadata": {
+        "width": 313,
+        "height": 176,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "project-types-multiplex-plan",
+      "group": "blueprints",
+      "kind": "floor-plan-linework",
+      "usage": "Multiplex floor-plan insert.",
+      "sections": [
+        "investors.borrower-project-types"
+      ],
+      "file": "blueprints/project-types-multiplex-plan.webp",
+      "source": "public/designConcepts/investors/08-borrower-project-types.png bbox=(771, 58, 915, 310)",
+      "alpha": "paper-keyed transparent alpha",
+      "metadata": {
+        "width": 144,
+        "height": 252,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "project-types-lane-plan",
+      "group": "blueprints",
+      "kind": "floor-plan-linework",
+      "usage": "Laneway suite rear-yard plan insert.",
+      "sections": [
+        "investors.borrower-project-types"
+      ],
+      "file": "blueprints/project-types-lane-plan.webp",
+      "source": "public/designConcepts/investors/08-borrower-project-types.png bbox=(1359, 58, 1504, 310)",
+      "alpha": "paper-keyed transparent alpha",
+      "metadata": {
+        "width": 145,
+        "height": 252,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "project-types-construction-blueprint",
+      "group": "blueprints",
+      "kind": "blueprint-panel",
+      "usage": "Construction draw blue elevation panel.",
+      "sections": [
+        "investors.borrower-project-types"
+      ],
+      "file": "blueprints/project-types-construction-blueprint.webp",
+      "source": "public/designConcepts/investors/08-borrower-project-types.png bbox=(771, 342, 916, 578)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 145,
+        "height": 236,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "project-types-developer-blueprint",
+      "group": "blueprints",
+      "kind": "blueprint-panel",
+      "usage": "Small developer blue elevation panel.",
+      "sections": [
+        "investors.borrower-project-types"
+      ],
+      "file": "blueprints/project-types-developer-blueprint.webp",
+      "source": "public/designConcepts/investors/08-borrower-project-types.png bbox=(1359, 342, 1504, 578)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 145,
+        "height": 236,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "project-types-rental-plan-blueprint",
+      "group": "blueprints",
+      "kind": "blueprint-panel",
+      "usage": "Rental pathway blue site-plan panel.",
+      "sections": [
+        "investors.borrower-project-types"
+      ],
+      "file": "blueprints/project-types-rental-plan-blueprint.webp",
+      "source": "public/designConcepts/investors/08-borrower-project-types.png bbox=(1199, 655, 1504, 880)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 305,
+        "height": 225,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "disclosures-top-building-linework",
+      "group": "blueprints",
+      "kind": "building-linework",
+      "usage": "Top-right building linework behind the important-information section.",
+      "sections": [
+        "investors.disclaimers"
+      ],
+      "file": "blueprints/disclosures-top-building-linework.webp",
+      "source": "public/designConcepts/investors/09-compliance-disclaimers.png bbox=(1128, 41, 1536, 300)",
+      "alpha": "paper-keyed transparent alpha",
+      "metadata": {
+        "width": 408,
+        "height": 259,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "disclosures-counsel-review-stamp",
+      "group": "stamps",
+      "kind": "counsel-review-panel",
+      "usage": "Counsel review required stamp panel.",
+      "sections": [
+        "investors.disclaimers"
+      ],
+      "file": "stamps/disclosures-counsel-review-stamp.webp",
+      "source": "public/designConcepts/investors/09-compliance-disclaimers.png bbox=(1006, 662, 1492, 984)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 486,
+        "height": 322,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "request-info-building-strip",
+      "group": "imagery",
+      "kind": "wide-building-strip",
+      "usage": "Bottom residential building strip used in the request-information CTA.",
+      "sections": [
+        "investors.request-info"
+      ],
+      "file": "imagery/request-info-building-strip.webp",
+      "source": "public/designConcepts/investors/10-request-investor-information.png bbox=(0, 718, 907, 1024)",
+      "alpha": "transparent WebP alpha; opaque plate content with transparent perimeter",
+      "metadata": {
+        "width": 907,
+        "height": 306,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "request-info-blueprint-top-fragment",
+      "group": "blueprints",
+      "kind": "drafting-fragment",
+      "usage": "Top drafting-line fragment for the request-information background.",
+      "sections": [
+        "investors.request-info"
+      ],
+      "file": "blueprints/request-info-blueprint-top-fragment.webp",
+      "source": "public/designConcepts/investors/10-request-investor-information.png bbox=(610, 0, 1002, 191)",
+      "alpha": "paper-keyed transparent alpha",
+      "metadata": {
+        "width": 392,
+        "height": 191,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "request-info-blueprint-center-fragment",
+      "group": "blueprints",
+      "kind": "drafting-fragment",
+      "usage": "Center drafting-line fragment behind the request-information copy.",
+      "sections": [
+        "investors.request-info"
+      ],
+      "file": "blueprints/request-info-blueprint-center-fragment.webp",
+      "source": "public/designConcepts/investors/10-request-investor-information.png bbox=(606, 357, 935, 669)",
+      "alpha": "paper-keyed transparent alpha",
+      "metadata": {
+        "width": 329,
+        "height": 312,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "paper-grain-overlay",
+      "group": "patterns",
+      "kind": "transparent-webp-overlay",
+      "usage": "Subtle transparent paper grain overlay for limestone page backgrounds.",
+      "sections": [
+        "investors.borrower-project-types",
+        "investors.disclaimers",
+        "investors.hero",
+        "investors.private-credit-overview",
+        "investors.request-info",
+        "investors.risk-management",
+        "investors.thesis",
+        "investors.underwriting",
+        "investors.why-affordable-sustainable",
+        "investors.why-housing-finance"
+      ],
+      "file": "patterns/paper-grain-overlay.webp",
+      "source": "generated",
+      "alpha": "transparent alpha",
+      "metadata": {
+        "width": 1024,
+        "height": 1024,
+        "alphaMin": 0,
+        "alphaMax": 53,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "architectural-drafting-fragments",
+      "group": "patterns",
+      "kind": "transparent-webp-overlay",
+      "usage": "Reusable transparent architectural drafting fragments for section backgrounds.",
+      "sections": [
+        "investors.hero",
+        "investors.thesis",
+        "investors.why-housing-finance",
+        "investors.disclaimers",
+        "investors.request-info"
+      ],
+      "file": "patterns/architectural-drafting-fragments.webp",
+      "source": "generated",
+      "alpha": "transparent alpha",
+      "metadata": {
+        "width": 1400,
+        "height": 900,
+        "alphaMin": 0,
+        "alphaMax": 68,
+        "hasAlphaChannel": true,
+        "hasTransparentPixels": true
+      }
+    },
+    {
+      "slug": "blueprint-grid-mask",
+      "group": "patterns",
+      "kind": "svg-mask",
+      "usage": "Reusable drafting grid for pale-blue architectural overlays.",
+      "sections": [
+        "investors.hero",
+        "investors.thesis",
+        "investors.why-housing-finance",
+        "investors.disclaimers",
+        "investors.request-info"
+      ],
+      "file": "patterns/blueprint-grid-mask.svg",
+      "source": "generated",
+      "alpha": "svg stroke mask",
+      "metadata": {
+        "format": "svg",
+        "transparentByComposition": true
+      }
+    },
+    {
+      "slug": "ruled-document-lines",
+      "group": "patterns",
+      "kind": "svg-mask",
+      "usage": "Reusable thin ruled-line document pattern for disclosure and memo panels.",
+      "sections": [
+        "investors.thesis",
+        "investors.risk-management",
+        "investors.disclaimers"
+      ],
+      "file": "patterns/ruled-document-lines.svg",
+      "source": "generated",
+      "alpha": "svg stroke mask",
+      "metadata": {
+        "format": "svg",
+        "transparentByComposition": true
+      }
+    },
+    {
+      "slug": "fairlend-monogram-line",
+      "group": "marks",
+      "kind": "svg-mark",
+      "usage": "Simplified Fairlend monogram mark for small tiles and stamps.",
+      "sections": [
+        "investors.hero",
+        "investors.thesis",
+        "investors.request-info"
+      ],
+      "file": "marks/fairlend-monogram-line.svg",
+      "source": "generated",
+      "alpha": "svg paths",
+      "metadata": {
+        "format": "svg",
+        "transparentByComposition": true
+      }
+    }
+  ]
+}
