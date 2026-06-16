@@ -688,6 +688,129 @@
   outline-offset: 3px;
 }
 
+@media (min-width: 921px) {
+  .mkt-dhh-header {
+    top: 10px;
+    padding-inline: clamp(10px, 0.85vw, 18px);
+  }
+
+  .mkt-dhh-shell {
+    width: 100%;
+    border-color: rgb(9 43 36 / 18%);
+    background: rgb(243 238 229 / 96%);
+    box-shadow: none;
+    backdrop-filter: blur(18px);
+  }
+
+  .mkt-dhh-shell-closed {
+    height: 74px;
+    border-radius: 22px;
+  }
+
+  .mkt-dhh-shell-desktop-open {
+    border-color: rgb(9 43 36 / 28%);
+    border-radius: 22px 22px 0 0;
+    box-shadow: 0 28px 86px rgb(8 45 35 / 16%);
+  }
+
+  .mkt-dhh-bar {
+    gap: clamp(22px, 3.15vw, 58px);
+    height: 74px;
+    padding: 0 12px 0 20px;
+  }
+
+  .mkt-dhh-brand-slot {
+    min-width: clamp(232px, 23vw, 344px);
+  }
+
+  .mkt-dhh-brand {
+    justify-items: start;
+  }
+
+  .mkt-dhh-brand span {
+    font-family: "League Gothic", Impact, sans-serif;
+    font-weight: 400;
+    font-size: clamp(2.8rem, 3.95vw, 3.65rem);
+    letter-spacing: 0.145em;
+  }
+
+  .mkt-dhh-brand small {
+    margin-top: 10px;
+    font-weight: 700;
+    font-size: clamp(0.72rem, 0.82vw, 0.95rem);
+    line-height: 1;
+    letter-spacing: 0.52em;
+  }
+
+  .mkt-dhh-desktop-nav {
+    gap: clamp(22px, 3.15vw, 62px);
+    min-width: 0;
+  }
+
+  .mkt-dhh-nav-item {
+    min-height: 42px;
+    gap: 9px;
+    border-radius: 0;
+    padding: 0;
+    color: rgb(9 43 36 / 72%);
+    font-weight: 800;
+    font-size: clamp(0.82rem, 1.1vw, 1.05rem);
+    letter-spacing: 0;
+    white-space: nowrap;
+    transition:
+      color 160ms ease,
+      transform 160ms ease;
+  }
+
+  .mkt-dhh-nav-item:hover,
+  .mkt-dhh-nav-item-open {
+    background: transparent;
+    color: var(--mkt-ink);
+  }
+
+  .mkt-dhh-actions {
+    min-width: clamp(232px, 22vw, 360px);
+  }
+
+  .mkt-dhh-action {
+    min-height: 52px;
+    gap: 11px;
+    border-radius: 11px;
+    padding: 0 18px;
+    font-weight: 900;
+    font-size: clamp(0.86rem, 1.05vw, 1rem);
+    letter-spacing: 0;
+  }
+
+  .mkt-dhh-action-secondary {
+    min-width: 82px;
+    border-color: rgb(9 43 36 / 22%);
+    background: transparent;
+  }
+
+  .mkt-dhh-action-primary {
+    min-width: 122px;
+    box-shadow: none;
+  }
+
+  .mkt-dhh-action-secondary:hover {
+    border-color: rgb(9 43 36 / 36%);
+    background: rgb(255 248 236 / 34%);
+  }
+
+  .mkt-dhh-action-primary:hover {
+    box-shadow: none;
+  }
+
+  .mkt-dhh-menu {
+    border-color: rgb(9 43 36 / 20%);
+    border-radius: 0 0 22px 22px;
+    background: rgb(243 238 229 / 98%);
+    box-shadow: 0 34px 90px rgb(8 45 35 / 18%);
+    backdrop-filter: blur(18px);
+  }
+}
+
 .mkt-hero-content {
   position: relative;
   z-index: 10;
@@ -724,7 +847,10 @@
 }
 
 .mkt-left-panel {
+  height: 100%;
   min-height: 0;
+  overflow: hidden;
+  contain: paint;
   pointer-events: none;
 }
 
@@ -971,203 +1097,95 @@
   overflow-wrap: anywhere;
 }
 
-.mkt-underwriting-card {
+.mkt-regulatory-card {
   position: relative;
   grid-area: proof;
   align-self: end;
   justify-self: end;
   z-index: 12;
-  display: block;
-  width: clamp(304px, 23vw, 372px);
-  min-height: 286px;
+  display: grid;
+  gap: 14px;
+  width: clamp(306px, 25vw, 398px);
   overflow: hidden;
   margin-bottom: clamp(54px, 8vh, 92px);
-  border: 1px solid oklch(0.224 0.06 160 / 18%);
-  border-radius: 12px;
-  background: rgb(var(--mkt-surface-rgb) / 97%);
-  padding: 21px;
+  border: 1px solid rgb(8 45 35 / 18%);
+  border-radius: 16px;
+  background:
+    linear-gradient(145deg, rgb(var(--mkt-surface-rgb) / 98%), rgb(248 242 231 / 92%)),
+    radial-gradient(circle at 100% 0%, rgb(101 160 100 / 18%), transparent 44%);
+  padding: 18px;
   color: var(--mkt-ink);
   box-shadow:
-    0 18px 58px oklch(0.224 0.06 160 / 17%),
+    0 22px 70px oklch(0.224 0.06 160 / 18%),
     inset 0 1px 0 rgb(var(--mkt-surface-rgb) / 72%);
   pointer-events: auto;
 }
 
-.mkt-card-state {
-  position: absolute;
-  inset: 21px;
-  display: grid;
-  gap: 17px;
-}
-
-.mkt-underwriting-state {
-  z-index: 1;
-}
-
-.mkt-credential-state {
-  z-index: 2;
-  opacity: 0;
-  transform: translateY(18px);
-  pointer-events: none;
-}
-
-.mkt-card-state > p {
-  margin: 0 0 3px;
-  color: var(--mkt-ink-muted);
-  font-weight: 800;
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.mkt-metric,
-.mkt-underwriting-row {
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 13px;
-  font-size: 0.84rem;
-}
-
-.mkt-metric svg,
-.mkt-underwriting-row svg {
-  width: 22px;
-  height: 22px;
-  color: var(--mkt-sage);
-  stroke-width: 1.7;
-}
-
-.mkt-metric > div {
+.mkt-regulatory-header,
+.mkt-regulatory-legal,
+.mkt-regulatory-grid > div {
   display: grid;
   gap: 7px;
 }
 
-.mkt-metric span,
-.mkt-underwriting-row span {
-  font-weight: 650;
-}
-
-.mkt-metric strong,
-.mkt-underwriting-row strong {
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.mkt-metric div div {
-  height: 6px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgb(8 45 35 / 13%);
-}
-
-.mkt-metric i {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--mkt-success);
-}
-
-.mkt-credential-primary {
-  display: grid;
-  grid-template-columns: 31px minmax(0, 1fr);
-  align-items: center;
-  gap: 11px;
-  border: 1px solid rgb(72 128 103 / 24%);
-  border-radius: 14px;
-  background:
-    linear-gradient(135deg, rgb(101 160 100 / 16%), transparent 68%),
-    rgb(255 252 246 / 72%);
-  padding: 12px;
-}
-
-.mkt-credential-primary svg {
-  width: 28px;
-  height: 28px;
-  color: var(--mkt-sage);
-  stroke-width: 1.7;
-}
-
-.mkt-credential-primary div {
-  display: grid;
-  gap: 3px;
-}
-
-.mkt-credential-primary span {
-  color: var(--mkt-ink);
-  font-weight: 850;
-  font-size: 0.9rem;
-  line-height: 1.05;
-}
-
-.mkt-credential-primary strong {
+.mkt-regulatory-card span {
   color: var(--mkt-ink-muted);
-  font-weight: 600;
-  font-size: 0.68rem;
-  line-height: 1.15;
-}
-
-.mkt-credential-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.mkt-credential-grid > div {
-  display: grid;
-  justify-items: center;
-  gap: 5px;
-  min-width: 0;
-  border: 1px solid rgb(8 45 35 / 10%);
-  border-radius: 12px;
-  background: rgb(248 242 231 / 68%);
-  padding: 8px 5px;
-  text-align: center;
-}
-
-.mkt-credential-grid svg {
-  width: 18px;
-  height: 18px;
-  color: var(--mkt-sage);
-  stroke-width: 1.8;
-}
-
-.mkt-credential-grid span {
-  color: var(--mkt-ink);
-  font-weight: 900;
-  font-size: 0.69rem;
-  letter-spacing: 0.04em;
-}
-
-.mkt-credential-grid strong {
-  color: var(--mkt-sage);
-  font-weight: 800;
-  font-size: 0.54rem;
-  letter-spacing: 0.08em;
+  font-weight: 820;
+  font-size: 0.66rem;
+  letter-spacing: 0.09em;
+  line-height: 1;
   text-transform: uppercase;
 }
 
-.mkt-approval {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  margin: 4px -21px -21px;
-  border-top: 1px solid rgb(8 45 35 / 10%);
-  border-radius: 0 0 18px 18px;
-  background: rgb(248 242 231 / 74%);
-  padding: 17px 21px;
-  color: var(--mkt-success);
+.mkt-regulatory-card strong {
+  color: var(--mkt-ink);
+  line-height: 1.02;
+}
+
+.mkt-regulatory-header {
+  border-bottom: 1px solid rgb(8 45 35 / 12%);
+  padding-bottom: 15px;
+}
+
+.mkt-regulatory-header strong {
+  font-family: var(--mkt-display);
   font-weight: 700;
-  font-size: 0.86rem;
+  font-size: clamp(1.9rem, 2.3vw, 2.7rem);
+  letter-spacing: 0;
 }
 
-.mkt-approval svg {
-  width: 24px;
-  height: 24px;
-  stroke-width: 1.8;
+.mkt-regulatory-legal {
+  border: 1px solid rgb(8 45 35 / 12%);
+  border-radius: 12px;
+  background: rgb(var(--mkt-paper-rgb) / 58%);
+  padding: 13px 14px;
 }
 
-.mkt-credential-approval {
-  color: var(--mkt-success);
+.mkt-regulatory-legal strong {
+  font-size: 0.95rem;
+}
+
+.mkt-regulatory-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mkt-regulatory-grid > div {
+  min-width: 0;
+  border: 1px solid rgb(8 45 35 / 13%);
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, rgb(101 160 100 / 12%), transparent 72%),
+    rgb(255 252 246 / 74%);
+  padding: 13px 14px;
+}
+
+.mkt-regulatory-grid strong {
+  font-weight: 860;
+  font-size: 0.92rem;
+  letter-spacing: 0.01em;
+  overflow-wrap: anywhere;
 }
 
 .mkt-stats-strip {
@@ -2085,11 +2103,11 @@
     font-size: clamp(3.2rem, 7.4vw, 5rem);
   }
 
-  .mkt-underwriting-card {
+  .mkt-regulatory-card {
     right: auto;
     bottom: auto;
     justify-self: end;
-    width: min(340px, 42vw);
+    width: min(380px, 42vw);
     margin-bottom: 0;
   }
 
@@ -2185,16 +2203,27 @@
 
   .mkt-hero-subcopy {
     max-width: 470px;
-    margin-top: 22px;
+    margin-top: 18px;
     font-size: 1rem;
   }
 
+  .mkt-hero-licences {
+    gap: 6px 8px;
+    margin-top: 12px;
+    font-size: 0.7rem;
+  }
+
+  .mkt-hero-licences li {
+    min-height: 24px;
+    padding: 4px 8px;
+  }
+
   .mkt-hero-actions {
-    margin-top: 24px;
+    margin-top: 18px;
   }
 
   .mkt-hero-panel {
-    row-gap: 28px;
+    row-gap: 18px;
   }
 
   .mkt-primary-action,
@@ -2217,7 +2246,7 @@
     height: 25px;
   }
 
-  .mkt-underwriting-card {
+  .mkt-regulatory-card {
     bottom: auto;
     transform: scale(0.94);
     transform-origin: bottom right;
@@ -2395,22 +2424,13 @@
     padding-top: 10px;
   }
 
-  .mkt-underwriting-card {
+  .mkt-regulatory-card {
     right: auto;
     bottom: auto;
     justify-self: end;
     width: min(292px, calc(100vw - 40px));
-    min-height: 232px;
     margin: 0 0 2px;
     transform: none;
-  }
-
-  .mkt-card-state {
-    gap: 12px;
-  }
-
-  .mkt-credential-state {
-    display: none;
   }
 
   .mkt-pathways,
@@ -2659,41 +2679,30 @@
     height: 22px;
   }
 
-  .mkt-underwriting-card {
+  .mkt-regulatory-card {
     display: block;
     justify-self: stretch;
     width: 100%;
-    min-height: 238px;
     margin-top: 2px;
     padding: 16px;
     border-radius: 10px;
   }
 
-  .mkt-card-state {
-    inset: 16px;
-    gap: 10px;
-  }
-
-  .mkt-card-state > p {
+  .mkt-regulatory-card span {
     font-size: 0.64rem;
   }
 
-  .mkt-metric,
-  .mkt-underwriting-row {
-    grid-template-columns: 18px minmax(0, 1fr) auto;
-    gap: 9px;
-    font-size: 0.76rem;
+  .mkt-regulatory-header strong {
+    font-size: clamp(1.7rem, 8vw, 2.25rem);
   }
 
-  .mkt-metric svg,
-  .mkt-underwriting-row svg {
-    width: 18px;
-    height: 18px;
+  .mkt-regulatory-grid {
+    grid-template-columns: 1fr;
   }
 
-  .mkt-approval {
-    margin: 0 -16px -16px;
-    padding: 12px 16px;
+  .mkt-regulatory-grid > div,
+  .mkt-regulatory-legal {
+    padding: 11px 12px;
   }
 
   .mkt-stats-strip {

@@ -6,14 +6,12 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import {
   ArrowRight,
   Award,
-  BadgeCheck,
   ChartNoAxesColumnIncreasing,
   DollarSign,
   ExternalLink,
   FileCheck2,
   Gauge,
   Home,
-  Landmark,
   Leaf,
   Mail,
   MapPin,
@@ -116,10 +114,6 @@ function MarketingPage(): ReactElement {
                       for real Canadian housing, underwritten with transparency
                       and discipline.
                     </p>
-                    <LicenceList
-                      ariaLabel="FairLend regulatory licences"
-                      className="mkt-hero-licences"
-                    />
                   </div>
 
                   <TrustRail />
@@ -150,7 +144,7 @@ function MarketingPage(): ReactElement {
                 </section>
               </div>
             </div>
-            <UnderwritingCard />
+            <RegulatoryCard />
           </div>
         </div>
       </section>
@@ -519,102 +513,28 @@ function LicenceList({
   );
 }
 
-function UnderwritingCard(): ReactElement {
+function RegulatoryCard(): ReactElement {
   return (
     <Card
-      aria-label="Underwriting and credential overview"
-      className="mkt-underwriting-card"
+      aria-label="FairLend regulatory licences"
+      className="mkt-regulatory-card"
     >
-      <div className="mkt-card-state mkt-underwriting-state">
-        <p>Underwriting overview</p>
-        <MetricBar
-          icon={<Home aria-hidden="true" />}
-          label="LTV"
-          value="68%"
-          width="68%"
-        />
-        <MetricBar
-          icon={<ChartNoAxesColumnIncreasing aria-hidden="true" />}
-          label="DSCR"
-          value="1.42x"
-          width="62%"
-        />
-        <div className="mkt-underwriting-row">
-          <FileCheck2 aria-hidden="true" />
-          <span>Project type</span>
-          <strong>6-Unit Multiplex</strong>
-        </div>
-        <div className="mkt-underwriting-row">
-          <MapPin aria-hidden="true" />
-          <span>Location</span>
-          <strong>Ontario</strong>
-        </div>
-        <div className="mkt-approval">
-          <BadgeCheck aria-hidden="true" />
-          <span>Approved</span>
-        </div>
+      <div className="mkt-regulatory-header">
+        <span>Licensed</span>
+        <strong>FairLend Management Inc</strong>
       </div>
-
-      <div className="mkt-card-state mkt-credential-state">
-        <p>Credential stack</p>
-        <div className="mkt-credential-primary">
-          <Award aria-hidden="true" />
-          <div>
-            <span>Licensed</span>
-            <strong>FSRA brokerage & administrator</strong>
-          </div>
+      <div className="mkt-regulatory-legal">
+        <strong>Legal business name: FairLend Management Inc</strong>
+      </div>
+      <div className="mkt-regulatory-grid">
+        <div>
+          <strong>Brokerage Licence #13827</strong>
         </div>
-        <div
-          aria-label="Registered account eligibility"
-          className="mkt-credential-grid"
-        >
-          <div>
-            <Landmark aria-hidden="true" />
-            <span>TFSA</span>
-            <strong>Qualified</strong>
-          </div>
-          <div>
-            <ShieldCheck aria-hidden="true" />
-            <span>RRSP</span>
-            <strong>Qualified</strong>
-          </div>
-          <div>
-            <FileCheck2 aria-hidden="true" />
-            <span>RESP</span>
-            <strong>Qualified</strong>
-          </div>
-        </div>
-        <div className="mkt-approval mkt-credential-approval">
-          <BadgeCheck aria-hidden="true" />
-          <span>Investor-ready</span>
+        <div>
+          <strong>Administrator Licence #13828</strong>
         </div>
       </div>
     </Card>
-  );
-}
-
-function MetricBar({
-  icon,
-  label,
-  value,
-  width,
-}: {
-  icon: ReactElement;
-  label: string;
-  value: string;
-  width: string;
-}): ReactElement {
-  return (
-    <div className="mkt-metric">
-      {icon}
-      <div>
-        <span>{label}</span>
-        <div>
-          <i style={{ width }} />
-        </div>
-      </div>
-      <strong>{value}</strong>
-    </div>
   );
 }
 
