@@ -22,6 +22,7 @@ vi.mock("@tanstack/react-router", () => ({
       {children}
     </a>
   ),
+  linkOptions: <T,>(items: T) => items,
 }));
 
 import { Route } from "./investors.tsx";

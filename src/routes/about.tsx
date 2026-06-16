@@ -14,6 +14,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { Header as DirectionalHoverHeader } from "#/components/directional-hover-header/header.tsx";
 import { PageRail } from "#/components/marketing/fairlend-rail.tsx";
 import { Card } from "#/components/ui/card.tsx";
 import { Separator } from "#/components/ui/separator.tsx";
@@ -344,7 +345,13 @@ function AboutFairlendPage(): ReactElement {
   useAboutPageMotion(rootRef);
 
   return (
-    <main aria-label="About Fairlend" className="about-page" ref={rootRef}>
+    <>
+      <DirectionalHoverHeader />
+      <main
+        aria-label="About Fairlend"
+        className="about-page about-page--with-public-header"
+        ref={rootRef}
+      >
       <PageRail ariaLabel="About section" section={activeRailSection} />
       <section
         aria-labelledby="about-hero-title"
@@ -622,6 +629,7 @@ function AboutFairlendPage(): ReactElement {
         </section>
       </div>
     </main>
+    </>
   );
 }
 

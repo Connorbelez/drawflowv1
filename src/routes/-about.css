@@ -15,6 +15,7 @@
   --about-mono: "Oxanium Variable", "Arial Narrow", system-ui, sans-serif;
   --fairlend-rail-width: 78px;
   --fairlend-nav-height: 0px;
+  --fairlend-public-header-height: 94px;
 
   min-height: 100svh;
   margin: 0;
@@ -22,6 +23,10 @@
   background: var(--about-paper);
   color: var(--about-ink);
   font-family: var(--about-mono);
+}
+
+.about-page--with-public-header .about-board {
+  padding-top: calc(clamp(28px, 4vw, 68px) + var(--fairlend-public-header-height));
 }
 
 .about-page *,
@@ -1085,6 +1090,7 @@ body:has(.about-page) #tanstack_devtools {
 @media (max-width: 1024px) {
   .about-page {
     --about-u: 1px;
+    --fairlend-public-header-height: 68px;
   }
 
   .about-board {
@@ -1711,6 +1717,10 @@ body:has(.about-page) #tanstack_devtools {
 }
 
 @media (max-width: 520px) {
+  .about-page {
+    --fairlend-public-header-height: 64px;
+  }
+
   .about-board {
     row-gap: 18px;
     padding: 18px 16px 24px;

@@ -380,6 +380,11 @@
   letter-spacing: 0.44em;
 }
 
+.mkt-dhh-brand-divider,
+.mkt-dhh-brand em {
+  display: none;
+}
+
 .mkt-dhh-desktop-nav {
   display: flex;
   flex: 1;
@@ -690,72 +695,103 @@
 
 @media (min-width: 921px) {
   .mkt-dhh-header {
-    top: 10px;
-    padding-inline: clamp(10px, 0.85vw, 18px);
+    top: 0;
+    padding-inline: 0;
   }
 
   .mkt-dhh-shell {
     width: 100%;
-    border-color: rgb(9 43 36 / 18%);
+    border-width: 0 0 1px;
+    border-color: rgb(9 43 36 / 28%);
+    border-radius: 0;
     background: rgb(243 238 229 / 96%);
+    color: rgb(9 43 36);
     box-shadow: none;
     backdrop-filter: blur(18px);
   }
 
   .mkt-dhh-shell-closed {
-    height: 74px;
-    border-radius: 22px;
+    height: 94px;
+    border-radius: 0;
   }
 
   .mkt-dhh-shell-desktop-open {
     border-color: rgb(9 43 36 / 28%);
-    border-radius: 22px 22px 0 0;
-    box-shadow: 0 28px 86px rgb(8 45 35 / 16%);
+    border-radius: 0;
+    box-shadow: 0 28px 86px rgb(8 45 35 / 14%);
   }
 
   .mkt-dhh-bar {
-    gap: clamp(22px, 3.15vw, 58px);
-    height: 74px;
-    padding: 0 12px 0 20px;
+    display: grid;
+    grid-template-columns: minmax(310px, 360px) minmax(0, 1fr) auto 1px auto;
+    gap: clamp(14px, 1.5vw, 24px);
+    height: 94px;
+    padding: 0 clamp(22px, 3vw, 44px);
   }
 
   .mkt-dhh-brand-slot {
-    min-width: clamp(232px, 23vw, 344px);
+    min-width: 0;
   }
 
   .mkt-dhh-brand {
-    justify-items: start;
+    display: grid;
+    grid-template-columns: 203px 1px minmax(88px, 116px);
+    gap: 20px;
+    align-items: center;
+    width: 360px;
+    min-width: 0;
+    color: inherit;
+    text-transform: uppercase;
   }
 
-  .mkt-dhh-brand span {
+  .mkt-dhh-brand .mkt-dhh-brand-word {
     font-family: "League Gothic", Impact, sans-serif;
     font-weight: 400;
-    font-size: clamp(2.8rem, 3.95vw, 3.65rem);
-    letter-spacing: 0.145em;
+    font-size: clamp(48px, 4vw, 58px);
+    line-height: 0.82;
+    letter-spacing: 0.035em;
+    transform: scaleX(1.365);
+    transform-origin: left center;
   }
 
   .mkt-dhh-brand small {
-    margin-top: 10px;
+    display: none;
+  }
+
+  .mkt-dhh-brand-divider,
+  .mkt-dhh-action-divider {
+    display: block;
+    width: 1px;
+    height: 48px;
+    background: rgb(9 43 36 / 36%);
+  }
+
+  .mkt-dhh-brand em {
+    display: block;
+    max-width: 112px;
+    font-size: 12px;
+    font-style: normal;
     font-weight: 700;
-    font-size: clamp(0.72rem, 0.82vw, 0.95rem);
-    line-height: 1;
-    letter-spacing: 0.52em;
+    line-height: 1.1;
+    letter-spacing: 0;
   }
 
   .mkt-dhh-desktop-nav {
-    gap: clamp(22px, 3.15vw, 62px);
+    justify-content: center;
+    gap: clamp(16px, 2.2vw, 36px);
     min-width: 0;
   }
 
   .mkt-dhh-nav-item {
     min-height: 42px;
-    gap: 9px;
+    gap: 7px;
     border-radius: 0;
     padding: 0;
-    color: rgb(9 43 36 / 72%);
+    color: var(--mkt-ink);
     font-weight: 800;
-    font-size: clamp(0.82rem, 1.1vw, 1.05rem);
+    font-size: 13px;
     letter-spacing: 0;
+    text-transform: uppercase;
     white-space: nowrap;
     transition:
       color 160ms ease,
@@ -768,43 +804,73 @@
     color: var(--mkt-ink);
   }
 
+  .mkt-dhh-nav-item-active {
+    position: relative;
+  }
+
+  .mkt-dhh-nav-item-active::after {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 3px;
+    background: var(--mkt-ink);
+    content: "";
+  }
+
+  .mkt-dhh-nav-item svg {
+    width: 13px;
+    height: 13px;
+    stroke-width: 2.5;
+  }
+
   .mkt-dhh-actions {
-    min-width: clamp(232px, 22vw, 360px);
+    display: contents;
+    min-width: 0;
   }
 
   .mkt-dhh-action {
-    min-height: 52px;
-    gap: 11px;
-    border-radius: 11px;
-    padding: 0 18px;
+    min-width: 145px;
+    min-height: 40px;
+    gap: 8px;
+    border-radius: 0;
+    padding: 0 15px;
     font-weight: 900;
-    font-size: clamp(0.86rem, 1.05vw, 1rem);
+    font-size: 13px;
     letter-spacing: 0;
-  }
-
-  .mkt-dhh-action-secondary {
-    min-width: 82px;
-    border-color: rgb(9 43 36 / 22%);
-    background: transparent;
+    text-transform: uppercase;
   }
 
   .mkt-dhh-action-primary {
-    min-width: 122px;
+    border: 0;
+    background: rgb(6 39 31);
+    color: rgb(255 248 236);
     box-shadow: none;
-  }
-
-  .mkt-dhh-action-secondary:hover {
-    border-color: rgb(9 43 36 / 36%);
-    background: rgb(255 248 236 / 34%);
   }
 
   .mkt-dhh-action-primary:hover {
+    background: rgb(6 39 31);
     box-shadow: none;
+  }
+
+  .mkt-dhh-language {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 42px;
+    color: inherit;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0;
+    text-decoration: none;
+    text-transform: uppercase;
+    white-space: nowrap;
   }
 
   .mkt-dhh-menu {
     border-color: rgb(9 43 36 / 20%);
-    border-radius: 0 0 22px 22px;
+    border-radius: 0;
     background: rgb(243 238 229 / 98%);
     box-shadow: 0 34px 90px rgb(8 45 35 / 18%);
     backdrop-filter: blur(18px);

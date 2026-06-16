@@ -1,13 +1,30 @@
 // @vitest-environment jsdom
 
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import type { ComponentType } from "react";
+import { resolve } from "node:path";
+import type { ComponentType, ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test, vi } from "vitest";
 
 vi.mock("@tanstack/react-router", () => ({
   createFileRoute: () => (config: unknown) => ({ options: config }),
+  Link: ({
+    children,
+    preload: _preload,
+    to,
+    viewTransition: _viewTransition,
+    ...props
+  }: {
+    children: ReactNode;
+    preload?: string;
+    to?: string;
+    viewTransition?: boolean;
+  }) => (
+    <a href={to} {...props}>
+      {children}
+    </a>
+  ),
+  linkOptions: <T,>(items: T) => items,
 }));
 
 import { Route } from "./about.tsx";
@@ -44,7 +61,7 @@ const requiredFinanceLinks = [
   "/affordable-sustainable-rental-housing",
 ] as const;
 
-const aboutCssPath = fileURLToPath(new URL("./-about.css", import.meta.url));
+const aboutCssPath = resolve(process.cwd(), "src/routes/-about.css");
 
 describe("AboutFairlendPage", () => {
   test("renders the Fairlend about page as DOM and separate assets", () => {

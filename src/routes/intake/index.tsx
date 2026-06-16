@@ -36,6 +36,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
 import { GoogleAddressAutocomplete } from "#/components/address/GoogleAddressAutocomplete.tsx";
+import { Header as DirectionalHoverHeader } from "#/components/directional-hover-header/header.tsx";
 import {
   KokonutBentoCard,
   KokonutBentoGridShell,
@@ -636,12 +637,10 @@ function IntakeLandingPage(): ReactElement {
   };
 
   return (
-    <main className="bp-page">
+    <>
+      <DirectionalHoverHeader />
+      <main className="bp-page bp-page--with-public-header">
       <Frame className="bp-shell">
-        <BuildPathHeader
-          onNavigateToSection={goToLandingSection}
-          step={isFormStep ? Math.min(step, TOTAL_STEPS) : undefined}
-        />
         <section
           aria-labelledby={isFormStep ? "bp-form-title" : "bp-hero-title"}
           className={
@@ -730,6 +729,7 @@ function IntakeLandingPage(): ReactElement {
         )}
       </Frame>
     </main>
+    </>
   );
 }
 

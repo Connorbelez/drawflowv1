@@ -11,6 +11,7 @@ import {
   type NavLink,
   type NavMenu,
 } from "./header/nav-data";
+import "./header.css";
 
 type Direction = "ltr" | "rtl";
 const SHELL_EASE = [0.16, 1, 0.3, 1] as [number, number, number, number];
@@ -33,8 +34,10 @@ function Logo() {
       preload="intent"
       viewTransition
     >
-      <span>FairLend</span>
+      <span className="mkt-dhh-brand-word">FairLend</span>
+      <span aria-hidden="true" className="mkt-dhh-brand-divider" />
       <small>Mortgage</small>
+      <em>Brokerage &amp; Investment Company</em>
     </Link>
   );
 }
@@ -102,6 +105,32 @@ function HeaderActions({
   mobile?: boolean;
   onAction?: () => void;
 }) {
+  if (!mobile) {
+    return (
+      <>
+        <Link
+          {...fairlendNavLinks.contact}
+          className="mkt-dhh-action mkt-dhh-action-primary"
+          onClick={onAction}
+          preload="intent"
+          viewTransition
+        >
+          Get in touch
+        </Link>
+        <span aria-hidden="true" className="mkt-dhh-action-divider" />
+        <Link
+          {...fairlendNavLinks.investors}
+          className="mkt-dhh-language"
+          onClick={onAction}
+          preload="intent"
+          viewTransition
+        >
+          FR
+        </Link>
+      </>
+    );
+  }
+
   return (
     <div
       className={cn(
@@ -137,6 +166,29 @@ function HeaderActions({
     </div>
   );
 }
+
+const DESKTOP_NAV_LINKS: NavLink[] = [
+  {
+    label: "Financing Solutions",
+    menu: NAV_LINKS[0]?.menu,
+  },
+  {
+    label: "Investor Opportunities",
+    menu: NAV_LINKS[1]?.menu,
+  },
+  {
+    label: "Who We Are",
+    menu: NAV_LINKS[3]?.menu,
+  },
+  {
+    label: "Resources",
+    menu: NAV_LINKS[2]?.menu,
+  },
+  {
+    label: "Contact",
+    link: fairlendNavLinks.contact,
+  },
+];
 
 export function Header() {
   const [activeMenu, setActiveMenu] = useState<NavMenu | null>(null);
@@ -201,7 +253,7 @@ export function Header() {
 
   const moveDesktopFocus = useCallback(
     (currentIndex: number, step: 1 | -1) => {
-      const total = NAV_LINKS.length;
+      const total = DESKTOP_NAV_LINKS.length;
       let nextIndex = currentIndex;
 
       for (let count = 0; count < total; count++) {
@@ -213,7 +265,7 @@ export function Header() {
 
         nextItem.focus();
 
-        const nextLink = NAV_LINKS[nextIndex];
+        const nextLink = DESKTOP_NAV_LINKS[nextIndex];
         if (nextLink.menu) {
           cancelClose();
           openMenu(nextLink.menu, nextIndex);
@@ -444,11 +496,13 @@ export function Header() {
             aria-label="FairLend marketing navigation"
             className="mkt-dhh-desktop-nav"
           >
-            {NAV_LINKS.map((link, linkIndex) => {
+            {DESKTOP_NAV_LINKS.map((link, linkIndex) => {
               const hasMenu = !!link.menu;
               const isOpen = hasMenu && activeMenu?.id === link.menu!.id;
               const itemClassName = cn(
                 "mkt-dhh-nav-item",
+                link.label === "Investor Opportunities" &&
+                  "mkt-dhh-nav-item-active",
                 isOpen && "mkt-dhh-nav-item-open"
               );
 

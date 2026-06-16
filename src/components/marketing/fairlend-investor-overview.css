@@ -145,6 +145,7 @@ body:has(.fairlend-investor-overview)
   display: grid;
   grid-template-columns: var(--fairlend-rail-width) repeat(12, minmax(0, 1fr));
   min-height: calc(100svh - var(--fairlend-nav-height));
+  padding-top: var(--fairlend-nav-height);
 }
 
 .fairlend-investor-section {
@@ -784,7 +785,7 @@ body:has(.fairlend-investor-overview)
 
 @media (max-width: 1020px) {
   .fairlend-investor-overview {
-    --fairlend-nav-height: 0px;
+    --fairlend-nav-height: 80px;
   }
 
   .fairlend-investor-nav {
@@ -877,6 +878,7 @@ body:has(.fairlend-investor-overview)
 @media (max-width: 720px) {
   .fairlend-investor-overview {
     --fairlend-page-pad: 18px;
+    --fairlend-nav-height: 76px;
   }
 
   .fairlend-investor-nav {
@@ -979,4 +981,3 @@ body:has(.fairlend-investor-overview)
     overflow-x: auto;
   }
 }
-

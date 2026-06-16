@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
-import { ArrowRight, ChevronDown } from "lucide-react";
+import { ArrowRight } from "lucide-react";
+import { Header as DirectionalHoverHeader } from "#/components/directional-hover-header/header.tsx";
 import { FairlendInvestorRail } from "#/components/marketing/fairlend-rail.tsx";
 import { type ReactElement, useEffect, useMemo, useState } from "react";
 
@@ -35,19 +36,6 @@ const sectionRailItems = [
 ] as const;
 
 type SectionRailItem = (typeof sectionRailItems)[number];
-
-const navItems = [
-  { label: "Financing Solutions", to: "/start", hasMenu: true },
-  {
-    label: "Investor Opportunities",
-    to: "/investors",
-    hasMenu: true,
-    active: true,
-  },
-  { label: "Who We Are", to: "/about", hasMenu: true },
-  { label: "Resources", to: "/resources", hasMenu: true },
-  { label: "Contact", to: "/contact" },
-] as const;
 
 const pathCards = [
   {
@@ -129,8 +117,9 @@ export function FairlendInvestorOverview(): ReactElement {
   }, []);
 
   return (
-    <main className="fairlend-investor-overview">
-      <FairlendInvestorNav />
+    <>
+      <DirectionalHoverHeader />
+      <main className="fairlend-investor-overview">
       <div className="fairlend-investor-overview__shell">
         <FairlendInvestorRail section={activeRailSection} />
         <section
@@ -226,60 +215,7 @@ export function FairlendInvestorOverview(): ReactElement {
         <FairlendInvestorFooter />
       </div>
     </main>
-  );
-}
-
-function FairlendInvestorNav(): ReactElement {
-  return (
-    <header className="fairlend-investor-nav">
-      <Link
-        aria-label="Fairlend home"
-        className="fairlend-investor-nav__brand"
-        preload="intent"
-        to="/"
-        viewTransition
-      >
-        <strong>Fairlend</strong>
-        <span aria-hidden="true" />
-        <em>Brokerage &amp; Investment Company</em>
-      </Link>
-      <nav
-        aria-label="Investor navigation"
-        className="fairlend-investor-nav__links"
-      >
-        {navItems.map((item) => (
-          <Link
-            className="fairlend-investor-nav__link"
-            data-active={"active" in item && item.active ? "" : undefined}
-            key={item.label}
-            preload="intent"
-            to={item.to}
-            viewTransition
-          >
-            {item.label}
-            {"hasMenu" in item && item.hasMenu ? (
-              <ChevronDown aria-hidden="true" />
-            ) : null}
-          </Link>
-        ))}
-      </nav>
-      <Button
-        className="fairlend-investor-nav__cta"
-        render={<Link preload="intent" to="/contact" viewTransition />}
-        size="xl"
-      >
-        Get in touch
-      </Button>
-      <span aria-hidden="true" className="fairlend-investor-nav__divider" />
-      <Link
-        className="fairlend-investor-nav__language"
-        preload="intent"
-        to="/investors"
-        viewTransition
-      >
-        FR
-      </Link>
-    </header>
+    </>
   );
 }
 
@@ -440,4 +376,3 @@ function SectionMarker({
     </div>
   );
 }
-
