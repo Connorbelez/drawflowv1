@@ -42,7 +42,6 @@ const blueprintAsset = "/assets/Blueprint Style Rendering Jun 8 2026 (1).png";
 const buildFinancingAsset =
   "/assets/fairlend-path-build-financing-multiplex-construction.webp";
 const multiplexAsset = "/assets/fairlend-path-gta-sixplex-lane-suite.webp";
-const micInvestingAsset = "/assets/fairlend-path-mic-investing.webp";
 const privateMortgagesAsset = "/assets/fairlend-path-private-mortgages.webp";
 const fairlendLicences = [
   "Brokerage Licence #13827",
@@ -452,7 +451,6 @@ function AuthorityPanel(): ReactElement {
   const proof = [
     { value: "$2B+", label: "funded deal experience" },
     { value: "Top 1%", label: "broker leadership" },
-    { value: "FSRA", label: "Ontario lending discipline" },
   ];
 
   return (
@@ -482,7 +480,6 @@ function AuthorityPanel(): ReactElement {
 
 function TrustRail(): ReactElement {
   const items = [
-    { icon: ShieldCheck, label: "Licensed" },
     { icon: FileCheck2, label: "Transparent terms" },
     { icon: ChartNoAxesColumnIncreasing, label: "Technology-led underwriting" },
   ];
@@ -633,8 +630,8 @@ function MarketingProof(): ReactElement {
     },
     {
       icon: ChartNoAxesColumnIncreasing,
-      title: "MIC",
-      copy: "investor platform",
+      title: "Broker-led",
+      copy: "private lending",
     },
   ];
 
@@ -661,15 +658,15 @@ function MarketingProof(): ReactElement {
       linkLabel: "Explore multiplex lending",
     },
     {
-      eyebrow: "Investors",
-      title: "Invest with our MIC",
-      copy: "Put capital to work through a diversified mortgage investment corporation backed by real assets.",
-      image: micInvestingAsset,
+      eyebrow: "Borrowers",
+      title: "Get a private mortgage",
+      copy: "Secure private first or second mortgage options with broker-led guidance, fast underwriting, and terms matched to your property.",
+      image: privateMortgagesAsset,
       imageAlt:
-        "Fairlend investor platform and private mortgage investment path illustration",
-      href: "/investors",
-      id: "mic-investing",
-      linkLabel: "Explore the MIC",
+        "Fairlend private mortgage borrower path illustration for Canadian real estate financing",
+      href: "/contact",
+      id: "private-mortgage-borrower",
+      linkLabel: "Start private mortgage request",
     },
     {
       eyebrow: "Private lenders",
@@ -729,7 +726,12 @@ function MarketingProof(): ReactElement {
     },
     {
       title: "Investors",
-      links: ["Our MIC", "Investment approach", "Performance", "Documents"],
+      links: [
+        "Investor opportunities",
+        "Investment approach",
+        "Performance",
+        "Documents",
+      ],
     },
     {
       title: "Company",
@@ -759,7 +761,7 @@ function MarketingProof(): ReactElement {
         className="mkt-pathways"
       >
         <div className="mkt-pathways-heading">
-          <h2 id="marketing-pathways-title">Builders &amp; investors.</h2>
+          <h2 id="marketing-pathways-title">Our services</h2>
           <p>
             One fair approach to construction capital, private lending, and
             investor access.
@@ -838,11 +840,6 @@ function MarketingProof(): ReactElement {
               <DollarSign aria-hidden="true" />
               <strong>$2B+</strong>
               <span>in funded deals</span>
-            </div>
-            <div>
-              <UserRound aria-hidden="true" />
-              <strong>Mortgage</strong>
-              <span>product consultant</span>
             </div>
           </div>
         </div>
@@ -928,7 +925,7 @@ function MarketingProof(): ReactElement {
                   "Private mortgages": "/multiplex-financing-gta",
                   "How it works": "/about",
                   Resources: "/resources",
-                  "Our MIC": "/investors",
+                  "Investor opportunities": "/investors",
                   "Investment approach": "/investors",
                   Performance: "/investors",
                   Documents: "/resources",

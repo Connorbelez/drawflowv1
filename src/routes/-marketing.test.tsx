@@ -141,7 +141,9 @@ describe("MarketingPage", () => {
     expect(markup).toContain("End to End Ecosystem");
     expect(markup).toContain("Borrow <br/> Build <br/> Lend <br/> In one place");
     expect(markup).toContain("funded deal experience");
-    expect(markup).toContain("Ontario lending discipline");
+    expect(markup).not.toContain("Ontario lending discipline");
+    expect(markup).not.toContain(">FSRA</strong>");
+    expect(markup).not.toContain(">Licensed</span>");
     expect(markup.match(/Brokerage Licence #13827/g)).toHaveLength(2);
     expect(markup.match(/Administrator Licence #13828/g)).toHaveLength(2);
     expect(markup).toContain('aria-label="Fairlend regulatory licences"');
@@ -158,20 +160,23 @@ describe("MarketingPage", () => {
     expect(markup).toContain(
       "/assets/Blueprint Style Rendering Jun 8 2026 (1).png",
     );
-    expect(markup).toContain("Builders &amp; investors.");
+    expect(markup).toContain("Our services");
+    expect(markup).not.toContain("Builders &amp; investors.");
     expect(markup).toContain("One fair approach to construction capital");
     expect(markup).toContain("Build financing");
     expect(markup).toContain("Construction draw and bridge financing");
     expect(markup).toContain("Multiplex lending &amp; investing");
     expect(markup).toContain("Lend into Canadian multiplex builds");
-    expect(markup).toContain("Invest with our MIC");
+    expect(markup).toContain("Get a private mortgage");
+    expect(markup).toContain("Start private mortgage request");
+    expect(markup).toContain("Broker-led");
+    expect(markup).toContain("Investor opportunities");
     expect(markup).toContain("Private 1st and 2nds");
     expect(markup).toContain("Fund private first and second mortgages");
     expect(markup).toContain(
       "/assets/fairlend-path-build-financing-multiplex-construction.webp",
     );
     expect(markup).toContain("/assets/fairlend-path-gta-sixplex-lane-suite.webp");
-    expect(markup).toContain("/assets/fairlend-path-mic-investing.webp");
     expect(markup).toContain("/assets/fairlend-path-private-mortgages.webp");
     expect(markup).not.toContain("Three paths. One fair approach.");
     expect(markup).not.toContain("Four paths. One fair approach.");
