@@ -44,6 +44,8 @@ const buildFinancingAsset =
 const multiplexAsset = "/assets/fairlend-path-gta-sixplex-lane-suite.webp";
 const privateMortgagesAsset = "/assets/fairlend-path-private-mortgages.webp";
 const fairlendLicences = [
+  "FairLend Management Inc",
+  "Legal business name: FairLend Management Inc",
   "Brokerage Licence #13827",
   "Administrator Licence #13828",
 ] as const;
@@ -101,12 +103,12 @@ function MarketingPage(): ReactElement {
               <div className="mkt-left-track">
                 <section className="mkt-left-panel mkt-hero-panel">
                   <div className="mkt-hero-copy">
-                    <p className="mkt-eyebrow">Fairlend Capital</p>
+                    <p className="mkt-eyebrow">FairLend Mortgage</p>
                     <div className="mkt-headline-stack">
                       <h1 className="mkt-headline" id="marketing-hero-title">
-                        Building a fair
+                        Building the
                         <br />
-                        future for lending
+                        future of Fair Lending
                       </h1>
                     </div>
                     <p className="mkt-hero-subcopy">
@@ -115,7 +117,7 @@ function MarketingPage(): ReactElement {
                       and discipline.
                     </p>
                     <LicenceList
-                      ariaLabel="Fairlend regulatory licences"
+                      ariaLabel="FairLend regulatory licences"
                       className="mkt-hero-licences"
                     />
                   </div>
@@ -148,7 +150,7 @@ function MarketingPage(): ReactElement {
                 </section>
               </div>
             </div>
-            {/* <UnderwritingCard /> */}
+            <UnderwritingCard />
           </div>
         </div>
       </section>
@@ -222,8 +224,9 @@ function useMarketingScrollScene({
       );
 
       if (!desktopMedia.matches) {
-        const blueprintEl =
-          section.querySelector<HTMLElement>(".mkt-hero-blueprint");
+        const blueprintEl = section.querySelector<HTMLElement>(
+          ".mkt-hero-blueprint"
+        );
 
         gsap.set([pinEl, blueprintEl, renderEl, proofOverlapEl, leftTrack], {
           force3D: true,
@@ -449,22 +452,26 @@ function useMarketingScrollScene({
 
 function AuthorityPanel(): ReactElement {
   const proof = [
-    { value: "$2B+", label: "funded deal experience" },
-    { value: "Top 1%", label: "broker leadership" },
+    { value: "2B+", label: "in lifetime deals by Principal Broker" },
+    { value: "25+ Years", label: "Broker Experience" },
   ];
 
   return (
     <section
-      aria-label="Fairlend authority and social proof"
+      aria-label="FairLend authority and social proof"
       className="mkt-authority-panel"
     >
       <p>End to End Ecosystem</p>
-      <h2>Borrow <br /> Build <br /> Lend <br /> In one place</h2>
+      <h2>
+        Borrow <br /> Build <br /> Lend <br /> In one place
+      </h2>
       {/* <h2>Build</h2>
       <h2>Lend</h2>
       <h2>All in one place</h2> */}
       <span>
-      Private mortgages without junk fees. Construction financing with on-demand draws. Real estate-backed investing with the administration handled.
+        Private mortgages without junk fees. Construction financing with
+        on-demand draws. Private-mortgage investing with the administration
+        handled.
       </span>
       <div className="mkt-authority-proof">
         {proof.map((item) => (
@@ -485,7 +492,7 @@ function TrustRail(): ReactElement {
   ];
 
   return (
-    <div aria-label="Fairlend trust signals" className="mkt-trust-rail">
+    <div aria-label="FairLend trust signals" className="mkt-trust-rail">
       {items.map(({ icon: Icon, label }) => (
         <div className="mkt-trust-item" key={label}>
           <Icon aria-hidden="true" />
@@ -553,8 +560,8 @@ function UnderwritingCard(): ReactElement {
         <div className="mkt-credential-primary">
           <Award aria-hidden="true" />
           <div>
-            <span>FSRA Certified</span>
-            <strong>Ontario private lending</strong>
+            <span>Licensed</span>
+            <strong>FSRA brokerage & administrator</strong>
           </div>
         </div>
         <div
@@ -616,22 +623,22 @@ function MarketingProof(): ReactElement {
     {
       icon: DollarSign,
       title: "2B+",
-      copy: "in deals",
+      copy: "in lifetime deals by Principal Broker",
     },
     {
       icon: Award,
-      title: "Top 1%",
-      copy: "broker leadership",
+      title: "25+ Years",
+      copy: "Broker Experience",
     },
     {
       icon: Home,
-      title: "Private 1st and",
-      copy: "2nd mortgages",
+      title: "Private 1st",
+      copy: "and 2nd mortgages",
     },
     {
       icon: ChartNoAxesColumnIncreasing,
-      title: "Broker-led",
-      copy: "private lending",
+      title: "MIC",
+      copy: "Coming Soon",
     },
   ];
 
@@ -642,17 +649,19 @@ function MarketingProof(): ReactElement {
       title: "Build financing",
       copy: "Construction draw and bridge financing for builders looking to borrow against real projects.",
       image: buildFinancingAsset,
-      imageAlt: "Fairlend build financing illustration for construction borrowers",
+      imageAlt:
+        "FairLend build financing illustration for construction borrowers",
       href: "/construction-draw-financing",
       id: "build-financing",
       linkLabel: "Explore builder financing",
     },
     {
-      eyebrow: "Construction investors",
-      title: "Multiplex lending & investing",
-      copy: "Lend into Canadian multiplex builds with disciplined underwriting, draw controls, and project visibility.",
+      eyebrow: "INVESTORS",
+      title: "The FairLend MIC",
+      copy: "A diversified mortgage investment corporation, managed in-house with conservative underwriting. Opening to qualified investors soon — learn how it will work.",
       image: multiplexAsset,
-      imageAlt: "Multiplex construction project illustration for private lenders",
+      imageAlt:
+        "Multiplex construction project illustration for private lenders",
       href: "/investors",
       id: "multiplex-lending-investing",
       linkLabel: "Explore multiplex lending",
@@ -663,7 +672,7 @@ function MarketingProof(): ReactElement {
       copy: "Secure private first or second mortgage options with broker-led guidance, fast underwriting, and terms matched to your property.",
       image: privateMortgagesAsset,
       imageAlt:
-        "Fairlend private mortgage borrower path illustration for Canadian real estate financing",
+        "FairLend private mortgage borrower path illustration for Canadian real estate financing",
       href: "/contact",
       id: "private-mortgage-borrower",
       linkLabel: "Start private mortgage request",
@@ -742,7 +751,7 @@ function MarketingProof(): ReactElement {
   return (
     <>
       <section
-        aria-label="Fairlend performance highlights"
+        aria-label="FairLend performance highlights"
         className="mkt-stats-strip"
       >
         {stats.map(({ icon: Icon, title, copy }) => (
@@ -824,7 +833,7 @@ function MarketingProof(): ReactElement {
           </div>
         </div>
         <div className="mkt-founder-copy">
-          <p>Founder & broker of record</p>
+          <p>Founder & Principal Broker</p>
           <h2 id="marketing-founder-title">Elie Soberano</h2>
           <span>
             Elie leads with experience, discipline, and a commitment to building
@@ -833,13 +842,18 @@ function MarketingProof(): ReactElement {
           <div className="mkt-founder-stats">
             <div>
               <Award aria-hidden="true" />
-              <strong>Top 1%</strong>
-              <span>broker</span>
+              <strong>25+ Years</strong>
+              <span>Broker Experience</span>
             </div>
             <div>
               <DollarSign aria-hidden="true" />
-              <strong>$2B+</strong>
-              <span>in funded deals</span>
+              <strong>2B+</strong>
+              <span>in lifetime Funded Deals</span>
+            </div>
+            <div>
+              <Home aria-hidden="true" />
+              <strong>Builder</strong>
+              <span>20+ homes built</span>
             </div>
           </div>
         </div>
@@ -847,14 +861,14 @@ function MarketingProof(): ReactElement {
 
       <section aria-labelledby="marketing-team-title" className="mkt-team">
         <div className="mkt-team-copy">
-          <h2 id="marketing-team-title">The Fairlend team</h2>
+          <h2 id="marketing-team-title">The FairLend team</h2>
           <i aria-hidden="true" />
           <p>
             A team of lenders, builders, analysts, and operators who bring
             experience and care to every deal.
           </p>
         </div>
-        <div aria-label="Fairlend team preview" className="mkt-team-roster">
+        <div aria-label="FairLend team preview" className="mkt-team-roster">
           {team.map((person, index) => (
             <div className="mkt-team-card" key={person.name}>
               <div className={`mkt-team-avatar mkt-team-avatar-${index + 1}`}>
@@ -867,9 +881,7 @@ function MarketingProof(): ReactElement {
         </div>
         <Button
           className="mkt-team-action"
-          render={
-            <Link hash="about" preload="intent" to="/" viewTransition />
-          }
+          render={<Link hash="about" preload="intent" to="/" viewTransition />}
           variant="outline"
         >
           Meet the team
@@ -878,7 +890,7 @@ function MarketingProof(): ReactElement {
       </section>
 
       <section
-        aria-label="Fairlend careers"
+        aria-label="FairLend careers"
         className="mkt-careers"
         id="careers"
       >
@@ -905,9 +917,9 @@ function MarketingProof(): ReactElement {
 
       <footer className="mkt-footer" id="resources">
         <div className="mkt-footer-brand">
-          <Link aria-label="Fairlend Capital home" className="mkt-brand" to="/">
-            <span>Fairlend</span>
-            <small>Capital</small>
+          <Link aria-label="FairLend Mortgage home" className="mkt-brand" to="/">
+            <span>FairLend</span>
+            <small>Mortgage</small>
           </Link>
           <p>Fair lending. Strong communities. Sustainable returns.</p>
           <div>
@@ -915,7 +927,7 @@ function MarketingProof(): ReactElement {
             <span>Proudly Canadian</span>
           </div>
         </div>
-        <nav aria-label="Fairlend footer navigation" className="mkt-footer-nav">
+        <nav aria-label="FairLend footer navigation" className="mkt-footer-nav">
           {footerGroups.map((group) => (
             <div key={group.title}>
               <h3>{group.title}</h3>
@@ -946,20 +958,20 @@ function MarketingProof(): ReactElement {
         </nav>
         <div className="mkt-footer-contact">
           <h3>Get in touch</h3>
-          <a href="tel:+14165550199">
+          <a href="tel:+16478317605">
             <Phone aria-hidden="true" />
-            416-555-0199
+            647-831-7605
           </a>
-          <a href="mailto:hello@fairlendcapital.ca">
+          <a href="mailto:elie@fairlend.ca">
             <Mail aria-hidden="true" />
-            hello@fairlendcapital.ca
+            elie@fairlend.ca
           </a>
           <span>
             <MapPin aria-hidden="true" />
             Toronto, Ontario
           </span>
           <LicenceList
-            ariaLabel="Fairlend footer regulatory licences"
+            ariaLabel="FairLend footer regulatory licences"
             className="mkt-footer-licences"
           />
           <div>
@@ -968,9 +980,11 @@ function MarketingProof(): ReactElement {
           </div>
         </div>
         <div className="mkt-footer-bottom">
-          <span>© 2025 Fairlend Capital Inc.</span>
+          <span>© 2026 FairLend Mortgage</span>
           <div>
-            <a href="#privacy">Privacy Policy</a>
+            <a href="https://www.fairlend.ca/en/brokerage/privacy-policy">
+              Privacy Policy
+            </a>
             <a href="#terms">Terms of Use</a>
           </div>
         </div>
@@ -979,12 +993,11 @@ function MarketingProof(): ReactElement {
   );
 }
 
-
 function getMarketingPageHead() {
   return {
     meta: [
       {
-        title: "FairLend Capital | Construction draw financing",
+        title: "FairLend Mortgage | Construction draw financing",
       },
       {
         name: "description",

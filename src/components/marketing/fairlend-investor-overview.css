@@ -179,66 +179,6 @@ body:has(.fairlend-investor-overview)
   pointer-events: none;
 }
 
-.fairlend-investor-rail {
-  position: sticky;
-  top: var(--fairlend-nav-height);
-  z-index: 4;
-  grid-column: 1;
-  grid-row: 1 / span 2;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: clamp(20px, 2.3vw, 30px);
-  width: var(--fairlend-rail-width);
-  height: calc(100svh - var(--fairlend-nav-height));
-  min-height: 460px;
-  overflow: hidden;
-  padding: clamp(36px, 4.6vw, 56px) 0 26px;
-  border-right: 1px solid var(--fairlend-line);
-  background: var(--fairlend-green);
-  color: var(--fairlend-cream);
-  transition:
-    background-color 320ms ease,
-    border-color 320ms ease,
-    color 320ms ease;
-}
-
-.fairlend-investor-rail[data-tone="paper"] {
-  border-right-color: var(--fairlend-paper-line);
-  background: var(--fairlend-paper);
-  color: var(--fairlend-green);
-}
-
-.fairlend-investor-rail > span {
-  width: 1px;
-  height: clamp(62px, 10vh, 86px);
-  flex: 0 0 auto;
-  background: currentColor;
-  opacity: 0.62;
-}
-
-.fairlend-investor-rail p {
-  margin: 0;
-  color: currentColor;
-  font-size: 13px;
-  font-weight: 650;
-  letter-spacing: 0.18em;
-  line-height: 1;
-  text-transform: uppercase;
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-}
-
-.fairlend-investor-rail strong {
-  margin-top: auto;
-  color: var(--fairlend-copper);
-  font-size: 20px;
-  font-weight: 900;
-}
-
-.fairlend-investor-rail__animated {
-  animation: fairlend-rail-section-change 280ms ease both;
-}
 
 .fairlend-investor-hero-copy {
   position: relative;
@@ -778,17 +718,6 @@ body:has(.fairlend-investor-overview)
   margin-left: auto;
 }
 
-@keyframes fairlend-rail-section-change {
-  from {
-    opacity: 0;
-    translate: 0 10px;
-  }
-
-  to {
-    opacity: 1;
-    translate: 0 0;
-  }
-}
 
 @media (max-width: 1260px) {
   .fairlend-investor-nav {
@@ -879,9 +808,6 @@ body:has(.fairlend-investor-overview)
     grid-template-columns: repeat(12, minmax(0, 1fr));
   }
 
-  .fairlend-investor-rail {
-    display: none;
-  }
 
   .fairlend-investor-overview__hero {
     min-height: auto;
@@ -1054,12 +980,3 @@ body:has(.fairlend-investor-overview)
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .fairlend-investor-rail {
-    transition: none;
-  }
-
-  .fairlend-investor-rail__animated {
-    animation: none;
-  }
-}

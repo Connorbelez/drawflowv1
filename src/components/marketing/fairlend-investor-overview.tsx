@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { ArrowRight, ChevronDown } from "lucide-react";
+import { FairlendInvestorRail } from "#/components/marketing/fairlend-rail.tsx";
 import { type ReactElement, useEffect, useMemo, useState } from "react";
 
 import DotField from "#/components/DotField.tsx";
@@ -440,33 +441,3 @@ function SectionMarker({
   );
 }
 
-export function FairlendInvestorRail({
-  ariaLabel = "Investor section",
-  section,
-}: {
-  ariaLabel?: string;
-  section: SectionRailItem;
-}): ReactElement {
-  return (
-    <aside
-      aria-label={ariaLabel}
-      className="fairlend-investor-rail fairlend-investor-rail--sticky"
-      data-tone={section.tone}
-    >
-      <span aria-hidden="true" />
-      <p className="fairlend-investor-rail__animated" key={section.id}>
-        {section.label}
-      </p>
-      <span aria-hidden="true" />
-      <p>Built for communities.</p>
-      <span aria-hidden="true" />
-      <p>Made to last.</p>
-      <strong
-        className="fairlend-investor-rail__animated"
-        key={`${section.id}-number`}
-      >
-        {section.number}
-      </strong>
-    </aside>
-  );
-}

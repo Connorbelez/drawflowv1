@@ -984,7 +984,7 @@ function useProductionProposalCollaboration({
               </Button>
               <Button
                 disabled={
-                  !activeSession || !(shareUrl || sessionState?.canManage)
+                  !(activeSession && (shareUrl || sessionState?.canManage))
                 }
                 onClick={handleCopyShareUrl}
                 size="sm"

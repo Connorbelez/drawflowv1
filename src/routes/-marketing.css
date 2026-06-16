@@ -249,7 +249,6 @@
   justify-self: start;
   color: var(--mkt-forest);
   text-decoration: none;
-  text-transform: uppercase;
 }
 
 .mkt-brand span {
@@ -365,7 +364,6 @@
   display: inline-grid;
   color: var(--mkt-ink);
   text-decoration: none;
-  text-transform: uppercase;
 }
 
 .mkt-dhh-brand span {

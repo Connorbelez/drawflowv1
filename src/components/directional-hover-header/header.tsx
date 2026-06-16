@@ -28,13 +28,13 @@ function Logo() {
   return (
     <Link
       {...fairlendNavLinks.home}
-      aria-label="Fairlend Capital marketing home"
+      aria-label="FairLend Mortgage marketing home"
       className="mkt-dhh-brand"
       preload="intent"
       viewTransition
     >
-      <span>Fairlend</span>
-      <small>Capital</small>
+      <span>FairLend</span>
+      <small>Mortgage</small>
     </Link>
   );
 }
@@ -441,7 +441,7 @@ export function Header() {
           </div>
 
           <nav
-            aria-label="Fairlend marketing navigation"
+            aria-label="FairLend marketing navigation"
             className="mkt-dhh-desktop-nav"
           >
             {NAV_LINKS.map((link, linkIndex) => {

@@ -1,1 +1,39 @@
-{"decision":"submitted","stage":"interview","result":{"stage":"interview","title":"About Hero Reference Match","goalSlug":"about-hero-reference-match","answers":[{"questionId":"fidelity_target","selectedOptionIds":["visual_fidelity"],"customAnswer":"","answer":"Visual fidelity","completed":true},{"questionId":"scope","selectedOptionIds":["fold_edge"],"customAnswer":"Visible in the screenshot. We're treating the the \"hero\" and \"what we finance\" sections as above the fold","answer":"Visible fold edge\nVisible in the screenshot. We're treating the the \"hero\" and \"what we finance\" sections as above the fold","completed":true},{"questionId":"responsive_priority","selectedOptionIds":["desktop_reference"],"customAnswer":"","answer":"Desktop reference","completed":true},{"questionId":"implementation_constraints","selectedOptionIds":["existing_assets"],"customAnswer":"","answer":"Existing assets","completed":true}]}}
+{
+  "decision": "submitted",
+  "stage": "interview",
+  "result": {
+    "stage": "interview",
+    "title": "About Hero Reference Match",
+    "goalSlug": "about-hero-reference-match",
+    "answers": [
+      {
+        "questionId": "fidelity_target",
+        "selectedOptionIds": ["visual_fidelity"],
+        "customAnswer": "",
+        "answer": "Visual fidelity",
+        "completed": true
+      },
+      {
+        "questionId": "scope",
+        "selectedOptionIds": ["fold_edge"],
+        "customAnswer": "Visible in the screenshot. We're treating the the \"hero\" and \"what we finance\" sections as above the fold",
+        "answer": "Visible fold edge\nVisible in the screenshot. We're treating the the \"hero\" and \"what we finance\" sections as above the fold",
+        "completed": true
+      },
+      {
+        "questionId": "responsive_priority",
+        "selectedOptionIds": ["desktop_reference"],
+        "customAnswer": "",
+        "answer": "Desktop reference",
+        "completed": true
+      },
+      {
+        "questionId": "implementation_constraints",
+        "selectedOptionIds": ["existing_assets"],
+        "customAnswer": "",
+        "answer": "Existing assets",
+        "completed": true
+      }
+    ]
+  }
+}

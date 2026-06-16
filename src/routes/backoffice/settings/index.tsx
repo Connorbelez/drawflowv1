@@ -2164,14 +2164,14 @@ function ConfirmationModal({
             </Card>
           </div>
         ) : null}
-        {!isSeed && !(canSave && scenarioValidation.ok) ? (
+        {isSeed || (canSave && scenarioValidation.ok) ? null : (
           <FramePanel className="border-destructive/30 bg-destructive/10 p-3 text-destructive text-sm">
             {Object.values(metadataValidation.errors)[0] ??
               Object.values(templateValidation.errors)[0] ??
               Object.values(scenarioValidation.errors)[0] ??
               "Resolve validation before saving."}
           </FramePanel>
-        ) : null}
+        )}
         <div className="flex justify-end gap-2">
           <Button onClick={onClose} type="button" variant="outline">
             Cancel

@@ -133,7 +133,7 @@ export const NAV_LINKS: NavLink[] = [
               link: fairlendNavLinks.resourceDraws,
             },
             {
-              label: "Talk to Fairlend",
+              label: "Talk to FairLend",
               description: "Get lender-ready before you commit",
               link: fairlendNavLinks.contact,
             },
@@ -162,7 +162,7 @@ export const NAV_LINKS: NavLink[] = [
             },
             {
               label: "Broker introductions",
-              description: "Bring suitable clients into the Fairlend flow",
+              description: "Bring suitable clients into the FairLend flow",
               link: fairlendNavLinks.startBroker,
             },
           ],
@@ -256,7 +256,7 @@ export const NAV_LINKS: NavLink[] = [
             },
             {
               label: "Resource library",
-              description: "All Fairlend guides",
+              description: "All FairLend guides",
               link: fairlendNavLinks.resources,
             },
           ],
@@ -274,11 +274,11 @@ export const NAV_LINKS: NavLink[] = [
           items: [
             {
               label: "Marketing home",
-              description: "Fairlend Capital landing page",
+              description: "FairLend Mortgage landing page",
               link: fairlendNavLinks.home,
             },
             {
-              label: "About Fairlend",
+              label: "About FairLend",
               description: "A fairer construction lending model",
               link: fairlendNavLinks.about,
             },

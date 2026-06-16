@@ -12,6 +12,10 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
+import {
+  FairLendLegalFooter,
+  FairLendLegalFooterStyles,
+} from "#/components/marketing/fairlend-legal-footer.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Card } from "#/components/ui/card.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
@@ -29,8 +33,7 @@ const homeLink = linkOptions({ to: "/" });
 const assetBase = "/assets/fairlend-redesign";
 
 const eligibilityChecks = [
-  "Toronto and GTA missing-middle sites",
-  "3-unit conversions, 4plexes, 6plexes, and mixed suite projects",
+  "3-unit conversions, fourplexes and sixplexes and mixed suite projects",
   "Permit-stage or pre-permit files with credible budgets",
   "Owner, builder, broker, or small developer submissions",
 ];
@@ -47,8 +50,8 @@ const capitalPlates = [
     icon: ClipboardCheck,
   },
   {
-    title: "MLI Select readiness",
-    copy: "Prepare affordability, accessibility, and energy details without implying external approval is guaranteed.",
+    title: "MLI SELECT READINESS",
+    copy: "Assemble the affordability, accessibility, and energy detail a strong MLI Select file needs. That gets your file CMHC submission-ready.",
     icon: ShieldCheck,
   },
 ];
@@ -71,8 +74,8 @@ const reviewSteps = [
   },
   {
     label: "04",
-    title: "Terms lane",
-    copy: "Fairlend reviews private capital options and the files that need deeper underwriting.",
+    title: "Terms",
+    copy: "Rate and fee ranges, term length, conditions to clear, takeout expectations, and which files route to deeper underwriting.",
   },
 ];
 
@@ -82,7 +85,7 @@ const dossierItems = [
   "Construction budget",
   "Draw schedule or milestone plan",
   "Architectural drawings or permit material",
-  "Expected rent assumptions",
+  "Projected Rents",
 ];
 
 const cityBands = [
@@ -100,11 +103,11 @@ export const Route = createFileRoute("/multiplex-financing-gta")({
   component: MultiplexPage,
   head: () => ({
     meta: [
-      { title: "GTA Multiplex Financing | Fairlend Capital" },
+      { title: "GTA Multiplex Financing | FairLend Mortgage" },
       {
         name: "description",
         content:
-          "Fairlend helps GTA owners, builders, brokers, and small developers assess multiplex financing, construction draw structure, and MLI Select readiness.",
+          "FairLend helps GTA owners, builders, brokers, and small developers assess multiplex financing, construction draw structure, and MLI Select readiness.",
       },
     ],
     links: [
@@ -126,24 +129,26 @@ function MultiplexPage() {
   return (
     <main className="mx-page">
       <MultiplexStyles />
-      <nav aria-label="Fairlend multiplex navigation" className="mx-nav">
+      <FairLendLegalFooterStyles />
+      <header className="mx-nav-shell">
+        <nav aria-label="FairLend full-site navigation" className="mx-nav mx-nav-primary">
         <Link
           {...homeLink}
-          aria-label="Fairlend Capital home"
+          aria-label="FairLend Mortgage home"
           className="mx-brand"
           preload="intent"
           viewTransition
         >
           <span className="mx-brand-mark">FL</span>
           <span>
-            <strong>Fairlend</strong>
-            <small>Capital</small>
+            <strong>FairLend</strong>
+            <small>Mortgage</small>
           </span>
         </Link>
-        <div aria-label="Page sections" className="mx-nav-links">
-          <a href="#fit">Fit</a>
-          <a href="#structure">Structure</a>
-          <a href="#review">Review</a>
+        <div aria-label="Site pages" className="mx-nav-links">
+          <Link to="/construction-draw-financing">Construction draws</Link>
+          <Link to="/garden-suite-financing-gta">Garden suites</Link>
+          <Link to="/multiplex-financing-gta">Multiplex</Link>
           <Link {...resourcesLink} preload="intent" viewTransition>
             Resources
           </Link>
@@ -157,18 +162,25 @@ function MultiplexPage() {
           Start review
           <ArrowUpRight aria-hidden />
         </Button>
-      </nav>
+        </nav>
+        <nav aria-label="Multiplex page sections" className="mx-nav mx-nav-secondary">
+          <a href="#fit">Fit</a>
+          <a href="#structure">Structure</a>
+          <a href="#review">Review</a>
+        </nav>
+      </header>
 
       <section aria-labelledby="multiplex-hero-title" className="mx-hero">
         <div className="mx-hero-copy">
           <p className="mx-kicker">GTA multiplex financing dossier</p>
           <h1 id="multiplex-hero-title">
-            Capital structure for serious multiplex builds.
+            Capital architecture for serious multiplex builds.
           </h1>
           <p>
-            Fairlend helps owners, builders, brokers, and small developers
-            pressure-test construction budgets, draw timing, private capital
-            needs, and MLI Select readiness before a promising site stalls.
+            FairLend helps owners, builders, brokers, and small developers
+            pressure-test construction budgets and draw timing, size their
+            private-capital needs, and confirm MLI Select readiness. Before a
+            promising site stalls.
           </p>
           <div className="mx-hero-actions">
             <Button
@@ -204,11 +216,11 @@ function MultiplexPage() {
               src={`${assetBase}/multiplex-warm-blueprint.webp`}
             />
             <div className="mx-board-note">
-              <span>Review lane</span>
+              <span>Review</span>
               <strong>Budget, draws, permits, debt, rent assumptions</strong>
             </div>
           </div>
-          <div aria-label="Fairlend review focus" className="mx-hero-ticket">
+          <div aria-label="FairLend review focus" className="mx-hero-ticket">
             <span>Planning meets capital</span>
             <strong>Private capital for well-planned housing projects.</strong>
           </div>
@@ -236,7 +248,7 @@ function MultiplexPage() {
           <FramePanel className="mx-fit-panel">
             <div>
               <Building2 aria-hidden className="mx-large-icon" />
-              <h3>Multiplex paths Fairlend can review</h3>
+              <h3>Multiplex paths FairLend can review</h3>
               <p>
                 A useful review starts with unit count, municipal path, permit
                 status, borrower equity, budget quality, and the draw sequence.
@@ -261,7 +273,7 @@ function MultiplexPage() {
       >
         <div className="mx-structure-visual">
           <img
-            alt="Fairlend blueprint reference with construction financing card system"
+            alt="FairLend blueprint reference with construction financing card system"
             src={`${assetBase}/multiplex-blueprint-plate.webp`}
           />
         </div>
@@ -273,8 +285,8 @@ function MultiplexPage() {
           <p>
             Multiplex projects can break when acquisition debt, borrower equity,
             construction budget, contingency, permit timing, and takeout options
-            are reviewed separately. Fairlend treats the file as one capital
-            structure.
+            are reviewed separately. FairLend treats the file as one capital
+            architecture.
           </p>
           <div className="mx-plate-grid">
             {capitalPlates.map((plate) => {
@@ -294,7 +306,7 @@ function MultiplexPage() {
       <section aria-labelledby="review-title" className="mx-review" id="review">
         <div className="mx-review-copy">
           <p className="mx-kicker">Review sequence</p>
-          <h2 id="review-title">A practical path from site to terms lane.</h2>
+          <h2 id="review-title">A practical path from site to terms</h2>
           <p>
             The first conversation should expose the financing constraints fast:
             what is buildable, what is fundable, what needs evidence, and where
@@ -320,7 +332,7 @@ function MultiplexPage() {
           <p className="mx-kicker">Submission docket</p>
           <h2 id="dossier-title">Bring enough context for a real answer.</h2>
           <p>
-            Fairlend does not need a perfect package to begin review. It does
+            FairLend does not need a perfect package to begin review. It does
             need enough signal to distinguish a financeable build from a hopeful
             sketch.
           </p>
@@ -347,7 +359,7 @@ function MultiplexPage() {
       <section aria-labelledby="proof-title" className="mx-proof mx-section">
         <div className="mx-proof-image">
           <img
-            alt="Construction and planning reference grid from the Fairlend brand system"
+            alt="Construction and planning reference grid from the FairLend brand system"
             src={`${assetBase}/multiplex-builder-grid.webp`}
           />
         </div>
@@ -412,10 +424,11 @@ function MultiplexPage() {
           </Button>
         </div>
         <p className="mx-disclosure">
-          Fairlend pages are informational and do not guarantee financing, CMHC
+          FairLend pages are informational and do not guarantee financing, CMHC
           qualification, insurance, approval, pricing, or timing.
         </p>
       </section>
+      <FairLendLegalFooter />
     </main>
   );
 }
@@ -467,12 +480,29 @@ function MultiplexStyles() {
         margin-inline: auto;
       }
 
+      .mx-nav-shell {
+        position: sticky;
+        top: 0;
+        z-index: 50;
+        border-bottom: 1px solid var(--mx-line);
+        background: color-mix(in oklch, var(--mx-paper) 94%, transparent);
+        backdrop-filter: blur(14px);
+      }
+
       .mx-nav {
         display: grid;
         grid-template-columns: auto 1fr auto;
         align-items: center;
         gap: 28px;
         padding: 18px 0;
+      }
+
+      .mx-nav-secondary {
+        display: flex;
+        justify-content: center;
+        gap: clamp(14px, 2.4vw, 34px);
+        border-top: 1px solid var(--mx-soft-line);
+        padding-block: 10px;
       }
 
       .mx-brand,
@@ -504,7 +534,6 @@ function MultiplexStyles() {
       .mx-brand small {
         display: block;
         letter-spacing: 0.16em;
-        text-transform: uppercase;
       }
 
       .mx-brand strong {
@@ -535,6 +564,16 @@ function MultiplexStyles() {
       .mx-nav-links a:hover {
         border-color: var(--mx-terra);
         color: var(--mx-terra);
+      }
+
+      .mx-nav-secondary a {
+        color: var(--mx-blue-deep);
+        font-family: Oxanium, sans-serif;
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-decoration: none;
+        text-transform: uppercase;
       }
 
       .mx-nav-cta,
@@ -1027,11 +1066,11 @@ function MultiplexStyles() {
       }
 
       @media (max-width: 940px) {
-        .mx-nav {
+        .mx-nav-primary {
           grid-template-columns: 1fr auto;
         }
 
-        .mx-nav-links {
+        .mx-nav-primary .mx-nav-links {
           display: none;
         }
 

@@ -14,6 +14,10 @@ import {
 } from "lucide-react";
 import type { ComponentType, ReactElement } from "react";
 
+import {
+  FairLendLegalFooter,
+  FairLendLegalFooterStyles,
+} from "#/components/marketing/fairlend-legal-footer.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Card } from "#/components/ui/card.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
@@ -36,13 +40,13 @@ const reimbursementSequence = [
   {
     label: "01",
     title: "Work completed",
-    copy: "Milestone scope is done before a draw request enters review.",
+    copy: "Milestone scope is completed before a draw is requested.",
     icon: Building2,
   },
   {
     label: "02",
     title: "Evidence captured",
-    copy: "Photos, invoices, notes, and location attempts stay attached to the request.",
+    copy: "Photos, invoices, notes, and location data stay attached to the request.",
     icon: FileCheck2,
   },
   {
@@ -54,7 +58,7 @@ const reimbursementSequence = [
   {
     label: "04",
     title: "Admin release",
-    copy: "Final authority stays with lender admin. Interest starts only after funds are released.",
+    copy: "Final approval rests with the lender. Interest begins accruing on the draw only once the funds are released.",
     icon: ShieldCheck,
   },
 ] satisfies Array<{
@@ -84,39 +88,39 @@ const comparisonPlans = [
 
 const workspaceRows = [
   [
-    "Milestone rail",
-    "Completion, dependency, evidence, and approval state in one line of sight.",
+    "Milestone Rail",
+    "See every milestone's status at a glance — done, blocked, evidenced, or approved.",
   ],
   [
-    "Draw group boxes",
-    "Roadmap spans show which completed milestones travel together for reimbursement.",
+    "Draw Groups",
+    "Shows which completed milestones get funded together in a single draw.",
   ],
   [
-    "Budget versions",
-    "Revisions are recorded instead of overwriting the last approved budget.",
+    "Budget Revisions",
+    "Every budget revision is saved. The last approved version is never overwritten.",
   ],
   [
-    "Audit events",
-    "Overrides and releases carry actor, role, timestamp, prior state, new state, warnings, and reason.",
+    "Audit Events",
+    "Every override and release is logged — who did it, their role, the time, what changed, and why. Nothing moves without a record.",
   ],
 ] as const;
 
 const evidenceRules = [
-  "Geofence failure never discards evidence.",
-  "Location-unverified packages route to lender or admin review.",
+  "A failed location check never deletes your proof",
+  "Unverified locations get escalated to a lender or admin, not auto-rejected.",
   "Site visits can be requested without breaking the draw record.",
-  "Webhook events keep downstream systems informed.",
+  "Connected systems update automatically. No one re-keys the same status twice.",
 ] as const;
 
 export const Route = createFileRoute("/construction-draw-financing")({
   component: ConstructionDrawPage,
   head: () => ({
     meta: [
-      { title: "Construction Draw Financing | Fairlend Capital" },
+      { title: "Construction Draw Financing | FairLend Mortgage" },
       {
         name: "description",
         content:
-          "Fairlend helps builders and lenders plan reimbursement-only construction draws around completed work, evidence, working capital, lender policy, review lag, and audited release decisions.",
+          "FairLend helps builders and lenders plan reimbursement-only construction draws around completed work, evidence, working capital, lender policy, review lag, and audited release decisions.",
       },
     ],
     links: [
@@ -131,6 +135,7 @@ function ConstructionDrawPage(): ReactElement {
   return (
     <main className="df-page">
       <DrawFinancingStyles />
+      <FairLendLegalFooterStyles />
       <PublicNav />
       <HeroSection />
       <ReimbursementSection />
@@ -138,31 +143,33 @@ function ConstructionDrawPage(): ReactElement {
       <ComparisonSection />
       <EvidenceSection />
       <ClosingSection />
+      <FairLendLegalFooter />
     </main>
   );
 }
 
 function PublicNav(): ReactElement {
   return (
-    <nav aria-label="Construction draw financing navigation" className="df-nav">
+    <header className="df-nav-shell">
+      <nav aria-label="FairLend full-site navigation" className="df-nav df-nav-primary">
       <Link
         {...aboutLink}
-        aria-label="Fairlend Capital about"
+        aria-label="FairLend Mortgage about"
         className="df-brand"
         preload="intent"
         viewTransition
       >
         <span className="df-brand-mark">F</span>
         <span>
-          <strong>Fairlend</strong>
-          <small>Capital</small>
+          <strong>FairLend</strong>
+          <small>Mortgage</small>
         </span>
       </Link>
       <div className="df-nav-links">
-        <a href="#sequence">Sequence</a>
-        <a href="#workspace">Workspace</a>
-        <a href="#draw-plans">Draw plans</a>
-        <a href="#evidence">Evidence</a>
+        <Link to="/construction-draw-financing">Construction draws</Link>
+        <Link to="/garden-suite-financing-gta">Garden suites</Link>
+        <Link to="/multiplex-financing-gta">Multiplex</Link>
+        <Link to="/contact">Contact</Link>
       </div>
       <Button
         className="df-nav-button"
@@ -171,7 +178,14 @@ function PublicNav(): ReactElement {
         Start builder review
         <ArrowUpRight aria-hidden />
       </Button>
-    </nav>
+      </nav>
+      <nav aria-label="Construction draw page sections" className="df-nav df-nav-secondary">
+        <a href="#sequence">Sequence</a>
+        <a href="#workspace">Workspace</a>
+        <a href="#draw-plans">Draw plans</a>
+        <a href="#evidence">Evidence</a>
+      </nav>
+    </header>
   );
 }
 
@@ -187,10 +201,9 @@ function HeroSection(): ReactElement {
         <p className="df-kicker">Construction draw financing</p>
         <h1 id="draw-hero-title">Fund completed work with discipline.</h1>
         <p className="df-hero-deck">
-          Fairlend helps builders and lender teams plan reimbursement-only
+          FairLend helps builders and lender teams plan reimbursement-only
           construction draws around milestone dependencies, borrower working
-          capital, lender policy, evidence, site visits, and final admin
-          release.
+          capital, lender policy, evidence, site visits, and admin approval.
         </p>
         <div className="df-hero-actions">
           <Button
@@ -217,7 +230,7 @@ function HeroSection(): ReactElement {
       <Frame className="df-hero-frame">
         <FramePanel className="df-hero-panel">
           <img
-            alt="Fairlend construction draw financing mockup with a building and blueprint overlay."
+            alt="FairLend construction draw financing mockup with a building and blueprint overlay."
             className="df-hero-image"
             decoding="async"
             fetchPriority="high"
@@ -249,8 +262,7 @@ function ReimbursementSection(): ReactElement {
         <h2 id="sequence-title">The release path is explicit.</h2>
         <p>
           DrawFlow keeps the promise narrow on purpose: work first, evidence
-          next, review after that, release only when the authorized lender admin
-          approves.
+          next, review after that, and fund release only once approved.
         </p>
       </div>
       <div className="df-sequence-grid">
@@ -269,7 +281,7 @@ function ReimbursementSection(): ReactElement {
       </div>
       <div className="df-blueprint-strip">
         <img
-          alt="Fairlend blueprint strip with construction elevations and section drawings."
+          alt="FairLend blueprint strip with construction elevations and section drawings."
           height={199}
           loading="lazy"
           src={blueprintStripImage}
@@ -290,12 +302,12 @@ function WorkspaceSection(): ReactElement {
       <div className="df-workspace-copy">
         <p className="df-kicker">Build Workspace</p>
         <h2 id="workspace-title">
-          One control plane for roadmap, draws, and proof.
+          One place for roadmaps, draws and proof
         </h2>
         <p>
-          Roadmap state, draw grouping, evidence package readiness, dependency
-          warnings, site visit status, and release authority belong together.
-          Splitting them makes capital decisions harder to trust.
+          Capital decisions get harder to trust when the file is scattered. One
+          view of the roadmap, draws, evidence, and site status keeps the
+          decision whole.
         </p>
         <div className="df-workspace-table">
           {workspaceRows.map(([title, detail]) => (
@@ -309,7 +321,7 @@ function WorkspaceSection(): ReactElement {
       <Frame className="df-workspace-frame">
         <FramePanel className="df-workspace-panel">
           <img
-            alt="Fairlend website mockup crop showing construction financing controls, building imagery, and blueprint styling."
+            alt="FairLend website mockup crop showing construction financing controls, building imagery, and blueprint styling."
             height={774}
             loading="lazy"
             src={workspaceImage}
@@ -369,12 +381,14 @@ function EvidenceSection(): ReactElement {
         <div>
           <p className="df-kicker">Evidence and site visits</p>
           <h2 id="evidence-title">
-            Proof stays attached, even when location fails.
+            PROOF STAYS ATTACHED — EVEN WHEN GPS DOESN&apos;T
           </h2>
           <p>
-            Field reality is messy. DrawFlow keeps the evidence package intact,
-            marks location-unverified signals clearly, and routes the decision
-            toward staff review, site visit, or admin override.
+            Field reality is messy. GPS drops, signals fail, sites are dead
+            zones. DrawFlow keeps the evidence package intact regardless, flags
+            it clearly when location can&apos;t be verified, and moves it to staff
+            review, a site visit, or admin sign-off. Bad coordinates never cost
+            you the proof.
           </p>
         </div>
         <ul className="df-evidence-list">
@@ -420,7 +434,7 @@ function ClosingSection(): ReactElement {
         />
       </div>
       <div className="df-close-copy">
-        <p className="df-kicker">Fairlend Capital</p>
+        <p className="df-kicker">FairLend Mortgage</p>
         <h2 id="close-title">Put the next draw on rails.</h2>
         <p>
           Bring the build location, milestone roadmap, budget, working-capital
@@ -453,7 +467,7 @@ function ClosingSection(): ReactElement {
             size="xl"
             variant="outline"
           >
-            Contact Fairlend
+            Contact FairLend
           </Button>
         </div>
       </div>
@@ -490,18 +504,29 @@ function DrawFinancingStyles(): ReactElement {
         box-sizing: border-box;
       }
 
-      .df-nav {
+      .df-nav-shell {
         position: sticky;
         top: 0;
         z-index: 40;
+        border-bottom: 1px solid var(--df-line);
+        background: color-mix(in oklch, var(--df-paper) 94%, transparent);
+        backdrop-filter: blur(12px);
+      }
+
+      .df-nav {
         display: grid;
         grid-template-columns: auto 1fr auto;
         align-items: center;
         gap: clamp(1rem, 3vw, 2.5rem);
-        border-bottom: 1px solid var(--df-line);
-        background: color-mix(in oklch, var(--df-paper) 94%, transparent);
         padding: 0.75rem clamp(1rem, 4vw, 3.5rem);
-        backdrop-filter: blur(12px);
+      }
+
+      .df-nav-secondary {
+        display: flex;
+        justify-content: center;
+        gap: clamp(0.75rem, 2vw, 1.6rem);
+        border-top: 1px solid var(--df-muted-line);
+        padding-block: 0.55rem;
       }
 
       .df-brand {
@@ -510,7 +535,6 @@ function DrawFinancingStyles(): ReactElement {
         gap: 0.75rem;
         color: inherit;
         text-decoration: none;
-        text-transform: uppercase;
       }
 
       .df-brand-mark {
@@ -554,6 +578,15 @@ function DrawFinancingStyles(): ReactElement {
         font-size: 0.72rem;
         font-weight: 700;
         letter-spacing: 0.1em;
+        text-decoration: none;
+        text-transform: uppercase;
+      }
+
+      .df-nav-secondary a {
+        color: var(--df-blueprint);
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
         text-decoration: none;
         text-transform: uppercase;
       }

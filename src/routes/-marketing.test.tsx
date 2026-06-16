@@ -132,23 +132,23 @@ const HomePage = HomeRoute.options.component as ComponentType;
 matchMediaMatches = (query: string) => query === "(min-width: 1024px)";
 
 describe("MarketingPage", () => {
-  test("renders the Fairlend hero with both reveal assets and primary CTAs", () => {
+  test("renders the FairLend hero with both reveal assets and primary CTAs", () => {
     const markup = renderToStaticMarkup(<MarketingPage />);
 
-    expect(markup).toContain("Fairlend");
-    expect(markup).toContain("Building a fair");
-    expect(markup).toContain("future for lending");
+    expect(markup).toContain("FairLend");
+    expect(markup).toContain("Building the");
+    expect(markup).toContain("future of Fair Lending");
     expect(markup).toContain("End to End Ecosystem");
     expect(markup).toContain("Borrow <br/> Build <br/> Lend <br/> In one place");
-    expect(markup).toContain("funded deal experience");
+    expect(markup).toContain("in lifetime deals by Principal Broker");
     expect(markup).not.toContain("Ontario lending discipline");
     expect(markup).not.toContain(">FSRA</strong>");
-    expect(markup).not.toContain(">Licensed</span>");
+    expect(markup).toContain(">Licensed</span>");
     expect(markup.match(/Brokerage Licence #13827/g)).toHaveLength(2);
     expect(markup.match(/Administrator Licence #13828/g)).toHaveLength(2);
-    expect(markup).toContain('aria-label="Fairlend regulatory licences"');
+    expect(markup).toContain('aria-label="FairLend regulatory licences"');
     expect(markup).toContain(
-      'aria-label="Fairlend footer regulatory licences"',
+      'aria-label="FairLend footer regulatory licences"',
     );
     expect(markup).not.toContain("mkt-headline-secondary");
     expect(markup).not.toContain("scroll-reveal-text");
@@ -165,11 +165,14 @@ describe("MarketingPage", () => {
     expect(markup).toContain("One fair approach to construction capital");
     expect(markup).toContain("Build financing");
     expect(markup).toContain("Construction draw and bridge financing");
-    expect(markup).toContain("Multiplex lending &amp; investing");
-    expect(markup).toContain("Lend into Canadian multiplex builds");
+    expect(markup).toContain("The FairLend MIC");
+    expect(markup).toContain(
+      "Opening to qualified investors soon — learn how it will work.",
+    );
     expect(markup).toContain("Get a private mortgage");
     expect(markup).toContain("Start private mortgage request");
-    expect(markup).toContain("Broker-led");
+    expect(markup).toContain("MIC");
+    expect(markup).toContain("Coming Soon");
     expect(markup).toContain("Investor opportunities");
     expect(markup).toContain("Private 1st and 2nds");
     expect(markup).toContain("Fund private first and second mortgages");
@@ -182,7 +185,7 @@ describe("MarketingPage", () => {
     expect(markup).not.toContain("Four paths. One fair approach.");
     expect(markup).toContain("Returns without shortcuts");
     expect(markup).toContain("Elie Soberano");
-    expect(markup).toContain("The Fairlend team");
+    expect(markup).toContain("The FairLend team");
     expect(markup).toContain("Build your future with us");
     expect(markup).toContain("Proudly Canadian");
   });
@@ -298,8 +301,8 @@ describe("MarketingPage", () => {
     const markup = renderToStaticMarkup(<HomePage />);
 
     expect(HomeRoute.options.ssr).toBe(false);
-    expect(markup).toContain("Building a fair");
-    expect(markup).toContain("future for lending");
+    expect(markup).toContain("Building the");
+    expect(markup).toContain("future of Fair Lending");
     expect(HomeRoute.options.head?.()).toEqual(Route.options.head?.());
   });
 

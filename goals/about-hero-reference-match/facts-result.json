@@ -1,1 +1,76 @@
-{"decision":"submitted","stage":"facts","result":{"stage":"facts","title":"About Hero Reference Match","goalSlug":"about-hero-reference-match","facts":[{"id":"fact-1","text":"The /about page above-the-fold desktop view matches the supplied CleanShot reference with visual fidelity, not a loose brand reinterpretation.","accepted":true,"removed":false,"automatedVerification":true,"recommendedAutomatedVerification":true},{"id":"fact-2","text":"The matched above-the-fold region includes the hero, the visible Who We Are area, and the What We Finance section region shown in the screenshot.","accepted":true,"removed":false,"automatedVerification":true,"recommendedAutomatedVerification":true},{"id":"fact-3","text":"The hero uses the existing assets from public/assets/about-webp for the house, side house, blueprint, notes, mortgage documents, finance icons, Toronto sketch, and right-side drafting strip rather than newly generated assets.","accepted":true,"removed":false,"automatedVerification":true,"recommendedAutomatedVerification":true},{"id":"fact-4","text":"The hero text treatment uses public/assets/fairlend-investors/patterns/paper-grain-overlay.webp, and other existing paper or drafting overlays are used where needed to match the printed-paper reference texture.","accepted":true,"removed":false,"automatedVerification":true,"recommendedAutomatedVerification":true},{"id":"fact-5","text":"The desktop composition preserves the reference hierarchy: small section marker, very large ABOUT FAIRLEND headline on the left, short body copy, orange CTA, layered image/document collage to the right, and lower grid sections beginning below a horizontal divider.","accepted":true,"removed":false,"automatedVerification":true,"recommendedAutomatedVerification":true},{"id":"fact-6","text":"The primary visual-matching loop targets the wide desktop reference viewport while keeping smaller breakpoints readable and structurally coherent.","accepted":true,"removed":false,"automatedVerification":true,"recommendedAutomatedVerification":true},{"id":"fact-7","text":"Implementation remains scoped to the /about route and directly related styling/tests unless another file is required for the visual match.","accepted":true,"removed":false,"automatedVerification":true,"recommendedAutomatedVerification":true},{"id":"fact-8","text":"Verification includes automated checks plus browser screenshot comparison against the supplied reference, repeated until the above-the-fold view is materially aligned.","accepted":true,"removed":false,"automatedVerification":true,"recommendedAutomatedVerification":true}],"factsMarkdown":"# Facts\n\n- The /about page above-the-fold desktop view matches the supplied CleanShot reference with visual fidelity, not a loose brand reinterpretation.\n- The matched above-the-fold region includes the hero, the visible Who We Are area, and the What We Finance section region shown in the screenshot.\n- The hero uses the existing assets from public/assets/about-webp for the house, side house, blueprint, notes, mortgage documents, finance icons, Toronto sketch, and right-side drafting strip rather than newly generated assets.\n- The hero text treatment uses public/assets/fairlend-investors/patterns/paper-grain-overlay.webp, and other existing paper or drafting overlays are used where needed to match the printed-paper reference texture.\n- The desktop composition preserves the reference hierarchy: small section marker, very large ABOUT FAIRLEND headline on the left, short body copy, orange CTA, layered image/document collage to the right, and lower grid sections beginning below a horizontal divider.\n- The primary visual-matching loop targets the wide desktop reference viewport while keeping smaller breakpoints readable and structurally coherent.\n- Implementation remains scoped to the /about route and directly related styling/tests unless another file is required for the visual match.\n- Verification includes automated checks plus browser screenshot comparison against the supplied reference, repeated until the above-the-fold view is materially aligned."}}
+{
+  "decision": "submitted",
+  "stage": "facts",
+  "result": {
+    "stage": "facts",
+    "title": "About Hero Reference Match",
+    "goalSlug": "about-hero-reference-match",
+    "facts": [
+      {
+        "id": "fact-1",
+        "text": "The /about page above-the-fold desktop view matches the supplied CleanShot reference with visual fidelity, not a loose brand reinterpretation.",
+        "accepted": true,
+        "removed": false,
+        "automatedVerification": true,
+        "recommendedAutomatedVerification": true
+      },
+      {
+        "id": "fact-2",
+        "text": "The matched above-the-fold region includes the hero, the visible Who We Are area, and the What We Finance section region shown in the screenshot.",
+        "accepted": true,
+        "removed": false,
+        "automatedVerification": true,
+        "recommendedAutomatedVerification": true
+      },
+      {
+        "id": "fact-3",
+        "text": "The hero uses the existing assets from public/assets/about-webp for the house, side house, blueprint, notes, mortgage documents, finance icons, Toronto sketch, and right-side drafting strip rather than newly generated assets.",
+        "accepted": true,
+        "removed": false,
+        "automatedVerification": true,
+        "recommendedAutomatedVerification": true
+      },
+      {
+        "id": "fact-4",
+        "text": "The hero text treatment uses public/assets/fairlend-investors/patterns/paper-grain-overlay.webp, and other existing paper or drafting overlays are used where needed to match the printed-paper reference texture.",
+        "accepted": true,
+        "removed": false,
+        "automatedVerification": true,
+        "recommendedAutomatedVerification": true
+      },
+      {
+        "id": "fact-5",
+        "text": "The desktop composition preserves the reference hierarchy: small section marker, very large ABOUT FAIRLEND headline on the left, short body copy, orange CTA, layered image/document collage to the right, and lower grid sections beginning below a horizontal divider.",
+        "accepted": true,
+        "removed": false,
+        "automatedVerification": true,
+        "recommendedAutomatedVerification": true
+      },
+      {
+        "id": "fact-6",
+        "text": "The primary visual-matching loop targets the wide desktop reference viewport while keeping smaller breakpoints readable and structurally coherent.",
+        "accepted": true,
+        "removed": false,
+        "automatedVerification": true,
+        "recommendedAutomatedVerification": true
+      },
+      {
+        "id": "fact-7",
+        "text": "Implementation remains scoped to the /about route and directly related styling/tests unless another file is required for the visual match.",
+        "accepted": true,
+        "removed": false,
+        "automatedVerification": true,
+        "recommendedAutomatedVerification": true
+      },
+      {
+        "id": "fact-8",
+        "text": "Verification includes automated checks plus browser screenshot comparison against the supplied reference, repeated until the above-the-fold view is materially aligned.",
+        "accepted": true,
+        "removed": false,
+        "automatedVerification": true,
+        "recommendedAutomatedVerification": true
+      }
+    ],
+    "factsMarkdown": "# Facts\n\n- The /about page above-the-fold desktop view matches the supplied CleanShot reference with visual fidelity, not a loose brand reinterpretation.\n- The matched above-the-fold region includes the hero, the visible Who We Are area, and the What We Finance section region shown in the screenshot.\n- The hero uses the existing assets from public/assets/about-webp for the house, side house, blueprint, notes, mortgage documents, finance icons, Toronto sketch, and right-side drafting strip rather than newly generated assets.\n- The hero text treatment uses public/assets/fairlend-investors/patterns/paper-grain-overlay.webp, and other existing paper or drafting overlays are used where needed to match the printed-paper reference texture.\n- The desktop composition preserves the reference hierarchy: small section marker, very large ABOUT FAIRLEND headline on the left, short body copy, orange CTA, layered image/document collage to the right, and lower grid sections beginning below a horizontal divider.\n- The primary visual-matching loop targets the wide desktop reference viewport while keeping smaller breakpoints readable and structurally coherent.\n- Implementation remains scoped to the /about route and directly related styling/tests unless another file is required for the visual match.\n- Verification includes automated checks plus browser screenshot comparison against the supplied reference, repeated until the above-the-fold view is materially aligned."
+  }
+}

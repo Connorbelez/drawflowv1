@@ -17,3 +17,10 @@ tmp/
 # Keep them tracked so clean Vercel clones can compile without running Convex
 # codegen before the app bundle is built.
 convex/_generated/ai/
+
+# Impeccable live mode config is source, but runtime journals are not.
+.impeccable/live/sessions/
+.impeccable/live/annotations/
+.impeccable/live/server.json
+.impeccable-live/
+.impeccable-live.json

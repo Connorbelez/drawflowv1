@@ -9,9 +9,7 @@
       "description": "The reference is a dense editorial collage: giant ABOUT FAIRLEND type on textured paper, orange CTA, layered house/blueprint/document assets, and the beginning of lower sections visible.",
       "answerMode": "single-custom",
       "recommendedAnswer": "Prioritize visual fidelity above the fold: layout proportions, asset placement, typography scale, colors, paper texture, CTA treatment, and visible lower-section boundary should closely match the screenshot. Exact pixel identity is not required where responsive rendering, available fonts, or browser differences make it impractical.",
-      "recommendedOptionIds": [
-        "visual_fidelity"
-      ],
+      "recommendedOptionIds": ["visual_fidelity"],
       "options": [
         {
           "id": "visual_fidelity",
@@ -34,11 +32,7 @@
       "description": "The screenshot includes the full first viewport: hero plus the top of the “Who We Are” and “What We Finance” rows.",
       "answerMode": "multi-custom",
       "recommendedAnswer": "Implement the above-the-fold composition needed to match the screenshot, including the hero and the immediately visible lower-row edge if required for visual parity. Avoid rebuilding unrelated below-fold sections unless they affect the first viewport.",
-      "recommendedOptionIds": [
-        "hero",
-        "fold_edge",
-        "tests"
-      ],
+      "recommendedOptionIds": ["hero", "fold_edge", "tests"],
       "options": [
         {
           "id": "hero",
@@ -65,9 +59,7 @@
       "description": "The reference image is a wide desktop screenshot. The page still needs to be sane on smaller screens, but one viewport should be the primary parity target.",
       "answerMode": "single-custom",
       "recommendedAnswer": "Use the reference screenshot aspect and a wide desktop viewport as the primary target. Add responsive fallbacks that preserve the asset system and readable hierarchy on laptop and mobile, but do not let mobile constraints dilute the desktop match.",
-      "recommendedOptionIds": [
-        "desktop_reference"
-      ],
+      "recommendedOptionIds": ["desktop_reference"],
       "options": [
         {
           "id": "desktop_reference",
