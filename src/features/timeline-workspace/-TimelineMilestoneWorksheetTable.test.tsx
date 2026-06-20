@@ -165,6 +165,7 @@ const cascadeRows: TimelineMilestoneWorksheetRow[] = [
 function ControlledWorksheet({
   cascadeBudgetEdits = false,
   contractorOptions = [],
+  initialWorksheetView = "editor",
   initialRows = worksheetRows,
   includeChangeMeta = false,
   mode = "setup",
@@ -179,6 +180,9 @@ function ControlledWorksheet({
     typeof TimelineMilestoneWorksheetTable
   >["contractorOptions"];
   includeChangeMeta?: boolean;
+  initialWorksheetView?: ComponentProps<
+    typeof TimelineMilestoneWorksheetTable
+  >["initialWorksheetView"];
   initialRows?: TimelineMilestoneWorksheetRow[];
   mode?: "settings" | "setup";
   onComplete?: ComponentProps<
@@ -200,6 +204,7 @@ function ControlledWorksheet({
       cascadeBudgetEdits={cascadeEnabled}
       cashText="$25,000"
       contractorOptions={contractorOptions}
+      initialWorksheetView={initialWorksheetView}
       mode={mode}
       onCascadeBudgetEditsChange={setCascadeEnabled}
       onComplete={onComplete}
@@ -221,6 +226,10 @@ function ControlledWorksheet({
 }
 
 function openExpandedMilestoneTab(name: string) {
+  const worksheetTab = screen.getByRole("tab", { name: "Worksheet" });
+  if (worksheetTab.getAttribute("aria-selected") !== "true") {
+    fireEvent.click(worksheetTab);
+  }
   fireEvent.click(screen.getByRole("tab", { name }));
 }
 
@@ -236,10 +245,29 @@ function panelIsHidden(element: HTMLElement | null) {
 }
 
 describe("TimelineMilestoneWorksheetTable", () => {
-  test("switches to a table view with milestone and sub-milestone detail actions", () => {
-    render(<ControlledWorksheet />);
+  test("defaults to table view with milestone and sub-milestone detail actions", () => {
+    render(
+      <TimelineMilestoneWorksheetTable
+        cashText="$25,000"
+        mode="setup"
+        onComplete={vi.fn()}
+        onRowsChange={vi.fn()}
+        rows={worksheetRows}
+        targetBudgetCents={200_000_00}
+        templateTitle="Regression fixture"
+      />
+    );
 
-    fireEvent.click(screen.getByRole("tab", { name: "Table view" }));
+    expect(
+      screen.getByRole("tab", { name: "Table view" }).getAttribute(
+        "aria-selected"
+      )
+    ).toBe("true");
+    expect(
+      screen.getByRole("tab", { name: "Worksheet" }).getAttribute(
+        "aria-selected"
+      )
+    ).toBe("false");
 
     const tablePanel = screen.getByTestId("timeline-setup-table-view-panel");
 
@@ -266,6 +294,76 @@ describe("TimelineMilestoneWorksheetTable", () => {
         "timeline-setup-table-subrow-details-site-prep-foundation-sub-1"
       )
     ).toBeTruthy();
+  });
+
+  test("status chips expose scoped contractor guidance and material summaries", () => {
+    render(
+      <ControlledWorksheet
+        initialWorksheetView="table"
+        initialRows={[
+          {
+            ...worksheetRows[0]!,
+            contractorAssignments: [
+              {
+                contractorId: "contractor-ledger",
+                contractorName: "Ledger Frame Co.",
+                estimatedCostCents: 1_250_000,
+                estimatedHours: 16.5,
+                id: "assignment-ledger",
+                role: "Foundation crew",
+                subMilestoneIds: ["site-prep-foundation-sub-1"],
+              },
+            ],
+            costItems: [
+              {
+                costCents: 8_000_000,
+                description: "Concrete and rebar package",
+                id: "material-foundation",
+                itemType: "material",
+                quantity: 2.5,
+                relevantSubMilestoneIds: ["site-prep-foundation-sub-1"],
+                supplier: "Apex Supply",
+                title: "Foundation material package",
+              },
+            ],
+            siteVisitGuidance: {
+              cameraAngles: "<p>North elevation and footing closeups</p>",
+              whatToVerify: "<p>Verify footing pins before pour</p>",
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(
+      screen
+        .getByTestId("timeline-setup-status-site-prep-foundation-contractor")
+        .getAttribute("aria-label")
+    ).toContain("Ledger Frame Co.");
+    expect(
+      screen
+        .getByTestId("timeline-setup-status-site-prep-foundation-guidance")
+        .getAttribute("aria-label")
+    ).toContain("Verify footing pins before pour");
+    expect(
+      screen
+        .getByTestId("timeline-setup-status-site-prep-foundation-materials")
+        .getAttribute("aria-label")
+    ).toContain("Foundation material package");
+    expect(
+      screen
+        .getByTestId(
+          "timeline-setup-status-site-prep-foundation-sub-1-contractor"
+        )
+        .getAttribute("aria-label")
+    ).toContain("Foundation crew");
+    expect(
+      screen
+        .getByTestId(
+          "timeline-setup-status-site-prep-foundation-sub-1-materials"
+        )
+        .getAttribute("aria-label")
+    ).toContain("2.5 x $80,000");
   });
 
   test("opens table row details in a sheet with the milestone planning tabs", () => {

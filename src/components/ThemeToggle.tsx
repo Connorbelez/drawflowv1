@@ -1,9 +1,10 @@
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { Button } from "./ui/button";
+import { Button, type ButtonProps } from "./ui/button";
 
 type ThemeMode = "light" | "dark" | "auto";
+type ThemeToggleProps = Pick<ButtonProps, "className" | "size" | "variant">;
 
 function getInitialMode(): ThemeMode {
   if (typeof window === "undefined") {
@@ -58,7 +59,11 @@ function getThemeIcon(mode: ThemeMode) {
   }
 }
 
-export default function ThemeToggle() {
+export default function ThemeToggle({
+  className,
+  size = "icon",
+  variant = "outline",
+}: ThemeToggleProps = {}) {
   const [mode, setMode] = useState<ThemeMode>("auto");
 
   useEffect(() => {
@@ -92,11 +97,12 @@ export default function ThemeToggle() {
   return (
     <Button
       aria-label={label}
+      className={className}
       onClick={toggleMode}
-      size="icon"
+      size={size}
       title={label}
       type="button"
-      variant="outline"
+      variant={variant}
     >
       <Icon />
     </Button>

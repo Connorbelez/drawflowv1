@@ -76,6 +76,11 @@ import {
 import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
 import { Toggle } from "#/components/ui/toggle.tsx";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "#/components/ui/tooltip.tsx";
+import {
   formatCurrency,
   parseCurrencyToCents,
 } from "#/features/builder-proposal-demo/template-helpers.ts";
@@ -263,6 +268,7 @@ export function TimelineMilestoneWorksheetTable({
   contractorOptions = [],
   error,
   footerExtra,
+  initialWorksheetView,
   leadingContent,
   mode,
   onBack,
@@ -285,6 +291,7 @@ export function TimelineMilestoneWorksheetTable({
   contractorOptions?: TimelineMilestoneWorksheetContractorOption[];
   error?: string;
   footerExtra?: ReactNode;
+  initialWorksheetView?: TimelineWorksheetView;
   leadingContent?: ReactNode;
   mode: WorksheetMode;
   onBack?: () => void;
@@ -315,8 +322,9 @@ export function TimelineMilestoneWorksheetTable({
       : {}
   );
   const [customMilestoneName, setCustomMilestoneName] = useState("");
-  const [worksheetView, setWorksheetView] =
-    useState<TimelineWorksheetView>("editor");
+  const [worksheetView, setWorksheetView] = useState<TimelineWorksheetView>(
+    () => initialWorksheetView ?? (mode === "setup" ? "table" : "editor")
+  );
   const [detailsSheetTarget, setDetailsSheetTarget] =
     useState<TimelineDetailsSheetTarget | null>(null);
   const keyboardInstructionsId = useId();
@@ -1992,25 +2000,44 @@ function SummaryStatusSignals({
   row: TimelineMilestoneWorksheetRow;
   subMilestone?: TimelineMilestoneWorksheetSubMilestone;
 }) {
-  const contractorCount = subMilestone
-    ? (row.contractorAssignments ?? []).filter((assignment) =>
-        assignment.subMilestoneIds.includes(subMilestone.id)
-      ).length
-    : (row.contractorAssignments ?? []).length;
-  const materialCount = subMilestone
-    ? (row.costItems ?? []).filter((item) =>
-        item.relevantSubMilestoneIds.includes(subMilestone.id)
-      ).length
-    : (row.costItems ?? []).length;
-  const guidanceSet = subMilestone
-    ? Boolean(subMilestone.description.trim())
-    : Boolean(row.siteVisitGuidance);
+  const statusScopeKey = subMilestone?.id ?? row.key;
+  const contractorAssignments = scopedContractorAssignments(row, subMilestone);
+  const materialItems = scopedCostItems(row, subMilestone);
+  const guidanceDetails = summaryGuidanceDetails(row, subMilestone);
 
   return (
     <div className="timeline-blueprint-summary-status">
-      <SummaryStatusChip count={contractorCount} label="Contractor" />
-      <SummaryStatusChip active={guidanceSet} label="Guidance" />
-      <SummaryStatusChip count={materialCount} label="Materials" />
+      <SummaryStatusChip
+        count={contractorAssignments.length}
+        details={
+          <SummaryStatusContractorDetails
+            assignments={contractorAssignments}
+            row={row}
+          />
+        }
+        kind="contractor"
+        label="Contractor"
+        scopeKey={statusScopeKey}
+        summary={summaryContractorStatusText(contractorAssignments, row)}
+      />
+      <SummaryStatusChip
+        active={guidanceDetails.active}
+        details={<SummaryStatusGuidanceDetails details={guidanceDetails} />}
+        kind="guidance"
+        label="Guidance"
+        scopeKey={statusScopeKey}
+        summary={guidanceDetails.summary}
+      />
+      <SummaryStatusChip
+        count={materialItems.length}
+        details={
+          <SummaryStatusMaterialDetails items={materialItems} row={row} />
+        }
+        kind="materials"
+        label="Materials"
+        scopeKey={statusScopeKey}
+        summary={summaryMaterialStatusText(materialItems)}
+      />
     </div>
   );
 }
@@ -2018,21 +2045,297 @@ function SummaryStatusSignals({
 function SummaryStatusChip({
   active,
   count,
+  details,
+  kind,
   label,
+  scopeKey,
+  summary,
 }: {
   active?: boolean;
   count?: number;
+  details: ReactNode;
+  kind: "contractor" | "guidance" | "materials";
   label: string;
+  scopeKey: string;
+  summary: string;
 }) {
   const isActive = active ?? Boolean(count && count > 0);
+  const displayLabel =
+    typeof count === "number" && count > 0 ? `${label} ${count}` : label;
   return (
-    <span
-      className="timeline-blueprint-summary-status-chip"
-      data-state={isActive ? "set" : "missing"}
-    >
-      {typeof count === "number" && count > 0 ? `${label} ${count}` : label}
-    </span>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            aria-label={`${label}: ${summary}`}
+            className="timeline-blueprint-summary-status-chip"
+            data-state={isActive ? "set" : "missing"}
+            data-testid={`timeline-setup-status-${scopeKey}-${kind}`}
+            type="button"
+          />
+        }
+      >
+        {displayLabel}
+      </TooltipTrigger>
+      <TooltipContent
+        className="timeline-blueprint-summary-status-tooltip"
+        side="top"
+        sideOffset={8}
+      >
+        <div className="timeline-blueprint-summary-status-tooltip-card">
+          <div className="timeline-blueprint-summary-status-tooltip-heading">
+            <span>{label}</span>
+            <strong>{displayLabel}</strong>
+          </div>
+          <p>{summary}</p>
+          {details}
+        </div>
+      </TooltipContent>
+    </Tooltip>
   );
+}
+
+function SummaryStatusContractorDetails({
+  assignments,
+  row,
+}: {
+  assignments: TimelineMilestoneWorksheetContractorAssignment[];
+  row: TimelineMilestoneWorksheetRow;
+}) {
+  if (assignments.length === 0) {
+    return (
+      <p className="timeline-blueprint-summary-status-tooltip-empty">
+        No designated contractors are assigned yet.
+      </p>
+    );
+  }
+
+  return (
+    <div className="timeline-blueprint-summary-status-tooltip-list">
+      {assignments.slice(0, 3).map((assignment) => (
+        <article key={assignment.id}>
+          <strong>{assignment.contractorName}</strong>
+          <span>{assignment.role || "Role not set"}</span>
+          <small>{contractorScopeLabel(row, assignment)}</small>
+          <small>{contractorEstimateLabel(assignment)}</small>
+        </article>
+      ))}
+      {assignments.length > 3 ? (
+        <p className="timeline-blueprint-summary-status-tooltip-more">
+          +{assignments.length - 3} more contractor
+          {assignments.length - 3 === 1 ? "" : "s"}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function SummaryStatusGuidanceDetails({
+  details,
+}: {
+  details: SummaryGuidanceDetails;
+}) {
+  if (!details.active) {
+    return (
+      <p className="timeline-blueprint-summary-status-tooltip-empty">
+        Add field guidance from the detail sheet before lender review.
+      </p>
+    );
+  }
+
+  return (
+    <div className="timeline-blueprint-summary-status-tooltip-list">
+      {details.items.map((item) => (
+        <article key={item.label}>
+          <strong>{item.label}</strong>
+          <span>{item.value}</span>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function SummaryStatusMaterialDetails({
+  items,
+  row,
+}: {
+  items: TimelineMilestoneWorksheetCostItem[];
+  row: TimelineMilestoneWorksheetRow;
+}) {
+  if (items.length === 0) {
+    return (
+      <p className="timeline-blueprint-summary-status-tooltip-empty">
+        No material or equipment costs are defined yet.
+      </p>
+    );
+  }
+
+  return (
+    <div className="timeline-blueprint-summary-status-tooltip-list">
+      {items.slice(0, 3).map((item) => (
+        <article key={item.id}>
+          <strong>{item.title}</strong>
+          <span>
+            {item.itemType === "equipment" ? "Equipment" : "Material"} ·{" "}
+            {formatMaterialCost(item)}
+          </span>
+          <small>{item.supplier || "Supplier not set"}</small>
+          <small>{materialScopeLabel(row, item)}</small>
+        </article>
+      ))}
+      {items.length > 3 ? (
+        <p className="timeline-blueprint-summary-status-tooltip-more">
+          +{items.length - 3} more material item
+          {items.length - 3 === 1 ? "" : "s"}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+interface SummaryGuidanceDetails {
+  active: boolean;
+  items: { label: string; value: string }[];
+  summary: string;
+}
+
+function scopedContractorAssignments(
+  row: TimelineMilestoneWorksheetRow,
+  subMilestone?: TimelineMilestoneWorksheetSubMilestone
+) {
+  const assignments = row.contractorAssignments ?? [];
+  if (!subMilestone) {
+    return assignments;
+  }
+  return assignments.filter((assignment) =>
+    assignment.subMilestoneIds.includes(subMilestone.id)
+  );
+}
+
+function scopedCostItems(
+  row: TimelineMilestoneWorksheetRow,
+  subMilestone?: TimelineMilestoneWorksheetSubMilestone
+) {
+  const items = row.costItems ?? [];
+  if (!subMilestone) {
+    return items;
+  }
+  return items.filter((item) =>
+    item.relevantSubMilestoneIds.includes(subMilestone.id)
+  );
+}
+
+function summaryContractorStatusText(
+  assignments: TimelineMilestoneWorksheetContractorAssignment[],
+  row: TimelineMilestoneWorksheetRow
+) {
+  if (assignments.length === 0) {
+    return "No designated contractors assigned.";
+  }
+  return assignments
+    .slice(0, 3)
+    .map(
+      (assignment) =>
+        `${assignment.contractorName}, ${assignment.role || "role not set"}, ${contractorScopeLabel(row, assignment)}`
+    )
+    .join("; ");
+}
+
+function summaryMaterialStatusText(
+  items: TimelineMilestoneWorksheetCostItem[]
+) {
+  if (items.length === 0) {
+    return "No materials or equipment defined.";
+  }
+  return items
+    .slice(0, 3)
+    .map((item) => `${item.title}, ${formatMaterialCost(item)}`)
+    .join("; ");
+}
+
+function summaryGuidanceDetails(
+  row: TimelineMilestoneWorksheetRow,
+  subMilestone?: TimelineMilestoneWorksheetSubMilestone
+): SummaryGuidanceDetails {
+  if (subMilestone) {
+    const scopeNote = subMilestone.description.trim();
+    return {
+      active: Boolean(scopeNote),
+      items: scopeNote ? [{ label: "Scope note", value: scopeNote }] : [],
+      summary: scopeNote || "No field guidance set.",
+    };
+  }
+
+  const guidance = coerceSiteVisitGuidance(row.siteVisitGuidance);
+  const verify = plainTextFromHtml(guidance.whatToVerify);
+  const camera = plainTextFromHtml(guidance.cameraAngles);
+  const items = [
+    verify ? { label: "What to verify", value: verify } : null,
+    camera ? { label: "Required photo angles", value: camera } : null,
+  ].filter((item): item is { label: string; value: string } => Boolean(item));
+
+  return {
+    active: items.length > 0,
+    items,
+    summary:
+      items.length > 0
+        ? items.map((item) => `${item.label}: ${item.value}`).join("; ")
+        : "No field guidance set.",
+  };
+}
+
+function contractorScopeLabel(
+  row: TimelineMilestoneWorksheetRow,
+  assignment: TimelineMilestoneWorksheetContractorAssignment
+) {
+  if (assignment.subMilestoneIds.length === 0) {
+    return "Milestone-level";
+  }
+  return assignment.subMilestoneIds
+    .map((id) => subMilestoneNameById(row, id))
+    .join(", ");
+}
+
+function contractorEstimateLabel(
+  assignment: TimelineMilestoneWorksheetContractorAssignment
+) {
+  const parts = [
+    assignment.estimatedCostCents
+      ? formatCurrency(assignment.estimatedCostCents)
+      : null,
+    assignment.estimatedHours
+      ? `${assignment.estimatedHours} hr${assignment.estimatedHours === 1 ? "" : "s"}`
+      : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : "Estimate not set";
+}
+
+function materialScopeLabel(
+  row: TimelineMilestoneWorksheetRow,
+  item: TimelineMilestoneWorksheetCostItem
+) {
+  if (item.relevantSubMilestoneIds.length === 0) {
+    return "Milestone-level";
+  }
+  return item.relevantSubMilestoneIds
+    .map((id) => subMilestoneNameById(row, id))
+    .join(", ");
+}
+
+function formatMaterialCost(item: TimelineMilestoneWorksheetCostItem) {
+  return `${item.quantity} x ${formatCurrency(item.costCents)}`;
+}
+
+function plainTextFromHtml(value: string) {
+  return value
+    .replace(/<[^>]*>/g, " ")
+    .replaceAll("&nbsp;", " ")
+    .replaceAll("&amp;", "&")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", '"')
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function summaryValueText(

@@ -4070,6 +4070,19 @@ export function TimelineWorkspace({
                           : money(probeCashOnHand)}
                       </p>
                     </div>
+                    <div className="min-w-0 overflow-hidden rounded-md border border-violet-500/25 bg-violet-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
+                      <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
+                        Interest paid
+                      </p>
+                      <p
+                        className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
+                        data-testid="timeline-cashflow-probe-interest-paid"
+                      >
+                        {probeInterestPaid === null
+                          ? "-"
+                          : money(probeInterestPaid)}
+                      </p>
+                    </div>
                     <div className="min-w-0 overflow-hidden rounded-md border border-border bg-muted/30 px-2 py-1.5 sm:px-3 sm:py-2">
                       <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
                         Ending cash
@@ -4101,19 +4114,6 @@ export function TimelineWorkspace({
                         data-testid="timeline-cashflow-builder-cash-used"
                       >
                         {money(cashUseSummary.builderCashUsed)}
-                      </p>
-                    </div>
-                    <div className="min-w-0 overflow-hidden rounded-md border border-violet-500/25 bg-violet-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
-                      <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                        Interest paid
-                      </p>
-                      <p
-                        className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                        data-testid="timeline-cashflow-probe-interest-paid"
-                      >
-                        {probeInterestPaid === null
-                          ? "-"
-                          : money(probeInterestPaid)}
                       </p>
                     </div>
                     <div className="min-w-0 overflow-hidden rounded-md border border-violet-500/25 bg-violet-500/10 px-2 py-1.5 sm:px-3 sm:py-2">

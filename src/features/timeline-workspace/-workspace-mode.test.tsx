@@ -84,6 +84,15 @@ function expectHtmlInput(element: Element | undefined): HTMLInputElement {
   return element as HTMLInputElement;
 }
 
+function expectElementBefore(first: Element, second: Element) {
+  expect(
+    Boolean(
+      first.compareDocumentPosition(second) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    )
+  ).toBe(true);
+}
+
 afterEach(() => {
   mediaQueryMockState.isMobile = false;
   timelineSearchMockState.share = null;
@@ -173,6 +182,32 @@ test("cash use summary uses actual milestone spend when completion cost is filed
     lenderCashUsed: 96_000,
     totalPlannedSpend: 90_000,
   });
+});
+
+test("clusters hover-probe cashflow metrics before static plan totals", () => {
+  renderWorkspace({
+    status: "draft",
+    workspaceMode: "proposal",
+  });
+
+  const orderedMetricIds = [
+    "timeline-cashflow-probe-day",
+    "timeline-cashflow-probe-cash",
+    "timeline-cashflow-probe-interest-paid",
+    "timeline-cashflow-ending-cash",
+    "timeline-cashflow-lender-cash-used",
+    "timeline-cashflow-builder-cash-used",
+    "timeline-cashflow-total-interest-paid",
+    "timeline-cashflow-risk-summary",
+  ];
+  const orderedMetrics = orderedMetricIds.map((id) => screen.getByTestId(id));
+
+  for (const [index, metric] of orderedMetrics.entries()) {
+    const nextMetric = orderedMetrics[index + 1];
+    if (nextMetric) {
+      expectElementBefore(metric, nextMetric);
+    }
+  }
 });
 
 function timelineState({

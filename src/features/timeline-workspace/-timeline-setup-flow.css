@@ -1285,11 +1285,18 @@
   border-radius: 999px;
   background: light-dark(oklch(0.985 0.010 235 / 0.5), oklch(0.08 0.018 258 / 0.5));
   color: light-dark(oklch(0.440 0.040 258), oklch(0.62 0.033 260));
+  cursor: help;
   font-size: 10px;
   font-weight: 760;
   letter-spacing: 0.04em;
   padding: 0 8px;
   text-transform: uppercase;
+  transition:
+    transform var(--setup-fast) var(--setup-ease),
+    border-color var(--setup-fast) var(--setup-ease),
+    background var(--setup-fast) var(--setup-ease),
+    box-shadow var(--setup-fast) var(--setup-ease),
+    color var(--setup-fast) var(--setup-ease);
   white-space: nowrap;
 }
 
@@ -1297,6 +1304,95 @@
   border-color: light-dark(oklch(0.450 0.200 145 / 0.28), oklch(0.82 0.16 145 / 0.28));
   background: light-dark(oklch(0.920 0.090 145 / 0.36), oklch(0.15 0.05 145 / 0.36));
   color: light-dark(oklch(0.350 0.150 145), oklch(0.82 0.17 145));
+}
+
+.timeline-blueprint-summary-status-chip:hover,
+.timeline-blueprint-summary-status-chip:focus-visible {
+  transform: translateY(-1px);
+  border-color: light-dark(oklch(0.400 0.160 236 / 0.62), oklch(0.82 0.14 238 / 0.62));
+  background: light-dark(oklch(0.985 0.010 235 / 0.92), oklch(0.13 0.030 252 / 0.92));
+  box-shadow:
+    0 0 0 3px light-dark(oklch(0.400 0.120 240 / 0.1), oklch(0.72 0.12 238 / 0.12)),
+    0 8px 24px light-dark(oklch(0.130 0.035 258 / 0.09), oklch(0 0 0 / 0.24));
+  color: light-dark(oklch(0.320 0.125 236), oklch(0.9 0.12 238));
+  outline: none;
+}
+
+.timeline-blueprint-summary-status-chip[data-state="set"]:hover,
+.timeline-blueprint-summary-status-chip[data-state="set"]:focus-visible {
+  border-color: light-dark(oklch(0.430 0.200 145 / 0.5), oklch(0.84 0.17 145 / 0.5));
+  background: light-dark(oklch(0.920 0.090 145 / 0.58), oklch(0.18 0.06 145 / 0.58));
+  color: light-dark(oklch(0.280 0.140 145), oklch(0.88 0.17 145));
+}
+
+.timeline-blueprint-summary-status-tooltip {
+  width: min(360px, calc(100vw - 32px));
+  padding: 0;
+  text-align: left;
+  text-transform: none;
+}
+
+.timeline-blueprint-summary-status-tooltip-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.timeline-blueprint-summary-status-tooltip-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.timeline-blueprint-summary-status-tooltip-heading span {
+  color: light-dark(oklch(0.400 0.160 236), oklch(0.78 0.06 246));
+  font-size: 10px;
+  font-weight: 780;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.timeline-blueprint-summary-status-tooltip-heading strong {
+  color: light-dark(oklch(0.180 0.022 258), oklch(0.95 0.012 260));
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.timeline-blueprint-summary-status-tooltip-card > p,
+.timeline-blueprint-summary-status-tooltip-empty,
+.timeline-blueprint-summary-status-tooltip-more {
+  margin: 0;
+  color: light-dark(oklch(0.420 0.040 258), oklch(0.68 0.035 260));
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.timeline-blueprint-summary-status-tooltip-list {
+  display: grid;
+  gap: 8px;
+}
+
+.timeline-blueprint-summary-status-tooltip-list article {
+  display: grid;
+  gap: 3px;
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.16), oklch(0.72 0.08 240 / 0.16));
+  border-radius: 7px;
+  background: light-dark(oklch(0.985 0.010 235 / 0.64), oklch(0.08 0.018 258 / 0.64));
+  padding: 8px;
+}
+
+.timeline-blueprint-summary-status-tooltip-list article strong {
+  color: light-dark(oklch(0.180 0.022 258), oklch(0.94 0.012 260));
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.timeline-blueprint-summary-status-tooltip-list article span,
+.timeline-blueprint-summary-status-tooltip-list article small {
+  color: light-dark(oklch(0.420 0.040 258), oklch(0.68 0.035 260));
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .timeline-blueprint-summary-row-actions {

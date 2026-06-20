@@ -1,12 +1,10 @@
-import {
-  Navigation03Icon,
-  Notification03Icon,
-} from "@hugeicons/core-free-icons";
+import { Notification03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useAuth } from "@workos/authkit-tanstack-react-start/client";
 import { CustomSidebarTrigger } from "#/components/custom-sidebar-trigger.tsx";
 import { NavUser } from "#/components/nav-user.tsx";
 import { RouteBreadcrumbs } from "#/components/route-breadcrumbs.tsx";
+import ThemeToggle from "#/components/ThemeToggle.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Separator } from "#/components/ui/separator.tsx";
 import { cn } from "#/lib/utils.ts";
@@ -38,9 +36,7 @@ export function AppHeader() {
         <RouteBreadcrumbs />
       </div>
       <div className="flex items-center gap-3">
-        <Button size="icon-sm" variant="outline">
-          <HugeiconsIcon icon={Navigation03Icon} strokeWidth={2} />
-        </Button>
+        <ThemeToggle size="icon-sm" />
         <Button aria-label="Notifications" size="icon-sm" variant="outline">
           <HugeiconsIcon icon={Notification03Icon} strokeWidth={2} />
         </Button>
