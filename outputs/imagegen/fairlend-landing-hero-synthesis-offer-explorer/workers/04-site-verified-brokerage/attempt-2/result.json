@@ -1,0 +1,7 @@
+{
+  "id": "04-site-verified-brokerage",
+  "status": "failed",
+  "image_path": null,
+  "error": "Native image generation returned no saved PNG file accessible to write to the requested path.",
+  "caveats": ""
+}

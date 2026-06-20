@@ -1,0 +1,7 @@
+{
+  "id": "02-company-trust-with-quiz",
+  "status": "failed",
+  "image_path": null,
+  "error": "Native image generation completed but did not expose a filesystem path or binary handle to save image.png.",
+  "caveats": ""
+}

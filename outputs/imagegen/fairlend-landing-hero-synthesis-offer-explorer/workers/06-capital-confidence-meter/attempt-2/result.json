@@ -1,0 +1,7 @@
+{
+  "id": "06-capital-confidence-meter",
+  "status": "failed",
+  "image_path": null,
+  "error": "Native image generation completed, but no filesystem image output or bytes were exposed for saving the PNG.",
+  "caveats": ""
+}

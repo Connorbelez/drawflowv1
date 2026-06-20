@@ -7,22 +7,30 @@ import {
   ArrowRight,
   Award,
   ChartNoAxesColumnIncreasing,
+  CheckCircle2,
+  ClipboardCheck,
   DollarSign,
-  ExternalLink,
-  FileCheck2,
+  Eye,
+  FileSignature,
   Gauge,
+  Gavel,
   Home,
+  Landmark,
   Leaf,
   Mail,
   MapPin,
+  PenTool,
+  Percent,
   Phone,
-  Share2,
+  Search,
+  Shield,
   ShieldCheck,
-  UserRound,
+  Users,
   UsersRound,
+  Wallet,
 } from "lucide-react";
 import type { ReactElement } from "react";
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Header as DirectionalHoverHeader } from "#/components/directional-hover-header/header.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Card } from "#/components/ui/card.tsx";
@@ -41,6 +49,10 @@ const buildFinancingAsset =
   "/assets/fairlend-path-build-financing-multiplex-construction.webp";
 const multiplexAsset = "/assets/fairlend-path-gta-sixplex-lane-suite.webp";
 const privateMortgagesAsset = "/assets/fairlend-path-private-mortgages.webp";
+const neighborhoodSketchAsset =
+  "/assets/fairlend-investor-overview/paths-neighborhood-sketch.webp";
+const founderPortraitAsset =
+  "/assets/fairlend-leadership-elie/images/founder-portrait-placeholder-duotone.webp";
 const fairlendLicences = [
   "FairLend Management Inc",
   "Legal business name: FairLend Management Inc",
@@ -56,6 +68,8 @@ function MarketingPage(): ReactElement {
   const renderRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
+  useGridOverlay(rootRef);
+
   useMarketingScrollScene({
     contentRef,
     heroScrollRef,
@@ -67,27 +81,35 @@ function MarketingPage(): ReactElement {
 
   return (
     <main className="mkt-shell" ref={rootRef}>
+      <a className="mkt-skip-link" href="#main-content">
+        Skip to content
+      </a>
       <section
         aria-labelledby="marketing-hero-title"
         className="mkt-hero-scroll"
         ref={heroScrollRef}
       >
         <div className="mkt-hero-pinned" ref={pinRef}>
+          <div aria-hidden className="mkt-hero-progress" />
           <div aria-hidden className="mkt-media-stage">
             <img
-              alt=""
+              alt="Architectural blueprint of a multiplex development"
               className="mkt-hero-blueprint"
               decoding="async"
               fetchPriority="high"
+              height={1333}
               src={blueprintAsset}
+              width={1180}
             />
             <div className="mkt-render-layer" ref={renderRef}>
               <img
-                alt=""
+                alt="Finished multiplex rendering emerging from the blueprint"
                 className="mkt-hero-render"
                 decoding="async"
                 fetchPriority="high"
+                height={1562}
                 src={renderAsset}
+                width={1384}
               />
             </div>
             <div className="mkt-copy-scrim" />
@@ -104,38 +126,40 @@ function MarketingPage(): ReactElement {
                     <p className="mkt-eyebrow">FairLend Mortgage</p>
                     <div className="mkt-headline-stack">
                       <h1 className="mkt-headline" id="marketing-hero-title">
-                        Building the
-                        <br />
-                        future of Fair Lending
+                        Private Lending and Construction Financing That Works
+                        Before, During, and After the Loan Closes
                       </h1>
                     </div>
                     <p className="mkt-hero-subcopy">
-                      Build financing, private mortgages, and investor access
-                      for real Canadian housing, underwritten with transparency
-                      and discipline.
+                      FairLend is a Canadian private lending and construction
+                      financing company built around integration. Whole-picture
+                      underwriting, construction-aware draw planning, and
+                      end-to-end mortgage administration—so borrowers get
+                      responsible structures and investors get disciplined
+                      visibility.
                     </p>
                   </div>
-
-                  <TrustRail />
 
                   <div className="mkt-hero-actions">
                     <Button
                       className="mkt-primary-action"
-                      render={<Link to="/builder/proposals/new" />}
+                      render={<Link to="/contact" />}
                       size="xl"
                     >
-                      Explore build financing
+                      Get a private mortgage
                       <ArrowRight aria-hidden="true" />
                     </Button>
-                    <Button
-                      className="mkt-secondary-action"
-                      render={<Link to="/backoffice" />}
-                      size="xl"
-                      variant="outline"
-                    >
-                      See investor platform
-                      <ArrowRight aria-hidden="true" />
-                    </Button>
+                    <div className="mkt-hero-alt-actions">
+                      <Link
+                        className="mkt-hero-alt-link"
+                        to="/builder/proposals/new"
+                      >
+                        Finance a construction project
+                      </Link>
+                      <Link className="mkt-hero-alt-link" to="/investors">
+                        Explore investor opportunities
+                      </Link>
+                    </div>
                   </div>
                 </section>
 
@@ -149,11 +173,146 @@ function MarketingPage(): ReactElement {
         </div>
       </section>
 
-      <div className="mkt-stick-overlap" ref={proofOverlapRef}>
+      <div
+        className="mkt-stick-overlap"
+        id="main-content"
+        ref={proofOverlapRef}
+      >
         <MarketingProof />
       </div>
+      <GridOverlay />
     </main>
   );
+}
+
+const gridColumnIds = [
+  "col-01",
+  "col-02",
+  "col-03",
+  "col-04",
+  "col-05",
+  "col-06",
+  "col-07",
+  "col-08",
+  "col-09",
+  "col-10",
+  "col-11",
+  "col-12",
+];
+
+const baselineRows = Array.from(
+  { length: 80 },
+  (_, index) => `base-${index + 1}`
+);
+
+function GridOverlay(): ReactElement {
+  return (
+    <div aria-hidden className="mkt-grid-overlay">
+      <div className="mkt-grid-wrap">
+        <div className="mkt-grid-guides">
+          {gridColumnIds.map((id, index) => (
+            <div className="mkt-grid-col" key={id}>
+              <span>{String(index + 1).padStart(2, "0")}</span>
+            </div>
+          ))}
+        </div>
+        <div className="mkt-grid-baseline">
+          {baselineRows.map((id) => (
+            <div key={id} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function useGridOverlay(
+  rootRef: React.RefObject<HTMLElement | null>
+): [boolean, React.Dispatch<React.SetStateAction<boolean>>] {
+  const [gridOn, setGridOn] = useState(false);
+
+  useEffect(() => {
+    rootRef.current?.classList.toggle("mkt-grid-on", gridOn);
+  }, [gridOn, rootRef]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "g" || event.key === "G") {
+        setGridOn((prev) => !prev);
+      }
+    };
+
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  useOpticalAlignment(rootRef);
+
+  return [gridOn, setGridOn];
+}
+
+function debounce<T extends (...args: unknown[]) => void>(
+  fn: T,
+  wait: number
+): (...args: Parameters<T>) => void {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  return (...args: Parameters<T>) => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+    timeoutId = setTimeout(() => {
+      fn(...args);
+    }, wait);
+  };
+}
+
+function useOpticalAlignment(
+  rootRef: React.RefObject<HTMLElement | null>
+): void {
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || typeof document === "undefined") {
+      return;
+    }
+
+    const alignInk = () => {
+      const ctx = document.createElement("canvas").getContext("2d");
+      if (!ctx) {
+        return;
+      }
+
+      const displayHeadlines = root.querySelectorAll(
+        ".mkt-headline, .mkt-gap-copy h2, .mkt-answer-copy h2, .mkt-model-header h2, .mkt-why-header h2, .mkt-final-copy h2, .mkt-authority-panel h2"
+      );
+      for (const el of displayHeadlines) {
+        const htmlEl = el as HTMLElement;
+        htmlEl.style.marginLeft = "0px";
+        const ch = (htmlEl.textContent || "").trim()[0];
+        if (!ch) {
+          continue;
+        }
+        const style = getComputedStyle(htmlEl);
+        ctx.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+        ctx.textAlign = "left";
+        const metrics = ctx.measureText(ch);
+        const abl = (metrics as unknown as { actualBoundingBoxLeft?: number })
+          .actualBoundingBoxLeft;
+        if (abl && Number.isFinite(abl)) {
+          htmlEl.style.marginLeft = `${abl.toFixed(2)}px`;
+        }
+      }
+    };
+
+    const fontReady = document.fonts?.ready;
+    if (fontReady) {
+      fontReady.then(alignInk);
+    } else {
+      alignInk();
+    }
+    const debouncedAlignInk = debounce(alignInk, 150);
+    window.addEventListener("resize", debouncedAlignInk);
+    return () => window.removeEventListener("resize", debouncedAlignInk);
+  }, [rootRef]);
 }
 
 function useMarketingScrollScene({
@@ -194,6 +353,11 @@ function useMarketingScrollScene({
           leftTrack
         )
       ) {
+        return;
+      }
+
+      const progressEl = pinEl.querySelector<HTMLElement>(".mkt-hero-progress");
+      if (!progressEl) {
         return;
       }
 
@@ -321,6 +485,12 @@ function useMarketingScrollScene({
               y: 0,
             },
             0.72
+          )
+          .fromTo(
+            progressEl,
+            { scaleX: 0, transformOrigin: "0% 50%" },
+            { duration: 1, scaleX: 1 },
+            0
           );
 
         const refreshFrame = requestAnimationFrame(() => {
@@ -412,6 +582,12 @@ function useMarketingScrollScene({
             y: 0,
           },
           0.62
+        )
+        .fromTo(
+          progressEl,
+          { scaleX: 0, transformOrigin: "0% 50%" },
+          { duration: 1, scaleX: 1 },
+          0
         );
 
       let active = true;
@@ -455,17 +631,13 @@ function AuthorityPanel(): ReactElement {
       aria-label="FairLend authority and social proof"
       className="mkt-authority-panel"
     >
-      <p>End to End Ecosystem</p>
+      <p>An Integrated Model</p>
       <h2>
         Borrow <br /> Build <br /> Lend <br /> In one place
       </h2>
-      {/* <h2>Build</h2>
-      <h2>Lend</h2>
-      <h2>All in one place</h2> */}
       <span>
-        Private mortgages without junk fees. Construction financing with
-        on-demand draws. Private-mortgage investing with the administration
-        handled.
+        Brokerage expertise, in-house underwriting, construction-aware draw
+        management, and mortgage administration—together, not in silos.
       </span>
       <div className="mkt-authority-proof">
         {proof.map((item) => (
@@ -476,24 +648,6 @@ function AuthorityPanel(): ReactElement {
         ))}
       </div>
     </section>
-  );
-}
-
-function TrustRail(): ReactElement {
-  const items = [
-    { icon: FileCheck2, label: "Transparent terms" },
-    { icon: ChartNoAxesColumnIncreasing, label: "Technology-led underwriting" },
-  ];
-
-  return (
-    <div aria-label="FairLend trust signals" className="mkt-trust-rail">
-      {items.map(({ icon: Icon, label }) => (
-        <div className="mkt-trust-item" key={label}>
-          <Icon aria-hidden="true" />
-          <span>{label}</span>
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -538,6 +692,309 @@ function RegulatoryCard(): ReactElement {
   );
 }
 
+function StructuralGapSection(): ReactElement {
+  return (
+    <section aria-labelledby="marketing-gap-title" className="mkt-gap-section">
+      <div className="mkt-wrap">
+        <div className="mkt-band mkt-gap-lead-band">
+          <div className="mkt-gap-eyebrow mkt-start-1 mkt-end-13">
+            <span className="mkt-section-number">01</span>
+            <span>The structural gap</span>
+          </div>
+          <h2
+            className="mkt-gap-headline mkt-start-1 mkt-end-8"
+            id="marketing-gap-title"
+          >
+            The Private Lending Market Has a Structural Problem
+          </h2>
+          <div className="mkt-gap-lead mkt-start-8 mkt-end-13">
+            <p>
+              Borrowers often need capital faster or more flexibly than
+              conventional lenders can provide. But private lending is
+              frequently opaque, punitive, and abandoned the moment the deal
+              closes.
+            </p>
+            <p>
+              Builders and property owners have viable housing projects that
+              stall because the financing package is incomplete, the draw
+              structure is rigid, or the lender does not understand how
+              construction actually unfolds.
+            </p>
+            <p>
+              Investors want access to real estate-backed opportunities, but
+              Ontario&apos;s mortgage regulator keeps finding the same problems:
+              inaccurate cost-of-borrowing disclosures, undisclosed or
+              miscalculated APRs, weak suitability assessments, conflicts of
+              interest between brokers and administrators, and investor funds
+              commingled with operational cash. In its latest supervision plan,
+              FSRA found only 35.5% of reviewed files had correct APR
+              calculations.
+            </p>
+            <strong>
+              The result: deals that should work, don&apos;t. Projects that
+              should finish, stall. Capital that should align with progress,
+              fights against it.
+            </strong>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FairlendAnswerSection(): ReactElement {
+  const capabilities = [
+    "Brokerage expertise paired with in-house underwriting and construction judgment.",
+    "Private mortgage origination with fully managed administration after closing.",
+    "Construction financing aligned with real build progress through our DrawFlow workflow.",
+    "Investor visibility through the FairLend Investor Portal, not marketing promises.",
+    "Recovery and legal resources that stay engaged when execution matters most.",
+  ];
+
+  return (
+    <section
+      aria-labelledby="marketing-answer-title"
+      className="mkt-answer-section"
+    >
+      <div className="mkt-wrap">
+        <div className="mkt-band mkt-answer-band">
+          <div className="mkt-answer-eyebrow mkt-start-1 mkt-end-13">
+            <span className="mkt-section-number">02</span>
+            <span>The FairLend answer</span>
+          </div>
+          <div className="mkt-answer-copy mkt-start-1 mkt-end-7">
+            <h2 id="marketing-answer-title">
+              An Integrated Model, Not a Single Product
+            </h2>
+            <p className="mkt-answer-lead">
+              FairLend brings together capabilities that are usually separated
+              in the market:
+            </p>
+            <ul className="mkt-answer-list">
+              {capabilities.map((item) => (
+                <li key={item}>
+                  <CheckCircle2 aria-hidden="true" />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mkt-answer-positioning">
+              Technology handles the workflow. Experienced people make the
+              judgment calls.
+            </p>
+          </div>
+          <div className="mkt-answer-visual mkt-start-8 mkt-end-13">
+            <img
+              alt="Neighborhood sketch showing integrated housing and capital planning"
+              height={1240}
+              loading="lazy"
+              src={neighborhoodSketchAsset}
+              width={1860}
+            />
+            <div className="mkt-answer-plate">
+              <strong>DrawFlow</strong>
+              <span>Construction-aware draw management</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function OperatingModelSection(): ReactElement {
+  const steps = [
+    {
+      number: "01",
+      title: "Intake & Financeability Review",
+      copy: "We review the full picture—borrower, property, project, capital stack, documentation, and execution risk—before we commit to a path forward.",
+      icon: Search,
+    },
+    {
+      number: "02",
+      title: "Underwriting & Structuring",
+      copy: "Human-led underwriting supported by AI-assisted analysis of approximately 7,000 data points. Appraisal review, legal review, and product expertise structure the file for durability.",
+      icon: PenTool,
+    },
+    {
+      number: "03",
+      title: "Commitment",
+      copy: "For private mortgages, our target is a 3-day path from application to commitment where the file is complete and suitable. Fast and disciplined, not automatic.",
+      icon: ClipboardCheck,
+    },
+    {
+      number: "04",
+      title: "Digital Closing",
+      copy: "Streamlined closing with dedicated platform lawyers and workflow infrastructure designed to reduce friction and administrative burden.",
+      icon: FileSignature,
+    },
+    {
+      number: "05",
+      title: "Administration & Monitoring",
+      copy: "PAD collection, automated investor disbursements, payment tracking, servicing, and ongoing milestone monitoring for construction files.",
+      icon: Wallet,
+    },
+    {
+      number: "06",
+      title: "Recovery & Resolution",
+      copy: "If a file becomes distressed, specialist legal resources and project recovery capabilities are already in place. Prevention first. Response second.",
+      icon: Gavel,
+    },
+  ];
+
+  return (
+    <section
+      aria-labelledby="marketing-model-title"
+      className="mkt-model-section"
+    >
+      <div className="mkt-wrap">
+        <div className="mkt-band mkt-model-band">
+          <div className="mkt-model-eyebrow mkt-start-1 mkt-end-13">
+            <span className="mkt-section-number">03</span>
+            <span>How it works</span>
+          </div>
+          <div className="mkt-model-header mkt-start-1 mkt-end-5">
+            <h2 id="marketing-model-title">
+              From Intake to Administration, an End-to-End Workflow
+            </h2>
+          </div>
+          <ol className="mkt-model-list mkt-start-6 mkt-end-13">
+            {steps.map(({ icon: Icon, number, title, copy }) => (
+              <li className="mkt-model-item" key={number}>
+                <div className="mkt-model-item-header">
+                  <span className="mkt-model-number">{number}</span>
+                  <Icon aria-hidden="true" />
+                </div>
+                <h3>{title}</h3>
+                <p>{copy}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function WhyFairlendSection(): ReactElement {
+  const reasons = [
+    {
+      icon: Landmark,
+      title: "One operating model, not a chain of hand-offs.",
+      copy: "Origination, underwriting, administration, and draw management sit under one roof, with segregated trust accounting and clear governance. That reduces the conflicts, information loss, and reconciliations that regulators keep flagging between brokers and administrators.",
+    },
+    {
+      icon: Percent,
+      title: "Accurate cost of borrowing and real LTV discipline.",
+      copy: "We calculate and disclose APRs properly, include all required charges, label estimates clearly, and document suitability. Collateral value is verified through expert appraisal review and double-appraisal processes where applicable, so LTV is grounded in reality, not optimism.",
+    },
+    {
+      icon: MapPin,
+      title: "GTA-specific expertise, not generic national lending.",
+      copy: "Decades of local knowledge in Toronto real estate, construction, permitting, and appraisal dynamics. We understand this market because we operate in it.",
+    },
+    {
+      icon: Eye,
+      title: "Construction-aware, not construction-blind.",
+      copy: "We walk every build after milestones. We verify progress against spec. We identify budget pressure and schedule drift before they become draw problems.",
+    },
+    {
+      icon: Shield,
+      title: "Investor safeguards built in, not bolted on.",
+      copy: "Timely trust reconciliations, segregation of investor and operational funds, performance monitoring, and clear administration agreements. We treat investor capital with the custody discipline the sector demands.",
+    },
+    {
+      icon: Users,
+      title: "Human-led, technology-enabled.",
+      copy: "AI supports our underwriting. Software supports our workflow. But the judgment calls come from experienced mortgage professionals, construction operators, and legal specialists.",
+    },
+  ];
+
+  return (
+    <section aria-labelledby="marketing-why-title" className="mkt-why-section">
+      <div className="mkt-wrap">
+        <div className="mkt-band mkt-why-band">
+          <div className="mkt-why-eyebrow mkt-start-1 mkt-end-13">
+            <span className="mkt-section-number">04</span>
+            <span>Why FairLend</span>
+          </div>
+          <div className="mkt-why-header mkt-start-1 mkt-end-5">
+            <h2 id="marketing-why-title">
+              Built for Borrowers, Builders, and Investors Who Expect More
+            </h2>
+          </div>
+          <ul className="mkt-why-list mkt-start-6 mkt-end-13">
+            {reasons.map(({ icon: Icon, title, copy }) => (
+              <li className="mkt-why-item" key={title}>
+                <Icon aria-hidden="true" />
+                <div>
+                  <h3>{title}</h3>
+                  <p>{copy}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FinalConversionSection(): ReactElement {
+  return (
+    <section
+      aria-labelledby="marketing-final-title"
+      className="mkt-final-section"
+    >
+      <div className="mkt-wrap">
+        <div className="mkt-band mkt-final-band">
+          <div className="mkt-final-eyebrow mkt-start-1 mkt-end-13">
+            <span className="mkt-section-number">05</span>
+            <span>Next step</span>
+          </div>
+          <div className="mkt-final-copy mkt-start-1 mkt-end-8">
+            <h2 id="marketing-final-title">
+              Better Financing Can Make Better Housing Economically Possible
+            </h2>
+            <p>
+              If you are a borrower seeking responsible private capital, a
+              builder planning a project, an investor looking for disciplined
+              visibility, or a broker with a complex file—FairLend can help you
+              assess what comes next.
+            </p>
+          </div>
+          <div className="mkt-final-actions mkt-start-8 mkt-end-13">
+            <Button
+              className="mkt-final-action-primary"
+              render={<Link to="/contact" />}
+              size="xl"
+            >
+              Get a private mortgage
+              <ArrowRight aria-hidden="true" />
+            </Button>
+            <div className="mkt-final-alt-actions">
+              <Link className="mkt-final-alt-link" to="/builder/proposals/new">
+                Start a construction financing review
+              </Link>
+              <Link className="mkt-final-alt-link" to="/investors">
+                Request investor portal access
+              </Link>
+              <Link className="mkt-final-alt-link" to="/contact">
+                Refer a project as a partner
+              </Link>
+            </div>
+          </div>
+          <p className="mkt-final-microcopy mkt-start-1 mkt-end-13">
+            All opportunities subject to underwriting, qualification, and
+            project review. FairLend does not guarantee approvals, returns, or
+            project outcomes. CMHC MLI Select qualification is not guaranteed.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function MarketingProof(): ReactElement {
   const stats = [
     {
@@ -571,6 +1028,8 @@ function MarketingProof(): ReactElement {
       image: buildFinancingAsset,
       imageAlt:
         "FairLend build financing illustration for construction borrowers",
+      imageHeight: 898,
+      imageWidth: 1402,
       href: "/construction-draw-financing",
       id: "build-financing",
       linkLabel: "Explore builder financing",
@@ -582,6 +1041,8 @@ function MarketingProof(): ReactElement {
       image: multiplexAsset,
       imageAlt:
         "Multiplex construction project illustration for private lenders",
+      imageHeight: 955,
+      imageWidth: 1647,
       href: "/investors",
       id: "multiplex-lending-investing",
       linkLabel: "Explore multiplex lending",
@@ -593,6 +1054,8 @@ function MarketingProof(): ReactElement {
       image: privateMortgagesAsset,
       imageAlt:
         "FairLend private mortgage borrower path illustration for Canadian real estate financing",
+      imageHeight: 1003,
+      imageWidth: 1568,
       href: "/contact",
       id: "private-mortgage-borrower",
       linkLabel: "Start private mortgage request",
@@ -604,6 +1067,8 @@ function MarketingProof(): ReactElement {
       image: privateMortgagesAsset,
       imageAlt:
         "Private mortgage financing path illustration for Canadian real estate borrowers",
+      imageHeight: 1003,
+      imageWidth: 1568,
       href: "/investors",
       id: "private-first-second-mortgages",
       linkLabel: "Explore private lending",
@@ -685,43 +1150,65 @@ function MarketingProof(): ReactElement {
         ))}
       </section>
 
+      <StructuralGapSection />
+      <FairlendAnswerSection />
+
       <section
         aria-labelledby="marketing-pathways-title"
         className="mkt-pathways"
       >
-        <div className="mkt-pathways-heading">
-          <h2 id="marketing-pathways-title">Our services</h2>
-          <p>
-            One fair approach to construction capital, private lending, and
-            investor access.
-          </p>
-        </div>
-        <div className="mkt-path-grid">
-          {paths.map((path) => (
-            <Card
-              className={
-                path.dark ? "mkt-path-card mkt-path-card-dark" : "mkt-path-card"
-              }
-              id={path.id}
-              key={path.title}
-            >
-              <div className="mkt-path-visual">
-                <img alt={path.imageAlt} loading="lazy" src={path.image} />
-              </div>
-              <div className="mkt-path-copy">
-                <span>{path.eyebrow}</span>
-                <h3>{path.title}</h3>
-                <i aria-hidden="true" />
-                <p>{path.copy}</p>
-              </div>
-              <a className="mkt-path-link" href={path.href}>
-                <span>{path.linkLabel}</span>
-                <ArrowRight aria-hidden="true" />
-              </a>
-            </Card>
-          ))}
+        <div className="mkt-wrap">
+          <div className="mkt-band mkt-pathways-band">
+            <div className="mkt-pathways-eyebrow mkt-start-1 mkt-end-13">
+              <span className="mkt-section-number">Services</span>
+              <span>How capital moves</span>
+            </div>
+            <div className="mkt-pathways-header mkt-start-1 mkt-end-5">
+              <h2 id="marketing-pathways-title">Our services</h2>
+              <p>
+                One fair approach to construction capital, private lending, and
+                investor access.
+              </p>
+            </div>
+            <div className="mkt-path-grid mkt-start-5 mkt-end-13">
+              {paths.map((path, index) => (
+                <Card
+                  className={
+                    path.dark
+                      ? "mkt-path-card mkt-path-card-dark"
+                      : "mkt-path-card"
+                  }
+                  data-path-index={index}
+                  id={path.id}
+                  key={path.title}
+                >
+                  <div className="mkt-path-visual">
+                    <img
+                      alt={path.imageAlt}
+                      height={path.imageHeight}
+                      loading="lazy"
+                      src={path.image}
+                      width={path.imageWidth}
+                    />
+                  </div>
+                  <div className="mkt-path-copy">
+                    <span>{path.eyebrow}</span>
+                    <h3>{path.title}</h3>
+                    <i aria-hidden="true" />
+                    <p>{path.copy}</p>
+                  </div>
+                  <a className="mkt-path-link" href={path.href}>
+                    <span>{path.linkLabel}</span>
+                    <ArrowRight aria-hidden="true" />
+                  </a>
+                </Card>
+              ))}
+            </div>
+          </div>
         </div>
       </section>
+
+      <OperatingModelSection />
 
       <section
         aria-labelledby="marketing-principles-title"
@@ -741,16 +1228,21 @@ function MarketingProof(): ReactElement {
         </div>
       </section>
 
+      <WhyFairlendSection />
+
       <section
         aria-labelledby="marketing-founder-title"
         className="mkt-leadership"
         id="about"
       >
         <div aria-hidden="true" className="mkt-founder-photo">
-          <img alt="" loading="lazy" src={renderAsset} />
-          <div>
-            <UserRound aria-hidden="true" />
-          </div>
+          <img
+            alt="Stylized editorial portrait of Elie Soberano, Founder and Principal Broker"
+            height={1500}
+            loading="lazy"
+            src={founderPortraitAsset}
+            width={1200}
+          />
         </div>
         <div className="mkt-founder-copy">
           <p>Founder & Principal Broker</p>
@@ -780,33 +1272,45 @@ function MarketingProof(): ReactElement {
       </section>
 
       <section aria-labelledby="marketing-team-title" className="mkt-team">
-        <div className="mkt-team-copy">
-          <h2 id="marketing-team-title">The FairLend team</h2>
-          <i aria-hidden="true" />
-          <p>
-            A team of lenders, builders, analysts, and operators who bring
-            experience and care to every deal.
-          </p>
-        </div>
-        <div aria-label="FairLend team preview" className="mkt-team-roster">
-          {team.map((person, index) => (
-            <div className="mkt-team-card" key={person.name}>
-              <div className={`mkt-team-avatar mkt-team-avatar-${index + 1}`}>
-                <span>{person.name.charAt(0)}</span>
-              </div>
-              <strong>{person.name}</strong>
-              <span>{person.role}</span>
+        <div className="mkt-wrap">
+          <div className="mkt-band mkt-team-band">
+            <div className="mkt-team-eyebrow mkt-start-1 mkt-end-13">
+              <span className="mkt-section-number">People</span>
+              <span>Who builds this</span>
             </div>
-          ))}
+            <div className="mkt-team-copy mkt-start-1 mkt-end-5">
+              <h2 id="marketing-team-title">The FairLend team</h2>
+              <p>
+                A team of lenders, builders, analysts, and operators who bring
+                experience and care to every deal.
+              </p>
+              <Button
+                className="mkt-team-action"
+                render={<Link hash="about" to="/marketing" />}
+                variant="outline"
+              >
+                Meet the team
+                <ArrowRight aria-hidden="true" />
+              </Button>
+            </div>
+            <ul
+              aria-label="FairLend team preview"
+              className="mkt-team-roster mkt-start-6 mkt-end-13"
+            >
+              {team.map((person) => (
+                <li className="mkt-team-row" key={person.name}>
+                  <div className="mkt-team-avatar">
+                    <span>{person.name.charAt(0)}</span>
+                  </div>
+                  <div className="mkt-team-meta">
+                    <strong>{person.name}</strong>
+                    <span>{person.role}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
-        <Button
-          className="mkt-team-action"
-          render={<Link hash="about" preload="intent" to="/" viewTransition />}
-          variant="outline"
-        >
-          Meet the team
-          <ArrowRight aria-hidden="true" />
-        </Button>
       </section>
 
       <section
@@ -826,18 +1330,22 @@ function MarketingProof(): ReactElement {
         </div>
         <Button
           className="mkt-careers-action"
-          render={
-            <Link hash="careers" preload="intent" to="/" viewTransition />
-          }
+          render={<Link hash="careers" to="/marketing" />}
         >
           View open roles
           <ArrowRight aria-hidden="true" />
         </Button>
       </section>
 
+      <FinalConversionSection />
+
       <footer className="mkt-footer" id="resources">
         <div className="mkt-footer-brand">
-          <Link aria-label="FairLend Mortgage home" className="mkt-brand" to="/">
+          <Link
+            aria-label="FairLend Mortgage home"
+            className="mkt-brand"
+            to="/"
+          >
             <span>FairLend</span>
             <small>Mortgage</small>
           </Link>
@@ -894,10 +1402,6 @@ function MarketingProof(): ReactElement {
             ariaLabel="FairLend footer regulatory licences"
             className="mkt-footer-licences"
           />
-          <div>
-            <ExternalLink aria-hidden="true" />
-            <Share2 aria-hidden="true" />
-          </div>
         </div>
         <div className="mkt-footer-bottom">
           <span>© 2026 FairLend Mortgage</span>
@@ -907,6 +1411,24 @@ function MarketingProof(): ReactElement {
             </a>
             <a href="#terms">Terms of Use</a>
           </div>
+        </div>
+        <div className="mkt-footer-compliance">
+          <p>
+            FairLend is a Canadian private lending, construction financing,
+            mortgage administration, and investor-access company. We are
+            technology-enabled, not technology-theatre. Our goal is not to
+            originate more loans. It is to structure better files, administer
+            them properly, and help real estate-backed financing work better for
+            everyone involved.
+          </p>
+          <p>
+            All financing subject to underwriting, borrower qualification,
+            property review, appraisal review, and legal review. Past
+            performance does not guarantee future results. The FairLend Investor
+            Portal is a workflow and visibility layer supporting human-led
+            brokerage operations; it is not an autonomous investment marketplace
+            or guaranteed-return platform.
+          </p>
         </div>
       </footer>
     </>

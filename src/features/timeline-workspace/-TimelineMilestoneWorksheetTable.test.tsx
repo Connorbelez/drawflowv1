@@ -6,12 +6,14 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { type ComponentProps, useState } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import {
   TimelineMilestoneWorksheetTable,
+  moveSubMilestoneWithinSummaryRows,
   type TimelineMilestoneWorksheetRow,
   type TimelineMilestoneWorksheetRowsChangeMeta,
   type TimelineScheduleDisplayMode,
@@ -234,6 +236,380 @@ function panelIsHidden(element: HTMLElement | null) {
 }
 
 describe("TimelineMilestoneWorksheetTable", () => {
+  test("switches to a table view with milestone and sub-milestone detail actions", () => {
+    render(<ControlledWorksheet />);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Table view" }));
+
+    const tablePanel = screen.getByTestId("timeline-setup-table-view-panel");
+
+    expect(
+      within(tablePanel).getByTestId(
+        "timeline-setup-table-row-site-prep-foundation"
+      )
+    ).toBeTruthy();
+    expect(
+      within(tablePanel).getByTestId(
+        "timeline-setup-table-subrow-site-prep-foundation-sub-1"
+      )
+    ).toBeTruthy();
+    expect(
+      within(tablePanel).getAllByText("Day 0 to 14").length
+    ).toBeGreaterThan(0);
+    expect(
+      within(tablePanel).getByTestId(
+        "timeline-setup-table-row-details-site-prep-foundation"
+      )
+    ).toBeTruthy();
+    expect(
+      within(tablePanel).getByTestId(
+        "timeline-setup-table-subrow-details-site-prep-foundation-sub-1"
+      )
+    ).toBeTruthy();
+  });
+
+  test("opens table row details in a sheet with the milestone planning tabs", () => {
+    const onRowsChange = vi.fn();
+    render(
+      <ControlledWorksheet
+        contractorOptions={[
+          {
+            contractorId: "contractor-ledger",
+            name: "Ledger Frame Co.",
+            trades: ["Framing"],
+          },
+        ]}
+        onRowsChange={onRowsChange}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Table view" }));
+    fireEvent.click(
+      screen.getByTestId(
+        "timeline-setup-table-row-details-site-prep-foundation"
+      )
+    );
+
+    const sheet = screen.getByTestId(
+      "timeline-setup-details-sheet-site-prep-foundation"
+    );
+    const popup = sheet.closest('[data-slot="sheet-popup"]') as HTMLElement;
+    const backdrop = document.querySelector(
+      '[data-slot="sheet-backdrop"]'
+    ) as HTMLElement;
+
+    expect(popup.className).toContain("is-milestone-detail");
+    expect(backdrop.className).toContain(
+      "timeline-blueprint-details-sheet-backdrop"
+    );
+
+    expect(
+      within(sheet).getByRole("tab", { name: "Sub-milestones" })
+    ).toBeTruthy();
+    expect(
+      within(sheet).getByRole("tab", { name: "Contractors" })
+    ).toBeTruthy();
+    expect(
+      within(sheet).getByRole("tab", { name: "Materials" })
+    ).toBeTruthy();
+    expect(
+      within(sheet).getByRole("tab", { name: "Field Guidance" })
+    ).toBeTruthy();
+    expect(
+      (
+        within(sheet).getByTestId(
+          "timeline-setup-submilestone-name-site-prep-foundation-sub-1"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("Foundation scope");
+
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Contractors" }));
+    fireEvent.change(
+      within(sheet).getByTestId(
+        "timeline-setup-contractor-name-site-prep-foundation"
+      ),
+      { target: { value: "Ledger Frame Co." } }
+    );
+    fireEvent.change(
+      within(sheet).getByTestId(
+        "timeline-setup-contractor-role-site-prep-foundation"
+      ),
+      { target: { value: "Foundation crew" } }
+    );
+    fireEvent.click(
+      within(sheet).getByTestId(
+        "timeline-setup-add-contractor-site-prep-foundation"
+      )
+    );
+
+    expect(onRowsChange).toHaveBeenLastCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          contractorAssignments: [
+            expect.objectContaining({
+              contractorId: "contractor-ledger",
+              contractorName: "Ledger Frame Co.",
+              role: "Foundation crew",
+              subMilestoneIds: [],
+            }),
+          ],
+          key: "site-prep-foundation",
+        }),
+      ])
+    );
+  });
+
+  test("opens sub-milestone details in a focused sheet and scopes work to that sub-milestone", () => {
+    const onRowsChange = vi.fn();
+    render(
+      <ControlledWorksheet
+        contractorOptions={[
+          {
+            contractorId: "contractor-ledger",
+            name: "Ledger Frame Co.",
+            trades: ["Framing"],
+          },
+        ]}
+        onRowsChange={onRowsChange}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Table view" }));
+    fireEvent.click(
+      screen.getByTestId(
+        "timeline-setup-table-subrow-details-site-prep-foundation-sub-1"
+      )
+    );
+
+    const sheet = screen.getByTestId(
+      "timeline-setup-submilestone-details-sheet-site-prep-foundation-sub-1"
+    );
+    const popup = sheet.closest('[data-slot="sheet-popup"]') as HTMLElement;
+    const backdrop = document.querySelector(
+      '[data-slot="sheet-backdrop"]'
+    ) as HTMLElement;
+
+    expect(popup.className).toContain("is-submilestone-detail");
+    expect(backdrop.className).toContain(
+      "timeline-blueprint-details-sheet-backdrop"
+    );
+
+    expect(within(sheet).getByRole("tab", { name: "Scope" })).toBeTruthy();
+    expect(
+      within(sheet).queryByRole("tab", { name: "Sub-milestones" })
+    ).toBeNull();
+    expect(
+      within(sheet).getByRole("tab", { name: "Contractors" })
+    ).toBeTruthy();
+    expect(
+      within(sheet).getByRole("tab", { name: "Materials" })
+    ).toBeTruthy();
+    expect(
+      within(sheet).getByRole("tab", { name: "Field Guidance" })
+    ).toBeTruthy();
+    expect(
+      (
+        within(sheet).getByTestId(
+          "timeline-setup-submilestone-name-site-prep-foundation-sub-1"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("Foundation scope");
+
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Contractors" }));
+    fireEvent.change(
+      within(sheet).getByTestId(
+        "timeline-setup-contractor-name-site-prep-foundation"
+      ),
+      { target: { value: "Ledger Frame Co." } }
+    );
+    fireEvent.change(
+      within(sheet).getByTestId(
+        "timeline-setup-contractor-role-site-prep-foundation"
+      ),
+      { target: { value: "Foundation crew" } }
+    );
+    fireEvent.click(
+      within(sheet).getByTestId(
+        "timeline-setup-add-contractor-site-prep-foundation"
+      )
+    );
+
+    expect(onRowsChange).toHaveBeenLastCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          contractorAssignments: [
+            expect.objectContaining({
+              contractorId: "contractor-ledger",
+              contractorName: "Ledger Frame Co.",
+              role: "Foundation crew",
+              subMilestoneIds: ["site-prep-foundation-sub-1"],
+            }),
+          ],
+          key: "site-prep-foundation",
+        }),
+      ])
+    );
+
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Field Guidance" }));
+    fireEvent.change(
+      within(sheet).getByTestId(
+        "timeline-setup-submilestone-guidance-description-site-prep-foundation-sub-1"
+      ),
+      { target: { value: "Verify footing layout before pour." } }
+    );
+
+    expect(onRowsChange).toHaveBeenLastCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "site-prep-foundation",
+          subMilestoneDetails: [
+            expect.objectContaining({
+              description: "Verify footing layout before pour.",
+              id: "site-prep-foundation-sub-1",
+            }),
+          ],
+        }),
+      ])
+    );
+  });
+
+  test("edits table sub-milestone budget and schedule inline and updates milestone rollups", () => {
+    const onRowsChange = vi.fn();
+    render(
+      <ControlledWorksheet
+        onRowsChange={onRowsChange}
+        proposedStartDate="2026-06-01"
+        scheduleDisplayMode="dates"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Table view" }));
+    const budgetInput = screen.getByTestId(
+      "timeline-setup-table-subrow-budget-site-prep-foundation-sub-1"
+    );
+    fireEvent.change(budgetInput, { target: { value: "$130,000" } });
+    fireEvent.blur(budgetInput);
+
+    expect(onRowsChange).toHaveBeenLastCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          budgetText: "$130,000",
+          key: "site-prep-foundation",
+          subMilestoneDetails: [
+            expect.objectContaining({
+              budgetText: "$130,000",
+              id: "site-prep-foundation-sub-1",
+            }),
+          ],
+        }),
+      ])
+    );
+
+    const endInput = screen.getByTestId(
+      "timeline-setup-table-subrow-end-date-site-prep-foundation-sub-1"
+    );
+    fireEvent.change(endInput, { target: { value: "2026-06-25" } });
+
+    expect(onRowsChange).toHaveBeenLastCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          durationDays: 25,
+          durationText: "25",
+          key: "site-prep-foundation",
+          subMilestoneDetails: [
+            expect.objectContaining({
+              durationText: "25",
+              id: "site-prep-foundation-sub-1",
+            }),
+          ],
+        }),
+      ])
+    );
+  });
+
+  test("adds milestones and sub-milestones from table view controls", () => {
+    const onRowsChange = vi.fn();
+    render(<ControlledWorksheet onRowsChange={onRowsChange} />);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Table view" }));
+    fireEvent.change(
+      screen.getByTestId("timeline-setup-table-add-milestone-name"),
+      { target: { value: "Inspection holdback" } }
+    );
+    fireEvent.click(screen.getByTestId("timeline-setup-table-add-milestone"));
+
+    expect(onRowsChange).toHaveBeenLastCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "Inspection holdback",
+          type: "custom",
+        }),
+      ])
+    );
+
+    fireEvent.click(
+      screen.getByTestId("timeline-setup-table-add-submilestone-framing")
+    );
+
+    expect(onRowsChange).toHaveBeenLastCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "framing",
+          subMilestoneDetails: expect.arrayContaining([
+            expect.objectContaining({ id: "framing-sub-1" }),
+            expect.objectContaining({ name: "New sub-milestone 2" }),
+          ]),
+        }),
+      ])
+    );
+  });
+
+  test("moves table sub-milestones across groups and recalculates group rollups", () => {
+    const movedRows = moveSubMilestoneWithinSummaryRows(
+      [
+        {
+          ...worksheetRows[0]!,
+          startDay: 0,
+          subMilestoneDetails: [
+            {
+              ...worksheetRows[0]!.subMilestoneDetails[0]!,
+              startDay: 0,
+            },
+          ],
+        },
+        {
+          ...worksheetRows[1]!,
+          startDay: 20,
+          subMilestoneDetails: [
+            {
+              ...worksheetRows[1]!.subMilestoneDetails[0]!,
+              startDay: 20,
+            },
+          ],
+        },
+      ],
+      1,
+      2,
+      { includeBudget: true }
+    );
+
+    expect(movedRows).toBeTruthy();
+    const sitePrep = movedRows?.find(
+      (row) => row.key === "site-prep-foundation"
+    );
+    const framing = movedRows?.find((row) => row.key === "framing");
+
+    expect(sitePrep?.subMilestoneDetails).toEqual([]);
+    expect(framing?.subMilestoneDetails.map((detail) => detail.id)).toEqual([
+      "framing-sub-1",
+      "site-prep-foundation-sub-1",
+    ]);
+    expect(framing?.budgetText).toBe("$200,000");
+    expect(framing?.startDay).toBe(0);
+    expect(framing?.durationDays).toBe(30);
+    expect(framing?.durationText).toBe("30");
+  });
+
   test("marks row input typing as uncommitted until blur", () => {
     const onRowsChange = vi.fn();
 

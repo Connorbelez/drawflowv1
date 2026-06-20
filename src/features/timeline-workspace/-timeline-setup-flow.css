@@ -929,6 +929,33 @@
   height: 15px;
 }
 
+.timeline-blueprint-view-tabs {
+  min-width: 0;
+  gap: 0;
+}
+
+.timeline-blueprint-view-tabs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 46px;
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.28), oklch(0.72 0.08 240 / 0.28));
+  border-bottom: 0;
+  background: light-dark(oklch(0.985 0.010 235 / 0.72), oklch(0.08 0.016 255 / 0.72));
+  padding: 0 14px;
+}
+
+.timeline-blueprint-view-tabs-list {
+  justify-content: flex-start;
+  width: 100%;
+  overflow-x: auto;
+  padding-block: 0;
+}
+
+.timeline-blueprint-view-panel {
+  min-width: 0;
+}
+
 .timeline-blueprint-table-wrap {
   position: relative;
   overflow: visible;
@@ -1040,6 +1067,267 @@
 
 .timeline-blueprint-table tr:hover td {
   background: transparent;
+}
+
+.timeline-blueprint-summary-table-wrap {
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.28), oklch(0.72 0.08 240 / 0.28));
+  background:
+    linear-gradient(180deg, light-dark(oklch(0.985 0.010 235 / 0.78), oklch(0.10 0.018 255 / 0.78)), light-dark(oklch(0.985 0.010 235 / 0.86), oklch(0.065 0.016 258 / 0.86))),
+    linear-gradient(90deg, light-dark(oklch(0.400 0.120 240 / 0.055), oklch(0.72 0.1 240 / 0.055)) 1px, transparent 1px);
+  background-size: auto, 32px 32px;
+}
+
+.timeline-blueprint-summary-table-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 58px;
+  border-bottom: 1px solid light-dark(oklch(0.400 0.120 240 / 0.22), oklch(0.72 0.08 240 / 0.22));
+  padding: 12px 14px;
+}
+
+.timeline-blueprint-summary-add-milestone {
+  display: grid;
+  grid-template-columns: minmax(180px, 300px) auto;
+  gap: 8px;
+  min-width: 0;
+}
+
+.timeline-blueprint-summary-add-milestone input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.24), oklch(0.72 0.08 240 / 0.24));
+  border-radius: 7px;
+  background: light-dark(oklch(0.985 0.010 235 / 0.72), oklch(0.08 0.016 258 / 0.72));
+  color: light-dark(oklch(0.220 0.020 258), oklch(0.92 0.014 260));
+  font-size: 12px;
+  font-weight: 650;
+  outline: none;
+  padding: 7px 10px;
+}
+
+.timeline-blueprint-summary-add-milestone input:focus-visible {
+  border-color: light-dark(oklch(0.400 0.160 236 / 0.72), oklch(0.82 0.14 238 / 0.72));
+  box-shadow: 0 0 0 3px light-dark(oklch(0.400 0.120 240 / 0.12), oklch(0.72 0.12 238 / 0.12));
+}
+
+.timeline-blueprint-summary-table-heading span {
+  color: light-dark(oklch(0.400 0.120 240), oklch(0.68 0.055 246));
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.timeline-blueprint-summary-table-heading strong {
+  display: block;
+  margin-top: 4px;
+  color: light-dark(oklch(0.220 0.020 258), oklch(0.94 0.012 260));
+  font-size: 15px;
+  font-weight: 760;
+}
+
+.timeline-blueprint-summary-table {
+  min-width: 1280px;
+  color: light-dark(oklch(0.220 0.020 258), oklch(0.9 0.018 260));
+  border-collapse: collapse;
+}
+
+.timeline-blueprint-summary-table th {
+  height: 44px;
+  border-right: 1px solid light-dark(oklch(0.400 0.120 240 / 0.16), oklch(0.72 0.08 240 / 0.16));
+  border-bottom: 1px solid light-dark(oklch(0.400 0.120 240 / 0.24), oklch(0.72 0.08 240 / 0.24));
+  background: light-dark(oklch(0.985 0.010 235 / 0.88), oklch(0.085 0.018 255 / 0.88));
+  color: light-dark(oklch(0.400 0.160 236), oklch(0.78 0.06 246));
+  font-size: 11px;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.timeline-blueprint-summary-table td {
+  height: 64px;
+  border-right: 1px solid light-dark(oklch(0.400 0.120 240 / 0.15), oklch(0.72 0.08 240 / 0.15));
+  border-bottom: 1px solid light-dark(oklch(0.400 0.120 240 / 0.18), oklch(0.72 0.08 240 / 0.18));
+  background: transparent;
+  padding-block: 8px;
+}
+
+.timeline-blueprint-summary-row {
+  background: transparent !important;
+}
+
+.timeline-blueprint-summary-row:hover td,
+.timeline-blueprint-summary-row:focus-within td {
+  background: light-dark(oklch(0.985 0.010 235 / 0.28), oklch(0.16 0.03 250 / 0.22));
+}
+
+.timeline-blueprint-summary-row.is-submilestone td {
+  height: 54px;
+  background: light-dark(oklch(0.985 0.010 235 / 0.35), oklch(0.065 0.016 258 / 0.42));
+}
+
+.timeline-blueprint-summary-row.is-excluded td {
+  color: light-dark(oklch(0.420 0.040 258), oklch(0.56 0.028 260));
+  opacity: 0.62;
+}
+
+.timeline-blueprint-summary-scope {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  white-space: normal;
+}
+
+.timeline-blueprint-summary-scope.is-submilestone {
+  position: relative;
+  display: grid;
+  align-items: center;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 8px;
+  padding-left: 0;
+}
+
+.timeline-blueprint-summary-scope.is-submilestone::before {
+  display: none;
+}
+
+.timeline-blueprint-summary-scope.is-submilestone > span {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.timeline-blueprint-summary-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 28px;
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.22), oklch(0.72 0.08 240 / 0.22));
+  border-radius: 6px;
+  background: light-dark(oklch(0.985 0.010 235 / 0.6), oklch(0.1 0.018 258 / 0.6));
+  color: light-dark(oklch(0.400 0.120 240), oklch(0.72 0.08 240));
+}
+
+.timeline-blueprint-summary-drag-handle:hover,
+.timeline-blueprint-summary-drag-handle:focus-visible {
+  border-color: light-dark(oklch(0.400 0.160 236 / 0.68), oklch(0.82 0.14 238 / 0.68));
+  color: light-dark(oklch(0.380 0.140 236), oklch(0.88 0.12 238));
+  outline: none;
+}
+
+.timeline-blueprint-summary-drag-handle svg {
+  width: 14px;
+  height: 14px;
+}
+
+.timeline-blueprint-summary-scope strong {
+  overflow: hidden;
+  color: light-dark(oklch(0.180 0.022 258), oklch(0.95 0.012 260));
+  font-size: 14px;
+  font-weight: 740;
+  line-height: 1.18;
+  text-overflow: ellipsis;
+}
+
+.timeline-blueprint-summary-scope small,
+.timeline-blueprint-summary-window small {
+  overflow: hidden;
+  color: light-dark(oklch(0.420 0.040 258), oklch(0.66 0.035 260));
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+}
+
+.timeline-blueprint-summary-window {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.timeline-blueprint-summary-window strong {
+  color: light-dark(oklch(0.220 0.020 258), oklch(0.91 0.014 260));
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.timeline-blueprint-summary-input {
+  width: min(100%, 140px);
+  max-width: 140px;
+}
+
+.timeline-blueprint-summary-readout {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 30px;
+  color: light-dark(oklch(0.220 0.020 258), oklch(0.91 0.014 260));
+  font-size: 13px;
+  font-weight: 720;
+  white-space: nowrap;
+}
+
+.timeline-blueprint-summary-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.timeline-blueprint-summary-status-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.18), oklch(0.72 0.08 240 / 0.18));
+  border-radius: 999px;
+  background: light-dark(oklch(0.985 0.010 235 / 0.5), oklch(0.08 0.018 258 / 0.5));
+  color: light-dark(oklch(0.440 0.040 258), oklch(0.62 0.033 260));
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.04em;
+  padding: 0 8px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.timeline-blueprint-summary-status-chip[data-state="set"] {
+  border-color: light-dark(oklch(0.450 0.200 145 / 0.28), oklch(0.82 0.16 145 / 0.28));
+  background: light-dark(oklch(0.920 0.090 145 / 0.36), oklch(0.15 0.05 145 / 0.36));
+  color: light-dark(oklch(0.350 0.150 145), oklch(0.82 0.17 145));
+}
+
+.timeline-blueprint-summary-row-actions {
+  display: inline-flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.timeline-blueprint-summary-details-button {
+  height: 30px;
+  border-color: light-dark(oklch(0.400 0.120 240 / 0.34), oklch(0.72 0.12 238 / 0.34));
+  background: light-dark(oklch(0.985 0.010 235 / 0.78), oklch(0.1 0.02 255 / 0.78));
+  color: light-dark(oklch(0.400 0.160 236), oklch(0.82 0.12 238));
+  font-size: 12px;
+}
+
+.timeline-blueprint-summary-details-button:hover,
+.timeline-blueprint-summary-details-button:focus-visible {
+  border-color: light-dark(oklch(0.400 0.160 236 / 0.72), oklch(0.82 0.14 238 / 0.72));
+  background: light-dark(oklch(0.985 0.010 235 / 0.9), oklch(0.14 0.03 252 / 0.9));
+  color: light-dark(oklch(0.380 0.140 236), oklch(0.9 0.12 238));
+}
+
+.timeline-blueprint-summary-details-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.timeline-blueprint-summary-add-button svg {
+  width: 14px;
+  height: 14px;
 }
 
 .timeline-blueprint-table tr.is-excluded td {
@@ -1338,6 +1626,74 @@
   animation: timeline-submilestone-reveal 220ms var(--setup-ease) both;
 }
 
+.timeline-blueprint-details-sheet {
+  width: min(96vw, 980px);
+  max-width: min(96vw, 980px);
+  border-color: light-dark(oklch(0.400 0.120 240 / 0.28), oklch(0.72 0.08 240 / 0.28));
+  background:
+    linear-gradient(180deg, light-dark(oklch(0.985 0.010 235 / 0.96), oklch(0.10 0.018 255 / 0.96)), light-dark(oklch(0.985 0.010 235 / 0.98), oklch(0.055 0.014 258 / 0.98))),
+    linear-gradient(to right, light-dark(oklch(0.400 0.120 240 / 0.045), oklch(0.72 0.09 240 / 0.045)) 1px, transparent 1px),
+    linear-gradient(to bottom, light-dark(oklch(0.400 0.120 240 / 0.04), oklch(0.72 0.09 240 / 0.04)) 1px, transparent 1px);
+  background-size: auto, 32px 32px, 32px 32px;
+}
+
+.timeline-blueprint-details-sheet.is-milestone-detail {
+  width: min(calc(100vw - 32px), 1420px);
+  max-width: min(calc(100vw - 32px), 1420px);
+}
+
+.timeline-blueprint-details-sheet-backdrop {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.timeline-blueprint-details-sheet-header {
+  border-bottom: 1px solid light-dark(oklch(0.400 0.120 240 / 0.18), oklch(0.72 0.08 240 / 0.18));
+  padding-bottom: 16px;
+}
+
+.timeline-blueprint-details-sheet-panel {
+  min-height: 0;
+  padding: 16px;
+}
+
+.timeline-blueprint-expanded-tabs.is-sheet {
+  min-height: min(720px, calc(100svh - 150px));
+  border-radius: 0;
+}
+
+.timeline-blueprint-expanded-tabs.is-sheet .timeline-submilestone-editor {
+  grid-template-columns: minmax(300px, 0.88fr) minmax(360px, 1.12fr);
+}
+
+.timeline-blueprint-expanded-tabs.is-sheet .timeline-submilestone-card-list {
+  max-height: min(420px, 48svh);
+}
+
+.timeline-submilestone-focused-tabs.is-sheet {
+  min-height: min(640px, calc(100svh - 150px));
+}
+
+.timeline-submilestone-focused-pane {
+  min-height: min(560px, calc(100svh - 220px));
+  border: 0;
+  padding: 18px;
+}
+
+.timeline-submilestone-focused-pane .timeline-submilestone-detail-body {
+  max-width: 780px;
+}
+
+.timeline-submilestone-focused-guidance {
+  min-height: min(560px, calc(100svh - 220px));
+  border: 0;
+}
+
+.timeline-submilestone-focused-guidance .timeline-submilestone-detail-field {
+  max-width: 780px;
+}
+
 .timeline-blueprint-expanded-tabs-header {
   display: flex;
   align-items: center;
@@ -1487,6 +1843,12 @@
   color: light-dark(oklch(0.220 0.020 258), oklch(0.9 0.018 260));
   font-size: 12px;
   padding: 0 10px;
+}
+
+.timeline-blueprint-planning-scope-chip.is-locked {
+  border-color: light-dark(oklch(0.450 0.200 145 / 0.34), oklch(0.82 0.16 145 / 0.34));
+  color: light-dark(oklch(0.350 0.150 145), oklch(0.82 0.17 145));
+  font-weight: 740;
 }
 
 .timeline-blueprint-planning-card {
@@ -2414,6 +2776,16 @@
     grid-template-columns: 1fr;
   }
 
+  .timeline-blueprint-summary-table-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .timeline-blueprint-summary-add-milestone {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
   .timeline-blueprint-budget-toggle-group {
     justify-self: start;
   }
@@ -2534,6 +2906,20 @@
 
   .timeline-submilestone-bank-controls {
     grid-template-columns: 1fr;
+  }
+
+  .timeline-blueprint-details-sheet {
+    width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px);
+  }
+
+  .timeline-blueprint-details-sheet.is-milestone-detail {
+    width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px);
+  }
+
+  .timeline-blueprint-details-sheet-panel {
+    padding: 12px;
   }
 
   .timeline-submilestone-bank-list {

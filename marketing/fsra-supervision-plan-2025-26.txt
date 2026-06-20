@@ -1,0 +1,142 @@
+On this page
+Executive summary
+Ontario’s housing market has been volatile due to growing economic and political uncertainty. This uncertainty has challenged affordability for consumers, despite multiple interest rate cuts.
+At FSRA, we’re monitoring the situation closely and adjusting as needed. Now, more than ever, it’s critical that mortgage professionals put consumer protection at the forefront of everything they do.
+As such, the 2025-2026 Supervision Plan builds on our previous year’s plan by prioritizing private mortgages and mortgage investments.
+Over the past year, growth in the number of private mortgages has slowed. However, demand for these products may rebound as weakening consumer finances and housing price corrections make it harder for some consumers to renew their mortgages with traditional lenders. In fact, more borrowers may again need to rely on private mortgages as tariff impacts squeeze consumers’ purchasing power.
+Further, major declines in new home sales and a decline in construction projects are posing risks to mortgage investments.
+Therefore, the Plan is intended to help ensure that:
+- brokerages and principal brokers maintain strong supervision and oversight of their agents and brokers to support fair consumer outcomes
+- principal brokers fulfill their obligations to ensure agents and brokers are suitable to be licensed and operate with integrity
+- consumers receive mortgage advice and products that are suitable to their unique financial needs and circumstances
+- investors and lenders have confidence that mortgage administrators are appropriately managing investments
+To further help the sector understand our expectations around consumer protection, FSRA will continue to host Principal Brokers’ Conferences to support brokerages in achieving fair outcomes for clients and maintaining consumer confidence in the sector.
+We urge you to read the Plan, and all relevant Guidance and publications to learn more about your responsibilities as we navigate this period of change and volatility together.
+Background
+Ontario’s Mortgage Brokering sector
+As of June 30, 2025, FSRA licensed 3,059 mortgage brokers, 5,235 level 2 mortgage agents, and 9,923 level 1 mortgage agents with 1,162 brokerages. This compares to 2,833 brokers and 12,277 agents on June 30, 2019, representing nearly 21% growth in the combined number of agents and brokers between 2019 and 2025.[1]
+Licensees brokered over 270,000 mortgages, worth more than $158 billion in Ontario in 2024.[2]
+As of June 30, 2025, FSRA licensed 266 mortgage administrators who administered about $448B and over 972,000 mortgage investments for 756,000 investors.[3]
+2024-2025 Economic year in review
+The past year saw significant fluctuations in housing markets and interest rates, creating uncertainty for home buyers and sellers alike. After two years of rate increases, the Bank of Canada (BoC) began a series of interest rate cuts, cutting rates 7 times between June 2024 and March 2025, with the policy rate moving from 5% in April 2024 to 2.75% in March 2025.[4] Although inflation began to moderate over the course of 2025, economic uncertainty began to increase due to rising trade and tariff tensions with the United States. In response to these uncertain economic conditions, the BoC held its policy interest rate steady until it made a further 0.25% cut in September 2025.[5]
+Mortgage delinquency rates, while still below pre-pandemic levels, were on a significant upward trend from 2024 through the first half of 2025, driven by high household debt and higher interest rates following pandemic-era borrowing.[6] Ontario’s increases in delinquencies are a major contributor to this national increase, with delinquency rates in Toronto reaching 0.23% and 0.24% in Q1 2025.[7] As of Q2 2025, Ontario's mortgage 90+ day balance delinquency rate was 0.27%, reflecting a year over year increase of 11 basis points.[8] Non-mortgage delinquencies are also on the rise, and represent a leading indicator of future mortgage payment difficulties.
+Market conditions throughout 2024-2025 have also created challenges for mortgage investors, particularly those who invested in condominium development projects. Following years of growth, the condo construction market began to exhibit low pre-construction sales over this period, due in part to the higher interest rate environment and elevated construction costs. Between 2022 and 2025 (Q1) total condo sales dropped by 75% in the Greater Toronto Area.[9] Investors who made recent condo pre-construction purchases when prices were high are now increasingly experiencing financial distress now that prices are falling. CMHC estimates that condo investors could face as much as a 6% capital loss on pre-construction purchases that concluded in 2024.[10] New investors in built condos have also been negatively affected by the gap between average rent increases (15%) and carrying costs (24%).
+The economic uncertainty over the past year, with the increased risk for borrower defaults, ultimately impacted the attractiveness and affordability of private mortgages as investments. FSRA’s 2024 Annual Information Return (AIR) for the mortgage broker sector observed this trend, revealing a reduction in both market share and dollar value of mortgages for private lenders in Ontario (see Appendix for further 2024 AIR data):
+FSRA’s 2024 Private residential mortgage lending report
+FSRA’s 2024 Private Residential Mortgage Lending in Ontario Report, released on August 20, 2025, further confirms the private lending trends identified in the 2024 Annual Information Return. The land registry data, collected by FSRA through Teranet’s LendViewTM platform, noted that although the total number of mortgages increased slightly in 2024, both the total number and dollar value of private mortgages declined in 2024 as compared to 2023, with individual private lenders experiencing the largest decline in market share.[11]
+Although market conditions in 2024 spurred a contraction of the private mortgage market, private lenders, particularly private institutional lenders (e.g., corporations and other entities), continue to hold a notable share of the mortgage market, exhibiting significant growth over the past decade. Private lending remains an important source of mortgage financing, particularly for borrowers who may not meet the requirements of traditional financial institutions.
+FSRA’s 2025 Cross-sectoral consumer research report
+In Spring 2024, FSRA’s Consumer Office initiated their biennial cross-sectoral consumer research report. This study surveyed over 4,000 respondents using a sample representative of adults in Ontario to produce a report that provided vital insights into consumer attitudes and experiences across all FSRA’s regulated sectors, including the mortgage brokering sector.
+This report found that consumer satisfaction, trust, and confidence in the regulated sectors increased overall as compared to the previous survey that was undertaken in 2022.
+For the mortgage brokering sector, the survey revealed that consumer trust and confidence have increased since 2022 by 4% (25% of consumers surveyed chose “Trust Completely/Trust a Lot” in 2024 versus 21% in 2022).[12] Furthermore, this survey also confirms that FSRA’s sector outreach, supervision strategy, and consumer education efforts are yielding results: findings from the 2024 survey indicate that vulnerable consumers are more likely to report having discussed an exit strategy for a private mortgage with their mortgage broker (60% of surveyed consumers), a positive development that is consistent with FSRA’s multi-year supervision focus on private mortgages and efforts to improve consumer education about these products.[13] This beneficial impact on vulnerable consumers is especially significant given that the survey also found an increase in the number of consumers who identified as “moderately/highly vulnerable” (39% in 2024 versus 22% in 2022).[14]
+FSRA’s Consumer Office continues to provide valuable insights through its work that inform and shape FSRA’s supervision approach to the mortgage broker sector.
+2024-25 Supervision activities and findings
+Sector outreach
+Another important pillar of FSRA’s overall supervision strategy is sustained engagement with, and outreach to, the mortgage brokering sector to better enable FSRA to identify and address emerging conduct issues. Throughout the year, FSRA conducts a variety of engagement activities including one-on-one meetings with high impact firms[15] and meetings with FSRA’s Technical and Stakeholder advisory committees to gain market intelligence. FSRA communicates directly with the sector through webinars, speaking engagements at industry events, the biannual mortgage brokering sector newsletter, published guidance, and publications like this one, to provide greater clarity on FSRA’s regulatory expectations.
+FSRA’s inaugural Principal Brokers’ Conference
+In November 2024, FSRA hosted its inaugural Principal Brokers’ Conference. This event was designed to help principal brokers and other brokerage leaders better understand FSRA’s expectations regarding brokerage supervision and oversight, as well as provide a venue for licensees to exchange best business practices and network.
+The conference featured both panel discussions and break-out sessions to provide licensees with practical and situational advice on compliance issues. 93.33% of attendees surveyed rated their overall experience to be 7 out of 10 in terms of satisfaction with the event, and 100% of surveyed attendees said they would want to attend this conference again.
+FSRA addresses risks to investors by enhancing oversight processes for Mortgage Administrators
+Market conditions continued to pose heightened risk for mortgage investments over the past year. To be responsive to this increased risk, FSRA intensified its review and risk-based triage process for mortgage administrators’ annual financial filings to ensure that FSRA can proactively respond to circumstances where mortgage administrators’ activities may pose a potential risk to investor funds. Through this enhanced process, mortgage administrators whose reporting identifies control deficiencies or high-risk practices are prioritized for supervisory follow-up and action.
+2024-2025 Examination activities and findings
+In addition to engaging with licensees who have a substantial impact in the sector, FSRA’s supervision exam programs for the past year were focussed on areas of high risk for consumers and sector participants.
+Annual percentage rate disclosure examination blitz
+Since private mortgages are often more costly, come with a higher interest rate and often additional fees (lender, late payment, renewal, foreclosure fees), FSRA undertook a compliance blitz to assess whether all fees are being disclosed fully and clearly in private mortgage transactions. Clear and accurate disclosure of the cost of borrowing (neither understated nor overstated) for mortgage transactions are essential to enable consumers to effectively compare mortgage products to ensure their suitability from a cost perspective. The blitz program focussed on whether licensees have been accurately calculating and disclosing the Annual Percentage Rate (APR) in mortgage transactions completed in the last 12 months prior to the blitz.
+APR Blitz Findings:
+- Required charges omitted - Certain charges that should have been included were incorrectly excluded from APR calculations, resulting in understated APRs. This issue was noted in 28.6% of files reviewed.
+- APR too high - shorter term mortgages (6 months or less) have significantly higher APRs, as expected. Of the 82 files reviewed with terms equal or less than 6 months, APRs exceeded 35% for 42 files (51%). These represented approximately 16% of the total files reviewed. Effective January 1st, 2025, the Federal criminal rate of interest was lowered to 35% APR for most consumer loans, replacing the previous 60% effective annual rate (approximately 48% APR). Although the mortgage files selected were contracted prior to the change, FSRA used this exam process as an opportunity to remind licensees of the need to observe as required the new Federal criminal rate of interest threshold.
+- Unlabeled estimates - Estimated charges are being presented without being identified as estimates. Clearly identifying estimated costs enables borrowers to better anticipate potential expenses and fosters transparency. This occurred in 24.4% of files.
+- Incorrect inclusion of charges - Brokerages are incorrectly including excluded costs like borrower’s legal fees in APR calculations, resulting in overstated APRs. This occurred in 32.4% of files.
+Overall, only 35.5% of files reviewed had correct APR calculations. FSRA will be engaging over the coming year in additional outreach to the sector to ensure that licensees are better aware of their obligations in relation to the disclosure of accurate APR to borrowers.
+Private Mortgage Brokering
+Given the increasing number of consumers turning to private mortgages in Ontario in 2024-2025 and the rising indicators of consumer vulnerability, FSRA determined that private mortgage brokering would continue to be a key supervision focus for 2025-2026.
+FSRA undertook exams focusing on private mortgage brokering. These exams assessed whether the mortgage was suitable for the borrower and whether a borrower was made aware during the transaction that if they are undertaking higher cost mortgage financing, they should have an “exit strategy” that would help them to qualify for lower cost financing after the term of the mortgage ends. Similarly, our exams also looked at whether the brokerage accurately described and disclosed conflicts, or potential conflicts, of interest and the brokerage’s role in the transaction.
+Mortgage Brokerage Findings (Private Mortgages):
+Mortgage Brokerages with a Related Mortgage Administrator
+Continuing its focus on private mortgage brokering, FSRA also performed an end-to-end holistic review of the life cycle of a private mortgage. High construction and financing costs for developers, a dramatic slowdown in pre-sales created and heightened affordability issues with borrowers increased risks on mortgages investments. Noting this context, FSRA undertook an examination program to review private mortgage investments from the point of sale by brokerages to the servicing of these investments by a related administrator.
+This examination program focussed on the following key lender/investor protection risks related to mortgage brokering and administration activities:
+- inadequate suitability assessment of borrowers and/or lenders or investors
+- mishandling or loss of funds from mortgage payments
+- mishandling or loss of mortgage investments, when a mortgage is registered in an MA’s name in trust for lenders/investors or when a MA has discretion over the mortgage
+- inadequate or incompetent monitoring of mortgage performance and reporting to investors, and failure to act in accordance with the mortgage administration agreement with investors
+- conflicts of interest when the administrator is related to the borrower of the mortgage they administer or to the brokerage that arranged the mortgage investment
+Mortgage Administrator Findings (Private Mortgage Investments):
+Review of Mortgage Administrator annual financial filings:
+The enhanced review and triage process for mortgage administrator annual financial filings is designed to better enable FSRA to proactively respond to entities whose financial filings indicate that they may pose heightened risk of mishandling investor funds.
+Of the financial filings reviewed for the period:[16]
+- 12 mortgage administrators were categorized as “high risk”
+- 18 mortgage administrators were categorized as “medium risk”
+- 108 mortgage administrators were categorized as “medium-low risk”
+- 51 mortgage administrators were categorized as “low risk”
+The key concerns observed from these reviews were:
+- Monthly trust account reconciliations were not prepared and approved within the required timeframe[17]
+- Mortgage payments (advanced by Mortgage Administrator) are made to investors before the borrower’s payments are received[18]
+- Auditor noted Material Uncertainty Related to Going Concern
+- Monthly reconciliations of outstanding principal balances were not prepared on a timely basis[19]
+- Comingling of operational fund and client’s deemed trust fund[20]
+- Unlicensed activities – Mortgage Administrator engaged in brokering (or negotiating or arranging) mortgage renewals[21]
+To address the deficiencies noted, FSRA has subject certain mortgage administrators (MAs) to a more intensive examination with potential for further enforcement action and have required other MAs to provide detailed remediation plans to correct the issues identified.
+Areas of Supervision Focus for 2025-2026
+Continued focus on Private Mortgage Brokering and Brokerage Supervision:
+Though consumer demand for private mortgages began to stabilize in 2024-2025, current economic conditions and the downstream effects on employment expected from tariffs may reinforce the increase in consumer vulnerability, suggesting that demand for these products may again begin to rise over the coming year. FSRA will continue its prior years’ focus on private mortgage brokering to ensure borrowers get the information and protections they need to make good choices when they are considering private mortgage products.
+Similarly, FSRA will continue to focus on large brokerages to ensure these entities have appropriate supervision and oversight in place for their agents and brokers, consistent with the expectations FSRA has articulated in its Principal Broker Guidance, to achieve fair outcomes for consumers.
+In 2025-2026, our focus on large brokerages (authorizing 200+ agents and brokers) has been expanded to include mid-sized brokerages (authorizing 100+ agents and brokers) to examine whether these brokerages, especially those that have grown rapidly, have the necessary compliance controls and resourcing to appropriately supervise their licensees.
+FSRA’s exam program will do this by comprehensively assessing whether brokerages are ensuring:
+- the principal broker is competent, independent, and is appropriately resourced to ensure a strong conduct and compliance culture within the brokerage
+- adequate know-your-client processes
+- adequate, accurate, and timely disclosure about mortgage features and material risks
+- adequate and accurate disclosure of conflicts, or perceived conflicts, of interest and other relevant relationships
+- appropriate documentation of mortgage product suitability
+- for private mortgage borrowers, that there is adequate consideration of an exit strategy to ensure clients can transition back to more affordable financing
+- adequate supervision of their brokers and agents
+Maintaining focus on protecting Mortgage Investors
+Current economic conditions pose heightened risk to mortgage investments. FSRA will continue to holistically examine the brokering and administration of private mortgage investments to assess whether licensees are providing investors with the timely information they need at all points during the life cycle of that investment.
+Our examinations will assess the following investor protection risks:
+- failure to disclose conflicts of interest when an administrator is related to the borrower of the mortgage they administer or to the brokerage that arranges the mortgage investment
+- failure to establish a mortgage administration agreement or failure to act in accordance with that agreement
+- mishandling or loss of funds from mortgage payments
+- mishandling or loss of mortgage investments, when a mortgage is registered in a name in trust for the investor(s) or when an administrator has authority for certain decision making with respect to the mortgage
+- inadequate monitoring of mortgage performance and inadequate reporting to investors
+FSRA will continue to prioritize the risk-based triage and review of mortgage administrators’ annual financial filings to ensure licensees whose filings report control deficiencies or high-risk practices are prioritized for supervisory follow-up and action to protect investors.
+Appendix – Additional 2024 Mortgage Brokering Sector Annual Information Return Data
+| FSRA’s Annual Information Return data | 2023 | 2024 | % change | 
+|---|---|---|---|
+| $ value of mortgages brokered and closed | |||
+| Total | $148.87B (100%) | $158.3B (100%) | + 6.32% | 
+| Mortgages from Mortgage Investment Corporations ($ and % of total) | $9.98B (6.70%) | $11.3B (7.13%) | + 13.11% | 
+| Mortgages from Mortgage Investment Entities (MIEs) ($ and % of total) | $6.89B (4.63%) | $8.8B (5.56%) | + 27.64% | 
+| Mortgages from Private Lenders ($ and % of total) | $7.98B (5.36%) | $7.9B (5.02%) | - 0.43% | 
+| High-ratio mortgages – all ($ and % of total) | $30.28B (20.34%) | $35.3B (22.32%) | + 16.68% | 
+| High-ratio mortgages – insured ($ and % of total) | $26.98B (18.12%) | $32.1B (20.26%) | + 18.87% | 
+| High-ratio mortgages – uninsured ($ and % of total) | $3.30B (2.22%) | $3.3B (2.06%) | - 1.26% | 
+| Second or subsequent ranking mortgages ($ and % of total | $7.64B (5.13%) | $8.0B (5.05%) | + 4.55% | 
+| # of mortgages brokered and closed | |||
+| Total | 265,761 (100%) | 270,948 (100%) | + 1.95% | 
+| Mortgages from Mortgage Investment Corporations (# and % of total) | 17,533 (6.60%) | 18,255 (6.74%) | + 4.12% | 
+| Mortgages from Mortgage Investment Entities (MIEs) (# and % of total) | 8,510 (3.20%) | 7,558 (2.79%) | - 11.19% | 
+| Mortgages from Private Lenders (# and % of total) | 17,720 (6.67%) | 15,748 (5.81%) | - 11.13% | 
+| High-ratio mortgages – all (# and % of total) | 48,906 (18.40%) | 45,842 (16.92%) | - 6.27% | 
+| High-ratio mortgages – insured (# and % of total) | 42,204 (15.88%) | 40,840 (15.07%) | - 3.23% | 
+| High-ratio mortgages – uninsured (# and % of total) | 6,702 (2.52%) | 5,002 (1.85%) | - 25.37% | 
+| Second or subsequent ranking mortgages (# and % of total | 32,356 (12.7%) | 29,172 (10.77%) | - 9.84% | 
+[1] FSRA 2024 Annual Information Return (AIR)
+[2] FSRA 2024 Annual Information Return (AIR)
+[3] Ibid.
+[4] Bank of Canada, “Policy Interest Rate”, August 11, 2025
+[5] Bank of Canada, “Policy Interest Rate”, August 11, 2025.
+[6] Canada Mortgage and Housing Corporation, “Key Insights from the Spring 2025 Residential Mortgage Industry Report”, June 12, 2025
+[7] Equifax, “Delinquency Levels Show Signs of Stabilizing, But the Financial Gap Continues to Widen for Some Canadians,” August 18, 2025
+[8] Ibid.
+[9] Canada Mortgage and Housing Corporation, “Condominium apartment market risks in Toronto and Vancouver,” June 10, 2025
+[10] Ibid.
+[11] Financial Services Regulatory Authority of Ontario (FSRA), “Private Residential Mortgage Lending in Ontario Report”, August 2025
+[12] Financial Services Regulatory Authority of Ontario (FSRA), “Consumer Research Study”, June 2024
+[13] Ibid.
+[14] Ibid.
+[15] “High impact firms” refer to entities whose portfolio size (by volume and dollar value) of mortgage transactions or assets under administration, and/or number of authorized agents and brokers, indicate that the firm plays a significant role in the mortgage brokering sector.
+[16] Data relates to financial filings received between January 1, 2023-December 31, 2024.
+[17] O. Reg. 189/08: Mortgage Administrator:  Standards of Practice, Mortgage Brokerages, Lenders and Administrators Act, 2006. S. 37 (1) and (2)
+[18] O. Reg. 189/08: Mortgage Administrator:  Standards of Practice, Mortgage Brokerages, Lenders and Administrators Act, 2006. S. 23(1)
+[19] O. Reg. 189/08: Mortgage Administrator:  Standards of Practice, Mortgage Brokerages, Lenders and Administrators Act, 2006. S. 32
+[20] O. Reg. 189/08: Mortgage Administrator:  Standards of Practice, Mortgage Brokerages, Lenders and Administrators Act, 2006. S. 35(2)
+[21] Mortgage Brokerages, Lenders and Administrators Act, 2006. S. 2(2)

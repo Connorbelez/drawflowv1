@@ -136,9 +136,10 @@ describe("MarketingPage", () => {
     const markup = renderToStaticMarkup(<MarketingPage />);
 
     expect(markup).toContain("FairLend");
-    expect(markup).toContain("Building the");
-    expect(markup).toContain("future of Fair Lending");
-    expect(markup).toContain("End to End Ecosystem");
+    expect(markup).toContain("Private Lending");
+    expect(markup).toContain("and Construction");
+    expect(markup).toContain("Financing That Works");
+    expect(markup).toContain("An Integrated Model");
     expect(markup).toContain("Borrow <br/> Build <br/> Lend <br/> In one place");
     expect(markup).toContain("in lifetime deals by Principal Broker");
     expect(markup).not.toContain("Ontario lending discipline");
@@ -153,13 +154,31 @@ describe("MarketingPage", () => {
     expect(markup).not.toContain("mkt-headline-secondary");
     expect(markup).not.toContain("scroll-reveal-text");
     expect(markup).not.toContain("A lending file that stays legible");
-    expect(markup).toContain("Explore build financing");
-    expect(markup).toContain("See investor platform");
+    expect(markup).toContain("Get a private mortgage");
+    expect(markup).toContain("Finance a construction project");
+    expect(markup).toContain("Explore investor opportunities");
     expect(markup).toContain("mkt-stick-overlap");
     expect(markup).toContain("/assets/CleanShot Jun 8 Hero Section Blueprint.png");
     expect(markup).toContain(
       "/assets/Blueprint Style Rendering Jun 8 2026 (1).png",
     );
+    expect(markup).toContain(
+      "All financing subject to underwriting, borrower qualification",
+    );
+    expect(markup).toContain("The Private Lending Market Has a Structural Problem");
+    expect(markup).toContain("The result: deals that should work, don&#x27;t");
+    expect(markup).toContain("An Integrated Model, Not a Single Product");
+    expect(markup).toContain("Technology handles the workflow");
+    expect(markup).toContain("From Intake to Administration, an End-to-End Workflow");
+    expect(markup).toContain("Intake &amp; Financeability Review");
+    expect(markup).toContain("Recovery &amp; Resolution");
+    expect(markup).toContain("Built for Borrowers, Builders, and Investors Who Expect More");
+    expect(markup).toContain("GTA-specific expertise, not generic national lending");
+    expect(markup).toContain("Better Financing Can Make Better Housing Economically Possible");
+    expect(markup).toContain("Start a construction financing review");
+    expect(markup).toContain("Request investor portal access");
+    expect(markup).toContain("Refer a project as a partner");
+    expect(markup).toContain("CMHC MLI Select qualification is not guaranteed");
     expect(markup).toContain("Our services");
     expect(markup).not.toContain("Builders &amp; investors.");
     expect(markup).toContain("One fair approach to construction capital");
@@ -169,7 +188,6 @@ describe("MarketingPage", () => {
     expect(markup).toContain(
       "Opening to qualified investors soon — learn how it will work.",
     );
-    expect(markup).toContain("Get a private mortgage");
     expect(markup).toContain("Start private mortgage request");
     expect(markup).toContain("MIC");
     expect(markup).toContain("Coming Soon");
@@ -301,9 +319,11 @@ describe("MarketingPage", () => {
     const markup = renderToStaticMarkup(<HomePage />);
 
     expect(HomeRoute.options.ssr).toBe(false);
-    expect(markup).toContain("Building the");
-    expect(markup).toContain("future of Fair Lending");
-    expect(HomeRoute.options.head?.()).toEqual(Route.options.head?.());
+    expect(markup).toContain("Private Lending");
+    expect(markup).toContain("Financing That Works");
+    const homeHead = HomeRoute.options.head?.({} as never);
+    const marketingHead = Route.options.head?.({} as never);
+    expect(homeHead).toEqual(marketingHead);
   });
 
 });

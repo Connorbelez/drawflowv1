@@ -1,0 +1,5 @@
+Generated the image with `image_gen.imagegen`, but the native tool did not expose a savable PNG artifact in the workspace or writable temp directories.
+
+Wrote the required failed worker JSON here:
+
+[outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/workers/07-permit-to-payout-path/attempt-2/result.json](/Users/connor/Dev/drawFlow/v1/drawflowv1/outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/workers/07-permit-to-payout-path/attempt-2/result.json)

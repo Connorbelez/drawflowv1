@@ -256,6 +256,15 @@ const detail: ProductionBuildDetail = {
       trades: ["foundation"],
     },
   ],
+  milestoneContractorAssignments: [
+    {
+      _id: "milestone-assignment-01",
+      contractorId: "contractor-01",
+      milestoneKey: "foundation",
+      role: "Foundation contractor",
+      status: "active",
+    },
+  ],
   displayId: "B-ACTIVE01",
   documents: [
     {
@@ -543,7 +552,7 @@ describe("ProductionBuildDetailSurface", () => {
     expect(onChangeMilestone).toHaveBeenCalledWith("foundation");
   });
 
-  test("renders production detail data instead of the old summary-only page", () => {
+  test("renders the current overview as the default build details card tab", () => {
     render(
       <ProductionBuildDetailSurface
         activeTab="details"
@@ -556,15 +565,423 @@ describe("ProductionBuildDetailSurface", () => {
 
     expect(screen.getByText("Approved With Permit Site")).toBeTruthy();
     expect(screen.getByText("Production active Build")).toBeTruthy();
-    expect(screen.getByText("Loan Details")).toBeTruthy();
-    expect(screen.getAllByText("$550,000").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("build-overview-current-panel")).toBeTruthy();
+    expect(screen.getByTestId("current-milestone-foundation")).toBeTruthy();
+    expect(screen.getByText("Current milestone")).toBeTruthy();
+    expect(
+      within(screen.getByTestId("current-milestone-foundation")).getByText(
+        "Foundation contractor",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("Review milestone completion")).toBeTruthy();
     expect(screen.getByTestId("build-detail-kanban")).toBeTruthy();
     expect(screen.getByTestId("build-detail-draws")).toBeTruthy();
     expect(screen.getByTestId("facility-change-requests")).toBeTruthy();
-    expect(screen.getByText("Payback date")).toBeTruthy();
     expect(screen.getByTestId("build-permit-viewer-trigger")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("build-overview-tab-draws"));
+    expect(screen.getByTestId("draw-overview-panel")).toBeTruthy();
+    expect(
+      screen.getByTestId("draw-overview-availability").textContent,
+    ).toContain("$0");
+    expect(screen.getByTestId("draw-overview-upcoming-draw").textContent).toContain(
+      "Foundation reimbursement",
+    );
+    expect(screen.getByText("Past draws")).toBeTruthy();
+    expect(screen.getByText("Upcoming schedule")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("build-overview-tab-loan"));
+    expect(screen.getByText("Loan Details")).toBeTruthy();
+    expect(screen.getAllByText("$550,000").length).toBeGreaterThan(0);
+    expect(screen.getByText("Payback date")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("build-overview-tab-build"));
     expect(screen.getByText("43.653226")).toBeTruthy();
     expect(screen.getByText("-79.383184")).toBeTruthy();
+  });
+
+  test("displays past, in-flight, and upcoming draws in the draw overview tab", () => {
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={{
+          ...detail,
+          draws: [
+            {
+              ...detail.draws[0],
+              _id: "draw-released",
+              amountCents: 75_000_00,
+              drawKey: "draw-released",
+              label: "Released permit reimbursement",
+              order: 0,
+              releasedAt: "2026-06-12T12:00:00.000Z",
+              requestedAt: "2026-06-10T12:00:00.000Z",
+              reviewedAt: "2026-06-11T12:00:00.000Z",
+              status: "released",
+              timingDay: 12,
+            },
+            {
+              ...detail.draws[0],
+              _id: "draw-requested",
+              amountCents: 40_000_00,
+              drawKey: "draw-requested",
+              label: "Requested foundation holdback",
+              order: 1,
+              requestedAt: "2026-06-20T12:00:00.000Z",
+              status: "requested",
+              timingDay: 20,
+            },
+            {
+              ...detail.draws[0],
+              _id: "draw-planned",
+              amountCents: 88_000_00,
+              drawKey: "draw-planned",
+              label: "Upcoming foundation reimbursement",
+              order: 2,
+              status: "planned",
+              timingDay: 31,
+            },
+          ],
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("build-overview-tab-draws"));
+    expect(screen.getByTestId("draw-overview-past-draws").textContent).toContain(
+      "Released permit reimbursement",
+    );
+    expect(
+      screen.getByTestId("draw-overview-in-flight-draws").textContent,
+    ).toContain("Requested foundation holdback");
+    expect(
+      screen.getByTestId("draw-overview-scheduled-draws").textContent,
+    ).toContain("Upcoming foundation reimbursement");
+  });
+
+  test("opens the milestone completion review sheet from the current overview", async () => {
+    const approveMilestone = vi.fn().mockResolvedValue(null);
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ approveMilestone }}
+        activeTab="details"
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("current-milestone-review-foundation"));
+    expect(
+      screen.getByTestId("milestone-completion-review-summary")
+    ).toBeTruthy();
+    expect(screen.getByText("Builder submitted evidence")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Approve completion/i }));
+
+    await waitFor(() =>
+      expect(approveMilestone).toHaveBeenCalledWith({
+        milestoneKey: "foundation",
+        note: "Approved from milestone completion review.",
+      }),
+    );
+  });
+
+  test("sorts current milestones with the most recent completion request first", () => {
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={{
+          ...detail,
+          milestones: [
+            {
+              ...detail.milestones[0],
+              completionClaim: {
+                completedDay: 30,
+                submittedAt: "2026-06-24T12:00:00.000Z",
+              },
+              key: "foundation",
+              name: "Foundation",
+              order: 1,
+              progressPercent: 100,
+            },
+            {
+              ...detail.milestones[0],
+              _id: "milestone-02",
+              budgetCents: 145_040_00,
+              completionClaim: {
+                completedDay: 55,
+                submittedAt: "2026-07-27T12:00:00.000Z",
+              },
+              dayEnd: 55,
+              dayStart: 26,
+              drawAvailabilityCents: 106_329_00,
+              key: "framing",
+              name: "Underground, framing & roof",
+              order: 2,
+              progressPercent: 100,
+            },
+          ],
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+      />,
+    );
+
+    const currentMilestones = screen.getByTestId("current-milestones");
+    const text = currentMilestones.textContent ?? "";
+    expect(text.indexOf("Underground, framing & roof")).toBeLessThan(
+      text.indexOf("Foundation"),
+    );
+  });
+
+  test("reviews builder evidence and orders site visits from the completion sheet", async () => {
+    const approveMilestone = vi.fn().mockResolvedValue(null);
+    const assignSiteVisit = vi.fn().mockResolvedValue(null);
+    const reviewEvidence = vi.fn().mockResolvedValue(null);
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ approveMilestone, assignSiteVisit, reviewEvidence }}
+        activeTab="details"
+        detail={{
+          ...detail,
+          evidenceAssets: [
+            {
+              _id: "evidence-asset-01",
+              createdAt: Date.now(),
+              evidenceKey: "foundation-photo-01",
+              fileName: "foundation-photo.jpg",
+              label: "Foundation photo",
+              locationVerified: true,
+              milestoneKey: "foundation",
+              mimeType: "image/jpeg",
+              previewUrl: "https://example.com/foundation-photo.jpg",
+              sizeBytes: 238_000,
+              source: "active_build_timeline_upload",
+              tag: "Foundation",
+              updatedAt: Date.now(),
+            },
+          ],
+          milestones: [
+            {
+              ...detail.milestones[0],
+              completionClaim: {
+                completedDay: 30,
+                note: "Foundation work is complete.",
+                submittedAt: "2026-06-24T12:00:00.000Z",
+              },
+              progressPercent: 100,
+            },
+          ],
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("current-milestone-review-foundation"));
+    expect(screen.getByText("Foundation photo")).toBeTruthy();
+    expect(screen.getByText("No site visit has been ordered for this milestone."))
+      .toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Order site visit/i }));
+    await waitFor(() =>
+      expect(assignSiteVisit).toHaveBeenCalledWith({
+        milestoneKey: "foundation",
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Approve evidence/i }));
+    await waitFor(() =>
+      expect(reviewEvidence).toHaveBeenCalledWith({
+        accepted: true,
+        milestoneKey: "foundation",
+        note: "Builder evidence approved from milestone completion review.",
+      }),
+    );
+  });
+
+  test("displays ordered site visit token state and regeneration controls", async () => {
+    const assignSiteVisit = vi.fn().mockResolvedValue(null);
+    const cancelSiteVisit = vi.fn().mockResolvedValue(null);
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ assignSiteVisit, cancelSiteVisit }}
+        activeTab="details"
+        detail={{
+          ...detail,
+          milestones: [
+            {
+              ...detail.milestones[0],
+              completionClaim: {
+                completedDay: 30,
+                submittedAt: "2026-06-24T12:00:00.000Z",
+              },
+              progressPercent: 100,
+            },
+          ],
+          siteVisits: [
+            {
+              _id: "site-visit-token-01",
+              milestoneKey: "foundation",
+              requestedAt: "2026-06-24T12:00:00.000Z",
+              requestedDay: 30,
+              requestedTime: "14:30",
+              status: "requested",
+              tokenExpiresAt: 4_102_444_800_000,
+              tokenOpenedAt: 1_771_984_800_000,
+              url: "/newsitevisit/active-build-01/visit-foundation-token",
+              visitId: "visit-foundation-token",
+            },
+          ],
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("current-milestone-review-foundation"));
+    expect(screen.getByTestId("site-visit-token-panel")).toBeTruthy();
+    expect(screen.getAllByText("Site visit in progress").length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.getByText("Ordered")).toBeTruthy();
+    expect(screen.getAllByText("Opened").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("site-visit-token-value").textContent).toContain(
+      "visit-foundation-token",
+    );
+    expect(screen.getByTestId("site-visit-token-url").textContent).toContain(
+      "/newsitevisit/active-build-01/visit-foundation-token",
+    );
+    expect(screen.getByText("Requested time: 14:30")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Regenerate token/i }));
+    await waitFor(() =>
+      expect(assignSiteVisit).toHaveBeenCalledWith({
+        milestoneKey: "foundation",
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Cancel site visit/i }));
+    await waitFor(() =>
+      expect(cancelSiteVisit).toHaveBeenCalledWith({
+        reason: "Cancelled from milestone completion review.",
+        visitId: "visit-foundation-token",
+      }),
+    );
+  });
+
+  test("displays completed site visit reports in the completion review sheet", () => {
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={{
+          ...detail,
+          evidenceAssets: [
+            {
+              _id: "evidence-asset-02",
+              createdAt: Date.now(),
+              evidenceKey: "foundation-site-visit-report-01",
+              fileName: "site-visit-foundation.pdf",
+              label: "Foundation site visit report",
+              locationVerified: true,
+              milestoneKey: "foundation",
+              mimeType: "application/pdf",
+              previewUrl: "https://example.com/site-visit-foundation.pdf",
+              sizeBytes: 91_000,
+              source: "active_build_site_visit:visit-foundation-01",
+              tag: "Inspection report",
+              updatedAt: Date.now(),
+            },
+          ],
+          milestones: [
+            {
+              ...detail.milestones[0],
+              completionClaim: {
+                completedDay: 30,
+                submittedAt: "2026-06-24T12:00:00.000Z",
+              },
+              progressPercent: 100,
+            },
+          ],
+          siteVisits: [
+            {
+              _id: "site-visit-01",
+              completedAt: "2026-06-24T16:00:00.000Z",
+              milestoneKey: "foundation",
+              recordNote: "Inspector verified the completed foundation scope.",
+              recordNoteFormat: "plain_text",
+              requestedAt: "2026-06-24T12:00:00.000Z",
+              requestedDay: 30,
+              status: "complete",
+              visitId: "visit-foundation-01",
+            },
+          ],
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("current-milestone-review-foundation"));
+    expect(screen.getAllByText("Site visit completed").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("completed-site-visit-review")).toBeTruthy();
+    expect(
+      screen.getByText("Inspector verified the completed foundation scope."),
+    ).toBeTruthy();
+    expect(screen.getByText("Foundation site visit report")).toBeTruthy();
+  });
+
+  test("requests the upcoming draw with the amount clipped to availability", async () => {
+    const requestDraw = vi.fn().mockResolvedValue(null);
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ requestDraw }}
+        activeTab="details"
+        detail={{
+          ...detail,
+          milestones: [
+            {
+              _id: "milestone-00",
+              budgetCents: 100_000_00,
+              dayEnd: 0,
+              dayStart: 0,
+              dependencyKeys: [],
+              drawAvailabilityCents: 100_000_00,
+              durationDays: 1,
+              evidenceState: "Approved",
+              key: "permit",
+              name: "Permit approval",
+              order: 0,
+              status: "complete",
+            },
+            ...detail.milestones,
+          ],
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("build-overview-tab-draws"));
+    expect(
+      screen.getByTestId("draw-overview-availability").textContent,
+    ).toContain("$100,000");
+    fireEvent.click(screen.getByTestId("draw-overview-request-now"));
+
+    await waitFor(() => expect(requestDraw).toHaveBeenCalledTimes(1));
+    expect(requestDraw.mock.calls[0]?.[0]).toMatchObject({
+      amountCents: 100_000_00,
+      drawKey: "draw-01",
+    });
   });
 
   test("opens a sheet to edit active build non-financial details", async () => {
