@@ -153,6 +153,7 @@ interface ProductionProposal {
   interestAnnualBps?: number;
   lenderDrawPolicyLimitCents: number;
   location: string;
+  proposedStartDate?: string;
   status: ProductionProposalStatus;
   totalBudgetCents: number;
 }
@@ -373,6 +374,7 @@ export interface ProductionProposalDraftSavePayload {
       order: number;
     }>;
   }>;
+  proposedStartDate?: string;
 }
 
 export function ProductionProposalDraftEditorSurface({
@@ -387,6 +389,7 @@ export function ProductionProposalDraftEditorSurface({
   onUploadDocument?: (file: File) => Promise<{ storageId: string }>;
 }) {
   const proposal = detail.proposal;
+  const proposedStartDate = proposal.proposedStartDate ?? "";
   const initialDraftMilestones = useMemo(
     () => productionProposalDetailToDraftMilestones(detail),
     [detail]
@@ -462,6 +465,7 @@ export function ProductionProposalDraftEditorSurface({
       lenderDrawPolicyLimitCents: nextApprovedAmountCents,
       location,
       milestones: draftMilestones,
+      proposedStartDate: proposal.proposedStartDate,
     });
   }
 
@@ -545,6 +549,7 @@ export function ProductionProposalDraftEditorSurface({
           </div>
           <div className="min-h-[44rem]">
             <ProductionProposalGanttWorkspace
+              baseDate={proposedStartDate}
               borrowerCoPayBps={draftBorrowerCoPayBps}
               borrowerWorkingCapitalLimitCents={parseInteger(
                 borrowerWorkingCapitalLimitCents
@@ -1642,6 +1647,7 @@ export function ProductionProposalReviewSurface({
     "approve" | "reject" | "requestChanges" | null
   >(null);
   const proposal = detail.proposal;
+  const proposedStartDate = proposal.proposedStartDate ?? "";
   const permit = detail.documents?.find((doc) => doc.documentType === "permit");
   const permitViewerDocument = firstPermitDocument(detail.documents);
   const canEditProposalCapitalTerms =
@@ -1715,8 +1721,15 @@ export function ProductionProposalReviewSurface({
     [calendarAdapterActions, editableDraws, onUpdateDraw]
   );
   const effectiveCalendarWorkspace = useMemo(
-    () => calendarWorkspace ?? buildProposalCalendarWorkspaceFromDetail(detail),
-    [calendarWorkspace, detail]
+    () =>
+      calendarWorkspace ??
+      buildProposalCalendarWorkspaceFromDetail(detail, {
+        baseDate:
+          detail.activeBuild?.startDate ||
+          proposal.proposedStartDate ||
+          undefined,
+      }),
+    [calendarWorkspace, detail, proposal.proposedStartDate]
   );
   const effectiveCalendarActions = useMemo(
     () => buildProposalCalendarActions(proposalCalendarActions),
@@ -1726,9 +1739,16 @@ export function ProductionProposalReviewSurface({
     () =>
       createProposalCalendarEditHandler({
         actions: proposalCalendarActions,
-        baseDate: detail.activeBuild?.startDate ?? "2026-06-01",
+        baseDate:
+          detail.activeBuild?.startDate ??
+          proposal.proposedStartDate ??
+          "2026-06-01",
       }),
-    [detail.activeBuild?.startDate, proposalCalendarActions]
+    [
+      detail.activeBuild?.startDate,
+      proposal.proposedStartDate,
+      proposalCalendarActions,
+    ]
   );
   const [activeTab, setActiveTab] = useState<ProductionReviewTab>(
     initialActiveTab ?? (timeline ? "timeline" : "review")
@@ -1747,6 +1767,12 @@ export function ProductionProposalReviewSurface({
       setActiveTab(initialActiveTab);
     }
   }, [initialActiveTab, tabs]);
+
+  useEffect(() => {
+    if (!detail.activeBuild && proposal.status === "approved") {
+      setStartDate((current) => current || proposedStartDate);
+    }
+  }, [detail.activeBuild, proposal.status, proposedStartDate]);
 
   const runReviewDecision = async (
     decision: "approve" | "reject" | "requestChanges"

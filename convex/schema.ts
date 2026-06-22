@@ -1594,6 +1594,7 @@ export default defineSchema({
     timelineRouteState: v.optional(v.any()),
     timelineMinimumCashReserveCents: v.optional(v.number()),
     timelineStartingCashCents: v.optional(v.number()),
+    proposedStartDate: v.optional(v.string()),
     templateId: v.optional(v.id("proposalTemplates")),
     workflowRuleSnapshotId: v.optional(v.id("workflowRuleSnapshots")),
     activeBuildId: v.optional(v.id("activeBuilds")),

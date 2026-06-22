@@ -164,4 +164,75 @@ describe("productionMilestoneWorksheetAdapter", () => {
       }),
     ]);
   });
+
+  test("maps worksheet schedule date edits into milestone and submilestone offsets", () => {
+    const detail = {
+      milestones: [
+        {
+          budgetCents: 50_000_00,
+          dayEnd: 10,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 10,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+        },
+      ],
+      proposal: {
+        proposedStartDate: "2026-06-01",
+        status: "draft",
+        totalBudgetCents: 50_000_00,
+      },
+      submilestones: [
+        {
+          budgetCents: 12_500_00,
+          durationDays: 2,
+          key: "forms",
+          milestoneKey: "foundation",
+          name: "Forms and pour",
+          order: 1,
+          startDay: 0,
+        },
+      ],
+    };
+    const rows = productionProposalDetailToWorksheetRows(detail);
+    const scheduleByKey = new Map(
+      productionProposalDetailToDraftMilestones(detail).map((milestone) => [
+        milestone.key,
+        milestone,
+      ])
+    );
+
+    const [milestone] = worksheetRowsToGanttMilestoneDrafts(
+      rows.map((row) => ({
+        ...row,
+        durationDays: 12,
+        durationText: "12",
+        startDay: -3,
+        subMilestoneDetails: row.subMilestoneDetails.map((submilestone) => ({
+          ...submilestone,
+          durationText: "5",
+          startDay: -2,
+        })),
+      })),
+      scheduleByKey
+    );
+
+    expect(milestone).toEqual(
+      expect.objectContaining({
+        dayEnd: 9,
+        dayStart: -3,
+        durationDays: 12,
+        key: "foundation",
+      })
+    );
+    expect(milestone?.submilestones[0]).toEqual(
+      expect.objectContaining({
+        durationDays: 5,
+        key: "forms",
+        startDay: -2,
+      })
+    );
+  });
 });

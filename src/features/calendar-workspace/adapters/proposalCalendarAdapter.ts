@@ -41,7 +41,11 @@ export function buildProposalCalendarWorkspaceFromDetail(
 ): DrawFlowCalendarWorkspaceData {
   const proposal = detail.proposal ?? {};
   const organizationId = options.organizationId ?? proposal.organizationId ?? "visual-fixture";
-  const baseDate = options.baseDate ?? detail.activeBuild?.startDate ?? "2026-06-01";
+  const baseDate =
+    options.baseDate ??
+    detail.activeBuild?.startDate ??
+    proposal.proposedStartDate ??
+    "2026-06-01";
   const events: DrawFlowCalendarEvent[] = [];
   const milestones = (detail.milestones ?? []).slice().sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
   const draws = detail.draws ?? detail.plannedDraws ?? [];
@@ -86,7 +90,10 @@ export function buildProposalCalendarWorkspaceFromDetail(
 
   for (const submilestone of detail.submilestones ?? []) {
     const parent = milestones.find((milestone: any) => milestone.key === submilestone.milestoneKey);
-    const startsAt = addDaysIso(baseDate, parent?.dayStart ?? 0);
+    const startsAt = addDaysIso(
+      baseDate,
+      submilestone.startDay ?? parent?.dayStart ?? 0,
+    );
     events.push(
       normalizeCalendarEvent({
         allDay: true,

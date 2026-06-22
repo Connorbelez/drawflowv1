@@ -36,15 +36,19 @@ import {
   type BudgetWorkbookProposalDraft,
   parseBudgetWorkbookFile,
 } from "#/features/proposal-import/budget-workbook-schema.ts";
+import {
+  isValidIsoDateOnly,
+  todayIsoDate,
+} from "#/features/production-proposals/proposalScheduleDates.ts";
 import { coerceSiteVisitGuidance } from "#/lib/site-visit-guidance.ts";
 import { cn } from "#/lib/utils.ts";
 import {
   type TimelineMilestoneWorksheetContractorAssignment,
   type TimelineMilestoneWorksheetContractorOption,
   type TimelineMilestoneWorksheetCostItem,
+  type TimelineScheduleDisplayMode,
   TimelineMilestoneWorksheetTable,
 } from "./-TimelineMilestoneWorksheetTable.tsx";
-import { normalizeMilestoneTimelineItems } from "./-timeline-milestone-schedule.ts";
 import { mapSubmilestoneSnapshotRows } from "./-timeline-milestone-submilestones.ts";
 import type {
   DemoMilestone,
@@ -527,6 +531,7 @@ export interface TimelineSetupPresetSubMilestone {
   name: string;
   order?: number;
   percentageBps?: number;
+  startDay?: number;
 }
 
 export interface TimelineSetupMilestoneRow extends TimelineSetupPreset {
@@ -536,6 +541,7 @@ export interface TimelineSetupMilestoneRow extends TimelineSetupPreset {
   durationText: string;
   excluded: boolean;
   order: number;
+  startDay: number;
   subMilestoneDetails: TimelineSetupSubMilestone[];
 }
 
@@ -545,6 +551,7 @@ export interface TimelineSetupSubMilestone {
   durationText: string;
   id: string;
   name: string;
+  startDay?: number;
 }
 
 export interface TimelineSetupResult {
@@ -558,6 +565,7 @@ export interface TimelineSetupResult {
   items: TimelineItem<DemoMilestone>[];
   permitFiles: File[];
   projectAddress: string;
+  proposedStartDate: string;
   redirectToDurableRoute: boolean;
   reimbursableBudgetCents: number;
   reimbursementBps: number;
@@ -835,7 +843,8 @@ function allocateWeightedBudgetCents(
 function buildSubMilestoneDetails(
   row: TimelineSetupPreset,
   budgetCents: number,
-  durationDays: number
+  durationDays: number,
+  milestoneStartDay: number
 ): TimelineSetupSubMilestone[] {
   const presets: TimelineSetupPresetSubMilestone[] =
     row.subMilestoneDetails && row.subMilestoneDetails.length > 0
@@ -858,26 +867,36 @@ function buildSubMilestoneDetails(
   const durationRemainderDays =
     Math.max(1, durationDays) - baseDurationDays * count;
 
-  return presets.map((preset, index) => ({
-    budgetText: formatCurrency(
-      weightedBudgetCents?.[index] ??
-        baseBudgetCents + (index < budgetRemainderCents ? 1 : 0)
-    ),
-    description:
-      preset.description ??
-      subMilestoneDescriptions[index % subMilestoneDescriptions.length],
-    durationText: String(
-      Math.max(
-        1,
-        Math.round(
-          preset.durationDays ??
-            baseDurationDays + (index < durationRemainderDays ? 1 : 0)
-        )
+  let subMilestoneCursor = milestoneStartDay;
+
+  return presets.map((preset, index) => {
+    const normalizedDuration = Math.max(
+      1,
+      Math.round(
+        preset.durationDays ??
+          baseDurationDays + (index < durationRemainderDays ? 1 : 0)
       )
-    ),
-    id: preset.key ?? `${row.key}-${slugifySubMilestone(preset.name)}-${index}`,
-    name: preset.name,
-  }));
+    );
+    const startDay = Number.isFinite(preset.startDay)
+      ? Math.round(preset.startDay ?? milestoneStartDay)
+      : subMilestoneCursor;
+    subMilestoneCursor = startDay + normalizedDuration;
+
+    return {
+      budgetText: formatCurrency(
+        weightedBudgetCents?.[index] ??
+          baseBudgetCents + (index < budgetRemainderCents ? 1 : 0)
+      ),
+      description:
+        preset.description ??
+        subMilestoneDescriptions[index % subMilestoneDescriptions.length],
+      durationText: String(normalizedDuration),
+      id:
+        preset.key ?? `${row.key}-${slugifySubMilestone(preset.name)}-${index}`,
+      name: preset.name,
+      startDay,
+    };
+  });
 }
 
 function withSubMilestoneDetails(
@@ -1169,9 +1188,12 @@ export function createRowsFromTemplate(
   budgetCents: number
 ): TimelineSetupMilestoneRow[] {
   const allocations = allocateBudgetCents(budgetCents, template.rows);
+  let cursor = GENERATED_TIMELINE_CURRENT_DAY;
 
   return template.rows.map((row, order) => {
     const budgetCents = allocations[order] ?? 0;
+    const startDay = cursor;
+    cursor += row.durationDays + DEFAULT_HANDOFF_GAP_DAYS;
 
     return {
       ...row,
@@ -1181,10 +1203,12 @@ export function createRowsFromTemplate(
       durationText: String(row.durationDays),
       excluded: false,
       order,
+      startDay,
       subMilestoneDetails: buildSubMilestoneDetails(
         row,
         budgetCents,
-        row.durationDays
+        row.durationDays,
+        startDay
       ),
     };
   });
@@ -1218,10 +1242,7 @@ export function buildTimelineItemsFromSetupRows(
   coPayBps = DEFAULT_BORROWER_CO_PAY_BPS
 ): TimelineItem<DemoMilestone>[] {
   const includedRows = rows.filter((row) => !row.excluded);
-  let cursor = GENERATED_TIMELINE_CURRENT_DAY;
-
-  return normalizeMilestoneTimelineItems(
-    includedRows.map((row, includedIndex) => {
+  return includedRows.map((row, includedIndex) => {
       const budgetCents = rowBudgetCents(row);
       const durationDays = rowDurationDays(row);
       const amount = Number.isFinite(budgetCents)
@@ -1230,7 +1251,9 @@ export function buildTimelineItemsFromSetupRows(
       const normalizedDuration = Number.isFinite(durationDays)
         ? durationDays
         : row.durationDays;
-      const startDay = cursor;
+      const startDay = Number.isFinite(row.startDay)
+        ? Math.round(row.startDay)
+        : GENERATED_TIMELINE_CURRENT_DAY;
       const status = chooseStatus(includedIndex, includedRows.length);
       const item: TimelineItem<DemoMilestone> = {
         data: {
@@ -1247,6 +1270,7 @@ export function buildTimelineItemsFromSetupRows(
               DEFAULT_GENERATED_DRAW_OFFSET_DAYS,
               DEFAULT_HANDOFF_GAP_DAYS - 1
             ),
+          dependencyKeys: row.dependencyKeys,
           durationDays: normalizedDuration,
           evidence: status === "ready" ? "Ready to start" : "Not started",
           icon: row.icon,
@@ -1273,6 +1297,9 @@ export function buildTimelineItemsFromSetupRows(
               key: detail.id,
               name: detail.name,
               order: index + 1,
+              startDay: Number.isFinite(detail.startDay)
+                ? Math.round(detail.startDay ?? startDay)
+                : startDay,
             })),
             row.key
           ),
@@ -1286,10 +1313,8 @@ export function buildTimelineItemsFromSetupRows(
         x: startDay,
       };
 
-      cursor += normalizedDuration + DEFAULT_HANDOFF_GAP_DAYS;
       return item;
-    })
-  );
+    });
 }
 
 export function buildPlanningPayloadFromSetupRows(
@@ -1401,10 +1426,12 @@ function TemplateStep({
   onPermitFilesChange,
   onPermitSkipChange,
   onProjectAddressChange,
+  onProposedStartDateChange,
   onTemplateSelect,
   permitFiles,
   permitsSkipped,
   projectAddress,
+  proposedStartDate,
   selectedTemplateKey,
   templates,
 }: {
@@ -1419,10 +1446,12 @@ function TemplateStep({
   onPermitFilesChange: (files: File[]) => void;
   onPermitSkipChange: (skipped: boolean) => void;
   onProjectAddressChange: (value: string) => void;
+  onProposedStartDateChange: (value: string) => void;
   onTemplateSelect: (templateKey: string) => void;
   permitFiles: File[];
   permitsSkipped: boolean;
   projectAddress: string;
+  proposedStartDate: string;
   selectedTemplateKey: string;
   templates: TimelineSetupTemplate[];
 }) {
@@ -1495,6 +1524,13 @@ function TemplateStep({
         </BlueprintPanel>
 
         <BlueprintPanel className="timeline-setup-budget-input-panel">
+          <DateSetupField
+            label="Proposed Start Date"
+            note="Used as the calendar anchor for milestone planning. Past dates are allowed."
+            onChange={onProposedStartDateChange}
+            testId="timeline-setup-proposed-start-date-input"
+            value={proposedStartDate}
+          />
           <CurrencySetupField
             label="Total Budget"
             note=""
@@ -1729,6 +1765,38 @@ function PercentSetupField({
   );
 }
 
+function DateSetupField({
+  label,
+  note,
+  onChange,
+  testId,
+  value,
+}: {
+  label: string;
+  note: string;
+  onChange: (value: string) => void;
+  testId: string;
+  value: string;
+}) {
+  return (
+    <label className="timeline-setup-money-field">
+      <span>
+        {label} <Info aria-hidden="true" />
+      </span>
+      <div className="timeline-setup-money-input">
+        <input
+          aria-label={label}
+          data-testid={testId}
+          onChange={(event) => onChange(event.currentTarget.value)}
+          type="date"
+          value={value}
+        />
+      </div>
+      {note ? <small>{note}</small> : null}
+    </label>
+  );
+}
+
 function BlueprintSummaryCard({
   budgetCents,
   cashCents,
@@ -1894,9 +1962,12 @@ function BudgetStep({
   onCascadeBudgetEditsChange,
   onComplete,
   onRowsChange,
+  onScheduleDisplayModeChange,
   projectAddress,
   permitFiles,
+  proposedStartDate,
   rows,
+  scheduleDisplayMode,
   targetBudgetCents,
   templateTitle,
 }: {
@@ -1909,9 +1980,12 @@ function BudgetStep({
   onCascadeBudgetEditsChange: (enabled: boolean) => void;
   onComplete: (options: { redirectToDurableRoute: boolean }) => void;
   onRowsChange: (rows: TimelineSetupMilestoneRow[]) => void;
+  onScheduleDisplayModeChange: (mode: TimelineScheduleDisplayMode) => void;
   permitFiles: File[];
   projectAddress: string;
+  proposedStartDate: string;
   rows: TimelineSetupMilestoneRow[];
+  scheduleDisplayMode: TimelineScheduleDisplayMode;
   targetBudgetCents: number;
   templateTitle: string;
 }) {
@@ -2028,8 +2102,11 @@ function BudgetStep({
       onCascadeBudgetEditsChange={onCascadeBudgetEditsChange}
       onComplete={onComplete}
       onRowsChange={onRowsChange}
+      onScheduleDisplayModeChange={onScheduleDisplayModeChange}
       projectAddress={projectAddress}
+      proposedStartDate={proposedStartDate}
       rows={rows}
+      scheduleDisplayMode={scheduleDisplayMode}
       showHeading
       targetBudgetCents={targetBudgetCents}
       templateTitle={templateTitle}
@@ -2098,6 +2175,9 @@ export function TimelineSetupFlow({
   const [budgetText, setBudgetText] = useState(DEFAULT_SETUP_BUDGET_TEXT);
   const [cashText, setCashText] = useState(DEFAULT_SETUP_CASH_TEXT);
   const [coPayText, setCoPayText] = useState(DEFAULT_SETUP_CO_PAY_TEXT);
+  const [proposedStartDate, setProposedStartDate] = useState(todayIsoDate);
+  const [scheduleDisplayMode, setScheduleDisplayMode] =
+    useState<TimelineScheduleDisplayMode>("dates");
   const [cascadeBudgetEdits, setCascadeBudgetEdits] = useState(false);
   const [projectAddress, setProjectAddress] = useState(DEFAULT_SETUP_ADDRESS);
   const [permitFiles, setPermitFiles] = useState<File[]>([]);
@@ -2185,6 +2265,11 @@ export function TimelineSetupFlow({
       return;
     }
 
+    if (!isValidIsoDateOnly(proposedStartDate)) {
+      setError("Enter a proposed start date before continuing.");
+      return;
+    }
+
     if (regenerateRows(selectedTemplate, budgetText)) {
       setStep("budget");
     }
@@ -2236,6 +2321,11 @@ export function TimelineSetupFlow({
       return;
     }
 
+    if (!isValidIsoDateOnly(proposedStartDate)) {
+      setError("Enter a proposed start date before generating a timeline.");
+      return;
+    }
+
     const budgetCents = setupRowsBudgetCents(rows);
     const totalBudget = rows
       .filter((row) => !row.excluded)
@@ -2264,6 +2354,7 @@ export function TimelineSetupFlow({
       permitFiles,
       costItems: planningPayload.costItems,
       projectAddress: resolveTimelineSetupAddress(projectAddress),
+      proposedStartDate,
       redirectToDurableRoute,
       reimbursableBudgetCents,
       reimbursementBps,
@@ -2352,10 +2443,15 @@ export function TimelineSetupFlow({
             onPermitFilesChange={setPermitFiles}
             onPermitSkipChange={setPermitsSkipped}
             onProjectAddressChange={setProjectAddress}
+            onProposedStartDateChange={(value) => {
+              setProposedStartDate(value);
+              setError("");
+            }}
             onTemplateSelect={selectTemplate}
             permitFiles={permitFiles}
             permitsSkipped={permitsSkipped}
             projectAddress={projectAddress}
+            proposedStartDate={proposedStartDate}
             selectedTemplateKey={selectedTemplateKey}
             templates={templates}
           />
@@ -2374,9 +2470,12 @@ export function TimelineSetupFlow({
               setBudgetText(formatCurrency(setupRowsBudgetCents(nextRows)));
               setError("");
             }}
+            onScheduleDisplayModeChange={setScheduleDisplayMode}
             permitFiles={permitFiles}
             projectAddress={projectAddress}
+            proposedStartDate={proposedStartDate}
             rows={rows}
+            scheduleDisplayMode={scheduleDisplayMode}
             targetBudgetCents={validCurrencyCents(budgetText)}
             templateTitle={
               importedBudgetTitle || selectedTemplate?.title || "Timeline plan"

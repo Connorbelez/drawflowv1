@@ -13,6 +13,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   TimelineMilestoneWorksheetTable,
   type TimelineMilestoneWorksheetRow,
+  type TimelineScheduleDisplayMode,
 } from "./-TimelineMilestoneWorksheetTable.tsx";
 
 vi.mock("#/components/rich-text/field-rich-text.tsx", () => ({
@@ -165,6 +166,8 @@ function ControlledWorksheet({
   mode = "setup",
   onComplete = vi.fn(),
   onRowsChange = vi.fn(),
+  proposedStartDate,
+  scheduleDisplayMode,
   targetBudgetCents = 200_000_00,
 }: {
   cascadeBudgetEdits?: boolean;
@@ -177,6 +180,8 @@ function ControlledWorksheet({
     typeof TimelineMilestoneWorksheetTable
   >["onComplete"];
   onRowsChange?: (rows: TimelineMilestoneWorksheetRow[]) => void;
+  proposedStartDate?: string;
+  scheduleDisplayMode?: TimelineScheduleDisplayMode;
   targetBudgetCents?: number;
 }) {
   const [rows, setRows] = useState(initialRows);
@@ -194,7 +199,9 @@ function ControlledWorksheet({
         setRows(nextRows);
         onRowsChange(nextRows);
       }}
+      proposedStartDate={proposedStartDate}
       rows={rows}
+      scheduleDisplayMode={scheduleDisplayMode}
       targetBudgetCents={targetBudgetCents}
       templateTitle="Regression fixture"
     />
@@ -230,16 +237,214 @@ describe("TimelineMilestoneWorksheetTable", () => {
     const budgetInput = screen.getByTestId(
       "timeline-setup-row-budget-site-prep-foundation"
     );
+    const startInput = screen.getByTestId(
+      "timeline-setup-row-start-offset-site-prep-foundation"
+    );
     const durationInput = screen.getByTestId(
       "timeline-setup-row-duration-site-prep-foundation"
     );
     budgetInput.focus();
 
     fireEvent.keyDown(budgetInput, { key: "Enter" });
-    expect(document.activeElement).toBe(durationInput);
+    expect(document.activeElement).toBe(startInput);
 
     fireEvent.keyDown(durationInput, { key: "ArrowUp" });
-    expect(document.activeElement).toBe(budgetInput);
+    expect(document.activeElement).toBe(startInput);
+  });
+
+  test("edits inclusive milestone start and end dates in calendar mode", () => {
+    const onRowsChange = vi.fn();
+    render(
+      <ControlledWorksheet
+        initialRows={[
+          {
+            ...worksheetRows[0]!,
+            startDay: 0,
+            subMilestoneDetails: [
+              {
+                ...worksheetRows[0]!.subMilestoneDetails[0]!,
+                startDay: 0,
+              },
+            ],
+          },
+        ]}
+        onRowsChange={onRowsChange}
+        proposedStartDate="2026-06-01"
+        scheduleDisplayMode="dates"
+      />
+    );
+
+    const startDate = screen.getByTestId(
+      "timeline-setup-row-start-date-site-prep-foundation"
+    );
+    const endDate = screen.getByTestId(
+      "timeline-setup-row-end-date-site-prep-foundation"
+    );
+
+    expect((startDate as HTMLInputElement).value).toBe("2026-06-01");
+    expect((endDate as HTMLInputElement).value).toBe("2026-06-14");
+
+    fireEvent.change(startDate, { target: { value: "2026-05-30" } });
+    expect(onRowsChange).toHaveBeenLastCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "site-prep-foundation",
+          startDay: -2,
+        }),
+      ])
+    );
+
+    fireEvent.change(
+      screen.getByTestId("timeline-setup-row-end-date-site-prep-foundation"),
+      { target: { value: "2026-06-30" } }
+    );
+    expect(onRowsChange).toHaveBeenLastCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          durationDays: 32,
+          durationText: "32",
+          key: "site-prep-foundation",
+        }),
+      ])
+    );
+  });
+
+  test("keeps duration cells when schedule mode is switched back to T offsets", () => {
+    render(
+      <ControlledWorksheet
+        proposedStartDate="2026-06-01"
+        scheduleDisplayMode="tOffsets"
+      />
+    );
+
+    expect(
+      (
+        screen.getByTestId(
+          "timeline-setup-row-start-offset-site-prep-foundation"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("T0");
+    expect(
+      (
+        screen.getByTestId(
+          "timeline-setup-row-duration-site-prep-foundation"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("T14");
+    expect(
+      (
+        screen.getByTestId(
+          "timeline-setup-row-end-offset-site-prep-foundation"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("T+13");
+    expect(
+      screen.queryByTestId("timeline-setup-row-start-date-site-prep-foundation")
+    ).toBeNull();
+  });
+
+  test("shows editable T start and duration with computed T end without a proposed start date", () => {
+    const onRowsChange = vi.fn();
+    render(<ControlledWorksheet onRowsChange={onRowsChange} />);
+
+    expect(
+      (
+        screen.getByTestId(
+          "timeline-setup-row-start-offset-site-prep-foundation"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("T0");
+    expect(
+      (
+        screen.getByTestId(
+          "timeline-setup-row-duration-site-prep-foundation"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("T14");
+    expect(
+      (
+        screen.getByTestId(
+          "timeline-setup-row-end-offset-site-prep-foundation"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("T+13");
+
+    fireEvent.change(
+      screen.getByTestId("timeline-setup-row-start-offset-site-prep-foundation"),
+      { target: { value: "T+20" } }
+    );
+    expect(onRowsChange).toHaveBeenLastCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "site-prep-foundation",
+          startDay: 20,
+        }),
+      ])
+    );
+  });
+
+  test("shows editable submilestone T start and duration with computed T end without a proposed start date", () => {
+    const onRowsChange = vi.fn();
+    render(
+      <ControlledWorksheet
+        initialRows={[
+          {
+            ...worksheetRows[0]!,
+            startDay: 20,
+            subMilestoneDetails: [
+              {
+                ...worksheetRows[0]!.subMilestoneDetails[0]!,
+                durationText: "4",
+                startDay: 21,
+              },
+            ],
+          },
+        ]}
+        onRowsChange={onRowsChange}
+      />
+    );
+
+    expect(
+      (
+        screen.getByTestId(
+          "timeline-setup-submilestone-start-offset-site-prep-foundation-sub-1"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("T+21");
+    expect(
+      (
+        screen.getByTestId(
+          "timeline-setup-submilestone-duration-site-prep-foundation-sub-1"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("T4");
+    expect(
+      (
+        screen.getByTestId(
+          "timeline-setup-submilestone-end-offset-site-prep-foundation-sub-1"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("T+24");
+
+    fireEvent.change(
+      screen.getByTestId(
+        "timeline-setup-submilestone-start-offset-site-prep-foundation-sub-1"
+      ),
+      { target: { value: "T+25" } }
+    );
+    expect(onRowsChange).toHaveBeenLastCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "site-prep-foundation",
+          subMilestoneDetails: expect.arrayContaining([
+            expect.objectContaining({
+              id: "site-prep-foundation-sub-1",
+              startDay: 25,
+            }),
+          ]),
+        }),
+      ])
+    );
   });
 
   test("adds a typed custom sub-milestone from the bank controls", () => {

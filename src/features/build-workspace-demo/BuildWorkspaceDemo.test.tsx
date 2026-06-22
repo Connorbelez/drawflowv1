@@ -55,6 +55,27 @@ describe("BuildWorkspaceDemo Gantt labels and draw editing", () => {
       timingDay: 61,
     });
   });
+
+  test("switches roadmap display labels between calendar dates and T offsets locally", () => {
+    renderWorkspace({
+      timelineBaseDate: new Date(2026, 5, 1),
+    });
+
+    expect(
+      screen
+        .getByTestId("timeline-schedule-display-dates")
+        .getAttribute("aria-pressed")
+    ).toBe("true");
+    fireEvent.click(screen.getByTestId("timeline-schedule-display-tOffsets"));
+
+    expect(
+      screen.getByTestId("timeline-schedule-display-tOffsets")
+        .getAttribute("aria-pressed")
+    ).toBe("true");
+
+    fireEvent.mouseEnter(screen.getByTestId("timeline-milestone-dc-ed"));
+    expect(screen.getByText(/T0 - T3/)).toBeTruthy();
+  });
 });
 
 function renderWorkspace(

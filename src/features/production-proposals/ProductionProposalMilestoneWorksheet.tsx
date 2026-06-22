@@ -1,5 +1,6 @@
 import {
   TimelineMilestoneWorksheetTable,
+  type TimelineScheduleDisplayMode,
   type TimelineMilestoneWorksheetRow,
 } from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -45,6 +46,11 @@ export function ProductionProposalMilestoneWorksheet({
   const persistTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRowsRef = useRef<TimelineMilestoneWorksheetRow[] | null>(null);
   const [rows, setRows] = useState(projectedRows);
+  const proposedStartDate = detail.proposal.proposedStartDate;
+  const [scheduleDisplayMode, setScheduleDisplayMode] =
+    useState<TimelineScheduleDisplayMode>(
+      proposedStartDate ? "dates" : "tOffsets"
+    );
 
   useEffect(() => {
     if (lastAppliedSignatureRef.current === projectedSignature) {
@@ -91,7 +97,10 @@ export function ProductionProposalMilestoneWorksheet({
       footerExtra={footerExtra}
       mode="setup"
       onRowsChange={handleRowsChange}
+      onScheduleDisplayModeChange={setScheduleDisplayMode}
+      proposedStartDate={proposedStartDate}
       rows={rows}
+      scheduleDisplayMode={scheduleDisplayMode}
       showHeading={showHeading}
       templateTitle={templateTitle}
     />

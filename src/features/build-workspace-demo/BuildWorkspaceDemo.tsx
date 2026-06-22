@@ -116,6 +116,7 @@ import { useBuildWorkspace } from "./workspace-adapter";
 type GanttResolution = Extract<Range, "daily" | "weekly" | "monthly">;
 type MilestoneHighlightTone = "selected" | "blocking" | "blocked";
 type MilestoneHighlightTones = Record<string, MilestoneHighlightTone>;
+type ScheduleDisplayMode = "dates" | "tOffsets";
 type SelectedMilestoneIds = Set<string>;
 type BatchShiftPreview = {
   deltaDays: number;
@@ -229,6 +230,47 @@ const fromDateInputValue = (value: string) => {
   return new Date(year, month - 1, day);
 };
 
+function scheduleDateLabel(
+  date: Date,
+  baseDate: Date,
+  displayMode: ScheduleDisplayMode,
+  prefix?: string
+) {
+  const value =
+    displayMode === "tOffsets"
+      ? `T${differenceInDays(date, baseDate)}`
+      : format(date, "MMM dd");
+  return prefix ? `${prefix} ${value}` : value;
+}
+
+function scheduleDateRangeLabel({
+  baseDate,
+  displayMode,
+  endAt,
+  startAt,
+}: {
+  baseDate: Date;
+  displayMode: ScheduleDisplayMode;
+  endAt: Date;
+  startAt: Date;
+}) {
+  if (displayMode === "tOffsets") {
+    return `T${differenceInDays(startAt, baseDate)} - T${differenceInDays(
+      endAt,
+      baseDate
+    )}`;
+  }
+  return `${format(startAt, "MMM d")} - ${format(endAt, "MMM d")}`;
+}
+
+function initialScheduleBaseDate(milestones: Milestone[]) {
+  const firstStart = milestones
+    .map((milestone) => milestone.startAt)
+    .sort((left, right) => left.getTime() - right.getTime())[0];
+
+  return firstStart ?? new Date();
+}
+
 const milestoneToFeature = (milestone: Milestone): GanttFeature => ({
   id: milestone.id,
   name: milestone.name,
@@ -254,6 +296,8 @@ export function BuildWorkspaceDemo({
   >(null);
   const [timelineResolution, setTimelineResolution] =
     useState<GanttResolution>("monthly");
+  const [scheduleDisplayMode, setScheduleDisplayMode] =
+    useState<ScheduleDisplayMode>("dates");
   const [timelineZoom, setTimelineZoom] = useState(120);
   const [detailMilestoneId, setDetailMilestoneId] = useState<string | null>(
     null
@@ -359,9 +403,11 @@ export function BuildWorkspaceDemo({
           <TimelineControlsStrip
             onRailCollapsedChange={setMilestoneRailCollapsed}
             onResolutionChange={setTimelineResolution}
+            onScheduleDisplayModeChange={setScheduleDisplayMode}
             onZoomChange={setTimelineZoom}
             railCollapsed={milestoneRailCollapsed}
             resolution={timelineResolution}
+            scheduleDisplayMode={scheduleDisplayMode}
             zoom={timelineZoom}
           />
           <div className="min-h-0 min-w-0 overflow-hidden">
@@ -380,6 +426,7 @@ export function BuildWorkspaceDemo({
               }}
               railCollapsed={milestoneRailCollapsed}
               resolution={timelineResolution}
+              scheduleDisplayMode={scheduleDisplayMode}
               zoom={timelineZoom}
             />
           </div>
@@ -663,16 +710,20 @@ function RolePrimaryAction({ milestone }: { milestone: Milestone }) {
 function TimelineControlsStrip({
   railCollapsed,
   resolution,
+  scheduleDisplayMode,
   zoom,
   onRailCollapsedChange,
   onResolutionChange,
+  onScheduleDisplayModeChange,
   onZoomChange,
 }: {
   railCollapsed: boolean;
   resolution: GanttResolution;
+  scheduleDisplayMode: ScheduleDisplayMode;
   zoom: number;
   onRailCollapsedChange: (collapsed: boolean) => void;
   onResolutionChange: (resolution: GanttResolution) => void;
+  onScheduleDisplayModeChange: (mode: ScheduleDisplayMode) => void;
   onZoomChange: (zoom: number) => void;
 }) {
   return (
@@ -728,6 +779,29 @@ function TimelineControlsStrip({
             value={zoom}
           />
           <span className="w-8 text-right text-muted-foreground">{zoom}%</span>
+        </div>
+        <div className="grid grid-cols-2">
+          {(
+            [
+              ["dates", "Dates"],
+              ["tOffsets", "T#"],
+            ] as const
+          ).map(([mode, label]) => (
+            <button
+              aria-pressed={scheduleDisplayMode === mode}
+              className={cn(
+                "h-7 rounded-sm px-2 font-medium text-muted-foreground transition-colors hover:text-foreground",
+                scheduleDisplayMode === mode &&
+                  "bg-cyan-300 text-cyan-950 hover:text-cyan-950"
+              )}
+              data-testid={`timeline-schedule-display-${mode}`}
+              key={mode}
+              onClick={() => onScheduleDisplayModeChange(mode)}
+              type="button"
+            >
+              {label}
+            </button>
+          ))}
         </div>
       </div>
     </div>
@@ -1101,6 +1175,7 @@ function GanttRoadmap({
   onOpenDraw,
   railCollapsed,
   resolution,
+  scheduleDisplayMode,
   zoom,
 }: {
   focusedMilestoneId: string | null;
@@ -1111,9 +1186,11 @@ function GanttRoadmap({
   onOpenDraw: (drawGroupId: string) => void;
   railCollapsed: boolean;
   resolution: GanttResolution;
+  scheduleDisplayMode: ScheduleDisplayMode;
   zoom: number;
 }) {
   const workspace = useBuildWorkspace();
+  const scheduleBaseDate = workspace.timelineBaseDate ?? initialScheduleBaseDate(workspace.milestones);
   const [selectedMilestoneIds, setSelectedMilestoneIds] =
     useState<SelectedMilestoneIds>(() => new Set());
   const [batchShiftPreview, setBatchShiftPreview] =
@@ -1352,6 +1429,8 @@ function GanttRoadmap({
           onMilestoneFocus(milestone.id);
         }}
         proposalSubmitted={proposalSubmitted}
+        scheduleBaseDate={scheduleBaseDate}
+        scheduleDisplayMode={scheduleDisplayMode}
         selectedMilestoneIds={selectedMilestoneIds}
       />
       <GanttTimeline
@@ -1543,7 +1622,12 @@ function GanttRoadmap({
               date={focusedMilestone.startAt}
               id={`milestone-start-${focusedMilestone.id}`}
               key={`milestone-start-${focusedMilestone.id}`}
-              label={`Start ${format(focusedMilestone.startAt, "MMM dd")}`}
+              label={scheduleDateLabel(
+                focusedMilestone.startAt,
+                scheduleBaseDate,
+                scheduleDisplayMode,
+                "Start"
+              )}
               labelClassName="translate-x-1/2"
               testId={`milestone-start-marker-${focusedMilestone.id}`}
             />
@@ -1553,7 +1637,12 @@ function GanttRoadmap({
               date={focusedMilestone.endAt}
               id={`milestone-end-${focusedMilestone.id}`}
               key={`milestone-end-${focusedMilestone.id}`}
-              label={`End ${format(focusedMilestone.endAt, "MMM dd")}`}
+              label={scheduleDateLabel(
+                focusedMilestone.endAt,
+                scheduleBaseDate,
+                scheduleDisplayMode,
+                "End"
+              )}
               labelClassName="translate-x-1/2"
               testId={`milestone-end-marker-${focusedMilestone.id}`}
             />
@@ -1611,6 +1700,8 @@ function GanttRoadmap({
                     highlightTone={milestoneHighlightTones[item.id]}
                     milestone={milestone ?? workspace.milestones[0]}
                     onTimelineClick={handleTimelineMilestoneClick}
+                    scheduleBaseDate={scheduleBaseDate}
+                    scheduleDisplayMode={scheduleDisplayMode}
                     selected={selectedMilestoneIds.has(item.id)}
                   />
                 )}
@@ -1826,12 +1917,16 @@ function GanttMilestoneSidebar({
   onLockToggle,
   onMilestoneFocus,
   proposalSubmitted,
+  scheduleBaseDate,
+  scheduleDisplayMode,
   selectedMilestoneIds,
 }: {
   features: GanttFeature[];
   onLockToggle: (milestoneId: string, locked: boolean) => void;
   onMilestoneFocus: (milestoneId: string) => void;
   proposalSubmitted: boolean;
+  scheduleBaseDate: Date;
+  scheduleDisplayMode: ScheduleDisplayMode;
   selectedMilestoneIds: SelectedMilestoneIds;
 }) {
   const workspace = useBuildWorkspace();
@@ -1886,6 +1981,19 @@ function GanttMilestoneSidebar({
                     <span className="block truncate font-medium text-[0.72rem] text-foreground">
                       {feature.name}
                     </span>
+                    {milestone ? (
+                      <span
+                        className="block truncate text-[0.65rem] text-muted-foreground"
+                        data-testid={`gantt-sidebar-schedule-${milestone.id}`}
+                      >
+                        {scheduleDateRangeLabel({
+                          baseDate: scheduleBaseDate,
+                          displayMode: scheduleDisplayMode,
+                          endAt: milestone.endAt,
+                          startAt: milestone.startAt,
+                        })}
+                      </span>
+                    ) : null}
                   </span>
                   {milestone ? (
                     <button
@@ -1944,6 +2052,8 @@ function MilestoneBlock({
   highlightTone,
   milestone,
   onTimelineClick,
+  scheduleBaseDate,
+  scheduleDisplayMode,
   selected,
 }: {
   feature: GanttFeature;
@@ -1953,6 +2063,8 @@ function MilestoneBlock({
     milestoneId: string,
     event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }
   ) => void;
+  scheduleBaseDate: Date;
+  scheduleDisplayMode: ScheduleDisplayMode;
   selected: boolean;
 }) {
   const workspace = useBuildWorkspace();
@@ -2063,8 +2175,13 @@ function MilestoneBlock({
             {statusLabels[milestone.status]}
           </div>
           <div className="text-muted-foreground">
-            {format(milestone.startAt, "MMM d")} -{" "}
-            {format(milestone.endAt, "MMM d")} /{" "}
+            {scheduleDateRangeLabel({
+              baseDate: scheduleBaseDate,
+              displayMode: scheduleDisplayMode,
+              endAt: milestone.endAt,
+              startAt: milestone.startAt,
+            })}{" "}
+            /{" "}
             {compactMoney(milestone.estimatedCost)}
           </div>
           <IssueList

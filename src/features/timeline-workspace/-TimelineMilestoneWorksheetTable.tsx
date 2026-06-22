@@ -62,6 +62,12 @@ import {
   parseCurrencyToCents,
 } from "#/features/builder-proposal-demo/template-helpers.ts";
 import {
+  dateFromProposalDayOffset,
+  dayOffsetFromProposalDate,
+  inclusiveEndDateFromProposalSchedule,
+  proposalDurationDaysFromInclusiveDates,
+} from "#/features/production-proposals/proposalScheduleDates.ts";
+import {
   type MaterialPlanningItem,
   type MaterialPlanningMilestone,
   type MaterialPlanningPayload,
@@ -150,6 +156,7 @@ export interface TimelineMilestoneWorksheetSubMilestone {
   name: string;
   percentageBps?: number;
   percentageText?: string;
+  startDay?: number;
 }
 
 export interface TimelineMilestoneWorksheetContractorOption {
@@ -198,12 +205,14 @@ export interface TimelineMilestoneWorksheetRow {
   percentageBps: number;
   percentageText?: string;
   siteVisitGuidance?: SiteVisitGuidanceHtml;
+  startDay?: number;
   subMilestoneDetails: TimelineMilestoneWorksheetSubMilestone[];
   subMilestones: string[];
   type: string;
 }
 
 type WorksheetMode = "settings" | "setup";
+export type TimelineScheduleDisplayMode = "dates" | "tOffsets";
 
 export function TimelineMilestoneWorksheetTable({
   cascadeBudgetEdits = false,
@@ -219,8 +228,11 @@ export function TimelineMilestoneWorksheetTable({
   onComplete,
   onReset,
   onRowsChange,
+  onScheduleDisplayModeChange,
   projectAddress,
+  proposedStartDate,
   rows,
+  scheduleDisplayMode = proposedStartDate ? "dates" : "tOffsets",
   showHeading = false,
   targetBudgetCents,
   templateTitle,
@@ -238,8 +250,11 @@ export function TimelineMilestoneWorksheetTable({
   onComplete?: (options: { redirectToDurableRoute: boolean }) => void;
   onReset?: () => void;
   onRowsChange: (rows: TimelineMilestoneWorksheetRow[]) => void;
+  onScheduleDisplayModeChange?: (mode: TimelineScheduleDisplayMode) => void;
   projectAddress?: string;
+  proposedStartDate?: string;
   rows: TimelineMilestoneWorksheetRow[];
+  scheduleDisplayMode?: TimelineScheduleDisplayMode;
   showHeading?: boolean;
   targetBudgetCents?: number;
   templateTitle: string;
@@ -326,6 +341,16 @@ export function TimelineMilestoneWorksheetTable({
         item?.name ?? `New sub-milestone ${row.subMilestoneDetails.length + 1}`,
       percentageBps: 0,
       percentageText: "0.00%",
+      startDay:
+        row.subMilestoneDetails.length === 0
+          ? rowStartDay(row)
+          : Math.max(
+              ...row.subMilestoneDetails.map(
+                (detail) =>
+                  subMilestoneStartDay(row, detail) +
+                  parseDurationDays(detail.durationText)
+              )
+            ),
     };
 
     updateRows(
@@ -542,8 +567,21 @@ export function TimelineMilestoneWorksheetTable({
     () =>
       mode === "settings"
         ? settingsColumns({ updateRow, moveRowByKey })
-        : setupColumns({ commitBudgetEdit, updateRow, moveRowByKey }),
-    [commitBudgetEdit, mode, moveRowByKey, updateRow]
+        : setupColumns({
+            commitBudgetEdit,
+            moveRowByKey,
+            proposedStartDate,
+            scheduleDisplayMode,
+            updateRow,
+          }),
+    [
+      commitBudgetEdit,
+      mode,
+      moveRowByKey,
+      proposedStartDate,
+      scheduleDisplayMode,
+      updateRow,
+    ]
   );
   const table = useReactTable({
     columns,
@@ -626,6 +664,44 @@ export function TimelineMilestoneWorksheetTable({
               Cascade
             </Toggle>
           </Group>
+          {proposedStartDate ? (
+            <Group
+              aria-label="Schedule display controls"
+              className="timeline-blueprint-budget-toggle-group"
+            >
+              <GroupText>Schedule</GroupText>
+              <Toggle
+                aria-label="Show calendar dates"
+                className="timeline-blueprint-cascade-toggle"
+                data-testid="timeline-setup-schedule-mode-dates"
+                onPressedChange={(pressed) => {
+                  if (pressed) {
+                    onScheduleDisplayModeChange?.("dates");
+                  }
+                }}
+                pressed={scheduleDisplayMode === "dates"}
+                type="button"
+                variant="outline"
+              >
+                Dates
+              </Toggle>
+              <Toggle
+                aria-label="Show T offset durations"
+                className="timeline-blueprint-cascade-toggle"
+                data-testid="timeline-setup-schedule-mode-t-offsets"
+                onPressedChange={(pressed) => {
+                  if (pressed) {
+                    onScheduleDisplayModeChange?.("tOffsets");
+                  }
+                }}
+                pressed={scheduleDisplayMode === "tOffsets"}
+                type="button"
+                variant="outline"
+              >
+                T#
+              </Toggle>
+            </Group>
+          ) : null}
         </div>
       ) : null}
 
@@ -782,6 +858,8 @@ export function TimelineMilestoneWorksheetTable({
                           )
                         }
                         row={row.original}
+                        proposedStartDate={proposedStartDate}
+                        scheduleDisplayMode={scheduleDisplayMode}
                       />
                       {mode === "setup" ? (
                         <MilestonePlanningExtrasEditor
@@ -887,10 +965,14 @@ export function TimelineMilestoneWorksheetTable({
 function setupColumns({
   commitBudgetEdit,
   moveRowByKey,
+  proposedStartDate,
+  scheduleDisplayMode,
   updateRow,
 }: {
   commitBudgetEdit: (rowKey: string) => void;
   moveRowByKey: (rowKey: string, direction: "down" | "up") => void;
+  proposedStartDate?: string;
+  scheduleDisplayMode: TimelineScheduleDisplayMode;
   updateRow: (
     rowKey: string,
     patch: Partial<TimelineMilestoneWorksheetRow>
@@ -915,7 +997,9 @@ function setupColumns({
       id: "budget",
       size: 150,
     },
-    durationColumn(updateRow),
+    ...(scheduleDisplayMode === "dates" && proposedStartDate
+      ? dateScheduleColumns(updateRow, proposedStartDate)
+      : tOffsetScheduleColumns(updateRow)),
     excludeColumn(updateRow),
     expandColumn(),
   ];
@@ -1117,6 +1201,134 @@ function durationColumn(
   };
 }
 
+function tOffsetScheduleColumns(
+  updateRow: (
+    rowKey: string,
+    patch: Partial<TimelineMilestoneWorksheetRow>
+  ) => void
+): ColumnDef<TimelineMilestoneWorksheetRow>[] {
+  return [
+    {
+      cell: ({ row }) => (
+        <BlueprintInput
+          align="center"
+          className="timeline-blueprint-duration"
+          label={`${row.original.name} T offset start`}
+          onBlur={() => undefined}
+          onChange={(startText) =>
+            updateRow(row.original.key, {
+              startDay: parseTOffsetDay(startText),
+            })
+          }
+          testId={`timeline-setup-row-start-offset-${row.original.key}`}
+          value={formatTOffset(rowStartDay(row.original))}
+        />
+      ),
+      header: "Start",
+      id: "startOffset",
+      size: 126,
+    },
+    durationColumn(updateRow),
+    {
+      cell: ({ row }) => (
+        <BlueprintInput
+          align="center"
+          className="timeline-blueprint-duration"
+          label={`${row.original.name} T offset end`}
+          onBlur={() => undefined}
+          onChange={() => undefined}
+          readOnly
+          testId={`timeline-setup-row-end-offset-${row.original.key}`}
+          value={formatInclusiveEndTOffset(
+            rowStartDay(row.original),
+            rowDurationDays(row.original)
+          )}
+        />
+      ),
+      header: "End",
+      id: "endOffset",
+      size: 126,
+    },
+  ];
+}
+
+function dateScheduleColumns(
+  updateRow: (
+    rowKey: string,
+    patch: Partial<TimelineMilestoneWorksheetRow>
+  ) => void,
+  proposedStartDate: string
+): ColumnDef<TimelineMilestoneWorksheetRow>[] {
+  return [
+    {
+      cell: ({ row }) => {
+        const startDay = rowStartDay(row.original);
+        return (
+          <BlueprintInput
+            align="center"
+            className="timeline-blueprint-date"
+            label={`${row.original.name} start date`}
+            onBlur={() => undefined}
+            onChange={(startDate) => {
+              const dayStart = dayOffsetFromProposalDate(
+                proposedStartDate,
+                startDate
+              );
+              updateRow(row.original.key, {
+                startDay: dayStart,
+              });
+            }}
+            testId={`timeline-setup-row-start-date-${row.original.key}`}
+            type="date"
+            value={dateFromProposalDayOffset(proposedStartDate, startDay)}
+          />
+        );
+      },
+      header: "Start",
+      id: "startDate",
+      size: 142,
+    },
+    {
+      cell: ({ row }) => {
+        const startDay = rowStartDay(row.original);
+        const durationDays = rowDurationDays(row.original);
+        return (
+          <BlueprintInput
+            align="center"
+            className="timeline-blueprint-date"
+            label={`${row.original.name} end date`}
+            onBlur={() => undefined}
+            onChange={(endDate) => {
+              const startDate = dateFromProposalDayOffset(
+                proposedStartDate,
+                startDay
+              );
+              const nextDurationDays = proposalDurationDaysFromInclusiveDates(
+                startDate,
+                endDate
+              );
+              updateRow(row.original.key, {
+                durationDays: nextDurationDays,
+                durationText: String(nextDurationDays),
+              });
+            }}
+            testId={`timeline-setup-row-end-date-${row.original.key}`}
+            type="date"
+            value={inclusiveEndDateFromProposalSchedule(
+              proposedStartDate,
+              startDay,
+              durationDays
+            )}
+          />
+        );
+      },
+      header: "End",
+      id: "endDate",
+      size: 142,
+    },
+  ];
+}
+
 function excludeColumn(
   updateRow: (
     rowKey: string,
@@ -1210,7 +1422,9 @@ function BlueprintInput({
   labelledBy,
   onBlur,
   onChange,
+  readOnly = false,
   testId,
+  type = "text",
   value,
 }: {
   align?: "left" | "center" | "right";
@@ -1220,7 +1434,9 @@ function BlueprintInput({
   labelledBy?: string;
   onBlur: () => void;
   onChange: (value: string) => void;
+  readOnly?: boolean;
   testId: string;
+  type?: "date" | "text";
   value: string;
 }) {
   return (
@@ -1233,8 +1449,15 @@ function BlueprintInput({
       data-testid={testId}
       id={id}
       onBlur={onBlur}
-      onChange={(event) => onChange(event.currentTarget.value)}
+      onChange={(event) => {
+        if (!readOnly) {
+          onChange(event.currentTarget.value);
+        }
+      }}
       onKeyDown={handleBlueprintInputKeyDown}
+      readOnly={readOnly}
+      tabIndex={readOnly ? -1 : undefined}
+      type={type}
       value={value}
     />
   );
@@ -1296,7 +1519,9 @@ function SubMilestoneEditor({
   onAddSubMilestone,
   onRemoveSubMilestone,
   onUpdateSubMilestone,
+  proposedStartDate,
   row,
+  scheduleDisplayMode,
 }: {
   activeSubMilestoneId?: string;
   mode: WorksheetMode;
@@ -1307,7 +1532,9 @@ function SubMilestoneEditor({
     subMilestoneId: string,
     patch: Partial<TimelineMilestoneWorksheetSubMilestone>
   ) => void;
+  proposedStartDate?: string;
   row: TimelineMilestoneWorksheetRow;
+  scheduleDisplayMode: TimelineScheduleDisplayMode;
 }) {
   const subMilestones = row.subMilestoneDetails;
   const activeSubMilestone =
@@ -1320,6 +1547,8 @@ function SubMilestoneEditor({
   const durationFieldLabelId = activeSubMilestone
     ? `timeline-submilestone-duration-label-${activeSubMilestone.id}`
     : undefined;
+  const showDateSchedule =
+    scheduleDisplayMode === "dates" && Boolean(proposedStartDate);
 
   return (
     <div className="timeline-submilestone-editor">
@@ -1375,8 +1604,16 @@ function SubMilestoneEditor({
                       </strong>
                     </span>
                     <span>
-                      <small>Duration</small>
-                      <strong>T{subMilestone.durationText}</strong>
+                      <small>{showDateSchedule ? "Dates" : "T offsets"}</small>
+                      <strong>
+                        {showDateSchedule && proposedStartDate
+                          ? subMilestoneDateRangeLabel(
+                              row,
+                              subMilestone,
+                              proposedStartDate
+                            )
+                          : subMilestoneTOffsetRangeLabel(row, subMilestone)}
+                      </strong>
                     </span>
                   </span>
                 </button>
@@ -1483,31 +1720,125 @@ function SubMilestoneEditor({
                   }
                 />
               </div>
-              <div className="timeline-submilestone-detail-field">
-                <span id={durationFieldLabelId}>Duration</span>
-                <BlueprintInput
-                  align="center"
-                  className="timeline-submilestone-detail-input"
-                  label="Sub-milestone duration"
-                  labelledBy={durationFieldLabelId}
-                  onBlur={() =>
-                    onUpdateSubMilestone(activeSubMilestone.id, {
-                      durationText: normalizeDurationText(
-                        activeSubMilestone.durationText
-                      ),
-                    })
-                  }
-                  onChange={(durationText) =>
-                    onUpdateSubMilestone(activeSubMilestone.id, {
-                      durationText: durationText
-                        .replace(DURATION_PREFIX_REGEX, "")
-                        .replace(NON_DIGIT_REGEX, ""),
-                    })
-                  }
-                  testId={`timeline-setup-submilestone-duration-${activeSubMilestone.id}`}
-                  value={`T${activeSubMilestone.durationText}`}
-                />
-              </div>
+              {showDateSchedule && proposedStartDate ? (
+                <>
+                  <div className="timeline-submilestone-detail-field">
+                    <span>Start</span>
+                    <BlueprintInput
+                      align="center"
+                      className="timeline-submilestone-detail-input"
+                      label="Sub-milestone start date"
+                      onBlur={() => undefined}
+                      onChange={(startDate) =>
+                        onUpdateSubMilestone(activeSubMilestone.id, {
+                          startDay: dayOffsetFromProposalDate(
+                            proposedStartDate,
+                            startDate
+                          ),
+                        })
+                      }
+                      testId={`timeline-setup-submilestone-start-date-${activeSubMilestone.id}`}
+                      type="date"
+                      value={dateFromProposalDayOffset(
+                        proposedStartDate,
+                        subMilestoneStartDay(row, activeSubMilestone)
+                      )}
+                    />
+                  </div>
+                  <div className="timeline-submilestone-detail-field">
+                    <span>End</span>
+                    <BlueprintInput
+                      align="center"
+                      className="timeline-submilestone-detail-input"
+                      label="Sub-milestone end date"
+                      onBlur={() => undefined}
+                      onChange={(endDate) => {
+                        const startDate = dateFromProposalDayOffset(
+                          proposedStartDate,
+                          subMilestoneStartDay(row, activeSubMilestone)
+                        );
+                        const durationDays =
+                          proposalDurationDaysFromInclusiveDates(
+                            startDate,
+                            endDate
+                          );
+                        onUpdateSubMilestone(activeSubMilestone.id, {
+                          durationText: String(durationDays),
+                        });
+                      }}
+                      testId={`timeline-setup-submilestone-end-date-${activeSubMilestone.id}`}
+                      type="date"
+                      value={inclusiveEndDateFromProposalSchedule(
+                        proposedStartDate,
+                        subMilestoneStartDay(row, activeSubMilestone),
+                        parseDurationDays(activeSubMilestone.durationText)
+                      )}
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="timeline-submilestone-detail-field">
+                    <span>Start</span>
+                    <BlueprintInput
+                      align="center"
+                      className="timeline-submilestone-detail-input"
+                      label="Sub-milestone T offset start"
+                      onBlur={() => undefined}
+                      onChange={(startText) =>
+                        onUpdateSubMilestone(activeSubMilestone.id, {
+                          startDay: parseTOffsetDay(startText),
+                        })
+                      }
+                      testId={`timeline-setup-submilestone-start-offset-${activeSubMilestone.id}`}
+                      value={formatTOffset(
+                        subMilestoneStartDay(row, activeSubMilestone)
+                      )}
+                    />
+                  </div>
+                  <div className="timeline-submilestone-detail-field">
+                    <span id={durationFieldLabelId}>Duration</span>
+                    <BlueprintInput
+                      align="center"
+                      className="timeline-submilestone-detail-input"
+                      label="Sub-milestone duration"
+                      labelledBy={durationFieldLabelId}
+                      onBlur={() =>
+                        onUpdateSubMilestone(activeSubMilestone.id, {
+                          durationText: normalizeDurationText(
+                            activeSubMilestone.durationText
+                          ),
+                        })
+                      }
+                      onChange={(durationText) =>
+                        onUpdateSubMilestone(activeSubMilestone.id, {
+                          durationText: durationText
+                            .replace(DURATION_PREFIX_REGEX, "")
+                            .replace(NON_DIGIT_REGEX, ""),
+                        })
+                      }
+                      testId={`timeline-setup-submilestone-duration-${activeSubMilestone.id}`}
+                      value={`T${activeSubMilestone.durationText}`}
+                    />
+                  </div>
+                  <div className="timeline-submilestone-detail-field">
+                    <span>End</span>
+                    <BlueprintInput
+                      align="center"
+                      className="timeline-submilestone-detail-input"
+                      label="Sub-milestone T offset end"
+                      onBlur={() => undefined}
+                      onChange={() => undefined}
+                      readOnly
+                      testId={`timeline-setup-submilestone-end-offset-${activeSubMilestone.id}`}
+                      value={formatInclusiveEndTOffset(
+                        subMilestoneStartDay(row, activeSubMilestone),
+                        parseDurationDays(activeSubMilestone.durationText)
+                      )}
+                    />
+                  </div>
+                </>
+              )}
             </div>
             <button
               aria-label={`Remove ${sanitizeSubMilestoneName(activeSubMilestone.name)}`}
@@ -2246,6 +2577,12 @@ function createCustomMilestoneRow({
           "Custom milestone scope is complete and consistent with the approved draw plan.",
         ]),
       },
+      startDay:
+        rows.length === 0
+          ? 0
+          : Math.max(
+              ...rows.map((row) => rowStartDay(row) + rowDurationDays(row))
+            ),
       subMilestoneDetails,
       subMilestones: [],
       type: "custom",
@@ -2586,6 +2923,68 @@ function rowBudgetCents(row: TimelineMilestoneWorksheetRow) {
 function rowDurationDays(row: TimelineMilestoneWorksheetRow) {
   const parsed = Number(row.durationText.replace(DURATION_PREFIX_REGEX, ""));
   return Number.isFinite(parsed) ? Math.max(1, Math.round(parsed)) : Number.NaN;
+}
+
+function rowStartDay(row: TimelineMilestoneWorksheetRow) {
+  return Math.round(row.startDay ?? 0);
+}
+
+function parseTOffsetDay(value: string) {
+  const normalized = value
+    .trim()
+    .replace(/^T/i, "")
+    .replace(/^\+/, "");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? Math.round(parsed) : 0;
+}
+
+function formatTOffset(day: number) {
+  const rounded = Math.round(day);
+  if (rounded > 0) {
+    return `T+${rounded}`;
+  }
+  return `T${rounded}`;
+}
+
+function formatInclusiveEndTOffset(startDay: number, durationDays: number) {
+  return formatTOffset(Math.round(startDay) + Math.max(1, durationDays) - 1);
+}
+
+function subMilestoneStartDay(
+  row: TimelineMilestoneWorksheetRow,
+  subMilestone: TimelineMilestoneWorksheetSubMilestone
+) {
+  return Math.round(subMilestone.startDay ?? rowStartDay(row));
+}
+
+function subMilestoneDateRangeLabel(
+  row: TimelineMilestoneWorksheetRow,
+  subMilestone: TimelineMilestoneWorksheetSubMilestone,
+  proposedStartDate: string
+) {
+  const startDay = subMilestoneStartDay(row, subMilestone);
+  return [
+    dateFromProposalDayOffset(proposedStartDate, startDay),
+    inclusiveEndDateFromProposalSchedule(
+      proposedStartDate,
+      startDay,
+      parseDurationDays(subMilestone.durationText)
+    ),
+  ].join(" - ");
+}
+
+function subMilestoneTOffsetRangeLabel(
+  row: TimelineMilestoneWorksheetRow,
+  subMilestone: TimelineMilestoneWorksheetSubMilestone
+) {
+  const startDay = subMilestoneStartDay(row, subMilestone);
+  return [
+    formatTOffset(startDay),
+    formatInclusiveEndTOffset(
+      startDay,
+      parseDurationDays(subMilestone.durationText)
+    ),
+  ].join(" - ");
 }
 
 function parseDurationDays(value: string) {

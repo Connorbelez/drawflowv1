@@ -1015,15 +1015,20 @@ describe("ProductionProposalReviewSurface", () => {
   });
 
   test("shows approval without build creation and closing with future start date", () => {
+    const onClose = vi.fn();
     render(
       <ProductionProposalReviewSurface
         detail={{
           ...proposalDetail,
           activeBuild: null,
-          proposal: { ...proposalDetail.proposal, status: "approved" },
+          proposal: {
+            ...proposalDetail.proposal,
+            proposedStartDate: "2026-05-20",
+            status: "approved",
+          },
         }}
         onApprove={vi.fn()}
-        onClose={vi.fn()}
+        onClose={onClose}
         onReject={vi.fn()}
         onRequestChanges={vi.fn()}
       />,
@@ -1034,9 +1039,16 @@ describe("ProductionProposalReviewSurface", () => {
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
     fireEvent.click(screen.getByRole("tab", { name: "Closing" }));
     expect(screen.getByText("No active build created yet.")).toBeTruthy();
-    expect(screen.getByLabelText("Build start date").getAttribute("type")).toBe(
-      "date",
-    );
+    const startDateInput = screen.getByLabelText(
+      "Build start date"
+    ) as HTMLInputElement;
+    expect(startDateInput.getAttribute("type")).toBe("date");
+    expect(startDateInput.value).toBe("2026-05-20");
+
+    fireEvent.change(startDateInput, { target: { value: "2026-06-01" } });
+    fireEvent.click(screen.getByRole("button", { name: "Record closing" }));
+
+    expect(onClose).toHaveBeenCalledWith("2026-06-01", "Loan closed offline.");
   });
 
   test("reports missing decision reasons with toast before calling review mutations", () => {
