@@ -12,6 +12,7 @@ import {
   ChevronDown,
   ChevronRight,
   GripVertical,
+  MoveRight,
   Plus,
   Trash2,
 } from "lucide-react";
@@ -25,9 +26,7 @@ import {
   useState,
 } from "react";
 
-import {
-  FieldRichTextEditor,
-} from "#/components/rich-text/field-rich-text.tsx";
+import { FieldRichTextEditor } from "#/components/rich-text/field-rich-text.tsx";
 import {
   Sortable,
   SortableItem,
@@ -45,6 +44,15 @@ import {
 } from "#/components/ui/autocomplete.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuGroup,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "#/components/ui/context-menu.tsx";
 import { Group, GroupText } from "#/components/ui/group.tsx";
 import { Switch } from "#/components/ui/switch.tsx";
 import {
@@ -56,6 +64,7 @@ import {
   TableHeader,
   TableRow,
 } from "#/components/ui/table.tsx";
+import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
 import { Toggle } from "#/components/ui/toggle.tsx";
 import {
   formatCurrency,
@@ -106,6 +115,11 @@ interface SubMilestoneBankItem {
   category: string;
   description: string;
   durationText: string;
+  name: string;
+}
+
+interface MilestoneMoveTarget {
+  key: string;
   name: string;
 }
 
@@ -316,7 +330,9 @@ export function TimelineMilestoneWorksheetTable({
           )
         );
 
-        return mode === "setup" ? withBudgetFromSubMilestones(nextRow) : nextRow;
+        return withDerivedSubMilestoneRollups(nextRow, {
+          includeBudget: mode === "setup",
+        });
       })
     );
     setActiveSubMilestoneByRow((current) => ({
@@ -364,7 +380,9 @@ export function TimelineMilestoneWorksheetTable({
           nextSubMilestone,
         ]);
 
-        return mode === "setup" ? withBudgetFromSubMilestones(nextRow) : nextRow;
+        return withDerivedSubMilestoneRollups(nextRow, {
+          includeBudget: mode === "setup",
+        });
       })
     );
     setActiveSubMilestoneByRow((current) => ({
@@ -395,12 +413,72 @@ export function TimelineMilestoneWorksheetTable({
 
         const nextRow = withSubMilestoneDetails(row, subMilestoneDetails);
 
-        return mode === "setup" ? withBudgetFromSubMilestones(nextRow) : nextRow;
+        return withDerivedSubMilestoneRollups(nextRow, {
+          includeBudget: mode === "setup",
+        });
       })
     );
     setActiveSubMilestoneByRow((current) => ({
       ...current,
       [rowKey]: nextActiveSubMilestoneId,
+    }));
+  };
+
+  const moveSubMilestone = (
+    sourceRowKey: string,
+    subMilestoneId: string,
+    targetRowKey: string
+  ) => {
+    if (sourceRowKey === targetRowKey) {
+      return;
+    }
+
+    const currentRows = rowsRef.current;
+    const sourceRow = currentRows.find((row) => row.key === sourceRowKey);
+    const targetRow = currentRows.find((row) => row.key === targetRowKey);
+    const movedSubMilestone = sourceRow?.subMilestoneDetails.find(
+      (detail) => detail.id === subMilestoneId
+    );
+    if (!(sourceRow && targetRow && movedSubMilestone)) {
+      return;
+    }
+
+    const sourceIndex = sourceRow.subMilestoneDetails.findIndex(
+      (detail) => detail.id === subMilestoneId
+    );
+    const nextSourceSubMilestones = sourceRow.subMilestoneDetails.filter(
+      (detail) => detail.id !== subMilestoneId
+    );
+    const nextTargetSubMilestones = [
+      ...targetRow.subMilestoneDetails,
+      movedSubMilestone,
+    ];
+    const nextSourceActiveSubMilestoneId =
+      nextSourceSubMilestones[Math.max(0, sourceIndex - 1)]?.id ??
+      nextSourceSubMilestones[0]?.id ??
+      "";
+
+    updateRows(
+      currentRows.map((row) => {
+        if (row.key === sourceRowKey) {
+          return withDerivedSubMilestoneRollups(
+            withSubMilestoneDetails(row, nextSourceSubMilestones),
+            { includeBudget: mode === "setup" }
+          );
+        }
+        if (row.key === targetRowKey) {
+          return withDerivedSubMilestoneRollups(
+            withSubMilestoneDetails(row, nextTargetSubMilestones),
+            { includeBudget: mode === "setup" }
+          );
+        }
+        return row;
+      })
+    );
+    setActiveSubMilestoneByRow((current) => ({
+      ...current,
+      [sourceRowKey]: nextSourceActiveSubMilestoneId,
+      [targetRowKey]: subMilestoneId,
     }));
   };
 
@@ -832,69 +910,67 @@ export function TimelineMilestoneWorksheetTable({
                   key={`${row.id}:expanded`}
                 >
                   <TableCell colSpan={row.getVisibleCells().length}>
-                    <div className="grid gap-4">
-                      <SubMilestoneEditor
-                        activeSubMilestoneId={
-                          activeSubMilestoneByRow[row.original.key]
-                        }
-                        mode={mode}
-                        onActiveSubMilestoneChange={(subMilestoneId) =>
-                          setActiveSubMilestoneByRow((current) => ({
-                            ...current,
-                            [row.original.key]: subMilestoneId,
-                          }))
-                        }
-                        onAddSubMilestone={(item) =>
-                          addSubMilestone(row.original.key, item)
-                        }
-                        onRemoveSubMilestone={(subMilestoneId) =>
-                          removeSubMilestone(row.original.key, subMilestoneId)
-                        }
-                        onUpdateSubMilestone={(subMilestoneId, patch) =>
-                          updateSubMilestone(
-                            row.original.key,
-                            subMilestoneId,
-                            patch
-                          )
-                        }
-                        row={row.original}
-                        proposedStartDate={proposedStartDate}
-                        scheduleDisplayMode={scheduleDisplayMode}
-                      />
-                      {mode === "setup" ? (
-                        <MilestonePlanningExtrasEditor
-                          contractorOptions={contractorOptions}
-                          onAddContractorAssignment={(assignment) =>
-                            addContractorAssignment(
-                              row.original.key,
-                              assignment
-                            )
-                          }
-                          onCreateCostItem={(payload) =>
-                            createCostItem(row.original.key, payload)
-                          }
-                          onDeleteCostItem={(itemId) =>
-                            deleteCostItem(row.original.key, itemId)
-                          }
-                          onRemoveContractorAssignment={(assignmentId) =>
-                            removeContractorAssignment(
-                              row.original.key,
-                              assignmentId
-                            )
-                          }
-                          onUpdateCostItem={(itemId, payload) =>
-                            updateCostItem(row.original.key, itemId, payload)
-                          }
-                          row={row.original}
-                        />
-                      ) : null}
-                      <FieldGuidanceEditor
-                        onUpdate={(siteVisitGuidance) =>
-                          updateRow(row.original.key, { siteVisitGuidance })
-                        }
-                        row={row.original}
-                      />
-                    </div>
+                    <MilestoneExpandedTabs
+                      activeSubMilestoneId={
+                        activeSubMilestoneByRow[row.original.key]
+                      }
+                      contractorOptions={contractorOptions}
+                      mode={mode}
+                      onActiveSubMilestoneChange={(subMilestoneId) =>
+                        setActiveSubMilestoneByRow((current) => ({
+                          ...current,
+                          [row.original.key]: subMilestoneId,
+                        }))
+                      }
+                      onAddContractorAssignment={(assignment) =>
+                        addContractorAssignment(row.original.key, assignment)
+                      }
+                      onAddSubMilestone={(item) =>
+                        addSubMilestone(row.original.key, item)
+                      }
+                      onCreateCostItem={(payload) =>
+                        createCostItem(row.original.key, payload)
+                      }
+                      onDeleteCostItem={(itemId) =>
+                        deleteCostItem(row.original.key, itemId)
+                      }
+                      onRemoveContractorAssignment={(assignmentId) =>
+                        removeContractorAssignment(
+                          row.original.key,
+                          assignmentId
+                        )
+                      }
+                      onRemoveSubMilestone={(subMilestoneId) =>
+                        removeSubMilestone(row.original.key, subMilestoneId)
+                      }
+                      onMoveSubMilestone={(subMilestoneId, targetRowKey) =>
+                        moveSubMilestone(
+                          row.original.key,
+                          subMilestoneId,
+                          targetRowKey
+                        )
+                      }
+                      onUpdateCostItem={(itemId, payload) =>
+                        updateCostItem(row.original.key, itemId, payload)
+                      }
+                      onUpdateFieldGuidance={(siteVisitGuidance) =>
+                        updateRow(row.original.key, { siteVisitGuidance })
+                      }
+                      onUpdateSubMilestone={(subMilestoneId, patch) =>
+                        updateSubMilestone(
+                          row.original.key,
+                          subMilestoneId,
+                          patch
+                        )
+                      }
+                      proposedStartDate={proposedStartDate}
+                      row={row.original}
+                      moveTargetRows={rows.map(({ key, name }) => ({
+                        key,
+                        name,
+                      }))}
+                      scheduleDisplayMode={scheduleDisplayMode}
+                    />
                   </TableCell>
                 </TableRow>
               ) : null;
@@ -947,9 +1023,7 @@ export function TimelineMilestoneWorksheetTable({
               <Button
                 className="timeline-setup-primary"
                 data-testid="timeline-setup-complete"
-                onClick={() =>
-                  onComplete?.({ redirectToDurableRoute: false })
-                }
+                onClick={() => onComplete?.({ redirectToDurableRoute: false })}
               >
                 Generate timeline
                 <ChevronRight />
@@ -1192,7 +1266,7 @@ function durationColumn(
           })
         }
         testId={`timeline-setup-row-duration-${row.original.key}`}
-        value={`T${row.original.durationText}`}
+        value={`T${rowDurationDays(row.original)}`}
       />
     ),
     header: "Duration",
@@ -1515,8 +1589,10 @@ function getExpandedRowId(rowKey: string) {
 function SubMilestoneEditor({
   activeSubMilestoneId,
   mode,
+  moveTargetRows,
   onActiveSubMilestoneChange,
   onAddSubMilestone,
+  onMoveSubMilestone,
   onRemoveSubMilestone,
   onUpdateSubMilestone,
   proposedStartDate,
@@ -1525,8 +1601,10 @@ function SubMilestoneEditor({
 }: {
   activeSubMilestoneId?: string;
   mode: WorksheetMode;
+  moveTargetRows: MilestoneMoveTarget[];
   onActiveSubMilestoneChange: (subMilestoneId: string) => void;
   onAddSubMilestone: (item?: SubMilestoneBankItem) => void;
+  onMoveSubMilestone: (subMilestoneId: string, targetRowKey: string) => void;
   onRemoveSubMilestone: (subMilestoneId: string) => void;
   onUpdateSubMilestone: (
     subMilestoneId: string,
@@ -1549,6 +1627,9 @@ function SubMilestoneEditor({
     : undefined;
   const showDateSchedule =
     scheduleDisplayMode === "dates" && Boolean(proposedStartDate);
+  const moveTargets = moveTargetRows.filter(
+    (targetRow) => targetRow.key !== row.key
+  );
 
   return (
     <div className="timeline-submilestone-editor">
@@ -1575,58 +1656,93 @@ function SubMilestoneEditor({
           {subMilestones.map((subMilestone) => {
             const selected = subMilestone.id === activeSubMilestone?.id;
             return (
-              <article
-                className="timeline-submilestone-card"
-                data-selected={selected ? "true" : undefined}
-                data-testid={`timeline-setup-submilestone-card-${subMilestone.id}`}
-                key={subMilestone.id}
-              >
-                <button
-                  aria-pressed={selected}
-                  className="timeline-submilestone-card-main"
-                  onClick={() => onActiveSubMilestoneChange(subMilestone.id)}
-                  type="button"
+              <ContextMenu key={subMilestone.id}>
+                <ContextMenuTrigger
+                  render={
+                    <article
+                      className="timeline-submilestone-card"
+                      data-selected={selected ? "true" : undefined}
+                      data-testid={`timeline-setup-submilestone-card-${subMilestone.id}`}
+                    />
+                  }
                 >
-                  <span className="timeline-submilestone-card-title">
-                    <strong>
-                      {sanitizeSubMilestoneName(subMilestone.name)}
-                    </strong>
-                    <small>{subMilestone.description}</small>
-                  </span>
-                  <span className="timeline-submilestone-card-metrics">
-                    <span>
-                      <small>{valueLabel}</small>
+                  <button
+                    aria-pressed={selected}
+                    className="timeline-submilestone-card-main"
+                    onClick={() => onActiveSubMilestoneChange(subMilestone.id)}
+                    type="button"
+                  >
+                    <span className="timeline-submilestone-card-title">
                       <strong>
-                        {mode === "settings"
-                          ? (subMilestone.percentageText ??
-                            formatBps(subMilestone.percentageBps ?? 0))
-                          : subMilestone.budgetText}
+                        {sanitizeSubMilestoneName(subMilestone.name)}
                       </strong>
+                      <small>{subMilestone.description}</small>
                     </span>
-                    <span>
-                      <small>{showDateSchedule ? "Dates" : "T offsets"}</small>
-                      <strong>
-                        {showDateSchedule && proposedStartDate
-                          ? subMilestoneDateRangeLabel(
-                              row,
-                              subMilestone,
-                              proposedStartDate
-                            )
-                          : subMilestoneTOffsetRangeLabel(row, subMilestone)}
-                      </strong>
+                    <span className="timeline-submilestone-card-metrics">
+                      <span>
+                        <small>{valueLabel}</small>
+                        <strong>
+                          {mode === "settings"
+                            ? (subMilestone.percentageText ??
+                              formatBps(subMilestone.percentageBps ?? 0))
+                            : subMilestone.budgetText}
+                        </strong>
+                      </span>
+                      <span>
+                        <small>
+                          {showDateSchedule ? "Dates" : "T offsets"}
+                        </small>
+                        <strong>
+                          {showDateSchedule && proposedStartDate
+                            ? subMilestoneDateRangeLabel(
+                                row,
+                                subMilestone,
+                                proposedStartDate
+                              )
+                            : subMilestoneTOffsetRangeLabel(row, subMilestone)}
+                        </strong>
+                      </span>
                     </span>
-                  </span>
-                </button>
-                <button
-                  aria-label={`Remove ${sanitizeSubMilestoneName(subMilestone.name)}`}
-                  className="timeline-submilestone-remove"
-                  data-testid={`timeline-setup-submilestone-remove-${subMilestone.id}`}
-                  onClick={() => onRemoveSubMilestone(subMilestone.id)}
-                  type="button"
-                >
-                  <Trash2 aria-hidden="true" />
-                </button>
-              </article>
+                  </button>
+                  <button
+                    aria-label={`Remove ${sanitizeSubMilestoneName(subMilestone.name)}`}
+                    className="timeline-submilestone-remove"
+                    data-testid={`timeline-setup-submilestone-remove-${subMilestone.id}`}
+                    onClick={() => onRemoveSubMilestone(subMilestone.id)}
+                    type="button"
+                  >
+                    <Trash2 aria-hidden="true" />
+                  </button>
+                </ContextMenuTrigger>
+                <ContextMenuContent className="w-64">
+                  <ContextMenuGroup>
+                    <ContextMenuLabel className="truncate">
+                      Move sub-milestone
+                    </ContextMenuLabel>
+                    <ContextMenuSeparator />
+                    {moveTargets.length > 0 ? (
+                      moveTargets.map((targetRow) => (
+                        <ContextMenuItem
+                          key={targetRow.key}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            onMoveSubMilestone(subMilestone.id, targetRow.key);
+                          }}
+                        >
+                          <MoveRight aria-hidden="true" />
+                          <span className="truncate">
+                            Move to {targetRow.name}
+                          </span>
+                        </ContextMenuItem>
+                      ))
+                    ) : (
+                      <ContextMenuItem disabled>
+                        No other milestones
+                      </ContextMenuItem>
+                    )}
+                  </ContextMenuGroup>
+                </ContextMenuContent>
+              </ContextMenu>
             );
           })}
         </div>
@@ -1875,71 +1991,178 @@ function SubMilestoneEditor({
   );
 }
 
-function MilestonePlanningExtrasEditor({
+function MilestoneExpandedTabs({
+  activeSubMilestoneId,
   contractorOptions,
+  moveTargetRows,
   onAddContractorAssignment,
+  onActiveSubMilestoneChange,
+  onAddSubMilestone,
   onCreateCostItem,
   onDeleteCostItem,
+  onMoveSubMilestone,
   onRemoveContractorAssignment,
+  onRemoveSubMilestone,
   onUpdateCostItem,
+  onUpdateFieldGuidance,
+  onUpdateSubMilestone,
+  mode,
+  proposedStartDate,
   row,
+  scheduleDisplayMode,
 }: {
+  activeSubMilestoneId?: string;
   contractorOptions: TimelineMilestoneWorksheetContractorOption[];
+  mode: WorksheetMode;
+  moveTargetRows: MilestoneMoveTarget[];
+  onActiveSubMilestoneChange: (subMilestoneId: string) => void;
   onAddContractorAssignment: (
     assignment: Omit<TimelineMilestoneWorksheetContractorAssignment, "id">
   ) => void;
+  onAddSubMilestone: (item?: SubMilestoneBankItem) => void;
   onCreateCostItem: (payload: MaterialPlanningPayload) => void;
   onDeleteCostItem: (itemId: string) => void;
+  onMoveSubMilestone: (subMilestoneId: string, targetRowKey: string) => void;
   onRemoveContractorAssignment: (assignmentId: string) => void;
+  onRemoveSubMilestone: (subMilestoneId: string) => void;
+  onUpdateCostItem: (itemId: string, payload: MaterialPlanningPayload) => void;
+  onUpdateFieldGuidance: (guidance: SiteVisitGuidanceHtml) => void;
+  onUpdateSubMilestone: (
+    subMilestoneId: string,
+    patch: Partial<TimelineMilestoneWorksheetSubMilestone>
+  ) => void;
+  proposedStartDate?: string;
+  row: TimelineMilestoneWorksheetRow;
+  scheduleDisplayMode: TimelineScheduleDisplayMode;
+}) {
+  return (
+    <Tabs
+      className="timeline-blueprint-expanded-tabs"
+      defaultValue="submilestones"
+    >
+      <div className="timeline-blueprint-expanded-tabs-header">
+        <TabsList
+          aria-label={`${row.name} expanded milestone sections`}
+          className="timeline-blueprint-expanded-tabs-list"
+          variant="underline"
+        >
+          <TabsTab value="submilestones">Sub-milestones</TabsTab>
+          {mode === "setup" ? (
+            <>
+              <TabsTab value="contractors">Contractors</TabsTab>
+              <TabsTab value="materials">Materials</TabsTab>
+            </>
+          ) : null}
+          <TabsTab value="field-guidance">Field Guidance</TabsTab>
+        </TabsList>
+      </div>
+      <TabsPanel
+        className="timeline-blueprint-expanded-tab-panel"
+        data-testid={`timeline-expanded-submilestones-panel-${row.key}`}
+        value="submilestones"
+      >
+        <SubMilestoneEditor
+          activeSubMilestoneId={activeSubMilestoneId}
+          mode={mode}
+          moveTargetRows={moveTargetRows}
+          onActiveSubMilestoneChange={onActiveSubMilestoneChange}
+          onAddSubMilestone={onAddSubMilestone}
+          onMoveSubMilestone={onMoveSubMilestone}
+          onRemoveSubMilestone={onRemoveSubMilestone}
+          onUpdateSubMilestone={onUpdateSubMilestone}
+          proposedStartDate={proposedStartDate}
+          row={row}
+          scheduleDisplayMode={scheduleDisplayMode}
+        />
+      </TabsPanel>
+      {mode === "setup" ? (
+        <>
+          <TabsPanel
+            className="timeline-blueprint-expanded-tab-panel"
+            data-testid={`timeline-expanded-contractors-panel-${row.key}`}
+            value="contractors"
+          >
+            <ContractorAssignmentEditor
+              contractorOptions={contractorOptions}
+              onAddAssignment={onAddContractorAssignment}
+              onRemoveAssignment={onRemoveContractorAssignment}
+              row={row}
+            />
+          </TabsPanel>
+          <TabsPanel
+            className="timeline-blueprint-expanded-tab-panel"
+            data-testid={`timeline-expanded-materials-panel-${row.key}`}
+            value="materials"
+          >
+            <MaterialCostItemsEditor
+              onCreateCostItem={onCreateCostItem}
+              onDeleteCostItem={onDeleteCostItem}
+              onUpdateCostItem={onUpdateCostItem}
+              row={row}
+            />
+          </TabsPanel>
+        </>
+      ) : null}
+      <TabsPanel
+        className="timeline-blueprint-expanded-tab-panel"
+        data-testid={`timeline-expanded-field-guidance-panel-${row.key}`}
+        value="field-guidance"
+      >
+        <FieldGuidanceEditor onUpdate={onUpdateFieldGuidance} row={row} />
+      </TabsPanel>
+    </Tabs>
+  );
+}
+
+function MaterialCostItemsEditor({
+  onCreateCostItem,
+  onDeleteCostItem,
+  onUpdateCostItem,
+  row,
+}: {
+  onCreateCostItem: (payload: MaterialPlanningPayload) => void;
+  onDeleteCostItem: (itemId: string) => void;
   onUpdateCostItem: (itemId: string, payload: MaterialPlanningPayload) => void;
   row: TimelineMilestoneWorksheetRow;
 }) {
   const costItemCount = (row.costItems ?? []).length;
 
   return (
-    <div className="timeline-blueprint-planning-extras">
-      <ContractorAssignmentEditor
-        contractorOptions={contractorOptions}
-        onAddAssignment={onAddContractorAssignment}
-        onRemoveAssignment={onRemoveContractorAssignment}
-        row={row}
-      />
-      <section
-        aria-label={`${row.name} materials and equipment`}
-        className="timeline-blueprint-planning-pane timeline-blueprint-planning-pane-materials"
-      >
-        <div className="timeline-blueprint-planning-pane-heading">
-          <div>
-            <Badge className="timeline-blueprint-mini-badge" variant="outline">
-              Materials
-            </Badge>
-            <strong>Build materials and equipment</strong>
-            <p>
-              Cost-only entries stay attached to this milestone and its
-              sub-milestones.
-            </p>
-          </div>
-          <span className="timeline-blueprint-planning-count">
-            {costItemCount} item{costItemCount === 1 ? "" : "s"}
-          </span>
+    <section
+      aria-label={`${row.name} materials and equipment`}
+      className="timeline-blueprint-planning-pane timeline-blueprint-planning-pane-materials"
+    >
+      <div className="timeline-blueprint-planning-pane-heading">
+        <div>
+          <Badge className="timeline-blueprint-mini-badge" variant="outline">
+            Materials
+          </Badge>
+          <strong>Build materials and equipment</strong>
+          <p>
+            Cost-only entries stay attached to this milestone and its
+            sub-milestones.
+          </p>
         </div>
-        <div className="timeline-blueprint-material-planning">
-          <MaterialPlanningTab
-            actions={{
-              create: onCreateCostItem,
-              delete: (item) => onDeleteCostItem(item._id),
-              update: (item, payload) => onUpdateCostItem(item._id, payload),
-            }}
-            items={worksheetCostItemsToMaterialItems(row)}
-            milestones={[worksheetRowToMaterialMilestone(row)]}
-            panelLayout="stacked"
-            scopeLabel="Milestone"
-            showChangeReason={false}
-            variant="embedded"
-          />
-        </div>
-      </section>
-    </div>
+        <span className="timeline-blueprint-planning-count">
+          {costItemCount} item{costItemCount === 1 ? "" : "s"}
+        </span>
+      </div>
+      <div className="timeline-blueprint-material-planning">
+        <MaterialPlanningTab
+          actions={{
+            create: onCreateCostItem,
+            delete: (item) => onDeleteCostItem(item._id),
+            update: (item, payload) => onUpdateCostItem(item._id, payload),
+          }}
+          items={worksheetCostItemsToMaterialItems(row)}
+          milestones={[worksheetRowToMaterialMilestone(row)]}
+          panelLayout="stacked"
+          scopeLabel="Milestone"
+          showChangeReason={false}
+          variant="embedded"
+        />
+      </div>
+    </section>
   );
 }
 
@@ -1970,12 +2193,9 @@ function ContractorAssignmentEditor({
         if (!normalizedContractorQuery) {
           return true;
         }
-        return [
-          option.name,
-          option.city ?? "",
-          ...(option.trades ?? []),
-        ].some((value) =>
-          value.trim().toLowerCase().includes(normalizedContractorQuery)
+        return [option.name, option.city ?? "", ...(option.trades ?? [])].some(
+          (value) =>
+            value.trim().toLowerCase().includes(normalizedContractorQuery)
         );
       }),
     [contractorOptions, normalizedContractorQuery]
@@ -2037,9 +2257,7 @@ function ContractorAssignmentEditor({
             Contractors
           </Badge>
           <strong>Milestone crew planning</strong>
-          <p>
-            Assign an existing contractor or type a guest contractor name.
-          </p>
+          <p>Assign an existing contractor or type a guest contractor name.</p>
         </div>
         <span className="timeline-blueprint-planning-count">
           {assignments.length} assignment
@@ -2076,12 +2294,8 @@ function ContractorAssignmentEditor({
                   aria-label="Contractor"
                   className="timeline-blueprint-input timeline-contractor-autocomplete-input"
                   data-testid={`timeline-setup-contractor-name-${row.key}`}
-                  onClick={() =>
-                    setContractorPickerOpen(hasContractorOptions)
-                  }
-                  onFocus={() =>
-                    setContractorPickerOpen(hasContractorOptions)
-                  }
+                  onClick={() => setContractorPickerOpen(hasContractorOptions)}
+                  onFocus={() => setContractorPickerOpen(hasContractorOptions)}
                   placeholder="Company or crew name"
                   showClear={Boolean(contractorName.trim())}
                   showTrigger={hasContractorOptions}
@@ -2092,9 +2306,7 @@ function ContractorAssignmentEditor({
                     No contractors match this search.
                   </AutocompleteEmpty>
                   <AutocompleteList className="timeline-contractor-autocomplete-list">
-                    {(
-                      option: TimelineMilestoneWorksheetContractorOption
-                    ) => (
+                    {(option: TimelineMilestoneWorksheetContractorOption) => (
                       <AutocompleteItem
                         className="timeline-contractor-autocomplete-item"
                         key={option.contractorId}
@@ -2621,18 +2833,27 @@ function withSubMilestoneDetails(
   };
 }
 
-function withBudgetFromSubMilestones(
-  row: TimelineMilestoneWorksheetRow
+function withDerivedSubMilestoneRollups(
+  row: TimelineMilestoneWorksheetRow,
+  { includeBudget }: { includeBudget: boolean }
 ): TimelineMilestoneWorksheetRow {
   const totalBudgetCents = row.subMilestoneDetails.reduce((sum, detail) => {
     const budgetCents = parseCurrencyToCents(detail.budgetText);
 
     return sum + (Number.isFinite(budgetCents) ? Math.max(0, budgetCents) : 0);
   }, 0);
+  const scheduleRange = subMilestoneScheduleRange(row);
 
   return {
     ...row,
-    budgetText: formatCurrency(totalBudgetCents),
+    ...(includeBudget ? { budgetText: formatCurrency(totalBudgetCents) } : {}),
+    ...(scheduleRange
+      ? {
+          durationDays: scheduleRange.durationDays,
+          durationText: String(scheduleRange.durationDays),
+          startDay: scheduleRange.startDay,
+        }
+      : {}),
   };
 }
 
@@ -2722,7 +2943,9 @@ function makeWorksheetId(prefix: string) {
     .slice(2, 8)}`;
 }
 
-function defaultGuidanceForRow(row: TimelineMilestoneWorksheetRow): SiteVisitGuidanceHtml {
+function defaultGuidanceForRow(
+  row: TimelineMilestoneWorksheetRow
+): SiteVisitGuidanceHtml {
   return {
     cameraAngles: guidanceLinesToHtml([
       "Wide shot showing the full milestone work area.",
@@ -2920,20 +3143,27 @@ function rowBudgetCents(row: TimelineMilestoneWorksheetRow) {
   return Number.isFinite(parsed) ? Math.max(0, parsed) : Number.NaN;
 }
 
-function rowDurationDays(row: TimelineMilestoneWorksheetRow) {
+function storedRowDurationDays(row: TimelineMilestoneWorksheetRow) {
   const parsed = Number(row.durationText.replace(DURATION_PREFIX_REGEX, ""));
   return Number.isFinite(parsed) ? Math.max(1, Math.round(parsed)) : Number.NaN;
 }
 
-function rowStartDay(row: TimelineMilestoneWorksheetRow) {
+function rowDurationDays(row: TimelineMilestoneWorksheetRow) {
+  return (
+    subMilestoneScheduleRange(row)?.durationDays ?? storedRowDurationDays(row)
+  );
+}
+
+function storedRowStartDay(row: TimelineMilestoneWorksheetRow) {
   return Math.round(row.startDay ?? 0);
 }
 
+function rowStartDay(row: TimelineMilestoneWorksheetRow) {
+  return subMilestoneScheduleRange(row)?.startDay ?? storedRowStartDay(row);
+}
+
 function parseTOffsetDay(value: string) {
-  const normalized = value
-    .trim()
-    .replace(/^T/i, "")
-    .replace(/^\+/, "");
+  const normalized = value.trim().replace(/^T/i, "").replace(/^\+/, "");
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? Math.round(parsed) : 0;
 }
@@ -2954,7 +3184,27 @@ function subMilestoneStartDay(
   row: TimelineMilestoneWorksheetRow,
   subMilestone: TimelineMilestoneWorksheetSubMilestone
 ) {
-  return Math.round(subMilestone.startDay ?? rowStartDay(row));
+  return Math.round(subMilestone.startDay ?? storedRowStartDay(row));
+}
+
+function subMilestoneScheduleRange(row: TimelineMilestoneWorksheetRow) {
+  if (row.subMilestoneDetails.length === 0) {
+    return;
+  }
+
+  const startsAndEnds = row.subMilestoneDetails.map((subMilestone) => {
+    const startDay = subMilestoneStartDay(row, subMilestone);
+    const endDay = startDay + parseDurationDays(subMilestone.durationText) - 1;
+    return { endDay, startDay };
+  });
+  const startDay = Math.min(...startsAndEnds.map((range) => range.startDay));
+  const endDay = Math.max(...startsAndEnds.map((range) => range.endDay));
+
+  return {
+    durationDays: Math.max(1, endDay - startDay + 1),
+    endDay,
+    startDay,
+  };
 }
 
 function subMilestoneDateRangeLabel(

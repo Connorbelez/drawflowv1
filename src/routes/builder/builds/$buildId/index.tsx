@@ -2,6 +2,8 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
+import { BuilderStaffPermissionsPanel } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
+import { canUseAppPermission } from "#/features/builder-staff/app-permissions.ts";
 import {
   ProductionBuildDetailSurface,
   type ProductionBuildDetail,
@@ -15,6 +17,7 @@ import {
   isProductionVisualParityFixtureEnabled,
 } from "#/features/production-proposals/visualParityFixtures.ts";
 import { api } from "../../../../../convex/_generated/api";
+import type { Id } from "../../../../../convex/_generated/dataModel";
 
 type BuilderBuildSearch = {
   timeframe?: CalendarTimeframe;
@@ -25,6 +28,7 @@ type BuilderBuildSearch = {
     | "evidence"
     | "gantt"
     | "materials"
+    | "staff"
     | "timeline";
   rail?: "open" | "closed";
 };
@@ -35,6 +39,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
       search.tab === "timeline" ||
       search.tab === "evidence" ||
       search.tab === "materials" ||
+      search.tab === "staff" ||
       search.tab === "calendar" ||
       search.tab === "gantt" ||
       search.tab === "details"
@@ -178,48 +183,73 @@ function BuilderBuildRoute() {
 
   const detail = effectiveProductionBuild as ProductionBuildDetail;
   const activeBuildId = detail.build._id as any;
+  const appPermissions = detail.appPermissions;
   const actions: ProductionBuildDetailActions = {
-    requestDraw: (draw) =>
-      requestDraw({
-        amountCents: draw.amountCents,
-        buildId: activeBuildId,
-        drawKey: draw.drawKey,
-        note: "Requested from builder build workspace.",
-        workosOrganizationId,
-      }),
-    requestFacilityChange: (input) =>
-      requestFacilityChange({
-        ...input,
-        buildId: activeBuildId,
-        workosOrganizationId,
-      }),
-    requestLoanFacilityDateChange: (input) =>
-      requestFacilityChange({
-        reason: input.reason,
-        requestedPaybackDate: input.requestedPaybackDate,
-        requestType: "paybackExtension",
-        buildId: activeBuildId,
-        workosOrganizationId,
-      }),
-    startMilestoneWork: () => undefined,
-    submitMilestoneCompletion: ({
-      actualCostCents,
-      completedDay,
-      milestoneKey,
-      note,
-      qualityNote,
-      qualityRating,
-    }: any) =>
-      submitMilestoneCompletion({
-        actualCostCents,
-        buildId: activeBuildId,
-        completedDay: completedDay ?? 0,
-        milestoneKey,
-        note,
-        qualityNote,
-        qualityRating,
-        workosOrganizationId,
-      }),
+    requestDraw: canUseAppPermission(appPermissions, "draw", "update")
+      ? (draw) =>
+          requestDraw({
+            amountCents: draw.amountCents,
+            buildId: activeBuildId,
+            drawKey: draw.drawKey,
+            note: "Requested from builder build workspace.",
+            workosOrganizationId,
+          })
+      : undefined,
+    requestFacilityChange: canUseAppPermission(
+      appPermissions,
+      "capitalEvent",
+      "create",
+    )
+      ? (input) =>
+          requestFacilityChange({
+            ...input,
+            buildId: activeBuildId,
+            workosOrganizationId,
+          })
+      : undefined,
+    requestLoanFacilityDateChange: canUseAppPermission(
+      appPermissions,
+      "capitalEvent",
+      "create",
+    )
+      ? (input) =>
+          requestFacilityChange({
+            reason: input.reason,
+            requestedPaybackDate: input.requestedPaybackDate,
+            requestType: "paybackExtension",
+            buildId: activeBuildId,
+            workosOrganizationId,
+          })
+      : undefined,
+    startMilestoneWork: canUseAppPermission(
+      appPermissions,
+      "milestone",
+      "update",
+    )
+      ? () => undefined
+      : undefined,
+    submitMilestoneCompletion:
+      canUseAppPermission(appPermissions, "milestone", "update") &&
+      canUseAppPermission(appPermissions, "evidence", "update")
+        ? ({
+            actualCostCents,
+            completedDay,
+            milestoneKey,
+            note,
+            qualityNote,
+            qualityRating,
+          }: any) =>
+            submitMilestoneCompletion({
+              actualCostCents,
+              buildId: activeBuildId,
+              completedDay: completedDay ?? 0,
+              milestoneKey,
+              note,
+              qualityNote,
+              qualityRating,
+              workosOrganizationId,
+            })
+        : undefined,
   } as ProductionBuildDetailActions;
 
   return (
@@ -243,6 +273,15 @@ function BuilderBuildRoute() {
       onChangeRail={onChangeRail}
       onChangeTab={onChangeTab}
       rail={search.rail}
+      staff={
+        visualFixtureEnabled ? undefined : (
+          <BuilderStaffPermissionsPanel
+            buildId={activeBuildId as Id<"activeBuilds">}
+            scope="activeBuild"
+            workosOrganizationId={workosOrganizationId}
+          />
+        )
+      }
       timelineWorkspace={effectiveTimelineWorkspace as any}
       viewerRole="builder"
       workosOrganizationId={workosOrganizationId}

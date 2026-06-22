@@ -208,7 +208,60 @@ function ControlledWorksheet({
   );
 }
 
+function openExpandedMilestoneTab(name: string) {
+  fireEvent.click(screen.getByRole("tab", { name }));
+}
+
+function panelIsHidden(element: HTMLElement | null) {
+  if (!element) {
+    return true;
+  }
+  return (
+    element.hasAttribute("hidden") ||
+    element.hasAttribute("data-hidden") ||
+    element.getAttribute("aria-hidden") === "true"
+  );
+}
+
 describe("TimelineMilestoneWorksheetTable", () => {
+  test("defaults expanded setup rows to the sub-milestones tab", () => {
+    render(<ControlledWorksheet />);
+
+    expect(
+      screen.getByRole("tab", { name: "Sub-milestones" }).getAttribute(
+        "aria-selected"
+      )
+    ).toBe("true");
+    expect(
+      panelIsHidden(
+        screen.queryByTestId(
+          "timeline-expanded-contractors-panel-site-prep-foundation"
+        )
+      )
+    ).toBe(true);
+    expect(
+      panelIsHidden(
+        screen.queryByTestId(
+          "timeline-expanded-materials-panel-site-prep-foundation"
+        )
+      )
+    ).toBe(true);
+    expect(
+      panelIsHidden(
+        screen.queryByTestId(
+          "timeline-expanded-field-guidance-panel-site-prep-foundation"
+        )
+      )
+    ).toBe(true);
+    expect(
+      panelIsHidden(
+        screen.getByTestId(
+          "timeline-expanded-submilestones-panel-site-prep-foundation"
+        )
+      )
+    ).toBe(false);
+  });
+
   test("keeps focus in blueprint inputs while controlled values update", () => {
     const onRowsChange = vi.fn();
     render(<ControlledWorksheet onRowsChange={onRowsChange} />);
@@ -260,12 +313,8 @@ describe("TimelineMilestoneWorksheetTable", () => {
           {
             ...worksheetRows[0]!,
             startDay: 0,
-            subMilestoneDetails: [
-              {
-                ...worksheetRows[0]!.subMilestoneDetails[0]!,
-                startDay: 0,
-              },
-            ],
+            subMilestoneDetails: [],
+            subMilestones: [],
           },
         ]}
         onRowsChange={onRowsChange}
@@ -383,6 +432,60 @@ describe("TimelineMilestoneWorksheetTable", () => {
     );
   });
 
+  test("derives milestone schedule cells from the sub-milestone date range", () => {
+    render(
+      <ControlledWorksheet
+        initialRows={[
+          {
+            ...worksheetRows[0]!,
+            durationDays: 1,
+            durationText: "1",
+            startDay: 99,
+            subMilestoneDetails: [
+              {
+                ...worksheetRows[0]!.subMilestoneDetails[0]!,
+                durationText: "3",
+                id: "site-prep-foundation-sub-a",
+                name: "Early work",
+                startDay: 5,
+              },
+              {
+                budgetText: "$25,000",
+                description: "Later checkpoint",
+                durationText: "9",
+                id: "site-prep-foundation-sub-b",
+                name: "Long lead work",
+                startDay: 3,
+              },
+            ],
+          },
+        ]}
+      />
+    );
+
+    expect(
+      (
+        screen.getByTestId(
+          "timeline-setup-row-start-offset-site-prep-foundation"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("T+3");
+    expect(
+      (
+        screen.getByTestId(
+          "timeline-setup-row-duration-site-prep-foundation"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("T9");
+    expect(
+      (
+        screen.getByTestId(
+          "timeline-setup-row-end-offset-site-prep-foundation"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("T+11");
+  });
+
   test("shows editable submilestone T start and duration with computed T end without a proposed start date", () => {
     const onRowsChange = vi.fn();
     render(
@@ -435,13 +538,112 @@ describe("TimelineMilestoneWorksheetTable", () => {
     expect(onRowsChange).toHaveBeenLastCalledWith(
       expect.arrayContaining([
         expect.objectContaining({
+          durationDays: 4,
+          durationText: "4",
           key: "site-prep-foundation",
+          startDay: 25,
           subMilestoneDetails: expect.arrayContaining([
             expect.objectContaining({
               id: "site-prep-foundation-sub-1",
               startDay: 25,
             }),
           ]),
+        }),
+      ])
+    );
+  });
+
+  test("moves a sub-milestone to another milestone and recomputes both row rollups", async () => {
+    const onRowsChange = vi.fn();
+    render(
+      <ControlledWorksheet
+        initialRows={[
+          {
+            ...worksheetRows[0]!,
+            budgetText: "$150",
+            durationDays: 8,
+            durationText: "8",
+            startDay: 0,
+            subMilestoneDetails: [
+              {
+                budgetText: "$100",
+                description: "Source scope A",
+                durationText: "2",
+                id: "source-sub-a",
+                name: "Source A",
+                startDay: 0,
+              },
+              {
+                budgetText: "$50",
+                description: "Source scope B",
+                durationText: "3",
+                id: "source-sub-b",
+                name: "Source B",
+                startDay: 5,
+              },
+            ],
+            subMilestones: ["Source A", "Source B"],
+          },
+          {
+            ...worksheetRows[1]!,
+            budgetText: "$75",
+            durationDays: 2,
+            durationText: "2",
+            startDay: 10,
+            subMilestoneDetails: [
+              {
+                budgetText: "$75",
+                description: "Target scope",
+                durationText: "2",
+                id: "target-sub-a",
+                name: "Target A",
+                startDay: 10,
+              },
+            ],
+            subMilestones: ["Target A"],
+          },
+        ]}
+        onRowsChange={onRowsChange}
+      />
+    );
+
+    fireEvent.contextMenu(
+      screen.getByTestId("timeline-setup-submilestone-card-source-sub-b")
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Move to Framing" })
+    );
+
+    expect(onRowsChange).toHaveBeenLastCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          budgetText: "$100",
+          durationDays: 2,
+          durationText: "2",
+          key: "site-prep-foundation",
+          startDay: 0,
+          subMilestoneDetails: [
+            expect.objectContaining({
+              id: "source-sub-a",
+            }),
+          ],
+          subMilestones: ["Source A"],
+        }),
+        expect.objectContaining({
+          budgetText: "$125",
+          durationDays: 7,
+          durationText: "7",
+          key: "framing",
+          startDay: 5,
+          subMilestoneDetails: [
+            expect.objectContaining({
+              id: "target-sub-a",
+            }),
+            expect.objectContaining({
+              id: "source-sub-b",
+            }),
+          ],
+          subMilestones: ["Target A", "Source B"],
         }),
       ])
     );
@@ -515,6 +717,7 @@ describe("TimelineMilestoneWorksheetTable", () => {
         ]}
       />
     );
+    openExpandedMilestoneTab("Contractors");
 
     const contractorInput = screen.getByRole("combobox", {
       name: "Contractor",
@@ -555,6 +758,7 @@ describe("TimelineMilestoneWorksheetTable", () => {
         onRowsChange={onRowsChange}
       />
     );
+    openExpandedMilestoneTab("Contractors");
 
     fireEvent.change(
       screen.getByTestId(
@@ -589,6 +793,7 @@ describe("TimelineMilestoneWorksheetTable", () => {
       { key: "Escape" }
     );
 
+    openExpandedMilestoneTab("Materials");
     fireEvent.click(screen.getAllByRole("button", { name: "Add cost item" })[0]);
     fireEvent.change(screen.getByLabelText("Title"), {
       target: { value: "Foundation material package" },
@@ -636,6 +841,7 @@ describe("TimelineMilestoneWorksheetTable", () => {
   test("edits milestone field guidance from expanded worksheet rows", () => {
     const onRowsChange = vi.fn();
     render(<ControlledWorksheet onRowsChange={onRowsChange} />);
+    openExpandedMilestoneTab("Field Guidance");
 
     fireEvent.change(
       screen.getByTestId(

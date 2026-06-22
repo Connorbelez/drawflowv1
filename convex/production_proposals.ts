@@ -37,6 +37,17 @@ type ProductionSettingsSiteVisitGuidanceInput = Parameters<
 
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
+interface BuilderStaffProvisionResult {
+  invite: {
+    adapter: string;
+    operation?: string;
+    status: string;
+    sync: string;
+    workosId?: string;
+  };
+  staffWorkosUserId: string;
+}
+
 const PROPOSAL_COLUMNS = ["draft", "submitted", "approved", "closed"] as const;
 const BACKOFFICE_ROLES = [
   "admin",
@@ -46,6 +57,22 @@ const BACKOFFICE_ROLES = [
 ] as const satisfies readonly RoleSlug[];
 const APPROVER_ROLES = ["admin", "principle-broker"] as const;
 const BUILDER_ROLES = ["builder", "builder-staff"] as const;
+const BUILDER_STAFF_PERMISSION_RESOURCES = [
+  "milestone",
+  "submilestone",
+  "draw",
+  "evidence",
+  "contractor",
+  "material",
+  "capitalEvent",
+  "reminder",
+] as const;
+const BUILDER_STAFF_PERMISSION_ACTIONS = [
+  "create",
+  "view",
+  "update",
+  "delete",
+] as const;
 const DEFAULT_WORKFLOW_RULE_KEY = "proposal-foundation-v1";
 const FAIRLEND_BROKERAGE_NAME = "FairLendBrokerage";
 const FAIRLEND_WORKOS_ORGANIZATION_ID = "org_01KSNW6JHW9P9YS41DZX1YHHGS";
@@ -269,6 +296,42 @@ const productionCostItemType = v.union(
   v.literal("material"),
   v.literal("equipment"),
 );
+
+const builderStaffPermissionResourceInput = v.union(
+  v.literal("milestone"),
+  v.literal("submilestone"),
+  v.literal("draw"),
+  v.literal("evidence"),
+  v.literal("contractor"),
+  v.literal("material"),
+  v.literal("capitalEvent"),
+  v.literal("reminder"),
+);
+
+const builderStaffPermissionGrantInput = v.object({
+  canCreate: v.boolean(),
+  canView: v.boolean(),
+  canUpdate: v.boolean(),
+  canDelete: v.boolean(),
+  resourceType: builderStaffPermissionResourceInput,
+});
+
+const builderStaffProvisionActorInput = v.object({
+  organizationId: v.optional(v.string()),
+  roles: v.array(v.string()),
+  subject: v.string(),
+});
+
+const builderStaffProvisionResult = v.object({
+  invite: v.object({
+    adapter: v.string(),
+    operation: v.optional(v.string()),
+    status: v.string(),
+    sync: v.string(),
+    workosId: v.optional(v.string()),
+  }),
+  staffWorkosUserId: v.string(),
+});
 
 const productionCostItemCreateInput = {
   costCents: v.number(),
@@ -1833,6 +1896,10 @@ export const createProductionTimelineMilestone = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireProductionTimelineDraftStructureWrite(ctx, auth);
+    await requireProposalAppPermission(ctx, auth, "milestone", "create");
+    if ((args.milestone.submilestones ?? []).length > 0) {
+      await requireProposalAppPermission(ctx, auth, "submilestone", "create");
+    }
     const milestoneId = await insertProductionMilestoneFromInput(
       ctx,
       auth,
@@ -1894,6 +1961,10 @@ export const updateProductionTimelineMilestone = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireProductionTimelineDraftStructureWrite(ctx, auth);
+    await requireProposalAppPermission(ctx, auth, "milestone", "update");
+    if (args.submilestones !== undefined) {
+      await requireProposalAppPermission(ctx, auth, "submilestone", "update");
+    }
     const milestone = await getProductionMilestoneOrThrow(
       ctx,
       args.proposalId,
@@ -2041,6 +2112,8 @@ export const deleteProductionTimelineMilestone = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireProductionTimelineDraftStructureWrite(ctx, auth);
+    await requireProposalAppPermission(ctx, auth, "milestone", "delete");
+    await requireProposalAppPermission(ctx, auth, "submilestone", "delete");
     const milestone = await getProductionMilestoneOrThrow(
       ctx,
       args.proposalId,
@@ -2072,6 +2145,7 @@ export const createProposalCostItem = authenticatedMutation
       ctx,
       args.proposalId,
       args.workosOrganizationId,
+      "create",
       args.reason,
     );
     const milestone = await getProductionMilestoneOrThrow(
@@ -2144,6 +2218,7 @@ export const updateProposalCostItem = authenticatedMutation
       ctx,
       args.proposalId,
       args.workosOrganizationId,
+      "update",
       args.reason,
     );
     const item = await getProposalCostItemOrThrow(
@@ -2250,6 +2325,7 @@ export const deleteProposalCostItem = authenticatedMutation
       ctx,
       args.proposalId,
       args.workosOrganizationId,
+      "delete",
       args.reason,
     );
     const item = await getProposalCostItemOrThrow(
@@ -2293,6 +2369,7 @@ export const createActiveBuildCostItem = authenticatedMutation
       ctx,
       args.buildId,
       args.workosOrganizationId,
+      "create",
       args.reason,
       { requireReason: false },
     );
@@ -2359,6 +2436,7 @@ export const updateActiveBuildCostItem = authenticatedMutation
       ctx,
       args.buildId,
       args.workosOrganizationId,
+      "update",
       args.reason,
     );
     const item = await getBuildCostItemOrThrow(ctx, args.buildId, args.itemId);
@@ -2462,6 +2540,7 @@ export const deleteActiveBuildCostItem = authenticatedMutation
       ctx,
       args.buildId,
       args.workosOrganizationId,
+      "delete",
       args.reason,
     );
     const item = await getBuildCostItemOrThrow(ctx, args.buildId, args.itemId);
@@ -2507,6 +2586,7 @@ export const createProductionTimelineDraw = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireProductionTimelineEditable(ctx, auth);
+    await requireProposalAppPermission(ctx, auth, "draw", "create");
     const existing = await ctx.db
       .query("proposalDrawScheduleRows")
       .withIndex("by_proposal_key", (q) =>
@@ -2585,6 +2665,7 @@ export const updateProductionTimelineDraw = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireProductionTimelineEditable(ctx, auth);
+    await requireProposalAppPermission(ctx, auth, "draw", "update");
     const draw = await getProductionDrawOrThrow(
       ctx,
       args.proposalId,
@@ -2653,6 +2734,7 @@ export const deleteProductionTimelineDraw = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireProductionTimelineEditable(ctx, auth);
+    await requireProposalAppPermission(ctx, auth, "draw", "delete");
     const draw = await getProductionDrawOrThrow(
       ctx,
       args.proposalId,
@@ -2700,6 +2782,18 @@ export const requestProductionTimelineModification = authenticatedMutation
     if (auth.proposal.status !== "approved") {
       throw new Error("Live-build modification requests require approval.");
     }
+    const requestedPermission =
+      args.requestType === "createMilestone"
+        ? (["milestone", "create"] as const)
+        : args.requestType === "deleteMilestone"
+          ? (["milestone", "delete"] as const)
+          : (["milestone", "update"] as const);
+    await requireProposalAppPermission(
+      ctx,
+      auth,
+      requestedPermission[0],
+      requestedPermission[1],
+    );
     let priorState: unknown;
     if (
       args.requestType === "deleteMilestone" ||
@@ -2822,6 +2916,7 @@ export const updateProductionTimelinePlanState = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireProductionTimelineEditable(ctx, auth);
+    await requireProposalAppPermission(ctx, auth, "capitalEvent", "update");
     const priorState = JSON.stringify({
       currentDay: auth.proposal.timelineCurrentDay,
       progressValue: auth.proposal.timelineProgressValue,
@@ -2891,6 +2986,7 @@ export const updateProductionProposalCoPayAmount = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireProductionProposalPreLiveCapitalWrite(ctx, auth);
+    await requireProposalAppPermission(ctx, auth, "capitalEvent", "update");
     const totalBudgetCents = await recalculateProposalBudget(
       ctx,
       auth,
@@ -2969,6 +3065,7 @@ export const updateProductionProposalApprovedAmount = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireProductionProposalPreLiveCapitalWrite(ctx, auth);
+    await requireProposalAppPermission(ctx, auth, "capitalEvent", "update");
     const totalBudgetCents = await recalculateProposalBudget(
       ctx,
       auth,
@@ -3046,6 +3143,7 @@ export const updateProductionProposalInterestRate = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireProductionProposalPreLiveCapitalWrite(ctx, auth);
+    await requireProposalAppPermission(ctx, auth, "capitalEvent", "update");
     const interestAnnualBps = Math.max(
       0,
       Math.min(10_000, Math.round(args.interestAnnualBps)),
@@ -3091,6 +3189,7 @@ export const createProductionTimelineCapitalEvent = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireProductionTimelineEditable(ctx, auth);
+    await requireProposalAppPermission(ctx, auth, "capitalEvent", "create");
     await insertProductionCapitalEvent(ctx, auth, {
       amountCents: args.amountCents,
       capitalEventKey: args.capitalEventKey,
@@ -3131,6 +3230,7 @@ export const createProductionTimelineCashInfusion = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireProductionTimelineEditable(ctx, auth);
+    await requireProposalAppPermission(ctx, auth, "capitalEvent", "create");
     await insertProductionCapitalEvent(ctx, auth, {
       amountCents: args.amountCents,
       capitalEventKey: args.cashInfusionKey,
@@ -3171,6 +3271,7 @@ export const updateProductionTimelineCapitalEvent = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireProductionTimelineEditable(ctx, auth);
+    await requireProposalAppPermission(ctx, auth, "capitalEvent", "update");
     const event = await getProductionCapitalEventOrThrow(
       ctx,
       args.proposalId,
@@ -3217,6 +3318,7 @@ export const deleteProductionTimelineCapitalEvent = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireProductionTimelineEditable(ctx, auth);
+    await requireProposalAppPermission(ctx, auth, "capitalEvent", "delete");
     const event = await getProductionCapitalEventOrThrow(
       ctx,
       args.proposalId,
@@ -3249,6 +3351,7 @@ export const generateProductionEvidenceUploadUrl = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireProductionTimelineEditable(ctx, auth);
+    await requireProposalAppPermission(ctx, auth, "evidence", "create");
     return await ctx.storage.generateUploadUrl();
   })
   .public();
@@ -3267,6 +3370,7 @@ export const createProductionTimelineEvidenceAsset = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireProductionTimelineEditable(ctx, auth);
+    await requireProposalAppPermission(ctx, auth, "evidence", "create");
     const milestone = await getProductionMilestoneOrThrow(
       ctx,
       args.proposalId,
@@ -3332,6 +3436,7 @@ export const updateProductionTimelineEvidenceAsset = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireProductionTimelineEditable(ctx, auth);
+    await requireProposalAppPermission(ctx, auth, "evidence", "update");
     const asset = await getProductionEvidenceAssetOrThrow(
       ctx,
       args.proposalId,
@@ -3371,6 +3476,7 @@ export const deleteProductionTimelineEvidenceAsset = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireProductionTimelineEditable(ctx, auth);
+    await requireProposalAppPermission(ctx, auth, "evidence", "delete");
     const asset = await getProductionEvidenceAssetOrThrow(
       ctx,
       args.proposalId,
@@ -3408,6 +3514,8 @@ export const submitProductionMilestoneCompletion = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireProductionTimelineLiveWrite(ctx, auth);
+    await requireProposalAppPermission(ctx, auth, "milestone", "update");
+    await requireProposalAppPermission(ctx, auth, "evidence", "update");
     const milestone = await getProductionMilestoneOrThrow(
       ctx,
       args.proposalId,
@@ -3652,6 +3760,7 @@ export const submitProductionDrawRequest = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireProductionTimelineLiveWrite(ctx, auth);
+    await requireProposalAppPermission(ctx, auth, "draw", "update");
     const draw = await getProductionDrawOrThrow(
       ctx,
       args.proposalId,
@@ -4673,6 +4782,7 @@ export const createAndAttachProposalContractor = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireProposalContractorPlanningWrite(ctx, auth);
+    await requireProposalAppPermission(ctx, auth, "contractor", "create");
     const now = Date.now();
     const contractorId = await ctx.db.insert("contractorProfiles", {
       brokerageId: auth.brokerage._id,
@@ -5384,6 +5494,8 @@ export const getProposalDetail = authenticatedQuery
         )
       : [];
 
+    const appPermissions = await proposalAppPermissionProjection(ctx, auth);
+
     return {
       activeBuild,
       assignment: await buildProposalIdentityProjection(
@@ -5391,19 +5503,189 @@ export const getProposalDetail = authenticatedQuery
         auth.proposal,
         auth.brokerage,
       ),
+      appPermissions,
       auditEvents,
       buildMilestones,
       buildSubmilestones,
-      costItems,
+      costItems: canUseAppPermission(appPermissions, "material", "view")
+        ? costItems
+        : [],
       documents: await withDocumentStorageUrls(ctx, documents),
       events,
-      milestones,
+      milestones: canUseAppPermission(appPermissions, "milestone", "view")
+        ? milestones
+        : [],
       permitWaiver,
-      plannedDraws,
+      plannedDraws: canUseAppPermission(appPermissions, "draw", "view")
+        ? plannedDraws
+        : [],
       proposal: auth.proposal,
-      submilestones,
-      draws,
+      submilestones: canUseAppPermission(
+        appPermissions,
+        "submilestone",
+        "view",
+      )
+        ? submilestones
+        : [],
+      draws: canUseAppPermission(appPermissions, "draw", "view") ? draws : [],
     };
+  })
+  .public();
+
+export const listProposalBuilderStaffPermissions = authenticatedQuery
+  .input({
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    const builderProfileId = assignedBuilderProfileIdOrThrow(auth.proposal);
+    await requireBuilderStaffManagementAllowed(ctx, auth, builderProfileId);
+    return await buildStaffPermissionDirectory(ctx, {
+      auth,
+      builderProfileId,
+      proposalId: args.proposalId,
+      scope: "proposal",
+    });
+  })
+  .public();
+
+export const saveProposalBuilderStaffPermissions = authenticatedMutation
+  .input({
+    permissions: v.array(builderStaffPermissionGrantInput),
+    proposalId: v.id("buildProposals"),
+    staffEmail: v.optional(v.string()),
+    staffWorkosUserId: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    const builderProfileId = assignedBuilderProfileIdOrThrow(auth.proposal);
+    await requireBuilderStaffManagementAllowed(ctx, auth, builderProfileId);
+    await saveBuilderStaffPermissionScope(ctx, {
+      auth,
+      builderProfileId,
+      permissions: args.permissions,
+      proposalId: args.proposalId,
+      scope: "proposal",
+      staffEmail: args.staffEmail,
+      staffWorkosUserId: args.staffWorkosUserId,
+      workosOrganizationId: args.workosOrganizationId,
+    });
+    return null;
+  })
+  .public();
+
+export const provisionProposalBuilderStaffPermissions = authenticatedAction
+  .input({
+    permissions: v.array(builderStaffPermissionGrantInput),
+    proposalId: v.id("buildProposals"),
+    staffEmail: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(builderStaffProvisionResult)
+  .handler(async (ctx, args): Promise<BuilderStaffProvisionResult> => {
+    const staffEmail = normalizeBuilderStaffEmail(args.staffEmail);
+    if (!staffEmail) {
+      throw new Error("A valid staff email is required.");
+    }
+    const invite: {
+      adapter: string;
+      status: string;
+      sync: string;
+      workosId?: string;
+    } = await ctx.runAction(internal.workosManagement.inviteBuilderStaffUser, {
+      email: staffEmail,
+      organizationId: args.workosOrganizationId,
+    });
+    const staffWorkosUserId: string = await ctx.runMutation(
+      internal.production_proposals.finalizeProposalBuilderStaffProvisioning,
+      {
+        actor: {
+          organizationId: ctx.viewer.organizationId,
+          roles: ctx.viewer.roles,
+          subject: ctx.viewer.subject,
+        },
+        permissions: args.permissions,
+        proposalId: args.proposalId,
+        staffEmail,
+        staffWorkosUserId: provisionedBuilderStaffWorkosUserId(staffEmail),
+        workosOrganizationId: args.workosOrganizationId,
+      },
+    );
+    return { invite, staffWorkosUserId };
+  })
+  .public();
+
+export const finalizeProposalBuilderStaffProvisioning = internalMutation
+  .input({
+    actor: builderStaffProvisionActorInput,
+    permissions: v.array(builderStaffPermissionGrantInput),
+    proposalId: v.id("buildProposals"),
+    staffEmail: v.string(),
+    staffWorkosUserId: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.string())
+  .handler(async (ctx, args) => {
+    const actor = viewerFromBuilderStaffProvisionActor(args.actor);
+    const auth = await authorizeProposalForViewer(
+      ctx,
+      actor,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    const builderProfileId = assignedBuilderProfileIdOrThrow(auth.proposal);
+    await requireBuilderStaffManagementAllowed(ctx, auth, builderProfileId);
+    const staffWorkosUserId = await ensureBuilderStaffProvisionIdentity(ctx, {
+      email: args.staffEmail,
+      fallbackWorkosUserId: args.staffWorkosUserId,
+      workosOrganizationId: args.workosOrganizationId,
+    });
+    return await saveBuilderStaffPermissionScope(ctx, {
+      auth,
+      builderProfileId,
+      permissions: args.permissions,
+      proposalId: args.proposalId,
+      scope: "proposal",
+      staffEmail: args.staffEmail,
+      staffWorkosUserId,
+      workosOrganizationId: args.workosOrganizationId,
+    });
+  })
+  .internal();
+
+export const removeProposalBuilderStaffMember = authenticatedMutation
+  .input({
+    proposalId: v.id("buildProposals"),
+    staffWorkosUserId: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId,
+    );
+    const builderProfileId = assignedBuilderProfileIdOrThrow(auth.proposal);
+    await requireBuilderStaffManagementAllowed(ctx, auth, builderProfileId);
+    await removeBuilderStaffMember(ctx, {
+      auth,
+      builderProfileId,
+      staffWorkosUserId: args.staffWorkosUserId,
+    });
+    return null;
   })
   .public();
 
@@ -5497,89 +5779,110 @@ export const getProductionTimelineWorkspace = authenticatedQuery
             ),
           );
     const activeMilestone = firstActiveMilestoneForWorkspace(milestones);
+    const appPermissions = await proposalAppPermissionProjection(ctx, auth);
 
     return {
       activeBuild: auth.proposal.activeBuildId
         ? await ctx.db.get(auth.proposal.activeBuildId)
         : null,
-      capitalEvents: [
-        {
-          amountCents:
-            auth.proposal.timelineStartingCashCents ??
-            auth.proposal.borrowerWorkingCapitalLimitCents,
-          capitalEventKey: "borrower-reserve",
-          eventKind: "cashInfusion",
-          label: "Borrower reserve",
-          x: 0,
-        },
-        ...[...capitalEventRows]
-          .sort((a, b) => a.order - b.order || a.x - b.x)
-          .map((event) => ({
-            amountCents: event.amountCents,
-            capitalEventKey: event.capitalEventKey,
-            eventKind: event.eventKind,
-            label: event.label,
-            x: event.x,
-          })),
-      ],
-      contractorPlanning: await proposalContractorPlanningProjection(ctx, {
-        auth,
-        documents: documentRows,
-        milestones,
-        proposalId: args.proposalId,
-        submilestones,
-      }),
-      costItems: [...costItemRows]
-        .sort(
-          (a, b) =>
-            a.milestoneKey.localeCompare(b.milestoneKey) ||
-            a.createdAt - b.createdAt,
-        )
-        .map((item) => ({
-          _id: item._id,
-          costCents: item.costCents,
-          description: item.description,
-          itemKey: item.itemKey,
-          itemType: item.itemType,
-          milestoneKey: item.milestoneKey,
-          quantity: item.quantity,
-          relevantSubmilestoneKeys: item.relevantSubmilestoneKeys,
-          supplier: item.supplier,
-          title: item.title,
-          totalCents: costItemTotalCents(item),
-          updatedAt: item.updatedAt,
-        })),
-      draws: draws.map((draw) => ({
-        amountCents: draw.amountCents,
-        customDate: draw.customDate ?? draw.source === "manual",
-        drawKey: draw.drawKey,
-        itemMilestoneKey: draw.milestoneKey,
-        label: draw.label,
-        requestNote: draw.requestNote,
-        requestReviewNote: draw.requestReviewNote,
-        requestStatus: draw.requestStatus,
-        reviewedAt: draw.reviewedAt,
-        requestedAt: draw.requestedAt,
-        x: draw.timingDay,
-      })),
-      evidenceAssets: await Promise.all(
-        [...evidenceRows]
-          .sort((a, b) => a.createdAt - b.createdAt)
-          .map(async (asset) => ({
-            evidenceKey: asset.evidenceKey,
-            fileName: asset.fileName,
-            label: asset.label,
-            milestoneKey: asset.milestoneKey,
-            mimeType: asset.mimeType,
-            previewUrl: asset.storageId
-              ? await ctx.storage.getUrl(asset.storageId)
-              : null,
-            sizeBytes: asset.sizeBytes,
-            submilestoneKey: asset.submilestoneKey,
-            tag: asset.tag,
-          })),
-      ),
-      milestones: milestones.map((milestone, index) => {
+      appPermissions,
+      capitalEvents: canUseAppPermission(
+        appPermissions,
+        "capitalEvent",
+        "view",
+      )
+        ? [
+            {
+              amountCents:
+                auth.proposal.timelineStartingCashCents ??
+                auth.proposal.borrowerWorkingCapitalLimitCents,
+              capitalEventKey: "borrower-reserve",
+              eventKind: "cashInfusion",
+              label: "Borrower reserve",
+              x: 0,
+            },
+            ...[...capitalEventRows]
+              .sort((a, b) => a.order - b.order || a.x - b.x)
+              .map((event) => ({
+                amountCents: event.amountCents,
+                capitalEventKey: event.capitalEventKey,
+                eventKind: event.eventKind,
+                label: event.label,
+                x: event.x,
+              })),
+          ]
+        : [],
+      contractorPlanning: canUseAppPermission(
+        appPermissions,
+        "contractor",
+        "view",
+      )
+        ? await proposalContractorPlanningProjection(ctx, {
+            auth,
+            documents: documentRows,
+            milestones,
+            proposalId: args.proposalId,
+            submilestones,
+          })
+        : undefined,
+      costItems: canUseAppPermission(appPermissions, "material", "view")
+        ? [...costItemRows]
+            .sort(
+              (a, b) =>
+                a.milestoneKey.localeCompare(b.milestoneKey) ||
+                a.createdAt - b.createdAt,
+            )
+            .map((item) => ({
+              _id: item._id,
+              costCents: item.costCents,
+              description: item.description,
+              itemKey: item.itemKey,
+              itemType: item.itemType,
+              milestoneKey: item.milestoneKey,
+              quantity: item.quantity,
+              relevantSubmilestoneKeys: item.relevantSubmilestoneKeys,
+              supplier: item.supplier,
+              title: item.title,
+              totalCents: costItemTotalCents(item),
+              updatedAt: item.updatedAt,
+            }))
+        : [],
+      draws: canUseAppPermission(appPermissions, "draw", "view")
+        ? draws.map((draw) => ({
+            amountCents: draw.amountCents,
+            customDate: draw.customDate ?? draw.source === "manual",
+            drawKey: draw.drawKey,
+            itemMilestoneKey: draw.milestoneKey,
+            label: draw.label,
+            requestNote: draw.requestNote,
+            requestReviewNote: draw.requestReviewNote,
+            requestStatus: draw.requestStatus,
+            reviewedAt: draw.reviewedAt,
+            requestedAt: draw.requestedAt,
+            x: draw.timingDay,
+          }))
+        : [],
+      evidenceAssets: canUseAppPermission(appPermissions, "evidence", "view")
+        ? await Promise.all(
+            [...evidenceRows]
+              .sort((a, b) => a.createdAt - b.createdAt)
+              .map(async (asset) => ({
+                evidenceKey: asset.evidenceKey,
+                fileName: asset.fileName,
+                label: asset.label,
+                milestoneKey: asset.milestoneKey,
+                mimeType: asset.mimeType,
+                previewUrl: asset.storageId
+                  ? await ctx.storage.getUrl(asset.storageId)
+                  : null,
+                sizeBytes: asset.sizeBytes,
+                submilestoneKey: asset.submilestoneKey,
+                tag: asset.tag,
+              })),
+          )
+        : [],
+      milestones: canUseAppPermission(appPermissions, "milestone", "view")
+        ? milestones.map((milestone, index) => {
         const draw = drawByMilestoneKey.get(milestone.key);
         const evidenceState =
           milestone.evidenceState ??
@@ -5621,29 +5924,35 @@ export const getProductionTimelineWorkspace = authenticatedQuery
             auth.proposal,
             milestone,
           ),
-          submilestoneSnapshot: submilestones
-            .filter(
-              (submilestone: any) =>
-                submilestone.milestoneKey === milestone.key,
-            )
-            .sort(
-              (a: any, b: any) =>
-                a.order - b.order || a.key.localeCompare(b.key),
-            )
-            .map((submilestone: any) => ({
-              ...(submilestone.budgetCents === undefined
-                ? {}
-                : { budgetCents: submilestone.budgetCents }),
-              ...(submilestone.durationDays === undefined
-                ? {}
-                : { durationDays: submilestone.durationDays }),
-              key: submilestone.key,
-              name: submilestone.name,
-              order: submilestone.order,
-              ...(submilestone.startDay === undefined
-                ? {}
-                : { startDay: submilestone.startDay }),
-            })),
+          submilestoneSnapshot: canUseAppPermission(
+            appPermissions,
+            "submilestone",
+            "view",
+          )
+            ? submilestones
+                .filter(
+                  (submilestone: any) =>
+                    submilestone.milestoneKey === milestone.key,
+                )
+                .sort(
+                  (a: any, b: any) =>
+                    a.order - b.order || a.key.localeCompare(b.key),
+                )
+                .map((submilestone: any) => ({
+                  ...(submilestone.budgetCents === undefined
+                    ? {}
+                    : { budgetCents: submilestone.budgetCents }),
+                  ...(submilestone.durationDays === undefined
+                    ? {}
+                    : { durationDays: submilestone.durationDays }),
+                  key: submilestone.key,
+                  name: submilestone.name,
+                  order: submilestone.order,
+                  ...(submilestone.startDay === undefined
+                    ? {}
+                    : { startDay: submilestone.startDay }),
+                }))
+            : [],
           tone: productionTimelineToneForMilestone(
             index,
             auth.proposal,
@@ -5651,7 +5960,8 @@ export const getProductionTimelineWorkspace = authenticatedQuery
           ),
           x: milestone.dayStart,
         };
-      }),
+      })
+        : [],
       modificationRequests: [...modificationRequests]
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .map((request) => ({
@@ -6100,6 +6410,7 @@ export const getProposalCalendarWorkspace = authenticatedQuery
       args.proposalId,
       args.workosOrganizationId,
     );
+    const appPermissions = await proposalAppPermissionProjection(ctx, auth);
     const [
       milestones,
       submilestones,
@@ -6152,7 +6463,13 @@ export const getProposalCalendarWorkspace = authenticatedQuery
     const sortedMilestones = [...milestones].sort(
       (a, b) => a.order - b.order || a.key.localeCompare(b.key),
     );
-    for (const milestone of sortedMilestones) {
+    for (const milestone of canUseAppPermission(
+      appPermissions,
+      "milestone",
+      "view",
+    )
+      ? sortedMilestones
+      : []) {
       events.push(
         proposalCalendarMilestoneEvent({
           baseDate,
@@ -6161,7 +6478,13 @@ export const getProposalCalendarWorkspace = authenticatedQuery
         }),
       );
     }
-    for (const submilestone of submilestones) {
+    for (const submilestone of canUseAppPermission(
+      appPermissions,
+      "submilestone",
+      "view",
+    )
+      ? submilestones
+      : []) {
       const parent = sortedMilestones.find(
         (milestone) => milestone.key === submilestone.milestoneKey,
       );
@@ -6206,12 +6529,20 @@ export const getProposalCalendarWorkspace = authenticatedQuery
         warnings: [],
       });
     }
-    for (const draw of draws) {
+    for (const draw of canUseAppPermission(appPermissions, "draw", "view")
+      ? draws
+      : []) {
       events.push(
         proposalCalendarDrawEvent({ baseDate, draw, proposal: auth.proposal }),
       );
     }
-    for (const event of evidenceAssets) {
+    for (const event of canUseAppPermission(
+      appPermissions,
+      "evidence",
+      "view",
+    )
+      ? evidenceAssets
+      : []) {
       events.push({
         allDay: false,
         auditRequired: false,
@@ -6239,7 +6570,13 @@ export const getProposalCalendarWorkspace = authenticatedQuery
         warnings: !event.locationVerified ? ["Location unverified"] : [],
       });
     }
-    for (const assignment of contractorAssignments) {
+    for (const assignment of canUseAppPermission(
+      appPermissions,
+      "contractor",
+      "view",
+    )
+      ? contractorAssignments
+      : []) {
       if (
         assignment.startDay === undefined &&
         assignment.endDay === undefined
@@ -6285,7 +6622,13 @@ export const getProposalCalendarWorkspace = authenticatedQuery
     for (const target of targetDates) {
       events.push(calendarTargetDateEvent(target, "proposal"));
     }
-    for (const reminder of reminderEvents) {
+    for (const reminder of canUseAppPermission(
+      appPermissions,
+      "reminder",
+      "view",
+    )
+      ? reminderEvents
+      : []) {
       events.push(calendarReminderEvent(reminder, "proposal"));
     }
     return {
@@ -6321,6 +6664,7 @@ export const getActiveBuildCalendarWorkspace = authenticatedQuery
       args.buildId,
       args.workosOrganizationId,
     );
+    const appPermissions = await activeBuildAppPermissionProjection(ctx, auth);
     const [
       milestones,
       submilestones,
@@ -6351,12 +6695,24 @@ export const getActiveBuildCalendarWorkspace = authenticatedQuery
     const sortedMilestones = [...milestones].sort(
       (a, b) => a.order - b.order || a.key.localeCompare(b.key),
     );
-    for (const milestone of sortedMilestones) {
+    for (const milestone of canUseAppPermission(
+      appPermissions,
+      "milestone",
+      "view",
+    )
+      ? sortedMilestones
+      : []) {
       events.push(
         activeBuildCalendarMilestoneEvent({ build: auth.build, milestone }),
       );
     }
-    for (const submilestone of submilestones) {
+    for (const submilestone of canUseAppPermission(
+      appPermissions,
+      "submilestone",
+      "view",
+    )
+      ? submilestones
+      : []) {
       const parent = sortedMilestones.find(
         (milestone) => milestone.key === submilestone.milestoneKey,
       );
@@ -6402,10 +6758,14 @@ export const getActiveBuildCalendarWorkspace = authenticatedQuery
         warnings: [],
       });
     }
-    for (const draw of draws) {
+    for (const draw of canUseAppPermission(appPermissions, "draw", "view")
+      ? draws
+      : []) {
       events.push(activeBuildCalendarDrawEvent({ build: auth.build, draw }));
     }
-    for (const visit of siteVisits) {
+    for (const visit of canUseAppPermission(appPermissions, "evidence", "view")
+      ? siteVisits
+      : []) {
       events.push({
         allDay: false,
         auditRequired: visit.status !== "requested",
@@ -6445,7 +6805,9 @@ export const getActiveBuildCalendarWorkspace = authenticatedQuery
             : [],
       });
     }
-    for (const asset of evidenceAssets) {
+    for (const asset of canUseAppPermission(appPermissions, "evidence", "view")
+      ? evidenceAssets
+      : []) {
       events.push({
         allDay: false,
         auditRequired: !asset.locationVerified,
@@ -7301,6 +7663,7 @@ export const createProposalReminderCalendarEvent = authenticatedMutation
       args.proposalId,
       args.workosOrganizationId,
     );
+    await requireProposalAppPermission(ctx, auth, "reminder", "create");
     const title = normalizeOptionalString(args.title);
     if (!title) {
       throw new Error("Reminder title is required.");
@@ -7356,6 +7719,7 @@ export const updateProposalReminderCalendarEvent = authenticatedMutation
       args.proposalId,
       args.workosOrganizationId,
     );
+    await requireProposalAppPermission(ctx, auth, "reminder", "update");
     const existing = await ctx.db.get(args.eventId);
     if (!existing || existing.proposalId !== args.proposalId) {
       throw new Error("Reminder calendar event not found.");
@@ -7414,6 +7778,7 @@ export const deleteProposalReminderCalendarEvent = authenticatedMutation
       args.proposalId,
       args.workosOrganizationId,
     );
+    await requireProposalAppPermission(ctx, auth, "reminder", "delete");
     const existing = await ctx.db.get(args.eventId);
     if (!existing || existing.proposalId !== args.proposalId) {
       throw new Error("Reminder calendar event not found.");
@@ -10039,16 +10404,17 @@ export const getActiveBuildDetailByString = authenticatedQuery
         entityType: event.entityType,
         eventType: event.eventType,
       }));
+    const appPermissions = await activeBuildAppPermissionProjection(ctx, auth);
     return {
+      appPermissions,
       build,
       capitalPlan: capitalPlans[0] ?? null,
       displayId: productionBuildDisplayId(build),
       documents: await withBuildDocumentStorageUrls(ctx, buildDocuments),
-      draws,
-      evidenceAssets: await withBuildEvidenceAssetStorageUrls(
-        ctx,
-        buildEvidenceAssets,
-      ),
+      draws: canUseAppPermission(appPermissions, "draw", "view") ? draws : [],
+      evidenceAssets: canUseAppPermission(appPermissions, "evidence", "view")
+        ? await withBuildEvidenceAssetStorageUrls(ctx, buildEvidenceAssets)
+        : [],
       facilityChangeRequests: (
         facilityChangeRequests as Doc<"activeBuildFacilityChangeRequests">[]
       )
@@ -10068,82 +10434,97 @@ export const getActiveBuildDetailByString = authenticatedQuery
           updatedAt: request.updatedAt,
         })),
       auditEvents: mappedAuditEvents,
-      availableContractors: contractorProfiles
-        .filter(
-          (contractor) => !attachedContractorIds.has(String(contractor._id)),
-        )
-        .map((contractor) => ({
-          _id: contractor._id,
-          city: contractor.city,
-          defaultPayRateCents: contractor.defaultPayRateCents,
-          defaultPayRateUnit: contractor.defaultPayRateUnit ?? "hour",
-          name: contractor.name,
-          skills: contractor.trades,
-          trades: contractor.trades,
-        })),
-      contractors: buildContractorAssignments
-        .map((assignment) => {
-          const contractor = contractorById.get(
-            String(assignment.contractorId),
-          );
-          if (!contractor) {
-            return null;
-          }
-          return {
-            _id: String(assignment._id),
-            agreedRateCents:
-              assignment.agreedRateCents ?? contractor.defaultPayRateCents,
-            agreedRateUnit:
-              assignment.agreedRateUnit ??
-              contractor.defaultPayRateUnit ??
-              "hour",
-            contractorId: contractor._id,
-            city: contractor.city,
-            email: contractor.email,
-            hourlyRateCents: contractor.defaultPayRateCents,
-            payRateCents:
-              assignment.agreedRateCents ?? contractor.defaultPayRateCents,
-            payRateUnit:
-              assignment.agreedRateUnit ??
-              contractor.defaultPayRateUnit ??
-              "hour",
-            name: contractor.name,
-            role: assignment.role,
-            trades: contractor.trades,
-          };
-        })
-        .filter(Boolean),
-      milestoneContractorAssignments: buildMilestoneContractorAssignments
-        .map((assignment) => {
-          const contractor = contractorById.get(
-            String(assignment.contractorId),
-          );
-          if (!contractor) {
-            return null;
-          }
-          return {
-            _id: assignment._id,
-            actualCostCents: assignment.actualCostCents,
-            actualHours: assignment.actualHours,
-            agreedRateCents: assignment.agreedRateCents,
-            agreedRateUnit: assignment.agreedRateUnit,
-            contractorId: assignment.contractorId,
-            contractor: {
+      availableContractors: canUseAppPermission(
+        appPermissions,
+        "contractor",
+        "view",
+      )
+        ? contractorProfiles
+            .filter(
+              (contractor) =>
+                !attachedContractorIds.has(String(contractor._id)),
+            )
+            .map((contractor) => ({
               _id: contractor._id,
+              city: contractor.city,
+              defaultPayRateCents: contractor.defaultPayRateCents,
+              defaultPayRateUnit: contractor.defaultPayRateUnit ?? "hour",
               name: contractor.name,
+              skills: contractor.trades,
               trades: contractor.trades,
-            },
-            costNotes: assignment.costNotes,
-            estimatedCostCents: assignment.estimatedCostCents,
-            estimatedHours: assignment.estimatedHours,
-            milestoneKey: assignment.milestoneKey,
-            postHoc: assignment.postHoc,
-            role: assignment.role,
-            status: assignment.status,
-            submilestoneKey: assignment.submilestoneKey,
-          };
-        })
-        .filter(Boolean),
+            }))
+        : [],
+      contractors: canUseAppPermission(appPermissions, "contractor", "view")
+        ? buildContractorAssignments
+            .map((assignment) => {
+              const contractor = contractorById.get(
+                String(assignment.contractorId),
+              );
+              if (!contractor) {
+                return null;
+              }
+              return {
+                _id: String(assignment._id),
+                agreedRateCents:
+                  assignment.agreedRateCents ?? contractor.defaultPayRateCents,
+                agreedRateUnit:
+                  assignment.agreedRateUnit ??
+                  contractor.defaultPayRateUnit ??
+                  "hour",
+                contractorId: contractor._id,
+                city: contractor.city,
+                email: contractor.email,
+                hourlyRateCents: contractor.defaultPayRateCents,
+                payRateCents:
+                  assignment.agreedRateCents ?? contractor.defaultPayRateCents,
+                payRateUnit:
+                  assignment.agreedRateUnit ??
+                  contractor.defaultPayRateUnit ??
+                  "hour",
+                name: contractor.name,
+                role: assignment.role,
+                trades: contractor.trades,
+              };
+            })
+            .filter(Boolean)
+        : [],
+      milestoneContractorAssignments: canUseAppPermission(
+        appPermissions,
+        "contractor",
+        "view",
+      )
+        ? buildMilestoneContractorAssignments
+            .map((assignment) => {
+              const contractor = contractorById.get(
+                String(assignment.contractorId),
+              );
+              if (!contractor) {
+                return null;
+              }
+              return {
+                _id: assignment._id,
+                actualCostCents: assignment.actualCostCents,
+                actualHours: assignment.actualHours,
+                agreedRateCents: assignment.agreedRateCents,
+                agreedRateUnit: assignment.agreedRateUnit,
+                contractorId: assignment.contractorId,
+                contractor: {
+                  _id: contractor._id,
+                  name: contractor.name,
+                  trades: contractor.trades,
+                },
+                costNotes: assignment.costNotes,
+                estimatedCostCents: assignment.estimatedCostCents,
+                estimatedHours: assignment.estimatedHours,
+                milestoneKey: assignment.milestoneKey,
+                postHoc: assignment.postHoc,
+                role: assignment.role,
+                status: assignment.status,
+                submilestoneKey: assignment.submilestoneKey,
+              };
+            })
+            .filter(Boolean)
+        : [],
       quickActionEvents: mappedAuditEvents.slice(0, 8).map((event) => ({
         _id: event._id,
         createdAt: event.createdAt,
@@ -10152,7 +10533,9 @@ export const getActiveBuildDetailByString = authenticatedQuery
           event.afterSummary ?? event.beforeSummary ?? event.eventType,
       })),
       loanFacility: loanFacilities[0] ?? null,
-      milestones,
+      milestones: canUseAppPermission(appPermissions, "milestone", "view")
+        ? milestones
+        : [],
       notes: {
         internal: buildNotes
           .filter((note) => note.visibility === "internal")
@@ -10163,15 +10546,198 @@ export const getActiveBuildDetailByString = authenticatedQuery
           .sort((a, b) => b.createdAt - a.createdAt)
           .map(formatActiveBuildNote),
       },
-      sitePhotos: await productionSitePhotosForBuild(
-        ctx,
-        build,
-        buildEvidenceAssets,
-      ),
-      siteVisits: buildSiteVisits,
-      submilestones,
-      costItems,
+      sitePhotos: canUseAppPermission(appPermissions, "evidence", "view")
+        ? await productionSitePhotosForBuild(ctx, build, buildEvidenceAssets)
+        : [],
+      siteVisits: canUseAppPermission(appPermissions, "evidence", "view")
+        ? buildSiteVisits
+        : [],
+      submilestones: canUseAppPermission(
+        appPermissions,
+        "submilestone",
+        "view",
+      )
+        ? submilestones
+        : [],
+      costItems: canUseAppPermission(appPermissions, "material", "view")
+        ? costItems
+        : [],
     };
+  })
+  .public();
+
+export const listActiveBuildBuilderStaffPermissions = authenticatedQuery
+  .input({
+    buildId: v.id("activeBuilds"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId,
+    );
+    await requireBuilderStaffManagementAllowed(
+      ctx,
+      auth,
+      auth.build.builderProfileId,
+    );
+    return await buildStaffPermissionDirectory(ctx, {
+      auth,
+      buildId: args.buildId,
+      builderProfileId: auth.build.builderProfileId,
+      proposalId: auth.proposal._id,
+      scope: "activeBuild",
+    });
+  })
+  .public();
+
+export const saveActiveBuildBuilderStaffPermissions = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    permissions: v.array(builderStaffPermissionGrantInput),
+    staffEmail: v.optional(v.string()),
+    staffWorkosUserId: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId,
+    );
+    await requireBuilderStaffManagementAllowed(
+      ctx,
+      auth,
+      auth.build.builderProfileId,
+    );
+    await saveBuilderStaffPermissionScope(ctx, {
+      auth,
+      buildId: args.buildId,
+      builderProfileId: auth.build.builderProfileId,
+      permissions: args.permissions,
+      proposalId: auth.proposal._id,
+      scope: "activeBuild",
+      staffEmail: args.staffEmail,
+      staffWorkosUserId: args.staffWorkosUserId,
+      workosOrganizationId: args.workosOrganizationId,
+    });
+    return null;
+  })
+  .public();
+
+export const provisionActiveBuildBuilderStaffPermissions = authenticatedAction
+  .input({
+    buildId: v.id("activeBuilds"),
+    permissions: v.array(builderStaffPermissionGrantInput),
+    staffEmail: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(builderStaffProvisionResult)
+  .handler(async (ctx, args): Promise<BuilderStaffProvisionResult> => {
+    const staffEmail = normalizeBuilderStaffEmail(args.staffEmail);
+    if (!staffEmail) {
+      throw new Error("A valid staff email is required.");
+    }
+    const invite: {
+      adapter: string;
+      status: string;
+      sync: string;
+      workosId?: string;
+    } = await ctx.runAction(internal.workosManagement.inviteBuilderStaffUser, {
+      email: staffEmail,
+      organizationId: args.workosOrganizationId,
+    });
+    const staffWorkosUserId: string = await ctx.runMutation(
+      internal.production_proposals.finalizeActiveBuildBuilderStaffProvisioning,
+      {
+        actor: {
+          organizationId: ctx.viewer.organizationId,
+          roles: ctx.viewer.roles,
+          subject: ctx.viewer.subject,
+        },
+        buildId: args.buildId,
+        permissions: args.permissions,
+        staffEmail,
+        staffWorkosUserId: provisionedBuilderStaffWorkosUserId(staffEmail),
+        workosOrganizationId: args.workosOrganizationId,
+      },
+    );
+    return { invite, staffWorkosUserId };
+  })
+  .public();
+
+export const finalizeActiveBuildBuilderStaffProvisioning = internalMutation
+  .input({
+    actor: builderStaffProvisionActorInput,
+    buildId: v.id("activeBuilds"),
+    permissions: v.array(builderStaffPermissionGrantInput),
+    staffEmail: v.string(),
+    staffWorkosUserId: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.string())
+  .handler(async (ctx, args) => {
+    const actor = viewerFromBuilderStaffProvisionActor(args.actor);
+    const auth = await authorizeActiveBuildForViewer(
+      ctx,
+      actor,
+      args.buildId,
+      args.workosOrganizationId,
+    );
+    if (!auth) {
+      throw new Error("Forbidden: active build scope");
+    }
+    await requireBuilderStaffManagementAllowed(
+      ctx,
+      auth,
+      auth.build.builderProfileId,
+    );
+    const staffWorkosUserId = await ensureBuilderStaffProvisionIdentity(ctx, {
+      email: args.staffEmail,
+      fallbackWorkosUserId: args.staffWorkosUserId,
+      workosOrganizationId: args.workosOrganizationId,
+    });
+    return await saveBuilderStaffPermissionScope(ctx, {
+      auth,
+      buildId: args.buildId,
+      builderProfileId: auth.build.builderProfileId,
+      permissions: args.permissions,
+      proposalId: auth.proposal._id,
+      scope: "activeBuild",
+      staffEmail: args.staffEmail,
+      staffWorkosUserId,
+      workosOrganizationId: args.workosOrganizationId,
+    });
+  })
+  .internal();
+
+export const removeActiveBuildBuilderStaffMember = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    staffWorkosUserId: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId,
+    );
+    await requireBuilderStaffManagementAllowed(
+      ctx,
+      auth,
+      auth.build.builderProfileId,
+    );
+    await removeBuilderStaffMember(ctx, {
+      auth,
+      builderProfileId: auth.build.builderProfileId,
+      staffWorkosUserId: args.staffWorkosUserId,
+    });
+    return null;
   })
   .public();
 
@@ -10350,9 +10916,11 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
     }
     const activeCapitalEvents = capitalEvents as Doc<"capitalEvents">[];
     const activeSubmilestones = submilestones as Doc<"buildSubmilestones">[];
+    const appPermissions = await activeBuildAppPermissionProjection(ctx, auth);
 
     return {
       activeBuild: build,
+      appPermissions,
       auditEvents: auditEvents
         .sort((a, b) => b.createdAt - a.createdAt)
         .map((event) => ({
@@ -10364,29 +10932,38 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
           eventType: event.eventType,
           reason: event.reason,
         })),
-      capitalEvents: [
-        {
-          amountCents:
-            capitalPlan?.borrowerWorkingCapitalLimitCents ??
-            proposal.borrowerWorkingCapitalLimitCents,
-          capitalEventKey: "borrower-reserve",
-          eventKind: "cashInfusion",
-          label: "Borrower reserve",
-          x: 0,
-        },
-        ...activeCapitalEvents
-          .filter((event) => event.eventType !== "draw_release")
-          .sort((a, b) => a.createdAt - b.createdAt)
-          .map((event) => ({
-            amountCents: event.amountCents,
-            capitalEventKey: event.capitalEventKey ?? String(event._id),
-            eventKind:
-              event.eventType === "borrower_copay" ? "cashInfusion" : "cost",
-            label: event.label,
-            x: daysBetweenIso(build.startDate, event.eventDate),
-          })),
-      ],
-      draws: sortedDraws.map((draw) => {
+      capitalEvents: canUseAppPermission(
+        appPermissions,
+        "capitalEvent",
+        "view",
+      )
+        ? [
+            {
+              amountCents:
+                capitalPlan?.borrowerWorkingCapitalLimitCents ??
+                proposal.borrowerWorkingCapitalLimitCents,
+              capitalEventKey: "borrower-reserve",
+              eventKind: "cashInfusion",
+              label: "Borrower reserve",
+              x: 0,
+            },
+            ...activeCapitalEvents
+              .filter((event) => event.eventType !== "draw_release")
+              .sort((a, b) => a.createdAt - b.createdAt)
+              .map((event) => ({
+                amountCents: event.amountCents,
+                capitalEventKey: event.capitalEventKey ?? String(event._id),
+                eventKind:
+                  event.eventType === "borrower_copay"
+                    ? "cashInfusion"
+                    : "cost",
+                label: event.label,
+                x: daysBetweenIso(build.startDate, event.eventDate),
+              })),
+          ]
+        : [],
+      draws: canUseAppPermission(appPermissions, "draw", "view")
+        ? sortedDraws.map((draw) => {
         const drawMilestone = draw.milestoneKey
           ? sortedMilestones.find(
               (milestone) => milestone.key === draw.milestoneKey,
@@ -10415,24 +10992,28 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
           requestedAt: draw.requestedAt,
           x: draw.timingDay,
         };
-      }),
-      evidenceAssets: await Promise.all(
-        [...evidenceAssets]
-          .sort((a, b) => a.createdAt - b.createdAt)
-          .map(async (asset) => ({
-            evidenceKey: asset.evidenceKey,
-            fileName: asset.fileName,
-            label: asset.label,
-            milestoneKey: asset.milestoneKey,
-            mimeType: asset.mimeType,
-            previewUrl: asset.storageId
-              ? await ctx.storage.getUrl(asset.storageId)
-              : null,
-            sizeBytes: asset.sizeBytes,
-            tag: asset.tag,
-          })),
-      ),
-      milestones: sortedMilestones.map((milestone, index) => {
+      })
+        : [],
+      evidenceAssets: canUseAppPermission(appPermissions, "evidence", "view")
+        ? await Promise.all(
+            [...evidenceAssets]
+              .sort((a, b) => a.createdAt - b.createdAt)
+              .map(async (asset) => ({
+                evidenceKey: asset.evidenceKey,
+                fileName: asset.fileName,
+                label: asset.label,
+                milestoneKey: asset.milestoneKey,
+                mimeType: asset.mimeType,
+                previewUrl: asset.storageId
+                  ? await ctx.storage.getUrl(asset.storageId)
+                  : null,
+                sizeBytes: asset.sizeBytes,
+                tag: asset.tag,
+              })),
+          )
+        : [],
+      milestones: canUseAppPermission(appPermissions, "milestone", "view")
+        ? sortedMilestones.map((milestone, index) => {
         const draw = drawByMilestoneKey.get(milestone.key);
         const visits = siteVisitsByMilestone.get(milestone.key) ?? [];
         const completionReview = productionCompletionReviewView(
@@ -10468,35 +11049,49 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
             milestone.policyState ??
             productionPolicyState(proposal, permitWaiver),
           status,
-          submilestoneSnapshot: activeSubmilestones
-            .filter(
-              (submilestone) => submilestone.milestoneKey === milestone.key,
-            )
-            .sort((a, b) => a.order - b.order || a.key.localeCompare(b.key))
-            .map((submilestone) => ({
-              ...(submilestone.budgetCents === undefined
-                ? {}
-                : { budgetCents: submilestone.budgetCents }),
-              ...(submilestone.durationDays === undefined
-                ? {}
-                : { durationDays: submilestone.durationDays }),
-              key: submilestone.key,
-              name: submilestone.name,
-              order: submilestone.order,
-              ...(submilestone.startDay === undefined
-                ? {}
-                : { startDay: submilestone.startDay }),
-            })),
+          submilestoneSnapshot: canUseAppPermission(
+            appPermissions,
+            "submilestone",
+            "view",
+          )
+            ? activeSubmilestones
+                .filter(
+                  (submilestone) =>
+                    submilestone.milestoneKey === milestone.key,
+                )
+                .sort(
+                  (a, b) => a.order - b.order || a.key.localeCompare(b.key),
+                )
+                .map((submilestone) => ({
+                  ...(submilestone.budgetCents === undefined
+                    ? {}
+                    : { budgetCents: submilestone.budgetCents }),
+                  ...(submilestone.durationDays === undefined
+                    ? {}
+                    : { durationDays: submilestone.durationDays }),
+                  key: submilestone.key,
+                  name: submilestone.name,
+                  order: submilestone.order,
+                  ...(submilestone.startDay === undefined
+                    ? {}
+                    : { startDay: submilestone.startDay }),
+                }))
+            : [],
           tone: activeBuildTimelineMilestoneTone(milestone, status, currentDay),
           x: milestone.dayStart,
         };
-      }),
+      })
+        : [],
       modificationRequests: [],
       permissions: {
         reviewDrawRequests: isBackoffice(auth.roles),
         reviewMilestones: isBackoffice(auth.roles),
-        submitDrawRequests: !isBackoffice(auth.roles),
-        submitMilestoneCompletion: !isBackoffice(auth.roles),
+        submitDrawRequests:
+          !isBackoffice(auth.roles) &&
+          canUseAppPermission(appPermissions, "draw", "update"),
+        submitMilestoneCompletion:
+          !isBackoffice(auth.roles) &&
+          canUseAppPermission(appPermissions, "milestone", "update"),
       },
       plan: {
         borrowerCoPayBps:
@@ -10566,6 +11161,7 @@ export const updateActiveBuildTimelinePlanState = authenticatedMutation
       args.buildId,
       args.workosOrganizationId,
     );
+    await requireActiveBuildAppPermission(ctx, auth, "capitalEvent", "update");
     const priorState = JSON.stringify({
       currentDay: auth.build.timelineCurrentDay,
       progressValue: auth.build.timelineProgressValue,
@@ -10815,6 +11411,15 @@ export const createActiveBuildTimelineMilestone = authenticatedMutation
       args.workosOrganizationId,
     );
     requireBackofficeActiveBuildWrite(auth);
+    await requireActiveBuildAppPermission(ctx, auth, "milestone", "create");
+    if ((args.milestone.submilestones ?? []).length > 0) {
+      await requireActiveBuildAppPermission(
+        ctx,
+        auth,
+        "submilestone",
+        "create",
+      );
+    }
     await insertActiveBuildMilestoneFromInput(ctx, auth, args.milestone);
     await recalculateActiveBuildBudget(ctx, args.buildId);
     await writeActiveBuildEvent(ctx, {
@@ -10862,6 +11467,15 @@ export const updateActiveBuildTimelineMilestone = authenticatedMutation
       args.workosOrganizationId,
     );
     requireBackofficeActiveBuildWrite(auth);
+    await requireActiveBuildAppPermission(ctx, auth, "milestone", "update");
+    if (args.submilestones !== undefined) {
+      await requireActiveBuildAppPermission(
+        ctx,
+        auth,
+        "submilestone",
+        "update",
+      );
+    }
     const milestone = await getActiveBuildMilestoneOrThrow(
       ctx,
       args.buildId,
@@ -11013,6 +11627,8 @@ export const deleteActiveBuildTimelineMilestone = authenticatedMutation
       args.workosOrganizationId,
     );
     requireBackofficeActiveBuildWrite(auth);
+    await requireActiveBuildAppPermission(ctx, auth, "milestone", "delete");
+    await requireActiveBuildAppPermission(ctx, auth, "submilestone", "delete");
     const milestone = await getActiveBuildMilestoneOrThrow(
       ctx,
       args.buildId,
@@ -11051,6 +11667,7 @@ export const createActiveBuildTimelineDraw = authenticatedMutation
       args.workosOrganizationId,
     );
     requireBackofficeActiveBuildWrite(auth);
+    await requireActiveBuildAppPermission(ctx, auth, "draw", "create");
     const existing = await ctx.db
       .query("plannedDrawScheduleRows")
       .withIndex("by_build_order", (q) => q.eq("buildId", args.buildId))
@@ -11140,6 +11757,7 @@ export const updateActiveBuildTimelineDraw = authenticatedMutation
       args.workosOrganizationId,
     );
     requireBackofficeActiveBuildWrite(auth);
+    await requireActiveBuildAppPermission(ctx, auth, "draw", "update");
     const draw = await getActiveBuildDrawOrThrow(
       ctx,
       args.buildId,
@@ -11201,6 +11819,7 @@ export const deleteActiveBuildTimelineDraw = authenticatedMutation
       args.workosOrganizationId,
     );
     requireBackofficeActiveBuildWrite(auth);
+    await requireActiveBuildAppPermission(ctx, auth, "draw", "delete");
     const draw = await getActiveBuildDrawOrThrow(
       ctx,
       args.buildId,
@@ -11241,6 +11860,7 @@ export const createActiveBuildTimelineCapitalEvent = authenticatedMutation
       args.workosOrganizationId,
     );
     requireBackofficeActiveBuildWrite(auth);
+    await requireActiveBuildAppPermission(ctx, auth, "capitalEvent", "create");
     await insertActiveBuildCapitalEvent(ctx, auth, {
       amountCents: args.amountCents,
       capitalEventKey: args.capitalEventKey,
@@ -11276,6 +11896,7 @@ export const createActiveBuildTimelineCashInfusion = authenticatedMutation
       args.workosOrganizationId,
     );
     requireBackofficeActiveBuildWrite(auth);
+    await requireActiveBuildAppPermission(ctx, auth, "capitalEvent", "create");
     await insertActiveBuildCapitalEvent(ctx, auth, {
       amountCents: args.amountCents,
       capitalEventKey: args.cashInfusionKey,
@@ -11312,6 +11933,7 @@ export const updateActiveBuildTimelineCapitalEvent = authenticatedMutation
       args.workosOrganizationId,
     );
     requireBackofficeActiveBuildWrite(auth);
+    await requireActiveBuildAppPermission(ctx, auth, "capitalEvent", "update");
     const event = await getActiveBuildCapitalEventOrThrow(
       ctx,
       args.buildId,
@@ -11363,6 +11985,7 @@ export const deleteActiveBuildTimelineCapitalEvent = authenticatedMutation
       args.workosOrganizationId,
     );
     requireBackofficeActiveBuildWrite(auth);
+    await requireActiveBuildAppPermission(ctx, auth, "capitalEvent", "delete");
     const event = await getActiveBuildCapitalEventOrThrow(
       ctx,
       args.buildId,
@@ -11387,11 +12010,12 @@ export const generateActiveBuildEvidenceUploadUrl = authenticatedMutation
   })
   .returns(v.string())
   .handler(async (ctx, args) => {
-    await authorizeActiveBuildOrThrow(
+    const auth = await authorizeActiveBuildOrThrow(
       ctx,
       args.buildId,
       args.workosOrganizationId,
     );
+    await requireActiveBuildAppPermission(ctx, auth, "evidence", "create");
     return await ctx.storage.generateUploadUrl();
   })
   .public();
@@ -11409,6 +12033,7 @@ export const createActiveBuildTimelineEvidenceAsset = authenticatedMutation
       args.buildId,
       args.workosOrganizationId,
     );
+    await requireActiveBuildAppPermission(ctx, auth, "evidence", "create");
     const milestone = await getActiveBuildMilestoneOrThrow(
       ctx,
       args.buildId,
@@ -11477,6 +12102,7 @@ export const updateActiveBuildTimelineEvidenceAsset = authenticatedMutation
       args.buildId,
       args.workosOrganizationId,
     );
+    await requireActiveBuildAppPermission(ctx, auth, "evidence", "update");
     const asset = await getActiveBuildEvidenceAssetOrThrow(
       ctx,
       args.buildId,
@@ -11515,6 +12141,7 @@ export const deleteActiveBuildTimelineEvidenceAsset = authenticatedMutation
       args.buildId,
       args.workosOrganizationId,
     );
+    await requireActiveBuildAppPermission(ctx, auth, "evidence", "delete");
     const asset = await getActiveBuildEvidenceAssetOrThrow(
       ctx,
       args.buildId,
@@ -11552,6 +12179,7 @@ export const startActiveBuildMilestone = authenticatedMutation
     if (isBackoffice(auth.roles)) {
       requireBackofficeActiveBuildWrite(auth);
     }
+    await requireActiveBuildAppPermission(ctx, auth, "milestone", "update");
     const [milestone, milestones] = await Promise.all([
       getActiveBuildMilestoneOrThrow(ctx, args.buildId, args.milestoneKey),
       collectByIndex(ctx, "buildMilestones", "by_build", args.buildId),
@@ -11634,6 +12262,11 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
       args.buildId,
       args.workosOrganizationId,
     );
+    await requireActiveBuildAppPermission(ctx, auth, "milestone", "update");
+    await requireActiveBuildAppPermission(ctx, auth, "evidence", "update");
+    if (args.qualityRating !== undefined) {
+      await requireActiveBuildAppPermission(ctx, auth, "contractor", "update");
+    }
     const milestone = await getActiveBuildMilestoneOrThrow(
       ctx,
       args.buildId,
@@ -11698,6 +12331,8 @@ export const recordActiveBuildSiteVisit = authenticatedMutation
       args.workosOrganizationId,
     );
     requireBackofficeActiveBuildWrite(auth);
+    await requireActiveBuildAppPermission(ctx, auth, "evidence", "update");
+    await requireActiveBuildAppPermission(ctx, auth, "milestone", "update");
     const milestone = await getActiveBuildMilestoneOrThrow(
       ctx,
       args.buildId,
@@ -12163,6 +12798,7 @@ export const attachActiveBuildContractor = authenticatedMutation
       args.workosOrganizationId,
     );
     requireBackofficeActiveBuildWrite(auth);
+    await requireActiveBuildAppPermission(ctx, auth, "contractor", "update");
     const contractor = await ctx.db.get(args.contractorId);
     if (
       !contractor ||
@@ -12259,6 +12895,7 @@ export const assignActiveBuildContractorToMilestone = authenticatedMutation
       args.workosOrganizationId,
     );
     requireBackofficeActiveBuildWrite(auth);
+    await requireActiveBuildAppPermission(ctx, auth, "contractor", "update");
     const contractor = await getScopedContractorOrThrow(
       ctx,
       args.contractorId,
@@ -12402,6 +13039,7 @@ export const recordContractorQualityRating = authenticatedMutation
       args.workosOrganizationId,
     );
     requireBackofficeActiveBuildWrite(auth);
+    await requireActiveBuildAppPermission(ctx, auth, "contractor", "update");
     const ratingId = await insertContractorQualityRating(ctx, {
       auth,
       buildId: args.buildId,
@@ -12448,6 +13086,7 @@ export const requestActiveBuildDraw = authenticatedMutation
       args.buildId,
       args.workosOrganizationId,
     );
+    await requireActiveBuildAppPermission(ctx, auth, "draw", "update");
     const draw = await getActiveBuildDrawOrThrow(
       ctx,
       args.buildId,
@@ -12847,10 +13486,11 @@ export const rejectActiveBuildMilestone = authenticatedMutation
   .public();
 
 async function authorizeBrokerage(
-  ctx: (QueryCtx | MutationCtx) & { viewer: AuthorizedViewer },
+  ctx: QueryCtx | MutationCtx,
   workosOrganizationId: string,
+  viewer?: AuthorizedViewer,
 ) {
-  const scope = await resolveBrokerageScope(ctx, workosOrganizationId);
+  const scope = await resolveBrokerageScope(ctx, workosOrganizationId, viewer);
   if (!scope.brokerage) {
     throw new Error("Forbidden: brokerage");
   }
@@ -12863,17 +13503,20 @@ async function authorizeBrokerage(
 }
 
 async function resolveBrokerageScope(
-  ctx: (QueryCtx | MutationCtx) & { viewer: AuthorizedViewer },
+  ctx: QueryCtx | MutationCtx,
   workosOrganizationId: string,
+  viewer?: AuthorizedViewer,
 ) {
-  const roles = normalizeRoleSlugs(ctx.viewer.roles);
-  const subject = ctx.viewer.subject;
+  const activeViewer =
+    viewer ?? (ctx as unknown as { viewer: AuthorizedViewer }).viewer;
+  const roles = normalizeRoleSlugs(activeViewer.roles);
+  const subject = activeViewer.subject;
   const membership = await ctx.db
     .query("workosOrganizationMemberships")
     .withIndex("by_user", (q) => q.eq("workosUserId", subject))
     .filter((q) => q.eq(q.field("workosOrganizationId"), workosOrganizationId))
     .first();
-  const activeTokenOrganizationId = ctx.viewer.organizationId?.trim();
+  const activeTokenOrganizationId = activeViewer.organizationId?.trim();
   if (
     (!membership || membership.status !== "active") &&
     activeTokenOrganizationId !== workosOrganizationId
@@ -12897,7 +13540,21 @@ async function authorizeActiveBuild(
   buildId: Id<"activeBuilds">,
   workosOrganizationId: string,
 ) {
-  const auth = await authorizeBrokerage(ctx, workosOrganizationId);
+  return await authorizeActiveBuildForViewer(
+    ctx,
+    ctx.viewer,
+    buildId,
+    workosOrganizationId,
+  );
+}
+
+async function authorizeActiveBuildForViewer(
+  ctx: QueryCtx | MutationCtx,
+  viewer: AuthorizedViewer,
+  buildId: Id<"activeBuilds">,
+  workosOrganizationId: string,
+) {
+  const auth = await authorizeBrokerage(ctx, workosOrganizationId, viewer);
   const build = await ctx.db.get(buildId);
   if (!build || build.brokerageId !== auth.brokerage._id) {
     return null;
@@ -12909,11 +13566,14 @@ async function authorizeActiveBuild(
   if (isBackoffice(auth.roles)) {
     await assertBackofficeProposalRead(ctx, auth, proposal);
   } else {
-    await assertBuilderOwnership(
-      ctx,
-      assignedBuilderProfileIdOrThrow(proposal),
-      auth.subject,
-    );
+    const builderProfileId = assignedBuilderProfileIdOrThrow(proposal);
+    await assertBuilderOwnership(ctx, builderProfileId, auth.subject);
+    await requireAnyBuilderStaffViewPermission(ctx, auth, {
+      buildId,
+      builderProfileId,
+      proposalId: proposal._id,
+      scope: "activeBuild",
+    });
   }
   return { ...auth, build, proposal };
 }
@@ -12957,7 +13617,21 @@ async function authorizeProposal(
   proposalId: Id<"buildProposals">,
   workosOrganizationId: string,
 ) {
-  const auth = await authorizeBrokerage(ctx, workosOrganizationId);
+  return await authorizeProposalForViewer(
+    ctx,
+    ctx.viewer,
+    proposalId,
+    workosOrganizationId,
+  );
+}
+
+async function authorizeProposalForViewer(
+  ctx: QueryCtx | MutationCtx,
+  viewer: AuthorizedViewer,
+  proposalId: Id<"buildProposals">,
+  workosOrganizationId: string,
+) {
+  const auth = await authorizeBrokerage(ctx, workosOrganizationId, viewer);
   const proposal = await ctx.db.get(proposalId);
   if (!proposal || proposal.brokerageId !== auth.brokerage._id) {
     throw new Error("Forbidden: proposal scope");
@@ -12974,12 +13648,14 @@ async function authorizeProposal(
       throw error;
     }
   } else {
+    const builderProfileId = assignedBuilderProfileIdOrThrow(proposal);
     try {
-      await assertBuilderOwnership(
-        ctx,
-        assignedBuilderProfileIdOrThrow(proposal),
-        auth.subject,
-      );
+      await assertBuilderOwnership(ctx, builderProfileId, auth.subject);
+      await requireAnyBuilderStaffViewPermission(ctx, auth, {
+        builderProfileId,
+        proposalId: proposal._id,
+        scope: "proposal",
+      });
     } catch (error) {
       if (
         await hasActiveCollaborationParticipant(ctx, proposal._id, auth.subject)
@@ -13022,6 +13698,21 @@ async function assertBuilderOwnership(
   builderProfileId: Id<"builderProfiles">,
   workosUserId: string,
 ) {
+  const link = await getActiveBuilderAccountLink(
+    ctx,
+    builderProfileId,
+    workosUserId,
+  );
+  if (!link || link.status !== "active") {
+    throw new Error("Forbidden: builder ownership");
+  }
+}
+
+async function getActiveBuilderAccountLink(
+  ctx: QueryCtx | MutationCtx,
+  builderProfileId: Id<"builderProfiles">,
+  workosUserId: string,
+) {
   const link = await ctx.db
     .query("builderAccountLinks")
     .withIndex("by_builder_user", (q) =>
@@ -13030,9 +13721,319 @@ async function assertBuilderOwnership(
         .eq("workosUserId", workosUserId),
     )
     .unique();
-  if (!link || link.status !== "active") {
+  return link?.status === "active" ? link : null;
+}
+
+type BuilderStaffPermissionResource =
+  (typeof BUILDER_STAFF_PERMISSION_RESOURCES)[number];
+type BuilderStaffPermissionAction =
+  (typeof BUILDER_STAFF_PERMISSION_ACTIONS)[number];
+type BuilderStaffPermissionScope = "proposal" | "activeBuild";
+
+interface BuilderStaffPermissionContext {
+  action: BuilderStaffPermissionAction;
+  buildId?: Id<"activeBuilds">;
+  builderProfileId: Id<"builderProfiles">;
+  proposalId: Id<"buildProposals">;
+  resourceType: BuilderStaffPermissionResource;
+  scope: BuilderStaffPermissionScope;
+}
+
+interface BuilderStaffPermissionSnapshot {
+  grants: Array<{
+    canCreate: boolean;
+    canDelete: boolean;
+    canUpdate: boolean;
+    canView: boolean;
+    resourceType: BuilderStaffPermissionResource;
+  }>;
+  mode: "full" | "limited";
+  role: "backoffice" | "owner" | "staff";
+}
+
+async function requireBuilderStaffPermission(
+  ctx: QueryCtx | MutationCtx,
+  auth: {
+    roles: RoleSlug[];
+    subject: string;
+  },
+  input: BuilderStaffPermissionContext,
+) {
+  const snapshot = await getBuilderStaffPermissionSnapshot(ctx, auth, input);
+  if (snapshot.mode === "full") {
+    return snapshot;
+  }
+  const grant = snapshot.grants.find(
+    (candidate) => candidate.resourceType === input.resourceType,
+  );
+  if (!grant?.[permissionFieldForAction(input.action)]) {
+    throw new Error(
+      `Forbidden: builder staff ${input.resourceType}.${input.action}`,
+    );
+  }
+  return snapshot;
+}
+
+async function requireAnyBuilderStaffViewPermission(
+  ctx: QueryCtx | MutationCtx,
+  auth: {
+    roles: RoleSlug[];
+    subject: string;
+  },
+  input: Omit<BuilderStaffPermissionContext, "action" | "resourceType">,
+) {
+  const snapshot = await getBuilderStaffPermissionSnapshot(ctx, auth, {
+    ...input,
+    action: "view",
+    resourceType: "milestone",
+  });
+  if (snapshot.mode === "full") {
+    return snapshot;
+  }
+  if (
+    !snapshot.grants.some(
+      (grant) =>
+        grant.canView ||
+        grant.canCreate ||
+        grant.canUpdate ||
+        grant.canDelete,
+    )
+  ) {
+    throw new Error("Forbidden: builder staff view");
+  }
+  return snapshot;
+}
+
+async function getBuilderStaffPermissionSnapshot(
+  ctx: QueryCtx | MutationCtx,
+  auth: {
+    roles: RoleSlug[];
+    subject: string;
+  },
+  input: BuilderStaffPermissionContext,
+): Promise<BuilderStaffPermissionSnapshot> {
+  if (isBackoffice(auth.roles)) {
+    return {
+      grants: fullBuilderStaffPermissionGrants(),
+      mode: "full",
+      role: "backoffice",
+    };
+  }
+  const link = await getActiveBuilderAccountLink(
+    ctx,
+    input.builderProfileId,
+    auth.subject,
+  );
+  if (!link) {
     throw new Error("Forbidden: builder ownership");
   }
+  if (link.role === "owner") {
+    return {
+      grants: fullBuilderStaffPermissionGrants(),
+      mode: "full",
+      role: "owner",
+    };
+  }
+
+  const rows =
+    input.scope === "proposal"
+      ? await ctx.db
+          .query("builderStaffPermissionGrants")
+          .withIndex("by_link", (q) => q.eq("builderAccountLinkId", link._id))
+          .filter((q) =>
+            q.and(
+              q.eq(q.field("scope"), "proposal"),
+              q.eq(q.field("proposalId"), input.proposalId),
+            ),
+          )
+          .collect()
+      : await ctx.db
+          .query("builderStaffPermissionGrants")
+          .withIndex("by_link", (q) => q.eq("builderAccountLinkId", link._id))
+          .filter((q) =>
+            q.and(
+              q.eq(q.field("scope"), "activeBuild"),
+              q.eq(q.field("buildId"), input.buildId),
+            ),
+          )
+          .collect();
+
+  return {
+    grants: normalizeBuilderStaffPermissionRows(rows),
+    mode: "limited",
+    role: "staff",
+  };
+}
+
+async function proposalAppPermissionProjection(
+  ctx: QueryCtx | MutationCtx,
+  auth: {
+    proposal: Doc<"buildProposals">;
+    roles: RoleSlug[];
+    subject: string;
+  },
+): Promise<BuilderStaffPermissionSnapshot> {
+  if (!auth.proposal.builderProfileId) {
+    return {
+      grants: fullBuilderStaffPermissionGrants(),
+      mode: "full",
+      role: isBackoffice(auth.roles) ? "backoffice" : "owner",
+    };
+  }
+  return await getBuilderStaffPermissionSnapshot(ctx, auth, {
+    builderProfileId: auth.proposal.builderProfileId,
+    proposalId: auth.proposal._id,
+    action: "view",
+    resourceType: "milestone",
+    scope: "proposal",
+  });
+}
+
+async function activeBuildAppPermissionProjection(
+  ctx: QueryCtx | MutationCtx,
+  auth: {
+    build: Doc<"activeBuilds">;
+    proposal: Doc<"buildProposals">;
+    roles: RoleSlug[];
+    subject: string;
+  },
+): Promise<BuilderStaffPermissionSnapshot> {
+  return await getBuilderStaffPermissionSnapshot(ctx, auth, {
+    buildId: auth.build._id,
+    builderProfileId: auth.build.builderProfileId,
+    proposalId: auth.proposal._id,
+    action: "view",
+    resourceType: "milestone",
+    scope: "activeBuild",
+  });
+}
+
+function canUseAppPermission(
+  permissions: BuilderStaffPermissionSnapshot,
+  resourceType: BuilderStaffPermissionResource,
+  action: BuilderStaffPermissionAction,
+) {
+  if (permissions.mode === "full") {
+    return true;
+  }
+  const grant = permissions.grants.find(
+    (candidate) => candidate.resourceType === resourceType,
+  );
+  return Boolean(grant?.[permissionFieldForAction(action)]);
+}
+
+async function requireProposalAppPermission(
+  ctx: QueryCtx | MutationCtx,
+  auth: {
+    proposal: Doc<"buildProposals">;
+    roles: RoleSlug[];
+    subject: string;
+  },
+  resourceType: BuilderStaffPermissionResource,
+  action: BuilderStaffPermissionAction,
+) {
+  if (!auth.proposal.builderProfileId) {
+    if (isBackoffice(auth.roles)) {
+      return;
+    }
+    throw new Error("Proposal is not assigned to a builder.");
+  }
+  await requireBuilderStaffPermission(ctx, auth, {
+    builderProfileId: auth.proposal.builderProfileId,
+    proposalId: auth.proposal._id,
+    resourceType,
+    action,
+    scope: "proposal",
+  });
+}
+
+async function requireActiveBuildAppPermission(
+  ctx: QueryCtx | MutationCtx,
+  auth: {
+    build: Doc<"activeBuilds">;
+    proposal: Doc<"buildProposals">;
+    roles: RoleSlug[];
+    subject: string;
+  },
+  resourceType: BuilderStaffPermissionResource,
+  action: BuilderStaffPermissionAction,
+) {
+  await requireBuilderStaffPermission(ctx, auth, {
+    buildId: auth.build._id,
+    builderProfileId: auth.build.builderProfileId,
+    proposalId: auth.proposal._id,
+    resourceType,
+    action,
+    scope: "activeBuild",
+  });
+}
+
+function permissionFieldForAction(action: BuilderStaffPermissionAction) {
+  switch (action) {
+    case "create":
+      return "canCreate";
+    case "view":
+      return "canView";
+    case "update":
+      return "canUpdate";
+    case "delete":
+      return "canDelete";
+  }
+}
+
+function fullBuilderStaffPermissionGrants(): BuilderStaffPermissionSnapshot["grants"] {
+  return BUILDER_STAFF_PERMISSION_RESOURCES.map((resourceType) => ({
+    canCreate: true,
+    canDelete: true,
+    canUpdate: true,
+    canView: true,
+    resourceType,
+  }));
+}
+
+function normalizeBuilderStaffPermissionRows(
+  rows: Array<Doc<"builderStaffPermissionGrants">>,
+) {
+  const byResource = new Map<
+    BuilderStaffPermissionResource,
+    {
+      canCreate: boolean;
+      canDelete: boolean;
+      canUpdate: boolean;
+      canView: boolean;
+      resourceType: BuilderStaffPermissionResource;
+    }
+  >();
+  for (const resourceType of BUILDER_STAFF_PERMISSION_RESOURCES) {
+    byResource.set(resourceType, {
+      canCreate: false,
+      canDelete: false,
+      canUpdate: false,
+      canView: false,
+      resourceType,
+    });
+  }
+  for (const row of rows) {
+    if (!isBuilderStaffPermissionResource(row.resourceType)) {
+      continue;
+    }
+    byResource.set(row.resourceType, {
+      canCreate: row.canCreate,
+      canDelete: row.canDelete,
+      canUpdate: row.canUpdate,
+      canView: row.canView,
+      resourceType: row.resourceType,
+    });
+  }
+  return [...byResource.values()];
+}
+
+function isBuilderStaffPermissionResource(
+  value: string,
+): value is BuilderStaffPermissionResource {
+  return (BUILDER_STAFF_PERMISSION_RESOURCES as readonly string[]).includes(
+    value,
+  );
 }
 
 async function getOwnedBuilderProfile(
@@ -13065,6 +14066,443 @@ async function getWorkosUserById(
     .query("users")
     .withIndex("by_workos_user_id", (q) => q.eq("workosUserId", workosUserId))
     .first();
+}
+
+async function getWorkosUserByEmail(
+  ctx: QueryCtx | MutationCtx,
+  email: string,
+) {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  const users = await ctx.db.query("users").collect();
+  return (
+    users.find((user) => user.email.trim().toLowerCase() === normalized) ?? null
+  );
+}
+
+async function resolveBuilderStaffWorkosUserId(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    staffEmail?: string;
+    staffWorkosUserId?: string;
+  },
+) {
+  const explicit = input.staffWorkosUserId?.trim();
+  const email = input.staffEmail?.trim();
+  if (email) {
+    const user = await getWorkosUserByEmail(ctx, email);
+    if (user?.workosUserId) {
+      return user.workosUserId;
+    }
+  }
+  if (explicit) {
+    return explicit;
+  }
+  if (!email) {
+    throw new Error("Staff email or WorkOS user ID is required.");
+  }
+  throw new Error("Use staff provisioning before assigning an unknown email.");
+}
+
+function viewerFromBuilderStaffProvisionActor(
+  actor: {
+    organizationId?: string;
+    roles: string[];
+    subject: string;
+  },
+): AuthorizedViewer {
+  return {
+    capability: "authenticated",
+    ...(actor.organizationId ? { organizationId: actor.organizationId } : {}),
+    roles: normalizeRoleSlugs(actor.roles),
+    subject: actor.subject,
+    tokenIdentifier: `internal:${actor.subject}`,
+  };
+}
+
+async function ensureBuilderStaffProvisionIdentity(
+  ctx: MutationCtx,
+  input: {
+    email: string;
+    fallbackWorkosUserId: string;
+    workosOrganizationId: string;
+  },
+) {
+  const now = Date.now();
+  const existingByEmail = await getWorkosUserByEmail(ctx, input.email);
+  const workosUserId =
+    existingByEmail?.workosUserId ?? input.fallbackWorkosUserId.trim();
+  if (!workosUserId) {
+    throw new Error("Staff WorkOS user ID is required.");
+  }
+  const displayName = builderStaffDisplayName(input.email);
+  const existingById = await getWorkosUserById(ctx, workosUserId);
+  if (existingById) {
+    await ctx.db.patch(existingById._id, {
+      email: existingById.email || input.email,
+      name: existingById.name || displayName,
+      status: "active",
+      updatedAt: now,
+    });
+  } else {
+    await ctx.db.insert("users", {
+      authId: workosUserId,
+      createdAt: now,
+      email: input.email,
+      emailVerified: false,
+      name: displayName,
+      sourceEventId: `builder_staff_provisioning:${workosUserId}`,
+      sourceEventType: "builder_staff.provisioning",
+      status: "active",
+      updatedAt: now,
+      workosUserId,
+    });
+  }
+
+  const existingMembership = await ctx.db
+    .query("workosOrganizationMemberships")
+    .withIndex("by_user", (q) => q.eq("workosUserId", workosUserId))
+    .filter((q) =>
+      q.eq(q.field("workosOrganizationId"), input.workosOrganizationId),
+    )
+    .first();
+  if (existingMembership) {
+    const roleSlugs = [
+      ...new Set([
+        ...normalizeRoleSlugs([
+          existingMembership.roleSlug,
+          ...(existingMembership.roleSlugs ?? []),
+        ]),
+        "builder-staff" satisfies RoleSlug,
+      ]),
+    ];
+    await ctx.db.patch(existingMembership._id, {
+      roleSlug: existingMembership.roleSlug || "builder-staff",
+      roleSlugs,
+      status: "active",
+      updatedAt: now,
+    });
+  } else {
+    await ctx.db.insert("workosOrganizationMemberships", {
+      createdAt: now,
+      directoryManaged: false,
+      roleSlug: "builder-staff",
+      roleSlugs: ["builder-staff"],
+      sourceEventId: `builder_staff_provisioning:${input.workosOrganizationId}:${workosUserId}`,
+      sourceEventType: "builder_staff.provisioning",
+      status: "active",
+      updatedAt: now,
+      workosMembershipId: `builder_staff_provisioning_${input.workosOrganizationId}_${workosUserId}`,
+      workosOrganizationId: input.workosOrganizationId,
+      workosUserId,
+    });
+  }
+  return workosUserId;
+}
+
+function builderStaffDisplayName(email: string) {
+  return email.split("@")[0] || email;
+}
+
+function normalizeBuilderStaffEmail(value: string) {
+  const trimmed = value.trim().toLowerCase();
+  const at = trimmed.indexOf("@");
+  if (at <= 0 || at !== trimmed.lastIndexOf("@") || at === trimmed.length - 1) {
+    return "";
+  }
+  if (!trimmed.slice(at + 1).includes(".")) {
+    return "";
+  }
+  return trimmed;
+}
+
+function provisionedBuilderStaffWorkosUserId(email: string) {
+  const slug = email.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return `provisioned_builder_staff_${slug}`;
+}
+
+async function requireBuilderStaffManagementAllowed(
+  ctx: QueryCtx | MutationCtx,
+  auth: {
+    roles: RoleSlug[];
+    subject: string;
+  },
+  builderProfileId: Id<"builderProfiles">,
+) {
+  if (isBackoffice(auth.roles)) {
+    return;
+  }
+  const link = await getActiveBuilderAccountLink(
+    ctx,
+    builderProfileId,
+    auth.subject,
+  );
+  if (!link || link.role !== "owner") {
+    throw new Error("Forbidden: builder staff management");
+  }
+}
+
+async function buildStaffPermissionDirectory(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    auth: {
+      roles: RoleSlug[];
+      subject: string;
+    };
+    buildId?: Id<"activeBuilds">;
+    builderProfileId: Id<"builderProfiles">;
+    proposalId: Id<"buildProposals">;
+    scope: BuilderStaffPermissionScope;
+  },
+) {
+  const links = await ctx.db
+    .query("builderAccountLinks")
+    .withIndex("by_builder", (q) =>
+      q.eq("builderProfileId", input.builderProfileId),
+    )
+    .collect();
+  const activeLinks = links.filter((link) => link.status === "active");
+  const permissionRows =
+    input.scope === "proposal"
+      ? await ctx.db
+          .query("builderStaffPermissionGrants")
+          .withIndex("by_builder", (q) =>
+            q.eq("builderProfileId", input.builderProfileId),
+          )
+          .filter((q) =>
+            q.and(
+              q.eq(q.field("scope"), "proposal"),
+              q.eq(q.field("proposalId"), input.proposalId),
+            ),
+          )
+          .collect()
+      : await ctx.db
+          .query("builderStaffPermissionGrants")
+          .withIndex("by_builder", (q) =>
+            q.eq("builderProfileId", input.builderProfileId),
+          )
+          .filter((q) =>
+            q.and(
+              q.eq(q.field("scope"), "activeBuild"),
+              q.eq(q.field("buildId"), input.buildId),
+            ),
+          )
+          .collect();
+  const rowsByLink = new Map<string, Doc<"builderStaffPermissionGrants">[]>();
+  for (const row of permissionRows) {
+    const key = String(row.builderAccountLinkId);
+    const list = rowsByLink.get(key) ?? [];
+    list.push(row);
+    rowsByLink.set(key, list);
+  }
+
+  const staff = [];
+  for (const link of activeLinks.sort(
+    (a, b) => builderAccountRoleRank(a.role) - builderAccountRoleRank(b.role),
+  )) {
+    const user = await getWorkosUserById(ctx, link.workosUserId);
+    const role = link.role;
+    staff.push({
+      builderAccountLinkId: link._id,
+      email: user?.email,
+      mode: role === "owner" ? "full" : "limited",
+      name: user?.name,
+      permissions:
+        role === "owner"
+          ? fullBuilderStaffPermissionGrants()
+          : normalizeBuilderStaffPermissionRows(
+              rowsByLink.get(String(link._id)) ?? [],
+            ),
+      role,
+      status: link.status,
+      workosUserId: link.workosUserId,
+    });
+  }
+
+  return {
+    canManage: isBackoffice(input.auth.roles)
+      ? true
+      : Boolean(
+          (await getActiveBuilderAccountLink(
+            ctx,
+            input.builderProfileId,
+            input.auth.subject,
+          ))?.role === "owner",
+        ),
+    resources: BUILDER_STAFF_PERMISSION_RESOURCES,
+    actions: BUILDER_STAFF_PERMISSION_ACTIONS,
+    scope: input.scope,
+    staff,
+  };
+}
+
+async function saveBuilderStaffPermissionScope(
+  ctx: MutationCtx,
+  input: {
+    auth: {
+      brokerage: Doc<"brokerages">;
+      roles: RoleSlug[];
+      subject: string;
+    };
+    buildId?: Id<"activeBuilds">;
+    builderProfileId: Id<"builderProfiles">;
+    permissions: Array<{
+      canCreate: boolean;
+      canDelete: boolean;
+      canUpdate: boolean;
+      canView: boolean;
+      resourceType: BuilderStaffPermissionResource;
+    }>;
+    proposalId: Id<"buildProposals">;
+    scope: BuilderStaffPermissionScope;
+    staffEmail?: string;
+    staffWorkosUserId?: string;
+    workosOrganizationId: string;
+  },
+) {
+  const staffWorkosUserId = await resolveBuilderStaffWorkosUserId(ctx, input);
+  const existingLink = await getActiveBuilderAccountLink(
+    ctx,
+    input.builderProfileId,
+    staffWorkosUserId,
+  );
+  if (existingLink?.role === "owner") {
+    throw new Error("Builder owners have full access and cannot be limited.");
+  }
+  const now = Date.now();
+  const builderAccountLinkId =
+    existingLink?._id ??
+    (await ensureBuilderAccountLink(ctx, {
+      brokerageId: input.auth.brokerage._id,
+      builderProfileId: input.builderProfileId,
+      now,
+      role: "staff",
+      workosUserId: staffWorkosUserId,
+    }));
+  const normalizedPermissions = normalizeBuilderStaffPermissionInput(
+    input.permissions,
+  );
+  for (const permission of normalizedPermissions) {
+    const existing =
+      input.scope === "proposal"
+        ? await ctx.db
+            .query("builderStaffPermissionGrants")
+            .withIndex("by_proposal_link_resource", (q) =>
+              q
+                .eq("proposalId", input.proposalId)
+                .eq("builderAccountLinkId", builderAccountLinkId)
+                .eq("resourceType", permission.resourceType),
+            )
+            .unique()
+        : await ctx.db
+            .query("builderStaffPermissionGrants")
+            .withIndex("by_build_link_resource", (q) =>
+              q
+                .eq("buildId", input.buildId)
+                .eq("builderAccountLinkId", builderAccountLinkId)
+                .eq("resourceType", permission.resourceType),
+            )
+            .unique();
+    const patch = {
+      canCreate: permission.canCreate,
+      canDelete: permission.canDelete,
+      canUpdate: permission.canUpdate,
+      canView: permission.canView,
+      updatedAt: now,
+      updatedByWorkosUserId: input.auth.subject,
+    };
+    if (existing) {
+      await ctx.db.patch(existing._id, patch);
+      continue;
+    }
+    await ctx.db.insert("builderStaffPermissionGrants", {
+      ...patch,
+      brokerageId: input.auth.brokerage._id,
+      buildId: input.buildId,
+      builderAccountLinkId,
+      builderProfileId: input.builderProfileId,
+      createdAt: now,
+      createdByWorkosUserId: input.auth.subject,
+      organizationId: input.workosOrganizationId,
+      proposalId: input.proposalId,
+      resourceType: permission.resourceType,
+      scope: input.scope,
+      workosUserId: staffWorkosUserId,
+    });
+  }
+  return staffWorkosUserId;
+}
+
+async function removeBuilderStaffMember(
+  ctx: MutationCtx,
+  input: {
+    auth: {
+      subject: string;
+    };
+    builderProfileId: Id<"builderProfiles">;
+    staffWorkosUserId: string;
+  },
+) {
+  if (input.auth.subject === input.staffWorkosUserId) {
+    throw new Error("You cannot remove your own builder account.");
+  }
+  const link = await getActiveBuilderAccountLink(
+    ctx,
+    input.builderProfileId,
+    input.staffWorkosUserId,
+  );
+  if (!link) {
+    return;
+  }
+  if (link.role === "owner") {
+    throw new Error("Builder owner accounts cannot be removed here.");
+  }
+  const now = Date.now();
+  await ctx.db.patch(link._id, {
+    status: "inactive",
+    updatedAt: now,
+  });
+  const grants = await ctx.db
+    .query("builderStaffPermissionGrants")
+    .withIndex("by_link", (q) => q.eq("builderAccountLinkId", link._id))
+    .collect();
+  for (const grant of grants) {
+    await ctx.db.delete(grant._id);
+  }
+}
+
+function normalizeBuilderStaffPermissionInput(
+  permissions: Array<{
+    canCreate: boolean;
+    canDelete: boolean;
+    canUpdate: boolean;
+    canView: boolean;
+    resourceType: BuilderStaffPermissionResource;
+  }>,
+) {
+  const byResource = new Map(
+    permissions
+      .filter((permission) =>
+        isBuilderStaffPermissionResource(permission.resourceType),
+      )
+      .map((permission) => [permission.resourceType, permission]),
+  );
+  return BUILDER_STAFF_PERMISSION_RESOURCES.map((resourceType) => {
+    const permission = byResource.get(resourceType);
+    return {
+      canCreate: permission?.canCreate ?? false,
+      canDelete: permission?.canDelete ?? false,
+      canUpdate: permission?.canUpdate ?? false,
+      canView: permission?.canView ?? false,
+      resourceType,
+    };
+  });
+}
+
+function builderAccountRoleRank(role: "owner" | "staff") {
+  return role === "owner" ? 0 : 1;
 }
 
 async function getProposalClaimLinkByToken(
@@ -14458,6 +15896,7 @@ async function requireProposalContractorPlanningWrite(
   if (isBackoffice(auth.roles)) {
     requireBackofficeProposalWrite(auth, auth.proposal);
   }
+  await requireProposalAppPermission(ctx, auth, "contractor", "update");
   await assertProposalCollaborationEditAllowed(ctx, auth);
 }
 
@@ -15619,21 +17058,17 @@ async function authorizeProposalCostItemWrite(
   ctx: (QueryCtx | MutationCtx) & { viewer: AuthorizedViewer },
   proposalId: Id<"buildProposals">,
   workosOrganizationId: string,
+  action: BuilderStaffPermissionAction,
   reason?: string,
 ) {
   const auth = await authorizeProposal(ctx, proposalId, workosOrganizationId);
+  await requireProposalAppPermission(ctx, auth, "material", action);
   if (auth.proposal.status === "closed") {
     throw new Error("Closed proposals cannot be edited.");
   }
   if (auth.proposal.status === "draft") {
     if (isBackoffice(auth.roles)) {
       requireBackofficeProposalWrite(auth, auth.proposal);
-    } else {
-      await assertBuilderOwnership(
-        ctx,
-        assignedBuilderProfileIdOrThrow(auth.proposal),
-        auth.subject,
-      );
     }
     await assertProposalCollaborationEditAllowed(ctx, auth);
     return auth;
@@ -17077,6 +18512,7 @@ async function authorizeActiveBuildCostItemWrite(
   ctx: (QueryCtx | MutationCtx) & { viewer: AuthorizedViewer },
   buildId: Id<"activeBuilds">,
   workosOrganizationId: string,
+  action: BuilderStaffPermissionAction,
   reason?: string,
   options?: { requireReason?: boolean },
 ) {
@@ -17085,7 +18521,11 @@ async function authorizeActiveBuildCostItemWrite(
     buildId,
     workosOrganizationId,
   );
-  requireBackofficeActiveBuildWrite(auth);
+  if (isBackoffice(auth.roles)) {
+    requireBackofficeActiveBuildWrite(auth);
+  } else {
+    await requireActiveBuildAppPermission(ctx, auth, "material", action);
+  }
   if (options?.requireReason ?? true) {
     requireReason(reason ?? "");
   }

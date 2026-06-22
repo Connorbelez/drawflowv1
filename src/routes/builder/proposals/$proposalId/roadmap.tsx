@@ -99,6 +99,7 @@ function BuilderProductionProposalRoadmapCompatibilityRoute() {
 
   return (
     <ProductionTimelineWorkspace
+      appPermissions={detail?.appPermissions}
       backofficeHref={`/backoffice/proposals/${proposalId}`}
       initialRole="builder"
       persistenceMode={visualFixtureEnabled ? "noop" : "convex"}

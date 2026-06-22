@@ -46,10 +46,17 @@ import {
   type TimelineModificationRequestView,
   type TimelineWorkspacePersistence,
 } from "#/features/timeline-workspace/index.tsx";
+import {
+  canUseAppPermission,
+  hasAnyAppPermission,
+  PROPOSAL_TIMELINE_EDIT_PERMISSION_CHECKS,
+  type BuilderStaffAppPermissions,
+} from "#/features/builder-staff/app-permissions.ts";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 
 export interface ProductionTimelineWorkspaceProps {
+  appPermissions?: BuilderStaffAppPermissions | null;
   backofficeHref: string;
   /** Use inside tabbed proposal surfaces so layout width stays with the shell. */
   embedded?: boolean;
@@ -75,6 +82,7 @@ export interface ProductionTimelineWorkspaceProps {
 }
 
 export function ProductionTimelineWorkspace({
+  appPermissions,
   backofficeHref,
   embedded = false,
   headerActions,
@@ -152,12 +160,59 @@ export function ProductionTimelineWorkspace({
     () => convexWorkspaceToTimelineState(workspace),
     [workspace]
   );
-  const collaborationCanEdit = collaboration.canEdit;
+  const hasTimelineEditPermission = hasAnyAppPermission(
+    appPermissions,
+    PROPOSAL_TIMELINE_EDIT_PERMISSION_CHECKS
+  );
+  const collaborationCanEdit =
+    collaboration.canEdit && hasTimelineEditPermission;
+  const canCreateCapitalEvent = canUseAppPermission(
+    appPermissions,
+    "capitalEvent",
+    "create"
+  );
+  const canUpdateCapitalEvent = canUseAppPermission(
+    appPermissions,
+    "capitalEvent",
+    "update"
+  );
+  const canDeleteCapitalEvent = canUseAppPermission(
+    appPermissions,
+    "capitalEvent",
+    "delete"
+  );
+  const canCreateDraw = canUseAppPermission(appPermissions, "draw", "create");
+  const canUpdateDraw = canUseAppPermission(appPermissions, "draw", "update");
+  const canDeleteDraw = canUseAppPermission(appPermissions, "draw", "delete");
+  const canCreateEvidence = canUseAppPermission(
+    appPermissions,
+    "evidence",
+    "create"
+  );
+  const canUpdateEvidence = canUseAppPermission(
+    appPermissions,
+    "evidence",
+    "update"
+  );
+  const canDeleteEvidence = canUseAppPermission(
+    appPermissions,
+    "evidence",
+    "delete"
+  );
+  const canCreateMilestone =
+    canUseAppPermission(appPermissions, "milestone", "create") ||
+    canUseAppPermission(appPermissions, "submilestone", "create");
+  const canUpdateMilestone =
+    canUseAppPermission(appPermissions, "milestone", "update") ||
+    canUseAppPermission(appPermissions, "submilestone", "update");
+  const canDeleteMilestone =
+    canUseAppPermission(appPermissions, "milestone", "delete") ||
+    canUseAppPermission(appPermissions, "submilestone", "delete");
   const durableStatus = productionTimelineStatus(workspace.proposal);
   const convexPersistence = useMemo<TimelineWorkspacePersistence>(
     () => ({
       createCapitalEvent: (input) =>
-        collaborationCanEdit
+        collaborationCanEdit && canCreateCapitalEvent
           ? createCapitalEvent({
               ...input,
               proposalId,
@@ -167,7 +222,7 @@ export function ProductionTimelineWorkspace({
               new Error("Collaboration participant is view-only.")
             ),
       createCashInfusion: (input) =>
-        collaborationCanEdit
+        collaborationCanEdit && canCreateCapitalEvent
           ? createCashInfusion({
               ...input,
               proposalId,
@@ -177,7 +232,7 @@ export function ProductionTimelineWorkspace({
               new Error("Collaboration participant is view-only.")
             ),
       createDraw: (input) =>
-        collaborationCanEdit
+        collaborationCanEdit && canCreateDraw
           ? createDraw({
               ...input,
               proposalId,
@@ -187,7 +242,7 @@ export function ProductionTimelineWorkspace({
               new Error("Collaboration participant is view-only.")
             ),
       createEvidenceAsset: (input) =>
-        collaborationCanEdit
+        collaborationCanEdit && canCreateEvidence
           ? createEvidenceAsset({
               ...input,
               asset: normalizeEvidenceAssetInput(input.asset),
@@ -198,7 +253,7 @@ export function ProductionTimelineWorkspace({
               new Error("Collaboration participant is view-only.")
             ),
       createMilestone: (input) =>
-        collaborationCanEdit
+        collaborationCanEdit && canCreateMilestone
           ? createMilestone({
               milestone: normalizeProductionMilestoneInput(input.milestone),
               proposalId,
@@ -208,7 +263,7 @@ export function ProductionTimelineWorkspace({
               new Error("Collaboration participant is view-only.")
             ),
       deleteCapitalEvent: (input) =>
-        collaborationCanEdit
+        collaborationCanEdit && canDeleteCapitalEvent
           ? deleteCapitalEvent({
               ...input,
               proposalId,
@@ -218,7 +273,7 @@ export function ProductionTimelineWorkspace({
               new Error("Collaboration participant is view-only.")
             ),
       deleteDraw: (input) =>
-        collaborationCanEdit
+        collaborationCanEdit && canDeleteDraw
           ? deleteDraw({
               ...input,
               proposalId,
@@ -228,7 +283,7 @@ export function ProductionTimelineWorkspace({
               new Error("Collaboration participant is view-only.")
             ),
       deleteEvidenceAsset: (input) =>
-        collaborationCanEdit
+        collaborationCanEdit && canDeleteEvidence
           ? deleteEvidenceAsset({
               ...input,
               proposalId,
@@ -238,7 +293,7 @@ export function ProductionTimelineWorkspace({
               new Error("Collaboration participant is view-only.")
             ),
       deleteMilestone: (input) =>
-        collaborationCanEdit
+        collaborationCanEdit && canDeleteMilestone
           ? deleteMilestone({
               ...input,
               proposalId,
@@ -248,7 +303,7 @@ export function ProductionTimelineWorkspace({
               new Error("Collaboration participant is view-only.")
             ),
       generateEvidenceUploadUrl: () =>
-        collaborationCanEdit
+        collaborationCanEdit && canCreateEvidence
           ? generateEvidenceUploadUrl({
               proposalId,
               workosOrganizationId,
@@ -287,7 +342,7 @@ export function ProductionTimelineWorkspace({
               new Error("Collaboration participant is view-only.")
             ),
       updateCapitalEvent: (input) =>
-        collaborationCanEdit
+        collaborationCanEdit && canUpdateCapitalEvent
           ? updateCapitalEvent({
               ...input,
               proposalId,
@@ -297,7 +352,7 @@ export function ProductionTimelineWorkspace({
               new Error("Collaboration participant is view-only.")
             ),
       updateDraw: (input) =>
-        collaborationCanEdit
+        collaborationCanEdit && canUpdateDraw
           ? updateDraw({
               ...input,
               proposalId,
@@ -307,7 +362,7 @@ export function ProductionTimelineWorkspace({
               new Error("Collaboration participant is view-only.")
             ),
       updateEvidenceAsset: (input) =>
-        collaborationCanEdit
+        collaborationCanEdit && canUpdateEvidence
           ? updateEvidenceAsset({
               ...input,
               proposalId,
@@ -317,7 +372,7 @@ export function ProductionTimelineWorkspace({
               new Error("Collaboration participant is view-only.")
             ),
       updateMilestone: (input) =>
-        collaborationCanEdit
+        collaborationCanEdit && canUpdateMilestone
           ? updateMilestone({
               ...normalizeProductionMilestonePatch(input),
               proposalId,
@@ -338,6 +393,18 @@ export function ProductionTimelineWorkspace({
             ),
     }),
     [
+      canCreateCapitalEvent,
+      canCreateDraw,
+      canCreateEvidence,
+      canCreateMilestone,
+      canDeleteCapitalEvent,
+      canDeleteDraw,
+      canDeleteEvidence,
+      canDeleteMilestone,
+      canUpdateCapitalEvent,
+      canUpdateDraw,
+      canUpdateEvidence,
+      canUpdateMilestone,
       collaborationCanEdit,
       createCapitalEvent,
       createCashInfusion,
@@ -390,6 +457,7 @@ export function ProductionTimelineWorkspace({
       initialState={initialState}
       modificationRequests={workspace.modificationRequests ?? []}
       persistence={persistence}
+      readOnly={!hasTimelineEditPermission}
       shareUrlPath="/proposal-preview"
       timelineSettingsProjection={null}
       workspaceMode="proposal"

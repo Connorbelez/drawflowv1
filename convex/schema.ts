@@ -315,6 +315,22 @@ const productionCostItemTypeValidator = v.union(
   v.literal("equipment"),
 );
 
+const builderStaffPermissionScopeValidator = v.union(
+  v.literal("proposal"),
+  v.literal("activeBuild"),
+);
+
+const builderStaffPermissionResourceValidator = v.union(
+  v.literal("milestone"),
+  v.literal("submilestone"),
+  v.literal("draw"),
+  v.literal("evidence"),
+  v.literal("contractor"),
+  v.literal("material"),
+  v.literal("capitalEvent"),
+  v.literal("reminder"),
+);
+
 const productionOutboxStatusValidator = v.union(
   v.literal("pending"),
   v.literal("processed"),
@@ -1359,6 +1375,38 @@ export default defineSchema({
     .index("by_builder", ["builderProfileId"])
     .index("by_user", ["workosUserId"])
     .index("by_builder_user", ["builderProfileId", "workosUserId"]),
+  builderStaffPermissionGrants: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    builderProfileId: v.id("builderProfiles"),
+    builderAccountLinkId: v.id("builderAccountLinks"),
+    workosUserId: v.string(),
+    scope: builderStaffPermissionScopeValidator,
+    proposalId: v.optional(v.id("buildProposals")),
+    buildId: v.optional(v.id("activeBuilds")),
+    resourceType: builderStaffPermissionResourceValidator,
+    canCreate: v.boolean(),
+    canView: v.boolean(),
+    canUpdate: v.boolean(),
+    canDelete: v.boolean(),
+    createdByWorkosUserId: v.string(),
+    updatedByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_builder", ["builderProfileId"])
+    .index("by_link", ["builderAccountLinkId"])
+    .index("by_user", ["workosUserId"])
+    .index("by_proposal_link_resource", [
+      "proposalId",
+      "builderAccountLinkId",
+      "resourceType",
+    ])
+    .index("by_build_link_resource", [
+      "buildId",
+      "builderAccountLinkId",
+      "resourceType",
+    ]),
   builderOnboardingDismissals: defineTable({
     workosUserId: v.string(),
     organizationId: v.string(),

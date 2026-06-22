@@ -68,6 +68,7 @@ import {
   type MaterialPlanningActions,
   type MaterialPlanningItem,
 } from "#/features/material-planning/MaterialPlanningTab.tsx";
+import type { BuilderStaffAppPermissions } from "#/features/builder-staff/app-permissions.ts";
 import {
   isBrowserPreviewableImageMime,
   isHeicLikeEvidenceImage,
@@ -287,6 +288,7 @@ export interface ProductionBuildDetailActions {
 }
 
 export interface ProductionBuildDetail {
+  appPermissions?: BuilderStaffAppPermissions | null;
   build: {
     _id: string;
     buildName: string;
@@ -579,6 +581,7 @@ export function ProductionBuildDetailSurface({
   onChangeRail,
   onChangeTab,
   rail,
+  staff,
   timelineWorkspace,
   viewerRole = "lender",
   workosOrganizationId,
@@ -600,6 +603,7 @@ export function ProductionBuildDetailSurface({
   onChangeRail: (rail: "open" | "closed") => void;
   onChangeTab: (tab: BuildDetailSubTab) => void;
   rail?: "open" | "closed";
+  staff?: React.ReactNode;
   timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null;
   viewerRole?: "builder" | "lender";
   workosOrganizationId?: string;
@@ -694,6 +698,7 @@ export function ProductionBuildDetailSurface({
             detail={detail}
           />
         ) : null}
+        {activeTab === "staff" ? staff : null}
         {activeTab === "calendar" ? (
           <ProductionCalendarTab
             actions={actions}
@@ -2085,6 +2090,7 @@ function ProductionTimelineTab({
   return (
     <div data-testid="production-build-timeline">
       <ActiveBuildTimelineWorkspace
+        appPermissions={detail.appPermissions}
         backofficeHref="/backoffice"
         buildHref={`/backoffice/builds/${detail.build._id}`}
         buildId={activeBuildId as any}

@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  AssistantModalPrimitive,
   AssistantRuntimeProvider,
   ComposerPrimitive,
   MessagePartPrimitive,
@@ -273,19 +272,41 @@ export function DrawFlowAssistant({
     }
   }, [commitActionPlan, planId, previewItems, routeContext.organizationId]);
 
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onOpenChange(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onOpenChange, open]);
+
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <AssistantModalPrimitive.Root open={open} onOpenChange={onOpenChange}>
-        <AssistantModalPrimitive.Anchor asChild>
-          <div className="fixed right-5 bottom-5 size-1" />
-        </AssistantModalPrimitive.Anchor>
-        <AssistantModalPrimitive.Content
+      {open ? null : (
+        <Button
+          aria-label="Open DrawFlow AI assistant"
+          className="fixed right-5 bottom-20 z-50 size-12 rounded-full shadow-lg"
+          onClick={() => onOpenChange(true)}
+          size="icon"
+        >
+          <Sparkles className="size-5" />
+        </Button>
+      )}
+      {open ? (
+        <section
+          aria-label="DrawFlow AI assistant"
+          aria-modal="false"
           className={cn(
             "fixed right-0 bottom-0 z-50 flex h-[100svh] w-full max-w-full flex-col border-l bg-background text-foreground shadow-2xl outline-none",
             "sm:right-4 sm:bottom-4 sm:h-[min(760px,calc(100svh-2rem))] sm:w-[480px] sm:rounded-xl sm:border",
           )}
           data-testid="drawflow-assistant-surface"
-          sideOffset={0}
+          role="dialog"
         >
           <div className="flex items-center justify-between border-b px-4 py-3">
             <div className="flex min-w-0 items-center gap-2">
@@ -359,8 +380,8 @@ export function DrawFlowAssistant({
               </div>
             </ComposerPrimitive.Root>
           </ThreadPrimitive.Root>
-        </AssistantModalPrimitive.Content>
-      </AssistantModalPrimitive.Root>
+        </section>
+      ) : null}
     </AssistantRuntimeProvider>
   );
 }

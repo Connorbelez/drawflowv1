@@ -10,6 +10,12 @@ import {
   type TimelineItem,
   type TimelineMarker,
 } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
+import { BuilderStaffPermissionsPanel } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
+import {
+  canUseAppPermission,
+  filterMaterialPlanningActionsForPermissions,
+  hasAnyAppPermission,
+} from "#/features/builder-staff/app-permissions.ts";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -99,6 +105,7 @@ type ProposalReviewSearch = {
     | "materials"
     | "packet"
     | "review"
+    | "staff"
     | "timeline";
   timeframe?: CalendarTimeframe;
 };
@@ -121,6 +128,7 @@ export const Route = createFileRoute("/backoffice/proposals/$planId")({
       search.tab === "materials" ||
       search.tab === "packet" ||
       search.tab === "review" ||
+      search.tab === "staff" ||
       search.tab === "timeline"
         ? (search.tab as ProposalReviewSearch["tab"])
         : undefined;
@@ -354,31 +362,94 @@ function ProposalReviewRoute() {
   //ToDo: BIG CODESMELL
   if (productionDetail && productionWorkspace) {
     const proposalId = planId as Id<"buildProposals">;
+    const appPermissions = productionDetail.appPermissions;
+    const canEditProposalMilestones = hasAnyAppPermission(appPermissions, [
+      ["milestone", "create"],
+      ["milestone", "delete"],
+      ["milestone", "update"],
+      ["submilestone", "create"],
+      ["submilestone", "delete"],
+      ["submilestone", "update"],
+    ]);
+    const proposalEditorPersistenceMode =
+      visualFixtureEnabled || !canEditProposalMilestones ? "noop" : "convex";
+    const materialPlanningActions =
+      filterMaterialPlanningActionsForPermissions(
+        appPermissions,
+        visualFixtureEnabled
+          ? visualMaterialPlanningActions
+          : {
+              create: (payload) =>
+                createProposalCostItem({
+                  ...payload,
+                  proposalId,
+                  workosOrganizationId,
+                }).then(() => toast.success("Cost item added.")),
+              delete: (item, reason) =>
+                deleteProposalCostItem({
+                  itemId: item._id as any,
+                  proposalId,
+                  reason,
+                  workosOrganizationId,
+                }).then(() => toast.success("Cost item removed.")),
+              update: (item, payload) =>
+                updateProposalCostItem({
+                  ...payload,
+                  itemId: item._id as any,
+                  proposalId,
+                  workosOrganizationId,
+                }).then(() => toast.success("Cost item updated.")),
+            },
+      );
+    const canMutateContractors = hasAnyAppPermission(appPermissions, [
+      ["contractor", "create"],
+      ["contractor", "update"],
+    ]);
     const calendarAdapterActions: ProposalCalendarAdapterActions = {
-      addEvidenceDueDate: (input) =>
-        setEvidenceDueDate({
-          ...input,
-          proposalId,
-          workosOrganizationId,
-        }).then(() => toast.success("Evidence due date set.")),
-      addReviewTargetDate: (input) =>
-        setReviewTargetDate({
-          ...input,
-          proposalId,
-          workosOrganizationId,
-        }).then(() => toast.success("Review target date set.")),
-      reviseDrawTiming: (input) =>
-        reviseProposalDrawTiming({
-          ...input,
-          proposalId,
-          workosOrganizationId,
-        }).then(() => toast.success("Draw timing revised.")),
-      reviseMilestoneSchedule: (input) =>
-        reviseProposalMilestoneSchedule({
-          ...input,
-          proposalId,
-          workosOrganizationId,
-        }).then(() => toast.success("Milestone schedule revised.")),
+      addEvidenceDueDate: canUseAppPermission(
+        appPermissions,
+        "evidence",
+        "update",
+      )
+        ? (input) =>
+            setEvidenceDueDate({
+              ...input,
+              proposalId,
+              workosOrganizationId,
+            }).then(() => toast.success("Evidence due date set."))
+        : undefined,
+      addReviewTargetDate: canUseAppPermission(
+        appPermissions,
+        "reminder",
+        "create",
+      )
+        ? (input) =>
+            setReviewTargetDate({
+              ...input,
+              proposalId,
+              workosOrganizationId,
+            }).then(() => toast.success("Review target date set."))
+        : undefined,
+      reviseDrawTiming: canUseAppPermission(appPermissions, "draw", "update")
+        ? (input) =>
+            reviseProposalDrawTiming({
+              ...input,
+              proposalId,
+              workosOrganizationId,
+            }).then(() => toast.success("Draw timing revised."))
+        : undefined,
+      reviseMilestoneSchedule: canUseAppPermission(
+        appPermissions,
+        "milestone",
+        "update",
+      )
+        ? (input) =>
+            reviseProposalMilestoneSchedule({
+              ...input,
+              proposalId,
+              workosOrganizationId,
+            }).then(() => toast.success("Milestone schedule revised."))
+        : undefined,
     };
     const commitCalendarEdit = createProposalCalendarEditHandler({
       actions: calendarAdapterActions,
@@ -397,41 +468,26 @@ function ProposalReviewRoute() {
           <ProductionProposalMilestoneWorksheetContainer
             contractorPlanning={productionWorkspace.contractorPlanning}
             detail={productionDetail}
-            persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
+            persistenceMode={proposalEditorPersistenceMode}
             proposalId={proposalId}
             showHeading
             templateTitle={productionDetail.proposal.buildName}
             workosOrganizationId={workosOrganizationId}
           />
         }
-        materialPlanningActions={
-          visualFixtureEnabled
-            ? visualMaterialPlanningActions
-            : {
-                create: (payload) =>
-                  createProposalCostItem({
-                    ...payload,
-                    proposalId,
-                    workosOrganizationId,
-                  }).then(() => toast.success("Cost item added.")),
-                delete: (item, reason) =>
-                  deleteProposalCostItem({
-                    itemId: item._id as any,
-                    proposalId,
-                    reason,
-                    workosOrganizationId,
-                  }).then(() => toast.success("Cost item removed.")),
-                update: (item, payload) =>
-                  updateProposalCostItem({
-                    ...payload,
-                    itemId: item._id as any,
-                    proposalId,
-                    workosOrganizationId,
-                  }).then(() => toast.success("Cost item updated.")),
-              }
+        staff={
+          visualFixtureEnabled ? undefined : (
+            <BuilderStaffPermissionsPanel
+              proposalId={proposalId}
+              scope="proposal"
+              workosOrganizationId={workosOrganizationId}
+            />
+          )
         }
+        materialPlanningActions={materialPlanningActions}
         contractors={
           <ProductionContractorPlanningTab
+            canMutate={canMutateContractors}
             initialRole="lender"
             persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
             proposalId={proposalId}
@@ -453,6 +509,7 @@ function ProposalReviewRoute() {
             embedded
             initialRole="lender"
             persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
+            appPermissions={appPermissions}
             prejoinedCollabToken={
               collabJoinState === "joined" ? collabToken : null
             }
@@ -542,26 +599,29 @@ function ProposalReviewRoute() {
             workosOrganizationId,
           }).then(() => toast.success("Changes requested."))
         }
-        onUpdateDraw={(drawKey, patch) =>
-          (productionDetail.proposal.status === "draft"
-            ? updateProductionTimelineDraw({
-                amountCents: patch.amountCents,
-                drawKey,
-                label: patch.label,
-                proposalId,
-                workosOrganizationId,
-                x: patch.timingDay,
-              })
-            : updateProductionDrawScheduleRow({
-                amountCents: patch.amountCents,
-                drawKey,
-                label: patch.label,
-                proposalId,
-                reason: patch.reason,
-                timingDay: patch.timingDay,
-                workosOrganizationId,
-              })
-          ).then(() => toast.success("Draw schedule updated."))
+        onUpdateDraw={
+          canUseAppPermission(appPermissions, "draw", "update")
+            ? (drawKey, patch) =>
+                (productionDetail.proposal.status === "draft"
+                  ? updateProductionTimelineDraw({
+                      amountCents: patch.amountCents,
+                      drawKey,
+                      label: patch.label,
+                      proposalId,
+                      workosOrganizationId,
+                      x: patch.timingDay,
+                    })
+                  : updateProductionDrawScheduleRow({
+                      amountCents: patch.amountCents,
+                      drawKey,
+                      label: patch.label,
+                      proposalId,
+                      reason: patch.reason,
+                      timingDay: patch.timingDay,
+                      workosOrganizationId,
+                    })
+                ).then(() => toast.success("Draw schedule updated."))
+            : undefined
         }
         onChangeCalendarTimeframe={(timeframe) =>
           void navigate({
@@ -580,12 +640,15 @@ function ProposalReviewRoute() {
           })
         }
         onCommitCalendarEdit={commitCalendarEdit}
-        onCreateCalendarReminderEvent={(input) =>
-          createProposalReminderCalendarEvent({
-            ...input,
-            proposalId,
-            workosOrganizationId,
-          })
+        onCreateCalendarReminderEvent={
+          canUseAppPermission(appPermissions, "reminder", "create")
+            ? (input) =>
+                createProposalReminderCalendarEvent({
+                  ...input,
+                  proposalId,
+                  workosOrganizationId,
+                })
+            : undefined
         }
         onCreateCalendarSyncSubscription={(input) =>
           createCalendarSyncSubscription({
@@ -597,13 +660,16 @@ function ProposalReviewRoute() {
             workosOrganizationId,
           })
         }
-        onDeleteCalendarReminderEvent={(input) =>
-          deleteProposalReminderCalendarEvent({
-            ...input,
-            eventId: input.eventId as Id<"calendarReminderEvents">,
-            proposalId,
-            workosOrganizationId,
-          })
+        onDeleteCalendarReminderEvent={
+          canUseAppPermission(appPermissions, "reminder", "delete")
+            ? (input) =>
+                deleteProposalReminderCalendarEvent({
+                  ...input,
+                  eventId: input.eventId as Id<"calendarReminderEvents">,
+                  proposalId,
+                  workosOrganizationId,
+                })
+            : undefined
         }
         onRecordExternalCalendarSyncChange={(input) =>
           recordExternalCalendarSyncChange({
@@ -618,13 +684,16 @@ function ProposalReviewRoute() {
             workosOrganizationId,
           })
         }
-        onUpdateCalendarReminderEvent={(input) =>
-          updateProposalReminderCalendarEvent({
-            ...input,
-            eventId: input.eventId as Id<"calendarReminderEvents">,
-            proposalId,
-            workosOrganizationId,
-          })
+        onUpdateCalendarReminderEvent={
+          canUseAppPermission(appPermissions, "reminder", "update")
+            ? (input) =>
+                updateProposalReminderCalendarEvent({
+                  ...input,
+                  eventId: input.eventId as Id<"calendarReminderEvents">,
+                  proposalId,
+                  workosOrganizationId,
+                })
+            : undefined
         }
       />
     );

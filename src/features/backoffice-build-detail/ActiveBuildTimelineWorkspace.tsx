@@ -12,11 +12,18 @@ import {
   type TimelineModificationRequestView,
   type TimelineWorkspacePersistence,
 } from "#/features/timeline-workspace/index.tsx";
+import {
+  ACTIVE_BUILD_TIMELINE_EDIT_PERMISSION_CHECKS,
+  canUseAppPermission,
+  hasAnyAppPermission,
+  type BuilderStaffAppPermissions,
+} from "#/features/builder-staff/app-permissions.ts";
 
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 
 export interface ActiveBuildTimelineWorkspaceProps {
+  appPermissions?: BuilderStaffAppPermissions | null;
   backofficeHref: string;
   buildHref: string;
   buildId: Id<"activeBuilds">;
@@ -35,6 +42,7 @@ export interface ActiveBuildTimelineWorkspaceProps {
 }
 
 export function ActiveBuildTimelineWorkspace({
+  appPermissions,
   backofficeHref,
   buildHref,
   buildId,
@@ -103,97 +111,178 @@ export function ActiveBuildTimelineWorkspace({
     () => convexWorkspaceToTimelineState(workspace),
     [workspace],
   );
+  const hasTimelineEditPermission = hasAnyAppPermission(
+    appPermissions,
+    ACTIVE_BUILD_TIMELINE_EDIT_PERMISSION_CHECKS,
+  );
+  const canCreateCapitalEvent = canUseAppPermission(
+    appPermissions,
+    "capitalEvent",
+    "create",
+  );
+  const canUpdateCapitalEvent = canUseAppPermission(
+    appPermissions,
+    "capitalEvent",
+    "update",
+  );
+  const canDeleteCapitalEvent = canUseAppPermission(
+    appPermissions,
+    "capitalEvent",
+    "delete",
+  );
+  const canCreateDraw = canUseAppPermission(appPermissions, "draw", "create");
+  const canUpdateDraw = canUseAppPermission(appPermissions, "draw", "update");
+  const canDeleteDraw = canUseAppPermission(appPermissions, "draw", "delete");
+  const canCreateEvidence = canUseAppPermission(
+    appPermissions,
+    "evidence",
+    "create",
+  );
+  const canUpdateEvidence = canUseAppPermission(
+    appPermissions,
+    "evidence",
+    "update",
+  );
+  const canDeleteEvidence = canUseAppPermission(
+    appPermissions,
+    "evidence",
+    "delete",
+  );
+  const canCreateMilestone =
+    canUseAppPermission(appPermissions, "milestone", "create") ||
+    canUseAppPermission(appPermissions, "submilestone", "create");
+  const canUpdateMilestone =
+    canUseAppPermission(appPermissions, "milestone", "update") ||
+    canUseAppPermission(appPermissions, "submilestone", "update");
+  const canDeleteMilestone =
+    canUseAppPermission(appPermissions, "milestone", "delete") ||
+    canUseAppPermission(appPermissions, "submilestone", "delete");
+  const canCreateReminder = canUseAppPermission(
+    appPermissions,
+    "reminder",
+    "create",
+  );
+  const rejectForbidden = () =>
+    Promise.reject(new Error("You do not have permission for this action."));
   const persistence = useMemo<TimelineWorkspacePersistence>(
     () => ({
       createCapitalEvent: (input) =>
-        createCapitalEvent({
-          ...input,
-          buildId,
-          workosOrganizationId,
-        }),
+        canCreateCapitalEvent
+          ? createCapitalEvent({
+              ...input,
+              buildId,
+              workosOrganizationId,
+            })
+          : rejectForbidden(),
       createCashInfusion: (input) =>
-        createCashInfusion({
-          ...input,
-          buildId,
-          cashInfusionKey: input.cashInfusionKey ?? input.capitalEventKey,
-          workosOrganizationId,
-        }),
+        canCreateCapitalEvent
+          ? createCashInfusion({
+              ...input,
+              buildId,
+              cashInfusionKey: input.cashInfusionKey ?? input.capitalEventKey,
+              workosOrganizationId,
+            })
+          : rejectForbidden(),
       createDraw: (input) =>
-        createDraw({
-          ...input,
-          buildId,
-          itemMilestoneKey: input.itemMilestoneKey ?? input.milestoneKey,
-          workosOrganizationId,
-        }),
+        canCreateDraw
+          ? createDraw({
+              ...input,
+              buildId,
+              itemMilestoneKey: input.itemMilestoneKey ?? input.milestoneKey,
+              workosOrganizationId,
+            })
+          : rejectForbidden(),
       createEvidenceAsset: (input) =>
-        createEvidenceAsset({
-          ...input,
-          asset: normalizeEvidenceAssetInput(input.asset),
-          buildId,
-          workosOrganizationId,
-        }),
+        canCreateEvidence
+          ? createEvidenceAsset({
+              ...input,
+              asset: normalizeEvidenceAssetInput(input.asset),
+              buildId,
+              workosOrganizationId,
+            })
+          : rejectForbidden(),
       createMilestone: (input) =>
-        createMilestone({
-          buildId,
-          milestone: normalizeTimelineMilestoneInput(input.milestone),
-          workosOrganizationId,
-        }),
+        canCreateMilestone
+          ? createMilestone({
+              buildId,
+              milestone: normalizeTimelineMilestoneInput(input.milestone),
+              workosOrganizationId,
+            })
+          : rejectForbidden(),
       deleteCapitalEvent: (input) =>
-        deleteCapitalEvent({
-          ...input,
-          buildId,
-          workosOrganizationId,
-        }),
+        canDeleteCapitalEvent
+          ? deleteCapitalEvent({
+              ...input,
+              buildId,
+              workosOrganizationId,
+            })
+          : rejectForbidden(),
       deleteDraw: (input) =>
-        deleteDraw({
-          ...input,
-          buildId,
-          workosOrganizationId,
-        }),
+        canDeleteDraw
+          ? deleteDraw({
+              ...input,
+              buildId,
+              workosOrganizationId,
+            })
+          : rejectForbidden(),
       deleteEvidenceAsset: (input) =>
-        deleteEvidenceAsset({
-          ...input,
-          buildId,
-          workosOrganizationId,
-        }),
+        canDeleteEvidence
+          ? deleteEvidenceAsset({
+              ...input,
+              buildId,
+              workosOrganizationId,
+            })
+          : rejectForbidden(),
       deleteMilestone: (input) =>
-        deleteMilestone({
-          ...input,
-          buildId,
-          workosOrganizationId,
-        }),
+        canDeleteMilestone
+          ? deleteMilestone({
+              ...input,
+              buildId,
+              workosOrganizationId,
+            })
+          : rejectForbidden(),
       generateEvidenceUploadUrl: () =>
-        generateEvidenceUploadUrl({
-          buildId,
-          workosOrganizationId,
-        }),
+        canCreateEvidence
+          ? generateEvidenceUploadUrl({
+              buildId,
+              workosOrganizationId,
+            })
+          : rejectForbidden(),
       requestModification: (input) =>
-        applyActiveBuildModification(input, {
-          buildId,
-          createMilestone,
-          deleteMilestone,
-          updateMilestone,
-          workosOrganizationId,
-        }),
+        canUpdateMilestone
+          ? applyActiveBuildModification(input, {
+              buildId,
+              createMilestone,
+              deleteMilestone,
+              updateMilestone,
+              workosOrganizationId,
+            })
+          : rejectForbidden(),
       requestMilestoneSiteVisit: (input) =>
-        requestMilestoneSiteVisit({
-          buildId,
-          milestoneKey: input.milestoneKey,
-          note: input.note ?? input.reason,
-          requestedDay: input.requestedDay,
-          workosOrganizationId,
-        }),
+        canCreateReminder || canUpdateEvidence
+          ? requestMilestoneSiteVisit({
+              buildId,
+              milestoneKey: input.milestoneKey,
+              note: input.note ?? input.reason,
+              requestedDay: input.requestedDay,
+              workosOrganizationId,
+            })
+          : rejectForbidden(),
       recordMilestoneSiteVisit: (input) =>
-        recordMilestoneSiteVisit({
-          buildId,
-          milestoneKey: input.milestoneKey,
-          note: input.note,
-          status: input.status ?? "complete",
-          visitId: input.visitId,
-          workosOrganizationId,
-        }),
+        canUpdateEvidence
+          ? recordMilestoneSiteVisit({
+              buildId,
+              milestoneKey: input.milestoneKey,
+              note: input.note,
+              status: input.status ?? "complete",
+              visitId: input.visitId,
+              workosOrganizationId,
+            })
+          : rejectForbidden(),
       reviewDrawRequest: (input) =>
-        input.status === "rejected"
+        !canUpdateDraw
+          ? rejectForbidden()
+          : input.status === "rejected"
           ? rejectDraw({
               buildId,
               drawKey: input.drawKey,
@@ -207,7 +296,9 @@ export function ActiveBuildTimelineWorkspace({
               workosOrganizationId,
             }),
       reviewMilestoneCompletion: (input) =>
-        input.status === "approved"
+        !canUpdateMilestone
+          ? rejectForbidden()
+          : input.status === "approved"
           ? approveMilestone({
               buildId,
               milestoneKey: input.milestoneKey,
@@ -221,55 +312,82 @@ export function ActiveBuildTimelineWorkspace({
               workosOrganizationId,
             }),
       submitDrawRequest: (input) =>
-        requestDraw({
-          amountCents: input.amountCents,
-          buildId,
-          drawKey: input.drawKey,
-          note: input.note,
-          workosOrganizationId,
-        }),
+        canUpdateDraw
+          ? requestDraw({
+              amountCents: input.amountCents,
+              buildId,
+              drawKey: input.drawKey,
+              note: input.note,
+              workosOrganizationId,
+            })
+          : rejectForbidden(),
       submitMilestoneCompletion: (input) =>
-        submitMilestoneCompletion({
-          ...input,
-          buildId,
-          workosOrganizationId,
-        }),
+        canUpdateMilestone && canUpdateEvidence
+          ? submitMilestoneCompletion({
+              ...input,
+              buildId,
+              workosOrganizationId,
+            })
+          : rejectForbidden(),
       updateCapitalEvent: (input) =>
-        updateCapitalEvent({
-          ...input,
-          buildId,
-          workosOrganizationId,
-        }),
+        canUpdateCapitalEvent
+          ? updateCapitalEvent({
+              ...input,
+              buildId,
+              workosOrganizationId,
+            })
+          : rejectForbidden(),
       updateDraw: (input) =>
-        updateDraw({
-          ...input,
-          buildId,
-          itemMilestoneKey: input.itemMilestoneKey ?? input.milestoneKey,
-          workosOrganizationId,
-        }),
+        canUpdateDraw
+          ? updateDraw({
+              ...input,
+              buildId,
+              itemMilestoneKey: input.itemMilestoneKey ?? input.milestoneKey,
+              workosOrganizationId,
+            })
+          : rejectForbidden(),
       updateEvidenceAsset: (input) =>
-        updateEvidenceAsset({
-          ...input,
-          buildId,
-          workosOrganizationId,
-        }),
+        canUpdateEvidence
+          ? updateEvidenceAsset({
+              ...input,
+              buildId,
+              workosOrganizationId,
+            })
+          : rejectForbidden(),
       updateMilestone: (input) =>
-        updateMilestone({
-          ...normalizeTimelineMilestonePatch(input),
-          buildId,
-          workosOrganizationId,
-        }),
+        canUpdateMilestone
+          ? updateMilestone({
+              ...normalizeTimelineMilestonePatch(input),
+              buildId,
+              workosOrganizationId,
+            })
+          : rejectForbidden(),
       updatePlanState: (input) =>
-        updatePlanState({
-          ...input,
-          buildId,
-          workosOrganizationId,
-        }),
+        hasTimelineEditPermission
+          ? updatePlanState({
+              ...input,
+              buildId,
+              workosOrganizationId,
+            })
+          : rejectForbidden(),
     }),
     [
       approveDraw,
       approveMilestone,
       buildId,
+      canCreateCapitalEvent,
+      canCreateDraw,
+      canCreateEvidence,
+      canCreateMilestone,
+      canCreateReminder,
+      canDeleteCapitalEvent,
+      canDeleteDraw,
+      canDeleteEvidence,
+      canDeleteMilestone,
+      canUpdateCapitalEvent,
+      canUpdateDraw,
+      canUpdateEvidence,
+      canUpdateMilestone,
       createCapitalEvent,
       createCashInfusion,
       createDraw,
@@ -280,6 +398,7 @@ export function ActiveBuildTimelineWorkspace({
       deleteEvidenceAsset,
       deleteMilestone,
       generateEvidenceUploadUrl,
+      hasTimelineEditPermission,
       recordMilestoneSiteVisit,
       rejectDraw,
       requestDraw,
@@ -310,6 +429,7 @@ export function ActiveBuildTimelineWorkspace({
       initialState={initialState}
       modificationRequests={workspace.modificationRequests ?? []}
       persistence={persistence}
+      readOnly={!hasTimelineEditPermission}
       timelineSettingsProjection={null}
       workspaceMode="live"
     />
