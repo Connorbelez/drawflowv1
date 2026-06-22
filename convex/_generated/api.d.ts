@@ -14,6 +14,7 @@ import type * as authz from "../authz.js";
 import type * as authzTest from "../authzTest.js";
 import type * as brokerageProvisioning from "../brokerageProvisioning.js";
 import type * as builderRoster from "../builderRoster.js";
+import type * as builderStaffIdentity from "../builderStaffIdentity.js";
 import type * as crons from "../crons.js";
 import type * as demo_build_address from "../demo_build_address.js";
 import type * as demo_builder_proposals from "../demo_builder_proposals.js";
@@ -49,6 +50,7 @@ declare const fullApi: ApiFromModules<{
   authzTest: typeof authzTest;
   brokerageProvisioning: typeof brokerageProvisioning;
   builderRoster: typeof builderRoster;
+  builderStaffIdentity: typeof builderStaffIdentity;
   crons: typeof crons;
   demo_build_address: typeof demo_build_address;
   demo_builder_proposals: typeof demo_builder_proposals;

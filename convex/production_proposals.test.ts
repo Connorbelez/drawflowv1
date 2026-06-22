@@ -3,7 +3,7 @@
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -35,6 +35,23 @@ function asIdentity(roles: string[], subject = "user_builder") {
 function withIdentity(t: any, roles: string[], subject: string) {
   return t.withIdentity({
     email: `${subject}@example.com`,
+    name: subject,
+    organizationId: ORG,
+    role: roles[0],
+    roles,
+    subject,
+    tokenIdentifier: `https://api.workos.com/|${subject}`,
+  } as any);
+}
+
+function withIdentityEmail(
+  t: any,
+  roles: string[],
+  subject: string,
+  email: string,
+) {
+  return t.withIdentity({
+    email,
     name: subject,
     organizationId: ORG,
     role: roles[0],
@@ -330,7 +347,7 @@ describe("production proposal foundation", () => {
     expect(closed.buildMilestones).toHaveLength(1);
     expect(closed.buildSubmilestones).toHaveLength(1);
     expect(closed.plannedDraws[0]).toMatchObject({
-      amountCents: 40_000_000,
+      amountCents: 16_000_000,
       status: "planned",
     });
     expect(closed.auditEvents.map((event: any) => event.eventType)).toEqual(
@@ -454,12 +471,12 @@ describe("production proposal foundation", () => {
       title: "Foundation material package",
     });
     expect(detail.submilestones).toHaveLength(1);
-    expect(detail.proposal.totalBudgetCents).toBe(70_000_000);
+    expect(detail.proposal.totalBudgetCents).toBe(40_000_000);
     expect(detail.milestones[0]).toMatchObject({
-      budgetCents: 70_000_000,
-      drawAvailabilityCents: 56_000_000,
+      budgetCents: 40_000_000,
+      drawAvailabilityCents: 32_000_000,
     });
-    expect(detail.draws[0]).toMatchObject({ amountCents: 56_000_000 });
+    expect(detail.draws[0]).toMatchObject({ amountCents: 32_000_000 });
 
     await t.mutation((api as any).production_proposals.submitProposal, {
       proposalId,
@@ -495,7 +512,7 @@ describe("production proposal foundation", () => {
       quantity: 2.5,
       relevantSubmilestoneKeys: ["forms"],
     });
-    expect(buildDetail.build.totalBudgetCents).toBe(70_000_000);
+    expect(buildDetail.build.totalBudgetCents).toBe(40_000_000);
     expect(buildDetail.submilestones).toHaveLength(1);
 
     const addedItemId = await t.mutation(
@@ -539,7 +556,7 @@ describe("production proposal foundation", () => {
         }),
       ]),
     );
-    expect(buildDetailAfterUpdate.build.totalBudgetCents).toBe(71_750_000);
+    expect(buildDetailAfterUpdate.build.totalBudgetCents).toBe(41_750_000);
 
     await t.mutation(
       (api as any).production_proposals.deleteActiveBuildCostItem,
@@ -555,7 +572,7 @@ describe("production proposal foundation", () => {
       { buildId: String(closing.buildId), workosOrganizationId: ORG },
     );
     expect(buildDetailAfterDelete.costItems).toHaveLength(1);
-    expect(buildDetailAfterDelete.build.totalBudgetCents).toBe(70_000_000);
+    expect(buildDetailAfterDelete.build.totalBudgetCents).toBe(40_000_000);
   });
 
   test("enforces proposal-scoped builder staff material permissions", async () => {
@@ -642,7 +659,7 @@ describe("production proposal foundation", () => {
   });
 
   test("provisions unknown proposal builder staff emails before assigning app permissions", async () => {
-    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
     const proposalId = await admin.mutation(
       (api as any).production_proposals.createDraftProposal,
       {
@@ -667,12 +684,18 @@ describe("production proposal foundation", () => {
     );
 
     expect(result).toMatchObject({
-      invite: {
+      provisioning: {
         adapter: "fake",
+        membershipId:
+          "fake_membership_org_production_foundation_fake_user_builder_staff_frame_team_example_com",
+        operation: "provisionBuilderStaffUser",
         status: "accepted",
         sync: "waiting-for-webhook",
+        userId: "fake_user_builder_staff_frame_team_example_com",
       },
-      staffWorkosUserId: "provisioned_builder_staff_frame_team_example_com",
+      staffWorkosUserId: "fake_user_builder_staff_frame_team_example_com",
+      workosMembershipId:
+        "fake_membership_org_production_foundation_fake_user_builder_staff_frame_team_example_com",
     });
 
     const directory = await admin.query(
@@ -681,18 +704,37 @@ describe("production proposal foundation", () => {
     );
     const invited = directory.staff.find(
       (member: any) =>
-        member.workosUserId ===
-        "provisioned_builder_staff_frame_team_example_com",
+        member.workosUserId === "fake_user_builder_staff_frame_team_example_com",
     );
     expect(invited).toMatchObject({
       email: "frame.team@example.com",
+      identityStatus: "pending",
       role: "staff",
+      workosMembershipId:
+        "fake_membership_org_production_foundation_fake_user_builder_staff_frame_team_example_com",
     });
     expect(
       invited.permissions.find(
         (permission: any) => permission.resourceType === "milestone",
       ),
     ).toMatchObject({ canView: true });
+
+    const staff = withIdentity(
+      base,
+      ["builder-staff"],
+      "fake_user_builder_staff_frame_team_example_com",
+    );
+    const workspace = await staff.query(
+      (api as any).production_proposals.listBuilderStaffWorkspace,
+      { workosOrganizationId: ORG },
+    );
+    expect(workspace.proposalRows).toEqual([
+      expect.objectContaining({
+        buildName: "Staff invite proposal",
+        kind: "proposal",
+        proposalId: String(proposalId),
+      }),
+    ]);
 
     await admin.run(async (ctx: any) => {
       const user = await ctx.db
@@ -701,10 +743,7 @@ describe("production proposal foundation", () => {
           q.eq("workosUserId", result.staffWorkosUserId),
         )
         .unique();
-      expect(user).toMatchObject({
-        email: "frame.team@example.com",
-        status: "active",
-      });
+      expect(user).toBeNull();
       const membership = await ctx.db
         .query("workosOrganizationMemberships")
         .withIndex("by_user", (q: any) =>
@@ -712,10 +751,7 @@ describe("production proposal foundation", () => {
         )
         .filter((q: any) => q.eq(q.field("workosOrganizationId"), ORG))
         .first();
-      expect(membership).toMatchObject({
-        roleSlug: "builder-staff",
-        status: "active",
-      });
+      expect(membership).toBeNull();
       const link = await ctx.db
         .query("builderAccountLinks")
         .withIndex("by_builder_user", (q: any) =>
@@ -725,10 +761,711 @@ describe("production proposal foundation", () => {
         )
         .unique();
       expect(link).toMatchObject({
+        assignedEmail: "frame.team@example.com",
         role: "staff",
         status: "active",
+        workosMembershipId:
+          "fake_membership_org_production_foundation_fake_user_builder_staff_frame_team_example_com",
       });
     });
+  });
+
+  test("keeps provisioned existing org members visible while WorkOS role sync is pending", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const now = Date.now();
+    const proposalId = await admin.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Existing member staff proposal",
+        location: "16 Staff Lane",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await admin.run(async (ctx: any) => {
+      await ctx.db.insert("users", {
+        authId: "user_existing_org_staff",
+        createdAt: now - 1_000,
+        email: "existing.staff@example.com",
+        name: "Existing Staff",
+        sourceEventId: "test_existing_staff_user",
+        sourceEventType: "user.created",
+        status: "active",
+        updatedAt: now - 1_000,
+        workosUserId: "user_existing_org_staff",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        createdAt: now - 1_000,
+        directoryManaged: false,
+        roleSlug: "member",
+        roleSlugs: ["member"],
+        sourceEventId: "test_existing_staff_membership",
+        sourceEventType: "organization_membership.updated",
+        status: "active",
+        updatedAt: now - 1_000,
+        workosMembershipId: "om_existing_org_staff",
+        workosOrganizationId: ORG,
+        workosUserId: "user_existing_org_staff",
+      });
+    });
+
+    await admin.mutation(
+      internal.production_proposals.finalizeProposalBuilderStaffProvisioning,
+      {
+        actor: {
+          organizationId: ORG,
+          roles: ["admin"],
+          subject: "user_admin",
+        },
+        permissions: appPermissionGrants({
+          milestone: { canView: true },
+        }),
+        proposalId,
+        staffEmail: "existing.staff@example.com",
+        staffWorkosUserId: "user_existing_org_staff",
+        workosMembershipId: "om_existing_org_staff",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const directory = await admin.query(
+      (api as any).production_proposals.listProposalBuilderStaffPermissions,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(directory.staff).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          email: "existing.staff@example.com",
+          identityStatus: "pending",
+          role: "staff",
+          workosMembershipId: "om_existing_org_staff",
+          workosUserId: "user_existing_org_staff",
+        }),
+      ]),
+    );
+
+    const staff = withIdentity(
+      base,
+      ["builder-staff"],
+      "user_existing_org_staff",
+    );
+    const workspace = await staff.query(
+      (api as any).production_proposals.listBuilderStaffWorkspace,
+      { workosOrganizationId: ORG },
+    );
+    expect(workspace.proposalRows).toEqual([
+      expect.objectContaining({
+        buildName: "Existing member staff proposal",
+        kind: "proposal",
+        proposalId: String(proposalId),
+      }),
+    ]);
+
+    const detail = await staff.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(detail.appPermissions.role).toBe("staff");
+    expect(detail.milestones).toHaveLength(0);
+  });
+
+  test("keeps invited builder staff visible while their WorkOS membership is pending", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const now = Date.now();
+    const proposalId = await admin.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Pending invited staff proposal",
+        location: "17 Staff Lane",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await admin.run(async (ctx: any) => {
+      await ctx.db.insert("users", {
+        authId: "user_pending_invited_staff",
+        createdAt: now - 1_000,
+        email: "pending.invited@example.com",
+        name: "Pending Invited",
+        sourceEventId: "test_pending_invited_staff_user",
+        sourceEventType: "user.created",
+        status: "active",
+        updatedAt: now - 1_000,
+        workosUserId: "user_pending_invited_staff",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        createdAt: now - 1_000,
+        directoryManaged: false,
+        roleSlug: "builder-staff",
+        roleSlugs: ["builder-staff"],
+        sourceEventId: "test_pending_invited_staff_membership",
+        sourceEventType: "organization_membership.created",
+        status: "pending",
+        updatedAt: now - 1_000,
+        workosMembershipId: "om_pending_invited_staff",
+        workosOrganizationId: ORG,
+        workosUserId: "user_pending_invited_staff",
+      });
+    });
+
+    await admin.mutation(
+      internal.production_proposals.finalizeProposalBuilderStaffProvisioning,
+      {
+        actor: {
+          organizationId: ORG,
+          roles: ["admin"],
+          subject: "user_admin",
+        },
+        permissions: appPermissionGrants({
+          milestone: { canView: true },
+        }),
+        proposalId,
+        staffEmail: "pending.invited@example.com",
+        staffWorkosUserId: "user_pending_invited_staff",
+        workosMembershipId: "om_pending_invited_staff",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const directory = await admin.query(
+      (api as any).production_proposals.listProposalBuilderStaffPermissions,
+      { proposalId, workosOrganizationId: ORG },
+    );
+
+    expect(directory.staff).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          email: "pending.invited@example.com",
+          identityStatus: "pending",
+          role: "staff",
+          workosMembershipId: "om_pending_invited_staff",
+          workosUserId: "user_pending_invited_staff",
+        }),
+      ]),
+    );
+  });
+
+  test("resolves pending email-only builder staff assignments after onboarding without duplicates", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const staffEmail = "pending.invited@example.com";
+    const proposalId = await admin.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Email pending staff proposal",
+        location: "20 Pending Staff Lane",
+        workosOrganizationId: ORG,
+      },
+    );
+    const { buildId } = await createClosedSingleMilestoneBuild(admin, seed);
+
+    await admin.mutation(
+      internal.production_proposals.finalizeProposalBuilderStaffProvisioning,
+      {
+        actor: {
+          organizationId: ORG,
+          roles: ["admin"],
+          subject: "user_admin",
+        },
+        permissions: appPermissionGrants({
+          milestone: { canView: true },
+        }),
+        proposalId,
+        staffEmail,
+        staffWorkosUserId: "pending_builder_staff_pending_invited_example_com",
+        workosMembershipId: "pending_invitation_inv_pending_first",
+        workosOrganizationId: ORG,
+      },
+    );
+    await admin.mutation(
+      internal.production_proposals.finalizeProposalBuilderStaffProvisioning,
+      {
+        actor: {
+          organizationId: ORG,
+          roles: ["admin"],
+          subject: "user_admin",
+        },
+        permissions: appPermissionGrants({
+          milestone: { canView: true },
+        }),
+        proposalId,
+        staffEmail,
+        staffWorkosUserId:
+          "pending_builder_staff_pending_invited_example_com_second",
+        workosMembershipId: "pending_invitation_inv_pending_second",
+        workosOrganizationId: ORG,
+      },
+    );
+    await admin.mutation(
+      internal.production_proposals.finalizeActiveBuildBuilderStaffProvisioning,
+      {
+        actor: {
+          organizationId: ORG,
+          roles: ["admin"],
+          subject: "user_admin",
+        },
+        buildId,
+        permissions: appPermissionGrants({
+          draw: { canView: true },
+        }),
+        staffEmail,
+        staffWorkosUserId:
+          "pending_builder_staff_pending_invited_example_com_third",
+        workosMembershipId: "pending_invitation_inv_pending_third",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const directoryBeforeOnboarding = await admin.query(
+      (api as any).production_proposals.listProposalBuilderStaffPermissions,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    const pendingStaffRows = directoryBeforeOnboarding.staff.filter(
+      (member: any) => member.email === staffEmail && member.role === "staff",
+    );
+    expect(pendingStaffRows).toHaveLength(1);
+    expect(pendingStaffRows[0]).toMatchObject({
+      email: staffEmail,
+      identityStatus: "pending",
+      role: "staff",
+      workosUserId: "pending_builder_staff_pending_invited_example_com",
+    });
+
+    await admin.run(async (ctx: any) => {
+      const links = await ctx.db
+        .query("builderAccountLinks")
+        .withIndex("by_builder", (q: any) =>
+          q.eq("builderProfileId", seed.builderProfileId),
+        )
+        .collect();
+      expect(
+        links.filter(
+          (link: any) =>
+            link.role === "staff" &&
+            link.status === "active" &&
+            link.assignedEmail === staffEmail,
+        ),
+      ).toHaveLength(1);
+
+      const now = Date.now();
+      await ctx.db.insert("users", {
+        authId: "user_onboarded_pending_staff",
+        createdAt: now,
+        email: staffEmail,
+        name: "Pending Invited",
+        sourceEventId: "test_onboarded_pending_staff",
+        sourceEventType: "user.created",
+        status: "active",
+        updatedAt: now,
+        workosUserId: "user_onboarded_pending_staff",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        createdAt: now,
+        directoryManaged: false,
+        roleSlug: "builder-staff",
+        roleSlugs: ["builder-staff"],
+        sourceEventId: "test_onboarded_pending_staff_membership",
+        sourceEventType: "organization_membership.created",
+        status: "active",
+        updatedAt: now,
+        workosMembershipId: "om_onboarded_pending_staff",
+        workosOrganizationId: ORG,
+        workosUserId: "user_onboarded_pending_staff",
+      });
+    });
+
+    const staff = withIdentityEmail(
+      base,
+      ["builder-staff"],
+      "user_onboarded_pending_staff",
+      staffEmail,
+    );
+    const workspace = await staff.query(
+      (api as any).production_proposals.listBuilderStaffWorkspace,
+      { workosOrganizationId: ORG },
+    );
+    expect(workspace.proposalRows).toEqual([
+      expect.objectContaining({
+        buildName: "Email pending staff proposal",
+        kind: "proposal",
+        proposalId: String(proposalId),
+      }),
+    ]);
+    expect(workspace.activeBuildRows).toEqual([
+      expect.objectContaining({
+        buildKey: String(buildId),
+        kind: "activeBuild",
+      }),
+    ]);
+
+    const proposalDetail = await staff.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(proposalDetail.appPermissions.role).toBe("staff");
+
+    const buildDetail = await staff.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(buildId), workosOrganizationId: ORG },
+    );
+    expect(buildDetail.appPermissions.role).toBe("staff");
+
+    const directoryAfterOnboarding = await admin.query(
+      (api as any).production_proposals.listProposalBuilderStaffPermissions,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(
+      directoryAfterOnboarding.staff.filter(
+        (member: any) => member.email === staffEmail && member.role === "staff",
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("re-provisioning an existing staff email preserves current app permissions", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    await grantOrgMembership(admin, {
+      roleSlugs: ["builder-staff"],
+      subject: "user_resend_staff",
+    });
+    const proposalId = await admin.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Resend staff proposal",
+        location: "18 Staff Lane",
+        workosOrganizationId: ORG,
+      },
+    );
+    await admin.mutation(
+      (api as any).production_proposals.saveProposalBuilderStaffPermissions,
+      {
+        permissions: appPermissionGrants({
+          milestone: { canView: true },
+        }),
+        proposalId,
+        staffWorkosUserId: "user_resend_staff",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await admin.mutation(
+      internal.production_proposals.finalizeProposalBuilderStaffProvisioning,
+      {
+        actor: {
+          organizationId: ORG,
+          roles: ["admin"],
+          subject: "user_admin",
+        },
+        permissions: appPermissionGrants({}),
+        proposalId,
+        staffEmail: "user_resend_staff@example.com",
+        staffWorkosUserId: "user_resend_staff",
+        workosMembershipId: "test_membership_user_resend_staff",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const staff = withIdentity(base, ["builder-staff"], "user_resend_staff");
+    const workspace = await staff.query(
+      (api as any).production_proposals.listBuilderStaffWorkspace,
+      { workosOrganizationId: ORG },
+    );
+    expect(workspace.proposalRows).toEqual([
+      expect.objectContaining({
+        buildName: "Resend staff proposal",
+        kind: "proposal",
+        proposalId: String(proposalId),
+      }),
+    ]);
+
+    const directory = await admin.query(
+      (api as any).production_proposals.listProposalBuilderStaffPermissions,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    const resendStaff = directory.staff.find(
+      (member: any) => member.workosUserId === "user_resend_staff",
+    );
+    expect(
+      resendStaff.permissions.find(
+        (permission: any) => permission.resourceType === "milestone",
+      ),
+    ).toMatchObject({ canView: true });
+  });
+
+  test("hides WorkOS-deleted proposal builder staff links and denies access", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const proposalId = await admin.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Deleted staff proposal",
+        location: "19 Archive Street",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await admin.run(async (ctx: any) => {
+      const now = Date.now();
+      await ctx.db.insert("users", {
+        authId: "user_deleted_staff",
+        createdAt: now,
+        deletedAt: now,
+        email: "deleted.staff@example.com",
+        name: "Deleted Staff",
+        sourceEventId: "test_deleted_staff",
+        sourceEventType: "user.deleted",
+        status: "deleted",
+        updatedAt: now,
+        workosUserId: "user_deleted_staff",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        createdAt: now,
+        directoryManaged: false,
+        roleSlug: "builder-staff",
+        roleSlugs: ["builder-staff"],
+        sourceEventId: "test_deleted_staff_membership",
+        sourceEventType: "organization_membership.created",
+        status: "active",
+        updatedAt: now,
+        workosMembershipId: "om_deleted_staff",
+        workosOrganizationId: ORG,
+        workosUserId: "user_deleted_staff",
+      });
+    });
+
+    await admin.mutation(
+      (api as any).production_proposals.saveProposalBuilderStaffPermissions,
+      {
+        permissions: appPermissionGrants({
+          milestone: { canView: true },
+        }),
+        proposalId,
+        staffWorkosUserId: "user_deleted_staff",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const directory = await admin.query(
+      (api as any).production_proposals.listProposalBuilderStaffPermissions,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(
+      directory.staff.some(
+        (member: any) => member.workosUserId === "user_deleted_staff",
+      ),
+    ).toBe(false);
+
+    const deletedStaff = withIdentity(
+      base,
+      ["builder-staff"],
+      "user_deleted_staff",
+    );
+    await expect(
+      deletedStaff.query((api as any).production_proposals.getProposalDetail, {
+        proposalId,
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("Forbidden: builder account is not active in WorkOS");
+  });
+
+  test("re-provisioning a deleted staff email rebinds the link to the active WorkOS user", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const staffEmail = "rebound.staff@example.com";
+    const proposalId = await admin.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Rebound staff proposal",
+        location: "21 Staff Rebind Road",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await admin.run(async (ctx: any) => {
+      const now = Date.now();
+      await ctx.db.insert("users", {
+        authId: "user_deleted_rebound_staff",
+        createdAt: now - 5_000,
+        deletedAt: now - 4_000,
+        email: staffEmail,
+        name: "Deleted Rebound",
+        sourceEventId: "test_deleted_rebound_staff",
+        sourceEventType: "user.deleted",
+        status: "deleted",
+        updatedAt: now - 4_000,
+        workosUserId: "user_deleted_rebound_staff",
+      });
+    });
+
+    await admin.mutation(
+      internal.production_proposals.finalizeProposalBuilderStaffProvisioning,
+      {
+        actor: {
+          organizationId: ORG,
+          roles: ["admin"],
+          subject: "user_admin",
+        },
+        permissions: appPermissionGrants({
+          milestone: { canView: true },
+        }),
+        proposalId,
+        staffEmail,
+        staffWorkosUserId: "user_deleted_rebound_staff",
+        workosMembershipId: "om_deleted_rebound_staff",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await admin.run(async (ctx: any) => {
+      const now = Date.now();
+      await ctx.db.insert("users", {
+        authId: "user_active_rebound_staff",
+        createdAt: now,
+        email: staffEmail,
+        name: "Active Rebound",
+        sourceEventId: "test_active_rebound_staff",
+        sourceEventType: "user.created",
+        status: "active",
+        updatedAt: now,
+        workosUserId: "user_active_rebound_staff",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        createdAt: now,
+        directoryManaged: false,
+        roleSlug: "builder-staff",
+        roleSlugs: ["builder-staff"],
+        sourceEventId: "test_active_rebound_staff_membership",
+        sourceEventType: "organization_membership.created",
+        status: "pending",
+        updatedAt: now,
+        workosMembershipId: "om_active_rebound_staff",
+        workosOrganizationId: ORG,
+        workosUserId: "user_active_rebound_staff",
+      });
+    });
+
+    await admin.mutation(
+      internal.production_proposals.finalizeProposalBuilderStaffProvisioning,
+      {
+        actor: {
+          organizationId: ORG,
+          roles: ["admin"],
+          subject: "user_admin",
+        },
+        permissions: appPermissionGrants({}),
+        proposalId,
+        staffEmail,
+        staffWorkosUserId: "user_active_rebound_staff",
+        workosMembershipId: "om_active_rebound_staff",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const directory = await admin.query(
+      (api as any).production_proposals.listProposalBuilderStaffPermissions,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    const reboundStaff = directory.staff.find(
+      (member: any) => member.email === staffEmail,
+    );
+    expect(reboundStaff).toMatchObject({
+      identityStatus: "pending",
+      role: "staff",
+      workosMembershipId: "om_active_rebound_staff",
+      workosUserId: "user_active_rebound_staff",
+    });
+
+    const staff = withIdentityEmail(
+      base,
+      ["builder-staff"],
+      "user_active_rebound_staff",
+      staffEmail,
+    );
+    const workspace = await staff.query(
+      (api as any).production_proposals.listBuilderStaffWorkspace,
+      { workosOrganizationId: ORG },
+    );
+    expect(workspace.proposalRows).toEqual([
+      expect.objectContaining({
+        buildName: "Rebound staff proposal",
+        kind: "proposal",
+        proposalId: String(proposalId),
+      }),
+    ]);
+  });
+
+  test("hides builder staff links when their WorkOS membership is deleted", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const proposalId = await admin.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Deleted membership proposal",
+        location: "21 Archive Street",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await admin.run(async (ctx: any) => {
+      const now = Date.now();
+      await ctx.db.insert("users", {
+        authId: "user_membership_deleted_staff",
+        createdAt: now,
+        email: "membership.deleted@example.com",
+        name: "Membership Deleted",
+        sourceEventId: "test_membership_deleted_staff",
+        sourceEventType: "user.created",
+        status: "active",
+        updatedAt: now,
+        workosUserId: "user_membership_deleted_staff",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        createdAt: now,
+        deletedAt: now,
+        directoryManaged: false,
+        roleSlug: "builder-staff",
+        roleSlugs: ["builder-staff"],
+        sourceEventId: "test_membership_deleted",
+        sourceEventType: "organization_membership.deleted",
+        status: "deleted",
+        updatedAt: now,
+        workosMembershipId: "om_membership_deleted_staff",
+        workosOrganizationId: ORG,
+        workosUserId: "user_membership_deleted_staff",
+      });
+    });
+
+    await admin.mutation(
+      (api as any).production_proposals.saveProposalBuilderStaffPermissions,
+      {
+        permissions: appPermissionGrants({
+          milestone: { canView: true },
+        }),
+        proposalId,
+        staffWorkosUserId: "user_membership_deleted_staff",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const directory = await admin.query(
+      (api as any).production_proposals.listProposalBuilderStaffPermissions,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(
+      directory.staff.some(
+        (member: any) =>
+          member.workosUserId === "user_membership_deleted_staff",
+      ),
+    ).toBe(false);
   });
 
   test("enforces active-build scoped builder staff draw permissions", async () => {
@@ -801,12 +1538,18 @@ describe("production proposal foundation", () => {
     );
 
     expect(result).toMatchObject({
-      invite: {
+      provisioning: {
         adapter: "fake",
+        membershipId:
+          "fake_membership_org_production_foundation_fake_user_builder_staff_draw_team_example_com",
+        operation: "provisionBuilderStaffUser",
         status: "accepted",
         sync: "waiting-for-webhook",
+        userId: "fake_user_builder_staff_draw_team_example_com",
       },
-      staffWorkosUserId: "provisioned_builder_staff_draw_team_example_com",
+      staffWorkosUserId: "fake_user_builder_staff_draw_team_example_com",
+      workosMembershipId:
+        "fake_membership_org_production_foundation_fake_user_builder_staff_draw_team_example_com",
     });
 
     const directory = await admin.query(
@@ -815,11 +1558,11 @@ describe("production proposal foundation", () => {
     );
     const invited = directory.staff.find(
       (member: any) =>
-        member.workosUserId ===
-        "provisioned_builder_staff_draw_team_example_com",
+        member.workosUserId === "fake_user_builder_staff_draw_team_example_com",
     );
     expect(invited).toMatchObject({
       email: "draw.team@example.com",
+      identityStatus: "pending",
       role: "staff",
     });
     expect(
@@ -827,6 +1570,259 @@ describe("production proposal foundation", () => {
         (permission: any) => permission.resourceType === "draw",
       ),
     ).toMatchObject({ canUpdate: true, canView: true });
+  });
+
+  test("lists only explicitly assigned builder-staff proposal and active-build rows", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    await grantOrgMembership(admin, {
+      roleSlugs: ["builder-staff"],
+      subject: "user_staff_workspace",
+    });
+    const assignedProposalId = await admin.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Assigned staff proposal",
+        location: "31 Staff Route",
+        workosOrganizationId: ORG,
+      },
+    );
+    const blockedProposalId = await admin.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Blocked staff proposal",
+        location: "33 Staff Route",
+        workosOrganizationId: ORG,
+      },
+    );
+    const { buildId } = await createClosedSingleMilestoneBuild(admin, seed);
+
+    await admin.mutation(
+      (api as any).production_proposals.saveProposalBuilderStaffPermissions,
+      {
+        permissions: appPermissionGrants({
+          milestone: { canView: true },
+        }),
+        proposalId: assignedProposalId,
+        staffWorkosUserId: "user_staff_workspace",
+        workosOrganizationId: ORG,
+      },
+    );
+    await admin.mutation(
+      (api as any).production_proposals.saveActiveBuildBuilderStaffPermissions,
+      {
+        buildId,
+        permissions: appPermissionGrants({
+          draw: { canView: true },
+        }),
+        staffWorkosUserId: "user_staff_workspace",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const staff = withIdentity(base, ["builder-staff"], "user_staff_workspace");
+    const workspace = await staff.query(
+      (api as any).production_proposals.listBuilderStaffWorkspace,
+      { workosOrganizationId: ORG },
+    );
+
+    expect(workspace.proposalRows).toEqual([
+      expect.objectContaining({
+        buildName: "Assigned staff proposal",
+        kind: "proposal",
+        proposalId: String(assignedProposalId),
+      }),
+    ]);
+    expect(workspace.activeBuildRows).toEqual([
+      expect.objectContaining({
+        buildKey: String(buildId),
+        kind: "activeBuild",
+      }),
+    ]);
+
+    await expect(
+      staff.query((api as any).production_proposals.getProposalDetail, {
+        proposalId: blockedProposalId,
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("Forbidden: builder staff view");
+
+    const ownerWithStaffRole = withIdentity(
+      base,
+      ["builder-staff"],
+      "user_builder",
+    );
+    const ownerWorkspace = await ownerWithStaffRole.query(
+      (api as any).production_proposals.listBuilderStaffWorkspace,
+      { workosOrganizationId: ORG },
+    );
+    expect(ownerWorkspace.proposalRows).toHaveLength(0);
+    expect(ownerWorkspace.activeBuildRows).toHaveLength(0);
+  });
+
+  test("admin can inspect the builder-staff workspace without explicit staff grants", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const proposalId = await admin.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Admin visible staff proposal",
+        location: "37 Staff Admin Route",
+        workosOrganizationId: ORG,
+      },
+    );
+    const { buildId } = await createClosedSingleMilestoneBuild(admin, seed);
+
+    const workspace = await admin.query(
+      (api as any).production_proposals.listBuilderStaffWorkspace,
+      { workosOrganizationId: ORG },
+    );
+
+    expect(workspace.proposalRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          buildName: "Admin visible staff proposal",
+          kind: "proposal",
+          proposalId: String(proposalId),
+        }),
+      ]),
+    );
+    expect(workspace.activeBuildRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          buildKey: String(buildId),
+          kind: "activeBuild",
+        }),
+      ]),
+    );
+  });
+
+  test("excludes WorkOS-invalid builder staff workspace rows", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const deletedProposalId = await admin.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Deleted workspace staff proposal",
+        location: "41 Staff Route",
+        workosOrganizationId: ORG,
+      },
+    );
+    const wrongRoleProposalId = await admin.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Wrong role workspace staff proposal",
+        location: "43 Staff Route",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await admin.run(async (ctx: any) => {
+      const now = Date.now();
+      await ctx.db.insert("users", {
+        authId: "user_workspace_deleted",
+        createdAt: now,
+        deletedAt: now,
+        email: "workspace.deleted@example.com",
+        name: "Workspace Deleted",
+        sourceEventId: "test_workspace_deleted",
+        sourceEventType: "user.deleted",
+        status: "deleted",
+        updatedAt: now,
+        workosUserId: "user_workspace_deleted",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        createdAt: now,
+        directoryManaged: false,
+        roleSlug: "builder-staff",
+        roleSlugs: ["builder-staff"],
+        sourceEventId: "test_workspace_deleted_membership",
+        sourceEventType: "organization_membership.created",
+        status: "active",
+        updatedAt: now,
+        workosMembershipId: "om_workspace_deleted",
+        workosOrganizationId: ORG,
+        workosUserId: "user_workspace_deleted",
+      });
+      await ctx.db.insert("users", {
+        authId: "user_workspace_wrong_role",
+        createdAt: now,
+        email: "workspace.wrong-role@example.com",
+        name: "Workspace Wrong Role",
+        sourceEventId: "test_workspace_wrong_role",
+        sourceEventType: "user.created",
+        status: "active",
+        updatedAt: now,
+        workosUserId: "user_workspace_wrong_role",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        createdAt: now,
+        directoryManaged: false,
+        roleSlug: "member",
+        roleSlugs: ["member"],
+        sourceEventId: "test_workspace_wrong_role_membership",
+        sourceEventType: "organization_membership.created",
+        status: "active",
+        updatedAt: now,
+        workosMembershipId: "om_workspace_wrong_role",
+        workosOrganizationId: ORG,
+        workosUserId: "user_workspace_wrong_role",
+      });
+    });
+
+    await admin.mutation(
+      (api as any).production_proposals.saveProposalBuilderStaffPermissions,
+      {
+        permissions: appPermissionGrants({
+          milestone: { canView: true },
+        }),
+        proposalId: deletedProposalId,
+        staffWorkosUserId: "user_workspace_deleted",
+        workosOrganizationId: ORG,
+      },
+    );
+    await admin.mutation(
+      (api as any).production_proposals.saveProposalBuilderStaffPermissions,
+      {
+        permissions: appPermissionGrants({
+          milestone: { canView: true },
+        }),
+        proposalId: wrongRoleProposalId,
+        staffWorkosUserId: "user_workspace_wrong_role",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const deletedStaff = withIdentity(
+      base,
+      ["builder-staff"],
+      "user_workspace_deleted",
+    );
+    const deletedWorkspace = await deletedStaff.query(
+      (api as any).production_proposals.listBuilderStaffWorkspace,
+      { workosOrganizationId: ORG },
+    );
+    expect(deletedWorkspace.proposalRows).toHaveLength(0);
+    expect(deletedWorkspace.activeBuildRows).toHaveLength(0);
+
+    const wrongRoleStaff = withIdentity(
+      base,
+      ["builder-staff"],
+      "user_workspace_wrong_role",
+    );
+    const wrongRoleWorkspace = await wrongRoleStaff.query(
+      (api as any).production_proposals.listBuilderStaffWorkspace,
+      { workosOrganizationId: ORG },
+    );
+    expect(wrongRoleWorkspace.proposalRows).toHaveLength(0);
+    expect(wrongRoleWorkspace.activeBuildRows).toHaveLength(0);
   });
 
   test("persists sub-milestone starts and expands milestone duration to cover them", async () => {
@@ -882,9 +1878,10 @@ describe("production proposal foundation", () => {
     );
 
     expect(detail.milestones[0]).toMatchObject({
+      budgetCents: 20_000_000,
       dayEnd: 13,
-      dayStart: 3,
-      durationDays: 10,
+      dayStart: 8,
+      durationDays: 5,
       key: "foundation",
     });
     expect(detail.submilestones[0]).toMatchObject({
@@ -979,25 +1976,31 @@ describe("production proposal foundation", () => {
         title: "Foundation material package",
       }),
     ]);
-    expect(detail.proposal.totalBudgetCents).toBe(65_000_000);
+    expect(detail.proposal.totalBudgetCents).toBe(35_000_000);
     expect(detail.milestones[0]).toMatchObject({
-      budgetCents: 65_000_000,
-      drawAvailabilityCents: 52_000_000,
+      budgetCents: 35_000_000,
+      drawAvailabilityCents: 28_000_000,
     });
-    expect(detail.draws[0]).toMatchObject({ amountCents: 52_000_000 });
+    expect(detail.draws[0]).toMatchObject({ amountCents: 28_000_000 });
 
     const workspace = await t.query(
       (api as any).production_proposals.getProductionTimelineWorkspace,
       { proposalId, workosOrganizationId: ORG },
     );
-    expect(workspace.contractorPlanning.proposalContractors).toEqual([
+    expect(workspace.contractorPlanning).toBeUndefined();
+
+    const contractorPlanning = await t.query(
+      (api as any).production_proposals.getProposalContractorPlanning,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(contractorPlanning.proposalContractors).toEqual([
       expect.objectContaining({
         name: "Apex Concrete Works",
         role: "Foundation contractor",
         status: "active",
       }),
     ]);
-    expect(workspace.contractorPlanning.milestoneAssignments).toEqual([
+    expect(contractorPlanning.milestoneAssignments).toEqual([
       expect.objectContaining({
         contractorName: "Apex Concrete Works",
         estimatedCostCents: 3_000_000,
@@ -1299,11 +2302,29 @@ describe("production proposal foundation", () => {
       { proposalId: String(proposalId), workosOrganizationId: ORG },
     );
     expect(byString.proposal.proposedStartDate).toBe("2025-04-15");
+    expect(byString.auditEvents).toBeUndefined();
+    expect(byString.buildMilestones).toBeUndefined();
+    expect(byString.buildSubmilestones).toBeUndefined();
+    expect(byString.events).toBeUndefined();
 
     await t.mutation((api as any).production_proposals.submitProposal, {
       proposalId,
       workosOrganizationId: ORG,
     });
+    await t.mutation(
+      (api as any).production_proposals.updateProductionProposalProposedStartDate,
+      {
+        proposalId,
+        proposedStartDate: "2025-03-10",
+        workosOrganizationId: ORG,
+      },
+    );
+    const updatedSubmitted = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(updatedSubmitted.proposal.proposedStartDate).toBe("2025-03-10");
+
     await t.mutation((api as any).production_proposals.approveProposal, {
       permitWaiverReason: "Permit packet approved offline.",
       proposalId,
@@ -1327,7 +2348,7 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.getProposalDetail,
       { proposalId, workosOrganizationId: ORG },
     );
-    expect(closed.proposal.proposedStartDate).toBe("2025-04-15");
+    expect(closed.proposal.proposedStartDate).toBe("2025-03-10");
     expect(closed.activeBuild?._id).toBe(closing.buildId);
     expect(closed.activeBuild?.startDate).toBe("2025-05-01");
   });
@@ -1382,13 +2403,42 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
+    await t.mutation((api as any).production_proposals.submitProposal, {
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+
+    const submittedUploadUrl = await t.mutation(
+      (api as any).production_proposals.generateProposalDocumentUploadUrl,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(submittedUploadUrl).toContain("http");
+    await t.mutation((api as any).production_proposals.addProposalDocument, {
+      documentType: "permit",
+      fileName: "issued-permit.pdf",
+      mimeType: "application/pdf",
+      proposalId,
+      sizeBytes: 1024,
+      workosOrganizationId: ORG,
+    });
 
     const detail = await t.query(
       (api as any).production_proposals.getProposalDetail,
       { proposalId, workosOrganizationId: ORG },
     );
-    expect(detail.documents[0]).toMatchObject({
+    expect(
+      detail.documents.find((document: any) => document.fileName === "scope.pdf"),
+    ).toMatchObject({
       fileName: "scope.pdf",
+      storageUrl: null,
+    });
+    expect(
+      detail.documents.find(
+        (document: any) => document.fileName === "issued-permit.pdf",
+      ),
+    ).toMatchObject({
+      documentType: "permit",
+      fileName: "issued-permit.pdf",
       storageUrl: null,
     });
   });
@@ -2266,8 +3316,8 @@ describe("production proposal foundation", () => {
     });
     expect(workspace.milestones).toHaveLength(2);
     expect(workspace.milestones[0]).toMatchObject({
-      budgetCents: 50_000_000,
-      drawAvailabilityCents: 40_000_000,
+      budgetCents: 20_000_000,
+      drawAvailabilityCents: 16_000_000,
       icon: "foundation",
       milestoneKey: "foundation",
       status: "ready",
@@ -2284,16 +3334,16 @@ describe("production proposal foundation", () => {
     });
     expect(workspace.draws).toEqual([
       expect.objectContaining({
-        amountCents: 40_000_000,
+        amountCents: 16_000_000,
         drawKey: "draw-01",
         itemMilestoneKey: "foundation",
-        x: 20,
+        x: 8,
       }),
       expect.objectContaining({
-        amountCents: 60_000_000,
+        amountCents: 24_000_000,
         drawKey: "draw-02",
         itemMilestoneKey: "framing",
-        x: 48,
+        x: 34,
       }),
     ]);
     expect(workspace.capitalEvents).toEqual([
@@ -2932,6 +3982,7 @@ describe("production proposal foundation", () => {
             key: "forms",
             name: "Forms revised",
             order: 1,
+            startDay: 3,
           },
         ],
         workosOrganizationId: ORG,
@@ -2951,7 +4002,16 @@ describe("production proposal foundation", () => {
           order: 2,
           policyState: "Draft proposal policy",
           status: "ready",
-          submilestones: [{ key: "walls", name: "Wall framing", order: 1 }],
+          submilestones: [
+            {
+              budgetCents: 30_000_000,
+              durationDays: 22,
+              key: "walls",
+              name: "Wall framing",
+              order: 1,
+              startDay: 24,
+            },
+          ],
           x: 24,
         },
         proposalId,
@@ -2992,9 +4052,10 @@ describe("production proposal foundation", () => {
       workspace.milestones.map((milestone: any) => milestone.milestoneKey),
     ).toEqual(["foundation", "framing"]);
     expect(workspace.milestones[0]).toMatchObject({
-      budgetCents: 42_000_000,
+      budgetCents: 18_000_000,
+      durationDays: 9,
       name: "Foundation revised",
-      x: 1,
+      x: 3,
     });
     expect(workspace.draws).toEqual(
       expect.arrayContaining([
@@ -3454,7 +4515,7 @@ describe("production proposal foundation", () => {
       role: "Foundation contractor",
     });
     expect(workspace.draws[0]).toMatchObject({
-      amountCents: 40_000_000,
+      amountCents: 20_000_000,
       requestNote: "Foundation reimbursement requested.",
       requestReviewNote: "Evidence and policy review complete.",
       releaseNote: "Released after admin approval.",

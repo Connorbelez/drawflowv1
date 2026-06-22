@@ -1,0 +1,202 @@
+{
+  "page": "CMHC MLI Select Multiplex Financing",
+  "route": "/cmhc-mli-select-multiplex-financing-gta",
+  "brandKit": {
+    "selected": "public/designConcepts/CapitalAndClimate.png",
+    "rationale": "Civic housing-finance tone with deep green, climate blue, pale avocado, and restrained orange. Matches the educational, compliance-aware MLI Select page better than generic SaaS or decorative finance styling."
+  },
+  "productionRules": {
+    "rasterAssetPolicy": "Only standalone generated visual subjects belong in this package. Do not use screenshots, table crops, checklist crops, UI mockups, or text-heavy images as page assets.",
+    "format": "Transparent WebP, quality 90, method 6, alpha validated after optimization.",
+    "sourcePolicy": "Generation sources and transparent PNG intermediates were used for the pipeline, but are intentionally not kept in public/ so deployable assets stay lean.",
+    "codeNative": [
+      "tables",
+      "readiness checklists",
+      "document checklists",
+      "FAQ accordion",
+      "CTA buttons",
+      "badges",
+      "icons",
+      "legal disclaimers",
+      "warning/caution copy",
+      "approval or eligibility language",
+      "pricing, rent, income, or affordability data"
+    ]
+  },
+  "assets": [
+    {
+      "section": "mli.hero",
+      "file": "public/assets/cmhc-mli-select-assets/images/hero-multiplex-building.webp",
+      "width": 1383,
+      "height": 928,
+      "sizeBytes": 321776,
+      "alphaValidated": true,
+      "optimized": true,
+      "usage": "Hero visual for rental housing and multiplex financing intent."
+    },
+    {
+      "section": "mli.hero.support",
+      "file": "public/assets/cmhc-mli-select-assets/images/hero-multiplex-street-panel.webp",
+      "width": 1120,
+      "height": 930,
+      "sizeBytes": 243010,
+      "alphaValidated": false,
+      "optimized": true,
+      "usage": "Derived optimized WebP scene panel composited from the transparent hero building asset for the right-half hero image treatment. Not a concept screenshot."
+    },
+    {
+      "section": "mli.what-it-is",
+      "file": "public/assets/cmhc-mli-select-assets/images/mli-framework-document-stack.webp",
+      "width": 958,
+      "height": 891,
+      "sizeBytes": 110506,
+      "alphaValidated": true,
+      "optimized": true,
+      "usage": "Educational framework/documentation visual. All explanatory copy stays in HTML."
+    },
+    {
+      "section": "mli.why-matters",
+      "file": "public/assets/cmhc-mli-select-assets/images/rental-construction-capital-planning.webp",
+      "width": 1294,
+      "height": 951,
+      "sizeBytes": 320780,
+      "alphaValidated": true,
+      "optimized": true,
+      "usage": "Construction-stage rental project visual for early capital planning."
+    },
+    {
+      "section": "mli.pillars",
+      "file": "public/assets/cmhc-mli-select-assets/images/affordability-accessibility-energy-pillars.webp",
+      "width": 1425,
+      "height": 796,
+      "sizeBytes": 125596,
+      "alphaValidated": true,
+      "optimized": true,
+      "usage": "Standalone visual for affordability, accessibility, and energy-efficiency considerations. The three explanatory cards should be coded."
+    },
+    {
+      "section": "mli.project-fit",
+      "file": "public/assets/cmhc-mli-select-assets/images/multiplex-rental-project-cluster.webp",
+      "width": 1468,
+      "height": 866,
+      "sizeBytes": 371388,
+      "alphaValidated": true,
+      "optimized": true,
+      "usage": "Rental project cluster for potential fit examples. Bullets remain code-native."
+    },
+    {
+      "section": "mli.how-fairlend-helps",
+      "file": "public/assets/cmhc-mli-select-assets/images/advisor-review-desk.webp",
+      "width": 1600,
+      "height": 881,
+      "sizeBytes": 181856,
+      "alphaValidated": true,
+      "optimized": true,
+      "usage": "Advisor review desk visual for readiness support and financing questions."
+    },
+    {
+      "section": "mli.no-guarantee",
+      "file": "public/assets/cmhc-mli-select-assets/images/compliance-caution-folder.webp",
+      "width": 888,
+      "height": 946,
+      "sizeBytes": 100724,
+      "alphaValidated": true,
+      "optimized": true,
+      "usage": "Compliance caution visual. Guarantee limitations and legal language must be rendered as text."
+    },
+    {
+      "section": "mli.qualification-gaps",
+      "file": "public/assets/cmhc-mli-select-assets/images/readiness-gap-dossier.webp",
+      "width": 1266,
+      "height": 935,
+      "sizeBytes": 107170,
+      "alphaValidated": true,
+      "optimized": true,
+      "usage": "Readiness gap dossier visual. Warning rows and gap lists should be coded."
+    },
+    {
+      "section": "mli.documents-needed",
+      "file": "public/assets/cmhc-mli-select-assets/images/project-file-folder.webp",
+      "width": 1112,
+      "height": 919,
+      "sizeBytes": 134308,
+      "alphaValidated": true,
+      "optimized": true,
+      "usage": "Project file folder for documents needed. The document list must be HTML."
+    },
+    {
+      "section": "mli.readiness-tool",
+      "file": "public/assets/cmhc-mli-select-assets/images/readiness-review-kit.webp",
+      "width": 1341,
+      "height": 972,
+      "sizeBytes": 184596,
+      "alphaValidated": true,
+      "optimized": true,
+      "usage": "Readiness review kit visual. The tool link and CTA should be coded."
+    },
+    {
+      "section": "mli.faq",
+      "file": "public/assets/cmhc-mli-select-assets/images/faq-next-steps-cards.webp",
+      "width": 1280,
+      "height": 938,
+      "sizeBytes": 206600,
+      "alphaValidated": true,
+      "optimized": true,
+      "usage": "FAQ and next-steps visual. The accordion and Q/A text must be coded."
+    },
+    {
+      "section": "mli.final-cta",
+      "file": "public/assets/cmhc-mli-select-assets/images/final-cta-planning-desk.webp",
+      "width": 1600,
+      "height": 836,
+      "sizeBytes": 236340,
+      "alphaValidated": true,
+      "optimized": true,
+      "usage": "Final CTA planning desk visual. CTAs remain buttons in code."
+    },
+    {
+      "section": "mli.final-cta.composite",
+      "file": "public/assets/cmhc-mli-select-assets/images/final-cta-desk-composite.webp",
+      "width": 1120,
+      "height": 920,
+      "sizeBytes": 176826,
+      "alphaValidated": true,
+      "optimized": true,
+      "usage": "Dense final CTA desk composite used by the rendered section. CTAs, headline, brand lockup, and warning copy remain coded DOM."
+    }
+  ],
+  "patterns": [
+    {
+      "file": "public/assets/cmhc-mli-select-assets/patterns/paper-grain-transparent.webp",
+      "width": 768,
+      "height": 768,
+      "alphaValidated": true,
+      "usage": "Subtle transparent surface texture."
+    },
+    {
+      "file": "public/assets/cmhc-mli-select-assets/patterns/blueprint-grid-transparent.webp",
+      "width": 768,
+      "height": 768,
+      "alphaValidated": true,
+      "usage": "Transparent blueprint grid accent. Do not use as a content diagram."
+    }
+  ],
+  "verification": {
+    "contactSheet": "public/assets/cmhc-mli-select-assets/contact-sheet.png",
+    "machineReadableValidation": "public/assets/cmhc-mli-select-assets/asset-validation.json",
+    "assetCount": 14,
+    "patternCount": 2,
+    "transparentSubjectAssetCount": 13,
+    "derivedPanelAssetCount": 1,
+    "totalOptimizedWebpBytes": 3121676,
+    "totalPublicAssetBytes": 4513098,
+    "multiBackgroundQaSheet": "public/assets/cmhc-mli-select-assets/qa-multi-background-sheet.png",
+    "fringeScan": "0 magenta and 0 near-magenta opaque pixels across all 12 optimized WebPs"
+  },
+  "rejectedApproach": [
+    "No table screenshots or table crops.",
+    "No clipped crops from section concepts.",
+    "No in-image legal copy or eligibility language.",
+    "No white-background sources where transparent removal would destroy white documents."
+  ]
+}

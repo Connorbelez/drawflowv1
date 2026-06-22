@@ -1,5 +1,6 @@
 import { EvilComposedChart } from "#/components/evilcharts/charts/composed-chart.tsx";
 import type { ChartConfig } from "#/components/evilcharts/ui/chart.tsx";
+import { memo } from "react";
 
 export interface TimelineDrawAvailabilityDatum {
   additionalAvailableDraw: number;
@@ -18,6 +19,20 @@ export interface TimelineDrawAvailabilityReferenceLine {
   stroke: string;
   strokeDasharray?: string;
   x: number;
+}
+
+interface TimelineDrawAvailabilityChartProps {
+  className?: string;
+  data: TimelineDrawAvailabilityDatum[];
+  formatMoney: (value: number) => string;
+  formatTimelineDay: (value: number) => string;
+  onProbeChange?: (value: number | null) => void;
+  referenceLines?: TimelineDrawAvailabilityReferenceLine[];
+  testId?: string;
+  xDomain: [number, number];
+  xTicks: number[];
+  yAxisWidth?: number;
+  yDomain: [number, number];
 }
 
 export const timelineDrawAvailabilityChartConfig = {
@@ -44,7 +59,7 @@ export const timelineDrawAvailabilityChartConfig = {
   },
 } satisfies ChartConfig;
 
-export function TimelineDrawAvailabilityChart({
+export const TimelineDrawAvailabilityChart = memo(function TimelineDrawAvailabilityChart({
   className = "mt-3 h-[220px] min-w-0 sm:h-[210px]",
   data,
   formatMoney,
@@ -56,19 +71,7 @@ export function TimelineDrawAvailabilityChart({
   xTicks,
   yAxisWidth = 58,
   yDomain,
-}: {
-  className?: string;
-  data: TimelineDrawAvailabilityDatum[];
-  formatMoney: (value: number) => string;
-  formatTimelineDay: (value: number) => string;
-  onProbeChange?: (value: number | null) => void;
-  referenceLines?: TimelineDrawAvailabilityReferenceLine[];
-  testId?: string;
-  xDomain: [number, number];
-  xTicks: number[];
-  yAxisWidth?: number;
-  yDomain: [number, number];
-}) {
+}: TimelineDrawAvailabilityChartProps) {
   const chart = (
     <EvilComposedChart
       activeDotVariant="default"
@@ -123,6 +126,34 @@ export function TimelineDrawAvailabilityChart({
   );
 
   return testId ? <div data-testid={testId}>{chart}</div> : chart;
+}, areTimelineDrawAvailabilityChartPropsEqual);
+
+TimelineDrawAvailabilityChart.displayName = "TimelineDrawAvailabilityChart";
+
+function areTimelineDrawAvailabilityChartPropsEqual(
+  previous: TimelineDrawAvailabilityChartProps,
+  next: TimelineDrawAvailabilityChartProps,
+) {
+  return (
+    previous.className === next.className &&
+    previous.data === next.data &&
+    previous.formatMoney === next.formatMoney &&
+    previous.formatTimelineDay === next.formatTimelineDay &&
+    previous.onProbeChange === next.onProbeChange &&
+    previous.referenceLines === next.referenceLines &&
+    previous.testId === next.testId &&
+    sameNumberTuple(previous.xDomain, next.xDomain) &&
+    previous.xTicks === next.xTicks &&
+    previous.yAxisWidth === next.yAxisWidth &&
+    sameNumberTuple(previous.yDomain, next.yDomain)
+  );
+}
+
+function sameNumberTuple(
+  previous: readonly [number, number],
+  next: readonly [number, number],
+) {
+  return previous[0] === next[0] && previous[1] === next[1];
 }
 
 function getChartProbeValue(state: unknown): number | null {

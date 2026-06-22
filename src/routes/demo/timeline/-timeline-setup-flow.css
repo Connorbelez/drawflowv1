@@ -897,16 +897,34 @@
 
 .timeline-blueprint-table-corner::before {
   top: 20px;
-  left: -7px;
-  width: 54px;
+  width: 34px;
   height: 1px;
 }
 
 .timeline-blueprint-table-corner::after {
-  top: -7px;
   left: 20px;
   width: 1px;
-  height: 54px;
+  height: 34px;
+}
+
+.timeline-blueprint-table-corner.is-top-left::before,
+.timeline-blueprint-table-corner.is-bottom-left::before {
+  left: -14px;
+}
+
+.timeline-blueprint-table-corner.is-top-right::before,
+.timeline-blueprint-table-corner.is-bottom-right::before {
+  right: -14px;
+}
+
+.timeline-blueprint-table-corner.is-top-left::after,
+.timeline-blueprint-table-corner.is-top-right::after {
+  top: -14px;
+}
+
+.timeline-blueprint-table-corner.is-bottom-left::after,
+.timeline-blueprint-table-corner.is-bottom-right::after {
+  bottom: -14px;
 }
 
 .timeline-blueprint-table-corner.is-top-left {

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 180 180" fill="none">
+  <circle cx="90" cy="90" r="76" stroke="#245E88" stroke-width="5"/>
+  <circle cx="90" cy="90" r="58" stroke="#245E88" stroke-opacity=".45" stroke-width="2"/>
+  <path d="M45 90H135M90 45V135" stroke="#245E88" stroke-opacity=".28" stroke-width="2"/>
+  <text x="90" y="68" text-anchor="middle" fill="#245E88" font-family="Arial Narrow, Arial, sans-serif" font-size="13" font-weight="700" letter-spacing="2">PERMIT</text>
+  <text x="90" y="96" text-anchor="middle" fill="#245E88" font-family="Arial Narrow, Arial, sans-serif" font-size="22" font-weight="700" letter-spacing="2">STATUS</text>
+  <text x="90" y="118" text-anchor="middle" fill="#245E88" font-family="Arial Narrow, Arial, sans-serif" font-size="10" font-weight="700" letter-spacing="1.6">VERIFY BEFORE TERMS</text>
+</svg>

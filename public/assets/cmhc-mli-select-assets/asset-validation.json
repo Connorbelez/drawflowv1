@@ -1,0 +1,190 @@
+{
+  "assets": [
+    {
+      "section": "mli.hero",
+      "slug": "hero-multiplex-building",
+      "path": "public/assets/cmhc-mli-select-assets/images/hero-multiplex-building.webp",
+      "width": 1383,
+      "height": 928,
+      "coverage": 0.6769,
+      "sizeBytes": 321776,
+      "alphaValidated": true,
+      "optimized": true,
+      "webpQuality": 90,
+      "webpMethod": 6
+    },
+    {
+      "section": "mli.what-it-is",
+      "slug": "mli-framework-document-stack",
+      "path": "public/assets/cmhc-mli-select-assets/images/mli-framework-document-stack.webp",
+      "width": 958,
+      "height": 891,
+      "coverage": 0.6108,
+      "sizeBytes": 110506,
+      "alphaValidated": true,
+      "optimized": true,
+      "webpQuality": 90,
+      "webpMethod": 6
+    },
+    {
+      "section": "mli.why-matters",
+      "slug": "rental-construction-capital-planning",
+      "path": "public/assets/cmhc-mli-select-assets/images/rental-construction-capital-planning.webp",
+      "width": 1294,
+      "height": 951,
+      "coverage": 0.5172,
+      "sizeBytes": 320780,
+      "alphaValidated": true,
+      "optimized": true,
+      "webpQuality": 90,
+      "webpMethod": 6
+    },
+    {
+      "section": "mli.pillars",
+      "slug": "affordability-accessibility-energy-pillars",
+      "path": "public/assets/cmhc-mli-select-assets/images/affordability-accessibility-energy-pillars.webp",
+      "width": 1425,
+      "height": 796,
+      "coverage": 0.5663,
+      "sizeBytes": 125596,
+      "alphaValidated": true,
+      "optimized": true,
+      "webpQuality": 90,
+      "webpMethod": 6
+    },
+    {
+      "section": "mli.project-fit",
+      "slug": "multiplex-rental-project-cluster",
+      "path": "public/assets/cmhc-mli-select-assets/images/multiplex-rental-project-cluster.webp",
+      "width": 1468,
+      "height": 866,
+      "coverage": 0.6677,
+      "sizeBytes": 371388,
+      "alphaValidated": true,
+      "optimized": true,
+      "webpQuality": 90,
+      "webpMethod": 6
+    },
+    {
+      "section": "mli.how-fairlend-helps",
+      "slug": "advisor-review-desk",
+      "path": "public/assets/cmhc-mli-select-assets/images/advisor-review-desk.webp",
+      "width": 1600,
+      "height": 881,
+      "coverage": 0.5987,
+      "sizeBytes": 181856,
+      "alphaValidated": true,
+      "optimized": true,
+      "webpQuality": 90,
+      "webpMethod": 6
+    },
+    {
+      "section": "mli.no-guarantee",
+      "slug": "compliance-caution-folder",
+      "path": "public/assets/cmhc-mli-select-assets/images/compliance-caution-folder.webp",
+      "width": 888,
+      "height": 946,
+      "coverage": 0.668,
+      "sizeBytes": 100724,
+      "alphaValidated": true,
+      "optimized": true,
+      "webpQuality": 90,
+      "webpMethod": 6
+    },
+    {
+      "section": "mli.qualification-gaps",
+      "slug": "readiness-gap-dossier",
+      "path": "public/assets/cmhc-mli-select-assets/images/readiness-gap-dossier.webp",
+      "width": 1266,
+      "height": 935,
+      "coverage": 0.7198,
+      "sizeBytes": 107170,
+      "alphaValidated": true,
+      "optimized": true,
+      "webpQuality": 90,
+      "webpMethod": 6
+    },
+    {
+      "section": "mli.documents-needed",
+      "slug": "project-file-folder",
+      "path": "public/assets/cmhc-mli-select-assets/images/project-file-folder.webp",
+      "width": 1112,
+      "height": 919,
+      "coverage": 0.6948,
+      "sizeBytes": 134308,
+      "alphaValidated": true,
+      "optimized": true,
+      "webpQuality": 90,
+      "webpMethod": 6
+    },
+    {
+      "section": "mli.readiness-tool",
+      "slug": "readiness-review-kit",
+      "path": "public/assets/cmhc-mli-select-assets/images/readiness-review-kit.webp",
+      "width": 1341,
+      "height": 972,
+      "coverage": 0.5877,
+      "sizeBytes": 184596,
+      "alphaValidated": true,
+      "optimized": true,
+      "webpQuality": 90,
+      "webpMethod": 6
+    },
+    {
+      "section": "mli.faq",
+      "slug": "faq-next-steps-cards",
+      "path": "public/assets/cmhc-mli-select-assets/images/faq-next-steps-cards.webp",
+      "width": 1280,
+      "height": 938,
+      "coverage": 0.7666,
+      "sizeBytes": 206600,
+      "alphaValidated": true,
+      "optimized": true,
+      "webpQuality": 90,
+      "webpMethod": 6
+    },
+    {
+      "section": "mli.final-cta",
+      "slug": "final-cta-planning-desk",
+      "path": "public/assets/cmhc-mli-select-assets/images/final-cta-planning-desk.webp",
+      "width": 1600,
+      "height": 836,
+      "coverage": 0.6597,
+      "sizeBytes": 236340,
+      "alphaValidated": true,
+      "optimized": true,
+      "webpQuality": 90,
+      "webpMethod": 6
+    },
+    {
+      "section": "mli.final-cta.composite",
+      "slug": "final-cta-desk-composite",
+      "path": "public/assets/cmhc-mli-select-assets/images/final-cta-desk-composite.webp",
+      "width": 1120,
+      "height": 920,
+      "coverage": 0.71,
+      "sizeBytes": 176826,
+      "alphaValidated": true,
+      "optimized": true,
+      "webpQuality": 90,
+      "webpMethod": 6
+    }
+  ],
+  "patterns": [
+    {
+      "slug": "paper-grain-transparent",
+      "path": "public/assets/cmhc-mli-select-assets/patterns/paper-grain-transparent.webp",
+      "width": 768,
+      "height": 768,
+      "alphaValidated": true
+    },
+    {
+      "slug": "blueprint-grid-transparent",
+      "path": "public/assets/cmhc-mli-select-assets/patterns/blueprint-grid-transparent.webp",
+      "width": 768,
+      "height": 768,
+      "alphaValidated": true
+    }
+  ],
+  "contactSheet": "public/assets/cmhc-mli-select-assets/contact-sheet.png"
+}

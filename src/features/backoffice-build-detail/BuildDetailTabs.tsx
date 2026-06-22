@@ -23,10 +23,15 @@ export const BUILD_DETAIL_TABS: { value: BuildDetailSubTab; label: string }[] =
 export function BuildDetailTabBar({
   activeTab,
   onChangeTab,
+  tabs = BUILD_DETAIL_TABS.map((tab) => tab.value),
 }: {
   activeTab: BuildDetailSubTab;
   onChangeTab: (tab: BuildDetailSubTab) => void;
+  tabs?: BuildDetailSubTab[];
 }) {
+  const visibleTabs = BUILD_DETAIL_TABS.filter((tab) =>
+    tabs.includes(tab.value),
+  );
   return (
     <div className="-mx-2 overflow-x-auto px-2 sm:mx-0 sm:px-0">
       <div
@@ -34,7 +39,7 @@ export function BuildDetailTabBar({
         data-testid="build-detail-tabbar"
         role="tablist"
       >
-        {BUILD_DETAIL_TABS.map((tab) => (
+        {visibleTabs.map((tab) => (
           <button
             aria-selected={activeTab === tab.value}
             className={

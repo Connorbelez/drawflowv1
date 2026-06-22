@@ -19,7 +19,7 @@ import {
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
-type BuilderBuildSearch = {
+export type BuilderBuildSearch = {
   timeframe?: CalendarTimeframe;
   milestone?: string;
   tab?:
@@ -73,8 +73,34 @@ function BuilderBuildRoute() {
   const { buildId } = Route.useParams();
   const context = Route.useRouteContext();
   const search = Route.useSearch();
+  return (
+    <BuilderBuildWorkspaceRoute
+      buildId={buildId}
+      enableContractorLinks
+      includeStaffTab
+      routeBase="/builder"
+      search={search}
+      workosOrganizationId={context.organizationId as string}
+    />
+  );
+}
+
+export function BuilderBuildWorkspaceRoute({
+  buildId,
+  enableContractorLinks,
+  includeStaffTab,
+  routeBase,
+  search,
+  workosOrganizationId,
+}: {
+  buildId: string;
+  enableContractorLinks: boolean;
+  includeStaffTab: boolean;
+  routeBase: "/builder" | "/builder-staff";
+  search: BuilderBuildSearch;
+  workosOrganizationId: string;
+}) {
   const navigate = useNavigate();
-  const workosOrganizationId = context.organizationId as string;
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
   const productionBuildQuery = useQuery(
     api.production_proposals.getActiveBuildDetailByString,
@@ -129,28 +155,28 @@ function BuilderBuildRoute() {
       params: { buildId },
       replace: true,
       search: { ...search, tab },
-      to: "/builder/builds/$buildId",
+      to: `${routeBase}/builds/$buildId` as never,
     });
   const onChangeRail = (rail: "open" | "closed") =>
     navigate({
       params: { buildId },
       replace: true,
       search: { ...search, rail },
-      to: "/builder/builds/$buildId",
+      to: `${routeBase}/builds/$buildId` as never,
     });
   const onChangeMilestone = (milestone?: string) =>
     navigate({
       params: { buildId },
       replace: true,
       search: { ...search, milestone },
-      to: "/builder/builds/$buildId",
+      to: `${routeBase}/builds/$buildId` as never,
     });
   const onChangeCalendarTimeframe = (timeframe: CalendarTimeframe) =>
     navigate({
       params: { buildId },
       replace: true,
       search: { ...search, timeframe },
-      to: "/builder/builds/$buildId",
+      to: `${routeBase}/builds/$buildId` as never,
     });
 
   if (effectiveProductionBuild === undefined) {
@@ -259,12 +285,14 @@ function BuilderBuildRoute() {
       activeTab={search.tab ?? "details"}
       calendarTimeframe={search.timeframe}
       calendarWorkspace={calendarWorkspaceQuery as any}
-      breadcrumbRootHref="/builder"
+      breadcrumbRootHref={routeBase}
       breadcrumbRootLabel="Builder"
-      breadcrumbSectionHref="/builder/proposals"
+      breadcrumbSectionHref={`${routeBase}/builds`}
       breadcrumbSectionLabel="Live Builds"
-      contractorDetailHrefFor={(contractorId) =>
-        `/builder/contractors/${contractorId}`
+      contractorDetailHrefFor={
+        enableContractorLinks
+          ? (contractorId) => `/builder/contractors/${contractorId}`
+          : undefined
       }
       detail={detail}
       milestoneKey={search.milestone}
@@ -274,7 +302,7 @@ function BuilderBuildRoute() {
       onChangeTab={onChangeTab}
       rail={search.rail}
       staff={
-        visualFixtureEnabled ? undefined : (
+        visualFixtureEnabled || !includeStaffTab ? undefined : (
           <BuilderStaffPermissionsPanel
             buildId={activeBuildId as Id<"activeBuilds">}
             scope="activeBuild"
@@ -283,6 +311,11 @@ function BuilderBuildRoute() {
         )
       }
       timelineWorkspace={effectiveTimelineWorkspace as any}
+      visibleTabs={
+        includeStaffTab
+          ? undefined
+          : ["details", "timeline", "evidence", "materials", "calendar", "gantt"]
+      }
       viewerRole="builder"
       workosOrganizationId={workosOrganizationId}
     />

@@ -41,15 +41,14 @@ const editableFilterChipVariants = cva(
 const editableNumberChipVariants = cva(
   [
     "group/editable-chip relative inline-flex min-w-[var(--editable-chip-reserve-width,auto)] max-w-none items-center rounded-full border",
-    "border-[#3f414c] bg-[#1d1d22] text-white tabular-nums shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_1px_2px_rgba(0,0,0,0.35)]",
+    "tabular-nums",
     "transition-[background-color,border-color,box-shadow,transform] duration-200",
-    "hover:border-[#555762] focus-within:border-white focus-within:ring-2 focus-within:ring-white",
-    "data-editing:border-white data-editing:ring-2 data-editing:ring-white",
     "has-disabled:pointer-events-none has-disabled:opacity-60",
   ].join(" "),
   {
     defaultVariants: {
       size: "metric",
+      tone: "dark",
       weight: "semibold",
     },
     variants: {
@@ -60,6 +59,18 @@ const editableNumberChipVariants = cva(
           "min-h-7 gap-1 px-1.5 py-0.5 text-xs leading-none [--editable-chip-action-size:1.45rem]",
         "money-lg":
           "min-h-10 gap-2 px-3 py-1 text-[1.2rem] leading-none [--editable-chip-action-size:2rem]",
+      },
+      tone: {
+        dark: [
+          "border-[#3f414c] bg-[#1d1d22] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_1px_2px_rgba(0,0,0,0.35)]",
+          "hover:border-[#555762] focus-within:border-white focus-within:ring-2 focus-within:ring-white",
+          "data-editing:border-white data-editing:ring-2 data-editing:ring-white",
+        ].join(" "),
+        light: [
+          "border-border bg-background text-foreground shadow-xs",
+          "hover:border-primary/45 hover:bg-muted/40 focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/35",
+          "data-editing:border-primary/60 data-editing:ring-2 data-editing:ring-primary/35",
+        ].join(" "),
       },
       weight: {
         medium: "font-medium",
@@ -204,6 +215,7 @@ export function EditableNumberChip({
   style,
   suffix,
   testId,
+  tone,
   value,
   weight,
   ...props
@@ -270,13 +282,17 @@ export function EditableNumberChip({
   const resolvedInputWidth =
     inputWidth ??
     `${Math.max(3, draftValue.length + (prefix ? 1 : 0) + (suffix ? 2 : 0))}ch`;
+  const lightTone = tone === "light";
 
   return (
     <motion.span
       animate={{
         scale: editing ? 1.01 : 1,
       }}
-      className={cn(editableNumberChipVariants({ size, weight }), className)}
+      className={cn(
+        editableNumberChipVariants({ size, tone, weight }),
+        className
+      )}
       data-editing={editing ? "" : undefined}
       data-slot="editable-number-chip"
       data-testid={testId}
@@ -309,13 +325,23 @@ export function EditableNumberChip({
             transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
           >
             {prefix ? (
-              <span className="shrink-0 whitespace-nowrap text-white/95">
+              <span
+                className={cn(
+                  "shrink-0 whitespace-nowrap",
+                  lightTone ? "text-foreground/90" : "text-white/95"
+                )}
+              >
                 {prefix}
               </span>
             ) : null}
             <input
               aria-label={ariaLabel}
-              className="w-[var(--editable-chip-input-width,6rem)] min-w-[3ch] border-0 bg-transparent p-0 text-[inherit] font-[inherit] leading-[inherit] text-white outline-none selection:bg-white/25 selection:text-white"
+              className={cn(
+                "w-[var(--editable-chip-input-width,6rem)] min-w-[3ch] border-0 bg-transparent p-0 text-[inherit] font-[inherit] leading-[inherit] outline-none",
+                lightTone
+                  ? "text-foreground selection:bg-primary/30 selection:text-foreground"
+                  : "text-white selection:bg-white/25 selection:text-white"
+              )}
               inputMode={inputMode}
               max={max}
               min={min}
@@ -328,14 +354,24 @@ export function EditableNumberChip({
               value={draftValue}
             />
             {suffix ? (
-              <span className="shrink-0 whitespace-nowrap text-white/95">
+              <span
+                className={cn(
+                  "shrink-0 whitespace-nowrap",
+                  lightTone ? "text-foreground/90" : "text-white/95"
+                )}
+              >
                 {suffix}
               </span>
             ) : null}
             <motion.button
               aria-label={`Save ${ariaLabel}`}
               animate={{ opacity: 1, scale: 1 }}
-              className="grid size-[var(--editable-chip-action-size)] shrink-0 place-items-center rounded-full bg-white text-black shadow-[0_1px_2px_rgba(0,0,0,0.22)] transition-colors hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+              className={cn(
+                "grid size-[var(--editable-chip-action-size)] shrink-0 place-items-center rounded-full shadow-[0_1px_2px_rgba(0,0,0,0.22)] transition-colors focus-visible:outline-none focus-visible:ring-2",
+                lightTone
+                  ? "bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-primary/45"
+                  : "bg-white text-black hover:bg-white/90 focus-visible:ring-white/70"
+              )}
               initial={{ opacity: 0, scale: 0.84 }}
               onClick={(event) => {
                 event.stopPropagation();
@@ -373,7 +409,14 @@ export function EditableNumberChip({
           >
             <span className="whitespace-nowrap">{formatDisplay(value)}</span>
             {!disabled ? (
-              <span className="grid size-[var(--editable-chip-action-size)] shrink-0 place-items-center rounded-full bg-[#303036] text-[#c9cbd5] transition-colors group-hover/editable-chip:bg-[#383941] group-hover/editable-chip:text-white">
+              <span
+                className={cn(
+                  "grid size-[var(--editable-chip-action-size)] shrink-0 place-items-center rounded-full transition-colors",
+                  lightTone
+                    ? "bg-muted text-muted-foreground ring-1 ring-border/80 group-hover/editable-chip:bg-primary/15 group-hover/editable-chip:text-primary-foreground"
+                    : "bg-[#303036] text-[#c9cbd5] group-hover/editable-chip:bg-[#383941] group-hover/editable-chip:text-white"
+                )}
+              >
                 <Pencil className="size-1/2 fill-current stroke-[2.5]" />
               </span>
             ) : null}

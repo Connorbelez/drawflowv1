@@ -583,6 +583,7 @@ export function ProductionBuildDetailSurface({
   rail,
   staff,
   timelineWorkspace,
+  visibleTabs,
   viewerRole = "lender",
   workosOrganizationId,
 }: {
@@ -605,6 +606,7 @@ export function ProductionBuildDetailSurface({
   rail?: "open" | "closed";
   staff?: React.ReactNode;
   timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null;
+  visibleTabs?: BuildDetailSubTab[];
   viewerRole?: "builder" | "lender";
   workosOrganizationId?: string;
 }) {
@@ -656,7 +658,11 @@ export function ProductionBuildDetailSurface({
           onOpenEvents={() => onChangeRail("open")}
           permit={permit}
         />
-        <BuildDetailTabBar activeTab={activeTab} onChangeTab={onChangeTab} />
+        <BuildDetailTabBar
+          activeTab={activeTab}
+          onChangeTab={onChangeTab}
+          tabs={visibleTabs}
+        />
         {activeTab === "details" ? (
           <ProductionDetailsTab
             actions={actions}

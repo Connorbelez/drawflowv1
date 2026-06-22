@@ -101,7 +101,12 @@ export function AppShell({
         >
           {children}
         </div>
-        {/* Junction mark sits above scroll surfaces so it stays visible after load. */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none fixed inset-x-0 top-14 z-[54] hidden border-t border-border md:block"
+          data-testid="app-shell-junction-rule"
+        />
+        {/* Junction mark sits above the shared shell hairline so the seam never breaks. */}
         <DecorIcon position="junction" />
         <DrawFlowCommandPalette
           onAssistantOpen={openAssistant}

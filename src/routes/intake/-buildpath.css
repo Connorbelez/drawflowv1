@@ -10120,3 +10120,512 @@ body:has(.bp-page) button[aria-label="Open TanStack Devtools"] {
     width: 324px;
   }
 }
+
+/* Final mobile section polish: convert blueprint posters into readable phone layouts. */
+@media (max-width: 820px) {
+  .bp-capital-feature {
+    min-height: auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+    gap: 24px;
+    overflow: hidden;
+    padding: 48px clamp(18px, 5vw, 26px) 44px;
+  }
+
+  .bp-capital-feature::before {
+    inset: 14px;
+  }
+
+  .bp-capital-feature-copy,
+  .bp-capital-milestone-timeline,
+  .bp-capital-feature-art,
+  .bp-capital-feature-stats {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .bp-capital-feature-copy {
+    max-width: none;
+  }
+
+  .bp-capital-feature-copy > span {
+    font-size: 11px;
+    letter-spacing: 0.14em;
+  }
+
+  .bp-capital-feature-copy h2 {
+    max-width: 11.25ch;
+    margin-top: 12px;
+    font-size: clamp(38px, 10.2vw, 50px);
+    line-height: 0.97;
+  }
+
+  .bp-capital-feature-copy h2::after {
+    width: 80px;
+    margin-top: 20px;
+  }
+
+  .bp-capital-feature-copy p {
+    max-width: 34ch;
+    font-size: clamp(16px, 4.35vw, 18px);
+    line-height: 1.42;
+  }
+
+  .bp-capital-feature-actions {
+    width: 100%;
+    gap: 12px;
+  }
+
+  .bp-capital-feature-actions .bp-primary-cta,
+  .bp-capital-feature-actions .bp-secondary-cta {
+    height: 58px;
+    border-radius: 8px;
+    font-size: 16px;
+  }
+
+  .bp-capital-feature-art,
+  .bp-capital-dimension {
+    display: none;
+  }
+
+  .bp-capital-milestone-timeline {
+    min-height: 0;
+    gap: 10px;
+    padding-left: 0;
+  }
+
+  .bp-capital-milestone-item {
+    min-height: 0;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+  }
+
+  .bp-capital-milestone-dot {
+    width: 34px;
+    height: 34px;
+    margin-top: 8px;
+  }
+
+  .bp-capital-milestone-connector {
+    top: 42px;
+    left: 16px;
+    height: calc(100% + 10px);
+  }
+
+  .bp-capital-milestone-content {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .bp-capital-milestone-header {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .bp-capital-milestone-header [data-slot="timeline-title"] {
+    font-size: 12px;
+  }
+
+  .bp-capital-milestone-header time {
+    font-size: 12px;
+  }
+
+  .bp-capital-milestone-card {
+    min-height: 0;
+    gap: 7px;
+    padding: 16px;
+    border-radius: 11px;
+  }
+
+  .bp-capital-milestone-card::after {
+    display: none;
+  }
+
+  .bp-capital-milestone-card strong {
+    font-size: clamp(26px, 7.6vw, 34px);
+  }
+
+  .bp-capital-milestone-card span {
+    font-size: 11px;
+  }
+
+  .bp-capital-unlock-bar {
+    height: 10px;
+  }
+
+  .bp-capital-feature-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .bp-capital-feature-stats div {
+    min-height: 68px;
+    padding: 12px 10px;
+  }
+
+  .bp-capital-feature-stats strong {
+    font-size: 20px;
+  }
+
+  .bp-capital-feature-stats span {
+    font-size: 10px;
+  }
+
+  .bp-landing-section.bp-squeeze,
+  .bp-squeeze {
+    overflow: hidden;
+    padding: 0;
+  }
+
+  .bp-landing-section.bp-squeeze::after {
+    display: none;
+    content: none;
+  }
+
+  .bp-squeeze-stage {
+    display: grid;
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    gap: 28px;
+    overflow: hidden;
+    padding: 48px clamp(18px, 5vw, 24px);
+    border-right: 0;
+    border-left: 0;
+    box-shadow: none;
+    contain: layout paint;
+  }
+
+  .bp-squeeze-stage::after {
+    inset: 12px;
+  }
+
+  .bp-squeeze-brand,
+  .bp-squeeze-stamp,
+  .bp-left-blueprint,
+  .bp-capital-continuum,
+  .bp-squeeze-drafting-grid {
+    display: none;
+  }
+
+  .bp-squeeze-hero-copy,
+  .bp-rigid-plan,
+  .bp-milestone-plan,
+  .bp-squeeze-bottom {
+    position: relative;
+    inset: auto;
+    top: auto;
+    right: auto;
+    bottom: auto;
+    left: auto;
+    width: 100%;
+    height: auto;
+  }
+
+  .bp-squeeze-hero-copy {
+    display: grid;
+    gap: 12px;
+  }
+
+  .bp-squeeze-kicker {
+    margin: 0;
+    padding-bottom: 7px;
+    font-size: 12px;
+    letter-spacing: 0.24em;
+  }
+
+  .bp-squeeze-hero-copy h2 {
+    max-width: 8.8ch;
+    font-size: clamp(46px, 13.5vw, 60px);
+    line-height: 0.94;
+  }
+
+  .bp-squeeze-hero-copy > p:last-child {
+    max-width: 24ch;
+    margin: 0;
+    font-size: clamp(20px, 5.6vw, 24px);
+    line-height: 1.22;
+  }
+
+  .bp-rigid-plan,
+  .bp-milestone-plan {
+    box-sizing: border-box;
+    min-height: 470px;
+    overflow: hidden;
+    padding: 20px;
+    border: 1px solid oklch(0.58 0.075 250 / 0.26);
+    border-radius: 14px;
+    background:
+      linear-gradient(180deg, oklch(0.997 0.003 72 / 0.72), oklch(0.975 0.01 72 / 0.5)),
+      repeating-linear-gradient(0deg, transparent 0 19px, oklch(0.58 0.075 250 / 0.052) 19px 20px);
+  }
+
+  .bp-rigid-plan {
+    border-color: oklch(0.68 0.19 31 / 0.28);
+  }
+
+  .bp-milestone-plan {
+    border-color: oklch(0.42 0.105 146 / 0.26);
+  }
+
+  .bp-rigid-heading,
+  .bp-milestone-heading {
+    top: 20px;
+    left: 20px;
+  }
+
+  .bp-rigid-heading h3,
+  .bp-milestone-heading h3 {
+    font-size: 12px;
+  }
+
+  .bp-rigid-heading p,
+  .bp-milestone-heading p {
+    max-width: 24ch;
+    font-size: 12px;
+    line-height: 1.25;
+  }
+
+  .bp-cash-stress-legend,
+  .bp-aligned-legend {
+    top: 92px;
+    right: 20px;
+    max-width: 150px;
+  }
+
+  .bp-aligned-legend {
+    display: none;
+  }
+
+  .bp-cash-stress-legend span,
+  .bp-aligned-legend span {
+    width: 26px;
+    height: 4px;
+  }
+
+  .bp-cash-stress-legend p,
+  .bp-aligned-legend p {
+    font-size: 12px;
+  }
+
+  .bp-rigid-axis {
+    top: 244px;
+    left: -8%;
+    width: 116%;
+  }
+
+  .bp-cash-stress-curve {
+    top: 222px;
+    left: -8%;
+    width: 116%;
+  }
+
+  .bp-rigid-note {
+    width: 78px;
+  }
+
+  .bp-rigid-note.is-draw-1 {
+    top: 145px;
+    left: 10%;
+  }
+
+  .bp-rigid-note.is-draw-2 {
+    top: 132px;
+    left: 42%;
+  }
+
+  .bp-rigid-note.is-draw-3 {
+    top: 120px;
+    left: 72%;
+  }
+
+  .bp-rigid-callouts {
+    right: 18px;
+    bottom: 18px;
+    left: 18px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    padding: 0;
+  }
+
+  .bp-rigid-callouts p {
+    grid-template-columns: 24px minmax(0, 1fr);
+    gap: 9px;
+    padding: 10px 12px;
+    border: 1px solid oklch(0.68 0.19 31 / 0.18);
+    border-radius: 10px;
+    background: oklch(0.997 0.003 72 / 0.7);
+    font-size: 13px;
+  }
+
+  .bp-rigid-callouts img {
+    width: 22px;
+    height: 22px;
+  }
+
+  .bp-milestone-blueprint {
+    right: 6%;
+    bottom: 56px;
+    width: 88%;
+  }
+
+  .bp-milestone-node {
+    width: 54px;
+  }
+
+  .bp-milestone-node span {
+    display: none;
+  }
+
+  .bp-milestone-node::before {
+    height: 46px;
+  }
+
+  .bp-milestone-node.is-foundation {
+    top: 144px;
+    left: 13%;
+  }
+
+  .bp-milestone-node.is-framing {
+    top: 132px;
+    left: 29%;
+  }
+
+  .bp-milestone-node.is-roof {
+    top: 118px;
+    left: 45%;
+  }
+
+  .bp-milestone-node.is-dry-in {
+    top: 112px;
+    left: 61%;
+  }
+
+  .bp-milestone-node.is-interiors {
+    top: 122px;
+    left: 77%;
+  }
+
+  .bp-milestone-node.is-final {
+    top: 138px;
+    left: 92%;
+  }
+
+  .bp-squeeze-bottom {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .bp-squeeze-handoff {
+    display: none;
+  }
+
+  .bp-squeeze-panel {
+    min-height: 0;
+    padding: 16px;
+    border-radius: 14px;
+  }
+
+  .bp-squeeze-panel-title {
+    gap: 8px;
+    padding-bottom: 12px;
+  }
+
+  .bp-squeeze-panel-title img {
+    width: 22px;
+    height: 22px;
+  }
+
+  .bp-squeeze-panel-title h3 {
+    font-size: 13px;
+  }
+
+  .bp-squeeze-panel-items {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    padding-top: 14px;
+  }
+
+  .bp-squeeze-panel-item {
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .bp-squeeze-panel-item > img {
+    width: 30px;
+    height: 30px;
+  }
+
+  .bp-squeeze-panel-item h4 {
+    margin-bottom: 3px;
+    font-size: 15px;
+  }
+
+  .bp-squeeze-panel-item p {
+    font-size: 14px;
+    line-height: 1.32;
+  }
+}
+
+@media (max-width: 430px) {
+  .bp-capital-feature {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .bp-capital-feature-copy h2 {
+    max-width: 10.5ch;
+    font-size: clamp(36px, 10vw, 44px);
+  }
+
+  .bp-capital-feature-stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bp-squeeze-stage {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .bp-squeeze-hero-copy h2 {
+    font-size: clamp(42px, 12.5vw, 54px);
+  }
+
+  .bp-rigid-plan,
+  .bp-milestone-plan {
+    min-height: 450px;
+    padding: 18px;
+  }
+
+  .bp-rigid-heading,
+  .bp-milestone-heading {
+    top: 18px;
+    left: 18px;
+  }
+
+  .bp-cash-stress-legend,
+  .bp-aligned-legend {
+    right: 18px;
+  }
+
+  .bp-rigid-note {
+    width: 70px;
+  }
+
+  .bp-rigid-note.is-draw-1 {
+    left: 8%;
+  }
+
+  .bp-rigid-note.is-draw-3 {
+    left: 73%;
+  }
+
+  .bp-rigid-axis,
+  .bp-cash-stress-curve {
+    left: -13%;
+    width: 126%;
+  }
+}

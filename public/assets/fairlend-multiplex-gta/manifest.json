@@ -1,0 +1,173 @@
+{
+  "assetPack": "fairlend-multiplex-gta",
+  "screen": "Multiplex Financing GTA",
+  "route": "/multiplex-financing-gta",
+  "createdAt": "2026-06-11",
+  "generationMode": "built-in image_gen, one generated photo prompt per section, optimized with cwebp q82",
+  "brandDirection": {
+    "baseKit": {
+      "name": "Human-Scale-Housing",
+      "path": "/designConcepts/Human-Scale-Housing.png"
+    },
+    "blend": "Human housing warmth with soft-brutalist Fairlend structure: hard rules, squared CTAs, dark-green rails, permit/document stamps, paper grain, blueprint fields, and restrained terracotta/civic-blue accents.",
+    "palette": {
+      "paperWhite": "#FEFAF2",
+      "blackGreen": "#081D18",
+      "civicBlue": "#245E88",
+      "softLime": "#CDEB78",
+      "burntOrange": "#D85D34",
+      "warmGray": "#D8D3C9"
+    }
+  },
+  "constraints": {
+    "canonicalSectionCount": 8,
+    "photoRule": "Exactly one photographic asset per page section. Do not add extra thumbnails, collage strips, secondary photos, or baked-in photo panels inside section UI.",
+    "photoTreatment": "Clear, inspectable GTA missing-middle housing and financing-review imagery with warm paper-compatible grade. No readable text, logos, watermarks, UI, or blueprint overlays inside the photo assets.",
+    "uiTreatment": "Build diagrams, stamps, rails, checklists, labels, and capital/draw structures with code or SVG assets so the page remains editable."
+  },
+  "sections": [
+    {
+      "section": "multiplex.hero",
+      "order": 1,
+      "title": "Multiplex Financing in the GTA",
+      "purpose": "Match search intent and immediately communicate financing relevance.",
+      "photo": {
+        "path": "/assets/fairlend-multiplex-gta/images/section-01-hero-multiplex-street.webp",
+        "sourcePath": "/assets/fairlend-multiplex-gta/source/section-01-hero-multiplex-street-source.png",
+        "dimensions": { "width": 1672, "height": 941 },
+        "alt": "Modern GTA multiplex building on a quiet residential street.",
+        "usageNotes": "Hero image. Use as one large image with a readable safe area for the headline and squared CTAs; avoid additional hero thumbnails."
+      }
+    },
+    {
+      "section": "multiplex.what-we-finance",
+      "order": 2,
+      "title": "What Fairlend finances",
+      "purpose": "Clarify project fit.",
+      "photo": {
+        "path": "/assets/fairlend-multiplex-gta/images/section-02-project-fit-builder-review.webp",
+        "sourcePath": "/assets/fairlend-multiplex-gta/source/section-02-project-fit-builder-review-source.png",
+        "dimensions": { "width": 1568, "height": 1003 },
+        "alt": "Builder reviewing plans beside a GTA multiplex construction site.",
+        "usageNotes": "Pair with project-type list or grid. Keep this as the only photo in the section; render project cards as code."
+      }
+    },
+    {
+      "section": "multiplex.definition",
+      "order": 3,
+      "title": "What counts as a multiplex?",
+      "purpose": "Educate early-stage borrowers and align terminology.",
+      "photo": {
+        "path": "/assets/fairlend-multiplex-gta/images/section-03-multiplex-definition-facade.webp",
+        "sourcePath": "/assets/fairlend-multiplex-gta/source/section-03-multiplex-definition-facade-source.png",
+        "dimensions": { "width": 1672, "height": 941 },
+        "alt": "Completed missing-middle multiplex facade with multiple unit entries.",
+        "usageNotes": "Use as the single definition photo with code-rendered labels for triplex, fourplex, six-unit, and garden-suite examples."
+      }
+    },
+    {
+      "section": "multiplex.why-hard",
+      "order": 4,
+      "title": "Why multiplex financing is hard",
+      "purpose": "Name the pain points that make Fairlend relevant.",
+      "photo": {
+        "path": "/assets/fairlend-multiplex-gta/images/section-04-financing-gap-renovation.webp",
+        "sourcePath": "/assets/fairlend-multiplex-gta/source/section-04-financing-gap-renovation-source.png",
+        "dimensions": { "width": 1586, "height": 992 },
+        "alt": "Partially renovated GTA multiplex construction site with open framing.",
+        "usageNotes": "Use as one atmospheric problem photo with challenge rows rendered separately as stamped code elements."
+      }
+    },
+    {
+      "section": "multiplex.capital-stack",
+      "order": 5,
+      "title": "Common capital stack issues",
+      "purpose": "Show understanding of financing mechanics.",
+      "photo": {
+        "path": "/assets/fairlend-multiplex-gta/images/section-05-capital-stack-desk.webp",
+        "sourcePath": "/assets/fairlend-multiplex-gta/source/section-05-capital-stack-desk-source.png",
+        "dimensions": { "width": 1672, "height": 941 },
+        "alt": "Capital-planning desk with drawings, calculator, and multiplex financing documents.",
+        "usageNotes": "Embed as the only photo next to a code-rendered capital-stack diagram. Do not use extra document thumbnails."
+      }
+    },
+    {
+      "section": "multiplex.draw-planning",
+      "order": 6,
+      "title": "Construction budget and draw planning",
+      "purpose": "Differentiate Fairlend as construction-aware.",
+      "photo": {
+        "path": "/assets/fairlend-multiplex-gta/images/section-06-draw-planning-framing.webp",
+        "sourcePath": "/assets/fairlend-multiplex-gta/source/section-06-draw-planning-framing-source.png",
+        "dimensions": { "width": 1586, "height": 992 },
+        "alt": "Multiplex construction framing site with organized building materials.",
+        "usageNotes": "Use as the single construction progress photo. Render draw timeline, inspection nodes, and liquidity gap as code/SVG overlays or adjacent UI."
+      }
+    },
+    {
+      "section": "multiplex.mli-select-and-documents",
+      "order": 7,
+      "title": "Readiness before promises",
+      "purpose": "Connect MLI Select considerations to document readiness without implying qualification.",
+      "photo": {
+        "path": "/assets/fairlend-multiplex-gta/images/section-07-readiness-documents.webp",
+        "sourcePath": "/assets/fairlend-multiplex-gta/source/section-07-readiness-documents-source.png",
+        "dimensions": { "width": 1672, "height": 941 },
+        "alt": "Financing readiness desk with architectural drawings and review documents.",
+        "usageNotes": "Use as one unbroken readiness photo. Render checklist rows, caution copy, and MLI disclaimer in accessible HTML."
+      }
+    },
+    {
+      "section": "multiplex.examples-process-final-cta",
+      "order": 8,
+      "title": "Ready to assess your multiplex project?",
+      "purpose": "Close with project examples, process clarity, and intake CTA.",
+      "photo": {
+        "path": "/assets/fairlend-multiplex-gta/images/section-08-final-cta-completed-multiplex.webp",
+        "sourcePath": "/assets/fairlend-multiplex-gta/source/section-08-final-cta-completed-multiplex-source.png",
+        "dimensions": { "width": 1568, "height": 1003 },
+        "alt": "Completed GTA multiplex building with warm residential lighting.",
+        "usageNotes": "Use as the final single housing proof photo beside process steps and CTA. Do not add a footer photo collage."
+      }
+    }
+  ],
+  "supportAssets": {
+    "patterns": {
+      "blueprintGrid": {
+        "path": "/assets/fairlend-multiplex-gta/patterns/blueprint-grid.svg",
+        "usage": "Subtle section backgrounds, side rails, and blueprint fields."
+      },
+      "paperGrain": {
+        "path": "/assets/fairlend-multiplex-gta/patterns/paper-grain.svg",
+        "usage": "Warm paper texture overlay for public Fairlend surfaces."
+      }
+    },
+    "icons": {
+      "fairlendMonogram": {
+        "path": "/assets/fairlend-multiplex-gta/icons/fairlend-monogram.svg",
+        "usage": "Local page monogram or side-rail brand mark."
+      },
+      "reviewStamp": {
+        "path": "/assets/fairlend-multiplex-gta/icons/review-stamp.svg",
+        "usage": "Review/readiness stamp motif. Decorative; keep actual claims in HTML text."
+      },
+      "permitStamp": {
+        "path": "/assets/fairlend-multiplex-gta/icons/permit-stamp.svg",
+        "usage": "Permit-status motif for definition, hard-financing, and readiness sections."
+      },
+      "warningTriangle": {
+        "path": "/assets/fairlend-multiplex-gta/icons/warning-triangle.svg",
+        "usage": "Caution marker for disclaimers and non-guarantee copy."
+      },
+      "drawMilestoneMark": {
+        "path": "/assets/fairlend-multiplex-gta/icons/draw-milestone-mark.svg",
+        "usage": "Draw-planning milestone accent."
+      }
+    }
+  },
+  "qa": {
+    "contactSheet": "/assets/fairlend-multiplex-gta/contact-sheet.jpg",
+    "verificationCommand": "node -e \"const fs=require('fs'); const m=JSON.parse(fs.readFileSync('public/assets/fairlend-multiplex-gta/manifest.json','utf8')); if(m.sections.length!==8) throw new Error('expected 8 sections'); for(const s of m.sections){ if(!s.photo?.path) throw new Error('missing photo '+s.section); const p='public'+s.photo.path; if(!fs.existsSync(p)) throw new Error('missing file '+p); } console.log('ok', m.sections.length);\"",
+    "manualVisualCheck": "Contact sheet inspected after generation; each canonical section has one primary photographic asset and no thumbnail/collage photo composition."
+  }
+}

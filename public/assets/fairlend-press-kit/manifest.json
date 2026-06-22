@@ -1,0 +1,166 @@
+{
+  "generatedAt": "2026-06-11T20:27:53.822Z",
+  "format": "optimized-transparent-webp",
+  "assets": [
+    {
+      "file": "approved-language-stamp.webp",
+      "width": 300,
+      "height": 300,
+      "hasAlpha": true,
+      "sizeBytes": 13520,
+      "optimizedTransparentWebp": true
+    },
+    {
+      "file": "archive-folder-stack.webp",
+      "width": 1402,
+      "height": 149,
+      "hasAlpha": true,
+      "sizeBytes": 24626,
+      "optimizedTransparentWebp": true
+    },
+    {
+      "file": "assets-headshot-photo.webp",
+      "width": 344,
+      "height": 220,
+      "hasAlpha": true,
+      "sizeBytes": 4908,
+      "optimizedTransparentWebp": true
+    },
+    {
+      "file": "blueprint-apartment-perspective.webp",
+      "width": 1200,
+      "height": 760,
+      "hasAlpha": true,
+      "sizeBytes": 29002,
+      "optimizedTransparentWebp": true
+    },
+    {
+      "file": "blueprint-building-large.webp",
+      "width": 1000,
+      "height": 578,
+      "hasAlpha": true,
+      "sizeBytes": 20610,
+      "optimizedTransparentWebp": true
+    },
+    {
+      "file": "blueprint-building-light.webp",
+      "width": 1100,
+      "height": 636,
+      "hasAlpha": true,
+      "sizeBytes": 15570,
+      "optimizedTransparentWebp": true
+    },
+    {
+      "file": "blueprint-grid-transparent.webp",
+      "width": 900,
+      "height": 600,
+      "hasAlpha": true,
+      "sizeBytes": 13018,
+      "optimizedTransparentWebp": true
+    },
+    {
+      "file": "company-building-photo.webp",
+      "width": 754,
+      "height": 549,
+      "hasAlpha": true,
+      "sizeBytes": 74408,
+      "optimizedTransparentWebp": true
+    },
+    {
+      "file": "company-sketch-sheet.webp",
+      "width": 407,
+      "height": 257,
+      "hasAlpha": true,
+      "sizeBytes": 24322,
+      "optimizedTransparentWebp": true
+    },
+    {
+      "file": "contact-blueprint-left.webp",
+      "width": 620,
+      "height": 520,
+      "hasAlpha": true,
+      "sizeBytes": 8666,
+      "optimizedTransparentWebp": true
+    },
+    {
+      "file": "contact-blueprint-right.webp",
+      "width": 620,
+      "height": 520,
+      "hasAlpha": true,
+      "sizeBytes": 8740,
+      "optimizedTransparentWebp": true
+    },
+    {
+      "file": "fairlend-lockup-dark.webp",
+      "width": 620,
+      "height": 180,
+      "hasAlpha": true,
+      "sizeBytes": 4054,
+      "optimizedTransparentWebp": true
+    },
+    {
+      "file": "fairlend-lockup-light.webp",
+      "width": 620,
+      "height": 180,
+      "hasAlpha": true,
+      "sizeBytes": 3348,
+      "optimizedTransparentWebp": true
+    },
+    {
+      "file": "fairlend-mark-dark.webp",
+      "width": 240,
+      "height": 284,
+      "hasAlpha": true,
+      "sizeBytes": 1012,
+      "optimizedTransparentWebp": true
+    },
+    {
+      "file": "fairlend-mark-light.webp",
+      "width": 240,
+      "height": 284,
+      "hasAlpha": true,
+      "sizeBytes": 946,
+      "optimizedTransparentWebp": true
+    },
+    {
+      "file": "founder-office-photo.webp",
+      "width": 912,
+      "height": 897,
+      "hasAlpha": true,
+      "sizeBytes": 54882,
+      "optimizedTransparentWebp": true
+    },
+    {
+      "file": "hero-building-photo.webp",
+      "width": 624,
+      "height": 504,
+      "hasAlpha": true,
+      "sizeBytes": 62832,
+      "optimizedTransparentWebp": true
+    },
+    {
+      "file": "paper-grain-transparent.webp",
+      "width": 900,
+      "height": 600,
+      "hasAlpha": true,
+      "sizeBytes": 129558,
+      "optimizedTransparentWebp": true
+    },
+    {
+      "file": "topics-construction-vignette.webp",
+      "width": 980,
+      "height": 260,
+      "hasAlpha": true,
+      "sizeBytes": 14158,
+      "optimizedTransparentWebp": true
+    },
+    {
+      "file": "topics-street-photo.webp",
+      "width": 762,
+      "height": 507,
+      "hasAlpha": true,
+      "sizeBytes": 56858,
+      "optimizedTransparentWebp": true
+    }
+  ]
+}

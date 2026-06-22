@@ -1,4 +1,14 @@
+import {
+  CheckCircle2,
+  FileText,
+  Loader2,
+  UploadCloud,
+  X,
+} from "lucide-react";
 import React, { useRef, useState } from "react";
+
+import { Button } from "#/components/ui/button.tsx";
+import { cn } from "#/lib/utils.ts";
 
 interface FilePreviewProps {
   file: File;
@@ -9,112 +19,89 @@ const FilePreview: React.FC<FilePreviewProps> = ({ file, onRemove }) => {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   React.useEffect(() => {
-    if (file && file.type.startsWith("image/")) {
+    if (file.type.startsWith("image/")) {
       const url = URL.createObjectURL(file);
       setPreviewUrl(url);
-      return () => {
-        URL.revokeObjectURL(url);
-      };
+      return () => URL.revokeObjectURL(url);
     }
     setPreviewUrl(null);
     return undefined;
   }, [file]);
 
   return (
-    <div className="flex items-center gap-3 bg-gray-50 rounded-lg p-2 shadow-sm border border-gray-200 mb-2 animate-fade-in">
+    <li className="flex min-w-0 items-center gap-3 rounded-lg border bg-background p-2 shadow-xs/5">
       {previewUrl ? (
         <img
+          alt=""
+          className="size-10 rounded-md border object-cover"
           src={previewUrl}
-          alt="Preview"
-          className="w-16 h-16 object-cover rounded-md border border-gray-200"
         />
       ) : (
-        <div className="w-16 h-16 flex items-center justify-center bg-gray-200 rounded-md text-gray-500 text-xl">
-          <span role="img" aria-label="file">
-            📄
-          </span>
-        </div>
+        <span className="grid size-10 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
+          <FileText className="size-4" />
+        </span>
       )}
-      <div className="flex-1 truncate">
-        <div className="font-medium text-gray-800 truncate">{file.name}</div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-medium text-sm">{file.name}</div>
+        <div className="text-muted-foreground text-xs">
+          {formatFileSize(file.size)}
+        </div>
       </div>
-      <button
-        type="button"
+      <Button
+        aria-label={`Remove ${file.name}`}
         onClick={onRemove}
-        className="ml-2 px-2 py-1 text-xs flex items-center gap-1 bg-red-50 text-red-600 rounded hover:bg-red-100 transition border border-red-200 shadow-sm"
-        aria-label="Remove file"
+        size="icon-sm"
+        type="button"
+        variant="ghost"
       >
-        <svg
-          className="w-4 h-4"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M6 18L18 6M6 6l12 12"
-          />
-        </svg>
-      </button>
-    </div>
+        <X className="size-4" />
+      </Button>
+    </li>
   );
 };
 
-interface ToastProps {
-  message: string;
-  type: "success" | "error";
-  onClose: () => void;
-}
-
-const Toast: React.FC<ToastProps> = ({ message, type, onClose }) => (
-  <div
-    className={`fixed top-6 right-6 z-50 px-4 py-3 rounded shadow-lg text-white animate-fade-in ${type === "success" ? "bg-green-600" : "bg-red-600"}`}
-    role="alert"
-  >
-    <div className="flex items-center gap-2">
-      {type === "success" ? "✅" : "❌"}
-      <span>{message}</span>
-      <button
-        onClick={onClose}
-        className="ml-3 text-white/80 hover:text-white text-lg"
-        aria-label="Close"
-      >
-        ×
-      </button>
-    </div>
-  </div>
-);
-
 interface FileUploaderProps {
   accept?: string;
+  actionLabel?: string;
+  className?: string;
+  description?: string;
+  disabled?: boolean;
   files?: File[];
+  helperText?: string;
+  inputLabel?: string;
   multiple?: boolean;
   onFilesChange?: (files: File[]) => void;
+  onUpload?: (files: File[]) => Promise<void> | void;
+  showUploadButton?: boolean;
+  title?: string;
 }
 
 export const FileUploader: React.FC<FileUploaderProps> = ({
   accept,
+  actionLabel = "Upload",
+  className,
+  description = "Drop files here or browse from your device.",
+  disabled = false,
   files,
+  helperText = "PDF, image, spreadsheet, and document files are supported.",
+  inputLabel = "Select files",
   multiple = true,
   onFilesChange,
+  onUpload,
+  showUploadButton = true,
+  title = "Upload files",
 }) => {
   const [internalSelectedFiles, setInternalSelectedFiles] = useState<File[]>(
-    []
+    [],
   );
   const [isDragging, setIsDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [toast, setToast] = useState<{
-    message: string;
-    type: "success" | "error";
-  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const selectedFiles = files ?? internalSelectedFiles;
 
   const setSelectedFiles = (
-    updater: File[] | ((currentFiles: File[]) => File[])
+    updater: File[] | ((currentFiles: File[]) => File[]),
   ) => {
     const nextFiles =
       typeof updater === "function" ? updater(selectedFiles) : updater;
@@ -124,11 +111,18 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
     onFilesChange?.(nextFiles);
   };
 
-  const handleFiles = (files: FileList) => {
-    const fileArr = Array.from(files);
+  const handleFiles = (fileList: FileList) => {
+    if (disabled) {
+      return;
+    }
+    const fileArr = Array.from(fileList);
     setSelectedFiles((prev) => {
       const nextFiles = fileArr.filter(
-        (f) => !prev.some((p) => p.name === f.name && p.size === f.size)
+        (file) =>
+          !prev.some(
+            (candidate) =>
+              candidate.name === file.name && candidate.size === file.size,
+          ),
       );
       return multiple ? [...prev, ...nextFiles] : nextFiles.slice(0, 1);
     });
@@ -141,12 +135,6 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
     event.target.value = "";
   };
 
-  const handleButtonClick = () => {
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  };
-
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsDragging(false);
@@ -155,167 +143,139 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
     }
   };
 
-  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDragging(false);
-  };
-
-  const handleRemoveFile = (index: number) => {
-    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
+  async function handleUpload() {
+    if (selectedFiles.length === 0 || uploading || disabled) {
+      return;
     }
-  };
-
-  const handleUpload = () => {
-    if (selectedFiles.length === 0) return;
     setUploading(true);
-    setProgress(0);
-    const interval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setUploading(false);
-          setToast({
-            message: "Files uploaded successfully!",
-            type: "success",
-          });
-          setSelectedFiles([]);
-          return 100;
-        }
-        return prev + 10;
-      });
-    }, 120);
-  };
+    setProgress(25);
+    try {
+      if (onUpload) {
+        await onUpload(selectedFiles);
+      } else {
+        await new Promise((resolve) => window.setTimeout(resolve, 240));
+      }
+      setProgress(100);
+      setSelectedFiles([]);
+    } catch {
+      setProgress(0);
+    } finally {
+      setUploading(false);
+    }
+  }
 
   return (
-    <div className="w-full">
+    <div className={cn("grid w-full gap-3", className)}>
       <input
         accept={accept}
+        aria-label={inputLabel}
+        className="hidden"
+        disabled={disabled}
+        multiple={multiple}
+        onChange={handleFileChange}
         ref={fileInputRef}
         type="file"
-        className="hidden"
-        onChange={handleFileChange}
-        aria-label="File input"
-        multiple={multiple}
       />
       <div
-        className={`w-full flex flex-col items-center justify-center border-2 border-dashed rounded-xl transition-all duration-200 mb-5 cursor-pointer ${isDragging ? "border-blue-500 bg-blue-50" : "border-gray-300 bg-gray-50 hover:border-blue-400"}`}
-        style={{ minHeight: 120 }}
-        onClick={handleButtonClick}
+        className={cn(
+          "group grid min-h-32 cursor-pointer place-items-center rounded-xl border border-dashed bg-muted/45 p-4 text-center shadow-xs/5 transition",
+          "hover:border-foreground/35 hover:bg-muted/60 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/30",
+          isDragging && "border-primary bg-primary/10",
+          disabled && "cursor-not-allowed opacity-60",
+        )}
+        onClick={() => {
+          if (!disabled) {
+            fileInputRef.current?.click();
+          }
+        }}
+        onDragLeave={() => setIsDragging(false)}
+        onDragOver={(event) => {
+          event.preventDefault();
+          if (!disabled) {
+            setIsDragging(true);
+          }
+        }}
         onDrop={handleDrop}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
+        role="button"
+        tabIndex={disabled ? -1 : 0}
+        onKeyDown={(event) => {
+          if ((event.key === "Enter" || event.key === " ") && !disabled) {
+            event.preventDefault();
+            fileInputRef.current?.click();
+          }
+        }}
       >
-        <div className="flex flex-col items-center py-6">
-          <span className="text-4xl mb-2 animate-bounce">📁</span>
-          <span className="text-gray-700 font-medium">
-            Drag & drop files here, or{" "}
-            <span className="text-blue-600 underline">browse</span>
+        <div className="flex max-w-md flex-col items-center gap-2">
+          <span className="grid size-11 place-items-center rounded-full bg-background text-foreground shadow-xs/5 ring-1 ring-border">
+            <UploadCloud className="size-5" />
           </span>
-          <span className="text-xs text-gray-400 mt-1">
-            (PNG, JPG, PDF, etc. up to 5MB each)
-          </span>
+          <div>
+            <div className="font-semibold text-sm">{title}</div>
+            <div className="mt-1 text-muted-foreground text-sm">
+              {description}
+            </div>
+          </div>
+          <div className="text-muted-foreground text-xs">{helperText}</div>
         </div>
       </div>
-      {selectedFiles.length === 1 && (
-        <div className="mb-4">
-          <FilePreview
-            file={selectedFiles[0]}
-            onRemove={() => handleRemoveFile(0)}
-          />
-        </div>
-      )}
-      {selectedFiles.length > 1 && (
-        <div className="mb-4" style={{ maxHeight: 180, overflowY: "auto" }}>
-          <div className="flex flex-wrap gap-2">
-            {selectedFiles.map((file, idx) => (
-              <span
-                key={file.name + file.size}
-                className="inline-flex items-center max-w-xs px-3 py-1 rounded-full bg-gray-100 text-gray-800 text-sm font-medium shadow-sm border border-gray-200 truncate"
-                style={{ minWidth: 0 }}
-                title={file.name}
-              >
-                <span className="truncate max-w-[120px] text-xs">
-                  {file.name}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => handleRemoveFile(idx)}
-                  className="ml-2 p-0.5 rounded-full hover:bg-red-100 text-red-600 transition border border-transparent focus:outline-none focus:ring-2 focus:ring-red-200"
-                  aria-label="Remove file"
-                >
-                  <svg
-                    className="w-4 h-4"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-      {uploading && (
-        <div className="w-full bg-gray-200 rounded-full h-3 mb-4 overflow-hidden animate-fade-in">
+
+      {selectedFiles.length > 0 ? (
+        <ul className="grid gap-2">
+          {selectedFiles.map((file, index) => (
+            <FilePreview
+              file={file}
+              key={`${file.name}-${file.size}-${index}`}
+              onRemove={() =>
+                setSelectedFiles((current) =>
+                  current.filter((_, candidateIndex) => candidateIndex !== index),
+                )
+              }
+            />
+          ))}
+        </ul>
+      ) : null}
+
+      {uploading ? (
+        <div
+          aria-label="Upload progress"
+          className="h-1.5 overflow-hidden rounded-full bg-muted"
+          role="progressbar"
+          aria-valuenow={progress}
+        >
           <div
-            className="bg-green-500 h-3 rounded-full transition-all duration-300"
-            style={{ width: `${progress}%` }}
+            className="h-full rounded-full bg-primary transition-all duration-200"
+            style={{ width: `${Math.max(progress, 15)}%` }}
           />
         </div>
-      )}
-      <button
-        type="button"
-        disabled={selectedFiles.length === 0 || uploading}
-        onClick={handleUpload}
-        className={`w-full py-2 px-4 rounded-lg font-semibold text-base transition focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-50 shadow-lg flex items-center justify-center gap-2
-            ${selectedFiles.length > 0 && !uploading ? "bg-gray-700 text-white hover:bg-gray-800 active:scale-95" : "bg-gray-300 text-gray-500 cursor-not-allowed"}
-          `}
-        style={{ minHeight: 40 }}
-      >
-        {uploading && (
-          <svg
-            className="animate-spin h-6 w-6 text-white"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-            />
-          </svg>
-        )}
-        {uploading ? "Uploading..." : "Upload"}
-      </button>
-      {toast && (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          onClose={() => setToast(null)}
-        />
-      )}
+      ) : null}
+
+      {showUploadButton ? (
+        <Button
+          className="justify-self-center"
+          disabled={selectedFiles.length === 0 || uploading || disabled}
+          onClick={() => void handleUpload()}
+          type="button"
+        >
+          {uploading ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : selectedFiles.length > 0 ? (
+            <CheckCircle2 className="size-4" />
+          ) : (
+            <UploadCloud className="size-4" />
+          )}
+          {uploading ? "Uploading..." : actionLabel}
+        </Button>
+      ) : null}
     </div>
   );
 };
+
+function formatFileSize(size: number) {
+  if (size < 1024) {
+    return `${size} B`;
+  }
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`;
+  }
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}

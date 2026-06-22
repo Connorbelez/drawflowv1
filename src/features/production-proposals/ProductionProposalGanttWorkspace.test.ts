@@ -2,8 +2,10 @@ import { describe, expect, test } from "vitest";
 
 import {
   applyGanttSubmilestoneMoves,
+  buildGanttSubmilestoneParentTargets,
   deriveProposalDrawGroups,
   mapProposalGanttWorkspace,
+  moveGanttSubmilestoneToParent,
   normalizeProposalDrawRows,
   proposalMilestonesToGanttSubmilestoneRows,
   proposalTimelineWorkspaceToGanttDraft,
@@ -85,6 +87,87 @@ describe("ProductionProposalGanttWorkspace draw-group derivation", () => {
       dayEnd: 35,
       dayStart: 0,
       durationDays: 35,
+    });
+  });
+
+  test("lists valid parent milestones for a sub-milestone parent move", () => {
+    expect(
+      buildGanttSubmilestoneParentTargets(milestones, "m1::m1.2"),
+    ).toEqual([
+      {
+        disabled: false,
+        id: "m2",
+        label: "Milestone 2",
+        reason: undefined,
+      },
+      {
+        disabled: false,
+        id: "m3",
+        label: "Milestone 3",
+        reason: undefined,
+      },
+    ]);
+
+    expect(
+      buildGanttSubmilestoneParentTargets(
+        [milestone("m1", "Milestone 1", 1, 0, 5, ["m1.1"]), milestones[1]!],
+        "m1::m1.1",
+      ),
+    ).toEqual([
+      {
+        disabled: true,
+        id: "m2",
+        label: "Milestone 2",
+        reason: "Parent needs at least one sub-milestone",
+      },
+    ]);
+  });
+
+  test("moves a sub-milestone to another parent while preserving its Gantt dates", () => {
+    const edited = moveGanttSubmilestoneToParent(
+      milestones,
+      "m1::m1.4",
+      "m2",
+    );
+    const [editedM1, editedM2] = edited;
+
+    expect(editedM1?.submilestones.map((item) => item.key)).toEqual([
+      "m1.1",
+      "m1.2",
+      "m1.3",
+    ]);
+    expect(editedM1).toMatchObject({
+      budgetCents: 75_000_00,
+      dayEnd: 15,
+      dayStart: 0,
+      durationDays: 15,
+    });
+    expect(editedM2?.submilestones.map((item) => ({
+      durationDays: item.durationDays,
+      key: item.key,
+      order: item.order,
+      startDay: item.startDay,
+    }))).toEqual([
+      { durationDays: 7, key: "m2.1", order: 1, startDay: 20 },
+      { durationDays: 7, key: "m2.2", order: 2, startDay: 27 },
+      { durationDays: 6, key: "m2.3", order: 3, startDay: 34 },
+      { durationDays: 5, key: "m1.4", order: 4, startDay: 15 },
+    ]);
+    expect(editedM2).toMatchObject({
+      budgetCents: 225_000_00,
+      dayEnd: 40,
+      dayStart: 15,
+      durationDays: 25,
+    });
+    expect(
+      proposalMilestonesToGanttSubmilestoneRows(edited).find(
+        (row) => row.id === "m2::m1.4",
+      ),
+    ).toMatchObject({
+      dayEnd: 20,
+      dayStart: 15,
+      durationDays: 5,
+      name: "m1.4",
     });
   });
 

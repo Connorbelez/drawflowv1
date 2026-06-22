@@ -2012,6 +2012,7 @@ export const GanttProvider: FC<GanttProviderProps> = ({
   className,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const seededInitialScrollRef = useRef(false);
   const [timelineData, setTimelineData] = useState<TimelineData>(
     createInitialTimelineData(new Date()),
   );
@@ -2057,38 +2058,45 @@ export const GanttProvider: FC<GanttProviderProps> = ({
   );
 
   useEffect(() => {
-    if (scrollRef.current) {
-      const scrollElement = scrollRef.current;
-      const animationFrame = requestAnimationFrame(() => {
-        if (initialScrollDate) {
-          const timelineStartDate = new Date(timelineData[0]?.year ?? 0, 0, 1);
-          const offset = getOffset(initialScrollDate, timelineStartDate, {
-            zoom,
-            range,
-            columnWidth,
-            sidebarWidth,
-            headerHeight,
-            rowHeight,
-            rowGap,
-            setRowHeight,
-            setRowGap,
-            onAddItem,
-            placeholderLength: 2,
-            timelineData,
-            ref: scrollRef,
-          });
-
-          scrollElement.scrollLeft = Math.max(0, offset - columnWidth);
-        } else {
-          scrollElement.scrollLeft =
-            scrollElement.scrollWidth / 2 - scrollElement.clientWidth / 2;
-        }
-
-        setScrollX(scrollElement.scrollLeft);
-      });
-
-      return () => cancelAnimationFrame(animationFrame);
+    const scrollElement = scrollRef.current;
+    if (!scrollElement || seededInitialScrollRef.current) {
+      return;
     }
+
+    const animationFrame = requestAnimationFrame(() => {
+      if (seededInitialScrollRef.current) {
+        return;
+      }
+
+      if (initialScrollDate) {
+        const timelineStartDate = new Date(timelineData[0]?.year ?? 0, 0, 1);
+        const offset = getOffset(initialScrollDate, timelineStartDate, {
+          zoom,
+          range,
+          columnWidth,
+          sidebarWidth,
+          headerHeight,
+          rowHeight,
+          rowGap,
+          setRowHeight,
+          setRowGap,
+          onAddItem,
+          placeholderLength: 2,
+          timelineData,
+          ref: scrollRef,
+        });
+
+        scrollElement.scrollLeft = Math.max(0, offset - columnWidth);
+      } else {
+        scrollElement.scrollLeft =
+          scrollElement.scrollWidth / 2 - scrollElement.clientWidth / 2;
+      }
+
+      seededInitialScrollRef.current = true;
+      setScrollX(scrollElement.scrollLeft);
+    });
+
+    return () => cancelAnimationFrame(animationFrame);
   }, [
     columnWidth,
     headerHeight,

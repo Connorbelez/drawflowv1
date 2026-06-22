@@ -192,7 +192,12 @@ export interface CashflowDatum {
   drawCapacityUnlocked: number;
   event: "capitalSpike" | "cashInfusion" | "draw" | "milestone" | "start";
   id: string;
+  milestoneDrawAvailability?: number;
+  milestoneEndDay?: number;
+  milestoneId?: string;
+  milestoneTotalBudget?: number;
   name: string;
+  sortOrder?: number;
   [key: string]: unknown;
 }
 
@@ -914,7 +919,7 @@ export function TimelineWorkspace({
   const [progressValue, setProgressValue] = useState(
     workspaceInitialState.progressValue,
   );
-  const [probeValue, setProbeValue] = useState<number | null>(null);
+  const [probeValue, setProbeValue] = useTimelineProbeState();
   const [activeDrawId, setActiveDrawId] = useState<string | null>(null);
   const [activeCapitalSpikeId, setActiveCapitalSpikeId] = useState<
     string | null
@@ -1654,6 +1659,22 @@ export function TimelineWorkspace({
         id: `optimized-draw-${optimizationRunId}-${index + 1}`,
       })),
     );
+
+    if (drawSchedulesMatchForOptimization(draws, nextDraws)) {
+      if (nextDraws.length === 0) {
+        toast.success(
+          "Scenario is already optimized; no draw is needed to maintain the minimum cash reserve.",
+        );
+        return;
+      }
+
+      toast.success(
+        `Scenario is already optimized: ${nextDraws.length} draw${
+          nextDraws.length === 1 ? "" : "s"
+        } minimize estimated interest and draw fees while maintaining the minimum cash reserve.`,
+      );
+      return;
+    }
 
     setActiveDrawId(null);
     setActiveCapitalSpikeId(null);
@@ -4965,6 +4986,75 @@ interface ShareTimelineMenuProps {
   shareUrl: string;
 }
 
+export function normalizeTimelineProbeValue(value: number | null) {
+  if (value === null) {
+    return null;
+  }
+
+  return Number.isFinite(value) ? Math.round(value) : null;
+}
+
+function useTimelineProbeState() {
+  const [probeValue, setProbeValueState] = useState<number | null>(null);
+  const committedValueRef = useRef<number | null>(null);
+  const pendingValueRef = useRef<number | null>(null);
+  const frameRef = useRef<number | null>(null);
+
+  const commitProbeValue = useCallback((value: number | null) => {
+    const nextValue = normalizeTimelineProbeValue(value);
+    if (committedValueRef.current === nextValue) {
+      return;
+    }
+
+    committedValueRef.current = nextValue;
+    setProbeValueState(nextValue);
+  }, []);
+
+  const setProbeValue = useCallback(
+    (value: number | null) => {
+      const nextValue = normalizeTimelineProbeValue(value);
+      pendingValueRef.current = nextValue;
+
+      if (nextValue === null) {
+        if (frameRef.current !== null) {
+          window.cancelAnimationFrame(frameRef.current);
+          frameRef.current = null;
+        }
+        commitProbeValue(null);
+        return;
+      }
+
+      if (committedValueRef.current === nextValue) {
+        return;
+      }
+
+      if (frameRef.current !== null) {
+        return;
+      }
+
+      frameRef.current = window.requestAnimationFrame(() => {
+        frameRef.current = null;
+        const pendingValue = pendingValueRef.current;
+        pendingValueRef.current = null;
+        commitProbeValue(pendingValue);
+      });
+    },
+    [commitProbeValue],
+  );
+
+  useEffect(
+    () => () => {
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+      }
+    },
+    [],
+  );
+
+  return [probeValue, setProbeValue] as const;
+}
+
 function TimelineDemoSettingsNotice() {
   return (
     <div
@@ -5352,6 +5442,38 @@ function sortTimelineDraws(draws: DemoDraw[]) {
   return draws.slice().sort((a, b) => a.x - b.x || a.id.localeCompare(b.id));
 }
 
+function normalizeDrawForOptimizationComparison(draw: DemoDraw) {
+  return {
+    amountCents: dollarsToCents(draw.amount),
+    timingMilliDay: Math.round(draw.x * 1_000),
+  };
+}
+
+function drawSchedulesMatchForOptimization(
+  currentDraws: DemoDraw[],
+  optimizedDraws: DemoDraw[],
+) {
+  if (currentDraws.length !== optimizedDraws.length) {
+    return false;
+  }
+
+  const current = sortTimelineDraws(currentDraws).map(
+    normalizeDrawForOptimizationComparison,
+  );
+  const optimized = sortTimelineDraws(optimizedDraws).map(
+    normalizeDrawForOptimizationComparison,
+  );
+
+  return current.every((draw, index) => {
+    const optimizedDraw = optimized[index];
+    return (
+      optimizedDraw !== undefined &&
+      draw.amountCents === optimizedDraw.amountCents &&
+      draw.timingMilliDay === optimizedDraw.timingMilliDay
+    );
+  });
+}
+
 export function relabelTimelineDraws(draws: DemoDraw[]) {
   return sortTimelineDraws(draws).map((draw, index) => {
     if (!/^draw\s+\d+$/i.test(draw.label.trim())) {
@@ -5725,37 +5847,39 @@ export function buildTimelineCashflowData(
       .flatMap((item) => {
         const spendEvents = buildMilestoneSpendEvents(item);
         const completionDay = getMilestoneEndX(item);
-        const completionSpendEvent = spendEvents.find(
-          (event) => event.kind === "completion" && event.day === completionDay,
+        const drawAvailabilityAmount = getMilestoneDrawAvailabilityAmount(
+          item.data,
         );
-        const insertedCapacityEvent = {
-          amount: 0,
-          day: completionDay,
-          id: `${item.id}-completion-capacity`,
-          kind: "completion" as const,
-          label: `${item.data?.name ?? item.label ?? "Milestone"} completion capacity`,
-          milestoneAmount: getMilestoneDrawAvailabilityAmount(item.data),
-          milestoneId: item.id,
-          milestoneName: item.data?.name ?? item.label ?? "Milestone",
-        };
-        const normalizedSpendEvents = completionSpendEvent
-          ? spendEvents
-          : [...spendEvents, insertedCapacityEvent];
-        const completionCapacityEventId =
-          completionSpendEvent?.id ?? insertedCapacityEvent.id;
+        const milestoneName = item.data?.name ?? item.label ?? "Milestone";
 
-        return normalizedSpendEvents.map((event) => ({
-          amount: event.amount,
-          day: clampNumber(event.day, range.min, range.max),
-          drawCapacityUnlocked:
-            event.id === completionCapacityEventId
-              ? getMilestoneDrawAvailabilityAmount(item.data)
-              : 0,
-          id: event.id,
-          label: event.label,
-          sortOrder: event.kind === "initial" ? 0 : 2,
-          type: "milestone" as const,
-        }));
+        return [
+          ...spendEvents.map((event) => ({
+            amount: event.amount,
+            day: clampNumber(event.day, range.min, range.max),
+            drawCapacityUnlocked: 0,
+            id: event.id,
+            label: event.label,
+            milestoneDrawAvailability: drawAvailabilityAmount,
+            milestoneEndDay: completionDay,
+            milestoneId: event.milestoneId,
+            milestoneTotalBudget: event.milestoneAmount,
+            sortOrder: getMilestoneCashflowSortOrder(event.kind),
+            type: "milestone" as const,
+          })),
+          {
+            amount: 0,
+            day: clampNumber(completionDay, range.min, range.max),
+            drawCapacityUnlocked: drawAvailabilityAmount,
+            id: `${item.id}-completion-capacity`,
+            label: `${milestoneName} completion capacity`,
+            milestoneDrawAvailability: drawAvailabilityAmount,
+            milestoneEndDay: completionDay,
+            milestoneId: item.id,
+            milestoneTotalBudget: item.data?.amount ?? 0,
+            sortOrder: 4,
+            type: "capacityUnlock" as const,
+          },
+        ];
       }),
     ...capitalSpikes.map((spike) => {
       const eventKind = spike.eventKind ?? "cost";
@@ -5766,7 +5890,7 @@ export function buildTimelineCashflowData(
         drawCapacityUnlocked: 0,
         id: spike.id,
         label: spike.label,
-        sortOrder: eventKind === "cashInfusion" ? 3.5 : 3,
+        sortOrder: eventKind === "cashInfusion" ? 0 : 3,
         type: eventKind === "cashInfusion" ? "cashInfusion" : "capitalSpike",
       } as const;
     }),
@@ -5776,7 +5900,7 @@ export function buildTimelineCashflowData(
       drawCapacityUnlocked: 0,
       id: draw.id,
       label: draw.label,
-      sortOrder: 4,
+      sortOrder: 5,
       type: "draw" as const,
     })),
   ].sort(
@@ -5795,6 +5919,7 @@ export function buildTimelineCashflowData(
       event: "start",
       id: "start",
       name: "Starting cash",
+      sortOrder: -1,
     },
   ];
   let cashOnHand = startingCash;
@@ -5812,7 +5937,33 @@ export function buildTimelineCashflowData(
         drawAmount: 0,
         event: "milestone",
         id: event.id,
+        milestoneDrawAvailability: event.milestoneDrawAvailability,
+        milestoneEndDay: event.milestoneEndDay,
+        milestoneId: event.milestoneId,
+        milestoneTotalBudget: event.milestoneTotalBudget,
         name: event.label,
+        sortOrder: event.sortOrder,
+      });
+      continue;
+    }
+
+    if (event.type === "capacityUnlock") {
+      data.push({
+        budget: 0,
+        capitalSpikeAmount: 0,
+        cashInfusionAmount: 0,
+        cashOnHand,
+        day: event.day,
+        drawCapacityUnlocked: event.drawCapacityUnlocked,
+        drawAmount: 0,
+        event: "milestone",
+        id: event.id,
+        milestoneDrawAvailability: event.milestoneDrawAvailability,
+        milestoneEndDay: event.milestoneEndDay,
+        milestoneId: event.milestoneId,
+        milestoneTotalBudget: event.milestoneTotalBudget,
+        name: event.label,
+        sortOrder: event.sortOrder,
       });
       continue;
     }
@@ -5830,6 +5981,7 @@ export function buildTimelineCashflowData(
         event: "capitalSpike",
         id: event.id,
         name: event.label,
+        sortOrder: event.sortOrder,
       });
       continue;
     }
@@ -5847,6 +5999,7 @@ export function buildTimelineCashflowData(
         event: "cashInfusion",
         id: event.id,
         name: event.label,
+        sortOrder: event.sortOrder,
       });
       continue;
     }
@@ -5863,10 +6016,25 @@ export function buildTimelineCashflowData(
       event: "draw",
       id: event.id,
       name: event.label,
+      sortOrder: event.sortOrder,
     });
   }
 
   return data;
+}
+
+function getMilestoneCashflowSortOrder(
+  kind: ReturnType<typeof buildMilestoneSpendEvents>[number]["kind"],
+) {
+  if (kind === "initial") {
+    return 1;
+  }
+
+  if (kind === "distributed") {
+    return 2;
+  }
+
+  return 3;
 }
 
 export function densifyCashflowData(
@@ -5947,6 +6115,10 @@ export function buildCashflowChartData(
       (total, point) => total + point.cashInfusionAmount,
       0,
     );
+    const drawCapacityUnlocked = dayEvents.reduce(
+      (total, point) => total + point.drawCapacityUnlocked,
+      0,
+    );
     const budget = milestoneBudgetByDay.get(day) ?? 0;
     const reimbursableBudget = Math.min(
       budget,
@@ -5957,22 +6129,17 @@ export function buildCashflowChartData(
       dayEvents.find((point) => point.event === "draw") ??
       dayEvents.find((point) => point.event === "cashInfusion") ??
       dayEvents.find((point) => point.event === "capitalSpike") ??
+      dayEvents.find((point) => point.drawCapacityUnlocked > 0) ??
       dayEvents[0];
 
     return {
       budget,
       capitalSpikeAmount,
       cashInfusionAmount,
-      cashOnHand: projectCashOnHandForChart(
-        accountingData,
-        items,
-        range,
-        day,
-        startingCash,
-      ),
+      cashOnHand: projectCashOnHandForChart(accountingData, day, startingCash),
       day,
       drawAmount,
-      drawCapacityUnlocked: 0,
+      drawCapacityUnlocked,
       event: budget > 0 ? "milestone" : (primaryEvent?.event ?? "start"),
       id:
         budget > 0
@@ -6017,19 +6184,26 @@ function buildMilestoneCostBars(
   reimbursableAmount: number;
 }> {
   return items
-    .filter((item) => item.data)
+    .filter(
+      (
+        item,
+      ): item is TimelineItem<DemoMilestone> & { data: DemoMilestone } =>
+        Boolean(item.data),
+    )
     .map((item) => {
       const schedule = getMilestonePaymentSchedule(item);
-      const amount = Math.max(0, schedule.totalAmount);
-      const reimbursableAmount = Math.min(
-        amount,
-        Math.max(0, getMilestoneDrawAvailabilityAmount(item.data)),
+      const amount = Math.max(0, Math.round(schedule.totalAmount));
+      const milestoneDrawAvailability = getMilestoneDrawAvailabilityAmount(
+        item.data,
       );
+      const reimbursableAmount = Math.min(amount, milestoneDrawAvailability);
 
       return {
         amount,
         day: Math.round(clampNumber(schedule.startX, range.min, range.max)),
-        endDay: Math.round(clampNumber(schedule.endX, range.min, range.max)),
+        endDay: Math.round(
+          clampNumber(schedule.endX, range.min, range.max),
+        ),
         reimbursableAmount,
       };
     })
@@ -6038,50 +6212,24 @@ function buildMilestoneCostBars(
 
 function projectCashOnHandForChart(
   accountingData: CashflowDatum[],
-  items: TimelineItem<DemoMilestone>[],
-  range: Required<TimelineRange>,
   value: number,
   startingCash = STARTING_CASH,
 ): number {
   const startPoint = accountingData.find((point) => point.event === "start");
   let cashOnHand = startPoint?.cashOnHand ?? startingCash;
 
-  for (const point of accountingData) {
-    if (point.day <= value) {
-      cashOnHand += point.drawAmount;
-      cashOnHand += point.cashInfusionAmount;
-      cashOnHand -= point.capitalSpikeAmount;
-    }
-  }
-
-  for (const item of items) {
-    if (!item.data) {
-      continue;
-    }
-
-    const schedule = getMilestonePaymentSchedule(item);
-    const startX = clampNumber(schedule.startX, range.min, range.max);
-    const endX = clampNumber(schedule.endX, range.min, range.max);
-
-    if (value < startX) {
-      continue;
-    }
-
-    if (value >= endX || endX <= startX) {
-      cashOnHand -= schedule.totalAmount;
-      continue;
-    }
-
-    const completionAmount = Math.max(
-      0,
-      schedule.totalAmount - schedule.initialPaymentAmount,
+  return accountingData
+    .filter((point) => point.id !== "start" && point.day <= value)
+    .sort(compareCashflowPoints)
+    .reduce(
+      (total, point) =>
+        total +
+        point.drawAmount +
+        point.cashInfusionAmount -
+        point.capitalSpikeAmount -
+        point.budget,
+      cashOnHand,
     );
-    cashOnHand -=
-      schedule.initialPaymentAmount +
-      completionAmount * ((value - startX) / Math.max(1, endX - startX));
-  }
-
-  return cashOnHand;
 }
 
 export function densifyDrawAvailabilityData(
@@ -6146,13 +6294,43 @@ export function groupCashflowPointsByDay(data: CashflowDatum[]) {
   return grouped;
 }
 
+function compareCashflowPoints(left: CashflowDatum, right: CashflowDatum) {
+  return (
+    left.day - right.day ||
+    getCashflowPointSortOrder(left) - getCashflowPointSortOrder(right) ||
+    left.id.localeCompare(right.id)
+  );
+}
+
+function getCashflowPointSortOrder(point: CashflowDatum) {
+  if (typeof point.sortOrder === "number" && Number.isFinite(point.sortOrder)) {
+    return point.sortOrder;
+  }
+
+  if (point.event === "start") {
+    return -1;
+  }
+
+  if (point.event === "cashInfusion") {
+    return 0;
+  }
+
+  if (point.event === "milestone") {
+    return point.drawCapacityUnlocked > 0 && point.budget <= 0 ? 4 : 2;
+  }
+
+  if (point.event === "draw") {
+    return 5;
+  }
+
+  return 3;
+}
+
 export function buildDrawAvailabilityData(
   cashflowData: CashflowDatum[],
   approvedDrawLimit?: number,
 ): DrawAvailabilityDatum[] {
-  const sortedCashflowData = [...cashflowData].sort(
-    (a, b) => a.day - b.day || a.id.localeCompare(b.id),
-  );
+  const sortedCashflowData = [...cashflowData].sort(compareCashflowPoints);
   let unlockedDraw = 0;
   let releasedDraw = 0;
   let totalInterestAccrued = 0;

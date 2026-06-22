@@ -341,26 +341,26 @@ describe("contractors v1", () => {
     );
     expect(assignmentIds).toHaveLength(1);
 
-    const workspace = await t.query(
-      (api as any).production_proposals.getProductionTimelineWorkspace,
+    const contractorPlanning = await t.query(
+      (api as any).production_proposals.getProposalContractorPlanning,
       { proposalId, workosOrganizationId: ORG },
     );
-    expect(workspace.contractorPlanning.proposalContractors[0]).toMatchObject({
+    expect(contractorPlanning.proposalContractors[0]).toMatchObject({
       contractorId,
       name: "Northstar Planning Masonry",
       role: "Masonry lead",
     });
-    expect(workspace.contractorPlanning.materialSignals).toEqual(
+    expect(contractorPlanning.materialSignals).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ key: "brick" }),
         expect.objectContaining({ key: "masonry" }),
       ]),
     );
-    expect(workspace.contractorPlanning.recommendations[0]).toMatchObject({
+    expect(contractorPlanning.recommendations[0]).toMatchObject({
       contractorId,
       name: "Northstar Planning Masonry",
     });
-    expect(workspace.contractorPlanning.utilization[0]).toMatchObject({
+    expect(contractorPlanning.utilization[0]).toMatchObject({
       contractorId,
       scheduledHours: 120,
     });

@@ -1,11 +1,22 @@
 "use client";
 
 import { useAction, useMutation, useQuery } from "convex/react";
-import { Loader2, Save, Trash2, UserPlus } from "lucide-react";
+import { Loader2, Mail, Save, Trash2, UserPlus } from "lucide-react";
 import type * as React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "#/components/ui/alert-dialog.tsx";
+import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Checkbox } from "#/components/ui/checkbox.tsx";
 import {
@@ -51,11 +62,13 @@ type StaffPermissionGrant = {
 type StaffMember = {
   builderAccountLinkId: string;
   email?: string;
+  identityStatus?: "active" | "pending";
   mode: "full" | "limited";
   name?: string;
   permissions: StaffPermissionGrant[];
   role: "owner" | "staff";
   status: string;
+  workosMembershipId?: string;
   workosUserId: string;
 };
 
@@ -260,7 +273,9 @@ export function BuilderStaffPermissionsPanel(
       toast.error("Staff email is required.");
       return;
     }
-    const permissions = emptyPermissions(resources as BuilderStaffPermissionResource[]);
+    const permissions = defaultNewStaffPermissions(
+      resources as BuilderStaffPermissionResource[],
+    );
     setPendingAction("add");
     try {
       await saveStaff({ permissions, staffEmail: email });
@@ -284,6 +299,28 @@ export function BuilderStaffPermissionsPanel(
         staffWorkosUserId: selectedMember.workosUserId,
       });
       toast.success("Builder staff permissions saved.");
+    } catch (error) {
+      toast.error(actionErrorMessage(error));
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
+  const resendSelectedInvite = async () => {
+    if (
+      !selectedMember ||
+      selectedMember.role === "owner" ||
+      !selectedMember.email
+    ) {
+      return;
+    }
+    setPendingAction(`resend:${selectedMember.workosUserId}`);
+    try {
+      await saveStaff({
+        permissions: selectedPermissions,
+        staffEmail: selectedMember.email,
+      });
+      toast.success("Builder staff invite resent.");
     } catch (error) {
       toast.error(actionErrorMessage(error));
     } finally {
@@ -354,7 +391,7 @@ export function BuilderStaffPermissionsPanel(
                   {member.name ?? member.email ?? member.workosUserId}
                 </span>
                 <span className="block truncate text-muted-foreground text-xs">
-                  {member.role === "owner" ? "Owner · full access" : member.email ?? member.workosUserId}
+                  {staffMemberSecondaryLabel(member)}
                 </span>
               </button>
             ))}
@@ -367,7 +404,7 @@ export function BuilderStaffPermissionsPanel(
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate font-medium text-sm">
-                    {selectedMember.name ?? selectedMember.email ?? selectedMember.workosUserId}
+                    {staffMemberDisplayName(selectedMember)}
                   </p>
                   <p className="truncate text-muted-foreground text-xs">
                     {selectedMember.role === "owner"
@@ -375,32 +412,91 @@ export function BuilderStaffPermissionsPanel(
                       : selectedMember.workosUserId}
                   </p>
                 </div>
+                {selectedMember.identityStatus === "pending" ? (
+                  <Badge size="sm" variant="warning">
+                    Pending WorkOS sync
+                  </Badge>
+                ) : null}
                 <div className="flex gap-2">
+                  {selectedMember.identityStatus === "pending" &&
+                  selectedMember.role === "staff" &&
+                  selectedMember.email ? (
+                    <Button
+                      disabled={!directory.canManage || pendingAction !== null}
+                      loading={
+                        pendingAction ===
+                        `resend:${selectedMember.workosUserId}`
+                      }
+                      onClick={() => void resendSelectedInvite()}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <Mail />
+                      Resend invite
+                    </Button>
+                  ) : null}
                   <Button
                     disabled={
                       !directory.canManage ||
                       selectedMember.role === "owner" ||
                       pendingAction !== null
                     }
+                    loading={pendingAction === `save:${selectedMember.workosUserId}`}
                     onClick={() => void saveSelected()}
                     size="sm"
                   >
                     <Save />
                     Save
                   </Button>
-                  <Button
-                    disabled={
-                      !directory.canManage ||
-                      selectedMember.role === "owner" ||
-                      pendingAction !== null
-                    }
-                    onClick={() => void removeSelected()}
-                    size="sm"
-                    variant="destructive-outline"
-                  >
-                    <Trash2 />
-                    Remove
-                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger
+                      render={
+                        <Button
+                          disabled={
+                            !directory.canManage ||
+                            selectedMember.role === "owner" ||
+                            pendingAction !== null
+                          }
+                          size="sm"
+                          variant="destructive-outline"
+                        />
+                      }
+                    >
+                      <Trash2 />
+                      Remove staff
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="sm:max-w-md">
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>
+                          Remove builder staff access?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This removes {staffMemberDisplayName(selectedMember)}{" "}
+                          from this builder staff list and deletes their
+                          app-level permissions for the selected scope.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogClose render={<Button variant="outline" />}>
+                          Cancel
+                        </AlertDialogClose>
+                        <AlertDialogClose
+                          render={
+                            <Button
+                              loading={
+                                pendingAction ===
+                                `remove:${selectedMember.workosUserId}`
+                              }
+                              variant="destructive"
+                            />
+                          }
+                          onClick={() => void removeSelected()}
+                        >
+                          Remove staff
+                        </AlertDialogClose>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
               </div>
               <div className="overflow-x-auto rounded-lg border">
@@ -464,12 +560,12 @@ function clonePermissions(permissions: StaffPermissionGrant[]) {
   return permissions.map((permission) => ({ ...permission }));
 }
 
-function emptyPermissions(resources: BuilderStaffPermissionResource[]) {
+function defaultNewStaffPermissions(resources: BuilderStaffPermissionResource[]) {
   return resources.map((resourceType) => ({
     canCreate: false,
     canDelete: false,
     canUpdate: false,
-    canView: false,
+    canView: true,
     resourceType,
   }));
 }
@@ -491,6 +587,20 @@ function updatePermissionDraft(
         : permission,
     ),
   }));
+}
+
+function staffMemberDisplayName(member: StaffMember) {
+  return member.name ?? member.email ?? member.workosUserId;
+}
+
+function staffMemberSecondaryLabel(member: StaffMember) {
+  if (member.role === "owner") {
+    return "Owner · full access";
+  }
+  const identity = member.email ?? member.workosUserId;
+  return member.identityStatus === "pending"
+    ? `${identity} · Pending WorkOS sync`
+    : identity;
 }
 
 function actionErrorMessage(error: unknown) {

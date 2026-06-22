@@ -1,5 +1,6 @@
 import { EvilComposedChart } from "#/components/evilcharts/charts/composed-chart.tsx";
 import type { ChartConfig } from "#/components/evilcharts/ui/chart.tsx";
+import { memo } from "react";
 
 const CASHFLOW_EDGE_BAR_PADDING_RATIO = 0.035;
 const CASHFLOW_MIN_EDGE_BAR_PADDING_DAYS = 2;
@@ -26,6 +27,21 @@ export interface TimelineCashflowReferenceLine {
   stroke: string;
   strokeDasharray?: string;
   x: number;
+}
+
+interface TimelineCashflowCompoundChartProps {
+  barSize?: number;
+  className?: string;
+  data: TimelineCashflowCompoundDatum[];
+  hideMilestoneEndReferenceLines?: boolean;
+  onHotspotDaySelect?: (day: number) => void;
+  onProbeChange?: (value: number | null) => void;
+  referenceLines?: TimelineCashflowReferenceLine[];
+  testId?: string;
+  xDomain: [number, number];
+  xTicks: number[];
+  yAxisWidth?: number;
+  yDomain: [number, number];
 }
 
 export const timelineCashflowChartConfig = {
@@ -121,7 +137,7 @@ export function buildMilestoneEndReferenceLines(
   });
 }
 
-export function TimelineCashflowCompoundChart({
+export const TimelineCashflowCompoundChart = memo(function TimelineCashflowCompoundChart({
   barSize = 18,
   className = "mt-3 h-[220px] min-w-0 sm:h-[230px]",
   data,
@@ -134,20 +150,7 @@ export function TimelineCashflowCompoundChart({
   xTicks,
   yAxisWidth = 56,
   yDomain,
-}: {
-  barSize?: number;
-  className?: string;
-  data: TimelineCashflowCompoundDatum[];
-  hideMilestoneEndReferenceLines?: boolean;
-  onHotspotDaySelect?: (day: number) => void;
-  onProbeChange?: (value: number | null) => void;
-  referenceLines?: TimelineCashflowReferenceLine[];
-  testId?: string;
-  xDomain: [number, number];
-  xTicks: number[];
-  yAxisWidth?: number;
-  yDomain: [number, number];
-}) {
+}: TimelineCashflowCompoundChartProps) {
   const milestoneEndReferenceLines = hideMilestoneEndReferenceLines
     ? []
     : buildMilestoneEndReferenceLines(data, onHotspotDaySelect);
@@ -259,6 +262,36 @@ export function TimelineCashflowCompoundChart({
   );
 
   return testId ? <div data-testid={testId}>{chart}</div> : chart;
+}, areTimelineCashflowCompoundChartPropsEqual);
+
+TimelineCashflowCompoundChart.displayName = "TimelineCashflowCompoundChart";
+
+function areTimelineCashflowCompoundChartPropsEqual(
+  previous: TimelineCashflowCompoundChartProps,
+  next: TimelineCashflowCompoundChartProps,
+) {
+  return (
+    previous.barSize === next.barSize &&
+    previous.className === next.className &&
+    previous.data === next.data &&
+    previous.hideMilestoneEndReferenceLines ===
+      next.hideMilestoneEndReferenceLines &&
+    previous.onHotspotDaySelect === next.onHotspotDaySelect &&
+    previous.onProbeChange === next.onProbeChange &&
+    previous.referenceLines === next.referenceLines &&
+    previous.testId === next.testId &&
+    sameNumberTuple(previous.xDomain, next.xDomain) &&
+    previous.xTicks === next.xTicks &&
+    previous.yAxisWidth === next.yAxisWidth &&
+    sameNumberTuple(previous.yDomain, next.yDomain)
+  );
+}
+
+function sameNumberTuple(
+  previous: readonly [number, number],
+  next: readonly [number, number],
+) {
+  return previous[0] === next[0] && previous[1] === next[1];
 }
 
 export function getCashflowBarHotspotDay(

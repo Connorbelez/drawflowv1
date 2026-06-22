@@ -1,0 +1,3422 @@
+{
+  "sourceDirectory": "public/designConcepts/garden-suite-financing-warm-blueprint",
+  "outputDirectory": "public/assets/garden-suite-financing-warm-blueprint",
+  "extractedRasterAssetCount": 161,
+  "generatedRasterAssetCount": 23,
+  "svgAssetCount": 3,
+  "transparentRasterCount": 184,
+  "sections": {
+    "shared": [
+      "shared-fairlend-logo-lockup-dark",
+      "shared-fairlend-mark-dark",
+      "shared-leaf-divider",
+      "shared-small-leaf-sprig",
+      "shared-left-leaf-branch",
+      "shared-resident-first-seal",
+      "shared-icon-benefit-row-dark",
+      "shared-dark-footer-band",
+      "shared-paperclip-brass-large",
+      "shared-paperclip-brass-small",
+      "shared-paperclip-silver-large",
+      "shared-blue-tape-strip",
+      "shared-sage-tape-strip",
+      "shared-beige-tape-strip",
+      "shared-green-leaf-medallion",
+      "shared-building-division-stamp",
+      "shared-city-permit-stamp",
+      "generated-transparent-paper-grain",
+      "generated-transparent-linen-fibers",
+      "generated-transparent-sage-panel-grain",
+      "generated-transparent-dark-green-grain",
+      "generated-transparent-blueprint-grid",
+      "generated-transparent-process-connectors",
+      "generated-transparent-copper-action-rule",
+      "generated-transparent-soft-paper-shadow",
+      "generated-transparent-folder-tab-green",
+      "generated-transparent-folder-tab-clay",
+      "generated-transparent-folder-tab-blue",
+      "generated-transparent-number-badge-green",
+      "generated-transparent-number-badge-blue",
+      "generated-transparent-number-badge-copper",
+      "generated-transparent-paperclip-brass",
+      "generated-transparent-paperclip-silver",
+      "generated-transparent-masking-tape-long",
+      "generated-transparent-masking-tape-sage",
+      "generated-transparent-masking-tape-blue",
+      "generated-transparent-blueprint-dimension-lines",
+      "generated-transparent-checklist-rule-set"
+    ],
+    "01-hero": [
+      "hero-garden-suite-photo-layer",
+      "hero-garden-suite-photo-layer-wide",
+      "hero-building-photo-tight",
+      "hero-upper-blueprint-wireframe",
+      "hero-height-callout",
+      "hero-setback-plan-overlay",
+      "hero-bottom-neighbourhood-sketch",
+      "hero-large-left-leaf-sketch",
+      "hero-bottom-sage-panel-texture",
+      "hero-garden-suite-photo-layer-clean-v2",
+      "hero-garden-suite-photo-layer-wide-clean"
+    ],
+    "02-what-it-is": [
+      "what-existing-home-render",
+      "what-garden-suite-photo-card",
+      "what-site-plan-blueprint",
+      "what-existing-home-label-card",
+      "what-detached-suite-label-card",
+      "what-current-mortgage-card",
+      "what-available-equity-card",
+      "what-construction-costs-card",
+      "what-permits-card",
+      "what-rental-income-card",
+      "what-completed-value-card",
+      "what-diagram-connector-lines",
+      "what-field-note-botanical"
+    ],
+    "03-who-this-is-for": [
+      "audience-dossier-stack",
+      "audience-dossier-row-homeowners",
+      "audience-dossier-row-families",
+      "audience-dossier-row-investors",
+      "audience-dossier-row-builders",
+      "audience-dossier-row-realtors",
+      "audience-tab-stack-right",
+      "audience-top-building-sketch",
+      "audience-photo-collage-full",
+      "audience-suite-photo-print",
+      "audience-family-photo-print",
+      "audience-builder-photo-print",
+      "audience-advisor-photo-print",
+      "audience-bottom-blueprint-strip",
+      "audience-built-for-neighbourhoods-seal",
+      "audience-green-neighbourhood-footer-sketch"
+    ],
+    "04-financing-challenges": [
+      "gap-paper-board-full",
+      "gap-chart-panel",
+      "gap-bars-and-dashed-structure",
+      "gap-review-alignment-panel",
+      "gap-bottom-suite-blueprint",
+      "gap-right-tab-stack",
+      "gap-review-card",
+      "gap-garden-suite-photo",
+      "gap-handwritten-note",
+      "gap-background-plan-fragment"
+    ],
+    "05-financeability": [
+      "financeability-file-stack-full",
+      "financeability-property-location-card",
+      "financeability-existing-home-type-card",
+      "financeability-lot-characteristics-card",
+      "financeability-photo-print",
+      "financeability-central-blueprint",
+      "financeability-current-mortgage-card",
+      "financeability-available-equity-card",
+      "financeability-borrower-profile-card",
+      "financeability-permit-design-card",
+      "financeability-construction-budget-card",
+      "financeability-builder-plan-card",
+      "financeability-rental-use-card",
+      "financeability-completed-value-card",
+      "financeability-timeline-card",
+      "financeability-exit-refinance-card",
+      "financeability-before-you-ask-checklist",
+      "financeability-plans-approved-stamp",
+      "financeability-left-house-sketch",
+      "financeability-left-review-panel"
+    ],
+    "06-key-considerations": [
+      "considerations-table-full",
+      "considerations-row-existing-mortgage",
+      "considerations-row-equity",
+      "considerations-row-construction-budget",
+      "considerations-budget-components-panel",
+      "considerations-budget-elevation-blueprint",
+      "considerations-row-permits",
+      "considerations-row-rental-income",
+      "considerations-row-valuation",
+      "considerations-right-file-stack",
+      "considerations-building-permit-doc",
+      "considerations-progress-photo-print",
+      "considerations-strong-plan-checklist",
+      "considerations-left-review-icon",
+      "considerations-lower-building-sketch",
+      "considerations-right-plant"
+    ],
+    "07-how-fairlend-helps": [
+      "help-process-diagram-full",
+      "help-process-connector-line",
+      "help-step-01-property-icon",
+      "help-step-02-equity-icon",
+      "help-step-03-budget-icon",
+      "help-step-04-permit-icon",
+      "help-step-05-financing-icon",
+      "help-top-photo-print",
+      "help-blueprint-concept-plate",
+      "help-role-note",
+      "help-review-focus-card",
+      "help-documentation-needed-panel",
+      "help-document-note-stack",
+      "help-constraints-panel",
+      "help-issues-sticky-note",
+      "help-output-sketch",
+      "help-output-cta-panel",
+      "help-logo-block"
+    ],
+    "08-comparison": [
+      "comparison-board-full",
+      "comparison-garden-suite-column",
+      "comparison-laneway-suite-column",
+      "comparison-multiplex-column",
+      "comparison-garden-suite-photo",
+      "comparison-laneway-suite-photo",
+      "comparison-multiplex-photo",
+      "comparison-garden-suite-swatches",
+      "comparison-laneway-suite-swatches",
+      "comparison-multiplex-swatches",
+      "comparison-bottom-combined-projects-card",
+      "comparison-bottom-combined-sketch",
+      "comparison-learn-more-card",
+      "comparison-left-advisory-card",
+      "comparison-left-blueprint-fragment"
+    ],
+    "09-faq": [
+      "faq-card-full",
+      "faq-open-question-row",
+      "faq-row-permits",
+      "faq-row-rent",
+      "faq-row-laneway",
+      "faq-row-guaranteed",
+      "faq-right-blueprint-sheet-stack",
+      "faq-building-permit-sheet",
+      "faq-plan-sheet",
+      "faq-elevation-sheet",
+      "faq-before-you-ask-notepad",
+      "faq-next-step-timeline-bar",
+      "faq-left-review-note-card",
+      "faq-logo-lockup"
+    ],
+    "10-final-cta": [
+      "final-cta-hero-building-photo",
+      "final-cta-site-plan-overlay",
+      "final-cta-intake-form-panel",
+      "final-cta-field-property-address",
+      "final-cta-field-mortgage",
+      "final-cta-field-equity",
+      "final-cta-field-permit",
+      "final-cta-field-budget",
+      "final-cta-form-footer-sketch",
+      "final-cta-benefit-icon-row",
+      "final-cta-handwritten-note",
+      "final-cta-footer-logo-light",
+      "final-cta-footer-icons"
+    ]
+  },
+  "assets": [
+    {
+      "slug": "shared-fairlend-logo-lockup-dark",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/shared-fairlend-logo-lockup-dark.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-01-hero.png",
+      "section": "shared",
+      "description": "Fairlend Capital dark logo lockup.",
+      "bbox": [
+        36,
+        32,
+        386,
+        106
+      ],
+      "width": 350,
+      "height": 74,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1508
+    },
+    {
+      "slug": "shared-fairlend-mark-dark",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/shared-fairlend-mark-dark.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-01-hero.png",
+      "section": "shared",
+      "description": "Fairlend house-and-leaf mark.",
+      "bbox": [
+        40,
+        34,
+        120,
+        96
+      ],
+      "width": 80,
+      "height": 62,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2389
+    },
+    {
+      "slug": "shared-leaf-divider",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/shared-leaf-divider.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-01-hero.png",
+      "section": "shared",
+      "description": "Fine botanical divider used beneath section headings.",
+      "bbox": [
+        64,
+        170,
+        292,
+        194
+      ],
+      "width": 228,
+      "height": 24,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.0654
+    },
+    {
+      "slug": "shared-small-leaf-sprig",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/shared-small-leaf-sprig.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-02-what-it-is.png",
+      "section": "shared",
+      "description": "Small top-right botanical sprig.",
+      "bbox": [
+        1448,
+        36,
+        1512,
+        96
+      ],
+      "width": 64,
+      "height": 60,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1688
+    },
+    {
+      "slug": "shared-left-leaf-branch",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/shared-left-leaf-branch.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-08-comparison.png",
+      "section": "shared",
+      "description": "Tall left-margin botanical branch.",
+      "bbox": [
+        12,
+        635,
+        92,
+        858
+      ],
+      "width": 80,
+      "height": 223,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1929
+    },
+    {
+      "slug": "shared-resident-first-seal",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/shared-resident-first-seal.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-01-hero.png",
+      "section": "shared",
+      "description": "Circular resident-first / capital-done-right seal.",
+      "bbox": [
+        1348,
+        850,
+        1492,
+        1006
+      ],
+      "width": 144,
+      "height": 156,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1198
+    },
+    {
+      "slug": "shared-icon-benefit-row-dark",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/shared-icon-benefit-row-dark.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-01-hero.png",
+      "section": "shared",
+      "description": "Three-icon trust/terms/decision benefit row in dark ink.",
+      "bbox": [
+        48,
+        724,
+        760,
+        786
+      ],
+      "width": 712,
+      "height": 62,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.103
+    },
+    {
+      "slug": "shared-dark-footer-band",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/shared-dark-footer-band.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-10-final-cta.png",
+      "section": "shared",
+      "description": "Transparent footer brand marks and value strip for use over a CSS dark-green band.",
+      "bbox": [
+        0,
+        886,
+        1536,
+        1024
+      ],
+      "width": 1536,
+      "height": 138,
+      "alphaMode": "dark_footer_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.0801
+    },
+    {
+      "slug": "shared-paperclip-brass-large",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/shared-paperclip-brass-large.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-05-financeability.png",
+      "section": "shared",
+      "description": "Large brass paperclip used on stacked project files.",
+      "bbox": [
+        1422,
+        12,
+        1518,
+        118
+      ],
+      "width": 96,
+      "height": 106,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.6277
+    },
+    {
+      "slug": "shared-paperclip-brass-small",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/shared-paperclip-brass-small.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-09-faq.png",
+      "section": "shared",
+      "description": "Small brass paperclip used on notepad cards.",
+      "bbox": [
+        364,
+        582,
+        424,
+        666
+      ],
+      "width": 60,
+      "height": 84,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2978
+    },
+    {
+      "slug": "shared-paperclip-silver-large",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/shared-paperclip-silver-large.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-03-who-this-is-for.png",
+      "section": "shared",
+      "description": "Large silver paperclip used on photo prints.",
+      "bbox": [
+        696,
+        350,
+        760,
+        464
+      ],
+      "width": 64,
+      "height": 114,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.6339
+    },
+    {
+      "slug": "shared-blue-tape-strip",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/shared-blue-tape-strip.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-05-financeability.png",
+      "section": "shared",
+      "description": "Blue masking tape strip over blueprint paper.",
+      "bbox": [
+        764,
+        342,
+        936,
+        394
+      ],
+      "width": 172,
+      "height": 52,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.432
+    },
+    {
+      "slug": "shared-sage-tape-strip",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/shared-sage-tape-strip.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-07-how-fairlend-helps.png",
+      "section": "shared",
+      "description": "Sage masking tape strip for sticky notes.",
+      "bbox": [
+        866,
+        710,
+        1018,
+        756
+      ],
+      "width": 152,
+      "height": 46,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2201
+    },
+    {
+      "slug": "shared-beige-tape-strip",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/shared-beige-tape-strip.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-09-faq.png",
+      "section": "shared",
+      "description": "Beige masking tape strip over permit sheets.",
+      "bbox": [
+        1340,
+        18,
+        1535,
+        60
+      ],
+      "width": 195,
+      "height": 42,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.5313
+    },
+    {
+      "slug": "shared-green-leaf-medallion",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/shared-green-leaf-medallion.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-09-faq.png",
+      "section": "shared",
+      "description": "Green circular leaf medallion.",
+      "bbox": [
+        42,
+        466,
+        126,
+        552
+      ],
+      "width": 84,
+      "height": 86,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.5497
+    },
+    {
+      "slug": "shared-building-division-stamp",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/shared-building-division-stamp.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-05-financeability.png",
+      "section": "shared",
+      "description": "Faint circular municipal building-division stamp.",
+      "bbox": [
+        1364,
+        386,
+        1460,
+        482
+      ],
+      "width": 96,
+      "height": 96,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2063
+    },
+    {
+      "slug": "shared-city-permit-stamp",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/shared-city-permit-stamp.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-09-faq.png",
+      "section": "shared",
+      "description": "Faint circular city permit stamp.",
+      "bbox": [
+        1372,
+        214,
+        1486,
+        314
+      ],
+      "width": 114,
+      "height": 100,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1268
+    },
+    {
+      "slug": "hero-garden-suite-photo-layer",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/01-hero/hero-garden-suite-photo-layer.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-01-hero.png",
+      "section": "01-hero",
+      "description": "Hero garden-suite image layer with soft paper fade.",
+      "bbox": [
+        600,
+        118,
+        1536,
+        824
+      ],
+      "width": 936,
+      "height": 706,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.8336
+    },
+    {
+      "slug": "hero-garden-suite-photo-layer-wide",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/01-hero/hero-garden-suite-photo-layer-wide.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-01-hero.png",
+      "section": "01-hero",
+      "description": "Wider hero garden-suite image layer with the full soft paper fade.",
+      "bbox": [
+        520,
+        108,
+        1536,
+        824
+      ],
+      "width": 1016,
+      "height": 716,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.7658
+    },
+    {
+      "slug": "hero-building-photo-tight",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/01-hero/hero-building-photo-tight.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-01-hero.png",
+      "section": "01-hero",
+      "description": "Tight hero garden-suite building crop.",
+      "bbox": [
+        735,
+        214,
+        1536,
+        662
+      ],
+      "width": 801,
+      "height": 448,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.9625
+    },
+    {
+      "slug": "hero-upper-blueprint-wireframe",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/01-hero/hero-upper-blueprint-wireframe.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-01-hero.png",
+      "section": "01-hero",
+      "description": "Blue technical wireframe above the hero roof.",
+      "bbox": [
+        860,
+        118,
+        1318,
+        324
+      ],
+      "width": 458,
+      "height": 206,
+      "alphaMode": "blueprint_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.5368
+    },
+    {
+      "slug": "hero-height-callout",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/01-hero/hero-height-callout.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-01-hero.png",
+      "section": "01-hero",
+      "description": "Max building height drafting callout.",
+      "bbox": [
+        1010,
+        130,
+        1385,
+        306
+      ],
+      "width": 375,
+      "height": 176,
+      "alphaMode": "blueprint_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.428
+    },
+    {
+      "slug": "hero-setback-plan-overlay",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/01-hero/hero-setback-plan-overlay.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-01-hero.png",
+      "section": "01-hero",
+      "description": "White setback and site-plan line overlay across the hero photo.",
+      "bbox": [
+        774,
+        642,
+        1536,
+        772
+      ],
+      "width": 762,
+      "height": 130,
+      "alphaMode": "white_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.0655
+    },
+    {
+      "slug": "hero-bottom-neighbourhood-sketch",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/01-hero/hero-bottom-neighbourhood-sketch.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-01-hero.png",
+      "section": "01-hero",
+      "description": "Bottom neighbourhood elevation sketch.",
+      "bbox": [
+        592,
+        830,
+        920,
+        996
+      ],
+      "width": 328,
+      "height": 166,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.5707
+    },
+    {
+      "slug": "hero-large-left-leaf-sketch",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/01-hero/hero-large-left-leaf-sketch.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-01-hero.png",
+      "section": "01-hero",
+      "description": "Large line-drawn leaf on the sage panel.",
+      "bbox": [
+        28,
+        842,
+        112,
+        982
+      ],
+      "width": 84,
+      "height": 140,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.9998
+    },
+    {
+      "slug": "hero-bottom-sage-panel-texture",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/01-hero/hero-bottom-sage-panel-texture.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-01-hero.png",
+      "section": "01-hero",
+      "description": "Transparent hero sage-panel leaf and copy marks; pair with generated sage texture.",
+      "bbox": [
+        0,
+        822,
+        600,
+        1024
+      ],
+      "width": 600,
+      "height": 202,
+      "alphaMode": "sage_panel_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1053
+    },
+    {
+      "slug": "what-existing-home-render",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/02-what-it-is/what-existing-home-render.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-02-what-it-is.png",
+      "section": "02-what-it-is",
+      "description": "Existing-home rendering.",
+      "bbox": [
+        592,
+        238,
+        1038,
+        522
+      ],
+      "width": 446,
+      "height": 284,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.8259
+    },
+    {
+      "slug": "what-garden-suite-photo-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/02-what-it-is/what-garden-suite-photo-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-02-what-it-is.png",
+      "section": "02-what-it-is",
+      "description": "Detached garden suite taped photo card.",
+      "bbox": [
+        1118,
+        232,
+        1522,
+        524
+      ],
+      "width": 404,
+      "height": 292,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.8982
+    },
+    {
+      "slug": "what-site-plan-blueprint",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/02-what-it-is/what-site-plan-blueprint.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-02-what-it-is.png",
+      "section": "02-what-it-is",
+      "description": "Existing-home and garden-suite site plan blueprint.",
+      "bbox": [
+        756,
+        500,
+        1372,
+        708
+      ],
+      "width": 616,
+      "height": 208,
+      "alphaMode": "blueprint_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.5108
+    },
+    {
+      "slug": "what-existing-home-label-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/02-what-it-is/what-existing-home-label-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-02-what-it-is.png",
+      "section": "02-what-it-is",
+      "description": "Existing home label card.",
+      "bbox": [
+        700,
+        126,
+        882,
+        230
+      ],
+      "width": 182,
+      "height": 104,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.9243
+    },
+    {
+      "slug": "what-detached-suite-label-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/02-what-it-is/what-detached-suite-label-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-02-what-it-is.png",
+      "section": "02-what-it-is",
+      "description": "Detached garden suite label card.",
+      "bbox": [
+        1168,
+        120,
+        1348,
+        218
+      ],
+      "width": 180,
+      "height": 98,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.8757
+    },
+    {
+      "slug": "what-current-mortgage-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/02-what-it-is/what-current-mortgage-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-02-what-it-is.png",
+      "section": "02-what-it-is",
+      "description": "Current mortgage balance input card.",
+      "bbox": [
+        556,
+        498,
+        762,
+        630
+      ],
+      "width": 206,
+      "height": 132,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2517
+    },
+    {
+      "slug": "what-available-equity-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/02-what-it-is/what-available-equity-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-02-what-it-is.png",
+      "section": "02-what-it-is",
+      "description": "Available equity input card.",
+      "bbox": [
+        556,
+        638,
+        762,
+        748
+      ],
+      "width": 206,
+      "height": 110,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2344
+    },
+    {
+      "slug": "what-construction-costs-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/02-what-it-is/what-construction-costs-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-02-what-it-is.png",
+      "section": "02-what-it-is",
+      "description": "Construction costs factor tile.",
+      "bbox": [
+        616,
+        766,
+        832,
+        912
+      ],
+      "width": 216,
+      "height": 146,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.9874
+    },
+    {
+      "slug": "what-permits-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/02-what-it-is/what-permits-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-02-what-it-is.png",
+      "section": "02-what-it-is",
+      "description": "Permits factor tile.",
+      "bbox": [
+        860,
+        766,
+        1044,
+        912
+      ],
+      "width": 184,
+      "height": 146,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.9896
+    },
+    {
+      "slug": "what-rental-income-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/02-what-it-is/what-rental-income-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-02-what-it-is.png",
+      "section": "02-what-it-is",
+      "description": "Rental income assumptions factor tile.",
+      "bbox": [
+        1066,
+        766,
+        1274,
+        912
+      ],
+      "width": 208,
+      "height": 146,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.9868
+    },
+    {
+      "slug": "what-completed-value-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/02-what-it-is/what-completed-value-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-02-what-it-is.png",
+      "section": "02-what-it-is",
+      "description": "Completed property value factor tile.",
+      "bbox": [
+        1298,
+        766,
+        1506,
+        912
+      ],
+      "width": 208,
+      "height": 146,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.9918
+    },
+    {
+      "slug": "what-diagram-connector-lines",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/02-what-it-is/what-diagram-connector-lines.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-02-what-it-is.png",
+      "section": "02-what-it-is",
+      "description": "Dotted diagram connector lines and nodes.",
+      "bbox": [
+        738,
+        510,
+        1418,
+        784
+      ],
+      "width": 680,
+      "height": 274,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2918
+    },
+    {
+      "slug": "what-field-note-botanical",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/02-what-it-is/what-field-note-botanical.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-02-what-it-is.png",
+      "section": "02-what-it-is",
+      "description": "Field-note handwriting and flower sketch.",
+      "bbox": [
+        42,
+        824,
+        336,
+        904
+      ],
+      "width": 294,
+      "height": 80,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1074
+    },
+    {
+      "slug": "audience-dossier-stack",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/03-who-this-is-for/audience-dossier-stack.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-03-who-this-is-for.png",
+      "section": "03-who-this-is-for",
+      "description": "Tabbed requests-reviewed dossier stack.",
+      "bbox": [
+        760,
+        46,
+        1518,
+        924
+      ],
+      "width": 758,
+      "height": 878,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1847
+    },
+    {
+      "slug": "audience-dossier-row-homeowners",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/03-who-this-is-for/audience-dossier-row-homeowners.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-03-who-this-is-for.png",
+      "section": "03-who-this-is-for",
+      "description": "Homeowners request row.",
+      "bbox": [
+        760,
+        74,
+        1470,
+        258
+      ],
+      "width": 710,
+      "height": 184,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1367
+    },
+    {
+      "slug": "audience-dossier-row-families",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/03-who-this-is-for/audience-dossier-row-families.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-03-who-this-is-for.png",
+      "section": "03-who-this-is-for",
+      "description": "Families request row.",
+      "bbox": [
+        760,
+        258,
+        1470,
+        418
+      ],
+      "width": 710,
+      "height": 160,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1644
+    },
+    {
+      "slug": "audience-dossier-row-investors",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/03-who-this-is-for/audience-dossier-row-investors.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-03-who-this-is-for.png",
+      "section": "03-who-this-is-for",
+      "description": "Investors request row.",
+      "bbox": [
+        760,
+        418,
+        1470,
+        600
+      ],
+      "width": 710,
+      "height": 182,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1733
+    },
+    {
+      "slug": "audience-dossier-row-builders",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/03-who-this-is-for/audience-dossier-row-builders.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-03-who-this-is-for.png",
+      "section": "03-who-this-is-for",
+      "description": "Builders request row.",
+      "bbox": [
+        760,
+        600,
+        1470,
+        744
+      ],
+      "width": 710,
+      "height": 144,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1612
+    },
+    {
+      "slug": "audience-dossier-row-realtors",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/03-who-this-is-for/audience-dossier-row-realtors.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-03-who-this-is-for.png",
+      "section": "03-who-this-is-for",
+      "description": "Realtors/designers/brokers request row.",
+      "bbox": [
+        760,
+        744,
+        1470,
+        910
+      ],
+      "width": 710,
+      "height": 166,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1619
+    },
+    {
+      "slug": "audience-tab-stack-right",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/03-who-this-is-for/audience-tab-stack-right.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-03-who-this-is-for.png",
+      "section": "03-who-this-is-for",
+      "description": "Right-side folder tab stack.",
+      "bbox": [
+        1440,
+        126,
+        1536,
+        892
+      ],
+      "width": 96,
+      "height": 766,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.4292
+    },
+    {
+      "slug": "audience-top-building-sketch",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/03-who-this-is-for/audience-top-building-sketch.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-03-who-this-is-for.png",
+      "section": "03-who-this-is-for",
+      "description": "Transparent top building sketch.",
+      "bbox": [
+        500,
+        60,
+        772,
+        332
+      ],
+      "width": 272,
+      "height": 272,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.3169
+    },
+    {
+      "slug": "audience-photo-collage-full",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/03-who-this-is-for/audience-photo-collage-full.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-03-who-this-is-for.png",
+      "section": "03-who-this-is-for",
+      "description": "Full left-side photo collage with notes.",
+      "bbox": [
+        0,
+        388,
+        770,
+        946
+      ],
+      "width": 770,
+      "height": 558,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.6947
+    },
+    {
+      "slug": "audience-suite-photo-print",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/03-who-this-is-for/audience-suite-photo-print.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-03-who-this-is-for.png",
+      "section": "03-who-this-is-for",
+      "description": "Garden-suite photo print.",
+      "bbox": [
+        0,
+        476,
+        408,
+        764
+      ],
+      "width": 408,
+      "height": 288,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.8859
+    },
+    {
+      "slug": "audience-family-photo-print",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/03-who-this-is-for/audience-family-photo-print.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-03-who-this-is-for.png",
+      "section": "03-who-this-is-for",
+      "description": "Family reviewing plans photo print.",
+      "bbox": [
+        404,
+        390,
+        748,
+        640
+      ],
+      "width": 344,
+      "height": 250,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.7825
+    },
+    {
+      "slug": "audience-builder-photo-print",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/03-who-this-is-for/audience-builder-photo-print.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-03-who-this-is-for.png",
+      "section": "03-who-this-is-for",
+      "description": "Builder and homeowner photo print.",
+      "bbox": [
+        232,
+        654,
+        516,
+        896
+      ],
+      "width": 284,
+      "height": 242,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.8371
+    },
+    {
+      "slug": "audience-advisor-photo-print",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/03-who-this-is-for/audience-advisor-photo-print.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-03-who-this-is-for.png",
+      "section": "03-who-this-is-for",
+      "description": "Advisor and client photo print.",
+      "bbox": [
+        512,
+        654,
+        770,
+        898
+      ],
+      "width": 258,
+      "height": 244,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.76
+    },
+    {
+      "slug": "audience-bottom-blueprint-strip",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/03-who-this-is-for/audience-bottom-blueprint-strip.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-03-who-this-is-for.png",
+      "section": "03-who-this-is-for",
+      "description": "Garden-suite blueprint strip under the collage.",
+      "bbox": [
+        0,
+        838,
+        770,
+        946
+      ],
+      "width": 770,
+      "height": 108,
+      "alphaMode": "blueprint_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.3524
+    },
+    {
+      "slug": "audience-built-for-neighbourhoods-seal",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/03-who-this-is-for/audience-built-for-neighbourhoods-seal.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-03-who-this-is-for.png",
+      "section": "03-who-this-is-for",
+      "description": "Built for neighbourhoods circular seal.",
+      "bbox": [
+        38,
+        908,
+        118,
+        994
+      ],
+      "width": 80,
+      "height": 86,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.6622
+    },
+    {
+      "slug": "audience-green-neighbourhood-footer-sketch",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/03-who-this-is-for/audience-green-neighbourhood-footer-sketch.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-03-who-this-is-for.png",
+      "section": "03-who-this-is-for",
+      "description": "Dark green footer with neighbourhood sketch.",
+      "bbox": [
+        0,
+        944,
+        1536,
+        1024
+      ],
+      "width": 1536,
+      "height": 80,
+      "alphaMode": "dark_footer_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2724
+    },
+    {
+      "slug": "gap-paper-board-full",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/04-financing-challenges/gap-paper-board-full.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-04-financing-challenges.png",
+      "section": "04-financing-challenges",
+      "description": "Large funding-gap board with tabbed file stack.",
+      "bbox": [
+        572,
+        56,
+        1498,
+        984
+      ],
+      "width": 926,
+      "height": 928,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2709
+    },
+    {
+      "slug": "gap-chart-panel",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/04-financing-challenges/gap-chart-panel.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-04-financing-challenges.png",
+      "section": "04-financing-challenges",
+      "description": "Funding-gap bar chart and dashed alignment structure.",
+      "bbox": [
+        608,
+        94,
+        1268,
+        754
+      ],
+      "width": 660,
+      "height": 660,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.27
+    },
+    {
+      "slug": "gap-bars-and-dashed-structure",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/04-financing-challenges/gap-bars-and-dashed-structure.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-04-financing-challenges.png",
+      "section": "04-financing-challenges",
+      "description": "Bar chart bars and dashed structure lines.",
+      "bbox": [
+        860,
+        206,
+        1210,
+        750
+      ],
+      "width": 350,
+      "height": 544,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.3787
+    },
+    {
+      "slug": "gap-review-alignment-panel",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/04-financing-challenges/gap-review-alignment-panel.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-04-financing-challenges.png",
+      "section": "04-financing-challenges",
+      "description": "Fairlend review alignment panel.",
+      "bbox": [
+        1265,
+        260,
+        1432,
+        654
+      ],
+      "width": 167,
+      "height": 394,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1894
+    },
+    {
+      "slug": "gap-bottom-suite-blueprint",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/04-financing-challenges/gap-bottom-suite-blueprint.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-04-financing-challenges.png",
+      "section": "04-financing-challenges",
+      "description": "Bottom blue garden-suite elevation.",
+      "bbox": [
+        1000,
+        720,
+        1402,
+        925
+      ],
+      "width": 402,
+      "height": 205,
+      "alphaMode": "blueprint_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.365
+    },
+    {
+      "slug": "gap-right-tab-stack",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/04-financing-challenges/gap-right-tab-stack.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-04-financing-challenges.png",
+      "section": "04-financing-challenges",
+      "description": "Garden suite plan / project review / financing notes tabs.",
+      "bbox": [
+        1470,
+        178,
+        1535,
+        960
+      ],
+      "width": 65,
+      "height": 782,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.9283
+    },
+    {
+      "slug": "gap-review-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/04-financing-challenges/gap-review-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-04-financing-challenges.png",
+      "section": "04-financing-challenges",
+      "description": "Fairlend review explainer card.",
+      "bbox": [
+        52,
+        618,
+        438,
+        768
+      ],
+      "width": 386,
+      "height": 150,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.265
+    },
+    {
+      "slug": "gap-garden-suite-photo",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/04-financing-challenges/gap-garden-suite-photo.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-04-financing-challenges.png",
+      "section": "04-financing-challenges",
+      "description": "Bottom-left garden-suite photo.",
+      "bbox": [
+        0,
+        768,
+        424,
+        1024
+      ],
+      "width": 424,
+      "height": 256,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.9768
+    },
+    {
+      "slug": "gap-handwritten-note",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/04-financing-challenges/gap-handwritten-note.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-04-financing-challenges.png",
+      "section": "04-financing-challenges",
+      "description": "Handwritten note card: gap is how pieces line up.",
+      "bbox": [
+        582,
+        778,
+        934,
+        870
+      ],
+      "width": 352,
+      "height": 92,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.5044
+    },
+    {
+      "slug": "gap-background-plan-fragment",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/04-financing-challenges/gap-background-plan-fragment.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-04-financing-challenges.png",
+      "section": "04-financing-challenges",
+      "description": "Large background plan-paper fragment.",
+      "bbox": [
+        704,
+        0,
+        1536,
+        1024
+      ],
+      "width": 832,
+      "height": 1024,
+      "alphaMode": "blueprint_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.3179
+    },
+    {
+      "slug": "financeability-file-stack-full",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/05-financeability/financeability-file-stack-full.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-05-financeability.png",
+      "section": "05-financeability",
+      "description": "Full project financeability file stack.",
+      "bbox": [
+        416,
+        18,
+        1530,
+        1008
+      ],
+      "width": 1114,
+      "height": 990,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.3339
+    },
+    {
+      "slug": "financeability-property-location-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/05-financeability/financeability-property-location-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-05-financeability.png",
+      "section": "05-financeability",
+      "description": "Property location factor card.",
+      "bbox": [
+        466,
+        108,
+        702,
+        350
+      ],
+      "width": 236,
+      "height": 242,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2088
+    },
+    {
+      "slug": "financeability-existing-home-type-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/05-financeability/financeability-existing-home-type-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-05-financeability.png",
+      "section": "05-financeability",
+      "description": "Existing home type factor card.",
+      "bbox": [
+        706,
+        108,
+        946,
+        350
+      ],
+      "width": 240,
+      "height": 242,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.379
+    },
+    {
+      "slug": "financeability-lot-characteristics-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/05-financeability/financeability-lot-characteristics-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-05-financeability.png",
+      "section": "05-financeability",
+      "description": "Lot characteristics factor card.",
+      "bbox": [
+        956,
+        108,
+        1176,
+        350
+      ],
+      "width": 220,
+      "height": 242,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.4103
+    },
+    {
+      "slug": "financeability-photo-print",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/05-financeability/financeability-photo-print.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-05-financeability.png",
+      "section": "05-financeability",
+      "description": "Garden-suite photo print with paperclip.",
+      "bbox": [
+        1158,
+        82,
+        1512,
+        356
+      ],
+      "width": 354,
+      "height": 274,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.7944
+    },
+    {
+      "slug": "financeability-central-blueprint",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/05-financeability/financeability-central-blueprint.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-05-financeability.png",
+      "section": "05-financeability",
+      "description": "Central garden-suite elevation and plan blueprint.",
+      "bbox": [
+        672,
+        338,
+        1028,
+        646
+      ],
+      "width": 356,
+      "height": 308,
+      "alphaMode": "blueprint_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.4041
+    },
+    {
+      "slug": "financeability-current-mortgage-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/05-financeability/financeability-current-mortgage-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-05-financeability.png",
+      "section": "05-financeability",
+      "description": "Current mortgage balance card.",
+      "bbox": [
+        420,
+        352,
+        676,
+        476
+      ],
+      "width": 256,
+      "height": 124,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1732
+    },
+    {
+      "slug": "financeability-available-equity-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/05-financeability/financeability-available-equity-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-05-financeability.png",
+      "section": "05-financeability",
+      "description": "Available equity card.",
+      "bbox": [
+        420,
+        476,
+        676,
+        586
+      ],
+      "width": 256,
+      "height": 110,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1788
+    },
+    {
+      "slug": "financeability-borrower-profile-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/05-financeability/financeability-borrower-profile-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-05-financeability.png",
+      "section": "05-financeability",
+      "description": "Borrower profile card.",
+      "bbox": [
+        420,
+        586,
+        676,
+        682
+      ],
+      "width": 256,
+      "height": 96,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2366
+    },
+    {
+      "slug": "financeability-permit-design-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/05-financeability/financeability-permit-design-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-05-financeability.png",
+      "section": "05-financeability",
+      "description": "Permit and design status card with stamp.",
+      "bbox": [
+        1054,
+        374,
+        1490,
+        610
+      ],
+      "width": 436,
+      "height": 236,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2292
+    },
+    {
+      "slug": "financeability-construction-budget-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/05-financeability/financeability-construction-budget-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-05-financeability.png",
+      "section": "05-financeability",
+      "description": "Construction budget card.",
+      "bbox": [
+        334,
+        668,
+        638,
+        852
+      ],
+      "width": 304,
+      "height": 184,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2306
+    },
+    {
+      "slug": "financeability-builder-plan-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/05-financeability/financeability-builder-plan-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-05-financeability.png",
+      "section": "05-financeability",
+      "description": "Builder or contractor plan card.",
+      "bbox": [
+        648,
+        668,
+        942,
+        862
+      ],
+      "width": 294,
+      "height": 194,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1998
+    },
+    {
+      "slug": "financeability-rental-use-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/05-financeability/financeability-rental-use-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-05-financeability.png",
+      "section": "05-financeability",
+      "description": "Expected rental use card.",
+      "bbox": [
+        944,
+        668,
+        1216,
+        862
+      ],
+      "width": 272,
+      "height": 194,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1773
+    },
+    {
+      "slug": "financeability-completed-value-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/05-financeability/financeability-completed-value-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-05-financeability.png",
+      "section": "05-financeability",
+      "description": "Estimated completed value card.",
+      "bbox": [
+        1216,
+        668,
+        1490,
+        862
+      ],
+      "width": 274,
+      "height": 194,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2413
+    },
+    {
+      "slug": "financeability-timeline-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/05-financeability/financeability-timeline-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-05-financeability.png",
+      "section": "05-financeability",
+      "description": "Timeline strip card.",
+      "bbox": [
+        284,
+        870,
+        804,
+        1004
+      ],
+      "width": 520,
+      "height": 134,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1743
+    },
+    {
+      "slug": "financeability-exit-refinance-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/05-financeability/financeability-exit-refinance-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-05-financeability.png",
+      "section": "05-financeability",
+      "description": "Exit or refinance strategy card.",
+      "bbox": [
+        804,
+        870,
+        1206,
+        1004
+      ],
+      "width": 402,
+      "height": 134,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2269
+    },
+    {
+      "slug": "financeability-before-you-ask-checklist",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/05-financeability/financeability-before-you-ask-checklist.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-05-financeability.png",
+      "section": "05-financeability",
+      "description": "Before-you-ask checklist note.",
+      "bbox": [
+        1184,
+        842,
+        1482,
+        1004
+      ],
+      "width": 298,
+      "height": 162,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.3391
+    },
+    {
+      "slug": "financeability-plans-approved-stamp",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/05-financeability/financeability-plans-approved-stamp.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-05-financeability.png",
+      "section": "05-financeability",
+      "description": "Plans approved / build ready stamp.",
+      "bbox": [
+        1164,
+        498,
+        1358,
+        576
+      ],
+      "width": 194,
+      "height": 78,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2966
+    },
+    {
+      "slug": "financeability-left-house-sketch",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/05-financeability/financeability-left-house-sketch.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-05-financeability.png",
+      "section": "05-financeability",
+      "description": "Left-side existing home and suite sketch.",
+      "bbox": [
+        54,
+        392,
+        398,
+        522
+      ],
+      "width": 344,
+      "height": 130,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.4279
+    },
+    {
+      "slug": "financeability-left-review-panel",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/05-financeability/financeability-left-review-panel.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-05-financeability.png",
+      "section": "05-financeability",
+      "description": "We review the full picture panel.",
+      "bbox": [
+        20,
+        546,
+        322,
+        1006
+      ],
+      "width": 302,
+      "height": 460,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1872
+    },
+    {
+      "slug": "considerations-table-full",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/06-key-considerations/considerations-table-full.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-06-key-considerations.png",
+      "section": "06-key-considerations",
+      "description": "Full key financing considerations table.",
+      "bbox": [
+        448,
+        100,
+        1102,
+        912
+      ],
+      "width": 654,
+      "height": 812,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.182
+    },
+    {
+      "slug": "considerations-row-existing-mortgage",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/06-key-considerations/considerations-row-existing-mortgage.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-06-key-considerations.png",
+      "section": "06-key-considerations",
+      "description": "Existing mortgage accordion row.",
+      "bbox": [
+        448,
+        100,
+        1102,
+        196
+      ],
+      "width": 654,
+      "height": 96,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1961
+    },
+    {
+      "slug": "considerations-row-equity",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/06-key-considerations/considerations-row-equity.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-06-key-considerations.png",
+      "section": "06-key-considerations",
+      "description": "Equity accordion row.",
+      "bbox": [
+        448,
+        196,
+        1102,
+        288
+      ],
+      "width": 654,
+      "height": 92,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1226
+    },
+    {
+      "slug": "considerations-row-construction-budget",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/06-key-considerations/considerations-row-construction-budget.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-06-key-considerations.png",
+      "section": "06-key-considerations",
+      "description": "Construction budget expanded accordion row.",
+      "bbox": [
+        448,
+        288,
+        1102,
+        378
+      ],
+      "width": 654,
+      "height": 90,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1615
+    },
+    {
+      "slug": "considerations-budget-components-panel",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/06-key-considerations/considerations-budget-components-panel.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-06-key-considerations.png",
+      "section": "06-key-considerations",
+      "description": "Typical budget components panel.",
+      "bbox": [
+        448,
+        378,
+        1102,
+        642
+      ],
+      "width": 654,
+      "height": 264,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2443
+    },
+    {
+      "slug": "considerations-budget-elevation-blueprint",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/06-key-considerations/considerations-budget-elevation-blueprint.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-06-key-considerations.png",
+      "section": "06-key-considerations",
+      "description": "Budget panel garden-suite elevation blueprint.",
+      "bbox": [
+        326,
+        408,
+        662,
+        642
+      ],
+      "width": 336,
+      "height": 234,
+      "alphaMode": "blueprint_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.3463
+    },
+    {
+      "slug": "considerations-row-permits",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/06-key-considerations/considerations-row-permits.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-06-key-considerations.png",
+      "section": "06-key-considerations",
+      "description": "Permits accordion row.",
+      "bbox": [
+        448,
+        672,
+        1102,
+        740
+      ],
+      "width": 654,
+      "height": 68,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1607
+    },
+    {
+      "slug": "considerations-row-rental-income",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/06-key-considerations/considerations-row-rental-income.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-06-key-considerations.png",
+      "section": "06-key-considerations",
+      "description": "Rental income accordion row.",
+      "bbox": [
+        448,
+        740,
+        1102,
+        818
+      ],
+      "width": 654,
+      "height": 78,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.137
+    },
+    {
+      "slug": "considerations-row-valuation",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/06-key-considerations/considerations-row-valuation.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-06-key-considerations.png",
+      "section": "06-key-considerations",
+      "description": "Valuation accordion row.",
+      "bbox": [
+        448,
+        818,
+        1102,
+        912
+      ],
+      "width": 654,
+      "height": 94,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1503
+    },
+    {
+      "slug": "considerations-right-file-stack",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/06-key-considerations/considerations-right-file-stack.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-06-key-considerations.png",
+      "section": "06-key-considerations",
+      "description": "Permit/project-plan/budget/renderings file stack.",
+      "bbox": [
+        1112,
+        12,
+        1512,
+        964
+      ],
+      "width": 400,
+      "height": 952,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.4557
+    },
+    {
+      "slug": "considerations-building-permit-doc",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/06-key-considerations/considerations-building-permit-doc.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-06-key-considerations.png",
+      "section": "06-key-considerations",
+      "description": "Building permit document.",
+      "bbox": [
+        1138,
+        64,
+        1404,
+        392
+      ],
+      "width": 266,
+      "height": 328,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1758
+    },
+    {
+      "slug": "considerations-progress-photo-print",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/06-key-considerations/considerations-progress-photo-print.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-06-key-considerations.png",
+      "section": "06-key-considerations",
+      "description": "Progress-today value-tomorrow construction photo.",
+      "bbox": [
+        1152,
+        388,
+        1490,
+        678
+      ],
+      "width": 338,
+      "height": 290,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.8133
+    },
+    {
+      "slug": "considerations-strong-plan-checklist",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/06-key-considerations/considerations-strong-plan-checklist.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-06-key-considerations.png",
+      "section": "06-key-considerations",
+      "description": "Strong plan checklist card.",
+      "bbox": [
+        1112,
+        710,
+        1490,
+        962
+      ],
+      "width": 378,
+      "height": 252,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.3295
+    },
+    {
+      "slug": "considerations-left-review-icon",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/06-key-considerations/considerations-left-review-icon.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-06-key-considerations.png",
+      "section": "06-key-considerations",
+      "description": "Full-picture review line icon.",
+      "bbox": [
+        42,
+        405,
+        160,
+        492
+      ],
+      "width": 118,
+      "height": 87,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.0962
+    },
+    {
+      "slug": "considerations-lower-building-sketch",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/06-key-considerations/considerations-lower-building-sketch.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-06-key-considerations.png",
+      "section": "06-key-considerations",
+      "description": "Lower-left transparent building sketch.",
+      "bbox": [
+        32,
+        664,
+        422,
+        878
+      ],
+      "width": 390,
+      "height": 214,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2301
+    },
+    {
+      "slug": "considerations-right-plant",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/06-key-considerations/considerations-right-plant.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-06-key-considerations.png",
+      "section": "06-key-considerations",
+      "description": "Right-side leafy plant cutout.",
+      "bbox": [
+        1378,
+        758,
+        1536,
+        1008
+      ],
+      "width": 158,
+      "height": 250,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.7122
+    },
+    {
+      "slug": "help-process-diagram-full",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/07-how-fairlend-helps/help-process-diagram-full.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-07-how-fairlend-helps.png",
+      "section": "07-how-fairlend-helps",
+      "description": "Five-step Fairlend review process diagram.",
+      "bbox": [
+        40,
+        386,
+        1518,
+        692
+      ],
+      "width": 1478,
+      "height": 306,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1509
+    },
+    {
+      "slug": "help-process-connector-line",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/07-how-fairlend-helps/help-process-connector-line.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-07-how-fairlend-helps.png",
+      "section": "07-how-fairlend-helps",
+      "description": "Numbered step connector line.",
+      "bbox": [
+        88,
+        390,
+        1320,
+        416
+      ],
+      "width": 1232,
+      "height": 26,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1688
+    },
+    {
+      "slug": "help-step-01-property-icon",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/07-how-fairlend-helps/help-step-01-property-icon.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-07-how-fairlend-helps.png",
+      "section": "07-how-fairlend-helps",
+      "description": "Step 1 property icon and number.",
+      "bbox": [
+        82,
+        390,
+        168,
+        504
+      ],
+      "width": 86,
+      "height": 114,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2197
+    },
+    {
+      "slug": "help-step-02-equity-icon",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/07-how-fairlend-helps/help-step-02-equity-icon.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-07-how-fairlend-helps.png",
+      "section": "07-how-fairlend-helps",
+      "description": "Step 2 equity icon and number.",
+      "bbox": [
+        374,
+        390,
+        432,
+        504
+      ],
+      "width": 58,
+      "height": 114,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2671
+    },
+    {
+      "slug": "help-step-03-budget-icon",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/07-how-fairlend-helps/help-step-03-budget-icon.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-07-how-fairlend-helps.png",
+      "section": "07-how-fairlend-helps",
+      "description": "Step 3 budget icon and number.",
+      "bbox": [
+        674,
+        390,
+        752,
+        506
+      ],
+      "width": 78,
+      "height": 116,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2418
+    },
+    {
+      "slug": "help-step-04-permit-icon",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/07-how-fairlend-helps/help-step-04-permit-icon.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-07-how-fairlend-helps.png",
+      "section": "07-how-fairlend-helps",
+      "description": "Step 4 permit/rental plan icon and number.",
+      "bbox": [
+        972,
+        390,
+        1044,
+        508
+      ],
+      "width": 72,
+      "height": 118,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1972
+    },
+    {
+      "slug": "help-step-05-financing-icon",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/07-how-fairlend-helps/help-step-05-financing-icon.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-07-how-fairlend-helps.png",
+      "section": "07-how-fairlend-helps",
+      "description": "Step 5 likely financing structure icon and number.",
+      "bbox": [
+        1242,
+        390,
+        1328,
+        508
+      ],
+      "width": 86,
+      "height": 118,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2374
+    },
+    {
+      "slug": "help-top-photo-print",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/07-how-fairlend-helps/help-top-photo-print.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-07-how-fairlend-helps.png",
+      "section": "07-how-fairlend-helps",
+      "description": "Top garden-suite photo print with paperclip.",
+      "bbox": [
+        496,
+        28,
+        878,
+        360
+      ],
+      "width": 382,
+      "height": 332,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.8829
+    },
+    {
+      "slug": "help-blueprint-concept-plate",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/07-how-fairlend-helps/help-blueprint-concept-plate.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-07-how-fairlend-helps.png",
+      "section": "07-how-fairlend-helps",
+      "description": "Garden suite concept blueprint plate.",
+      "bbox": [
+        890,
+        54,
+        1276,
+        362
+      ],
+      "width": 386,
+      "height": 308,
+      "alphaMode": "blueprint_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2145
+    },
+    {
+      "slug": "help-role-note",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/07-how-fairlend-helps/help-role-note.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-07-how-fairlend-helps.png",
+      "section": "07-how-fairlend-helps",
+      "description": "Our role sticky note.",
+      "bbox": [
+        1294,
+        22,
+        1516,
+        168
+      ],
+      "width": 222,
+      "height": 146,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1527
+    },
+    {
+      "slug": "help-review-focus-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/07-how-fairlend-helps/help-review-focus-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-07-how-fairlend-helps.png",
+      "section": "07-how-fairlend-helps",
+      "description": "Review focus checklist card.",
+      "bbox": [
+        1268,
+        180,
+        1522,
+        378
+      ],
+      "width": 254,
+      "height": 198,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1708
+    },
+    {
+      "slug": "help-documentation-needed-panel",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/07-how-fairlend-helps/help-documentation-needed-panel.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-07-how-fairlend-helps.png",
+      "section": "07-how-fairlend-helps",
+      "description": "Documentation needed checklist panel.",
+      "bbox": [
+        32,
+        714,
+        512,
+        892
+      ],
+      "width": 480,
+      "height": 178,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.221
+    },
+    {
+      "slug": "help-document-note-stack",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/07-how-fairlend-helps/help-document-note-stack.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-07-how-fairlend-helps.png",
+      "section": "07-how-fairlend-helps",
+      "description": "Plans/budget/site-plan document note stack.",
+      "bbox": [
+        332,
+        720,
+        452,
+        896
+      ],
+      "width": 120,
+      "height": 176,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1948
+    },
+    {
+      "slug": "help-constraints-panel",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/07-how-fairlend-helps/help-constraints-panel.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-07-how-fairlend-helps.png",
+      "section": "07-how-fairlend-helps",
+      "description": "Constraints to address checklist panel.",
+      "bbox": [
+        518,
+        714,
+        1012,
+        892
+      ],
+      "width": 494,
+      "height": 178,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2533
+    },
+    {
+      "slug": "help-issues-sticky-note",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/07-how-fairlend-helps/help-issues-sticky-note.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-07-how-fairlend-helps.png",
+      "section": "07-how-fairlend-helps",
+      "description": "We flag issues early sticky note.",
+      "bbox": [
+        812,
+        734,
+        982,
+        896
+      ],
+      "width": 170,
+      "height": 162,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.333
+    },
+    {
+      "slug": "help-output-sketch",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/07-how-fairlend-helps/help-output-sketch.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-07-how-fairlend-helps.png",
+      "section": "07-how-fairlend-helps",
+      "description": "Our output elevation sketch.",
+      "bbox": [
+        1024,
+        724,
+        1242,
+        896
+      ],
+      "width": 218,
+      "height": 172,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.3432
+    },
+    {
+      "slug": "help-output-cta-panel",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/07-how-fairlend-helps/help-output-cta-panel.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-07-how-fairlend-helps.png",
+      "section": "07-how-fairlend-helps",
+      "description": "Our output CTA panel.",
+      "bbox": [
+        1214,
+        724,
+        1514,
+        904
+      ],
+      "width": 300,
+      "height": 180,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.3006
+    },
+    {
+      "slug": "help-logo-block",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/07-how-fairlend-helps/help-logo-block.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-07-how-fairlend-helps.png",
+      "section": "07-how-fairlend-helps",
+      "description": "Transparent bottom-right Fairlend logo mark for use over a dark-green block.",
+      "bbox": [
+        1216,
+        904,
+        1536,
+        1024
+      ],
+      "width": 320,
+      "height": 120,
+      "alphaMode": "dark_footer_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.3541
+    },
+    {
+      "slug": "comparison-board-full",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/08-comparison/comparison-board-full.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-08-comparison.png",
+      "section": "08-comparison",
+      "description": "Full garden suite / laneway suite / multiplex comparison board.",
+      "bbox": [
+        430,
+        28,
+        1510,
+        782
+      ],
+      "width": 1080,
+      "height": 754,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.3777
+    },
+    {
+      "slug": "comparison-garden-suite-column",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/08-comparison/comparison-garden-suite-column.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-08-comparison.png",
+      "section": "08-comparison",
+      "description": "Garden suite comparison column.",
+      "bbox": [
+        430,
+        28,
+        750,
+        782
+      ],
+      "width": 320,
+      "height": 754,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.3846
+    },
+    {
+      "slug": "comparison-laneway-suite-column",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/08-comparison/comparison-laneway-suite-column.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-08-comparison.png",
+      "section": "08-comparison",
+      "description": "Laneway suite comparison column.",
+      "bbox": [
+        750,
+        28,
+        1082,
+        782
+      ],
+      "width": 332,
+      "height": 754,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.3696
+    },
+    {
+      "slug": "comparison-multiplex-column",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/08-comparison/comparison-multiplex-column.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-08-comparison.png",
+      "section": "08-comparison",
+      "description": "Multiplex comparison column.",
+      "bbox": [
+        1082,
+        28,
+        1510,
+        782
+      ],
+      "width": 428,
+      "height": 754,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.3789
+    },
+    {
+      "slug": "comparison-garden-suite-photo",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/08-comparison/comparison-garden-suite-photo.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-08-comparison.png",
+      "section": "08-comparison",
+      "description": "Garden suite comparison image.",
+      "bbox": [
+        448,
+        134,
+        744,
+        330
+      ],
+      "width": 296,
+      "height": 196,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.8471
+    },
+    {
+      "slug": "comparison-laneway-suite-photo",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/08-comparison/comparison-laneway-suite-photo.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-08-comparison.png",
+      "section": "08-comparison",
+      "description": "Laneway suite comparison image.",
+      "bbox": [
+        770,
+        130,
+        1072,
+        330
+      ],
+      "width": 302,
+      "height": 200,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.8113
+    },
+    {
+      "slug": "comparison-multiplex-photo",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/08-comparison/comparison-multiplex-photo.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-08-comparison.png",
+      "section": "08-comparison",
+      "description": "Multiplex comparison image.",
+      "bbox": [
+        1100,
+        112,
+        1434,
+        330
+      ],
+      "width": 334,
+      "height": 218,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.8324
+    },
+    {
+      "slug": "comparison-garden-suite-swatches",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/08-comparison/comparison-garden-suite-swatches.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-08-comparison.png",
+      "section": "08-comparison",
+      "description": "Garden suite material swatch strip.",
+      "bbox": [
+        450,
+        698,
+        742,
+        770
+      ],
+      "width": 292,
+      "height": 72,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.9013
+    },
+    {
+      "slug": "comparison-laneway-suite-swatches",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/08-comparison/comparison-laneway-suite-swatches.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-08-comparison.png",
+      "section": "08-comparison",
+      "description": "Laneway suite material swatch strip.",
+      "bbox": [
+        768,
+        698,
+        1066,
+        770
+      ],
+      "width": 298,
+      "height": 72,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.798
+    },
+    {
+      "slug": "comparison-multiplex-swatches",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/08-comparison/comparison-multiplex-swatches.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-08-comparison.png",
+      "section": "08-comparison",
+      "description": "Multiplex material swatch strip.",
+      "bbox": [
+        1104,
+        698,
+        1418,
+        770
+      ],
+      "width": 314,
+      "height": 72,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.93
+    },
+    {
+      "slug": "comparison-bottom-combined-projects-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/08-comparison/comparison-bottom-combined-projects-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-08-comparison.png",
+      "section": "08-comparison",
+      "description": "Some projects combine categories card.",
+      "bbox": [
+        96,
+        794,
+        1508,
+        1000
+      ],
+      "width": 1412,
+      "height": 206,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.3132
+    },
+    {
+      "slug": "comparison-bottom-combined-sketch",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/08-comparison/comparison-bottom-combined-sketch.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-08-comparison.png",
+      "section": "08-comparison",
+      "description": "Home addition plus detached suite sketch.",
+      "bbox": [
+        516,
+        806,
+        1052,
+        982
+      ],
+      "width": 536,
+      "height": 176,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.5606
+    },
+    {
+      "slug": "comparison-learn-more-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/08-comparison/comparison-learn-more-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-08-comparison.png",
+      "section": "08-comparison",
+      "description": "Learn more about multiplex financing CTA card.",
+      "bbox": [
+        1110,
+        818,
+        1486,
+        986
+      ],
+      "width": 376,
+      "height": 168,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.3057
+    },
+    {
+      "slug": "comparison-left-advisory-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/08-comparison/comparison-left-advisory-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-08-comparison.png",
+      "section": "08-comparison",
+      "description": "Project-type guidance advisory card.",
+      "bbox": [
+        26,
+        458,
+        344,
+        610
+      ],
+      "width": 318,
+      "height": 152,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2763
+    },
+    {
+      "slug": "comparison-left-blueprint-fragment",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/08-comparison/comparison-left-blueprint-fragment.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-08-comparison.png",
+      "section": "08-comparison",
+      "description": "Left transparent blueprint fragment.",
+      "bbox": [
+        16,
+        640,
+        440,
+        772
+      ],
+      "width": 424,
+      "height": 132,
+      "alphaMode": "blueprint_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1533
+    },
+    {
+      "slug": "faq-card-full",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/09-faq/faq-card-full.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-09-faq.png",
+      "section": "09-faq",
+      "description": "Full FAQ card.",
+      "bbox": [
+        510,
+        128,
+        1308,
+        780
+      ],
+      "width": 798,
+      "height": 652,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.9916
+    },
+    {
+      "slug": "faq-open-question-row",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/09-faq/faq-open-question-row.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-09-faq.png",
+      "section": "09-faq",
+      "description": "Open FAQ first question row.",
+      "bbox": [
+        510,
+        128,
+        1308,
+        414
+      ],
+      "width": 798,
+      "height": 286,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.9683
+    },
+    {
+      "slug": "faq-row-permits",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/09-faq/faq-row-permits.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-09-faq.png",
+      "section": "09-faq",
+      "description": "FAQ permits row.",
+      "bbox": [
+        510,
+        414,
+        1308,
+        500
+      ],
+      "width": 798,
+      "height": 86,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1422
+    },
+    {
+      "slug": "faq-row-rent",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/09-faq/faq-row-rent.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-09-faq.png",
+      "section": "09-faq",
+      "description": "FAQ rent-support row.",
+      "bbox": [
+        510,
+        500,
+        1308,
+        590
+      ],
+      "width": 798,
+      "height": 90,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1277
+    },
+    {
+      "slug": "faq-row-laneway",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/09-faq/faq-row-laneway.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-09-faq.png",
+      "section": "09-faq",
+      "description": "FAQ laneway row.",
+      "bbox": [
+        510,
+        590,
+        1308,
+        680
+      ],
+      "width": 798,
+      "height": 90,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1506
+    },
+    {
+      "slug": "faq-row-guaranteed",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/09-faq/faq-row-guaranteed.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-09-faq.png",
+      "section": "09-faq",
+      "description": "FAQ funding-guaranteed row.",
+      "bbox": [
+        510,
+        680,
+        1308,
+        780
+      ],
+      "width": 798,
+      "height": 100,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.157
+    },
+    {
+      "slug": "faq-right-blueprint-sheet-stack",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/09-faq/faq-right-blueprint-sheet-stack.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-09-faq.png",
+      "section": "09-faq",
+      "description": "Right-side permit and blueprint sheet stack.",
+      "bbox": [
+        1134,
+        0,
+        1536,
+        904
+      ],
+      "width": 402,
+      "height": 904,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.3617
+    },
+    {
+      "slug": "faq-building-permit-sheet",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/09-faq/faq-building-permit-sheet.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-09-faq.png",
+      "section": "09-faq",
+      "description": "City of Toronto building permit sheet.",
+      "bbox": [
+        1336,
+        64,
+        1536,
+        352
+      ],
+      "width": 200,
+      "height": 288,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.236
+    },
+    {
+      "slug": "faq-plan-sheet",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/09-faq/faq-plan-sheet.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-09-faq.png",
+      "section": "09-faq",
+      "description": "Right-side blue floor-plan sheet.",
+      "bbox": [
+        1210,
+        360,
+        1536,
+        704
+      ],
+      "width": 326,
+      "height": 344,
+      "alphaMode": "blueprint_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2102
+    },
+    {
+      "slug": "faq-elevation-sheet",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/09-faq/faq-elevation-sheet.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-09-faq.png",
+      "section": "09-faq",
+      "description": "Right-side front elevation sheet.",
+      "bbox": [
+        1288,
+        704,
+        1536,
+        904
+      ],
+      "width": 248,
+      "height": 200,
+      "alphaMode": "blueprint_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.3919
+    },
+    {
+      "slug": "faq-before-you-ask-notepad",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/09-faq/faq-before-you-ask-notepad.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-09-faq.png",
+      "section": "09-faq",
+      "description": "Before-you-ask clipped notepad.",
+      "bbox": [
+        44,
+        596,
+        438,
+        920
+      ],
+      "width": 394,
+      "height": 324,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2024
+    },
+    {
+      "slug": "faq-next-step-timeline-bar",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/09-faq/faq-next-step-timeline-bar.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-09-faq.png",
+      "section": "09-faq",
+      "description": "Next step and timeline info bar.",
+      "bbox": [
+        510,
+        804,
+        1220,
+        902
+      ],
+      "width": 710,
+      "height": 98,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2109
+    },
+    {
+      "slug": "faq-left-review-note-card",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/09-faq/faq-left-review-note-card.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-09-faq.png",
+      "section": "09-faq",
+      "description": "Rigorous review note card.",
+      "bbox": [
+        44,
+        458,
+        412,
+        582
+      ],
+      "width": 368,
+      "height": 124,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2825
+    },
+    {
+      "slug": "faq-logo-lockup",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/09-faq/faq-logo-lockup.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-09-faq.png",
+      "section": "09-faq",
+      "description": "FAQ section Fairlend logo lockup.",
+      "bbox": [
+        40,
+        28,
+        296,
+        84
+      ],
+      "width": 256,
+      "height": 56,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1659
+    },
+    {
+      "slug": "final-cta-hero-building-photo",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/10-final-cta/final-cta-hero-building-photo.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-10-final-cta.png",
+      "section": "10-final-cta",
+      "description": "Final CTA garden-suite hero photo.",
+      "bbox": [
+        564,
+        0,
+        1536,
+        890
+      ],
+      "width": 972,
+      "height": 890,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.8852
+    },
+    {
+      "slug": "final-cta-site-plan-overlay",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/10-final-cta/final-cta-site-plan-overlay.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-10-final-cta.png",
+      "section": "10-final-cta",
+      "description": "White garden-suite plan overlay across photo.",
+      "bbox": [
+        638,
+        602,
+        1100,
+        836
+      ],
+      "width": 462,
+      "height": 234,
+      "alphaMode": "white_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1074
+    },
+    {
+      "slug": "final-cta-intake-form-panel",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/10-final-cta/final-cta-intake-form-panel.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-10-final-cta.png",
+      "section": "10-final-cta",
+      "description": "Start your intake form panel.",
+      "bbox": [
+        1100,
+        96,
+        1504,
+        858
+      ],
+      "width": 404,
+      "height": 762,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 1.0
+    },
+    {
+      "slug": "final-cta-field-property-address",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/10-final-cta/final-cta-field-property-address.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-10-final-cta.png",
+      "section": "10-final-cta",
+      "description": "Property address form field.",
+      "bbox": [
+        1136,
+        290,
+        1466,
+        358
+      ],
+      "width": 330,
+      "height": 68,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1162
+    },
+    {
+      "slug": "final-cta-field-mortgage",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/10-final-cta/final-cta-field-mortgage.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-10-final-cta.png",
+      "section": "10-final-cta",
+      "description": "Existing mortgage balance form field.",
+      "bbox": [
+        1136,
+        368,
+        1466,
+        438
+      ],
+      "width": 330,
+      "height": 70,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1307
+    },
+    {
+      "slug": "final-cta-field-equity",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/10-final-cta/final-cta-field-equity.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-10-final-cta.png",
+      "section": "10-final-cta",
+      "description": "Approximate equity form field.",
+      "bbox": [
+        1136,
+        446,
+        1466,
+        514
+      ],
+      "width": 330,
+      "height": 68,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1217
+    },
+    {
+      "slug": "final-cta-field-permit",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/10-final-cta/final-cta-field-permit.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-10-final-cta.png",
+      "section": "10-final-cta",
+      "description": "Permit/design status form field.",
+      "bbox": [
+        1136,
+        524,
+        1466,
+        592
+      ],
+      "width": 330,
+      "height": 68,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1259
+    },
+    {
+      "slug": "final-cta-field-budget",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/10-final-cta/final-cta-field-budget.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-10-final-cta.png",
+      "section": "10-final-cta",
+      "description": "Estimated construction budget form field.",
+      "bbox": [
+        1136,
+        600,
+        1466,
+        666
+      ],
+      "width": 330,
+      "height": 66,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1573
+    },
+    {
+      "slug": "final-cta-form-footer-sketch",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/10-final-cta/final-cta-form-footer-sketch.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-10-final-cta.png",
+      "section": "10-final-cta",
+      "description": "Form footer sketch and support line.",
+      "bbox": [
+        1100,
+        752,
+        1504,
+        858
+      ],
+      "width": 404,
+      "height": 106,
+      "alphaMode": "edge_paper",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.2333
+    },
+    {
+      "slug": "final-cta-benefit-icon-row",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/10-final-cta/final-cta-benefit-icon-row.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-10-final-cta.png",
+      "section": "10-final-cta",
+      "description": "Benefit icon row above the footer.",
+      "bbox": [
+        58,
+        760,
+        622,
+        834
+      ],
+      "width": 564,
+      "height": 74,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.3618
+    },
+    {
+      "slug": "final-cta-handwritten-note",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/10-final-cta/final-cta-handwritten-note.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-10-final-cta.png",
+      "section": "10-final-cta",
+      "description": "Handwritten thoughtful-design note.",
+      "bbox": [
+        632,
+        88,
+        854,
+        186
+      ],
+      "width": 222,
+      "height": 98,
+      "alphaMode": "paper_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.6022
+    },
+    {
+      "slug": "final-cta-footer-logo-light",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/10-final-cta/final-cta-footer-logo-light.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-10-final-cta.png",
+      "section": "10-final-cta",
+      "description": "Footer Fairlend logo lockup in light ink.",
+      "bbox": [
+        54,
+        900,
+        438,
+        1008
+      ],
+      "width": 384,
+      "height": 108,
+      "alphaMode": "dark_footer_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1644
+    },
+    {
+      "slug": "final-cta-footer-icons",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/10-final-cta/final-cta-footer-icons.webp",
+      "source": "public/designConcepts/garden-suite-financing-warm-blueprint/section-10-final-cta.png",
+      "section": "10-final-cta",
+      "description": "Footer icon/value strip in light ink.",
+      "bbox": [
+        472,
+        902,
+        1270,
+        1008
+      ],
+      "width": 798,
+      "height": 106,
+      "alphaMode": "dark_footer_ink",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1034
+    },
+    {
+      "slug": "hero-garden-suite-photo-layer-clean-v2",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/01-hero/hero-garden-suite-photo-layer-clean-v2.webp",
+      "source": "public/assets/garden-suite-financing-warm-blueprint/01-hero/hero-garden-suite-photo-layer.webp",
+      "section": "01-hero",
+      "description": "Hero garden-suite image layer with copied typography fragments removed from the feathered edge.",
+      "width": 936,
+      "height": 706,
+      "alphaMode": "post_processed",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.8164
+    },
+    {
+      "slug": "hero-garden-suite-photo-layer-wide-clean",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/01-hero/hero-garden-suite-photo-layer-wide-clean.webp",
+      "source": "public/assets/garden-suite-financing-warm-blueprint/01-hero/hero-garden-suite-photo-layer-wide.webp",
+      "section": "01-hero",
+      "description": "Wider hero garden-suite image layer with copied typography fragments removed from the feathered edge.",
+      "width": 1016,
+      "height": 716,
+      "alphaMode": "post_processed",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.7495
+    },
+    {
+      "slug": "generated-transparent-paper-grain",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/generated-transparent-paper-grain.webp",
+      "source": "generated from concept material system",
+      "section": "shared",
+      "description": "Transparent warm paper grain overlay.",
+      "width": 512,
+      "height": 512,
+      "alphaMode": "generated",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.5884
+    },
+    {
+      "slug": "generated-transparent-linen-fibers",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/generated-transparent-linen-fibers.webp",
+      "source": "generated from concept material system",
+      "section": "shared",
+      "description": "Transparent linen fiber overlay.",
+      "width": 512,
+      "height": 512,
+      "alphaMode": "generated",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.3285
+    },
+    {
+      "slug": "generated-transparent-sage-panel-grain",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/generated-transparent-sage-panel-grain.webp",
+      "source": "generated from concept material system",
+      "section": "shared",
+      "description": "Transparent sage support-panel grain overlay.",
+      "width": 512,
+      "height": 512,
+      "alphaMode": "generated",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1134
+    },
+    {
+      "slug": "generated-transparent-dark-green-grain",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/generated-transparent-dark-green-grain.webp",
+      "source": "generated from concept material system",
+      "section": "shared",
+      "description": "Transparent grain overlay for dark forest-green footer and CTA blocks.",
+      "width": 512,
+      "height": 512,
+      "alphaMode": "generated",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.0035
+    },
+    {
+      "slug": "generated-transparent-blueprint-grid",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/generated-transparent-blueprint-grid.webp",
+      "source": "generated from concept material system",
+      "section": "shared",
+      "description": "Transparent blueprint grid and draft-line overlay.",
+      "width": 512,
+      "height": 512,
+      "alphaMode": "generated",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1281
+    },
+    {
+      "slug": "generated-transparent-process-connectors",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/generated-transparent-process-connectors.webp",
+      "source": "generated from concept material system",
+      "section": "shared",
+      "description": "Transparent reusable dotted/arrow process connectors.",
+      "width": 960,
+      "height": 180,
+      "alphaMode": "generated",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.0385
+    },
+    {
+      "slug": "generated-transparent-copper-action-rule",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/generated-transparent-copper-action-rule.webp",
+      "source": "generated from concept material system",
+      "section": "shared",
+      "description": "Transparent clay-copper brush/arrow rule.",
+      "width": 360,
+      "height": 64,
+      "alphaMode": "generated",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.0736
+    },
+    {
+      "slug": "generated-transparent-soft-paper-shadow",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/generated-transparent-soft-paper-shadow.webp",
+      "source": "generated from concept material system",
+      "section": "shared",
+      "description": "Transparent soft drop shadow for paper cards and photo prints.",
+      "width": 520,
+      "height": 180,
+      "alphaMode": "generated",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.7895
+    },
+    {
+      "slug": "generated-transparent-folder-tab-green",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/generated-transparent-folder-tab-green.webp",
+      "source": "generated from concept material system",
+      "section": "shared",
+      "description": "Transparent sage-green folder tab.",
+      "width": 210,
+      "height": 92,
+      "alphaMode": "generated",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.7709
+    },
+    {
+      "slug": "generated-transparent-folder-tab-clay",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/generated-transparent-folder-tab-clay.webp",
+      "source": "generated from concept material system",
+      "section": "shared",
+      "description": "Transparent clay-orange folder tab.",
+      "width": 210,
+      "height": 92,
+      "alphaMode": "generated",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.7709
+    },
+    {
+      "slug": "generated-transparent-folder-tab-blue",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/generated-transparent-folder-tab-blue.webp",
+      "source": "generated from concept material system",
+      "section": "shared",
+      "description": "Transparent blueprint-blue folder tab.",
+      "width": 210,
+      "height": 92,
+      "alphaMode": "generated",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.7709
+    },
+    {
+      "slug": "generated-transparent-number-badge-green",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/generated-transparent-number-badge-green.webp",
+      "source": "generated from concept material system",
+      "section": "shared",
+      "description": "Transparent blank dark-green numbered-step badge.",
+      "width": 96,
+      "height": 96,
+      "alphaMode": "generated",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.4537
+    },
+    {
+      "slug": "generated-transparent-number-badge-blue",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/generated-transparent-number-badge-blue.webp",
+      "source": "generated from concept material system",
+      "section": "shared",
+      "description": "Transparent blank blueprint-blue numbered-step badge.",
+      "width": 96,
+      "height": 96,
+      "alphaMode": "generated",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.4537
+    },
+    {
+      "slug": "generated-transparent-number-badge-copper",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/generated-transparent-number-badge-copper.webp",
+      "source": "generated from concept material system",
+      "section": "shared",
+      "description": "Transparent blank clay-copper numbered-step badge.",
+      "width": 96,
+      "height": 96,
+      "alphaMode": "generated",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.4537
+    },
+    {
+      "slug": "generated-transparent-paperclip-brass",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/generated-transparent-paperclip-brass.webp",
+      "source": "generated from concept material system",
+      "section": "shared",
+      "description": "Transparent brass paperclip drawing.",
+      "width": 116,
+      "height": 162,
+      "alphaMode": "generated",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1489
+    },
+    {
+      "slug": "generated-transparent-paperclip-silver",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/generated-transparent-paperclip-silver.webp",
+      "source": "generated from concept material system",
+      "section": "shared",
+      "description": "Transparent silver paperclip drawing.",
+      "width": 116,
+      "height": 162,
+      "alphaMode": "generated",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.1487
+    },
+    {
+      "slug": "generated-transparent-masking-tape-long",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/generated-transparent-masking-tape-long.webp",
+      "source": "generated from concept material system",
+      "section": "shared",
+      "description": "Transparent long beige masking tape strip.",
+      "width": 360,
+      "height": 72,
+      "alphaMode": "generated",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.7456
+    },
+    {
+      "slug": "generated-transparent-masking-tape-sage",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/generated-transparent-masking-tape-sage.webp",
+      "source": "generated from concept material system",
+      "section": "shared",
+      "description": "Transparent sage masking tape strip.",
+      "width": 260,
+      "height": 64,
+      "alphaMode": "generated",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.7049
+    },
+    {
+      "slug": "generated-transparent-masking-tape-blue",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/generated-transparent-masking-tape-blue.webp",
+      "source": "generated from concept material system",
+      "section": "shared",
+      "description": "Transparent blueprint-blue masking tape strip.",
+      "width": 260,
+      "height": 60,
+      "alphaMode": "generated",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.6913
+    },
+    {
+      "slug": "generated-transparent-blueprint-dimension-lines",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/generated-transparent-blueprint-dimension-lines.webp",
+      "source": "generated from concept material system",
+      "section": "shared",
+      "description": "Transparent blueprint dimension and measurement linework.",
+      "width": 620,
+      "height": 220,
+      "alphaMode": "generated",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.0188
+    },
+    {
+      "slug": "generated-transparent-checklist-rule-set",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/generated-transparent-checklist-rule-set.webp",
+      "source": "generated from concept material system",
+      "section": "shared",
+      "description": "Transparent checklist boxes and horizontal rules.",
+      "width": 300,
+      "height": 220,
+      "alphaMode": "generated",
+      "hasTransparency": true,
+      "opaquePixelRatio": 0.034
+    }
+  ],
+  "svgAssets": [
+    {
+      "slug": "blueprint-grid-overlay",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/blueprint-grid-overlay.svg",
+      "section": "shared",
+      "description": "Code-native SVG drafting primitive for crisp, scalable linework.",
+      "format": "svg"
+    },
+    {
+      "slug": "dashed-review-connector",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/dashed-review-connector.svg",
+      "section": "shared",
+      "description": "Code-native SVG drafting primitive for crisp, scalable linework.",
+      "format": "svg"
+    },
+    {
+      "slug": "copper-arrow-rule",
+      "file": "public/assets/garden-suite-financing-warm-blueprint/shared/copper-arrow-rule.svg",
+      "section": "shared",
+      "description": "Code-native SVG drafting primitive for crisp, scalable linework.",
+      "format": "svg"
+    }
+  ],
+  "notExportedAsRaster": [
+    "Primary section headings",
+    "Paragraph and FAQ copy",
+    "Navigation labels",
+    "CTA button text",
+    "Simple borders/dividers better expressed in CSS unless exported as SVG primitives"
+  ]
+}

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 180 180" fill="none">
+  <circle cx="90" cy="90" r="73" stroke="#C7653E" stroke-width="2"/>
+  <circle cx="90" cy="90" r="51" stroke="#C7653E" stroke-opacity=".35"/>
+  <path d="M90 49l35 65H55l35-65z" stroke="#C7653E" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M90 71v25M90 108v4" stroke="#C7653E" stroke-width="4" stroke-linecap="round"/>
+  <path id="top" d="M45 83a45 45 0 0 1 90 0" />
+  <path id="bottom" d="M135 99a45 45 0 0 1-90 0" />
+  <text fill="#C7653E" font-family="Arial, sans-serif" font-size="13" font-weight="700" letter-spacing="3">
+    <textPath href="#top" startOffset="50%" text-anchor="middle">RISK AWARE</textPath>
+    <textPath href="#bottom" startOffset="50%" text-anchor="middle">DISCIPLINED</textPath>
+  </text>
+</svg>

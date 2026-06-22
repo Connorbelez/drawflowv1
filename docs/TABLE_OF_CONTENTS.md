@@ -4,6 +4,7 @@ Quick reference for agents after PRD split. Each row gives file location, sectio
 
 | File | Section / ID | Title | Line |
 |---|---:|---|---:|
+| `fairlend-soft-brutalist-blueprint-design-brief.md` | — | Fairlend Soft Brutalist Blueprint Design Brief | 1 |
 | `build-material-planning.md` | — | Build Material Planning | 1 |
 | `contractors-v1.md` | — | Contractors v1 Implementation Notes | 1 |
 | `drawflow-calendar-tab-prd.md` | — | DrawFlow Calendar Tab PRD | 1 |
