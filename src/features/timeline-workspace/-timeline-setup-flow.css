@@ -1070,13 +1070,19 @@
 }
 
 .timeline-blueprint-summary-table-wrap {
+  position: relative;
   overflow-x: auto;
   overflow-y: hidden;
   border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.28), oklch(0.72 0.08 240 / 0.28));
   background:
-    linear-gradient(180deg, light-dark(oklch(0.985 0.010 235 / 0.78), oklch(0.10 0.018 255 / 0.78)), light-dark(oklch(0.985 0.010 235 / 0.86), oklch(0.065 0.016 258 / 0.86))),
+    radial-gradient(ellipse 76% 52% at 52% -12%, light-dark(oklch(0.400 0.120 240 / 0.08), oklch(0.28 0.075 248 / 0.38)), transparent 62%),
+    radial-gradient(ellipse 42% 68% at 100% 2%, light-dark(oklch(0.400 0.120 240 / 0.06), oklch(0.22 0.055 238 / 0.28)), transparent 58%),
+    linear-gradient(180deg, light-dark(oklch(0.985 0.010 235 / 0.82), oklch(0.048 0.014 258 / 0.94)), light-dark(oklch(0.985 0.010 235 / 0.9), oklch(0.026 0.009 260 / 0.98))),
     linear-gradient(90deg, light-dark(oklch(0.400 0.120 240 / 0.055), oklch(0.72 0.1 240 / 0.055)) 1px, transparent 1px);
-  background-size: auto, 32px 32px;
+  background-size: auto, auto, auto, 32px 32px;
+  box-shadow:
+    inset 0 1px 0 light-dark(oklch(1 0 0 / 0.72), oklch(0.95 0.03 250 / 0.08)),
+    inset 0 -42px 80px light-dark(oklch(0.180 0.022 258 / 0.04), oklch(0.015 0.006 260 / 0.62));
 }
 
 .timeline-blueprint-summary-table-heading {
@@ -1139,7 +1145,9 @@
   height: 44px;
   border-right: 1px solid light-dark(oklch(0.400 0.120 240 / 0.16), oklch(0.72 0.08 240 / 0.16));
   border-bottom: 1px solid light-dark(oklch(0.400 0.120 240 / 0.24), oklch(0.72 0.08 240 / 0.24));
-  background: light-dark(oklch(0.985 0.010 235 / 0.88), oklch(0.085 0.018 255 / 0.88));
+  background:
+    linear-gradient(180deg, light-dark(oklch(0.985 0.010 235 / 0.88), oklch(0.11 0.024 252 / 0.78)), light-dark(oklch(0.985 0.010 235 / 0.88), oklch(0.045 0.014 258 / 0.88))),
+    radial-gradient(ellipse 60% 80% at 50% 0%, light-dark(oklch(0.400 0.120 240 / 0.06), oklch(0.38 0.075 240 / 0.14)), transparent 64%);
   color: light-dark(oklch(0.400 0.160 236), oklch(0.78 0.06 246));
   font-size: 11px;
   font-weight: 760;
@@ -1161,12 +1169,12 @@
 
 .timeline-blueprint-summary-row:hover td,
 .timeline-blueprint-summary-row:focus-within td {
-  background: light-dark(oklch(0.985 0.010 235 / 0.28), oklch(0.16 0.03 250 / 0.22));
+  background: light-dark(oklch(0.985 0.010 235 / 0.28), oklch(0.18 0.04 248 / 0.28));
 }
 
 .timeline-blueprint-summary-row.is-submilestone td {
   height: 54px;
-  background: light-dark(oklch(0.985 0.010 235 / 0.35), oklch(0.065 0.016 258 / 0.42));
+  background: light-dark(oklch(0.985 0.010 235 / 0.35), oklch(0.035 0.012 258 / 0.54));
 }
 
 .timeline-blueprint-summary-row.is-excluded td {
@@ -1258,6 +1266,16 @@
 .timeline-blueprint-summary-input {
   width: min(100%, 140px);
   max-width: 140px;
+}
+
+.timeline-blueprint-summary-table-wrap .timeline-blueprint-input,
+.timeline-blueprint-summary-add-milestone input {
+  background:
+    radial-gradient(ellipse 92% 120% at 50% -34%, light-dark(oklch(0.400 0.120 240 / 0.08), oklch(0.24 0.065 248 / 0.26)), transparent 62%),
+    linear-gradient(180deg, light-dark(oklch(0.985 0.010 235 / 0.9), oklch(0.055 0.014 258 / 0.88)), light-dark(oklch(0.985 0.010 235 / 0.96), oklch(0.018 0.007 260 / 0.94)));
+  box-shadow:
+    inset 0 1px 0 light-dark(oklch(1 0 0 / 0.72), oklch(0.95 0.03 250 / 0.06)),
+    inset 0 -18px 30px light-dark(oklch(0.180 0.022 258 / 0.03), oklch(0.005 0.002 260 / 0.48));
 }
 
 .timeline-blueprint-summary-readout {

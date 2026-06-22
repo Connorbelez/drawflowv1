@@ -72,6 +72,7 @@ export interface ProductionTimelineWorkspaceProps {
     modificationRequests?: TimelineModificationRequestView[];
     proposal: {
       buildName: string;
+      interestAnnualBps?: number;
       location: string;
       lenderDrawPolicyLimitCents?: number;
       reviewOutcome?: string;

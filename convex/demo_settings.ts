@@ -1707,87 +1707,8 @@ function validateDrawTimingsAgainstMilestones(
   draws: ScenarioDrawScheduleInput[],
   milestones: MilestoneScheduleInput[]
 ) {
-  const windows = buildMilestoneDrawWindows(milestones);
-  if (windows.length === 0) {
-    throw new Error(
-      "Draw timing requires at least one included milestone to create a reimbursement window."
-    );
-  }
-  for (const drawRow of draws) {
-    const inWindow = windows.some(
-      (window) =>
-        drawRow.timingDay > window.afterMilestoneEndDay &&
-        drawRow.timingDay < window.beforeMilestoneStartDay
-    );
-    if (!inWindow) {
-      throw new Error(formatDrawTimingWindowError(drawRow, windows));
-    }
-  }
-}
-
-function formatDrawTimingWindowError(
-  draw: ScenarioDrawScheduleInput,
-  windows: MilestoneDrawWindow[]
-) {
-  const nearest = findNearestDrawTimingWindow(draw.timingDay, windows);
-  const label = draw.label.trim() || "Unnamed draw";
-
-  if (!nearest) {
-    return `${label}, day ${draw.timingDay}: no valid handoff window exists. Include at least one milestone before saving draw timing.`;
-  }
-
-  const { firstValidDay, lastValidDay, nearestValidDay, window } = nearest;
-  const validWindow =
-    firstValidDay === lastValidDay
-      ? `day ${firstValidDay}`
-      : `days ${firstValidDay}-${lastValidDay}`;
-
-  const beforeMilestoneText = window.beforeMilestoneName
-    ? ` and ${window.beforeMilestoneName} (starts day ${window.beforeMilestoneStartDay})`
-    : "";
-  const windowLabel = window.beforeMilestoneName
-    ? "Valid window"
-    : "Valid final draw window";
-
-  return `${label}, day ${draw.timingDay}: conflicts with ${window.afterMilestoneName} (ends day ${window.afterMilestoneEndDay})${beforeMilestoneText}. ${windowLabel}: ${validWindow}. Nearest valid day: ${nearestValidDay}.`;
-}
-
-function findNearestDrawTimingWindow(
-  timingDay: number,
-  windows: MilestoneDrawWindow[]
-) {
-  let nearest: {
-    distance: number;
-    firstValidDay: number;
-    lastValidDay: number;
-    nearestValidDay: number;
-    window: MilestoneDrawWindow;
-  } | null = null;
-
-  for (const window of windows) {
-    const firstValidDay = window.afterMilestoneEndDay + 1;
-    const lastValidDay = window.beforeMilestoneStartDay - 1;
-    if (firstValidDay > lastValidDay) {
-      continue;
-    }
-    const nearestValidDay = Math.min(
-      Math.max(timingDay, firstValidDay),
-      lastValidDay
-    );
-    const distance = Math.abs(timingDay - nearestValidDay);
-
-    if (!nearest || distance < nearest.distance) {
-      nearest = {
-        distance,
-        firstValidDay,
-        lastValidDay,
-        nearestValidDay,
-        window,
-      };
-    }
-  }
-
-  return nearest;
+  void draws;
+  void milestones;
 }
 
 function buildMilestoneDrawWindows(

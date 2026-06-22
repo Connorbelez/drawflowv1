@@ -125,6 +125,7 @@ const documentInput = v.object({
 
 const proposalDraftDrawInput = v.object({
   amountCents: v.number(),
+  customDate: v.optional(v.boolean()),
   drawKey: v.string(),
   label: v.string(),
   milestoneKey: v.optional(v.string()),
@@ -1127,6 +1128,7 @@ function sumProductionSubmilestoneBudgetCents(
 
 interface DraftProposalDrawInput {
   amountCents: number;
+  customDate?: boolean;
   drawKey: string;
   label: string;
   milestoneKey?: string;
@@ -1380,6 +1382,7 @@ async function insertDraftProposalDrawRows(
       proposalId: input.proposalId,
       proposalMilestoneId: milestone?._id,
       source: "milestone",
+      customDate: draw.customDate,
       timingDay: Math.max(0, Math.round(draw.timingDay)),
       updatedAt: input.now,
     });
@@ -22008,98 +22011,7 @@ function validateProductionScenarioDrawRows(
       throw new Error("Draw percentage must be positive.");
     }
   }
-  const windows = buildProductionMilestoneDrawWindows(milestones);
-  if (windows.length === 0) {
-    throw new Error(
-      "Draw timing requires at least one included milestone to create a reimbursement window."
-    );
-  }
-  for (const row of rows) {
-    const inWindow = windows.some(
-      (window) =>
-        row.timingDay > window.afterMilestoneEndDay &&
-        row.timingDay < window.beforeMilestoneStartDay
-    );
-    if (!inWindow) {
-      throw new Error(formatProductionDrawTimingWindowError(row, windows));
-    }
-  }
-}
-
-type ProductionMilestoneDrawWindow = {
-  afterMilestoneEndDay: number;
-  afterMilestoneKey: string;
-  afterMilestoneName: string;
-  beforeMilestoneKey: string;
-  beforeMilestoneName?: string;
-  beforeMilestoneStartDay: number;
-};
-
-function formatProductionDrawTimingWindowError(
-  draw: { label: string; timingDay: number },
-  windows: ProductionMilestoneDrawWindow[]
-) {
-  const nearest = findNearestProductionDrawTimingWindow(
-    draw.timingDay,
-    windows
-  );
-  const label = draw.label.trim() || "Unnamed draw";
-
-  if (!nearest) {
-    return `${label}, day ${draw.timingDay}: no valid handoff window exists. Include at least one milestone before saving draw timing.`;
-  }
-
-  const { firstValidDay, lastValidDay, nearestValidDay, window } = nearest;
-  const validWindow =
-    firstValidDay === lastValidDay
-      ? `day ${firstValidDay}`
-      : `days ${firstValidDay}-${lastValidDay}`;
-  const beforeMilestoneText = window.beforeMilestoneName
-    ? ` and ${window.beforeMilestoneName} (starts day ${window.beforeMilestoneStartDay})`
-    : "";
-  const windowLabel = window.beforeMilestoneName
-    ? "Valid window"
-    : "Valid final draw window";
-
-  return `${label}, day ${draw.timingDay}: conflicts with ${window.afterMilestoneName} (ends day ${window.afterMilestoneEndDay})${beforeMilestoneText}. ${windowLabel}: ${validWindow}. Nearest valid day: ${nearestValidDay}.`;
-}
-
-function findNearestProductionDrawTimingWindow(
-  timingDay: number,
-  windows: ProductionMilestoneDrawWindow[]
-) {
-  let nearest: {
-    distance: number;
-    firstValidDay: number;
-    lastValidDay: number;
-    nearestValidDay: number;
-    window: ProductionMilestoneDrawWindow;
-  } | null = null;
-
-  for (const window of windows) {
-    const firstValidDay = window.afterMilestoneEndDay + 1;
-    const lastValidDay = window.beforeMilestoneStartDay - 1;
-    if (firstValidDay > lastValidDay) {
-      continue;
-    }
-    const nearestValidDay = Math.min(
-      Math.max(timingDay, firstValidDay),
-      lastValidDay
-    );
-    const distance = Math.abs(timingDay - nearestValidDay);
-
-    if (!nearest || distance < nearest.distance) {
-      nearest = {
-        distance,
-        firstValidDay,
-        lastValidDay,
-        nearestValidDay,
-        window,
-      };
-    }
-  }
-
-  return nearest;
+  void milestones;
 }
 
 function validateProductionMilestoneHandoffGaps(
@@ -22122,48 +22034,6 @@ function validateProductionMilestoneHandoffGaps(
       );
     }
   }
-}
-
-function buildProductionMilestoneDrawWindows(
-  rows: Array<{
-    durationDays: number;
-    included: boolean;
-    milestoneKey: string;
-    name: string;
-    order: number;
-  }>
-): ProductionMilestoneDrawWindow[] {
-  const included = sortedProductionIncludedMilestones(rows);
-  const windows: ProductionMilestoneDrawWindow[] = [];
-  for (let index = 0; index < included.length - 1; index += 1) {
-    const current = included[index];
-    const next = included[index + 1];
-    if (!(current && next)) {
-      continue;
-    }
-    windows.push({
-      afterMilestoneEndDay: productionMilestoneEndDay(included, index),
-      afterMilestoneKey: current.milestoneKey,
-      afterMilestoneName: current.name,
-      beforeMilestoneKey: next.milestoneKey,
-      beforeMilestoneName: next.name,
-      beforeMilestoneStartDay: productionMilestoneStartDay(included, index + 1),
-    });
-  }
-  const final = included.at(-1);
-  if (final) {
-    const finalIndex = included.length - 1;
-    const finalEndDay = productionMilestoneEndDay(included, finalIndex);
-    windows.push({
-      afterMilestoneEndDay: finalEndDay,
-      afterMilestoneKey: final.milestoneKey,
-      afterMilestoneName: final.name,
-      beforeMilestoneKey: "final-closeout",
-      beforeMilestoneStartDay:
-        finalEndDay + PRODUCTION_SETTINGS_HANDOFF_GAP_DAYS,
-    });
-  }
-  return windows;
 }
 
 function sortedProductionIncludedMilestones(

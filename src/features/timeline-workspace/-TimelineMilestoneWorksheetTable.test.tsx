@@ -296,6 +296,25 @@ describe("TimelineMilestoneWorksheetTable", () => {
     ).toBeTruthy();
   });
 
+  test("omits the year from displayed calendar schedule dates", () => {
+    render(
+      <ControlledWorksheet
+        initialWorksheetView="table"
+        proposedStartDate="2026-06-01"
+        scheduleDisplayMode="dates"
+      />
+    );
+
+    const tablePanel = screen.getByTestId("timeline-setup-table-view-panel");
+
+    expect(
+      within(tablePanel).getAllByText("06-01 to 06-15").length
+    ).toBeGreaterThan(0);
+    expect(
+      within(tablePanel).queryByText(/2026-06-01 to 2026-06-15/)
+    ).toBeNull();
+  });
+
   test("status chips expose scoped contractor guidance and material summaries", () => {
     render(
       <ControlledWorksheet

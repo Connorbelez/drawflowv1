@@ -640,95 +640,95 @@ function IntakeLandingPage(): ReactElement {
     <>
       <DirectionalHoverHeader />
       <main className="bp-page bp-page--with-public-header">
-      <Frame className="bp-shell">
-        <section
-          aria-labelledby={isFormStep ? "bp-form-title" : "bp-hero-title"}
-          className={
-            isFormStep
-              ? isSuccessStep
-                ? `bp-canvas bp-canvas-form bp-canvas-success bp-intake-step-${step}`
-                : `bp-canvas bp-canvas-form bp-intake-step-${step}`
-              : "bp-canvas"
-          }
-        >
-          <img
-            alt=""
-            aria-hidden="true"
-            className="bp-background"
-            decoding="async"
-            draggable={false}
-            fetchPriority="high"
-            height={936}
-            loading="eager"
-            src={backgroundImage}
-            width={1681}
-          />
+        <Frame className="bp-shell">
+          <section
+            aria-labelledby={isFormStep ? "bp-form-title" : "bp-hero-title"}
+            className={
+              isFormStep
+                ? isSuccessStep
+                  ? `bp-canvas bp-canvas-form bp-canvas-success bp-intake-step-${step}`
+                  : `bp-canvas bp-canvas-form bp-intake-step-${step}`
+                : "bp-canvas"
+            }
+          >
+            <img
+              alt=""
+              aria-hidden="true"
+              className="bp-background"
+              decoding="async"
+              draggable={false}
+              fetchPriority="high"
+              height={936}
+              loading="eager"
+              src={backgroundImage}
+              width={1681}
+            />
 
-          {isSuccessStep ? (
-            <BuildPathSuccessStep
-              answers={answers}
-              onAddAnother={() => {
-                runIntakeStepTransition(() => {
-                  setAnswers(defaultAnswers);
-                  setStep(1);
-                });
-              }}
-              onBack={() => {
-                runIntakeStepTransition(() => setStep(7));
-              }}
-              summaryItems={summaryItems}
-            />
-          ) : isFormStep ? (
-            step === 2 ? (
-              <BuildPathPropertyStep
+            {isSuccessStep ? (
+              <BuildPathSuccessStep
                 answers={answers}
-                onBack={goBack}
-                onContinue={() => {
-                  if (answers.buildPermitFileName) {
-                    runIntakeStepTransition(() => setStep(7));
-                    return;
-                  }
-                  goForward();
+                onAddAnother={() => {
+                  runIntakeStepTransition(() => {
+                    setAnswers(defaultAnswers);
+                    setStep(1);
+                  });
                 }}
-                updateAnswer={updateAnswer}
-              />
-            ) : (
-              <BuildPathWizardStep
-                answers={answers}
-                onBack={goBack}
-                onContinue={
-                  step === 7
-                    ? () => {
-                        runIntakeStepTransition(() => setStep(8));
-                      }
-                    : goForward
-                }
-                step={step}
+                onBack={() => {
+                  runIntakeStepTransition(() => setStep(7));
+                }}
                 summaryItems={summaryItems}
-                updateAnswer={updateAnswer}
               />
-            )
-          ) : (
-            <BuildPathHeroStart
-              onStart={() => {
-                runIntakeStepTransition(() => setStep(2));
-              }}
-            />
+            ) : isFormStep ? (
+              step === 2 ? (
+                <BuildPathPropertyStep
+                  answers={answers}
+                  onBack={goBack}
+                  onContinue={() => {
+                    if (answers.buildPermitFileName) {
+                      runIntakeStepTransition(() => setStep(7));
+                      return;
+                    }
+                    goForward();
+                  }}
+                  updateAnswer={updateAnswer}
+                />
+              ) : (
+                <BuildPathWizardStep
+                  answers={answers}
+                  onBack={goBack}
+                  onContinue={
+                    step === 7
+                      ? () => {
+                          runIntakeStepTransition(() => setStep(8));
+                        }
+                      : goForward
+                  }
+                  step={step}
+                  summaryItems={summaryItems}
+                  updateAnswer={updateAnswer}
+                />
+              )
+            ) : (
+              <BuildPathHeroStart
+                onStart={() => {
+                  runIntakeStepTransition(() => setStep(2));
+                }}
+              />
+            )}
+          </section>
+          {!isFormStep && (
+            <>
+              <BuildPathTestimonials />
+              <CapitalFeatureSection />
+              <BuildPathLandingSections
+                onStart={() => {
+                  runIntakeStepTransition(() => setStep(2));
+                }}
+              />
+            </>
           )}
-        </section>
-        {!isFormStep && (
-          <>
-            <BuildPathTestimonials />
-            <CapitalFeatureSection />
-            <BuildPathLandingSections
-              onStart={() => {
-                runIntakeStepTransition(() => setStep(2));
-              }}
-            />
-          </>
-        )}
-      </Frame>
-    </main>
+        </Frame>
+      </main>
     </>
   );
 }

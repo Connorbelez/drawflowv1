@@ -3199,7 +3199,7 @@ describe("production proposal foundation", () => {
     ).rejects.toThrow(/Forbidden: role/);
   });
 
-  test("reports production draw timing conflicts with milestones and nearest valid days", async () => {
+  test("allows production draw timing inside milestone windows", async () => {
     const { t } = await seeded(["admin"], "user_admin");
     await t.mutation(
       (api as any).production_proposals.seedProductionDefaultsToProd,
@@ -3229,9 +3229,84 @@ describe("production proposal foundation", () => {
           .saveProductionProposalTemplateConfiguration,
         productionTemplateSettingsArgs(fullBuild, invalidScenarios),
       ),
-    ).rejects.toThrow(
-      /Draw 01, day 10: conflicts with Site prep & foundation \(ends day 14\) and Framing & structure \(starts day 19\)\. Valid window: days 15-18\. Nearest valid day: 15\./,
+    ).resolves.toBeTruthy();
+  });
+
+  test("persists provided template scenario draws instead of milestone fallback draws", async () => {
+    const { seed, t } = await seeded(["admin"], "user_admin");
+    const proposalId = await t.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Scenario draw proposal",
+        location: "44 Scenario Road",
+        workosOrganizationId: ORG,
+      },
     );
+
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerWorkingCapitalLimitCents: 25_000_000,
+        draws: [
+          {
+            amountCents: 30_000_000,
+            drawKey: "scenario-draw-01",
+            label: "Scenario draw 01",
+            milestoneKey: "foundation",
+            order: 1,
+            timingDay: 20,
+          },
+          {
+            amountCents: 50_000_000,
+            drawKey: "scenario-draw-02",
+            label: "Scenario draw 02",
+            milestoneKey: "framing",
+            order: 2,
+            timingDay: 48,
+          },
+        ],
+        lenderDrawPolicyLimitCents: 80_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 20,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 20,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [],
+          },
+          {
+            budgetCents: 75_000_000,
+            dayEnd: 48,
+            dayStart: 24,
+            dependencyKeys: ["foundation"],
+            durationDays: 24,
+            key: "framing",
+            name: "Framing",
+            order: 2,
+            submilestones: [],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const detail = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+
+    expect(detail.draws.map((draw: any) => draw.drawKey)).toEqual([
+      "scenario-draw-01",
+      "scenario-draw-02",
+    ]);
   });
 
   test("hydrates a production proposal timeline workspace from production rows", async () => {

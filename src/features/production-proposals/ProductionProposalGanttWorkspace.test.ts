@@ -330,6 +330,62 @@ describe("ProductionProposalGanttWorkspace draw-group derivation", () => {
     expect(draw?.amountCents).toBe(77_500_00);
   });
 
+  test("flags draw groups that exceed current draw availability as warnings", () => {
+    const [group] = deriveProposalDrawGroups({
+      borrowerCoPayBps: 2_000,
+      draws: [
+        {
+          amountCents: 250_000_00,
+          drawKey: "D1",
+          label: "Draw 1",
+          milestoneKey: "m1",
+          timingDay: 20,
+        },
+      ],
+      milestones: milestones.slice(0, 1),
+    });
+
+    const workspace = mapProposalGanttWorkspace({
+      activePlanId: "capitalConstrained",
+      borrowerWorkingCapitalLimitCents: 50_000_00,
+      buildName: "Proposal build",
+      dependencies: [],
+      drawGroups: group ? [group] : [],
+      issues: group
+        ? [
+            {
+              code: "draw_amount_exceeds_availability",
+              conditionHash: "D1",
+              dependencyIds: [],
+              dismissed: false,
+              dismissible: true,
+              drawGroupIds: ["D1"],
+              id: "draw-over-availability-D1",
+              impact: "Draw 1 exceeds current draw availability.",
+              message: "Draw 1 exceeds current draw availability.",
+              milestoneIds: [],
+              quickFix: { action: "openMilestoneEditor", label: "Open" },
+              scope: "drawGroup",
+              severity: "warning",
+              title: "Draw exceeds availability",
+            },
+          ]
+        : [],
+      lenderDrawPolicyLimitCents: 250_000_00,
+      location: "Hamilton, ON",
+      milestones: milestones.slice(0, 1),
+      proposalStatus: "draft",
+      role: "lenderAdmin",
+      selectedMilestoneId: "",
+    });
+
+    expect(group?.drawAvailabilityCents).toBe(80_000_00);
+    expect(workspace.drawGroups[0]?.warningState).toBe("warning");
+    expect(workspace.validationWarnings).toContain(
+      "Draw 1 exceeds current draw availability.",
+    );
+  });
+
   test("projects the production timeline workspace into derived Gantt draw groups", () => {
     const draft = proposalTimelineWorkspaceToGanttDraft({
       capitalEvents: [],

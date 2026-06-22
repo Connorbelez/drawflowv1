@@ -82,7 +82,7 @@ export const TimelineDrawAvailabilityChart = memo(
           additionalAvailableDraw:
             timelineDrawAvailabilityChartConfig.additionalAvailableDraw,
         }}
-        areaCurveType="stepAfter"
+        areaCurveType="linear"
         areaOpacity={0.18}
         areaStacked
         areaVariant="gradient"
@@ -98,7 +98,7 @@ export const TimelineDrawAvailabilityChart = memo(
           },
         }}
         className={className}
-        curveType="stepAfter"
+        curveType="linear"
         data={data}
         dotVariant="default"
         hideLegend

@@ -961,7 +961,14 @@ function DraftDrawScheduleSummary({
                     .join(", ")}
             </TableCell>
             <TableCell className="text-right">
-              {formatCents(group.amountCents)}
+              <div>{formatCents(group.amountCents)}</div>
+              {group.amountCents > group.drawAvailabilityCents ? (
+                <div className="mt-1 flex justify-end gap-1 text-warning-foreground text-xs">
+                  <AlertTriangle aria-hidden className="size-3.5" />
+                  {formatCents(group.amountCents - group.drawAvailabilityCents)}{" "}
+                  over availability
+                </div>
+              ) : null}
             </TableCell>
           </TableRow>
         ))}

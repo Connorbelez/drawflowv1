@@ -43,12 +43,7 @@ import {
   SheetPopup,
   SheetTitle,
 } from "#/components/ui/sheet.tsx";
-import {
-  Tabs,
-  TabsList,
-  TabsPanel,
-  TabsTab,
-} from "#/components/ui/tabs.tsx";
+import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import {
   BuildPermitViewerDrawer,
@@ -78,13 +73,13 @@ import {
   type MaterialPlanningItem,
   MaterialPlanningTab,
 } from "#/features/material-planning/MaterialPlanningTab.tsx";
+import { useCopyToClipboard } from "#/hooks/use-copy-to-clipboard.ts";
 import {
   isBrowserPreviewableImageMime,
   isHeicLikeEvidenceImage,
 } from "#/lib/evidence-image-normalization.ts";
 import { createGoogleSatelliteMapUrl } from "#/lib/google-maps.ts";
 import { cn } from "#/lib/utils.ts";
-import { useCopyToClipboard } from "#/hooks/use-copy-to-clipboard.ts";
 import { ActiveBuildGanttWorkspace } from "./ActiveBuildGanttWorkspace";
 import {
   ActiveBuildTimelineWorkspace,
@@ -537,20 +532,20 @@ interface ProductionMilestoneContractorAssignment {
 interface ProductionSiteVisit {
   _id?: string;
   completedAt?: string;
+  createdAt?: number;
   milestoneKey: string;
   note?: string;
   recordNote?: string;
   recordNoteFormat?: "plain_text" | "html";
-  tokenConsumedAt?: number;
   requestedAt: string;
   requestedDay: number;
   requestedTime?: string;
   status: string;
+  tokenConsumedAt?: number;
   tokenExpiresAt?: number;
   tokenOpenedAt?: number;
-  url?: string;
-  createdAt?: number;
   updatedAt?: number;
+  url?: string;
   visitId: string;
 }
 
@@ -1285,7 +1280,10 @@ function CurrentBuildOverviewPanel({
                       </div>
                       <p className="mt-1 text-muted-foreground text-xs">
                         {formatDate(
-                          addDaysSafe(detail.build.startDate, milestone.dayStart)
+                          addDaysSafe(
+                            detail.build.startDate,
+                            milestone.dayStart
+                          )
                         )}{" "}
                         to{" "}
                         {formatDate(
@@ -1620,8 +1618,9 @@ function DrawSummaryItem({
   const milestoneName =
     draw.milestoneKey === undefined
       ? null
-      : (detail.milestones.find((milestone) => milestone.key === draw.milestoneKey)
-          ?.name ?? null);
+      : (detail.milestones.find(
+          (milestone) => milestone.key === draw.milestoneKey
+        )?.name ?? null);
   const plannedDate = addDaysSafe(detail.build.startDate, draw.timingDay);
   const releasedAt = draw.releasedAt ?? draw.releaseDate;
 
@@ -1757,7 +1756,9 @@ function LoanMetadataPanel({
         <span className="min-w-0 break-words">
           {detail.loanFacility?.paybackDate
             ? formatDate(detail.loanFacility.paybackDate)
-            : formatDate(addDaysSafe(detail.build.startDate, projection.maxDay))}
+            : formatDate(
+                addDaysSafe(detail.build.startDate, projection.maxDay)
+              )}
         </span>
         <Label>Draw availability</Label>
         <span className="min-w-0 break-words">
@@ -1789,7 +1790,10 @@ function OverviewMetric({
   value: string;
 }) {
   return (
-    <div className="min-w-0 rounded-md bg-muted/50 px-3 py-2" data-testid={testId}>
+    <div
+      className="min-w-0 rounded-md bg-muted/50 px-3 py-2"
+      data-testid={testId}
+    >
       <p className="text-[10px] text-muted-foreground uppercase">{label}</p>
       <p className="truncate font-semibold text-sm tabular-nums">{value}</p>
     </div>
@@ -1837,7 +1841,10 @@ function MilestoneCompletionReviewSheet({
     milestone.completionClaim,
     "submittedAt"
   );
-  const completedDay = numberFromRecord(milestone.completionClaim, "completedDay");
+  const completedDay = numberFromRecord(
+    milestone.completionClaim,
+    "completedDay"
+  );
   const completionDate =
     completedDay === undefined
       ? undefined
@@ -1938,11 +1945,7 @@ function MilestoneCompletionReviewSheet({
 
   return (
     <Sheet onOpenChange={onOpenChange} open={open}>
-      <SheetPopup
-        className="sm:max-w-3xl"
-        side="right"
-        variant="inset"
-      >
+      <SheetPopup className="sm:max-w-3xl" side="right" variant="inset">
         <SheetHeader>
           <SheetTitle>Review milestone completion</SheetTitle>
           <SheetDescription>
@@ -2078,7 +2081,10 @@ function MilestoneCompletionReviewSheet({
             )}
 
             {latestVisit?.status === "complete" ? (
-              <CompletedSiteVisitReview visit={latestVisit} rows={siteVisitRows} />
+              <CompletedSiteVisitReview
+                rows={siteVisitRows}
+                visit={latestVisit}
+              />
             ) : latestVisit?.status === "requested" ? null : (
               <Button
                 className="w-fit"
@@ -2231,9 +2237,7 @@ function SiteVisitReviewState({
 
       <div className="grid gap-3 rounded-md border bg-card p-3">
         <div className="grid gap-1">
-          <p className="text-[10px] text-muted-foreground uppercase">
-            Token
-          </p>
+          <p className="text-[10px] text-muted-foreground uppercase">Token</p>
           <code
             className="min-w-0 break-all rounded-sm bg-muted px-2 py-1 text-xs"
             data-testid="site-visit-token-value"
@@ -4384,7 +4388,10 @@ function compareMilestonesMostRecentFirst(
 }
 
 function milestoneRecentActivityScore(milestone: ProductionMilestone): number {
-  const submittedAt = stringFromRecord(milestone.completionClaim, "submittedAt");
+  const submittedAt = stringFromRecord(
+    milestone.completionClaim,
+    "submittedAt"
+  );
   const reviewedAt = stringFromRecord(milestone.completionReview, "reviewedAt");
   const parsedDates = [submittedAt, reviewedAt]
     .map((value) => (value ? Date.parse(value) : Number.NaN))
@@ -4426,7 +4433,9 @@ function isMilestoneApprovedForDrawAvailability(
 }
 
 function isCommittedDrawStatus(status: ProductionDrawStatus): boolean {
-  return status === "requested" || status === "approved" || status === "released";
+  return (
+    status === "requested" || status === "approved" || status === "released"
+  );
 }
 
 function isRequestableDrawStatus(
@@ -4459,7 +4468,8 @@ function compareDrawsMostRecentFirst(
   left: ProductionDraw,
   right: ProductionDraw
 ): number {
-  const scoreDelta = drawRecentActivityScore(right) - drawRecentActivityScore(left);
+  const scoreDelta =
+    drawRecentActivityScore(right) - drawRecentActivityScore(left);
   if (scoreDelta !== 0) {
     return scoreDelta;
   }
@@ -4503,7 +4513,10 @@ function siteVisitsForMilestone(
   );
   const merged = new Map<string, ProductionSiteVisit>();
   for (const visit of visits) {
-    merged.set(visit.visitId ?? visit._id ?? `${visit.milestoneKey}-visit`, visit);
+    merged.set(
+      visit.visitId ?? visit._id ?? `${visit.milestoneKey}-visit`,
+      visit
+    );
   }
   if (reviewedVisit) {
     const visitId = reviewedVisit.visitId ?? milestone.key;
@@ -4650,8 +4663,9 @@ function milestoneProgressPercent(
   }
   if (submilestones.length > 0) {
     return clampPercent(
-      (submilestones.filter((submilestone) => submilestone.status === "complete")
-        .length /
+      (submilestones.filter(
+        (submilestone) => submilestone.status === "complete"
+      ).length /
         submilestones.length) *
         100
     );

@@ -77,6 +77,7 @@ export interface ProposalGanttDrawDraft {
 export interface DerivedProposalDrawGroup {
   amountCents: number;
   draw: ProposalGanttDrawDraft;
+  drawAvailabilityCents: number;
   endDay: number;
   groupMilestones: ProposalGanttMilestoneDraft[];
   order: number;
@@ -1005,7 +1006,7 @@ export function mapProposalGanttWorkspace({
     status: "planned",
     timingDay: group.draw.timingDay,
     totalExposure: centsToDollars(group.amountCents),
-    warningState: "clear",
+    warningState: warningStateForDrawGroup(issues, group.draw.drawKey),
   }));
   const drawKeyBySubmilestoneRow = new Map<string, string>();
   for (const group of drawGroups) {
@@ -1135,6 +1136,19 @@ export function mapProposalGanttWorkspace({
   };
 }
 
+function warningStateForDrawGroup(
+  issues: WorkspaceIssue[],
+  drawGroupId: string
+) {
+  const relatedIssues = issues.filter((issue) =>
+    issue.drawGroupIds.includes(drawGroupId)
+  );
+  if (relatedIssues.some((issue) => issue.severity === "blocking")) {
+    return "critical" as const;
+  }
+  return relatedIssues.length > 0 ? ("warning" as const) : ("clear" as const);
+}
+
 function buildDerivedDrawGroup({
   borrowerCoPayBps,
   draw,
@@ -1166,6 +1180,7 @@ function buildDerivedDrawGroup({
       ...draw,
       amountCents,
     },
+    drawAvailabilityCents: derivedAmountCents,
     endDay,
     groupMilestones,
     order,
@@ -1813,6 +1828,20 @@ function buildProposalGanttIssues({
     }
   }
   for (const drawGroup of drawGroups) {
+    if (drawGroup.amountCents > drawGroup.drawAvailabilityCents) {
+      const overageCents =
+        drawGroup.amountCents - drawGroup.drawAvailabilityCents;
+      issues.push(
+        issueRow({
+          code: "draw_amount_exceeds_availability",
+          drawGroupIds: [drawGroup.draw.drawKey],
+          id: `draw-over-availability-${drawGroup.draw.drawKey}`,
+          message: `${drawGroup.draw.label} exceeds current draw availability by ${formatCents(overageCents)} to keep cash on hand non-negative.`,
+          severity: "warning",
+          title: "Draw exceeds availability",
+        })
+      );
+    }
     if (drawGroup.submilestones.length === 0) {
       issues.push(
         issueRow({
@@ -2331,6 +2360,14 @@ function dayFromDate(date: Date, baseDate = BASE_DATE) {
 
 function centsToDollars(cents: number) {
   return Math.round(cents) / 100;
+}
+
+function formatCents(cents: number) {
+  return new Intl.NumberFormat("en-US", {
+    currency: "USD",
+    maximumFractionDigits: 0,
+    style: "currency",
+  }).format(centsToDollars(cents));
 }
 
 function dollarsToCents(dollars: number) {

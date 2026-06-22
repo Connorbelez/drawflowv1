@@ -30,6 +30,19 @@ export interface ProductionProposalTemplateProjection {
       percentageBps?: number;
     }>;
   }>;
+  scenarios?: Array<{
+    draws: Array<{
+      amountBps: number;
+      drawKey: string;
+      label: string;
+      order?: number;
+      reviewNote?: string;
+      timingDay: number;
+    }>;
+    isActive?: boolean;
+    isDefault?: boolean;
+    scenarioKey: string;
+  }>;
   summary?: string;
   templateKey: string;
   title: string;
@@ -223,6 +236,26 @@ export function productionTemplatesToTimelineSetupTemplates(
           .map((submilestone) => submilestone.name),
         type: milestone.archetypeKey ?? milestone.key,
       })),
+    scenarios: template.scenarios?.map((scenario) => ({
+      draws: [...scenario.draws]
+        .sort(
+          (left, right) =>
+            (left.order ?? 0) - (right.order ?? 0) ||
+            left.timingDay - right.timingDay ||
+            left.drawKey.localeCompare(right.drawKey)
+        )
+        .map((draw, order) => ({
+          amountBps: draw.amountBps,
+          drawKey: draw.drawKey,
+          label: draw.label,
+          order: draw.order ?? order + 1,
+          reviewNote: draw.reviewNote,
+          timingDay: draw.timingDay,
+        })),
+      isActive: scenario.isActive,
+      isDefault: scenario.isDefault,
+      scenarioKey: scenario.scenarioKey,
+    })),
     summary: template.summary ?? "Production proposal template",
     templateKey: template.templateKey,
     title: template.title,
@@ -238,6 +271,7 @@ export function timelineSetupResultToDraftPackage(
     buildName: `${result.templateTitle} Proposal`,
     contractorAssignments: result.contractorAssignments,
     costItems: result.costItems,
+    draws: result.draws,
     lenderDrawPolicyLimitCents: result.reimbursableBudgetCents,
     location: result.projectAddress,
     milestones: result.items.map((item, index) => {

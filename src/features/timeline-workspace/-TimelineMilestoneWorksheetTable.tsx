@@ -1697,14 +1697,18 @@ function SummaryMilestoneEndCell({
 }) {
   const startDay = rowStartDay(row);
   const durationDays = rowDurationDays(row);
-  const readout =
+  const endDate =
     scheduleDisplayMode === "dates" && proposedStartDate
       ? inclusiveEndDateFromProposalSchedule(
           proposedStartDate,
           startDay,
           durationDays
         )
-      : formatInclusiveEndTOffset(startDay, durationDays);
+      : undefined;
+  const readout = endDate
+    ? formatDisplayDateWithoutYear(endDate)
+    : formatInclusiveEndTOffset(startDay, durationDays);
+  const inputValue = endDate ?? readout;
 
   if (row.subMilestoneDetails.length > 0) {
     return (
@@ -1744,7 +1748,7 @@ function SummaryMilestoneEndCell({
       type={
         scheduleDisplayMode === "dates" && proposedStartDate ? "date" : "text"
       }
-      value={readout}
+      value={inputValue}
     />
   );
 }
@@ -2412,8 +2416,12 @@ function summaryWindowLabel({
     return {
       duration,
       primary: [
-        dateFromProposalDayOffset(proposedStartDate, roundedStartDay),
-        dateFromProposalDayOffset(proposedStartDate, endDay),
+        formatDisplayDateWithoutYear(
+          dateFromProposalDayOffset(proposedStartDate, roundedStartDay)
+        ),
+        formatDisplayDateWithoutYear(
+          dateFromProposalDayOffset(proposedStartDate, endDay)
+        ),
       ].join(" to "),
     };
   }
@@ -5159,13 +5167,22 @@ function subMilestoneDateRangeLabel(
 ) {
   const startDay = subMilestoneStartDay(row, subMilestone);
   return [
-    dateFromProposalDayOffset(proposedStartDate, startDay),
-    inclusiveEndDateFromProposalSchedule(
-      proposedStartDate,
-      startDay,
-      parseDurationDays(subMilestone.durationText)
+    formatDisplayDateWithoutYear(
+      dateFromProposalDayOffset(proposedStartDate, startDay)
+    ),
+    formatDisplayDateWithoutYear(
+      inclusiveEndDateFromProposalSchedule(
+        proposedStartDate,
+        startDay,
+        parseDurationDays(subMilestone.durationText)
+      )
     ),
   ].join(" - ");
+}
+
+function formatDisplayDateWithoutYear(value: string) {
+  const [, month, day] = value.split("-");
+  return month && day ? `${month}-${day}` : value;
 }
 
 function subMilestoneTOffsetRangeLabel(

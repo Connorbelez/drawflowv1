@@ -447,6 +447,49 @@ describe("TimelineWorkspace mode split", () => {
     expect(createDraw.mock.calls[0]?.[0].x).toBe(9);
   });
 
+  test("optimizes draft proposal with in-milestone draws instead of cash infusions", () => {
+    const createCashInfusion = vi.fn().mockResolvedValue(undefined);
+    const createDraw = vi.fn().mockResolvedValue(undefined);
+    const deleteDraw = vi.fn().mockResolvedValue(undefined);
+    const baseline = timelineState({ milestoneAmount: 100 });
+    const initialState: TimelineShareState = {
+      ...baseline,
+      draws: [],
+      items: baseline.items.map((item) => ({
+        ...item,
+        data: {
+          ...item.data,
+          drawAvailabilityAmount: 100,
+          durationDays: 10,
+        } satisfies DemoMilestone,
+      })),
+      startingCash: 50,
+    };
+
+    renderWorkspace({
+      initialState,
+      persistence: { createCashInfusion, createDraw, deleteDraw },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    fireEvent.click(screen.getByTestId("timeline-optimize-scenario"));
+
+    expect(createCashInfusion).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(createDraw).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amountCents: 5_000,
+        customDate: true,
+        itemMilestoneKey: "foundation",
+        label: "Draw 01",
+        order: 1,
+      }),
+    );
+    expect(createDraw.mock.calls[0]?.[0].x).toBeGreaterThan(0);
+    expect(createDraw.mock.calls[0]?.[0].x).toBeLessThan(10);
+  });
+
   test("reports when draft proposal draws are already optimized", () => {
     const createDraw = vi.fn().mockResolvedValue(undefined);
     const deleteDraw = vi.fn().mockResolvedValue(undefined);

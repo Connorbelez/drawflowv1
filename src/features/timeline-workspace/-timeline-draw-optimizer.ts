@@ -2,6 +2,7 @@ import type {
   TimelineItem,
   TimelineRange,
 } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
+import { buildMilestoneDrawCapacityEvents } from "./-timeline-draw-capacity.ts";
 import {
   buildMilestoneSpendEvents,
   getMilestoneEndX,
@@ -11,15 +12,15 @@ import type {
   DemoDraw,
   DemoMilestone,
 } from "./-timeline-share-snapshot.ts";
-import { getMilestoneDrawAvailabilityAmount } from "./-timeline-share-snapshot.ts";
+import { normalizeInterestAnnualBps } from "./-timeline-share-snapshot.ts";
 
 export const OPTIMIZED_DRAW_FEE = 500;
-export const OPTIMIZED_INTEREST_APR = 0.0925;
 
 const COST_EPSILON = 0.000_001;
 
 export interface TimelineDrawOptimizationInput {
   capitalSpikes: DemoCapitalSpike[];
+  interestAnnualBps?: number;
   items: TimelineItem<DemoMilestone>[];
   minimumCashReserve: number;
   range: TimelineRange;
@@ -88,6 +89,7 @@ export function optimizeTimelineDrawSchedule(
   const range = normalizeRange(input.range);
   const startingCash = normalizeCurrency(input.startingCash);
   const reserve = normalizeCurrency(input.minimumCashReserve);
+  const interestAnnualBps = normalizeInterestAnnualBps(input.interestAnnualBps);
   const ledger = buildDrawConstraintLedger(input, range, startingCash, reserve);
 
   if (ledger.status === "infeasible") {
@@ -166,7 +168,7 @@ export function optimizeTimelineDrawSchedule(
 
       const drawCost =
         OPTIMIZED_DRAW_FEE +
-        calculateInterestCost(drawAmount, drawX, range.max);
+        calculateInterestCost(drawAmount, drawX, range.max, interestAnnualBps);
       const candidate: PlanState = {
         cost: drawCost + continuation.cost,
         steps: [
@@ -224,7 +226,8 @@ export function optimizeTimelineDrawSchedule(
   const drawFees = draws.length * OPTIMIZED_DRAW_FEE;
   const interestCost = plan.steps.reduce(
     (total, step) =>
-      total + calculateInterestCost(step.amount, step.x, range.max),
+      total +
+      calculateInterestCost(step.amount, step.x, range.max, interestAnnualBps),
     0
   );
 
@@ -329,18 +332,18 @@ function buildOptimizerEvents(
           sortOrder: getMilestoneSpendSortOrder(event.kind),
           type: "spend" as const,
         }));
-        const capacityEvent = {
-          amount: normalizeCurrency(
-            getMilestoneDrawAvailabilityAmount(item.data)
-          ),
-          day: clampNumber(getMilestoneEndX(item), range.min, range.max),
-          id: `${item.id}-completion-capacity`,
-          label: `${item.data?.name ?? item.label ?? "Milestone"} completion capacity`,
-          sortOrder: 4,
-          type: "capacityUnlock" as const,
-        };
+        const capacityEvents = buildMilestoneDrawCapacityEvents(item).map(
+          (event) => ({
+            amount: normalizeCurrency(event.amount),
+            day: clampNumber(event.day, range.min, range.max),
+            id: event.id,
+            label: event.label,
+            sortOrder: 4,
+            type: "capacityUnlock" as const,
+          })
+        );
 
-        return [...spendEvents, capacityEvent];
+        return [...spendEvents, ...capacityEvents];
       }),
     ...capitalSpikes.map((spike) => {
       const eventKind = spike.eventKind ?? "cost";
@@ -388,7 +391,7 @@ function formatAvailabilityInfeasibleReason({
   totals: DrawConstraintLedgerTotals;
   unlockedAvailability: number;
 }) {
-  return `${event.label} needs ${formatCurrency(requiredCumulativeDraw)} of cumulative draw cash by Day ${formatDay(event.day)} after applying ${formatCurrency(totals.startingCash)} starting cash, ${formatCurrency(totals.cashInfusions)} cash infusions, ${formatCurrency(totals.capitalSpikeSpend)} capital spikes, and ${formatCurrency(totals.milestoneSpend)} milestone spend through that day; only ${formatCurrency(unlockedAvailability)} is unlocked by previously completed milestones.`;
+  return `${event.label} needs ${formatCurrency(requiredCumulativeDraw)} of cumulative draw cash by Day ${formatDay(event.day)} after applying ${formatCurrency(totals.startingCash)} starting cash, ${formatCurrency(totals.cashInfusions)} cash infusions, ${formatCurrency(totals.capitalSpikeSpend)} capital spikes, and ${formatCurrency(totals.milestoneSpend)} milestone spend through that day; only ${formatCurrency(unlockedAvailability)} is unlocked by accrued eligible milestone spend.`;
 }
 
 function latestDrawXBeforeConstraint(
@@ -408,14 +411,16 @@ function latestDrawXBeforeConstraint(
 function calculateInterestCost(
   principal: number,
   drawX: number,
-  rangeMax: number
+  rangeMax: number,
+  interestAnnualBps: number
 ) {
   const elapsedDays = Math.max(0, rangeMax - drawX);
   if (principal <= 0 || elapsedDays <= 0) {
     return 0;
   }
 
-  return principal * ((1 + OPTIMIZED_INTEREST_APR / 365) ** elapsedDays - 1);
+  const dailyRate = interestAnnualBps / 10_000 / 365;
+  return principal * ((1 + dailyRate) ** elapsedDays - 1);
 }
 
 function isBetterPlan(candidate: PlanState, incumbent: PlanState | null) {
@@ -445,6 +450,16 @@ function findDrawOwner(
   items: TimelineItem<DemoMilestone>[],
   drawX: number
 ): TimelineItem<DemoMilestone> | undefined {
+  const activeMilestone = items
+    .filter(
+      (item) => item.data && item.x <= drawX && getMilestoneEndX(item) >= drawX
+    )
+    .sort((a, b) => b.x - a.x || b.id.localeCompare(a.id))[0];
+
+  if (activeMilestone) {
+    return activeMilestone;
+  }
+
   return items
     .filter((item) => item.data && getMilestoneEndX(item) <= drawX)
     .sort((a, b) => getMilestoneEndX(b) - getMilestoneEndX(a))[0];

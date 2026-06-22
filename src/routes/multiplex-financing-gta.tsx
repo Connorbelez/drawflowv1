@@ -131,39 +131,45 @@ function MultiplexPage() {
       <MultiplexStyles />
       <FairLendLegalFooterStyles />
       <header className="mx-nav-shell">
-        <nav aria-label="FairLend full-site navigation" className="mx-nav mx-nav-primary">
-        <Link
-          {...homeLink}
-          aria-label="FairLend Mortgage home"
-          className="mx-brand"
-          preload="intent"
-          viewTransition
+        <nav
+          aria-label="FairLend full-site navigation"
+          className="mx-nav mx-nav-primary"
         >
-          <span className="mx-brand-mark">FL</span>
-          <span>
-            <strong>FairLend</strong>
-            <small>Mortgage</small>
-          </span>
-        </Link>
-        <div aria-label="Site pages" className="mx-nav-links">
-          <Link to="/construction-draw-financing">Construction draws</Link>
-          <Link to="/garden-suite-financing-gta">Garden suites</Link>
-          <Link to="/multiplex-financing-gta">Multiplex</Link>
-          <Link {...resourcesLink} preload="intent" viewTransition>
-            Resources
+          <Link
+            {...homeLink}
+            aria-label="FairLend Mortgage home"
+            className="mx-brand"
+            preload="intent"
+            viewTransition
+          >
+            <span className="mx-brand-mark">FL</span>
+            <span>
+              <strong>FairLend</strong>
+              <small>Mortgage</small>
+            </span>
           </Link>
-        </div>
-        <Button
-          className="mx-nav-cta"
-          render={
-            <Link {...startMultiplexLink} preload="intent" viewTransition />
-          }
-        >
-          Start review
-          <ArrowUpRight aria-hidden />
-        </Button>
+          <div aria-label="Site pages" className="mx-nav-links">
+            <Link to="/construction-draw-financing">Construction draws</Link>
+            <Link to="/garden-suite-financing-gta">Garden suites</Link>
+            <Link to="/multiplex-financing-gta">Multiplex</Link>
+            <Link {...resourcesLink} preload="intent" viewTransition>
+              Resources
+            </Link>
+          </div>
+          <Button
+            className="mx-nav-cta"
+            render={
+              <Link {...startMultiplexLink} preload="intent" viewTransition />
+            }
+          >
+            Start review
+            <ArrowUpRight aria-hidden />
+          </Button>
         </nav>
-        <nav aria-label="Multiplex page sections" className="mx-nav mx-nav-secondary">
+        <nav
+          aria-label="Multiplex page sections"
+          className="mx-nav mx-nav-secondary"
+        >
           <a href="#fit">Fit</a>
           <a href="#structure">Structure</a>
           <a href="#review">Review</a>

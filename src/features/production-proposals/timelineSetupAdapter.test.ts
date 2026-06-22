@@ -1,6 +1,13 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  buildTimelineItemsFromSetupRows,
+  buildTimelineSetupScenarioDraws,
+  createRowsFromTemplate,
+  selectTimelineSetupScenario,
+  type TimelineSetupTemplate,
+} from "#/features/timeline-workspace/-TimelineSetupFlow.tsx";
+import {
   productionTemplatesToTimelineSetupTemplates,
   timelineSetupResultToDraftPackage,
 } from "./timelineSetupAdapter";
@@ -30,6 +37,29 @@ describe("production proposal timeline setup adapter", () => {
             ],
           },
         ],
+        scenarios: [
+          {
+            draws: [
+              {
+                amountBps: 3_000,
+                drawKey: "draw-a",
+                label: "Draw A",
+                order: 0,
+                timingDay: 32,
+              },
+              {
+                amountBps: 7_000,
+                drawKey: "draw-b",
+                label: "Draw B",
+                order: 1,
+                timingDay: 60,
+              },
+            ],
+            isActive: true,
+            isDefault: true,
+            scenarioKey: "standard",
+          },
+        ],
         summary: "Seed template",
         templateKey: "single-family-full-build",
         title: "Single Family Full Build",
@@ -54,8 +84,134 @@ describe("production proposal timeline setup adapter", () => {
           subMilestones: ["Forms and pour"],
         },
       ],
+      scenarios: [
+        {
+          draws: [
+            {
+              amountBps: 3_000,
+              drawKey: "draw-a",
+              label: "Draw A",
+              order: 0,
+              timingDay: 32,
+            },
+            {
+              amountBps: 7_000,
+              drawKey: "draw-b",
+              label: "Draw B",
+              order: 1,
+              timingDay: 60,
+            },
+          ],
+          isActive: true,
+          isDefault: true,
+          scenarioKey: "standard",
+        },
+      ],
       templateKey: "single-family-full-build",
     });
+  });
+
+  test("generates active saved scenario draw rows instead of milestone fallback draws", () => {
+    const template: TimelineSetupTemplate = {
+      description: "Multiplex",
+      rows: [
+        setupPreset("m1", "Milestone 1", 2_500, 10),
+        setupPreset("m2", "Milestone 2", 2_500, 10),
+        setupPreset("m3", "Milestone 3", 2_500, 10),
+        setupPreset("m4", "Milestone 4", 2_500, 10),
+      ],
+      scenarios: [
+        {
+          draws: [
+            scenarioDraw("draw-01", 3_000, 10),
+            scenarioDraw("draw-02", 3_000, 25),
+            scenarioDraw("draw-03", 4_000, 55),
+          ],
+          isActive: true,
+          isDefault: true,
+          scenarioKey: "three-draw",
+        },
+      ],
+      summary: "4 milestones",
+      templateKey: "multiplex-build",
+      title: "Multiplex Build",
+    };
+    const rows = createRowsFromTemplate(template, 1_000_000_00);
+    const items = buildTimelineItemsFromSetupRows(rows, 2_000);
+    const draws = buildTimelineSetupScenarioDraws({
+      budgetCents: 1_000_000_00,
+      items,
+      scenario: selectTimelineSetupScenario(template),
+      startingCashCents: 400_000_00,
+    });
+
+    const payload = timelineSetupResultToDraftPackage({
+      activeItemId: items[0]?.id ?? "",
+      borrowerCoPayBps: 2_000,
+      borrowerCoPayCents: 200_000_00,
+      contractorAssignments: [],
+      costItems: [],
+      currentDay: 0,
+      draws,
+      includedCount: items.length,
+      items,
+      permitFiles: [],
+      projectAddress: "Hamilton, ON",
+      redirectToDurableRoute: true,
+      reimbursableBudgetCents: 800_000_00,
+      reimbursementBps: 8_000,
+      startingCash: 400_000,
+      templateKey: "multiplex-build",
+      templateTitle: "Multiplex Build",
+      totalBudget: 1_000_000,
+    });
+
+    expect(payload.draws?.map((draw) => draw.drawKey)).toEqual([
+      "draw-01",
+      "draw-02",
+      "draw-03",
+    ]);
+    expect(payload.draws).toHaveLength(3);
+  });
+
+  test("increases saved scenario draw amounts to avoid negative cash on hand", () => {
+    const template: TimelineSetupTemplate = {
+      description: "Cash constrained",
+      rows: [
+        setupPreset("m1", "Milestone 1", 2_500, 10),
+        setupPreset("m2", "Milestone 2", 2_500, 10),
+        setupPreset("m3", "Milestone 3", 2_500, 10),
+        setupPreset("m4", "Milestone 4", 2_500, 10),
+      ],
+      scenarios: [
+        {
+          draws: [
+            scenarioDraw("draw-01", 1_000, 10),
+            scenarioDraw("draw-02", 1_000, 25),
+            scenarioDraw("draw-03", 1_000, 55),
+          ],
+          isActive: true,
+          scenarioKey: "low-draws",
+        },
+      ],
+      summary: "4 milestones",
+      templateKey: "cash-constrained",
+      title: "Cash constrained",
+    };
+    const rows = createRowsFromTemplate(template, 1_000_000_00);
+    const items = buildTimelineItemsFromSetupRows(rows, 2_000);
+    const draws = buildTimelineSetupScenarioDraws({
+      budgetCents: 1_000_000_00,
+      items,
+      scenario: selectTimelineSetupScenario(template),
+      startingCashCents: 250_000_00,
+    });
+
+    expect(draws?.map((draw) => draw.amountCents)).toEqual([
+      250_000_00,
+      500_000_00,
+      100_000_00,
+    ]);
   });
 
   test("maps richer production milestone names to the expanded icon set", () => {
@@ -374,3 +530,30 @@ describe("production proposal timeline setup adapter", () => {
     ]);
   });
 });
+
+function setupPreset(
+  key: string,
+  name: string,
+  percentageBps: number,
+  durationDays: number
+) {
+  return {
+    dependencyKeys: [],
+    durationDays,
+    icon: "foundation" as const,
+    key,
+    name,
+    percentageBps,
+    subMilestones: [name],
+    type: "foundation",
+  };
+}
+
+function scenarioDraw(drawKey: string, amountBps: number, timingDay: number) {
+  return {
+    amountBps,
+    drawKey,
+    label: drawKey,
+    timingDay,
+  };
+}

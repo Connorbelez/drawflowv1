@@ -50,6 +50,10 @@ import {
   TimelineMilestoneWorksheetTable,
   type TimelineScheduleDisplayMode,
 } from "./-TimelineMilestoneWorksheetTable.tsx";
+import {
+  buildMilestoneSpendEvents,
+  getMilestoneEndX,
+} from "./-timeline-milestone-schedule.ts";
 import { mapSubmilestoneSnapshotRows } from "./-timeline-milestone-submilestones.ts";
 import type {
   DemoMilestone,
@@ -503,9 +507,26 @@ export interface TimelineSetupTemplate {
   description: string;
   isDefault?: boolean;
   rows: TimelineSetupPreset[];
+  scenarios?: TimelineSetupScenario[];
   summary: string;
   templateKey: string;
   title: string;
+}
+
+export interface TimelineSetupScenario {
+  draws: TimelineSetupScenarioDraw[];
+  isActive?: boolean;
+  isDefault?: boolean;
+  scenarioKey: string;
+}
+
+export interface TimelineSetupScenarioDraw {
+  amountBps: number;
+  drawKey: string;
+  label: string;
+  order?: number;
+  reviewNote?: string;
+  timingDay: number;
 }
 
 export interface TimelineSetupPreset {
@@ -562,6 +583,7 @@ export interface TimelineSetupResult {
   contractorAssignments: TimelineSetupContractorAssignment[];
   costItems: TimelineSetupCostItem[];
   currentDay: number;
+  draws?: TimelineSetupDrawResult[];
   includedCount: number;
   items: TimelineItem<DemoMilestone>[];
   permitFiles: File[];
@@ -574,6 +596,16 @@ export interface TimelineSetupResult {
   templateKey: string;
   templateTitle: string;
   totalBudget: number;
+}
+
+export interface TimelineSetupDrawResult {
+  amountCents: number;
+  customDate?: boolean;
+  drawKey: string;
+  label: string;
+  milestoneKey?: string;
+  order?: number;
+  timingDay: number;
 }
 
 export interface TimelineSetupFlowProps {
@@ -1316,6 +1348,165 @@ export function buildTimelineItemsFromSetupRows(
 
     return item;
   });
+}
+
+export function selectTimelineSetupScenario(
+  template: TimelineSetupTemplate | undefined
+): TimelineSetupScenario | undefined {
+  return (
+    template?.scenarios?.find((scenario) => scenario.isActive) ??
+    template?.scenarios?.find((scenario) => scenario.isDefault) ??
+    template?.scenarios?.[0]
+  );
+}
+
+export function buildTimelineSetupScenarioDraws({
+  budgetCents,
+  items,
+  scenario,
+  startingCashCents,
+}: {
+  budgetCents: number;
+  items: TimelineItem<DemoMilestone>[];
+  scenario: TimelineSetupScenario | undefined;
+  startingCashCents: number;
+}): TimelineSetupDrawResult[] | undefined {
+  if (!scenario?.draws.length) {
+    return;
+  }
+
+  const events = items
+    .filter((item) => item.data)
+    .flatMap((item) =>
+      buildMilestoneSpendEvents(item).map((event) => ({
+        amountCents: dollarsToCents(event.amount),
+        day: Math.max(0, Math.round(event.day)),
+        id: event.id,
+        sortOrder: getSetupSpendSortOrder(event.kind),
+      }))
+    )
+    .sort(
+      (left, right) =>
+        left.day - right.day ||
+        left.sortOrder - right.sortOrder ||
+        left.id.localeCompare(right.id)
+    );
+  const draws = [...scenario.draws]
+    .sort(
+      (left, right) =>
+        (left.order ?? 0) - (right.order ?? 0) ||
+        left.timingDay - right.timingDay ||
+        left.drawKey.localeCompare(right.drawKey)
+    )
+    .map((draw, index) => ({
+      ...draw,
+      amountCents: Math.max(
+        0,
+        Math.round(
+          (Math.max(0, Math.round(budgetCents)) *
+            Math.max(0, Math.round(draw.amountBps))) /
+            TOTAL_REIMBURSEMENT_BPS
+        )
+      ),
+      order: draw.order ?? index + 1,
+      timingDay: Math.max(0, Math.round(draw.timingDay)),
+    }));
+
+  let eventIndex = 0;
+  let cashOnHand = Math.max(0, Math.round(startingCashCents));
+  const result: TimelineSetupDrawResult[] = [];
+
+  for (const [index, draw] of draws.entries()) {
+    while (
+      eventIndex < events.length &&
+      events[eventIndex]!.day <= draw.timingDay
+    ) {
+      cashOnHand -= events[eventIndex]!.amountCents;
+      eventIndex += 1;
+    }
+
+    const nextDrawDay = draws[index + 1]?.timingDay;
+    let amountCents = draw.amountCents;
+    const projectedMinimumCash = projectMinimumSetupCash({
+      cashOnHand: cashOnHand + amountCents,
+      events,
+      fromIndex: eventIndex,
+      throughDay: nextDrawDay,
+    });
+    if (projectedMinimumCash < 0) {
+      amountCents += Math.abs(projectedMinimumCash);
+    }
+
+    cashOnHand += amountCents;
+    result.push({
+      amountCents,
+      customDate: true,
+      drawKey:
+        draw.drawKey.trim() || `draw-${String(index + 1).padStart(2, "0")}`,
+      label: draw.label.trim() || `Draw ${String(index + 1).padStart(2, "0")}`,
+      milestoneKey: milestoneKeyForScenarioDraw(items, draw.timingDay),
+      order: index + 1,
+      timingDay: draw.timingDay,
+    });
+  }
+
+  return result;
+}
+
+function projectMinimumSetupCash({
+  cashOnHand,
+  events,
+  fromIndex,
+  throughDay,
+}: {
+  cashOnHand: number;
+  events: Array<{ amountCents: number; day: number }>;
+  fromIndex: number;
+  throughDay?: number;
+}) {
+  let projectedCash = cashOnHand;
+  let minimumCash = projectedCash;
+
+  for (let index = fromIndex; index < events.length; index += 1) {
+    const event = events[index]!;
+    if (throughDay !== undefined && event.day > throughDay) {
+      break;
+    }
+    projectedCash -= event.amountCents;
+    minimumCash = Math.min(minimumCash, projectedCash);
+  }
+
+  return minimumCash;
+}
+
+function milestoneKeyForScenarioDraw(
+  items: TimelineItem<DemoMilestone>[],
+  timingDay: number
+) {
+  const orderedItems = [...items]
+    .filter((item) => item.data)
+    .sort((left, right) => getMilestoneEndX(left) - getMilestoneEndX(right));
+  const completed = orderedItems
+    .filter((item) => getMilestoneEndX(item) <= timingDay)
+    .at(-1);
+
+  return completed?.id ?? orderedItems[0]?.id;
+}
+
+function getSetupSpendSortOrder(
+  kind: ReturnType<typeof buildMilestoneSpendEvents>[number]["kind"]
+) {
+  if (kind === "initial") {
+    return 1;
+  }
+  if (kind === "distributed") {
+    return 2;
+  }
+  return 3;
+}
+
+function dollarsToCents(value: number) {
+  return Math.max(0, Math.round(value * 100));
 }
 
 export function buildPlanningPayloadFromSetupRows(
@@ -2364,6 +2555,12 @@ export function TimelineSetupFlow({
       (budgetCents * reimbursementBps) / TOTAL_REIMBURSEMENT_BPS
     );
     const items = buildTimelineItemsFromSetupRows(rows, borrowerCoPayBps);
+    const scenarioDraws = buildTimelineSetupScenarioDraws({
+      budgetCents,
+      items,
+      scenario: selectTimelineSetupScenario(selectedTemplate),
+      startingCashCents: Math.round(cashCents),
+    });
     const planningPayload = buildPlanningPayloadFromSetupRows(rows);
     const activeItem = items[0];
 
@@ -2374,6 +2571,7 @@ export function TimelineSetupFlow({
       borrowerCoPayCents,
       contractorAssignments: planningPayload.contractorAssignments,
       currentDay: GENERATED_TIMELINE_CURRENT_DAY,
+      draws: scenarioDraws,
       includedCount: items.length,
       items,
       permitFiles,

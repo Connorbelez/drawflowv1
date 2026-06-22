@@ -108,8 +108,11 @@ import {
   timelineSettingsRange,
 } from "./-timeline-demo-settings-adapter.ts";
 import {
+  buildMilestoneDrawCapacityEvents,
+  getAccruedMilestoneDrawCapacity,
+} from "./-timeline-draw-capacity.ts";
+import {
   OPTIMIZED_DRAW_FEE as DRAW_FEE,
-  OPTIMIZED_INTEREST_APR as INTEREST_APR,
   optimizeTimelineDrawSchedule,
 } from "./-timeline-draw-optimizer.ts";
 import {
@@ -139,6 +142,7 @@ import {
   getMilestoneDrawAvailabilityAmount,
   getMilestoneEffectiveCashSpendAmount,
   initialTimelineShareState,
+  normalizeInterestAnnualBps,
   type TimelineShareState,
 } from "./-timeline-share-snapshot.ts";
 import {
@@ -204,6 +208,7 @@ export interface CashflowDatum {
 export interface DrawAvailabilityDatum {
   additionalAvailableDraw: number;
   day: number;
+  interestAnnualBps?: number;
   interestBearingDraw: number;
   name: string;
   totalAvailableDraw: number;
@@ -893,6 +898,9 @@ export function TimelineWorkspace({
   const [draws, setDraws] = useState<DemoDraw[]>(
     () => workspaceInitialState.draws
   );
+  const [interestAnnualBps, setInterestAnnualBps] = useState(() =>
+    normalizeInterestAnnualBps(workspaceInitialState.interestAnnualBps)
+  );
   const [capitalSpikes, setCapitalSpikes] = useState<DemoCapitalSpike[]>(
     () => workspaceInitialState.capitalSpikes
   );
@@ -1386,6 +1394,7 @@ export function TimelineWorkspace({
     capitalSpikes,
     drawInsertionCount,
     draws,
+    interestAnnualBps,
     insertionCount,
     items,
     currentDay,
@@ -1400,6 +1409,7 @@ export function TimelineWorkspace({
     setCapitalSpikes,
     setDrawEditDraft,
     setDraws,
+    setInterestAnnualBps,
     setItems,
     setCurrentDay,
     setProbeValue,
@@ -1421,6 +1431,9 @@ export function TimelineWorkspace({
 
     setItems(hydratedState.items);
     setDraws(hydratedState.draws);
+    setInterestAnnualBps(
+      normalizeInterestAnnualBps(hydratedState.interestAnnualBps)
+    );
     setCapitalSpikes(hydratedState.capitalSpikes);
     setRange(hydratedState.range);
     setActiveSelection(hydratedState.activeSelection);
@@ -1507,7 +1520,9 @@ export function TimelineWorkspace({
         capitalSpikes: INITIAL_CAPITAL_SPIKES,
         currentDay: result.currentDay,
         draws: nextDraws,
+        interestAnnualBps,
         items: result.items,
+        minimumCashReserve,
         progressValue: result.currentDay,
         range: nextRange,
         selectedPanelOpen: Boolean(activeItem),
@@ -1612,7 +1627,13 @@ export function TimelineWorkspace({
         });
       }
     },
-    [applyTimelineState, createTimelinePlan, settingsTemplates]
+    [
+      applyTimelineState,
+      createTimelinePlan,
+      interestAnnualBps,
+      minimumCashReserve,
+      settingsTemplates,
+    ]
   );
 
   const resetCurrentTimeline = useCallback(() => {
@@ -1641,6 +1662,7 @@ export function TimelineWorkspace({
 
     const result = optimizeTimelineDrawSchedule({
       capitalSpikes,
+      interestAnnualBps,
       items,
       minimumCashReserve,
       range: resolvedRange,
@@ -1720,6 +1742,7 @@ export function TimelineWorkspace({
     capitalSpikes,
     draws,
     durablePlanId,
+    interestAnnualBps,
     items,
     liveBuildMode,
     minimumCashReserve,
@@ -1842,20 +1865,37 @@ export function TimelineWorkspace({
     [cashflowData, items, resolvedRange, startingCash]
   );
   const drawAvailabilityData = useMemo(
-    () => buildDrawAvailabilityData(cashflowData, approvedDrawLimit),
-    [approvedDrawLimit, cashflowData]
+    () =>
+      buildDrawAvailabilityData(
+        cashflowData,
+        approvedDrawLimit,
+        interestAnnualBps
+      ),
+    [approvedDrawLimit, cashflowData, interestAnnualBps]
   );
   const drawAvailabilityChartData = useMemo(
-    () => densifyDrawAvailabilityData(drawAvailabilityData, resolvedRange),
-    [drawAvailabilityData, resolvedRange]
+    () =>
+      buildDrawAvailabilityChartData(
+        drawAvailabilityData,
+        cashflowData,
+        items,
+        resolvedRange
+      ),
+    [cashflowData, drawAvailabilityData, items, resolvedRange]
   );
   const cashShortfalls = useMemo(
     () => buildCashShortfallPoints(cashflowData, minimumCashReserve),
     [cashflowData, minimumCashReserve]
   );
   const financialOverview = useMemo(
-    () => buildFinancialOverview(cashflowData, draws, resolvedRange),
-    [cashflowData, draws, resolvedRange]
+    () =>
+      buildFinancialOverview(
+        cashflowData,
+        draws,
+        resolvedRange,
+        interestAnnualBps
+      ),
+    [cashflowData, draws, interestAnnualBps, resolvedRange]
   );
   const cashUseSummary = useMemo(
     () => buildCashUseSummary(items, draws, capitalSpikes),
@@ -4945,6 +4985,7 @@ interface UseTimelineSnapshotSharingArgs {
   drawInsertionCount: CounterRef;
   draws: DemoDraw[];
   insertionCount: CounterRef;
+  interestAnnualBps: number;
   items: TimelineItem<DemoMilestone>[];
   minimumCashReserve: number;
   progressValue: number;
@@ -4959,6 +5000,7 @@ interface UseTimelineSnapshotSharingArgs {
   setCurrentDay: (value: number) => void;
   setDrawEditDraft: (value: DrawEditDraft) => void;
   setDraws: (value: DemoDraw[]) => void;
+  setInterestAnnualBps: (value: number) => void;
   setItems: (value: TimelineItem<DemoMilestone>[]) => void;
   setMinimumCashReserve: (value: number) => void;
   setProbeValue: (value: number | null) => void;
@@ -5104,6 +5146,7 @@ function useTimelineSnapshotSharing({
   currentDay,
   drawInsertionCount,
   draws,
+  interestAnnualBps,
   insertionCount,
   items,
   progressValue,
@@ -5118,6 +5161,7 @@ function useTimelineSnapshotSharing({
   setCurrentDay,
   setDrawEditDraft,
   setDraws,
+  setInterestAnnualBps,
   setItems,
   setProbeValue,
   setProgressValue,
@@ -5189,6 +5233,9 @@ function useTimelineSnapshotSharing({
       setCapitalSpikeEditDraft({ amount: "", label: "", x: "" });
       setSelectedPanelOpen(hydratedState.selectedPanelOpen);
       setApprovedDrawLimit(hydratedState.approvedDrawLimit);
+      setInterestAnnualBps(
+        normalizeInterestAnnualBps(hydratedState.interestAnnualBps)
+      );
       setMinimumCashReserve(hydratedState.minimumCashReserve);
       setStartingCash(hydratedState.startingCash);
       setStraightLine(hydratedState.straightLine);
@@ -5208,6 +5255,7 @@ function useTimelineSnapshotSharing({
       setCurrentDay,
       setDrawEditDraft,
       setDraws,
+      setInterestAnnualBps,
       setItems,
       setProbeValue,
       setProgressValue,
@@ -5292,6 +5340,7 @@ function useTimelineSnapshotSharing({
         capitalSpikes,
         currentDay,
         draws,
+        interestAnnualBps,
         items,
         progressValue,
         range: resolvedRange,
@@ -5314,6 +5363,7 @@ function useTimelineSnapshotSharing({
         capitalSpikes,
         currentDay,
         draws,
+        interestAnnualBps,
         items,
         progressValue,
         range: resolvedRange,
@@ -5341,6 +5391,7 @@ function useTimelineSnapshotSharing({
     createTimelineSnapshot,
     currentDay,
     draws,
+    interestAnnualBps,
     items,
     progressValue,
     resolvedRange,
@@ -5732,11 +5783,15 @@ export function calculateDrawRequestLimit(
 ): DrawRequestLimit {
   const drawDay = targetDraw.x;
   const totalUnlocked = items.reduce((total, item) => {
-    if (!item.data || getMilestoneEndX(item) > drawDay) {
+    if (!item.data) {
       return total;
     }
 
-    return total + getMilestoneRequestableDrawAmount(item.data);
+    const accruedCapacity = getAccruedMilestoneDrawCapacity(item, drawDay);
+    return (
+      total +
+      Math.min(accruedCapacity, getMilestoneRequestableDrawAmount(item.data))
+    );
   }, 0);
   const alreadyDrawn = draws.reduce((total, draw) => {
     if (draw.id === targetDraw.id || draw.x > drawDay) {
@@ -5847,11 +5902,12 @@ export function buildTimelineCashflowData(
       .filter((item) => item.data)
       .flatMap((item) => {
         const spendEvents = buildMilestoneSpendEvents(item);
-        const completionDay = getMilestoneEndX(item);
         const drawAvailabilityAmount = getMilestoneDrawAvailabilityAmount(
           item.data
         );
+        const completionDay = getMilestoneEndX(item);
         const milestoneName = item.data?.name ?? item.label ?? "Milestone";
+        const capacityEvents = buildMilestoneDrawCapacityEvents(item);
 
         return [
           ...spendEvents.map((event) => ({
@@ -5867,19 +5923,19 @@ export function buildTimelineCashflowData(
             sortOrder: getMilestoneCashflowSortOrder(event.kind),
             type: "milestone" as const,
           })),
-          {
+          ...capacityEvents.map((event) => ({
             amount: 0,
-            day: clampNumber(completionDay, range.min, range.max),
-            drawCapacityUnlocked: drawAvailabilityAmount,
-            id: `${item.id}-completion-capacity`,
-            label: `${milestoneName} completion capacity`,
+            day: clampNumber(event.day, range.min, range.max),
+            drawCapacityUnlocked: event.amount,
+            id: event.id,
+            label: event.label || `${milestoneName} accrued capacity`,
             milestoneDrawAvailability: drawAvailabilityAmount,
-            milestoneEndDay: completionDay,
-            milestoneId: item.id,
+            milestoneEndDay: getMilestoneEndX(item),
+            milestoneId: event.milestoneId,
             milestoneTotalBudget: item.data?.amount ?? 0,
             sortOrder: 4,
             type: "capacityUnlock" as const,
-          },
+          })),
         ];
       }),
     ...capitalSpikes.map((spike) => {
@@ -6080,7 +6136,9 @@ export function buildCashflowChartData(
     .filter((item) => item.data)
     .flatMap((item) => [item.x, getMilestoneEndX(item)]);
   const eventDays = [
-    ...accountingData.map((point) => point.day),
+    ...accountingData
+      .filter((point) => !isDistributedMilestoneCashflowPoint(point))
+      .map((point) => point.day),
     ...milestoneDays,
   ];
   const milestoneBudgetByDay = new Map<number, number>();
@@ -6137,7 +6195,12 @@ export function buildCashflowChartData(
       budget,
       capitalSpikeAmount,
       cashInfusionAmount,
-      cashOnHand: projectCashOnHandForChart(accountingData, day, startingCash),
+      cashOnHand: projectCashOnHandForChart(
+        accountingData,
+        items,
+        day,
+        startingCash
+      ),
       day,
       drawAmount,
       drawCapacityUnlocked,
@@ -6209,14 +6272,24 @@ function buildMilestoneCostBars(
 
 function projectCashOnHandForChart(
   accountingData: CashflowDatum[],
+  items: TimelineItem<DemoMilestone>[],
   value: number,
   startingCash = STARTING_CASH
 ): number {
   const startPoint = accountingData.find((point) => point.event === "start");
   const cashOnHand = startPoint?.cashOnHand ?? startingCash;
+  const projectedDistributedSpend = getProjectedDistributedMilestoneSpend(
+    items,
+    value
+  );
 
-  return accountingData
-    .filter((point) => point.id !== "start" && point.day <= value)
+  const settledCashOnHand = accountingData
+    .filter(
+      (point) =>
+        point.id !== "start" &&
+        point.day <= value &&
+        !isDistributedMilestoneCashflowPoint(point)
+    )
     .sort(compareCashflowPoints)
     .reduce(
       (total, point) =>
@@ -6227,6 +6300,42 @@ function projectCashOnHandForChart(
         point.budget,
       cashOnHand
     );
+
+  return settledCashOnHand - projectedDistributedSpend;
+}
+
+function isDistributedMilestoneCashflowPoint(point: CashflowDatum) {
+  return point.event === "milestone" && point.id.includes("-distributed-");
+}
+
+function getProjectedDistributedMilestoneSpend(
+  items: TimelineItem<DemoMilestone>[],
+  value: number
+): number {
+  return items.reduce((total, item) => {
+    if (!item.data) {
+      return total;
+    }
+
+    const schedule = getMilestonePaymentSchedule(item);
+    const distributedAmount = Math.max(
+      0,
+      Math.round(schedule.distributedAmount)
+    );
+
+    if (distributedAmount <= 0 || value <= schedule.startX) {
+      return total;
+    }
+
+    if (value >= schedule.endX || schedule.endX <= schedule.startX) {
+      return total + distributedAmount;
+    }
+
+    const progress =
+      (value - schedule.startX) / (schedule.endX - schedule.startX);
+
+    return total + distributedAmount * progress;
+  }, 0);
 }
 
 export function densifyDrawAvailabilityData(
@@ -6256,6 +6365,29 @@ export function densifyDrawAvailabilityData(
       name: formatTimelineDay(day),
     };
   });
+}
+
+export function buildDrawAvailabilityChartData(
+  availabilityData: DrawAvailabilityDatum[],
+  cashflowData: CashflowDatum[],
+  items: TimelineItem<DemoMilestone>[],
+  range: Required<TimelineRange>
+): DrawAvailabilityDatum[] {
+  const milestoneDays = items
+    .filter((item) => item.data)
+    .flatMap((item) => [item.x, getMilestoneEndX(item)]);
+  const eventDays = [
+    ...cashflowData
+      .filter((point) => !isDistributedMilestoneCashflowPoint(point))
+      .map((point) => point.day),
+    ...milestoneDays,
+  ];
+
+  return buildCashflowChartEventDays(range, eventDays).map((day) => ({
+    ...interpolateDrawAvailability(availabilityData, day),
+    day,
+    name: formatTimelineDay(day),
+  }));
 }
 
 export function buildChartProbeDays(
@@ -6325,9 +6457,12 @@ function getCashflowPointSortOrder(point: CashflowDatum) {
 
 export function buildDrawAvailabilityData(
   cashflowData: CashflowDatum[],
-  approvedDrawLimit?: number
+  approvedDrawLimit?: number,
+  interestAnnualBps = normalizeInterestAnnualBps(undefined)
 ): DrawAvailabilityDatum[] {
   const sortedCashflowData = [...cashflowData].sort(compareCashflowPoints);
+  const normalizedInterestAnnualBps =
+    normalizeInterestAnnualBps(interestAnnualBps);
   let unlockedDraw = 0;
   let releasedDraw = 0;
   let totalInterestAccrued = 0;
@@ -6337,7 +6472,8 @@ export function buildDrawAvailabilityData(
     const day = Math.max(previousDay, point.day);
     totalInterestAccrued += calculateDailyCompoundedInterest(
       releasedDraw + totalInterestAccrued,
-      day - previousDay
+      day - previousDay,
+      normalizedInterestAnnualBps
     );
     previousDay = day;
 
@@ -6350,6 +6486,7 @@ export function buildDrawAvailabilityData(
     return {
       additionalAvailableDraw,
       day: point.day,
+      interestAnnualBps: normalizedInterestAnnualBps,
       interestBearingDraw,
       name: point.name,
       totalInterestAccrued,
@@ -6412,13 +6549,15 @@ export function buildDrawAvailabilityData(
 
 function calculateDailyCompoundedInterest(
   principal: number,
-  elapsedDays: number
+  elapsedDays: number,
+  interestAnnualBps: number
 ): number {
   if (principal <= 0 || elapsedDays <= 0) {
     return 0;
   }
 
-  return principal * ((1 + INTEREST_APR / 365) ** elapsedDays - 1);
+  const dailyRate = interestAnnualBps / 10_000 / 365;
+  return principal * ((1 + dailyRate) ** elapsedDays - 1);
 }
 
 export function buildCashShortfallPoints(
@@ -6462,11 +6601,14 @@ function formatCashShortfallMessage(point: CashShortfallPoint): string {
 export function buildFinancialOverview(
   cashflowData: CashflowDatum[],
   draws: DemoDraw[],
-  range: Required<TimelineRange>
+  range: Required<TimelineRange>,
+  interestAnnualBps = normalizeInterestAnnualBps(undefined)
 ): FinancialOverview {
   const drawEvents = cashflowData
     .filter((point) => point.event === "draw")
     .sort((a, b) => a.day - b.day || a.id.localeCompare(b.id));
+  const normalizedInterestAnnualBps =
+    normalizeInterestAnnualBps(interestAnnualBps);
   let principal = 0;
   let previousDay = range.min;
   let interestPaid = 0;
@@ -6475,7 +6617,8 @@ export function buildFinancialOverview(
     const day = clampNumber(event.day, range.min, range.max);
     interestPaid += calculateDailyCompoundedInterest(
       principal + interestPaid,
-      Math.max(0, day - previousDay)
+      Math.max(0, day - previousDay),
+      normalizedInterestAnnualBps
     );
     principal += event.drawAmount;
     previousDay = day;
@@ -6483,7 +6626,8 @@ export function buildFinancialOverview(
 
   interestPaid += calculateDailyCompoundedInterest(
     principal + interestPaid,
-    Math.max(0, range.max - previousDay)
+    Math.max(0, range.max - previousDay),
+    normalizedInterestAnnualBps
   );
 
   return {
@@ -6676,7 +6820,8 @@ export function interpolateDrawAvailability(
       current.totalInterestAccrued +
       calculateDailyCompoundedInterest(
         current.interestBearingDraw + current.totalInterestAccrued,
-        Math.max(0, value - current.day)
+        Math.max(0, value - current.day),
+        normalizeInterestAnnualBps(current.interestAnnualBps)
       ),
   };
 }

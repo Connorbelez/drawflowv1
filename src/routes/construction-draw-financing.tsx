@@ -151,35 +151,43 @@ function ConstructionDrawPage(): ReactElement {
 function PublicNav(): ReactElement {
   return (
     <header className="df-nav-shell">
-      <nav aria-label="FairLend full-site navigation" className="df-nav df-nav-primary">
-      <Link
-        {...aboutLink}
-        aria-label="FairLend Mortgage about"
-        className="df-brand"
-        preload="intent"
-        viewTransition
+      <nav
+        aria-label="FairLend full-site navigation"
+        className="df-nav df-nav-primary"
       >
-        <span className="df-brand-mark">F</span>
-        <span>
-          <strong>FairLend</strong>
-          <small>Mortgage</small>
-        </span>
-      </Link>
-      <div className="df-nav-links">
-        <Link to="/construction-draw-financing">Construction draws</Link>
-        <Link to="/garden-suite-financing-gta">Garden suites</Link>
-        <Link to="/multiplex-financing-gta">Multiplex</Link>
-        <Link to="/contact">Contact</Link>
-      </div>
-      <Button
-        className="df-nav-button"
-        render={<Link {...builderStartLink} preload="intent" viewTransition />}
-      >
-        Start builder review
-        <ArrowUpRight aria-hidden />
-      </Button>
+        <Link
+          {...aboutLink}
+          aria-label="FairLend Mortgage about"
+          className="df-brand"
+          preload="intent"
+          viewTransition
+        >
+          <span className="df-brand-mark">F</span>
+          <span>
+            <strong>FairLend</strong>
+            <small>Mortgage</small>
+          </span>
+        </Link>
+        <div className="df-nav-links">
+          <Link to="/construction-draw-financing">Construction draws</Link>
+          <Link to="/garden-suite-financing-gta">Garden suites</Link>
+          <Link to="/multiplex-financing-gta">Multiplex</Link>
+          <Link to="/contact">Contact</Link>
+        </div>
+        <Button
+          className="df-nav-button"
+          render={
+            <Link {...builderStartLink} preload="intent" viewTransition />
+          }
+        >
+          Start builder review
+          <ArrowUpRight aria-hidden />
+        </Button>
       </nav>
-      <nav aria-label="Construction draw page sections" className="df-nav df-nav-secondary">
+      <nav
+        aria-label="Construction draw page sections"
+        className="df-nav df-nav-secondary"
+      >
         <a href="#sequence">Sequence</a>
         <a href="#workspace">Workspace</a>
         <a href="#draw-plans">Draw plans</a>
@@ -301,9 +309,7 @@ function WorkspaceSection(): ReactElement {
     >
       <div className="df-workspace-copy">
         <p className="df-kicker">Build Workspace</p>
-        <h2 id="workspace-title">
-          One place for roadmaps, draws and proof
-        </h2>
+        <h2 id="workspace-title">One place for roadmaps, draws and proof</h2>
         <p>
           Capital decisions get harder to trust when the file is scattered. One
           view of the roadmap, draws, evidence, and site status keeps the
@@ -386,9 +392,9 @@ function EvidenceSection(): ReactElement {
           <p>
             Field reality is messy. GPS drops, signals fail, sites are dead
             zones. DrawFlow keeps the evidence package intact regardless, flags
-            it clearly when location can&apos;t be verified, and moves it to staff
-            review, a site visit, or admin sign-off. Bad coordinates never cost
-            you the proof.
+            it clearly when location can&apos;t be verified, and moves it to
+            staff review, a site visit, or admin sign-off. Bad coordinates never
+            cost you the proof.
           </p>
         </div>
         <ul className="df-evidence-list">

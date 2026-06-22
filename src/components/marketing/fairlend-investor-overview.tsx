@@ -1,10 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
+import { type ReactElement, useEffect, useMemo, useState } from "react";
+import DotField from "#/components/DotField.tsx";
 import { Header as DirectionalHoverHeader } from "#/components/directional-hover-header/header.tsx";
 import { FairlendInvestorRail } from "#/components/marketing/fairlend-rail.tsx";
-import { type ReactElement, useEffect, useMemo, useState } from "react";
-
-import DotField from "#/components/DotField.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Card } from "#/components/ui/card.tsx";
 
@@ -120,101 +119,111 @@ export function FairlendInvestorOverview(): ReactElement {
     <>
       <DirectionalHoverHeader />
       <main className="fairlend-investor-overview">
-      <div className="fairlend-investor-overview__shell">
-        <FairlendInvestorRail section={activeRailSection} />
-        <section
-          aria-labelledby="fairlend-investor-hero-title"
-          className="fairlend-investor-section fairlend-investor-overview__hero"
-          data-investor-section="investor-overview"
-          id="investor-overview"
-        >
-          <DotField
-            aria-hidden="true"
-            bulgeStrength={34}
-            className="fairlend-investor-hero-dot-field"
-            cursorRadius={260}
-            dotRadius={2}
-            dotSpacing={16}
-            glowColor="rgb(10 48 39)"
-            glowRadius={190}
-            gradientFrom="rgb(255 248 236 / 14%)"
-            gradientTo="rgb(255 248 236 / 14%)"
-          />
-          <div className="fairlend-investor-hero-copy">
-            <SectionMarker label="Investor Overview" number="01" tone="dark" />
-            <h1
-              aria-label="Real estate-backed investing, managed by Fairlend"
-              id="fairlend-investor-hero-title"
-            >
-              <span>Real estate-backed</span>
-              <span>investing, managed</span>
-              <span>by Fairlend</span>
-            </h1>
-            <p>
-              Two paths - private mortgage opportunities and construction-backed
-              build funding - with underwriting, administration, and execution
-              support behind both.
-            </p>
-            <div className="fairlend-investor-hero-copy__actions">
-              <Button
-                className="fairlend-investor-button fairlend-investor-button--primary"
-                render={<Link preload="intent" to="/contact" viewTransition />}
-                size="xl"
-              >
-                Request Investor Information
-                <ArrowRight aria-hidden="true" />
-              </Button>
-              <Button
-                className="fairlend-investor-button fairlend-investor-button--outline"
-                render={
-                  <Link preload="intent" to="/start/investor" viewTransition />
-                }
-                size="xl"
-                variant="outline"
-              >
-                Explore Marketplace Opportunities
-                <ArrowRight aria-hidden="true" />
-              </Button>
-            </div>
-          </div>
-          <InvestorHeroCollage />
-        </section>
-        <section
-          aria-labelledby="fairlend-investor-path-title"
-          className="fairlend-investor-section fairlend-investor-paths"
-          data-investor-section="investor-paths"
-          id="investor-paths"
-        >
-          <div className="fairlend-investor-paths__intro">
-            <SectionMarker label="Investor Paths" number="02" tone="paper" />
-            <h2 id="fairlend-investor-path-title">
-              Choose your investor path.
-            </h2>
-            <div className="fairlend-investor-short-rule" />
-            <p>
-              Two distinct ways to invest in real estate-backed opportunities.
-              One experienced team behind every investment.
-            </p>
-            <img
-              alt=""
+        <div className="fairlend-investor-overview__shell">
+          <FairlendInvestorRail section={activeRailSection} />
+          <section
+            aria-labelledby="fairlend-investor-hero-title"
+            className="fairlend-investor-section fairlend-investor-overview__hero"
+            data-investor-section="investor-overview"
+            id="investor-overview"
+          >
+            <DotField
               aria-hidden="true"
-              className="fairlend-investor-paths__sketch"
-              decoding="async"
-              height={242}
-              loading="lazy"
-              src={investorPageAssets.neighborhoodSketch}
-              width={620}
+              bulgeStrength={34}
+              className="fairlend-investor-hero-dot-field"
+              cursorRadius={260}
+              dotRadius={2}
+              dotSpacing={16}
+              glowColor="rgb(10 48 39)"
+              glowRadius={190}
+              gradientFrom="rgb(255 248 236 / 14%)"
+              gradientTo="rgb(255 248 236 / 14%)"
             />
-          </div>
-          <div className="fairlend-investor-paths__cards">
-            {pathCards.map((card) => (
-              <InvestorPathCard key={card.number} {...card} />
-            ))}
-          </div>
-        </section>
-        <FairlendInvestorFooter />
-      </div>
-    </main>
+            <div className="fairlend-investor-hero-copy">
+              <SectionMarker
+                label="Investor Overview"
+                number="01"
+                tone="dark"
+              />
+              <h1
+                aria-label="Real estate-backed investing, managed by Fairlend"
+                id="fairlend-investor-hero-title"
+              >
+                <span>Real estate-backed</span>
+                <span>investing, managed</span>
+                <span>by Fairlend</span>
+              </h1>
+              <p>
+                Two paths - private mortgage opportunities and
+                construction-backed build funding - with underwriting,
+                administration, and execution support behind both.
+              </p>
+              <div className="fairlend-investor-hero-copy__actions">
+                <Button
+                  className="fairlend-investor-button fairlend-investor-button--primary"
+                  render={
+                    <Link preload="intent" to="/contact" viewTransition />
+                  }
+                  size="xl"
+                >
+                  Request Investor Information
+                  <ArrowRight aria-hidden="true" />
+                </Button>
+                <Button
+                  className="fairlend-investor-button fairlend-investor-button--outline"
+                  render={
+                    <Link
+                      preload="intent"
+                      to="/start/investor"
+                      viewTransition
+                    />
+                  }
+                  size="xl"
+                  variant="outline"
+                >
+                  Explore Marketplace Opportunities
+                  <ArrowRight aria-hidden="true" />
+                </Button>
+              </div>
+            </div>
+            <InvestorHeroCollage />
+          </section>
+          <section
+            aria-labelledby="fairlend-investor-path-title"
+            className="fairlend-investor-section fairlend-investor-paths"
+            data-investor-section="investor-paths"
+            id="investor-paths"
+          >
+            <div className="fairlend-investor-paths__intro">
+              <SectionMarker label="Investor Paths" number="02" tone="paper" />
+              <h2 id="fairlend-investor-path-title">
+                Choose your investor path.
+              </h2>
+              <div className="fairlend-investor-short-rule" />
+              <p>
+                Two distinct ways to invest in real estate-backed opportunities.
+                One experienced team behind every investment.
+              </p>
+              <img
+                alt=""
+                aria-hidden="true"
+                className="fairlend-investor-paths__sketch"
+                decoding="async"
+                height={242}
+                loading="lazy"
+                src={investorPageAssets.neighborhoodSketch}
+                width={620}
+              />
+            </div>
+            <div className="fairlend-investor-paths__cards">
+              {pathCards.map((card) => (
+                <InvestorPathCard key={card.number} {...card} />
+              ))}
+            </div>
+          </section>
+          <FairlendInvestorFooter />
+        </div>
+      </main>
     </>
   );
 }
