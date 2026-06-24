@@ -28,6 +28,14 @@ import {
 } from "./demo_site_visit_tokens";
 import { internalMutation, publicMutation, publicQuery } from "./fluent";
 import {
+  type GardenSuiteSection,
+  GARDEN_SUITE_DESCRIPTION,
+  GARDEN_SUITE_PRODUCTION_TEMPLATE_KEY,
+  GARDEN_SUITE_SECTIONS,
+  GARDEN_SUITE_SUMMARY,
+  GARDEN_SUITE_TEMPLATE_TITLE,
+} from "./gardenSuiteTemplate";
+import {
   assertProposalCollaborationEditAllowed,
   generateShareToken,
   hasActiveCollaborationParticipant,
@@ -21394,6 +21402,58 @@ const PRODUCTION_DEFAULT_TEMPLATES: ProductionDefaultTemplate[] = [
     templateKey: "4-plex",
     title: "4-plex",
   },
+  {
+    description: GARDEN_SUITE_DESCRIPTION,
+    isDefault: false,
+    milestones: gardenSuiteProductionMilestones(),
+    scenarios: [
+      productionDefaultScenario(
+        "garden-suite-standard-reimbursement",
+        "Garden Suite standard reimbursement",
+        true,
+        [
+          productionDefaultDraw(
+            "draw-01",
+            "Draw 01",
+            48,
+            2603,
+            "Soft costs, site servicing, and foundation verified"
+          ),
+          productionDefaultDraw(
+            "draw-02",
+            "Draw 02",
+            95,
+            2449,
+            "Framing, envelope, windows, and exterior doors verified"
+          ),
+          productionDefaultDraw(
+            "draw-03",
+            "Draw 03",
+            142,
+            1955,
+            "Mechanical, electrical, insulation, and drywall verified"
+          ),
+          productionDefaultDraw(
+            "draw-04",
+            "Draw 04",
+            192,
+            2306,
+            "Flooring, trim, kitchen, and bathroom scope verified"
+          ),
+          productionDefaultDraw(
+            "draw-05",
+            "Draw 05",
+            218,
+            687,
+            "Exterior site finishes, laundry equipment, and closeout verified"
+          ),
+        ]
+      ),
+    ],
+    summary: GARDEN_SUITE_SUMMARY,
+    templateKey: GARDEN_SUITE_PRODUCTION_TEMPLATE_KEY,
+    title: GARDEN_SUITE_TEMPLATE_TITLE,
+  },
 ];
 
 function productionDefaultScenario(
@@ -21490,6 +21550,43 @@ function productionBudgetSubmilestone(
     key: `${milestoneKey}-${slug(name)}`,
     name,
     percentageBps,
+  };
+}
+
+function gardenSuiteProductionMilestones(): ProductionDefaultMilestone[] {
+  return GARDEN_SUITE_SECTIONS.map((section) =>
+    productionBudgetMilestone(
+      section.key,
+      section.name,
+      section.percentageBps,
+      section.durationDays,
+      section.icon,
+      section.submilestones.map((submilestone) =>
+        productionBudgetSubmilestone(
+          section.key,
+          submilestone.name,
+          submilestone.percentageBps,
+          submilestone.durationDays
+        )
+      ),
+      gardenSuiteGuidance(section)
+    )
+  );
+}
+
+function gardenSuiteGuidance(section: GardenSuiteSection): SiteVisitGuidance {
+  const submilestoneNames = section.submilestones.map((row) => row.name);
+  return {
+    cameraAngles: guidanceLinesToHtml([
+      `Required wide angle: ${section.name} work area showing completed scope and address context.`,
+      `Required close-up: representative installed or documentary evidence for ${submilestoneNames[0]}.`,
+      `Required exception angle: any incomplete, staged-only, damaged, or location-unclear ${section.name.toLowerCase()} item.`,
+    ]),
+    whatToVerify: guidanceLinesToHtml([
+      `${section.name}: verify completed reimbursable work against the Garden Suite budget section before release.`,
+      `Confirm claimed line items include ${submilestoneNames.slice(0, 3).join(", ")}${submilestoneNames.length > 3 ? ", and related scope." : "."}`,
+      "Exclude project summaries, HST, rebates, cost-per-square-foot rows, and notes from milestone completion value.",
+    ]),
   };
 }
 

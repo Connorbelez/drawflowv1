@@ -784,7 +784,7 @@ function BuildDrawGroup({
           render={
             <Link
               params={{ buildId: String(group.buildId) }}
-              search={{ tab: "timeline" }}
+              search={{ tab: "details" }}
               to="/backoffice/builds/$buildId"
             />
           }
@@ -900,7 +900,7 @@ function DrawDetailSheet({
               draw ? (
                 <Link
                   params={{ buildId: String(draw.buildId) }}
-                  search={{ tab: "timeline" }}
+                  search={{ tab: "details" }}
                   to="/backoffice/builds/$buildId"
                 />
               ) : (

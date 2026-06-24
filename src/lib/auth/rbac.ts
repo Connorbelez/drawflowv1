@@ -121,7 +121,7 @@ export function getWorkspaceAccessDecision(
   }
 
   const roles = normalizeRoleSlugs(input.roles);
-  if (roles.includes("member")) {
+  if (roles.length === 1 && roles.includes("member")) {
     return { reason: "onboarding-required", status: "forbidden" };
   }
 

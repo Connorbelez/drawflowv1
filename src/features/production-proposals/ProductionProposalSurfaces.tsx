@@ -1655,6 +1655,7 @@ export function ProductionProposalReviewSurface({
   onRecordExternalCalendarSyncChange,
   onReject,
   onRequestChanges,
+  onSubmit,
   onAssignBuilder,
   onUnassignBuilder,
   onCreatePacketMilestone,
@@ -1718,6 +1719,7 @@ export function ProductionProposalReviewSurface({
   }) => Promise<unknown> | unknown;
   onReject?: (reason: string) => Promise<unknown> | unknown;
   onRequestChanges?: (reason: string) => Promise<unknown> | unknown;
+  onSubmit?: () => Promise<unknown> | unknown;
   onAssignBuilder?: (builderProfileId: string) => Promise<unknown> | unknown;
   onUnassignBuilder?: () => Promise<unknown> | unknown;
   onCreatePacketMilestone?: (
@@ -1775,6 +1777,7 @@ export function ProductionProposalReviewSurface({
   const [pendingDecision, setPendingDecision] = useState<
     "approve" | "reject" | "requestChanges" | null
   >(null);
+  const [submitPending, setSubmitPending] = useState(false);
   const proposal = detail.proposal;
   const proposedStartDate = proposal.proposedStartDate ?? "";
   const permit = detail.documents?.find((doc) => doc.documentType === "permit");
@@ -1804,6 +1807,7 @@ export function ProductionProposalReviewSurface({
   const canRunReviewDecision = Boolean(
     onApprove && onReject && onRequestChanges
   );
+  const canSubmitProposal = Boolean(onSubmit);
   const canRecordClosing = Boolean(onClose);
   const tabs = useMemo(() => {
     const nextTabs: { label: string; value: ProductionReviewTab }[] = [];
@@ -1963,6 +1967,42 @@ export function ProductionProposalReviewSurface({
     }
   };
 
+  const submitProposal = async () => {
+    if (!canSubmitProposal) {
+      toast.error("You do not have permission to submit this proposal.");
+      return;
+    }
+    if (proposal.status !== "draft") {
+      toast.error("This proposal is no longer in draft.");
+      return;
+    }
+    setSubmitPending(true);
+    try {
+      await onSubmit?.();
+    } catch (error) {
+      toast.error(productionProposalActionErrorMessage(error));
+    } finally {
+      setSubmitPending(false);
+    }
+  };
+
+  const renderReviewDecisionPanel = (idPrefix: string) => (
+    <ProposalReviewDecisionPanel
+      detail={detail}
+      idPrefix={idPrefix}
+      onPermitWaiverReasonChange={setPermitWaiverReason}
+      onReasonChange={setReason}
+      onReviewDecision={runReviewDecision}
+      pendingDecision={pendingDecision}
+      permitFileName={permit?.fileName}
+      permitViewerDocument={permitViewerDocument}
+      permitWaiverReason={permitWaiverReason}
+      proposal={proposal}
+      reason={reason}
+      showReadiness
+    />
+  );
+
   const reviewTabPanelClassName = "w-full min-w-0";
 
   return (
@@ -2090,87 +2130,7 @@ export function ProductionProposalReviewSurface({
               {proposal.status === "approved" ? (
                 <ApprovedProposalConfirmation detail={detail} />
               ) : (
-                <Section title="Review decision">
-                  <div className="grid gap-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0">
-                        <Badge variant="outline">
-                          {statusLabel(proposal.status)}
-                        </Badge>
-                        <h2 className="mt-2 font-semibold text-xl tracking-tight">
-                          {proposal.buildName}
-                        </h2>
-                        <p className="mt-1 text-muted-foreground text-sm">
-                          {proposal.location}
-                        </p>
-                      </div>
-                      {canRunReviewDecision ? (
-                        <div className="flex flex-wrap gap-2 sm:justify-end">
-                          <Button
-                            disabled={
-                              proposal.status !== "submitted" ||
-                              pendingDecision !== null
-                            }
-                            onClick={() =>
-                              void runReviewDecision("requestChanges")
-                            }
-                            size="sm"
-                            variant="outline"
-                          >
-                            {pendingDecision === "requestChanges"
-                              ? "Requesting..."
-                              : "Request changes"}
-                          </Button>
-                          <Button
-                            disabled={
-                              proposal.status !== "submitted" ||
-                              pendingDecision !== null
-                            }
-                            onClick={() => void runReviewDecision("reject")}
-                            size="sm"
-                            variant="destructive"
-                          >
-                            {pendingDecision === "reject"
-                              ? "Rejecting..."
-                              : "Reject"}
-                          </Button>
-                          <Button
-                            disabled={
-                              proposal.status !== "submitted" ||
-                              pendingDecision !== null
-                            }
-                            onClick={() => void runReviewDecision("approve")}
-                            size="sm"
-                          >
-                            {pendingDecision === "approve"
-                              ? "Approving..."
-                              : "Approve"}
-                          </Button>
-                        </div>
-                      ) : null}
-                    </div>
-
-                    <div className="grid gap-2">
-                      <Label htmlFor="production-review-reason">
-                        Decision reason
-                      </Label>
-                      <Input
-                        aria-describedby="production-review-reason-help"
-                        id="production-review-reason"
-                        onChange={(event) => setReason(event.target.value)}
-                        placeholder="Required for material decisions"
-                        value={reason}
-                      />
-                      <p
-                        className="text-muted-foreground text-xs"
-                        id="production-review-reason-help"
-                      >
-                        Stored on the audit event for approval, rejection, or
-                        requested changes.
-                      </p>
-                    </div>
-                  </div>
-                </Section>
+                renderReviewDecisionPanel("production-review-tab")
               )}
 
               <div className="grid gap-4">
@@ -2340,13 +2300,41 @@ export function ProductionProposalReviewSurface({
             data-testid="production-proposal-packet-tab"
             value="packet"
           >
-            <ProposalPacketSnapshot
-              detail={detail}
-              onCreateMilestone={onCreatePacketMilestone}
-              onUpdateMilestone={onUpdatePacketMilestone}
-              onUpdatePermitDocument={onUploadPermitDocument}
-              onUpdateProposedStartDate={onUpdateProposedStartDate}
-            />
+            <div className="grid gap-4">
+              {proposal.status === "draft" && canSubmitProposal ? (
+                <Section title="Submit proposal">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <Badge variant="outline">Draft</Badge>
+                      <p className="mt-2 text-muted-foreground text-sm">
+                        Submit this reimbursement draw plan for lender review
+                        when the packet, milestones, and draw schedule are
+                        ready.
+                      </p>
+                    </div>
+                    <Button
+                      className="w-full sm:w-auto"
+                      data-testid="production-proposal-submit-cta"
+                      disabled={submitPending}
+                      onClick={() => void submitProposal()}
+                    >
+                      <Send />
+                      {submitPending ? "Submitting..." : "Submit proposal"}
+                    </Button>
+                  </div>
+                </Section>
+              ) : null}
+              {proposal.status === "submitted" && canRunReviewDecision
+                ? renderReviewDecisionPanel("production-packet-tab")
+                : null}
+              <ProposalPacketSnapshot
+                detail={detail}
+                onCreateMilestone={onCreatePacketMilestone}
+                onUpdateMilestone={onUpdatePacketMilestone}
+                onUpdatePermitDocument={onUploadPermitDocument}
+                onUpdateProposedStartDate={onUpdateProposedStartDate}
+              />
+            </div>
           </TabsPanel>
 
           {proposal.status === "approved" || proposal.status === "closed" ? (
@@ -3150,6 +3138,112 @@ function ApprovedProposalConfirmation({
             </strong>
           </div>
         </div>
+      </div>
+    </Section>
+  );
+}
+
+function ProposalReviewDecisionPanel({
+  detail,
+  idPrefix,
+  onPermitWaiverReasonChange,
+  onReasonChange,
+  onReviewDecision,
+  pendingDecision,
+  permitFileName,
+  permitViewerDocument,
+  permitWaiverReason,
+  proposal,
+  reason,
+  showReadiness = false,
+}: {
+  detail: ProductionProposalDetail;
+  idPrefix: string;
+  onPermitWaiverReasonChange: (value: string) => void;
+  onReasonChange: (value: string) => void;
+  onReviewDecision: (
+    decision: "approve" | "reject" | "requestChanges"
+  ) => Promise<void> | void;
+  pendingDecision: "approve" | "reject" | "requestChanges" | null;
+  permitFileName?: string;
+  permitViewerDocument?: BuildPermitViewerDocument | null;
+  permitWaiverReason: string;
+  proposal: ProductionProposal;
+  reason: string;
+  showReadiness?: boolean;
+}) {
+  const disabled = proposal.status !== "submitted" || pendingDecision !== null;
+  const reasonId = `${idPrefix}-decision-reason`;
+  const reasonHelpId = `${idPrefix}-decision-reason-help`;
+
+  return (
+    <Section title="Review decision">
+      <div className="grid gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <Badge variant="outline">{statusLabel(proposal.status)}</Badge>
+            <h2 className="mt-2 font-semibold text-xl tracking-tight">
+              {proposal.buildName}
+            </h2>
+            <p className="mt-1 text-muted-foreground text-sm">
+              {proposal.location}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 sm:justify-end">
+            <Button
+              disabled={disabled}
+              onClick={() => void onReviewDecision("requestChanges")}
+              size="sm"
+              variant="outline"
+            >
+              {pendingDecision === "requestChanges"
+                ? "Requesting..."
+                : "Request Changes"}
+            </Button>
+            <Button
+              disabled={disabled}
+              onClick={() => void onReviewDecision("reject")}
+              size="sm"
+              variant="destructive"
+            >
+              {pendingDecision === "reject" ? "Rejecting..." : "Reject"}
+            </Button>
+            <Button
+              data-testid={`${idPrefix}-approve-proposal`}
+              disabled={disabled}
+              onClick={() => void onReviewDecision("approve")}
+              size="sm"
+            >
+              {pendingDecision === "approve" ? "Approving..." : "Approve Proposal"}
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid gap-2">
+          <Label htmlFor={reasonId}>Decision reason</Label>
+          <Input
+            aria-describedby={reasonHelpId}
+            id={reasonId}
+            onChange={(event) => onReasonChange(event.target.value)}
+            placeholder="Required for material decisions"
+            value={reason}
+          />
+          <p className="text-muted-foreground text-xs" id={reasonHelpId}>
+            Stored on the audit event for approval, rejection, or requested
+            changes.
+          </p>
+        </div>
+
+        {showReadiness ? (
+          <ProposalReadinessList
+            detail={detail}
+            onPermitWaiverReasonChange={onPermitWaiverReasonChange}
+            permitFileName={permitFileName}
+            permitViewerDocument={permitViewerDocument}
+            permitWaiverReason={permitWaiverReason}
+            proposalStatus={proposal.status}
+          />
+        ) : null}
       </div>
     </Section>
   );

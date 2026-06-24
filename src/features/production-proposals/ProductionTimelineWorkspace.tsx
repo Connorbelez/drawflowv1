@@ -62,6 +62,7 @@ export interface ProductionTimelineWorkspaceProps {
   embedded?: boolean;
   headerActions?: ReactNode;
   initialRole?: "builder" | "lender";
+  lockedBannerActions?: ReactNode;
   persistenceMode?: "convex" | "noop";
   prejoinedCollabToken?: string | null;
   proposalHref: string;
@@ -88,6 +89,7 @@ export function ProductionTimelineWorkspace({
   embedded = false,
   headerActions,
   initialRole = "builder",
+  lockedBannerActions,
   persistenceMode = "convex",
   prejoinedCollabToken = null,
   proposalHref,
@@ -455,6 +457,7 @@ export function ProductionTimelineWorkspace({
       embedded={embedded}
       headerActions={headerActions}
       initialRole={initialRole}
+      lockedBannerActions={lockedBannerActions}
       initialState={initialState}
       modificationRequests={workspace.modificationRequests ?? []}
       persistence={persistence}

@@ -5,6 +5,13 @@ import {
   withMutationTiming,
   withQueryTiming,
 } from "./fluent";
+import {
+  GARDEN_SUITE_DEMO_TEMPLATE_KEY,
+  GARDEN_SUITE_DESCRIPTION,
+  GARDEN_SUITE_SECTIONS,
+  GARDEN_SUITE_SUMMARY,
+  GARDEN_SUITE_TEMPLATE_TITLE,
+} from "./gardenSuiteTemplate";
 import type { DatabaseReader, DatabaseWriter, Doc, Id } from "./types";
 
 const ORG_KEY = "org_fairlend_demo";
@@ -308,6 +315,14 @@ const BUILDER_TEMPLATES: BuilderTemplate[] = [
     templateKey: "multiplex_build",
     title: "Multi-plex Build",
   },
+  {
+    description: GARDEN_SUITE_DESCRIPTION,
+    isDefault: false,
+    milestonePresets: gardenSuiteBuilderPresets(),
+    summary: GARDEN_SUITE_SUMMARY,
+    templateKey: GARDEN_SUITE_DEMO_TEMPLATE_KEY,
+    title: GARDEN_SUITE_TEMPLATE_TITLE,
+  },
 ];
 
 const BANK_ITEMS: BankItem[] = [
@@ -346,6 +361,21 @@ function preset(
   dependencyKeys: string[]
 ): TemplatePreset {
   return { dependencyKeys, durationDays, key, name, percentageBps, type };
+}
+
+function gardenSuiteBuilderPresets(): TemplatePreset[] {
+  return GARDEN_SUITE_SECTIONS.map((section, index) =>
+    preset(
+      section.key.replaceAll("-", "_"),
+      section.name,
+      section.percentageBps,
+      section.durationDays,
+      section.builderType,
+      index === 0
+        ? []
+        : [GARDEN_SUITE_SECTIONS[index - 1].key.replaceAll("-", "_")]
+    )
+  );
 }
 
 function now() {

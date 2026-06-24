@@ -1,7 +1,9 @@
 export const BACKOFFICE_BUILD_WORKSPACE_SEARCH = {
   rail: "closed",
-  tab: "timeline",
+  tab: "details",
 } as const;
+
+const BACKOFFICE_BUILD_HREF_PATTERN = /^\/backoffice\/builds\/([^/?#]+)/;
 
 export function backofficeBuildWorkspaceHref(buildKey: string) {
   const params = new URLSearchParams({
@@ -12,6 +14,6 @@ export function backofficeBuildWorkspaceHref(buildKey: string) {
 }
 
 export function parseBackofficeBuildKeyFromHref(href: string) {
-  const match = href.match(/^\/backoffice\/builds\/([^/?#]+)/);
+  const match = href.match(BACKOFFICE_BUILD_HREF_PATTERN);
   return match?.[1] ? decodeURIComponent(match[1]) : null;
 }

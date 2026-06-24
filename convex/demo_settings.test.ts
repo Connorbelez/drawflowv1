@@ -19,10 +19,13 @@ describe("timeline demo settings Convex functions", () => {
     const template = seeded.templates.find(
       (row: any) => row.templateKey === "single_family_full_build"
     );
+    const gardenTemplate = seeded.templates.find(
+      (row: any) => row.templateKey === "garden_suite"
+    );
 
-    expect(first.templates).toBe(3);
+    expect(first.templates).toBe(4);
     expect(first.personas).toBe(2);
-    expect(first.settings.templates).toHaveLength(3);
+    expect(first.settings.templates).toHaveLength(4);
     expectDefaultDrawTimings(first.settings.templates);
     expect(template.milestones).toHaveLength(7);
     expect(template.status.totalPocBps).toBe(10_000);
@@ -39,6 +42,63 @@ describe("timeline demo settings Convex functions", () => {
           milestoneKey: "framing",
           text: expect.stringContaining("Wide shot"),
         }),
+      ])
+    );
+    expect(gardenTemplate).toMatchObject({
+      activeScenarioName: "Standard Garden Suite reimbursement",
+      summary: "16 milestones, 65 budget line items, 100.00% PoC, 141 field days",
+      title: "Garden Suite",
+    });
+    expect(gardenTemplate.milestones).toHaveLength(16);
+    expect(gardenTemplate.status.totalPocBps).toBe(10_000);
+    expect(gardenTemplate.milestones.map((row: any) => row.name)).toEqual([
+      "Soft Costs & Pre-Construction",
+      "Site Work & Servicing",
+      "Concrete & Foundation",
+      "Framing & Structure",
+      "Roofing & Exterior Envelope",
+      "Windows & Exterior Doors",
+      "Mechanical - HVAC & Plumbing",
+      "Electrical",
+      "Insulation & Drywall",
+      "Flooring & Stairs",
+      "Interior Doors, Trim & Paint",
+      "Kitchen",
+      "Bathrooms & Powder Room",
+      "Exterior Site Finishes",
+      "Laundry & Misc. Equipment",
+      "General Conditions",
+    ]);
+    expect(gardenTemplate.submilestones).toHaveLength(65);
+    expect(
+      gardenTemplate.submilestones
+        .filter(
+          (row: any) => row.milestoneKey === "soft-costs-and-pre-construction"
+        )
+        .map((row: any) => row.name)
+    ).toEqual([
+      "Legal / topographic survey",
+      "Architectural & permit drawings",
+      "Structural engineering",
+      "Arborist report & tree protection plan",
+      "Geotechnical / soils investigation",
+      "City of Toronto building permit",
+      "Builder's risk insurance",
+      "Legal & disbursements",
+    ]);
+    expect(
+      gardenTemplate.submilestones
+        .filter((row: any) => row.milestoneKey === "general-conditions")
+        .map((row: any) => row.name)
+    ).toEqual([
+      "Supervision, PM, temp services, dumpsters, scaffold, final clean",
+    ]);
+    expect(gardenTemplate.submilestones.map((row: any) => row.name)).not.toEqual(
+      expect.arrayContaining([
+        "Project subtotal (pre-contingency)",
+        "HST  (D10)",
+        "TOTAL INCL. HST",
+        "NET ALL-IN (if rebate eligible)",
       ])
     );
     expectDefaultTimingRules(seeded.templates);
@@ -84,8 +144,8 @@ describe("timeline demo settings Convex functions", () => {
       (row: any) => row.templateKey === "single_family_full_build"
     );
 
-    expect(second.templates).toBe(3);
-    expect(afterReseed.templates).toHaveLength(3);
+    expect(second.templates).toBe(4);
+    expect(afterReseed.templates).toHaveLength(4);
     expect(reseededTemplate.activeScenarioName).toBe("Standard reimbursement");
     expect(
       reseededTemplate.milestones.find(
@@ -378,6 +438,9 @@ function expectDefaultDrawTimings(templates: any[]) {
 
   expect(timingsByScenario).toMatchObject({
     "multiplex_build:standard_multiplex": [51, 86, 119, 143, 167],
+    "garden_suite:standard_garden_suite_reimbursement": [
+      48, 95, 142, 192, 218,
+    ],
     "single_family_full_build:conservative_review_lag": [18, 41, 66, 110, 127],
     "single_family_full_build:standard_reimbursement": [16, 39, 64, 108, 125],
     "single_family_renovation:quick_inspection": [33, 57, 93, 111],

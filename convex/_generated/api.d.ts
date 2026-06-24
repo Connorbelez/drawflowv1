@@ -28,6 +28,7 @@ import type * as demo_timeline_plans from "../demo_timeline_plans.js";
 import type * as demo_timeline_snapshots from "../demo_timeline_snapshots.js";
 import type * as evidence_preview from "../evidence_preview.js";
 import type * as fluent from "../fluent.js";
+import type * as gardenSuiteTemplate from "../gardenSuiteTemplate.js";
 import type * as http from "../http.js";
 import type * as production_proposals from "../production_proposals.js";
 import type * as proposal_collaboration from "../proposal_collaboration.js";
@@ -64,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   demo_timeline_snapshots: typeof demo_timeline_snapshots;
   evidence_preview: typeof evidence_preview;
   fluent: typeof fluent;
+  gardenSuiteTemplate: typeof gardenSuiteTemplate;
   http: typeof http;
   production_proposals: typeof production_proposals;
   proposal_collaboration: typeof proposal_collaboration;

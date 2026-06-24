@@ -89,7 +89,7 @@ describe("ProductionProposalMilestoneWorksheet", () => {
     );
 
     const budgetInput = screen.getByTestId(
-      "timeline-setup-row-budget-four-plex-draw-01"
+      "timeline-setup-submilestone-budget-dc-ed"
     );
 
     fireEvent.change(budgetInput, { target: { value: "$95,000" } });

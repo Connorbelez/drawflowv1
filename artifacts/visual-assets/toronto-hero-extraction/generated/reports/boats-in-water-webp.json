@@ -1,0 +1,11 @@
+{
+  "input": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/toronto-hero-extraction/generated/raw/boats-in-water.png",
+  "output": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/toronto-hero-extraction/generated/webp/boats-in-water.webp",
+  "size": {
+    "width": 1638,
+    "height": 689
+  },
+  "transparent_background": "auto",
+  "inferred_background": null,
+  "quality": 92
+}

@@ -30,6 +30,11 @@ import {
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../convex/_generated/api";
+import type { AssistantClientAction } from "./assistantClientActionBridge.ts";
+import {
+  assistantRouteSitemapSummary,
+  findAssistantRouteMatch,
+} from "./assistantRouteRegistry.ts";
 import type { DrawFlowAssistantRouteContext } from "./assistantRouteContext.ts";
 
 type DrawFlowAssistantProps = {
@@ -54,42 +59,51 @@ type PreviewItem = {
   };
 };
 
-const EXAMPLE_PREVIEW_ITEMS: PreviewItem[] = [
-  {
-    actionKey: "update_proposal_milestone_schedule",
-    after: { dayEnd: 45, dayStart: 30 },
-    before: { dayEnd: 30, dayStart: 30 },
-    clientRequestId: "example_schedule",
-    entityLabel: "Second milestone",
-    entityType: "proposalMilestone",
-    status: "preview",
-    validation: {
-      warnings: ["Revalidates against current route state before commit."],
-    },
-  },
-  {
-    actionKey: "create_proposal_planned_draw",
-    after: { amountCents: 8_000_000, timingDay: 47 },
-    before: null,
-    clientRequestId: "example_draw",
-    entityLabel: "Reimbursement draw 2 days after",
-    entityType: "proposalDrawScheduleRow",
-    status: "preview",
-    validation: { warnings: ["Preview only until accepted and confirmed."] },
-  },
-];
-
 export function DrawFlowAssistant({
   onOpenChange,
   open,
   routeContext,
 }: DrawFlowAssistantProps) {
+  const [sessionKey, setSessionKey] = useState(0);
+
+  const closeAndReset = useCallback(() => {
+    setSessionKey((value) => value + 1);
+    onOpenChange(false);
+  }, [onOpenChange]);
+
+  if (!open) {
+    return (
+      <Button
+        aria-label="Open DrawFlow AI assistant"
+        className="fixed right-5 bottom-20 z-50 size-12 rounded-full shadow-lg"
+        onClick={() => onOpenChange(true)}
+        size="icon"
+      >
+        <Sparkles className="size-5" />
+      </Button>
+    );
+  }
+
+  return (
+    <DrawFlowAssistantSession
+      key={sessionKey}
+      onClose={closeAndReset}
+      routeContext={routeContext}
+    />
+  );
+}
+
+function DrawFlowAssistantSession({
+  onClose,
+  routeContext,
+}: {
+  onClose: () => void;
+  routeContext: DrawFlowAssistantRouteContext;
+}) {
   const [threadId, setThreadId] = useState<string | null>(null);
   const [planId, setPlanId] = useState<string | null>(null);
   const [commitMessage, setCommitMessage] = useState<string | null>(null);
-  const [previewItems, setPreviewItems] = useState<PreviewItem[]>(
-    EXAMPLE_PREVIEW_ITEMS
-  );
+  const [previewItems, setPreviewItems] = useState<PreviewItem[]>([]);
   const ensureThread = useMutation((api as any).assistant.ensureThread);
   const createActionPlan = useMutation((api as any).assistant.createActionPlan);
   const commitActionPlan = useMutation((api as any).assistant.commitActionPlan);
@@ -101,7 +115,7 @@ export function DrawFlowAssistant({
   const runAssistantTurn = useAction((api as any).assistant.runAssistantTurn);
 
   useEffect(() => {
-    if (!(open && routeContext.organizationId)) {
+    if (!routeContext.organizationId) {
       return;
     }
     let cancelled = false;
@@ -118,7 +132,7 @@ export function DrawFlowAssistant({
     return () => {
       cancelled = true;
     };
-  }, [ensureThread, open, routeContext, threadId]);
+  }, [ensureThread, routeContext, threadId]);
 
   const modelAdapter = useMemo<ChatModelAdapter>(
     () => ({
@@ -127,10 +141,9 @@ export function DrawFlowAssistant({
         const organizationId = routeContext.organizationId;
         if (!organizationId) {
           return assistantText(
-            "Sign in to a WorkOS organization before using the DrawFlow assistant."
+            "Your WorkOS session is authenticated without an active organization claim. Refresh the session or select an organization before using the DrawFlow assistant."
           );
         }
-        const status = await providerStatus({});
         if (threadId) {
           await recordTrace({
             event: {
@@ -142,11 +155,6 @@ export function DrawFlowAssistant({
             threadId,
             workosOrganizationId: organizationId,
           });
-        }
-        if (status.readOnly) {
-          return assistantText(
-            "Model-backed actions are unavailable because OPENAI_API_KEY or OPENROUTER_API_KEY is missing on the server. I can still help explain this route and show the HITL action preview pattern."
-          );
         }
         const readonlyAction = buildReadonlyClientAction(prompt, routeContext);
         if (readonlyAction) {
@@ -170,7 +178,10 @@ export function DrawFlowAssistant({
         }
         const plannedActions = buildClosedCatalogActions(prompt, routeContext);
         if (plannedActions.kind === "clarify") {
-          return assistantText(plannedActions.message);
+          return assistantText(
+            plannedActions.message ??
+              "I prepared a persisted HITL action batch. Review, edit, reject, then confirm the accepted set."
+          );
         }
         if (plannedActions.actions.length > 0) {
           const nextPlanId = await createActionPlan({
@@ -182,7 +193,16 @@ export function DrawFlowAssistant({
           setPlanId(nextPlanId);
           setCommitMessage(null);
           setPreviewItems(actionsToPreviewItems(plannedActions.actions));
-          return assistantText(plannedActions.message);
+          return assistantText(
+            plannedActions.message ??
+              "I prepared a persisted HITL action batch. Review, edit, reject, then confirm the accepted set."
+          );
+        }
+        const status = await providerStatus({});
+        if (status.readOnly) {
+          return assistantText(
+            "Model-backed answers are unavailable because OPENAI_API_KEY or OPENROUTER_API_KEY is missing on the server. I can still use the closed DrawFlow sitemap, navigation, and HITL action catalog."
+          );
         }
         const response = await runAssistantTurn({
           prompt,
@@ -299,41 +319,27 @@ export function DrawFlowAssistant({
   }, [commitActionPlan, planId, previewItems, routeContext.organizationId]);
 
   useEffect(() => {
-    if (!open) {
-      return;
-    }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        onOpenChange(false);
+        onClose();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onOpenChange, open]);
+  }, [onClose]);
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      {open ? null : (
-        <Button
-          aria-label="Open DrawFlow AI assistant"
-          className="fixed right-5 bottom-20 z-50 size-12 rounded-full shadow-lg"
-          onClick={() => onOpenChange(true)}
-          size="icon"
-        >
-          <Sparkles className="size-5" />
-        </Button>
-      )}
-      {open ? (
-        <section
-          aria-label="DrawFlow AI assistant"
-          aria-modal="false"
-          className={cn(
-            "fixed right-0 bottom-0 z-50 flex h-[100svh] w-full max-w-full flex-col border-l bg-background text-foreground shadow-2xl outline-none",
-            "sm:right-4 sm:bottom-4 sm:h-[min(760px,calc(100svh-2rem))] sm:w-[480px] sm:rounded-xl sm:border"
-          )}
-          data-testid="drawflow-assistant-surface"
-          role="dialog"
-        >
+      <section
+        aria-label="DrawFlow AI assistant"
+        aria-modal="false"
+        className={cn(
+          "fixed right-0 bottom-0 z-50 flex h-[100svh] w-full max-w-full flex-col border-l bg-background text-foreground shadow-2xl outline-none",
+          "sm:right-4 sm:bottom-4 sm:h-[min(760px,calc(100svh-2rem))] sm:w-[480px] sm:rounded-xl sm:border"
+        )}
+        data-testid="drawflow-assistant-surface"
+        role="dialog"
+      >
           <div className="flex items-center justify-between border-b px-4 py-3">
             <div className="flex min-w-0 items-center gap-2">
               <span className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
@@ -348,7 +354,7 @@ export function DrawFlowAssistant({
             </div>
             <Button
               aria-label="Close assistant"
-              onClick={() => onOpenChange(false)}
+              onClick={onClose}
               size="icon"
               variant="ghost"
             >
@@ -358,26 +364,30 @@ export function DrawFlowAssistant({
 
           <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col">
             <ThreadPrimitive.Viewport className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
-              <ThreadPrimitive.Empty>
-                <Frame data-testid="assistant-route-context">
-                  <FramePanel className="space-y-3 p-4">
-                    <div className="flex items-center gap-2 font-medium text-sm">
-                      <Bot className="size-4" />
-                      Current context
-                    </div>
-                    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-                      <dt className="text-muted-foreground">Route</dt>
-                      <dd className="truncate">{routeContext.pathname}</dd>
-                      <dt className="text-muted-foreground">Proposal</dt>
-                      <dd>{routeContext.proposalId ?? "None"}</dd>
-                      <dt className="text-muted-foreground">Build</dt>
-                      <dd>{routeContext.activeBuildId ?? "None"}</dd>
-                      <dt className="text-muted-foreground">Panel</dt>
-                      <dd>{routeContext.selectedPanel ?? "Default"}</dd>
-                    </dl>
-                  </FramePanel>
-                </Frame>
-              </ThreadPrimitive.Empty>
+              <Frame data-testid="assistant-route-context">
+                <FramePanel className="space-y-3 p-4">
+                  <div className="flex items-center gap-2 font-medium text-sm">
+                    <Bot className="size-4" />
+                    Current context
+                  </div>
+                  <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+                    <dt className="text-muted-foreground">Route</dt>
+                    <dd className="truncate">{routeContext.pathname}</dd>
+                    <dt className="text-muted-foreground">Proposal</dt>
+                    <dd>{routeContext.proposalId ?? "None"}</dd>
+                    <dt className="text-muted-foreground">Build</dt>
+                    <dd>{routeContext.activeBuildId ?? "None"}</dd>
+                    <dt className="text-muted-foreground">Panel</dt>
+                    <dd>{routeContext.selectedPanel ?? "Default"}</dd>
+                    <dt className="text-muted-foreground">Org</dt>
+                    <dd>
+                      {routeContext.authDiagnostics.hasOrganization
+                        ? routeContext.organizationId
+                        : "Missing organization claim"}
+                    </dd>
+                  </dl>
+                </FramePanel>
+              </Frame>
               <ThreadPrimitive.Messages>
                 {({ message }) =>
                   message.role === "user" ? (
@@ -410,8 +420,7 @@ export function DrawFlowAssistant({
               </div>
             </ComposerPrimitive.Root>
           </ThreadPrimitive.Root>
-        </section>
-      ) : null}
+      </section>
     </AssistantRuntimeProvider>
   );
 }
@@ -461,6 +470,9 @@ function AssistantPreviewBatch({
     status: "accepted" | "rejected"
   ) => void;
 }) {
+  if (items.length === 0) {
+    return null;
+  }
   const accepted = items.filter((item) => item.status !== "rejected").length;
   return (
     <Card data-testid="assistant-hitl-preview">
@@ -631,6 +643,10 @@ function buildClosedCatalogActions(
   | { actions: []; kind: "none"; message?: never }
   | { kind: "clarify"; message: string } {
   const normalized = prompt.toLowerCase();
+  const reminderPlan = buildReminderActions(prompt, routeContext);
+  if (reminderPlan) {
+    return reminderPlan;
+  }
   const matchesExample =
     normalized.includes("second milestone") &&
     normalized.includes("t30") &&
@@ -745,6 +761,43 @@ function buildReadonlyClientAction(
   routeContext: DrawFlowAssistantRouteContext
 ) {
   const normalized = prompt.toLowerCase();
+  const templateAction = buildTemplateSelectionAction(prompt, routeContext);
+  if (
+    normalized.includes("sitemap") ||
+    normalized.includes("what pages") ||
+    normalized.includes("where can") ||
+    normalized.includes("reachable")
+  ) {
+    return {
+      actionKey: "explain_current_surface",
+      message: `Reachable DrawFlow pages for your current role:\n${assistantRouteSitemapSummary(routeContext)}`,
+    };
+  }
+  const routeMatch = findAssistantRouteMatch(prompt, routeContext);
+  if (routeMatch) {
+    const afterNavigationActions =
+      templateAction && isNewProposalRoute(routeMatch.to)
+        ? [{ ...templateAction, route: routeMatch.to }]
+        : [];
+    return {
+      actionKey: "open_route",
+      ...(afterNavigationActions.length > 0 ? { afterNavigationActions } : {}),
+      label: routeMatch.entry.label,
+      message:
+        afterNavigationActions.length > 0
+          ? `I can take you to ${routeMatch.entry.label} and select Garden Suite: ${routeMatch.entry.purpose}`
+          : `I can take you to ${routeMatch.entry.label}: ${routeMatch.entry.purpose}`,
+      purpose: routeMatch.entry.purpose,
+      routeId: routeMatch.entry.id,
+      to: routeMatch.to,
+    };
+  }
+  if (templateAction && isNewProposalRoute(routeContext.pathname)) {
+    return {
+      ...templateAction,
+      message: "Selected the Garden Suite proposal template.",
+    };
+  }
   if (normalized.includes("focus") && routeContext.selectedMilestoneKey) {
     return {
       actionKey: "focus_milestone",
@@ -767,6 +820,127 @@ function buildReadonlyClientAction(
     };
   }
   return null;
+}
+
+function buildTemplateSelectionAction(
+  prompt: string,
+  routeContext: DrawFlowAssistantRouteContext
+): AssistantClientAction | null {
+  const normalized = prompt.toLowerCase().replace(/[_-]+/g, " ");
+  if (
+    !normalized.includes("garden suite") &&
+    !normalized.includes("laneway suite")
+  ) {
+    return null;
+  }
+  return {
+    actionKey: "select_proposal_template",
+    input: { templateKey: "garden-suite" },
+    route: isNewProposalRoute(routeContext.pathname)
+      ? routeContext.pathname
+      : undefined,
+  };
+}
+
+function isNewProposalRoute(pathname: string) {
+  return (
+    pathname === "/backoffice/proposals/new" ||
+    pathname === "/builder/proposals/new"
+  );
+}
+
+function buildReminderActions(
+  prompt: string,
+  routeContext: DrawFlowAssistantRouteContext
+):
+  | { actions: PlannedAction[]; kind: "actions"; message: string }
+  | { kind: "clarify"; message: string }
+  | null {
+  const normalized = prompt.toLowerCase();
+  const isReminderRequest =
+    normalized.includes("reminder") ||
+    normalized.includes("remind me") ||
+    normalized.includes("calendar");
+  if (!isReminderRequest || !normalized.includes("remind")) {
+    return null;
+  }
+  if (!routeContext.proposalId) {
+    return {
+      kind: "clarify",
+      message:
+        "Open a Build Proposal before I prepare a builder reminder. Reminder events are scoped to a proposal calendar.",
+    };
+  }
+  const startsAt = extractReminderDate(prompt);
+  if (!startsAt) {
+    return {
+      kind: "clarify",
+      message:
+        "I need a reminder date in YYYY-MM-DD format, or a relative date like tomorrow, before preparing the HITL reminder.",
+    };
+  }
+  const title = extractReminderTitle(prompt);
+  if (!title) {
+    return {
+      kind: "clarify",
+      message:
+        "I need the reminder title, for example: remind me to call the framer on 2026-06-16.",
+    };
+  }
+  return {
+    actions: [
+      {
+        actionKey: "create_proposal_reminder",
+        clientRequestId: `assistant_reminder_${Date.now()}`,
+        input: {
+          allDay: true,
+          proposalId: routeContext.proposalId,
+          startsAt,
+          timezone: "America/Toronto",
+          title,
+        },
+      },
+    ],
+    kind: "actions",
+    message:
+      "I prepared a HITL reminder for the DrawFlow proposal calendar. Review it, edit it if needed, then confirm the accepted batch.",
+  };
+}
+
+function extractReminderDate(prompt: string) {
+  const isoDate = /\b\d{4}-\d{2}-\d{2}\b/.exec(prompt)?.[0];
+  if (isoDate) {
+    return isoDate;
+  }
+  const normalized = prompt.toLowerCase();
+  const base = new Date();
+  if (normalized.includes("tomorrow")) {
+    base.setDate(base.getDate() + 1);
+    return toIsoDate(base);
+  }
+  if (normalized.includes("today")) {
+    return toIsoDate(base);
+  }
+  return null;
+}
+
+function extractReminderTitle(prompt: string) {
+  const withoutDate = prompt
+    .replace(/\b(on|for)\s+\d{4}-\d{2}-\d{2}\b/i, "")
+    .replace(/\b(today|tomorrow)\b/i, "")
+    .trim();
+  const match =
+    /\bremind(?:er)?(?:\s+me)?\s+to\s+(.+)$/i.exec(withoutDate) ??
+    /\badd\s+(?:a\s+)?(?:builder\s+)?reminder\s+to\s+(.+)$/i.exec(withoutDate);
+  const title = match?.[1]?.trim().replace(/[.?!]+$/, "");
+  return title || null;
+}
+
+function toIsoDate(date: Date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function actionsToPreviewItems(actions: PlannedAction[]): PreviewItem[] {

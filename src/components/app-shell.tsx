@@ -20,9 +20,30 @@ import {
   CommandShortcut,
 } from "#/components/ui/command.tsx";
 import { SidebarInset, SidebarProvider } from "#/components/ui/sidebar.tsx";
+import {
+  dispatchAssistantClientAction,
+  queueAssistantClientActions,
+  type AssistantClientAction,
+} from "#/features/assistant/assistantClientActionBridge.ts";
 import { buildAssistantRouteContext } from "#/features/assistant/assistantRouteContext.ts";
 import { DrawFlowAssistant } from "#/features/assistant/DrawFlowAssistant.tsx";
 import { cn } from "#/lib/utils.ts";
+
+type AppShellAuthContext = {
+  organizationId?: string | null;
+  role?: string | null;
+  roles?: string[];
+  token?: string | null;
+  userId?: string | null;
+};
+
+type AppShellRouteMatch = {
+  context?: AppShellAuthContext;
+  id?: string;
+  params?: Record<string, string | undefined>;
+  routeId?: string;
+  search?: Record<string, unknown>;
+};
 
 export type AppShellProps = {
   children: ReactNode;
@@ -46,10 +67,21 @@ export function AppShell({
         params: match.params,
         routeId: match.routeId,
         search: match.search,
+        context: pickAssistantAuthContext(
+          (match as { context?: unknown }).context
+        ),
       })),
     }),
   });
-  const { organizationId, role, roles, userId } = router.options.context;
+  const assistantAuthContext = useMemo(
+    () =>
+      resolveAssistantAuthContext(
+        routerState.matches,
+        router.options.context
+      ),
+    [routerState.matches, router.options.context]
+  );
+  const { organizationId, role, roles, token, userId } = assistantAuthContext;
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const routeContext = useMemo(
@@ -59,9 +91,10 @@ export function AppShell({
         role,
         roles,
         routerState,
+        token,
         userId,
       }),
-    [organizationId, role, roles, routerState, userId]
+    [organizationId, role, roles, routerState, token, userId]
   );
 
   const openAssistant = useCallback(() => {
@@ -87,6 +120,41 @@ export function AppShell({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [openAssistant]);
+
+  useEffect(() => {
+    const onReadonlyAction = (event: Event) => {
+      const action = (event as CustomEvent).detail;
+      if (!action) {
+        return;
+      }
+      if (action.actionKey !== "open_route") {
+        dispatchAssistantClientAction(action as AssistantClientAction);
+        return;
+      }
+      if (!action.to) {
+        return;
+      }
+      const afterNavigationActions = Array.isArray(action.afterNavigationActions)
+        ? (action.afterNavigationActions as AssistantClientAction[])
+        : [];
+      queueAssistantClientActions(
+        afterNavigationActions.map((queuedAction) => ({
+          ...queuedAction,
+          route: queuedAction.route ?? action.to,
+        }))
+      );
+      void router.navigate({ to: action.to as never });
+    };
+    window.addEventListener(
+      "drawflow-assistant:readonly-action",
+      onReadonlyAction
+    );
+    return () =>
+      window.removeEventListener(
+        "drawflow-assistant:readonly-action",
+        onReadonlyAction
+      );
+  }, [router]);
 
   return (
     <SidebarProvider>
@@ -121,6 +189,49 @@ export function AppShell({
       </SidebarInset>
     </SidebarProvider>
   );
+}
+
+function resolveAssistantAuthContext(
+  matches: AppShellRouteMatch[],
+  fallback: unknown
+): AppShellAuthContext {
+  for (let index = matches.length - 1; index >= 0; index -= 1) {
+    const context = matches[index]?.context;
+    if (context && hasAssistantAuthContext(context)) {
+      return context;
+    }
+  }
+  return pickAssistantAuthContext(fallback);
+}
+
+function hasAssistantAuthContext(context: AppShellAuthContext) {
+  return Boolean(
+    context.organizationId ||
+      context.role ||
+      context.token ||
+      context.userId ||
+      context.roles?.length
+  );
+}
+
+function pickAssistantAuthContext(value: unknown): AppShellAuthContext {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+  const record = value as Record<string, unknown>;
+  return {
+    organizationId: optionalString(record.organizationId),
+    role: optionalString(record.role),
+    roles: Array.isArray(record.roles)
+      ? record.roles.filter((item): item is string => typeof item === "string")
+      : undefined,
+    token: optionalString(record.token),
+    userId: optionalString(record.userId),
+  };
+}
+
+function optionalString(value: unknown) {
+  return typeof value === "string" ? value : undefined;
 }
 
 function DrawFlowCommandPalette({

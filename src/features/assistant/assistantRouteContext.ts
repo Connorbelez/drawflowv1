@@ -1,5 +1,12 @@
 export type DrawFlowAssistantRouteContext = {
   activeBuildId?: string;
+  authDiagnostics: {
+    hasOrganization: boolean;
+    hasToken: boolean;
+    hasUser: boolean;
+    normalizedRoles: string[];
+    roleCount: number;
+  };
   calendarSurface?: "activeBuild" | "proposal";
   organizationId?: string | null;
   pathname: string;
@@ -13,6 +20,7 @@ export type DrawFlowAssistantRouteContext = {
   selectedMilestoneKey?: string;
   selectedPanel?: string;
   userId?: string | null;
+  workspace?: "backoffice" | "builder" | "builder-staff";
 };
 
 type RouterStateLike = {
@@ -33,12 +41,14 @@ export function buildAssistantRouteContext({
   role,
   roles,
   routerState,
+  token,
   userId,
 }: {
   organizationId?: string | null;
   role?: string | null;
   roles?: string[];
   routerState: RouterStateLike;
+  token?: string | null;
   userId?: string | null;
 }): DrawFlowAssistantRouteContext {
   const matches = routerState.matches ?? [];
@@ -67,9 +77,34 @@ export function buildAssistantRouteContext({
           ? "proposal"
           : undefined
       : undefined;
+  const workspace = pathname.startsWith("/backoffice")
+    ? "backoffice"
+    : pathname.startsWith("/builder-staff")
+      ? "builder-staff"
+      : pathname.startsWith("/builder")
+        ? "builder"
+        : undefined;
+  const normalizedRoles = [
+    ...new Set(
+      [role, ...(roles ?? [])]
+        .map((item) =>
+          typeof item === "string"
+            ? item.trim().toLowerCase().replace(/\s+/g, "-")
+            : null
+        )
+        .filter((item): item is string => Boolean(item))
+    ),
+  ];
 
   return {
     ...(activeBuildId ? { activeBuildId } : {}),
+    authDiagnostics: {
+      hasOrganization: Boolean(organizationId?.trim()),
+      hasToken: Boolean(token),
+      hasUser: Boolean(userId),
+      normalizedRoles,
+      roleCount: normalizedRoles.length,
+    },
     ...(calendarSurface ? { calendarSurface } : {}),
     organizationId,
     pathname,
@@ -83,6 +118,7 @@ export function buildAssistantRouteContext({
     ...(selectedMilestoneKey ? { selectedMilestoneKey } : {}),
     ...(selectedPanel ? { selectedPanel } : {}),
     userId,
+    ...(workspace ? { workspace } : {}),
   };
 }
 

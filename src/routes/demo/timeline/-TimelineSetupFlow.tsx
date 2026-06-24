@@ -466,6 +466,8 @@ const TEMPLATE_THUMBNAILS: Record<string, string> = {
     "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
   "multiplex-build":
     "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
+  garden_suite: "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
+  "garden-suite": "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
   single_family_full_build:
     "/drawflow-template-thumbnails/single-family-full-build-blueprint.png",
   "single-family-full-build":

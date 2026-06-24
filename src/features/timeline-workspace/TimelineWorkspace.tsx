@@ -613,6 +613,7 @@ export interface TimelineWorkspaceProps {
   embedded?: boolean;
   headerActions?: ReactNode;
   initialRole?: TimelineDemoRole;
+  lockedBannerActions?: ReactNode;
   initialState?: TimelineShareState;
   modificationRequests?: TimelineModificationRequestView[];
   persistence?: TimelineWorkspacePersistence;
@@ -770,6 +771,7 @@ export function TimelineWorkspace({
   embedded = false,
   headerActions,
   initialRole,
+  lockedBannerActions,
   initialState,
   modificationRequests:
     initialModificationRequests = EMPTY_TIMELINE_MODIFICATION_REQUESTS,
@@ -3600,6 +3602,7 @@ export function TimelineWorkspace({
       planStatus === "submitted" &&
       !lenderApprovedBuildKey
   );
+  const hasLockedBannerActions = Boolean(lockedBannerActions);
   const showLenderLiveBuildLink = Boolean(
     showLenderDealControls &&
       lenderLiveBuildHref &&
@@ -3667,11 +3670,15 @@ export function TimelineWorkspace({
             data-testid="timeline-locked-banner"
             role="status"
           >
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <p className="font-semibold">
                   {planStatus === "archived"
                     ? "Proposal archived"
+                    : proposalMode &&
+                        planStatus === "submitted" &&
+                        hasLockedBannerActions
+                      ? "Lender review decision"
                     : proposalMode && planStatus === "approved"
                       ? "Proposal approved"
                       : proposalMode && planStatus === "closed"
@@ -3683,10 +3690,19 @@ export function TimelineWorkspace({
                     ? "This reimbursement draw plan is approved and remains read-only until closing creates the active build."
                     : proposalMode && planStatus === "closed"
                       ? "Live execution now belongs to the active build workspace."
+                      : proposalMode &&
+                          planStatus === "submitted" &&
+                          hasLockedBannerActions
+                        ? "Review the reimbursement draw packet, record the audit reason, then approve, reject, or request changes."
                       : "This reimbursement draw plan is read-only while lender-admin review controls live in backoffice."}
                 </p>
               </div>
-              <Badge variant="outline">{planStatus}</Badge>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-end">
+                {lockedBannerActions}
+                <Badge className="w-fit" variant="outline">
+                  {planStatus}
+                </Badge>
+              </div>
             </div>
           </div>
         ) : null}

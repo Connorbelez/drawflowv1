@@ -964,6 +964,7 @@ function ProductionDetailsTab({
         actions={actions}
         detail={detail}
         projection={projection}
+        viewerRole={viewerRole}
       />
 
       <FacilityChangeRequestsCard actions={actions} detail={detail} />
@@ -1045,43 +1046,15 @@ function ProductionBuildDetailsCard({
     (detail.sitePhotos?.filter((photo) => photo.locationVerified === false)
       .length ?? 0);
   const [editOpen, setEditOpen] = useState(false);
-  const [pendingCurrentDraw, setPendingCurrentDraw] = useState(false);
   const [reviewMilestoneKey, setReviewMilestoneKey] = useState<string | null>(
     null
   );
-  const [currentActionError, setCurrentActionError] = useState("");
   const reviewMilestone =
     reviewMilestoneKey === null
       ? null
       : (projection.milestones.find(
           (milestone) => milestone.key === reviewMilestoneKey
         ) ?? null);
-
-  const requestDrawNow = async () => {
-    const requestDraw = actions?.requestDraw;
-    const upcomingDraw = currentOverview.upcomingDraw;
-    if (
-      !(requestDraw && upcomingDraw) ||
-      currentOverview.requestableAmountCents <= 0 ||
-      pendingCurrentDraw
-    ) {
-      return;
-    }
-    setCurrentActionError("");
-    setPendingCurrentDraw(true);
-    try {
-      await requestDraw({
-        ...upcomingDraw,
-        amountCents: currentOverview.requestableAmountCents,
-      });
-    } catch (cause) {
-      setCurrentActionError(
-        cause instanceof Error ? cause.message : "Unable to request draw."
-      );
-    } finally {
-      setPendingCurrentDraw(false);
-    }
-  };
 
   return (
     <>
@@ -1142,12 +1115,10 @@ function ProductionBuildDetailsCard({
             <TabsPanel value="draws">
               <DrawOverviewPanel
                 actions={actions}
-                currentActionError={currentActionError}
                 currentOverview={currentOverview}
                 detail={detail}
-                onRequestDrawNow={requestDrawNow}
-                pendingCurrentDraw={pendingCurrentDraw}
                 projection={projection}
+                viewerRole={viewerRole}
               />
             </TabsPanel>
 
@@ -1403,31 +1374,34 @@ function CurrentBuildOverviewPanel({
 
 function DrawOverviewPanel({
   actions,
-  currentActionError,
   currentOverview,
   detail,
-  onRequestDrawNow,
-  pendingCurrentDraw,
   projection,
+  viewerRole,
 }: {
   actions?: ProductionBuildDetailActions;
-  currentActionError: string;
   currentOverview: CurrentBuildOverview;
   detail: ProductionBuildDetail;
-  onRequestDrawNow: () => void;
-  pendingCurrentDraw: boolean;
   projection: ProductionBuildProjection;
+  viewerRole: "builder" | "lender";
 }) {
+  const [pendingDrawAction, setPendingDrawAction] = useState<string | null>(
+    null
+  );
+  const [drawActionError, setDrawActionError] = useState("");
   const canRequestDraw =
     Boolean(actions?.requestDraw) &&
     Boolean(currentOverview.upcomingDraw) &&
     isRequestableDrawStatus(currentOverview.upcomingDraw?.status) &&
     currentOverview.requestableAmountCents > 0 &&
-    !pendingCurrentDraw;
+    !pendingDrawAction;
   const inFlightDraws = projection.draws
     .filter((draw) => draw.status === "requested" || draw.status === "approved")
     .slice()
     .sort(compareDrawsMostRecentFirst);
+  const approvalQueueDraws = inFlightDraws.filter(
+    (draw) => draw.status === "requested" || draw.status === "approved"
+  );
   const pastDraws = projection.draws
     .filter((draw) => draw.status === "released")
     .slice()
@@ -1440,6 +1414,45 @@ function DrawOverviewPanel({
     0,
     currentOverview.totalApprovedCents - currentOverview.committedDrawCents
   );
+  const runDrawAction = async (
+    actionKey: string,
+    draw: ProductionDraw,
+    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
+  ) => {
+    if (!fn || pendingDrawAction) {
+      return;
+    }
+    setPendingDrawAction(`${actionKey}:${draw.drawKey}`);
+    setDrawActionError("");
+    try {
+      await fn(draw);
+    } catch (cause) {
+      setDrawActionError(
+        cause instanceof Error ? cause.message : "Unable to update draw."
+      );
+    } finally {
+      setPendingDrawAction(null);
+    }
+  };
+  const requestDrawNow = async () => {
+    const requestDraw = actions?.requestDraw;
+    const upcomingDraw = currentOverview.upcomingDraw;
+    if (
+      !(requestDraw && upcomingDraw) ||
+      currentOverview.requestableAmountCents <= 0 ||
+      pendingDrawAction
+    ) {
+      return;
+    }
+    await runDrawAction(
+      "request",
+      {
+        ...upcomingDraw,
+        amountCents: currentOverview.requestableAmountCents,
+      },
+      requestDraw
+    );
+  };
 
   return (
     <div className="grid gap-4" data-testid="draw-overview-panel">
@@ -1490,59 +1503,93 @@ function DrawOverviewPanel({
         </div>
       </section>
 
-      <section className="grid gap-3 border-border border-t pt-4">
-        {currentOverview.upcomingDraw ? (
-          <div
-            className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]"
-            data-testid="draw-overview-upcoming-draw"
-          >
-            <div className="min-w-0">
-              <p className="text-[11px] text-muted-foreground uppercase">
-                Upcoming draw
-              </p>
-              <p className="break-words font-medium text-sm">
-                {currentOverview.upcomingDraw.label}
-              </p>
-              <p className="mt-1 text-muted-foreground text-xs">
-                Planned{" "}
-                {formatDate(
-                  addDaysSafe(
-                    detail.build.startDate,
-                    currentOverview.upcomingDraw.timingDay
-                  )
-                )}{" "}
-                · planned amount{" "}
-                {formatCents(currentOverview.upcomingDraw.amountCents)}
-              </p>
-              <p className="mt-1 text-muted-foreground text-xs">
-                Requestable now:{" "}
-                {formatCents(currentOverview.requestableAmountCents)}
-              </p>
-            </div>
-            <Button
-              className="self-start"
-              data-testid="draw-overview-request-now"
-              disabled={!canRequestDraw}
-              loading={pendingCurrentDraw}
-              onClick={onRequestDrawNow}
-              size="sm"
-              type="button"
+      {viewerRole === "builder" ? (
+        <section className="grid gap-3 border-border border-t pt-4">
+          {currentOverview.upcomingDraw ? (
+            <div
+              className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]"
+              data-testid="draw-overview-upcoming-draw"
             >
-              Request draw now
-            </Button>
+              <div className="min-w-0">
+                <p className="text-[11px] text-muted-foreground uppercase">
+                  Upcoming draw
+                </p>
+                <p className="break-words font-medium text-sm">
+                  {currentOverview.upcomingDraw.label}
+                </p>
+                <p className="mt-1 text-muted-foreground text-xs">
+                  Planned{" "}
+                  {formatDate(
+                    addDaysSafe(
+                      detail.build.startDate,
+                      currentOverview.upcomingDraw.timingDay
+                    )
+                  )}{" "}
+                  · planned amount{" "}
+                  {formatCents(currentOverview.upcomingDraw.amountCents)}
+                </p>
+                <p className="mt-1 text-muted-foreground text-xs">
+                  Requestable now:{" "}
+                  {formatCents(currentOverview.requestableAmountCents)}
+                </p>
+              </div>
+              <Button
+                className="self-start"
+                data-testid="draw-overview-request-now"
+                disabled={!canRequestDraw}
+                loading={pendingDrawAction?.startsWith("request:") ?? false}
+                onClick={requestDrawNow}
+                size="sm"
+                type="button"
+              >
+                Request draw now
+              </Button>
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              No upcoming draw remains.
+            </p>
+          )}
+        </section>
+      ) : (
+        <section
+          className="grid gap-3 border-border border-t pt-4"
+          data-testid="draw-overview-approval-queue"
+        >
+          <div>
+            <h3 className="font-semibold text-sm">Draw approval queue</h3>
+            <p className="text-muted-foreground text-xs">
+              Review requested reimbursements, reject missing support, and
+              release approved funds.
+            </p>
           </div>
-        ) : (
-          <p className="text-muted-foreground text-sm">
-            No upcoming draw remains.
-          </p>
-        )}
+          {approvalQueueDraws.length > 0 ? (
+            <div className="grid gap-2">
+              {approvalQueueDraws.map((draw) => (
+                <DrawSummaryItem
+                  actions={actions}
+                  detail={detail}
+                  draw={draw}
+                  key={draw.drawKey}
+                  onRunAction={runDrawAction}
+                  pendingActionKey={pendingDrawAction}
+                  viewerRole={viewerRole}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-md border border-dashed p-3 text-muted-foreground text-sm">
+              No draw requests are waiting for lender action.
+            </p>
+          )}
+        </section>
+      )}
 
-        {currentActionError ? (
-          <p className="text-destructive text-xs" role="alert">
-            {currentActionError}
-          </p>
-        ) : null}
-      </section>
+      {drawActionError ? (
+        <p className="text-destructive text-xs" role="alert">
+          {drawActionError}
+        </p>
+      ) : null}
 
       <DrawSummaryList
         detail={detail}
@@ -1570,17 +1617,29 @@ function DrawOverviewPanel({
 }
 
 function DrawSummaryList({
+  actions,
   detail,
   draws,
   emptyLabel,
+  onRunAction,
+  pendingActionKey,
   testId,
   title,
+  viewerRole,
 }: {
+  actions?: ProductionBuildDetailActions;
   detail: ProductionBuildDetail;
   draws: ProductionDraw[];
   emptyLabel: string;
+  onRunAction?: (
+    actionKey: string,
+    draw: ProductionDraw,
+    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
+  ) => Promise<void>;
+  pendingActionKey?: string | null;
   testId: string;
   title: string;
+  viewerRole?: "builder" | "lender";
 }) {
   return (
     <section
@@ -1596,7 +1655,15 @@ function DrawSummaryList({
       {draws.length > 0 ? (
         <div className="grid gap-2">
           {draws.map((draw) => (
-            <DrawSummaryItem detail={detail} draw={draw} key={draw.drawKey} />
+            <DrawSummaryItem
+              actions={actions}
+              detail={detail}
+              draw={draw}
+              key={draw.drawKey}
+              onRunAction={onRunAction}
+              pendingActionKey={pendingActionKey}
+              viewerRole={viewerRole}
+            />
           ))}
         </div>
       ) : (
@@ -1609,11 +1676,23 @@ function DrawSummaryList({
 }
 
 function DrawSummaryItem({
+  actions,
   detail,
   draw,
+  onRunAction,
+  pendingActionKey,
+  viewerRole,
 }: {
+  actions?: ProductionBuildDetailActions;
   detail: ProductionBuildDetail;
   draw: ProductionDraw;
+  onRunAction?: (
+    actionKey: string,
+    draw: ProductionDraw,
+    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
+  ) => Promise<void>;
+  pendingActionKey?: string | null;
+  viewerRole?: "builder" | "lender";
 }) {
   const milestoneName =
     draw.milestoneKey === undefined
@@ -1653,14 +1732,73 @@ function DrawSummaryItem({
           </p>
         ) : null}
       </div>
-      <div className="text-left sm:text-right">
+      <div className="grid gap-2 text-left sm:justify-items-end sm:text-right">
         <p className="text-[11px] text-muted-foreground uppercase">Amount</p>
         <p className="font-semibold text-sm tabular-nums">
           {formatCents(draw.amountCents)}
         </p>
+        {viewerRole === "lender" && onRunAction ? (
+          <DrawActionGroup
+            actions={actions}
+            draw={draw}
+            onRunAction={onRunAction}
+            pendingActionKey={pendingActionKey}
+          />
+        ) : null}
       </div>
     </div>
   );
+}
+
+function DrawActionGroup({
+  actions,
+  draw,
+  onRunAction,
+  pendingActionKey,
+}: {
+  actions?: ProductionBuildDetailActions;
+  draw: ProductionDraw;
+  onRunAction: (
+    actionKey: string,
+    draw: ProductionDraw,
+    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
+  ) => Promise<void>;
+  pendingActionKey?: string | null;
+}) {
+  const isPending = (actionKey: string) =>
+    pendingActionKey === `${actionKey}:${draw.drawKey}`;
+
+  if (draw.status === "requested") {
+    return (
+      <div className="flex flex-wrap gap-1 sm:justify-end">
+        <DrawActionButton
+          disabled={!actions?.approveDraw || Boolean(pendingActionKey)}
+          label={isPending("approve") ? "Approving..." : "Approve"}
+          onClick={() => onRunAction("approve", draw, actions?.approveDraw)}
+          testId={`draw-overview-approve-${draw.drawKey}`}
+        />
+        <DrawActionButton
+          disabled={!actions?.rejectDraw || Boolean(pendingActionKey)}
+          label={isPending("reject") ? "Rejecting..." : "Reject"}
+          onClick={() => onRunAction("reject", draw, actions?.rejectDraw)}
+          testId={`draw-overview-reject-${draw.drawKey}`}
+        />
+      </div>
+    );
+  }
+
+  if (draw.status === "approved") {
+    return (
+      <DrawActionButton
+        disabled={!actions?.releaseDraw || Boolean(pendingActionKey)}
+        label={isPending("release") ? "Releasing..." : "Release"}
+        onClick={() => onRunAction("release", draw, actions?.releaseDraw)}
+        testId={`draw-overview-release-${draw.drawKey}`}
+      />
+    );
+  }
+
+  return null;
 }
 
 function BuildMetadataPanel({
@@ -2645,10 +2783,12 @@ function ProductionDrawsTable({
   actions,
   detail,
   projection,
+  viewerRole,
 }: {
   actions?: ProductionBuildDetailActions;
   detail: ProductionBuildDetail;
   projection: ProductionBuildProjection;
+  viewerRole: "builder" | "lender";
 }) {
   const [pendingDraw, setPendingDraw] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -2727,8 +2867,9 @@ function ProductionDrawsTable({
                     </Td>
                     <Td>
                       <div className="flex flex-wrap justify-end gap-1 sm:justify-start">
-                        {draw.status === "planned" ||
-                        draw.status === "rejected" ? (
+                        {viewerRole === "builder" &&
+                        (draw.status === "planned" ||
+                          draw.status === "rejected") ? (
                           <DrawActionButton
                             disabled={!actions?.requestDraw || pending}
                             label={pending ? "Requesting..." : "Request"}
@@ -2736,7 +2877,8 @@ function ProductionDrawsTable({
                             testId={`build-detail-draw-request-${draw.drawKey}`}
                           />
                         ) : null}
-                        {draw.status === "requested" ? (
+                        {viewerRole === "lender" &&
+                        draw.status === "requested" ? (
                           <>
                             <DrawActionButton
                               disabled={!actions?.approveDraw || pending}
@@ -2752,7 +2894,8 @@ function ProductionDrawsTable({
                             />
                           </>
                         ) : null}
-                        {draw.status === "approved" ? (
+                        {viewerRole === "lender" &&
+                        draw.status === "approved" ? (
                           <DrawActionButton
                             disabled={!actions?.releaseDraw || pending}
                             label={pending ? "Releasing..." : "Release"}
@@ -2763,6 +2906,25 @@ function ProductionDrawsTable({
                         {draw.status === "released" ? (
                           <span className="text-muted-foreground text-xs">
                             Released
+                          </span>
+                        ) : null}
+                        {viewerRole === "lender" &&
+                        (draw.status === "planned" ||
+                          draw.status === "rejected") ? (
+                          <span className="text-muted-foreground text-xs">
+                            Awaiting request
+                          </span>
+                        ) : null}
+                        {viewerRole === "builder" &&
+                        draw.status === "requested" ? (
+                          <span className="text-muted-foreground text-xs">
+                            Awaiting approval
+                          </span>
+                        ) : null}
+                        {viewerRole === "builder" &&
+                        draw.status === "approved" ? (
+                          <span className="text-muted-foreground text-xs">
+                            Awaiting release
                           </span>
                         ) : null}
                       </div>

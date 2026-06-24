@@ -208,9 +208,12 @@
 }
 
 .timeline-setup-main {
-  display: grid;
-  gap: 16px;
-  min-width: 0;
+  display: contents;
+}
+
+.timeline-setup-main > .timeline-setup-budget-input-panel,
+.timeline-setup-main > .timeline-blueprint-error {
+  grid-column: 1 / -1;
 }
 
 .timeline-blueprint-panel {
@@ -365,7 +368,7 @@
 }
 
 .timeline-setup-budget-input-panel {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11.5rem), 1fr));
   align-items: start;
 }
 
@@ -600,7 +603,7 @@
 }
 
 .timeline-setup-sidecar {
-  position: sticky;
+  position: static;
   top: 24px;
   display: grid;
   align-content: start;
@@ -2851,7 +2854,7 @@
   }
 }
 
-@media (max-width: 1080px) {
+@media (max-width: 900px) {
   .timeline-setup-template-panel {
     grid-template-columns: 1fr;
   }
@@ -2864,10 +2867,6 @@
 
   .timeline-template-grid {
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
-  }
-
-  .timeline-setup-budget-input-panel {
-    grid-template-columns: 1fr;
   }
 
   .timeline-submilestone-editor,
@@ -2927,6 +2926,10 @@
 
   .timeline-setup-panel {
     padding: 18px;
+  }
+
+  .timeline-setup-budget-input-panel {
+    grid-template-columns: 1fr;
   }
 
   .timeline-setup-step-rail {

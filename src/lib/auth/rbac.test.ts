@@ -116,6 +116,16 @@ describe("DrawFlow frontend RBAC policy", () => {
       getWorkspaceAccessDecision({
         isAuthenticated: true,
         organizationId: "org_123",
+        pathname: "/backoffice",
+        roles: ["member", "admin"],
+        workspace: "backoffice",
+      })
+    ).toMatchObject({ status: "allowed" });
+
+    expect(
+      getWorkspaceAccessDecision({
+        isAuthenticated: true,
+        organizationId: "org_123",
         pathname: "/builder",
         roles: ["member"],
         workspace: "builder",

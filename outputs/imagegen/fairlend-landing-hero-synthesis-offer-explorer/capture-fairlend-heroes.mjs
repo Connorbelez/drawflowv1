@@ -1,9 +1,13 @@
-import { chromium } from "playwright";
-import { pathToFileURL } from "node:url";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { chromium } from "playwright";
 
-const outDir = path.resolve("outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer");
-const htmlUrl = pathToFileURL(path.join(outDir, "fairlend-hero-concepts.html")).href;
+const outDir = path.resolve(
+  "outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer"
+);
+const htmlUrl = pathToFileURL(
+  path.join(outDir, "fairlend-hero-concepts.html")
+).href;
 const concepts = [
   "01-licensed-project-review",
   "02-company-trust-with-quiz",
@@ -23,7 +27,9 @@ const page = await browser.newPage({
 
 for (const concept of concepts) {
   const number = concept.slice(0, 2);
-  await page.goto(`${htmlUrl}?concept=${number}&capture=1`, { waitUntil: "networkidle" });
+  await page.goto(`${htmlUrl}?concept=${number}&capture=1`, {
+    waitUntil: "networkidle",
+  });
   await page.screenshot({
     path: path.join(outDir, `${concept}.png`),
     fullPage: false,

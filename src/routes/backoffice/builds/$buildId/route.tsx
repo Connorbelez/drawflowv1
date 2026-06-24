@@ -121,9 +121,6 @@ function RouteComponent() {
   const requestFacilityChange = useMutation(
     (api as any).production_proposals.requestActiveBuildFacilityChange
   );
-  const requestDraw = useMutation(
-    api.production_proposals.requestActiveBuildDraw
-  );
   const requestMilestoneInfo = useMutation(
     api.production_proposals.requestActiveBuildMilestoneInfo
   );
@@ -589,16 +586,6 @@ function RouteComponent() {
             requestFacilityChange({
               ...input,
               buildId: activeBuildId,
-              workosOrganizationId,
-            })
-        : undefined,
-      requestDraw: canUseAppPermission(appPermissions, "draw", "update")
-        ? (draw) =>
-            requestDraw({
-              amountCents: draw.amountCents,
-              buildId: activeBuildId,
-              drawKey: draw.drawKey,
-              note: "Requested from build detail workspace.",
               workosOrganizationId,
             })
         : undefined,

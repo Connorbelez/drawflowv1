@@ -849,6 +849,45 @@ function ProposalReviewRoute() {
             prejoinedCollabToken={
               collabJoinState === "joined" ? collabToken : null
             }
+            lockedBannerActions={
+              productionDetail.proposal.status === "submitted" ? (
+                <ProposalTimelineReviewBannerActions
+                  hasPermitOrWaiver={Boolean(
+                    productionDetail.permitWaiver ||
+                      productionDetail.documents?.some(
+                        (document) => document.documentType === "permit",
+                      ),
+                  )}
+                  onApprove={(reason, permitWaiverReason) =>
+                    approveProductionProposal({
+                      permitWaiverReason,
+                      proposalId,
+                      reason,
+                      workosOrganizationId,
+                    }).then(() =>
+                      toast.success("Proposal approved.", {
+                        description:
+                          "The proposal is ready for closing. Live build controls stay locked until closing is recorded.",
+                      }),
+                    )
+                  }
+                  onReject={(reason) =>
+                    rejectProductionProposal({
+                      proposalId,
+                      reason,
+                      workosOrganizationId,
+                    }).then(() => toast.success("Proposal rejected."))
+                  }
+                  onRequestChanges={(reason) =>
+                    requestProductionChanges({
+                      proposalId,
+                      reason,
+                      workosOrganizationId,
+                    }).then(() => toast.success("Changes requested."))
+                  }
+                />
+              ) : undefined
+            }
             proposalHref={`/builder/proposals/${planId}`}
             proposalId={proposalId}
             workosOrganizationId={workosOrganizationId}
@@ -874,6 +913,126 @@ function ProposalReviewRoute() {
   }
 
   return <ProductionProposalNotFound planId={planId} />;
+}
+
+function ProposalTimelineReviewBannerActions({
+  hasPermitOrWaiver,
+  onApprove,
+  onReject,
+  onRequestChanges,
+}: {
+  hasPermitOrWaiver: boolean;
+  onApprove: (
+    reason: string,
+    permitWaiverReason?: string,
+  ) => Promise<unknown> | unknown;
+  onReject: (reason: string) => Promise<unknown> | unknown;
+  onRequestChanges: (reason: string) => Promise<unknown> | unknown;
+}) {
+  const [reason, setReason] = useState("");
+  const [permitWaiverReason, setPermitWaiverReason] = useState("");
+  const [pendingDecision, setPendingDecision] = useState<
+    "approve" | "reject" | "requestChanges" | null
+  >(null);
+  const reviewReason = reason.trim();
+  const waiverReason = permitWaiverReason.trim();
+
+  async function runDecision(
+    decision: "approve" | "reject" | "requestChanges",
+  ) {
+    if (!reviewReason) {
+      toast.error("Decision reason required.", {
+        description:
+          "Add the audit reason before requesting changes, rejecting, or approving.",
+      });
+      return;
+    }
+    if (decision === "approve" && !hasPermitOrWaiver && !waiverReason) {
+      toast.error("Permit waiver reason required.", {
+        description:
+          "No permit PDF is linked, so approval needs a recorded waiver reason.",
+      });
+      return;
+    }
+
+    setPendingDecision(decision);
+    try {
+      if (decision === "approve") {
+        await onApprove(reviewReason, waiverReason || undefined);
+      } else if (decision === "reject") {
+        await onReject(reviewReason);
+      } else {
+        await onRequestChanges(reviewReason);
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to update proposal review.",
+      );
+    } finally {
+      setPendingDecision(null);
+    }
+  }
+
+  return (
+    <div
+      className="grid w-full gap-2 sm:min-w-96"
+      data-testid="timeline-proposal-review-actions"
+    >
+      <div className="grid gap-1.5">
+        <Label htmlFor="timeline-proposal-review-reason">Decision reason</Label>
+        <Input
+          id="timeline-proposal-review-reason"
+          onChange={(event) => setReason(event.target.value)}
+          placeholder="Required audit reason"
+          value={reason}
+        />
+      </div>
+      {hasPermitOrWaiver ? null : (
+        <div className="grid gap-1.5">
+          <Label htmlFor="timeline-proposal-permit-waiver">
+            Permit waiver reason
+          </Label>
+          <Textarea
+            id="timeline-proposal-permit-waiver"
+            onChange={(event) => setPermitWaiverReason(event.target.value)}
+            placeholder="Required before approving without a permit PDF"
+            rows={2}
+            value={permitWaiverReason}
+          />
+        </div>
+      )}
+      <div className="flex flex-wrap gap-2 sm:justify-end">
+        <Button
+          disabled={pendingDecision !== null}
+          onClick={() => void runDecision("requestChanges")}
+          size="sm"
+          variant="outline"
+        >
+          {pendingDecision === "requestChanges"
+            ? "Requesting..."
+            : "Request Changes"}
+        </Button>
+        <Button
+          disabled={pendingDecision !== null}
+          onClick={() => void runDecision("reject")}
+          size="sm"
+          variant="destructive"
+        >
+          {pendingDecision === "reject" ? "Rejecting..." : "Reject"}
+        </Button>
+        <Button
+          data-testid="timeline-approve-proposal"
+          disabled={pendingDecision !== null}
+          onClick={() => void runDecision("approve")}
+          size="sm"
+        >
+          {pendingDecision === "approve" ? "Approving..." : "Approve Proposal"}
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 function DeferredProposalTabPanel({

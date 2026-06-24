@@ -11,6 +11,8 @@ import {
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
+import { ProductionProposalReviewSurface } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
+
 vi.mock("#/components/roadmap/AnimatedCurvedTimeline.tsx", () => ({
   AnimatedCurvedTimeline: ({
     markers,
@@ -76,6 +78,20 @@ import {
   shouldMountProposalStaffPanel,
   validateApprovalStartDate,
 } from "./proposals.$planId";
+
+Object.defineProperty(window, "matchMedia", {
+  configurable: true,
+  value: vi.fn().mockImplementation((query: string) => ({
+    addEventListener: vi.fn(),
+    addListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+    matches: false,
+    media: query,
+    onchange: null,
+    removeEventListener: vi.fn(),
+    removeListener: vi.fn(),
+  })),
+});
 
 afterEach(() => cleanup());
 
@@ -144,6 +160,60 @@ const submittedViewModel = {
     ],
   },
 };
+
+function productionProposalDetail(status: "draft" | "submitted" = "submitted") {
+  return {
+    documents: [],
+    draws: [
+      {
+        amountCents: 600_000_00,
+        drawKey: "draw-01",
+        label: "Foundation reimbursement",
+        milestoneKey: "foundation",
+        order: 1,
+        timingDay: 28,
+      },
+    ],
+    milestones: [
+      {
+        budgetCents: 600_000_00,
+        dayEnd: 28,
+        dayStart: 0,
+        drawAvailabilityCents: 600_000_00,
+        durationDays: 28,
+        evidenceState: "Draft package",
+        key: "foundation",
+        name: "Foundation",
+        order: 1,
+        policyState: "Within policy",
+      },
+    ],
+    permitWaiver: { reason: "Municipal permit waiver accepted." },
+    proposal: {
+      borrowerCoPayBps: 0,
+      borrowerWorkingCapitalLimitCents: 250_000_00,
+      buildName: "Elm Street proposal",
+      interestAnnualBps: 925,
+      lenderDrawPolicyLimitCents: 600_000_00,
+      location: "Hamilton, ON",
+      proposedStartDate: "2026-07-01",
+      status,
+      totalBudgetCents: 600_000_00,
+    },
+    submilestones: [
+      {
+        budgetCents: 600_000_00,
+        dayEnd: 28,
+        dayStart: 0,
+        durationDays: 28,
+        key: "excavation",
+        milestoneKey: "foundation",
+        name: "Excavation",
+        order: 1,
+      },
+    ],
+  };
+}
 
 function renderReview(viewModel = submittedViewModel) {
   return {
@@ -464,6 +534,70 @@ describe("ProposalReviewSurface", () => {
         .map((tab) => tab.textContent),
     ).toEqual(["Timeline"]);
     expect(screen.queryByRole("tab", { name: "Adjustments" })).toBeNull();
+  });
+});
+
+describe("ProductionProposalReviewSurface packet CTAs", () => {
+  test("renders lender decision controls on the submitted packet tab", async () => {
+    const approveProposal = vi.fn().mockResolvedValue({ ok: true });
+
+    render(
+      <ProductionProposalReviewSurface
+        detail={productionProposalDetail("submitted") as any}
+        onApprove={approveProposal}
+        onReject={vi.fn().mockResolvedValue({ ok: true })}
+        onRequestChanges={vi.fn().mockResolvedValue({ ok: true })}
+      />,
+    );
+
+    const packet = screen.getByTestId("production-proposal-packet-tab");
+    expect(within(packet).getByText("Review decision")).toBeTruthy();
+    expect(
+      within(packet).getByRole("button", { name: "Approve Proposal" }),
+    ).toBeTruthy();
+    expect(
+      within(packet).getByRole("button", { name: "Request Changes" }),
+    ).toBeTruthy();
+    expect(within(packet).getByRole("button", { name: "Reject" })).toBeTruthy();
+
+    fireEvent.click(
+      within(packet).getByRole("button", { name: "Approve Proposal" }),
+    );
+    expect(approveProposal).not.toHaveBeenCalled();
+
+    fireEvent.change(within(packet).getByLabelText("Decision reason"), {
+      target: { value: "Packet is complete and ready for closing." },
+    });
+    fireEvent.click(
+      within(packet).getByRole("button", { name: "Approve Proposal" }),
+    );
+
+    await waitFor(() => expect(approveProposal).toHaveBeenCalledTimes(1));
+    expect(approveProposal).toHaveBeenCalledWith(
+      "Packet is complete and ready for closing.",
+      undefined,
+    );
+  });
+
+  test("renders builder submit proposal CTA on draft packet tab", async () => {
+    const submitProposal = vi.fn().mockResolvedValue({ ok: true });
+
+    render(
+      <ProductionProposalReviewSurface
+        detail={productionProposalDetail("draft") as any}
+        onSubmit={submitProposal}
+      />,
+    );
+
+    const packet = screen.getByTestId("production-proposal-packet-tab");
+    const submitButton = within(packet).getByRole("button", {
+      name: "Submit proposal",
+    });
+    expect(submitButton).toBeTruthy();
+
+    fireEvent.click(submitButton);
+
+    await waitFor(() => expect(submitProposal).toHaveBeenCalledTimes(1));
   });
 });
 

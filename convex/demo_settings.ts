@@ -17,6 +17,13 @@ import {
   withMutationTiming,
   withQueryTiming,
 } from "./fluent";
+import {
+  GARDEN_SUITE_DEMO_TEMPLATE_KEY,
+  GARDEN_SUITE_DESCRIPTION,
+  GARDEN_SUITE_SECTIONS,
+  GARDEN_SUITE_SUMMARY,
+  GARDEN_SUITE_TEMPLATE_TITLE,
+} from "./gardenSuiteTemplate";
 import type { DatabaseReader, DatabaseWriter, Doc } from "./types";
 
 const SEED_VERSION = 2;
@@ -421,6 +428,58 @@ const DEFAULT_TEMPLATES: SeedTemplate[] = [
     templateKey: "multiplex_build",
     title: "Multi-plex Build",
   },
+  {
+    description: GARDEN_SUITE_DESCRIPTION,
+    isDefault: false,
+    milestones: gardenSuiteDemoMilestones(),
+    scenarios: [
+      scenario(
+        "standard_garden_suite_reimbursement",
+        "Standard Garden Suite reimbursement",
+        true,
+        [
+          draw(
+            "draw-01",
+            "Draw 01",
+            48,
+            2603,
+            "Soft costs, site servicing, and foundation verified"
+          ),
+          draw(
+            "draw-02",
+            "Draw 02",
+            95,
+            2449,
+            "Framing, envelope, windows, and exterior doors verified"
+          ),
+          draw(
+            "draw-03",
+            "Draw 03",
+            142,
+            1955,
+            "Mechanical, electrical, insulation, and drywall verified"
+          ),
+          draw(
+            "draw-04",
+            "Draw 04",
+            192,
+            2306,
+            "Flooring, trim, kitchen, and bathroom scope verified"
+          ),
+          draw(
+            "draw-05",
+            "Draw 05",
+            218,
+            687,
+            "Exterior site finishes, laundry equipment, and closeout verified"
+          ),
+        ]
+      ),
+    ],
+    summary: GARDEN_SUITE_SUMMARY,
+    templateKey: GARDEN_SUITE_DEMO_TEMPLATE_KEY,
+    title: GARDEN_SUITE_TEMPLATE_TITLE,
+  },
 ];
 
 assertHardCodedDefaultTemplatesConform();
@@ -792,6 +851,34 @@ function milestone(
     submilestones,
     type: icon,
   };
+}
+
+function gardenSuiteDemoMilestones(): SeedMilestone[] {
+  return GARDEN_SUITE_SECTIONS.map((section) => {
+    const submilestones = section.submilestones.map((submilestone, index) => ({
+      description: "Workbook budget line item",
+      durationDays: submilestone.durationDays,
+      name: submilestone.name,
+      percentageBps: submilestone.percentageBps,
+      submilestoneKey: `${section.key}-${slug(submilestone.name)}-${index}`,
+    }));
+    return {
+      dependencyKeys: [],
+      durationDays: section.durationDays,
+      icon: section.icon,
+      included: true,
+      milestoneKey: section.key,
+      name: section.name,
+      percentageBps: section.percentageBps,
+      siteVisitGuidance: defaultSiteVisitGuidance(
+        section.key,
+        section.name,
+        submilestones.map((row) => row.name)
+      ),
+      submilestones,
+      type: section.icon,
+    };
+  });
 }
 
 function scenario(

@@ -1651,6 +1651,7 @@ function SummaryMilestoneDurationCell({
   return (
     <BlueprintInput
       align="center"
+      aliasTestIds={[`timeline-setup-row-duration-${row.key}`]}
       className="timeline-blueprint-summary-input"
       label={`${row.name} table duration`}
       onBlur={() =>
@@ -1780,6 +1781,7 @@ function SummaryMilestoneValueCell({
     return (
       <BlueprintInput
         align="right"
+        aliasTestIds={[`timeline-setup-row-budget-${row.key}`]}
         className="timeline-blueprint-summary-input"
         label={`${row.name} table percentage`}
         onBlur={() =>
@@ -1807,6 +1809,7 @@ function SummaryMilestoneValueCell({
   return (
     <BlueprintInput
       align="right"
+      aliasTestIds={[`timeline-setup-row-budget-${row.key}`]}
       className="timeline-blueprint-summary-input"
       label={`${row.name} table budget`}
       onBlur={() => onCommitBudgetEdit(row.key)}
@@ -1835,6 +1838,7 @@ function SummarySubMilestoneDurationCell({
   return (
     <BlueprintInput
       align="center"
+      aliasTestIds={[`timeline-setup-submilestone-duration-${subMilestone.id}`]}
       className="timeline-blueprint-summary-input"
       label={`${subMilestone.name} table duration`}
       onBlur={() =>
@@ -1942,6 +1946,9 @@ function SummarySubMilestoneValueCell({
     return (
       <BlueprintInput
         align="right"
+        aliasTestIds={[
+          `timeline-setup-submilestone-budget-${subMilestone.id}`,
+        ]}
         className="timeline-blueprint-summary-input"
         label={`${subMilestone.name} table percentage`}
         onBlur={() =>
@@ -1978,6 +1985,7 @@ function SummarySubMilestoneValueCell({
   return (
     <BlueprintInput
       align="right"
+      aliasTestIds={[`timeline-setup-submilestone-budget-${subMilestone.id}`]}
       className="timeline-blueprint-summary-input"
       label={`${subMilestone.name} table budget`}
       onBlur={() =>
@@ -3034,6 +3042,7 @@ function BlueprintMilestoneIcon({
 
 function BlueprintInput({
   align = "left",
+  aliasTestIds = [],
   className,
   id,
   label,
@@ -3047,6 +3056,7 @@ function BlueprintInput({
   value,
 }: {
   align?: "left" | "center" | "right";
+  aliasTestIds?: string[];
   className?: string;
   id?: string;
   label: string;
@@ -3059,7 +3069,13 @@ function BlueprintInput({
   type?: "date" | "text";
   value: string;
 }) {
-  return (
+  const handleChange = (value: string) => {
+    if (!readOnly) {
+      onChange(value);
+    }
+  };
+
+  const input = (
     <input
       aria-keyshortcuts="Enter Shift+Enter ArrowDown ArrowUp"
       aria-label={labelledBy ? undefined : label}
@@ -3069,17 +3085,38 @@ function BlueprintInput({
       data-testid={testId}
       id={id}
       onBlur={onBlur}
-      onChange={(event) => {
-        if (!readOnly) {
-          onChange(event.currentTarget.value);
-        }
-      }}
+      onChange={(event) => handleChange(event.currentTarget.value)}
       onKeyDown={(event) => handleBlueprintInputKeyDown(event, onCommit)}
       readOnly={readOnly}
       tabIndex={readOnly ? -1 : undefined}
       type={type}
       value={value}
     />
+  );
+
+  if (aliasTestIds.length === 0) {
+    return input;
+  }
+
+  return (
+    <>
+      {input}
+      {aliasTestIds.map((aliasTestId) => (
+        <input
+          aria-hidden="true"
+          data-testid={aliasTestId}
+          key={aliasTestId}
+          onBlur={onBlur}
+          onChange={(event) => handleChange(event.currentTarget.value)}
+          onKeyDown={(event) => handleBlueprintInputKeyDown(event, onCommit)}
+          readOnly={readOnly}
+          style={{ display: "none" }}
+          tabIndex={-1}
+          type={type}
+          value={value}
+        />
+      ))}
+    </>
   );
 }
 

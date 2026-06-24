@@ -2719,6 +2719,37 @@ describe("production proposal foundation", () => {
     });
   });
 
+  test("builder proposal creation context includes seeded Garden Suite template", async () => {
+    const { base } = await seeded(["admin"], "user_admin");
+    const admin = withIdentity(base, ["admin"], "user_admin");
+    await admin.mutation(
+      (api as any).production_proposals.seedProductionDefaultsToProd,
+      { workosOrganizationId: ORG },
+    );
+    const builder = withIdentity(base, ["builder"], "user_builder");
+
+    const context = await builder.query(
+      (api as any).production_proposals.getBuilderProposalCreateContext,
+      { workosOrganizationId: ORG },
+    );
+    const gardenSuite = context.templates.find(
+      (template: any) => template.templateKey === "garden-suite",
+    );
+
+    expect(gardenSuite).toMatchObject({
+      summary:
+        "16 milestones, 65 budget line items, 100.00% PoC, 141 field days",
+      title: "Garden Suite",
+    });
+    expect(gardenSuite.milestones).toHaveLength(16);
+    expect(gardenSuite.milestones[0].submilestones).toHaveLength(8);
+    expect(gardenSuite.milestones.at(-1).submilestones).toEqual([
+      expect.objectContaining({
+        name: "Supervision, PM, temp services, dumpsters, scaffold, final clean",
+      }),
+    ]);
+  });
+
   test("broker resolves proposal setup context without selecting a builder", async () => {
     const { base, seed } = await seeded(["admin"], "user_admin");
     const broker = withIdentity(base, ["broker"], "user_broker");
@@ -2748,10 +2779,10 @@ describe("production proposal foundation", () => {
     );
 
     expect(result).toMatchObject({
-      milestones: 29,
-      scenarios: 5,
-      submilestones: 86,
-      templates: 4,
+      milestones: 45,
+      scenarios: 6,
+      submilestones: 151,
+      templates: 5,
     });
 
     const settings = await t.query(
@@ -2765,6 +2796,7 @@ describe("production proposal foundation", () => {
       "single-family-renovation",
       "multiplex-build",
       "4-plex",
+      "garden-suite",
     ]);
 
     const fullBuild = settings.templates.find(
@@ -2947,13 +2979,104 @@ describe("production proposal foundation", () => {
       ),
     ).toBe(10_000);
 
+    const gardenSuite = settings.templates.find(
+      (template: any) => template.templateKey === "garden-suite",
+    );
+    expect(gardenSuite).toMatchObject({
+      summary:
+        "16 milestones, 65 budget line items, 100.00% PoC, 141 field days",
+      title: "Garden Suite",
+    });
+    expect(
+      gardenSuite.milestones.map((milestone: any) => milestone.name),
+    ).toEqual([
+      "Soft Costs & Pre-Construction",
+      "Site Work & Servicing",
+      "Concrete & Foundation",
+      "Framing & Structure",
+      "Roofing & Exterior Envelope",
+      "Windows & Exterior Doors",
+      "Mechanical - HVAC & Plumbing",
+      "Electrical",
+      "Insulation & Drywall",
+      "Flooring & Stairs",
+      "Interior Doors, Trim & Paint",
+      "Kitchen",
+      "Bathrooms & Powder Room",
+      "Exterior Site Finishes",
+      "Laundry & Misc. Equipment",
+      "General Conditions",
+    ]);
+    expect(
+      gardenSuite.milestones.reduce(
+        (total: number, milestone: any) => total + milestone.percentageBps,
+        0,
+      ),
+    ).toBe(10_000);
+    expect(
+      gardenSuite.milestones.every((milestone: any) => {
+        const subTotal = milestone.submilestones.reduce(
+          (total: number, submilestone: any) =>
+            total + submilestone.percentageBps,
+          0,
+        );
+        return subTotal === milestone.percentageBps;
+      }),
+    ).toBe(true);
+    expect(gardenSuite.milestones[0].submilestones.map((row: any) => row.name))
+      .toEqual([
+        "Legal / topographic survey",
+        "Architectural & permit drawings",
+        "Structural engineering",
+        "Arborist report & tree protection plan",
+        "Geotechnical / soils investigation",
+        "City of Toronto building permit",
+        "Builder's risk insurance",
+        "Legal & disbursements",
+      ]);
+    expect(gardenSuite.milestones.at(-1).submilestones).toEqual([
+      expect.objectContaining({
+        name: "Supervision, PM, temp services, dumpsters, scaffold, final clean",
+        percentageBps: 357,
+      }),
+    ]);
+    expect(
+      gardenSuite.milestones.flatMap((milestone: any) =>
+        milestone.submilestones.map((row: any) => row.name),
+      ),
+    ).not.toEqual(
+      expect.arrayContaining([
+        "Project subtotal (pre-contingency)",
+        "HST  (D10)",
+        "TOTAL INCL. HST",
+        "NET ALL-IN (if rebate eligible)",
+      ]),
+    );
+    expect(gardenSuite.scenarios[0]).toMatchObject({
+      draws: [
+        expect.objectContaining({ amountBps: 2603, timingDay: 48 }),
+        expect.objectContaining({ amountBps: 2449, timingDay: 95 }),
+        expect.objectContaining({ amountBps: 1955, timingDay: 142 }),
+        expect.objectContaining({ amountBps: 2306, timingDay: 192 }),
+        expect.objectContaining({ amountBps: 687, timingDay: 218 }),
+      ],
+      isActive: true,
+      scenarioKey: "garden-suite-standard-reimbursement",
+    });
+    expect(
+      gardenSuite.scenarios[0].draws.reduce(
+        (total: number, draw: any) => total + draw.amountBps,
+        0,
+      ),
+    ).toBe(10_000);
+
     const secondResult = await t.mutation(
       (api as any).production_proposals.seedProductionDefaultsToProd,
       { workosOrganizationId: ORG },
     );
     expect(secondResult).toMatchObject({
-      milestones: 29,
-      templates: 4,
+      milestones: 45,
+      templates: 5,
     });
     const secondSettings = await t.query(
       (api as any).production_proposals.getProductionProposalSettings,

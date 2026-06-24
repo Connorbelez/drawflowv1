@@ -584,8 +584,9 @@ describe("ProductionBuildDetailSurface", () => {
     expect(
       screen.getByTestId("draw-overview-availability").textContent,
     ).toContain("$0");
-    expect(screen.getByTestId("draw-overview-upcoming-draw").textContent).toContain(
-      "Foundation reimbursement",
+    expect(screen.queryByTestId("draw-overview-upcoming-draw")).toBeNull();
+    expect(screen.getByTestId("draw-overview-approval-queue").textContent).toContain(
+      "No draw requests are waiting for lender action.",
     );
     expect(screen.getByText("Past draws")).toBeTruthy();
     expect(screen.getByText("Upcoming schedule")).toBeTruthy();
@@ -659,6 +660,85 @@ describe("ProductionBuildDetailSurface", () => {
     expect(
       screen.getByTestId("draw-overview-scheduled-draws").textContent,
     ).toContain("Upcoming foundation reimbursement");
+  });
+
+  test("shows lender approval controls instead of request controls in draw overview", async () => {
+    const approveDraw = vi.fn().mockResolvedValue(null);
+    const rejectDraw = vi.fn().mockResolvedValue(null);
+    const releaseDraw = vi.fn().mockResolvedValue(null);
+
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ approveDraw, rejectDraw, releaseDraw }}
+        activeTab="details"
+        detail={{
+          ...detail,
+          draws: [
+            {
+              ...detail.draws[0],
+              _id: "draw-requested",
+              amountCents: 88_000_00,
+              drawKey: "draw-requested",
+              label: "Requested foundation reimbursement",
+              requestedAt: "2026-06-24T12:00:00.000Z",
+              status: "requested",
+            },
+            {
+              ...detail.draws[0],
+              _id: "draw-approved",
+              amountCents: 64_000_00,
+              drawKey: "draw-approved",
+              label: "Approved framing reimbursement",
+              order: 2,
+              reviewedAt: "2026-06-25T12:00:00.000Z",
+              status: "approved",
+            },
+          ],
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+        viewerRole="lender"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("build-overview-tab-draws"));
+
+    expect(screen.queryByTestId("draw-overview-request-now")).toBeNull();
+    expect(screen.getByTestId("draw-overview-approval-queue").textContent).toContain(
+      "Draw approval queue",
+    );
+
+    fireEvent.click(screen.getByTestId("draw-overview-approve-draw-requested"));
+    await waitFor(() => expect(approveDraw).toHaveBeenCalledTimes(1));
+    expect(approveDraw.mock.calls[0]?.[0]).toMatchObject({
+      drawKey: "draw-requested",
+    });
+
+    fireEvent.click(screen.getByTestId("draw-overview-release-draw-approved"));
+    await waitFor(() => expect(releaseDraw).toHaveBeenCalledTimes(1));
+    expect(releaseDraw.mock.calls[0]?.[0]).toMatchObject({
+      drawKey: "draw-approved",
+    });
+
+    expect(screen.queryByTestId("build-detail-draw-request-draw-requested")).toBeNull();
+  });
+
+  test("does not expose lender request buttons for planned draw rows", () => {
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ approveDraw: vi.fn(), rejectDraw: vi.fn() }}
+        activeTab="details"
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+        viewerRole="lender"
+      />,
+    );
+
+    expect(screen.queryByTestId("build-detail-draw-request-draw-01")).toBeNull();
+    expect(screen.getByText("Awaiting request")).toBeTruthy();
   });
 
   test("opens the milestone completion review sheet from the current overview", async () => {
@@ -968,6 +1048,7 @@ describe("ProductionBuildDetailSurface", () => {
         onChangeRail={vi.fn()}
         onChangeTab={vi.fn()}
         rail="closed"
+        viewerRole="builder"
       />,
     );
 

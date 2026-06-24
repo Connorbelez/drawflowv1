@@ -252,6 +252,9 @@ export function BuilderProductionProposalWorkspace({
   const updateProductionDrawScheduleRow = useMutation(
     api.production_proposals.updateSubmittedProposalDrawScheduleRow
   );
+  const submitProductionProposal = useMutation(
+    api.production_proposals.submitProposal
+  );
   const updateProductionTimelineDraw = useMutation(
     api.production_proposals.updateProductionTimelineDraw
   );
@@ -543,6 +546,15 @@ export function BuilderProductionProposalWorkspace({
           surface: "proposal",
           workosOrganizationId,
         })
+      }
+      onSubmit={
+        canEditProposalMilestones
+          ? () =>
+              submitProductionProposal({
+                proposalId: typedProposalId,
+                workosOrganizationId,
+              }).then(() => toast.success("Proposal submitted to lender review."))
+          : undefined
       }
       onUpdateCalendarReminderEvent={
         canUseAppPermission(appPermissions, "reminder", "update")
