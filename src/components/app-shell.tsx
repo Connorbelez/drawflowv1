@@ -1,7 +1,14 @@
 import { useRouter, useRouterState } from "@tanstack/react-router";
 import { Bot, Search } from "lucide-react";
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { AppHeader } from "#/components/app-header.tsx";
 import { AppSidebar, type AppSidebarProps } from "#/components/app-sidebar.tsx";
 import { DecorIcon } from "#/components/decor-icon.tsx";
@@ -26,8 +33,15 @@ import {
   type AssistantClientAction,
 } from "#/features/assistant/assistantClientActionBridge.ts";
 import { buildAssistantRouteContext } from "#/features/assistant/assistantRouteContext.ts";
-import { DrawFlowAssistant } from "#/features/assistant/DrawFlowAssistant.tsx";
+import { canonicalizeAssistantRoute } from "#/features/assistant/assistantRouteRegistry.ts";
+import { DrawFlowAssistantLauncher } from "#/features/assistant/DrawFlowAssistantLauncher.tsx";
 import { cn } from "#/lib/utils.ts";
+
+const loadDrawFlowAssistant = () =>
+  import("#/features/assistant/DrawFlowAssistant.tsx");
+const LazyDrawFlowAssistant = lazy(async () => ({
+  default: (await loadDrawFlowAssistant()).DrawFlowAssistant,
+}));
 
 type AppShellAuthContext = {
   organizationId?: string | null;
@@ -44,6 +58,8 @@ type AppShellRouteMatch = {
   routeId?: string;
   search?: Record<string, unknown>;
 };
+
+const DRAWFLOW_ASSISTANT_OPEN_STORAGE_KEY = "drawflow.assistant.open";
 
 export type AppShellProps = {
   children: ReactNode;
@@ -97,10 +113,31 @@ export function AppShell({
     [organizationId, role, roles, routerState, token, userId]
   );
 
+  const setAssistantOpenPersisted = useCallback((nextOpen: boolean) => {
+    setAssistantOpen(nextOpen);
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (nextOpen) {
+      window.sessionStorage.setItem(
+        DRAWFLOW_ASSISTANT_OPEN_STORAGE_KEY,
+        "true"
+      );
+      return;
+    }
+    window.sessionStorage.removeItem(DRAWFLOW_ASSISTANT_OPEN_STORAGE_KEY);
+  }, []);
+
+  useEffect(() => {
+    if (readStoredAssistantOpen()) {
+      setAssistantOpen(true);
+    }
+  }, []);
+
   const openAssistant = useCallback(() => {
     setCommandOpen(false);
-    setAssistantOpen(true);
-  }, []);
+    setAssistantOpenPersisted(true);
+  }, [setAssistantOpenPersisted]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -134,16 +171,32 @@ export function AppShell({
       if (!action.to) {
         return;
       }
+      const canonicalRoute = canonicalizeAssistantRoute(String(action.to));
+      if (!canonicalRoute) {
+        console.warn("Ignored assistant navigation to an unknown DrawFlow route.", {
+          to: action.to,
+        });
+        return;
+      }
       const afterNavigationActions = Array.isArray(action.afterNavigationActions)
         ? (action.afterNavigationActions as AssistantClientAction[])
         : [];
+      const workflowId = `assistant-workflow:${Date.now()}`;
       queueAssistantClientActions(
-        afterNavigationActions.map((queuedAction) => ({
+        afterNavigationActions.map((queuedAction, index) => ({
           ...queuedAction,
-          route: queuedAction.route ?? action.to,
+          status: "pending",
+          stepId: queuedAction.stepId ?? `${workflowId}:step-${index + 1}`,
+          route: queuedAction.route ?? canonicalRoute,
+          workflowId: queuedAction.workflowId ?? workflowId,
+          workflowLabel:
+            queuedAction.workflowLabel ??
+            (typeof action.label === "string"
+              ? action.label
+              : "Assistant navigation workflow"),
         }))
       );
-      void router.navigate({ to: action.to as never });
+      void router.navigate({ to: canonicalRoute as never });
     };
     window.addEventListener(
       "drawflow-assistant:readonly-action",
@@ -181,13 +234,37 @@ export function AppShell({
           onOpenChange={setCommandOpen}
           open={commandOpen}
         />
-        <DrawFlowAssistant
-          onOpenChange={setAssistantOpen}
-          open={assistantOpen}
-          routeContext={routeContext}
-        />
+        {assistantOpen ? (
+          <Suspense
+            fallback={
+              <DrawFlowAssistantLauncher disabled onOpen={() => undefined} />
+            }
+          >
+            <LazyDrawFlowAssistant
+              onOpenChange={setAssistantOpenPersisted}
+              open
+              routeContext={routeContext}
+            />
+          </Suspense>
+        ) : (
+          <DrawFlowAssistantLauncher
+            onOpen={openAssistant}
+            onPreload={() => {
+              loadDrawFlowAssistant().catch(() => undefined);
+            }}
+          />
+        )}
       </SidebarInset>
     </SidebarProvider>
+  );
+}
+
+function readStoredAssistantOpen() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return (
+    window.sessionStorage.getItem(DRAWFLOW_ASSISTANT_OPEN_STORAGE_KEY) === "true"
   );
 }
 

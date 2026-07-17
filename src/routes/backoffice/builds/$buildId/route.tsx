@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
@@ -20,6 +20,7 @@ import {
   getVisualParityActiveBuildTimelineWorkspace,
   isProductionVisualParityFixtureEnabled,
 } from "#/features/production-proposals/visualParityFixtures.ts";
+import { canMakeActiveBuildFinalDecision } from "#/lib/auth/rbac.ts";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
@@ -28,10 +29,12 @@ type BuildDetailSearch = {
   milestone?: string;
   tab?:
     | "calendar"
+    | "contractors"
     | "details"
     | "evidence"
     | "gantt"
     | "materials"
+    | "milestones"
     | "staff"
     | "timeline";
   rail?: "open" | "closed";
@@ -42,6 +45,8 @@ export const Route = createFileRoute("/backoffice/builds/$buildId")({
     const tab =
       search.tab === "timeline" ||
       search.tab === "evidence" ||
+      search.tab === "contractors" ||
+      search.tab === "milestones" ||
       search.tab === "materials" ||
       search.tab === "staff" ||
       search.tab === "calendar" ||
@@ -100,6 +105,9 @@ function RouteComponent() {
   const assignSiteVisit = useMutation(
     api.production_proposals.assignActiveBuildSiteVisit
   );
+  const generateSiteVisitGuidance = useAction(
+    (api as any).assistant.generateSiteVisitGuidance
+  );
   const assignContractorToMilestone = useMutation(
     (api as any).production_proposals.assignActiveBuildContractorToMilestone
   );
@@ -108,6 +116,9 @@ function RouteComponent() {
   );
   const createContractor = useMutation(
     api.production_proposals.createContractorProfile
+  );
+  const sendContractorInvite = useMutation(
+    (api as any).contractorOnboarding.sendContractorProfileInvite
   );
   const rejectDraw = useMutation(
     api.production_proposals.rejectActiveBuildDraw
@@ -268,6 +279,10 @@ function RouteComponent() {
     const activeBuildId = detail.build._id as any;
     const workosOrganizationId = context.organizationId as string;
     const appPermissions = detail.appPermissions;
+    const canMakeFinalDecision = canMakeActiveBuildFinalDecision([
+      context.role,
+      ...(context.roles ?? []),
+    ]);
     const materialPlanningActions = filterMaterialPlanningActionsForPermissions(
       appPermissions,
       visualFixtureEnabled
@@ -323,26 +338,44 @@ function RouteComponent() {
               workosOrganizationId,
             })
         : undefined,
-      approveMilestone: canUseAppPermission(
-        appPermissions,
-        "milestone",
-        "update"
-      )
-        ? ({ milestoneKey, note }) =>
-            approveMilestone({
-              buildId: activeBuildId,
-              milestoneKey,
-              note,
-              workosOrganizationId,
-            })
-        : undefined,
+      approveMilestone:
+        canMakeFinalDecision &&
+        canUseAppPermission(appPermissions, "milestone", "update")
+          ? ({ milestoneKey, note }) =>
+              approveMilestone({
+                buildId: activeBuildId,
+                milestoneKey,
+                note,
+                workosOrganizationId,
+              })
+          : undefined,
       assignSiteVisit: canUseAppPermission(appPermissions, "evidence", "update")
-        ? ({ milestoneKey }) =>
+        ? ({
+            milestoneKey,
+            note,
+            requestedTime,
+            siteVisitGuidance,
+            submilestoneKeys,
+          }) =>
             assignSiteVisit({
               buildId: activeBuildId,
               milestoneKey,
-              note: "Assigned from build detail workspace.",
+              note: note ?? "Assigned from build detail workspace.",
               requestedDay: 0,
+              requestedTime,
+              siteVisitGuidance,
+              submilestoneKeys,
+              workosOrganizationId,
+            })
+        : undefined,
+      generateSiteVisitGuidance: canUseAppPermission(
+        appPermissions,
+        "evidence",
+        "update"
+      )
+        ? (input) =>
+            generateSiteVisitGuidance({
+              ...input,
               workosOrganizationId,
             })
         : undefined,
@@ -398,6 +431,7 @@ function RouteComponent() {
               role,
               workosOrganizationId,
             });
+            return contractorId;
           }
         : undefined,
       createAndAssignContractor: canUseAppPermission(
@@ -419,7 +453,19 @@ function RouteComponent() {
               role,
               workosOrganizationId,
             });
+            return contractorId;
           }
+        : undefined,
+      inviteContractor: canUseAppPermission(
+        appPermissions,
+        "contractor",
+        "create"
+      )
+        ? (contractorId) =>
+            sendContractorInvite({
+              contractorId: contractorId as Id<"contractorProfiles">,
+              workosOrganizationId,
+            })
         : undefined,
       rejectDraw: canUseAppPermission(appPermissions, "draw", "update")
         ? (draw) =>
@@ -430,29 +476,29 @@ function RouteComponent() {
               workosOrganizationId,
             })
         : undefined,
-      rejectMilestone: canUseAppPermission(
-        appPermissions,
-        "milestone",
-        "update"
-      )
-        ? ({ milestoneKey }) =>
-            rejectMilestone({
-              buildId: activeBuildId,
-              milestoneKey,
-              note: "Rejected from build detail workspace.",
-              workosOrganizationId,
-            })
-        : undefined,
-      releaseDraw: canUseAppPermission(appPermissions, "draw", "update")
-        ? (draw) =>
-            releaseDraw({
-              buildId: activeBuildId,
-              drawKey: draw.drawKey,
-              note: "Released from build detail workspace.",
-              releaseDate: new Date().toISOString().slice(0, 10),
-              workosOrganizationId,
-            })
-        : undefined,
+      rejectMilestone:
+        canMakeFinalDecision &&
+        canUseAppPermission(appPermissions, "milestone", "update")
+          ? ({ milestoneKey }) =>
+              rejectMilestone({
+                buildId: activeBuildId,
+                milestoneKey,
+                note: "Rejected from build detail workspace.",
+                workosOrganizationId,
+              })
+          : undefined,
+      releaseDraw:
+        canMakeFinalDecision &&
+        canUseAppPermission(appPermissions, "draw", "update")
+          ? (draw) =>
+              releaseDraw({
+                buildId: activeBuildId,
+                drawKey: draw.drawKey,
+                note: "Released from build detail workspace.",
+                releaseDate: new Date().toISOString().slice(0, 10),
+                workosOrganizationId,
+              })
+          : undefined,
       reviseMilestoneSchedule: canUseAppPermission(
         appPermissions,
         "milestone",
@@ -656,6 +702,7 @@ function RouteComponent() {
           `/backoffice/contractors/${contractorId}`
         }
         detail={detail}
+        fundingWorkspaceEnabled
         milestoneKey={search.milestone}
         onChangeCalendarTimeframe={onChangeCalendarTimeframe}
         onChangeMilestone={onChangeMilestone}

@@ -80,6 +80,9 @@ function RouteComponent() {
   const linkAccount = useMutation(
     contractorApi.linkContractorProfileToWorkosUser
   );
+  const sendInvite = useMutation(
+    (api as any).contractorOnboarding.sendContractorProfileInvite
+  );
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedContractorId, setSelectedContractorId] = useState("");
   const [workosUserId, setWorkosUserId] = useState("");
@@ -111,6 +114,15 @@ function RouteComponent() {
     });
     setSelectedContractorId(String(contractorId));
     setMessage("Contractor profile created. Link a WorkOS user when ready.");
+    return contractorId;
+  };
+
+  const inviteContractor = async (contractorId: string) => {
+    await sendInvite({
+      contractorId: contractorId as Id<"contractorProfiles">,
+      workosOrganizationId,
+    });
+    setMessage("Contractor profile created and invitation sent.");
   };
 
   const submitLink = async (event: React.FormEvent) => {
@@ -271,8 +283,10 @@ function RouteComponent() {
 
       <ContractorQuickAddDrawer
         createLabel="Create profile"
-        description="Capture schedule, pay rate, capabilities, and equipment before assigning the contractor to build work."
+        description="Capture pay rate, capabilities, equipment, and contact details before assigning the contractor to build work."
+        inviteAfterCreateDescription="Create the profile and send a WorkOS invitation to the contractor's email."
         onCreate={createProfile}
+        onInviteCreatedContractor={inviteContractor}
         onOpenChange={setDrawerOpen}
         open={drawerOpen}
         title="Create contractor profile"

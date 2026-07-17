@@ -10,6 +10,110 @@ import { BuildWorkspaceProvider } from "./workspace-adapter.tsx";
 afterEach(() => cleanup());
 
 describe("BuildWorkspaceDemo Gantt labels and draw editing", () => {
+  test("hides lender approval controls and proposal labels in builder active workspace", () => {
+    renderWorkspace(
+      {
+        build: {
+          ...workspaceFixture().build,
+          buildName: "4-plex Proposal",
+          phaseLabel: "Active reimbursement workspace",
+        },
+        mode: "active",
+        role: "lenderAdmin",
+        terminalMessage: "",
+      },
+      { viewer: "builder" },
+    );
+
+    const shell = screen.getByTestId("build-workspace-shell");
+    expect(within(shell).getByText("Live Build")).toBeTruthy();
+    expect(within(shell).getByText("4-plex Build")).toBeTruthy();
+    expect(within(shell).queryByText("4-plex Proposal")).toBeNull();
+    expect(within(shell).getByText("active")).toBeTruthy();
+    expect(within(shell).queryByText("Proposal")).toBeNull();
+    expect(screen.queryByTestId("workspace-role-select")).toBeNull();
+    expect(screen.queryByText("Lender Admin")).toBeNull();
+    expect(screen.queryByText("Approve milestone")).toBeNull();
+    expect(screen.queryByTestId("active-primary-approve-dc-ed")).toBeNull();
+    expect(screen.getByTestId("active-primary-mark-complete-dc-ed")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("timeline-milestone-dc-ed"));
+
+    const sheet = screen.getByTestId("milestone-detail-sheet");
+    expect(within(sheet).queryByText("Lender Review, Site Visit, and Admin Approval")).toBeNull();
+    expect(within(sheet).queryByTestId("approve-milestone")).toBeNull();
+    expect(within(sheet).queryByText("Approve milestone")).toBeNull();
+  });
+
+  test("keeps lender approval controls available for lender active workspace", () => {
+    renderWorkspace({
+      mode: "active",
+      role: "lenderAdmin",
+      terminalMessage: "",
+    });
+
+    expect(screen.getByTestId("workspace-role-select")).toBeTruthy();
+    expect(screen.getByTestId("active-primary-approve-dc-ed")).toBeTruthy();
+    expect(screen.getByText("Approve milestone")).toBeTruthy();
+  });
+
+  test("can hide role selector on lender production embeds without hiding lender actions", () => {
+    renderWorkspace(
+      {
+        mode: "active",
+        role: "lenderAdmin",
+        terminalMessage: "",
+      },
+      { showRoleSelector: false, viewer: "lender" },
+    );
+
+    expect(screen.queryByTestId("workspace-role-select")).toBeNull();
+    expect(screen.getByTestId("active-primary-approve-dc-ed")).toBeTruthy();
+    expect(screen.getByText("Approve milestone")).toBeTruthy();
+  });
+
+  test("keeps staff review controls while withholding final milestone decisions", () => {
+    renderWorkspace(
+      {
+        mode: "active",
+        role: "lenderAdmin",
+        terminalMessage: "",
+      },
+      {
+        canFinalizeMilestones: false,
+        showRoleSelector: false,
+        viewer: "lender",
+      },
+    );
+
+    expect(screen.queryByTestId("active-primary-approve-dc-ed")).toBeNull();
+    expect(screen.queryByText("Approve milestone")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("timeline-milestone-dc-ed"));
+
+    const sheet = screen.getByTestId("milestone-detail-sheet");
+    expect(within(sheet).getByTestId("accept-evidence")).toBeTruthy();
+    expect(within(sheet).getByTestId("request-more-info")).toBeTruthy();
+    expect(within(sheet).queryByTestId("reject-milestone")).toBeNull();
+    expect(within(sheet).queryByTestId("approve-milestone")).toBeNull();
+  });
+
+  test("can hide topbar primary actions for production embeds", () => {
+    renderWorkspace(
+      {
+        mode: "active",
+        role: "builderLead",
+        terminalMessage: "",
+      },
+      { showPrimaryAction: false, showRoleSelector: false, viewer: "builder" },
+    );
+
+    expect(screen.queryByTestId("workspace-role-select")).toBeNull();
+    expect(screen.queryByTestId("active-primary-mark-complete-dc-ed")).toBeNull();
+    expect(screen.queryByText("Mark complete")).toBeNull();
+    expect(screen.queryByText("Approve milestone")).toBeNull();
+  });
+
   test("renders submilestone names without draw-label pills and opens draw editor from draw indicator", () => {
     const updateDrawGroup = vi.fn().mockResolvedValue(undefined);
     renderWorkspace({ updateDrawGroup });
@@ -120,10 +224,22 @@ describe("BuildWorkspaceDemo Gantt labels and draw editing", () => {
 
 function renderWorkspace(
   overrides: Partial<BuildWorkspaceAdapter> = {},
+  options: {
+    canFinalizeMilestones?: boolean;
+    showPrimaryAction?: boolean;
+    showRoleSelector?: boolean;
+    viewer?: "builder" | "lender";
+  } = {},
 ) {
   return render(
     <BuildWorkspaceProvider workspace={{ ...workspaceFixture(), ...overrides }}>
-      <BuildWorkspaceDemo layout="embedded" />
+      <BuildWorkspaceDemo
+        canFinalizeMilestones={options.canFinalizeMilestones}
+        layout="embedded"
+        showPrimaryAction={options.showPrimaryAction}
+        showRoleSelector={options.showRoleSelector}
+        viewer={options.viewer}
+      />
     </BuildWorkspaceProvider>,
   );
 }

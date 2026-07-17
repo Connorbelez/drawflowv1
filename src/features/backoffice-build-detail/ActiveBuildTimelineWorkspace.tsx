@@ -20,13 +20,20 @@ import {
 
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import type { SiteVisitOrderRequest } from "./SiteVisitOrderDialog.tsx";
 
 export interface ActiveBuildTimelineWorkspaceProps {
   appPermissions?: BuilderStaffAppPermissions | null;
   backofficeHref: string;
   buildHref: string;
   buildId: Id<"activeBuilds">;
+  canApproveMilestones?: boolean;
+  canRecordSiteVisits?: boolean;
+  canRequestMilestoneInfo?: boolean;
+  canRequestSiteVisits?: boolean;
+  canReviewDraws?: boolean;
   initialRole?: "builder" | "lender";
+  onRequestSiteVisit: (request: SiteVisitOrderRequest) => void;
   workosOrganizationId: string;
   workspace: ConvexTimelineWorkspace & {
     modificationRequests?: TimelineModificationRequestView[];
@@ -45,7 +52,13 @@ export function ActiveBuildTimelineWorkspace({
   backofficeHref,
   buildHref,
   buildId,
+  canApproveMilestones = false,
+  canRecordSiteVisits = false,
+  canRequestMilestoneInfo = false,
+  canRequestSiteVisits = false,
+  canReviewDraws = false,
   initialRole = "lender",
+  onRequestSiteVisit,
   workspace,
   workosOrganizationId,
 }: ActiveBuildTimelineWorkspaceProps) {
@@ -101,9 +114,6 @@ export function ActiveBuildTimelineWorkspace({
   const requestDraw = useMutation(productionApi.requestActiveBuildDraw);
   const approveDraw = useMutation(productionApi.approveActiveBuildDraw);
   const rejectDraw = useMutation(productionApi.rejectActiveBuildDraw);
-  const requestMilestoneSiteVisit = useMutation(
-    productionApi.assignActiveBuildSiteVisit
-  );
   const recordMilestoneSiteVisit = useMutation(
     productionApi.recordActiveBuildSiteVisit
   );
@@ -260,17 +270,17 @@ export function ActiveBuildTimelineWorkspace({
             })
           : rejectForbidden(),
       requestMilestoneSiteVisit: (input) =>
-        canCreateReminder || canUpdateEvidence
-          ? requestMilestoneSiteVisit({
-              buildId,
-              milestoneKey: input.milestoneKey,
-              note: input.note ?? input.reason,
-              requestedDay: input.requestedDay,
-              workosOrganizationId,
-            })
+        canRequestSiteVisits && (canCreateReminder || canUpdateEvidence)
+          ? Promise.resolve(
+              onRequestSiteVisit({
+                milestoneKey: input.milestoneKey,
+                note: input.note ?? input.reason,
+                requestedDay: input.requestedDay,
+              })
+            )
           : rejectForbidden(),
       recordMilestoneSiteVisit: (input) =>
-        canUpdateEvidence
+        canRecordSiteVisits && canUpdateEvidence
           ? recordMilestoneSiteVisit({
               buildId,
               milestoneKey: input.milestoneKey,
@@ -281,7 +291,7 @@ export function ActiveBuildTimelineWorkspace({
             })
           : rejectForbidden(),
       reviewDrawRequest: (input) =>
-        canUpdateDraw
+        canReviewDraws && canUpdateDraw
           ? input.status === "rejected"
             ? rejectDraw({
                 buildId,
@@ -297,21 +307,23 @@ export function ActiveBuildTimelineWorkspace({
               })
           : rejectForbidden(),
       reviewMilestoneCompletion: (input) =>
-        canUpdateMilestone
-          ? input.status === "approved"
+        input.status === "approved"
+          ? canApproveMilestones && canUpdateMilestone
             ? approveMilestone({
                 buildId,
                 milestoneKey: input.milestoneKey,
                 note: input.note,
                 workosOrganizationId,
               })
-            : requestMilestoneInfo({
+            : rejectForbidden()
+          : canRequestMilestoneInfo && canUpdateMilestone
+            ? requestMilestoneInfo({
                 buildId,
                 milestoneKey: input.milestoneKey,
                 note: input.note ?? "More information requested.",
                 workosOrganizationId,
               })
-          : rejectForbidden(),
+            : rejectForbidden(),
       submitDrawRequest: (input) =>
         canUpdateDraw
           ? requestDraw({
@@ -376,15 +388,20 @@ export function ActiveBuildTimelineWorkspace({
       approveDraw,
       approveMilestone,
       buildId,
+      canApproveMilestones,
       canCreateCapitalEvent,
       canCreateDraw,
       canCreateEvidence,
       canCreateMilestone,
       canCreateReminder,
+      canRecordSiteVisits,
       canDeleteCapitalEvent,
       canDeleteDraw,
       canDeleteEvidence,
       canDeleteMilestone,
+      canRequestMilestoneInfo,
+      canRequestSiteVisits,
+      canReviewDraws,
       canUpdateCapitalEvent,
       canUpdateDraw,
       canUpdateEvidence,
@@ -404,7 +421,7 @@ export function ActiveBuildTimelineWorkspace({
       rejectDraw,
       requestDraw,
       requestMilestoneInfo,
-      requestMilestoneSiteVisit,
+      onRequestSiteVisit,
       submitMilestoneCompletion,
       updateCapitalEvent,
       updateDraw,
@@ -418,6 +435,7 @@ export function ActiveBuildTimelineWorkspace({
   return (
     <TimelineWorkspace
       allowRoleSwitching={false}
+      canApproveMilestoneCompletion={canApproveMilestones}
       durableMeta={{
         backofficeHref,
         liveBuildHref: buildHref,

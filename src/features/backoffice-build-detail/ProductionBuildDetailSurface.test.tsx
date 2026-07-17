@@ -15,6 +15,25 @@ vi.mock("convex/react", () => ({
   useQuery: () => undefined,
 }));
 
+vi.mock("#/components/rich-text/field-rich-text.tsx", () => ({
+  FieldRichTextEditor: ({
+    ariaLabel,
+    onChange,
+    value,
+  }: {
+    ariaLabel: string;
+    onChange: (value: string) => void;
+    value: string;
+  }) => (
+    <textarea
+      aria-label={ariaLabel}
+      onChange={(event) => onChange(event.currentTarget.value)}
+      value={value}
+    />
+  ),
+  FieldRichTextPreview: () => null,
+}));
+
 vi.mock("nuqs", () => ({
   parseAsString: {},
   useQueryStates: () => [{ share: null }, vi.fn()],
@@ -39,8 +58,20 @@ vi.mock(
 );
 
 vi.mock("./ActiveBuildTimelineWorkspace", () => ({
-  ActiveBuildTimelineWorkspace: ({ workspace }: { workspace: any }) => (
+  ActiveBuildTimelineWorkspace: ({
+    onRequestSiteVisit,
+    workspace,
+  }: {
+    onRequestSiteVisit: (input: { milestoneKey: string }) => void;
+    workspace: any;
+  }) => (
     <div data-testid="mock-active-build-timeline">
+      <button
+        onClick={() => onRequestSiteVisit({ milestoneKey: "foundation" })}
+        type="button"
+      >
+        Timeline order site visit
+      </button>
       <div data-testid="mock-active-build-timeline-milestones">
         {workspace.milestones.length}
       </div>
@@ -52,8 +83,20 @@ vi.mock("./ActiveBuildTimelineWorkspace", () => ({
 }));
 
 vi.mock("./ActiveBuildTimelineWorkspace.tsx", () => ({
-  ActiveBuildTimelineWorkspace: ({ workspace }: { workspace: any }) => (
+  ActiveBuildTimelineWorkspace: ({
+    onRequestSiteVisit,
+    workspace,
+  }: {
+    onRequestSiteVisit: (input: { milestoneKey: string }) => void;
+    workspace: any;
+  }) => (
     <div data-testid="mock-active-build-timeline">
+      <button
+        onClick={() => onRequestSiteVisit({ milestoneKey: "foundation" })}
+        type="button"
+      >
+        Timeline order site visit
+      </button>
       <div data-testid="mock-active-build-timeline-milestones">
         {workspace.milestones.length}
       </div>
@@ -67,10 +110,23 @@ vi.mock("./ActiveBuildTimelineWorkspace.tsx", () => ({
 vi.mock("./ActiveBuildGanttWorkspace", () => ({
   ActiveBuildGanttWorkspace: ({
     detail,
+    onRequestSiteVisit,
+    viewerRole,
   }: {
     detail: ProductionBuildDetail;
+    onRequestSiteVisit: (input: { milestoneKey: string }) => void;
+    viewerRole?: "builder" | "lender";
   }) => (
-    <div data-testid="mock-active-build-gantt">
+    <div
+      data-testid="mock-active-build-gantt"
+      data-viewer-role={viewerRole ?? "lender"}
+    >
+      <button
+        onClick={() => onRequestSiteVisit({ milestoneKey: "foundation" })}
+        type="button"
+      >
+        Gantt order site visit
+      </button>
       {detail.milestones.map((milestone) => (
         <div
           data-testid={`mock-active-build-gantt-${milestone.key}`}
@@ -86,10 +142,23 @@ vi.mock("./ActiveBuildGanttWorkspace", () => ({
 vi.mock("./ActiveBuildGanttWorkspace.tsx", () => ({
   ActiveBuildGanttWorkspace: ({
     detail,
+    onRequestSiteVisit,
+    viewerRole,
   }: {
     detail: ProductionBuildDetail;
+    onRequestSiteVisit: (input: { milestoneKey: string }) => void;
+    viewerRole?: "builder" | "lender";
   }) => (
-    <div data-testid="mock-active-build-gantt">
+    <div
+      data-testid="mock-active-build-gantt"
+      data-viewer-role={viewerRole ?? "lender"}
+    >
+      <button
+        onClick={() => onRequestSiteVisit({ milestoneKey: "foundation" })}
+        type="button"
+      >
+        Gantt order site visit
+      </button>
       {detail.milestones.map((milestone) => (
         <div
           data-testid={`mock-active-build-gantt-${milestone.key}`}
@@ -145,6 +214,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
   document.body.removeAttribute("style");
 });
 
@@ -388,6 +458,9 @@ describe("ProductionBuildDetailSurface", () => {
 
     const tabbar = screen.getByTestId("build-detail-tabbar");
     expect(within(tabbar).getByText("Details")).toBeTruthy();
+    expect(within(tabbar).getByText("Milestones")).toBeTruthy();
+    expect(within(tabbar).getByText("Contractors")).toBeTruthy();
+    expect(within(tabbar).getByText("Materials")).toBeTruthy();
     expect(within(tabbar).getByText("Timeline")).toBeTruthy();
     expect(within(tabbar).getByText("Evidence")).toBeTruthy();
     expect(within(tabbar).getByText("Calendar")).toBeTruthy();
@@ -400,6 +473,81 @@ describe("ProductionBuildDetailSurface", () => {
 
     fireEvent.click(screen.getByTestId("build-detail-tab-timeline"));
     expect(onChangeTab).toHaveBeenCalledWith("timeline");
+
+    fireEvent.click(screen.getByTestId("build-detail-tab-contractors"));
+    expect(onChangeTab).toHaveBeenCalledWith("contractors");
+
+    fireEvent.click(screen.getByTestId("build-detail-tab-materials"));
+    expect(onChangeTab).toHaveBeenCalledWith("materials");
+
+    fireEvent.click(screen.getByTestId("build-detail-tab-milestones"));
+    expect(onChangeTab).toHaveBeenCalledWith("milestones");
+  });
+
+  test("renders first-class milestone, contractor, and materials tabs for live builds", () => {
+    const { rerender } = render(
+      <ProductionBuildDetailSurface
+        activeTab="milestones"
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+      />,
+    );
+
+    expect(screen.getByTestId("production-build-milestones")).toBeTruthy();
+    expect(screen.getByTestId("build-detail-kanban")).toBeTruthy();
+    expect(screen.getByTestId("kanban-card-foundation")).toBeTruthy();
+
+    rerender(
+      <ProductionBuildDetailSurface
+        activeTab="contractors"
+        contractorDetailHrefFor={(contractorId) =>
+          `/backoffice/contractors/${contractorId}`
+        }
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+      />,
+    );
+
+    expect(screen.getByTestId("production-build-contractors")).toBeTruthy();
+    expect(screen.getByTestId("proposal-contractor-planning")).toBeTruthy();
+    expect(screen.getByTestId("contractor-card-contractor-01")).toBeTruthy();
+    expect(screen.getByTestId("proposal-milestone-drop-foundation")).toBeTruthy();
+    expect(screen.getAllByText("Site Lead Builders").length).toBeGreaterThan(
+      1,
+    );
+
+    rerender(
+      <ProductionBuildDetailSurface
+        activeTab="materials"
+        detail={{
+          ...detail,
+          costItems: [
+            {
+              _id: "cost-item-01",
+              costCents: 8_000_00,
+              description: "Concrete and rebar package.",
+              itemType: "material",
+              milestoneKey: "foundation",
+              quantity: 1,
+              relevantSubmilestoneKeys: ["excavation"],
+              supplier: "Apex Supply",
+              title: "Foundation material package",
+            },
+          ],
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+      />,
+    );
+
+    expect(screen.getByTestId("material-planning-tab")).toBeTruthy();
+    expect(screen.getByText("Foundation material package")).toBeTruthy();
+    expect(screen.getByText("Apex Supply")).toBeTruthy();
   });
 
   test("renders Google Maps satellite imagery for the build site photos", () => {
@@ -411,7 +559,7 @@ describe("ProductionBuildDetailSurface", () => {
         detail={detail}
         onChangeRail={vi.fn()}
         onChangeTab={vi.fn()}
-        rail="open"
+        rail="closed"
       />,
     );
 
@@ -559,7 +707,7 @@ describe("ProductionBuildDetailSurface", () => {
         detail={detail}
         onChangeRail={vi.fn()}
         onChangeTab={vi.fn()}
-        rail="open"
+        rail="closed"
       />,
     );
 
@@ -724,6 +872,122 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.queryByTestId("build-detail-draw-request-draw-requested")).toBeNull();
   });
 
+  test("runs the B4 lender funding review workflow against production draw actions", async () => {
+    const approveDraw = vi.fn().mockResolvedValue(null);
+    const rejectDraw = vi.fn().mockResolvedValue(null);
+    const releaseDraw = vi.fn().mockResolvedValue(null);
+    const requestedDraw = {
+      ...detail.draws[0],
+      _id: "draw-requested-b4",
+      amountCents: 88_000_00,
+      drawKey: "draw-requested-b4",
+      label: "Requested foundation reimbursement",
+      requestedAt: "2026-07-14T12:00:00.000Z",
+      status: "requested" as const,
+    };
+    const approvedDraw = {
+      ...detail.draws[0],
+      _id: "draw-approved-b4",
+      amountCents: 64_000_00,
+      drawKey: "draw-approved-b4",
+      label: "Approved framing reimbursement",
+      order: 2,
+      reviewedAt: "2026-07-15T12:00:00.000Z",
+      status: "approved" as const,
+    };
+
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ approveDraw, rejectDraw, releaseDraw }}
+        activeTab="details"
+        detail={{
+          ...detail,
+          draws: [requestedDraw, approvedDraw],
+          evidenceAssets: [
+            {
+              _id: "b4-foundation-evidence",
+              evidenceKey: "b4-foundation-photo",
+              fileName: "foundation-completion.jpg",
+              label: "Foundation completion photo",
+              locationVerified: true,
+              milestoneKey: "foundation",
+              mimeType: "image/jpeg",
+              previewUrl: "https://example.com/foundation-completion.jpg",
+              sizeBytes: 238_000,
+              source: "active_build_timeline_upload",
+              tag: "Foundation",
+            },
+          ],
+          milestones: [
+            {
+              ...detail.milestones[0],
+              completionClaim: {
+                note: "Foundation work is complete and ready for review.",
+                submittedAt: "2026-07-14T12:00:00.000Z",
+              },
+            },
+          ],
+          plannedDraws: [
+            {
+              amountCents: 106_328_82,
+              drawKey: "future-framing",
+              label: "Underground, framing & roof reimbursement",
+              order: 1,
+              timingDay: 90,
+            },
+          ],
+        }}
+        fundingWorkspaceEnabled
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+        viewerRole="lender"
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("build-overview-tab-draws"));
+
+    expect(screen.getByTestId("build-funding-workspace")).toBeTruthy();
+    expect(screen.getByTestId("lender-funding-review")).toBeTruthy();
+    expect(screen.queryByTestId("production-draws-table")).toBeNull();
+    expect(screen.queryByRole("button", { name: /request a draw/i })).toBeNull();
+
+    fireEvent.click(
+      screen.getByTestId("lender-review-approve-draw-requested-b4")
+    );
+    await waitFor(() => expect(approveDraw).toHaveBeenCalledWith(requestedDraw));
+
+    fireEvent.click(
+      screen.getByTestId("lender-review-reject-draw-requested-b4")
+    );
+    await waitFor(() => expect(rejectDraw).toHaveBeenCalledWith(requestedDraw));
+
+    fireEvent.click(
+      screen.getByTestId("lender-review-release-draw-approved-b4")
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Confirm release" })
+    );
+    await waitFor(() => expect(releaseDraw).toHaveBeenCalledWith(approvedDraw));
+
+    fireEvent.click(
+      within(screen.getByTestId("lender-funding-review")).getByRole("button", {
+        name: "Review Foundation milestone",
+      })
+    );
+    const milestoneSummary = within(
+      screen.getByTestId("milestone-completion-review-summary")
+    );
+    expect(milestoneSummary.getByText("$225,000.00")).toBeTruthy();
+    expect(milestoneSummary.getByText("2026-07-14")).toBeTruthy();
+    expect(
+      screen.getByText("Foundation completion photo")
+    ).toBeTruthy();
+    expect(
+      screen.getByText("No site visit has been ordered for this milestone.")
+    ).toBeTruthy();
+  });
+
   test("does not expose lender request buttons for planned draw rows", () => {
     render(
       <ProductionBuildDetailSurface
@@ -768,6 +1032,80 @@ describe("ProductionBuildDetailSurface", () => {
         note: "Approved from milestone completion review.",
       }),
     );
+  });
+
+  test("consolidates milestone scope, people, materials, evidence, and field review context for lenders", () => {
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={{
+          ...detail,
+          costItems: [
+            {
+              _id: "cost-item-review-01",
+              costCents: 8_000_00,
+              description: "Concrete and rebar package.",
+              itemType: "material",
+              milestoneKey: "foundation",
+              quantity: 1,
+              relevantSubmilestoneKeys: ["excavation"],
+              supplier: "Apex Supply",
+              title: "Foundation material package",
+            },
+          ],
+          evidenceAssets: [
+            {
+              _id: "evidence-review-01",
+              evidenceKey: "foundation-review-photo",
+              fileName: "foundation-review.jpg",
+              label: "Foundation completion photo",
+              locationVerified: true,
+              milestoneKey: "foundation",
+              mimeType: "image/jpeg",
+              sizeBytes: 128_000,
+              source: "active_build_timeline_upload",
+              submilestoneKey: "excavation",
+              tag: "Foundation",
+            },
+          ],
+          milestones: [
+            {
+              ...detail.milestones[0],
+              completionClaim: {
+                completedDay: 30,
+                note: "Foundation work is ready for review.",
+                submittedAt: "2026-06-24T12:00:00.000Z",
+              },
+              progressPercent: 100,
+            },
+          ],
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+        viewerRole="lender"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("current-milestone-review-foundation"));
+
+    const scope = screen.getByTestId("milestone-review-scope");
+    expect(within(scope).getByText("Excavation")).toBeTruthy();
+    expect(within(scope).getByText("Complete")).toBeTruthy();
+
+    const people = screen.getByTestId("milestone-review-contractors");
+    expect(within(people).getByText("Site Lead Builders")).toBeTruthy();
+    expect(within(people).getByText("Foundation contractor")).toBeTruthy();
+
+    const materials = screen.getByTestId("milestone-review-materials");
+    expect(within(materials).getByText("Foundation material package")).toBeTruthy();
+    expect(within(materials).getByText("Apex Supply")).toBeTruthy();
+    expect(within(materials).getByText("$8,000.00")).toBeTruthy();
+
+    expect(screen.getByText("Foundation completion photo")).toBeTruthy();
+    expect(screen.getByText("No site visit has been ordered for this milestone."))
+      .toBeTruthy();
+    expect(screen.getByText("Reviewer decision")).toBeTruthy();
   });
 
   test("sorts current milestones with the most recent completion request first", () => {
@@ -870,10 +1208,19 @@ describe("ProductionBuildDetailSurface", () => {
       .toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /Order site visit/i }));
-    await waitFor(() =>
-      expect(assignSiteVisit).toHaveBeenCalledWith({
-        milestoneKey: "foundation",
+    expect(assignSiteVisit).not.toHaveBeenCalled();
+    const orderDialog = within(
+      screen.getByRole("dialog", { name: "Configure site visit" }),
+    );
+    fireEvent.click(
+      orderDialog.getByRole("button", {
+        name: "Confirm and order site visit",
       }),
+    );
+    await waitFor(() =>
+      expect(assignSiteVisit).toHaveBeenCalledWith(
+        expect.objectContaining({ milestoneKey: "foundation" }),
+      ),
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Approve evidence/i }));
@@ -883,6 +1230,153 @@ describe("ProductionBuildDetailSurface", () => {
         milestoneKey: "foundation",
         note: "Builder evidence approved from milestone completion review.",
       }),
+    );
+  });
+
+  test("preflights site visit scope and editable guidance before creating the visit", async () => {
+    const assignSiteVisit = vi.fn().mockResolvedValue(null);
+    const whatToVerify =
+      "<ul><li>Verify excavation and footing work against the approved scope.</li></ul>";
+    const cameraAngles =
+      "<ul><li>Capture a wide view tying the excavation to the site.</li></ul>";
+
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ assignSiteVisit }}
+        activeTab="details"
+        detail={{
+          ...detail,
+          milestones: [
+            {
+              ...detail.milestones[0],
+              completionClaim: {
+                completedDay: 30,
+                submittedAt: "2026-06-24T12:00:00.000Z",
+              },
+              progressPercent: 100,
+              siteVisitGuidance: { cameraAngles, whatToVerify },
+            } as (typeof detail.milestones)[number],
+          ],
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("current-milestone-review-foundation"));
+    fireEvent.click(screen.getByRole("button", { name: "Order site visit" }));
+
+    const dialog = within(
+      screen.getByRole("dialog", { name: "Configure site visit" }),
+    );
+    expect(dialog.getByRole("heading", { name: "Configure site visit" })).toBeTruthy();
+    expect(assignSiteVisit).not.toHaveBeenCalled();
+    expect(dialog.getByText("Foundation")).toBeTruthy();
+    expect(dialog.getByText("Excavation")).toBeTruthy();
+
+    const verifyEditor = dialog.getByLabelText("What to verify");
+    const anglesEditor = dialog.getByLabelText("Required photo angles");
+    expect((verifyEditor as HTMLTextAreaElement).value).toBe(whatToVerify);
+    expect((anglesEditor as HTMLTextAreaElement).value).toBe(cameraAngles);
+
+    const editedVerify =
+      "<ul><li>Confirm forms, reinforcing, and concrete dimensions.</li></ul>";
+    const editedAngles =
+      "<ul><li>Capture one wide view and one reinforcing close-up.</li></ul>";
+    fireEvent.change(verifyEditor, { target: { value: editedVerify } });
+    fireEvent.change(anglesEditor, { target: { value: editedAngles } });
+    fireEvent.click(
+      dialog.getByRole("button", { name: "Confirm and order site visit" }),
+    );
+
+    await waitFor(() =>
+      expect(assignSiteVisit).toHaveBeenCalledWith({
+        milestoneKey: "foundation",
+        siteVisitGuidance: {
+          cameraAngles: editedAngles,
+          whatToVerify: editedVerify,
+        },
+        submilestoneKeys: ["excavation"],
+      }),
+    );
+  });
+
+  test("drafts contextual guidance with DrawFlow AI and keeps the result editable", async () => {
+    const assignSiteVisit = vi.fn().mockResolvedValue(null);
+    const generateSiteVisitGuidance = vi.fn().mockResolvedValue({
+      cameraAngles:
+        "<ul><li>Photograph the full excavation from the street.</li></ul>",
+      source: "openai" as const,
+      whatToVerify:
+        "<ul><li>Confirm excavation depth and footing preparation.</li></ul>",
+    });
+
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ assignSiteVisit, generateSiteVisitGuidance }}
+        activeTab="details"
+        detail={{
+          ...detail,
+          milestones: [
+            {
+              ...detail.milestones[0],
+              completionClaim: {
+                completedDay: 30,
+                submittedAt: "2026-06-24T12:00:00.000Z",
+              },
+              progressPercent: 100,
+            },
+          ],
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("current-milestone-review-foundation"));
+    fireEvent.click(screen.getByRole("button", { name: "Order site visit" }));
+    const dialog = within(
+      screen.getByRole("dialog", { name: "Configure site visit" }),
+    );
+    fireEvent.click(
+      dialog.getByRole("button", { name: "Write with DrawFlow AI" }),
+    );
+
+    await waitFor(() =>
+      expect(generateSiteVisitGuidance).toHaveBeenCalledWith(
+        expect.objectContaining({
+          build: {
+            location: "Toronto, ON",
+            name: "Approved With Permit Site",
+          },
+          milestone: expect.objectContaining({
+            key: "foundation",
+            name: "Foundation",
+          }),
+          submilestones: [{ key: "excavation", name: "Excavation" }],
+        }),
+      ),
+    );
+    const verifyEditor = dialog.getByLabelText("What to verify");
+    const anglesEditor = dialog.getByLabelText("Required photo angles");
+    await waitFor(() =>
+      expect((verifyEditor as HTMLTextAreaElement).value).toContain(
+        "Confirm excavation depth",
+      ),
+    );
+    expect((anglesEditor as HTMLTextAreaElement).value).toContain(
+      "Photograph the full excavation",
+    );
+
+    const editedAfterGeneration =
+      "<ul><li>Confirm excavation depth, footing preparation, and drainage.</li></ul>";
+    fireEvent.change(verifyEditor, {
+      target: { value: editedAfterGeneration },
+    });
+    expect((verifyEditor as HTMLTextAreaElement).value).toBe(
+      editedAfterGeneration,
     );
   });
 
@@ -955,6 +1449,61 @@ describe("ProductionBuildDetailSurface", () => {
         visitId: "visit-foundation-token",
       }),
     );
+    expect(screen.queryByTestId("site-visit-token-panel")).toBeNull();
+    expect(
+      screen.getByText("No site visit has been ordered for this milestone."),
+    ).toBeTruthy();
+  });
+
+  test("does not resurrect a cancelled site visit from a stale completion review snapshot", () => {
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={{
+          ...detail,
+          milestones: [
+            {
+              ...detail.milestones[0],
+              completionClaim: {
+                completedDay: 30,
+                submittedAt: "2026-06-24T12:00:00.000Z",
+              },
+              completionReview: {
+                siteVisit: {
+                  milestoneKey: "foundation",
+                  requestedAt: "2026-06-24T12:00:00.000Z",
+                  status: "requested",
+                  tokenExpiresAt: 4_102_444_800_000,
+                  url: "/newsitevisit/active-build-01/visit-foundation-token",
+                  visitId: "visit-foundation-token",
+                },
+              },
+              progressPercent: 100,
+            },
+          ],
+          siteVisits: [
+            {
+              _id: "site-visit-token-01",
+              milestoneKey: "foundation",
+              requestedAt: "2026-06-24T12:00:00.000Z",
+              requestedDay: 30,
+              status: "cancelled",
+              visitId: "visit-foundation-token",
+            },
+          ],
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("current-milestone-review-foundation"));
+
+    expect(screen.queryByTestId("site-visit-token-panel")).toBeNull();
+    expect(
+      screen.getByText("No site visit has been ordered for this milestone."),
+    ).toBeTruthy();
   });
 
   test("displays completed site visit reports in the completion review sheet", () => {
@@ -1187,20 +1736,194 @@ describe("ProductionBuildDetailSurface", () => {
         onChangeMilestone={onChangeMilestone}
         onChangeRail={vi.fn()}
         onChangeTab={vi.fn()}
-        rail="open"
+        rail="closed"
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Review milestone completion" })
+    ).toBeTruthy();
+    expect(screen.getByText("Builder submitted evidence")).toBeTruthy();
+    expect(screen.getByText("Site visit")).toBeTruthy();
+
+    fireEvent.click(
+      screen
+        .getAllByRole("button", { name: "Close" })
+        .find((button) => button.textContent === "Close") as HTMLButtonElement
+    );
+    expect(onChangeMilestone).toHaveBeenCalledWith(undefined);
+  });
+
+  test("keeps legacy HEIC conversion off the milestone review critical path", async () => {
+    vi.stubEnv(
+      "VITE_CONVEX_SITE_URL",
+      "https://fortunate-cassowary-439.convex.site",
+    );
+    let rejectPreviewFetch: ((reason: unknown) => void) | undefined;
+    const fetchPreview = vi.fn(
+      () =>
+        new Promise<Response>((_resolve, reject) => {
+          rejectPreviewFetch = reject;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchPreview);
+    const sourceUrl =
+      "https://fortunate-cassowary-439.convex.cloud/api/storage/legacy-heic";
+
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={{
+          ...detail,
+          evidenceAssets: [
+            {
+              _id: "legacy-heic-evidence",
+              evidenceKey: "legacy-heic-evidence",
+              fileName: "IMG_4748.heic",
+              label: "Evidence image 1",
+              locationVerified: false,
+              milestoneKey: "foundation",
+              mimeType: "image/heic",
+              previewUrl: sourceUrl,
+              sizeBytes: 835_196,
+              source: "active_build_timeline_upload",
+              tag: "Permits, demo & foundation",
+            },
+          ],
+          milestones: [
+            {
+              ...detail.milestones[0],
+              completionClaim: {
+                note: "Completion ready for lender review.",
+                submittedAt: "2026-07-14T12:00:00.000Z",
+              },
+            },
+          ],
+        }}
+        milestoneKey="foundation"
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+        viewerRole="lender"
+      />,
+    );
+
+    expect(screen.queryByRole("img", { name: "Evidence image 1" })).toBeNull();
+    expect(screen.getByText("Preparing HEIC preview…")).toBeTruthy();
+    expect(fetchPreview).toHaveBeenCalledWith(
+      `https://fortunate-cassowary-439.convex.site/evidence-image-source?url=${encodeURIComponent(sourceUrl)}`,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+
+    rejectPreviewFetch?.(new TypeError("Cross-origin preview unavailable."));
+
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("img", { name: "Evidence image 1" })
+          .getAttribute("src"),
+      ).toBe(
+        `https://fortunate-cassowary-439.convex.site/evidence-image-preview?url=${encodeURIComponent(sourceUrl)}`,
+      ),
+    );
+  });
+
+  test("shows the concrete requested change in the milestone detail sheet", () => {
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={{
+          ...detail,
+          milestones: [
+            {
+              ...detail.milestones[0],
+              completionReview: {
+                note: "Upload the signed foundation inspection report.",
+                reviewedAt: "2026-07-15T12:00:00.000Z",
+                status: "revisionRequested",
+              },
+            },
+          ],
+        }}
+        milestoneKey="foundation"
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+        viewerRole="builder"
+      />
+    );
+
+    const sheet = within(
+      screen.getByTestId("milestone-detail-sheet-panel")
+    );
+    expect(
+      sheet.getByRole("heading", { name: "Requested changes" })
+    ).toBeTruthy();
+    expect(
+      sheet.getByText("Upload the signed foundation inspection report.")
+    ).toBeTruthy();
+    expect(sheet.getByText("Requested 2026-07-15")).toBeTruthy();
+  });
+
+  test("does not invent requested changes for a legacy status without a note", () => {
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={{
+          ...detail,
+          milestones: [
+            {
+              ...detail.milestones[0],
+              completionReview: {
+                reviewedAt: "2026-07-15T12:00:00.000Z",
+                status: "revisionRequested",
+              },
+            },
+          ],
+        }}
+        milestoneKey="foundation"
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+        viewerRole="builder"
+      />
+    );
+
+    expect(
+      within(screen.getByTestId("milestone-detail-sheet-panel")).queryByRole(
+        "heading",
+        { name: "Requested changes" }
+      )
+    ).toBeNull();
+  });
+
+  test("does not expose lender milestone decisions in the builder workspace", () => {
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ submitMilestoneCompletion: vi.fn() }}
+        activeTab="details"
+        detail={detail}
+        milestoneKey="foundation"
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+        viewerRole="builder"
       />,
     );
 
     expect(screen.getByTestId("milestone-detail-sheet")).toBeTruthy();
     expect(
-      screen.getByText("Assignments · buildContractorAssignments"),
-    ).toBeTruthy();
+      screen.queryByTestId("milestone-detail-sheet-approve"),
+    ).toBeNull();
     expect(
-      screen.getByText("Recent events · activeBuildAuditEvents"),
-    ).toBeTruthy();
-
-    fireEvent.click(screen.getByTestId("milestone-detail-sheet-close"));
-    expect(onChangeMilestone).toHaveBeenCalledWith(undefined);
+      screen.queryByTestId("milestone-detail-sheet-request-info"),
+    ).toBeNull();
+    expect(
+      screen.queryByTestId("milestone-detail-sheet-assign-visit"),
+    ).toBeNull();
+    expect(
+      screen.queryByTestId("milestone-detail-sheet-reject"),
+    ).toBeNull();
   });
 
   test("writes clicked milestone cards back to the production route search state", () => {
@@ -1302,6 +2025,48 @@ describe("ProductionBuildDetailSurface", () => {
     ).toBe("/builder/contractors/contractor-01");
   });
 
+  test("assigns attached build contractors to milestones through the shared planning panel", async () => {
+    const assignContractorToMilestone = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ assignContractorToMilestone }}
+        activeTab="contractors"
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Select Site Lead Builders" }),
+    );
+    fireEvent.click(
+      screen.getByTestId("proposal-milestone-assign-contractor-foundation"),
+    );
+    await screen.findByTestId("assign-contractor-dialog");
+    fireEvent.change(screen.getByLabelText("Role"), {
+      target: { value: "Masonry lead" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm assignment" }),
+    );
+
+    await waitFor(() =>
+      expect(assignContractorToMilestone).toHaveBeenCalledWith({
+        assignmentCost: {
+          estimatedCostCents: undefined,
+          estimatedHours: undefined,
+        },
+        contractorId: "contractor-01",
+        milestoneKey: "foundation",
+        role: "Masonry lead",
+        submilestoneKeys: ["excavation"],
+      }),
+    );
+  });
+
   test("derives scheduled ready milestones out of backlog without marking work started", () => {
     render(
       <ProductionBuildDetailSurface
@@ -1325,6 +2090,7 @@ describe("ProductionBuildDetailSurface", () => {
           ...timelineWorkspace,
           plan: { ...timelineWorkspace.plan, currentDay: 5 },
         }}
+        viewerRole="builder"
       />,
     );
 
@@ -1338,6 +2104,48 @@ describe("ProductionBuildDetailSurface", () => {
         "kanban-card-foundation",
       ),
     ).toBeNull();
+  });
+
+  test("moves overdue incomplete milestones into the behind schedule review column", () => {
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={{
+          ...detail,
+          milestones: [
+            {
+              ...detail.milestones[0],
+              dayEnd: 10,
+              evidenceState: "Draft package",
+              progressPercent: 45,
+              status: "in_progress",
+            },
+          ],
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="open"
+        timelineWorkspace={{
+          ...timelineWorkspace,
+          plan: { ...timelineWorkspace.plan, currentDay: 18 },
+        }}
+        viewerRole="lender"
+      />,
+    );
+
+    const behindSchedule = screen.getByTestId("kanban-col-BehindSchedule");
+    expect(
+      within(behindSchedule).getByTestId("kanban-card-foundation"),
+    ).toBeTruthy();
+    expect(
+      within(behindSchedule).getAllByText("Behind schedule").length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(
+      within(screen.getByTestId("kanban-col-InProgress")).queryByTestId(
+        "kanban-card-foundation",
+      ),
+    ).toBeNull();
+    expect(screen.getByText("Milestone review board")).toBeTruthy();
   });
 
   test("moves builder completion claims into marked complete instead of in progress", () => {
@@ -1413,6 +2221,7 @@ describe("ProductionBuildDetailSurface", () => {
           ...timelineWorkspace,
           plan: { ...timelineWorkspace.plan, currentDay: 5 },
         }}
+        viewerRole="builder"
       />,
     );
 
@@ -1448,6 +2257,7 @@ describe("ProductionBuildDetailSurface", () => {
           ...timelineWorkspace,
           plan: { ...timelineWorkspace.plan, currentDay: 5 },
         }}
+        viewerRole="builder"
       />,
     );
 
@@ -1470,6 +2280,7 @@ describe("ProductionBuildDetailSurface", () => {
         onChangeRail={vi.fn()}
         onChangeTab={vi.fn()}
         rail="open"
+        viewerRole="builder"
       />,
     );
 
@@ -1539,6 +2350,31 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.getByTestId("production-build-timeline")).toBeTruthy();
   });
 
+  test("routes timeline site visit orders through the shared preflight", () => {
+    const assignSiteVisit = vi.fn().mockResolvedValue(null);
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ assignSiteVisit }}
+        activeBuildId="active-build-01"
+        activeTab="timeline"
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+        timelineWorkspace={timelineWorkspace}
+        workosOrganizationId="org_test"
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Timeline order site visit" }),
+    );
+    expect(
+      screen.getByRole("dialog", { name: "Configure site visit" }),
+    ).toBeTruthy();
+    expect(assignSiteVisit).not.toHaveBeenCalled();
+  });
+
   test("renders the rich production-backed Gantt workspace", () => {
     render(
       <ProductionBuildDetailSurface
@@ -1554,5 +2390,52 @@ describe("ProductionBuildDetailSurface", () => {
     );
 
     expect(screen.getByTestId("production-build-gantt")).toBeTruthy();
+  });
+
+  test("routes Gantt site visit orders through the shared preflight", () => {
+    const assignSiteVisit = vi.fn().mockResolvedValue(null);
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ assignSiteVisit }}
+        activeBuildId="active-build-01"
+        activeTab="gantt"
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+        timelineWorkspace={timelineWorkspace}
+        workosOrganizationId="org_test"
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Gantt order site visit" }),
+    );
+    expect(
+      screen.getByRole("dialog", { name: "Configure site visit" }),
+    ).toBeTruthy();
+    expect(assignSiteVisit).not.toHaveBeenCalled();
+  });
+
+  test("passes builder viewer role into the production-backed Gantt workspace", () => {
+    render(
+      <ProductionBuildDetailSurface
+        activeBuildId="active-build-01"
+        activeTab="gantt"
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+        timelineWorkspace={timelineWorkspace}
+        viewerRole="builder"
+        workosOrganizationId="org_test"
+      />,
+    );
+
+    expect(
+      screen
+        .getByTestId("mock-active-build-gantt")
+        .getAttribute("data-viewer-role"),
+    ).toBe("builder");
   });
 });

@@ -21,6 +21,18 @@ export function formatCents(
   }).format(dollars);
 }
 
+export function formatCentsExact(cents: number): string {
+  if (!Number.isFinite(cents)) {
+    return "$0.00";
+  }
+  return new Intl.NumberFormat("en-CA", {
+    currency: "CAD",
+    currencyDisplay: "narrowSymbol",
+    minimumFractionDigits: 2,
+    style: "currency",
+  }).format(cents / 100);
+}
+
 export function formatDate(date?: string | number): string {
   if (date == null) {
     return "—";

@@ -82,6 +82,11 @@ export const navGroups: SidebarNavGroup[] = [
         matchPrefix: true,
       },
       {
+        title: "Contractor onboarding",
+        to: "/backoffice/contractors/onboarding",
+        icon: icon(UserAdd01Icon),
+      },
+      {
         title: "Draws",
         to: "/backoffice/draws",
         icon: icon(BankIcon),

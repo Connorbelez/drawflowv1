@@ -8,21 +8,31 @@ export const ASSISTANT_CLIENT_ACTION_EVENT =
   "drawflow-assistant:client-action";
 export const ASSISTANT_CLIENT_ACTION_RESULT_EVENT =
   "drawflow-assistant:client-action-result";
+export const ASSISTANT_CLIENT_ACTION_CAPABILITY_EVENT =
+  "drawflow-assistant:client-action-capability";
 export const ASSISTANT_PENDING_CLIENT_ACTIONS_STORAGE_KEY =
   "drawflow.assistant.pendingClientActions";
 
-export type SelectProposalTemplateAction = {
+const assistantClientActionCapabilities = new Set<AssistantClientActionKey>();
+
+type AssistantClientActionWorkflowState = {
+  status?: "pending" | "running" | "succeeded" | "failed";
+  stepId?: string;
+  workflowId?: string;
+  workflowLabel?: string;
+  route?: string;
+};
+
+export type SelectProposalTemplateAction = AssistantClientActionWorkflowState & {
   actionKey: "select_proposal_template";
   input: {
     templateKey: string;
   };
-  route?: string;
 };
 
-export type GenericAssistantClientAction = {
+export type GenericAssistantClientAction = AssistantClientActionWorkflowState & {
   actionKey: Exclude<AssistantClientActionKey, "select_proposal_template">;
   input?: Record<string, unknown>;
-  route?: string;
 };
 
 export type AssistantClientAction =
@@ -46,14 +56,22 @@ type AssistantClientActionEventDetail = {
 };
 
 export function dispatchAssistantClientAction(action: AssistantClientAction) {
+  return dispatchAssistantClientActionWithResult(action).handled;
+}
+
+export function dispatchAssistantClientActionWithResult(
+  action: AssistantClientAction
+) {
   if (typeof window === "undefined") {
-    return false;
+    return { handled: false, result: undefined };
   }
+  let capturedResult: unknown;
   const detail: AssistantClientActionEventDetail = {
     action,
     handled: false,
     markHandled: (result?: unknown) => {
       detail.handled = true;
+      capturedResult = result;
       window.dispatchEvent(
         new CustomEvent<AssistantClientActionResult>(
           ASSISTANT_CLIENT_ACTION_RESULT_EVENT,
@@ -78,7 +96,7 @@ export function dispatchAssistantClientAction(action: AssistantClientAction) {
       { detail }
     )
   );
-  return detail.handled;
+  return { handled: detail.handled, result: capturedResult };
 }
 
 export function queueAssistantClientActions(actions: AssistantClientAction[]) {
@@ -88,7 +106,14 @@ export function queueAssistantClientActions(actions: AssistantClientAction[]) {
   const pending = readPendingAssistantClientActions();
   window.sessionStorage.setItem(
     ASSISTANT_PENDING_CLIENT_ACTIONS_STORAGE_KEY,
-    JSON.stringify([...pending, ...actions])
+    JSON.stringify([
+      ...pending,
+      ...actions.map((action) => ({
+        ...action,
+        route: normalizeAssistantRoute(action.route),
+        status: action.status ?? "pending",
+      })),
+    ])
   );
 }
 
@@ -106,10 +131,11 @@ export function consumeQueuedAssistantClientActions({
   const matched: AssistantClientAction[] = [];
   const remaining: AssistantClientAction[] = [];
   for (const action of pending) {
-    const actionRoute = action.route;
+    const actionRoute = normalizeAssistantRoute(action.route);
+    const requestedRoute = normalizeAssistantRoute(route);
     if (
       action.actionKey === actionKey &&
-      (!route || !actionRoute || actionRoute === route)
+      (!requestedRoute || !actionRoute || actionRoute === requestedRoute)
     ) {
       matched.push(action);
       continue;
@@ -134,6 +160,16 @@ export function readQueuedAssistantClientActions() {
   return readPendingAssistantClientActions();
 }
 
+export function normalizeAssistantRoute(route: string | undefined) {
+  if (!route) {
+    return undefined;
+  }
+  const withoutSearch = route.split(/[?#]/, 1)[0] || "/";
+  const withoutTrailingSlash =
+    withoutSearch.length > 1 ? withoutSearch.replace(/\/+$/, "") : withoutSearch;
+  return withoutTrailingSlash;
+}
+
 export function registerAssistantClientAction(
   actionKey: AssistantClientActionKey,
   handler: (action: AssistantClientAction) => unknown
@@ -141,6 +177,15 @@ export function registerAssistantClientAction(
   if (typeof window === "undefined") {
     return () => {};
   }
+  assistantClientActionCapabilities.add(actionKey);
+  window.dispatchEvent(
+    new CustomEvent(ASSISTANT_CLIENT_ACTION_CAPABILITY_EVENT, {
+      detail: {
+        actionKey,
+        available: true,
+      },
+    })
+  );
   const listener = (event: Event) => {
     const detail = (event as CustomEvent<AssistantClientActionEventDetail>)
       .detail;
@@ -150,7 +195,24 @@ export function registerAssistantClientAction(
     detail.markHandled(handler(detail.action));
   };
   window.addEventListener(ASSISTANT_CLIENT_ACTION_EVENT, listener);
-  return () => window.removeEventListener(ASSISTANT_CLIENT_ACTION_EVENT, listener);
+  return () => {
+    window.removeEventListener(ASSISTANT_CLIENT_ACTION_EVENT, listener);
+    assistantClientActionCapabilities.delete(actionKey);
+    window.dispatchEvent(
+      new CustomEvent(ASSISTANT_CLIENT_ACTION_CAPABILITY_EVENT, {
+        detail: {
+          actionKey,
+          available: false,
+        },
+      })
+    );
+  };
+}
+
+export function hasAssistantClientActionCapability(
+  actionKey: AssistantClientActionKey
+) {
+  return assistantClientActionCapabilities.has(actionKey);
 }
 
 function readPendingAssistantClientActions() {

@@ -3,7 +3,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { ASSISTANT_PENDING_CLIENT_ACTIONS_STORAGE_KEY } from "#/features/assistant/assistantClientActionBridge.ts";
 
 const convexMock = vi.hoisted(() => ({
   actionCalls: [] as any[],
@@ -102,8 +101,29 @@ vi.mock("convex/react", () => ({
       readOnly: convexMock.providerReadOnly,
     };
   },
+  useConvex: () => ({
+    query: vi.fn().mockResolvedValue({
+      operationalBriefing: { sections: [], summary: { total: 0 } },
+      route: {
+        activeBuildId: (routerState.matches[0]?.params as any)?.buildId,
+        proposalId: (routerState.matches[0]?.params as any)?.proposalId,
+        selectedMilestoneKey: routerState.location.search.milestoneKey,
+      },
+      target: {
+        kind: "proposal",
+        milestones: [{ key: "framing", name: "Framing" }],
+        proposalId: (routerState.matches[0]?.params as any)?.proposalId,
+      },
+    }),
+  }),
   useMutation: () => async (args: any) => {
     convexMock.mutationCalls.push(args);
+    if (args?.goal && args?.steps) {
+      return "assistant_workflow_test";
+    }
+    if (args?.workflowRunId && args?.stepId) {
+      return { ok: true };
+    }
     if (args?.actions) {
       return "assistant_plan_test";
     }
@@ -115,6 +135,25 @@ vi.mock("convex/react", () => ({
     }
     return "assistant_trace_test";
   },
+  useQuery: (_ref: unknown, args: any) =>
+    args?.threadId
+      ? null
+      : {
+          targets: [
+            {
+              kind: "proposal",
+              label: "Assistant test proposal",
+              proposalId: "proposal_123",
+              subtitle: "Build Proposal",
+            },
+            {
+              buildId: "build_123",
+              kind: "activeBuild",
+              label: "Assistant live build",
+              subtitle: "Live Build",
+            },
+          ],
+        },
 }));
 
 import { AppShell } from "./app-shell.tsx";
@@ -167,7 +206,13 @@ describe("AppShell assistant integration", () => {
 
     fireEvent.keyDown(window, { key: "j", metaKey: true });
 
-    expect(await screen.findByTestId("drawflow-assistant-surface")).toBeTruthy();
+    expect(
+      await screen.findByTestId(
+        "drawflow-assistant-surface",
+        {},
+        { timeout: 5000 },
+      ),
+    ).toBeTruthy();
     expect(screen.getByTestId("assistant-route-context").textContent).toContain(
       "/builder/proposals/proposal_123",
     );
@@ -180,6 +225,28 @@ describe("AppShell assistant integration", () => {
     expect(
       screen.getByTestId("assistant-route-context").textContent,
     ).not.toContain("Missing organization claim");
+  });
+
+  test("persists open assistant state across shell remounts after navigation", async () => {
+    const firstRender = render(
+      <AppShell>
+        <main>Workspace</main>
+      </AppShell>,
+    );
+
+    fireEvent.keyDown(window, { key: "j", metaKey: true });
+
+    expect(await screen.findByTestId("drawflow-assistant-surface")).toBeTruthy();
+    expect(window.sessionStorage.getItem("drawflow.assistant.open")).toBe("true");
+
+    firstRender.unmount();
+    render(
+      <AppShell>
+        <main>Workspace after navigation</main>
+      </AppShell>,
+    );
+
+    expect(await screen.findByTestId("drawflow-assistant-surface")).toBeTruthy();
   });
 
   test("Cmd/Ctrl+K command surface includes an assistant entry that opens the same assistant", async () => {
@@ -210,6 +277,75 @@ describe("AppShell assistant integration", () => {
     expect(await screen.findByTestId("drawflow-assistant-surface")).toBeTruthy();
     expect(screen.queryByTestId("assistant-hitl-preview")).toBeNull();
     expect(screen.queryAllByTestId("assistant-preview-card")).toHaveLength(0);
+  });
+
+  test("canonicalizes assistant template-settings navigation before routing", async () => {
+    render(
+      <AppShell>
+        <main>Workspace</main>
+      </AppShell>,
+    );
+
+    fireEvent(
+      window,
+      new CustomEvent("drawflow-assistant:readonly-action", {
+        detail: {
+          actionKey: "open_route",
+          afterNavigationActions: [
+            {
+              actionKey: "select_proposal_template",
+              input: { templateKey: "garden-suite" },
+            },
+          ],
+          label: "Template settings",
+          to: "/backoffice/settings/template",
+        },
+      }),
+    );
+
+    await waitFor(() =>
+      expect(convexMock.navigateCalls).toEqual([{ to: "/backoffice/settings" }])
+    );
+    expect(
+      JSON.parse(
+        window.sessionStorage.getItem(
+          "drawflow.assistant.pendingClientActions",
+        ) ?? "[]",
+      )[0],
+    ).toMatchObject({
+      actionKey: "select_proposal_template",
+      route: "/backoffice/settings",
+    });
+  });
+
+  test("ignores unknown assistant routes instead of sending them to TanStack Router", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    render(
+      <AppShell>
+        <main>Workspace</main>
+      </AppShell>,
+    );
+
+    fireEvent(
+      window,
+      new CustomEvent("drawflow-assistant:readonly-action", {
+        detail: {
+          actionKey: "open_route",
+          label: "Bad route",
+          to: "/backoffice/settings/not-a-real-tab",
+        },
+      }),
+    );
+
+    expect(convexMock.navigateCalls).toEqual([]);
+    expect(
+      window.sessionStorage.getItem("drawflow.assistant.pendingClientActions"),
+    ).toBeNull();
+    expect(warn).toHaveBeenCalledWith(
+      "Ignored assistant navigation to an unknown DrawFlow route.",
+      { to: "/backoffice/settings/not-a-real-tab" },
+    );
+    warn.mockRestore();
   });
 
   test("closing and reopening clears chat and HITL state", async () => {
@@ -269,7 +405,7 @@ describe("AppShell assistant integration", () => {
     expect(convexMock.mutationCalls.some((call) => call?.actions)).toBe(false);
   });
 
-  test("Garden Suite build startup is handled as route navigation", async () => {
+  test("Garden Suite build startup creates a workflow instead of plain navigation", async () => {
     render(
       <AppShell>
         <main>Workspace</main>
@@ -279,25 +415,26 @@ describe("AppShell assistant integration", () => {
     fireEvent.keyDown(window, { key: "j", metaKey: true });
     await sendAssistantMessage("I wanted to start a new Garden Suite build.");
 
-    expect(await screen.findByText(/I can take you to New Build/i)).toBeTruthy();
     await waitFor(() => {
-      expect(convexMock.navigateCalls).toContainEqual({
-        to: "/builder/proposals/new",
-      });
+      expect(convexMock.mutationCalls.some((call) => call?.goal)).toBe(true);
     });
     expect(
-      JSON.parse(
-        window.sessionStorage.getItem(
-          ASSISTANT_PENDING_CLIENT_ACTIONS_STORAGE_KEY
-        ) ?? "[]"
-      )
-    ).toEqual([
-      expect.objectContaining({
-        actionKey: "select_proposal_template",
-        input: { templateKey: "garden-suite" },
-        route: "/builder/proposals/new",
-      }),
+      await screen.findByText(/open the new Build Proposal flow and select Garden Suite/i)
+    ).toBeTruthy();
+    const workflowCall = convexMock.mutationCalls.find((call) => call?.goal);
+    expect(workflowCall.steps.map((step: any) => step.kind)).toEqual([
+      "navigate",
+      "wait_for_route",
+      "wait_for_client_capability",
+      "run_client_action",
+      "self_check",
     ]);
+    expect(workflowCall.steps[3].input.action).toMatchObject({
+      actionKey: "select_proposal_template",
+      input: { templateKey: "garden-suite" },
+      route: "/builder/proposals/new",
+    });
+    expect(convexMock.navigateCalls).toEqual([]);
     expect(screen.queryByText(/requires a HITL preview/i)).toBeNull();
     expect(convexMock.mutationCalls.some((call) => call?.actions)).toBe(false);
   });
@@ -347,10 +484,13 @@ describe("AppShell assistant integration", () => {
     fireEvent.click(screen.getByText("Confirm accepted batch"));
 
     await waitFor(() => {
-      expect(screen.getByTestId("assistant-commit-message").textContent).toContain(
-        "committed",
+      expect(screen.getByTestId("assistant-commit-message").textContent).toMatch(
+        /committed/i,
       );
     });
+    expect(screen.getByTestId("assistant-commit-state").textContent).toMatch(
+      /committed/i,
+    );
     const commitCall = convexMock.mutationCalls.find((call) => call?.planId);
     expect(commitCall.acceptedClientRequestIds).toHaveLength(3);
     expect(commitCall.rejectedClientRequestIds).toEqual([]);

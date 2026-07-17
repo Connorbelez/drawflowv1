@@ -19,6 +19,7 @@ import {
   CalendarClock,
   ClipboardCheck,
   Hammer,
+  MailPlus,
   Search,
   UserPlus,
 } from "lucide-react";
@@ -123,7 +124,9 @@ export type ContractorPlanningModel = {
     contractorId: string;
     defaultPayRateCents?: number;
     defaultPayRateUnit?: "hour" | "day" | "fixed";
+    email?: string;
     name: string;
+    onboardingStatus?: "profile_only" | "invited" | "account_linked";
     role: string;
     status: string;
     trades?: string[];
@@ -167,7 +170,12 @@ type ContractorPlanningPanelProps = {
   onCreateAndAttach?: (input: {
     contractor: ContractorProfileDraft;
     role?: string;
-  }) => Promise<void> | void;
+  }) =>
+    | Promise<void | string | { contractorId?: string }>
+    | void
+    | string
+    | { contractorId?: string };
+  onInviteCreatedContractor?: (contractorId: string) => Promise<void> | void;
   planning?: ContractorPlanningModel | null;
   roleLabel?: "builder" | "lender";
 };
@@ -211,12 +219,17 @@ export function ContractorPlanningPanel({
   onAssignToMilestone,
   onAttachExisting,
   onCreateAndAttach,
+  onInviteCreatedContractor,
   planning,
   roleLabel = "builder",
 }: ContractorPlanningPanelProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [pending, setPending] = useState(false);
+  const [invitePendingContractorId, setInvitePendingContractorId] = useState<
+    string | null
+  >(null);
   const [error, setError] = useState("");
+  const [inviteError, setInviteError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [assignmentFilter, setAssignmentFilter] =
     useState<AssignmentFilter>("all");
@@ -407,6 +420,28 @@ export function ContractorPlanningPanel({
     }
   };
 
+  const inviteContractor = async (contractor: ProposalContractor) => {
+    const invitation = contractorInvitationState(contractor);
+    if (
+      !(
+        canMutate &&
+        onInviteCreatedContractor &&
+        invitation.kind === "not_invited"
+      )
+    ) {
+      return;
+    }
+    setInvitePendingContractorId(contractor.contractorId);
+    setInviteError("");
+    try {
+      await onInviteCreatedContractor(contractor.contractorId);
+    } catch (err) {
+      setInviteError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setInvitePendingContractorId(null);
+    }
+  };
+
   const draggingContractor = proposalContractors.find(
     (contractor) => contractor.contractorId === draggingContractorId
   );
@@ -521,6 +556,11 @@ export function ContractorPlanningPanel({
             isDragging={draggingContractorId !== null}
             selectedContractorName={selectedContractor?.name}
           />
+          {inviteError ? (
+            <p className="mt-3 text-destructive text-sm" role="alert">
+              {inviteError}
+            </p>
+          ) : null}
 
           <DndContext
             accessibility={{ announcements: dragAnnouncements }}
@@ -535,7 +575,11 @@ export function ContractorPlanningPanel({
                 canDrag={canMutate && Boolean(onAssignToMilestone)}
                 className="min-h-0 border-border/70 lg:border-r"
                 contractors={filteredContractors}
+                invitePendingContractorId={invitePendingContractorId}
                 onAssignmentFilterChange={setAssignmentFilter}
+                onInviteContractor={
+                  onInviteCreatedContractor ? inviteContractor : undefined
+                }
                 onSearchChange={setSearchQuery}
                 onSelectContractor={setSelectedContractorId}
                 onTradeFilterChange={setTradeFilter}
@@ -552,6 +596,7 @@ export function ContractorPlanningPanel({
                 className="min-h-0"
                 draggingContractorId={draggingContractorId}
                 milestones={milestones}
+                invitePendingContractorId={invitePendingContractorId}
                 onAssign={(milestoneKey) => {
                   if (!selectedContractorId) {
                     return;
@@ -561,6 +606,9 @@ export function ContractorPlanningPanel({
                 onEditAssignment={(milestoneKey, contractorId) => {
                   openAssignDialog(contractorId, milestoneKey);
                 }}
+                onInviteContractor={
+                  onInviteCreatedContractor ? inviteContractor : undefined
+                }
                 proposalContractors={proposalContractors}
                 selectedContractorId={selectedContractorId}
               />
@@ -624,7 +672,7 @@ export function ContractorPlanningPanel({
       <ContractorQuickAddDrawer
         availableContractors={planning?.availableContractors ?? []}
         createLabel="Create and add"
-        description={`Add a contractor to this ${roleLabel} planning roster with schedule, equipment, capability, and pay details.`}
+        description={`Add a contractor to this ${roleLabel} planning roster with equipment, capability, pay, and contact details.`}
         onAttachExisting={
           onAttachExisting
             ? ({ contractorId, role }) =>
@@ -634,6 +682,7 @@ export function ContractorPlanningPanel({
         onCreate={({ contractor, role }) =>
           onCreateAndAttach?.({ contractor, role })
         }
+        onInviteCreatedContractor={onInviteCreatedContractor}
         onOpenChange={setDrawerOpen}
         open={drawerOpen}
         requireRole
@@ -729,7 +778,9 @@ function ContractorRosterPanel({
   canDrag,
   className,
   contractors,
+  invitePendingContractorId,
   onAssignmentFilterChange,
+  onInviteContractor,
   onSearchChange,
   onSelectContractor,
   onTradeFilterChange,
@@ -744,7 +795,9 @@ function ContractorRosterPanel({
   canDrag: boolean;
   className?: string;
   contractors: ProposalContractor[];
+  invitePendingContractorId: string | null;
   onAssignmentFilterChange: (value: AssignmentFilter) => void;
+  onInviteContractor?: (contractor: ProposalContractor) => void;
   onSearchChange: (value: string) => void;
   onSelectContractor: (contractorId: string) => void;
   onTradeFilterChange: (value: string) => void;
@@ -829,8 +882,12 @@ function ContractorRosterPanel({
                 }
                 canDrag={canDrag}
                 contractor={contractor}
+                invitePending={
+                  invitePendingContractorId === contractor.contractorId
+                }
                 isSelected={selectedContractorId === contractor.contractorId}
                 key={contractor.contractorId}
+                onInvite={onInviteContractor}
                 onSelect={() => {
                   onSelectContractor(contractor.contractorId);
                 }}
@@ -847,13 +904,17 @@ function DraggableContractorCard({
   assignmentCount,
   canDrag,
   contractor,
+  invitePending,
   isSelected,
+  onInvite,
   onSelect,
 }: {
   assignmentCount: number;
   canDrag: boolean;
   contractor: ProposalContractor;
+  invitePending: boolean;
   isSelected: boolean;
+  onInvite?: (contractor: ProposalContractor) => void;
   onSelect: () => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -867,8 +928,10 @@ function DraggableContractorCard({
       contractor={contractor}
       dragAttributes={canDrag ? attributes : undefined}
       dragListeners={canDrag ? listeners : undefined}
+      invitePending={invitePending}
       isDragging={isDragging}
       isSelected={isSelected}
+      onInvite={onInvite}
       onSelect={onSelect}
       setDragNodeRef={canDrag ? setNodeRef : undefined}
     />
@@ -880,8 +943,10 @@ function ContractorProfileCard({
   contractor,
   dragAttributes,
   dragListeners,
+  invitePending = false,
   isDragging = false,
   isSelected = false,
+  onInvite,
   onSelect,
   setDragNodeRef,
 }: {
@@ -889,8 +954,10 @@ function ContractorProfileCard({
   contractor: ProposalContractor;
   dragAttributes?: Record<string, unknown>;
   dragListeners?: Record<string, unknown>;
+  invitePending?: boolean;
   isDragging?: boolean;
   isSelected?: boolean;
+  onInvite?: (contractor: ProposalContractor) => void;
   onSelect?: () => void;
   setDragNodeRef?: (element: HTMLElement | null) => void;
 }) {
@@ -933,6 +1000,8 @@ function ContractorProfileCard({
         <ContractorProfileCardBody
           assignmentCount={assignmentCount}
           contractor={contractor}
+          invitePending={invitePending}
+          onInvite={onInvite}
         />
       </CardContent>
     </Card>
@@ -942,9 +1011,13 @@ function ContractorProfileCard({
 function ContractorProfileCardBody({
   assignmentCount,
   contractor,
+  invitePending = false,
+  onInvite,
 }: {
   assignmentCount: number;
   contractor: ProposalContractor;
+  invitePending?: boolean;
+  onInvite?: (contractor: ProposalContractor) => void;
 }) {
   return (
     <>
@@ -976,6 +1049,12 @@ function ContractorProfileCardBody({
             ? "Not assigned to milestones"
             : `${assignmentCount} milestone assignment${assignmentCount === 1 ? "" : "s"}`}
         </span>
+        <ContractorInviteAction
+          className="mt-2"
+          contractor={contractor}
+          pending={invitePending}
+          onInvite={onInvite}
+        />
       </span>
     </>
   );
@@ -986,9 +1065,11 @@ function MilestoneAssignmentPanel({
   canMutate,
   className,
   draggingContractorId,
+  invitePendingContractorId,
   milestones,
   onAssign,
   onEditAssignment,
+  onInviteContractor,
   proposalContractors,
   selectedContractorId,
 }: {
@@ -999,13 +1080,25 @@ function MilestoneAssignmentPanel({
   canMutate: boolean;
   className?: string;
   draggingContractorId: string | null;
+  invitePendingContractorId: string | null;
   milestones: ContractorPlanningMilestone[];
   onAssign: (milestoneKey: string) => void;
   onEditAssignment: (milestoneKey: string, contractorId: string) => void;
+  onInviteContractor?: (contractor: ProposalContractor) => void;
   proposalContractors: ProposalContractor[];
   selectedContractorId: string | null;
 }) {
   const isDragging = draggingContractorId !== null;
+  const contractorsById = useMemo(
+    () =>
+      new Map(
+        proposalContractors.map((contractor) => [
+          contractor.contractorId,
+          contractor,
+        ])
+      ),
+    [proposalContractors]
+  );
 
   return (
     <section className={cn("flex h-full min-h-0 flex-col", className)}>
@@ -1025,6 +1118,7 @@ function MilestoneAssignmentPanel({
               }
               canMutate={canMutate}
               isDragging={isDragging}
+              invitePendingContractorId={invitePendingContractorId}
               key={milestone.milestoneKey}
               milestone={milestone}
               onAssign={() => {
@@ -1033,6 +1127,8 @@ function MilestoneAssignmentPanel({
               onEditAssignment={(contractorId) => {
                 onEditAssignment(milestone.milestoneKey, contractorId);
               }}
+              onInviteContractor={onInviteContractor}
+              proposalContractorsById={contractorsById}
               rosterEmpty={proposalContractors.length === 0}
               selectedContractorId={selectedContractorId}
             />
@@ -1047,18 +1143,24 @@ function DroppableMilestoneCard({
   assignments,
   canMutate,
   isDragging,
+  invitePendingContractorId,
   milestone,
   onAssign,
   onEditAssignment,
+  onInviteContractor,
+  proposalContractorsById,
   rosterEmpty,
   selectedContractorId,
 }: {
   assignments: NonNullable<ContractorPlanningModel["milestoneAssignments"]>;
   canMutate: boolean;
   isDragging: boolean;
+  invitePendingContractorId: string | null;
   milestone: ContractorPlanningMilestone;
   onAssign: () => void;
   onEditAssignment: (contractorId: string) => void;
+  onInviteContractor?: (contractor: ProposalContractor) => void;
+  proposalContractorsById: Map<string, ProposalContractor>;
   rosterEmpty: boolean;
   selectedContractorId: string | null;
 }) {
@@ -1120,32 +1222,18 @@ function DroppableMilestoneCard({
           ) : (
             <ul className="divide-y divide-border/60 rounded-lg border border-border/60 bg-muted/10">
               {assignments.map((assignment) => (
-                <li
-                  className="flex items-center justify-between gap-2 px-3 py-2.5"
+                <MilestoneAssignmentRow
+                  assignment={assignment}
+                  contractor={proposalContractorsById.get(
+                    assignment.contractorId
+                  )}
+                  invitePending={
+                    invitePendingContractorId === assignment.contractorId
+                  }
                   key={assignment._id}
-                >
-                  <div className="min-w-0">
-                    <p className="truncate font-medium text-sm">
-                      {assignment.contractorName}
-                    </p>
-                    <p className="text-muted-foreground text-xs">
-                      {assignment.role}
-                      {assignment.submilestoneName
-                        ? ` · ${assignment.submilestoneName}`
-                        : " · Whole milestone"}
-                    </p>
-                  </div>
-                  <Button
-                    onClick={() => {
-                      onEditAssignment(assignment.contractorId);
-                    }}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    Edit
-                  </Button>
-                </li>
+                  onEditAssignment={onEditAssignment}
+                  onInviteContractor={onInviteContractor}
+                />
               ))}
             </ul>
           )}
@@ -1172,6 +1260,170 @@ function DroppableMilestoneCard({
         </FrameFooter>
       </FramePanel>
     </Frame>
+  );
+}
+
+function MilestoneAssignmentRow({
+  assignment,
+  contractor,
+  invitePending,
+  onEditAssignment,
+  onInviteContractor,
+}: {
+  assignment: NonNullable<
+    ContractorPlanningModel["milestoneAssignments"]
+  >[number];
+  contractor?: ProposalContractor;
+  invitePending: boolean;
+  onEditAssignment: (contractorId: string) => void;
+  onInviteContractor?: (contractor: ProposalContractor) => void;
+}) {
+  return (
+    <li
+      className="grid gap-2 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+      data-testid={`proposal-milestone-assignment-${assignment._id}`}
+    >
+      <div className="min-w-0">
+        <p className="truncate font-medium text-sm">
+          {assignment.contractorName}
+        </p>
+        <p className="text-muted-foreground text-xs">
+          {assignment.role}
+          {assignment.submilestoneName
+            ? ` · ${assignment.submilestoneName}`
+            : " · Whole milestone"}
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+        {contractor ? (
+          <ContractorInviteAction
+            contractor={contractor}
+            pending={invitePending}
+            onInvite={onInviteContractor}
+          />
+        ) : null}
+        <Button
+          onClick={() => {
+            onEditAssignment(assignment.contractorId);
+          }}
+          size="sm"
+          type="button"
+          variant="ghost"
+        >
+          Edit
+        </Button>
+      </div>
+    </li>
+  );
+}
+
+type ContractorInvitationState =
+  | {
+      description: string;
+      kind: "not_invited";
+      label: string;
+    }
+  | {
+      description: string;
+      kind: "invited";
+      label: string;
+    }
+  | {
+      description: string;
+      kind: "joined";
+      label: string;
+    }
+  | {
+      description: string;
+      kind: "no_email";
+      label: string;
+    };
+
+function contractorInvitationState(
+  contractor: ProposalContractor
+): ContractorInvitationState {
+  if (contractor.onboardingStatus === "account_linked") {
+    return {
+      description: "This contractor has joined the platform.",
+      kind: "joined",
+      label: "Joined",
+    };
+  }
+  if (contractor.onboardingStatus === "invited") {
+    return {
+      description: "This contractor already has an active platform invite.",
+      kind: "invited",
+      label: "Invited",
+    };
+  }
+  if (!contractor.email?.trim()) {
+    return {
+      description: "Add an email to the contractor profile before inviting.",
+      kind: "no_email",
+      label: "No email",
+    };
+  }
+  return {
+    description: "Send this contractor a platform invite.",
+    kind: "not_invited",
+    label: "Not invited",
+  };
+}
+
+function ContractorInviteAction({
+  className,
+  contractor,
+  onInvite,
+  pending,
+}: {
+  className?: string;
+  contractor: ProposalContractor;
+  onInvite?: (contractor: ProposalContractor) => void;
+  pending: boolean;
+}) {
+  const invitation = contractorInvitationState(contractor);
+  const canInvite = Boolean(onInvite) && invitation.kind === "not_invited";
+  const showButton =
+    invitation.kind === "not_invited" || invitation.kind === "no_email";
+
+  return (
+    <span className={cn("flex flex-wrap items-center gap-1.5", className)}>
+      <Badge
+        className="shrink-0"
+        title={invitation.description}
+        variant={invitation.kind === "not_invited" ? "outline" : "secondary"}
+      >
+        {invitation.label}
+      </Badge>
+      {showButton ? (
+        <Button
+          aria-label={
+            invitation.kind === "not_invited"
+              ? `Invite ${contractor.name} to platform`
+              : `Add email before inviting ${contractor.name}`
+          }
+          disabled={!canInvite || pending}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (canInvite) {
+              onInvite?.(contractor);
+            }
+          }}
+          size="sm"
+          title={invitation.description}
+          type="button"
+          variant="outline"
+        >
+          <MailPlus />
+          {pending
+            ? "Sending..."
+            : invitation.kind === "no_email"
+              ? "Add email to invite"
+              : "Invite"}
+        </Button>
+      ) : null}
+    </span>
   );
 }
 

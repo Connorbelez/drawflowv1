@@ -99,11 +99,11 @@ const BANK_ITEM_OPTIONS = [
   },
 ];
 const TEMPLATE_THUMBNAILS: Record<string, string> = {
-  multiplex_build:
+  "multiplex-build":
     "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
-  single_family_full_build:
+  "single-family-full-build":
     "/drawflow-template-thumbnails/single-family-full-build-blueprint.png",
-  single_family_renovation:
+  "single-family-renovation":
     "/drawflow-template-thumbnails/single-family-renovation-blueprint.png",
 };
 
@@ -1274,7 +1274,7 @@ function TemplateCardButton({
   onSelect: () => void;
   template: BuilderProposalTemplate;
 }) {
-  const isPrimaryTemplate = template.templateKey === "single_family_full_build";
+  const isPrimaryTemplate = template.templateKey === "single-family-full-build";
 
   return (
     <button

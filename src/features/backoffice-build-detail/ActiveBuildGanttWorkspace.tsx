@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation } from "convex/react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { BuildWorkspaceDemo } from "#/features/build-workspace-demo/BuildWorkspaceDemo.tsx";
 import {
@@ -30,10 +30,14 @@ import { normalizeEvidenceFileForUpload } from "#/lib/evidence-image-normalizati
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { ProductionBuildDetail } from "./ProductionBuildDetailSurface";
+import type { SiteVisitOrderRequest } from "./SiteVisitOrderDialog.tsx";
 
 export interface ActiveBuildGanttWorkspaceProps {
   buildId: Id<"activeBuilds">;
+  canApproveMilestones?: boolean;
+  canRejectMilestones?: boolean;
   detail: ProductionBuildDetail;
+  onRequestSiteVisit: (request: SiteVisitOrderRequest) => void;
   timelineWorkspace?: {
     evidenceAssets?: {
       evidenceKey: string;
@@ -49,13 +53,18 @@ export interface ActiveBuildGanttWorkspaceProps {
       currentDay: number;
     };
   } | null;
+  viewerRole?: "builder" | "lender";
   workosOrganizationId: string;
 }
 
 export function ActiveBuildGanttWorkspace({
   buildId,
+  canApproveMilestones = false,
+  canRejectMilestones = false,
   detail,
+  onRequestSiteVisit,
   timelineWorkspace,
+  viewerRole = "lender",
   workosOrganizationId,
 }: ActiveBuildGanttWorkspaceProps) {
   const productionApi = (api as any).production_proposals;
@@ -81,9 +90,6 @@ export function ActiveBuildGanttWorkspace({
   const requestMoreInfo = useMutation(
     productionApi.requestActiveBuildMilestoneInfo
   );
-  const requestSiteVisit = useMutation(
-    productionApi.assignActiveBuildSiteVisit
-  );
   const recordSiteVisit = useMutation(productionApi.recordActiveBuildSiteVisit);
   const reviewEvidence = useMutation(productionApi.reviewActiveBuildEvidence);
   const assignContractorToMilestone = useMutation(
@@ -97,13 +103,21 @@ export function ActiveBuildGanttWorkspace({
   const updateDraw = useMutation(productionApi.updateActiveBuildTimelineDraw);
   const deleteDraw = useMutation(productionApi.deleteActiveBuildTimelineDraw);
 
-  const [role, setRole] = useState<WorkspaceRole>("lenderAdmin");
+  const preferredRole: WorkspaceRole =
+    viewerRole === "builder" ? "builderLead" : "lenderAdmin";
+  const [role, setRole] = useState<WorkspaceRole>(preferredRole);
   const [selectedMilestoneId, setSelectedMilestoneId] = useState("");
   const [activePlanId, setActivePlanId] =
     useState<OptimizationPlanId>("capitalConstrained");
   const [dismissedIssueKeys, setDismissedIssueKeys] = useState(
     () => new Set<string>()
   );
+
+  useEffect(() => {
+    setRole((currentRole) =>
+      currentRole === preferredRole ? currentRole : preferredRole
+    );
+  }, [preferredRole]);
 
   const mapped = useMemo(
     () =>
@@ -262,6 +276,9 @@ export function ActiveBuildGanttWorkspace({
         setActivePlanId("capitalConstrained");
       },
       approveMilestone: async (milestoneId, reason) => {
+        if (!canApproveMilestones) {
+          throw new Error("You do not have permission to approve milestones.");
+        }
         await approveMilestone({
           buildId,
           milestoneKey: milestoneId,
@@ -335,6 +352,9 @@ export function ActiveBuildGanttWorkspace({
       },
       recomputeProposalPlan: async () => undefined,
       rejectMilestone: async (milestoneId, reason) => {
+        if (!canRejectMilestones) {
+          throw new Error("You do not have permission to reject milestones.");
+        }
         await rejectMilestone({
           buildId,
           milestoneKey: milestoneId,
@@ -402,21 +422,13 @@ export function ActiveBuildGanttWorkspace({
         });
       },
       requestSiteVisit: async (milestoneId, reason, includedMilestoneIds) => {
-        const result = await requestSiteVisit({
-          buildId,
+        onRequestSiteVisit({
           milestoneKey: milestoneId,
           note: reason,
           requestedDay: dayFromDate(detail.build.startDate, new Date()),
-          workosOrganizationId,
         });
         void includedMilestoneIds;
-        return result
-          ? {
-              token: result.visitId,
-              url: result.url,
-              visitId: result.visitId,
-            }
-          : result;
+        return;
       },
       resetWorkspace: async () => undefined,
       reviewEvidence: async (milestoneId, accepted, reason) => {
@@ -614,6 +626,8 @@ export function ActiveBuildGanttWorkspace({
       assignContractorToMilestone,
       attachContractor,
       buildId,
+      canApproveMilestones,
+      canRejectMilestones,
       contractorPlanning,
       createContractor,
       createDraw,
@@ -624,10 +638,10 @@ export function ActiveBuildGanttWorkspace({
       detail,
       generateEvidenceUploadUrl,
       mapped,
+      onRequestSiteVisit,
       recordSiteVisit,
       rejectMilestone,
       requestMoreInfo,
-      requestSiteVisit,
       reviewEvidence,
       role,
       selectedId,
@@ -640,7 +654,13 @@ export function ActiveBuildGanttWorkspace({
 
   return (
     <BuildWorkspaceProvider workspace={adapter}>
-      <BuildWorkspaceDemo layout="embedded" />
+      <BuildWorkspaceDemo
+        canFinalizeMilestones={canApproveMilestones && canRejectMilestones}
+        layout="embedded"
+        showPrimaryAction={false}
+        showRoleSelector={false}
+        viewer={viewerRole}
+      />
     </BuildWorkspaceProvider>
   );
 }

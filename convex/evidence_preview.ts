@@ -41,7 +41,10 @@ export const convertEvidenceImagePreview = publicAction
       const previewBytes = await convert({
         buffer: sourceBytes,
         format: "JPEG",
-        quality: 0.88,
+        // This endpoint serves an inspection preview, not the downloadable
+        // source asset. A lower JPEG quality halves the payload for typical
+        // phone HEICs while preserving more than enough detail for the card.
+        quality: 0.65,
       });
       const arrayBuffer = new ArrayBuffer(previewBytes.byteLength);
       new Uint8Array(arrayBuffer).set(previewBytes);

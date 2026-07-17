@@ -270,13 +270,14 @@ const traceEventInput = v.object({
   ),
 });
 
-export const drawFlowAssistantMutationToolDefinitions = MUTATION_ACTION_KEYS.map((name) =>
-  toolDefinition({
-    description: `DrawFlow assistant closed-catalog mutation action: ${name}`,
-    inputSchema: z.object({}).passthrough(),
-    name,
-  })
-);
+export const drawFlowAssistantMutationToolDefinitions =
+  MUTATION_ACTION_KEYS.map((name) =>
+    toolDefinition({
+      description: `DrawFlow assistant closed-catalog mutation action: ${name}`,
+      inputSchema: z.object({}).passthrough(),
+      name,
+    })
+  );
 
 export const getProviderStatus = authenticatedAction
   .input({})
@@ -308,6 +309,84 @@ export const getProviderStatus = authenticatedAction
       provider,
       readOnly: !(openaiConfigured || openrouterConfigured),
     };
+  })
+  .public();
+
+const siteVisitGuidanceScopeItem = v.object({
+  key: v.string(),
+  name: v.string(),
+});
+
+export const generateSiteVisitGuidance = authenticatedAction
+  .input({
+    build: v.object({
+      location: v.optional(v.string()),
+      name: v.string(),
+    }),
+    currentGuidance: v.object({
+      cameraAngles: v.string(),
+      whatToVerify: v.string(),
+    }),
+    milestone: siteVisitGuidanceScopeItem,
+    submilestones: v.array(siteVisitGuidanceScopeItem),
+    workosOrganizationId: v.string(),
+  })
+  .returns(
+    v.object({
+      cameraAngles: v.string(),
+      source: v.union(
+        v.literal("fallback"),
+        v.literal("openai"),
+        v.literal("openrouter")
+      ),
+      whatToVerify: v.string(),
+    })
+  )
+  .handler(async (ctx, args) => {
+    if (ctx.viewer.organizationId !== args.workosOrganizationId) {
+      throw new Error("Forbidden: organization scope");
+    }
+    const fallback = fallbackSiteVisitGuidance(args);
+    const openaiKey = process.env.OPENAI_API_KEY;
+    const openrouterKey = process.env.OPENROUTER_API_KEY;
+    const provider = openaiKey ? "openai" : openrouterKey ? "openrouter" : null;
+    const apiKey = openaiKey ?? openrouterKey;
+    if (!(provider && apiKey)) {
+      return { ...fallback, source: "fallback" as const };
+    }
+    const client = new OpenAI({
+      apiKey,
+      ...(provider === "openrouter"
+        ? { baseURL: "https://openrouter.ai/api/v1" }
+        : {}),
+    });
+    const response = await client.chat.completions.create({
+      messages: [
+        {
+          content:
+            "You are DrawFlow's construction field-review assistant. Draft practical inspection instructions for a low-friction evidence visit. Return strict JSON only with two string-array properties: whatToVerify and cameraAngles. Write 3-6 concise, observable bullets per property. Never infer code compliance, certify work, or add scope outside the supplied milestone and submilestones.",
+          role: "system",
+        },
+        {
+          content: JSON.stringify({
+            build: args.build,
+            currentGuidance: args.currentGuidance,
+            milestone: args.milestone,
+            submilestones: args.submilestones,
+          }),
+          role: "user",
+        },
+      ],
+      model: process.env.DRAWFLOW_ASSISTANT_MODEL ?? "gpt-4.1-mini",
+      response_format: { type: "json_object" },
+      temperature: 0.2,
+    });
+    const parsed = parseSiteVisitGuidanceDraft(
+      response.choices[0]?.message.content
+    );
+    return parsed
+      ? { ...parsed, source: provider }
+      : { ...fallback, source: "fallback" as const };
   })
   .public();
 
@@ -364,6 +443,123 @@ export const runAssistantTurn = authenticatedAction
       text:
         response.choices[0]?.message.content ??
         "I could not generate a DrawFlow assistant response.",
+    };
+  })
+  .public();
+
+export const planAssistantTurn = authenticatedAction
+  .input({
+    assistantContext: v.any(),
+    prompt: v.string(),
+    routeContext: v.any(),
+    siteMap: v.any(),
+    threadId: v.optional(v.id("assistantThreads")),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    if (ctx.viewer.organizationId !== args.workosOrganizationId) {
+      throw new Error("Forbidden: organization scope");
+    }
+    const openaiKey = process.env.OPENAI_API_KEY;
+    const openrouterKey = process.env.OPENROUTER_API_KEY;
+    const provider = openaiKey ? "openai" : openrouterKey ? "openrouter" : null;
+    const apiKey = openaiKey ?? openrouterKey;
+    if (!(provider && apiKey)) {
+      return {
+        source: "fallback",
+        ...fallbackAssistantPlannerResponse({
+          assistantContext: args.assistantContext,
+          prompt: args.prompt,
+          routeContext: args.routeContext,
+          siteMap: args.siteMap,
+        }),
+      };
+    }
+    const model = process.env.DRAWFLOW_ASSISTANT_MODEL ?? "gpt-4.1-mini";
+    const client = new OpenAI({
+      apiKey,
+      ...(provider === "openrouter"
+        ? { baseURL: "https://openrouter.ai/api/v1" }
+        : {}),
+    });
+    const fallback = fallbackAssistantPlannerResponse({
+      assistantContext: args.assistantContext,
+      prompt: args.prompt,
+      routeContext: args.routeContext,
+      siteMap: args.siteMap,
+    });
+    const response = await client.chat.completions.create({
+      messages: [
+        {
+          content:
+            "You are the DrawFlow in-product AI operations assistant. Return compact JSON only. You may answer, brief, ask clarifying questions, propose navigation, or prepare HITL actions. Never claim a data-changing action was completed. Use internal DrawFlow context only. If missing details block a safe action, ask concise questions or request a generated form. Do not navigate for a briefing unless the user explicitly asks to open a page. Known-choice inputs must use generated controls, not passive numbered questions. Queue, proposal-review, and risk prompts must include reviewTable UI with action rows.",
+          role: "system",
+        },
+        {
+          content: JSON.stringify({
+            allowedResponseShape: {
+              actions:
+                "Array of closed-catalog actions to preview; empty if not certain.",
+              navigation:
+                "Optional {to,label,reason,routeId} from the permitted site map.",
+              text: "Short assistant response.",
+              uiParts:
+                "Array of generated UI parts: briefing, questionnaire, structuredForm, reviewTable.",
+            },
+            assistantContext: sanitizeForPersistence(args.assistantContext),
+            fallbackIntentHint: fallback.intent,
+            routeContext: sanitizeForPersistence(args.routeContext),
+            siteMap: sanitizeForPersistence(args.siteMap),
+            userRequest: args.prompt,
+          }),
+          role: "user",
+        },
+      ],
+      model,
+      response_format: { type: "json_object" },
+      temperature: 0.2,
+    });
+    const content = response.choices[0]?.message.content ?? "{}";
+    const parsed = parsePlannerJson(content);
+    const parsedNavigation = normalizePlannerRecord(parsed.navigation);
+    const parsedUiParts = Array.isArray(parsed.uiParts) ? parsed.uiParts : [];
+    const deterministicIntent = [
+      "briefing",
+      "contractor_lookup",
+      "content_form",
+      "draw_queue",
+      "proposal_review_queue",
+      "risk_build_queue",
+      "site_visit_queue",
+    ].includes(String(fallback.intent));
+    return {
+      actions: deterministicIntent
+        ? (fallback.actions ?? [])
+        : Array.isArray(parsed.actions)
+          ? parsed.actions
+          : [],
+      intent: deterministicIntent
+        ? fallback.intent
+        : (optionalString(parsed.intent) ?? fallback.intent),
+      model,
+      navigation: deterministicIntent
+        ? (fallback.navigation ?? null)
+        : Object.keys(parsedNavigation).length > 0
+          ? parsedNavigation
+          : null,
+      provider,
+      source: "model",
+      text: deterministicIntent
+        ? fallback.text
+        : (optionalString(parsed.text) ??
+          fallback.text ??
+          "I can help plan this, but I need one more detail."),
+      uiParts: deterministicIntent
+        ? (fallback.uiParts ?? [])
+        : parsedUiParts.length > 0
+          ? parsedUiParts
+          : [],
     };
   })
   .public();
@@ -487,6 +683,401 @@ export const getActionPlan = authenticatedQuery
   })
   .public();
 
+export const listReminderTargets = authenticatedQuery
+  .input({ workosOrganizationId: v.string() })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeOrganization(ctx, args.workosOrganizationId);
+    const targets: Array<{
+      buildId?: Id<"activeBuilds">;
+      href: string;
+      id: string;
+      kind: "activeBuild" | "proposal";
+      label: string;
+      proposalId?: Id<"buildProposals">;
+      status?: string;
+      subtitle?: string;
+      updatedAt: number;
+    }> = [];
+    const seen = new Set<string>();
+    const pushProposal = (proposal: Doc<"buildProposals">) => {
+      const key = `proposal:${proposal._id}`;
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      targets.push({
+        href: `/builder/proposals/${proposal._id}`,
+        id: key,
+        kind: "proposal",
+        label: proposal.buildName,
+        proposalId: proposal._id,
+        status: proposal.status,
+        subtitle: proposal.location,
+        updatedAt: proposal.updatedAt,
+      });
+    };
+    const pushBuild = (build: Doc<"activeBuilds">) => {
+      const key = `activeBuild:${build._id}`;
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      targets.push({
+        buildId: build._id,
+        href: `/builder/builds/${build._id}`,
+        id: key,
+        kind: "activeBuild",
+        label: build.buildName,
+        proposalId: build.proposalId,
+        status: build.status,
+        subtitle: build.location,
+        updatedAt: build.updatedAt,
+      });
+    };
+
+    if (isBackoffice(auth.roles)) {
+      const [proposals, builds] = await Promise.all([
+        ctx.db
+          .query("buildProposals")
+          .withIndex("by_brokerage", (q) =>
+            q.eq("brokerageId", auth.brokerage._id)
+          )
+          .order("desc")
+          .take(50),
+        ctx.db
+          .query("activeBuilds")
+          .withIndex("by_brokerage", (q) =>
+            q.eq("brokerageId", auth.brokerage._id)
+          )
+          .order("desc")
+          .take(50),
+      ]);
+      for (const build of builds) {
+        if (build.organizationId === auth.organizationId) {
+          pushBuild(build);
+        }
+      }
+      for (const proposal of proposals) {
+        if (proposal.organizationId === auth.organizationId) {
+          pushProposal(proposal);
+        }
+      }
+    }
+
+    if (isBuilder(auth.roles)) {
+      const links = await ctx.db
+        .query("builderAccountLinks")
+        .withIndex("by_user", (q) => q.eq("workosUserId", auth.subject))
+        .take(50);
+      for (const link of links) {
+        if (link.status !== "active") {
+          continue;
+        }
+        const proposals = await ctx.db
+          .query("buildProposals")
+          .withIndex("by_builder", (q) =>
+            q.eq("builderProfileId", link.builderProfileId)
+          )
+          .take(50);
+        for (const proposal of proposals) {
+          if (
+            proposal.organizationId !== auth.organizationId ||
+            proposal.brokerageId !== auth.brokerage._id
+          ) {
+            continue;
+          }
+          if (proposal.activeBuildId) {
+            const build = await ctx.db.get(proposal.activeBuildId);
+            if (
+              build &&
+              build.organizationId === auth.organizationId &&
+              build.brokerageId === auth.brokerage._id
+            ) {
+              pushBuild(build);
+            }
+          }
+          pushProposal(proposal);
+        }
+      }
+    }
+
+    if (auth.roles.includes("builder-staff")) {
+      const grants = await ctx.db
+        .query("builderStaffPermissionGrants")
+        .withIndex("by_user", (q) => q.eq("workosUserId", auth.subject))
+        .take(100);
+      for (const grant of grants) {
+        if (
+          grant.organizationId !== auth.organizationId ||
+          grant.brokerageId !== auth.brokerage._id ||
+          !(grant.canView || grant.canCreate)
+        ) {
+          continue;
+        }
+        if (grant.buildId) {
+          const build = await ctx.db.get(grant.buildId);
+          if (
+            build &&
+            build.organizationId === auth.organizationId &&
+            build.brokerageId === auth.brokerage._id
+          ) {
+            pushBuild(build);
+          }
+        }
+        if (grant.proposalId) {
+          const proposal = await ctx.db.get(grant.proposalId);
+          if (
+            proposal &&
+            proposal.organizationId === auth.organizationId &&
+            proposal.brokerageId === auth.brokerage._id
+          ) {
+            pushProposal(proposal);
+          }
+        }
+      }
+    }
+
+    return {
+      targets: targets
+        .sort(
+          (a, b) => b.updatedAt - a.updatedAt || a.label.localeCompare(b.label)
+        )
+        .slice(0, 50),
+    };
+  })
+  .public();
+
+export const getAssistantContext = authenticatedQuery
+  .input({
+    routeContext: v.any(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeOrganization(ctx, args.workosOrganizationId);
+    const routeContext = normalizeRecord(args.routeContext, "routeContext");
+    return {
+      contractors: await assistantContractorContext(ctx, auth),
+      generatedAt: Date.now(),
+      operationalBriefing: await assistantOperationalBriefing(ctx, auth),
+      queues: await assistantOperationalQueues(ctx, auth),
+      route: {
+        activeBuildId: optionalString(routeContext.activeBuildId),
+        pathname: optionalString(routeContext.pathname),
+        proposalId: optionalString(routeContext.proposalId),
+        selectedDrawKey: optionalString(routeContext.selectedDrawKey),
+        selectedMilestoneKey: optionalString(routeContext.selectedMilestoneKey),
+        selectedPanel: optionalString(routeContext.selectedPanel),
+      },
+      target: await assistantCurrentTargetContext(ctx, auth, routeContext),
+      viewer: {
+        organizationId: auth.organizationId,
+        roles: auth.roles,
+        subject: auth.subject,
+        workspace: isBackoffice(auth.roles)
+          ? "backoffice"
+          : isBuilder(auth.roles)
+            ? "builder"
+            : "authenticated",
+      },
+    };
+  })
+  .public();
+
+export const createWorkflowRun = authenticatedMutation
+  .input({
+    goal: v.string(),
+    prompt: v.string(),
+    routeContext: v.any(),
+    steps: v.array(v.any()),
+    threadId: v.optional(v.id("assistantThreads")),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.id("assistantWorkflowRuns"))
+  .handler(async (ctx, args) => {
+    const auth = await authorizeOrganization(ctx, args.workosOrganizationId);
+    const now = Date.now();
+    const normalizedSteps = normalizeWorkflowSteps(args.steps);
+    return await ctx.db.insert("assistantWorkflowRuns", {
+      actorRoles: auth.roles,
+      brokerageId: auth.brokerage?._id,
+      createdAt: now,
+      createdByWorkosUserId: auth.subject,
+      currentStepId: firstOpenWorkflowStepId(normalizedSteps),
+      goal: args.goal,
+      organizationId: auth.organizationId,
+      prompt: args.prompt,
+      routeContext: args.routeContext,
+      status: "running",
+      steps: normalizedSteps,
+      threadId: args.threadId,
+      updatedAt: now,
+    });
+  })
+  .public();
+
+export const getActiveWorkflowRun = authenticatedQuery
+  .input({
+    threadId: v.optional(v.id("assistantThreads")),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.union(v.any(), v.null()))
+  .handler(async (ctx, args) => {
+    const auth = await authorizeOrganization(ctx, args.workosOrganizationId);
+    const running = args.threadId
+      ? await ctx.db
+          .query("assistantWorkflowRuns")
+          .withIndex("by_thread_status", (q) =>
+            q.eq("threadId", args.threadId).eq("status", "running")
+          )
+          .order("desc")
+          .first()
+      : await ctx.db
+          .query("assistantWorkflowRuns")
+          .withIndex("by_actor_status", (q) =>
+            q
+              .eq("organizationId", auth.organizationId)
+              .eq("createdByWorkosUserId", auth.subject)
+              .eq("status", "running")
+          )
+          .order("desc")
+          .first();
+    const needsInput = running
+      ? null
+      : args.threadId
+        ? await ctx.db
+            .query("assistantWorkflowRuns")
+            .withIndex("by_thread_status", (q) =>
+              q.eq("threadId", args.threadId).eq("status", "needs_input")
+            )
+            .order("desc")
+            .first()
+        : await ctx.db
+            .query("assistantWorkflowRuns")
+            .withIndex("by_actor_status", (q) =>
+              q
+                .eq("organizationId", auth.organizationId)
+                .eq("createdByWorkosUserId", auth.subject)
+                .eq("status", "needs_input")
+            )
+            .order("desc")
+            .first();
+    const succeeded =
+      running || needsInput
+        ? null
+        : args.threadId
+          ? await ctx.db
+              .query("assistantWorkflowRuns")
+              .withIndex("by_thread_status", (q) =>
+                q.eq("threadId", args.threadId).eq("status", "succeeded")
+              )
+              .order("desc")
+              .first()
+          : await ctx.db
+              .query("assistantWorkflowRuns")
+              .withIndex("by_actor_status", (q) =>
+                q
+                  .eq("organizationId", auth.organizationId)
+                  .eq("createdByWorkosUserId", auth.subject)
+                  .eq("status", "succeeded")
+              )
+              .order("desc")
+              .first();
+    const active = running ?? needsInput ?? succeeded;
+    if (!active || active.organizationId !== auth.organizationId) {
+      return null;
+    }
+    return active;
+  })
+  .public();
+
+export const updateWorkflowStep = authenticatedMutation
+  .input({
+    error: v.optional(v.string()),
+    finalSummary: v.optional(v.string()),
+    result: v.optional(v.any()),
+    routeContext: v.optional(v.any()),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("running"),
+      v.literal("needs_input"),
+      v.literal("succeeded"),
+      v.literal("failed"),
+      v.literal("skipped")
+    ),
+    stepId: v.string(),
+    workflowRunId: v.id("assistantWorkflowRuns"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeOrganization(ctx, args.workosOrganizationId);
+    const run = await ctx.db.get(args.workflowRunId);
+    if (!run || run.organizationId !== auth.organizationId) {
+      throw new Error("Workflow run not found");
+    }
+    const steps = updateWorkflowStepList(run.steps, {
+      error: args.error,
+      result: args.result,
+      status: args.status,
+      stepId: args.stepId,
+    });
+    const currentStepId = firstOpenWorkflowStepId(steps);
+    const status = workflowRunStatusFromSteps(steps, args.status);
+    const patch: Partial<Doc<"assistantWorkflowRuns">> = {
+      routeContext: args.routeContext ?? run.routeContext,
+      status,
+      steps,
+      updatedAt: Date.now(),
+    };
+    if (currentStepId) {
+      patch.currentStepId = currentStepId;
+    }
+    if (args.finalSummary ?? run.finalSummary) {
+      patch.finalSummary = args.finalSummary ?? run.finalSummary;
+    }
+    await ctx.db.patch(run._id, patch);
+    return {
+      currentStepId,
+      status,
+      steps,
+    };
+  })
+  .public();
+
+export const appendWorkflowSteps = authenticatedMutation
+  .input({
+    steps: v.array(v.any()),
+    workflowRunId: v.id("assistantWorkflowRuns"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeOrganization(ctx, args.workosOrganizationId);
+    const run = await ctx.db.get(args.workflowRunId);
+    if (!run || run.organizationId !== auth.organizationId) {
+      throw new Error("Workflow run not found");
+    }
+    const steps = [...run.steps, ...normalizeWorkflowSteps(args.steps)];
+    const currentStepId = firstOpenWorkflowStepId(steps);
+    const patch: Partial<Doc<"assistantWorkflowRuns">> = {
+      status: "running",
+      steps,
+      updatedAt: Date.now(),
+    };
+    if (currentStepId) {
+      patch.currentStepId = currentStepId;
+    }
+    await ctx.db.patch(run._id, patch);
+    return {
+      currentStepId,
+      status: "running",
+      steps,
+    };
+  })
+  .public();
+
 export const commitActionPlan = authenticatedMutation
   .input({
     acceptedClientRequestIds: v.array(v.string()),
@@ -571,10 +1162,41 @@ export const commitActionPlan = authenticatedMutation
       clientRequestId: string;
       result: unknown;
     }> = [];
+    const drawRequestKeysByPlanningReference = new Map<string, string>();
     for (const item of acceptedItems) {
+      const planningReference = optionalString(item.input.drawKey);
+      const chainedRequestKey = planningReference
+        ? drawRequestKeysByPlanningReference.get(planningReference)
+        : undefined;
+      const effectiveItem: AssistantPlanItem = {
+        ...item,
+        input: {
+          ...item.input,
+          ...(item.actionKey === "request_active_build_draw"
+            ? {
+                clientOperationId: `assistant:${String(args.planId)}:${item.clientRequestId}`,
+              }
+            : {}),
+          ...(chainedRequestKey ? { drawKey: chainedRequestKey } : {}),
+        },
+      };
+      const result = await applyAcceptedAction(ctx, auth, effectiveItem);
+      if (
+        item.actionKey === "request_active_build_draw" &&
+        planningReference &&
+        result &&
+        typeof result === "object" &&
+        "requestKey" in result &&
+        typeof result.requestKey === "string"
+      ) {
+        drawRequestKeysByPlanningReference.set(
+          planningReference,
+          result.requestKey
+        );
+      }
       applied.push({
         clientRequestId: item.clientRequestId,
-        result: await applyAcceptedAction(ctx, auth, item),
+        result,
       });
     }
     const now = Date.now();
@@ -676,6 +1298,1787 @@ export const createNavigationTrace = authenticatedMutation
     });
   })
   .public();
+
+type AssistantContextPack = Record<string, unknown>;
+
+type WorkflowStepPatch = {
+  error?: string;
+  result?: unknown;
+  status: string;
+  stepId: string;
+};
+
+function normalizeWorkflowSteps(steps: unknown[]) {
+  return steps
+    .map((step, index) => {
+      const row = normalizePlannerRecord(step);
+      return {
+        ...row,
+        id:
+          typeof row.id === "string" && row.id
+            ? row.id
+            : `assistant-step-${index + 1}`,
+        kind: typeof row.kind === "string" && row.kind ? row.kind : "answer",
+        label:
+          typeof row.label === "string" && row.label
+            ? row.label
+            : `Assistant step ${index + 1}`,
+        status: isWorkflowStepStatus(row.status) ? row.status : "pending",
+      };
+    })
+    .slice(0, 40);
+}
+
+function updateWorkflowStepList(steps: unknown[], patch: WorkflowStepPatch) {
+  return normalizeWorkflowSteps(steps).map((step) =>
+    step.id === patch.stepId
+      ? {
+          ...step,
+          ...(patch.error === undefined ? {} : { error: patch.error }),
+          ...(patch.result === undefined ? {} : { result: patch.result }),
+          status: patch.status,
+        }
+      : step
+  );
+}
+
+function firstOpenWorkflowStepId(steps: unknown[]) {
+  const next = normalizeWorkflowSteps(steps).find((step) =>
+    ["pending", "running", "needs_input"].includes(String(step.status))
+  );
+  return typeof next?.id === "string" ? next.id : undefined;
+}
+
+function workflowRunStatusFromSteps(steps: unknown[], latestStatus: string) {
+  const normalized = normalizeWorkflowSteps(steps);
+  if (latestStatus === "failed") {
+    return "failed";
+  }
+  if (normalized.some((step) => step.status === "needs_input")) {
+    return "needs_input";
+  }
+  if (
+    normalized.length > 0 &&
+    normalized.every((step) =>
+      ["succeeded", "skipped"].includes(String(step.status))
+    )
+  ) {
+    return "succeeded";
+  }
+  return "running";
+}
+
+function isWorkflowStepStatus(value: unknown) {
+  return (
+    value === "pending" ||
+    value === "running" ||
+    value === "needs_input" ||
+    value === "succeeded" ||
+    value === "failed" ||
+    value === "skipped"
+  );
+}
+
+function fallbackAssistantPlannerResponse(input: {
+  assistantContext: unknown;
+  prompt: string;
+  routeContext: unknown;
+  siteMap: unknown;
+}) {
+  const prompt = input.prompt.toLowerCase();
+  const context = normalizePlannerRecord(input.assistantContext);
+  if (hasDrawQueueIntent(prompt)) {
+    const drawQueue = normalizePlannerRecord(
+      normalizePlannerRecord(context.queues).drawQueue
+    );
+    const summary = normalizePlannerRecord(drawQueue.summary);
+    const rows = Array.isArray(drawQueue.rows) ? drawQueue.rows : [];
+    return {
+      actions: [],
+      intent: "draw_queue",
+      navigation: {
+        label: "Draw queue",
+        reason: "Review reimbursement draw status and next actions.",
+        routeId: "backoffice.draws",
+        to: "/backoffice/draws",
+      },
+      text:
+        `Draw queue summary: ${Number(summary.requested ?? 0)} requested, ${Number(summary.approved ?? 0)} approved, ${Number(summary.planned ?? 0)} planned, ${Number(summary.released ?? 0)} released. ` +
+        nextBestActionText(rows, "Open the highest-priority draw row."),
+      uiParts: [
+        {
+          columns: ["Build", "Draw", "Status", "Amount", "Next action"],
+          rows: rows
+            .slice(0, 12)
+            .map((row) => drawQueueUiRow(normalizePlannerRecord(row))),
+          title: "Draw queue next actions",
+          type: "reviewTable",
+        },
+      ],
+    };
+  }
+  if (hasSiteVisitQueueIntent(prompt)) {
+    const siteVisitQueue = normalizePlannerRecord(
+      normalizePlannerRecord(context.queues).siteVisitQueue
+    );
+    const summary = normalizePlannerRecord(siteVisitQueue.summary);
+    const rows = Array.isArray(siteVisitQueue.rows) ? siteVisitQueue.rows : [];
+    return {
+      actions: [],
+      intent: "site_visit_queue",
+      navigation: {
+        label: "Site visit queue",
+        reason:
+          "Review expired, geofence-flagged, and report-ready site visits.",
+        routeId: "backoffice.site-visits",
+        to: "/backoffice/site-visits",
+      },
+      text:
+        `Site visit queue summary: ${Number(summary.expired ?? 0)} expired, ${Number(summary.requested ?? 0)} requested, ${Number(summary.geofenceFlagged ?? 0)} geofence-flagged, ${Number(summary.complete ?? 0)} complete. ` +
+        nextBestActionText(rows, "Open the top ranked site visit."),
+      uiParts: [
+        {
+          columns: ["Build", "Milestone", "Status", "Flags", "Next action"],
+          rows: rows
+            .slice(0, 12)
+            .map((row) => siteVisitQueueUiRow(normalizePlannerRecord(row))),
+          title: "Site visit queue ranking",
+          type: "reviewTable",
+        },
+      ],
+    };
+  }
+  if (hasProposalReviewIntent(prompt)) {
+    const proposalQueue = normalizePlannerRecord(
+      normalizePlannerRecord(context.queues).proposalReviewQueue
+    );
+    const rows = Array.isArray(proposalQueue.rows) ? proposalQueue.rows : [];
+    const top = normalizePlannerRecord(rows[0]);
+    return {
+      actions: [],
+      intent: "proposal_review_queue",
+      navigation: top.href
+        ? {
+            label: "Submitted proposal review",
+            reason:
+              "Open the oldest submitted Build Proposal and continue with the review checklist.",
+            routeId: "backoffice.proposal.review",
+            to: String(top.href),
+          }
+        : {
+            label: "Proposal review queue",
+            reason: "Review submitted Build Proposals.",
+            routeId: "backoffice.proposals",
+            to: "/backoffice/proposals",
+          },
+      text:
+        rows.length > 0
+          ? `I selected ${String(top.buildName ?? "the oldest submitted proposal")} first because it has been waiting longest. Review checklist: confirm borrower working capital, lender draw policy limit, milestone dependencies, budget evidence, permits, and reimbursement-only draw feasibility.`
+          : "There are no submitted Build Proposals waiting for review.",
+      uiParts: [
+        {
+          columns: ["Proposal", "Location", "Budget", "Review checklist"],
+          rows: rows
+            .slice(0, 12)
+            .map((row) => proposalReviewUiRow(normalizePlannerRecord(row))),
+          title: "Submitted proposal review order",
+          type: "reviewTable",
+        },
+      ],
+    };
+  }
+  if (hasRiskBuildIntent(prompt)) {
+    const riskQueue = normalizePlannerRecord(
+      normalizePlannerRecord(context.queues).riskBuildQueue
+    );
+    const rows = Array.isArray(riskQueue.rows) ? riskQueue.rows : [];
+    const top = normalizePlannerRecord(rows[0]);
+    return {
+      actions: [],
+      intent: "risk_build_queue",
+      navigation: top.href
+        ? {
+            label: "Highest-risk build",
+            reason: "Open the highest ranked active Build for lender triage.",
+            routeId: "backoffice.build.risk",
+            to: String(top.href),
+          }
+        : {
+            label: "Active builds",
+            reason: "Review active Build risk.",
+            routeId: "backoffice.builds",
+            to: "/backoffice/builds",
+          },
+      text:
+        rows.length > 0
+          ? `Highest-risk build: ${String(top.buildName ?? "active build")} with score ${Number(top.score ?? 0)}. First action: ${riskBuildNextAction(top)}.`
+          : "No active Build currently has risk signals in the assistant context.",
+      uiParts: [
+        {
+          columns: [
+            "Build",
+            "Score",
+            "Overdue",
+            "Claims",
+            "Draws",
+            "Visits",
+            "Next action",
+          ],
+          rows: rows
+            .slice(0, 12)
+            .map((row) => riskBuildUiRow(normalizePlannerRecord(row))),
+          title: "Highest-risk active builds",
+          type: "reviewTable",
+        },
+      ],
+    };
+  }
+  if (hasBriefingIntent(prompt)) {
+    const briefing = normalizePlannerRecord(context.operationalBriefing);
+    return {
+      actions: [],
+      intent: "briefing",
+      navigation: null,
+      text: "Here is the current operational briefing. I checked live workflow state, not just notifications.",
+      uiParts: [
+        {
+          sections: Array.isArray(briefing.sections) ? briefing.sections : [],
+          summary: briefing.summary ?? {},
+          title: "Operational briefing",
+          type: "briefing",
+        },
+      ],
+    };
+  }
+  if (hasReminderIntent(prompt)) {
+    return {
+      actions: [],
+      intent: "reminder",
+      navigation: null,
+      text: "I can prepare that reminder. Choose the Build Proposal or live Build it belongs to, then I will draft the HITL calendar action.",
+      uiParts: [
+        {
+          emptyText: "No Build Proposal or live Build matches that search.",
+          selectorKind: "reminderTarget",
+          title: "Choose reminder target",
+          type: "selector",
+        },
+      ],
+    };
+  }
+  if (hasContentFillIntent(prompt)) {
+    const target = normalizePlannerRecord(context.target);
+    const route = normalizePlannerRecord(context.route);
+    const targetKind =
+      target.kind === "activeBuild" || route.activeBuildId
+        ? "activeBuild"
+        : target.kind === "proposal" || route.proposalId
+          ? "proposal"
+          : null;
+    if (!targetKind) {
+      return {
+        actions: [],
+        intent: "content_interview",
+        navigation: null,
+        text: "I can help fill this out, but I need to know which Build Proposal or live Build to use first.",
+        uiParts: [
+          {
+            questions: [
+              "Which Build Proposal or live Build should I use?",
+              "Which milestone or section are we filling?",
+              "Are these materials, equipment, or contractor scope items?",
+            ],
+            title: "Build content interview",
+            type: "questionnaire",
+          },
+        ],
+      };
+    }
+    const materialDraft = extractCostItemDraftFromPrompt(
+      input.prompt,
+      normalizePlannerRecord(target),
+      route,
+      targetKind
+    );
+    return {
+      actions: [],
+      intent: "content_form",
+      navigation: null,
+      text: "I drafted the material entry from the prompt. Review the structured fields, correct anything off, then prepare the confirmable HITL action batch.",
+      uiParts: [
+        {
+          defaults: materialDraft.defaults,
+          fields: [
+            "milestoneKey",
+            "title",
+            "itemType",
+            "quantity",
+            "unit",
+            "costCents",
+            "supplier",
+            "description",
+          ],
+          formKind: "costItem",
+          milestoneOptions: milestoneOptions(normalizePlannerRecord(target)),
+          target: {
+            buildId: route.activeBuildId ?? target.buildId,
+            kind: targetKind,
+            proposalId: route.proposalId ?? target.proposalId,
+          },
+          title:
+            targetKind === "activeBuild"
+              ? "Draft live-build material item"
+              : "Draft proposal material item",
+          type: "structuredForm",
+        },
+      ],
+    };
+  }
+  if (hasContractorIntent(prompt)) {
+    const contractors = Array.isArray(context.contractors)
+      ? context.contractors
+      : [];
+    const ranked = rankPlannerContractors(contractors, prompt).slice(0, 8);
+    return {
+      actions: [],
+      intent: "contractor_lookup",
+      navigation: null,
+      text:
+        ranked.length > 0
+          ? "I found internal DrawFlow contractor candidates and ranked them by trade, location, and readiness. Use the action row to review assignment next steps."
+          : "I checked the internal contractor roster and did not find a strong match.",
+      uiParts: [
+        {
+          columns: [
+            "Candidate",
+            "Confidence",
+            "Trade match",
+            "Location",
+            "Availability",
+            "Next step",
+          ],
+          rows: ranked.map((rankedContractor) =>
+            contractorUiRow(
+              normalizePlannerRecord(rankedContractor.contractor),
+              rankedContractor,
+              targetAssignmentHref(context)
+            )
+          ),
+          title: "Contractor matches",
+          type: "reviewTable",
+        },
+      ],
+    };
+  }
+  const navigation = fallbackNavigation(input.siteMap, prompt);
+  if (navigation) {
+    return {
+      actions: [],
+      intent: "navigation",
+      navigation,
+      text: `I can take you to ${navigation.label}: ${navigation.reason}`,
+      uiParts: [
+        {
+          label: navigation.label,
+          reason: navigation.reason,
+          to: navigation.to,
+          type: "navigation",
+        },
+      ],
+    };
+  }
+  return {
+    actions: [],
+    intent: "clarify_or_answer",
+    navigation: null,
+    text: "I can help plan that. Tell me the target build/proposal and the outcome you want, or ask for a briefing, contractor match, materials form, reminder, or navigation.",
+    uiParts: [
+      {
+        questions: [
+          "Which build or proposal should I use?",
+          "What should change or what decision are you trying to make?",
+          "Should I draft a form, prepare a HITL action batch, or just brief you?",
+        ],
+        title: "Clarify the task",
+        type: "questionnaire",
+      },
+    ],
+  };
+}
+
+async function assistantOperationalBriefing(
+  ctx: QueryCtx,
+  auth: AssistantAuth
+) {
+  const sections = [
+    { id: "today", items: [] as AssistantBriefingItem[], title: "Today" },
+    {
+      id: "reviews",
+      items: [] as AssistantBriefingItem[],
+      title: "Review queue",
+    },
+    {
+      id: "draws",
+      items: [] as AssistantBriefingItem[],
+      title: "Draws and releases",
+    },
+    {
+      id: "schedule",
+      items: [] as AssistantBriefingItem[],
+      title: "Schedule and risk",
+    },
+    {
+      id: "contractors",
+      items: [] as AssistantBriefingItem[],
+      title: "Contractors",
+    },
+  ];
+  const push = (sectionId: string, item: AssistantBriefingItem) => {
+    const section = sections.find((candidate) => candidate.id === sectionId);
+    section?.items.push(item);
+  };
+
+  const today = toIsoDate(new Date());
+  const reminders = await ctx.db
+    .query("calendarReminderEvents")
+    .withIndex("by_created_by", (q) =>
+      q
+        .eq("organizationId", auth.organizationId)
+        .eq("createdByWorkosUserId", auth.subject)
+    )
+    .take(100);
+  for (const reminder of reminders) {
+    if (reminder.status === "active" && reminder.startsAt <= today) {
+      push("today", {
+        href: reminder.buildId
+          ? `/backoffice/builds/${String(reminder.buildId)}`
+          : `/backoffice/proposals/${String(reminder.proposalId)}`,
+        id: `reminder:${String(reminder._id)}`,
+        kind: "reminder",
+        priority: "medium",
+        source: "calendarReminderEvents",
+        title: reminder.title,
+      });
+    }
+  }
+
+  if (isBackoffice(auth.roles)) {
+    await appendBackofficeBriefingItems(ctx, auth, push);
+  } else if (isBuilder(auth.roles)) {
+    await appendBuilderBriefingItems(ctx, auth, push);
+  }
+
+  const priorityWeight = { critical: 0, high: 1, medium: 2, low: 3 };
+  for (const section of sections) {
+    section.items = section.items
+      .sort(
+        (a, b) =>
+          priorityWeight[a.priority] - priorityWeight[b.priority] ||
+          a.title.localeCompare(b.title)
+      )
+      .slice(0, 12);
+  }
+  return {
+    sections: sections.filter((section) => section.items.length > 0),
+    summary: {
+      critical: sections
+        .flatMap((section) => section.items)
+        .filter((item) => item.priority === "critical").length,
+      generatedFor: auth.subject,
+      high: sections
+        .flatMap((section) => section.items)
+        .filter((item) => item.priority === "high").length,
+      total: sections.reduce(
+        (total, section) => total + section.items.length,
+        0
+      ),
+    },
+  };
+}
+
+type AssistantBriefingItem = {
+  actions?: Array<{
+    kind?: string;
+    label: string;
+    reason?: string;
+    to?: string;
+  }>;
+  detail?: string;
+  href?: string;
+  id: string;
+  kind: string;
+  priority: "critical" | "high" | "medium" | "low";
+  source: string;
+  title: string;
+};
+
+async function assistantOperationalQueues(ctx: QueryCtx, auth: AssistantAuth) {
+  if (!isBackoffice(auth.roles)) {
+    return emptyOperationalQueues();
+  }
+  const [proposalDocs, buildDocs] = await Promise.all([
+    ctx.db
+      .query("buildProposals")
+      .withIndex("by_brokerage", (q) => q.eq("brokerageId", auth.brokerage._id))
+      .take(150),
+    ctx.db
+      .query("activeBuilds")
+      .withIndex("by_brokerage", (q) => q.eq("brokerageId", auth.brokerage._id))
+      .take(150),
+  ]);
+  const proposals = proposalDocs.filter(
+    (proposal) => proposal.organizationId === auth.organizationId
+  );
+  const builds = buildDocs.filter(
+    (build) => build.organizationId === auth.organizationId
+  );
+  const drawRows: Array<Record<string, unknown>> = [];
+  const siteVisitRows: Array<Record<string, unknown>> = [];
+  const riskRows: Array<Record<string, unknown>> = [];
+  const now = Date.now();
+
+  for (const build of builds.slice(0, 80)) {
+    const [draws, visits, evidenceAssets, milestones] = await Promise.all([
+      ctx.db
+        .query("plannedDrawScheduleRows")
+        .withIndex("by_build", (q) => q.eq("buildId", build._id))
+        .take(100),
+      ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_build", (q) => q.eq("buildId", build._id))
+        .take(100),
+      ctx.db
+        .query("buildEvidenceAssets")
+        .withIndex("by_build", (q) => q.eq("buildId", build._id))
+        .take(100),
+      ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build", (q) => q.eq("buildId", build._id))
+        .take(100),
+    ]);
+    const href = `/backoffice/builds/${String(build._id)}`;
+    const geofenceMilestones = new Set(
+      evidenceAssets
+        .filter((asset) => asset.locationVerified === false)
+        .map((asset) => asset.milestoneKey)
+    );
+    for (const draw of draws) {
+      drawRows.push({
+        actionLabel:
+          draw.status === "requested"
+            ? "Review draw"
+            : draw.status === "approved"
+              ? "Open release controls"
+              : "Open draw",
+        amountCents: draw.amountCents,
+        buildId: build._id,
+        buildName: build.buildName,
+        drawKey: draw.drawKey,
+        href,
+        id: String(draw._id),
+        label: draw.label,
+        milestoneKey: draw.milestoneKey,
+        status: draw.status,
+        timingDay: draw.timingDay,
+      });
+    }
+    for (const visit of visits) {
+      const expired =
+        visit.status === "requested" && visit.tokenExpiresAt < now;
+      const geofenceFlagged = geofenceMilestones.has(visit.milestoneKey);
+      siteVisitRows.push({
+        actionLabel: expired
+          ? "Reschedule visit"
+          : visit.status === "complete"
+            ? "Review report"
+            : "Open visit",
+        buildId: build._id,
+        buildName: build.buildName,
+        expired,
+        geofenceFlagged,
+        href,
+        id: String(visit._id),
+        milestoneKey: visit.milestoneKey,
+        requestedDay: visit.requestedDay,
+        status: expired ? "expired" : visit.status,
+        tokenExpiresAt: visit.tokenExpiresAt,
+        visitId: visit.visitId,
+      });
+    }
+
+    const currentDay =
+      build.timelineCurrentDay ?? daysSinceIsoDate(build.startDate);
+    const overdueMilestones = milestones.filter(
+      (milestone) =>
+        milestone.status !== "complete" && currentDay > milestone.dayEnd
+    );
+    const claimedMilestones = milestones.filter((milestone) => {
+      const review = normalizePlannerRecord(milestone.completionReview);
+      return milestone.completionClaim && review.status !== "approved";
+    });
+    const requestedDraws = draws.filter((draw) => draw.status === "requested");
+    const expiredVisits = visits.filter(
+      (visit) => visit.status === "requested" && visit.tokenExpiresAt < now
+    );
+    const geofenceCount = geofenceMilestones.size;
+    const score =
+      overdueMilestones.length * 3 +
+      claimedMilestones.length * 4 +
+      requestedDraws.length * 3 +
+      expiredVisits.length * 2 +
+      geofenceCount;
+    if (score > 0) {
+      riskRows.push({
+        actionLabel: "Open build review",
+        buildId: build._id,
+        buildName: build.buildName,
+        claimedMilestones: claimedMilestones.length,
+        currentDay,
+        expiredVisits: expiredVisits.length,
+        geofenceFlags: geofenceCount,
+        href,
+        id: String(build._id),
+        overdueMilestones: overdueMilestones.length,
+        requestedDraws: requestedDraws.length,
+        score,
+      });
+    }
+  }
+
+  const proposalReviewRows = proposals
+    .filter((proposal) => proposal.status === "submitted")
+    .sort((a, b) => (a.submittedAt ?? 0) - (b.submittedAt ?? 0))
+    .slice(0, 12)
+    .map((proposal) => ({
+      actionLabel: "Open review checklist",
+      buildName: proposal.buildName,
+      href: `/backoffice/proposals/${String(proposal._id)}`,
+      id: String(proposal._id),
+      location: proposal.location,
+      proposedBudget: proposal.totalBudgetCents,
+      submittedAt: proposal.submittedAt,
+    }));
+
+  const drawSummary = countByStatus(drawRows, [
+    "planned",
+    "requested",
+    "approved",
+    "rejected",
+    "released",
+  ]);
+  const siteVisitSummary = {
+    cancelled: siteVisitRows.filter((row) => row.status === "cancelled").length,
+    complete: siteVisitRows.filter((row) => row.status === "complete").length,
+    expired: siteVisitRows.filter((row) => row.status === "expired").length,
+    geofenceFlagged: siteVisitRows.filter((row) => row.geofenceFlagged).length,
+    requested: siteVisitRows.filter((row) => row.status === "requested").length,
+    total: siteVisitRows.length,
+  };
+
+  return {
+    drawQueue: {
+      rows: drawRows.sort(sortDrawQueueRows).slice(0, 20),
+      summary: { ...drawSummary, total: drawRows.length },
+    },
+    proposalReviewQueue: {
+      rows: proposalReviewRows,
+      summary: {
+        submitted: proposalReviewRows.length,
+        total: proposalReviewRows.length,
+      },
+    },
+    riskBuildQueue: {
+      rows: riskRows
+        .sort((a, b) => Number(b.score ?? 0) - Number(a.score ?? 0))
+        .slice(0, 12),
+      summary: {
+        highRisk: riskRows.filter((row) => Number(row.score ?? 0) >= 6).length,
+        total: riskRows.length,
+      },
+    },
+    siteVisitQueue: {
+      rows: siteVisitRows.sort(sortSiteVisitQueueRows).slice(0, 20),
+      summary: siteVisitSummary,
+    },
+  };
+}
+
+function emptyOperationalQueues() {
+  return {
+    drawQueue: { rows: [], summary: { total: 0 } },
+    proposalReviewQueue: { rows: [], summary: { total: 0 } },
+    riskBuildQueue: { rows: [], summary: { total: 0 } },
+    siteVisitQueue: { rows: [], summary: { total: 0 } },
+  };
+}
+
+function countByStatus(
+  rows: Array<Record<string, unknown>>,
+  statuses: string[]
+) {
+  return Object.fromEntries(
+    statuses.map((status) => [
+      status,
+      rows.filter((row) => row.status === status).length,
+    ])
+  );
+}
+
+function sortDrawQueueRows(
+  a: Record<string, unknown>,
+  b: Record<string, unknown>
+) {
+  const weight = {
+    requested: 0,
+    approved: 1,
+    planned: 2,
+    rejected: 3,
+    released: 4,
+  };
+  return (
+    (weight[String(a.status) as keyof typeof weight] ?? 9) -
+      (weight[String(b.status) as keyof typeof weight] ?? 9) ||
+    Number(a.timingDay ?? 0) - Number(b.timingDay ?? 0)
+  );
+}
+
+function sortSiteVisitQueueRows(
+  a: Record<string, unknown>,
+  b: Record<string, unknown>
+) {
+  const score = (row: Record<string, unknown>) =>
+    (row.status === "expired" ? 0 : row.status === "requested" ? 1 : 2) +
+    (row.geofenceFlagged ? -0.5 : 0);
+  return (
+    score(a) - score(b) ||
+    Number(a.tokenExpiresAt ?? 0) - Number(b.tokenExpiresAt ?? 0)
+  );
+}
+
+async function appendBackofficeBriefingItems(
+  ctx: QueryCtx,
+  auth: AssistantAuth,
+  push: (sectionId: string, item: AssistantBriefingItem) => void
+) {
+  const [proposals, builds, contractorIssues] = await Promise.all([
+    ctx.db
+      .query("buildProposals")
+      .withIndex("by_brokerage", (q) => q.eq("brokerageId", auth.brokerage._id))
+      .take(150),
+    ctx.db
+      .query("activeBuilds")
+      .withIndex("by_brokerage", (q) => q.eq("brokerageId", auth.brokerage._id))
+      .take(150),
+    ctx.db
+      .query("contractorScopeIssues")
+      .withIndex("by_brokerage_status", (q) =>
+        q.eq("brokerageId", auth.brokerage._id).eq("status", "open" as any)
+      )
+      .take(50)
+      .catch(() => []),
+  ]);
+  for (const proposal of proposals.filter(
+    (proposal) => proposal.organizationId === auth.organizationId
+  )) {
+    if (proposal.status === "submitted") {
+      push("reviews", {
+        detail: proposal.location,
+        href: `/backoffice/proposals/${String(proposal._id)}`,
+        id: `proposal:${String(proposal._id)}:submitted`,
+        kind: "proposalReview",
+        priority: "high",
+        source: "buildProposals.status",
+        title: `Review submitted proposal: ${proposal.buildName}`,
+      });
+    }
+    const [draws, modifications] = await Promise.all([
+      collectByIndex(
+        ctx,
+        "proposalDrawScheduleRows",
+        "by_proposal",
+        proposal._id
+      ),
+      collectByIndex(
+        ctx,
+        "proposalTimelineModificationRequests",
+        "by_proposal",
+        proposal._id
+      ),
+    ]);
+    for (const draw of draws as Doc<"proposalDrawScheduleRows">[]) {
+      if (draw.requestStatus === "requested") {
+        push("draws", {
+          detail: `${formatCents(draw.amountCents)} requested`,
+          href: `/backoffice/proposals/${String(proposal._id)}`,
+          id: `proposal-draw:${String(draw._id)}`,
+          kind: "drawRequest",
+          priority: "high",
+          source: "proposalDrawScheduleRows.requestStatus",
+          title: `Draw request needs review: ${proposal.buildName} · ${draw.label}`,
+        });
+      }
+    }
+    for (const request of modifications as Doc<"proposalTimelineModificationRequests">[]) {
+      if (request.status === "requested") {
+        push("reviews", {
+          href: `/backoffice/proposals/${String(proposal._id)}`,
+          id: `proposal-modification:${String(request._id)}`,
+          kind: "timelineModification",
+          priority: "medium",
+          source: "proposalTimelineModificationRequests.status",
+          title: `Timeline change requested: ${proposal.buildName}`,
+        });
+      }
+    }
+  }
+  for (const build of builds.filter(
+    (build) => build.organizationId === auth.organizationId
+  )) {
+    await appendBuildBriefingItems(ctx, build, push);
+  }
+  for (const issue of contractorIssues as Array<{
+    _id: unknown;
+    buildId?: unknown;
+    proposalId?: unknown;
+    summary: string;
+  }>) {
+    push("contractors", {
+      href: issue.buildId
+        ? `/backoffice/builds/${String(issue.buildId)}`
+        : issue.proposalId
+          ? `/backoffice/proposals/${String(issue.proposalId)}`
+          : "/backoffice/contractors",
+      id: `contractor-issue:${String(issue._id)}`,
+      kind: "contractorIssue",
+      priority: "medium",
+      source: "contractorScopeIssues.status",
+      title: issue.summary,
+    });
+  }
+}
+
+async function appendBuilderBriefingItems(
+  ctx: QueryCtx,
+  auth: AssistantAuth,
+  push: (sectionId: string, item: AssistantBriefingItem) => void
+) {
+  const links = await ctx.db
+    .query("builderAccountLinks")
+    .withIndex("by_user", (q) => q.eq("workosUserId", auth.subject))
+    .take(50);
+  for (const link of links.filter((row) => row.status === "active")) {
+    const proposals = await ctx.db
+      .query("buildProposals")
+      .withIndex("by_builder", (q) =>
+        q.eq("builderProfileId", link.builderProfileId)
+      )
+      .take(50);
+    for (const proposal of proposals.filter(
+      (row) =>
+        row.organizationId === auth.organizationId &&
+        row.brokerageId === auth.brokerage._id
+    )) {
+      if (String(proposal.status) === "changes_requested") {
+        push("reviews", {
+          href: `/builder/proposals/${String(proposal._id)}`,
+          id: `proposal:${String(proposal._id)}:changes`,
+          kind: "proposalChanges",
+          priority: "high",
+          source: "buildProposals.status",
+          title: `Proposal changes requested: ${proposal.buildName}`,
+        });
+      }
+      if (proposal.activeBuildId) {
+        const build = await ctx.db.get(proposal.activeBuildId);
+        if (build) {
+          await appendBuildBriefingItems(ctx, build, push, "builder");
+        }
+      }
+    }
+  }
+}
+
+async function appendBuildBriefingItems(
+  ctx: QueryCtx,
+  build: Doc<"activeBuilds">,
+  push: (sectionId: string, item: AssistantBriefingItem) => void,
+  workspace: "backoffice" | "builder" = "backoffice"
+) {
+  const hrefBase =
+    workspace === "builder"
+      ? `/builder/builds/${String(build._id)}`
+      : `/backoffice/builds/${String(build._id)}`;
+  const [milestones, draws, visits, facilityChanges, documents] =
+    await Promise.all([
+      collectByIndex(ctx, "buildMilestones", "by_build", build._id),
+      collectByIndex(ctx, "activeBuildDrawRequests", "by_build", build._id),
+      collectByIndex(ctx, "buildSiteVisits", "by_build", build._id),
+      collectByIndex(
+        ctx,
+        "activeBuildFacilityChangeRequests",
+        "by_build",
+        build._id
+      ),
+      collectByIndex(ctx, "buildDocuments", "by_build", build._id),
+    ]);
+  const currentDay =
+    build.timelineCurrentDay ?? daysSinceIsoDate(build.startDate);
+  for (const milestone of milestones as Doc<"buildMilestones">[]) {
+    const reviewStatus = normalizePlannerRecord(
+      milestone.completionReview
+    ).status;
+    if (milestone.completionClaim && reviewStatus !== "approved") {
+      push("reviews", {
+        href: hrefBase,
+        id: `milestone-completion:${String(milestone._id)}`,
+        kind: "milestoneCompletion",
+        priority: "high",
+        source: "buildMilestones.completionClaim",
+        title: `Milestone completion needs review: ${build.buildName} · ${milestone.name}`,
+      });
+    }
+    if (currentDay > milestone.dayEnd && milestone.status !== "complete") {
+      push("schedule", {
+        detail: `Current day ${currentDay}; planned end day ${milestone.dayEnd}`,
+        href: hrefBase,
+        id: `behind:${String(milestone._id)}`,
+        kind: "behindSchedule",
+        priority: currentDay - milestone.dayEnd > 7 ? "critical" : "high",
+        source: "buildMilestones.dayEnd",
+        title: `Build running behind: ${build.buildName} · ${milestone.name}`,
+      });
+    }
+    if (
+      milestone.policyState &&
+      !["ok", "clear", "normal", "none"].includes(
+        String(milestone.policyState).toLowerCase()
+      )
+    ) {
+      push("schedule", {
+        detail: String(milestone.policyState),
+        href: hrefBase,
+        id: `policy:${String(milestone._id)}`,
+        kind: "policyWarning",
+        priority: "medium",
+        source: "buildMilestones.policyState",
+        title: `Policy warning: ${build.buildName} · ${milestone.name}`,
+      });
+    }
+  }
+  for (const draw of draws as Doc<"activeBuildDrawRequests">[]) {
+    if (draw.status === "requested" || draw.status === "approved") {
+      push("draws", {
+        detail: `${formatCents(draw.amountCents)} · ${draw.status}`,
+        href: hrefBase,
+        id: `active-draw:${String(draw._id)}`,
+        kind: draw.status === "approved" ? "drawRelease" : "drawRequest",
+        priority: draw.status === "approved" ? "high" : "critical",
+        source: "activeBuildDrawRequests.status",
+        title:
+          draw.status === "approved"
+            ? `Approved draw needs release: ${build.buildName} · ${draw.label}`
+            : `Draw request needs approval: ${build.buildName} · ${draw.label}`,
+      });
+    }
+  }
+  for (const visit of visits as Doc<"buildSiteVisits">[]) {
+    if (visit.status === "requested" || visit.status === "complete") {
+      push(visit.status === "requested" ? "today" : "reviews", {
+        detail: `Milestone ${visit.milestoneKey}, day ${visit.requestedDay}`,
+        href: hrefBase,
+        id: `site-visit:${String(visit._id)}`,
+        kind: "siteVisit",
+        priority: visit.status === "requested" ? "high" : "medium",
+        source: "buildSiteVisits.status",
+        title:
+          visit.status === "requested"
+            ? `Outstanding site visit: ${build.buildName}`
+            : `Site visit report ready: ${build.buildName}`,
+      });
+    }
+  }
+  for (const request of facilityChanges as Doc<"activeBuildFacilityChangeRequests">[]) {
+    if (request.status === "requested") {
+      push("reviews", {
+        href: hrefBase,
+        id: `facility-change:${String(request._id)}`,
+        kind: "facilityChange",
+        priority: "high",
+        source: "activeBuildFacilityChangeRequests.status",
+        title: `Facility change requested: ${build.buildName}`,
+      });
+    }
+  }
+  if ((documents as Doc<"buildDocuments">[]).length === 0) {
+    push("reviews", {
+      href: hrefBase,
+      id: `missing-documents:${String(build._id)}`,
+      kind: "missingDocuments",
+      priority: "low",
+      source: "buildDocuments.by_build",
+      title: `No build documents uploaded: ${build.buildName}`,
+    });
+  }
+}
+
+async function assistantContractorContext(ctx: QueryCtx, auth: AssistantAuth) {
+  if (!(isBackoffice(auth.roles) || isBuilder(auth.roles))) {
+    return [];
+  }
+  const contractors = await ctx.db
+    .query("contractorProfiles")
+    .withIndex("by_brokerage", (q) => q.eq("brokerageId", auth.brokerage._id))
+    .take(60);
+  return contractors
+    .filter(
+      (contractor) =>
+        contractor.organizationId === auth.organizationId &&
+        contractor.status === "active"
+    )
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .slice(0, 40)
+    .map((contractor) => ({
+      city: contractor.city,
+      contractorId: contractor._id,
+      defaultPayRateCents: contractor.defaultPayRateCents,
+      defaultPayRateUnit: contractor.defaultPayRateUnit ?? "hour",
+      name: contractor.name,
+      onboardingStatus:
+        contractor.onboardingStatus ??
+        (contractor.accountWorkosUserId ? "account_linked" : "profile_only"),
+      serviceAreaPrimaryCity: contractor.serviceAreaPrimaryCity,
+      status: contractor.status,
+      trades: contractor.trades,
+    }));
+}
+
+async function assistantCurrentTargetContext(
+  ctx: QueryCtx,
+  auth: AssistantAuth,
+  routeContext: AssistantContextPack
+) {
+  const buildId = optionalId<"activeBuilds">(
+    ctx,
+    "activeBuilds",
+    routeContext.activeBuildId
+  );
+  if (buildId) {
+    const build = await ctx.db.get(buildId);
+    if (
+      build &&
+      build.organizationId === auth.organizationId &&
+      build.brokerageId === auth.brokerage._id
+    ) {
+      const [milestones, costItems, draws] = await Promise.all([
+        collectByIndex(ctx, "buildMilestones", "by_build", build._id),
+        collectByIndex(ctx, "buildCostItems", "by_build", build._id),
+        collectByIndex(ctx, "plannedDrawScheduleRows", "by_build", build._id),
+      ]);
+      return {
+        buildId: build._id,
+        costItems: summarizeCostItems(costItems as Doc<"buildCostItems">[]),
+        draws: summarizeDraws(draws as Doc<"plannedDrawScheduleRows">[]),
+        kind: "activeBuild",
+        label: build.buildName,
+        milestones: summarizeMilestones(milestones as Doc<"buildMilestones">[]),
+        proposalId: build.proposalId,
+        status: build.status,
+      };
+    }
+  }
+  const proposalId = optionalId<"buildProposals">(
+    ctx,
+    "buildProposals",
+    routeContext.proposalId
+  );
+  if (proposalId) {
+    const proposal = await ctx.db.get(proposalId);
+    if (
+      proposal &&
+      proposal.organizationId === auth.organizationId &&
+      proposal.brokerageId === auth.brokerage._id
+    ) {
+      const [milestones, costItems, draws] = await Promise.all([
+        collectByIndex(ctx, "proposalMilestones", "by_proposal", proposal._id),
+        collectByIndex(ctx, "proposalCostItems", "by_proposal", proposal._id),
+        collectByIndex(
+          ctx,
+          "proposalDrawScheduleRows",
+          "by_proposal",
+          proposal._id
+        ),
+      ]);
+      return {
+        costItems: summarizeCostItems(costItems as Doc<"proposalCostItems">[]),
+        draws: summarizeDraws(draws as Doc<"proposalDrawScheduleRows">[]),
+        kind: "proposal",
+        label: proposal.buildName,
+        milestones: summarizeMilestones(
+          milestones as Doc<"proposalMilestones">[]
+        ),
+        proposalId: proposal._id,
+        status: proposal.status,
+      };
+    }
+  }
+  return null;
+}
+
+function summarizeMilestones(
+  milestones: Array<
+    Pick<
+      Doc<"proposalMilestones"> | Doc<"buildMilestones">,
+      "dayEnd" | "dayStart" | "key" | "name" | "order"
+    >
+  >
+) {
+  return milestones
+    .sort((a, b) => a.order - b.order)
+    .slice(0, 20)
+    .map((milestone) => ({
+      dayEnd: milestone.dayEnd,
+      dayStart: milestone.dayStart,
+      key: milestone.key,
+      name: milestone.name,
+    }));
+}
+
+function summarizeCostItems(
+  items: Array<
+    Pick<
+      Doc<"proposalCostItems"> | Doc<"buildCostItems">,
+      | "costCents"
+      | "itemType"
+      | "milestoneKey"
+      | "quantity"
+      | "supplier"
+      | "title"
+    >
+  >
+) {
+  return items.slice(0, 30).map((item) => ({
+    costCents: item.costCents,
+    itemType: item.itemType,
+    milestoneKey: item.milestoneKey,
+    quantity: item.quantity,
+    supplier: item.supplier,
+    title: item.title,
+  }));
+}
+
+function summarizeDraws(
+  draws: Array<{
+    amountCents: number;
+    drawKey: string;
+    label: string;
+    milestoneKey?: string;
+    requestStatus?: string;
+    status?: string;
+    timingDay: number;
+  }>
+) {
+  return draws.slice(0, 20).map((draw) => ({
+    amountCents: draw.amountCents,
+    drawKey: draw.drawKey,
+    label: draw.label,
+    milestoneKey: draw.milestoneKey,
+    status: draw.status ?? draw.requestStatus ?? "draft",
+    timingDay: draw.timingDay,
+  }));
+}
+
+function parsePlannerJson(content: string) {
+  try {
+    return normalizePlannerRecord(JSON.parse(content));
+  } catch {
+    return { text: content };
+  }
+}
+
+function normalizePlannerRecord(value: unknown): Record<string, any> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, any>)
+    : {};
+}
+
+function hasBriefingIntent(prompt: string) {
+  return (
+    prompt.includes("briefing") ||
+    prompt.includes("tasks for today") ||
+    prompt.includes("what are my tasks") ||
+    prompt.includes("what do i need to do") ||
+    prompt.includes("what needs my attention")
+  );
+}
+
+function hasContractorIntent(prompt: string) {
+  return (
+    prompt.includes("contractor") ||
+    prompt.includes("trade") ||
+    prompt.includes("who can") ||
+    prompt.includes("stucco") ||
+    prompt.includes("exterior") ||
+    prompt.includes("envelope") ||
+    prompt.includes("finish") ||
+    prompt.includes("masonry") ||
+    prompt.includes("framer") ||
+    prompt.includes("electrician") ||
+    prompt.includes("plumber")
+  );
+}
+
+function hasContentFillIntent(prompt: string) {
+  return (
+    prompt.includes("fill out") ||
+    prompt.includes("fill in") ||
+    prompt.includes("help me fill") ||
+    prompt.includes("materials") ||
+    prompt.includes("material") ||
+    prompt.includes("content for")
+  );
+}
+
+function hasReminderIntent(prompt: string) {
+  return (
+    prompt.includes("reminder") ||
+    prompt.includes("remind me") ||
+    prompt.includes("calendar reminder")
+  );
+}
+
+function hasDrawQueueIntent(prompt: string) {
+  return (
+    prompt.includes("draw queue") ||
+    prompt.includes("draws need") ||
+    prompt.includes("draw requests") ||
+    prompt.includes("draws should") ||
+    prompt.includes("draws are waiting")
+  );
+}
+
+function hasSiteVisitQueueIntent(prompt: string) {
+  return (
+    prompt.includes("site visit queue") ||
+    prompt.includes("site visits") ||
+    prompt.includes("inspection queue") ||
+    prompt.includes("inspections")
+  );
+}
+
+function hasProposalReviewIntent(prompt: string) {
+  return (
+    prompt.includes("submitted proposal") ||
+    prompt.includes("proposal review") ||
+    prompt.includes("proposal needs review") ||
+    prompt.includes("proposal should i review")
+  );
+}
+
+function hasRiskBuildIntent(prompt: string) {
+  return (
+    prompt.includes("highest risk") ||
+    prompt.includes("highest-risk") ||
+    prompt.includes("most at risk") ||
+    prompt.includes("at-risk") ||
+    prompt.includes("behind schedule") ||
+    prompt.includes("risk build")
+  );
+}
+
+type RankedPlannerContractor = {
+  availability: string;
+  confidence: string;
+  contractor: unknown;
+  score: number;
+  tradeMatch: string;
+};
+
+function rankPlannerContractors(
+  contractors: unknown[],
+  prompt: string
+): RankedPlannerContractor[] {
+  const terms = prompt
+    .split(/[^a-z0-9]+/)
+    .map((term) => term.trim())
+    .filter(
+      (term) =>
+        term.length > 2 &&
+        !["who", "can", "for", "the", "and", "with", "need"].includes(term)
+    );
+  return contractors
+    .map((contractor) => {
+      const row = normalizePlannerRecord(contractor);
+      const trades = Array.isArray(row.trades)
+        ? row.trades.map((trade) => String(trade))
+        : [];
+      const haystack = [
+        row.name,
+        row.city,
+        row.serviceAreaPrimaryCity,
+        ...trades,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const directHits = terms.filter((term) => haystack.includes(term)).length;
+      const adjacentHits = contractorAdjacentTradeScore(prompt, trades);
+      const readiness =
+        row.onboardingStatus === "account_linked" ||
+        row.status === "active" ||
+        row.onboardingStatus === "active"
+          ? 1
+          : 0;
+      const score = directHits * 4 + adjacentHits * 2 + readiness;
+      const confidence =
+        directHits > 0
+          ? score >= 7
+            ? "High"
+            : "Medium"
+          : adjacentHits > 0
+            ? "Adjacent"
+            : "Low";
+      return {
+        availability:
+          row.onboardingStatus === "account_linked"
+            ? "Account linked"
+            : String(row.onboardingStatus ?? row.status ?? "Profile only"),
+        confidence,
+        contractor,
+        score,
+        tradeMatch:
+          directHits > 0
+            ? "Direct"
+            : adjacentHits > 0
+              ? "Adjacent envelope/exterior"
+              : "General roster",
+      } satisfies RankedPlannerContractor;
+    })
+    .filter((row) => row.score > 0 || terms.length === 0)
+    .sort((a, b) => b.score - a.score);
+}
+
+function contractorAdjacentTradeScore(prompt: string, trades: string[]) {
+  const normalizedPrompt = prompt.toLowerCase();
+  const normalizedTrades = trades.join(" ").toLowerCase();
+  if (
+    /(stucco|siding|exterior|envelope|masonry|cladding|finish)/.test(
+      normalizedPrompt
+    )
+  ) {
+    return [
+      "stucco",
+      "siding",
+      "exterior",
+      "envelope",
+      "masonry",
+      "cladding",
+      "concrete",
+      "foundation",
+      "framing",
+      "roof",
+    ].filter((term) => normalizedTrades.includes(term)).length;
+  }
+  return 0;
+}
+
+function contractorUiRow(
+  contractor: Record<string, any>,
+  ranked: RankedPlannerContractor,
+  href: string
+) {
+  const name = String(contractor.name ?? "Unknown contractor");
+  const trades = Array.isArray(contractor.trades)
+    ? contractor.trades.join(", ")
+    : "Trade not set";
+  const location = String(
+    contractor.serviceAreaPrimaryCity ?? contractor.city ?? "Location not set"
+  );
+  return {
+    actions: [
+      {
+        kind: "contractorAssignment",
+        label: "Review assignment",
+        reason: `Review whether ${name} should be assigned to the visible milestone or scope.`,
+        to: href,
+      },
+    ],
+    id: String(contractor.contractorId ?? contractor.id ?? name),
+    values: [
+      name,
+      ranked.confidence,
+      `${ranked.tradeMatch}: ${trades}`,
+      location,
+      ranked.availability,
+      "Review assignment scope, rate, and milestone fit",
+    ],
+  };
+}
+
+function targetAssignmentHref(context: Record<string, any>) {
+  const route = normalizePlannerRecord(context.route);
+  const viewer = normalizePlannerRecord(context.viewer);
+  const workspace = viewer.workspace === "builder" ? "builder" : "backoffice";
+  if (route.activeBuildId) {
+    return `/${workspace}/builds/${String(route.activeBuildId)}`;
+  }
+  if (route.proposalId) {
+    return `/${workspace}/proposals/${String(route.proposalId)}`;
+  }
+  return "/backoffice/contractors";
+}
+
+function nextBestActionText(rows: unknown[], fallback: string) {
+  const top = normalizePlannerRecord(rows[0]);
+  return top.actionLabel
+    ? `Next best action: ${String(top.actionLabel)} for ${String(top.buildName ?? top.label ?? top.id)}.`
+    : fallback;
+}
+
+function drawQueueUiRow(row: Record<string, any>) {
+  return {
+    actions: row.href
+      ? [
+          {
+            kind: "drawQueueAction",
+            label: String(row.actionLabel ?? "Open draw"),
+            reason: `Open ${String(row.label ?? "draw")} on ${String(row.buildName ?? "build")}.`,
+            to: String(row.href),
+          },
+        ]
+      : [],
+    id: String(row.id ?? row.drawKey ?? row.label),
+    values: [
+      row.buildName ?? "Unknown build",
+      row.label ?? row.drawKey ?? "Draw",
+      row.status ?? "unknown",
+      typeof row.amountCents === "number" ? formatCents(row.amountCents) : "",
+      row.actionLabel ?? "Open draw",
+    ],
+  };
+}
+
+function siteVisitQueueUiRow(row: Record<string, any>) {
+  const flags = [
+    row.expired ? "expired" : null,
+    row.geofenceFlagged ? "geofence flagged" : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  return {
+    actions: row.href
+      ? [
+          {
+            kind: "siteVisitQueueAction",
+            label: String(row.actionLabel ?? "Open visit"),
+            reason: `Open site visit ${String(row.visitId ?? row.id)} on ${String(row.buildName ?? "build")}.`,
+            to: String(row.href),
+          },
+        ]
+      : [],
+    id: String(row.id ?? row.visitId ?? row.milestoneKey),
+    values: [
+      row.buildName ?? "Unknown build",
+      row.milestoneKey ?? "Milestone",
+      row.status ?? "unknown",
+      flags || "none",
+      row.actionLabel ?? "Open visit",
+    ],
+  };
+}
+
+function proposalReviewUiRow(row: Record<string, any>) {
+  return {
+    actions: row.href
+      ? [
+          {
+            kind: "proposalReviewAction",
+            label: String(row.actionLabel ?? "Open review"),
+            reason: "Open the submitted Build Proposal review checklist.",
+            to: String(row.href),
+          },
+        ]
+      : [],
+    id: String(row.id ?? row.buildName),
+    values: [
+      row.buildName ?? "Build Proposal",
+      row.location ?? "Location not set",
+      typeof row.proposedBudget === "number"
+        ? formatCents(row.proposedBudget)
+        : "Budget not set",
+      "Capital, policy, dependencies, permits, evidence, draw feasibility",
+    ],
+  };
+}
+
+function riskBuildUiRow(row: Record<string, any>) {
+  const nextAction = riskBuildNextAction(row);
+  return {
+    actions: row.href
+      ? [
+          {
+            kind: "riskBuildAction",
+            label: String(row.actionLabel ?? "Open build review"),
+            reason: nextAction,
+            to: String(row.href),
+          },
+        ]
+      : [],
+    id: String(row.id ?? row.buildName),
+    values: [
+      row.buildName ?? "Active Build",
+      row.score ?? 0,
+      row.overdueMilestones ?? 0,
+      row.claimedMilestones ?? 0,
+      row.requestedDraws ?? 0,
+      row.expiredVisits ?? 0,
+      nextAction,
+    ],
+  };
+}
+
+function riskBuildNextAction(row: Record<string, any>) {
+  if (Number(row.claimedMilestones ?? 0) > 0) {
+    return "Review the first pending milestone completion claim";
+  }
+  if (Number(row.requestedDraws ?? 0) > 0) {
+    return "Review the requested reimbursement draw";
+  }
+  if (Number(row.expiredVisits ?? 0) > 0) {
+    return "Review or reschedule the top expired site visit";
+  }
+  if (Number(row.overdueMilestones ?? 0) > 0) {
+    return "Open the overdue milestone controls";
+  }
+  return "Open the active Build review controls";
+}
+
+function extractCostItemDraftFromPrompt(
+  rawPrompt: string,
+  target: Record<string, any>,
+  route: Record<string, any>,
+  targetKind: "activeBuild" | "proposal"
+) {
+  const prompt = rawPrompt.toLowerCase();
+  const quantity = extractMaterialQuantity(rawPrompt);
+  const unitPriceCents = extractUnitPriceCents(rawPrompt);
+  const title = inferCostItemTitle(prompt);
+  const unit = quantity.unit;
+  const milestoneKey =
+    inferMilestoneKeyFromPrompt(prompt, target, route) ??
+    route.selectedMilestoneKey ??
+    firstMilestoneKey(target);
+  const itemType = prompt.includes("equipment") ? "equipment" : "material";
+  const supplier = prompt.includes("supplier")
+    ? "Unspecified supplier"
+    : undefined;
+  const quantityText = quantity.value
+    ? `${quantity.value}${unit ? ` ${unit}` : ""}`
+    : "Material quantity";
+  const priceText = unitPriceCents
+    ? `${formatCents(unitPriceCents)}${unit ? ` per ${singularizeUnit(unit)}` : ""}`
+    : "unit price not supplied";
+  return {
+    defaults: {
+      costCents: unitPriceCents,
+      description: `${quantityText} ${title.toLowerCase()} at ${priceText}.`,
+      itemType,
+      milestoneKey,
+      quantity: quantity.value ?? 1,
+      supplier,
+      title,
+      unit,
+    },
+    targetKind,
+  };
+}
+
+function extractMaterialQuantity(prompt: string) {
+  const match =
+    /\b(?<quantity>\d+(?:\.\d+)?)\s*(?<unit>bags?|sacks?|boxes?|pieces?|pcs|sheets?|rolls?|yards?|yds?|tons?|loads?|units?)\b/i.exec(
+      prompt
+    );
+  if (!match?.groups?.quantity) {
+    return { unit: undefined, value: undefined };
+  }
+  return {
+    unit: normalizeMaterialUnit(match.groups.unit),
+    value: Number(match.groups.quantity),
+  };
+}
+
+function extractUnitPriceCents(prompt: string) {
+  const match = /\$(?<dollars>\d+(?:\.\d{1,2})?)/.exec(prompt);
+  if (!match?.groups?.dollars) {
+    return;
+  }
+  return Math.max(1, Math.round(Number(match.groups.dollars) * 100));
+}
+
+function inferCostItemTitle(prompt: string) {
+  if (prompt.includes("stucco")) {
+    return "Stucco mix";
+  }
+  if (prompt.includes("drywall")) {
+    return "Drywall materials";
+  }
+  if (prompt.includes("concrete")) {
+    return "Concrete materials";
+  }
+  if (prompt.includes("lumber") || prompt.includes("framing")) {
+    return "Framing materials";
+  }
+  return "Material item";
+}
+
+function inferMilestoneKeyFromPrompt(
+  prompt: string,
+  target: Record<string, any>,
+  route: Record<string, any>
+) {
+  const milestones = Array.isArray(target.milestones)
+    ? target.milestones.map(normalizePlannerRecord)
+    : [];
+  const scored = milestones
+    .map((milestone) => {
+      const key = String(milestone.key ?? "");
+      const name = String(milestone.name ?? "");
+      const haystack = `${key} ${name}`.toLowerCase();
+      let score = prompt.includes(key.toLowerCase()) ? 4 : 0;
+      for (const token of prompt
+        .split(/[^a-z0-9]+/)
+        .filter((part) => part.length > 3)) {
+        if (haystack.includes(token)) {
+          score += 1;
+        }
+      }
+      if (
+        /(stucco|siding|exterior|envelope|cladding|finish)/.test(prompt) &&
+        /(exterior|envelope|finish|siding|cladding)/.test(haystack)
+      ) {
+        score += 4;
+      }
+      return { key, score };
+    })
+    .filter((row) => row.key && row.score > 0)
+    .sort((a, b) => b.score - a.score);
+  return scored[0]?.key ?? optionalString(route.selectedMilestoneKey);
+}
+
+function normalizeMaterialUnit(unit: string | undefined) {
+  if (!unit) {
+    return;
+  }
+  const normalized = unit.toLowerCase();
+  if (normalized === "sack" || normalized === "sacks") {
+    return "bags";
+  }
+  if (normalized === "pcs") {
+    return "pieces";
+  }
+  if (normalized === "yd" || normalized === "yds") {
+    return "yards";
+  }
+  return normalized;
+}
+
+function singularizeUnit(unit: string) {
+  return unit.endsWith("s") ? unit.slice(0, -1) : unit;
+}
+
+function fallbackNavigation(siteMap: unknown, prompt: string) {
+  const entries = Array.isArray(siteMap)
+    ? siteMap.map(normalizePlannerRecord)
+    : [];
+  const scored = entries
+    .map((entry) => {
+      const haystack = [
+        entry.id,
+        entry.label,
+        entry.pathTemplate,
+        entry.purpose,
+        ...(Array.isArray(entry.synonyms) ? entry.synonyms : []),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return {
+        entry,
+        score: prompt
+          .split(/[^a-z0-9]+/)
+          .filter((token) => token.length > 2)
+          .reduce(
+            (total, token) => total + (haystack.includes(token) ? 1 : 0),
+            0
+          ),
+      };
+    })
+    .filter((row) => row.score > 0)
+    .sort((a, b) => b.score - a.score);
+  const match = scored[0]?.entry;
+  if (!match || typeof match.to !== "string") {
+    return null;
+  }
+  return {
+    label: String(match.label ?? match.to),
+    reason: String(match.purpose ?? "Permitted DrawFlow route"),
+    routeId: String(match.id ?? match.to),
+    to: match.to,
+  };
+}
+
+function firstMilestoneKey(target: Record<string, any>) {
+  return Array.isArray(target.milestones)
+    ? normalizePlannerRecord(target.milestones[0]).key
+    : undefined;
+}
+
+function milestoneOptions(target: Record<string, any>) {
+  return Array.isArray(target.milestones)
+    ? target.milestones
+        .map((milestone: unknown) => {
+          const row = normalizePlannerRecord(milestone);
+          const key = typeof row.key === "string" ? row.key : undefined;
+          if (!key) {
+            return null;
+          }
+          return {
+            key,
+            label:
+              typeof row.name === "string" && row.name
+                ? `${row.name} (${key})`
+                : key,
+            name: typeof row.name === "string" ? row.name : key,
+          };
+        })
+        .filter((row: unknown) => row !== null)
+    : [];
+}
+
+function toIsoDate(date: Date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function daysSinceIsoDate(value: string) {
+  const start = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(start.getTime())) {
+    return 0;
+  }
+  return Math.max(
+    0,
+    Math.floor((Date.now() - start.getTime()) / (24 * 60 * 60 * 1000))
+  );
+}
+
+function formatCents(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    currency: "USD",
+    maximumFractionDigits: 0,
+    style: "currency",
+  }).format(value / 100);
+}
 
 async function validateActionForPreview(
   ctx: MutationCtx,
@@ -904,9 +3307,7 @@ async function buildMutationPreviewItem(
     case "create_proposal_reminder":
     case "update_proposal_reminder":
     case "cancel_proposal_reminder": {
-      const proposalAuth = await authorizeProposal(ctx, auth, action.input);
-      requireProposalWrite(proposalAuth);
-      return await previewReminderAction(ctx, action, proposalAuth);
+      return await previewReminderAction(ctx, auth, action);
     }
     case "set_calendar_target_date": {
       return await previewTargetDateAction(ctx, auth, action);
@@ -1268,17 +3669,23 @@ async function applyDeleteProposalDraw(
 
 async function previewReminderAction(
   ctx: MutationCtx,
+  auth: AssistantAuth,
   action: {
     actionKey: AssistantActionKey;
     clientRequestId: string;
     input: AssistantActionInput;
-  },
-  proposalAuth: ProposalAuth
+  }
 ) {
+  const targetAuth = await authorizeReminderTarget(ctx, auth, action.input);
+  if ("build" in targetAuth) {
+    // Live-build reminders do not mutate schedule, draw, or approval state.
+  } else {
+    requireProposalWrite(targetAuth);
+  }
   const event =
     action.actionKey === "create_proposal_reminder"
       ? null
-      : await getReminder(ctx, action.input, proposalAuth.proposal._id);
+      : await getReminder(ctx, action.input, targetAuth);
   if (action.actionKey !== "cancel_proposal_reminder") {
     requiredString(action.input.title, "Reminder title is required.");
     normalizeIsoDate(action.input.startsAt, "Reminder start date is invalid.");
@@ -1304,8 +3711,10 @@ async function applyCreateReminder(
   auth: AssistantAuth,
   input: AssistantActionInput
 ) {
-  const proposalAuth = await authorizeProposal(ctx, auth, input);
-  requireProposalWrite(proposalAuth);
+  const targetAuth = await authorizeReminderTarget(ctx, auth, input);
+  if (!("build" in targetAuth)) {
+    requireProposalWrite(targetAuth);
+  }
   const title = requiredString(input.title, "Reminder title is required.");
   const startsAt = normalizeIsoDate(
     input.startsAt,
@@ -1322,23 +3731,24 @@ async function applyCreateReminder(
   const eventId = await ctx.db.insert("calendarReminderEvents", {
     allDay: typeof input.allDay === "boolean" ? input.allDay : true,
     assignedParticipants: [],
-    brokerageId: proposalAuth.brokerage._id,
+    brokerageId: targetAuth.brokerage._id,
+    ...("build" in targetAuth ? { buildId: targetAuth.build._id } : {}),
     createdAt: now,
-    createdByWorkosUserId: proposalAuth.subject,
+    createdByWorkosUserId: targetAuth.subject,
     description: optionalString(input.description),
     ...(endsAt ? { endsAt } : {}),
     location: optionalString(input.location),
-    organizationId: proposalAuth.organizationId,
-    proposalId: proposalAuth.proposal._id,
+    organizationId: targetAuth.organizationId,
+    proposalId: targetAuth.proposal._id,
     source: "drawflow",
     startsAt,
     status: "active",
     timezone: optionalString(input.timezone) ?? "America/Toronto",
     title,
     updatedAt: now,
-    updatedByWorkosUserId: proposalAuth.subject,
+    updatedByWorkosUserId: targetAuth.subject,
   });
-  await writeProposalAudit(ctx, proposalAuth, {
+  await writeReminderAudit(ctx, targetAuth, {
     command: "assistant.commit.create_proposal_reminder",
     entityId: String(eventId),
     entityType: "calendarReminderEvent",
@@ -1353,9 +3763,11 @@ async function applyUpdateReminder(
   auth: AssistantAuth,
   input: AssistantActionInput
 ) {
-  const proposalAuth = await authorizeProposal(ctx, auth, input);
-  requireProposalWrite(proposalAuth);
-  const event = await getReminder(ctx, input, proposalAuth.proposal._id);
+  const targetAuth = await authorizeReminderTarget(ctx, auth, input);
+  if (!("build" in targetAuth)) {
+    requireProposalWrite(targetAuth);
+  }
+  const event = await getReminder(ctx, input, targetAuth);
   const startsAt =
     input.startsAt === undefined
       ? event.startsAt
@@ -1381,10 +3793,10 @@ async function applyUpdateReminder(
       ? {}
       : { title: requiredString(input.title, "Reminder title is required.") }),
     updatedAt: Date.now(),
-    updatedByWorkosUserId: proposalAuth.subject,
+    updatedByWorkosUserId: targetAuth.subject,
   };
   await ctx.db.patch(event._id, patch);
-  await writeProposalAudit(ctx, proposalAuth, {
+  await writeReminderAudit(ctx, targetAuth, {
     command: "assistant.commit.update_proposal_reminder",
     entityId: String(event._id),
     entityType: "calendarReminderEvent",
@@ -1400,15 +3812,17 @@ async function applyCancelReminder(
   auth: AssistantAuth,
   input: AssistantActionInput
 ) {
-  const proposalAuth = await authorizeProposal(ctx, auth, input);
-  requireProposalWrite(proposalAuth);
-  const event = await getReminder(ctx, input, proposalAuth.proposal._id);
+  const targetAuth = await authorizeReminderTarget(ctx, auth, input);
+  if (!("build" in targetAuth)) {
+    requireProposalWrite(targetAuth);
+  }
+  const event = await getReminder(ctx, input, targetAuth);
   await ctx.db.patch(event._id, {
     status: "cancelled",
     updatedAt: Date.now(),
-    updatedByWorkosUserId: proposalAuth.subject,
+    updatedByWorkosUserId: targetAuth.subject,
   });
-  await writeProposalAudit(ctx, proposalAuth, {
+  await writeReminderAudit(ctx, targetAuth, {
     command: "assistant.commit.cancel_proposal_reminder",
     entityId: String(event._id),
     entityType: "calendarReminderEvent",
@@ -1793,14 +4207,15 @@ async function previewGenericCatalogAction(
 
   if (action.input.buildId) {
     const buildAuth = await authorizeActiveBuild(ctx, auth, action.input);
-    const before = await genericActiveBuildPreviewBefore(ctx, buildAuth, action);
+    const before = await genericActiveBuildPreviewBefore(
+      ctx,
+      buildAuth,
+      action
+    );
     return previewItem(action, {
       after: action.input,
       before,
-      entityLabel: genericPreviewLabel(
-        before,
-        buildAuth.build.buildName
-      ),
+      entityLabel: genericPreviewLabel(before, buildAuth.build.buildName),
       entityType: genericEntityType(action.actionKey, "activeBuild"),
       mutationName: `assistant.${action.actionKey}`,
       reasonRequired: genericReasonRequired(action.actionKey),
@@ -1810,14 +4225,15 @@ async function previewGenericCatalogAction(
 
   if (action.input.proposalId) {
     const proposalAuth = await authorizeProposal(ctx, auth, action.input);
-    const before = await genericProposalPreviewBefore(ctx, proposalAuth, action);
+    const before = await genericProposalPreviewBefore(
+      ctx,
+      proposalAuth,
+      action
+    );
     return previewItem(action, {
       after: action.input,
       before,
-      entityLabel: genericPreviewLabel(
-        before,
-        proposalAuth.proposal.buildName
-      ),
+      entityLabel: genericPreviewLabel(before, proposalAuth.proposal.buildName),
       entityType: genericEntityType(action.actionKey, "buildProposal"),
       mutationName: `assistant.${action.actionKey}`,
       reasonRequired: genericReasonRequired(action.actionKey),
@@ -1881,7 +4297,10 @@ async function applyBuildProposalFromSetup(
   const proposedStartDate =
     input.proposedStartDate === undefined
       ? undefined
-      : normalizeIsoDate(input.proposedStartDate, "Proposed start date is invalid.");
+      : normalizeIsoDate(
+          input.proposedStartDate,
+          "Proposed start date is invalid."
+        );
   const builderProfileId = optionalId<"builderProfiles">(
     ctx,
     "builderProfiles",
@@ -1909,15 +4328,13 @@ async function applyBuildProposalFromSetup(
         }
       );
 
-  const milestones = normalizeSetupMilestones(
-    input.milestones ?? input.items
-  );
+  const milestones = normalizeSetupMilestones(input.milestones ?? input.items);
   const totalBudgetCents = milestones.reduce(
     (sum, milestone) => sum + milestone.budgetCents,
     0
   );
   const borrowerCoPayBps = normalizeBps(
-    input.borrowerCoPayBps ?? input.coPayBps ?? 2_000
+    input.borrowerCoPayBps ?? input.coPayBps ?? 2000
   );
   const borrowerWorkingCapitalLimitCents = positiveCentsOrFallback(
     input.borrowerWorkingCapitalLimitCents ??
@@ -1928,7 +4345,9 @@ async function applyBuildProposalFromSetup(
   const lenderDrawPolicyLimitCents = positiveCentsOrFallback(
     input.lenderDrawPolicyLimitCents ??
       input.reimbursableBudgetCents ??
-      Math.round((totalBudgetCents * (TOTAL_BPS - borrowerCoPayBps)) / TOTAL_BPS),
+      Math.round(
+        (totalBudgetCents * (TOTAL_BPS - borrowerCoPayBps)) / TOTAL_BPS
+      ),
     totalBudgetCents
   );
 
@@ -1951,19 +4370,23 @@ async function applyBuildProposalFromSetup(
       workosOrganizationId: auth.organizationId,
     }
   );
-  await writeProposalAudit(ctx, { ...auth, proposal: (await ctx.db.get(proposalId))! }, {
-    command: "assistant.commit.create_build_proposal_from_setup",
-    entityId: String(proposalId),
-    entityType: "buildProposal",
-    eventType: "assistant.proposal.created_from_setup",
-    newState: {
-      buildName,
-      location,
-      milestoneCount: milestones.length,
-      redirectTo: optionalString(input.redirectTo) ?? "proposal",
-    },
-    reason: optionalString(input.reason),
-  });
+  await writeProposalAudit(
+    ctx,
+    { ...auth, proposal: (await ctx.db.get(proposalId))! },
+    {
+      command: "assistant.commit.create_build_proposal_from_setup",
+      entityId: String(proposalId),
+      entityType: "buildProposal",
+      eventType: "assistant.proposal.created_from_setup",
+      newState: {
+        buildName,
+        location,
+        milestoneCount: milestones.length,
+        redirectTo: optionalString(input.redirectTo) ?? "proposal",
+      },
+      reason: optionalString(input.reason),
+    }
+  );
   return {
     proposalId,
     redirectTo: optionalString(input.redirectTo) ?? "proposal",
@@ -1977,7 +4400,9 @@ async function applyCatalogDomainMutation(
 ) {
   const input = item.input;
   const org = auth.organizationId;
-  if ((TRUSTED_FILE_ACTION_KEYS as readonly string[]).includes(item.actionKey)) {
+  if (
+    (TRUSTED_FILE_ACTION_KEYS as readonly string[]).includes(item.actionKey)
+  ) {
     throw new Error(
       "This action requires a trusted file attachment selected by the user."
     );
@@ -2049,32 +4474,44 @@ async function applyCatalogDomainMutation(
         workosOrganizationId: org,
       });
     case "update_proposal_approved_amount":
-      return await runDomainMutation(ctx, "updateProductionProposalApprovedAmount", {
-        approvedAmountCents: requiredPositiveCents(
-          input.approvedAmountCents ?? input.amountCents,
-          "Approved amount must be greater than zero."
-        ),
-        proposalId: input.proposalId,
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "updateProductionProposalApprovedAmount",
+        {
+          approvedAmountCents: requiredPositiveCents(
+            input.approvedAmountCents ?? input.amountCents,
+            "Approved amount must be greater than zero."
+          ),
+          proposalId: input.proposalId,
+          workosOrganizationId: org,
+        }
+      );
     case "update_proposal_interest_rate":
-      return await runDomainMutation(ctx, "updateProductionProposalInterestRate", {
-        interestAnnualBps: requiredNumber(
-          input.interestAnnualBps ?? input.interestBps,
-          "interestAnnualBps"
-        ),
-        proposalId: input.proposalId,
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "updateProductionProposalInterestRate",
+        {
+          interestAnnualBps: requiredNumber(
+            input.interestAnnualBps ?? input.interestBps,
+            "interestAnnualBps"
+          ),
+          proposalId: input.proposalId,
+          workosOrganizationId: org,
+        }
+      );
     case "update_proposal_start_date":
-      return await runDomainMutation(ctx, "updateProductionProposalProposedStartDate", {
-        proposalId: input.proposalId,
-        proposedStartDate: requiredString(
-          input.proposedStartDate ?? input.startDate,
-          "proposedStartDate"
-        ),
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "updateProductionProposalProposedStartDate",
+        {
+          proposalId: input.proposalId,
+          proposedStartDate: requiredString(
+            input.proposedStartDate ?? input.startDate,
+            "proposedStartDate"
+          ),
+          workosOrganizationId: org,
+        }
+      );
     case "create_proposal_milestone":
       return await runDomainMutation(ctx, "createProductionTimelineMilestone", {
         milestone: normalizeTimelineMilestoneInput(input),
@@ -2112,73 +4549,109 @@ async function applyCatalogDomainMutation(
         workosOrganizationId: org,
       });
     case "update_submitted_proposal_draw":
-      return await runDomainMutation(ctx, "updateSubmittedProposalDrawScheduleRow", {
-        amountCents: optionalNumber(input.amountCents),
-        drawKey: input.drawKey,
-        label: optionalString(input.label),
-        proposalId: input.proposalId,
-        reason: reasonOrNote(input),
-        timingDay: optionalNumber(input.timingDay ?? input.x),
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "updateSubmittedProposalDrawScheduleRow",
+        {
+          amountCents: optionalNumber(input.amountCents),
+          drawKey: input.drawKey,
+          label: optionalString(input.label),
+          proposalId: input.proposalId,
+          reason: reasonOrNote(input),
+          timingDay: optionalNumber(input.timingDay ?? input.x),
+          workosOrganizationId: org,
+        }
+      );
     case "create_proposal_capital_event":
-      return await runDomainMutation(ctx, "createProductionTimelineCapitalEvent", {
-        ...capitalEventInput(input),
-        proposalId: input.proposalId,
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "createProductionTimelineCapitalEvent",
+        {
+          ...capitalEventInput(input),
+          proposalId: input.proposalId,
+          workosOrganizationId: org,
+        }
+      );
     case "update_proposal_capital_event":
-      return await runDomainMutation(ctx, "updateProductionTimelineCapitalEvent", {
-        ...capitalEventPatchInput(input),
-        proposalId: input.proposalId,
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "updateProductionTimelineCapitalEvent",
+        {
+          ...capitalEventPatchInput(input),
+          proposalId: input.proposalId,
+          workosOrganizationId: org,
+        }
+      );
     case "delete_proposal_capital_event":
-      return await runDomainMutation(ctx, "deleteProductionTimelineCapitalEvent", {
-        capitalEventKey: input.capitalEventKey,
-        proposalId: input.proposalId,
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "deleteProductionTimelineCapitalEvent",
+        {
+          capitalEventKey: input.capitalEventKey,
+          proposalId: input.proposalId,
+          workosOrganizationId: org,
+        }
+      );
     case "create_proposal_cash_infusion":
-      return await runDomainMutation(ctx, "createProductionTimelineCashInfusion", {
-        amountCents: input.amountCents,
-        cashInfusionKey: input.cashInfusionKey ?? input.capitalEventKey,
-        label: input.label,
-        order: input.order,
-        proposalId: input.proposalId,
-        workosOrganizationId: org,
-        x: input.x ?? input.timingDay,
-      });
+      return await runDomainMutation(
+        ctx,
+        "createProductionTimelineCashInfusion",
+        {
+          amountCents: input.amountCents,
+          cashInfusionKey: input.cashInfusionKey ?? input.capitalEventKey,
+          label: input.label,
+          order: input.order,
+          proposalId: input.proposalId,
+          workosOrganizationId: org,
+          x: input.x ?? input.timingDay,
+        }
+      );
     case "update_proposal_evidence_asset":
-      return await runDomainMutation(ctx, "updateProductionTimelineEvidenceAsset", {
-        evidenceKey: input.evidenceKey,
-        label: optionalString(input.label),
-        proposalId: input.proposalId,
-        tag: optionalString(input.tag),
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "updateProductionTimelineEvidenceAsset",
+        {
+          evidenceKey: input.evidenceKey,
+          label: optionalString(input.label),
+          proposalId: input.proposalId,
+          tag: optionalString(input.tag),
+          workosOrganizationId: org,
+        }
+      );
     case "delete_proposal_evidence_asset":
-      return await runDomainMutation(ctx, "deleteProductionTimelineEvidenceAsset", {
-        evidenceKey: input.evidenceKey,
-        proposalId: input.proposalId,
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "deleteProductionTimelineEvidenceAsset",
+        {
+          evidenceKey: input.evidenceKey,
+          proposalId: input.proposalId,
+          workosOrganizationId: org,
+        }
+      );
     case "request_proposal_timeline_modification":
-      return await runDomainMutation(ctx, "requestProductionTimelineModification", {
-        milestoneKey: optionalString(input.milestoneKey),
-        proposalId: input.proposalId,
-        reason: reasonOrNote(input),
-        requestType: input.requestType,
-        requestedPayload: input.requestedPayload ?? input.payload ?? input,
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "requestProductionTimelineModification",
+        {
+          milestoneKey: optionalString(input.milestoneKey),
+          proposalId: input.proposalId,
+          reason: reasonOrNote(input),
+          requestType: input.requestType,
+          requestedPayload: input.requestedPayload ?? input.payload ?? input,
+          workosOrganizationId: org,
+        }
+      );
     case "review_proposal_timeline_modification":
-      return await runDomainMutation(ctx, "reviewProductionTimelineModificationRequest", {
-        note: optionalString(input.note ?? input.reason),
-        requestId: input.requestId,
-        status: input.status,
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "reviewProductionTimelineModificationRequest",
+        {
+          note: optionalString(input.note ?? input.reason),
+          requestId: input.requestId,
+          status: input.status,
+          workosOrganizationId: org,
+        }
+      );
     case "update_proposal_timeline_plan_state":
       return await runDomainMutation(ctx, "updateProductionTimelinePlanState", {
         ...timelinePlanStateInput(input),
@@ -2218,19 +4691,27 @@ async function applyCatalogDomainMutation(
         workosOrganizationId: org,
       });
     case "assign_proposal_contractor_to_scope":
-      return await runDomainMutation(ctx, "assignProposalContractorToMilestone", {
-        ...contractorScopeAssignmentInput(input),
-        proposalId: input.proposalId,
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "assignProposalContractorToMilestone",
+        {
+          ...contractorScopeAssignmentInput(input),
+          proposalId: input.proposalId,
+          workosOrganizationId: org,
+        }
+      );
     case "update_proposal_builder_staff_permissions":
-      return await runDomainMutation(ctx, "saveProposalBuilderStaffPermissions", {
-        permissions: input.permissions ?? [],
-        proposalId: input.proposalId,
-        staffEmail: optionalString(input.staffEmail),
-        staffWorkosUserId: optionalString(input.staffWorkosUserId),
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "saveProposalBuilderStaffPermissions",
+        {
+          permissions: input.permissions ?? [],
+          proposalId: input.proposalId,
+          staffEmail: optionalString(input.staffEmail),
+          staffWorkosUserId: optionalString(input.staffWorkosUserId),
+          workosOrganizationId: org,
+        }
+      );
     case "remove_proposal_builder_staff":
       return await runDomainMutation(ctx, "removeProposalBuilderStaffMember", {
         proposalId: input.proposalId,
@@ -2312,17 +4793,21 @@ async function applyCatalogDomainMutation(
         workosOrganizationId: org,
       });
     case "update_active_build_details":
-      return await runDomainMutation(ctx, "updateActiveBuildNonFinancialDetails", {
-        buildId: input.buildId,
-        buildName: input.buildName,
-        location: input.location,
-        locationLatitude: input.locationLatitude,
-        locationLongitude: input.locationLongitude,
-        locationPlaceId: input.locationPlaceId,
-        reason: reasonOrNote(input),
-        startDate: input.startDate,
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "updateActiveBuildNonFinancialDetails",
+        {
+          buildId: input.buildId,
+          buildName: input.buildName,
+          location: input.location,
+          locationLatitude: input.locationLatitude,
+          locationLongitude: input.locationLongitude,
+          locationPlaceId: input.locationPlaceId,
+          reason: reasonOrNote(input),
+          startDate: input.startDate,
+          workosOrganizationId: org,
+        }
+      );
     case "add_active_build_note":
       return await runDomainMutation(ctx, "addActiveBuildNote", {
         body: input.body ?? input.note,
@@ -2362,23 +4847,35 @@ async function applyCatalogDomainMutation(
         workosOrganizationId: org,
       });
     case "create_and_assign_active_build_contractor": {
-      const contractorId = await runDomainMutation(ctx, "createContractorProfile", {
-        ...normalizeContractorInput(input.contractor ?? input),
-        brokerageId: auth.brokerage._id,
-        workosOrganizationId: org,
-      });
-      return await runDomainMutation(ctx, "assignActiveBuildContractorToMilestone", {
-        ...contractorScopeAssignmentInput({ ...input, contractorId }),
-        buildId: input.buildId,
-        workosOrganizationId: org,
-      });
+      const contractorId = await runDomainMutation(
+        ctx,
+        "createContractorProfile",
+        {
+          ...normalizeContractorInput(input.contractor ?? input),
+          brokerageId: auth.brokerage._id,
+          workosOrganizationId: org,
+        }
+      );
+      return await runDomainMutation(
+        ctx,
+        "assignActiveBuildContractorToMilestone",
+        {
+          ...contractorScopeAssignmentInput({ ...input, contractorId }),
+          buildId: input.buildId,
+          workosOrganizationId: org,
+        }
+      );
     }
     case "assign_active_build_contractor_to_scope":
-      return await runDomainMutation(ctx, "assignActiveBuildContractorToMilestone", {
-        ...contractorScopeAssignmentInput(input),
-        buildId: input.buildId,
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "assignActiveBuildContractorToMilestone",
+        {
+          ...contractorScopeAssignmentInput(input),
+          buildId: input.buildId,
+          workosOrganizationId: org,
+        }
+      );
     case "start_active_build_milestone":
       return await runDomainMutation(ctx, "startActiveBuildMilestone", {
         buildId: input.buildId,
@@ -2387,16 +4884,20 @@ async function applyCatalogDomainMutation(
         workosOrganizationId: org,
       });
     case "submit_active_build_milestone_completion":
-      return await runDomainMutation(ctx, "submitActiveBuildMilestoneCompletion", {
-        actualCostCents: optionalNumber(input.actualCostCents),
-        buildId: input.buildId,
-        completedDay: input.completedDay,
-        milestoneKey: input.milestoneKey,
-        note: optionalString(input.note),
-        qualityNote: optionalString(input.qualityNote),
-        qualityRating: optionalNumber(input.qualityRating),
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "submitActiveBuildMilestoneCompletion",
+        {
+          actualCostCents: optionalNumber(input.actualCostCents),
+          buildId: input.buildId,
+          completedDay: input.completedDay,
+          milestoneKey: input.milestoneKey,
+          note: optionalString(input.note),
+          qualityNote: optionalString(input.qualityNote),
+          qualityRating: optionalNumber(input.qualityRating),
+          workosOrganizationId: org,
+        }
+      );
     case "approve_active_build_milestone":
       return await runDomainMutation(ctx, "approveActiveBuildMilestone", {
         buildId: input.buildId,
@@ -2427,19 +4928,27 @@ async function applyCatalogDomainMutation(
         workosOrganizationId: org,
       });
     case "update_active_build_evidence_asset":
-      return await runDomainMutation(ctx, "updateActiveBuildTimelineEvidenceAsset", {
-        buildId: input.buildId,
-        evidenceKey: input.evidenceKey,
-        label: optionalString(input.label),
-        tag: optionalString(input.tag),
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "updateActiveBuildTimelineEvidenceAsset",
+        {
+          buildId: input.buildId,
+          evidenceKey: input.evidenceKey,
+          label: optionalString(input.label),
+          tag: optionalString(input.tag),
+          workosOrganizationId: org,
+        }
+      );
     case "delete_active_build_evidence_asset":
-      return await runDomainMutation(ctx, "deleteActiveBuildTimelineEvidenceAsset", {
-        buildId: input.buildId,
-        evidenceKey: input.evidenceKey,
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "deleteActiveBuildTimelineEvidenceAsset",
+        {
+          buildId: input.buildId,
+          evidenceKey: input.evidenceKey,
+          workosOrganizationId: org,
+        }
+      );
     case "record_active_build_site_visit":
       return await runDomainMutation(ctx, "recordActiveBuildSiteVisit", {
         buildId: input.buildId,
@@ -2453,6 +4962,7 @@ async function applyCatalogDomainMutation(
       return await runDomainMutation(ctx, "requestActiveBuildDraw", {
         amountCents: input.amountCents,
         buildId: input.buildId,
+        clientOperationId: optionalString(input.clientOperationId),
         drawKey: input.drawKey,
         note: optionalString(input.note ?? input.reason),
         workosOrganizationId: org,
@@ -2496,44 +5006,68 @@ async function applyCatalogDomainMutation(
         workosOrganizationId: org,
       });
     case "review_active_build_facility_change":
-      return await runDomainMutation(ctx, "reviewActiveBuildFacilityChangeRequest", {
-        note: optionalString(input.note ?? input.reason),
-        requestId: input.requestId,
-        status: input.status,
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "reviewActiveBuildFacilityChangeRequest",
+        {
+          note: optionalString(input.note ?? input.reason),
+          requestId: input.requestId,
+          status: input.status,
+          workosOrganizationId: org,
+        }
+      );
     case "update_active_build_builder_staff_permissions":
-      return await runDomainMutation(ctx, "saveActiveBuildBuilderStaffPermissions", {
-        buildId: input.buildId,
-        permissions: input.permissions ?? [],
-        staffEmail: optionalString(input.staffEmail),
-        staffWorkosUserId: optionalString(input.staffWorkosUserId),
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "saveActiveBuildBuilderStaffPermissions",
+        {
+          buildId: input.buildId,
+          permissions: input.permissions ?? [],
+          staffEmail: optionalString(input.staffEmail),
+          staffWorkosUserId: optionalString(input.staffWorkosUserId),
+          workosOrganizationId: org,
+        }
+      );
     case "remove_active_build_builder_staff":
-      return await runDomainMutation(ctx, "removeActiveBuildBuilderStaffMember", {
-        buildId: input.buildId,
-        staffWorkosUserId: input.staffWorkosUserId,
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "removeActiveBuildBuilderStaffMember",
+        {
+          buildId: input.buildId,
+          staffWorkosUserId: input.staffWorkosUserId,
+          workosOrganizationId: org,
+        }
+      );
     case "create_active_build_milestone":
-      return await runDomainMutation(ctx, "createActiveBuildTimelineMilestone", {
-        buildId: input.buildId,
-        milestone: normalizeTimelineMilestoneInput(input),
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "createActiveBuildTimelineMilestone",
+        {
+          buildId: input.buildId,
+          milestone: normalizeTimelineMilestoneInput(input),
+          workosOrganizationId: org,
+        }
+      );
     case "update_active_build_milestone":
-      return await runDomainMutation(ctx, "updateActiveBuildTimelineMilestone", {
-        ...timelineMilestonePatchInput(input),
-        buildId: input.buildId,
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "updateActiveBuildTimelineMilestone",
+        {
+          ...timelineMilestonePatchInput(input),
+          buildId: input.buildId,
+          workosOrganizationId: org,
+        }
+      );
     case "delete_active_build_milestone":
-      return await runDomainMutation(ctx, "deleteActiveBuildTimelineMilestone", {
-        buildId: input.buildId,
-        milestoneKey: input.milestoneKey,
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "deleteActiveBuildTimelineMilestone",
+        {
+          buildId: input.buildId,
+          milestoneKey: input.milestoneKey,
+          workosOrganizationId: org,
+        }
+      );
     case "create_active_build_draw":
       return await runDomainMutation(ctx, "createActiveBuildTimelineDraw", {
         ...timelineDrawInput(input),
@@ -2553,33 +5087,49 @@ async function applyCatalogDomainMutation(
         workosOrganizationId: org,
       });
     case "create_active_build_capital_event":
-      return await runDomainMutation(ctx, "createActiveBuildTimelineCapitalEvent", {
-        ...capitalEventInput(input),
-        buildId: input.buildId,
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "createActiveBuildTimelineCapitalEvent",
+        {
+          ...capitalEventInput(input),
+          buildId: input.buildId,
+          workosOrganizationId: org,
+        }
+      );
     case "update_active_build_capital_event":
-      return await runDomainMutation(ctx, "updateActiveBuildTimelineCapitalEvent", {
-        ...capitalEventPatchInput(input),
-        buildId: input.buildId,
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "updateActiveBuildTimelineCapitalEvent",
+        {
+          ...capitalEventPatchInput(input),
+          buildId: input.buildId,
+          workosOrganizationId: org,
+        }
+      );
     case "delete_active_build_capital_event":
-      return await runDomainMutation(ctx, "deleteActiveBuildTimelineCapitalEvent", {
-        buildId: input.buildId,
-        capitalEventKey: input.capitalEventKey,
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "deleteActiveBuildTimelineCapitalEvent",
+        {
+          buildId: input.buildId,
+          capitalEventKey: input.capitalEventKey,
+          workosOrganizationId: org,
+        }
+      );
     case "request_active_build_capital_event_revision":
     case "request_active_build_cash_infusion":
     case "apply_active_build_modification":
       return await applyActiveBuildGenericRevisionRequest(ctx, auth, item);
     case "update_active_build_timeline_plan_state":
-      return await runDomainMutation(ctx, "updateActiveBuildTimelinePlanState", {
-        ...timelinePlanStateInput(input),
-        buildId: input.buildId,
-        workosOrganizationId: org,
-      });
+      return await runDomainMutation(
+        ctx,
+        "updateActiveBuildTimelinePlanState",
+        {
+          ...timelinePlanStateInput(input),
+          buildId: input.buildId,
+          workosOrganizationId: org,
+        }
+      );
     default:
       throw new Error(`Assistant action is not implemented: ${item.actionKey}`);
   }
@@ -2728,6 +5278,17 @@ async function authorizeActiveBuild(
     throw new Error("Forbidden: active build scope");
   }
   return { ...auth, build, proposal };
+}
+
+async function authorizeReminderTarget(
+  ctx: QueryCtx | MutationCtx,
+  auth: AssistantAuth,
+  input: AssistantActionInput
+): Promise<ProposalAuth | ActiveBuildAuth> {
+  if (input.buildId) {
+    return await authorizeActiveBuild(ctx, auth, input);
+  }
+  return await authorizeProposal(ctx, auth, input);
 }
 
 async function requireThread(
@@ -2905,7 +5466,7 @@ async function findBuildDraw(
 async function getReminder(
   ctx: QueryCtx | MutationCtx,
   input: AssistantActionInput,
-  proposalId: Id<"buildProposals">
+  auth: ProposalAuth | ActiveBuildAuth
 ) {
   const eventId = requiredId<"calendarReminderEvents">(
     ctx,
@@ -2914,7 +5475,10 @@ async function getReminder(
     "eventId"
   );
   const event = await ctx.db.get(eventId);
-  if (!event || event.proposalId !== proposalId) {
+  if (!event || event.proposalId !== auth.proposal._id) {
+    throw new Error("Reminder calendar event not found.");
+  }
+  if ("build" in auth && event.buildId !== auth.build._id) {
     throw new Error("Reminder calendar event not found.");
   }
   return event;
@@ -3077,6 +5641,37 @@ async function writeActiveBuildAudit(
   await writeProposalAudit(ctx, auth, input);
 }
 
+async function writeReminderAudit(
+  ctx: MutationCtx,
+  auth: ProposalAuth | ActiveBuildAuth,
+  input: {
+    command: string;
+    entityId: string;
+    entityType: string;
+    eventType: string;
+    newState?: unknown;
+    priorState?: unknown;
+    reason?: string;
+    warnings?: string[];
+  }
+) {
+  if ("build" in auth) {
+    await writeActiveBuildAudit(ctx, auth, {
+      ...input,
+      newState: {
+        ...(input.newState &&
+        typeof input.newState === "object" &&
+        !Array.isArray(input.newState)
+          ? (input.newState as Record<string, unknown>)
+          : { value: input.newState }),
+        buildId: auth.build._id,
+      },
+    });
+    return;
+  }
+  await writeProposalAudit(ctx, auth, input);
+}
+
 async function collectByIndex(
   ctx: QueryCtx | MutationCtx,
   table: string,
@@ -3117,7 +5712,9 @@ async function genericProposalPreviewBefore(
       "proposalCostItems",
       action.input.itemId
     );
-    return itemId ? (await ctx.db.get(itemId)) ?? auth.proposal : auth.proposal;
+    return itemId
+      ? ((await ctx.db.get(itemId)) ?? auth.proposal)
+      : auth.proposal;
   }
   if (action.input.capitalEventKey) {
     return (
@@ -3165,7 +5762,7 @@ async function genericActiveBuildPreviewBefore(
       "buildCostItems",
       action.input.itemId
     );
-    return itemId ? (await ctx.db.get(itemId)) ?? auth.build : auth.build;
+    return itemId ? ((await ctx.db.get(itemId)) ?? auth.build) : auth.build;
   }
   if (action.input.capitalEventKey) {
     return (
@@ -3368,7 +5965,9 @@ function normalizeTimelineMilestoneInput(input: AssistantActionInput) {
   const milestone = normalizeRecord(input.milestone ?? input, "milestone");
   const dayStart = Math.max(
     0,
-    Math.round(requiredNumber(milestone.dayStart ?? milestone.x ?? 0, "dayStart"))
+    Math.round(
+      requiredNumber(milestone.dayStart ?? milestone.x ?? 0, "dayStart")
+    )
   );
   const durationDays = Math.max(
     1,
@@ -3389,15 +5988,16 @@ function normalizeTimelineMilestoneInput(input: AssistantActionInput) {
     ),
     dayEnd: Math.max(
       dayStart,
-      Math.round(
-        optionalNumber(milestone.dayEnd) ?? dayStart + durationDays
-      )
+      Math.round(optionalNumber(milestone.dayEnd) ?? dayStart + durationDays)
     ),
     dayStart,
     dependencyKeys: stringArray(milestone.dependencyKeys),
     durationDays,
     icon: optionalString(milestone.icon),
-    key: requiredString(milestone.key ?? milestone.milestoneKey, "milestoneKey"),
+    key: requiredString(
+      milestone.key ?? milestone.milestoneKey,
+      "milestoneKey"
+    ),
     name: requiredString(milestone.name ?? milestone.title, "Milestone name"),
     order: Math.max(1, Math.round(optionalNumber(milestone.order) ?? 1)),
     submilestones: normalizeSubmilestones(milestone.submilestones),
@@ -3442,7 +6042,9 @@ function timelineDrawInput(input: AssistantActionInput) {
     customDate:
       typeof input.customDate === "boolean" ? input.customDate : undefined,
     drawKey: requiredString(input.drawKey, "drawKey"),
-    itemMilestoneKey: optionalString(input.itemMilestoneKey ?? input.milestoneKey),
+    itemMilestoneKey: optionalString(
+      input.itemMilestoneKey ?? input.milestoneKey
+    ),
     label: requiredString(input.label ?? input.drawKey, "label"),
     order: optionalNumber(input.order),
     x: requiredNonNegativeDay(input.x ?? input.timingDay, "timingDay"),
@@ -3455,7 +6057,9 @@ function timelineDrawPatchInput(input: AssistantActionInput) {
     customDate:
       typeof input.customDate === "boolean" ? input.customDate : undefined,
     drawKey: requiredString(input.drawKey, "drawKey"),
-    itemMilestoneKey: optionalString(input.itemMilestoneKey ?? input.milestoneKey),
+    itemMilestoneKey: optionalString(
+      input.itemMilestoneKey ?? input.milestoneKey
+    ),
     label: optionalString(input.label),
     order: optionalNumber(input.order),
     x: optionalNumber(input.x ?? input.timingDay),
@@ -3472,8 +6076,7 @@ function capitalEventInput(input: AssistantActionInput) {
       input.capitalEventKey ?? input.eventKey,
       "capitalEventKey"
     ),
-    eventKind:
-      input.eventKind === "cashInfusion" ? "cashInfusion" : "cost",
+    eventKind: input.eventKind === "cashInfusion" ? "cashInfusion" : "cost",
     label: requiredString(input.label ?? input.capitalEventKey, "label"),
     order: optionalNumber(input.order),
     x: requiredNonNegativeDay(input.x ?? input.timingDay, "x"),
@@ -3616,7 +6219,9 @@ function normalizeSetupMilestones(value: unknown) {
     );
     const dayStart = Math.max(
       0,
-      Math.round(optionalNumber(record.dayStart ?? record.x ?? data.dayStart) ?? 0)
+      Math.round(
+        optionalNumber(record.dayStart ?? record.x ?? data.dayStart) ?? 0
+      )
     );
     const durationDays = Math.max(
       1,
@@ -3632,7 +6237,10 @@ function normalizeSetupMilestones(value: unknown) {
       budgetCents,
       dayEnd: Math.max(
         dayStart,
-        Math.round(optionalNumber(record.dayEnd ?? data.dayEnd) ?? dayStart + durationDays)
+        Math.round(
+          optionalNumber(record.dayEnd ?? data.dayEnd) ??
+            dayStart + durationDays
+        )
       ),
       dayStart,
       dependencyKeys: stringArray(record.dependencyKeys ?? data.dependencyKeys),
@@ -3731,7 +6339,10 @@ function arrayInput(value: unknown, label: string, optional = false) {
 
 function stringArray(value: unknown) {
   return Array.isArray(value)
-    ? value.map(String).map((item) => item.trim()).filter(Boolean)
+    ? value
+        .map(String)
+        .map((item) => item.trim())
+        .filter(Boolean)
     : [];
 }
 
@@ -3752,7 +6363,7 @@ function optionalId<TableName extends TableNames>(
   value: unknown
 ) {
   if (typeof value !== "string" || !value) {
-    return undefined;
+    return;
   }
   return ctx.db.normalizeId(tableName as any, value) as Id<TableName> | null;
 }
@@ -3936,4 +6547,71 @@ function sanitizeForPersistence(value: unknown): any {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function fallbackSiteVisitGuidance(input: {
+  build: { location?: string; name: string };
+  milestone: { key: string; name: string };
+  submilestones: Array<{ key: string; name: string }>;
+}) {
+  const scopeNames = input.submilestones.map((item) => item.name);
+  const scopeLabel =
+    scopeNames.length > 0 ? scopeNames.join(", ") : input.milestone.name;
+  const location = input.build.location?.trim();
+  return {
+    cameraAngles: assistantGuidanceHtml([
+      `Wide context view showing the ${input.milestone.name} work within the build site.`,
+      `Detail views of visible completion and workmanship for ${scopeLabel}.`,
+      `Reference view tying the inspected area to ${location || input.build.name}.`,
+    ]),
+    whatToVerify: assistantGuidanceHtml([
+      `Verify the visible ${input.milestone.name} scope is complete for reimbursement review.`,
+      `Check the in-scope work: ${scopeLabel}.`,
+      "Record incomplete work, visible defects, access limitations, and other exceptions.",
+    ]),
+  };
+}
+
+function parseSiteVisitGuidanceDraft(content: string | null | undefined) {
+  if (!content) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(content.replace(/^```(?:json)?\s*|\s*```$/g, ""));
+    const whatToVerify = assistantGuidanceLines(parsed?.whatToVerify);
+    const cameraAngles = assistantGuidanceLines(parsed?.cameraAngles);
+    if (!(whatToVerify.length && cameraAngles.length)) {
+      return null;
+    }
+    return {
+      cameraAngles: assistantGuidanceHtml(cameraAngles),
+      whatToVerify: assistantGuidanceHtml(whatToVerify),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function assistantGuidanceLines(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 6);
+}
+
+function assistantGuidanceHtml(lines: string[]) {
+  return `<ul>${lines
+    .map(
+      (line) =>
+        `<li>${line
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")}</li>`
+    )
+    .join("")}</ul>`;
 }

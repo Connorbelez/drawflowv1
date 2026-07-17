@@ -6,6 +6,7 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 import { nitro } from "nitro/vite";
 import { defineConfig } from "vitest/config";
+import { MARKETING_ROUTE_ARCHIVE_PATTERN } from "./src/lib/marketing-route-archive.ts";
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
 
@@ -41,6 +42,11 @@ const config = defineConfig({
     devtools(),
     tailwindcss(),
     tanstackStart({
+      router: {
+        // Marketing source remains archived in src/routes but is intentionally
+        // absent from the production route tree.
+        routeFileIgnorePattern: MARKETING_ROUTE_ARCHIVE_PATTERN,
+      },
       start: {
         entry: "start.ts",
       },

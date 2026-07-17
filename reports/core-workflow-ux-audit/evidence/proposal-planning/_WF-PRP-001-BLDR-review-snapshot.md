@@ -1,0 +1,131 @@
+- link "DrawFlow DrawFlow Builder":
+  - /url: /builder
+  - img "DrawFlow"
+  - generic: DrawFlow Builder
+- generic: Builder
+- list:
+  - link "Dashboard":
+    - /url: /builder
+    - generic: Dashboard
+  - link "Proposals":
+    - /url: /builder/proposals
+    - generic: Proposals
+  - link "Live Builds":
+    - /url: /builder/proposals
+    - generic: Live Builds
+- generic: Demos
+- list:
+  - link "Timeline Setup":
+    - /url: /demo/timeline
+    - generic: Timeline Setup
+- generic: CHANGELOG
+- paragraph: Product update
+- generic: Performance boosts and UI polish.
+- link "Learn more":
+  - /url: "#"
+- button:
+- list:
+  - link "About":
+    - /url: /about
+    - generic: About
+  - link "Docs":
+    - /url: /demo
+    - generic: Docs
+- paragraph: © 2026 DrawFlow
+- main:
+  - button "Toggle Sidebar":
+    - generic: Toggle Sidebar
+  - separator
+  - navigation "breadcrumb":
+    - list:
+      - link "Builder":
+        - /url: /builder
+      - generic: Proposals
+  - 'button "Theme mode: dark. Click to switch mode."':
+  - button "Notifications":
+  - separator
+  - list:
+    - button "Connor Beleznay Connor Beleznay c.beleznay@humanfeedback.com":
+      - img "Connor Beleznay"
+      - generic: Connor Beleznay
+      - generic: c.beleznay@humanfeedback.com
+  - tablist "Proposal workspace sections":
+    - tab "Packet"
+    - tab "Timeline"
+    - tab "Gantt"
+    - tab "Milestones"
+    - tab "Calendar"
+    - tab "Contractors"
+    - tab "Review" [active] [selected]
+    - tab "Draw schedule"
+    - tab "Materials"
+    - tab "Staff"
+  - generic: Draft
+  - generic: Seed Scenario - Draft
+  - generic: ·
+  - generic: Draft Site, Toronto, ON
+  - generic: Total budget
+  - strong: $650,250
+  - generic: Total approved
+  - strong: $550,000
+  - generic: Interest rate
+  - strong: 9.25%
+  - tabpanel "Review":
+    - generic: Review decision
+    - generic: Draft
+    - heading "Seed Scenario - Draft" [level=2]
+    - paragraph: Draft Site, Toronto, ON
+    - button "Request Changes" [disabled]
+    - button "Reject" [disabled]
+    - button "Approve Proposal" [disabled]
+    - generic: Decision reason
+    - textbox "Decision reason":
+      - /placeholder: Required for material decisions
+    - paragraph: Stored on the audit event for approval, rejection, or requested changes.
+    - list:
+      - generic: Permit PDF or audited waiver is required before approval.
+      - generic: 2 milestones staged for review.
+      - generic: 2 reimbursement draws available in the schedule.
+    - generic: Permit requirement
+    - generic: Blocked
+    - paragraph: Enter the waiver reason here, then approve to create the audited waiver record.
+    - generic: Audited permit waiver
+    - textbox "Audited permit waiver Audited permit waiver":
+      - /placeholder: Reason permit approval is waived for this proposal
+    - paragraph: This waiver reason is held in the review form until the submitted proposal is approved.
+    - generic: Parties & assignment
+    - term: Builder
+    - definition:
+      - generic: Connor Beleznay
+      - generic: builder@example.com
+    - term: Broker
+    - definition:
+      - generic: broker
+      - generic: broker@example.com
+    - term: Brokerage
+    - definition:
+      - generic: FairLendBrokerage
+      - generic: org_01KSNW6JHW9P9YS41DZX1YHHGS
+    - generic: Review snapshot
+    - term: Total budget
+    - definition: $650,250
+    - term: Builder working capital
+    - definition: $400,000
+    - term: Approved amount
+    - definition: $550,000
+    - generic: Readiness
+    - list:
+      - generic: Permit PDF or audited waiver is required before approval.
+      - generic: 2 milestones staged for review.
+      - generic: 2 reimbursement draws available in the schedule.
+    - generic: Permit requirement
+    - generic: Blocked
+    - paragraph: Enter the waiver reason here, then approve to create the audited waiver record.
+    - generic: Audited permit waiver
+    - textbox "Reason permit approval is waived for this proposal"
+    - paragraph: This waiver reason is held in the review form until the submitted proposal is approved.
+  - button "Open DrawFlow AI assistant":
+- region "Notifications alt+T"
+- button "Open TanStack Devtools":
+  - img "TanStack Devtools"
+- generic: $200K

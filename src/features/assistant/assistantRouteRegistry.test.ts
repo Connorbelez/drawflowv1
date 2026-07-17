@@ -1,13 +1,12 @@
 import { describe, expect, test } from "vitest";
-
-import type { DrawFlowAssistantRouteContext } from "./assistantRouteContext";
+import type { DrawFlowAssistantRouteContext } from "./assistantRouteContext.ts";
 import {
   assistantRouteSitemapSummary,
+  canonicalizeAssistantRoute,
   findAssistantRouteMatch,
-  reachableAssistantRoutes,
-} from "./assistantRouteRegistry";
+} from "./assistantRouteRegistry.ts";
 
-const baseContext: DrawFlowAssistantRouteContext = {
+const backofficeContext: DrawFlowAssistantRouteContext = {
   authDiagnostics: {
     hasOrganization: true,
     hasToken: true,
@@ -16,7 +15,7 @@ const baseContext: DrawFlowAssistantRouteContext = {
     roleCount: 1,
   },
   organizationId: "org_test",
-  pathname: "/backoffice",
+  pathname: "/backoffice/proposals/new",
   role: "admin",
   roles: ["admin"],
   search: {},
@@ -25,89 +24,35 @@ const baseContext: DrawFlowAssistantRouteContext = {
 };
 
 describe("assistant route registry", () => {
-  test("maps new build requests to the current role-aware workspace route", () => {
+  test("routes template-settings prompts to the canonical backoffice settings screen", () => {
     expect(
-      findAssistantRouteMatch("I want to create a new build", baseContext)
+      findAssistantRouteMatch("change template settings", backofficeContext)
     ).toMatchObject({
-      entry: { id: "backoffice.new-build" },
-      to: "/backoffice/proposals/new",
-    });
-
-    expect(
-      findAssistantRouteMatch("I want to create a new build", {
-        ...baseContext,
-        pathname: "/builder/proposals",
-        roles: ["builder"],
-        role: "builder",
-        workspace: "builder",
-      })
-    ).toMatchObject({
-      entry: { id: "builder.new-build" },
-      to: "/builder/proposals/new",
+      entry: {
+        id: "backoffice.settings",
+        label: "Backoffice Settings",
+      },
+      to: "/backoffice/settings",
     });
   });
 
-  test("treats Garden Suite build startup as navigation, not a mutation", () => {
-    expect(
-      findAssistantRouteMatch("I wanted to start a new Garden Suite build.", {
-        ...baseContext,
-        pathname: "/backoffice/user-management",
-        workspace: "backoffice",
-      })
-    ).toMatchObject({
-      entry: { id: "backoffice.new-build" },
-      to: "/backoffice/proposals/new",
-    });
-
-    expect(
-      findAssistantRouteMatch("I wanted to start a new Garden Suite build.", {
-        ...baseContext,
-        pathname: "/builder/proposals",
-        role: "builder",
-        roles: ["builder"],
-        workspace: "builder",
-      })
-    ).toMatchObject({
-      entry: { id: "builder.new-build" },
-      to: "/builder/proposals/new",
-    });
-  });
-
-  test("filters reachable pages by normalized role", () => {
-    const builderRoutes = reachableAssistantRoutes({
-      ...baseContext,
-      pathname: "/builder",
-      role: "builder",
-      roles: ["builder"],
-      workspace: "builder",
-    });
-
-    expect(builderRoutes.map((route) => route.id)).toContain(
-      "builder.new-build"
-    );
-    expect(builderRoutes.map((route) => route.id)).not.toContain(
-      "backoffice.draws"
+  test("includes settings in the role-scoped assistant sitemap", () => {
+    expect(assistantRouteSitemapSummary(backofficeContext)).toContain(
+      "Backoffice Settings"
     );
   });
 
-  test("does not invent dynamic routes when required params are missing", () => {
-    expect(findAssistantRouteMatch("open this build", baseContext)).toBeNull();
+  test("canonicalizes common model-generated settings child paths", () => {
+    expect(canonicalizeAssistantRoute("/backoffice/settings/template")).toBe(
+      "/backoffice/settings"
+    );
     expect(
-      findAssistantRouteMatch("open this build", {
-        ...baseContext,
-        activeBuildId: "build_123",
-      })
-    ).toMatchObject({
-      to: "/backoffice/builds/build_123",
-    });
+      canonicalizeAssistantRoute("/backoffice/settings/proposal-templates")
+    ).toBe("/backoffice/settings");
   });
 
-  test("summarizes reachable route purposes for sitemap answers", () => {
-    expect(assistantRouteSitemapSummary(baseContext)).toContain(
-      "Backoffice Proposals"
-    );
-    expect(assistantRouteSitemapSummary(baseContext)).toContain(
-      "/backoffice/proposals/new"
-    );
+  test("rejects unknown assistant navigation targets", () => {
+    expect(canonicalizeAssistantRoute("/backoffice/settings/not-a-real-tab")).toBeNull();
+    expect(canonicalizeAssistantRoute("/made-up-route")).toBeNull();
   });
 });

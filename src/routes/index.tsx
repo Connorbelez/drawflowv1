@@ -1,21 +1,43 @@
-import { createFileRoute } from "@tanstack/react-router";
-import type { ComponentType } from "react";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { Route as MarketingRoute } from "./marketing.tsx";
+import { AccessPortalPage } from "#/features/access-portal/AccessPortalPage.tsx";
+import { resolveAccessDestination } from "#/features/access-portal/access-routing.ts";
 
 export const Route = createFileRoute("/")({
-  // Root homepage uses marketing GSAP scene; keep SSR off like /marketing.
-  ssr: false,
-  component: HomePage,
+  beforeLoad: ({ context }) => {
+    if (!context.userId) {
+      return;
+    }
+
+    const destination = resolveAccessDestination([
+      context.role,
+      ...(context.roles ?? []),
+    ]);
+
+    if (destination) {
+      throw redirect({ to: destination });
+    }
+  },
+  component: AccessPortalPage,
   head: getHomePageHead,
 });
 
-function HomePage() {
-  const MarketingPage = MarketingRoute.options.component as ComponentType;
-
-  return <MarketingPage />;
-}
-
 function getHomePageHead() {
-  return MarketingRoute.options.head?.();
+  return {
+    links: [{ href: "/", rel: "canonical" }],
+    meta: [
+      {
+        title: "Sign in to DrawFlow",
+      },
+      {
+        name: "description",
+        content:
+          "Secure organization-aware access for DrawFlow builder, lender, and contractor workspaces.",
+      },
+      {
+        name: "robots",
+        content: "noindex, nofollow",
+      },
+    ],
+  };
 }

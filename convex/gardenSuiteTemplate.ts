@@ -1,4 +1,4 @@
-export const GARDEN_SUITE_DEMO_TEMPLATE_KEY = "garden_suite";
+export const GARDEN_SUITE_DEMO_TEMPLATE_KEY = "garden-suite";
 export const GARDEN_SUITE_PRODUCTION_TEMPLATE_KEY = "garden-suite";
 export const GARDEN_SUITE_TEMPLATE_TITLE = "Garden Suite";
 

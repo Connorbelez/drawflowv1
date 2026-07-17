@@ -30,7 +30,12 @@ const SEED_VERSION = 2;
 const TOTAL_BPS = 10_000;
 const TIMELINE_DEMO_SETTINGS_HANDOFF_GAP_DAYS = 5;
 const TIMELINE_DEMO_SETTINGS_DRAW_OFFSET_DAYS = 2;
+const TIMELINE_DEMO_KEY_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const NOW = Date.parse("2026-05-20T18:34:00.000Z");
+
+function canonicalTimelineDemoKey(value: string) {
+  return value.trim().toLowerCase().replaceAll("_", "-");
+}
 
 type DemoSettingsSiteVisitGuidanceInput = {
   cameraAngles: SiteVisitGuidanceField;
@@ -268,7 +273,7 @@ const DEFAULT_TEMPLATES: SeedTemplate[] = [
       ),
     ],
     scenarios: [
-      scenario("standard_reimbursement", "Standard reimbursement", true, [
+      scenario("standard-reimbursement", "Standard reimbursement", true, [
         draw("draw-01", "Draw 01", 16, 2000, "Foundation complete"),
         draw("draw-02", "Draw 02", 39, 2500, "Framing verified"),
         draw("draw-03", "Draw 03", 64, 2500, "Rough-in approved"),
@@ -281,7 +286,7 @@ const DEFAULT_TEMPLATES: SeedTemplate[] = [
           "Finishes accepted before closeout"
         ),
       ]),
-      scenario("conservative_review_lag", "Conservative review lag", false, [
+      scenario("conservative-review-lag", "Conservative review lag", false, [
         draw("draw-01", "Draw 01", 18, 1800, "Foundation plus review lag"),
         draw("draw-02", "Draw 02", 41, 2200, "Framing plus review lag"),
         draw("draw-03", "Draw 03", 66, 2500, "Rough-in plus review lag"),
@@ -290,7 +295,7 @@ const DEFAULT_TEMPLATES: SeedTemplate[] = [
       ]),
     ],
     summary: "7 milestones, 100.00% PoC, 102 field days",
-    templateKey: "single_family_full_build",
+    templateKey: "single-family-full-build",
     title: "Single Family Full Build",
   },
   {
@@ -340,7 +345,7 @@ const DEFAULT_TEMPLATES: SeedTemplate[] = [
       ),
     ],
     scenarios: [
-      scenario("quick_inspection", "Quick inspection", true, [
+      scenario("quick-inspection", "Quick inspection", true, [
         draw("draw-01", "Draw 01", 33, 2200, "Demolition complete"),
         draw("draw-02", "Draw 02", 57, 2800, "Structure reviewed"),
         draw("draw-03", "Draw 03", 93, 3000, "Rough-in refresh complete"),
@@ -354,7 +359,7 @@ const DEFAULT_TEMPLATES: SeedTemplate[] = [
       ]),
     ],
     summary: "7 milestones, 100.00% PoC, 86 days",
-    templateKey: "single_family_renovation",
+    templateKey: "single-family-renovation",
     title: "Single Family Renovation",
   },
   {
@@ -416,7 +421,7 @@ const DEFAULT_TEMPLATES: SeedTemplate[] = [
       ),
     ],
     scenarios: [
-      scenario("standard_multiplex", "Standard multi-plex", true, [
+      scenario("standard-multiplex", "Standard multi-plex", true, [
         draw("draw-01", "Draw 01", 51, 2500, "Foundation podium accepted"),
         draw("draw-02", "Draw 02", 86, 2500, "Framing inspection"),
         draw("draw-03", "Draw 03", 119, 2000, "Rough-in review"),
@@ -425,7 +430,7 @@ const DEFAULT_TEMPLATES: SeedTemplate[] = [
       ]),
     ],
     summary: "7 milestones, 100.00% PoC, 146 days",
-    templateKey: "multiplex_build",
+    templateKey: "multiplex-build",
     title: "Multi-plex Build",
   },
   {
@@ -434,7 +439,7 @@ const DEFAULT_TEMPLATES: SeedTemplate[] = [
     milestones: gardenSuiteDemoMilestones(),
     scenarios: [
       scenario(
-        "standard_garden_suite_reimbursement",
+        "standard-garden-suite-reimbursement",
         "Standard Garden Suite reimbursement",
         true,
         [
@@ -538,6 +543,7 @@ export const saveTimelineTemplateConfiguration = publicMutation
   .returns(v.any())
   .handler(async (ctx, args) => {
     const milestones = normalizeMilestoneInputs(args.milestones);
+    validateTemplateKey(args.template.templateKey);
     validateTemplateRows(milestones);
     validateScenarios(args.scenarios, milestones);
     await upsertTemplate(ctx, args.template, 0, true);
@@ -788,8 +794,9 @@ export const resetTimelineDrawScenarioToDefaults = publicMutation
   .returns(v.any())
   .handler(async (ctx, args) => {
     const seed = requiredSeedTemplate(args.templateKey);
+    const scenarioKey = canonicalTimelineDemoKey(args.scenarioKey);
     const scenarioRow = seed.scenarios.find(
-      (row) => row.scenarioKey === args.scenarioKey
+      (row) => row.scenarioKey === scenarioKey
     );
     if (!scenarioRow) {
       throw new Error("No default scenario exists for reset.");
@@ -916,6 +923,9 @@ async function buildSettingsProjection(ctx: ReadCtx) {
   const templateProjections = [];
 
   for (const templateRow of sortedTemplates) {
+    const canonicalTemplateKey = canonicalTimelineDemoKey(
+      templateRow.templateKey
+    );
     const milestones = await listMilestones(ctx, templateRow.templateKey);
     const guidanceItems = await listGuidanceItemsForTemplate(
       ctx,
@@ -924,33 +934,52 @@ async function buildSettingsProjection(ctx: ReadCtx) {
     const scenarios = await listScenarios(ctx, templateRow.templateKey);
     const scenarioProjections = [];
     for (const scenarioRow of scenarios) {
+      const canonicalScenarioKey = canonicalTimelineDemoKey(
+        scenarioRow.scenarioKey
+      );
+      const draws = await listScenarioDraws(
+        ctx,
+        templateRow.templateKey,
+        scenarioRow.scenarioKey
+      );
       scenarioProjections.push({
         ...scenarioRow,
-        draws: await listScenarioDraws(
-          ctx,
-          templateRow.templateKey,
-          scenarioRow.scenarioKey
-        ),
+        scenarioKey: canonicalScenarioKey,
+        templateKey: canonicalTemplateKey,
+        draws: draws.map((draw) => ({
+          ...draw,
+          scenarioKey: canonicalScenarioKey,
+          templateKey: canonicalTemplateKey,
+        })),
       });
     }
     const activeScenario =
       scenarioProjections.find((scenarioRow) => scenarioRow.isActive) ?? null;
     templateProjections.push({
       ...templateRow,
+      templateKey: canonicalTemplateKey,
       activeScenarioKey: activeScenario?.scenarioKey ?? null,
       activeScenarioName: activeScenario?.name ?? null,
-      milestones,
+      milestones: milestones.map((milestone) => ({
+        ...milestone,
+        templateKey: canonicalTemplateKey,
+      })),
       scenarios: scenarioProjections,
       status: templateStatus(
-        templateRow.templateKey,
+        canonicalTemplateKey,
         milestones,
         scenarioProjections
       ),
-      guidanceItems,
-      submilestones: await listSubmilestonesForTemplate(
-        ctx,
-        templateRow.templateKey
-      ),
+      guidanceItems: guidanceItems.map((item) => ({
+        ...item,
+        templateKey: canonicalTemplateKey,
+      })),
+      submilestones: (
+        await listSubmilestonesForTemplate(ctx, templateRow.templateKey)
+      ).map((submilestone) => ({
+        ...submilestone,
+        templateKey: canonicalTemplateKey,
+      })),
     });
   }
 
@@ -1720,11 +1749,15 @@ function validateScenarios(
     draws: { amountBps: number; label: string; timingDay: number }[];
     isActive: boolean;
     name: string;
+    scenarioKey?: string;
   }[],
   milestones?: MilestoneScheduleInput[]
 ) {
   const names = new Set<string>();
   for (const row of rows) {
+    if (row.scenarioKey !== undefined) {
+      validateScenarioKey(row.scenarioKey);
+    }
     const normalizedName = row.name.trim().toLowerCase();
     if (!normalizedName) {
       throw new Error("Scenario name is required.");
@@ -1771,9 +1804,26 @@ function validateScenarioDrawRows(
 
 function assertHardCodedDefaultTemplatesConform() {
   for (const templateRow of DEFAULT_TEMPLATES) {
+    validateTemplateKey(templateRow.templateKey);
     const milestones = templateRow.milestones.map(toMilestoneInput);
     validateTemplateRows(milestones);
     validateScenarios(templateRow.scenarios.map(toScenarioInput), milestones);
+  }
+}
+
+function validateTemplateKey(templateKey: string) {
+  if (!TIMELINE_DEMO_KEY_PATTERN.test(templateKey)) {
+    throw new Error(
+      "Template key must use lowercase letters, numbers, and hyphens."
+    );
+  }
+}
+
+function validateScenarioKey(scenarioKey: string) {
+  if (!TIMELINE_DEMO_KEY_PATTERN.test(scenarioKey)) {
+    throw new Error(
+      "Scenario key must use lowercase letters, numbers, and hyphens."
+    );
   }
 }
 
@@ -1908,7 +1958,10 @@ function toScenarioInput(row: SeedScenario, sortOrder: number): ScenarioInput {
 }
 
 function requiredSeedTemplate(templateKey: string) {
-  const seed = DEFAULT_TEMPLATES.find((row) => row.templateKey === templateKey);
+  const canonicalTemplateKey = canonicalTimelineDemoKey(templateKey);
+  const seed = DEFAULT_TEMPLATES.find(
+    (row) => row.templateKey === canonicalTemplateKey
+  );
   if (!seed) {
     throw new Error(`Unknown timeline demo template: ${templateKey}`);
   }

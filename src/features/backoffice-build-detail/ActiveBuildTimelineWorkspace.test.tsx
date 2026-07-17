@@ -45,6 +45,7 @@ describe("ActiveBuildTimelineWorkspace", () => {
         backofficeHref="/backoffice/builds/build_123"
         buildHref="/backoffice/builds/build_123"
         buildId={"build_123" as any}
+        onRequestSiteVisit={vi.fn()}
         workspace={{
           capitalEvents: [],
           draws: [],

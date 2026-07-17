@@ -25,6 +25,10 @@ import {
 } from "lucide-react";
 import { type ChangeEvent, useEffect, useRef, useState } from "react";
 import {
+  DeviceCaptureDialog,
+  type DeviceCaptureKind,
+} from "#/components/device-capture-dialog.tsx";
+import {
   FieldRichTextEditor,
   FieldRichTextPreview,
 } from "#/components/rich-text/field-rich-text.tsx";
@@ -438,9 +442,7 @@ function SiteVisitTokenRouteContent({
     Math.ceil(((visit.tokenExpiresAt ?? now) - now) / 60_000)
   );
 
-  const stageFiles = (event: ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = Array.from(event.currentTarget.files ?? []);
-    event.currentTarget.value = "";
+  const stageSelectedFiles = (selectedFiles: File[]) => {
     if (selectedFiles.length === 0) {
       return;
     }
@@ -469,6 +471,12 @@ function SiteVisitTokenRouteContent({
           : "Unable to stage selected evidence."
       );
     }
+  };
+
+  const stageFiles = (event: ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(event.currentTarget.files ?? []);
+    event.currentTarget.value = "";
+    stageSelectedFiles(selectedFiles);
   };
 
   const uploadStagedFiles = async () => {
@@ -599,6 +607,7 @@ function SiteVisitTokenRouteContent({
           <Frame>
             <FramePanel className="p-3 sm:p-4 lg:p-5">
               <SiteVisitCapturePanel
+                onStageCapturedFile={(file) => stageSelectedFiles([file])}
                 onStageFiles={stageFiles}
                 onUploadStaged={() => void uploadStagedFiles()}
                 selectedTarget={selectedTarget}
@@ -726,6 +735,7 @@ function SiteVisitTokenRouteContent({
         files={files}
         onClose={() => setDrawer(null)}
         onStageFiles={stageFiles}
+        onStageCapturedFile={(file) => stageSelectedFiles([file])}
         onUploadStaged={() => void uploadStagedFiles()}
         open={drawer !== null}
         permit={permit}
@@ -831,6 +841,7 @@ function SectionTitle({
 }
 
 function SiteVisitCapturePanel({
+  onStageCapturedFile,
   onStageFiles,
   onUploadStaged,
   selectedTarget,
@@ -843,6 +854,7 @@ function SiteVisitCapturePanel({
   uploadingCount,
   variant = "page",
 }: {
+  onStageCapturedFile: (file: File) => void;
   onStageFiles: (event: ChangeEvent<HTMLInputElement>) => void;
   onUploadStaged: () => void;
   selectedTarget: string;
@@ -855,6 +867,8 @@ function SiteVisitCapturePanel({
   uploadingCount: number;
   variant?: "drawer" | "page";
 }) {
+  const [captureKind, setCaptureKind] = useState<DeviceCaptureKind | null>(null);
+
   return (
     <>
       {variant === "page" ? (
@@ -877,23 +891,29 @@ function SiteVisitCapturePanel({
           onChange={onStageFiles}
         />
         <CaptureButton
-          accept="video/*"
-          capture="environment"
           icon={<Video className="size-7" />}
           label="Record"
           meta="Optional"
-          onChange={onStageFiles}
+          onActivate={() => setCaptureKind("video")}
         />
         <CaptureButton
-          accept="image/*"
-          capture="environment"
           icon={<Camera className="size-7" />}
           label="Take Photo"
           meta="JPG to WEBP"
-          nativeCamera
-          onChange={onStageFiles}
+          onActivate={() => setCaptureKind("photo")}
         />
       </div>
+
+      <DeviceCaptureDialog
+        kind={captureKind ?? "photo"}
+        onCapture={onStageCapturedFile}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCaptureKind(null);
+          }
+        }}
+        open={captureKind !== null}
+      />
 
       <div className="mt-5">
         <h2 className="font-semibold text-primary text-sm uppercase tracking-[0.22em]">
@@ -982,66 +1002,40 @@ function SiteVisitCapturePanel({
 
 function CaptureButton({
   accept,
-  capture,
   icon,
   label,
   meta,
   multiple = false,
-  nativeCamera = false,
+  onActivate,
   onChange,
 }: {
-  accept: string;
-  capture?: "environment" | "user";
+  accept?: string;
   icon: React.ReactNode;
   label: string;
   meta: string;
   multiple?: boolean;
-  nativeCamera?: boolean;
-  onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onActivate?: () => void;
+  onChange?: (event: ChangeEvent<HTMLInputElement>) => void;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const openPicker = () => {
-    inputRef.current?.click();
-  };
-
   return (
     <Card
       aria-label={label}
       className="grid min-h-28 cursor-pointer place-items-center p-2 text-center transition-colors hover:border-primary/40 hover:bg-accent/5 sm:min-h-32 lg:min-h-24"
-      data-testid={
-        nativeCamera
-          ? "site-visit-take-photo"
-          : `site-visit-capture-${label.toLowerCase().replace(/\s+/g, "-")}`
-      }
-      onClick={nativeCamera ? openPicker : undefined}
-      onKeyDown={
-        nativeCamera
-          ? (event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                openPicker();
-              }
-            }
-          : undefined
-      }
+      data-testid={`site-visit-capture-${label.toLowerCase().replace(/\s+/g, "-")}`}
+      onClick={onActivate}
       render={
-        nativeCamera ? (
-          <div role="button" tabIndex={0} />
-        ) : (
-          <label role="button" />
-        )
+        onActivate ? <button type="button" /> : <label role="button" />
       }
     >
-      <input
-        accept={accept}
-        {...(capture ? { capture } : {})}
-        className="sr-only"
-        multiple={multiple}
-        onChange={onChange}
-        ref={inputRef}
-        type="file"
-      />
+      {accept && onChange ? (
+        <input
+          accept={accept}
+          className="sr-only"
+          multiple={multiple}
+          onChange={onChange}
+          type="file"
+        />
+      ) : null}
       <span className="text-primary">{icon}</span>
       <strong className="text-sm">{label}</strong>
       <span className="text-[10px] text-muted-foreground uppercase tracking-[0.18em]">
@@ -1378,6 +1372,7 @@ function SiteVisitDrawer({
   buildCode,
   files,
   onClose,
+  onStageCapturedFile,
   onStageFiles,
   onUploadStaged,
   open,
@@ -1396,6 +1391,7 @@ function SiteVisitDrawer({
   buildCode: string;
   files: VisitFile[];
   onClose: () => void;
+  onStageCapturedFile: (file: File) => void;
   onStageFiles: (event: ChangeEvent<HTMLInputElement>) => void;
   onUploadStaged: () => void;
   open: boolean;
@@ -1460,6 +1456,7 @@ function SiteVisitDrawer({
             <EvidenceGrid files={files} targets={targets} variant="uploaded" />
           ) : type === "capture" ? (
             <SiteVisitCapturePanel
+              onStageCapturedFile={onStageCapturedFile}
               onStageFiles={onStageFiles}
               onUploadStaged={onUploadStaged}
               selectedTarget={selectedTarget}

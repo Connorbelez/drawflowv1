@@ -1,5 +1,4 @@
 import type { ConvexQueryClient } from "@convex-dev/react-query";
-import { TanStackDevtools } from "@tanstack/react-devtools";
 import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createRootRouteWithContext,
@@ -8,22 +7,31 @@ import {
   useRouter,
 } from "@tanstack/react-router";
 import type { ErrorComponentProps } from "@tanstack/react-router";
-import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { createServerFn } from "@tanstack/react-start";
 import { getAuth } from "@workos/authkit-tanstack-react-start";
 import type { ConvexReactClient } from "convex/react";
 import { NuqsAdapter } from "nuqs/adapters/tanstack-router";
-import type { ReactElement, ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  type ReactElement,
+  type ReactNode,
+  useEffect,
+  useState,
+} from "react";
 
 import { Button } from "#/components/ui/button.tsx";
 import { Card } from "#/components/ui/card.tsx";
 import { Toaster } from "../components/ui/sonner";
 import { TooltipProvider } from "../components/ui/tooltip";
 import ConvexProvider from "../integrations/convex/provider";
-import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
 import WorkOSProvider from "../integrations/workos/provider";
 import appCss from "../styles.css?url";
 import { VISUAL_PARITY_ORGANIZATION_ID } from "#/features/production-proposals/visualParityFixtures.ts";
+
+const LazyAppDevtools = lazy(async () => ({
+  default: (await import("#/components/app-devtools.tsx")).AppDevtools,
+}));
 
 interface RouterContext {
   convexClient: ConvexReactClient;
@@ -60,7 +68,13 @@ const fetchWorkosAuth = createServerFn({ method: "GET" }).handler(async () => {
     return fixtureAuth;
   }
 
-  const auth = await getAuth();
+  let auth: Awaited<ReturnType<typeof getAuth>>;
+  try {
+    auth = await getAuth();
+  } catch (error) {
+    logAuthFailure("getAuth failed", error);
+    return emptyAuthContext();
+  }
   const tokenClaims = decodeJwtPayload(auth.accessToken);
   const organizationId =
     auth.user
@@ -115,6 +129,17 @@ const fetchWorkosAuth = createServerFn({ method: "GET" }).handler(async () => {
     userId: auth.user?.id ?? null,
   };
 });
+
+function emptyAuthContext() {
+  return {
+    organizationId: null,
+    permissions: [],
+    role: null,
+    roles: [],
+    token: null,
+    userId: null,
+  };
+}
 
 export const Route = createRootRouteWithContext<RouterContext>()({
   beforeLoad: async (ctx) => {
@@ -183,6 +208,16 @@ function logAuthDebug(label: string, payload: AuthDebugPayload) {
   console.info(`[drawflow:auth] ${label}`, payload);
 }
 
+function logAuthFailure(label: string, error: unknown) {
+  if (import.meta.env.PROD) {
+    return;
+  }
+
+  console.warn(`[drawflow:auth] ${label}`, {
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
+
 function isVisualParityFixtureEnabled(): boolean {
   return (
     !import.meta.env.PROD &&
@@ -247,18 +282,7 @@ export function RootDocument({ children }: RootDocumentProps): ReactElement {
               <TooltipProvider>
                 <NuqsAdapter>{children}</NuqsAdapter>
                 <Toaster closeButton position="top-right" richColors />
-                <TanStackDevtools
-                  config={{
-                    position: "bottom-right",
-                  }}
-                  plugins={[
-                    {
-                      name: "Tanstack Router",
-                      render: <TanStackRouterDevtoolsPanel />,
-                    },
-                    TanStackQueryDevtools,
-                  ]}
-                />
+                {import.meta.env.DEV ? <DeferredAppDevtools /> : null}
               </TooltipProvider>
             </QueryClientProvider>
           </ConvexProvider>
@@ -266,6 +290,25 @@ export function RootDocument({ children }: RootDocumentProps): ReactElement {
         <Scripts />
       </body>
     </html>
+  );
+}
+
+function DeferredAppDevtools(): ReactElement | null {
+  const [enabled, setEnabled] = useState(false);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => setEnabled(true), 1500);
+    return () => window.clearTimeout(timeoutId);
+  }, []);
+
+  if (!enabled) {
+    return null;
+  }
+
+  return (
+    <Suspense fallback={null}>
+      <LazyAppDevtools />
+    </Suspense>
   );
 }
 

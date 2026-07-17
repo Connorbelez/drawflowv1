@@ -312,7 +312,11 @@ function BuildDetailShell({
           </button>
         </header>
 
-        <BuildDetailTabBar activeTab={activeTab} onChangeTab={onChangeTab} />
+        <BuildDetailTabBar
+          activeTab={activeTab}
+          onChangeTab={onChangeTab}
+          tabs={["details", "timeline", "calendar", "gantt"]}
+        />
 
         {activeTab === "details" ? (
           <DetailsTabPanel

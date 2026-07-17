@@ -523,7 +523,7 @@ export function ContractorDetailSurface({
       {management ? (
         <ContractorQuickAddDrawer
           createLabel={management.pending ? "Saving..." : "Save profile"}
-          description="Update schedule, equipment, capabilities, pay profile, and contact details for allocation and performance analysis."
+          description="Update equipment, capabilities, pay profile, and contact details for allocation and performance analysis."
           initialDraft={editDraft}
           onCreate={async ({ contractor }) => {
             await management.onSaveProfile(contractor);

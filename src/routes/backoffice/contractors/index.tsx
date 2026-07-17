@@ -18,6 +18,7 @@ import {
   isProductionVisualParityFixtureEnabled,
 } from "#/features/contractors/contractorVisualFixtures.ts";
 import { api } from "../../../../convex/_generated/api";
+import type { Id } from "../../../../convex/_generated/dataModel";
 
 export const Route = createFileRoute("/backoffice/contractors/")({
   staticData: {
@@ -46,6 +47,9 @@ function RouteComponent() {
   );
   const result = visualFixture ? getVisualContractorList() : liveResult;
   const createContractor = useMutation(contractorApi.createContractorProfile);
+  const sendInvite = useMutation(
+    (api as any).contractorOnboarding.sendContractorProfileInvite
+  );
 
   const capabilityCount = result?.summary?.capabilityKeys?.length ?? 0;
   const contractors = (result?.contractors ?? []) as ContractorRosterRow[];
@@ -72,9 +76,16 @@ function RouteComponent() {
     if (!result?.brokerage?._id) {
       throw new Error("Brokerage provisioning is required first.");
     }
-    await createContractor({
+    return await createContractor({
       ...contractor,
       brokerageId: result.brokerage._id,
+      workosOrganizationId,
+    });
+  };
+
+  const inviteContractor = async (contractorId: string) => {
+    await sendInvite({
+      contractorId: contractorId as Id<"contractorProfiles">,
       workosOrganizationId,
     });
   };
@@ -139,7 +150,9 @@ function RouteComponent() {
 
       <ContractorQuickAddDrawer
         createLabel="Create profile"
+        inviteAfterCreateDescription="Create the profile and send a WorkOS invitation to the contractor's email."
         onCreate={createProfile}
+        onInviteCreatedContractor={inviteContractor}
         onOpenChange={setDrawerOpen}
         open={drawerOpen}
         title="Create contractor profile"

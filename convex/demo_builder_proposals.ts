@@ -134,7 +134,7 @@ const BUILDER_TEMPLATES: BuilderTemplate[] = [
       ),
     ],
     summary: "7 preset milestones",
-    templateKey: "single_family_renovation",
+    templateKey: "single-family-renovation",
     title: "Single Family Renovation",
   },
   {
@@ -219,7 +219,7 @@ const BUILDER_TEMPLATES: BuilderTemplate[] = [
       ),
     ],
     summary: "10 preset milestones",
-    templateKey: "single_family_full_build",
+    templateKey: "single-family-full-build",
     title: "Single Family Full Build",
   },
   {
@@ -312,7 +312,7 @@ const BUILDER_TEMPLATES: BuilderTemplate[] = [
       ),
     ],
     summary: "11 preset milestones",
-    templateKey: "multiplex_build",
+    templateKey: "multiplex-build",
     title: "Multi-plex Build",
   },
   {

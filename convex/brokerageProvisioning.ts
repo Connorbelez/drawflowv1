@@ -8,13 +8,14 @@ import {
   userManagementWriteMutation,
   userManagementWriteQuery,
 } from "./authz";
+import {
+  FAIRLEND_BROKERAGE_NAME,
+  FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID,
+  FAIRLEND_WORKOS_ORGANIZATION_ID,
+} from "./fairLendConfig";
 import { internalMutation } from "./fluent";
 import type { ActionCtx, Doc, Id, MutationCtx } from "./types";
 
-const FAIRLEND_BROKERAGE_NAME = "FairLendBrokerage";
-const FAIRLEND_WORKOS_ORGANIZATION_ID = "org_01KSNW6JHW9P9YS41DZX1YHHGS";
-const FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID =
-  "user_01KR207FRFHQT46EV9N538XBF3";
 const BROKER_ROLES = ["principle-broker", "broker"] as const;
 const BUILDER_ROLES = ["builder", "builder-staff"] as const;
 

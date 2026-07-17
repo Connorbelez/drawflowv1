@@ -23,6 +23,7 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   restoreObjectUrlStatics();
+  window.history.pushState(null, "", "/");
   window.sessionStorage.clear();
 });
 
@@ -206,7 +207,7 @@ describe("TimelineSetupFlow assistant client actions", () => {
     queueAssistantClientActions([
       {
         actionKey: "select_proposal_template",
-        input: { templateKey: "garden_suite" },
+        input: { templateKey: "garden-suite" },
       },
     ]);
 
@@ -225,6 +226,39 @@ describe("TimelineSetupFlow assistant client actions", () => {
           .getAttribute("aria-pressed")
       ).toBe("true");
     });
+    expect(screen.getByTestId("timeline-setup-assistant-notice").textContent).toBe(
+      "Garden Suite selected"
+    );
+  });
+
+  test("consumes queued Garden Suite selection when route strings differ by slash or search", async () => {
+    window.history.pushState(null, "", "/builder/proposals/new/?from=assistant");
+    queueAssistantClientActions([
+      {
+        actionKey: "select_proposal_template",
+        input: { templateKey: "garden-suite" },
+        route: "/builder/proposals/new",
+      },
+    ]);
+
+    render(
+      <TimelineSetupFlow
+        baseItems={baseItems}
+        onComplete={vi.fn()}
+        settingsTemplates={templateActionFixture}
+      />
+    );
+
+    await waitFor(() => {
+      expect(
+        screen
+          .getByTestId("timeline-setup-template-card-garden-suite")
+          .getAttribute("aria-pressed")
+      ).toBe("true");
+    });
+    expect(screen.getByTestId("timeline-setup-assistant-notice").textContent).toBe(
+      "Garden Suite selected"
+    );
   });
 
   test("waits for loaded settings templates before consuming queued Garden Suite selection", async () => {

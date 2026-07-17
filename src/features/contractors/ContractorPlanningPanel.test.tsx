@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { ContractorPlanningPanel } from "./ContractorPlanningPanel";
@@ -134,6 +141,55 @@ describe("ContractorPlanningPanel", () => {
         role: "Masonry lead",
         submilestoneKeys: ["brick-siding"],
       }),
+    );
+  });
+
+  test("surfaces an invite action on assigned contractor rows", async () => {
+    const onInviteCreatedContractor = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ContractorPlanningPanel
+        milestones={milestones}
+        onInviteCreatedContractor={onInviteCreatedContractor}
+        planning={{
+          ...planning,
+          milestoneAssignments: [
+            {
+              _id: "assignment_foundation",
+              contractorId: "contractor_masonry",
+              contractorName: "Northstar Masonry",
+              milestoneKey: "exterior",
+              milestoneName: "Exterior envelope",
+              role: "Masonry lead",
+              status: "active",
+              submilestoneKey: "brick-siding",
+              submilestoneName: "Brick siding",
+            },
+          ],
+          proposalContractors: [
+            {
+              ...planning.proposalContractors[0],
+              email: "ops@northstar.test",
+              onboardingStatus: "profile_only" as const,
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getAllByText("Not invited").length).toBeGreaterThan(0);
+    const assignmentRow = screen.getByTestId(
+      "proposal-milestone-assignment-assignment_foundation",
+    );
+    fireEvent.click(
+      within(assignmentRow).getByRole("button", {
+        name: "Invite Northstar Masonry to platform",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(onInviteCreatedContractor).toHaveBeenCalledWith(
+        "contractor_masonry",
+      ),
     );
   });
 });

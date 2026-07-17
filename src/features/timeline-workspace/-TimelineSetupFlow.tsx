@@ -45,6 +45,7 @@ import {
 import {
   type AssistantClientAction,
   consumeQueuedAssistantClientActions,
+  normalizeAssistantRoute,
   queueAssistantClientActions,
   readQueuedAssistantClientActions,
   registerAssistantClientAction,
@@ -519,18 +520,11 @@ export const SUB_MILESTONE_BANK: SubMilestoneBankItem[] = [
 const TEMPLATE_THUMBNAILS: Record<string, string> = {
   "4-plex": "/drawflow-template-thumbnails/four-plex-blueprint.svg",
   four_plex: "/drawflow-template-thumbnails/four-plex-blueprint.svg",
-  multiplex_build:
-    "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
   "multiplex-build":
     "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
-  garden_suite: "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
   "garden-suite": "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
-  single_family_full_build:
-    "/drawflow-template-thumbnails/single-family-full-build-blueprint.png",
   "single-family-full-build":
     "/drawflow-template-thumbnails/single-family-full-build-blueprint.png",
-  single_family_renovation:
-    "/drawflow-template-thumbnails/single-family-renovation-blueprint.png",
   "single-family-renovation":
     "/drawflow-template-thumbnails/single-family-renovation-blueprint.png",
 };
@@ -1077,7 +1071,7 @@ function buildDefaultTemplate(
       } satisfies TimelineSetupPreset;
     }),
     summary: `${baseItems.length} project milestones`,
-    templateKey: "single_family_full_build",
+    templateKey: "single-family-full-build",
     title: "Single Family Full Build",
   } satisfies TimelineSetupTemplate;
 }
@@ -1153,7 +1147,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
         ),
       ],
       summary: "7 renovation milestones",
-      templateKey: "single_family_renovation",
+      templateKey: "single-family-renovation",
       title: "Single Family Renovation",
     },
     {
@@ -1225,7 +1219,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
         ),
       ],
       summary: "7 multiplex milestones",
-      templateKey: "multiplex_build",
+      templateKey: "multiplex-build",
       title: "Multi-plex Build",
     },
   ];
@@ -1825,7 +1819,9 @@ function TemplateStep({
   proposedStartDate,
   selectedTemplateKey,
   templates,
+  assistantNotice,
 }: {
+  assistantNotice?: string;
   budgetText: string;
   cashText: string;
   coPayText: string;
@@ -1877,6 +1873,14 @@ function TemplateStep({
           description="Choose a template that best matches your project."
           title="1. Select Template"
         >
+          {assistantNotice ? (
+            <div
+              className="mb-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-primary text-sm"
+              data-testid="timeline-setup-assistant-notice"
+            >
+              {assistantNotice}
+            </div>
+          ) : null}
           <div className="timeline-template-grid">
             {templates.map((template) => {
               const selected = template.templateKey === selectedTemplateKey;
@@ -2611,6 +2615,7 @@ export function TimelineSetupFlow({
       : []
   );
   const [error, setError] = useState("");
+  const [assistantNotice, setAssistantNotice] = useState("");
   const selectedTemplate =
     templates.find(
       (template) => template.templateKey === selectedTemplateKey
@@ -2848,6 +2853,7 @@ export function TimelineSetupFlow({
           setStep("template");
           selectTemplate(resolvedTemplate.templateKey);
           setError("");
+          setAssistantNotice(`${resolvedTemplate.title} selected`);
           return {
             ok: true,
             templateKey: resolvedTemplate.templateKey,
@@ -3396,14 +3402,11 @@ export function TimelineSetupFlow({
           return { ok: false, reason: "Unsupported setup assistant action." };
       }
     };
-    const unregister = ASSISTANT_SETUP_CLIENT_ACTION_KEYS.map((actionKey) =>
-      registerAssistantClientAction(actionKey, executeSetupAction)
-    );
-    const route = window.location.pathname;
+    const route = normalizeAssistantRoute(window.location.pathname);
     const matchingQueuedActions = readQueuedAssistantClientActions().filter(
       (action) =>
         action.actionKey === "select_proposal_template" &&
-        (!action.route || action.route === route)
+        (!action.route || normalizeAssistantRoute(action.route) === route)
     );
     const hasResolvableQueuedAction = matchingQueuedActions.some((action) =>
       resolveAgentTemplate(
@@ -3412,8 +3415,11 @@ export function TimelineSetupFlow({
       )
     );
     if (!templateListLoaded && !hasResolvableQueuedAction) {
-      return () => unregister.forEach((dispose) => dispose());
+      return;
     }
+    const unregister = ASSISTANT_SETUP_CLIENT_ACTION_KEYS.map((actionKey) =>
+      registerAssistantClientAction(actionKey, executeSetupAction)
+    );
     for (const actionKey of ASSISTANT_SETUP_CLIENT_ACTION_KEYS) {
       for (const action of consumeQueuedAssistantClientActions({
         actionKey,
@@ -3501,6 +3507,7 @@ export function TimelineSetupFlow({
             proposedStartDate={proposedStartDate}
             selectedTemplateKey={selectedTemplateKey}
             templates={templates}
+            assistantNotice={assistantNotice}
           />
         ) : (
           <BudgetStep

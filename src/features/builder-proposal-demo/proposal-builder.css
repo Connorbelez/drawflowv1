@@ -874,14 +874,14 @@ body:has(.pb-new-proposal-app) > footer {
   object-fit: cover;
 }
 
-.pb-template-thumb.template-multiplex_build {
+.pb-template-thumb.template-multiplex-build {
   background:
     linear-gradient(90deg, transparent 0 28%, color-mix(in oklch, var(--pb-accent) 45%, #46546a) 29% 48%, transparent 49%),
     repeating-linear-gradient(180deg, #32445d 0 14px, #d4c3a4 15px 20px),
     linear-gradient(180deg, #8fb5dc 0 32%, #768765 33% 100%);
 }
 
-.pb-template-thumb.template-single_family_renovation {
+.pb-template-thumb.template-single-family-renovation {
   background:
     linear-gradient(90deg, transparent 0 58%, #d8c7ad 59% 82%, transparent 83%),
     linear-gradient(180deg, #c9ced3 0 30%, #f4efe5 31% 68%, #9a7658 69% 100%);

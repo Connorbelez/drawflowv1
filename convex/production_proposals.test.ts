@@ -218,6 +218,29 @@ async function createClosedSingleMilestoneBuild(t: any, seed: any) {
   );
 }
 
+async function unlockActiveBuildMilestoneForDraw(
+  t: any,
+  buildId: any,
+  milestoneKey = "foundation",
+) {
+  await t.run(async (ctx: any) => {
+    const milestone = await ctx.db
+      .query("buildMilestones")
+      .withIndex("by_build_key", (q: any) =>
+        q.eq("buildId", buildId).eq("key", milestoneKey),
+      )
+      .unique();
+    if (!milestone) throw new Error("Test milestone not found.");
+    await ctx.db.patch(milestone._id, {
+      completionReview: {
+        reviewedAt: "2026-07-14T12:00:00.000Z",
+        status: "approved",
+      },
+      status: "complete",
+    });
+  });
+}
+
 function appPermissionGrants(
   allowed: Partial<
     Record<
@@ -963,7 +986,6 @@ describe("production proposal foundation", () => {
       },
     );
     const { buildId } = await createClosedSingleMilestoneBuild(admin, seed);
-
     await admin.mutation(
       internal.production_proposals.finalizeProposalBuilderStaffProvisioning,
       {
@@ -1475,6 +1497,7 @@ describe("production proposal foundation", () => {
       subject: "user_staff_draw",
     });
     const { buildId } = await createClosedSingleMilestoneBuild(admin, seed);
+    await unlockActiveBuildMilestoneForDraw(admin, buildId);
     await admin.mutation(
       (api as any).production_proposals.saveActiveBuildBuilderStaffPermissions,
       {
@@ -1989,9 +2012,27 @@ describe("production proposal foundation", () => {
     );
     expect(workspace.contractorPlanning).toBeUndefined();
 
+    await t.mutation((api as any).production_proposals.createContractorProfile, {
+      brokerageId: seed.brokerageId,
+      email: "scenario.contractor@example.com",
+      kind: "company",
+      name: "Seed Scenario Contractor LLC",
+      trades: ["foundation", "framing"],
+      workosOrganizationId: ORG,
+    });
+
     const contractorPlanning = await t.query(
       (api as any).production_proposals.getProposalContractorPlanning,
       { proposalId, workosOrganizationId: ORG },
+    );
+    expect(contractorPlanning.availableContractors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          email: "scenario.contractor@example.com",
+          name: "Seed Scenario Contractor LLC",
+          onboardingStatus: "profile_only",
+        }),
+      ]),
     );
     expect(contractorPlanning.proposalContractors).toEqual([
       expect.objectContaining({
@@ -4559,8 +4600,9 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
-    await t.mutation((api as any).production_proposals.requestActiveBuildDraw, {
-      amountCents: 40_000_000,
+    await unlockActiveBuildMilestoneForDraw(t, closing.buildId);
+    const drawReceipt = await t.mutation((api as any).production_proposals.requestActiveBuildDraw, {
+      amountCents: 20_000_000,
       buildId: closing.buildId,
       drawKey: "draw-01",
       note: "Foundation reimbursement requested.",
@@ -4568,13 +4610,13 @@ describe("production proposal foundation", () => {
     });
     await t.mutation((api as any).production_proposals.approveActiveBuildDraw, {
       buildId: closing.buildId,
-      drawKey: "draw-01",
+      drawKey: drawReceipt.requestKey,
       note: "Evidence and policy review complete.",
       workosOrganizationId: ORG,
     });
     await t.mutation((api as any).production_proposals.releaseActiveBuildDraw, {
       buildId: closing.buildId,
-      drawKey: "draw-01",
+      drawKey: drawReceipt.requestKey,
       note: "Released after admin approval.",
       releaseDate: "2026-08-24",
       workosOrganizationId: ORG,
@@ -4595,6 +4637,13 @@ describe("production proposal foundation", () => {
         milestoneKey: "foundation",
         note: "Verify footing photo location.",
         requestedDay: 23,
+        siteVisitGuidance: {
+          cameraAngles:
+            "<ul><li>Capture the complete formwork from the street.</li></ul>",
+          whatToVerify:
+            "<ul><li>Verify forms are complete and ready for the pour.</li></ul>",
+        },
+        submilestoneKeys: ["excavation"],
         workosOrganizationId: ORG,
       },
     );
@@ -4611,6 +4660,18 @@ describe("production proposal foundation", () => {
       kind: "permit",
       mimeType: "application/pdf",
     });
+    expect(tokenizedVisit.targets).toEqual([
+      expect.objectContaining({
+        guidance: {
+          cameraAngles:
+            "<ul><li>Capture the complete formwork from the street.</li></ul>",
+          whatToVerify:
+            "<ul><li>Verify forms are complete and ready for the pour.</li></ul>",
+        },
+        milestoneKey: "foundation",
+        submilestones: [{ key: "excavation", name: "Excavation" }],
+      }),
+    ]);
     const siteVisitRoster = await t.query(
       (api as any).production_proposals.listBrokerageSiteVisits,
       { workosOrganizationId: ORG },
@@ -4668,7 +4729,7 @@ describe("production proposal foundation", () => {
       expect.arrayContaining([
         expect.objectContaining({
           buildId: closing.buildId,
-          drawKey: "draw-01",
+          drawKey: drawReceipt.requestKey,
           status: "released",
         }),
       ]),
@@ -4876,6 +4937,118 @@ describe("production proposal foundation", () => {
     });
   });
 
+  test("builder can create and attach a contractor to an owned active build", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed);
+    const builder = withIdentity(base, ["builder"], "user_builder");
+
+    const result = await builder.mutation(
+      (api as any).production_proposals.createAndAttachActiveBuildContractor,
+      {
+        buildId: closing.buildId,
+        contractor: {
+          capabilities: [
+            {
+              capabilityKey: "brick-siding",
+              label: "Brick siding",
+              trade: "masonry",
+            },
+          ],
+          city: "Toronto",
+          defaultPayRateCents: 0,
+          defaultPayRateUnit: "hour",
+          email: "zepplinf13@gmail.com",
+          equipment: [
+            { equipmentKey: "telehandler", name: "Telehandler", quantity: 1 },
+          ],
+          kind: "company",
+          name: "TestContractor",
+          phone: "416-555-0101",
+          trades: ["Masonry"],
+        },
+        role: "masonry lead.",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const detail = await builder.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(detail.contractors).toEqual([
+      expect.objectContaining({
+        contractorId: result.contractorId,
+        email: "zepplinf13@gmail.com",
+        name: "TestContractor",
+        role: "masonry lead.",
+        trades: ["Masonry"],
+      }),
+    ]);
+
+    const profile = await admin.run((ctx: any) =>
+      ctx.db.get(result.contractorId),
+    );
+    expect(profile).toMatchObject({
+      city: "Toronto",
+      normalizedEmail: "zepplinf13@gmail.com",
+      source: "builder_created",
+      status: "active",
+    });
+    const activeBuildEvents = await admin.run((ctx: any) =>
+      ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q: any) =>
+          q
+            .eq("entityType", "activeBuild")
+            .eq("entityId", String(closing.buildId)),
+        )
+        .collect(),
+    );
+    expect(activeBuildEvents.map((event: any) => event.command)).toContain(
+      "createAndAttachActiveBuildContractor",
+    );
+  });
+
+  test("builder can attach an existing production contractor to an owned active build", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed);
+    const contractorId = await admin.mutation(
+      (api as any).production_proposals.createContractorProfile,
+      {
+        brokerageId: seed.brokerageId,
+        city: "Toronto",
+        email: "existing-masonry@example.com",
+        kind: "company",
+        name: "Existing Masonry Co",
+        trades: ["masonry"],
+        workosOrganizationId: ORG,
+      },
+    );
+    const builder = withIdentity(base, ["builder"], "user_builder");
+
+    await builder.mutation(
+      (api as any).production_proposals.attachActiveBuildContractor,
+      {
+        buildId: closing.buildId,
+        contractorId,
+        role: "Masonry crew",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const detail = await builder.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(detail.contractors).toEqual([
+      expect.objectContaining({
+        contractorId,
+        name: "Existing Masonry Co",
+        role: "Masonry crew",
+      }),
+    ]);
+  });
+
   test("seeds deterministic production proposal lifecycle scenarios without demo data", async () => {
     const { t } = await seeded(["admin"], "user_admin");
 
@@ -5045,6 +5218,29 @@ describe("production proposal foundation", () => {
     ).toBe(false);
   });
 
+  test("projects deterministic backoffice dashboard dates from an explicit as-of date", async () => {
+    const { t } = await seeded(["admin"], "user_admin");
+
+    await t.mutation(
+      (api as any).production_proposals.dev_seedProductionProposalScenarios,
+      { workosOrganizationId: ORG },
+    );
+
+    const asOfDate = "2100-09-02";
+    const dashboard = await t.query(
+      (api as any).production_proposals.getBackofficeDashboard,
+      { asOfDate, workosOrganizationId: ORG },
+    );
+    const expectedDaysActive = Math.floor(
+      (Date.parse(`${asOfDate}T00:00:00Z`) -
+        Date.parse("2099-09-01T00:00:00Z")) /
+        86_400_000,
+    );
+
+    expect(dashboard.scheduleDate).toBe("2100-09-02T00:00:00.000Z");
+    expect(dashboard.activeBuilds[0].daysActive).toBe(expectedDaysActive);
+  });
+
   test("lists the backoffice build roster with phase rollups and operational signals", async () => {
     const { t } = await seeded(["admin"], "user_admin");
 
@@ -5158,7 +5354,16 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
-    await builder.mutation(
+    await t.mutation(
+      (api as any).production_proposals.approveActiveBuildMilestone,
+      {
+        buildId: closing.buildId,
+        milestoneKey: "foundation",
+        note: "Completion evidence approved.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const receipt = await builder.mutation(
       (api as any).production_proposals.requestActiveBuildDraw,
       {
         amountCents: 40_000_000,
@@ -5173,7 +5378,9 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.getActiveBuildTimelineWorkspace,
       { buildId: closing.buildId, workosOrganizationId: ORG },
     );
-    expect(workspace.draws[0]).toMatchObject({
+    expect(
+      workspace.draws.find((draw: any) => draw.drawKey === receipt.requestKey),
+    ).toMatchObject({
       amountCents: 40_000_000,
       requestNote: "Requesting approved reimbursement.",
       requestStatus: "requested",
@@ -5191,16 +5398,6 @@ describe("production proposal foundation", () => {
     const builder = withIdentity(base, ["builder"], "user_builder");
 
     await builder.mutation(
-      (api as any).production_proposals.requestActiveBuildDraw,
-      {
-        amountCents: 40_000_000,
-        buildId: closing.buildId,
-        drawKey,
-        note: "Requested against original budget.",
-        workosOrganizationId: ORG,
-      },
-    );
-    await builder.mutation(
       (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
       {
         actualCostCents: 30_000_000,
@@ -5211,11 +5408,30 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
+    await t.mutation(
+      (api as any).production_proposals.approveActiveBuildMilestone,
+      {
+        buildId: closing.buildId,
+        milestoneKey: "foundation",
+        note: "Completion evidence approved.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const receipt = await builder.mutation(
+      (api as any).production_proposals.requestActiveBuildDraw,
+      {
+        amountCents: 40_000_000,
+        buildId: closing.buildId,
+        drawKey,
+        note: "Requested against original budget.",
+        workosOrganizationId: ORG,
+      },
+    );
 
     await expect(
       t.mutation((api as any).production_proposals.approveActiveBuildDraw, {
         buildId: closing.buildId,
-        drawKey,
+        drawKey: receipt.requestKey,
         note: "Approve release.",
         workosOrganizationId: ORG,
       }),
@@ -5225,9 +5441,346 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.getActiveBuildTimelineWorkspace,
       { buildId: closing.buildId, workosOrganizationId: ORG },
     );
-    expect(workspace.draws[0]).toMatchObject({
+    expect(
+      workspace.draws.find((draw: any) => draw.drawKey === receipt.requestKey),
+    ).toMatchObject({
       amountCents: 40_000_000,
       requestStatus: "approved",
+    });
+  });
+
+  test("reserves final milestone decisions and draw release for lender admins", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed);
+    await admin.run(async (ctx: any) => {
+      const build = await ctx.db.get(closing.buildId);
+      await ctx.db.patch(build.proposalId, {
+        assignedBrokerWorkosUserId: "user_broker",
+      });
+    });
+    const staff = withIdentity(base, ["broker"], "user_broker");
+
+    await expect(
+      staff.mutation(
+        (api as any).production_proposals.approveActiveBuildMilestone,
+        {
+          buildId: closing.buildId,
+          milestoneKey: "foundation",
+          note: "Staff recommendation must not be a final approval.",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow("Forbidden: role");
+    await expect(
+      staff.mutation(
+        (api as any).production_proposals.rejectActiveBuildMilestone,
+        {
+          buildId: closing.buildId,
+          milestoneKey: "foundation",
+          note: "Staff recommendation must not be a final rejection.",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow("Forbidden: role");
+    await expect(
+      staff.mutation((api as any).production_proposals.releaseActiveBuildDraw, {
+        buildId: closing.buildId,
+        drawKey: "draw-request-awaiting-admin",
+        note: "Staff cannot release funds.",
+        releaseDate: "2026-07-16",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("Forbidden: role");
+  });
+
+  test("keeps staff evidence acceptance and site-visit recommendations pending admin approval", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed);
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    await admin.run(async (ctx: any) => {
+      const build = await ctx.db.get(closing.buildId);
+      await ctx.db.patch(build.proposalId, {
+        assignedBrokerWorkosUserId: "user_broker",
+      });
+    });
+    const staff = withIdentity(base, ["broker"], "user_broker");
+
+    await builder.mutation(
+      (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
+      {
+        buildId: closing.buildId,
+        completedDay: 20,
+        milestoneKey: "foundation",
+        note: "Foundation ready for lender review.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await staff.mutation(
+      (api as any).production_proposals.reviewActiveBuildEvidence,
+      {
+        accepted: true,
+        buildId: closing.buildId,
+        milestoneKey: "foundation",
+        note: "Evidence accepted; recommend admin approval.",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    let milestone = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (q: any) =>
+          q.eq("buildId", closing.buildId).eq("key", "foundation"),
+        )
+        .unique(),
+    );
+    expect(milestone).toMatchObject({
+      evidenceState: "Accepted",
+      status: "in_progress",
+    });
+    expect(milestone.completionReview).toMatchObject({
+      evidenceReview: {
+        accepted: true,
+        note: "Evidence accepted; recommend admin approval.",
+      },
+      status: "pending",
+    });
+    expect(milestone.completionReview?.note).toBeUndefined();
+
+    const visit = await staff.mutation(
+      (api as any).production_proposals.assignActiveBuildSiteVisit,
+      {
+        buildId: closing.buildId,
+        milestoneKey: "foundation",
+        note: "Verify the accepted package on site.",
+        requestedDay: 21,
+        workosOrganizationId: ORG,
+      },
+    );
+    await admin.mutation(
+      (api as any).production_proposals.submitActiveBuildTokenizedSiteVisitReport,
+      {
+        buildId: String(closing.buildId),
+        completionObserved: true,
+        recommendedOutcome: "approve",
+        reportNotes: "<p>Observed completed foundation work.</p>",
+        token: visit.visitId,
+      },
+    );
+
+    milestone = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (q: any) =>
+          q.eq("buildId", closing.buildId).eq("key", "foundation"),
+        )
+        .unique(),
+    );
+    expect(milestone.status).toBe("in_progress");
+    expect(milestone.completionReview?.status).toBe("pending");
+    expect(milestone.completionReview?.siteVisit).toMatchObject({
+      recommendedOutcome: "approve",
+      status: "complete",
+    });
+  });
+
+  test("requires a concrete change request and clears it when the builder resubmits", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed);
+    const builder = withIdentity(base, ["builder"], "user_builder");
+
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.requestActiveBuildMilestoneInfo,
+        {
+          buildId: closing.buildId,
+          milestoneKey: "foundation",
+          note: "   ",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow("A requested change note is required.");
+
+    await admin.mutation(
+      (api as any).production_proposals.requestActiveBuildMilestoneInfo,
+      {
+        buildId: closing.buildId,
+        milestoneKey: "foundation",
+        note: " Upload the signed inspection report. ",
+        workosOrganizationId: ORG,
+      },
+    );
+    let milestone = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (q: any) =>
+          q.eq("buildId", closing.buildId).eq("key", "foundation"),
+        )
+        .unique(),
+    );
+    expect(milestone.completionReview).toMatchObject({
+      note: "Upload the signed inspection report.",
+      status: "revisionRequested",
+    });
+
+    await builder.mutation(
+      (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
+      {
+        buildId: closing.buildId,
+        completedDay: 20,
+        milestoneKey: "foundation",
+        note: "Signed report attached.",
+        workosOrganizationId: ORG,
+      },
+    );
+    milestone = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (q: any) =>
+          q.eq("buildId", closing.buildId).eq("key", "foundation"),
+        )
+        .unique(),
+    );
+    expect(milestone.completionReview?.status).toBe("pending");
+    expect(milestone.completionReview?.note).toBeUndefined();
+  });
+
+  test("repairs only malformed revision states without requested-change notes", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed);
+    const milestoneId = await admin.run(async (ctx: any) => {
+      const milestone = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (q: any) =>
+          q.eq("buildId", closing.buildId).eq("key", "foundation"),
+        )
+        .unique();
+      await ctx.db.patch(milestone._id, {
+        completionReview: {
+          reviewedAt: "2026-07-15T12:00:00.000Z",
+          status: "revisionRequested",
+        },
+      });
+      return milestone._id;
+    });
+
+    const repaired = await admin.mutation(
+      (api as any).production_proposals.repairActiveBuildMilestoneReviewStates,
+      {
+        buildId: closing.buildId,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(repaired).toEqual({
+      milestoneKeys: ["foundation"],
+      repaired: 1,
+    });
+    let milestone = await admin.run(async (ctx: any) =>
+      ctx.db.get(milestoneId),
+    );
+    expect(milestone.completionReview?.status).toBe("pending");
+
+    await admin.run(async (ctx: any) => {
+      await ctx.db.patch(milestoneId, {
+        completionReview: {
+          note: "Upload a clearer inspection photo.",
+          reviewedAt: "2026-07-15T13:00:00.000Z",
+          status: "revisionRequested",
+        },
+      });
+    });
+    expect(
+      await admin.mutation(
+        (api as any).production_proposals.repairActiveBuildMilestoneReviewStates,
+        {
+          buildId: closing.buildId,
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).toEqual({ milestoneKeys: [], repaired: 0 });
+    milestone = await admin.run(async (ctx: any) => ctx.db.get(milestoneId));
+    expect(milestone.completionReview).toMatchObject({
+      note: "Upload a clearer inspection photo.",
+      status: "revisionRequested",
+    });
+  });
+
+  test("keeps draw requests independent, idempotent, exact, and withdrawable before approval", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(t, seed);
+    await unlockActiveBuildMilestoneForDraw(t, closing.buildId);
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    const input = {
+      amountCents: 12_345_67,
+      buildId: closing.buildId,
+      clientOperationId: "draw-operation-exact-01",
+      drawKey: "draw-01",
+      note: "Exact partial reimbursement.",
+      workosOrganizationId: ORG,
+    };
+
+    const receipt = await builder.mutation(
+      (api as any).production_proposals.requestActiveBuildDraw,
+      input,
+    );
+    const retry = await builder.mutation(
+      (api as any).production_proposals.requestActiveBuildDraw,
+      input,
+    );
+    expect(retry).toEqual(receipt);
+
+    let detail = await builder.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(detail.plannedDraws).toHaveLength(1);
+    expect(detail.draws).toHaveLength(1);
+    expect(detail.draws[0]).toMatchObject({
+      amountCents: 1_234_567,
+      drawKey: receipt.requestKey,
+      status: "requested",
+    });
+
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals.requestActiveBuildDraw,
+        { ...input, amountCents: 99_000_000, clientOperationId: "too-large" },
+      ),
+    ).rejects.toThrow("exceeds the available draw limit");
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals.requestActiveBuildDraw,
+        { ...input, amountCents: 100.5, clientOperationId: "fractional-cents" },
+      ),
+    ).rejects.toThrow("positive whole number of cents");
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals.requestActiveBuildDraw,
+        {
+          ...input,
+          clientOperationId: "note-too-long",
+          note: "x".repeat(501),
+        },
+      ),
+    ).rejects.toThrow("500 characters or fewer");
+
+    await builder.mutation(
+      (api as any).production_proposals.withdrawActiveBuildDraw,
+      {
+        buildId: closing.buildId,
+        drawKey: receipt.requestKey,
+        note: "Correcting the request amount.",
+        workosOrganizationId: ORG,
+      },
+    );
+    detail = await builder.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(detail.draws[0]).toMatchObject({ status: "withdrawn" });
+    expect(detail.plannedDraws[0]).toMatchObject({
+      amountCents: 40_000_000,
+      status: "planned",
     });
   });
 
@@ -5463,6 +6016,45 @@ describe("production proposal foundation", () => {
 });
 
 describe("draft builder assignment and deletion", () => {
+  test("lists bounded active brokerage builder options without account projection data", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+
+    await admin.run(async (ctx: any) => {
+      await ctx.db.insert("builderProfiles", {
+        brokerageId: seed.brokerageId,
+        createdAt: Date.now(),
+        displayName: "Acme Builders",
+        organizationId: ORG,
+        status: "active",
+        updatedAt: Date.now(),
+      });
+      await ctx.db.insert("builderProfiles", {
+        brokerageId: seed.brokerageId,
+        createdAt: Date.now(),
+        displayName: "Retired Builders",
+        organizationId: ORG,
+        status: "inactive",
+        updatedAt: Date.now(),
+      });
+    });
+
+    const builders = await admin.query(
+      (api as any).production_proposals.listActiveBrokerageBuilderOptions,
+      { workosOrganizationId: ORG },
+    );
+
+    expect(builders.map((builder: any) => builder.displayName)).toEqual([
+      "Acme Builders",
+      "Production Builder",
+    ]);
+    expect(builders[0]).toEqual({
+      _id: expect.any(String),
+      displayName: "Acme Builders",
+    });
+    expect(builders[0]).not.toHaveProperty("email");
+    expect(builders[0]).not.toHaveProperty("workosUserIds");
+  });
+
   test("lists active brokerage builders sorted by name", async () => {
     const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
     const broker = withIdentity(base, ["broker"], "user_broker");

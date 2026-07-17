@@ -34,6 +34,9 @@ export function ProductionContractorPlanningTab({
   const createAndAttachProposalContractor = useMutation(
     (api as any).production_proposals.createAndAttachProposalContractor
   );
+  const sendContractorInvite = useMutation(
+    (api as any).contractorOnboarding.sendContractorProfileInvite
+  );
   const assignProposalContractorToMilestone = useMutation(
     (api as any).production_proposals.assignProposalContractorToMilestone
   );
@@ -78,6 +81,12 @@ export function ProductionContractorPlanningTab({
           contractor,
           proposalId,
           role,
+          workosOrganizationId,
+        })
+      }
+      onInviteCreatedContractor={(contractorId) =>
+        sendContractorInvite({
+          contractorId: contractorId as Id<"contractorProfiles">,
           workosOrganizationId,
         })
       }

@@ -61,7 +61,7 @@ test("timeline setup selects a template, edits the blueprint budget table, and g
     page.getByTestId("timeline-setup-template-screen")
   ).toBeVisible();
   await expect(
-    page.getByTestId("timeline-setup-template-card-single_family_full_build")
+    page.getByTestId("timeline-setup-template-card-single-family-full-build")
   ).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText("Proposal Summary")).toBeVisible();
   await expect(page.getByText("What happens next")).toBeVisible();

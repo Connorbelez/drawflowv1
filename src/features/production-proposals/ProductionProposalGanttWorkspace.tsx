@@ -129,7 +129,8 @@ export interface ProductionProposalGanttWorkspaceProps {
     milestoneId: string;
     role: string;
     submilestoneKeys?: string[];
-  }) => Promise<void>;
+  }) => Promise<void | string | { contractorId?: string }>;
+  onInviteContractor?: (contractorId: string) => Promise<void>;
   onDrawsChange: (draws: ProposalGanttDrawDraft[]) => void;
   onMilestonesChange: (milestones: ProposalGanttMilestoneDraft[]) => void;
   onSubmit?: () => void;
@@ -165,6 +166,9 @@ export function ProductionProposalTimelineGanttWorkspace({
   const productionApi = api.production_proposals as any;
   const createAndAttachProposalContractor = useMutation(
     productionApi.createAndAttachProposalContractor
+  );
+  const sendContractorInvite = useMutation(
+    (api as any).contractorOnboarding.sendContractorProfileInvite
   );
   const assignProposalContractorToMilestone = useMutation(
     productionApi.assignProposalContractorToMilestone
@@ -344,7 +348,17 @@ export function ProductionProposalTimelineGanttWorkspace({
                 submilestoneKeys: submilestoneKeys ?? scope.submilestoneKeys,
                 workosOrganizationId,
               });
+              return contractorId;
             }
+          : undefined
+      }
+      onInviteContractor={
+        allowContractorMutations
+          ? (contractorId) =>
+              sendContractorInvite({
+                contractorId: contractorId as Id<"contractorProfiles">,
+                workosOrganizationId,
+              })
           : undefined
       }
       onDrawsChange={persistDraws}
@@ -367,6 +381,7 @@ export function ProductionProposalGanttWorkspace({
   milestones,
   onAssignContractorToMilestone,
   onCreateAndAssignContractor,
+  onInviteContractor,
   onDrawsChange,
   onMilestonesChange,
   onSubmit,
@@ -463,6 +478,7 @@ export function ProductionProposalGanttWorkspace({
     assignContractorToMilestone: onAssignContractorToMilestone,
     contractorPlanning,
     createAndAssignContractor: onCreateAndAssignContractor,
+    inviteContractor: onInviteContractor,
     resolveContractorMilestoneKey: (milestoneId) =>
       resolveParentMilestoneKey(milestoneId, milestones) ??
       parseGanttMilestoneScopeId(milestoneId).milestoneKey,

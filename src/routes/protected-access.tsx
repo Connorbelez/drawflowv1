@@ -14,7 +14,8 @@ type ProtectedAccessSearch = {
   reason?:
     | "missing-organization"
     | "no-workspace-access"
-    | "onboarding-required";
+    | "onboarding-required"
+    | "profile-link-required";
   workspace?: Workspace;
 };
 
@@ -23,10 +24,16 @@ export const Route = createFileRoute("/protected-access")({
     reason:
       search.reason === "missing-organization" ||
       search.reason === "onboarding-required" ||
-      search.reason === "no-workspace-access"
+      search.reason === "no-workspace-access" ||
+      search.reason === "profile-link-required"
         ? search.reason
         : "no-workspace-access",
-    workspace: search.workspace === "builder" ? "builder" : "backoffice",
+    workspace:
+      search.workspace === "builder" ||
+      search.workspace === "backoffice" ||
+      search.workspace === "contractor"
+        ? search.workspace
+        : "backoffice",
   }),
   component: ProtectedAccessRoute,
 });

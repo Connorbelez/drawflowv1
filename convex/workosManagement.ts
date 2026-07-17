@@ -184,6 +184,27 @@ export const inviteBuilderStaffUser = publicAction
   )
   .internal();
 
+/**
+ * Send a WorkOS organization invitation with the `contractor` role for an
+ * invited contractor claim (PRD §7.3, §7.5, §11.3). WorkOS owns the
+ * organization membership and role projection; DrawFlow stores only app-level
+ * claim intent elsewhere. Fake-backed in tests, live-backed in production.
+ */
+export const inviteContractorUser = publicAction
+  .input({
+    email: v.string(),
+    organizationId: v.string(),
+  })
+  .returns(acceptedReturn)
+  .handler((_ctx, args) =>
+    getWorkosManagementAdapter().inviteUser({
+      email: args.email,
+      organizationId: args.organizationId,
+      roleSlug: "contractor",
+    })
+  )
+  .internal();
+
 export const provisionBuilderStaffUser = publicAction
   .input({
     email: v.string(),

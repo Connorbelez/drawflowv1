@@ -186,10 +186,11 @@ export const assistantToolDefinitions = {
       "Create a reminder-only event on a Build Proposal calendar after HITL confirmation.",
     inputSchema: z.object({
       allDay: z.boolean().optional(),
+      buildId: idLike.optional(),
       description: z.string().optional(),
       endsAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       location: z.string().optional(),
-      proposalId: idLike,
+      proposalId: idLike.optional(),
       startsAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       timezone: z.string().optional(),
       title: z.string().min(1),

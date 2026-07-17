@@ -202,7 +202,11 @@ describe("MarketingPage", () => {
     expect(markup).not.toContain("Three paths. One fair approach.");
     expect(markup).not.toContain("Four paths. One fair approach.");
     expect(markup).toContain("Returns without shortcuts");
-    expect(markup).toContain("Elie Soberano");
+    expect(markup).toContain("Trusted guidance built");
+    expect(markup).toContain("on real deal experience.");
+    expect(markup).toContain("Deal-tested guidance for borrowers");
+    expect(markup).toContain("mkt-leadership-route-line");
+    expect(markup).toContain("Meet our leadership");
     expect(markup).toContain("The FairLend team");
     expect(markup).toContain("Build your future with us");
     expect(markup).toContain("Proudly Canadian");
@@ -235,6 +239,20 @@ describe("MarketingPage", () => {
     expect(gsapMocks.CustomEase.create).toHaveBeenCalledWith(
       "fairlendPanelGate",
       "M0,0 C0.74,0 0.18,1 1,1",
+    );
+    expect(gsapMocks.CustomEase.create).toHaveBeenCalledWith(
+      "fairlendDealDesk",
+      "M0,0 C0.16,0.88 0.22,1 1,1",
+    );
+    expect(gsapMocks.gsap.timeline).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scrollTrigger: expect.objectContaining({
+          end: "bottom 38%",
+          start: "top 72%",
+          toggleActions: "play none none reverse",
+          trigger: expect.any(HTMLElement),
+        }),
+      }),
     );
     expect(gsapMocks.timeline.to).toHaveBeenCalledWith(
       expect.any(HTMLElement),
@@ -315,15 +333,18 @@ describe("MarketingPage", () => {
       0.04
     );
   });
-  test("mounts the marketing surface at the root route", () => {
-    const markup = renderToStaticMarkup(<HomePage />);
+  test("preserves the archived marketing implementation without mounting it at root", () => {
+    const rootMarkup = renderToStaticMarkup(<HomePage />);
+    const archivedMarkup = renderToStaticMarkup(<MarketingPage />);
 
-    expect(HomeRoute.options.ssr).toBe(false);
-    expect(markup).toContain("Private Lending");
-    expect(markup).toContain("Financing That Works");
+    expect(HomeRoute.options.ssr).not.toBe(false);
+    expect(rootMarkup).toContain("One entry point. Your DrawFlow workspace.");
+    expect(rootMarkup).not.toContain("Financing That Works");
+    expect(archivedMarkup).toContain("Private Lending");
+    expect(archivedMarkup).toContain("Financing That Works");
     const homeHead = HomeRoute.options.head?.({} as never);
     const marketingHead = Route.options.head?.({} as never);
-    expect(homeHead).toEqual(marketingHead);
+    expect(homeHead).not.toEqual(marketingHead);
   });
 
 });

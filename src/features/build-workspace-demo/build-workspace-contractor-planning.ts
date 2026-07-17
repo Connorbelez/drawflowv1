@@ -10,7 +10,9 @@ type ProductionContractorSource = {
     city?: string;
     defaultPayRateCents?: number;
     defaultPayRateUnit?: "hour" | "day" | "fixed";
+    email?: string;
     name: string;
+    onboardingStatus?: "profile_only" | "invited" | "account_linked";
     trades?: string[];
   }>;
   contractors?: Array<{
@@ -19,8 +21,10 @@ type ProductionContractorSource = {
     contractorId?: string;
     defaultPayRateCents?: number;
     defaultPayRateUnit?: "hour" | "day" | "fixed";
+    email?: string;
     hourlyRateCents?: number;
     name: string;
+    onboardingStatus?: "profile_only" | "invited" | "account_linked";
     payRateCents?: number;
     payRateUnit?: "hour" | "day" | "fixed";
     role: string;
@@ -101,7 +105,9 @@ export function contractorPlanningFromProductionDetail(
       contractor.defaultPayRateCents ??
       contractor.hourlyRateCents,
     defaultPayRateUnit: contractor.payRateUnit ?? contractor.defaultPayRateUnit,
+    email: contractor.email,
     name: contractor.name,
+    onboardingStatus: contractor.onboardingStatus,
     role: contractor.role,
     status: "attached",
     trades: contractor.trades,
@@ -113,7 +119,9 @@ export function contractorPlanningFromProductionDetail(
       city: contractor.city,
       defaultPayRateCents: contractor.defaultPayRateCents,
       defaultPayRateUnit: contractor.defaultPayRateUnit,
+      email: contractor.email,
       name: contractor.name,
+      onboardingStatus: contractor.onboardingStatus,
       trades: contractor.trades,
     })
   );

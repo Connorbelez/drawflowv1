@@ -109,6 +109,27 @@ export const assistantRouteRegistry: AssistantRouteRegistryEntry[] = [
     workspace: "backoffice",
   },
   {
+    id: "backoffice.settings",
+    label: "Backoffice Settings",
+    pathTemplate: "/backoffice/settings",
+    purpose:
+      "Open production proposal template settings, draw scenarios, workflow rules, and lender configuration.",
+    requiredParams: [],
+    roles: ["admin", "principle-broker", "broker"],
+    synonyms: [
+      "settings",
+      "backoffice settings",
+      "template settings",
+      "change template settings",
+      "proposal template settings",
+      "production proposal settings",
+      "draw scenario settings",
+      "workflow rules",
+      "lender configuration",
+    ],
+    workspace: "backoffice",
+  },
+  {
     id: "builder.proposals",
     label: "Builder Proposals",
     pathTemplate: "/builder/proposals",
@@ -206,6 +227,26 @@ export function assistantRouteSitemapSummary(
     .join("\n");
 }
 
+export function canonicalizeAssistantRoute(to: string | undefined) {
+  if (!to) {
+    return null;
+  }
+  const normalized = normalizeAssistantRegistryRoute(to);
+  if (
+    normalized === "/backoffice/settings/template" ||
+    normalized === "/backoffice/settings/templates" ||
+    normalized === "/backoffice/settings/proposal-template" ||
+    normalized === "/backoffice/settings/proposal-templates"
+  ) {
+    return "/backoffice/settings";
+  }
+  return assistantRouteRegistry.some((entry) =>
+    routeTemplateMatchesPath(entry.pathTemplate, normalized)
+  )
+    ? to
+    : null;
+}
+
 function resolveRouteParams(
   entry: AssistantRouteRegistryEntry,
   context: DrawFlowAssistantRouteContext
@@ -230,6 +271,18 @@ function interpolatePath(pathTemplate: string, params: Record<string, string>) {
   return Object.entries(params).reduce(
     (path, [key, value]) => path.replace(`:${key}`, value),
     pathTemplate
+  );
+}
+
+function routeTemplateMatchesPath(pathTemplate: string, pathname: string) {
+  const normalizedTemplate = normalizeAssistantRegistryRoute(pathTemplate);
+  const templateParts = normalizedTemplate.split("/").filter(Boolean);
+  const pathParts = pathname.split("/").filter(Boolean);
+  if (templateParts.length !== pathParts.length) {
+    return false;
+  }
+  return templateParts.every(
+    (part, index) => part.startsWith(":") || part === pathParts[index]
   );
 }
 
@@ -300,4 +353,11 @@ function hasNewBuildCreationIntent(normalizedPrompt: string) {
 
 function normalizePrompt(value: string) {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function normalizeAssistantRegistryRoute(route: string) {
+  const withoutSearch = route.split(/[?#]/, 1)[0] || "/";
+  return withoutSearch.length > 1
+    ? withoutSearch.replace(/\/+$/, "")
+    : withoutSearch;
 }

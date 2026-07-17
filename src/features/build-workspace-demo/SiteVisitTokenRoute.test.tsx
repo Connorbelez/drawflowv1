@@ -26,10 +26,19 @@ vi.mock("convex/react", () => ({
 
 import { SiteVisitTokenRoute } from "./SiteVisitTokenRoute";
 
+const getUserMedia = vi.fn(
+  () => new Promise<MediaStream>(() => undefined),
+);
+
 describe("SiteVisitTokenRoute", () => {
   beforeEach(() => {
     mockConvex.liveVisitState = activeVisitState();
     mockConvex.mutation.mockClear();
+    getUserMedia.mockClear();
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia },
+    });
   });
 
   afterEach(() => {
@@ -71,6 +80,44 @@ describe("SiteVisitTokenRoute", () => {
     expect(
       screen.getAllByTestId("site-visit-permit-frame").length,
     ).toBeGreaterThan(0);
+  });
+
+  test("opens the device camera instead of a file picker for photos", async () => {
+    render(
+      <SiteVisitTokenRoute
+        buildId="k57activebuild"
+        siteVisitToken="fresh-token"
+        source="production"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Take Photo" }));
+
+    await waitFor(() =>
+      expect(getUserMedia).toHaveBeenCalledWith({
+        audio: false,
+        video: { facingMode: { ideal: "environment" } },
+      }),
+    );
+  });
+
+  test("opens the device camera and microphone instead of a file picker for video", async () => {
+    render(
+      <SiteVisitTokenRoute
+        buildId="k57activebuild"
+        siteVisitToken="fresh-token"
+        source="production"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+
+    await waitFor(() =>
+      expect(getUserMedia).toHaveBeenCalledWith({
+        audio: true,
+        video: { facingMode: { ideal: "environment" } },
+      }),
+    );
   });
 });
 

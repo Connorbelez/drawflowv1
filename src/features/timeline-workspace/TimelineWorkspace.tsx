@@ -599,6 +599,7 @@ export type TimelineWorkspaceMode = "demo" | "live" | "proposal";
 
 export interface TimelineWorkspaceProps {
   allowRoleSwitching?: boolean;
+  canApproveMilestoneCompletion?: boolean;
   collaboration?: TimelineWorkspaceCollaboration;
   contractorPlanning?: ContractorPlanningModel | null;
   durableMeta?: {
@@ -613,8 +614,8 @@ export interface TimelineWorkspaceProps {
   embedded?: boolean;
   headerActions?: ReactNode;
   initialRole?: TimelineDemoRole;
-  lockedBannerActions?: ReactNode;
   initialState?: TimelineShareState;
+  lockedBannerActions?: ReactNode;
   modificationRequests?: TimelineModificationRequestView[];
   persistence?: TimelineWorkspacePersistence;
   readOnly?: boolean;
@@ -764,6 +765,7 @@ function timelineMilestonePayloadToItem(
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This is the shared timeline workspace used by demo, proposal, and live build routes.
 export function TimelineWorkspace({
   allowRoleSwitching = true,
+  canApproveMilestoneCompletion = true,
   collaboration,
   contractorPlanning,
   durableMeta,
@@ -3679,11 +3681,11 @@ export function TimelineWorkspace({
                         planStatus === "submitted" &&
                         hasLockedBannerActions
                       ? "Lender review decision"
-                    : proposalMode && planStatus === "approved"
-                      ? "Proposal approved"
-                      : proposalMode && planStatus === "closed"
-                        ? "Proposal moved to live build"
-                        : "Submitted for lender review"}
+                      : proposalMode && planStatus === "approved"
+                        ? "Proposal approved"
+                        : proposalMode && planStatus === "closed"
+                          ? "Proposal moved to live build"
+                          : "Submitted for lender review"}
                 </p>
                 <p className="mt-1 text-sm">
                   {proposalMode && planStatus === "approved"
@@ -3694,7 +3696,7 @@ export function TimelineWorkspace({
                           planStatus === "submitted" &&
                           hasLockedBannerActions
                         ? "Review the reimbursement draw packet, record the audit reason, then approve, reject, or request changes."
-                      : "This reimbursement draw plan is read-only while lender-admin review controls live in backoffice."}
+                        : "This reimbursement draw plan is read-only while lender-admin review controls live in backoffice."}
                 </p>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-end">
@@ -4672,6 +4674,7 @@ export function TimelineWorkspace({
               activePanelDraw={activePanelDraw}
               activePanelDrawItem={activePanelDrawItem}
               addEvidenceFiles={addEvidenceFiles}
+              canApproveMilestoneCompletion={canApproveMilestoneCompletion}
               contractorPlanning={contractorPlanning}
               draws={draws}
               items={items}
@@ -4851,6 +4854,9 @@ export function TimelineWorkspace({
                       activePanelDraw={activePanelDraw}
                       activePanelDrawItem={activePanelDrawItem}
                       addEvidenceFiles={addEvidenceFiles}
+                      canApproveMilestoneCompletion={
+                        canApproveMilestoneCompletion
+                      }
                       contractorPlanning={contractorPlanning}
                       draws={draws}
                       items={items}
@@ -7096,6 +7102,7 @@ function SelectedDrawMobileDrawer({
   activeDraw,
   activePanelDraw,
   activePanelDrawItem,
+  canApproveMilestoneCompletion,
   addEvidenceFiles,
   activeItem,
   contractorPlanning,
@@ -7127,6 +7134,7 @@ function SelectedDrawMobileDrawer({
   activeDraw: DemoDraw | null;
   activePanelDraw: DemoDraw | null;
   activePanelDrawItem: TimelineItem<DemoMilestone> | null;
+  canApproveMilestoneCompletion: boolean;
   addEvidenceFiles: (itemId: string, files: File[]) => void;
   activeItem: TimelineItem<DemoMilestone> | null;
   contractorPlanning?: ContractorPlanningModel | null;
@@ -7212,6 +7220,7 @@ function SelectedDrawMobileDrawer({
               activePanelDraw={activePanelDraw}
               activePanelDrawItem={activePanelDrawItem}
               addEvidenceFiles={addEvidenceFiles}
+              canApproveMilestoneCompletion={canApproveMilestoneCompletion}
               contractorPlanning={contractorPlanning}
               draws={draws}
               items={items}
@@ -7249,6 +7258,7 @@ function SelectedContextPanel({
   activeDraw,
   activePanelDraw,
   activePanelDrawItem,
+  canApproveMilestoneCompletion,
   addEvidenceFiles,
   activeItem,
   contractorPlanning,
@@ -7278,6 +7288,7 @@ function SelectedContextPanel({
   activeDraw: DemoDraw | null;
   activePanelDraw: DemoDraw | null;
   activePanelDrawItem: TimelineItem<DemoMilestone> | null;
+  canApproveMilestoneCompletion: boolean;
   addEvidenceFiles: (itemId: string, files: File[]) => void;
   activeItem: TimelineItem<DemoMilestone>;
   contractorPlanning?: ContractorPlanningModel | null;
@@ -7403,6 +7414,7 @@ function SelectedContextPanel({
         />
         <LenderMilestoneReviewPanel
           activeItem={activeItem}
+          canApproveMilestoneCompletion={canApproveMilestoneCompletion}
           contractorPlanning={contractorPlanning}
           items={items}
           onCreateMilestoneSiteVisit={onCreateMilestoneSiteVisit}
@@ -7998,6 +8010,7 @@ function MilestoneOperationsPanel({
 
 function LenderMilestoneReviewPanel({
   activeItem,
+  canApproveMilestoneCompletion,
   contractorPlanning,
   items,
   onCreateMilestoneSiteVisit,
@@ -8007,6 +8020,7 @@ function LenderMilestoneReviewPanel({
   overview,
 }: {
   activeItem: TimelineItem<DemoMilestone>;
+  canApproveMilestoneCompletion: boolean;
   contractorPlanning?: ContractorPlanningModel | null;
   items: TimelineItem<DemoMilestone>[];
   onCreateMilestoneSiteVisit?: (
@@ -8286,7 +8300,9 @@ function LenderMilestoneReviewPanel({
             Completion review
           </p>
           <p className="mt-1 text-muted-foreground text-xs">
-            Approve the builder claim or send it back for revision.
+            {canApproveMilestoneCompletion
+              ? "Approve the builder claim or send it back for revision."
+              : "Review the builder claim and send it back for revision when more information is required. Final approval is reserved for a lender admin."}
           </p>
         </div>
         {claim?.note ? (
@@ -8302,7 +8318,12 @@ function LenderMilestoneReviewPanel({
           name="reviewNote"
           placeholder="Review note, missing evidence, or approval context"
         />
-        <div className="grid grid-cols-2 gap-2">
+        <div
+          className={cn(
+            "grid gap-2",
+            canApproveMilestoneCompletion && "grid-cols-2"
+          )}
+        >
           <Button
             data-testid={`lender-milestone-request-revision-${activeItem.id}`}
             disabled={!claim}
@@ -8315,17 +8336,19 @@ function LenderMilestoneReviewPanel({
             <AlertTriangle />
             Request revision
           </Button>
-          <Button
-            data-testid={`lender-milestone-approve-${activeItem.id}`}
-            disabled={!claim}
-            name="reviewStatus"
-            size="sm"
-            type="submit"
-            value="approved"
-          >
-            <Check />
-            Approve
-          </Button>
+          {canApproveMilestoneCompletion ? (
+            <Button
+              data-testid={`lender-milestone-approve-${activeItem.id}`}
+              disabled={!claim}
+              name="reviewStatus"
+              size="sm"
+              type="submit"
+              value="approved"
+            >
+              <Check />
+              Approve
+            </Button>
+          ) : null}
         </div>
       </form>
 

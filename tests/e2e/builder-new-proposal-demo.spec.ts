@@ -75,7 +75,7 @@ test("Milestone editor stays usable without horizontal overflow on mobile", asyn
   await expect(page.getByTestId("builder-template-screen")).toBeVisible();
   await page.getByTestId("builder-total-budget").fill("$1,850,000");
   await page
-    .getByTestId("builder-template-card-single_family_full_build")
+    .getByTestId("builder-template-card-single-family-full-build")
     .click();
   await page.getByTestId("builder-generate-milestones").click();
 
@@ -146,7 +146,7 @@ test("Builder proposal setup and milestone editor expose co-pay, reorder, draw g
   await expect(summary.getByText("$1,800,000")).toBeVisible();
 
   await page
-    .getByTestId("builder-template-card-single_family_full_build")
+    .getByTestId("builder-template-card-single-family-full-build")
     .click();
   await page.getByTestId("builder-generate-milestones").click();
   await expect(page.getByTestId("builder-milestone-editor")).toBeVisible();
@@ -219,7 +219,7 @@ test("Builder dashboard to new proposal demo reaches the workspace boundary with
 
   await page.getByTestId("builder-total-budget").fill("$1,850,000");
   await page
-    .getByTestId("builder-template-card-single_family_full_build")
+    .getByTestId("builder-template-card-single-family-full-build")
     .click();
   await page.getByTestId("builder-generate-milestones").click();
   await expect(page.getByTestId("builder-milestone-editor")).toBeVisible();

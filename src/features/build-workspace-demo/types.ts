@@ -327,7 +327,8 @@ export interface BuildWorkspaceActions {
   claimSiteVisit: (milestoneId: string) => Promise<void>;
   createAndAssignContractor?: (
     input: BuildWorkspaceCreateAndAssignContractorInput
-  ) => Promise<void>;
+  ) => Promise<void | string | { contractorId?: string }>;
+  inviteContractor?: (contractorId: string) => Promise<void>;
   dismissIssue: (issue: WorkspaceIssue, reason?: string) => Promise<void>;
   listSubmilestoneParentTargets?: (
     milestoneId: string

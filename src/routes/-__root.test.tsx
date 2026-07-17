@@ -71,7 +71,9 @@ vi.mock("../integrations/workos/provider", () => ({
   ),
 }));
 
-import { RootDocument, RootError } from "./__root.tsx";
+import { getAuth } from "@workos/authkit-tanstack-react-start";
+
+import { RootDocument, RootError, Route } from "./__root.tsx";
 
 describe("RootDocument", () => {
   test("mounts the global toast renderer for sonner feedback", () => {
@@ -99,5 +101,33 @@ describe("RootError", () => {
     expect(markup).toContain("Failed to fetch dynamically imported module");
     expect(markup).toContain("Try again");
     expect(markup).toContain("Back to backoffice");
+  });
+});
+
+describe("root auth boundary", () => {
+  test("treats AuthKit failures as an unauthenticated local session", async () => {
+    vi.mocked(getAuth).mockRejectedValueOnce(new Error("HTTPError"));
+    const clearAuth = vi.fn();
+
+    const auth = await Route.beforeLoad?.({
+      context: {
+        convexQueryClient: {
+          serverHttpClient: {
+            clearAuth,
+            setAuth: vi.fn(),
+          },
+        },
+      },
+    } as never);
+
+    expect(auth).toEqual({
+      organizationId: null,
+      permissions: [],
+      role: null,
+      roles: [],
+      token: null,
+      userId: null,
+    });
+    expect(clearAuth).toHaveBeenCalled();
   });
 });

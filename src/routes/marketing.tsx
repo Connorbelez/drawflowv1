@@ -34,6 +34,7 @@ import { useEffect, useRef, useState } from "react";
 import { Header as DirectionalHoverHeader } from "#/components/directional-hover-header/header.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Card } from "#/components/ui/card.tsx";
+import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import "./-marketing.css";
 
 export const Route = createFileRoute("/marketing")({
@@ -51,13 +52,91 @@ const multiplexAsset = "/assets/fairlend-path-gta-sixplex-lane-suite.webp";
 const privateMortgagesAsset = "/assets/fairlend-path-private-mortgages.webp";
 const neighborhoodSketchAsset =
   "/assets/fairlend-investor-overview/paths-neighborhood-sketch.webp";
-const founderPortraitAsset =
-  "/assets/fairlend-leadership-elie/images/founder-portrait-placeholder-duotone.webp";
+const leadershipDeskAsset =
+  "/assets/fairlend-leadership-elie/images/hero-housing-blueprint-canvas.webp";
 const fairlendLicences = [
   "FairLend Management Inc",
   "Legal business name: FairLend Management Inc",
   "Brokerage Licence #13827",
   "Administrator Licence #13828",
+] as const;
+
+const leadershipCapabilities = [
+  {
+    copy: "FSRA-licensed mortgage brokerage insight across complex borrowing and investing needs.",
+    icon: ShieldCheck,
+    title: "Brokerage expertise",
+  },
+  {
+    copy: "End-to-end financing for land, construction, renovation, and long-term stabilization.",
+    icon: Landmark,
+    title: "Construction finance",
+  },
+  {
+    copy: "Strategic access to insured rental-housing programs, leverage, and flexibility.",
+    icon: FileSignature,
+    title: "MLI Select planning",
+  },
+  {
+    copy: "Compliant structures that align risk, cash flow, lender appetite, and exit strategy.",
+    icon: Gavel,
+    title: "Deal structuring",
+  },
+] as const;
+
+const leadershipMetrics = [
+  {
+    copy: "Across mortgage brokerage, private lending, and investment finance.",
+    countTo: 25,
+    icon: ShieldCheck,
+    label: "Years experience",
+    prefix: "",
+    suffix: "+",
+    value: "25+",
+  },
+  {
+    copy: "Residential, commercial, construction, and stabilization capital.",
+    countTo: 2,
+    icon: Landmark,
+    label: "Total financed",
+    prefix: "$",
+    suffix: "B+",
+    value: "$2B+",
+  },
+  {
+    copy: "Relationships across borrowers, lenders, brokers, and investors.",
+    countTo: 160,
+    icon: Users,
+    label: "Lenders & borrowers",
+    prefix: "",
+    suffix: "+",
+    value: "160+",
+  },
+  {
+    copy: "GTA market knowledge with national capital relationships.",
+    icon: MapPin,
+    label: "Toronto-based",
+    value: "GTA",
+  },
+] as const;
+
+const leadershipTrustSignals = [
+  {
+    icon: ShieldCheck,
+    label: "Regulated. Trusted. Accountable.",
+  },
+  {
+    icon: Users,
+    label: "Client-first approach",
+  },
+  {
+    icon: Award,
+    label: "Transparent communication",
+  },
+  {
+    icon: ChartNoAxesColumnIncreasing,
+    label: "Results that speak for themselves",
+  },
 ] as const;
 
 function MarketingPage(): ReactElement {
@@ -69,6 +148,7 @@ function MarketingPage(): ReactElement {
   const contentRef = useRef<HTMLDivElement>(null);
 
   useGridOverlay(rootRef);
+  useLeadershipDealDeskScene(rootRef);
 
   useMarketingScrollScene({
     contentRef,
@@ -614,6 +694,357 @@ function useMarketingScrollScene({
       return () => {
         active = false;
         cancelAnimationFrame(refreshFrame);
+      };
+    },
+    { dependencies: [], scope: rootRef }
+  );
+}
+
+function useLeadershipDealDeskScene(
+  rootRef: React.RefObject<HTMLElement | null>
+) {
+  useGSAP(
+    () => {
+      const root = rootRef.current;
+      const section = root?.querySelector<HTMLElement>(
+        "[data-leadership-desk]"
+      );
+
+      if (!(root && section)) {
+        return;
+      }
+
+      const reducedMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)"
+      );
+      if (reducedMotion.matches) {
+        section.classList.add("mkt-leadership-motion-complete");
+        return () => {
+          section.classList.remove("mkt-leadership-motion-complete");
+        };
+      }
+
+      gsap.registerPlugin(CustomEase, ScrollTrigger);
+
+      const dealDeskEase = CustomEase.create(
+        "fairlendDealDesk",
+        "M0,0 C0.16,0.88 0.22,1 1,1"
+      );
+      const frameRules = Array.from(
+        section.querySelectorAll<HTMLElement>(".mkt-leadership-rule")
+      );
+      const headerItems = Array.from(
+        section.querySelectorAll<HTMLElement>(
+          ".mkt-leadership-head [data-leadership-reveal]"
+        )
+      );
+      const titleLines = Array.from(
+        section.querySelectorAll<HTMLElement>(".mkt-leadership-title-line")
+      );
+      const capabilityCards = Array.from(
+        section.querySelectorAll<HTMLElement>(".mkt-leadership-capability")
+      );
+      const statRows = Array.from(
+        section.querySelectorAll<HTMLElement>(".mkt-leadership-stat")
+      );
+      const trustItems = Array.from(
+        section.querySelectorAll<HTMLElement>(".mkt-leadership-trust-item")
+      );
+      const artImage = section.querySelector<HTMLElement>(
+        ".mkt-leadership-art-image"
+      );
+      const artPlate = section.querySelector<HTMLElement>(
+        ".mkt-leadership-art-plate"
+      );
+      const artGrid = section.querySelector<HTMLElement>(
+        ".mkt-leadership-art-grid"
+      );
+      const routeLine = section.querySelector<SVGPathElement>(
+        ".mkt-leadership-route-line"
+      );
+      const routeNodes = Array.from(
+        section.querySelectorAll<HTMLElement>(".mkt-leadership-route-node")
+      );
+      const approvalChip = section.querySelector<HTMLElement>(
+        ".mkt-leadership-approval-chip"
+      );
+      const mapPin = section.querySelector<HTMLElement>(
+        ".mkt-leadership-map-pin"
+      );
+      const quote = section.querySelector<HTMLElement>(".mkt-leadership-quote");
+      const quoteMark = section.querySelector<HTMLElement>(
+        ".mkt-leadership-quote-mark"
+      );
+      const action = section.querySelector<HTMLElement>(
+        ".mkt-leadership-action"
+      );
+      const countNodes = Array.from(
+        section.querySelectorAll<HTMLElement>(
+          ".mkt-leadership-count[data-count-to]"
+        )
+      );
+
+      for (const count of countNodes) {
+        const prefix = count.dataset.countPrefix ?? "";
+        const suffix = count.dataset.countSuffix ?? "";
+        count.textContent = `${prefix}0${suffix}`;
+      }
+
+      gsap.set(
+        [
+          section,
+          artPlate,
+          artImage,
+          artGrid,
+          approvalChip,
+          mapPin,
+          quote,
+          action,
+          ...capabilityCards,
+          ...statRows,
+          ...trustItems,
+        ].filter(Boolean),
+        {
+          force3D: true,
+          transformOrigin: "50% 50%",
+        }
+      );
+
+      const entranceTimeline = gsap.timeline({
+        defaults: { ease: dealDeskEase },
+        scrollTrigger: {
+          end: "bottom 38%",
+          once: false,
+          start: "top 72%",
+          toggleActions: "play none none reverse",
+          trigger: section,
+        },
+      });
+
+      entranceTimeline
+        .fromTo(
+          section,
+          { "--leadership-paper-wash": 0.2 },
+          { "--leadership-paper-wash": 1, duration: 0.7 },
+          0
+        )
+        .fromTo(
+          frameRules,
+          { scaleX: 0, scaleY: 0 },
+          {
+            duration: 0.52,
+            scaleX: 1,
+            scaleY: 1,
+            stagger: 0.035,
+          },
+          0
+        )
+        .fromTo(
+          headerItems,
+          { autoAlpha: 0, y: 18 },
+          {
+            autoAlpha: 1,
+            duration: 0.42,
+            stagger: 0.055,
+            y: 0,
+          },
+          0.09
+        )
+        .fromTo(
+          titleLines,
+          { autoAlpha: 0, clipPath: "inset(0 0 100% 0)", yPercent: 74 },
+          {
+            autoAlpha: 1,
+            clipPath: "inset(0 0 0% 0)",
+            duration: 0.64,
+            stagger: 0.08,
+            yPercent: 0,
+          },
+          0.22
+        )
+        .fromTo(
+          artPlate,
+          {
+            autoAlpha: 0,
+            clipPath: "inset(14% 18% 18% 10%)",
+            rotateX: 7,
+            scale: 0.94,
+            y: 34,
+          },
+          {
+            autoAlpha: 1,
+            clipPath: "inset(0% 0% 0% 0%)",
+            duration: 0.72,
+            rotateX: 0,
+            scale: 1,
+            y: 0,
+          },
+          0.26
+        )
+        .fromTo(
+          artImage,
+          { filter: "saturate(0.55) contrast(1.05)", scale: 1.08 },
+          {
+            duration: 0.8,
+            filter: "saturate(0.98) contrast(1.03)",
+            scale: 1,
+          },
+          0.34
+        )
+        .fromTo(
+          artGrid,
+          { autoAlpha: 0, xPercent: -10 },
+          {
+            autoAlpha: 1,
+            duration: 0.54,
+            xPercent: 0,
+          },
+          0.42
+        )
+        .fromTo(
+          routeLine ? [routeLine] : [],
+          { strokeDashoffset: 680 },
+          {
+            duration: 0.76,
+            ease: "power2.inOut",
+            strokeDashoffset: 0,
+          },
+          0.58
+        )
+        .fromTo(
+          routeNodes,
+          { autoAlpha: 0, scale: 0.35 },
+          {
+            autoAlpha: 1,
+            duration: 0.28,
+            scale: 1,
+            stagger: 0.07,
+          },
+          0.72
+        )
+        .fromTo(
+          [approvalChip, mapPin].filter(Boolean),
+          { autoAlpha: 0, rotate: -8, scale: 0.74, y: 28 },
+          {
+            autoAlpha: 1,
+            duration: 0.42,
+            rotate: 0,
+            scale: 1,
+            stagger: 0.1,
+            y: 0,
+          },
+          0.86
+        )
+        .fromTo(
+          capabilityCards,
+          { autoAlpha: 0, scale: 0.96, y: 22 },
+          {
+            autoAlpha: 1,
+            duration: 0.42,
+            scale: 1,
+            stagger: 0.06,
+            y: 0,
+          },
+          0.68
+        )
+        .fromTo(
+          statRows,
+          { autoAlpha: 0, x: 42 },
+          {
+            autoAlpha: 1,
+            duration: 0.48,
+            stagger: 0.08,
+            x: 0,
+          },
+          0.78
+        );
+
+      countNodes.forEach((count, index) => {
+        const target = Number(count.dataset.countTo);
+        if (!Number.isFinite(target)) {
+          return;
+        }
+
+        const state = { value: 0 };
+        const prefix = count.dataset.countPrefix ?? "";
+        const suffix = count.dataset.countSuffix ?? "";
+        const finalValue =
+          count.dataset.countFinal ?? `${prefix}${target}${suffix}`;
+
+        entranceTimeline.to(
+          state,
+          {
+            duration: 0.54,
+            ease: "power2.out",
+            onComplete: () => {
+              count.textContent = finalValue;
+            },
+            onUpdate: () => {
+              count.textContent = `${prefix}${Math.round(state.value)}${suffix}`;
+            },
+            snap: { value: 1 },
+            value: target,
+          },
+          0.9 + index * 0.08
+        );
+      });
+
+      entranceTimeline
+        .fromTo(
+          quoteMark,
+          { autoAlpha: 0, scale: 0.5, x: -12 },
+          { autoAlpha: 1, duration: 0.28, scale: 1, x: 0 },
+          1.08
+        )
+        .fromTo(
+          quote,
+          { autoAlpha: 0, clipPath: "inset(0 100% 0 0)" },
+          {
+            autoAlpha: 1,
+            clipPath: "inset(0 0% 0 0)",
+            duration: 0.54,
+          },
+          1.14
+        )
+        .fromTo(
+          trustItems,
+          { autoAlpha: 0, y: 14 },
+          {
+            autoAlpha: 1,
+            duration: 0.34,
+            stagger: 0.06,
+            y: 0,
+          },
+          1.22
+        )
+        .fromTo(
+          action,
+          { autoAlpha: 0, scale: 0.92, x: -12 },
+          { autoAlpha: 1, duration: 0.34, scale: 1, x: 0 },
+          1.25
+        );
+
+      const parallaxTimeline = gsap.timeline({
+        defaults: { ease: "none" },
+        scrollTrigger: {
+          end: "bottom top",
+          scrub: true,
+          start: "top bottom",
+          trigger: section,
+        },
+      });
+
+      parallaxTimeline
+        .to(artImage, { duration: 1, scale: 1.035, yPercent: -3.2 }, 0)
+        .to(artGrid, { duration: 1, xPercent: 6 }, 0)
+        .to(statRows, { duration: 1, yPercent: -4 }, 0)
+        .to(capabilityCards, { duration: 1, yPercent: 2 }, 0);
+
+      return () => {
+        section.classList.remove("mkt-leadership-motion-complete");
+        for (const count of countNodes) {
+          count.textContent = count.dataset.countFinal ?? count.textContent;
+        }
       };
     },
     { dependencies: [], scope: rootRef }
@@ -1233,42 +1664,199 @@ function MarketingProof(): ReactElement {
       <section
         aria-labelledby="marketing-founder-title"
         className="mkt-leadership"
+        data-leadership-desk
         id="about"
       >
-        <div aria-hidden="true" className="mkt-founder-photo">
-          <img
-            alt="Stylized editorial portrait of Elie Soberano, Founder and Principal Broker"
-            height={1500}
-            loading="lazy"
-            src={founderPortraitAsset}
-            width={1200}
-          />
-        </div>
-        <div className="mkt-founder-copy">
-          <p>Founder & Principal Broker</p>
-          <h2 id="marketing-founder-title">Elie Soberano</h2>
-          <span>
-            Elie leads with experience, discipline, and a commitment to building
-            a better lending industry in Canada.
-          </span>
-          <div className="mkt-founder-stats">
-            <div>
-              <Award aria-hidden="true" />
-              <strong>25+ Years</strong>
-              <span>Broker Experience</span>
+        <Frame className="mkt-leadership-frame">
+          <FramePanel className="mkt-leadership-board">
+            <span
+              aria-hidden="true"
+              className="mkt-leadership-rule mkt-leadership-rule-top"
+            />
+            <span
+              aria-hidden="true"
+              className="mkt-leadership-rule mkt-leadership-rule-right"
+            />
+            <span
+              aria-hidden="true"
+              className="mkt-leadership-rule mkt-leadership-rule-bottom"
+            />
+            <span
+              aria-hidden="true"
+              className="mkt-leadership-rule mkt-leadership-rule-left"
+            />
+
+            <div className="mkt-leadership-head">
+              <div
+                className="mkt-leadership-index"
+                data-leadership-reveal="index"
+              >
+                <span>05</span>
+                <i aria-hidden="true" />
+                <p>Leadership</p>
+              </div>
+              <p className="mkt-leadership-deck" data-leadership-reveal="deck">
+                Deal-tested guidance for borrowers, builders, investors, and
+                brokers who need disciplined capital advice before the structure
+                gets expensive.
+              </p>
+              <div
+                className="mkt-leadership-model"
+                data-leadership-reveal="model"
+              >
+                <span aria-hidden="true" />
+                <span aria-hidden="true" />
+                <span aria-hidden="true" />
+                <strong>The FairLend model</strong>
+                <p>05 of 05 / Principal Broker / Capital Relationships</p>
+              </div>
             </div>
-            <div>
-              <DollarSign aria-hidden="true" />
-              <strong>2B+</strong>
-              <span>in lifetime Funded Deals</span>
+
+            <div className="mkt-leadership-body">
+              <div className="mkt-leadership-copy">
+                <p className="mkt-leadership-eyebrow">Principal Broker</p>
+                <h2 id="marketing-founder-title">
+                  <span className="mkt-leadership-title-line">
+                    Trusted guidance built
+                  </span>
+                  <span className="mkt-leadership-title-line">
+                    on real deal experience.
+                  </span>
+                </h2>
+                <p className="mkt-leadership-summary">
+                  FairLend combines mortgage brokerage discipline, builder-side
+                  insight, and practical structuring support to move financing
+                  conversations from uncertainty to a workable capital plan.
+                </p>
+                <div className="mkt-leadership-capabilities">
+                  {leadershipCapabilities.map(({ copy, icon: Icon, title }) => (
+                    <Card className="mkt-leadership-capability" key={title}>
+                      <Icon aria-hidden="true" />
+                      <div>
+                        <h3>{title}</h3>
+                        <p>{copy}</p>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+                <Button
+                  className="mkt-leadership-action"
+                  render={<Link to="/leadership/elie-soberano" />}
+                  size="xl"
+                >
+                  Meet our leadership
+                  <ArrowRight aria-hidden="true" />
+                </Button>
+              </div>
+
+              <div className="mkt-leadership-art-plate">
+                <img
+                  alt="Blueprint canvas with Toronto housing, construction plans, and capital planning documents"
+                  className="mkt-leadership-art-image"
+                  height={914}
+                  loading="lazy"
+                  src={leadershipDeskAsset}
+                  width={1640}
+                />
+                <div aria-hidden="true" className="mkt-leadership-art-grid" />
+                <svg
+                  aria-hidden="true"
+                  className="mkt-leadership-route"
+                  focusable="false"
+                  viewBox="0 0 640 420"
+                >
+                  <path
+                    className="mkt-leadership-route-line"
+                    d="M96 322 C146 286 183 292 225 258 C278 216 302 221 352 180 C401 140 451 146 526 102"
+                    pathLength="680"
+                  />
+                </svg>
+                <span
+                  aria-hidden="true"
+                  className="mkt-leadership-route-node mkt-leadership-route-node-a"
+                />
+                <span
+                  aria-hidden="true"
+                  className="mkt-leadership-route-node mkt-leadership-route-node-b"
+                />
+                <span
+                  aria-hidden="true"
+                  className="mkt-leadership-route-node mkt-leadership-route-node-c"
+                />
+                <div aria-hidden="true" className="mkt-leadership-map-pin">
+                  <MapPin />
+                </div>
+                <div
+                  aria-label="Experience verified"
+                  className="mkt-leadership-approval-chip"
+                >
+                  <ShieldCheck aria-hidden="true" />
+                  <span>Verified</span>
+                </div>
+              </div>
+
+              <aside
+                aria-label="FairLend leadership proof points"
+                className="mkt-leadership-stats"
+              >
+                {leadershipMetrics.map((metric, index) => {
+                  const Icon = metric.icon;
+                  const countProps =
+                    "countTo" in metric
+                      ? {
+                          "data-count-final": metric.value,
+                          "data-count-prefix": metric.prefix,
+                          "data-count-suffix": metric.suffix,
+                          "data-count-to": metric.countTo,
+                        }
+                      : {};
+
+                  return (
+                    <Card className="mkt-leadership-stat" key={metric.label}>
+                      <span className="mkt-leadership-stat-number">
+                        {String(index + 2).padStart(2, "0")}
+                      </span>
+                      <Icon aria-hidden="true" />
+                      <div>
+                        <strong
+                          className={
+                            "countTo" in metric
+                              ? "mkt-leadership-count"
+                              : undefined
+                          }
+                          {...countProps}
+                        >
+                          {metric.value}
+                        </strong>
+                        <span>{metric.label}</span>
+                        <p>{metric.copy}</p>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </aside>
             </div>
-            <div>
-              <Home aria-hidden="true" />
-              <strong>Builder</strong>
-              <span>20+ homes built</span>
+
+            <div className="mkt-leadership-footer">
+              <span aria-hidden="true" className="mkt-leadership-quote-mark">
+                “
+              </span>
+              <p className="mkt-leadership-quote">
+                Our commitment is simple: align with your goals, manage risk
+                intelligently, and deliver financing that creates long-term
+                value.
+              </p>
+              <div className="mkt-leadership-trust-strip">
+                {leadershipTrustSignals.map(({ icon: Icon, label }) => (
+                  <div className="mkt-leadership-trust-item" key={label}>
+                    <Icon aria-hidden="true" />
+                    <span>{label}</span>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        </div>
+          </FramePanel>
+        </Frame>
       </section>
 
       <section aria-labelledby="marketing-team-title" className="mkt-team">
