@@ -2,6 +2,8 @@
 
 > Status: **COMPLETE WITH EXPLICIT ROLE/ENVIRONMENT BLOCKERS** — browser-observed evidence only. No product code was changed.
 
+> **Remediation update (2026-07-22):** This report remains the immutable browser-observed defect baseline. Current dispositions are maintained in `remediation-summary.json`; automated, deterministic-browser, and production-backed authenticated Builder/Admin proof is in `final-qa-report.md`, `authenticated-browser-qa-report.md`, `evidence/final-qa/`, and `evidence/authenticated-qa/`; the current gap analysis is `../../gap-analyis.md`. The original readiness conclusion below must not be read as the current working-tree state.
+
 ## Executive summary
 
 The audit accounted for all **16 parent workflows**, **63 persona segments**, **52 cross-persona handoffs**, and the manifest's **409 stable step IDs**. Browser execution produced **108 screenshots**, **22 saved DOM snapshots**, and **39 validated findings**: **4 CRITICAL**, **9 BLOCKER**, **23 MAJOR**, and **3 MODERATE**. Every finding has a complete 20-field record tied to a workflow, persona segment, step, route/surface, reproduction, recommendation, acceptance criteria, and evidence.

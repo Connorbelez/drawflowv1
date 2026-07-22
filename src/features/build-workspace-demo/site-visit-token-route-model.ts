@@ -7,6 +7,44 @@ const OLD_BACKOFFICE_SITE_VISIT_ROUTE =
   /\/backoffice\/builds?\/([^/?#]+)\/newsitevisit\/([^/?#]+)/;
 const NEW_SITE_VISIT_ROUTE = /\/newsitevisit\/([^/?#]+)\/([^/?#]+)/;
 
+export type SiteVisitLocationAttempt = {
+  accuracyMeters?: number;
+  attempted: boolean;
+  attemptedAt?: number;
+  failureReason?: string;
+  permissionOutcome: "denied" | "granted" | "not_requested" | "unavailable";
+  verified: boolean;
+};
+
+export function locationAttemptFromPosition(
+  coords: { accuracy: number },
+  attemptedAt: number
+): SiteVisitLocationAttempt {
+  return {
+    accuracyMeters: Math.max(0, Math.round(coords.accuracy)),
+    attempted: true,
+    attemptedAt,
+    permissionOutcome: "granted",
+    verified: true,
+  };
+}
+
+export function locationAttemptFromError(
+  error: { code: number },
+  attemptedAt: number
+): SiteVisitLocationAttempt {
+  const denied = error.code === 1;
+  return {
+    attempted: true,
+    attemptedAt,
+    failureReason: denied
+      ? "Browser location permission was denied."
+      : "Browser location could not be verified.",
+    permissionOutcome: denied ? "denied" : "unavailable",
+    verified: false,
+  };
+}
+
 export function buildSiteVisitTokenRoute({
   buildId,
   token,
@@ -65,22 +103,25 @@ export function formatSiteVisitBytes(value: number) {
 export function resolveSiteVisitUnavailableCopy(state: UnavailableState) {
   if (state.reason === "expired" || state.status === "expired") {
     return {
-      body: "This one-hour token expired before submission. Ask the lender admin to generate a new tokenized link.",
+      body: "This one-hour token expired before submission. Request a new link to preserve the Build and visit assignment.",
+      canRequestReplacement: true,
       stamp: "TOKEN EXPIRED",
       title: "Visit window closed",
     };
   }
   if (state.reason === "consumed" || state.status === "completed") {
     return {
-      body: "The token doesn't match an active site visit for this build, or has already been consumed.",
-      stamp: "TOKEN INVALID",
-      title: "Visit unavailable",
+      body: "This site visit report was already submitted. The consumed token stays read-only; request a new link only if another visit is required.",
+      canRequestReplacement: true,
+      stamp: "TOKEN CONSUMED",
+      title: "Site visit already complete",
     };
   }
   return {
-    body: "The token doesn't match an active site visit for this build, or has already been consumed.",
+    body: "This link does not match a site visit assigned to this Build. Return to the assignment or contact the requester for a valid link.",
+    canRequestReplacement: false,
     stamp: "TOKEN INVALID",
-    title: "Visit unavailable",
+    title: "Visit link unavailable",
   };
 }
 

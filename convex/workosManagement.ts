@@ -1,7 +1,8 @@
 import { WorkOS } from "@workos-inc/node";
 import { v } from "convex/values";
 
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
+import type { ActionCtx } from "./_generated/server";
 import {
   adminAction,
   normalizeRoleSlug,
@@ -45,12 +46,22 @@ const syncReturn = v.object({
   status: v.literal("synced"),
 });
 
+const USER_ALREADY_MEMBER_PATTERN =
+  /user already a member of (?:the )?organization/i;
+const EMAIL_ALREADY_INVITED_PATTERN =
+  /email already invited to (?:the )?organization/i;
+
 interface AcceptedResult {
   adapter: "fake" | "workos";
   operation: string;
   status: "accepted";
   sync: "waiting-for-webhook";
   workosId?: string;
+}
+
+interface MembershipRoleUpdateResult {
+  accepted: AcceptedResult;
+  membership: WorkosEntity;
 }
 
 interface BuilderStaffProvisionResult {
@@ -156,6 +167,49 @@ interface SyncResult {
   status: "synced";
 }
 
+type ScopedUserManagementActionCtx = ActionCtx & {
+  viewer: {
+    organizationId?: string;
+    roles: string[];
+  };
+};
+
+async function assertUserManagementTargetScope(
+  ctx: ScopedUserManagementActionCtx,
+  target: {
+    membershipId?: string;
+    organizationId?: string;
+  }
+) {
+  if (ctx.viewer.roles.includes("admin")) {
+    return;
+  }
+
+  const projections = await ctx.runQuery(
+    api.workosProjection.listUserManagement,
+    {}
+  );
+
+  if (
+    target.organizationId &&
+    !projections.organizations.some(
+      (organization) =>
+        organization.workosOrganizationId === target.organizationId
+    )
+  ) {
+    throw new Error("Forbidden: organization scope");
+  }
+
+  if (
+    target.membershipId &&
+    !projections.memberships.some(
+      (membership) => membership.workosMembershipId === target.membershipId
+    )
+  ) {
+    throw new Error("Forbidden: membership scope");
+  }
+}
+
 export const inviteUser = userManagementWriteAction
   .input({
     email: v.string(),
@@ -163,7 +217,10 @@ export const inviteUser = userManagementWriteAction
     roleSlug: v.string(),
   })
   .returns(acceptedReturn)
-  .handler((_ctx, args) => {
+  .handler(async (ctx, args) => {
+    await assertUserManagementTargetScope(ctx, {
+      organizationId: args.organizationId,
+    });
     const adapter = getWorkosManagementAdapter();
     return adapter.inviteUser(args);
   })
@@ -222,9 +279,18 @@ export const updateMembershipRole = userManagementWriteAction
     roleSlug: v.string(),
   })
   .returns(acceptedReturn)
-  .handler((_ctx, args) => {
+  .handler(async (ctx, args) => {
+    await assertUserManagementTargetScope(ctx, {
+      membershipId: args.membershipId,
+    });
     const adapter = getWorkosManagementAdapter();
-    return adapter.updateMembershipRole(args);
+    const update = await adapter.updateMembershipRole(args);
+    await projectManagedMembershipUpdate(
+      ctx,
+      args.membershipId,
+      update.membership
+    );
+    return update.accepted;
   })
   .public();
 
@@ -235,9 +301,18 @@ export const updateMembershipRoles = userManagementWriteAction
     roleSlugs: v.array(v.string()),
   })
   .returns(acceptedReturn)
-  .handler((_ctx, args) => {
+  .handler(async (ctx, args) => {
+    await assertUserManagementTargetScope(ctx, {
+      membershipId: args.membershipId,
+    });
     const adapter = getWorkosManagementAdapter();
-    return adapter.updateMembershipRoles(args);
+    const update = await adapter.updateMembershipRoles(args);
+    await projectManagedMembershipUpdate(
+      ctx,
+      args.membershipId,
+      update.membership
+    );
+    return update.accepted;
   })
   .public();
 
@@ -249,7 +324,12 @@ export const createMembership = userManagementWriteAction
     userId: v.string(),
   })
   .returns(acceptedReturn)
-  .handler((_ctx, args) => getWorkosManagementAdapter().createMembership(args))
+  .handler(async (ctx, args) => {
+    await assertUserManagementTargetScope(ctx, {
+      organizationId: args.organizationId,
+    });
+    return getWorkosManagementAdapter().createMembership(args);
+  })
   .public();
 
 export const createClaimMembershipForUser = publicAction
@@ -268,7 +348,12 @@ export const removeMembership = userManagementWriteAction
     membershipId: v.string(),
   })
   .returns(acceptedReturn)
-  .handler((_ctx, args) => getWorkosManagementAdapter().removeMembership(args))
+  .handler(async (ctx, args) => {
+    await assertUserManagementTargetScope(ctx, {
+      membershipId: args.membershipId,
+    });
+    return getWorkosManagementAdapter().removeMembership(args);
+  })
   .public();
 
 export const deactivateMembership = userManagementWriteAction
@@ -276,9 +361,12 @@ export const deactivateMembership = userManagementWriteAction
     membershipId: v.string(),
   })
   .returns(acceptedReturn)
-  .handler((_ctx, args) =>
-    getWorkosManagementAdapter().deactivateMembership(args)
-  )
+  .handler(async (ctx, args) => {
+    await assertUserManagementTargetScope(ctx, {
+      membershipId: args.membershipId,
+    });
+    return getWorkosManagementAdapter().deactivateMembership(args);
+  })
   .public();
 
 export const reactivateMembership = userManagementWriteAction
@@ -286,9 +374,12 @@ export const reactivateMembership = userManagementWriteAction
     membershipId: v.string(),
   })
   .returns(acceptedReturn)
-  .handler((_ctx, args) =>
-    getWorkosManagementAdapter().reactivateMembership(args)
-  )
+  .handler(async (ctx, args) => {
+    await assertUserManagementTargetScope(ctx, {
+      membershipId: args.membershipId,
+    });
+    return getWorkosManagementAdapter().reactivateMembership(args);
+  })
   .public();
 
 export const syncWorkosDirectory = adminAction
@@ -296,20 +387,27 @@ export const syncWorkosDirectory = adminAction
   .handler(async (ctx): Promise<SyncResult> => {
     const adapter = getWorkosManagementAdapter();
     const snapshot = await adapter.syncDirectory();
+    const syncRunId = crypto.randomUUID();
 
     for (const organization of snapshot.organizations) {
       await ctx.runMutation(internal.workosProjection.ingestWorkosEvent, {
         ...eventForSync(
           "organization.created",
           entityIdentifier(organization),
-          organization
+          organization,
+          syncRunId
         ),
       });
     }
 
     for (const user of snapshot.users) {
       await ctx.runMutation(internal.workosProjection.ingestWorkosEvent, {
-        ...eventForSync("user.created", entityIdentifier(user), user),
+        ...eventForSync(
+          "user.created",
+          entityIdentifier(user),
+          user,
+          syncRunId
+        ),
       });
     }
 
@@ -318,7 +416,8 @@ export const syncWorkosDirectory = adminAction
         ...eventForSync(
           "organization_membership.created",
           entityIdentifier(membership),
-          membership
+          membership,
+          syncRunId
         ),
       });
     }
@@ -328,14 +427,20 @@ export const syncWorkosDirectory = adminAction
         ...eventForSync(
           "organization_role.created",
           entityIdentifier(role),
-          role
+          role,
+          syncRunId
         ),
       });
     }
 
     for (const role of snapshot.roles) {
       await ctx.runMutation(internal.workosProjection.ingestWorkosEvent, {
-        ...eventForSync("role.created", entityIdentifier(role), role),
+        ...eventForSync(
+          "role.created",
+          entityIdentifier(role),
+          role,
+          syncRunId
+        ),
       });
     }
 
@@ -344,7 +449,8 @@ export const syncWorkosDirectory = adminAction
         ...eventForSync(
           "permission.created",
           entityIdentifier(permission),
-          permission
+          permission,
+          syncRunId
         ),
       });
     }
@@ -417,20 +523,32 @@ const fakeAdapter = {
   updateMembershipRole(args: {
     membershipId: string;
     roleSlug: string;
-  }): Promise<AcceptedResult> {
-    normalizeWorkosRoleSlug(args.roleSlug);
+  }): Promise<MembershipRoleUpdateResult> {
+    const roleSlug = normalizeWorkosRoleSlug(args.roleSlug);
     return Promise.resolve(
-      accepted("fake", "updateMembershipRole", args.membershipId)
+      membershipRoleUpdateResult(
+        accepted("fake", "updateMembershipRole", args.membershipId),
+        args.membershipId,
+        [roleSlug]
+      )
     );
   },
   updateMembershipRoles(args: {
     membershipId: string;
     primaryRoleSlug?: string;
     roleSlugs: string[];
-  }): Promise<AcceptedResult> {
-    buildWorkosMembershipRolesPayload(args);
+  }): Promise<MembershipRoleUpdateResult> {
+    const rolesPayload = buildWorkosMembershipRolesPayload(args);
+    const roleSlugs =
+      "roleSlugs" in rolesPayload
+        ? rolesPayload.roleSlugs
+        : [rolesPayload.roleSlug];
     return Promise.resolve(
-      accepted("fake", "updateMembershipRoles", args.membershipId)
+      membershipRoleUpdateResult(
+        accepted("fake", "updateMembershipRoles", args.membershipId),
+        args.membershipId,
+        roleSlugs
+      )
     );
   },
   createMembership(args: {
@@ -587,28 +705,40 @@ function liveAdapter(workos: WorkOS) {
     async updateMembershipRole(args: {
       membershipId: string;
       roleSlug: string;
-    }): Promise<AcceptedResult> {
+    }): Promise<MembershipRoleUpdateResult> {
       const roleSlug = normalizeWorkosRoleSlug(args.roleSlug);
       requireNonEmptyRoleSlug(roleSlug);
-      await workos.userManagement.updateOrganizationMembership(
-        args.membershipId,
-        {
-          roleSlug,
-        }
-      );
-      return accepted("workos", "updateMembershipRole", args.membershipId);
+      const membership =
+        await workos.userManagement.updateOrganizationMembership(
+          args.membershipId,
+          {
+            roleSlug,
+          }
+        );
+      return {
+        accepted: accepted("workos", "updateMembershipRole", args.membershipId),
+        membership: toWorkosEntity(membership),
+      };
     },
     async updateMembershipRoles(args: {
       membershipId: string;
       primaryRoleSlug?: string;
       roleSlugs: string[];
-    }): Promise<AcceptedResult> {
+    }): Promise<MembershipRoleUpdateResult> {
       const rolesPayload = buildWorkosMembershipRolesPayload(args);
-      await workos.userManagement.updateOrganizationMembership(
-        args.membershipId,
-        rolesPayload
-      );
-      return accepted("workos", "updateMembershipRoles", args.membershipId);
+      const membership =
+        await workos.userManagement.updateOrganizationMembership(
+          args.membershipId,
+          rolesPayload
+        );
+      return {
+        accepted: accepted(
+          "workos",
+          "updateMembershipRoles",
+          args.membershipId
+        ),
+        membership: toWorkosEntity(membership),
+      };
     },
     async createMembership(args: {
       organizationId: string;
@@ -622,7 +752,7 @@ function liveAdapter(workos: WorkOS) {
           organizationId: args.organizationId,
           statuses: ["active", "inactive", "pending"],
           userId: args.userId,
-        } as any)
+        })
       ).autoPagination();
       const existing = existingMemberships[0];
       if (existing) {
@@ -913,6 +1043,65 @@ function toWorkosEntity(value: unknown): WorkosEntity {
   return JSON.parse(JSON.stringify(value)) as WorkosEntity;
 }
 
+function membershipRoleUpdateResult(
+  acceptedResult: AcceptedResult,
+  membershipId: string,
+  roleSlugs: string[]
+): MembershipRoleUpdateResult {
+  return {
+    accepted: acceptedResult,
+    membership: {
+      id: membershipId,
+      role: { slug: roleSlugs[0] },
+      roles: roleSlugs.map((slug) => ({ slug })),
+      status: "active",
+    },
+  };
+}
+
+async function projectManagedMembershipUpdate(
+  ctx: ScopedUserManagementActionCtx,
+  membershipId: string,
+  membership: WorkosEntity
+) {
+  const projections = await ctx.runQuery(
+    api.workosProjection.listUserManagement,
+    {}
+  );
+  const projectedMembership = projections.memberships.find(
+    (row) => row.workosMembershipId === membershipId
+  );
+  const organizationId =
+    workosEntityString(membership, "organizationId", "organization_id") ??
+    projectedMembership?.workosOrganizationId;
+  const userId =
+    workosEntityString(membership, "userId", "user_id") ??
+    projectedMembership?.workosUserId;
+  if (!(organizationId && userId)) {
+    return;
+  }
+  await ctx.runMutation(internal.workosProjection.ingestWorkosEvent, {
+    created_at: new Date().toISOString(),
+    data: {
+      ...membership,
+      id: membership.id ?? membershipId,
+      organizationId,
+      userId,
+    },
+    event: "organization_membership.updated",
+    id: `management:${crypto.randomUUID()}:organization_membership.updated:${membershipId}`,
+  });
+}
+
+function workosEntityString(
+  entity: WorkosEntity,
+  camelCaseKey: string,
+  snakeCaseKey: string
+) {
+  const value = entity[camelCaseKey] ?? entity[snakeCaseKey];
+  return typeof value === "string" ? value : undefined;
+}
+
 function accepted(
   adapter: "fake" | "workos",
   operation: string,
@@ -925,15 +1114,6 @@ function accepted(
     sync: "waiting-for-webhook",
     workosId,
   };
-}
-
-function requireNonEmptyRoleSlugs(roleSlugs: string[]) {
-  if (roleSlugs.length === 0) {
-    throw new Error("At least one WorkOS role slug is required");
-  }
-  for (const roleSlug of roleSlugs) {
-    requireNonEmptyRoleSlug(roleSlug);
-  }
 }
 
 function requireNonEmptyRoleSlug(roleSlug: string) {
@@ -988,6 +1168,14 @@ export function buildWorkosMembershipRolesPayload(args: {
 
   if (roleSlugs.length > 0) {
     requireSelectedPrimaryRole(primaryRoleSlug, roleSlugs);
+    if (primaryRoleSlug !== undefined) {
+      return {
+        roleSlugs: [
+          primaryRoleSlug,
+          ...roleSlugs.filter((roleSlug) => roleSlug !== primaryRoleSlug),
+        ],
+      };
+    }
     return { roleSlugs };
   }
   if (primaryRoleSlug !== undefined) {
@@ -1021,7 +1209,12 @@ function entityIdentifier(entity: WorkosEntity) {
   return "unknown";
 }
 
-function eventForSync(event: string, id: string, data: WorkosEntity) {
+function eventForSync(
+  event: string,
+  id: string,
+  data: WorkosEntity,
+  syncRunId: string
+) {
   const sanitized = JSON.parse(JSON.stringify(data)) as WorkosEntity;
   return {
     created_at: stringOrNow(
@@ -1032,7 +1225,7 @@ function eventForSync(event: string, id: string, data: WorkosEntity) {
     ),
     data: sanitized,
     event,
-    id: `sync:${event}:${id}`,
+    id: `sync:${syncRunId}:${event}:${id}`,
   };
 }
 
@@ -1063,8 +1256,8 @@ export function isWorkosConflict(error: unknown) {
   }
   const message = workosErrorMessage(error);
   return (
-    /user already a member of (?:the )?organization/i.test(message) ||
-    /email already invited to (?:the )?organization/i.test(message)
+    USER_ALREADY_MEMBER_PATTERN.test(message) ||
+    EMAIL_ALREADY_INVITED_PATTERN.test(message)
   );
 }
 

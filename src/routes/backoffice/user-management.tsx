@@ -97,6 +97,7 @@ function UserManagementRoute() {
       setAccepted(await action());
     } catch (error) {
       setActionError(getActionErrorMessage(error));
+      throw error;
     }
   };
 

@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import type { FormEvent } from "react";
 import { useState } from "react";
+import { Button } from "#/components/ui/button.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { ContractorDetailSurface } from "#/features/contractors/ContractorDetailSurface.tsx";
 import type { ContractorProfileDraft } from "#/features/contractors/ContractorQuickAddDrawer.tsx";
@@ -15,6 +16,15 @@ import {
 } from "#/features/contractors/WorkosUserAutocomplete.tsx";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
+
+type ContractorDuplicateHint = {
+  confidence: "exact" | "fuzzy";
+  contractorId: Id<"contractorProfiles">;
+  email: string | null;
+  kind: "email" | "name" | "phone";
+  name: string;
+  phone: string | null;
+};
 
 export const Route = createFileRoute("/backoffice/contractors/$contractorId")({
   staticData: {
@@ -31,7 +41,7 @@ function RouteComponent() {
   const context = Route.useRouteContext();
   const workosOrganizationId = context.organizationId as string;
   const visualFixture = isProductionVisualParityFixtureEnabled();
-  const contractorApi = (api as any).production_proposals;
+  const contractorApi = api.production_proposals;
   const liveDetail = useQuery(
     contractorApi.getContractorDetail,
     visualFixture
@@ -64,10 +74,9 @@ function RouteComponent() {
   const [pendingIdentity, setPendingIdentity] = useState(false);
   const [identityError, setIdentityError] = useState("");
 
-  const onboardingApi = (api as any).contractorOnboarding;
-  const mergeApi = (api as any).contractorMerge;
+  const onboardingApi = api.contractorOnboarding;
+  const mergeApi = api.contractorMerge;
   const sendInvite = useMutation(onboardingApi.sendContractorProfileInvite);
-  const revokeInvite = useMutation(onboardingApi.revokeContractorProfileInvite);
   const deactivateProfile = useMutation(mergeApi.deactivateContractorProfile);
   const unlinkAccount = useMutation(mergeApi.unlinkContractorAccount);
   const mergeProfiles = useMutation(mergeApi.mergeContractorProfiles);
@@ -79,7 +88,7 @@ function RouteComponent() {
           contractorId: contractorId as Id<"contractorProfiles">,
           workosOrganizationId,
         }
-  );
+  ) as { hints: ContractorDuplicateHint[] } | undefined;
   const [mergeTargetId, setMergeTargetId] = useState("");
 
   if (detail === undefined) {
@@ -221,8 +230,6 @@ function RouteComponent() {
     }
   };
 
-  void revokeInvite;
-
   return (
     <>
       <ContractorDetailSurface
@@ -253,8 +260,8 @@ function RouteComponent() {
                 <div>
                   <h2 className="font-semibold text-sm">Identity operations</h2>
                   <p className="text-muted-foreground text-xs">
-                    Reviewed actions only — invite, merge, deactivate, and unlink
-                    are audited (PRD §11.3).
+                    Reviewed actions only — invite, merge, deactivate, and
+                    unlink are audited (PRD §11.3).
                   </p>
                 </div>
                 {identityError ? (
@@ -295,12 +302,12 @@ function RouteComponent() {
                   </h3>
                   <p className="text-muted-foreground text-xs">
                     Merge this profile into another canonical profile. The
-                    canonical survives; this profile is preserved as an alias and
-                    its assignments migrate.
+                    canonical survives; this profile is preserved as an alias
+                    and its assignments migrate.
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <input
-                      className="border-input bg-background min-w-[16rem] flex-1 rounded-md border px-3 py-1.5 text-sm"
+                      className="min-w-[16rem] flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
                       onChange={(e) => setMergeTargetId(e.target.value)}
                       placeholder="Canonical contractor id"
                       value={mergeTargetId}
@@ -321,13 +328,12 @@ function RouteComponent() {
                   <div className="border-t pt-3">
                     <h3 className="font-medium text-sm">Duplicate hints</h3>
                     <ul className="mt-1 flex flex-col gap-1">
-                      {duplicateHints.hints.map((hint: any) => (
+                      {duplicateHints.hints.map((hint) => (
                         <li
                           key={hint.contractorId}
                           className="text-muted-foreground text-xs"
                         >
-                          {hint.name} — {hint.kind} match (
-                          {hint.confidence})
+                          {hint.name} — {hint.kind} match ({hint.confidence})
                         </li>
                       ))}
                     </ul>

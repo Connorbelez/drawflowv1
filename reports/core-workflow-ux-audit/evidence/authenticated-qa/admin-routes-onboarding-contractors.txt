@@ -1,0 +1,218 @@
+[
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/backoffice/onboard-builder"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/backoffice/onboard-builder"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "900"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "ms": 900,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({path:'onboard-builder',text:(document.body.innerText||'').replace(/\\s+/g,' ').slice(250,950),w:[document.documentElement.clientWidth,document.documentElement.scrollWidth]})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "origin": "http://localhost:3000/backoffice/onboard-builder",
+      "result": "{\n  \"path\": \"onboard-builder\",\n  \"text\": \"mance boosts and UI polish. Learn more About Docs © 2026 DrawFlow Toggle Sidebar Backoffice Onboard builder Connor Beleznay connor.belez@gmail.com BUILDER ONBOARDING Bring a new builder onto DrawFlow Create the builder’s WorkOS account and their brokerage workspace in one pass. They’ll land in a guided first run that takes them to their first draw plan. 1 Builder Who is the builder 2 Review What gets created 3 Invite Account provisioned Builder identity We only need the essentials now. The builder fills in the build details themselves. Builder company name Shown across the builder’s workspace and on every Build Proposal. Owner name Owner email Their WorkOS invitation is sent here. Review\",\n  \"w\": [\n    1280,\n    1280\n  ]\n}"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/backoffice/onboard-contractor"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/backoffice/onboard-contractor"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "900"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "ms": 900,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({path:'onboard-contractor',text:(document.body.innerText||'').replace(/\\s+/g,' ').slice(250,950),w:[document.documentElement.clientWidth,document.documentElement.scrollWidth]})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "origin": "http://localhost:3000/backoffice/onboard-contractor",
+      "result": "{\n  \"path\": \"onboard-contractor\",\n  \"text\": \"mance boosts and UI polish. Learn more About Docs © 2026 DrawFlow Toggle Sidebar Backoffice Onboard contractor Connor Beleznay connor.belez@gmail.com Contractors Onboard contractor Create the operating profile, connect the authenticated account, then assign the contractor to build and milestone work. Create profile Operating record Profile · Needed WorkOS user Identity · Optional Milestone scope Activation · Build assignment Select contractor Create a contractor profile to start onboarding. Link authenticated user WORKOS USER Search by name, email, organization, role, or WorkOS ID. Link account\",\n  \"w\": [\n    1280,\n    1280\n  ]\n}"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/backoffice/contractors"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/backoffice/contractors"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "900"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "ms": 900,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({path:'contractors',text:(document.body.innerText||'').replace(/\\s+/g,' ').slice(250,950),w:[document.documentElement.clientWidth,document.documentElement.scrollWidth]})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "origin": "http://localhost:3000/backoffice/contractors",
+      "result": "{\n  \"path\": \"contractors\",\n  \"text\": \"mance boosts and UI polish. Learn more About Docs © 2026 DrawFlow Toggle Sidebar Backoffice Contractors Contractors Connor Beleznay connor.belez@gmail.com BACKOFFICE ROSTER Contractors Brokerage-scoped contractor profiles for build enrollment, milestone assignment, performance history, and future scheduling. Onboard contractor Add contractor 5 Active profiles 0 Capability tags Unrated Average rate Roster Sort, filter, and open contractor profiles from one operating table. All status Active Inactive All accounts Linked Profile only Reset Contractor Trade / market Capabilities Equipment Rate Availability Account OPEN Oscar Concreate & Handyman company 647-858-8727 Foundation Concrete Toronto N\",\n  \"w\": [\n    1280,\n    1280\n  ]\n}"
+    },
+    "success": true
+  }
+]

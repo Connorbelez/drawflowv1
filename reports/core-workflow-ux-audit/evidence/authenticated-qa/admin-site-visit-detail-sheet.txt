@@ -1,0 +1,43 @@
+{
+  "lifecycle": {
+    "effectiveLaunch": {
+      "browserLaunched": true,
+      "engine": "chrome",
+      "launchHash": 8197565053781422000
+    },
+    "launched": false,
+    "relaunchedBrowser": false,
+    "restartedBackground": false,
+    "restoreStatus": "not_configured",
+    "reused": true,
+    "saveStatus": "not_attempted"
+  },
+  "origin": "http://localhost:3000/backoffice/site-visits",
+  "refs": {
+    "e1": {
+      "name": "Notifications alt+T",
+      "role": "region"
+    },
+    "e2": {
+      "name": "Permits, demo & foundation",
+      "role": "heading"
+    },
+    "e3": {
+      "name": "Close",
+      "role": "button"
+    },
+    "e4": {
+      "name": "Copy field link",
+      "role": "button"
+    },
+    "e5": {
+      "name": "Open build workspace",
+      "role": "link"
+    },
+    "e6": {
+      "name": "Cancel visit",
+      "role": "button"
+    }
+  },
+  "snapshot": "- region \"Notifications alt+T\" [ref=e1]\n- heading \"Permits, demo & foundation\" [level=2, ref=e2]\n- button \"Copy field link\" [ref=e4]\n- link \"Open build workspace\" [ref=e5]\n- button \"Cancel visit\" [ref=e6]\n- button \"Close\" [ref=e3]"
+}

@@ -107,6 +107,28 @@ async function createApprovedBuild(admin: ReturnType<typeof withIdentity>, seed:
       workosOrganizationId: ORG,
     },
   );
+  await admin.run(async (ctx: any) => {
+    const now = Date.now();
+    await ctx.db.patch(proposalId, {
+      selectedPlan: {
+        metrics: {
+          drawCount: 2,
+          drawFeesCents: 100_000,
+          interestCostCents: 250_000,
+          minimumCashReserveCents: 5_000_000,
+          projectedDurationDays: 55,
+          startingCashCents: 35_000_000,
+          totalCostCents: 350_000,
+          totalDrawAmountCents: 100_000_000,
+        },
+        name: "Cheapest Feasible",
+        planKey: "cheapestFeasible",
+        recommendationReason: "Selected by contractor workspace test setup.",
+        selectedAt: now,
+        selectedByWorkosUserId: "contractor_workspace_test_setup",
+      },
+    });
+  });
   await admin.mutation((api as any).production_proposals.submitProposal, {
     proposalId,
     workosOrganizationId: ORG,
@@ -223,6 +245,26 @@ describe("contractor workspace authorization", () => {
     const unlinked = withIdentity(base, ["contractor"], "user_unlinked_contractor");
     await expect(
       unlinked.query((api as any).contractorWorkspace.getContractorProfile, {}),
+    ).rejects.toThrow(/not linked/);
+  });
+
+  test("unlinking the contractor account immediately revokes workspace access", async () => {
+    const { admin, base, seed } = await seedFoundation();
+    const contractorId = await createContractorLinked(admin, seed);
+    const me = withIdentity(base, ["contractor"], CONTRACTOR_USER);
+
+    await expect(
+      me.query((api as any).contractorWorkspace.getContractorProfile, {}),
+    ).resolves.toMatchObject({ profile: { _id: contractorId } });
+
+    await admin.mutation((api as any).contractorMerge.unlinkContractorAccount, {
+      contractorId,
+      reason: "Rotate linked account.",
+      workosOrganizationId: ORG,
+    });
+
+    await expect(
+      me.query((api as any).contractorWorkspace.getContractorProfile, {}),
     ).rejects.toThrow(/not linked/);
   });
 
@@ -428,6 +470,49 @@ describe("contractor workspace scope + redaction", () => {
     // Raw/internal ratings and financing never reach the contractor.
     expect(detail.ratings).toBeUndefined();
     expect(detail.totalBudgetCents).toBeUndefined();
+  });
+
+  test("work items show acknowledged after the contractor acknowledges an assignment", async () => {
+    const { admin, base, seed } = await seedFoundation();
+    const { buildId } = await createApprovedBuild(admin, seed);
+    const contractorId = await createContractorLinked(admin, seed);
+
+    await admin.mutation(
+      (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+      {
+        buildId,
+        contractorId,
+        milestoneKey: "foundation",
+        role: "mason",
+        workosOrganizationId: ORG,
+      },
+    );
+    const assignment = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("milestoneContractorAssignments")
+        .withIndex("by_contractor_build", (q: any) =>
+          q.eq("contractorId", contractorId).eq("buildId", buildId),
+        )
+        .first(),
+    );
+
+    const me = withIdentity(base, ["contractor"], CONTRACTOR_USER);
+    await me.mutation(
+      (api as any).contractorEvidence.acknowledgeContractorAssignment,
+      {
+        assignmentType: "build",
+        buildAssignmentId: assignment._id,
+        kind: "assignment",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const workItems = await me.query(
+      (api as any).contractorWorkspace.listContractorWorkItems,
+      {},
+    );
+    expect(workItems).toHaveLength(1);
+    expect(workItems[0].acknowledgementStatus).toBe("acknowledged");
   });
 });
 

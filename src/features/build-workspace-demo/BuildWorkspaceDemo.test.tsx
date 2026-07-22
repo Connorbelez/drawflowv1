@@ -45,6 +45,92 @@ describe("BuildWorkspaceDemo Gantt labels and draw editing", () => {
     expect(within(sheet).queryByText("Approve milestone")).toBeNull();
   });
 
+  test("requires an explicit proposal plan selection before submission", () => {
+    const setActivePlan = vi.fn();
+    const optimizationPlans = [
+      {
+        durationDays: 42,
+        id: "cheapestFeasible" as const,
+        label: "Cheapest Feasible",
+        peakWorkingCapital: 150_000,
+        projectedInterest: 8_000,
+        summary: "Minimizes financing cost.",
+        totalFees: 1_000,
+        warning: "May extend the schedule.",
+      },
+      {
+        durationDays: 32,
+        id: "fastest" as const,
+        infeasibleReason: "Exceeds the available borrower working-capital limit.",
+        label: "Fastest",
+        peakWorkingCapital: 200_000,
+        projectedInterest: 7_000,
+        summary: "Minimizes project duration.",
+        totalFees: 1_500,
+        warning: "Requires more working capital.",
+      },
+      {
+        durationDays: 40,
+        id: "capitalConstrained" as const,
+        label: "Capital-Constrained",
+        peakWorkingCapital: 125_000,
+        recommended: true,
+        projectedInterest: 7_500,
+        summary: "Stays within available working capital.",
+        totalFees: 1_000,
+        warning: "May delay reimbursements.",
+      },
+    ];
+
+    const unselected = renderWorkspace(
+      {
+        optimizationPlans,
+        selectedPlanId: undefined,
+        setActivePlan,
+      },
+      { showPrimaryAction: true, viewer: "builder" },
+    );
+
+    expect(
+      (screen.getByTestId("proposal-submit") as HTMLButtonElement).disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByTestId("workspace-draw-plans-open"));
+
+    expect(screen.getByText("Cheapest Feasible")).toBeTruthy();
+    expect(screen.getByText("Fastest")).toBeTruthy();
+    expect(screen.getByText("Capital-Constrained")).toBeTruthy();
+    expect(screen.getByText("Recommended")).toBeTruthy();
+    expect(
+      screen.getByText("Exceeds the available borrower working-capital limit."),
+    ).toBeTruthy();
+    expect(
+      (screen.getByTestId("draw-plan-option-fastest") as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    const capitalConstrained = screen.getByTestId(
+      "draw-plan-option-capitalConstrained",
+    );
+    expect(capitalConstrained.getAttribute("aria-pressed")).toBe("false");
+    expect(capitalConstrained.textContent).toContain(
+      "Select Capital-Constrained",
+    );
+    fireEvent.click(capitalConstrained);
+    expect(setActivePlan).toHaveBeenCalledWith("capitalConstrained");
+
+    unselected.unmount();
+    renderWorkspace(
+      {
+        optimizationPlans,
+        selectedPlanId: "capitalConstrained",
+        setActivePlan,
+      },
+      { showPrimaryAction: true, viewer: "builder" },
+    );
+    expect(
+      (screen.getByTestId("proposal-submit") as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
   test("keeps lender approval controls available for lender active workspace", () => {
     renderWorkspace({
       mode: "active",
@@ -257,7 +343,7 @@ function workspaceFixture(): BuildWorkspaceAdapter {
     auditEvents: [],
     batchMoveMilestoneDates: vi.fn().mockResolvedValue(undefined),
     budget: {
-      borrowerWorkingCapitalLimit: 125_000,
+      borrowerStartingCash: 125_000,
       drawFeeBps: 0,
       interestRatePct: 11,
       lenderDrawPolicyLimit: 575_000,

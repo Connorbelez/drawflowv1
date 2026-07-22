@@ -1,0 +1,146 @@
+[
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/backoffice/draws"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/backoffice/draws"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "2000"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "ms": 2000,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({path:'draws',text:(document.body.innerText||'').replace(/\\s+/g,' ').slice(250,1250),w:[document.documentElement.clientWidth,document.documentElement.scrollWidth],buttons:[...document.querySelectorAll('button')].map(x=>({t:x.textContent?.trim().replace(/\\s+/g,' ').slice(0,90),d:x.disabled})).filter(x=>/approve|reject|review|release|visit|open/i.test(x.t||'')).slice(0,25)})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "origin": "http://localhost:3000/backoffice/draws",
+      "result": "{\n  \"path\": \"draws\",\n  \"text\": \"mance boosts and UI polish. Learn more About Docs © 2026 DrawFlow Toggle Sidebar Backoffice Draws Connor Beleznay connor.belez@gmail.com Draws Org-wide reimbursement pipeline: review requests, track approved exposure, and scan upcoming planned releases across every active build. CURRENT CAPITAL EXPOSURE $0 Requested plus approved draws not yet released across the portfolio. UNDER REVIEW $0 0 awaiting staff review APPROVED EXPOSURE $0 0 approved, not yet released UPCOMING PLANNED $3,600,068 21 scheduled draws RELEASED TO DATE $0 0 released historically Scheduled draw pipeline Monthly reimbursement volume by lifecycle state (excludes rejected draws). Approved to release Upcoming planned Released Under review Jun 2026 Aug 2026 Oct 2026 Dec 2026 Nov 2099 Capital by state Snapshot of dollars in each draw lifecycle bucket right now. Capital Upcoming planned Needs review 0 Approved 0 Planned 21 Released 0 Rejected 0 All 21 By build All draws No draws match Try clearing filters or widening you\",\n  \"w\": [\n    1280,\n    1280\n  ],\n  \"buttons\": [\n    {\n      \"t\": \"Needs review0\",\n      \"d\": false\n    },\n    {\n      \"t\": \"Approved0\",\n      \"d\": false\n    },\n    {\n      \"t\": \"Released0\",\n      \"d\": false\n    },\n    {\n      \"t\": \"Rejected0\",\n      \"d\": false\n    }\n  ]\n}"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/backoffice/site-visits"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/backoffice/site-visits"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "2000"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "ms": 2000,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({path:'site-visits',text:(document.body.innerText||'').replace(/\\s+/g,' ').slice(250,1250),w:[document.documentElement.clientWidth,document.documentElement.scrollWidth],buttons:[...document.querySelectorAll('button')].map(x=>({t:x.textContent?.trim().replace(/\\s+/g,' ').slice(0,90),d:x.disabled})).filter(x=>/approve|reject|review|release|visit|open|schedule/i.test(x.t||'')).slice(0,25)})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "origin": "http://localhost:3000/backoffice/site-visits",
+      "result": "{\n  \"path\": \"site-visits\",\n  \"text\": \"mance boosts and UI polish. Learn more About Docs © 2026 DrawFlow Toggle Sidebar Backoffice Site Visits Connor Beleznay connor.belez@gmail.com Site visits Org-wide verification pipeline: open tokens, field capture, and completed visits across every active build. Open 0 In field 0 Expiring <15m 0 Expired 9 Geofence flagged 6 Complete 0 Cancelled 1 All 10 By build All visits 4-plex Proposal B-AH87XG4R 9 active Connor Beleznay 26 Luverne Ave, North York, ON M3H 1R4, Canada 10 visits Open build Permits, demo & foundation four-plex-draw-01 Expired Geofence Tue, Jun 2 Token expired Assigned from build detail workspace. Copy link Permits, demo & foundation four-plex-draw-01 Expired Geofence Tue, Jun 2 Token expired Assigned from build detail workspace. Copy link Permits, demo & foundation four-plex-draw-01 Expired Geofence Tue, Jun 2 Token expired Assigned from build detail workspace. Copy link Service upgrade & envelope four-plex-draw-03 Expired Thu, Sep 24 Token expired Assigned from build \",\n  \"w\": [\n    1280,\n    1280\n  ],\n  \"buttons\": [\n    {\n      \"t\": \"Open0\",\n      \"d\": false\n    },\n    {\n      \"t\": \"All visits\",\n      \"d\": false\n    }\n  ]\n}"
+    },
+    "success": true
+  }
+]

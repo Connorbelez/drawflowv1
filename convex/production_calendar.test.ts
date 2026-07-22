@@ -89,6 +89,28 @@ async function createCalendarProposal(t: any, seed: any) {
     proposalId,
     workosOrganizationId: ORG,
   });
+  await t.run(async (ctx: any) => {
+    const now = Date.now();
+    await ctx.db.patch(proposalId, {
+      selectedPlan: {
+        metrics: {
+          drawCount: 2,
+          drawFeesCents: 100_000,
+          interestCostCents: 250_000,
+          minimumCashReserveCents: 5_000_000,
+          projectedDurationDays: 55,
+          startingCashCents: 35_000_000,
+          totalCostCents: 350_000,
+          totalDrawAmountCents: 120_000_000,
+        },
+        name: "Cheapest Feasible",
+        planKey: "cheapestFeasible",
+        recommendationReason: "Selected by production calendar test setup.",
+        selectedAt: now,
+        selectedByWorkosUserId: "production_calendar_test_setup",
+      },
+    });
+  });
   return proposalId;
 }
 
@@ -358,7 +380,7 @@ describe("production calendar workspace", () => {
           milestoneKey: "foundation",
           startsAt: "2026-08-03",
           endsAt: "2026-08-25",
-          status: "planned",
+          status: "inProgress",
         }),
         expect.objectContaining({
           kind: "siteVisit",

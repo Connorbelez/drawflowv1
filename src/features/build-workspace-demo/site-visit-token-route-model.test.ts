@@ -2,6 +2,8 @@ import { describe, expect, test } from "vitest";
 
 import {
   formatSiteVisitBytes,
+  locationAttemptFromError,
+  locationAttemptFromPosition,
   normalizeSiteVisitTokenRoute,
   resolveSiteVisitUnavailableCopy,
 } from "./site-visit-token-route-model";
@@ -27,8 +29,32 @@ describe("site visit token route model", () => {
         status: "completed",
       })
     ).toMatchObject({
-      stamp: "TOKEN INVALID",
-      title: "Visit unavailable",
+      body: expect.stringContaining("report was already submitted"),
+      canRequestReplacement: true,
+      stamp: "TOKEN CONSUMED",
+      title: "Site visit already complete",
+    });
+  });
+
+  test("records successful and denied location attempts without discarding report state", () => {
+    expect(
+      locationAttemptFromPosition({ accuracy: 8.4 }, 1_721_234_567_890)
+    ).toEqual({
+      accuracyMeters: 8,
+      attempted: true,
+      attemptedAt: 1_721_234_567_890,
+      permissionOutcome: "granted",
+      verified: true,
+    });
+
+    expect(
+      locationAttemptFromError({ code: 1 }, 1_721_234_567_891)
+    ).toEqual({
+      attempted: true,
+      attemptedAt: 1_721_234_567_891,
+      failureReason: "Browser location permission was denied.",
+      permissionOutcome: "denied",
+      verified: false,
     });
   });
 

@@ -1,0 +1,71 @@
+{
+  "compacted": true,
+  "fullOutputPath": "/Users/connor/.pi/agent/sessions/--Users-connor-Dev-drawFlow-v1-drawflowv1-core-workflow-remediation-20260717--/.pi-agent-browser-artifacts/019f87c0-0e29-7876-a720-bc37adcd50cd/pi-agent-browser-snapshot-275070adb3bcda9d.json",
+  "origin": "http://localhost:3000/backoffice",
+  "previewMode": "structured",
+  "viewportOrdering": "dom-signal-prioritized",
+  "previewRefIds": [
+    "e45",
+    "e14",
+    "e15",
+    "e16",
+    "e17",
+    "e57",
+    "e19",
+    "e20",
+    "e46",
+    "e225",
+    "e47",
+    "e25"
+  ],
+  "highValueControlRefIds": [
+    "e215",
+    "e24",
+    "e8",
+    "e217",
+    "e219",
+    "e144",
+    "e145",
+    "e221",
+    "e48",
+    "e10"
+  ],
+  "additionalSectionsOmitted": 1,
+  "previewSections": [
+    {
+      "linesShown": 8,
+      "omittedLines": 61,
+      "role": "heading",
+      "title": "Home"
+    },
+    {
+      "linesShown": 2,
+      "omittedLines": 18,
+      "role": "heading",
+      "title": "Submitted for lender review"
+    },
+    {
+      "linesShown": 2,
+      "omittedLines": 121,
+      "role": "heading",
+      "title": "Approved, pending closing"
+    }
+  ],
+  "refCount": 241,
+  "roleCounts": {
+    "region": 1,
+    "link": 22,
+    "generic": 1,
+    "button": 111,
+    "navigation": 2,
+    "switch": 1,
+    "heading": 3,
+    "searchbox": 1,
+    "row": 7,
+    "gridcell": 35,
+    "columnheader": 12,
+    "cell": 45
+  },
+  "snapshotLineCount": 241,
+  "structuredPreviewUsed": true
+}

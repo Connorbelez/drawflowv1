@@ -1,0 +1,308 @@
+diff --git a/src/features/production-proposals/ProductionProposalSurfaces.test.tsx b/src/features/production-proposals/ProductionProposalSurfaces.test.tsx
+index 021c811c..12118566 100644
+--- a/src/features/production-proposals/ProductionProposalSurfaces.test.tsx
++++ b/src/features/production-proposals/ProductionProposalSurfaces.test.tsx
+@@ -1433,6 +1433,47 @@ describe("ProductionProposalReviewSurface", () => {
+     });
+   });
+ 
++  test("omits lender-only decision controls from unauthorized review tabs", () => {
++    render(
++      <ProductionProposalReviewSurface
++        detail={{
++          ...proposalDetail,
++          documents: [],
++          permitWaiver: null,
++          proposal: { ...proposalDetail.proposal, status: "submitted" },
++        }}
++        initialActiveTab="review"
++      />,
++    );
++
++    expect(
++      screen.queryByRole("button", { name: "Request Changes" }),
++    ).toBeNull();
++    expect(screen.queryByRole("button", { name: "Reject" })).toBeNull();
++    expect(
++      screen.queryByRole("button", { name: "Approve Proposal" }),
++    ).toBeNull();
++    expect(screen.queryByLabelText("Decision reason")).toBeNull();
++    expect(screen.queryByLabelText("Audited permit waiver")).toBeNull();
++  });
++
++  test("omits backoffice draw editors from unauthorized draw schedule tabs", () => {
++    render(
++      <ProductionProposalReviewSurface
++        detail={{
++          ...proposalDetail,
++          proposal: { ...proposalDetail.proposal, status: "submitted" },
++        }}
++        initialActiveTab="draws"
++      />,
++    );
++
++    expect(screen.queryByLabelText("draw-01 label")).toBeNull();
++    expect(screen.queryByLabelText("Amount dollars")).toBeNull();
++    expect(screen.queryByLabelText("Change reason")).toBeNull();
++    expect(screen.queryByRole("button", { name: "Save draw row" })).toBeNull();
++  });
++
+   test("edits submitted draw schedule rows with an explicit review reason", () => {
+     const onUpdateDraw = vi.fn();
+     render(
+diff --git a/src/routes/backoffice/-proposals.$planId.test.tsx b/src/routes/backoffice/-proposals.$planId.test.tsx
+index 7d3340c9..bd264ca4 100644
+--- a/src/routes/backoffice/-proposals.$planId.test.tsx
++++ b/src/routes/backoffice/-proposals.$planId.test.tsx
+@@ -599,6 +599,40 @@ describe("ProductionProposalReviewSurface packet CTAs", () => {
+ 
+     await waitFor(() => expect(submitProposal).toHaveBeenCalledTimes(1));
+   });
++
++  test("keeps lender decision and draw edit controls available for authorized reviewers", () => {
++    render(
++      <ProductionProposalReviewSurface
++        detail={{
++          ...productionProposalDetail("submitted"),
++          documents: [],
++          permitWaiver: null,
++        } as any}
++        initialActiveTab="review"
++        onApprove={vi.fn()}
++        onReject={vi.fn()}
++        onRequestChanges={vi.fn()}
++        onUpdateDraw={vi.fn()}
++      />,
++    );
++
++    expect(
++      screen.getByRole("button", { name: "Request Changes" }),
++    ).toBeTruthy();
++    expect(screen.getByRole("button", { name: "Reject" })).toBeTruthy();
++    expect(
++      screen.getByRole("button", { name: "Approve Proposal" }),
++    ).toBeTruthy();
++    expect(screen.getByLabelText("Decision reason")).toBeTruthy();
++    expect(screen.getByLabelText("Audited permit waiver")).toBeTruthy();
++
++    fireEvent.click(screen.getByRole("tab", { name: "Draw schedule" }));
++
++    expect(screen.getByLabelText("draw-01 label")).toBeTruthy();
++    expect(screen.getByLabelText("Amount dollars")).toBeTruthy();
++    expect(screen.getByLabelText("Change reason")).toBeTruthy();
++    expect(screen.getByRole("button", { name: "Save draw row" })).toBeTruthy();
++  });
+ });
+ 
+ describe("proposal review subscription gates", () => {
+diff --git a/src/routes/builder/proposals/-proposal.$proposalId.test.ts b/src/routes/builder/proposals/-proposal.$proposalId.test.ts
+index edf936f6..ecd169bd 100644
+--- a/src/routes/builder/proposals/-proposal.$proposalId.test.ts
++++ b/src/routes/builder/proposals/-proposal.$proposalId.test.ts
+@@ -1,12 +1,173 @@
+-import { describe, expect, test } from "vitest";
++// @vitest-environment jsdom
++
++import { cleanup, render, screen } from "@testing-library/react";
++import { createElement } from "react";
++import { afterEach, describe, expect, test, vi } from "vitest";
++
++const mockNavigate = vi.fn();
++const builderVisualProposalDetail = {
++  activeBuild: null,
++  appPermissions: {
++    "draw:update": true,
++  },
++  costItems: [],
++  draws: [
++    {
++      amountCents: 400_000_00,
++      drawKey: "draw-01",
++      label: "Foundation reimbursement",
++      timingDay: 30,
++    },
++  ],
++  proposal: {
++    buildName: "Elm Street proposal",
++    proposedStartDate: "2026-07-01",
++    status: "submitted",
++  },
++};
++
++vi.mock("@tanstack/react-router", () => ({
++  createFileRoute: () =>
++    () => ({
++      useParams: () => ({ proposalId: "proposal-01" }),
++      useRouteContext: () => ({ organizationId: "org-01" }),
++      useSearch: () => ({}),
++    }),
++  useNavigate: () => mockNavigate,
++}));
++
++vi.mock("convex/react", () => ({
++  useMutation: () => vi.fn().mockResolvedValue(undefined),
++  useQuery: () => undefined,
++}));
++
++vi.mock("sonner", () => ({
++  toast: {
++    error: vi.fn(),
++    success: vi.fn(),
++  },
++}));
++
++vi.mock("#/features/builder-staff/app-permissions.ts", () => ({
++  canUseAppPermission: (
++    permissions: Record<string, boolean> | undefined,
++    resource: string,
++    action: string,
++  ) => Boolean(permissions?.[`${resource}:${action}`]),
++  filterMaterialPlanningActionsForPermissions: (
++    _permissions: unknown,
++    actions: unknown,
++  ) => actions,
++  hasAnyAppPermission: (
++    permissions: Record<string, boolean> | undefined,
++    requirements: Array<[string, string]>,
++  ) => requirements.some(([resource, action]) => permissions?.[`${resource}:${action}`]),
++}));
++
++vi.mock("#/features/calendar-workspace/adapters/proposalCalendarAdapter.ts", () => ({
++  createProposalCalendarEditHandler: () => vi.fn(),
++}));
++
++vi.mock("#/features/production-proposals/ProductionContractorPlanningTab.tsx", () => ({
++  ProductionContractorPlanningTab: () => null,
++}));
++
++vi.mock("#/features/production-proposals/ProductionProposalGanttWorkspace.tsx", () => ({
++  ProductionProposalTimelineGanttWorkspace: () => null,
++}));
++
++vi.mock(
++  "#/features/production-proposals/ProductionProposalMilestoneWorksheetContainer.tsx",
++  () => ({
++    ProductionProposalMilestoneWorksheetContainer: () => null,
++  }),
++);
++
++vi.mock("#/features/production-proposals/ProductionTimelineWorkspace.tsx", () => ({
++  ProductionTimelineWorkspace: () => null,
++}));
++
++vi.mock("#/features/production-proposals/visualParityFixtures.ts", () => ({
++  createVisualParityCostItem: vi.fn(),
++  getVisualParityProposalDetail: () => builderVisualProposalDetail,
++  getVisualParityTimelineWorkspace: () => ({ contractorPlanning: undefined }),
++  isProductionVisualParityFixtureEnabled: () => true,
++}));
++
++vi.mock("#/features/production-proposals/ProductionProposalSurfaces.tsx", () => ({
++  ProductionProposalReviewSurface: (props: {
++    onApprove?: unknown;
++    onReject?: unknown;
++    onRequestChanges?: unknown;
++    onUpdateDraw?: unknown;
++  }) =>
++    createElement(
++      "div",
++      {},
++      props.onApprove || props.onReject || props.onRequestChanges
++        ? createElement(
++            "section",
++            { "aria-label": "Lender review controls" },
++            createElement("button", {}, "Request Changes"),
++            createElement("button", {}, "Reject"),
++            createElement("button", {}, "Approve Proposal"),
++            createElement(
++              "label",
++              {},
++              "Decision reason",
++              createElement("input", { "aria-label": "Decision reason" }),
++            ),
++            createElement(
++              "label",
++              {},
++              "Audited permit waiver",
++              createElement("textarea", {
++                "aria-label": "Audited permit waiver",
++              }),
++            ),
++          )
++        : null,
++      props.onUpdateDraw
++        ? createElement(
++            "section",
++            { "aria-label": "Backoffice draw editor" },
++            createElement(
++              "label",
++              {},
++              "draw-01 label",
++              createElement("input", { "aria-label": "draw-01 label" }),
++            ),
++            createElement(
++              "label",
++              {},
++              "Amount dollars",
++              createElement("input", { "aria-label": "Amount dollars" }),
++            ),
++            createElement(
++              "label",
++              {},
++              "Change reason",
++              createElement("input", { "aria-label": "Change reason" }),
++            ),
++            createElement("button", {}, "Save draw row"),
++          )
++        : null,
++    ),
++}));
+ 
+ import {
++  BuilderProductionProposalWorkspace,
+   resolveBuilderProposalRouteTab,
+   shouldLoadBuilderProposalCalendarWorkspace,
+   shouldLoadBuilderProposalContractorPlanning,
+   shouldMountBuilderProposalStaffPanel,
+ } from "./$proposalId/index.tsx";
+ 
++afterEach(() => {
++  cleanup();
++  mockNavigate.mockReset();
++});
++
+ describe("builder proposal detail subscription gates", () => {
+   test("uses the shared packet-first proposal tab contract", () => {
+     const activeTab = resolveBuilderProposalRouteTab({});
+@@ -34,3 +195,31 @@ describe("builder proposal detail subscription gates", () => {
+     expect(shouldMountBuilderProposalStaffPanel("packet")).toBe(false);
+   });
+ });
++
++describe("BuilderProductionProposalWorkspace authorization gates", () => {
++  test("does not wire lender-only review or backoffice draw controls into the builder workspace", () => {
++    render(
++      createElement(BuilderProductionProposalWorkspace, {
++        includeStaffTab: false,
++        proposalId: "proposal-01",
++        routeBase: "/builder",
++        search: { tab: "review" },
++        workosOrganizationId: "org-01",
++      }),
++    );
++
++    expect(
++      screen.queryByRole("button", { name: "Request Changes" }),
++    ).toBeNull();
++    expect(screen.queryByRole("button", { name: "Reject" })).toBeNull();
++    expect(
++      screen.queryByRole("button", { name: "Approve Proposal" }),
++    ).toBeNull();
++    expect(screen.queryByLabelText("Decision reason")).toBeNull();
++    expect(screen.queryByLabelText("Audited permit waiver")).toBeNull();
++    expect(screen.queryByLabelText("draw-01 label")).toBeNull();
++    expect(screen.queryByLabelText("Amount dollars")).toBeNull();
++    expect(screen.queryByLabelText("Change reason")).toBeNull();
++    expect(screen.queryByRole("button", { name: "Save draw row" })).toBeNull();
++  });
++});

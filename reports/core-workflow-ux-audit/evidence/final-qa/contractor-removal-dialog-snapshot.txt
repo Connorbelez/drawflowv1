@@ -1,0 +1,18 @@
+{
+  "lifecycle": {
+    "effectiveLaunch": {
+      "browserLaunched": true,
+      "engine": "chrome",
+      "launchHash": 12798390076057946000
+    },
+    "launched": true,
+    "relaunchedBrowser": false,
+    "restartedBackground": true,
+    "restoreStatus": "not_configured",
+    "reused": false,
+    "saveStatus": "not_attempted"
+  },
+  "origin": "about:blank",
+  "refs": {},
+  "snapshot": "(no interactive elements)"
+}

@@ -109,7 +109,7 @@ export interface ProposalGanttSubmilestoneRow {
 export interface ProductionProposalGanttWorkspaceProps {
   baseDate?: string;
   borrowerCoPayBps: number;
-  borrowerWorkingCapitalLimitCents: number;
+  borrowerStartingCashCents: number;
   buildName: string;
   contractorPlanning?: ContractorPlanningModel | null;
   draws: ProposalGanttDrawDraft[];
@@ -133,8 +133,10 @@ export interface ProductionProposalGanttWorkspaceProps {
   onInviteContractor?: (contractorId: string) => Promise<void>;
   onDrawsChange: (draws: ProposalGanttDrawDraft[]) => void;
   onMilestonesChange: (milestones: ProposalGanttMilestoneDraft[]) => void;
+  onSelectPlan?: (plan: OptimizationPlan) => void;
   onSubmit?: () => void;
   proposalStatus: "draft" | "submitted" | "approved" | "closed";
+  selectedPlanId?: OptimizationPlanId;
 }
 
 export interface ProductionProposalTimelineGanttWorkspaceProps {
@@ -146,11 +148,14 @@ export interface ProductionProposalTimelineGanttWorkspaceProps {
     contractorPlanning?: ContractorPlanningModel | null;
     proposal: {
       borrowerCoPayBps?: number;
-      borrowerWorkingCapitalLimitCents?: number;
+      borrowerStartingCashCents?: number;
       buildName: string;
       lenderDrawPolicyLimitCents?: number;
       location: string;
       proposedStartDate?: string;
+      selectedPlan?: {
+        planKey: OptimizationPlanId;
+      };
       status: string;
       totalBudgetCents: number;
     };
@@ -192,6 +197,7 @@ export function ProductionProposalTimelineGanttWorkspace({
     api.production_proposals.deleteProductionTimelineDraw
   );
   const submitProposal = useMutation(api.production_proposals.submitProposal);
+  const selectProposalPlan = useMutation(productionApi.selectProposalPlan);
 
   const projected = useMemo(
     () => proposalTimelineWorkspaceToGanttDraft(workspace),
@@ -208,6 +214,9 @@ export function ProductionProposalTimelineGanttWorkspace({
   const lastAppliedWorkspaceSignature = useRef("");
   const [localMilestones, setLocalMilestones] = useState(projected.milestones);
   const [localDraws, setLocalDraws] = useState(projected.draws);
+  const [selectedPlanId, setSelectedPlanId] = useState<
+    OptimizationPlanId | undefined
+  >(workspace.proposal.selectedPlan?.planKey);
 
   useEffect(() => {
     if (lastAppliedWorkspaceSignature.current === workspaceSignature) {
@@ -217,6 +226,10 @@ export function ProductionProposalTimelineGanttWorkspace({
     setLocalMilestones(projected.milestones);
     setLocalDraws(projected.draws);
   }, [projected.draws, projected.milestones, workspaceSignature]);
+
+  useEffect(() => {
+    setSelectedPlanId(workspace.proposal.selectedPlan?.planKey);
+  }, [workspace.proposal.selectedPlan?.planKey]);
 
   const persistMilestones = (nextMilestones: ProposalGanttMilestoneDraft[]) => {
     const previousMilestones = localMilestones;
@@ -268,10 +281,45 @@ export function ProductionProposalTimelineGanttWorkspace({
     }
     void submitProposal({ proposalId, workosOrganizationId })
       .then(() => toast.success("Proposal submitted."))
-      .catch((error) => {
-        toast.error(
-          error instanceof Error ? error.message : "Unable to submit proposal."
-        );
+      .catch(() => {
+        toast.error("Unable to submit proposal. Review the proposal and try again.");
+      });
+  };
+
+  const handleSelectPlan = (plan: OptimizationPlan) => {
+    if (persistenceMode === "noop") {
+      setSelectedPlanId(plan.id);
+      return;
+    }
+    setSelectedPlanId(undefined);
+    void selectProposalPlan({
+      metrics: {
+        drawCount: localDraws.length,
+        drawFeesCents: Math.round(plan.totalFees * 100),
+        interestCostCents: Math.round(plan.projectedInterest * 100),
+        minimumCashReserveCents: workspace.plan.minimumCashReserveCents ?? 0,
+        projectedDurationDays: plan.durationDays,
+        requiredWorkingCapitalCents: Math.round(plan.peakWorkingCapital * 100),
+        startingCashCents: workspace.plan.startingCashCents,
+        totalCostCents: Math.round(
+          (plan.totalFees + plan.projectedInterest) * 100
+        ),
+        totalDrawAmountCents: localDraws.reduce(
+          (total, draw) => total + draw.amountCents,
+          0
+        ),
+      },
+      planKey: plan.id,
+      proposalId,
+      recommendationReason: plan.summary,
+      workosOrganizationId,
+    })
+      .then(() => {
+        setSelectedPlanId(plan.id);
+        toast.success(`${plan.label} selected for proposal submission.`);
+      })
+      .catch(() => {
+        toast.error("Unable to select this proposal plan. Try again.");
       });
   };
 
@@ -286,8 +334,8 @@ export function ProductionProposalTimelineGanttWorkspace({
         workspace.activeBuild?.startDate ?? workspace.proposal.proposedStartDate
       }
       borrowerCoPayBps={projected.borrowerCoPayBps}
-      borrowerWorkingCapitalLimitCents={
-        projected.borrowerWorkingCapitalLimitCents
+      borrowerStartingCashCents={
+        projected.borrowerStartingCashCents
       }
       buildName={projected.buildName}
       contractorPlanning={contractorPlanning}
@@ -363,8 +411,10 @@ export function ProductionProposalTimelineGanttWorkspace({
       }
       onDrawsChange={persistDraws}
       onMilestonesChange={persistMilestones}
+      onSelectPlan={handleSelectPlan}
       onSubmit={handleSubmit}
       proposalStatus={projected.proposalStatus}
+      selectedPlanId={selectedPlanId}
     />
   );
 }
@@ -372,7 +422,7 @@ export function ProductionProposalTimelineGanttWorkspace({
 export function ProductionProposalGanttWorkspace({
   baseDate,
   borrowerCoPayBps,
-  borrowerWorkingCapitalLimitCents,
+  borrowerStartingCashCents,
   buildName,
   contractorPlanning,
   draws,
@@ -384,15 +434,18 @@ export function ProductionProposalGanttWorkspace({
   onInviteContractor,
   onDrawsChange,
   onMilestonesChange,
+  onSelectPlan,
   onSubmit,
   proposalStatus,
+  selectedPlanId,
 }: ProductionProposalGanttWorkspaceProps) {
   const [role, setRole] = useState<WorkspaceRole>("builderLead");
   const [selectedMilestoneId, setSelectedMilestoneId] = useState(
     () => proposalMilestonesToGanttSubmilestoneRows(milestones)[0]?.id ?? ""
   );
-  const [activePlanId, setActivePlanId] =
-    useState<OptimizationPlanId>("capitalConstrained");
+  const [activePlanId, setActivePlanId] = useState<OptimizationPlanId>(
+    selectedPlanId ?? "capitalConstrained"
+  );
   const [dismissedIssueKeys, setDismissedIssueKeys] = useState(
     () => new Set<string>()
   );
@@ -458,7 +511,7 @@ export function ProductionProposalGanttWorkspace({
   const mapped = mapProposalGanttWorkspace({
     activePlanId,
     baseDate: timelineBaseDate,
-    borrowerWorkingCapitalLimitCents,
+    borrowerStartingCashCents,
     buildName,
     dependencies,
     drawGroups: derivedGroups,
@@ -471,6 +524,13 @@ export function ProductionProposalGanttWorkspace({
     selectedMilestoneId,
   });
 
+  const selectPlan = (planId: OptimizationPlanId) => {
+    setActivePlanId(planId);
+    const plan = mapped.optimizationPlans.find((item) => item.id === planId);
+    if (plan) {
+      onSelectPlan?.(plan);
+    }
+  };
   const selectedId = selectedMilestoneId || mapped.selectedMilestoneId;
   const adapter: BuildWorkspaceAdapter = {
     ...mapped,
@@ -557,7 +617,7 @@ export function ProductionProposalGanttWorkspace({
         setSelectedMilestoneId(targetId);
       }
     },
-    applyRecommendedPlan: async () => setActivePlanId("capitalConstrained"),
+    applyRecommendedPlan: async () => selectPlan("capitalConstrained"),
     approveMilestone: async () => undefined,
     batchMoveMilestoneDates: async (moves) => {
       commitMilestones(
@@ -693,7 +753,8 @@ export function ProductionProposalGanttWorkspace({
     reviewEvidence: async () => undefined,
     selectMilestone: setSelectedMilestoneId,
     selectedMilestoneId: selectedId,
-    setActivePlan: setActivePlanId,
+    selectedPlanId,
+    setActivePlan: selectPlan,
     setDependencyHardness: async () => undefined,
     setMilestoneDragLocked: async () => undefined,
     setRole,
@@ -782,11 +843,14 @@ export function proposalTimelineWorkspaceToGanttDraft(
   workspace: ConvexTimelineWorkspace & {
     proposal: {
       borrowerCoPayBps?: number;
-      borrowerWorkingCapitalLimitCents?: number;
+      borrowerStartingCashCents?: number;
       buildName: string;
       lenderDrawPolicyLimitCents?: number;
       location: string;
       proposedStartDate?: string;
+      selectedPlan?: {
+        planKey: OptimizationPlanId;
+      };
       status: string;
       totalBudgetCents: number;
     };
@@ -847,9 +911,9 @@ export function proposalTimelineWorkspaceToGanttDraft(
   });
   return {
     borrowerCoPayBps,
-    borrowerWorkingCapitalLimitCents:
+    borrowerStartingCashCents:
       workspace.plan.startingCashCents ??
-      workspace.proposal.borrowerWorkingCapitalLimitCents ??
+      workspace.proposal.borrowerStartingCashCents ??
       0,
     buildName: workspace.proposal.buildName,
     draws,
@@ -968,7 +1032,7 @@ export function normalizeProposalDrawRows({
 export function mapProposalGanttWorkspace({
   activePlanId,
   baseDate = BASE_DATE,
-  borrowerWorkingCapitalLimitCents,
+  borrowerStartingCashCents,
   buildName,
   dependencies,
   drawGroups,
@@ -982,7 +1046,7 @@ export function mapProposalGanttWorkspace({
 }: {
   activePlanId: OptimizationPlanId;
   baseDate?: Date;
-  borrowerWorkingCapitalLimitCents: number;
+  borrowerStartingCashCents: number;
   buildName: string;
   dependencies: MilestoneDependency[];
   drawGroups: DerivedProposalDrawGroup[];
@@ -1093,7 +1157,7 @@ export function mapProposalGanttWorkspace({
   }));
   const optimizationPlans = buildProposalOptimizationPlans({
     activePlanId,
-    borrowerWorkingCapitalLimitCents,
+    borrowerStartingCashCents,
     drawGroups: workspaceDrawGroups,
     lenderDrawPolicyLimitCents,
     milestones: orderedMilestones,
@@ -1103,8 +1167,8 @@ export function mapProposalGanttWorkspace({
     activePlanId,
     auditEvents: buildDraftAuditEvents(orderedMilestones, workspaceDrawGroups),
     budget: {
-      borrowerWorkingCapitalLimit: centsToDollars(
-        borrowerWorkingCapitalLimitCents
+      borrowerStartingCash: centsToDollars(
+        borrowerStartingCashCents
       ),
       drawFeeBps: 0,
       interestRatePct: DEFAULT_INTEREST_RATE_PCT,
@@ -1909,13 +1973,13 @@ function issueRow(input: {
 }
 
 function buildProposalOptimizationPlans({
-  borrowerWorkingCapitalLimitCents,
+  borrowerStartingCashCents,
   drawGroups,
   lenderDrawPolicyLimitCents,
   milestones,
 }: {
   activePlanId: OptimizationPlanId;
-  borrowerWorkingCapitalLimitCents: number;
+  borrowerStartingCashCents: number;
   drawGroups: DrawGroup[];
   lenderDrawPolicyLimitCents: number;
   milestones: ProposalGanttMilestoneDraft[];
@@ -1925,9 +1989,14 @@ function buildProposalOptimizationPlans({
     ...milestones.map((milestone) => milestone.dayEnd)
   );
   const totalFees = drawGroups.length * DRAW_FEE_DOLLARS;
-  const peakWorkingCapital = Math.max(
-    centsToDollars(borrowerWorkingCapitalLimitCents),
+  const borrowerStartingCash = centsToDollars(borrowerStartingCashCents);
+  const requiredWorkingCapital = Math.max(
+    0,
     ...drawGroups.map((drawGroup) => drawGroup.totalExposure)
+  );
+  const capitalShortfall = Math.max(
+    0,
+    requiredWorkingCapital - borrowerStartingCash
   );
   const principalDollars = centsToDollars(lenderDrawPolicyLimitCents);
   return [
@@ -1935,7 +2004,7 @@ function buildProposalOptimizationPlans({
       durationDays,
       id: "cheapestFeasible",
       label: "Cheapest Feasible",
-      peakWorkingCapital,
+      peakWorkingCapital: requiredWorkingCapital,
       projectedInterest: Math.round(principalDollars * 0.025),
       summary:
         "Uses the fewest derived reimbursement draw boundaries currently staged.",
@@ -1946,7 +2015,7 @@ function buildProposalOptimizationPlans({
       durationDays: Math.max(1, Math.round(durationDays * 0.85)),
       id: "fastest",
       label: "Fastest",
-      peakWorkingCapital: Math.round(peakWorkingCapital * 1.15),
+      peakWorkingCapital: Math.round(requiredWorkingCapital * 1.15),
       projectedInterest: Math.round(principalDollars * 0.02),
       summary:
         "Compresses feasible milestone windows while preserving dependencies.",
@@ -1958,12 +2027,25 @@ function buildProposalOptimizationPlans({
       durationDays,
       id: "capitalConstrained",
       label: "Capital-Constrained",
-      peakWorkingCapital: centsToDollars(borrowerWorkingCapitalLimitCents),
+      ...(capitalShortfall > 0
+        ? {
+            infeasibleReason: `Borrower starting cash is $${Math.round(
+              borrowerStartingCash
+            ).toLocaleString()} but this grouping requires $${Math.round(
+              requiredWorkingCapital
+            ).toLocaleString()} of peak unreimbursed working capital.`,
+          }
+        : {}),
+      peakWorkingCapital: requiredWorkingCapital,
       projectedInterest: Math.round(principalDollars * 0.022),
+      recommended: capitalShortfall === 0,
       summary:
-        "Keeps derived draw groups aligned to the borrower working capital limit.",
+        "Compares borrower starting cash with the plan's derived peak unreimbursed exposure.",
       totalFees,
-      warning: "Ready to save into the Build Proposal draft package.",
+      warning:
+        capitalShortfall > 0
+          ? `Starting-cash shortfall: $${Math.round(capitalShortfall).toLocaleString()}.`
+          : "Borrower starting cash covers the derived peak unreimbursed exposure.",
     },
   ];
 }

@@ -1,0 +1,153 @@
+{
+  "owner": "workspace-ui",
+  "findings": [
+    {
+      "findingId": "UX-WF-BLD-001-003",
+      "workstream": "workspace-ui",
+      "phase": "Phase 3 - responsive/accessibility refinement",
+      "dependsOn": [
+        "Authorized active-build scope via `authorizeActiveBuild` and a valid `/builder/builds/$buildId` or `/builder-staff/builds/$buildId` route context.",
+        "Builder/builder-staff app-permission projection remains the source of truth for draw, contractor, evidence, reminder, and staff CTAs.",
+        "Shared `ProductionBuildDetailSurface` plus `ActiveBuildTimelineWorkspace` stay the canonical live-build surfaces; no demo-surface fork.",
+        "Global shell overlays (assistant launcher and devtools) remain mounted and require safe-area-aware spacing rather than feature removal."
+      ],
+      "owner": "workspace-ui",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Verify `/builder/builds/$buildId` and `/builder-staff/builds/$buildId` at 1440x900, 1024x768, and 390x844 with no page-level horizontal scrolling and no clipped primary action, Budget, or Events context on the active Build workspace.",
+        "Reflow the header and current-milestone region at 1024x768 so status, milestone identity, Budget/Event context, and the current legal next action remain visible and reachable without horizontal panning.",
+        "Replace the nine-tab overflow failure at 390x844 with navigation that exposes every workspace section to touch and keyboard users, includes an overflow or discovery affordance, and reports the active section programmatically.",
+        "Reserve safe-area-aware spacing for mounted assistant and devtools overlays so fixed utilities never obscure financial metrics or primary CTAs and all required touch targets remain at least 44px.",
+        "Preserve deterministic keyboard navigation: visible focus, logical Tab and Shift+Tab order from header through navigation into content, predictable focus retention and return after tab or sheet changes, and usable layout at 200 percent zoom.",
+        "Expose one logical accessible navigation object per section, keep hidden or collapsed sections out of the accessibility tree until revealed, and prevent duplicate announced labels for the same workspace destination.",
+        "Add responsive regression coverage that asserts the builder and builder-staff live-build workspace keeps core actions visible, preserves focus order, and avoids obscured content across 1440x900, 1024x768, and 390x844."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md",
+        "reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md#ux-wf-bld-001-003",
+        "reports/core-workflow-ux-audit/target-manifest.json",
+        "docs/core-product-workflow-manifest.md",
+        "docs/draw_flow_prd.md",
+        "docs/draw_flow_production_prd.md"
+      ],
+      "filesChanged": [
+        "src/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx",
+        "src/features/backoffice-build-detail/BuildDetailTabs.tsx",
+        "src/features/backoffice-build-detail/BuildDetailRoute.tsx",
+        "src/features/backoffice-build-detail/ActiveBuildTimelineWorkspace.tsx",
+        "src/features/timeline-workspace/TimelineWorkspace.tsx",
+        "src/routes/builder/builds/$buildId/index.tsx",
+        "src/routes/builder-staff/builds/$buildId/index.tsx"
+      ],
+      "testsAddedOrUpdated": [
+        "src/features/backoffice-build-detail/ProductionBuildDetailSurface.test.tsx",
+        "src/features/backoffice-build-detail/ProductionBuildDetailSurface.responsive.test.tsx",
+        "src/features/timeline-workspace/MobileTimelineWorkspace.test.tsx",
+        "src/features/timeline-workspace/TimelineWorkspace.responsive.test.tsx",
+        "src/routes/builder/builds/$buildId/-index.test.tsx"
+      ],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/build-contractor/WF-BLD-001.BLDR.01.STEP-01-details-tablet-1024x768.png",
+        "reports/core-workflow-ux-audit/evidence/build-contractor/WF-BLD-001.BLDR.01.STEP-01-details-mobile-390x844.png",
+        "reports/core-workflow-ux-audit/evidence/build-contractor/WF-BLD-001.BLDR.01.STEP-02-timeline-mobile-rendered-390x844.png"
+      ],
+      "verificationNotes": [
+        "Verified the finding source files exist locally: audit-report.md, build-and-contractor.md, target-manifest.json, core-product-workflow-manifest.md, draw_flow_prd.md, and draw_flow_production_prd.md.",
+        "Verified every listed existing candidate path in filesChanged and browserEvidence exists in the remediation worktree; `src/features/backoffice-build-detail/ProductionBuildDetailSurface.responsive.test.tsx` and `src/features/timeline-workspace/TimelineWorkspace.responsive.test.tsx` are planned paths in target-manifest.json rather than existing files.",
+        "Phase 3 verification must add fresh proof at 1440x900, 1024x768, and 390x844 and explicitly inspect keyboard focus order and return, accessibility-tree duplication, 200 percent zoom, and safe-area clearance from mounted shell overlays."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "No UI skill recorded yet because frontend gating is not satisfied: keep this Phase 3 slice blocked until the active-build route scope, builder or builder-staff permission projection, and shared live-build surface contracts in dependsOn are stable enough for repo-local Impeccable preflight.",
+      "personas": [
+        "Builder",
+        "Builder Staff"
+      ],
+      "routesOrSurfaces": [
+        "/builder/builds/$buildId",
+        "/builder-staff/builds/$buildId",
+        "ProductionBuildDetailSurface",
+        "BuildDetailTabs",
+        "ActiveBuildTimelineWorkspace"
+      ],
+      "serverContractTouched": [],
+      "viewports": [
+        "1440x900",
+        "1024x768",
+        "390x844"
+      ]
+    },
+    {
+      "findingId": "UX-WF-DRW-001-004",
+      "workstream": "workspace-ui",
+      "phase": "Phase 3 - responsive/accessibility refinement",
+      "dependsOn": [
+        "An approved owner-scoped demo live build resolves through `demo_getBuilderLiveTimelineWorkspaceByBuildKey` on `/builder/demo/dashboard/builds/$buildId`.",
+        "Lender review occurs inside shared `TimelineWorkspace` live mode after a draw has transitioned into `requested` or is being inspected as part of lender review.",
+        "The review surface still relies on demo persistence hooks for plan-state saves, draw submission, and draw review mutations.",
+        "Backend-facing changes must respect Convex validator/permission rules while keeping `convex/_generated/**` read-only."
+      ],
+      "owner": "workspace-ui",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Verify the live lender review surface at 1440x900, 1024x768, and 390x844 with no horizontal clipping of request identity, amount, available limit, remaining capacity, evidence status, blockers or warnings, reason input, or legal decision actions.",
+        "Reorder the 1024x768 and 390x844 layouts into a review stack that keeps request identity, amount, availability, evidence, blockers, and legal actions adjacent so the reviewer does not have to scroll past oversized charts to reach the decision surface.",
+        "Collapse charts and secondary financial visualization behind a deliberate disclosure at tablet and mobile breakpoints so summary and decision content land before analytics detail while preserving the shared `TimelineWorkspace` live-mode data model.",
+        "Contain validator and persistence failures in typed banners or inline states that never render raw internal text behind the header, inside overlapped content, or in the accessibility tree, and preserve draw and build context plus the next safe action.",
+        "Preserve deterministic keyboard navigation and focus visibility from summary through evidence and warnings into reason and decision actions, with focus never moving behind sticky chrome or off-screen panels at 200 percent zoom.",
+        "Respect safe areas and 44px targets on mobile and tablet so the sticky summary, reason field, and legal decision CTAs are fully reachable above mounted shell utilities.",
+        "Expose one logical review summary and one logical decision form per draw in the accessibility tree; collapsed charts or hidden rails must not duplicate announced content or trap focus.",
+        "Add responsive regression coverage and fresh browser verification for lender live mode at 1440x900, 1024x768, and 390x844, asserting no clipped labels, no overlapping error text, and no off-screen decision controls."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md",
+        "reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md#ux-wf-drw-001-004",
+        "reports/core-workflow-ux-audit/target-manifest.json",
+        "docs/core-product-workflow-manifest.md",
+        "docs/draw_flow_prd.md",
+        "docs/draw_flow_production_prd.md"
+      ],
+      "filesChanged": [
+        "src/features/backoffice-build-detail/ActiveBuildTimelineWorkspace.tsx",
+        "src/features/build-funding/BuildFundingWorkspace.tsx",
+        "src/features/timeline-workspace/TimelineWorkspace.tsx",
+        "src/features/timeline-workspace/MobileTimelineWorkspace.tsx",
+        "src/features/timeline-workspace/MobileTimelineSheets.tsx"
+      ],
+      "testsAddedOrUpdated": [
+        "src/features/backoffice-build-detail/ActiveBuildTimelineWorkspace.test.tsx",
+        "src/features/build-funding/BuildFundingWorkspace.test.tsx",
+        "src/features/timeline-workspace/MobileTimelineWorkspace.test.tsx",
+        "src/features/timeline-workspace/TimelineWorkspace.responsive.test.tsx",
+        "tests/e2e/timeline-demo.spec.ts"
+      ],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/operations-verification-draws/live-build-lender-tablet-1024x768.png",
+        "reports/core-workflow-ux-audit/evidence/operations-verification-draws/live-build-lender-mobile-390x844.png"
+      ],
+      "verificationNotes": [
+        "Verified the finding source files exist locally: audit-report.md, operations-verification-draws.md, target-manifest.json, core-product-workflow-manifest.md, draw_flow_prd.md, and draw_flow_production_prd.md.",
+        "Verified every listed existing candidate path in filesChanged and browserEvidence exists in the remediation worktree; `src/features/timeline-workspace/TimelineWorkspace.responsive.test.tsx` is a planned path in target-manifest.json rather than an existing file.",
+        "Phase 3 verification must add fresh proof at 1440x900, 1024x768, and 390x844 and explicitly inspect keyboard focus order and return, accessibility-tree duplication, safe-area clearance, and typed error containment while the shared lender review stack is in live mode."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "No UI skill recorded yet because frontend gating is not satisfied: keep this Phase 3 slice blocked until the owner-scoped demo route, shared live-mode review model, demo persistence hooks, and typed error contract in dependsOn are stable and coordinated enough for repo-local Impeccable preflight.",
+      "personas": [
+        "Lender Operations / Backoffice Staff"
+      ],
+      "routesOrSurfaces": [
+        "/builder/demo/dashboard/builds/$buildId",
+        "ActiveBuildTimelineWorkspace",
+        "BuildFundingWorkspace",
+        "TimelineWorkspace",
+        "MobileTimelineWorkspace",
+        "MobileTimelineSheets"
+      ],
+      "serverContractTouched": [],
+      "viewports": [
+        "1440x900",
+        "1024x768",
+        "390x844"
+      ]
+    }
+  ]
+}

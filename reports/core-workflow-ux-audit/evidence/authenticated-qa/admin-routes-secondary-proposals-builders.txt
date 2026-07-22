@@ -1,0 +1,218 @@
+[
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/backoffice/proposals/unassigned"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/backoffice/proposals/unassigned"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "1400"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "ms": 1400,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({path:'proposals/unassigned',url:location.pathname,w:[document.documentElement.clientWidth,document.documentElement.scrollWidth],text:(document.body.innerText||'').replace(/\\s+/g,' ').slice(250,950)})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "origin": "http://localhost:3000/backoffice/proposals/unassigned",
+      "result": "{\n  \"path\": \"proposals/unassigned\",\n  \"url\": \"/backoffice/proposals/unassigned\",\n  \"w\": [\n    1280,\n    1280\n  ],\n  \"text\": \"mance boosts and UI polish. Learn more About Docs © 2026 DrawFlow Toggle Sidebar Backoffice Proposals Connor Beleznay connor.belez@gmail.com Backoffice Broker drafts Unassigned Build Proposal drafts Broker-initiated setup packages that have a draft timeline and no builder profile attached yet. New Build Draft queue 18 unassigned drafts awaiting builder assignment. Needs assignment Draft Garden Suite Proposal Hamilton, ON Budget $1,250,000 Builder Unassigned Created Jun 26, 2026 Updated Jun 26, 2026 Draft 4-plex Proposal Hamilton, ON Budget $1,250,000 Builder Unassigned Created Jun 22, 2026 Updated Jun 22, 2026 Draft Multi-plex Build Proposal Hamilton, ON Budget $1,000,000 Builder Unassigned \"\n}"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/backoffice/proposals/new"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/backoffice/proposals/new"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "1400"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "ms": 1400,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({path:'proposals/new',url:location.pathname,w:[document.documentElement.clientWidth,document.documentElement.scrollWidth],text:(document.body.innerText||'').replace(/\\s+/g,' ').slice(250,950)})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "origin": "http://localhost:3000/backoffice/proposals/new",
+      "result": "{\n  \"path\": \"proposals/new\",\n  \"url\": \"/backoffice/proposals/new\",\n  \"w\": [\n    1280,\n    1280\n  ],\n  \"text\": \"mance boosts and UI polish. Learn more About Docs © 2026 DrawFlow Toggle Sidebar Backoffice Proposals Connor Beleznay connor.belez@gmail.com DRAWFLOW TIMELINE SETUP Reimbursement roadmap generator SAVED Step 1 of 4 - Project Setup 01 PROJECT SETUP 02 MILESTONES & BUDGET 03 SCHEDULE & DRAW GROUPS 04 REVIEW & SUBMIT 1. Select Template Choose a template that best matches your project. Single Family Full Build 7 milestones, 100.00% PoC, 102 field days Single Family Renovation 7 milestones, 100.00% PoC, 86 days Multi-plex Build 7 milestones, 100.00% PoC, 146 days 4-plex 8 milestones, 36 budget line items, 100.00% PoC, 160 field days Garden Suite 16 milestones, 65 budget line items, 100.00% PoC, 1\"\n}"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/backoffice/builders"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/backoffice/builders"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "1400"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "ms": 1400,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({path:'builders',w:[document.documentElement.clientWidth,document.documentElement.scrollWidth],links:[...document.querySelectorAll('a')].map(x=>({t:x.textContent.trim().replace(/\\s+/g,' '),href:x.getAttribute('href')})).filter(x=>x.href?.includes('/backoffice/builders/')).slice(0,8)})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "origin": "http://localhost:3000/backoffice/builders",
+      "result": "{\"path\":\"builders\",\"w\":[1280,1280],\"links\":[]}"
+    },
+    "success": true
+  }
+]

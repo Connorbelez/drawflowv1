@@ -1,0 +1,218 @@
+[
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/backoffice/user-management"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/backoffice/user-management"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "1400"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "ms": 1400,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({path:'user-management',text:(document.body.innerText||'').replace(/\\s+/g,' ').slice(250,950),w:[document.documentElement.clientWidth,document.documentElement.scrollWidth]})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "origin": "http://localhost:3000/backoffice/user-management",
+      "result": "{\n  \"path\": \"user-management\",\n  \"text\": \"mance boosts and UI polish. Learn more About Docs © 2026 DrawFlow Toggle Sidebar Backoffice User management Connor Beleznay connor.belez@gmail.com User Management Directory healthy WorkOS-backed access, organization memberships, and DrawFlow profile links. 10 People 2 Orgs 1 Brokers 12 Builders Latest invitation.created: processed Sync WorkOS Invite person PEOPLE 10 active accounts BROKERS 1 broker memberships BUILDERS 12 builder memberships ORGANIZATIONS 2 WorkOS organizations BROKERAGE GAPS 0 need brokerage profile BUILDER GAPS 0 need builder profile 20 of 20 Role All roles admin broker broker-staff builder builder-staff contractor principle-broker Org All orgs FairLendBrokerage FairLendBr\",\n  \"w\": [\n    1280,\n    1280\n  ]\n}"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/backoffice/settings"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/backoffice/settings"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "1400"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "ms": 1400,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({path:'settings',text:(document.body.innerText||'').replace(/\\s+/g,' ').slice(250,950),w:[document.documentElement.clientWidth,document.documentElement.scrollWidth]})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "origin": "http://localhost:3000/backoffice/settings",
+      "result": "{\n  \"path\": \"settings\",\n  \"text\": \"mance boosts and UI polish. Learn more About Docs © 2026 DrawFlow Toggle Sidebar Backoffice Connor Beleznay connor.belez@gmail.com Backoffice / Settings Settings Production proposal-flow settings are tenant scoped and now use the same full timeline settings workspace as the demo reference. Integration operations TEMPLATES 5 loaded WORKSHEETS 45 milestones SCENARIOS 6 configured ACTIVE STATE 5 of 5 valid ProductionActive PRODUCTION PROPOSAL SETTINGS Settings workspace New template Seed defaults to prod Save template Full Build 7 milestones, 100.00%, 102 days Active: Standard reimbursement Renovation 7 milestones, 100.00%, 86 days Active: Quick inspection Multi-plex Build 7 milestones, 100.00%\",\n  \"w\": [\n    1280,\n    1280\n  ]\n}"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/backoffice/integrations"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/backoffice/integrations"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "1400"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "ms": 1400,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({path:'integrations',text:(document.body.innerText||'').replace(/\\s+/g,' ').slice(250,950),w:[document.documentElement.clientWidth,document.documentElement.scrollWidth]})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "origin": "http://localhost:3000/backoffice/integrations",
+      "result": "{\n  \"path\": \"integrations\",\n  \"text\": \"mance boosts and UI polish. Learn more About Docs © 2026 DrawFlow Toggle Sidebar Backoffice Connor Beleznay connor.belez@gmail.com Technical administration Integration operations Configure tenant webhooks, rotate signing credentials, and recover failed deliveries without changing the original domain transaction. Admin only Create endpoint New endpoints remain in draft until an admin validates and activates them. Endpoint name Endpoint URL Event subscriptions Enter comma-separated event names. Payload version Configuration reason Create endpoint Endpoints Validation, activation, rotation, disablement, and revocation are audited with the supplied reason. No endpoints configured Create the firs\",\n  \"w\": [\n    1280,\n    1280\n  ]\n}"
+    },
+    "success": true
+  }
+]

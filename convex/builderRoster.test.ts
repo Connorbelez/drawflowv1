@@ -12,11 +12,16 @@ const modules = import.meta.glob("./**/*.ts");
 const FAIRLEND_ORG = "org_01KSNW6JHW9P9YS41DZX1YHHGS";
 const PRINCIPAL_BROKER = "user_01KR207FRFHQT46EV9N538XBF3";
 
-function asRole(base: ReturnType<typeof convexTest>, roles: string[], subject: string) {
+function asRole(
+  base: ReturnType<typeof convexTest>,
+  roles: string[],
+  subject: string,
+  organizationId = FAIRLEND_ORG,
+) {
   return base.withIdentity({
     email: `${subject}@example.com`,
     name: subject,
-    organizationId: FAIRLEND_ORG,
+    organizationId,
     role: roles[0],
     roles,
     subject,
@@ -89,6 +94,28 @@ async function createProposal(
       workosOrganizationId: FAIRLEND_ORG,
     },
   );
+  await admin.run(async (ctx: any) => {
+    const now = Date.now();
+    await ctx.db.patch(proposalId, {
+      selectedPlan: {
+        metrics: {
+          drawCount: 1,
+          drawFeesCents: 50_000,
+          interestCostCents: 100_000,
+          minimumCashReserveCents: 0,
+          projectedDurationDays: 30,
+          startingCashCents: 40_000_000,
+          totalCostCents: 150_000,
+          totalDrawAmountCents: 40_000_000,
+        },
+        name: "Cheapest Feasible",
+        planKey: "cheapestFeasible",
+        recommendationReason: "Selected by builder roster test setup.",
+        selectedAt: now,
+        selectedByWorkosUserId: "test_setup",
+      },
+    });
+  });
   return proposalId;
 }
 
@@ -112,6 +139,13 @@ describe("builder roster aggregation", () => {
     expect(builder.proposalCount).toBe(0);
     expect(builder.proposedCapitalCents).toBe(0);
     expect(builder.brokerage?.displayName).toBe("FairLendBrokerage");
+    expect(builder.brokerAssignment).toMatchObject({
+      activeAssignmentCount: 1,
+      assignedBrokerWorkosUserId: PRINCIPAL_BROKER,
+      healthy: true,
+      reason: "healthy",
+      status: "active",
+    });
   });
 
   test("aggregates proposal counts, capital rollups, and derives the approved stage", async () => {
@@ -171,6 +205,32 @@ describe("builder roster aggregation", () => {
     );
     expect(builder.status).toBe("inactive");
     expect(builder.stage).toBe("dormant");
+    expect(builder.brokerAssignment).toMatchObject({
+      activeAssignmentCount: 0,
+      healthy: false,
+      reason: "inactive_builder_profile",
+      status: null,
+    });
+
+    await admin.mutation((api as any).builderRoster.setBuilderProfileStatus, {
+      builderProfileId: seed.builderProfileId,
+      status: "active",
+    });
+    const reactivatedRoster = await admin.query(
+      (api as any).builderRoster.listBuilderRoster,
+      {},
+    );
+    const reactivatedBuilder = reactivatedRoster.builders.find(
+      (row: any) => row._id === seed.builderProfileId,
+    );
+    expect(reactivatedBuilder.status).toBe("active");
+    expect(reactivatedBuilder.brokerAssignment).toMatchObject({
+      activeAssignmentCount: 1,
+      assignedBrokerWorkosUserId: PRINCIPAL_BROKER,
+      healthy: true,
+      reason: "healthy",
+      status: "active",
+    });
   });
 
   test("listBuilderRoster rejects callers without backoffice access", async () => {
@@ -184,6 +244,105 @@ describe("builder roster aggregation", () => {
     expect(seed.builderProfileId).toBeDefined();
   });
 
+  test("scopes principal roster and provisioning reads to the active organization", async () => {
+    const { admin, base, seed } = await seededRoster();
+    const foreignOrganizationId = "org_foreign_builder_roster";
+    let foreignBuilderProfileId = "";
+
+    await base.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("workosOrganizations", {
+        domains: [],
+        name: "Foreign Brokerage",
+        sourceEventId: "evt_foreign_org",
+        sourceEventType: "organization.created",
+        status: "active",
+        workosOrganizationId: foreignOrganizationId,
+      });
+      const foreignBrokerageId = await ctx.db.insert("brokerages", {
+        createdAt: now,
+        displayName: "Foreign Brokerage",
+        legalName: "Foreign Brokerage LLC",
+        status: "active",
+        updatedAt: now,
+        workosOrganizationId: foreignOrganizationId,
+      });
+      foreignBuilderProfileId = await ctx.db.insert("builderProfiles", {
+        brokerageId: foreignBrokerageId,
+        createdAt: now,
+        displayName: "Foreign Builder",
+        organizationId: foreignOrganizationId,
+        status: "active",
+        updatedAt: now,
+      });
+      await ctx.db.insert("users", {
+        authId: "foreign_unlinked_builder",
+        email: "foreign.builder@example.com",
+        name: "Foreign Unlinked Builder",
+        status: "active",
+        workosUserId: "foreign_unlinked_builder",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        roleSlug: "builder",
+        roleSlugs: ["builder"],
+        sourceEventId: "evt_foreign_membership",
+        sourceEventType: "organization_membership.created",
+        status: "active",
+        workosMembershipId: "om_foreign_builder",
+        workosOrganizationId: foreignOrganizationId,
+        workosUserId: "foreign_unlinked_builder",
+      });
+    });
+
+    const principal = asRole(
+      base,
+      ["principle-broker"],
+      PRINCIPAL_BROKER,
+      FAIRLEND_ORG,
+    );
+    const principalRoster = await principal.query(
+      (api as any).builderRoster.listBuilderRoster,
+      {},
+    );
+    expect(principalRoster.builders.map((row: any) => row._id)).toContain(
+      seed.builderProfileId,
+    );
+    expect(principalRoster.builders.map((row: any) => row._id)).not.toContain(
+      foreignBuilderProfileId,
+    );
+    expect(principalRoster.brokerages).toHaveLength(1);
+    expect(principalRoster.brokerages[0].displayName).toBe("FairLendBrokerage");
+
+    const principalProvisioning = await principal.query(
+      (api as any).brokerageProvisioning.listBrokerageProvisioning,
+      {},
+    );
+    expect(
+      principalProvisioning.organizations.map(
+        (organization: any) => organization.workosOrganizationId,
+      ),
+    ).toEqual([FAIRLEND_ORG]);
+
+    const principalCandidates = await principal.query(
+      (api as any).builderRoster.listUnprovisionedBuilders,
+      {},
+    );
+    expect(
+      principalCandidates.candidates.some(
+        (candidate: any) =>
+          candidate.workosOrganizationId === foreignOrganizationId,
+      ),
+    ).toBe(false);
+
+    const adminRoster = await admin.query(
+      (api as any).builderRoster.listBuilderRoster,
+      {},
+    );
+    expect(adminRoster.builders.map((row: any) => row._id)).toContain(
+      foreignBuilderProfileId,
+    );
+  });
+
   test("setBuilderProfileStatus rejects callers without user-management write access", async () => {
     const { base, seed } = await seededRoster();
     const builder = asRole(base, ["builder"], "user_builder");
@@ -192,6 +351,214 @@ describe("builder roster aggregation", () => {
       builder.mutation((api as any).builderRoster.setBuilderProfileStatus, {
         builderProfileId: seed.builderProfileId,
         status: "inactive",
+      }),
+    ).rejects.toThrow();
+  });
+
+  test("lists assignable brokers and projects the current broker identity", async () => {
+    const { admin, seed } = await seededRoster();
+
+    const options = await admin.query(
+      (api as any).builderRoster.listAssignableBrokers,
+      {},
+    );
+    const fairLend = options.brokerages.find(
+      (brokerage: any) => brokerage.workosOrganizationId === FAIRLEND_ORG,
+    );
+
+    expect(fairLend).toBeDefined();
+    expect(
+      fairLend.brokers.map((broker: any) => broker.workosUserId),
+    ).toContain("user_broker");
+    expect(
+      fairLend.brokers.every(
+        (broker: any) =>
+          broker.status === "active" &&
+          broker.roleSlugs.some(
+            (role: string) => role === "principle-broker" || role === "broker",
+          ),
+      ),
+    ).toBe(true);
+
+    const roster = await admin.query(
+      (api as any).builderRoster.listBuilderRoster,
+      {},
+    );
+    const builder = roster.builders.find(
+      (row: any) => row._id === seed.builderProfileId,
+    );
+    expect(builder.brokerAssignment.broker).toMatchObject({
+      workosUserId: PRINCIPAL_BROKER,
+    });
+  });
+
+  test("atomically assigns and reassigns selected builders with an audit reason", async () => {
+    const { admin, seed } = await seededRoster();
+    let secondBuilderProfileId = "";
+    const targetBrokerWorkosUserId = "user_batch_target_broker";
+
+    await admin.run(async (ctx: any) => {
+      const now = Date.now();
+      await ctx.db.insert("users", {
+        authId: targetBrokerWorkosUserId,
+        email: "batch.broker@example.com",
+        name: "Batch Target Broker",
+        status: "active",
+        workosUserId: targetBrokerWorkosUserId,
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        roleSlug: "broker",
+        roleSlugs: ["broker"],
+        sourceEventId: "evt_batch_target_broker",
+        sourceEventType: "organization_membership.created",
+        status: "active",
+        workosMembershipId: "om_batch_target_broker",
+        workosOrganizationId: FAIRLEND_ORG,
+        workosUserId: targetBrokerWorkosUserId,
+      });
+      secondBuilderProfileId = await ctx.db.insert("builderProfiles", {
+        brokerageId: seed.brokerageId,
+        createdAt: now,
+        displayName: "Second Batch Builder",
+        organizationId: FAIRLEND_ORG,
+        status: "active",
+        updatedAt: now,
+      });
+    });
+
+    const result = await admin.mutation(
+      (api as any).builderRoster.assignBuildersToBroker,
+      {
+        assignedBrokerWorkosUserId: targetBrokerWorkosUserId,
+        builderProfileIds: [seed.builderProfileId, secondBuilderProfileId],
+        reason:
+          "Balance the active Builder portfolio across the brokerage team.",
+      },
+    );
+
+    expect(result).toMatchObject({
+      assigned: 1,
+      processed: 2,
+      reassigned: 1,
+      repaired: 0,
+      unchanged: 0,
+    });
+    expect(result.results).toHaveLength(2);
+
+    const state = await admin.run(async (ctx: any) => {
+      const activeAssignments = await ctx.db
+        .query("builderBrokerAssignments")
+        .filter((q: any) => q.eq(q.field("status"), "active"))
+        .collect();
+      const transferredAssignments = await ctx.db
+        .query("builderBrokerAssignments")
+        .filter((q: any) => q.eq(q.field("status"), "transferred"))
+        .collect();
+      const audits = await ctx.db
+        .query("auditEvents")
+        .filter((q: any) =>
+          q.eq(q.field("eventType"), "builder.broker_assignment.reassigned"),
+        )
+        .collect();
+      return { activeAssignments, audits, transferredAssignments };
+    });
+
+    for (const builderProfileId of [
+      seed.builderProfileId,
+      secondBuilderProfileId,
+    ]) {
+      expect(
+        state.activeAssignments.filter(
+          (assignment: any) => assignment.builderProfileId === builderProfileId,
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          assignedBrokerWorkosUserId: targetBrokerWorkosUserId,
+          status: "active",
+        }),
+      ]);
+    }
+    expect(
+      state.transferredAssignments.some(
+        (assignment: any) =>
+          assignment.builderProfileId === seed.builderProfileId &&
+          assignment.assignedBrokerWorkosUserId === PRINCIPAL_BROKER,
+      ),
+    ).toBe(true);
+    expect(state.audits).toEqual([
+      expect.objectContaining({
+        entityId: seed.builderProfileId,
+        reason:
+          "Balance the active Builder portfolio across the brokerage team.",
+      }),
+    ]);
+  });
+
+  test("rejects mixed-brokerage batches without changing existing assignments", async () => {
+    const { admin, seed } = await seededRoster();
+    let foreignBuilderProfileId = "";
+
+    await admin.run(async (ctx: any) => {
+      const now = Date.now();
+      const foreignBrokerageId = await ctx.db.insert("brokerages", {
+        createdAt: now,
+        displayName: "Foreign Brokerage",
+        legalName: "Foreign Brokerage LLC",
+        status: "active",
+        updatedAt: now,
+        workosOrganizationId: "org_foreign_assignment_batch",
+      });
+      foreignBuilderProfileId = await ctx.db.insert("builderProfiles", {
+        brokerageId: foreignBrokerageId,
+        createdAt: now,
+        displayName: "Foreign Batch Builder",
+        organizationId: "org_foreign_assignment_batch",
+        status: "active",
+        updatedAt: now,
+      });
+    });
+
+    await expect(
+      admin.mutation((api as any).builderRoster.assignBuildersToBroker, {
+        assignedBrokerWorkosUserId: PRINCIPAL_BROKER,
+        builderProfileIds: [seed.builderProfileId, foreignBuilderProfileId],
+        reason: "This invalid mixed batch must be rejected atomically.",
+      }),
+    ).rejects.toThrow(/one brokerage/i);
+
+    const activeAssignments = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("builderBrokerAssignments")
+        .withIndex("by_builderProfileId_and_status_and_effectiveAt", (q: any) =>
+          q
+            .eq("builderProfileId", seed.builderProfileId)
+            .eq("status", "active"),
+        )
+        .collect(),
+    );
+    expect(activeAssignments).toEqual([
+      expect.objectContaining({
+        assignedBrokerWorkosUserId: PRINCIPAL_BROKER,
+      }),
+    ]);
+  });
+
+  test("broker assignment rejects blank reasons and callers without write access", async () => {
+    const { admin, base, seed } = await seededRoster();
+    const builder = asRole(base, ["builder"], "user_builder");
+    const input = {
+      assignedBrokerWorkosUserId: "user_broker",
+      builderProfileIds: [seed.builderProfileId],
+      reason: "",
+    };
+
+    await expect(
+      admin.mutation((api as any).builderRoster.assignBuildersToBroker, input),
+    ).rejects.toThrow(/reason/i);
+    await expect(
+      builder.mutation((api as any).builderRoster.assignBuildersToBroker, {
+        ...input,
+        reason: "Builder attempted an unauthorized reassignment.",
       }),
     ).rejects.toThrow();
   });
@@ -243,10 +610,13 @@ describe("unprovisioned builders + naming guards", () => {
     const { admin } = await seededRoster();
 
     await expect(
-      admin.mutation((api as any).brokerageProvisioning.provisionBuilderProfile, {
-        displayName: "FairLendBrokerage",
-        workosOrganizationId: FAIRLEND_ORG,
-      }),
+      admin.mutation(
+        (api as any).brokerageProvisioning.provisionBuilderProfile,
+        {
+          displayName: "FairLendBrokerage",
+          workosOrganizationId: FAIRLEND_ORG,
+        },
+      ),
     ).rejects.toThrow();
 
     const result = await admin.mutation(
@@ -271,7 +641,10 @@ describe("unprovisioned builders + naming guards", () => {
 
     const renamed = await admin.mutation(
       (api as any).builderRoster.renameBuilderProfile,
-      { builderProfileId: seed.builderProfileId, displayName: "Cedar Build Co." },
+      {
+        builderProfileId: seed.builderProfileId,
+        displayName: "Cedar Build Co.",
+      },
     );
     expect(renamed.displayName).toBe("Cedar Build Co.");
 

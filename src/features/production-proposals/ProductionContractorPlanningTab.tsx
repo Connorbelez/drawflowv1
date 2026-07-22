@@ -31,6 +31,9 @@ export function ProductionContractorPlanningTab({
   const attachProposalContractor = useMutation(
     (api as any).production_proposals.attachProposalContractor
   );
+  const attachAndInviteProposalContractor = useMutation(
+    (api as any).production_proposals.attachAndInviteProposalContractor
+  );
   const createAndAttachProposalContractor = useMutation(
     (api as any).production_proposals.createAndAttachProposalContractor
   );
@@ -65,6 +68,14 @@ export function ProductionContractorPlanningTab({
           proposalId,
           role,
           submilestoneKeys,
+          workosOrganizationId,
+        })
+      }
+      onAttachAndInviteExisting={({ contractorId, role }) =>
+        attachAndInviteProposalContractor({
+          contractorId,
+          proposalId,
+          role,
           workosOrganizationId,
         })
       }

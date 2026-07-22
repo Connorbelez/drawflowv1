@@ -44,7 +44,7 @@ const detail = {
   ],
   proposal: {
     borrowerCoPayBps: 2_000,
-    borrowerWorkingCapitalLimitCents: 40_000_000,
+    borrowerStartingCashCents: 40_000_000,
     buildName: "Roadmap proposal",
     lenderDrawPolicyLimitCents: 60_000_000,
     location: "Hamilton, ON",

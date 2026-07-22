@@ -1,6 +1,25 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+const siteVisitLocationAttemptValidator = v.object({
+  accuracyMeters: v.optional(v.number()),
+  attempted: v.boolean(),
+  attemptedAt: v.optional(v.number()),
+  failureReason: v.optional(v.string()),
+  permissionOutcome: v.union(
+    v.literal("denied"),
+    v.literal("granted"),
+    v.literal("not_requested"),
+    v.literal("unavailable")
+  ),
+  verified: v.boolean(),
+});
+
+const siteVisitPrerequisiteExceptionValidator = v.object({
+  acknowledged: v.boolean(),
+  reason: v.string(),
+});
+
 const demoTimelineStatusValidator = v.union(
   v.literal("complete"),
   v.literal("ready"),
@@ -239,6 +258,29 @@ const productionReviewOutcomeValidator = v.union(
   v.literal("approved")
 );
 
+const productionSelectedPlanValidator = v.object({
+  metrics: v.object({
+    drawCount: v.number(),
+    drawFeesCents: v.number(),
+    interestCostCents: v.number(),
+    minimumCashReserveCents: v.number(),
+    projectedDurationDays: v.number(),
+    requiredWorkingCapitalCents: v.optional(v.number()),
+    startingCashCents: v.number(),
+    totalCostCents: v.number(),
+    totalDrawAmountCents: v.number(),
+  }),
+  name: v.string(),
+  planKey: v.union(
+    v.literal("cheapestFeasible"),
+    v.literal("fastest"),
+    v.literal("capitalConstrained")
+  ),
+  recommendationReason: v.string(),
+  selectedAt: v.number(),
+  selectedByWorkosUserId: v.string(),
+});
+
 const productionDocumentTypeValidator = v.union(
   v.literal("permit"),
   v.literal("budget"),
@@ -456,6 +498,44 @@ const productionOutboxStatusValidator = v.union(
   v.literal("pending"),
   v.literal("processed"),
   v.literal("failed")
+);
+
+const recipientDeliveryStatusValidator = v.union(
+  v.literal("unread"),
+  v.literal("read"),
+  v.literal("dismissed"),
+  v.literal("resolved")
+);
+
+const recipientDeliveryResolutionModeValidator = v.union(
+  v.literal("domain"),
+  v.literal("recipient")
+);
+
+const operationsHandoffAcknowledgementStateValidator = v.union(
+  v.literal("pending_decision"),
+  v.literal("returned"),
+  v.literal("acknowledged")
+);
+
+const operationsHandoffReturnDecisionValidator = v.union(
+  v.literal("continue"),
+  v.literal("reroute"),
+  v.literal("close")
+);
+
+const integrationEndpointStatusValidator = v.union(
+  v.literal("draft"),
+  v.literal("active"),
+  v.literal("disabled"),
+  v.literal("revoked")
+);
+
+const integrationDeliveryStatusValidator = v.union(
+  v.literal("pending"),
+  v.literal("delivered"),
+  v.literal("failed"),
+  v.literal("retry_pending")
 );
 
 const proposalCollaborationSessionStatusValidator = v.union(
@@ -742,13 +822,20 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
     completionObserved: v.optional(v.boolean()),
     createdAt: v.number(),
+    organizationScopeKey: v.optional(v.string()),
+    workOrderId: v.optional(v.string()),
+    evidencePackageId: v.optional(v.string()),
+    scopeBoundAt: v.optional(v.number()),
     milestoneId: v.union(
       v.id("demo_milestones"),
       v.id("demo_timelineMilestones")
     ),
+    locationAttempt: v.optional(siteVisitLocationAttemptValidator),
     milestoneKey: v.string(),
+    missingPrerequisites: v.optional(v.array(v.string())),
     notes: v.optional(v.string()),
     notesFormat: v.optional(richTextFormatValidator),
+    prerequisiteException: v.optional(siteVisitPrerequisiteExceptionValidator),
     recommendedOutcome: v.optional(v.string()),
     requestReason: v.optional(v.string()),
     requestedByPersona: v.optional(v.string()),
@@ -1485,6 +1572,34 @@ export default defineSchema({
     .index("by_brokerage", ["brokerageId"])
     .index("by_brokerage_and_status", ["brokerageId", "status"])
     .index("by_organization", ["organizationId"]),
+  builderBrokerAssignments: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    builderProfileId: v.id("builderProfiles"),
+    assignedBrokerWorkosUserId: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("active"),
+      v.literal("transferred"),
+      v.literal("failed")
+    ),
+    effectiveAt: v.number(),
+    updatedAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_builderProfileId_and_createdAt", [
+      "builderProfileId",
+      "createdAt",
+    ])
+    .index("by_builderProfileId_and_status_and_effectiveAt", [
+      "builderProfileId",
+      "status",
+      "effectiveAt",
+    ])
+    .index("by_brokerageId_and_assignedBrokerWorkosUserId", [
+      "brokerageId",
+      "assignedBrokerWorkosUserId",
+    ]),
   builderAccountLinks: defineTable({
     brokerageId: v.id("brokerages"),
     builderProfileId: v.id("builderProfiles"),
@@ -1991,6 +2106,8 @@ export default defineSchema({
     status: productionProposalStatusValidator,
     reviewOutcome: productionReviewOutcomeValidator,
     totalBudgetCents: v.number(),
+    borrowerStartingCashCents: v.optional(v.number()),
+    // Deprecated migration source. Do not use as a revolving spending limit.
     borrowerWorkingCapitalLimitCents: v.number(),
     lenderDrawPolicyLimitCents: v.number(),
     borrowerCoPayBps: v.number(),
@@ -2003,6 +2120,7 @@ export default defineSchema({
     timelineRouteState: v.optional(v.any()),
     timelineMinimumCashReserveCents: v.optional(v.number()),
     timelineStartingCashCents: v.optional(v.number()),
+    selectedPlan: v.optional(productionSelectedPlanValidator),
     proposedStartDate: v.optional(v.string()),
     templateId: v.optional(v.id("proposalTemplates")),
     workflowRuleSnapshotId: v.optional(v.id("workflowRuleSnapshots")),
@@ -2404,6 +2522,110 @@ export default defineSchema({
   })
     .index("by_brokerage_status", ["brokerageId", "status"])
     .index("by_entity", ["relatedEntityType", "relatedEntityId"]),
+  recipientDeliveries: defineTable({
+    actionLabel: v.string(),
+    actionRequired: v.boolean(),
+    body: v.string(),
+    brokerageId: v.id("brokerages"),
+    createdAt: v.number(),
+    dedupeKey: v.string(),
+    entityId: v.string(),
+    entityLabel: v.string(),
+    entityType: v.string(),
+    href: v.string(),
+    organizationId: v.string(),
+    recipientWorkosUserId: v.string(),
+    resolutionMode: recipientDeliveryResolutionModeValidator,
+    sourceLabel: v.string(),
+    status: recipientDeliveryStatusValidator,
+    title: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_recipient", [
+      "organizationId",
+      "recipientWorkosUserId",
+      "createdAt",
+    ])
+    .index("by_recipient_dedupe", [
+      "organizationId",
+      "recipientWorkosUserId",
+      "dedupeKey",
+    ]),
+  operationsQueueHandoffs: defineTable({
+    acknowledgementState: operationsHandoffAcknowledgementStateValidator,
+    acknowledgedAt: v.optional(v.number()),
+    acknowledgedByWorkosUserId: v.optional(v.string()),
+    brokerageId: v.id("brokerages"),
+    createdAt: v.number(),
+    decisionPreview: v.string(),
+    escalatedByWorkosUserId: v.string(),
+    escalationReason: v.string(),
+    evidenceSummary: v.string(),
+    followUpAssignment: v.optional(v.string()),
+    organizationId: v.string(),
+    queueItemId: v.string(),
+    recommendation: v.string(),
+    requiredAction: v.string(),
+    returnDecision: v.optional(operationsHandoffReturnDecisionValidator),
+    returnedAt: v.optional(v.number()),
+    returnedByWorkosUserId: v.optional(v.string()),
+    returnReason: v.optional(v.string()),
+    targetHref: v.string(),
+    targetLabel: v.string(),
+    targetRecordId: v.string(),
+    targetType: v.string(),
+    updatedAt: v.number(),
+    warnings: v.array(v.string()),
+  })
+    .index("by_brokerage_queue_item", [
+      "brokerageId",
+      "queueItemId",
+      "createdAt",
+    ])
+    .index("by_organization_updated", ["organizationId", "updatedAt"]),
+  integrationEndpoints: defineTable({
+    activatedAt: v.optional(v.number()),
+    brokerageId: v.id("brokerages"),
+    createdAt: v.number(),
+    createdByWorkosUserId: v.string(),
+    disabledAt: v.optional(v.number()),
+    endpointUrl: v.string(),
+    eventTypes: v.array(v.string()),
+    name: v.string(),
+    organizationId: v.string(),
+    payloadVersion: v.string(),
+    revokedAt: v.optional(v.number()),
+    secretFingerprint: v.string(),
+    secretHash: v.string(),
+    secretVersion: v.number(),
+    status: integrationEndpointStatusValidator,
+    updatedAt: v.number(),
+    validatedAt: v.optional(v.number()),
+  })
+    .index("by_organization", ["organizationId", "createdAt"])
+    .index("by_brokerage_status", ["brokerageId", "status"]),
+  integrationDeliveryAttempts: defineTable({
+    attemptNumber: v.number(),
+    attemptedAt: v.number(),
+    brokerageId: v.id("brokerages"),
+    completedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    deliveryId: v.string(),
+    endpointId: v.id("integrationEndpoints"),
+    eventId: v.string(),
+    eventType: v.string(),
+    nextRetryAt: v.optional(v.number()),
+    organizationId: v.string(),
+    payloadVersion: v.string(),
+    responseCode: v.optional(v.number()),
+    retryOfAttemptId: v.optional(v.id("integrationDeliveryAttempts")),
+    safeError: v.optional(v.string()),
+    status: integrationDeliveryStatusValidator,
+    updatedAt: v.number(),
+  })
+    .index("by_organization_attempted", ["organizationId", "attemptedAt"])
+    .index("by_endpoint_attempted", ["endpointId", "attemptedAt"])
+    .index("by_event", ["organizationId", "eventId"]),
   calendarSavedViews: defineTable({
     brokerageId: v.id("brokerages"),
     createdAt: v.number(),
@@ -2693,6 +2915,7 @@ export default defineSchema({
       })
     ),
     timelineMinimumCashReserveCents: v.optional(v.number()),
+    borrowerStartingCashCents: v.optional(v.number()),
     timelineStartingCashCents: v.optional(v.number()),
     totalBudgetCents: v.number(),
     permitDocumentId: v.optional(v.id("proposalDocuments")),
@@ -2858,15 +3081,50 @@ export default defineSchema({
     organizationId: v.string(),
     buildId: v.id("activeBuilds"),
     proposalId: v.id("buildProposals"),
+    borrowerStartingCashCents: v.optional(v.number()),
+    // Deprecated migration source. Do not use as a revolving spending limit.
     borrowerWorkingCapitalLimitCents: v.number(),
     lenderDrawPolicyLimitCents: v.number(),
     borrowerCoPayBps: v.number(),
     version: v.number(),
-    source: v.literal("proposal_closing_copy"),
+    source: v.union(
+      v.literal("proposal_closing_copy"),
+      v.literal("approved_budget_revision")
+    ),
+    supersedesCapitalPlanId: v.optional(v.id("buildCapitalPlans")),
+    revisionRequestId: v.optional(v.id("activeBuildBudgetRevisionRequests")),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_build", ["buildId"])
+    .index("by_proposal", ["proposalId"]),
+  activeBuildBudgetRevisionRequests: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    proposalId: v.id("buildProposals"),
+    capitalPlanId: v.id("buildCapitalPlans"),
+    baseVersion: v.number(),
+    priorState: v.any(),
+    requestedPayload: v.any(),
+    varianceCents: v.number(),
+    reason: v.string(),
+    requestedByWorkosUserId: v.string(),
+    status: v.union(
+      v.literal("requested"),
+      v.literal("approved"),
+      v.literal("rejected")
+    ),
+    reviewNote: v.optional(v.string()),
+    reviewedAt: v.optional(v.number()),
+    reviewerWorkosUserId: v.optional(v.string()),
+    approvedCapitalPlanId: v.optional(v.id("buildCapitalPlans")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_build", ["buildId"])
+    .index("by_build_status", ["buildId", "status"])
+    .index("by_brokerage_status", ["brokerageId", "status"])
     .index("by_proposal", ["proposalId"]),
   activeBuildFacilityChangeRequests: defineTable({
     brokerageId: v.id("brokerages"),
@@ -2940,13 +3198,17 @@ export default defineSchema({
     name: v.string(),
     order: v.number(),
     budgetCents: v.optional(v.number()),
+    actualCostCents: v.optional(v.number()),
     startDay: v.optional(v.number()),
     durationDays: v.optional(v.number()),
+    fieldNote: v.optional(v.string()),
     status: v.union(
       v.literal("planned"),
       v.literal("in_progress"),
       v.literal("complete")
     ),
+    completedAt: v.optional(v.number()),
+    completedByWorkosUserId: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -3052,12 +3314,18 @@ export default defineSchema({
     siteVisitGuidance: v.optional(siteVisitGuidanceValidator),
     submilestoneKeys: v.optional(v.array(v.string())),
     completedAt: v.optional(v.string()),
+    locationAttempt: v.optional(siteVisitLocationAttemptValidator),
+    missingPrerequisites: v.optional(v.array(v.string())),
+    prerequisiteException: v.optional(siteVisitPrerequisiteExceptionValidator),
     recordNote: v.optional(v.string()),
     recordNoteFormat: v.optional(richTextFormatValidator),
     tokenConsumedAt: v.optional(v.number()),
     tokenExpiresAt: v.number(),
     tokenOpenedAt: v.optional(v.number()),
     url: v.string(),
+    workOrderId: v.optional(v.string()),
+    evidencePackageId: v.optional(v.string()),
+    scopeBoundAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -3065,6 +3333,20 @@ export default defineSchema({
     .index("by_build", ["buildId"])
     .index("by_build_milestone", ["buildId", "milestoneKey"])
     .index("by_visit", ["visitId"]),
+  siteVisitLinkRecoveryRequests: defineTable({
+    brokerageId: v.optional(v.id("brokerages")),
+    buildId: v.string(),
+    organizationId: v.optional(v.string()),
+    originalVisitId: v.string(),
+    reason: v.string(),
+    reference: v.string(),
+    requestedAt: v.number(),
+    source: v.union(v.literal("demo"), v.literal("production")),
+    status: v.literal("pending"),
+    tokenState: v.union(v.literal("consumed"), v.literal("expired")),
+  })
+    .index("by_reference", ["reference"])
+    .index("by_source_visit", ["source", "originalVisitId"]),
   capitalEvents: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),

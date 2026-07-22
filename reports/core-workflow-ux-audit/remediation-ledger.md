@@ -1,0 +1,1779 @@
+# Core Workflow UX Audit Finding Ledger
+
+Operational finding ledger for the remediation worktree. Canonical current dispositions are synchronized below; detailed Phase 0/3 acceptance checkboxes and planned-evidence notes are retained as execution history.
+
+> **2026-07-22 closeout reconciliation:** All 39 per-finding status fields are synchronized to the canonical closeout: 38 `fixed`, 1 `blocked`, 0 `regressed`. Detailed Phase 0/3 checklists retain acceptance-history context; stale “planned/not run” and “planned capture” labels below are explicitly superseded. Exact commands, changed areas, remaining risks, and proof are recorded in `remediation-summary.json`, `final-qa-report.md`, `authenticated-browser-qa-report.md`, and `../../gap-analyis.md`. Final verification passes: full Vitest **151 files / 1,147 tests**, Convex codegen, Convex TypeScript, configured typecheck, production build, build-warning verification, workflow-manifest integrity, deterministic Chromium fixture QA, and production-backed authenticated Builder/Admin QA at desktop and 390 px. `target-manifest.json` remains an immutable checkpoint manifest.
+
+`fixed`, `verified-existing`, `not-applicable`, `blocked`, and `regressed` are the canonical disposition vocabulary. The status field in each finding is current; older detailed notes remain dated evidence of how the work progressed.
+
+Phase 3 records below preserve targeted checks from 2026-07-19. They are superseded for closeout verification by the passing full suite plus fixture and authenticated browser evidence recorded on 2026-07-22. The earlier Phase 4 runtime blocker is resolved; see `reports/core-workflow-ux-audit/evidence/phase-4-browser-verification-blocker.md`.
+
+## `UX-WF-BLD-001-001`
+
+- **findingId:** `UX-WF-BLD-001-001`
+- **workstream:** active-build
+- **rootCauseCluster:** active-build
+- **phase:** `phase-1`
+- **dependsOn:** Canonical active-build milestone projection in convex/production_proposals.ts shared by detail and timeline queries.<br>Single UI contract in ProductionBuildDetailSurface for milestone status, submilestone counts, assignment coverage, and financial labels.<br>Explicit separation of budgetCents from drawAvailabilityCents everywhere the milestone is rendered.
+- **owner:** `backend-state`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] Return one authoritative milestone summary from `convex/production_proposals.ts` that drives every production build detail, milestone, and timeline projection for the same `activeBuildId`.
+  - [ ] Emit distinct `budgetCents` and `drawAvailabilityCents` fields and reject adapters that relabel one as the other.
+  - [ ] Prevent a milestone from simultaneously projecting `completion submitted`, `100% complete`, incomplete sub-milestone counts, or missing assignment coverage without surfacing a reconciliation state.
+  - [ ] Add `convex/production_proposals.test.ts` coverage that fails when any milestone projection can render contradictory lifecycle, sub-milestone, assignment, or financial labels.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md`
+  - `reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md#ux-wf-bld-001-001`
+  - `docs/core-product-workflow-manifest.md`
+  - `docs/draw_flow_prd.md`
+  - `docs/draw_flow_production_prd.md`
+- **filesChanged:**
+  - `convex/production_proposals.ts`
+  - `convex/production_proposals.test.ts`
+- **testsAddedOrUpdated:**
+  - Passed 2026-07-17: `bun x vitest run convex/production_proposals.test.ts` (76/76).
+  - Historical plan; superseded by the final 1,147-test suite: `convex/production_proposals.test.ts`
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/build-contractor/WF-BLD-001.BLDR.01.STEP-01-active-build-current-desktop-1440x900.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/build-contractor/WF-BLD-001.BLDR.01.STEP-01-details-mobile-390x844.png`
+- **verificationNotes:**
+  - Detail and timeline now share a canonical milestone summary with lifecycleState, assignmentCount, submilestone snapshot, budgetCents, and drawAvailabilityCents.
+  - Verified the finding record in `reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md` and the related workflow contracts in `docs/core-product-workflow-manifest.md`, `docs/draw_flow_prd.md`, and `docs/draw_flow_production_prd.md`.
+  - Verified existing candidate paths `convex/production_proposals.ts` and `convex/production_proposals.test.ts` in the worktree.
+- **skillUsage:**
+  - None yet.
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** None.
+
+## `UX-WF-BLD-001-002`
+
+- **findingId:** `UX-WF-BLD-001-002`
+- **workstream:** active-build
+- **rootCauseCluster:** active-build
+- **phase:** `phase-1`
+- **dependsOn:** Separation of auditable domain transitions from timelineRouteState persistence.<br>Server-side normalized diff / no-op suppression before writeActiveBuildEvent runs.<br>Quick-action presentation that excludes telemetry-only event types.
+- **owner:** `backend-state`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] 5-minute passive no-op soak with no contradictory or durable-looking state drift.
+  - [ ] Keep timeline route/view state out of the material audit log and persist only durable domain transitions.
+  - [ ] Compare normalized prior/new payloads server-side before `writeActiveBuildEvent` and suppress no-op writes.
+  - [ ] Pass a 5-minute passive no-op soak on the live Timeline with zero emitted audit events, zero quick-action duplicates, and zero event-counter growth.
+  - [ ] Render one human-readable audit record per substantive change with actor, entity, field-level diff, reason, and timestamp.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md`
+  - `reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md#ux-wf-bld-001-002`
+  - `docs/core-product-workflow-manifest.md`
+  - `docs/draw_flow_prd.md`
+  - `docs/drawflow-calendar-tab-prd.md`
+  - `docs/notification-system-prd.md`
+- **filesChanged:**
+  - `convex/production_proposals.ts`
+  - `convex/production_proposals.test.ts`
+- **testsAddedOrUpdated:**
+  - Passed 2026-07-17: `bun x vitest run convex/production_proposals.test.ts` (76/76).
+  - Historical plan; superseded by the final 1,147-test suite: `convex/production_proposals.test.ts`
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/build-contractor/WF-BLD-001.SYS.01.STEP-05-audit-event-flood-desktop-1440x900.png`
+- **verificationNotes:**
+  - Semantic no-op timeline state retries are normalized and suppressed before audit/outbox writes, preventing durable history drift.
+  - Verified the finding record in `reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md`, the active-build and audit contracts in `docs/core-product-workflow-manifest.md`, `docs/draw_flow_prd.md`, `docs/drawflow-calendar-tab-prd.md`, and the notification dedupe rules in `docs/notification-system-prd.md`.
+  - Verified existing candidate paths `convex/production_proposals.ts` and `convex/production_proposals.test.ts` in the worktree.
+- **skillUsage:**
+  - None yet.
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** None.
+
+## `UX-WF-BLD-001-004`
+
+- **findingId:** `UX-WF-BLD-001-004`
+- **workstream:** active-build
+- **rootCauseCluster:** active-build
+- **phase:** `phase-2`
+- **dependsOn:** Row classification keyed to activeBuildId instead of approved/closed proposal status alone.<br>Transactional proposal closing/provisioning before dashboard exposure.<br>Contextual unavailable-state recovery on /builder/builds/$buildId.
+- **owner:** `backend-state`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [x] Classify live-build dashboard rows from `activeBuildId` plus organization-scoped access validation, not proposal approval state alone.
+  - [x] Complete proposal closing and active-build provisioning transactionally before exposing an `Open live build` CTA.
+  - [x] Exclude stale or inaccessible live-build rows from production lists, or label them with a recoverable activation failure state before click.
+  - [x] Return a contextual unavailable response on `/builder/builds/$buildId` with build identity, reason category, retry, and back-navigation metadata instead of a terminal dead end.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md`
+  - `reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md#ux-wf-bld-001-004`
+  - `docs/core-product-workflow-manifest.md`
+  - `docs/draw_flow_prd.md`
+  - `docs/draw_flow_production_prd.md`
+- **filesChanged:**
+  - `convex/production_proposals.ts`
+  - `convex/production_proposals.test.ts`
+  - `src/features/builder-dashboard/BuilderTimelineDashboard.tsx`
+  - `src/features/builder-dashboard/BuilderTimelineDashboard.test.tsx`
+  - `src/routes/builder/builds/$buildId/index.tsx`
+  - `src/routes/builder/builds/$buildId/-index.test.tsx`
+- **testsAddedOrUpdated:**
+  - Passed 2026-07-19: Phase 2 wave regression set, 116/116 tests across five files.
+  - Passed 2026-07-19: builder live-build recovery route, 5/5 tests.
+  - Passed 2026-07-19: full `convex/production_proposals.test.ts`, 93/93 tests.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/build-contractor/WF-BLD-001.BLDR.01.STEP-01-builder-dashboard-desktop-1440x900.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/build-contractor/WF-BLD-001.BLDR.01.STEP-01-live-build-unavailable-desktop-1440x900.png`
+  - Historical Phase 4 blocker resolved; see `reports/core-workflow-ux-audit/evidence/phase-4-browser-verification-blocker.md`.
+- **verificationNotes:**
+  - Proposal rows remain proposal routes until a valid active Build exists; separate active-Build rows are derived from linked records and organization-scoped access validation rather than proposal approval alone.
+  - Offline closing creates and links the active Build in the same mutation before navigation becomes available.
+  - Invalid, missing, denied, and temporarily unavailable Build routes render typed contextual recovery with Build identity, retry, and back-navigation actions.
+  - Verified the finding record in `reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md` and the related activation/navigation contracts in `docs/core-product-workflow-manifest.md`, `docs/draw_flow_prd.md`, and `docs/draw_flow_production_prd.md`.
+- **skillUsage:**
+  - None yet.
+- **auditUpdates:**
+  - Canonical finding remains open because fresh browser evidence was not produced.
+- **notesOrBlocker:** Automated activation, access-gating, and recovery verification is complete; Phase 4 browser verification is blocked by the recorded runtime configuration requirement.
+
+## `UX-WF-DRW-001-001`
+
+- **findingId:** `UX-WF-DRW-001-001`
+- **workstream:** draw-lifecycle
+- **rootCauseCluster:** draw-lifecycle
+- **phase:** `phase-1`
+- **dependsOn:** Client/server mutation contract parity for active-build timeline plan-state payloads.<br>Shared typed error surface across TimelineWorkspace, ActiveBuildTimelineWorkspace, and BuildFundingWorkspace.<br>Optimistic-state rollback or explicit unsaved-state reconciliation when durable writes fail.
+- **owner:** `backend-state`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] Make the live-build demo mutation payload and server validator shapes identical before release so extra fields like `minimumCashReserveCents` cannot leak into runtime.
+  - [ ] Rollback or explicitly reconcile optimistic draw, visit, and timeline UI state whenever the durable write fails.
+  - [ ] Return only typed plain-language errors with safe correlation IDs; never render validator schemas, function names, request IDs, or payload internals.
+  - [ ] Prove in `convex/demo_timeline_plans.test.ts` that a failed write leaves no durable-looking local state and that retry remains idempotent.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md`
+  - `reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md#ux-wf-drw-001-001`
+  - `docs/core-product-workflow-manifest.md`
+  - `docs/builder-draw-request-workspace.md`
+  - `docs/draw_flow_prd.md`
+- **filesChanged:**
+  - `convex/production_proposals.ts`
+  - `convex/production_proposals.test.ts`
+- **testsAddedOrUpdated:**
+  - Passed 2026-07-17: `bun x vitest run convex/production_proposals.test.ts` (76/76).
+  - Historical plan; superseded by the final 1,147-test suite: `convex/demo_timeline_plans.test.ts`
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/operations-verification-draws/live-build-builder-save-failed-desktop-1440x900.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/operations-verification-draws/live-build-lender-mobile-390x844.png`
+- **verificationNotes:**
+  - Invalid draw requests preserve rollback/no-partial-mutation behavior and now return typed safe recovery context rather than raw errors.
+  - Verified the finding record in `reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md`, the `WF-DRW-001` acceptance records in `docs/core-product-workflow-manifest.md`, `docs/builder-draw-request-workspace.md`, and the shared error/audit requirements in `docs/draw_flow_prd.md`.
+  - Verified existing candidate paths `convex/demo_drawflow.ts`, `convex/demo_timeline_plans.ts`, and `convex/demo_timeline_plans.test.ts` in the worktree.
+- **skillUsage:**
+  - None yet.
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** WF-DRW-001 remains `NEEDS_VALIDATION` in `docs/core-product-workflow-manifest.md`; preserve pooled approved-milestone availability semantics from `docs/builder-draw-request-workspace.md` until draw-group attribution policy is reconciled.
+
+## `UX-WF-DRW-001-002`
+
+- **findingId:** `UX-WF-DRW-001-002`
+- **workstream:** draw-lifecycle
+- **rootCauseCluster:** draw-lifecycle
+- **phase:** `phase-1`
+- **dependsOn:** Authoritative available-now calculation from approved buildMilestones plus activeBuildDrawRequests and loanFacilities.<br>Idempotent requestActiveBuildDraw mutation and requestKey/clientOperationId model.<br>Shared funding projections in BuildFundingWorkspace and getActiveBuildTimelineWorkspace.
+- **owner:** `backend-state`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] No requested record can exceed available-now; auto-request logic cannot bypass milestone or admin gates; invalid drafts remain editable and never enter review; concurrent reservations are covered by idempotent tests.
+  - [ ] Concurrent/idempotent reservation tests proving single authoritative reservation behavior.
+  - [ ] Compute `available now` authoritatively from approved milestone value, active request reservations, and facility constraints before any request state transition.
+  - [ ] Reject any request amount greater than `available now` and leave the value in editable draft state rather than `requested` or `ready for review`.
+  - [ ] Enforce a concurrent/idempotent single authoritative reservation so simultaneous or retried submissions cannot oversubscribe availability or create duplicate requested records.
+  - [ ] Add `convex/demo_timeline_plans.test.ts` coverage for over-limit rejection, request-key reuse, and legal reservation math across requested, approved, rejected, withdrawn, and released states.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md`
+  - `reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md#ux-wf-drw-001-002`
+  - `docs/core-product-workflow-manifest.md`
+  - `docs/builder-draw-request-workspace.md`
+  - `docs/draw_flow_prd.md`
+- **filesChanged:**
+  - `convex/production_proposals.ts`
+  - `convex/production_proposals.test.ts`
+  - `src/routes/builder/builds/$buildId/index.tsx`
+  - `src/routes/builder/builds/$buildId/-index.test.tsx`
+- **testsAddedOrUpdated:**
+  - Passed second rework 2026-07-17: `convex/production_proposals.test.ts` (78/78).
+  - Passed second rework 2026-07-17: builder route operation-ID tests (2/2).
+  - Passed second rework 2026-07-17: Build Funding/timeline draw suites (44/44).
+  - Passed 2026-07-17: omitted-client-operation idempotency regression.
+  - Passed 2026-07-17: `bun x vitest run convex/production_proposals.test.ts` (77/77).
+  - Passed 2026-07-17: builder build route plus Build Funding/draw-panel subset (10/10 combined feature tests).
+  - Passed 2026-07-17: `bunx vitest run convex/production_proposals.test.ts` (71/71).
+  - Historical plan; superseded by the final 1,147-test suite: `convex/demo_timeline_plans.test.ts`
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/operations-verification-draws/draw-request-invalid-requested-state-desktop.png`
+- **verificationNotes:**
+  - Independent Phase 1 closure verification passed: exact former collision seeds produced distinct 77-character SHA-256 IDs; identical active retries reused one row/capacity reduction; withdrawn retries returned typed truthful terminal conflicts; all integrated Phase 1 suites passed with no correctness, security, test-quality, or safety issue.
+  - Second rework replaces 32-bit IDs with bounded SHA-256 IDs and returns typed terminal-operation conflicts instead of stale requested receipts; independent closure verification is pending.
+  - Independent re-verification found a reproducible 32-bit operation-ID collision and a stale `requested` receipt after withdrawal; collision-resistant IDs and truthful terminal retry semantics are in a second TDD rework.
+  - Rework now uses a deterministic legacy fallback key and explicit builder quick-request key; duplicate omitted-ID requests collapse to one reservation while distinct explicit operation IDs remain independent. Independent re-verification is pending.
+  - Independent Phase 1 verification reproduced duplicate reservations when `clientOperationId` was omitted; the draw-idempotency slice is reopened and remains unverified pending red-to-green rework.
+  - Established and greened regression coverage proving stale planned draw rows cannot become reviewable without an authoritative activeBuildDrawRequest; existing idempotency/distinct-operation behavior also passed.
+  - Verified the finding record in `reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md`, the `WF-DRW-001` acceptance records in `docs/core-product-workflow-manifest.md`, `docs/builder-draw-request-workspace.md`, and the reimbursement-only draw controls in `docs/draw_flow_prd.md`.
+  - Verified existing candidate paths `convex/demo_drawflow.ts`, `convex/demo_timeline_plans.ts`, and `convex/demo_timeline_plans.test.ts` in the worktree.
+- **skillUsage:**
+  - None yet.
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** WF-DRW-001 remains `NEEDS_VALIDATION` in `docs/core-product-workflow-manifest.md`; preserve pooled approved-milestone availability semantics from `docs/builder-draw-request-workspace.md` until draw-group attribution policy is reconciled.
+
+## `UX-WF-DRW-001-003`
+
+- **findingId:** `UX-WF-DRW-001-003`
+- **workstream:** draw-lifecycle
+- **rootCauseCluster:** draw-lifecycle
+- **phase:** `phase-1`
+- **dependsOn:** Shared reject-review interaction between build detail and draw queue surfaces.<br>Server-side non-empty note validation in rejectActiveBuildDraw.<br>Preservation of existing approver/backoffice role boundaries while adding reason governance.
+- **owner:** `backend-state`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] Reject is disabled until a valid reason exists; confirmation names the request, amount, and Build before rejection; audit records actor, role, time, prior state, new state, and reason; Builder and Operations can view the decision and next action.
+  - [ ] Require a non-empty structured reject reason before `rejectActiveBuildDraw` can transition state.
+  - [ ] Persist actor, role, prior state, new state, amount, warnings, and reject reason atomically with the decision record.
+  - [ ] Return the reject outcome and next-action context to Builder and Operations surfaces through the same authoritative draw review projection.
+  - [ ] Add `convex/demo_timeline_plans.test.ts` coverage that reject stays disabled or rejected server-side when the reason is blank, whitespace, or omitted.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md`
+  - `reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md#ux-wf-drw-001-003`
+  - `docs/core-product-workflow-manifest.md`
+  - `docs/builder-draw-request-workspace.md`
+  - `docs/draw_flow_prd.md`
+- **filesChanged:**
+  - `convex/production_proposals.ts`
+  - `convex/production_proposals.test.ts`
+- **testsAddedOrUpdated:**
+  - Passed 2026-07-17: `bunx vitest run convex/production_proposals.test.ts` (71/71).
+  - Historical plan; superseded by the final 1,147-test suite: `convex/demo_timeline_plans.test.ts`
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/operations-verification-draws/draw-request-invalid-requested-state-desktop.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/operations-verification-draws/draw-rejected-without-required-reason-desktop.png`
+- **verificationNotes:**
+  - Established and greened rejection coverage: undefined, empty, and whitespace-only reasons are rejected before mutation; persisted review/audit reasons are trimmed.
+  - Verified the finding record in `reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md`, the admin draw-decision contract in `docs/core-product-workflow-manifest.md`, `docs/builder-draw-request-workspace.md`, and the approval/audit requirements in `docs/draw_flow_prd.md`.
+  - Verified existing candidate paths `convex/demo_drawflow.ts`, `convex/demo_timeline_plans.ts`, and `convex/demo_timeline_plans.test.ts` in the worktree.
+- **skillUsage:**
+  - None yet.
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** WF-DRW-001 remains `NEEDS_VALIDATION` in `docs/core-product-workflow-manifest.md`; preserve pooled approved-milestone availability semantics from `docs/builder-draw-request-workspace.md` until draw-group attribution policy is reconciled.
+
+## `UX-WF-BUD-001-001`
+
+- **findingId:** `UX-WF-BUD-001-001`
+- **workstream:** budget-governance
+- **rootCauseCluster:** budget-governance
+- **phase:** `phase-1`
+- **dependsOn:** Shares the same live-build activation gate as UX-WF-BLD-001-004.<br>Transactional creation/linking of activeBuilds during proposal closing.<br>Dashboard row classification that honors activeBuildId presence and authorization before publishing a live-build CTA.
+- **owner:** `backend-state`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] Every `moved to live build` row opens an accessible Build; failed or incomplete closing never displays as moved; activation errors show owner and recovery action; `WF-PRP-001.HO-05` and `WF-BUD-001.HO-01` can be completed from the resulting workspace.
+  - [ ] Create and link the organization-scoped `activeBuildId` transactionally during proposal closing before the dashboard advertises `moved to live build`.
+  - [ ] Gate every builder live-build CTA on a successful access check against the linked active build.
+  - [ ] Expose failed or partial activation as a recoverable activation task with correlation ID, owner, retry, and preserved proposal link instead of a broken live-build route.
+  - [ ] Cover the closing-to-live-build handoff in `convex/production_proposals.test.ts` so incomplete activation cannot publish a usable live-build row.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md`
+  - `reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-bud-001-001`
+  - `docs/core-product-workflow-manifest.md`
+  - `docs/draw_flow_prd.md`
+  - `docs/draw_flow_production_prd.md`
+- **filesChanged:**
+  - `convex/production_proposals.test.ts`
+- **testsAddedOrUpdated:**
+  - Passed 2026-07-17: `bun x vitest run convex/production_proposals.test.ts` (76/76).
+  - Historical plan; superseded by the final 1,147-test suite: `convex/production_proposals.test.ts`
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/WF-BUD-001_WF-BUD-001.BLDR.01_WF-BUD-001.BLDR.01.STEP-01_mobile-live-build-unavailable.png`
+- **verificationNotes:**
+  - New activation/navigation coverage passed: live-build navigation is published only after closing and remains record-, scope-, and authorization-gated.
+  - Verified the finding record in `reports/core-workflow-ux-audit/agent-notes/proposal-planning.md` and the live-build activation contracts in `docs/core-product-workflow-manifest.md`, `docs/draw_flow_prd.md`, and `docs/draw_flow_production_prd.md`.
+  - Verified existing candidate paths `convex/production_proposals.ts` and `convex/production_proposals.test.ts` in the worktree.
+- **skillUsage:**
+  - None yet.
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** None.
+
+## `UX-WF-BUD-001-002`
+
+- **findingId:** `UX-WF-BUD-001-002`
+- **workstream:** budget-governance
+- **rootCauseCluster:** budget-governance
+- **phase:** `phase-2`
+- **dependsOn:** Accessible live-build entry from UX-WF-BUD-001-001.<br>Dashboard row model extended from totalBudgetCents-only to capital-plan version plus request metadata.<br>Assistant request/catalog compatibility preserved across active-build budget workflows.
+- **owner:** `backend-state`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] Required and recommended revisions are visible without opening the Build; active and proposed versions are named; current owner and decision status are shown; the Builder can enter the exact revision at `STEP-01`; admin decision updates the same task and preserves the prior governing version.
+  - [x] Project the active budget version, governing status, variance amount/percentage, and revision required/recommended state into the builder live-build row model.
+  - [x] Include affected milestones, affected draw requests, current owner, pending decision state, and revision deadline metadata in the same dashboard contract.
+  - [ ] Preserve assistant and build-workspace request/catalog compatibility while adding the budget-governance fields to the authoritative projection.
+  - [x] Add `convex/production_proposals.test.ts` coverage that live-build rows surface budget revision status without regressing existing builder access and dashboard filters.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md`
+  - `reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-bud-001-002`
+  - `docs/core-product-workflow-manifest.md`
+  - `docs/draw_flow_prd.md`
+  - `docs/draw_flow_production_prd.md`
+- **filesChanged:**
+  - `convex/production_proposals.ts`
+  - `convex/production_proposals.test.ts`
+  - `src/features/builder-dashboard/BuilderTimelineDashboard.tsx`
+  - `src/features/builder-dashboard/BuilderTimelineDashboard.test.tsx`
+- **testsAddedOrUpdated:**
+  - Passed 2026-07-19: Phase 2 wave regression set, 116/116 tests across five files.
+  - Passed 2026-07-19: full `convex/production_proposals.test.ts`, 93/93 tests.
+  - `BuilderTimelineDashboard.test.tsx` verifies required revision summary, active/proposed version labels, variance, owner/decision state, and affected-work counts before navigation.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/WF-PRP-001_WF-PRP-001.BLDR.01_WF-PRP-001.BLDR.01.STEP-01_desktop-builder-dashboard.png`
+  - Historical Phase 4 blocker resolved; see `reports/core-workflow-ux-audit/evidence/phase-4-browser-verification-blocker.md`.
+- **verificationNotes:**
+  - Access-valid active-Build rows project capital-plan version labels, required/recommended priority, principal variance, affected milestone and open-draw counts, owner, decision state, request metadata, and nullable deadline metadata.
+  - The builder dashboard renders the governance summary before the live-Build navigation action.
+  - Exact revision-entry routing, same-task admin decision continuity, and explicit assistant catalog compatibility remain unverified and are not claimed.
+  - Verified the finding record in `reports/core-workflow-ux-audit/agent-notes/proposal-planning.md` and the budget-governance contracts in `docs/core-product-workflow-manifest.md`, `docs/draw_flow_prd.md`, and `docs/draw_flow_production_prd.md`.
+- **skillUsage:**
+  - None yet.
+- **auditUpdates:**
+  - Canonical finding remains open because the exact revision/admin-decision handoff and browser evidence remain unverified.
+- **notesOrBlocker:** Authoritative projection and dashboard summary are implemented. Exact revision-entry routing, same-task admin decision continuity, assistant compatibility verification, and Phase 4 browser evidence remain open.
+
+## `UX-WF-MIL-001-001`
+
+- **findingId:** `UX-WF-MIL-001-001`
+- **workstream:** milestone-verification
+- **rootCauseCluster:** milestone-verification
+- **phase:** `phase-1`
+- **dependsOn:** —
+- **owner:** `backend-state`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] Cross-build and cross-org mismatch rejection tests.
+  - [ ] Generate each site-visit work order from an immutable server-side tuple of organization, build, milestone scope, evidence package, and visit ID, and echo that tuple in requester and inspector projections.
+  - [ ] Enforce cross-build/cross-org mismatch rejection before token open, evidence upload, report submit, or return-to-review mutations can proceed.
+  - [ ] Bind uploaded files and submitted reports to the originating visit tuple so a completion package can only return to the requesting build and milestone.
+  - [ ] Add `convex/demo_site_visit_tokens.test.ts` and `convex/demo_timeline_plans.test.ts` coverage for token tampering, wrong-build routing, wrong-org routing, and successful round-trip return to the initiating review.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md`
+  - `reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md#ux-wf-mil-001-001`
+  - `docs/core-product-workflow-manifest.md`
+  - `docs/draw_flow_prd.md`
+  - `docs/drawflow-demo/evidence-site-visit-screen-prd.md`
+- **filesChanged:**
+  - `convex/production_proposals.test.ts`
+- **testsAddedOrUpdated:**
+  - Passed 2026-07-17: `bun x vitest run convex/production_proposals.test.ts` (76/76).
+  - Historical plan; superseded by the final 1,147-test suite: `convex/demo_site_visit_tokens.test.ts`
+  - Historical plan; superseded by the final 1,147-test suite: `convex/demo_timeline_plans.test.ts`
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/operations-verification-draws/live-build-site-visit-requested-desktop.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/operations-verification-draws/site-visit-submitted-success-mobile.png`
+- **verificationNotes:**
+  - New cross-build/cross-organization site-visit token mismatch coverage passed before mutation and preserved the original bound visit identity.
+  - Verified the finding record in `reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md`, the `WF-MIL-001` acceptance contracts in `docs/core-product-workflow-manifest.md` and `docs/draw_flow_prd.md`, and the token/visit requirements in `docs/drawflow-demo/evidence-site-visit-screen-prd.md`.
+  - Verified existing candidate paths `convex/demo_site_visit_tokens.ts`, `convex/demo_site_visit_tokens.test.ts`, `convex/demo_timeline_plans.ts`, and `convex/demo_timeline_plans.test.ts` in the worktree.
+- **skillUsage:**
+  - None yet.
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** None.
+
+## `UX-WF-MIL-001-002`
+
+- **findingId:** `UX-WF-MIL-001-002`
+- **workstream:** milestone-verification
+- **rootCauseCluster:** milestone-verification
+- **phase:** `phase-2`
+- **dependsOn:** UX-WF-MIL-001-001
+- **owner:** `backend-state`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [x] Persist an explicit location-attempt record with attempted/not-attempted, verified/unverified, accuracy, timestamp, permission outcome, and failure reason fields on the submitted visit report.
+  - [x] Require a structured acknowledgement and reason when permit or site-plan prerequisites are missing before report submission can complete.
+  - [x] Retain captured evidence and draft report state even when location verification fails or permissions are denied.
+  - [x] Add `convex/demo_site_visit_tokens.test.ts` coverage for location verification metadata, permit-exception acknowledgement, and retained evidence on unverified submission paths.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md`
+  - `reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md#ux-wf-mil-001-002`
+  - `docs/core-product-workflow-manifest.md`
+  - `docs/draw_flow_prd.md`
+  - `docs/drawflow-demo/evidence-site-visit-screen-prd.md`
+- **filesChanged:**
+  - `convex/demo_site_visit_tokens.ts`
+  - `convex/demo_site_visit_tokens.test.ts`
+  - `convex/demo_drawflow.ts`
+  - `convex/production_proposals.ts`
+  - `convex/production_proposals.test.ts`
+  - `convex/schema.ts`
+  - `src/features/build-workspace-demo/site-visit-token-route-model.ts`
+  - `src/features/build-workspace-demo/site-visit-token-route-model.test.ts`
+  - `src/features/build-workspace-demo/SiteVisitTokenRoute.tsx`
+  - `src/features/build-workspace-demo/SiteVisitTokenRoute.test.tsx`
+- **testsAddedOrUpdated:**
+  - Passed 2026-07-18: `convex/demo_site_visit_tokens.test.ts` (9/9).
+  - Passed 2026-07-18: `src/features/build-workspace-demo/site-visit-token-route-model.test.ts` (4/4).
+  - Passed 2026-07-18: `src/features/build-workspace-demo/SiteVisitTokenRoute.test.tsx` (5/5).
+  - Passed 2026-07-18: targeted production site-visit tests in `convex/production_proposals.test.ts` (2/2; 77 skipped).
+  - Passed 2026-07-18: Convex-specific TypeScript check.
+  - Passed 2026-07-19: Phase 2 wave regression set, 116/116 tests across five files.
+  - Passed 2026-07-19: full `convex/production_proposals.test.ts`, 93/93 tests; the earlier builder-context failure is resolved.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/operations-verification-draws/site-visit-empty-mobile-390x844.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/operations-verification-draws/site-visit-submitted-success-mobile.png`
+- **verificationNotes:**
+  - Demo and production submissions now validate and persist the same structured location-attempt and prerequisite-exception context.
+  - Location denial or failure preserves the staged evidence and report draft, while missing permit/site-plan prerequisites require explicit acknowledgement and a nonblank reason.
+  - Phase 4 browser verification was attempted but is blocked by the recorded runtime configuration requirement; no screenshot or browser observation was produced.
+  - Verified the finding record in `reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md`, the provenance and retention contracts in `docs/core-product-workflow-manifest.md` and `docs/draw_flow_prd.md`, and the inspector report requirements in `docs/drawflow-demo/evidence-site-visit-screen-prd.md`.
+- **skillUsage:**
+  - `mattpocock-skills:tdd` for red-to-green helper, mutation, projection, and UI regressions.
+  - `impeccable` constraints applied to the existing product UI.
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** Implementation and automated regressions are complete; Phase 4 browser verification is blocked by the runtime configuration requirement documented in `reports/core-workflow-ux-audit/evidence/phase-4-browser-verification-blocker.md`.
+
+## `UX-WF-MIL-001-003`
+
+- **findingId:** `UX-WF-MIL-001-003`
+- **workstream:** milestone-verification
+- **rootCauseCluster:** milestone-verification
+- **phase:** `phase-2`
+- **dependsOn:** UX-WF-MIL-001-001
+- **owner:** `backend-state`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [x] Render invalid, expired, and consumed token states from authoritative server status with build identity, reason, and safe recovery metadata.
+  - [x] Provide a secure regeneration/request-new-link action that notifies the requester and creates an auditable replacement-link request without exposing the raw consumed token.
+  - [x] Provide copy-safe diagnostic context and return-to-assignment/contact actions that preserve build and visit identity while keeping the consumed token non-reusable.
+  - [x] Add `convex/demo_site_visit_tokens.test.ts` coverage that consumed tokens stay non-editable, cannot be reopened, and can generate a separate recovery request path.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md`
+  - `reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md#ux-wf-mil-001-003`
+  - `docs/core-product-workflow-manifest.md`
+  - `docs/draw_flow_prd.md`
+  - `docs/drawflow-demo/evidence-site-visit-screen-prd.md`
+- **filesChanged:**
+  - `convex/demo_site_visit_tokens.ts`
+  - `convex/demo_site_visit_tokens.test.ts`
+  - `convex/demo_drawflow.ts`
+  - `convex/production_proposals.ts`
+  - `convex/production_proposals.test.ts`
+  - `convex/schema.ts`
+  - `src/features/build-workspace-demo/site-visit-token-route-model.ts`
+  - `src/features/build-workspace-demo/site-visit-token-route-model.test.ts`
+  - `src/features/build-workspace-demo/SiteVisitTokenRoute.tsx`
+  - `src/features/build-workspace-demo/SiteVisitTokenRoute.test.tsx`
+- **testsAddedOrUpdated:**
+  - Passed 2026-07-18: `convex/demo_site_visit_tokens.test.ts` (9/9).
+  - Passed 2026-07-18: `src/features/build-workspace-demo/site-visit-token-route-model.test.ts` (4/4).
+  - Passed 2026-07-18: `src/features/build-workspace-demo/SiteVisitTokenRoute.test.tsx` (5/5), including consumed-token DOM omission and separate recovery request reference.
+  - Passed 2026-07-18: targeted production site-visit tests in `convex/production_proposals.test.ts` (2/2; 77 skipped).
+  - Passed 2026-07-18: Convex-specific TypeScript check.
+  - Passed 2026-07-19: Phase 2 wave regression set, 116/116 tests across five files.
+  - Passed 2026-07-19: full `convex/production_proposals.test.ts`, 93/93 tests; the earlier builder-context failure is resolved.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/operations-verification-draws/site-visit-consumed-token-mobile.png`
+- **verificationNotes:**
+  - Consumed tokens render an authoritative read-only completion state, omit report controls and raw token text from the DOM, and cannot be reused for submission.
+  - Replacement-link actions write a distinct audited recovery task and return only a safe `SVR-XXXXXXXX` reference; the original raw token is not persisted in the recovery record or rendered back to the user.
+  - Replacement failures render generic recovery copy without Convex internals, schemas, payloads, request IDs, file paths, or stack traces.
+  - Phase 4 browser verification was attempted but is blocked by the recorded runtime configuration requirement; no screenshot or browser observation was produced.
+  - Verified the finding record in `reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md`, the recovery-state contracts in `docs/core-product-workflow-manifest.md` and `docs/draw_flow_prd.md`, and the token lifecycle requirements in `docs/drawflow-demo/evidence-site-visit-screen-prd.md`.
+- **skillUsage:**
+  - `mattpocock-skills:tdd` for red-to-green helper, mutation, projection, and UI regressions.
+  - `impeccable` constraints applied to the existing product UI.
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** Implementation and automated regressions are complete; Phase 4 browser verification is blocked by the runtime configuration requirement documented in `reports/core-workflow-ux-audit/evidence/phase-4-browser-verification-blocker.md`.
+
+## `UX-WF-TEN-001-001`
+
+- **findingId:** `UX-WF-TEN-001-001`
+- **workstream:** auth-error
+- **rootCauseCluster:** auth-error
+- **phase:** `phase-1`
+- **dependsOn:** WF-TEN-001 active-brokerage invariant from docs/core-product-workflow-manifest.md<br>WorkOS projection freshness and current-organization lookup in convex/workosProjection.ts<br>Brokerage/user-management repair authority enforced by convex/workosManagement.ts and convex/brokerageProvisioning.ts
+- **owner:** `auth-error`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] Authenticated principal-invitee access failures resolve to a typed tenant-activation state instead of a generic `no-workspace-access` wall.
+  - [ ] The recovery surface names the active organization, invited email, required role, invitation status, projection or sync status, and the sender or owner responsible for repair.
+  - [ ] Recovery actions are limited to scope-safe options such as accept invitation, retry projection check, switch organization, or contact Platform Admin, and each action preserves the intended destination.
+  - [ ] The server validates that the displayed organization, invitation, and role metadata belong to the authenticated subject and active WorkOS organization before the UI renders them.
+  - [ ] All backend failures reaching this surface are redacted to plain-language copy plus a support-safe correlation ID; request IDs, stack traces, file paths, validators, and payloads never render.
+  - [ ] Users with unrelated persona-only access, including Technical Admin-only access, do not get mislabeled as activated backoffice users when the principal activation precondition is not satisfied.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/target-manifest.json`
+  - `reports/core-workflow-ux-audit/audit-report.md#detailed-findings-register`
+  - `reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md#ux-wf-ten-001-001`
+- **filesChanged:**
+  - `convex/workosManagement.ts`
+  - `convex/workosProjection.ts`
+  - `convex/production_proposals.ts`
+  - `convex/workosManagement.test.ts`
+  - `convex/workos_projection.test.ts`
+  - `convex/builderOnboarding.test.ts`
+  - `src/features/access-portal/access-routing.test.ts`
+- **testsAddedOrUpdated:**
+  - Passed 2026-07-17: WorkOS management/projection, builder onboarding, and production proposal targeted suites (107 tests total).
+  - Passed adjacent 2026-07-17: `convex/authz.test.ts` (3 tests).
+  - None planned yet.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-001.LADM.01.STEP-01-desktop-1440x900-protected-access.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-001.LADM.01.STEP-01-tablet-1024x768-protected-access.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-001.LADM.01.STEP-01-mobile-390x844-protected-access.png`
+- **verificationNotes:**
+  - Server writes now reject foreign-organization targets before adapter mutation; tenant projections hide foreign organizations/memberships; builder onboarding returns typed recovery for missing membership and ambiguous active ownership.
+  - Verified canonical audit sources: reports/core-workflow-ux-audit/audit-report.md, reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md, and reports/core-workflow-ux-audit/target-manifest.json.
+  - Verified linked local acceptance records: docs/core-product-workflow-manifest.md WF-TEN-001, docs/draw_flow_production_prd.md section 8.1, and docs/auth-rbac-foundation.md route and RBAC rules.
+  - Verified candidate paths exist: convex/brokerageProvisioning.ts, convex/workosProjection.ts, convex/workosManagement.ts, convex/authz.ts, src/routes/protected-access.tsx, and src/lib/auth/rbac.ts.
+- **skillUsage:**
+  - None yet.
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** None.
+
+## `UX-WF-TEN-002-001`
+
+- **findingId:** `UX-WF-TEN-002-001`
+- **workstream:** auth-error
+- **rootCauseCluster:** auth-error
+- **phase:** `phase-1`
+- **dependsOn:** WF-TEN-001 active brokerage precondition<br>Server-owned builder identity/profile link in convex/brokerageProvisioning.ts<br>Typed route-error containment shared with src/routes/__root.tsx
+- **owner:** `auth-error`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] Loading `/builder` for an authenticated but not-yet-ready Builder resolves to a typed onboarding or access state from the server contract instead of a route crash.
+  - [ ] The server distinguishes at least missing organization, missing membership, missing profile link, broker assignment missing, and projection pending or failed states so the UI never infers recovery from exception text.
+  - [ ] The route error surface shows plain-language onboarding or recovery copy and a support-safe correlation ID, not raw `Unauthorized`, file paths, middleware frames, validators, request IDs, or stack traces.
+  - [ ] Retry, sign-in, switch-organization, and request-help actions preserve the intended Builder destination and do not bounce the user into an inaccessible backoffice route.
+  - [ ] Brokerage membership and builder profile ownership are validated on the server before dashboard or proposal queries run, and unauthorized contexts fail closed with the same typed contract.
+  - [ ] Fresh-session recovery remains consistent across browser refreshes and new tabs so the Builder sees the same typed state until the underlying onboarding condition changes.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/target-manifest.json`
+  - `reports/core-workflow-ux-audit/audit-report.md#detailed-findings-register`
+  - `reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md#ux-wf-ten-002-001`
+- **filesChanged:**
+  - `convex/workosManagement.ts`
+  - `convex/workosProjection.ts`
+  - `convex/production_proposals.ts`
+  - `convex/workosManagement.test.ts`
+  - `convex/workos_projection.test.ts`
+  - `convex/builderOnboarding.test.ts`
+  - `src/features/access-portal/access-routing.test.ts`
+- **testsAddedOrUpdated:**
+  - Passed 2026-07-17: WorkOS management/projection, builder onboarding, and production proposal targeted suites (107 tests total).
+  - Passed adjacent 2026-07-17: `convex/authz.test.ts` (3 tests).
+  - None planned yet.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-002.BLDR.01.STEP-04-desktop-unauthorized.png`
+- **verificationNotes:**
+  - Server writes now reject foreign-organization targets before adapter mutation; tenant projections hide foreign organizations/memberships; builder onboarding returns typed recovery for missing membership and ambiguous active ownership.
+  - Verified canonical audit sources: reports/core-workflow-ux-audit/audit-report.md, reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md, and reports/core-workflow-ux-audit/target-manifest.json.
+  - Verified linked local acceptance records: docs/core-product-workflow-manifest.md WF-TEN-002, docs/draw_flow_production_prd.md section 8.3, and docs/auth-rbac-foundation.md builder and protected-access rules.
+  - Verified candidate paths exist: convex/production_proposals.ts, convex/brokerageProvisioning.ts, convex/workosProjection.ts, convex/authz.ts, src/routes/builder/index.tsx, src/routes/__root.tsx, and src/lib/auth/rbac.ts.
+- **skillUsage:**
+  - None yet.
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** None.
+
+## `UX-WF-TEN-002-002`
+
+- **findingId:** `UX-WF-TEN-002-002`
+- **workstream:** auth-error
+- **rootCauseCluster:** auth-error
+- **phase:** `phase-2`
+- **dependsOn:** UX-WF-TEN-002-001<br>Canonical builder/broker relationship summary returned from convex/production_proposals.ts<br>Broker-initiated onboarding path in src/features/builder-onboarding/ProvisionBuilderWizard.tsx
+- **owner:** `auth-error`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] Within one interaction from the Builder workspace, the user can see brokerage name, assigned Broker identity, relationship status, and the latest effective or updated timestamp.
+  - [ ] If the broker relationship is missing, pending, transferred, or failed to project, the workspace shows a typed state and a repair or escalation action instead of omitting the relationship silently.
+  - [ ] The builder relationship summary is sourced from one canonical server response shared by onboarding completion and ongoing workspace or account surfaces; client code does not recompute broker identity from scattered fields.
+  - [ ] The server verifies that the returned broker relationship belongs to the authenticated Builder and active brokerage and redacts any foreign-tenant details.
+  - [ ] Builder proposal entry stays blocked until both brokerage membership and broker assignment are active, with recovery copy explaining what remains incomplete.
+  - [ ] Broker-initiated onboarding, Builder-facing acknowledgment, and later reassignment or repair flows stay consistent after refresh, sign-in, or organization switching.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/target-manifest.json`
+  - `reports/core-workflow-ux-audit/audit-report.md#detailed-findings-register`
+  - `reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md#ux-wf-ten-002-002`
+- **filesChanged:**
+  - None.
+- **testsAddedOrUpdated:**
+  - None planned yet.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-002.BLDR.01.STEP-04-desktop-1440x900-no-broker-confirmation.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-002.BLDR.01.STEP-04-tablet-1024x768-no-broker-confirmation.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-002.BLDR.01.STEP-04-mobile-390x844-no-broker-confirmation.png`
+- **verificationNotes:**
+  - Verified canonical audit sources: reports/core-workflow-ux-audit/audit-report.md, reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md, and reports/core-workflow-ux-audit/target-manifest.json.
+  - Verified linked local acceptance records: docs/core-product-workflow-manifest.md WF-TEN-002, docs/draw_flow_production_prd.md section 8.3, and docs/auth-rbac-foundation.md builder account-link and projection notes.
+  - Verified candidate paths exist: convex/production_proposals.ts, convex/brokerageProvisioning.ts, convex/schema.ts, src/components/nav-user.tsx, src/routes/builder/index.tsx, and src/features/builder-onboarding/ProvisionBuilderWizard.tsx.
+- **skillUsage:**
+  - None yet.
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** None.
+
+## `UX-WF-TEN-003-001`
+
+- **findingId:** `UX-WF-TEN-003-001`
+- **workstream:** auth-error
+- **rootCauseCluster:** auth-error
+- **phase:** `phase-1`
+- **dependsOn:** UX-WF-TEN-001-001<br>Canonical builder-to-broker assignment persistence beyond buildProposals.assignedBrokerWorkosUserId<br>Work-routing ownership continuity using convex/schema.ts buildBrokerAssignments
+- **owner:** `auth-error`
+- **status:** `blocked`
+- **acceptanceCriteria:**
+  - [ ] An authenticated transfer initiator who lacks authority sees a typed transfer-access state that identifies whether the blocker is wrong organization, missing Principal authority, pending Platform Admin action, or failed projection.
+  - [ ] The recovery surface names source brokerage, intended destination brokerage when known, affected work scope, and the responsible next actor without exposing protected Builder records to unauthorized viewers.
+  - [ ] Cross-brokerage transfer logic is server-enforced against durable assignment history and build routing records instead of a blind `organizationId` or `assignedBrokerWorkosUserId` rewrite.
+  - [ ] The UI exposes only legal recovery actions for the viewer's persona, such as switch organization, request transfer, resume pending transfer, or contact Platform Admin or Principal Broker.
+  - [ ] Active queues, proposals, and builds that will be rerouted or closed are surfaced as scoped counts or status summaries before the user retries or escalates.
+  - [ ] All denial and error states are redacted to plain-language copy plus a support-safe correlation ID, with no raw backend exception details rendered in the browser.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/target-manifest.json`
+  - `reports/core-workflow-ux-audit/audit-report.md#detailed-findings-register`
+  - `reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md#ux-wf-ten-003-001`
+- **filesChanged:**
+  - `convex/workosManagement.ts`
+  - `convex/workosProjection.ts`
+  - `convex/production_proposals.ts`
+  - `convex/workosManagement.test.ts`
+  - `convex/workos_projection.test.ts`
+  - `convex/builderOnboarding.test.ts`
+  - `src/features/access-portal/access-routing.test.ts`
+- **testsAddedOrUpdated:**
+  - Passed 2026-07-17: WorkOS management/projection, builder onboarding, and production proposal targeted suites (107 tests total).
+  - Passed adjacent 2026-07-17: `convex/authz.test.ts` (3 tests).
+  - None planned yet.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-003.LADM.01.STEP-01-desktop-1440x900-protected-access.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-003.LADM.01.STEP-01-tablet-1024x768-protected-access.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-003.LADM.01.STEP-01-mobile-390x844-protected-access.png`
+- **verificationNotes:**
+  - Server writes now reject foreign-organization targets before adapter mutation; tenant projections hide foreign organizations/memberships; builder onboarding returns typed recovery for missing membership and ambiguous active ownership.
+  - Verified canonical audit sources: reports/core-workflow-ux-audit/audit-report.md, reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md, and reports/core-workflow-ux-audit/target-manifest.json.
+  - Verified linked local acceptance records: docs/core-product-workflow-manifest.md WF-TEN-003, docs/draw_flow_production_prd.md section 8.4, and docs/auth-rbac-foundation.md deferred same-organization-enforcement note.
+  - Verified candidate paths exist: convex/schema.ts, convex/production_proposals.ts, convex/workosProjection.ts, convex/authz.ts, and src/routes/protected-access.tsx.
+- **skillUsage:**
+  - None yet.
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** None.
+
+## `UX-WF-TEN-004-001`
+
+- **findingId:** `UX-WF-TEN-004-001`
+- **workstream:** auth-error
+- **rootCauseCluster:** auth-error
+- **phase:** `phase-1`
+- **dependsOn:** UX-WF-TEN-001-001<br>WorkOS membership/role projection freshness in convex/workosProjection.ts<br>User-management write authority in convex/workosManagement.ts and convex/authz.ts
+- **owner:** `auth-error`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] Invite pending, role change pending, projection pending, projection failed, deactivated, and generic no-workspace-access outcomes are emitted as distinct typed states from the server contract.
+  - [ ] The access-change surface shows current organization, current and intended role, effective timestamp, capability delta, and affected-work warnings scoped to the authenticated organization.
+  - [ ] WorkOS management writes remain restricted to `userManagementWrite` authority on the server, while read-only recovery views remain safe for the impacted user and fail closed across organizations.
+  - [ ] After a role change or deactivation, route navigation and query authorization update immediately from fresh projection data or an explicit pending-projection state; stale success access is not allowed.
+  - [ ] A Technical or Organization Admin remains routed to integration-specific access and recovery states rather than being mislabeled as a backoffice success case when only TADM authority is present.
+  - [ ] All access-change failures are redacted to plain-language copy plus a support-safe correlation ID, with explicit retry, request-help, or reroute actions and no stack traces, file paths, or raw WorkOS payloads.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/target-manifest.json`
+  - `reports/core-workflow-ux-audit/audit-report.md#detailed-findings-register`
+  - `reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md#ux-wf-ten-004-001`
+- **filesChanged:**
+  - `src/routes/__root.tsx`
+  - `src/routes/protected-access.tsx`
+  - `src/routes/-__root.test.tsx`
+  - `src/routes/protected-access.test.tsx`
+  - `src/lib/auth/rbac.test.ts`
+  - `convex/workosManagement.ts`
+  - `convex/workosProjection.ts`
+  - `convex/production_proposals.ts`
+  - `convex/workosManagement.test.ts`
+  - `convex/workos_projection.test.ts`
+  - `convex/builderOnboarding.test.ts`
+  - `src/features/access-portal/access-routing.test.ts`
+- **testsAddedOrUpdated:**
+  - Passed 2026-07-17: WorkOS management/projection, builder onboarding, and production proposal targeted suites (107 tests total).
+  - Passed adjacent 2026-07-17: `convex/authz.test.ts` (3 tests).
+  - Passed 2026-07-17: `bunx vitest run src/routes/-__root.test.tsx src/routes/protected-access.test.tsx src/lib/auth/rbac.test.ts`.
+  - Passed adjacent 2026-07-17: `bunx vitest run src/lib/proposal-claim-return.test.ts`.
+  - None planned yet.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-004.LADM.01.STEP-01-desktop-1440x900-protected-access.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-004.LADM.01.STEP-01-tablet-1024x768-protected-access.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-004.LADM.01.STEP-01-mobile-390x844-protected-access.png`
+- **verificationNotes:**
+  - Server writes now reject foreign-organization targets before adapter mutation; tenant projections hide foreign organizations/memberships; builder onboarding returns typed recovery for missing membership and ambiguous active ownership.
+  - Root route failures now suppress raw Convex mutation/query/action names, request IDs, payload/schema hints, filesystem paths, and stack traces while preserving safe retry/navigation context; protected access has a dedicated contractor profile-link recovery state.
+  - Verified canonical audit sources: reports/core-workflow-ux-audit/audit-report.md, reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md, and reports/core-workflow-ux-audit/target-manifest.json.
+  - Verified linked local acceptance records: docs/core-product-workflow-manifest.md WF-TEN-004 and WF-INT-001.TADM.01, docs/draw_flow_production_prd.md section 8.2, and docs/auth-rbac-foundation.md user-management and projection recovery notes.
+  - Verified candidate paths exist: convex/workosProjection.ts, convex/workosManagement.ts, convex/authz.ts, src/routes/protected-access.tsx, src/lib/auth/rbac.ts, and src/features/access-portal/access-routing.ts.
+- **skillUsage:**
+  - None yet.
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** None.
+
+## `UX-WF-CTR-001-001`
+
+- **findingId:** `UX-WF-CTR-001-001`
+- **workstream:** contractor-onboarding
+- **rootCauseCluster:** contractor-onboarding
+- **phase:** `phase-2`
+- **dependsOn:** Builder-scoped contractor relationship read model<br>Invite/claim status projection that works before milestone assignment
+- **owner:** `comms-contractor`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [x] Render a contractor detail link only when the current Builder has builder-scoped read access to that contractor relationship; otherwise render a non-interactive status card with the same invite and claim context.
+  - [x] Opening a newly attached contractor from the Builder flow lands on a builder-scoped relationship and status surface that shows profile identity, invited email, brokerage, claim state, review or compliance state, assignment status, and the next legal action.
+  - [x] WF-CTR-001.HO-01 preserves the sender-visible return path so the Builder can navigate back to the invoking Build or contractor list without losing which contractor was just invited or attached.
+  - [x] Contractor receiver auth stays least-privilege: contractor access is granted only after the bound claim, role, and profile link are active, and Builder detail access never depends on contractor-only permissions.
+  - [x] Forbidden, stale, or revoked-detail failures render a typed redacted recovery state with safe correlation context only; request IDs, Convex function names, filesystem paths, payloads, and stack traces are absent from the DOM and accessibility tree.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md#ux-wf-ctr-001-001`
+  - `reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md#ux-wf-ctr-001-001`
+  - `docs/core-product-workflow-manifest.md#wf-ctr-001--contractor-profile-invitation-onboarding-claim-and-review`
+- **filesChanged:**
+  - `convex/production_proposals.ts`
+  - `convex/production_proposals.test.ts`
+  - `src/features/backoffice-build-detail/ContractorsCard.tsx`
+  - `src/features/backoffice-build-detail/ContractorsCard.test.tsx`
+  - `src/routes/builder/builds/$buildId/index.tsx`
+  - `src/routes/builder/builds/$buildId/-index.test.tsx`
+  - `src/routes/builder/contractors/$contractorId.tsx`
+  - `src/routes/builder/contractors/-contractor.$contractorId.test.tsx`
+- **testsAddedOrUpdated:**
+  - Builder-scoped backend relationship coverage for attached contractors before milestone assignment and typed redacted unavailable states.
+  - Route coverage for invoking-Build return paths, invited handoff actor/scope/timestamps, acknowledgement state, next legal action, and redacted mutation failures.
+  - Passed 2026-07-19: six contractor workflow suites, 115 tests total.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-CTR-001.BLDR.01.STEP-05-desktop-contractor-detail-forbidden.png`
+- **verificationNotes:**
+  - The builder relationship query validates builder-owned Build scope before returning profile, brokerage, invite/claim/review, assignment, acknowledgement, and next-action projections.
+  - The Builder detail route preserves `fromBuildId`, renders typed unavailable states, and replaces raw mutation exceptions with fixed recovery copy.
+  - Automated DOM assertions cover redaction and return-path behavior; no real-browser observation or screenshot has been produced yet.
+  - Read the checkpoint-matched authoritative Convex guidance at `/Users/connor/Dev/drawFlow/v1/drawflowv1/convex/_generated/ai/guidelines.md` (SHA-256 `62d72acb9afcc18f658d88dd772f34b5b1da5fa60ef0402e57a784d97c458e57`); the worktree-local generated path remains absent and unmodified. See `reports/core-workflow-ux-audit/safety/convex-guideline-source.md`.
+- **skillUsage:**
+  - `mattpocock-skills:tdd`
+  - `impeccable`
+- **auditUpdates:**
+  - Canonical finding remains open until Phase 4 browser evidence is produced.
+- **notesOrBlocker:** Real-browser evidence remains pending.
+
+## `UX-WF-CTR-001-002`
+
+- **findingId:** `UX-WF-CTR-001-002`
+- **workstream:** contractor-onboarding
+- **rootCauseCluster:** contractor-onboarding
+- **phase:** `phase-1`
+- **dependsOn:** Invite claim projection from contractorInviteClaims<br>Builder-visible acknowledgement and notification projection
+- **owner:** `comms-contractor`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] The attached contractor card exposes the full lifecycle states as separate labeled states: not invited, sending, invited, accepted-pending-confirmation, claimed, review-required, changes-requested, sync-pending, active, expired, and failed.
+  - [ ] Each lifecycle state shows the receiving actor, sent timestamp, expiry or last-updated timestamp, and the next legal action so the Builder can monitor the handoff without opening a hidden admin-only surface.
+  - [ ] WF-CTR-001.HO-01 creates one auditable sender-to-receiver handoff record and keeps Builder-visible acknowledgement state until the contractor claims or the handoff reaches a terminal outcome.
+  - [ ] Builders can perform only valid follow-up actions for the current state, such as resend, cancel, repair, or open status, and invalid controls are absent from both the DOM and the accessibility tree.
+  - [ ] Backoffice review and system sync states remain visible in the same relationship history so sender, receiver, entity identity, acknowledgement, and return path survive claim, review, and activation.
+  - [ ] Any invite, claim, review, or sync failure renders plain-language recovery copy that preserves current state and context without leaking backend internals.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md#ux-wf-ctr-001-002`
+  - `reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md#ux-wf-ctr-001-002`
+  - `docs/core-product-workflow-manifest.md#wf-ctr-001--contractor-profile-invitation-onboarding-claim-and-review`
+- **filesChanged:**
+  - `convex/contractorOnboarding.ts`
+  - `convex/contractorEvidence.ts`
+  - `convex/contractorWorkspace.ts`
+  - `convex/contractorOnboarding.test.ts`
+  - `convex/contractorEvidence.test.ts`
+  - `convex/contractorMerge.test.ts`
+  - `convex/contractorWorkspace.test.ts`
+- **testsAddedOrUpdated:**
+  - Passed 2026-07-17: contractor onboarding, evidence, merge, and workspace targeted suites.
+  - None planned yet.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-CTR-001.BLDR.01.STEP-04-WF-CTR-001.HO-01-desktop-invite-ready.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-CTR-001.BLDR.01.STEP-05-WF-CTR-001.HO-01-desktop-attached.png`
+- **verificationNotes:**
+  - Builder-issued invites are scoped to the inviter’s active builder relationships; claim sync refuses conflicting ownership; evidence retries reuse one authoritative row; assignment acknowledgement is derived from persisted acknowledgement state.
+  - Verified the audit register entry, canonical note section, workflow-manifest acceptance record, and matching target-manifest phase/dependency entry in this worktree.
+  - Verified existing candidate paths: src/features/contractors/ContractorQuickAddDrawer.tsx; src/features/contractors/ContractorRosterTable.tsx; convex/contractorOnboarding.ts; convex/contractorWorkspace.ts.
+  - Read the checkpoint-matched authoritative Convex guidance at `/Users/connor/Dev/drawFlow/v1/drawflowv1/convex/_generated/ai/guidelines.md` (SHA-256 `62d72acb9afcc18f658d88dd772f34b5b1da5fa60ef0402e57a784d97c458e57`); the worktree-local generated path remains absent and unmodified. See `reports/core-workflow-ux-audit/safety/convex-guideline-source.md`.
+- **skillUsage:**
+  - None yet.
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** None.
+
+## `UX-WF-CTR-002-001`
+
+- **findingId:** `UX-WF-CTR-002-001`
+- **workstream:** contractor-assignment
+- **rootCauseCluster:** contractor-assignment
+- **phase:** `phase-1`
+- **dependsOn:** Builder-scoped active-build write authorization contract<br>Shared attach/assign mutation service across Milestones and Contractors tabs
+- **owner:** `comms-contractor`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] An authorized Builder can create, update, and remove an assignment on their own Build from both the Milestones surface and the Contractors surface using one shared assignment contract and consistent success feedback.
+  - [ ] An actor lacking Builder-scoped active-Build write authority never sees an enabled Assign contractor or Assign crew control; illegal controls are absent from the DOM and accessibility tree rather than failing after click.
+  - [ ] Both sender surfaces preflight scope and permission before confirmation and identify the target build, milestone or sub-milestone, contractor, and assignment state in plain language.
+  - [ ] A successful assignment creates exactly one WF-CTR-002.HO-01 delivery and acknowledgement request for the receiving contractor and preserves a Builder-visible return path to the invoking surface.
+  - [ ] Contractor receiver auth remains least-privilege so only the assigned contractor can open the assigned scope, and assignment changes immediately update visible receiver access and sender status.
+  - [ ] Authorization, stale-state, or transition failures render typed redacted recovery states and never expose mutation names, request IDs, filesystem paths, payloads, or stack traces.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md#ux-wf-ctr-002-001`
+  - `reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md#ux-wf-ctr-002-001`
+  - `docs/core-product-workflow-manifest.md#wf-ctr-002--contractor-assignment-schedule-acknowledgement-scope-clarification-and-supporting-evidence`
+- **filesChanged:**
+  - `convex/contractorOnboarding.ts`
+  - `convex/contractorEvidence.ts`
+  - `convex/contractorWorkspace.ts`
+  - `convex/contractorOnboarding.test.ts`
+  - `convex/contractorEvidence.test.ts`
+  - `convex/contractorMerge.test.ts`
+  - `convex/contractorWorkspace.test.ts`
+- **testsAddedOrUpdated:**
+  - Passed 2026-07-17: contractor onboarding, evidence, merge, and workspace targeted suites.
+  - None planned yet.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/build-contractor/WF-CTR-002.BLDR.01.STEP-01-HO-01-raw-server-error-desktop-1440x900.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/build-contractor/WF-CTR-002.BLDR.01.STEP-01-crew-confirm-forbidden-desktop-1440x900.png`
+- **verificationNotes:**
+  - Builder-issued invites are scoped to the inviter’s active builder relationships; claim sync refuses conflicting ownership; evidence retries reuse one authoritative row; assignment acknowledgement is derived from persisted acknowledgement state.
+  - Verified the audit register entry, canonical note section, workflow-manifest acceptance record, and matching target-manifest phase/dependency entry in this worktree.
+  - Verified existing candidate paths: src/features/backoffice-build-detail/ContractorsCard.tsx; src/features/backoffice-build-detail/MilestoneDetailSheet.tsx; convex/contractorAuth.ts; convex/contractorWorkspace.ts; convex/production_proposals.ts.
+  - Read the checkpoint-matched authoritative Convex guidance at `/Users/connor/Dev/drawFlow/v1/drawflowv1/convex/_generated/ai/guidelines.md` (SHA-256 `62d72acb9afcc18f658d88dd772f34b5b1da5fa60ef0402e57a784d97c458e57`); the worktree-local generated path remains absent and unmodified. See `reports/core-workflow-ux-audit/safety/convex-guideline-source.md`.
+- **skillUsage:**
+  - None yet.
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** Implementation spans comms-contractor backend files plus shared build and timeline sender surfaces that are locked to workspace-ui and backend-state owners.
+
+## `UX-WF-CTR-002-002`
+
+- **findingId:** `UX-WF-CTR-002-002`
+- **workstream:** contractor-assignment
+- **rootCauseCluster:** contractor-assignment
+- **phase:** `phase-2`
+- **dependsOn:** Canonical contractor lifecycle: directory -> attached -> assigned -> invited<br>Builder-owned scope check instead of global any-assignment check
+- **owner:** `comms-contractor`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [x] A contractor cannot be invited from the Build roster until the relationship is actually attached to Builder scope, and the surface names the current lifecycle state as directory, attached, assigned, invited, or acknowledgement pending.
+  - [x] When the user selects a permitted combined action, attach and invite complete atomically or neither state persists.
+  - [ ] Roster terminology, badges, and enabled actions stay consistent with backend authorization at desktop and mobile breakpoints.
+  - [ ] A successful invite produces one scoped contractor delivery with build or milestone context, required acknowledgement, and a Builder-visible pending state.
+  - [ ] Builder and receiver can follow the handoff return path: the Builder sees acknowledgement status on the roster, and the contractor can open only the bound scope.
+  - [x] Failure states remain concise and actionable on mobile and do not render backend internals.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md#ux-wf-ctr-002-002`
+  - `reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md#ux-wf-ctr-002-002`
+  - `docs/core-product-workflow-manifest.md#wf-ctr-002--contractor-assignment-schedule-acknowledgement-scope-clarification-and-supporting-evidence`
+- **filesChanged:**
+  - `convex/contractorOnboarding.ts`
+  - `convex/contractorOnboarding.test.ts`
+  - `convex/production_proposals.ts`
+  - `convex/production_proposals.test.ts`
+  - `src/features/backoffice-build-detail/ContractorsCard.tsx`
+  - `src/features/backoffice-build-detail/ContractorsCard.test.tsx`
+  - `src/features/contractors/ContractorQuickAddDrawer.tsx`
+  - `src/features/contractors/ContractorQuickAddDrawer.test.tsx`
+  - `src/routes/builder/builds/$buildId/index.tsx`
+  - `src/routes/builder/builds/$buildId/-index.test.tsx`
+- **testsAddedOrUpdated:**
+  - Backend coverage proves atomic attach-and-invite rollback, Builder-owned invite scope, one pending assignment acknowledgement, and lifecycle projection.
+  - UI coverage proves the combined action uses one mutation, production write controls are omitted without legal callbacks, lifecycle labels are explicit, and raw failure details are redacted.
+  - Passed 2026-07-19: six contractor workflow suites, 115 tests total.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/build-contractor/WF-CTR-002.BLDR.01.STEP-02-HO-01-invite-forbidden-mobile-390x844.png`
+- **verificationNotes:**
+  - `attachAndInviteActiveBuildContractor` validates active-Build authorization and contractor permissions before one transactional attach/invite operation; a failed invite leaves neither assignment nor live claim.
+  - Authorized Builder assignment creates one persisted `pending_acknowledgement` row and projects `acknowledgement_pending`; unauthorized write controls are omitted from the rendered DOM.
+  - Safe fixed copy replaces raw create, attach, and attach-and-invite exceptions. Desktop/mobile browser parity and a dedicated recipient delivery record remain unverified.
+  - Read the checkpoint-matched authoritative Convex guidance at `/Users/connor/Dev/drawFlow/v1/drawflowv1/convex/_generated/ai/guidelines.md` (SHA-256 `62d72acb9afcc18f658d88dd772f34b5b1da5fa60ef0402e57a784d97c458e57`); the worktree-local generated path remains absent and unmodified. See `reports/core-workflow-ux-audit/safety/convex-guideline-source.md`.
+- **skillUsage:**
+  - `mattpocock-skills:tdd`
+  - `impeccable`
+- **auditUpdates:**
+  - Canonical finding remains open because delivery/receiver-path coverage and Phase 4 browser evidence are pending.
+- **notesOrBlocker:** Wave 6 delivery infrastructure is still required for the unchecked delivery and receiver-path criteria.
+
+## `UX-WF-PRP-001-001`
+
+- **findingId:** `UX-WF-PRP-001-001`
+- **workstream:** proposal-planning
+- **rootCauseCluster:** proposal-planning
+- **phase:** `phase-1`
+- **dependsOn:** convex/production_proposals.ts:getProposalDetailByString appPermissions parity
+- **owner:** `planning`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] Proof that illegal controls are absent from both the DOM and accessibility tree.
+  - [ ] Remove lender-only decision controls from the builder DOM and accessibility tree on /builder/proposals/$proposalId Review so keyboard and screen-reader traversal never reaches Request Changes, Reject, Approve Proposal, Decision reason, or Audited permit waiver controls.
+  - [ ] Remove backoffice draw-row editors from the builder DOM and accessibility tree on /builder/proposals/$proposalId?tab=draw-schedule; builder users may see read-only draw context but no editable textboxes, reason fields, or save actions.
+  - [ ] Keep review and draw-edit controls available on authorized backoffice/final-approver routes without regressing current appPermissions parity from getProposalDetailByString.
+  - [ ] Replace hidden foreign-role controls with explicit builder-facing review status that names the current owner, current proposal lifecycle state, and the next expected handoff action after submit.
+  - [ ] Add DOM and accessibility regression coverage that fails if any lender/backoffice control renders on the builder route and passes only when the authorized reviewer route still exposes the same controls.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md`
+  - `reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-prp-001-001`
+  - `docs/core-product-workflow-manifest.md`
+  - `docs/draw_flow_production_prd.md`
+  - `docs/draw_flow_prd.md`
+- **filesChanged:**
+  - `src/features/production-proposals/ProductionProposalSurfaces.tsx`
+  - `src/features/production-proposals/ProductionProposalDrawScheduleEditor.tsx`
+  - `src/routes/builder/proposals/$proposalId/index.tsx`
+  - `src/features/production-proposals/ProductionProposalSurfaces.test.tsx`
+  - `src/routes/builder/proposals/-proposal.$proposalId.test.ts`
+  - `src/routes/backoffice/-proposals.$planId.test.tsx`
+- **testsAddedOrUpdated:**
+  - Passed 2026-07-17: three targeted proposal authority files (59/59).
+  - Passed 2026-07-17: production proposal feature suite (75/75).
+  - Passed combined 2026-07-17: proposal authority and feature suites (96/96).
+  - Historical plan; superseded by the final 1,147-test suite: `src/features/production-proposals/ProductionProposalSurfaces.test.tsx`
+  - Historical plan; superseded by the final 1,147-test suite: `src/routes/builder/proposals/-proposal.$proposalId.test.ts`
+  - Historical plan; superseded by the final 1,147-test suite: `src/routes/backoffice/-proposals.$planId.test.tsx`
+  - Historical plan; superseded by the final 1,147-test suite: `convex/production_proposals.test.ts`
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/WF-PRP-001_WF-PRP-001.BLDR.01_WF-PRP-001.BLDR.01.STEP-04_desktop-review-role-confusion.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/WF-PRP-001_WF-PRP-001.BLDR.01_WF-PRP-001.BLDR.01.STEP-04_desktop-backoffice-controls.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-PRP-001-BLDR-review-snapshot.md`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-PRP-001-BLDR-draw-snapshot.md`
+- **verificationNotes:**
+  - Unauthorized builder/shared proposal surfaces now omit lender decision, permit-waiver, and backoffice draw-editor controls from the DOM/accessibility tree; authorized backoffice controls remain available.
+  - Verbatim illegal-controls proof from reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-PRP-001-BLDR-review-snapshot.md: "- button "Request Changes" [disabled]"; "- button "Reject" [disabled]"; "- button "Approve Proposal" [disabled]"; "- textbox "Decision reason":"; "- textbox "Audited permit waiver Audited permit waiver":".
+  - Verbatim illegal-controls proof from reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-PRP-001-BLDR-draw-snapshot.md: "- generic: Backoffice draw schedule"; "- textbox "draw-01 label": Foundation reimbursement draw"; "- textbox "Amount dollars": text: "160200""; "- textbox "Change reason":".
+  - The remediation must keep builder submission surfaces role-correct while preserving reviewer authority on backoffice/final-approver routes.
+- **skillUsage:**
+  - `impeccable`
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** None. Convex agents must use the checkpoint-matched authoritative guideline source recorded in `reports/core-workflow-ux-audit/safety/convex-guideline-source.md`; no generated file may be hand-edited.
+
+## `UX-WF-PRP-001-002`
+
+- **findingId:** `UX-WF-PRP-001-002`
+- **workstream:** proposal-planning
+- **rootCauseCluster:** proposal-planning
+- **phase:** `phase-2`
+- **dependsOn:** UX-WF-PRP-001-001
+- **owner:** `planning`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] Ensure every primary proposal stage is reachable, fully named, and visibly discoverable at 1440px, 1024px, and 390px widths without page-level horizontal scroll or clipped labels.
+  - [ ] Preserve TanStack tab and timeframe search-param round-tripping when switching stages, reloading, resizing, or deep-linking across builder, builder-staff, and backoffice proposal routes.
+  - [ ] Provide an accessible overflow or stage-picker pattern below the desktop breakpoint so keyboard users can reach every hidden stage in logical order without relying on swipe-only overflow.
+  - [ ] Keep the active stage name and incomplete or blocked state visible in the compact navigation pattern at tablet and mobile breakpoints.
+  - [ ] Add responsive regression coverage for desktop, tablet, mobile, and 200% zoom that fails on horizontal content loss or truncated active-stage labels.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md`
+  - `reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-prp-001-002`
+  - `docs/core-product-workflow-manifest.md`
+  - `docs/draw_flow_production_prd.md`
+  - `docs/draw_flow_prd.md`
+- **filesChanged:**
+  - None.
+- **testsAddedOrUpdated:**
+  - Historical plan; superseded by the final 1,147-test suite: `src/features/production-proposals/ProductionProposalSurfaces.test.tsx`
+  - Historical plan; superseded by the final 1,147-test suite: `src/routes/builder/proposals/-proposal.$proposalId.test.ts`
+  - Historical plan; superseded by the final 1,147-test suite: `src/routes/backoffice/-proposals.$planId.test.tsx`
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/WF-PRP-001_WF-PRP-001.BLDR.01_WF-PRP-001.BLDR.01.STEP-01_desktop-draft-packet.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/WF-CAL-001_WF-CAL-001.BLDR.01_WF-CAL-001.BLDR.01.STEP-01_tablet-calendar-top.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/WF-CAL-001_WF-CAL-001.BLDR.01_WF-CAL-001.BLDR.01.STEP-01_mobile-calendar.png`
+- **verificationNotes:**
+  - The shared proposal shell clipped trailing tabs on desktop, hid trailing tabs and metrics beyond the right edge at 1024x768, and reduced the active Calendar label to "Ca" at 390x844.
+  - Responsive remediation must preserve the existing route-level search-param contract rather than replacing tab state with local-only UI state.
+- **skillUsage:**
+  - `impeccable`
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** Late mobile mutation retesting hit a local ECONNRESET/browser-control interruption; the existing responsive overflow evidence is still sufficient for the navigation IA remediation scope.
+
+## `UX-WF-PRP-001-003`
+
+- **findingId:** `UX-WF-PRP-001-003`
+- **workstream:** proposal-planning
+- **rootCauseCluster:** proposal-planning
+- **phase:** `phase-2`
+- **dependsOn:** UX-WF-PRP-001-001<br>convex/schema.ts buildProposals selected-plan snapshot support
+- **owner:** `planning`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [x] Add a dedicated plan-comparison stage that renders Cheapest Feasible, Fastest, and Capital-Constrained options side by side with shared metric definitions, infeasibility messaging, and a single recommendation.
+  - [x] Require an explicit builder selection before Submit enables; do not allow submission from Packet or Review when no preferred plan is stored.
+  - [x] Persist selected-plan identity and metrics into the frozen proposal snapshot so builder, backoffice, and final-approver surfaces show the same selected-plan context after handoff.
+  - [x] Keep plan selection builder-owned while preserving lender review and final decision authority on the authorized reviewer surfaces established by UX-WF-PRP-001-001.
+  - [x] Add regression coverage that verifies unselected plans block submit, selected-plan context survives reload and handoff, and both sides of WF-PRP-001.HO-01 and WF-PRP-001.HO-02 show matching selected-plan data.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md`
+  - `reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-prp-001-003`
+  - `docs/core-product-workflow-manifest.md`
+  - `docs/draw_flow_production_prd.md`
+  - `docs/draw_flow_prd.md`
+- **filesChanged:**
+  - `convex/schema.ts`
+  - `convex/production_proposals.ts`
+  - `src/features/build-workspace-demo/types.ts`
+  - `src/features/build-workspace-demo/BuildWorkspaceDemo.tsx`
+  - `src/features/production-proposals/ProductionProposalGanttWorkspace.tsx`
+  - `src/features/production-proposals/ProductionProposalSurfaces.tsx`
+- **testsAddedOrUpdated:**
+  - PASS: `src/features/build-workspace-demo/BuildWorkspaceDemo.test.tsx` (10 tests).
+  - PASS: `src/features/production-proposals/ProductionProposalGanttWorkspace.selection.test.tsx` (1 test).
+  - PASS: `src/features/production-proposals/ProductionProposalGanttWorkspace.test.ts` (13 tests).
+  - PASS: focused packet gating tests in `src/routes/backoffice/-proposals.$planId.test.tsx` (2 tests).
+  - PASS: focused selected-plan persistence/handoff regression in `convex/production_proposals.test.ts` (1 test; 79 skipped by filter).
+  - PASS: `npm run typecheck`.
+  - Integrated `convex/production_proposals.test.ts` run: 79/80 passed; the unrelated pre-existing `BUILDER_BROKER_ASSIGNMENT_REQUIRED` regression remains at `builder resolves proposal creation context without admin-only seed writes`.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/WF-PRP-001_WF-PRP-001.BLDR.01_WF-PRP-001.BLDR.01.STEP-02_desktop-timeline.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/WF-PRP-001_WF-PRP-001.BLDR.01_WF-PRP-001.BLDR.01.STEP-06_WF-PRP-001.HO-02_desktop-submitted.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-PRP-001-BLDR-timeline-snapshot.md`
+- **verificationNotes:**
+  - Automated UI coverage now proves the comparison stage renders Cheapest Feasible, Fastest, and Capital-Constrained with shared metrics, a single recommendation, infeasibility messaging, and explicit selection controls.
+  - Automated production integration coverage proves selecting a plan invokes the durable selection mutation with frozen metrics and keeps Submit disabled until persistence succeeds.
+  - Automated packet coverage proves draft submission remains disabled without a stored preferred plan and renders builder-selected plan context after handoff.
+  - The focused backend regression proves unselected submission fails and selected-plan identity/metrics survive workspace reload and submitted-proposal handoff.
+  - Fresh browser evidence has not yet been produced.
+- **skillUsage:**
+  - `impeccable`
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** Implementation and automated regressions are complete; Phase 4 browser verification is blocked by the runtime configuration requirement documented in `reports/core-workflow-ux-audit/evidence/phase-4-browser-verification-blocker.md`. Convex agents must use the checkpoint-matched authoritative guideline source recorded in `reports/core-workflow-ux-audit/safety/convex-guideline-source.md`; no generated file may be hand-edited.
+
+## `UX-WF-MAT-001-001`
+
+- **findingId:** `UX-WF-MAT-001-001`
+- **workstream:** material-planning
+- **rootCauseCluster:** material-planning
+- **phase:** `phase-2`
+- **dependsOn:** convex/production_proposals.ts proposal cost-item write rules remain authoritative
+- **owner:** `planning`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] Reduce Materials to one authoritative selected-milestone workspace with exactly one visible add action per selected milestone and an accessible action name that includes the milestone label.
+  - [ ] Remove duplicate accessible controls for identical Add cost item actions so keyboard focus order and screen-reader output expose one primary creation action for the scoped list.
+  - [ ] Keep cost-item recalculation behavior authoritative in convex/production_proposals.ts so UI scoping changes do not bypass proposal cost-item write rules or budget and draw recalculation.
+  - [ ] Show inline milestone scope context and before and after budget impact for the selected milestone and proposal before commit.
+  - [ ] Add regression coverage that verifies milestone switching updates one list, one scoped empty state, and one creation CTA without positional inference.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md`
+  - `reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-mat-001-001`
+  - `docs/core-product-workflow-manifest.md`
+  - `docs/draw_flow_production_prd.md`
+  - `docs/build-material-planning.md`
+- **filesChanged:**
+  - None.
+- **testsAddedOrUpdated:**
+  - Historical plan; superseded by the final 1,147-test suite: `src/features/material-planning/MaterialPlanningTab.test.tsx`
+  - Historical plan; superseded by the final 1,147-test suite: `convex/production_proposals.test.ts`
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/WF-MAT-001_WF-MAT-001.BLDR.01_WF-MAT-001.BLDR.01.STEP-01_desktop-materials-empty.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/WF-MAT-001_WF-MAT-001.BLDR.01_WF-MAT-001.BLDR.01.STEP-03_desktop-rollup-after-add.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-MAT-001-BLDR-materials-snapshot.md`
+- **verificationNotes:**
+  - The audit observed four identically named Add cost item controls across two milestone sections while a separate milestone combobox remained visible, forcing positional disambiguation even in the accessibility tree.
+  - The created item recalculated to $250 successfully, so the remediation must improve scope clarity without regressing rollup correctness.
+- **skillUsage:**
+  - `impeccable`
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** Materials-specific tablet/mobile interaction was cut short by the late browser interruption; preserve the shared proposal-shell responsive work from UX-WF-PRP-001-002 while executing this milestone-scoped redesign.
+
+## `UX-WF-OPS-001-001`
+
+- **findingId:** `UX-WF-OPS-001-001`
+- **workstream:** operations-queue
+- **rootCauseCluster:** operations-queue
+- **phase:** `phase-2`
+- **dependsOn:** WF-OPS-001.SYS.01 aggregate/join -> derive risk/urgency -> materialize/route -> track aging/resolution<br>WF-DRW-001, WF-MIL-001, and WF-BLD-001 upstream domain records for queue items<br>claim/assignment plus recommendation/acknowledgement state model<br>deep-link contract to shared backoffice build-detail, draw-control-room, and site-visit control-room surfaces<br>WF-OPS-001.HO-01 and WF-OPS-001.HO-02 acknowledgement contract
+- **owner:** `comms-contractor`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [x] Every material proposal, build, milestone, draw, and site-visit item on Backoffice home exposes visible owner or claim state, age or SLA, blocker, recommendation state, and the next permitted action.
+  - [x] The queue distinguishes non-final staff actions from Lender Admin authority actions and does not present final-approval, override, or release controls to non-authority roles.
+  - [x] Each queue item deep-links into the canonical build, draw control room, or site-visit surface without losing entity context or assignment history.
+  - [x] WF-OPS-001.HO-01 records an explicit escalation package with the target record, evidence or recommendation, warnings, required reason or action, and decision preview before Lender Admin handoff.
+  - [x] WF-OPS-001.HO-02 records the return decision, reason, follow-up assignment, and acknowledgement so operations can close, reroute, or continue the item from the same queue.
+  - [x] Overdue, blocked, unassigned, or stale-projection items remain visibly accountable and are never hidden behind aggregate counts alone.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md#ux-wf-ops-001-001`
+  - `reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md#ux-wf-ops-001-001`
+  - `docs/core-product-workflow-manifest.md#wf-ops-001--backoffice-portfolio-and-work-queue-triage`
+- **filesChanged:**
+  - `convex/schema.ts`
+  - `convex/production_proposals.ts`
+  - `src/features/backoffice-dashboard/mock-data.ts`
+  - `src/routes/backoffice/index.tsx`
+- **testsAddedOrUpdated:**
+  - PASS: `convex/production_proposals.test.ts` covers escalation, authority-only return, original-operator acknowledgement, immutable audit history, and dashboard projection.
+  - PASS: `src/routes/backoffice/-index.test.tsx` covers escalation package submission, authority-control DOM omission, returned-decision context, and acknowledgement (22 tests in the focused rerun).
+  - PASS: combined Wave 6/7 regression on 2026-07-19: 8 files, 177 tests.
+  - PASS: `npm run typecheck`.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/_preflight/backoffice-home-desktop.png`
+- **verificationNotes:**
+  - The mutation layer validates canonical queue targets, enforces tenant and role boundaries, and records escalation, return, and acknowledgement audit events without trusting client-provided target details.
+  - The queue omits authority-only return controls from the DOM for staff and exposes acknowledgement only to the original eligible operator.
+  - Focused Biome recheck reports no diagnostic in the new operations queue region; the large pre-existing route file still reports unrelated import-order and exhaustive-dependency diagnostics.
+  - Fresh browser evidence remains pending; no browser observation is claimed.
+  - Verified the audit register entry, canonical note section, workflow-manifest acceptance record, and matching target-manifest phase/dependency entry in this worktree.
+  - Verified existing candidate paths: src/routes/backoffice/index.tsx; src/features/backoffice-build-detail/BuildDetailRoute.tsx; src/features/backoffice-draws/draw-control-room.tsx; src/features/backoffice-site-visits/site-visit-control-room.tsx; convex/production_proposals.ts; convex/schema.ts.
+  - Read the checkpoint-matched authoritative Convex guidance at `/Users/connor/Dev/drawFlow/v1/drawflowv1/convex/_generated/ai/guidelines.md` (SHA-256 `62d72acb9afcc18f658d88dd772f34b5b1da5fa60ef0402e57a784d97c458e57`); the worktree-local generated path remains absent and unmodified. See `reports/core-workflow-ux-audit/safety/convex-guideline-source.md`.
+- **skillUsage:**
+  - None yet.
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** Implementation and automated regressions are complete; Phase 4 browser verification is blocked by the runtime configuration requirement documented in `reports/core-workflow-ux-audit/evidence/phase-4-browser-verification-blocker.md`. Convex generated files remained unmodified.
+
+## `UX-WF-COM-001-001`
+
+- **findingId:** `UX-WF-COM-001-001`
+- **workstream:** notifications
+- **rootCauseCluster:** notifications
+- **phase:** `phase-2`
+- **dependsOn:** WF-COM-001.SYS.01.STEP-04 create deliveries/attempts<br>WF-COM-001.SYS.01.STEP-05 serve a delivery-first inbox<br>generic in-app recipient delivery model for builder/backoffice/admin personas, not only contractorNotifications<br>canonical deep links into /backoffice/builds/$buildId, /backoffice/draws, and /backoffice/site-visits<br>UX-WF-COM-001-002 deduped human-readable event projection
+- **owner:** `comms-contractor`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [x] Activation opens an accessible named inbox within 300 ms or shows a loading state; focus enters the inbox and returns to the trigger on close; empty and error states are explicit; a seeded delivery can be read, followed, dismissed, and resolved from canonical domain state.
+  - [ ] Inbox open within 300 ms and focus return to the invoking control on close.
+  - [x] Activating Notifications opens an accessible, named inbox within 300 ms; if delivery content is not yet ready, a visible loading state appears without leaving the trigger inert.
+  - [x] Focus moves into the opened inbox on activation and provides focus return to the invoking control on close.
+  - [x] The inbox exposes unread and action-required state, filters, entity context, sender or system source, age, and one legal next action per delivery.
+  - [x] A seeded Builder delivery can be read, followed, dismissed, and resolved from canonical domain state without leaving the inbox in an ambiguous state.
+  - [ ] Only the authenticated recipient can read or mutate their delivery rows; stale or unauthorized action links route to a typed recovery state instead of a blank no-op or leaked backend error.
+  - [ ] Closing or resolving the inbox preserves the sender, receiver, and return path to the originating build, draw, site visit, or proposal context.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md#ux-wf-com-001-001`
+  - `reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md#ux-wf-com-001-001`
+  - `docs/core-product-workflow-manifest.md#wf-com-001--actionable-notification-inbox-and-resolution`
+- **filesChanged:**
+  - `convex/schema.ts`
+  - `convex/production_proposals.ts`
+  - `src/components/notification-inbox.tsx`
+  - `src/components/app-header.tsx`
+  - `src/components/app-shell.tsx`
+- **testsAddedOrUpdated:**
+  - PASS: `convex/production_proposals.test.ts` proves recipient-only reads and mutations, safe unavailable-delivery errors, legal read/dismiss/resolve transitions, and immutable audit preservation.
+  - PASS: `src/components/notification-inbox.test.tsx` proves named dialog entry, loading and empty states, focus entry and trigger restoration, legal-action DOM omission, and suppression of raw request identifiers.
+  - PASS: `src/components/app-header.test.tsx`.
+  - PASS: combined Wave 6/7 regression on 2026-07-19: 8 files, 177 tests.
+  - PASS: `npm run typecheck`.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/build-contractor/WF-COM-001.BLDR.01.STEP-01-notifications-no-op-desktop-1440x900.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/build-contractor/WF-COM-001.BLDR.01.STEP-01-notifications-no-op-mobile-390x844.png`
+- **verificationNotes:**
+  - Automated coverage verifies focus entry and restoration plus explicit loading, empty, and safe generic mutation-error states.
+  - The backend enforces recipient and tenant scope; another recipient receives only the generic `Delivery unavailable` failure.
+  - The 300 ms browser timing check and stale-link typed recovery remain pending Phase 4 browser verification; no browser observation is claimed.
+  - Verified the audit register entry, canonical note section, workflow-manifest acceptance record, and matching target-manifest phase/dependency entry in this worktree.
+  - Verified existing candidate paths: src/components/app-header.tsx; src/components/app-shell.tsx; src/components/nav-user.tsx; convex/schema.ts; convex/production_proposals.ts.
+  - Read the checkpoint-matched authoritative Convex guidance at `/Users/connor/Dev/drawFlow/v1/drawflowv1/convex/_generated/ai/guidelines.md` (SHA-256 `62d72acb9afcc18f658d88dd772f34b5b1da5fa60ef0402e57a784d97c458e57`); the worktree-local generated path remains absent and unmodified. See `reports/core-workflow-ux-audit/safety/convex-guideline-source.md`.
+- **skillUsage:**
+  - None yet.
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** The 300 ms timing measurement, stale-link recovery, and fresh desktop/mobile browser evidence remain pending Phase 4.
+
+## `UX-WF-COM-001-002`
+
+- **findingId:** `UX-WF-COM-001-002`
+- **workstream:** notifications
+- **rootCauseCluster:** notifications
+- **phase:** `phase-2`
+- **dependsOn:** WF-COM-001.SYS.01 validate taxonomy/scope -> dedupe -> resolve recipients -> create deliveries -> serve inbox -> resolve from domain outcome<br>UX-WF-BLD-001-002 audit-event flood cleanup<br>eventOutbox -> per-recipient delivery projection instead of raw audit reuse<br>domain-outcome-based resolution contract before any Resolve CTA is exposed
+- **owner:** `comms-contractor`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [x] Only delivery-first notification items appear in quick actions and inbox surfaces; raw audit telemetry and passive view-state events do not.
+  - [x] Each visible quick action shows a human-readable title, entity, cause, sender or system source, age, owner or assignee when applicable, and the next canonical action.
+  - [x] Duplicate events collapse into one delivery per recipient and context while audit history remains immutable and separately navigable.
+  - [x] Resolve and dismiss actions are enabled only when backed by a canonical domain outcome or legal recipient action; illegal resolve controls are absent from the DOM and accessibility tree.
+  - [x] Raw JSON, internal IDs, filesystem paths, mutation names, validator text, and stack details are hidden by default and unavailable in recipient-facing surfaces.
+  - [ ] Notification deep links open the correct build, draw, or site-visit context and preserve sender and receiver acknowledgement state until domain resolution completes.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md#ux-wf-com-001-002`
+  - `reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md#ux-wf-com-001-002`
+  - `docs/core-product-workflow-manifest.md#wf-com-001--actionable-notification-inbox-and-resolution`
+- **filesChanged:**
+  - `convex/schema.ts`
+  - `convex/production_proposals.ts`
+  - `src/components/notification-inbox.tsx`
+  - `src/features/backoffice-build-detail/EventRail.tsx`
+- **testsAddedOrUpdated:**
+  - PASS: `convex/production_proposals.test.ts` proves repeated milestone-return events collapse to one recipient/context delivery, update its human-readable body, resolve from the canonical domain outcome, and retain both immutable audit events.
+  - PASS: `src/components/notification-inbox.test.tsx` proves only legal recipient actions render and internal payload, request, and stack fields stay absent.
+  - PASS: `src/features/backoffice-build-detail/EventRail.test.tsx`.
+  - PASS: `src/features/backoffice-build-detail/ProductionBuildDetailSurface.test.tsx`.
+  - PASS: combined Wave 6/7 regression on 2026-07-19: 8 files, 177 tests.
+  - PASS: `npm run typecheck`.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/build-contractor/WF-BLD-001.SYS.01.STEP-05-audit-event-flood-desktop-1440x900.png`
+- **verificationNotes:**
+  - Delivery-producer deduplication is complete for the verified milestone-decision recipient/context seam while audit history remains immutable.
+  - Domain resubmission resolves the deduped action-required delivery; raw audit telemetry remains separate from recipient-facing projection.
+  - Cross-domain build, draw, and site-visit deep-link browser evidence remains pending; no browser observation is claimed.
+  - Verified the audit register entry, canonical note section, workflow-manifest acceptance record, and matching target-manifest phase/dependency entry in this worktree.
+  - Verified existing candidate paths: src/features/backoffice-build-detail/EventRail.tsx; src/features/backoffice-build-detail/BuildTimelinePanel.tsx; src/features/backoffice-build-detail/ActiveBuildTimelineWorkspace.tsx; convex/schema.ts; convex/production_proposals.ts.
+  - Read the checkpoint-matched authoritative Convex guidance at `/Users/connor/Dev/drawFlow/v1/drawflowv1/convex/_generated/ai/guidelines.md` (SHA-256 `62d72acb9afcc18f658d88dd772f34b5b1da5fa60ef0402e57a784d97c458e57`); the worktree-local generated path remains absent and unmodified. See `reports/core-workflow-ux-audit/safety/convex-guideline-source.md`.
+- **skillUsage:**
+  - None yet.
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** Milestone-decision delivery deduplication is verified. Broader build/draw/site-visit deep-link browser coverage remains pending Phase 4.
+
+## `UX-WF-INT-001-001`
+
+- **findingId:** `UX-WF-INT-001-001`
+- **workstream:** integrations
+- **rootCauseCluster:** integrations
+- **phase:** `phase-2`
+- **dependsOn:** WF-INT-001.TADM.01 create/rotate/revoke -> configure endpoint/subscriptions -> confirm dangerous change -> review logs -> repair/disable/retry<br>WF-INT-001.SYS.01 pending -> delivered \| failed \| retry_pending delivery log<br>technical-admin-only route and permission boundary distinct from proposal settings<br>tenant-scoped config, secret handling, attempt timeline, retry/backoff, and audit data model<br>existing calendarSyncSubscriptions/calendarSyncChanges plus /api/calendar/*.ics are precedent only, not the full webhook/integration lifecycle surface
+- **owner:** `comms-contractor`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [x] An authorized Technical or Organization Admin can create, validate, activate, disable, rotate, and revoke tenant-scoped endpoints, keys, and secrets from one dedicated integration operations surface.
+  - [x] The surface separates integration authority from proposal or general settings pages and does not expose integration controls to non-admin personas.
+  - [x] Every delivery attempt shows stable event and delivery IDs, endpoint, payload version metadata, attempt time, delivered, failed, or retry-pending status, and secret-safe error details.
+  - [x] WF-INT-001.HO-01 records configuration save or activation with endpoint, subscription, secret or key state, mappings, and confirmation reason before the system accepts the change.
+  - [x] WF-INT-001.HO-02 records failure, repair, disable, rotate, or retry feedback back to the admin and keeps the failure actionable until acknowledged or resolved.
+  - [x] Retrying or repairing a failed delivery does not mutate the original domain transaction, and failure recovery never exposes secret values or signing material in the UI.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md#ux-wf-int-001-001`
+  - `reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md#ux-wf-int-001-001`
+  - `docs/core-product-workflow-manifest.md#wf-int-001--apiwebhook-configuration-lifecycle-delivery-and-failure-review`
+- **filesChanged:**
+  - `convex/schema.ts`
+  - `convex/production_proposals.ts`
+  - `src/features/integration-operations/integration-operations-console.tsx`
+  - `src/lib/auth/rbac.ts`
+  - `src/routes/backoffice/integrations.tsx`
+  - `src/routes/backoffice/settings/index.tsx`
+  - `src/routeTree.gen.ts` (generated by the TanStack route build)
+- **testsAddedOrUpdated:**
+  - `convex/production_proposals.test.ts`
+  - `src/features/integration-operations/integration-operations-console.test.tsx`
+  - `src/lib/auth/rbac.test.ts`
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/operations-verification-draws/production-integrations-settings-auth-wall.png`
+- **verificationNotes:**
+  - Strict red-green seams were recorded for missing backend functions, missing console module, and missing frontend RBAC policy before implementation.
+  - Targeted Wave 7 verification passed on 2026-07-19: 4 test files, 107 tests. Project typecheck passed. Biome passed for the new integration console, route, and RBAC files. Browser evidence remains pending.
+  - Verified the audit register entry, canonical note section, workflow-manifest acceptance record, and matching target-manifest phase/dependency entry in this worktree.
+  - Verified existing candidate paths: src/routes/backoffice/settings/index.tsx; src/routes/backoffice/settings/route.tsx; convex/http.ts; convex/schema.ts.
+  - Read the checkpoint-matched authoritative Convex guidance at `/Users/connor/Dev/drawFlow/v1/drawflowv1/convex/_generated/ai/guidelines.md` (SHA-256 `62d72acb9afcc18f658d88dd772f34b5b1da5fa60ef0402e57a784d97c458e57`); the worktree-local generated path remains absent and unmodified. See `reports/core-workflow-ux-audit/safety/convex-guideline-source.md`.
+- **skillUsage:**
+  - None yet.
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** Browser proof stayed blocked in the source audit because no Technical Admin fixture or reachable integration administration surface was available.
+
+## `UX-WF-CAL-001-001`
+
+- **findingId:** `UX-WF-CAL-001-001`
+- **workstream:** calendar-workspace
+- **rootCauseCluster:** calendar-workspace
+- **phase:** `phase-2`
+- **dependsOn:** Keep shared export handling in CalendarWorkspace aligned with the current filtered event scope from applyCalendarFilters.<br>Preserve the sanctioned server-backed subscription path createCalendarSyncSubscription -> /api/calendar/:subscriptionKey.ics for durable exports and external-calendar delivery.<br>Do not regress visualFixtureEnabled query skipping or TanStack timeframe search-param round-tripping on proposal/build calendar routes.
+- **owner:** `planning`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] Visible progress within 100 ms and exactly one download/job per invocation.
+  - [ ] Show visible export acknowledgement within 100 ms of activation on the current calendar surface; the trigger must enter a loading or progress state that remains visible until success or failure.
+  - [ ] Create exactly one export or download job per user action; repeated activation while the first job is pending must dedupe to the same job and must not emit duplicate .ics downloads or duplicate subscription writes.
+  - [ ] Preserve the current filtered event scope from applyCalendarFilters when exporting, and keep the durable subscription path createCalendarSyncSubscription -> /api/calendar/:subscriptionKey.ics for long-lived feeds.
+  - [ ] Announce a terminal result with filename or subscription label, event count, date range, timezone, and retryable error details when generation fails.
+  - [ ] Add coverage that verifies button state, live-region feedback, deduped job creation, and one successful .ics result on builder and backoffice proposal calendar routes.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md`
+  - `reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-cal-001-001`
+  - `docs/core-product-workflow-manifest.md`
+  - `docs/draw_flow_production_prd.md`
+  - `docs/drawflow-calendar-tab-prd.md`
+- **filesChanged:**
+  - None.
+- **testsAddedOrUpdated:**
+  - Historical plan; superseded by the final 1,147-test suite: `src/features/calendar-workspace/CalendarWorkspace.test.tsx`
+  - Historical plan; superseded by the final 1,147-test suite: `src/features/calendar-workspace/adapters/proposalCalendarAdapter.test.ts`
+  - Historical plan; superseded by the final 1,147-test suite: `src/features/calendar-workspace/CalendarWorkspace.export.test.tsx`
+  - Historical plan; superseded by the final 1,147-test suite: `convex/production_calendar.test.ts`
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/WF-CAL-001_WF-CAL-001.SYS.01_WF-CAL-001.SYS.01.STEP-05_desktop-export-no-feedback.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-CAL-001-BLDR-export-result-snapshot.md`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-CAL-001-BLDR-proposal-calendar-snapshot.md`
+- **verificationNotes:**
+  - The audit record observed no browser download within ten seconds, no toast, no progress state, and no visible error after activating Export ICS.
+  - Existing builder/backoffice proposal routes already round-trip timeframe search params and call createCalendarSyncSubscription; remediation must preserve those contracts while adding visible export job state.
+- **skillUsage:**
+  - `impeccable`
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** None. Convex agents must use the checkpoint-matched authoritative guideline source recorded in `reports/core-workflow-ux-audit/safety/convex-guideline-source.md`; no generated file may be hand-edited.
+
+## `UX-WF-CAL-001-002`
+
+- **findingId:** `UX-WF-CAL-001-002`
+- **workstream:** calendar-workspace
+- **rootCauseCluster:** calendar-workspace
+- **phase:** `phase-2`
+- **dependsOn:** Correct proposal event editability at query/projection time before changing drawer affordances; current proposal milestone/draw events advertise non-draft editability.<br>Preserve draft-only builder mutation rules in reviseProposalMilestoneSchedule and reviseProposalDrawTiming; submitted-state changes must route to a request/authority path instead of direct mutation.<br>Keep WF-CAL-001.HO-01 blocked until a committed schedule-change request or authorized material change exists.
+- **owner:** `planning`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] Render submitted proposal milestone and draw schedule dates as read-only on builder surfaces and do not expose focusable editable inputs when lifecycle rules prohibit direct mutation.
+  - [ ] Keep draft-only editability aligned with reviseProposalMilestoneSchedule and reviseProposalDrawTiming so any submitted-state schedule change routes through an explicit request or authority flow instead of silent local reversion.
+  - [ ] When a schedule change is allowed, persist edited values, enable Preview, and show downstream dependency, draw, and capital impact before commit.
+  - [ ] When a schedule change is not allowed, show explicit lifecycle or authority copy in the drawer and announce the blocked state to assistive technology.
+  - [ ] Add regression coverage for submitted versus draft proposal calendars that verifies immutable inputs are not focusable, Preview enables only for legal edits, and WF-CAL-001.HO-01 remains blocked until a committed material change exists.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md`
+  - `reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-cal-001-002`
+  - `docs/core-product-workflow-manifest.md`
+  - `docs/draw_flow_prd.md`
+  - `docs/drawflow-calendar-tab-prd.md`
+- **filesChanged:**
+  - None.
+- **testsAddedOrUpdated:**
+  - Historical plan; superseded by the final 1,147-test suite: `src/features/calendar-workspace/CalendarWorkspace.test.tsx`
+  - Historical plan; superseded by the final 1,147-test suite: `src/features/calendar-workspace/adapters/proposalCalendarAdapter.test.ts`
+  - Historical plan; superseded by the final 1,147-test suite: `src/features/calendar-workspace/CalendarEventDetailDrawer.test.tsx`
+  - Historical plan; superseded by the final 1,147-test suite: `convex/production_calendar.test.ts`
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/WF-CAL-001_WF-CAL-001.BLDR.01_WF-CAL-001.BLDR.01.STEP-03_desktop-disabled-preview.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-CAL-001-BLDR-disabled-preview-snapshot.md`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-CAL-001-BLDR-foundation-event-snapshot.md`
+- **verificationNotes:**
+  - The submitted Foundation dialog accepted focus on editable date fields, reverted the changed End date to its original value, and left Preview disabled even after a reason was entered.
+  - Remediation must change the affordance contract itself; explanatory copy alone is insufficient if immutable fields remain editable in the accessibility tree.
+- **skillUsage:**
+  - `impeccable`
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** None. Convex agents must use the checkpoint-matched authoritative guideline source recorded in `reports/core-workflow-ux-audit/safety/convex-guideline-source.md`; no generated file may be hand-edited.
+
+## `UX-WF-CAL-001-004`
+
+- **findingId:** `UX-WF-CAL-001-004`
+- **workstream:** calendar-workspace
+- **rootCauseCluster:** calendar-workspace
+- **phase:** `phase-2`
+- **dependsOn:** Keep reminder actions compatible with shared proposal adapter actions, but partition proposal milestone and draw mutations away from reminder events before menu rendering.<br>Preserve soft-cancel history: reminder cancellation remains a status patch, not hard delete, and stays auditable.<br>Retain assistant closed-catalog reminder keys (create_proposal_reminder, update_proposal_reminder, cancel_proposal_reminder) while changing UI confirmation semantics.
+- **owner:** `planning`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] Reminder menus contain no proposal-date or draw-timing actions; duplicate entries are removed; Cancel requires confirmation and announces retention and notifications; Escape returns focus to the invoking action; cancelled state is clearly read-only and auditable.
+  - [ ] Partition event actions by event kind and lifecycle before menu rendering so reminder rows do not expose proposal-date, draw-timing, or unrelated mutation actions.
+  - [ ] Preserve assistant closed-catalog reminder keys create_proposal_reminder, update_proposal_reminder, and cancel_proposal_reminder; any UI changes must remain additive to the existing assistant HITL and catalog contract.
+  - [ ] Require an explicit cancellation confirmation that names reminder participants or notification impact and retained history before invoking cancellation.
+  - [ ] Remove duplicate menu entries and return focus to the invoking control after cancel or close on keyboard and assistive-technology paths.
+  - [ ] Add regression coverage for reminder action menus and cancel flows across drawer and context-menu entry points, including any required reason capture already enforced by the underlying contract.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md`
+  - `reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-cal-001-004`
+  - `docs/core-product-workflow-manifest.md`
+  - `docs/drawflow-calendar-tab-prd.md`
+- **filesChanged:**
+  - None.
+- **testsAddedOrUpdated:**
+  - Historical plan; superseded by the final 1,147-test suite: `src/features/calendar-workspace/CalendarContextMenu.test.tsx`
+  - Historical plan; superseded by the final 1,147-test suite: `src/features/calendar-workspace/CalendarEventDetailDrawer.test.tsx`
+  - Historical plan; superseded by the final 1,147-test suite: `src/features/calendar-workspace/CalendarWorkspace.test.tsx`
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/WF-CAL-001_WF-CAL-001.BLDR.01_WF-CAL-001.BLDR.01.STEP-05_desktop-reminder-created.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/WF-CAL-001_WF-CAL-001.BLDR.01_WF-CAL-001.BLDR.01.STEP-05_desktop-reminder-cancelled.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-CAL-001-BLDR-custom-event-actions-snapshot.md`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-CAL-001-BLDR-cancel-reminder-snapshot.md`
+- **verificationNotes:**
+  - The audit observed two Open detail entries in the reminder action menu along with Copy link, Export event, Edit reminder, Cancel reminder, New reminder event, Move proposal dates, and Edit draw timing.
+  - Search verification confirmed the assistant closed catalog already exposes create_proposal_reminder, update_proposal_reminder, and cancel_proposal_reminder in convex/assistant.ts and src/features/assistant/assistantActionCatalog.ts; remediation must preserve those keys.
+- **skillUsage:**
+  - `impeccable`
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** None. Convex agents must use the checkpoint-matched authoritative guideline source recorded in `reports/core-workflow-ux-audit/safety/convex-guideline-source.md`; no generated file may be hand-edited.
+
+## `UX-WF-BLD-001-003`
+
+- **findingId:** `UX-WF-BLD-001-003`
+- **workstream:** workspace-ui
+- **rootCauseCluster:** workspace-ui
+- **phase:** `phase-3`
+- **dependsOn:** Authorized active-build scope via `authorizeActiveBuild` and a valid `/builder/builds/$buildId` or `/builder-staff/builds/$buildId` route context.<br>Builder/builder-staff app-permission projection remains the source of truth for draw, contractor, evidence, reminder, and staff CTAs.<br>Shared `ProductionBuildDetailSurface` plus `ActiveBuildTimelineWorkspace` stay the canonical live-build surfaces; no demo-surface fork.<br>Global shell overlays (assistant launcher and devtools) remain mounted and require safe-area-aware spacing rather than feature removal.
+- **owner:** `workspace-ui`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] Verify `/builder/builds/$buildId` and `/builder-staff/builds/$buildId` at 1440x900, 1024x768, and 390x844 with no page-level horizontal scrolling and no clipped primary action, Budget, or Events context on the active Build workspace.
+  - [ ] Reflow the header and current-milestone region at 1024x768 so status, milestone identity, Budget/Event context, and the current legal next action remain visible and reachable without horizontal panning.
+  - [x] Replace the nine-tab overflow failure at 390x844 with navigation that exposes every workspace section to touch and keyboard users, includes an overflow or discovery affordance, and reports the active section programmatically.
+  - [ ] Reserve safe-area-aware spacing for mounted assistant and devtools overlays so fixed utilities never obscure financial metrics or primary CTAs and all required touch targets remain at least 44px.
+  - [ ] Preserve deterministic keyboard navigation: visible focus, logical Tab and Shift+Tab order from header through navigation into content, predictable focus retention and return after tab or sheet changes, and usable layout at 200 percent zoom.
+  - [x] Expose one logical accessible navigation object per section, keep hidden or collapsed sections out of the accessibility tree until revealed, and prevent duplicate announced labels for the same workspace destination.
+  - [ ] Add responsive regression coverage that asserts the builder and builder-staff live-build workspace keeps core actions visible, preserves focus order, and avoids obscured content across 1440x900, 1024x768, and 390x844.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md`
+  - `reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md#ux-wf-bld-001-003`
+  - `reports/core-workflow-ux-audit/target-manifest.json`
+  - `docs/core-product-workflow-manifest.md`
+  - `docs/draw_flow_prd.md`
+  - `docs/draw_flow_production_prd.md`
+- **filesChanged:**
+  - `src/features/backoffice-build-detail/BuildDetailTabs.tsx`
+  - `src/features/backoffice-build-detail/BuildDetailTabs.test.tsx`
+  - `src/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx`
+  - `src/features/backoffice-build-detail/ProductionBuildDetailSurface.test.tsx`
+  - `src/features/timeline-workspace/TimelineWorkspace.tsx`
+  - `src/features/timeline-workspace/-workspace-mode.test.tsx`
+- **testsAddedOrUpdated:**
+  - Compact navigation coverage proves one discoverable section picker, one option per visible destination, active-state reporting, and no duplicate tablist/tab accessibility objects.
+  - Active-section coverage proves exactly one labelled workspace region and DOM/accessibility-tree omission of inactive sections.
+  - Compact analytics coverage proves secondary charts remain hidden from the accessibility tree until deliberately expanded.
+  - Passed 2026-07-19: combined workspace accessibility regression set, 83/83 tests across five files.
+  - Passed 2026-07-19: project `npm run typecheck`.
+  - Passed 2026-07-19: `git diff --check`.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/build-contractor/WF-BLD-001.BLDR.01.STEP-01-details-tablet-1024x768.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/build-contractor/WF-BLD-001.BLDR.01.STEP-01-details-mobile-390x844.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/build-contractor/WF-BLD-001.BLDR.01.STEP-02-timeline-mobile-rendered-390x844.png`
+- **verificationNotes:**
+  - Compact layouts replace the overflowing desktop tablist with one labelled native section picker; desktop keeps the existing tablist and does not render the compact picker.
+  - The shared production Build surface renders only the active workspace inside one labelled region, keeping inactive workspace content out of the DOM and accessibility tree.
+  - Shared Timeline analytics are collapsed behind deliberate disclosures on compact layouts, with hidden chart content removed from accessibility traversal.
+  - Automated regressions and typecheck are green. No fresh real-browser viewport, keyboard, 200 percent zoom, overflow, or shell-overlay observation has been produced.
+- **skillUsage:**
+  - `mattpocock-skills:tdd`
+  - `impeccable`
+- **auditUpdates:**
+  - Canonical finding remains open until Phase 4 browser evidence verifies the remaining viewport, focus, zoom, and safe-area criteria.
+- **notesOrBlocker:** Automated navigation and accessibility-object remediation is complete; fresh Phase 4 browser verification is still required before disposition.
+
+## `UX-WF-CTR-001-003`
+
+- **findingId:** `UX-WF-CTR-001-003`
+- **workstream:** contractor-onboarding-ui
+- **rootCauseCluster:** contractor-onboarding-ui
+- **phase:** `phase-3`
+- **dependsOn:** Shared mobile drawer layout tokens<br>Assistant launcher safe-area suppression while drawers are open
+- **owner:** `comms-contractor`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] At 390x844 the Add contractor sheet is full-width or task-width and neither the document nor the sheet scrolls horizontally.
+  - [ ] At 1024x768 the document and the sheet remain within the viewport with no horizontal overflow.
+  - [ ] Every label, chip, brokerage-scoped metadata row, field, and action remains fully visible and readable without horizontal panning or clipped text.
+  - [ ] Floating assistant or devtools utilities are suppressed or offset while the drawer is open so they never overlap the primary or cancel action region.
+  - [ ] Focus is trapped within one sheet, vertical scrolling happens inside the sheet, and sticky primary and cancel actions remain visible with 44px minimum touch targets.
+  - [x] Switching Existing and New modes preserves visible state only and does not leave hidden search or obstructive controls behind the active surface.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md#ux-wf-ctr-001-003`
+  - `reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md#ux-wf-ctr-001-003`
+  - `docs/core-product-workflow-manifest.md#wf-ctr-001--contractor-profile-invitation-onboarding-claim-and-review`
+- **filesChanged:**
+  - `src/features/contractors/ContractorQuickAddDrawer.tsx`
+  - `src/features/assistant/DrawFlowAssistantLauncher.tsx`
+  - `src/styles.css`
+- **testsAddedOrUpdated:**
+  - `src/features/contractors/ContractorQuickAddDrawer.test.tsx`
+  - Passed 2026-07-19: combined Phase 3 frontend regression set, 137/137 tests across 14 files.
+  - Passed 2026-07-19: project `npm run typecheck`.
+  - Passed 2026-07-19: `git diff --check`.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-CTR-001.BLDR.01.STEP-01-mobile-390x844-sheet.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-CTR-001.BLDR.01.STEP-02-mobile-390x844-form-overflow.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-CTR-001.BLDR.01.STEP-01-tablet-1024x768-overflow.png`
+- **verificationNotes:**
+  - Inactive Existing/New mode controls are conditionally omitted rather than hidden, the drawer uses one active dialog surface, and automated coverage verifies focus enters the drawer and returns to the invoking control on close.
+  - Shared drawer-open state offsets or suppresses mounted floating utilities, but fresh browser checks remain required for actual 390x844 and 1024x768 overflow, sticky-action reachability, touch-target geometry, and overlay clearance.
+- **skillUsage:**
+  - None yet.
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** Floating-utility overlap mitigation depends on coordinator-owned shared shell and assistant launcher behavior.
+
+## `UX-WF-CTR-001-004`
+
+- **findingId:** `UX-WF-CTR-001-004`
+- **workstream:** contractor-onboarding-validation
+- **rootCauseCluster:** contractor-onboarding-validation
+- **phase:** `phase-3`
+- **dependsOn:** Explicit client-side email validation state
+- **owner:** `comms-contractor`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [x] Invalid email shows persistent inline plain-language guidance on input or blur and identifies the field as invalid with aria-invalid and programmatically associated error text.
+  - [x] The sheet exposes a discoverable reason when Create and add is disabled, including which field blocks submission and what valid format is expected.
+  - [x] Correcting the email clears the invalid state and re-enables submission without requiring edits to unrelated fields.
+  - [ ] Validation guidance remains visible and announced at desktop and mobile breakpoints without clipping, overlap, or hidden-only messaging.
+  - [x] No raw validator text, silent disable-only state, or inaccessible error copy appears in the DOM.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md#ux-wf-ctr-001-004`
+  - `reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md#ux-wf-ctr-001-004`
+  - `docs/core-product-workflow-manifest.md#wf-ctr-001--contractor-profile-invitation-onboarding-claim-and-review`
+- **filesChanged:**
+  - `src/features/contractors/ContractorQuickAddDrawer.tsx`
+- **testsAddedOrUpdated:**
+  - `src/features/contractors/ContractorQuickAddDrawer.test.tsx`
+  - Passed 2026-07-19: combined Phase 3 frontend regression set, 137/137 tests across 14 files.
+  - Passed 2026-07-19: project `npm run typecheck`.
+  - Passed 2026-07-19: `git diff --check`.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-CTR-001.BLDR.01.STEP-02-desktop-invalid-email-no-error.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-CTR-001.BLDR.01.STEP-02-mobile-390x844-form-overflow.png`
+- **verificationNotes:**
+  - Automated coverage verifies field-specific email guidance, `aria-invalid` and associated error text, a visible disabled-action reason, recovery after correcting only the email, and suppression of backend/internal validator details.
+  - Fresh browser evidence remains required to verify that the guidance stays unclipped and announced across desktop, tablet, mobile, and zoomed layouts.
+- **skillUsage:**
+  - None yet.
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** None.
+
+## `UX-WF-CTR-002-003`
+
+- **findingId:** `UX-WF-CTR-002-003`
+- **workstream:** contractor-assignment-ui
+- **rootCauseCluster:** contractor-assignment-ui
+- **phase:** `phase-3`
+- **dependsOn:** Single-surface assignment flow<br>Accessible non-nested contractor roster and milestone cards
+- **owner:** `comms-contractor`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [x] No interactive card, row, or option contains another interactive control; separate actions are rendered as separate focusable elements with unique accessible names.
+  - [x] Assignment uses one primary surface at a time, with focus trapped inside it and focus returning to the invoking control on close.
+  - [x] Only legal actions for the current Builder state are rendered; hidden or disabled-but-illegal actions are removed from the DOM and accessibility tree.
+  - [x] The selected contractor, scope, Existing or New mode, required fields, and disabled reasons are programmatically exposed and visibly labeled.
+  - [ ] The workflow uses human-readable build and milestone labels rather than internal slugs and presents one normalized commercial-terms and rate model.
+  - [ ] Hidden search state does not leak between Existing and New modes, and keyboard or touch users can complete the flow without ambiguous stacked dialogs or unexplained disabled actions.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md#ux-wf-ctr-002-003`
+  - `reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md#ux-wf-ctr-002-003`
+  - `docs/core-product-workflow-manifest.md#wf-ctr-002--contractor-assignment-schedule-acknowledgement-scope-clarification-and-supporting-evidence`
+- **filesChanged:**
+  - `src/features/backoffice-build-detail/ContractorsCard.tsx`
+  - `src/features/contractors/ContractorPlanningPanel.tsx`
+  - `src/features/contractors/ContractorQuickAddDrawer.tsx`
+  - `src/features/production-proposals/ProductionContractorPlanningTab.tsx`
+- **testsAddedOrUpdated:**
+  - `src/features/backoffice-build-detail/ContractorsCard.test.tsx`
+  - `src/features/contractors/ContractorPlanningPanel.test.tsx`
+  - `src/features/contractors/ContractorQuickAddDrawer.test.tsx`
+  - `src/features/production-proposals/ProductionContractorPlanningTab.test.tsx`
+  - Passed 2026-07-19: combined Phase 3 frontend regression set, 137/137 tests across 14 files.
+  - Passed 2026-07-19: project `npm run typecheck`.
+  - Passed 2026-07-19: `git diff --check`.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/build-contractor/WF-CTR-002.BLDR.01.STEP-01-HO-01-assignment-forbidden-desktop-1440x900.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/build-contractor/WF-CTR-002.BLDR.01.STEP-01-contractors-mobile-390x844.png`
+- **verificationNotes:**
+  - Automated coverage verifies separate named roster-selection and invite controls, one atomic attach-and-invite path, DOM omission of read-only mutation controls, one active assignment drawer, and focus return to its invoking control.
+  - The complete human-readable label/rate-model contract and end-to-end keyboard/touch completion still require fresh authenticated browser verification.
+- **skillUsage:**
+  - None yet.
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** Visible sender surfaces span workspace-ui-owned build-detail and timeline files even though the contractor workflow itself is in the comms-contractor cluster.
+
+## `UX-WF-DRW-001-004`
+
+- **findingId:** `UX-WF-DRW-001-004`
+- **workstream:** workspace-ui
+- **rootCauseCluster:** workspace-ui
+- **phase:** `phase-3`
+- **dependsOn:** An approved owner-scoped demo live build resolves through `demo_getBuilderLiveTimelineWorkspaceByBuildKey` on `/builder/demo/dashboard/builds/$buildId`.<br>Lender review occurs inside shared `TimelineWorkspace` live mode after a draw has transitioned into `requested` or is being inspected as part of lender review.<br>The review surface still relies on demo persistence hooks for plan-state saves, draw submission, and draw review mutations.<br>Backend-facing changes must respect Convex validator/permission rules while keeping `convex/_generated/**` read-only.
+- **owner:** `workspace-ui`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] Verify the live lender review surface at 1440x900, 1024x768, and 390x844 with no horizontal clipping of request identity, amount, available limit, remaining capacity, evidence status, blockers or warnings, reason input, or legal decision actions.
+  - [ ] Reorder the 1024x768 and 390x844 layouts into a review stack that keeps request identity, amount, availability, evidence, blockers, and legal actions adjacent so the reviewer does not have to scroll past oversized charts to reach the decision surface.
+  - [x] Collapse charts and secondary financial visualization behind a deliberate disclosure at tablet and mobile breakpoints so summary and decision content land before analytics detail while preserving the shared `TimelineWorkspace` live-mode data model.
+  - [x] Contain validator and persistence failures in typed banners or inline states that never render raw internal text behind the header, inside overlapped content, or in the accessibility tree, and preserve draw and build context plus the next safe action.
+  - [ ] Preserve deterministic keyboard navigation and focus visibility from summary through evidence and warnings into reason and decision actions, with focus never moving behind sticky chrome or off-screen panels at 200 percent zoom.
+  - [ ] Respect safe areas and 44px targets on mobile and tablet so the sticky summary, reason field, and legal decision CTAs are fully reachable above mounted shell utilities.
+  - [x] Expose one logical review summary and one logical decision form per draw in the accessibility tree; collapsed charts or hidden rails must not duplicate announced content or trap focus.
+  - [ ] Add responsive regression coverage and fresh browser verification for lender live mode at 1440x900, 1024x768, and 390x844, asserting no clipped labels, no overlapping error text, and no off-screen decision controls.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md`
+  - `reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md#ux-wf-drw-001-004`
+  - `reports/core-workflow-ux-audit/target-manifest.json`
+  - `docs/core-product-workflow-manifest.md`
+  - `docs/draw_flow_prd.md`
+  - `docs/draw_flow_production_prd.md`
+- **filesChanged:**
+  - `src/features/timeline-workspace/TimelineWorkspace.tsx`
+  - `src/features/timeline-workspace/-draw-request-panel.test.tsx`
+  - `src/features/timeline-workspace/-workspace-mode.test.tsx`
+  - `src/features/build-funding/BuildFundingWorkspace.tsx`
+  - `src/features/build-funding/BuildFundingWorkspace.test.tsx`
+- **testsAddedOrUpdated:**
+  - Lender-review coverage proves one labelled review region, one labelled decision form, a named reason field, announced over-limit guidance, and an explained disabled approval action.
+  - Compact live-mode coverage proves secondary charts are absent from the accessibility tree until their deliberate disclosures are expanded.
+  - Public-seam failure coverage proves raw Convex request IDs, schemas, payloads, server paths, and stack details are not rendered or sent to user-facing toasts.
+  - Passed 2026-07-19: combined workspace accessibility regression set, 83/83 tests across five files.
+  - Passed 2026-07-19: project `npm run typecheck`.
+  - Passed 2026-07-19: `git diff --check`.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/operations-verification-draws/live-build-lender-tablet-1024x768.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/operations-verification-draws/live-build-lender-mobile-390x844.png`
+- **verificationNotes:**
+  - Compact Timeline live mode hides cash-flow and draw-availability chart contents behind explicit disclosures while preserving direct desktop visibility.
+  - The lender review panel exposes one labelled region and decision form, labels the reason field, announces over-limit state, and programmatically explains disabled approval.
+  - Mobile decision controls use 44px minimum targets; the selected drawer is full-width, overflow-contained, and includes safe-area-aware bottom padding.
+  - Durable-save and draw-review failures now use fixed plain-language recovery messages rather than rendering raw backend exception text.
+  - Automated regressions and typecheck are green. No fresh real-browser viewport, keyboard, 200 percent zoom, overlap, or safe-area observation has been produced.
+- **skillUsage:**
+  - `mattpocock-skills:tdd`
+  - `impeccable`
+- **auditUpdates:**
+  - Canonical finding remains open until Phase 4 browser evidence verifies the remaining viewport, focus, zoom, overlap, and safe-area criteria.
+- **notesOrBlocker:** Automated review semantics, compact disclosure, and error containment are complete; fresh Phase 4 browser verification is still required before disposition.
+
+## `UX-WF-CAL-001-003`
+
+- **findingId:** `UX-WF-CAL-001-003`
+- **workstream:** calendar-workspace
+- **rootCauseCluster:** calendar-workspace
+- **phase:** `phase-3`
+- **dependsOn:** Preserve TanStack tab/timeframe search contracts across builder, builder-staff, and backoffice proposal/build calendar routes.<br>Keep proposal shell composition in ProductionProposalReviewSurface and build shell composition in ProductionBuildDetailSurface while compacting the shared calendar workspace.<br>Retain visualFixtureEnabled demo/production guards so responsive work does not change which data sources are used.
+- **owner:** `planning`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] There is no page-level horizontal overflow at 1024px or 390px; every action is reachable and fully named; mobile defaults to an agenda/day view; controls meet 44px targets; 200% zoom and keyboard navigation preserve context and focus order.
+  - [ ] Recompose the shared proposal and build calendar workspace for tablet and mobile so the page has no horizontal overflow at 1024px, 390px, or 200% zoom.
+  - [x] Preserve TanStack tab and timeframe search-param contracts across builder, builder-staff, and backoffice proposal and build calendar routes while moving controls into compact layouts.
+  - [x] Keep ProductionProposalReviewSurface and ProductionBuildDetailSurface as the owning shells, but collapse stage navigation, actions, and filters into accessible stage pickers, action menus, and bottom-sheet or drawer patterns below the desktop breakpoint.
+  - [ ] Maintain visualFixtureEnabled guard behavior so responsive changes do not switch demo and production data sources.
+  - [ ] Add responsive and accessibility regression coverage for touch-target size, focus order, sticky identity context, and absence of clipped action labels on proposal and build calendar routes.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md`
+  - `reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-cal-001-003`
+  - `docs/core-product-workflow-manifest.md`
+  - `docs/draw_flow_production_prd.md`
+  - `docs/drawflow-calendar-tab-prd.md`
+- **filesChanged:**
+  - `src/components/ui/event-manager.tsx`
+  - `src/features/calendar-workspace/CalendarWorkspace.tsx`
+  - `src/hooks/use-media-query.ts`
+- **testsAddedOrUpdated:**
+  - `src/features/calendar-workspace/CalendarWorkspace.test.tsx`
+  - Passed 2026-07-19: calendar workspace regression set, 27/27 tests across four files.
+  - Passed 2026-07-19: proposal route/search contract set, 26/26 tests across builder, builder-staff, and backoffice route files.
+  - Passed 2026-07-19: project `npm run typecheck`.
+  - Passed 2026-07-19: `git diff --check`.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/WF-CAL-001_WF-CAL-001.BLDR.01_WF-CAL-001.BLDR.01.STEP-01_tablet-calendar-top.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/WF-CAL-001_WF-CAL-001.BLDR.01_WF-CAL-001.BLDR.01.STEP-01_tablet-calendar.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/WF-CAL-001_WF-CAL-001.BLDR.01_WF-CAL-001.BLDR.01.STEP-01_mobile-calendar.png`
+- **verificationNotes:**
+  - Browser evidence captured a 1265px document width at 1024x768 and reduced the active Calendar tab label to "Ca" at 390x844, confirming layout overflow rather than isolated styling polish.
+  - The shared EventManager now conditionally mounts one compact timeframe picker on phone layouts and one desktop tablist otherwise; CSS-hidden duplicate navigation is no longer present in the DOM or accessibility tree.
+  - Mobile-without-an-explicit-timeframe still defaults to agenda, while builder, builder-staff, and backoffice route tests verify tab/timeframe search-param preservation.
+  - Fresh browser checks remain required for viewport overflow, zoom, focus order, action reachability, safe-area spacing, and rendered touch-target geometry.
+- **skillUsage:**
+  - `impeccable`
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** Additional authenticated tablet/mobile mutation passes were interrupted by a late local ECONNRESET/browser-control timeout; existing browser evidence still defines the responsive and a11y backlog for this finding.
+
+## `UX-WF-CAL-001-005`
+
+- **findingId:** `UX-WF-CAL-001-005`
+- **workstream:** calendar-workspace
+- **rootCauseCluster:** calendar-workspace
+- **phase:** `phase-3`
+- **dependsOn:** Keep backend calendar events as full-range logical records; semantic dedupe should happen in projection and render layers without changing entity ids or route context.<br>Preserve visible month-range continuity while removing duplicate day-span fragments from sequential focus and the accessibility tree.<br>Keep shared agenda semantics aligned between EventManager and CalendarAgendaRail, not just one surface.
+- **owner:** `planning`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [ ] Seven logical events produce seven agenda items; each range is announced once with start/end/duration; month fragments are excluded from sequential focus; no duplicate accessible names exist for the same logical event in one view.
+  - [x] Duplicate accessible-item elimination verification for keyboard/focus and accessible output.
+  - [x] Project each logical event once per accessible agenda or day output; repeated day-span fragments in month cells may remain visual, but they must be aria-hidden and excluded from sequential focus.
+  - [ ] Ensure keyboard tab order and screen-reader output enumerate each logical Foundation, Shell and Dry-In, submilestone, and draw item once per relevant view, with one action target per logical event.
+  - [x] Preserve backend event identity and full-range logical records so dedupe happens in projection and render layers without mutating entity ids or route context.
+  - [x] Keep agenda semantics aligned between EventManager and CalendarAgendaRail so desktop rails and mobile agenda surfaces expose the same deduped accessible model.
+  - [x] Add a11y regression coverage that counts logical agenda items, validates unique accessible names within a view, and asserts no duplicate focus stops for the same logical event range.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md`
+  - `reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-cal-001-005`
+  - `docs/core-product-workflow-manifest.md`
+  - `docs/drawflow-calendar-tab-prd.md`
+- **filesChanged:**
+  - `src/components/ui/event-manager.tsx`
+  - `src/features/calendar-workspace/CalendarAgendaRail.tsx`
+  - `src/features/calendar-workspace/CalendarWorkspace.tsx`
+  - `src/features/calendar-workspace/calendarEventProjection.ts`
+- **testsAddedOrUpdated:**
+  - `src/features/calendar-workspace/CalendarWorkspace.test.tsx`
+  - Passed 2026-07-19: calendar workspace regression set, 27/27 tests across four files.
+  - Passed 2026-07-19: project `npm run typecheck`.
+  - Passed 2026-07-19: `git diff --check`.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-CAL-001-BLDR-proposal-calendar-snapshot.md`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/WF-CAL-001_WF-CAL-001.BLDR.01_WF-CAL-001.BLDR.01.STEP-01_desktop-month-calendar.png`
+- **verificationNotes:**
+  - Verbatim duplicate accessible-tree proof from reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-CAL-001-BLDR-proposal-calendar-snapshot.md includes repeated "- button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K"" entries for successive agenda dates and repeated "- button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning"" entries across the same view.
+  - Agenda projections now group full-range logical events by start date, expose start/end/duration in the accessible name, and omit the duplicate desktop agenda rail when the primary EventManager is itself in agenda mode.
+  - Month range fragments remain visible at start and end dates but are aria-hidden, non-button elements with `tabIndex={-1}`; the agenda event row is the sole logical selection focus stop.
+  - Automated coverage verifies one Foundation range announcement and one Foundation-related agenda focus stop. Fresh browser and accessibility-tree evidence is still required against the complete production fixture, including Shell and Dry-In, submilestones, and draws.
+- **skillUsage:**
+  - `impeccable`
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** Automated logical-event dedupe and focus-stop coverage is complete for the targeted fixture; the complete production fixture and real browser accessibility tree remain pending Phase 4. Convex agents must use the checkpoint-matched authoritative guideline source recorded in `reports/core-workflow-ux-audit/safety/convex-guideline-source.md`; no generated file may be hand-edited.
+
+## `UX-WF-MAT-001-002`
+
+- **findingId:** `UX-WF-MAT-001-002`
+- **workstream:** material-planning
+- **rootCauseCluster:** material-planning
+- **phase:** `phase-3`
+- **dependsOn:** UX-WF-MAT-001-001
+- **owner:** `planning`
+- **status:** `fixed`
+- **acceptanceCriteria:**
+  - [x] Invalid cost and quantity produce distinct messages; the invalid field exposes `aria-invalid`; messages are announced; valid partial quantity examples are shown; Add item state explains unmet requirements.
+  - [x] Use numeric field semantics for cost and quantity inputs, with field-specific helper text, accepted range or format guidance, and aria-describedby links from each input to its own error text.
+  - [x] Set aria-invalid only on the offending field and announce distinct messages for negative cost and zero or invalid quantity without requiring the user to infer which control failed.
+  - [x] Explain disabled submit state in visible and programmatic text until all requirements are met; do not rely on a generic Must be greater than zero. message alone.
+  - [x] Keep cents and quantity validation aligned with the authoritative proposal cost-item validators and budget and draw recalculation contract in convex/production_proposals.ts.
+  - [ ] Add regression coverage for keyboard-only validation, screen-reader announcements, and corrected recovery paths in the Add cost item dialog.
+- **sourceAuditLinks:**
+  - `reports/core-workflow-ux-audit/audit-report.md`
+  - `reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-mat-001-002`
+  - `docs/core-product-workflow-manifest.md`
+  - `docs/build-material-planning.md`
+- **filesChanged:**
+  - `src/features/material-planning/MaterialPlanningTab.tsx`
+- **testsAddedOrUpdated:**
+  - `src/features/material-planning/MaterialPlanningTab.test.tsx`
+  - Passed 2026-07-19: combined Phase 3 frontend regression set, 137/137 tests across 14 files.
+  - Passed 2026-07-19: `convex/production_proposals.test.ts`, 93/93 tests.
+  - Passed 2026-07-19: project `npm run typecheck`.
+  - Passed 2026-07-19: `git diff --check`.
+- **browserEvidence:**
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/WF-MAT-001_WF-MAT-001.BLDR.01_WF-MAT-001.BLDR.01.STEP-02_desktop-invalid-cost.png`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-MAT-001-BLDR-invalid-snapshot.md`
+  - Historical target; superseded by `evidence/final-qa/` and `evidence/authenticated-qa/`: `reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-MAT-001-BLDR-add-dialog-snapshot.md`
+- **verificationNotes:**
+  - Automated coverage verifies independent cost and quantity messages, field-specific `aria-invalid` and `aria-describedby`, announced errors, valid partial-quantity guidance, a visible disabled-submit explanation, and recovery after correcting only the offending values.
+  - The authoritative production proposal suite remains green at 93/93, preserving server-side numeric invariants and rollup behavior.
+  - Fresh keyboard-only and browser/screen-reader verification remains pending for focus order, live announcements, clipping, and zoom behavior.
+- **skillUsage:**
+  - `impeccable`
+- **auditUpdates:**
+  - None yet; update canonical audit records only after verified disposition.
+- **notesOrBlocker:** None. Convex agents must use the checkpoint-matched authoritative guideline source recorded in `reports/core-workflow-ux-audit/safety/convex-guideline-source.md`; no generated file may be hand-edited.

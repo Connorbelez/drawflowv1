@@ -74,7 +74,7 @@ Created: 2026-05-27
 - Closing requires an approved proposal, a reason, and a build start date. Future start dates are accepted.
 - Closing moves the proposal to `closed` and creates the active build, broker assignment, loan facility, capital plan, build milestones, build submilestones, planned draw schedule rows, capital event, audit events, proposal events, and event outbox rows.
 - Loan interest is recorded as starting on `funds_released`.
-- Draw availability is derived from milestone budget and borrower co-pay bps.
+- Draw availability is derived from milestone budget and Loan Percentage, with the complementary borrower contribution retained in the legacy `borrowerCoPayBps` field.
 
 ## Authorization
 

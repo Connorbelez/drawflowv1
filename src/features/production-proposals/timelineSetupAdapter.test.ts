@@ -174,7 +174,7 @@ describe("production proposal timeline setup adapter", () => {
     expect(payload.draws).toHaveLength(3);
   });
 
-  test("increases saved scenario draw amounts to avoid negative cash on hand", () => {
+  test("keeps scenario draws within reimbursement capacity instead of repairing borrower cash shortfalls", () => {
     const template: TimelineSetupTemplate = {
       description: "Cash constrained",
       rows: [
@@ -208,10 +208,13 @@ describe("production proposal timeline setup adapter", () => {
     });
 
     expect(draws?.map((draw) => draw.amountCents)).toEqual([
-      250_000_00,
-      500_000_00,
-      100_000_00,
+      80_000_00,
+      80_000_00,
+      80_000_00,
     ]);
+    expect(
+      draws?.reduce((total, draw) => total + draw.amountCents, 0)
+    ).toBeLessThanOrEqual(800_000_00);
   });
 
   test("maps richer production milestone names to the expanded icon set", () => {
@@ -327,12 +330,13 @@ describe("production proposal timeline setup adapter", () => {
 
     expect(payload).toMatchObject({
       borrowerCoPayBps: 2_000,
-      borrowerWorkingCapitalLimitCents: 40_000_000,
+      borrowerStartingCashCents: 40_000_000,
       buildName: "Single Family Full Build Proposal",
       lenderDrawPolicyLimitCents: 100_000_000,
       location: "Hamilton, ON",
       proposedStartDate: "2025-04-15",
     });
+    expect(payload).not.toHaveProperty("borrowerWorkingCapitalLimitCents");
     expect(payload.milestones).toEqual([
       expect.objectContaining({
         budgetCents: 30_000_000,

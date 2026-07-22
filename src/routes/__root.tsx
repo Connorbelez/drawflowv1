@@ -22,6 +22,7 @@ import {
 
 import { Button } from "#/components/ui/button.tsx";
 import { Card } from "#/components/ui/card.tsx";
+import { DEV_SERVICE_WORKER_RECOVERY_SCRIPT } from "#/lib/dev-service-worker-recovery.ts";
 import { Toaster } from "../components/ui/sonner";
 import { TooltipProvider } from "../components/ui/tooltip";
 import ConvexProvider from "../integrations/convex/provider";
@@ -75,7 +76,7 @@ const fetchWorkosAuth = createServerFn({ method: "GET" }).handler(async () => {
     logAuthFailure("getAuth failed", error);
     return emptyAuthContext();
   }
-  const tokenClaims = decodeJwtPayload(auth.accessToken);
+  const tokenClaims = auth.user ? decodeJwtPayload(auth.accessToken) : null;
   const organizationId =
     auth.user
       ? (auth.organizationId ??
@@ -272,7 +273,10 @@ export function RootDocument({ children }: RootDocumentProps): ReactElement {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        {import.meta.env.DEV ? (
+          <script>{DEV_SERVICE_WORKER_RECOVERY_SCRIPT}</script>
+        ) : null}
+        <script>{THEME_INIT_SCRIPT}</script>
         <HeadContent />
       </head>
       <body className="isolate relative flex min-h-svh flex-col bg-background font-sans text-foreground antialiased [overflow-wrap:anywhere] selection:bg-primary/20">
@@ -330,10 +334,7 @@ function RootNotFound(): ReactElement {
 }
 
 export function RootError({ error, reset }: ErrorComponentProps): ReactElement {
-  const message =
-    error instanceof Error && error.message
-      ? error.message
-      : "An unexpected DrawFlow route error occurred.";
+  const errorState = getRootErrorState(error);
   const retryRoute = () => {
     if (typeof window !== "undefined") {
       window.location.reload();
@@ -346,17 +347,20 @@ export function RootError({ error, reset }: ErrorComponentProps): ReactElement {
   return (
     <main className="grid min-h-[calc(100vh-4rem)] place-items-center bg-bg-base p-6 text-foreground">
       <Card className="w-full max-w-2xl p-6">
-        <p className="font-medium text-destructive text-sm">Route error</p>
+        <p className="font-medium text-destructive text-sm">{errorState.label}</p>
         <h1 className="mt-2 font-semibold text-2xl">
           DrawFlow could not load this screen.
         </h1>
         <p className="mt-2 text-muted-foreground text-sm">
-          The route failed while loading. Refresh the screen or return to the
-          workspace.
+          This screen hit a recoverable loading problem. Try again now or return
+          to backoffice.
         </p>
-        <pre className="mt-4 max-h-40 overflow-auto rounded-md bg-muted p-3 text-muted-foreground text-xs">
-          {message}
-        </pre>
+        <div className="mt-4 rounded-md bg-muted p-3">
+          <p className="font-medium text-foreground text-sm">What happened</p>
+          <p className="mt-1 text-muted-foreground text-sm">
+            {errorState.detail}
+          </p>
+        </div>
         <div className="mt-5 flex flex-wrap gap-2">
           <Button onClick={retryRoute}>Try again</Button>
           <Button render={<a href="/backoffice" />} variant="outline">
@@ -366,4 +370,65 @@ export function RootError({ error, reset }: ErrorComponentProps): ReactElement {
       </Card>
     </main>
   );
+}
+
+const ROOT_ERROR_UNSAFE_PATTERNS = [
+  /\[Request ID:[^\]]+\]/i,
+  /\brequest id\b/i,
+  /\b(?:mutation|query|action)\s+(?:api|internal)\.[\w.]+/i,
+  /\b(?:api|internal)\.[\w.]+/i,
+  /\b(?:payload|schema|validator|argument)\b/i,
+  /\/Users\//,
+  /[A-Za-z]:\\/,
+  /\n\s*at\s+/,
+  /^\s*at\s+/m,
+  /stack trace/i,
+];
+
+type RootErrorState = {
+  detail: string;
+  label: string;
+};
+
+function getRootErrorState(error: unknown): RootErrorState {
+  const rawMessage = error instanceof Error && error.message ? error.message : "";
+  const safeMessage = normalizeRootErrorMessage(rawMessage);
+
+  if (safeMessage) {
+    return {
+      detail: safeMessage,
+      label: "Recoverable route error",
+    };
+  }
+
+  return {
+    detail:
+      "DrawFlow could not safely finish loading this route. Refresh the page and try the same navigation again.",
+    label: inferRootErrorLabel(rawMessage),
+  };
+}
+
+function normalizeRootErrorMessage(message: string): string | null {
+  if (!message) {
+    return null;
+  }
+
+  if (ROOT_ERROR_UNSAFE_PATTERNS.some((pattern) => pattern.test(message))) {
+    return null;
+  }
+
+  const normalized = message.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return null;
+  }
+
+  return normalized.slice(0, 280);
+}
+
+function inferRootErrorLabel(message: string): string {
+  return /\b(?:auth|organization|membership|permission|profile|role|workspace)\b/i.test(
+    message,
+  )
+    ? "Recoverable access error"
+    : "Recoverable route error";
 }

@@ -41,6 +41,10 @@ export function ProductionProposalDrawScheduleEditor({
   onLabelChange,
   onTimingChange,
 }: ProductionProposalDrawScheduleEditorProps) {
+  if (!canEditDraws) {
+    return null;
+  }
+
   if (draws.length === 0) {
     return (
       <p className="text-muted-foreground text-sm">

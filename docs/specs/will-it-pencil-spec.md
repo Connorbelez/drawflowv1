@@ -51,7 +51,7 @@ Current Build Proposal creation includes:
 
 1. Build identity and site.
 2. Permits/documents.
-3. Budget, borrower working capital, and co-pay assumptions.
+3. Budget, borrower working capital, and Loan Percentage assumptions.
 4. Construction template.
 5. Milestones, durations, dependencies, and costs.
 6. Contractors.
@@ -69,7 +69,7 @@ Recommended flow:
 2. Build intent and preliminary assumptions.
 3. **Will It Pencil?**
 4. Permits/documents, or permit status confirmation.
-5. Budget, borrower working capital, and co-pay assumptions.
+5. Budget, borrower working capital, and Loan Percentage assumptions.
 6. Construction template.
 7. Milestone worksheet.
 8. Draw plan comparison.

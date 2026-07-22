@@ -23,7 +23,32 @@ import {
 import { cn } from "#/lib/utils.ts";
 import { MOCK_BUILDER_PERSONA } from "../../../convex/demo_personas";
 
+export type TimelineBudgetGovernance = {
+  activeVersion: number;
+  activeVersionLabel: string;
+  affectedDrawRequestCount: number;
+  affectedDrawRequestIds?: string[];
+  affectedMilestoneCount: number;
+  affectedMilestoneKeys?: string[];
+  currentOwner: string;
+  decisionStatus: "approved" | "current" | "pending" | "rejected";
+  proposedVersion: number | null;
+  proposedVersionLabel: string | null;
+  requestId?: string | null;
+  requestReason?: string | null;
+  requestType?:
+    | "capitalPlanRevision"
+    | "paybackExtension"
+    | "principalIncrease"
+    | null;
+  revisionDeadline: string | null;
+  revisionPriority: "recommended" | "required" | null;
+  varianceBps: number;
+  varianceCents: number;
+};
+
 export type TimelinePlanRow = {
+  budgetGovernance?: TimelineBudgetGovernance | null;
   buildKey?: string;
   buildName: string;
   drawCount: number;
@@ -32,7 +57,6 @@ export type TimelinePlanRow = {
   pendingDrawRequestCount?: number;
   pendingModificationRequestCount?: number;
   planId: string;
-  proposalId?: string;
   proposalSlug?: string;
   status: "approved" | "archived" | "draft" | "submitted";
   totalBudgetCents: number;
@@ -403,7 +427,7 @@ function TimelinePlanTable({
         <TableRow>
           <TableHead>Build</TableHead>
           <TableHead>Status</TableHead>
-          <TableHead>Budget</TableHead>
+          <TableHead>Budget / governance</TableHead>
           <TableHead>Milestones / draws</TableHead>
           <TableHead>Open requests</TableHead>
           <TableHead>Updated</TableHead>
@@ -413,15 +437,29 @@ function TimelinePlanTable({
       <TableBody>
         {rows.map((row) => {
           const resolvedActionLabel =
-            actionLabel ??
-            (isLiveBuildRow(row) ? "Open live build" : "Open proposal");
+            isLiveBuildRow(row) && row.budgetGovernance?.revisionPriority
+              ? row.budgetGovernance.decisionStatus === "pending"
+                ? "View revision"
+                : "Review variance"
+              : (actionLabel ??
+                (isLiveBuildRow(row) ? "Open live build" : "Open proposal"));
           return (
             <TableRow key={row.planId}>
               <TableCell className="font-medium">{row.buildName}</TableCell>
               <TableCell>
                 <PlanStatusBadge status={row.status} />
               </TableCell>
-              <TableCell>{formatCents(row.totalBudgetCents)}</TableCell>
+              <TableCell>
+                <div className="font-medium">
+                  {formatCents(row.totalBudgetCents)}
+                </div>
+                {row.budgetGovernance?.revisionPriority ? (
+                  <BudgetGovernanceSummary
+                    governance={row.budgetGovernance}
+                    rowLabel={row.buildName}
+                  />
+                ) : null}
+              </TableCell>
               <TableCell>
                 {row.milestoneCount} / {row.drawCount}
               </TableCell>
@@ -448,6 +486,60 @@ function TimelinePlanTable({
         })}
       </TableBody>
     </Table>
+  );
+}
+
+function BudgetGovernanceSummary({
+  governance,
+  rowLabel,
+}: {
+  governance: TimelineBudgetGovernance;
+  rowLabel: string;
+}) {
+  const priorityLabel =
+    governance.revisionPriority === "required"
+      ? "Required budget revision"
+      : "Recommended budget revision";
+  const decisionLabel =
+    governance.decisionStatus.charAt(0).toUpperCase() +
+    governance.decisionStatus.slice(1);
+  return (
+    <section
+      aria-label={`Budget governance for ${rowLabel}`}
+      className="mt-2 min-w-56 space-y-1 text-xs"
+    >
+      <Badge
+        variant={
+          governance.revisionPriority === "required" ? "warning" : "outline"
+        }
+      >
+        {priorityLabel}
+      </Badge>
+      <p className="font-medium text-foreground">
+        {governance.activeVersionLabel}
+        {governance.proposedVersionLabel
+          ? ` → ${governance.proposedVersionLabel}`
+          : null}
+      </p>
+      <p className="text-muted-foreground">
+        {formatSignedCents(governance.varianceCents)} ·{" "}
+        {formatSignedBps(governance.varianceBps)}
+      </p>
+      <p className="text-muted-foreground">
+        {governance.currentOwner} · {decisionLabel}
+      </p>
+      <p className="text-muted-foreground">
+        {governance.affectedMilestoneCount}{" "}
+        {governance.affectedMilestoneCount === 1 ? "milestone" : "milestones"} ·{" "}
+        {governance.affectedDrawRequestCount} open{" "}
+        {governance.affectedDrawRequestCount === 1 ? "draw" : "draws"}
+      </p>
+      {governance.revisionDeadline ? (
+        <p className="text-muted-foreground">
+          Decision due {governance.revisionDeadline}
+        </p>
+      ) : null}
+    </section>
   );
 }
 
@@ -495,10 +587,16 @@ function countByStatus(rows: TimelinePlanRow[]) {
 }
 
 function resolveBuildKey(row: TimelinePlanRow) {
-  return row.buildKey ?? `demo-timeline-${row.proposalSlug ?? row.planId}`;
+  if (!row.buildKey) {
+    throw new Error("An accessible live build assignment is required.");
+  }
+  return row.buildKey;
 }
 
 function isLiveBuildRow(row: TimelinePlanRow) {
+  if (!row.buildKey) {
+    return false;
+  }
   return row.kind ? row.kind === "activeBuild" : row.status === "approved";
 }
 
@@ -509,6 +607,15 @@ function formatOpenRequests(row: TimelinePlanRow) {
     return "-";
   }
   return `${drawCount} draw / ${modificationCount} change`;
+}
+
+function formatSignedCents(cents: number) {
+  return `${cents >= 0 ? "+" : "-"}${formatCents(Math.abs(cents))}`;
+}
+
+function formatSignedBps(bps: number) {
+  const percentage = Math.abs(bps) / 100;
+  return `${bps >= 0 ? "+" : "-"}${percentage.toFixed(1)}%`;
 }
 
 function formatCents(cents: number) {

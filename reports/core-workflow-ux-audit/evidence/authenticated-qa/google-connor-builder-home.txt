@@ -1,0 +1,91 @@
+{
+  "lifecycle": {
+    "effectiveLaunch": {
+      "browserLaunched": true,
+      "engine": "chrome",
+      "launchHash": 16795142570751190000
+    },
+    "launched": false,
+    "relaunchedBrowser": false,
+    "restartedBackground": false,
+    "restoreStatus": "not_configured",
+    "reused": true,
+    "saveStatus": "not_configured"
+  },
+  "origin": "http://localhost:3000/builder",
+  "refs": {
+    "e1": {
+      "name": "Notifications alt+T",
+      "role": "region"
+    },
+    "e10": {
+      "name": "Notifications",
+      "role": "button"
+    },
+    "e11": {
+      "name": "About",
+      "role": "link"
+    },
+    "e12": {
+      "name": "Docs",
+      "role": "link"
+    },
+    "e13": {
+      "name": "Connor Beleznay Connor Beleznay c.beleznay@humanfeedback.com",
+      "role": "button"
+    },
+    "e14": {
+      "name": "Contact your brokerage",
+      "role": "button"
+    },
+    "e15": {
+      "name": "Dashboard",
+      "role": "link"
+    },
+    "e16": {
+      "name": "Proposals",
+      "role": "link"
+    },
+    "e17": {
+      "name": "Live Builds",
+      "role": "link"
+    },
+    "e18": {
+      "name": "Timeline Setup",
+      "role": "link"
+    },
+    "e2": {
+      "name": "DrawFlow DrawFlow Builder",
+      "role": "link"
+    },
+    "e3": {
+      "name": "Open DrawFlow AI assistant",
+      "role": "button"
+    },
+    "e4": {
+      "name": "Open TanStack Devtools",
+      "role": "button"
+    },
+    "e5": {
+      "name": "Learn more",
+      "role": "link"
+    },
+    "e6": {
+      "name": "",
+      "role": "button"
+    },
+    "e7": {
+      "name": "Toggle Sidebar",
+      "role": "button"
+    },
+    "e8": {
+      "name": "breadcrumb",
+      "role": "navigation"
+    },
+    "e9": {
+      "name": "Theme mode: dark. Click to switch mode.",
+      "role": "button"
+    }
+  },
+  "snapshot": "- link \"DrawFlow DrawFlow Builder\" [ref=e2]\n- link \"Dashboard\" [ref=e15]\n- link \"Proposals\" [ref=e16]\n- link \"Live Builds\" [ref=e17]\n- link \"Timeline Setup\" [ref=e18]\n- link \"Learn more\" [ref=e5]\n- button [ref=e6]\n- link \"About\" [ref=e11]\n- link \"Docs\" [ref=e12]\n- button \"Toggle Sidebar\" [ref=e7]\n- navigation \"breadcrumb\" [ref=e8]\n- button \"Theme mode: dark. Click to switch mode.\" [ref=e9]\n- button \"Notifications\" [expanded=false, ref=e10]\n- button \"Connor Beleznay Connor Beleznay c.beleznay@humanfeedback.com\" [expanded=false, ref=e13]\n- button \"Contact your brokerage\" [ref=e14]\n- button \"Open DrawFlow AI assistant\" [ref=e3]\n- region \"Notifications alt+T\" [ref=e1]\n- button \"Open TanStack Devtools\" [ref=e4]"
+}

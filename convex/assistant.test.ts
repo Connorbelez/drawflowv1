@@ -1,10 +1,13 @@
 /// <reference types="vite/client" />
 
 import { convexTest } from "convex-test";
+import type OpenAI from "openai";
 import { describe, expect, test, vi } from "vitest";
 
 import { api } from "./_generated/api";
+import { resolveAssistantModel } from "./assistantProvider";
 import schema from "./schema";
+import { draftSiteVisitGuidance } from "./siteVisitGuidance";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -88,6 +91,28 @@ async function createDraftProposal(t: any, seed: any) {
 
 async function createActiveBuild(t: any, seed: any) {
   const proposalId = await createDraftProposal(t, seed);
+  await t.run(async (ctx: any) => {
+    const now = Date.now();
+    await ctx.db.patch(proposalId, {
+      selectedPlan: {
+        metrics: {
+          drawCount: 2,
+          drawFeesCents: 100_000,
+          interestCostCents: 250_000,
+          minimumCashReserveCents: 5_000_000,
+          projectedDurationDays: 31,
+          startingCashCents: 35_000_000,
+          totalCostCents: 350_000,
+          totalDrawAmountCents: 58_000_000,
+        },
+        name: "Cheapest Feasible",
+        planKey: "cheapestFeasible",
+        recommendationReason: "Selected by assistant active-build test setup.",
+        selectedAt: now,
+        selectedByWorkosUserId: "assistant_test_setup",
+      },
+    });
+  });
   await t.mutation((api as any).production_proposals.submitProposal, {
     proposalId,
     workosOrganizationId: ORG,
@@ -177,7 +202,35 @@ async function planWithFallback(t: any, input: Record<string, unknown>) {
   }
 }
 
+function siteVisitGuidanceArgs() {
+  return {
+    build: {
+      location: "44 Actual Cost Lane",
+      name: "Actual cost active build",
+    },
+    currentGuidance: {
+      cameraAngles: "<ul><li>Current angle.</li></ul>",
+      whatToVerify: "<ul><li>Current check.</li></ul>",
+    },
+    milestone: { key: "foundation", name: "Foundation" },
+    submilestones: [{ key: "forms", name: "Forms and pour" }],
+    workosOrganizationId: ORG,
+  };
+}
+
 describe("DrawFlow assistant HITL backend", () => {
+  test("resolves provider-native model identifiers", () => {
+    expect(resolveAssistantModel("openai", "gpt-5.4-mini")).toBe(
+      "gpt-5.4-mini",
+    );
+    expect(resolveAssistantModel("openrouter", "gpt-5.4-mini")).toBe(
+      "openai/gpt-5.4-mini",
+    );
+    expect(resolveAssistantModel("openrouter", "anthropic/claude-sonnet-4.5")).toBe(
+      "anthropic/claude-sonnet-4.5",
+    );
+  });
+
   test("drafts scoped site visit guidance without mutating production state", async () => {
     vi.stubEnv("OPENAI_API_KEY", "");
     vi.stubEnv("OPENROUTER_API_KEY", "");
@@ -185,19 +238,7 @@ describe("DrawFlow assistant HITL backend", () => {
       const { t } = await seeded(["admin"], "guidance_admin");
       const result = await t.action(
         (api as any).assistant.generateSiteVisitGuidance,
-        {
-          build: {
-            location: "44 Actual Cost Lane",
-            name: "Actual cost active build",
-          },
-          currentGuidance: {
-            cameraAngles: "<ul><li>Current angle.</li></ul>",
-            whatToVerify: "<ul><li>Current check.</li></ul>",
-          },
-          milestone: { key: "foundation", name: "Foundation" },
-          submilestones: [{ key: "forms", name: "Forms and pour" }],
-          workosOrganizationId: ORG,
-        },
+        siteVisitGuidanceArgs(),
       );
 
       expect(result.source).toBe("fallback");
@@ -208,6 +249,37 @@ describe("DrawFlow assistant HITL backend", () => {
       expect(result.cameraAngles).toMatch(/^<ul><li>/);
     } finally {
       vi.unstubAllEnvs();
+    }
+  });
+
+  test("falls back when the configured guidance provider rejects authentication", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const create = vi.fn().mockRejectedValue(
+      Object.assign(new Error("User not found"), {
+        status: 401,
+      }),
+    );
+    const client = {
+      chat: { completions: { create } },
+    } as unknown as Pick<OpenAI, "chat">;
+
+    try {
+      const result = await draftSiteVisitGuidance({
+        client,
+        input: siteVisitGuidanceArgs(),
+        model: "gpt-5.4-mini",
+        provider: "openrouter",
+      });
+
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringMatching(/openrouter.*401.*deterministic fallback/i),
+      );
+      expect(result).toMatchObject({ source: "fallback" });
+      expect(result.whatToVerify).toContain("Foundation");
+      expect(result.cameraAngles).toContain("44 Actual Cost Lane");
+    } finally {
+      warn.mockRestore();
     }
   });
 
@@ -828,7 +900,6 @@ describe("DrawFlow assistant HITL backend", () => {
           actionKey: "create_build_proposal_from_setup",
           clientRequestId: "setup_create",
           input: {
-            borrowerCoPayBps: 2_000,
             borrowerWorkingCapitalLimitCents: 25_000_000,
             buildName: "Assistant Garden Suite",
             costItems: [
@@ -866,6 +937,7 @@ describe("DrawFlow assistant HITL backend", () => {
                 ],
               },
             ],
+            loanPercentageBps: 8_000,
             proposedStartDate: "2026-07-01",
           },
         },
@@ -900,6 +972,7 @@ describe("DrawFlow assistant HITL backend", () => {
         .collect(),
     }));
     expect(state.proposal).toMatchObject({
+      borrowerCoPayBps: 2_000,
       buildName: "Assistant Garden Suite",
       location: "12 Garden Lane, Toronto, ON",
       proposedStartDate: "2026-07-01",

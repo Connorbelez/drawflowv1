@@ -3431,7 +3431,28 @@ export const demo_submitTimelineDrawRequest = publicMutation
     assertPlanWritable(plan);
     const draw = await getDrawOrThrow(ctx, plan._id, args.drawKey);
     const nextX = args.x ?? draw.x;
-    let nextAmountCents = Math.max(0, Math.round(args.amountCents));
+    const nextAmountCents = Math.round(args.amountCents);
+    const nextNote = args.note?.trim() || undefined;
+
+    if (nextAmountCents <= 0) {
+      throw new Error("Draw request amount must be greater than zero.");
+    }
+    if (draw.requestStatus === "requested") {
+      const isSameRequest =
+        draw.amountCents === nextAmountCents &&
+        draw.x === nextX &&
+        (draw.requestNote?.trim() || undefined) === nextNote;
+      if (isSameRequest) {
+        return { idempotent: true, ok: true };
+      }
+      throw new Error(
+        "This draw is already requested with a different amount, date, or note."
+      );
+    }
+    if (draw.requestStatus === "approved") {
+      throw new Error("An approved draw request cannot be changed.");
+    }
+
     if (plan.status === "approved") {
       const approvedCapacity = await calculateApprovedDrawCapacityCents(
         ctx,
@@ -3443,11 +3464,13 @@ export const demo_submitTimelineDrawRequest = publicMutation
       if (approvedCapacity.availableLimitCents <= 0) {
         throw new Error("Draw request requires approved milestone completion.");
       }
-      nextAmountCents = Math.min(
-        nextAmountCents,
-        approvedCapacity.availableLimitCents
-      );
+      if (nextAmountCents > approvedCapacity.availableLimitCents) {
+        throw new Error(
+          `Requested amount exceeds the available draw limit of ${approvedCapacity.availableLimitCents} cents.`
+        );
+      }
     }
+
     const nextRow: Omit<TimelineDraw, "_creationTime" | "_id"> = {
       amountCents: nextAmountCents,
       createdAt: draw.createdAt,
@@ -3456,7 +3479,7 @@ export const demo_submitTimelineDrawRequest = publicMutation
       label: draw.label,
       order: draw.order,
       planId: draw.planId,
-      requestNote: args.note,
+      requestNote: nextNote,
       requestStatus: "requested",
       requestedAt: new Date().toISOString(),
       updatedAt: Date.now(),
@@ -3473,7 +3496,7 @@ export const demo_submitTimelineDrawRequest = publicMutation
       planId: plan._id,
       priorState: JSON.stringify(draw),
     });
-    return { ok: true };
+    return { idempotent: false, ok: true };
   })
   .public();
 
@@ -4000,10 +4023,16 @@ export const demo_requestTimelineSiteVisit = publicMutation
     const token = generateSiteVisitToken();
     const tokenHash = await hashSiteVisitToken(token);
     const now = Date.now();
+    const workOrderId = `DEMO-WO-${selected.milestoneKey}-${now}`;
+    const evidencePackageId = `DEMO-EP-${String(plan._id)}-${selected.milestoneKey}`;
     const visitId = await ctx.db.insert("demo_siteVisits", {
       assignedPersona: "site_visitor",
       buildId: plan.buildId,
       createdAt: now,
+      evidencePackageId,
+      organizationScopeKey: plan.orgKey,
+      scopeBoundAt: now,
+      workOrderId,
       milestoneId: selected._id,
       milestoneKey: selected.milestoneKey,
       requestReason: args.reason,
@@ -4080,6 +4109,9 @@ export const demo_requestTimelineSiteVisit = publicMutation
       validationIds: ["VAL-04", "VAL-05"],
     });
     return {
+      evidencePackageId,
+      organizationScopeKey: plan.orgKey,
+      workOrderId,
       token,
       tokenExpiresAt: now + TOKEN_TTL_MS,
       url: `/newsitevisit/demo-timeline-${plan.proposalSlug}/${token}`,

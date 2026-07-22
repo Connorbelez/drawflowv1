@@ -1,5 +1,7 @@
 "use client";
 
+import { useMediaQuery } from "#/hooks/use-media-query.ts";
+
 export type BuildDetailSubTab =
   | "calendar"
   | "contractors"
@@ -36,6 +38,39 @@ export function BuildDetailTabBar({
   const visibleTabs = BUILD_DETAIL_TABS.filter((tab) =>
     tabs.includes(tab.value)
   );
+  const compact = useMediaQuery("max-md");
+
+  if (compact) {
+    return (
+      <nav
+        aria-label="Build workspace navigation"
+        className="grid min-w-0 gap-1.5 rounded-lg border border-border bg-card p-2"
+      >
+        <label
+          className="font-medium text-foreground text-xs"
+          htmlFor="build-workspace-section"
+        >
+          Workspace section
+        </label>
+        <select
+          aria-label="Build workspace section"
+          className="min-h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"
+          id="build-workspace-section"
+          onChange={(event) =>
+            onChangeTab(event.target.value as BuildDetailSubTab)
+          }
+          value={activeTab}
+        >
+          {visibleTabs.map((tab) => (
+            <option key={tab.value} value={tab.value}>
+              {tab.label}
+            </option>
+          ))}
+        </select>
+      </nav>
+    );
+  }
+
   return (
     <div className="-mx-2 overflow-x-auto px-2 sm:mx-0 sm:px-0">
       <div

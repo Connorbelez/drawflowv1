@@ -269,11 +269,12 @@ export function SiteVisitControlRoom({
             </div>
             <ToggleGroup
               onValueChange={(value) => {
-                if (value === "by_build" || value === "table") {
-                  setViewMode(value);
+                const nextValue = value.at(-1);
+                if (nextValue === "by_build" || nextValue === "table") {
+                  setViewMode(nextValue);
                 }
               }}
-              value={viewMode}
+              value={[viewMode]}
               variant="outline"
             >
               <ToggleGroupItem value="by_build">By build</ToggleGroupItem>
@@ -293,7 +294,7 @@ export function SiteVisitControlRoom({
                   : "Try clearing filters or widening your search."}
               </EmptyDescription>
               {visits.length === 0 ? (
-                <Button nativeButton={false} render={<Link to="/backoffice" />}>
+                <Button render={<Link to="/backoffice" />}>
                   Open backoffice home
                 </Button>
               ) : null}
@@ -366,7 +367,7 @@ export function SiteVisitControlRoom({
             </DialogClose>
             <Button
               disabled={cancelReason.trim().length < 3 || cancelPending}
-              onClick={() => void handleCancel()}
+              onClick={handleCancel}
               variant="destructive"
             >
               {cancelPending ? (
@@ -460,7 +461,7 @@ function BuildVisitGroup({
 }: {
   group: BrokerageSiteVisitBuildGroup;
   now: number;
-  onCopyLink: (visit: BrokerageSiteVisitRow) => void;
+  onCopyLink: (visit: BrokerageSiteVisitRow) => Promise<void>;
   onOpen: (visitId: string) => void;
 }) {
   const [open, setOpen] = useState(group.activeVisitCount > 0);
@@ -502,7 +503,6 @@ function BuildVisitGroup({
           <CardContent className="flex flex-col gap-2 border-t pt-0 pb-4">
             <div className="flex justify-end pt-2">
               <Button
-                nativeButton={false}
                 render={
                   <Link
                     params={{ buildId: String(group.buildId) }}
@@ -539,7 +539,7 @@ function VisitRowCard({
   visit,
 }: {
   now: number;
-  onCopyLink: (visit: BrokerageSiteVisitRow) => void;
+  onCopyLink: (visit: BrokerageSiteVisitRow) => Promise<void>;
   onOpen: () => void;
   visit: BrokerageSiteVisitRow;
 }) {
@@ -549,59 +549,58 @@ function VisitRowCard({
     visit.operationalStatus === "in_field";
 
   return (
-    <button
-      className="flex w-full flex-col gap-2 rounded-lg border bg-background p-3 text-left transition-colors hover:bg-muted/40"
-      onClick={onOpen}
-      type="button"
-    >
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <p className="font-medium">{visit.milestoneName}</p>
-          <p className="text-muted-foreground text-xs">{visit.milestoneKey}</p>
+    <Card className="gap-2 rounded-lg p-3 transition-colors hover:bg-muted/40">
+      <button
+        className="flex w-full flex-col gap-2 text-left"
+        onClick={onOpen}
+        type="button"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="font-medium">{visit.milestoneName}</p>
+            <p className="text-muted-foreground text-xs">{visit.milestoneKey}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge
+              variant={operationalStatusBadgeVariant(visit.operationalStatus)}
+            >
+              {operationalStatusLabel(visit.operationalStatus)}
+            </Badge>
+            {visit.geofenceFlagged ? (
+              <Badge variant="warning">Geofence</Badge>
+            ) : null}
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Badge
-            variant={operationalStatusBadgeVariant(visit.operationalStatus)}
-          >
-            {operationalStatusLabel(visit.operationalStatus)}
-          </Badge>
-          {visit.geofenceFlagged ? (
-            <Badge variant="warning">Geofence</Badge>
+        <div className="flex flex-wrap items-center gap-3 text-muted-foreground text-xs">
+          <span className="inline-flex items-center gap-1">
+            <CalendarDays className="size-3.5" />
+            {visit.scheduledDateLabel}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Clock3 className="size-3.5" />
+            {tokenStateLabel(visit.tokenState)}
+          </span>
+          {showCountdown ? (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 font-medium tabular-nums",
+                msRemaining <= 15 * 60 * 1000 && "text-destructive"
+              )}
+            >
+              <Timer className="size-3.5" />
+              {formatTokenCountdown(msRemaining)}
+            </span>
           ) : null}
         </div>
-      </div>
-      <div className="flex flex-wrap items-center gap-3 text-muted-foreground text-xs">
-        <span className="inline-flex items-center gap-1">
-          <CalendarDays className="size-3.5" />
-          {visit.scheduledDateLabel}
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <Clock3 className="size-3.5" />
-          {tokenStateLabel(visit.tokenState)}
-        </span>
-        {showCountdown ? (
-          <span
-            className={cn(
-              "inline-flex items-center gap-1 font-medium tabular-nums",
-              msRemaining <= 15 * 60 * 1000 && "text-destructive"
-            )}
-          >
-            <Timer className="size-3.5" />
-            {formatTokenCountdown(msRemaining)}
-          </span>
+        {visit.note ? (
+          <p className="line-clamp-2 text-muted-foreground text-xs">
+            {visit.note}
+          </p>
         ) : null}
-      </div>
-      {visit.note ? (
-        <p className="line-clamp-2 text-muted-foreground text-xs">
-          {visit.note}
-        </p>
-      ) : null}
+      </button>
       <div className="flex justify-end gap-1">
         <Button
-          onClick={(event) => {
-            event.stopPropagation();
-            void onCopyLink(visit);
-          }}
+          onClick={() => onCopyLink(visit)}
           size="sm"
           type="button"
           variant="ghost"
@@ -610,7 +609,7 @@ function VisitRowCard({
           Copy link
         </Button>
       </div>
-    </button>
+    </Card>
   );
 }
 
@@ -621,7 +620,7 @@ function VisitsTable({
   visits,
 }: {
   now: number;
-  onCopyLink: (visit: BrokerageSiteVisitRow) => void;
+  onCopyLink: (visit: BrokerageSiteVisitRow) => Promise<void>;
   onOpen: (visitId: string) => void;
   visits: BrokerageSiteVisitRow[];
 }) {
@@ -685,9 +684,9 @@ function VisitsTable({
                 </TableCell>
                 <TableCell className="text-right">
                   <Button
-                    onClick={(event) => {
+                    onClick={async (event) => {
                       event.stopPropagation();
-                      void onCopyLink(visit);
+                      await onCopyLink(visit);
                     }}
                     size="sm"
                     type="button"
@@ -716,7 +715,7 @@ function VisitDetailSheet({
   now: number;
   onCancel: (visit: BrokerageSiteVisitRow) => void;
   onClose: () => void;
-  onCopyLink: (visit: BrokerageSiteVisitRow) => void;
+  onCopyLink: (visit: BrokerageSiteVisitRow) => Promise<void>;
   open: boolean;
   visit: BrokerageSiteVisitRow | null;
 }) {
@@ -814,12 +813,11 @@ function VisitDetailSheet({
           </dl>
 
           <div className="flex flex-col gap-2">
-            <Button onClick={() => void onCopyLink(visit)} variant="outline">
+            <Button onClick={() => onCopyLink(visit)} variant="outline">
               <Copy className="size-4" />
               Copy field link
             </Button>
             <Button
-              nativeButton={false}
               render={
                 <Link
                   params={{ buildId: String(visit.buildId) }}

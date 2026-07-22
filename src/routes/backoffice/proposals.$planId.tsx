@@ -77,6 +77,7 @@ import {
 import { TimelineEndNodeButton } from "#/features/timeline-workspace/-TimelineEndNodeButton.tsx";
 import { getMilestoneEndX } from "#/features/timeline-workspace/-timeline-milestone-schedule.ts";
 import type { DemoMilestone } from "#/features/timeline-workspace/-timeline-share-snapshot.ts";
+import { getUserManagementAccessDecision } from "#/lib/auth/rbac.ts";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -113,6 +114,53 @@ type ProposalReviewSearch = {
 
 type ProposalReviewRouteTab = NonNullable<ProposalReviewSearch["tab"]>;
 
+const PROPOSAL_REVIEW_TABS = new Set<ProposalReviewRouteTab>([
+  "calendar",
+  "closing",
+  "contractors",
+  "draws",
+  "gantt",
+  "milestones",
+  "materials",
+  "packet",
+  "review",
+  "staff",
+  "timeline",
+]);
+const PROPOSAL_REVIEW_TIMEFRAMES = new Set<CalendarTimeframe>([
+  "agenda",
+  "day",
+  "month",
+  "quarter",
+  "week",
+]);
+
+export function validateProposalReviewSearch(
+  search: Record<string, unknown>
+): ProposalReviewSearch {
+  const candidateTab =
+    typeof search.tab === "string"
+      ? (search.tab as ProposalReviewRouteTab)
+      : undefined;
+  const tab =
+    candidateTab && PROPOSAL_REVIEW_TABS.has(candidateTab)
+      ? candidateTab
+      : undefined;
+  const candidateTimeframe =
+    typeof search.timeframe === "string"
+      ? (search.timeframe as CalendarTimeframe)
+      : undefined;
+  const timeframe =
+    candidateTimeframe && PROPOSAL_REVIEW_TIMEFRAMES.has(candidateTimeframe)
+      ? candidateTimeframe
+      : undefined;
+
+  return {
+    ...(tab ? { tab } : {}),
+    ...(timeframe ? { timeframe } : {}),
+  };
+}
+
 export function resolveProposalReviewRouteTab(
   search: ProposalReviewSearch
 ): ProposalReviewRouteTab {
@@ -138,7 +186,7 @@ export function shouldLoadProposalContractorPlanning(
 export function shouldLoadProposalReviewBuilders(
   activeTab: ProposalReviewRouteTab
 ) {
-  return activeTab === "review";
+  return activeTab === "packet" || activeTab === "review";
 }
 
 export function shouldMountProposalStaffPanel(
@@ -155,34 +203,7 @@ export const Route = createFileRoute("/backoffice/proposals/$planId")({
       to: "/backoffice/proposals/$planId",
     },
   },
-  validateSearch: (search: Record<string, unknown>): ProposalReviewSearch => {
-    const tab =
-      search.tab === "calendar" ||
-      search.tab === "closing" ||
-      search.tab === "contractors" ||
-      search.tab === "draws" ||
-      search.tab === "gantt" ||
-      search.tab === "milestones" ||
-      search.tab === "materials" ||
-      search.tab === "packet" ||
-      search.tab === "review" ||
-      search.tab === "staff" ||
-      search.tab === "timeline"
-        ? (search.tab as ProposalReviewSearch["tab"])
-        : undefined;
-    const timeframe =
-      search.timeframe === "day" ||
-      search.timeframe === "week" ||
-      search.timeframe === "month" ||
-      search.timeframe === "quarter" ||
-      search.timeframe === "agenda"
-        ? (search.timeframe as CalendarTimeframe)
-        : undefined;
-    return {
-      ...(tab ? { tab } : {}),
-      ...(timeframe ? { timeframe } : {}),
-    };
-  },
+  validateSearch: validateProposalReviewSearch,
   component: ProposalReviewRoute,
 });
 
@@ -195,6 +216,15 @@ function ProposalReviewRoute() {
   const context = Route.useRouteContext();
   const navigate = useNavigate();
   const workosOrganizationId = context.organizationId as string;
+  const userManagementAccess = getUserManagementAccessDecision({
+    isAuthenticated: Boolean(context.userId),
+    organizationId: context.organizationId,
+    pathname: "/backoffice/onboard-builder",
+    roles: [context.role, ...(context.roles ?? [])],
+    workspace: "backoffice",
+  });
+  const canOnboardBuilder = userManagementAccess.status === "allowed";
+  const canManageBrokerAssignment = userManagementAccess.status === "allowed";
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
   const visualProposalDetail = useMemo(
     () => getVisualParityProposalDetail(planId),
@@ -334,11 +364,23 @@ function ProposalReviewRoute() {
       ? "skip"
       : { workosOrganizationId }
   );
+  const assignableBrokersQuery = useQuery(
+    api.builderRoster.listAssignableBrokers,
+    visualFixtureEnabled ||
+      !productionDetail ||
+      !loadReviewBuilders ||
+      !canManageBrokerAssignment
+      ? "skip"
+      : {}
+  );
   const requestProductionChanges = useMutation(
     api.production_proposals.requestChanges
   );
-  const assignDraftBuilder = useMutation(
-    api.production_proposals.assignDraftBuilder
+  const assignProposalBuilder = useMutation(
+    api.production_proposals.assignProposalBuilder
+  );
+  const assignProposalBroker = useMutation(
+    api.production_proposals.assignProposalBroker
   );
   const unassignDraftBuilder = useMutation(
     api.production_proposals.unassignDraftBuilder
@@ -540,6 +582,10 @@ function ProposalReviewRoute() {
     });
     return (
       <ProductionProposalReviewSurface
+        assignableBrokerages={assignableBrokersQuery?.brokerages ?? []}
+        brokerOptionsPending={
+          canManageBrokerAssignment && assignableBrokersQuery === undefined
+        }
         builders={buildersQuery ?? []}
         calendarAdapterActions={calendarAdapterActions}
         calendarAssignableParticipants={
@@ -600,8 +646,19 @@ function ProposalReviewRoute() {
             })
           )
         }
+        onAssignBroker={
+          canManageBrokerAssignment
+            ? (assignedBrokerWorkosUserId, reason) =>
+                assignProposalBroker({
+                  assignedBrokerWorkosUserId,
+                  proposalId,
+                  reason,
+                  workosOrganizationId,
+                })
+            : undefined
+        }
         onAssignBuilder={(builderProfileId) =>
-          assignDraftBuilder({
+          assignProposalBuilder({
             builderProfileId: builderProfileId as Id<"builderProfiles">,
             proposalId,
             workosOrganizationId,
@@ -688,6 +745,15 @@ function ProposalReviewRoute() {
                   eventId: input.eventId as Id<"calendarReminderEvents">,
                   proposalId,
                   workosOrganizationId,
+                })
+            : undefined
+        }
+        onOnboardBuilder={
+          canOnboardBuilder
+            ? () =>
+                navigate({
+                  search: { proposalId: planId },
+                  to: "/backoffice/onboard-builder",
                 })
             : undefined
         }
@@ -845,18 +911,15 @@ function ProposalReviewRoute() {
             backofficeHref={`/backoffice/proposals/${planId}`}
             embedded
             initialRole="lender"
-            persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
-            prejoinedCollabToken={
-              collabJoinState === "joined" ? collabToken : null
-            }
             lockedBannerActions={
               productionDetail.proposal.status === "submitted" ? (
                 <ProposalTimelineReviewBannerActions
                   hasPermitOrWaiver={Boolean(
                     productionDetail.permitWaiver ||
                       productionDetail.documents?.some(
-                        (document) => document.documentType === "permit",
-                      ),
+                        (document: { documentType?: string }) =>
+                          document.documentType === "permit"
+                      )
                   )}
                   onApprove={(reason, permitWaiverReason) =>
                     approveProductionProposal({
@@ -868,7 +931,7 @@ function ProposalReviewRoute() {
                       toast.success("Proposal approved.", {
                         description:
                           "The proposal is ready for closing. Live build controls stay locked until closing is recorded.",
-                      }),
+                      })
                     )
                   }
                   onReject={(reason) =>
@@ -887,6 +950,10 @@ function ProposalReviewRoute() {
                   }
                 />
               ) : undefined
+            }
+            persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
+            prejoinedCollabToken={
+              collabJoinState === "joined" ? collabToken : null
             }
             proposalHref={`/builder/proposals/${planId}`}
             proposalId={proposalId}
@@ -924,7 +991,7 @@ function ProposalTimelineReviewBannerActions({
   hasPermitOrWaiver: boolean;
   onApprove: (
     reason: string,
-    permitWaiverReason?: string,
+    permitWaiverReason?: string
   ) => Promise<unknown> | unknown;
   onReject: (reason: string) => Promise<unknown> | unknown;
   onRequestChanges: (reason: string) => Promise<unknown> | unknown;
@@ -938,7 +1005,7 @@ function ProposalTimelineReviewBannerActions({
   const waiverReason = permitWaiverReason.trim();
 
   async function runDecision(
-    decision: "approve" | "reject" | "requestChanges",
+    decision: "approve" | "reject" | "requestChanges"
   ) {
     if (!reviewReason) {
       toast.error("Decision reason required.", {
@@ -968,7 +1035,7 @@ function ProposalTimelineReviewBannerActions({
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to update proposal review.",
+          : "Unable to update proposal review."
       );
     } finally {
       setPendingDecision(null);
@@ -977,7 +1044,7 @@ function ProposalTimelineReviewBannerActions({
 
   return (
     <div
-      className="grid w-full gap-2 sm:min-w-96"
+      className="grid w-full min-w-0 gap-2 sm:min-w-96"
       data-testid="timeline-proposal-review-actions"
     >
       <div className="grid gap-1.5">
@@ -1003,7 +1070,7 @@ function ProposalTimelineReviewBannerActions({
           />
         </div>
       )}
-      <div className="flex flex-wrap gap-2 sm:justify-end">
+      <div className="flex min-w-0 flex-wrap gap-2 sm:justify-end">
         <Button
           disabled={pendingDecision !== null}
           onClick={() => void runDecision("requestChanges")}

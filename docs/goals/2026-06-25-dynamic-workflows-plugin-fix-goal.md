@@ -209,7 +209,7 @@ I do not want these to be half-assed. These capabilities should go the extra mil
 For instance, if I ask it to create a new garden suite build:
 - Level 1: Navigate the user to the new build page.
 - Level 2: Navigate the user to the new build page and select the garden suite option.
-- Level 3: Generate the complete form required to create a garden suite build as an inline chat UI with the proposed start date selector, total budget field, max cash on hand field, co-pay amount, autocomplete address selection, build permit upload field, and a submit button that acts as a HITL checkpoint.
+- Level 3: Generate the complete form required to create a garden suite build as an inline chat UI with the proposed start date selector, total budget field, borrower starting cash field, co-pay amount, autocomplete address selection, build permit upload field, and a submit button that acts as a HITL checkpoint.
 
 I want level 3 for everything.
 

@@ -1929,7 +1929,7 @@ function StatusColumn({
   );
   const requestAmount = Math.min(
     selectedDraw?.amount ?? 0,
-    workspace.budget.borrowerWorkingCapitalLimit,
+    workspace.budget.borrowerStartingCash,
     workspace.budget.lenderDrawPolicyLimit
   );
   const drawRequestBlocked =
@@ -1968,8 +1968,8 @@ function StatusColumn({
           />
           <CollapsedStatusItem
             icon={<Gauge className="size-4" />}
-            label={`Working capital limit: ${money(workspace.budget.borrowerWorkingCapitalLimit)}`}
-            value={money(workspace.budget.borrowerWorkingCapitalLimit)}
+            label={`Borrower starting cash: ${money(workspace.budget.borrowerStartingCash)}`}
+            value={money(workspace.budget.borrowerStartingCash)}
           />
           <CollapsedStatusItem
             icon={<ListChecks className="size-4" />}
@@ -2096,10 +2096,10 @@ function DrawStatusPanel({
         </div>
         <div>
           <div className="text-[0.68rem] text-muted-foreground uppercase tracking-[0.08em]">
-            Working capital limit
+            Borrower starting cash
           </div>
           <div className="mt-1 break-words font-semibold text-lg">
-            {money(workspace.budget.borrowerWorkingCapitalLimit)}
+            {money(workspace.budget.borrowerStartingCash)}
           </div>
         </div>
         <div>
@@ -2143,7 +2143,7 @@ function DrawGroupStatus({ selectedDraw }: { selectedDraw?: DrawGroup }) {
   ].filter(Boolean);
   const requestAmount = Math.min(
     selectedDraw?.amount ?? 0,
-    workspace.budget.borrowerWorkingCapitalLimit,
+    workspace.budget.borrowerStartingCash,
     workspace.budget.lenderDrawPolicyLimit
   );
   const statusCallout = isDrawReleased

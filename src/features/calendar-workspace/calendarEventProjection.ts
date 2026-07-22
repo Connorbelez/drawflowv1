@@ -290,6 +290,22 @@ export function groupEventsByDate(
   return map;
 }
 
+export function groupLogicalEventsByStartDate(
+  events: DrawFlowCalendarEvent[]
+): Map<string, DrawFlowCalendarEvent[]> {
+  const map = new Map<string, DrawFlowCalendarEvent[]>();
+  for (const event of events) {
+    const start = event.startsAt.slice(0, 10);
+    const dayEvents = map.get(start) ?? [];
+    dayEvents.push(event);
+    map.set(start, dayEvents);
+  }
+  for (const [date, dayEvents] of map) {
+    map.set(date, dayEvents.sort(compareCalendarEvents));
+  }
+  return map;
+}
+
 export function groupedByBucket(
   events: DrawFlowCalendarEvent[]
 ): Array<{ bucket: CalendarTimeBucket; events: DrawFlowCalendarEvent[] }> {
@@ -325,6 +341,23 @@ export function formatDateRange(
     return `${start} · ${bucketLabel(event.timeBucket)}`;
   }
   return `${start} to ${end} · ${bucketLabel(event.timeBucket)}`;
+}
+
+export function formatAccessibleEventRange(
+  event: Pick<DrawFlowCalendarEvent, "startsAt" | "endsAt">
+): string {
+  const start = event.startsAt.slice(0, 10);
+  const end = (event.endsAt ?? event.startsAt).slice(0, 10);
+  if (start === end) {
+    return start;
+  }
+  const durationDays =
+    Math.round(
+      (Date.parse(`${end}T00:00:00.000Z`) -
+        Date.parse(`${start}T00:00:00.000Z`)) /
+        86_400_000
+    ) + 1;
+  return `${start} to ${end}, ${durationDays} days`;
 }
 
 export function buildIcsForEvents(

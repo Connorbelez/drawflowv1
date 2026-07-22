@@ -40,7 +40,7 @@ This is an action inbox first and an activity feed second. The default experienc
 
 1. DrawFlow v1 remains reimbursement-only. Notification copy must never imply advance funding before work is completed, evidenced, reviewed, approved, and released.
 2. Interest starts only after funds are released. Draw-related notification copy must distinguish draw request, draw approval, and draw release.
-3. Builder Working Capital Limit remains distinct from Lender Draw Policy Limit. Notification payloads may reference each, but must not collapse them into one generic limit.
+3. Borrower Starting Cash, derived Required Working Capital, and Lender Draw Policy Limit remain distinct. Notification payloads may reference each, but must not collapse them into one generic limit.
 4. Lender/backoffice staff can review, inspect, report, and recommend. Principal broker/admin authority remains distinct for final approval/release where configured.
 5. Geofence failure must not discard evidence. Location-unverified evidence should create a review notification when operationally relevant.
 6. Budget, milestone, draw, evidence, site visit, proposal, and active build notifications must be organization-scoped.
@@ -666,4 +666,3 @@ Build/test commands:
 3. Structural UI containers should use `Frame`/`FramePanel`; row/card-like notification surfaces should use `Card` where a card surface is appropriate.
 4. Notification helpers should live in a dedicated Convex domain file unless implementation proves they belong near existing production proposal helpers. Do not move unrelated production functions into `convex/fluent.ts`.
 5. External email/SMS delivery should not block the core domain mutation when implemented later.
-

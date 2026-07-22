@@ -807,7 +807,7 @@ function boundaryPayload(
     },
     budget: {
       borrowerCoPayCents: draft.borrowerCoPayCents ?? 0,
-      borrowerWorkingCapitalLimitCents:
+      borrowerStartingCashCents:
         draft.borrowerCashAvailabilityCents ?? 0,
       currentProposalBudgetCents: readiness.currentBudgetCents,
       lenderDrawPolicyLimitCents: draft.lenderDrawPolicyLimitCents,

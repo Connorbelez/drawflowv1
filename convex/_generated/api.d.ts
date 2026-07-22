@@ -9,9 +9,11 @@
  */
 
 import type * as assistant from "../assistant.js";
+import type * as assistantProvider from "../assistantProvider.js";
 import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
 import type * as authzTest from "../authzTest.js";
+import type * as brokerAssignments from "../brokerAssignments.js";
 import type * as brokerageProvisioning from "../brokerageProvisioning.js";
 import type * as builderRoster from "../builderRoster.js";
 import type * as builderStaffIdentity from "../builderStaffIdentity.js";
@@ -36,9 +38,11 @@ import type * as fairLendConfig from "../fairLendConfig.js";
 import type * as fluent from "../fluent.js";
 import type * as gardenSuiteTemplate from "../gardenSuiteTemplate.js";
 import type * as http from "../http.js";
+import type * as migrations from "../migrations.js";
 import type * as production_proposals from "../production_proposals.js";
 import type * as proposal_collaboration from "../proposal_collaboration.js";
 import type * as proposal_collaboration_model from "../proposal_collaboration_model.js";
+import type * as siteVisitGuidance from "../siteVisitGuidance.js";
 import type * as todos from "../todos.js";
 import type * as types from "../types.js";
 import type * as workosManagement from "../workosManagement.js";
@@ -52,9 +56,11 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   assistant: typeof assistant;
+  assistantProvider: typeof assistantProvider;
   auth: typeof auth;
   authz: typeof authz;
   authzTest: typeof authzTest;
+  brokerAssignments: typeof brokerAssignments;
   brokerageProvisioning: typeof brokerageProvisioning;
   builderRoster: typeof builderRoster;
   builderStaffIdentity: typeof builderStaffIdentity;
@@ -79,9 +85,11 @@ declare const fullApi: ApiFromModules<{
   fluent: typeof fluent;
   gardenSuiteTemplate: typeof gardenSuiteTemplate;
   http: typeof http;
+  migrations: typeof migrations;
   production_proposals: typeof production_proposals;
   proposal_collaboration: typeof proposal_collaboration;
   proposal_collaboration_model: typeof proposal_collaboration_model;
+  siteVisitGuidance: typeof siteVisitGuidance;
   todos: typeof todos;
   types: typeof types;
   workosManagement: typeof workosManagement;
@@ -116,6 +124,7 @@ export declare const internal: FilterApi<
 
 export declare const components: {
   agent: import("@convex-dev/agent/_generated/component.js").ComponentApi<"agent">;
+  migrations: import("@convex-dev/migrations/_generated/component.js").ComponentApi<"migrations">;
   workOSAuthKit: import("@convex-dev/workos-authkit/_generated/component.js").ComponentApi<"workOSAuthKit">;
   presence: import("@convex-dev/presence/_generated/component.js").ComponentApi<"presence">;
   timeline: import("convex-timeline/_generated/component.js").ComponentApi<"timeline">;

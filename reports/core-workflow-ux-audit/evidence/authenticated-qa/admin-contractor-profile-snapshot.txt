@@ -1,0 +1,39 @@
+{
+  "lifecycle": {
+    "effectiveLaunch": {
+      "browserLaunched": true,
+      "engine": "chrome",
+      "launchHash": 8197565053781422000
+    },
+    "launched": false,
+    "relaunchedBrowser": false,
+    "restartedBackground": false,
+    "restoreStatus": "not_configured",
+    "reused": true,
+    "saveStatus": "not_attempted"
+  },
+  "origin": "http://localhost:3000/backoffice/contractors/zh73prs0e84c07rhx65w96m8ss87ytdm",
+  "refs": {
+    "e1": {
+      "name": "Notifications alt+T",
+      "role": "region"
+    },
+    "e2": {
+      "name": "Open TanStack Devtools",
+      "role": "button"
+    },
+    "e3": {
+      "name": "DrawFlow could not load this screen.",
+      "role": "heading"
+    },
+    "e4": {
+      "name": "Try again",
+      "role": "button"
+    },
+    "e5": {
+      "name": "Back to backoffice",
+      "role": "link"
+    }
+  },
+  "snapshot": "- heading \"DrawFlow could not load this screen.\" [level=1, ref=e3]\n- button \"Try again\" [ref=e4]\n- link \"Back to backoffice\" [ref=e5]\n- region \"Notifications alt+T\" [ref=e1]\n- button \"Open TanStack Devtools\" [ref=e2]"
+}

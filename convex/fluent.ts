@@ -103,6 +103,8 @@ export const publicQuery = fluent.query();
 export const publicMutation = fluent.mutation();
 export const publicAction = fluent.action();
 export const internalMutation = fluent.mutation();
+export const internalQuery = fluent.query();
+export const internalAction = fluent.action();
 
 export const publicZodQuery = publicQuery.extend(WithZod);
 export const publicZodMutation = publicMutation.extend(WithZod);

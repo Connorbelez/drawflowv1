@@ -88,8 +88,14 @@ export interface MaterialPlanningActions {
   ) => Promise<unknown> | unknown;
 }
 
+export interface MaterialPlanningBudgetImpact {
+  borrowerCoPayBps: number;
+  proposalBudgetCents: number;
+}
+
 interface MaterialPlanningTabProps {
   actions?: MaterialPlanningActions;
+  budgetImpact?: MaterialPlanningBudgetImpact;
   items: MaterialPlanningItem[];
   milestones: MaterialPlanningMilestone[];
   panelLayout?: "auto" | "stacked";
@@ -123,6 +129,7 @@ const TOUCH_SELECT_CLASS =
 
 export function MaterialPlanningTab({
   actions,
+  budgetImpact,
   items,
   panelLayout = "auto",
   milestones,
@@ -176,6 +183,13 @@ export function MaterialPlanningTab({
   const summary = useMemo(() => summarizeItems(items), [items]);
   const selectedMilestone =
     milestoneByKey.get(selectedMilestoneKey) ?? sortedMilestones[0];
+  const selectedMilestoneItems = selectedMilestone
+    ? (itemsByMilestone.get(selectedMilestone.key) ?? [])
+    : [];
+  const selectedMilestonePlannedCents = selectedMilestoneItems.reduce(
+    (sum, item) => sum + totalForItem(item),
+    0
+  );
   const editable = !readOnly && Boolean(actions?.create);
   const editingItem =
     activeEditor?.mode === "edit"
@@ -328,101 +342,81 @@ export function MaterialPlanningTab({
             </Frame>
           ) : null}
 
-          {sortedMilestones.map((milestone) => {
-            const milestoneItems = itemsByMilestone.get(milestone.key) ?? [];
-            const totalCents = milestoneItems.reduce(
-              (sum, item) => sum + totalForItem(item),
-              0
-            );
-            return (
-              <section className="grid gap-3" key={milestone.key}>
-                <div className="flex flex-wrap items-end justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold text-lg">{milestone.name}</h3>
-                    <p className="text-muted-foreground text-sm">
-                      {milestoneItems.length} item
-                      {milestoneItems.length === 1 ? "" : "s"} /{" "}
-                      {formatCents(totalCents)} cost-only detail
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    <Badge variant="outline">
-                      {formatCents(milestone.budgetCents)}
-                    </Badge>
-                    {editable ? (
-                      <Button
-                        className={TOUCH_BUTTON_CLASS}
-                        onClick={() =>
-                          setActiveEditor({
-                            milestoneKey: milestone.key,
-                            mode: "create",
-                          })
-                        }
-                        size="sm"
-                        type="button"
-                      >
-                        <Plus />
-                        Add cost item
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-                {milestoneItems.length === 0 ? (
-                  <Frame>
-                    <FramePanel className="flex flex-col gap-3 p-4 text-sm sm:flex-row sm:items-center sm:justify-between">
-                      <span className="text-muted-foreground">
-                        No material or equipment entries are attached to this
-                        milestone.
-                      </span>
-                      {editable ? (
-                        <Button
-                          className={TOUCH_BUTTON_CLASS}
-                          onClick={() =>
-                            setActiveEditor({
-                              milestoneKey: milestone.key,
-                              mode: "create",
-                            })
-                          }
-                          size="sm"
-                          type="button"
-                          variant="outline"
-                        >
-                          <Plus />
-                          Add cost item
-                        </Button>
-                      ) : null}
-                    </FramePanel>
-                  </Frame>
-                ) : (
-                  <div
-                    className={cn(
-                      "grid gap-3",
-                      panelLayout === "auto"
-                        ? "md:grid-cols-2"
-                        : "2xl:grid-cols-2"
-                    )}
+          {selectedMilestone ? (
+            <section
+              aria-labelledby={`materials-${selectedMilestone.key}-heading`}
+              className="grid gap-3"
+            >
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <h3
+                    className="font-semibold text-lg"
+                    id={`materials-${selectedMilestone.key}-heading`}
                   >
-                    {milestoneItems.map((item) => (
-                      <MaterialItemCard
-                        canDelete={Boolean(actions?.delete) && !readOnly}
-                        canEdit={Boolean(actions?.update) && !readOnly}
-                        item={item}
-                        key={item._id}
-                        milestone={milestone}
-                        onDelete={(reason) =>
-                          void runDeleteWithReason(item, reason)
-                        }
-                        onEdit={() =>
-                          setActiveEditor({ itemId: item._id, mode: "edit" })
-                        }
-                        pending={pending}
-                      />
-                    ))}
-                  </div>
-                )}
-              </section>
-            );
-          })}
+                    {selectedMilestone.name}
+                  </h3>
+                  <p className="text-muted-foreground text-sm">
+                    {selectedMilestoneItems.length} item
+                    {selectedMilestoneItems.length === 1 ? "" : "s"} /{" "}
+                    {formatCents(selectedMilestonePlannedCents)} cost-only detail
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Badge variant="outline">
+                    {formatCents(selectedMilestone.budgetCents)}
+                  </Badge>
+                  {editable ? (
+                    <Button
+                      aria-label={`Add cost item to ${selectedMilestone.name}`}
+                      className={TOUCH_BUTTON_CLASS}
+                      onClick={() =>
+                        setActiveEditor({
+                          milestoneKey: selectedMilestone.key,
+                          mode: "create",
+                        })
+                      }
+                      size="sm"
+                      type="button"
+                    >
+                      <Plus />
+                      Add cost item
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+              {selectedMilestoneItems.length === 0 ? (
+                <Frame>
+                  <FramePanel className="p-4 text-muted-foreground text-sm">
+                    No material or equipment entries are attached to {selectedMilestone.name}.
+                  </FramePanel>
+                </Frame>
+              ) : (
+                <div
+                  className={cn(
+                    "grid gap-3",
+                    panelLayout === "auto"
+                      ? "md:grid-cols-2"
+                      : "2xl:grid-cols-2"
+                  )}
+                >
+                  {selectedMilestoneItems.map((item) => (
+                    <MaterialItemCard
+                      canDelete={Boolean(actions?.delete) && !readOnly}
+                      canEdit={Boolean(actions?.update) && !readOnly}
+                      item={item}
+                      key={item._id}
+                      milestone={selectedMilestone}
+                      onDelete={(reason) => void runDeleteWithReason(item, reason)}
+                      onEdit={() =>
+                        setActiveEditor({ itemId: item._id, mode: "edit" })
+                      }
+                      pending={pending}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          ) : null}
         </div>
 
         <aside
@@ -480,6 +474,7 @@ export function MaterialPlanningTab({
           <SheetPanel className="pb-20">
             {activeEditor?.mode === "edit" && editingItem ? (
               <MaterialItemEditor
+                budgetImpact={budgetImpact}
                 chrome="plain"
                 item={editingItem}
                 key={editingItem._id}
@@ -497,6 +492,7 @@ export function MaterialPlanningTab({
               />
             ) : activeEditor?.mode === "create" ? (
               <MaterialItemEditor
+                budgetImpact={budgetImpact}
                 chrome="plain"
                 key={activeEditor.milestoneKey}
                 milestones={sortedMilestones}
@@ -521,6 +517,7 @@ export function MaterialPlanningTab({
 }
 
 function MaterialItemEditor({
+  budgetImpact,
   chrome = "frame",
   item,
   milestones,
@@ -531,6 +528,7 @@ function MaterialItemEditor({
   showChangeReason,
   submitLabel,
 }: {
+  budgetImpact?: MaterialPlanningBudgetImpact;
   chrome?: "frame" | "plain";
   item?: MaterialPlanningItem;
   milestones: MaterialPlanningMilestone[];
@@ -547,6 +545,51 @@ function MaterialItemEditor({
   const selectedMilestone =
     milestones.find((milestone) => milestone.key === form.milestoneKey) ??
     milestones[0];
+  const costEntered = form.costCents.trim().length > 0;
+  const quantityEntered = form.quantity.trim().length > 0;
+  const costInvalid = costEntered && !costDollarsValid(form.costCents);
+  const quantityInvalid = quantityEntered && !quantityPositive(form.quantity);
+  const canSubmit = Boolean(
+    form.title.trim() &&
+      form.milestoneKey &&
+      costEntered &&
+      costDollarsValid(form.costCents) &&
+      quantityPositive(form.quantity) &&
+      !pending
+  );
+  const submitGuidance = materialSubmitGuidance({
+    costEntered,
+    costInvalid,
+    milestoneEntered: form.milestoneKey.length > 0,
+    pending: Boolean(pending),
+    quantityEntered,
+    quantityInvalid,
+    submitLabel,
+    titleEntered: form.title.trim().length > 0,
+  });
+  const draftItemTotalCents = Math.round(
+    dollarsInputToCents(form.costCents) * numberFromInput(form.quantity, 0)
+  );
+  const existingItemTotalCents = item ? totalForItem(item) : 0;
+  const proposalBudgetDeltaCents =
+    draftItemTotalCents - existingItemTotalCents;
+  const selectedMilestoneBudgetDeltaCents =
+    draftItemTotalCents -
+    (item?.milestoneKey === selectedMilestone?.key
+      ? existingItemTotalCents
+      : 0);
+  const selectedMilestoneBudgetAfterCents = selectedMilestone
+    ? Math.max(
+        0,
+        selectedMilestone.budgetCents + selectedMilestoneBudgetDeltaCents
+      )
+    : 0;
+  const proposalBudgetAfterCents = budgetImpact
+    ? Math.max(
+        0,
+        budgetImpact.proposalBudgetCents + proposalBudgetDeltaCents
+      )
+    : 0;
 
   useEffect(() => {
     setForm(
@@ -651,7 +694,11 @@ function MaterialItemEditor({
               Cost per unit (USD)
             </Label>
             <Input
-              aria-describedby={fieldId(item, "costHelp")}
+              aria-describedby={cn(
+                fieldId(item, "costHelp"),
+                costInvalid && fieldId(item, "costError")
+              )}
+              aria-invalid={costInvalid || undefined}
               className={TOUCH_INPUT_CLASS}
               id={fieldId(item, "costCents")}
               inputMode="decimal"
@@ -665,11 +712,25 @@ function MaterialItemEditor({
             >
               Must be greater than zero.
             </p>
+            {costInvalid ? (
+              <p
+                aria-label="Cost per unit cannot be negative."
+                className="text-destructive text-xs"
+                id={fieldId(item, "costError")}
+                role="alert"
+              >
+                Cost per unit cannot be negative.
+              </p>
+            ) : null}
           </div>
           <div className="grid gap-2">
             <Label htmlFor={fieldId(item, "quantity")}>Quantity</Label>
             <Input
-              aria-describedby={fieldId(item, "quantityHelp")}
+              aria-describedby={cn(
+                fieldId(item, "quantityHelp"),
+                quantityInvalid && fieldId(item, "quantityError")
+              )}
+              aria-invalid={quantityInvalid || undefined}
               className={TOUCH_INPUT_CLASS}
               id={fieldId(item, "quantity")}
               inputMode="decimal"
@@ -680,8 +741,18 @@ function MaterialItemEditor({
               className="text-muted-foreground text-xs"
               id={fieldId(item, "quantityHelp")}
             >
-              Supports partial quantities.
+              Partial quantities such as 0.5 are allowed.
             </p>
+            {quantityInvalid ? (
+              <p
+                aria-label="Quantity must be greater than 0."
+                className="text-destructive text-xs"
+                id={fieldId(item, "quantityError")}
+                role="alert"
+              >
+                Quantity must be greater than 0.
+              </p>
+            ) : null}
           </div>
         </div>
         <div className="grid gap-2">
@@ -735,6 +806,51 @@ function MaterialItemEditor({
             )}
           </div>
         </div>
+        {budgetImpact && selectedMilestone ? (
+          <section
+            aria-labelledby={fieldId(item, "budgetImpactTitle")}
+            className="grid gap-3 rounded-lg border bg-muted/30 p-3"
+          >
+            <div>
+              <h3
+                className="font-semibold text-sm"
+                id={fieldId(item, "budgetImpactTitle")}
+              >
+                Budget impact
+              </h3>
+              <p className="mt-1 text-muted-foreground text-xs">
+                Review the projected proposal and reimbursement draw changes before saving.
+              </p>
+            </div>
+            <dl className="grid gap-3 text-sm">
+              <ImpactPreviewRow
+                label="Item total"
+                value={formatCents(draftItemTotalCents)}
+              />
+              <ImpactPreviewComparison
+                afterCents={selectedMilestoneBudgetAfterCents}
+                beforeCents={selectedMilestone.budgetCents}
+                label={`${selectedMilestone.name} budget`}
+              />
+              <ImpactPreviewComparison
+                afterCents={proposalBudgetAfterCents}
+                beforeCents={budgetImpact.proposalBudgetCents}
+                label="Proposal budget"
+              />
+              <ImpactPreviewComparison
+                afterCents={calculateDrawAvailability(
+                  selectedMilestoneBudgetAfterCents,
+                  budgetImpact.borrowerCoPayBps
+                )}
+                beforeCents={calculateDrawAvailability(
+                  selectedMilestone.budgetCents,
+                  budgetImpact.borrowerCoPayBps
+                )}
+                label={`${selectedMilestone.name} draw availability`}
+              />
+            </dl>
+          </section>
+        ) : null}
       </div>
 
       <div
@@ -756,15 +872,11 @@ function MaterialItemEditor({
           </Button>
         ) : null}
         <Button
-          className={TOUCH_BUTTON_CLASS}
-          disabled={
-            !(
-              form.title.trim() &&
-              form.milestoneKey &&
-              costDollarsPositive(form.costCents) &&
-              quantityPositive(form.quantity)
-            ) || pending
+          aria-describedby={
+            canSubmit ? undefined : fieldId(item, "submitGuidance")
           }
+          className={TOUCH_BUTTON_CLASS}
+          disabled={!canSubmit}
           onClick={() => void onSubmit(formToPayload(form))}
           size="sm"
           type="button"
@@ -772,6 +884,14 @@ function MaterialItemEditor({
           {item ? <Pencil /> : <Plus />}
           {pending ? "Saving..." : submitLabel}
         </Button>
+        {canSubmit ? null : (
+          <p
+            className="basis-full text-right text-muted-foreground text-xs"
+            id={fieldId(item, "submitGuidance")}
+          >
+            {submitGuidance}
+          </p>
+        )}
       </div>
     </>
   );
@@ -964,6 +1084,43 @@ function MaterialSummaryStrip({
   );
 }
 
+function ImpactPreviewRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="font-semibold tabular-nums">{value}</dd>
+    </div>
+  );
+}
+
+function ImpactPreviewComparison({
+  afterCents,
+  beforeCents,
+  label,
+}: {
+  afterCents: number;
+  beforeCents: number;
+  label: string;
+}) {
+  return (
+    <div className="grid gap-1 border-t pt-3">
+      <dt className="font-medium">{label}</dt>
+      <dd className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs tabular-nums">
+        <span className="text-muted-foreground">
+          Before {formatCents(beforeCents)}
+        </span>
+        <span className="font-semibold">After {formatCents(afterCents)}</span>
+      </dd>
+    </div>
+  );
+}
+
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2">
@@ -1033,8 +1190,51 @@ function centsToDollarsInput(cents: number) {
   return Number.isInteger(dollars) ? String(dollars) : dollars.toFixed(2);
 }
 
-function costDollarsPositive(value: string) {
-  return numberFromInput(value) > 0;
+function costDollarsValid(value: string) {
+  const parsed = Number(value.replace(/,/g, ""));
+  return Number.isFinite(parsed) && parsed >= 0;
+}
+
+function materialSubmitGuidance({
+  costEntered,
+  costInvalid,
+  milestoneEntered,
+  pending,
+  quantityEntered,
+  quantityInvalid,
+  submitLabel,
+  titleEntered,
+}: {
+  costEntered: boolean;
+  costInvalid: boolean;
+  milestoneEntered: boolean;
+  pending: boolean;
+  quantityEntered: boolean;
+  quantityInvalid: boolean;
+  submitLabel: string;
+  titleEntered: boolean;
+}) {
+  if (pending) {
+    return `${submitLabel} is unavailable while this item is saving.`;
+  }
+  if (costInvalid && quantityInvalid) {
+    return `${submitLabel} is unavailable because Cost per unit cannot be negative and Quantity must be greater than zero.`;
+  }
+  if (costInvalid) {
+    return `${submitLabel} is unavailable because Cost per unit cannot be negative.`;
+  }
+  if (quantityInvalid) {
+    return `${submitLabel} is unavailable because Quantity must be greater than zero.`;
+  }
+
+  const missingFields = [
+    titleEntered ? null : "Title",
+    milestoneEntered ? null : "Milestone",
+    costEntered ? null : "Cost per unit",
+    quantityEntered ? null : "Quantity",
+  ].filter((field): field is string => Boolean(field));
+
+  return `${submitLabel} is unavailable because ${missingFields.join(", ")} ${missingFields.length === 1 ? "is" : "are"} required.`;
 }
 
 function quantityPositive(value: string) {
@@ -1048,6 +1248,13 @@ function optionalText(value: string) {
 
 function totalForItem(item: MaterialPlanningItem) {
   return item.totalCents ?? Math.round(item.costCents * item.quantity);
+}
+
+function calculateDrawAvailability(
+  budgetCents: number,
+  borrowerCoPayBps: number
+) {
+  return Math.round((budgetCents * (10_000 - borrowerCoPayBps)) / 10_000);
 }
 
 function formatCents(cents: number) {

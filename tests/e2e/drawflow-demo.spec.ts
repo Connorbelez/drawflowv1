@@ -20,6 +20,15 @@ async function waitForBorrowerDashboard(page: Page) {
   await expect(page.getByTestId("borrower-dashboard-overview")).toBeVisible();
 }
 
+async function openAdminGanttWorkspace(page: Page) {
+  await page.goto("/demo/drawflow/admin-build-dashboard");
+  await expect(page.getByTestId("admin-build-dashboard-shell")).toBeVisible();
+  await page.getByTestId("admin-dashboard-tab-gantt").click();
+  await expect(page.getByTestId("admin-dashboard-gantt")).toBeVisible();
+  await expect(page.getByTestId("build-workspace-shell")).toBeVisible();
+  await expect(page.getByTestId("workspace-role-select")).toBeVisible();
+}
+
 async function resetBorrowerDashboardDemo(page: Page) {
   await page.goto("/demo/drawflow/active");
   await waitForBorrowerDashboard(page);
@@ -314,7 +323,7 @@ test("Builder borrower dashboard defaults to Overview with evidence and draw gat
     page.getByTestId("borrower-selected-milestone-summary")
   ).toContainText("$10,000");
   await expect(page.getByTestId("borrower-evidence-empty")).toContainText(
-    "No evidence yet for Permits"
+    "No evidence for Permits"
   );
   await expect(page.getByTestId("borrower-evidence-upload")).toContainText(
     "Upload"
@@ -415,10 +424,10 @@ test("Builder borrower dashboard defaults to Overview with evidence and draw gat
   await expect(
     page.getByTestId("borrower-draw-outstanding-evidence")
   ).toContainText("No completed milestones in Draw 2 are waiting on evidence");
-  await expect(page.getByTestId("borrower-draw-request-box")).toContainText(
-    /Draw 2 reimbursement is blocked by/i
+  await expect(page.getByTestId("borrower-draw-state-callout")).toContainText(
+    /Resolve \d+ milestone approvals? before requesting reimbursement\./i
   );
-  await expect(page.getByTestId("borrower-draw-request-box")).not.toContainText(
+  await expect(page.getByTestId("borrower-draw-state-callout")).not.toContainText(
     /evidence requirement/i
   );
   await page.getByTestId("borrower-collapse-status-column").click();
@@ -433,8 +442,8 @@ test("Builder borrower dashboard defaults to Overview with evidence and draw gat
   await expect(page.getByTestId("borrower-draw-status-panel")).toContainText(
     "Lender draw policy limit"
   );
-  await expect(page.getByTestId("borrower-draw-request-box")).toContainText(
-    /reimbursement/i
+  await expect(page.getByTestId("borrower-draw-state-callout")).toContainText(
+    /requesting reimbursement/i
   );
   await expect(page.getByTestId("borrower-submit-draw-request")).toBeDisabled();
 });
@@ -490,6 +499,10 @@ test("Builder borrower dashboard camera evidence capture opens device camera", a
   await waitForBorrowerDashboard(page);
 
   await page.getByTestId("borrower-evidence-camera").click();
+  await page
+    .getByTestId("borrower-evidence-manager")
+    .getByRole("button", { name: "Camera capture" })
+    .click();
   await expect(
     page.getByTestId("borrower-evidence-camera-panel")
   ).toBeVisible();
@@ -567,28 +580,33 @@ test("Builder borrower dashboard keeps the active workspace in Gantt View", asyn
   ).toBeVisible();
 });
 
-test("Builder dashboard route is merged into borrower dashboard tabs", async ({
+test("Builder dashboard route presents live builds and proposal workspaces", async ({
   page,
 }) => {
   await page.goto("/demo/drawflow/builder-dashboard");
-  await waitForBorrowerDashboard(page);
 
-  await page.getByTestId("borrower-dashboard-tab-chat").click();
-  await expect(page.getByTestId("borrower-chat-tab")).toContainText(
-    "Project Chat"
-  );
-  await expect(page.getByTestId("borrower-chat-tab")).toContainText(
-    /evidence|draw|milestone|validation|released/i
-  );
-  await page.getByTestId("borrower-dashboard-tab-documents").click();
-  await expect(page.getByTestId("borrower-documents-tab")).toContainText(
-    "Project Documents"
-  );
-  await expect(page.getByTestId("borrower-documents-tab")).toContainText(
-    "approved budget"
-  );
-  await page.getByTestId("borrower-dashboard-tab-gantt").click();
-  await expect(page.getByTestId("build-workspace-shell")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Builder dashboard" })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Live builds" })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Recent proposal workspaces" })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Start new proposal" })
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Approved plans that now serve as day-to-day build timelines."
+    )
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Draft, submitted, rejected, and archived proposal workspaces."
+    )
+  ).toBeVisible();
 });
 
 async function dragDrawGroup(page: Page, drawGroupId: string, deltaX: number) {
@@ -609,8 +627,7 @@ async function dragDrawGroup(page: Page, drawGroupId: string, deltaX: number) {
 test("IC-ACT-DRAW-GROUP-AUTO-RELEASE release-approves Draw 2 and unblocks Draw 3 capital after final milestone approval", async ({
   page,
 }) => {
-  await page.goto("/demo/drawflow/active");
-  await waitForWorkspace(page);
+  await openAdminGanttWorkspace(page);
   await resetDemo(page);
 
   await submitBuilderClaim(page, "foundation", "70000");
@@ -625,7 +642,7 @@ test("IC-ACT-DRAW-GROUP-AUTO-RELEASE release-approves Draw 2 and unblocks Draw 3
   await submitBuilderClaim(page, "water_sewer", "45000");
   await approveClaim(page, "water_sewer", false);
 
-  await expect(page.getByTestId("draw-label-d2")).toContainText("Released");
+  await expect(page.getByTestId("draw-overlay-d2")).toContainText("Released");
   await expect(
     page.getByTestId("milestone-rail-row-framing")
   ).not.toContainText("Blocked");
@@ -693,13 +710,13 @@ test("IC-PROP-GANTT-DRAW-ELIGIBLE-HOVER shows eligible marker details", async ({
   await waitForWorkspace(page);
   await resetDemo(page);
 
-  const marker = page.getByTestId("draw-eligible-d7");
+  const marker = page.getByTestId("draw-planned-d7");
   await marker.scrollIntoViewIfNeeded();
-  await expect(marker).toContainText("Draw 7 eligible");
+  await expect(marker).toContainText("Draw 7 planned");
   const before = await marker.boundingBox();
   await marker.hover();
-  await expect(page.getByTestId("draw-eligible-d7-detail")).toBeVisible();
-  await expect(page.getByTestId("draw-eligible-d7-detail")).toContainText(
+  await expect(page.getByTestId("draw-planned-d7-detail")).toBeVisible();
+  await expect(page.getByTestId("draw-planned-d7-detail")).toContainText(
     /Draw value|Total exposure/i
   );
   const after = await marker.boundingBox();
@@ -781,7 +798,7 @@ test("IC-PROP-GANTT-MARQUEE does not start from marker labels or milestone bars"
   await waitForWorkspace(page);
   await resetDemo(page);
 
-  const marker = page.getByTestId("draw-eligible-d7");
+  const marker = page.getByTestId("draw-planned-d7");
   await marker.scrollIntoViewIfNeeded();
   const markerBox = await marker.boundingBox();
   if (!markerBox) {
@@ -871,7 +888,7 @@ test("IC-PROP-DRAW-GROUP-DRAG shifts unlocked milestones and skips locked", asyn
   const plumbingBefore = await milestoneDates(page, "underground_plumbing");
   const framingBefore = await milestoneDates(page, "framing");
   const eligibleBefore = await page
-    .getByTestId("draw-eligible-d2")
+    .getByTestId("draw-planned-d2")
     .boundingBox();
 
   await dragDrawGroup(page, "d2", 220);
@@ -885,7 +902,7 @@ test("IC-PROP-DRAW-GROUP-DRAG shifts unlocked milestones and skips locked", asyn
   await expect
     .poll(async () => {
       const eligibleAfter = await page
-        .getByTestId("draw-eligible-d2")
+        .getByTestId("draw-planned-d2")
         .boundingBox();
       return Math.round((eligibleAfter?.x ?? 0) - (eligibleBefore?.x ?? 0));
     })
@@ -937,8 +954,7 @@ test("IC-ACT-GANTT-BATCH-FORECAST-SHIFT requires one reason and audits", async (
 test("IC-ACT-GANTT-FORECAST-RESIZE-END persists forecast shift and exposes audit entry", async ({
   page,
 }) => {
-  await page.goto("/demo/drawflow/active");
-  await waitForWorkspace(page);
+  await openAdminGanttWorkspace(page);
   await resetDemo(page);
   await selectMilestone(page, "foundation");
 
@@ -961,8 +977,7 @@ test("IC-ACT-GANTT-FORECAST-RESIZE-END persists forecast shift and exposes audit
 test("IC-ACT-EVIDENCE-UPLOAD-METADATA supports upload metadata and completion outbox flow", async ({
   page,
 }) => {
-  await page.goto("/demo/drawflow/active");
-  await waitForWorkspace(page);
+  await openAdminGanttWorkspace(page);
   await resetDemo(page);
 
   await selectRole(page, "builderLead");
@@ -1211,7 +1226,7 @@ test("JIT compilation updates validation and draw eligibility without Analyze", 
   await expect(page.getByTestId("proposal-analyze-plan")).toHaveCount(0);
   await page.getByTestId("timeline-resolution-daily").click();
   const initialEligibleText = await page
-    .getByTestId("draw-eligible-d1")
+    .getByTestId("draw-planned-d1")
     .textContent();
   await openDetail(page, "foundation");
   await page.getByTestId("milestone-duration-input").fill("80");
@@ -1226,7 +1241,7 @@ test("JIT compilation updates validation and draw eligibility without Analyze", 
   );
   await page.keyboard.press("Escape");
   const shiftedEligibleText = await page
-    .getByTestId("draw-eligible-d1")
+    .getByTestId("draw-planned-d1")
     .textContent();
   expect(shiftedEligibleText).not.toBe(initialEligibleText);
 });
@@ -1240,16 +1255,16 @@ test("IC-PROP-DRAW-GROUP-SPLIT-MERGE recomputes draw overlays and fee summary", 
 
   await openDetail(page, "temp_fencing");
   const initialOverlayCount = await page
-    .locator('[data-testid^="draw-label-"]')
+    .locator('[data-testid^="draw-overlay-"]')
     .count();
   await page.getByTestId("split-draw").click();
-  await expect(page.locator('[data-testid^="draw-label-"]')).toHaveCount(
+  await expect(page.locator('[data-testid^="draw-overlay-"]')).toHaveCount(
     initialOverlayCount + 1
   );
   await expect(page.getByText(/fees/i).first()).toBeVisible();
   await openDetail(page, "foundation");
   await page.getByTestId("merge-prev-draw").click();
-  await expect(page.locator('[data-testid^="draw-label-"]')).toHaveCount(
+  await expect(page.locator('[data-testid^="draw-overlay-"]')).toHaveCount(
     initialOverlayCount
   );
 });
@@ -1257,8 +1272,7 @@ test("IC-PROP-DRAW-GROUP-SPLIT-MERGE recomputes draw overlays and fee summary", 
 test("IC-SHARED-DRAWER-AUDIT-OUTBOX exposes append-only records", async ({
   page,
 }) => {
-  await page.goto("/demo/drawflow/active");
-  await waitForWorkspace(page);
+  await openAdminGanttWorkspace(page);
   await resetDemo(page);
 
   await selectRole(page, "builderLead");
@@ -1344,7 +1358,12 @@ test("DrawFlow borrower dashboard screenshot QA across responsive breakpoints", 
           .getByTestId("borrower-draw-group-d2")
           .getByRole("button", { name: /Draw 2/ })
       ).toHaveAttribute("aria-expanded", "true");
-      await page.getByTestId("intro-disclosure-tab-draw-status").click();
+      const drawStatusTab = page.getByTestId(
+        "intro-disclosure-tab-draw-status"
+      );
+      await drawStatusTab.focus();
+      await expect(drawStatusTab).toBeFocused();
+      await drawStatusTab.press("Enter");
       await expect(
         page.getByTestId("intro-disclosure-panel-draw-status")
       ).toContainText("Draw Group Status");

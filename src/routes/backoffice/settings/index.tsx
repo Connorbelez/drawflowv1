@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import {
   CheckCircle2,
@@ -6,6 +6,7 @@ import {
   Database,
   GitBranch,
   Plus,
+  PlugZap,
   Save,
   Trash2,
 } from "lucide-react";
@@ -127,6 +128,9 @@ function RouteComponent() {
       role.trim().toLowerCase()
     )
   );
+  const canManageIntegrations = roleSlugs.some(
+    (role) => role.trim().toLowerCase() === "admin"
+  );
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
   const productionSettingsQuery = useQuery(
     api.production_proposals.getProductionProposalSettings,
@@ -184,6 +188,15 @@ function RouteComponent() {
               the same full timeline settings workspace as the demo reference.
             </p>
           </div>
+          {canManageIntegrations ? (
+            <Button
+              nativeButton={false}
+              render={<Link preload="intent" to="/backoffice/integrations" />}
+              variant="outline"
+            >
+              <PlugZap aria-hidden="true" /> Integration operations
+            </Button>
+          ) : null}
         </header>
 
         <TimelineSettingsWorkspace

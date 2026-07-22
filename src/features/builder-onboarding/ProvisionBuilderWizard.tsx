@@ -29,7 +29,9 @@ import { cn } from "#/lib/utils.ts";
 import { api } from "../../../convex/_generated/api";
 
 const FAIRLEND_BROKERAGE_NAME = "FairLendBrokerage";
+const FAIRLEND_DEFAULT_BROKER_EMAIL = "elie@fairlend.ca";
 const FAIRLEND_WORKOS_ORGANIZATION_ID = "org_01KSNW6JHW9P9YS41DZX1YHHGS";
+const CONVEX_ERROR_PREFIX = /^\[.*?\]\s*/;
 
 type WizardStep = 0 | 1 | 2;
 
@@ -39,13 +41,20 @@ const STEPS: { key: string; label: string; hint: string }[] = [
   { hint: "Account provisioned", key: "done", label: "Invite" },
 ];
 
-interface ProvisionResult {
+export interface ProvisionResult {
   builderProfileId: string;
   displayName: string;
   invite: { adapter: string; status: string; sync: string };
   operation: "created" | "reactivated";
   ownerEmail: string;
   ownerWorkosUserId: string;
+}
+
+export interface ProvisionBuilderWizardProps {
+  attachmentName?: string;
+  attachToProposal?: boolean;
+  onProvisioned?: (result: ProvisionResult) => Promise<void> | void;
+  onReturnToProposal?: () => Promise<void> | void;
 }
 
 function isValidEmail(value: string): boolean {
@@ -59,7 +68,12 @@ function isValidEmail(value: string): boolean {
   );
 }
 
-export function ProvisionBuilderWizard(): React.ReactElement {
+export function ProvisionBuilderWizard({
+  attachmentName,
+  attachToProposal = false,
+  onProvisioned,
+  onReturnToProposal,
+}: ProvisionBuilderWizardProps = {}): React.ReactElement {
   const provisionNewBuilder = useAction(
     api.brokerageProvisioning.provisionNewBuilder
   );
@@ -107,12 +121,13 @@ export function ProvisionBuilderWizard(): React.ReactElement {
         ownerEmail: ownerEmail.trim(),
         ownerName: ownerName.trim() || undefined,
       })) as ProvisionResult;
+      await onProvisioned?.(provisioned);
       setResult(provisioned);
       setStep(2);
     } catch (caught) {
       setError(
         caught instanceof Error
-          ? caught.message.replace(/^\[.*?\]\s*/, "")
+          ? caught.message.replace(CONVEX_ERROR_PREFIX, "")
           : "Could not provision the builder. Try again."
       );
     } finally {
@@ -272,6 +287,15 @@ export function ProvisionBuilderWizard(): React.ReactElement {
                 <CreatedItem>
                   Owner account link so first login resolves their workspace
                 </CreatedItem>
+                <CreatedItem>
+                  Default broker assignment to {FAIRLEND_DEFAULT_BROKER_EMAIL}
+                </CreatedItem>
+                {attachToProposal ? (
+                  <CreatedItem>
+                    Automatic attachment to{" "}
+                    {attachmentName?.trim() || "the originating Build Proposal"}
+                  </CreatedItem>
+                ) : null}
               </ul>
 
               {error ? (
@@ -292,10 +316,7 @@ export function ProvisionBuilderWizard(): React.ReactElement {
                   <ArrowLeft />
                   Back
                 </Button>
-                <Button
-                  loading={submitting}
-                  onClick={() => void handleProvision()}
-                >
+                <Button loading={submitting} onClick={() => handleProvision()}>
                   <KeyRound />
                   Create account &amp; provision
                 </Button>
@@ -323,6 +344,9 @@ export function ProvisionBuilderWizard(): React.ReactElement {
                     </span>
                     . When they accept and sign in, their builder workspace and
                     first-run flow are ready.
+                    {attachToProposal
+                      ? ` This builder is now attached to ${attachmentName?.trim() || "the Build Proposal"}.`
+                      : ""}
                   </FrameDescription>
                 </div>
               </div>
@@ -357,6 +381,12 @@ export function ProvisionBuilderWizard(): React.ReactElement {
                   <RotateCcw />
                   Provision another
                 </Button>
+                {onReturnToProposal ? (
+                  <Button onClick={onReturnToProposal}>
+                    <ArrowLeft />
+                    Return to Build Proposal
+                  </Button>
+                ) : null}
               </div>
             </FramePanel>
           ) : null}

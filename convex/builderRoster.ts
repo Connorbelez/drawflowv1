@@ -4,7 +4,16 @@ import {
   backofficeQuery,
   type RoleSlug,
   userManagementWriteMutation,
+  userManagementWriteQuery,
 } from "./authz";
+import {
+  assignBuilderBrokerAssignment,
+  deactivateBuilderBrokerAssignments,
+  ensureBuilderBrokerAssignment,
+  getBuilderBrokerAssignmentHealth,
+  hasAssignableBrokerRole,
+  requireDefaultBrokerMember,
+} from "./brokerAssignments";
 import type { Doc, MutationCtx } from "./types";
 
 /**
@@ -65,6 +74,24 @@ interface BuildRow {
   updatedAt: number;
 }
 
+interface BrokerProjection {
+  email: string | null;
+  name: string | null;
+  profilePictureUrl: string | null;
+  roleSlugs: string[];
+  status: Doc<"users">["status"];
+  workosUserId: string | null;
+}
+
+interface BrokerAssignmentProjection {
+  activeAssignmentCount: number;
+  assignedBrokerWorkosUserId: string | null;
+  broker: BrokerProjection | null;
+  healthy: boolean;
+  reason: string;
+  status: Doc<"builderBrokerAssignments">["status"] | null;
+}
+
 /**
  * Roster of every provisioned builder with the operational context a broker
  * needs to manage them: linked accounts, proposal pipeline, active builds,
@@ -75,7 +102,14 @@ interface BuildRow {
  */
 export const listBuilderRoster = backofficeQuery
   .returns(v.any())
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The roster is intentionally aggregated in one server-side pass to avoid client joins and N+1 subscriptions.
   .handler(async (ctx) => {
+    const organizationScope = ctx.viewer.roles.includes("admin")
+      ? null
+      : ctx.viewer.organizationId;
+    if (!(ctx.viewer.roles.includes("admin") || organizationScope)) {
+      throw new Error("Active organization context is required.");
+    }
     const [
       profiles,
       brokerages,
@@ -86,10 +120,38 @@ export const listBuilderRoster = backofficeQuery
       proposals,
       builds,
     ] = await Promise.all([
-      ctx.db.query("builderProfiles").collect(),
-      ctx.db.query("brokerages").collect(),
-      ctx.db.query("workosOrganizations").collect(),
-      ctx.db.query("workosOrganizationMemberships").collect(),
+      organizationScope
+        ? ctx.db
+            .query("builderProfiles")
+            .withIndex("by_organization", (q) =>
+              q.eq("organizationId", organizationScope),
+            )
+            .collect()
+        : ctx.db.query("builderProfiles").collect(),
+      organizationScope
+        ? ctx.db
+            .query("brokerages")
+            .withIndex("by_workos_organization", (q) =>
+              q.eq("workosOrganizationId", organizationScope),
+            )
+            .collect()
+        : ctx.db.query("brokerages").collect(),
+      organizationScope
+        ? ctx.db
+            .query("workosOrganizations")
+            .withIndex("by_workos_organization_id", (q) =>
+              q.eq("workosOrganizationId", organizationScope),
+            )
+            .collect()
+        : ctx.db.query("workosOrganizations").collect(),
+      organizationScope
+        ? ctx.db
+            .query("workosOrganizationMemberships")
+            .withIndex("by_organization", (q) =>
+              q.eq("workosOrganizationId", organizationScope),
+            )
+            .collect()
+        : ctx.db.query("workosOrganizationMemberships").collect(),
       ctx.db.query("users").collect(),
       ctx.db.query("builderAccountLinks").collect(),
       ctx.db.query("buildProposals").collect(),
@@ -98,12 +160,12 @@ export const listBuilderRoster = backofficeQuery
 
     const brokeragesById = new Map(brokerages.map((row) => [row._id, row]));
     const orgsByWorkosId = new Map(
-      organizations.map((row) => [row.workosOrganizationId, row])
+      organizations.map((row) => [row.workosOrganizationId, row]),
     );
     const usersByWorkosId = new Map(
       users
         .filter((row) => row.workosUserId)
-        .map((row) => [row.workosUserId as string, row])
+        .map((row) => [row.workosUserId as string, row]),
     );
 
     // Active membership role slugs per (org, user) so account rows can show the
@@ -119,7 +181,7 @@ export const listBuilderRoster = backofficeQuery
       }
       rolesByOrgUser.set(
         membershipKey(membership.workosOrganizationId, membership.workosUserId),
-        slugs
+        slugs,
       );
     }
     const membershipIdByOrgUser = new Map<string, string>();
@@ -129,7 +191,7 @@ export const listBuilderRoster = backofficeQuery
       }
       membershipIdByOrgUser.set(
         membershipKey(membership.workosOrganizationId, membership.workosUserId),
-        membership.workosMembershipId
+        membership.workosMembershipId,
       );
     }
 
@@ -160,122 +222,165 @@ export const listBuilderRoster = backofficeQuery
       buildsByProfile.set(key, list);
     }
 
-    const builders = profiles.map((profile) => {
-      const brokerage = brokeragesById.get(profile.brokerageId);
-      const organization = orgsByWorkosId.get(profile.organizationId);
-      const profileLinks = linksByProfile.get(profile._id as string) ?? [];
+    const builders = await Promise.all(
+      // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Each Builder row is intentionally projected in one server-side pass to avoid reactive client joins.
+      profiles.map(async (profile) => {
+        const brokerage = brokeragesById.get(profile.brokerageId);
+        const organization = orgsByWorkosId.get(profile.organizationId);
+        const profileLinks = linksByProfile.get(profile._id as string) ?? [];
+        const assignmentHealth = brokerage
+          ? await getBuilderBrokerAssignmentHealth(ctx, {
+              brokerage,
+              builderProfile: profile,
+            })
+          : null;
 
-      const accounts: AccountRow[] = profileLinks
-        .map((link) => {
-          const user = usersByWorkosId.get(link.workosUserId);
-          const key = membershipKey(profile.organizationId, link.workosUserId);
-          return {
-            email: user?.email ?? null,
-            emailVerified: user?.emailVerified ?? false,
-            linkId: link._id as string,
-            name: user?.name ?? null,
-            profilePictureUrl: user?.profilePictureUrl ?? null,
-            role: link.role,
-            roleSlugs: rolesByOrgUser.get(key) ?? [],
-            status: user?.status ?? null,
-            workosMembershipId: membershipIdByOrgUser.get(key) ?? null,
-            workosUserId: link.workosUserId,
-          } satisfies AccountRow;
-        })
-        .sort((a, b) => roleRank(a.role) - roleRank(b.role));
+        const accounts: AccountRow[] = profileLinks
+          .map((link) => {
+            const user = usersByWorkosId.get(link.workosUserId);
+            const key = membershipKey(
+              profile.organizationId,
+              link.workosUserId,
+            );
+            return {
+              email: user?.email ?? null,
+              emailVerified: user?.emailVerified ?? false,
+              linkId: link._id as string,
+              name: user?.name ?? null,
+              profilePictureUrl: user?.profilePictureUrl ?? null,
+              role: link.role,
+              roleSlugs: rolesByOrgUser.get(key) ?? [],
+              status: user?.status ?? null,
+              workosMembershipId: membershipIdByOrgUser.get(key) ?? null,
+              workosUserId: link.workosUserId,
+            } satisfies AccountRow;
+          })
+          .sort((a, b) => roleRank(a.role) - roleRank(b.role));
 
-      const profileProposals = (
-        proposalsByProfile.get(profile._id as string) ?? []
-      )
-        .map(
-          (proposal) =>
-            ({
-              _id: proposal._id as string,
-              activeBuildId: (proposal.activeBuildId as string) ?? null,
-              approvedAt: proposal.approvedAt ?? null,
-              buildName: proposal.buildName,
-              closedAt: proposal.closedAt ?? null,
-              location: proposal.location,
-              reviewOutcome: proposal.reviewOutcome,
-              status: proposal.status,
-              submittedAt: proposal.submittedAt ?? null,
-              totalBudgetCents: proposal.totalBudgetCents,
-              updatedAt: proposal.updatedAt,
-            }) satisfies ProposalRow
+        const profileProposals = (
+          proposalsByProfile.get(profile._id as string) ?? []
         )
-        .sort((a, b) => b.updatedAt - a.updatedAt);
+          .map(
+            (proposal) =>
+              ({
+                _id: proposal._id as string,
+                activeBuildId: (proposal.activeBuildId as string) ?? null,
+                approvedAt: proposal.approvedAt ?? null,
+                buildName: proposal.buildName,
+                closedAt: proposal.closedAt ?? null,
+                location: proposal.location,
+                reviewOutcome: proposal.reviewOutcome,
+                status: proposal.status,
+                submittedAt: proposal.submittedAt ?? null,
+                totalBudgetCents: proposal.totalBudgetCents,
+                updatedAt: proposal.updatedAt,
+              }) satisfies ProposalRow,
+          )
+          .sort((a, b) => b.updatedAt - a.updatedAt);
 
-      const profileBuilds = (buildsByProfile.get(profile._id as string) ?? [])
-        .map(
-          (build) =>
-            ({
-              _id: build._id as string,
-              buildName: build.buildName,
-              location: build.location,
-              proposalId: build.proposalId as string,
-              startDate: build.startDate,
-              status: build.status,
-              totalBudgetCents: build.totalBudgetCents,
-              updatedAt: build.updatedAt,
-            }) satisfies BuildRow
-        )
-        .sort((a, b) => b.updatedAt - a.updatedAt);
+        const profileBuilds = (buildsByProfile.get(profile._id as string) ?? [])
+          .map(
+            (build) =>
+              ({
+                _id: build._id as string,
+                buildName: build.buildName,
+                location: build.location,
+                proposalId: build.proposalId as string,
+                startDate: build.startDate,
+                status: build.status,
+                totalBudgetCents: build.totalBudgetCents,
+                updatedAt: build.updatedAt,
+              }) satisfies BuildRow,
+          )
+          .sort((a, b) => b.updatedAt - a.updatedAt);
 
-      const proposalCounts = countByStatus(profileProposals);
-      const proposedCapitalCents = sumBudget(
-        profileProposals.filter((p) => p.status !== "closed")
-      );
-      const approvedCapitalCents = sumBudget(
-        profileProposals.filter(
-          (p) => p.status === "approved" || p.status === "closed"
-        )
-      );
-      const activeBuildCapitalCents = sumBudget(profileBuilds);
+        const proposalCounts = countByStatus(profileProposals);
+        const proposedCapitalCents = sumBudget(
+          profileProposals.filter((p) => p.status !== "closed"),
+        );
+        const approvedCapitalCents = sumBudget(
+          profileProposals.filter(
+            (p) => p.status === "approved" || p.status === "closed",
+          ),
+        );
+        const activeBuildCapitalCents = sumBudget(profileBuilds);
 
-      const lastActivityAt = maxTimestamp([
-        profile.updatedAt,
-        ...profileProposals.map((p) => p.updatedAt),
-        ...profileBuilds.map((b) => b.updatedAt),
-      ]);
+        const lastActivityAt = maxTimestamp([
+          profile.updatedAt,
+          ...profileProposals.map((p) => p.updatedAt),
+          ...profileBuilds.map((b) => b.updatedAt),
+        ]);
 
-      const stage = deriveStage({
-        accountCount: accounts.length,
-        builds: profileBuilds,
-        profileStatus: profile.status,
-        proposals: profileProposals,
-      });
+        const stage = deriveStage({
+          accountCount: accounts.length,
+          builds: profileBuilds,
+          profileStatus: profile.status,
+          proposals: profileProposals,
+        });
 
-      return {
-        _id: profile._id as string,
-        accountCount: accounts.length,
-        accounts,
-        activeBuildCapitalCents,
-        approvedCapitalCents,
-        brokerage: brokerage
-          ? {
-              _id: brokerage._id as string,
-              displayName: brokerage.displayName,
-              status: brokerage.status,
-            }
-          : null,
-        builds: profileBuilds,
-        createdAt: profile.createdAt,
-        displayName: profile.displayName,
-        lastActivityAt,
-        legalName: profile.legalName ?? null,
-        organizationName: organization?.name ?? profile.displayName,
-        organizationStatus: organization?.status ?? null,
-        ownerAccount: accounts.find((a) => a.role === "owner") ?? null,
-        proposalCount: profileProposals.length,
-        proposalCounts,
-        proposals: profileProposals,
-        proposedCapitalCents,
-        stage,
-        status: profile.status,
-        updatedAt: profile.updatedAt,
-        workosOrganizationId: profile.organizationId,
-      };
-    });
+        let brokerAssignment: BrokerAssignmentProjection | null = null;
+        if (assignmentHealth) {
+          let broker: BrokerProjection | null = null;
+          if (assignmentHealth.broker) {
+            broker = {
+              email: assignmentHealth.broker.email ?? null,
+              name: assignmentHealth.broker.name ?? null,
+              profilePictureUrl:
+                assignmentHealth.broker.profilePictureUrl ?? null,
+              roleSlugs: assignmentHealth.membership
+                ? membershipRoleSlugs(assignmentHealth.membership)
+                : [],
+              status: assignmentHealth.broker.status,
+              workosUserId:
+                assignmentHealth.broker.workosUserId ??
+                assignmentHealth.assignment?.assignedBrokerWorkosUserId ??
+                null,
+            };
+          }
+          brokerAssignment = {
+            activeAssignmentCount: assignmentHealth.activeAssignmentCount,
+            assignedBrokerWorkosUserId:
+              assignmentHealth.assignment?.assignedBrokerWorkosUserId ?? null,
+            broker,
+            healthy: assignmentHealth.healthy,
+            reason: assignmentHealth.reason,
+            status: assignmentHealth.assignment?.status ?? null,
+          };
+        }
+
+        return {
+          _id: profile._id as string,
+          accountCount: accounts.length,
+          accounts,
+          activeBuildCapitalCents,
+          approvedCapitalCents,
+          brokerAssignment,
+          brokerage: brokerage
+            ? {
+                _id: brokerage._id as string,
+                displayName: brokerage.displayName,
+                status: brokerage.status,
+              }
+            : null,
+          builds: profileBuilds,
+          createdAt: profile.createdAt,
+          displayName: profile.displayName,
+          lastActivityAt,
+          legalName: profile.legalName ?? null,
+          organizationName: organization?.name ?? profile.displayName,
+          organizationStatus: organization?.status ?? null,
+          ownerAccount: accounts.find((a) => a.role === "owner") ?? null,
+          proposalCount: profileProposals.length,
+          proposalCounts,
+          proposals: profileProposals,
+          proposedCapitalCents,
+          stage,
+          status: profile.status,
+          updatedAt: profile.updatedAt,
+          workosOrganizationId: profile.organizationId,
+        };
+      }),
+    );
 
     builders.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
 
@@ -287,6 +392,244 @@ export const listBuilderRoster = backofficeQuery
       })),
       builders,
       stages: BUILDER_STAGES,
+    };
+  })
+  .public();
+
+const assignableBrokerValidator = v.object({
+  email: v.union(v.string(), v.null()),
+  isPrincipal: v.boolean(),
+  name: v.union(v.string(), v.null()),
+  profilePictureUrl: v.union(v.string(), v.null()),
+  roleSlugs: v.array(v.string()),
+  status: v.literal("active"),
+  workosUserId: v.string(),
+});
+
+/** Active, same-tenant broker options that are safe assignment targets. */
+export const listAssignableBrokers = userManagementWriteQuery
+  .returns(
+    v.object({
+      brokerages: v.array(
+        v.object({
+          brokerageId: v.id("brokerages"),
+          brokerageName: v.string(),
+          brokers: v.array(assignableBrokerValidator),
+          principalBrokerWorkosUserId: v.union(v.string(), v.null()),
+          workosOrganizationId: v.string(),
+        }),
+      ),
+    }),
+  )
+  .handler(async (ctx) => {
+    const organizationScope = ctx.viewer.roles.includes("admin")
+      ? null
+      : ctx.viewer.organizationId;
+    if (!(ctx.viewer.roles.includes("admin") || organizationScope)) {
+      throw new Error("Active organization context is required.");
+    }
+
+    const [brokerages, memberships, users] = await Promise.all([
+      organizationScope
+        ? ctx.db
+            .query("brokerages")
+            .withIndex("by_workos_organization", (q) =>
+              q.eq("workosOrganizationId", organizationScope),
+            )
+            .collect()
+        : ctx.db.query("brokerages").collect(),
+      organizationScope
+        ? ctx.db
+            .query("workosOrganizationMemberships")
+            .withIndex("by_organization", (q) =>
+              q.eq("workosOrganizationId", organizationScope),
+            )
+            .collect()
+        : ctx.db.query("workosOrganizationMemberships").collect(),
+      ctx.db.query("users").collect(),
+    ]);
+    const activeUsers = new Map(
+      users
+        .filter((user) => user.status === "active" && user.workosUserId)
+        .map((user) => [user.workosUserId as string, user]),
+    );
+
+    return {
+      brokerages: brokerages
+        .filter((brokerage) => brokerage.status === "active")
+        .map((brokerage) => {
+          const brokersByUserId = new Map<
+            string,
+            {
+              email: string | null;
+              isPrincipal: boolean;
+              name: string | null;
+              profilePictureUrl: string | null;
+              roleSlugs: string[];
+              status: "active";
+              workosUserId: string;
+            }
+          >();
+          for (const membership of memberships) {
+            if (
+              membership.status !== "active" ||
+              membership.workosOrganizationId !==
+                brokerage.workosOrganizationId ||
+              !hasAssignableBrokerRole(membership)
+            ) {
+              continue;
+            }
+            const user = activeUsers.get(membership.workosUserId);
+            if (!user) {
+              continue;
+            }
+            brokersByUserId.set(membership.workosUserId, {
+              email: user.email ?? null,
+              isPrincipal:
+                membership.workosUserId ===
+                brokerage.principalBrokerWorkosUserId,
+              name: user.name ?? null,
+              profilePictureUrl: user.profilePictureUrl ?? null,
+              roleSlugs: membershipRoleSlugs(membership),
+              status: "active",
+              workosUserId: membership.workosUserId,
+            });
+          }
+          const brokers = [...brokersByUserId.values()].sort(
+            (a, b) =>
+              Number(b.isPrincipal) - Number(a.isPrincipal) ||
+              (a.name ?? a.email ?? a.workosUserId).localeCompare(
+                b.name ?? b.email ?? b.workosUserId,
+              ),
+          );
+          return {
+            brokerageId: brokerage._id,
+            brokerageName: brokerage.displayName,
+            brokers,
+            principalBrokerWorkosUserId:
+              brokerage.principalBrokerWorkosUserId ?? null,
+            workosOrganizationId: brokerage.workosOrganizationId,
+          };
+        })
+        .sort((a, b) => a.brokerageName.localeCompare(b.brokerageName)),
+    };
+  })
+  .public();
+
+const assignmentOperationValidator = v.union(
+  v.literal("assigned"),
+  v.literal("reassigned"),
+  v.literal("repaired"),
+  v.literal("unchanged"),
+);
+
+/**
+ * Governed, atomic assignment command for one or more Builders in one
+ * brokerage. Any invalid target rolls the whole mutation back.
+ */
+export const assignBuildersToBroker = userManagementWriteMutation
+  .input({
+    assignedBrokerWorkosUserId: v.string(),
+    builderProfileIds: v.array(v.id("builderProfiles")),
+    reason: v.string(),
+  })
+  .returns(
+    v.object({
+      assigned: v.number(),
+      processed: v.number(),
+      reassigned: v.number(),
+      repaired: v.number(),
+      results: v.array(
+        v.object({
+          assignmentId: v.id("builderBrokerAssignments"),
+          builderProfileId: v.id("builderProfiles"),
+          operation: assignmentOperationValidator,
+        }),
+      ),
+      unchanged: v.number(),
+    }),
+  )
+  .handler(async (ctx, args) => {
+    const reason = args.reason.trim();
+    if (reason.length < 10) {
+      throw new Error(
+        "An assignment reason of at least 10 characters is required.",
+      );
+    }
+    const profileIds = [
+      ...new Map(
+        args.builderProfileIds.map((profileId) => [
+          profileId as string,
+          profileId,
+        ]),
+      ).values(),
+    ].sort((a, b) => String(a).localeCompare(String(b)));
+    if (profileIds.length === 0) {
+      throw new Error("Select at least one Builder.");
+    }
+    if (profileIds.length > 100) {
+      throw new Error("Assign no more than 100 Builders at once.");
+    }
+
+    const loadedProfiles = await Promise.all(
+      profileIds.map((profileId) => ctx.db.get(profileId)),
+    );
+    if (loadedProfiles.some((profile) => !profile)) {
+      throw new Error("One or more Builder profiles were not found.");
+    }
+    const profiles = loadedProfiles as Doc<"builderProfiles">[];
+    const firstProfile = profiles[0];
+    if (
+      profiles.some(
+        (profile) =>
+          profile.brokerageId !== firstProfile.brokerageId ||
+          profile.organizationId !== firstProfile.organizationId,
+      )
+    ) {
+      throw new Error("Batch assignment requires Builders from one brokerage.");
+    }
+
+    await requireBrokerageScope(ctx, firstProfile.organizationId);
+    const brokerage = await ctx.db.get(firstProfile.brokerageId);
+    if (!brokerage) {
+      throw new Error("Builder brokerage not found.");
+    }
+
+    const now = Date.now();
+    const results: {
+      assignmentId: Doc<"builderBrokerAssignments">["_id"];
+      builderProfileId: Doc<"builderProfiles">["_id"];
+      operation: "assigned" | "reassigned" | "repaired" | "unchanged";
+    }[] = [];
+    for (const profile of profiles) {
+      const result = await assignBuilderBrokerAssignment(ctx, {
+        actorRoles: ctx.viewer.roles,
+        actorWorkosUserId: ctx.viewer.subject,
+        assignedBrokerWorkosUserId: args.assignedBrokerWorkosUserId,
+        brokerage,
+        builderProfile: profile,
+        command: "builderRoster.assignBuildersToBroker",
+        now,
+        reason,
+      });
+      results.push({
+        assignmentId: result.assignmentId,
+        builderProfileId: profile._id,
+        operation: result.operation,
+      });
+    }
+
+    return {
+      assigned: results.filter((result) => result.operation === "assigned")
+        .length,
+      processed: results.length,
+      reassigned: results.filter((result) => result.operation === "reassigned")
+        .length,
+      repaired: results.filter((result) => result.operation === "repaired")
+        .length,
+      results,
+      unchanged: results.filter((result) => result.operation === "unchanged")
+        .length,
     };
   })
   .public();
@@ -304,7 +647,7 @@ export const setBuilderProfileStatus = userManagementWriteMutation
     v.object({
       builderProfileId: v.id("builderProfiles"),
       status: v.union(v.literal("active"), v.literal("inactive")),
-    })
+    }),
   )
   .handler(async (ctx, args) => {
     const profile = await ctx.db.get(args.builderProfileId);
@@ -312,12 +655,52 @@ export const setBuilderProfileStatus = userManagementWriteMutation
       throw new Error("Builder profile not found.");
     }
     await requireBrokerageScope(ctx, profile.organizationId);
+    const brokerage = await ctx.db.get(profile.brokerageId);
+    if (!brokerage) {
+      throw new Error("Builder brokerage not found.");
+    }
+
+    const now = Date.now();
     if (profile.status !== args.status) {
       await ctx.db.patch(args.builderProfileId, {
         status: args.status,
-        updatedAt: Date.now(),
+        updatedAt: now,
       });
     }
+
+    if (args.status === "inactive") {
+      await deactivateBuilderBrokerAssignments(ctx, {
+        actorRoles: ctx.viewer.roles,
+        actorWorkosUserId: ctx.viewer.subject,
+        brokerage,
+        builderProfile: profile,
+        command: "setBuilderProfileStatus",
+        now,
+        reason:
+          "Deactivating broker assignments while archiving the builder profile.",
+      });
+    } else {
+      const activeProfile = await ctx.db.get(args.builderProfileId);
+      if (!activeProfile) {
+        throw new Error(
+          "The builder profile could not be loaded after reactivation.",
+        );
+      }
+      const { workosUserId: assignedBrokerWorkosUserId } =
+        await requireDefaultBrokerMember(ctx, brokerage);
+      await ensureBuilderBrokerAssignment(ctx, {
+        actorRoles: ctx.viewer.roles,
+        actorWorkosUserId: ctx.viewer.subject,
+        assignedBrokerWorkosUserId,
+        brokerage,
+        builderProfile: activeProfile,
+        command: "setBuilderProfileStatus",
+        now,
+        reason:
+          "Validating the principal broker assignment while activating the builder profile.",
+      });
+    }
+
     return { builderProfileId: args.builderProfileId, status: args.status };
   })
   .public();
@@ -336,7 +719,7 @@ export const renameBuilderProfile = userManagementWriteMutation
     v.object({
       builderProfileId: v.id("builderProfiles"),
       displayName: v.string(),
-    })
+    }),
   )
   .handler(async (ctx, args) => {
     const profile = await ctx.db.get(args.builderProfileId);
@@ -355,7 +738,7 @@ export const renameBuilderProfile = userManagementWriteMutation
       displayName.toLowerCase() === brokerage.displayName.toLowerCase()
     ) {
       throw new Error(
-        "A builder profile must use the builder's own company name, not the brokerage name."
+        "A builder profile must use the builder's own company name, not the brokerage name.",
       );
     }
     await ctx.db.patch(args.builderProfileId, {
@@ -380,25 +763,45 @@ const BUILDER_ROLE_SLUGS = ["builder", "builder-staff"] as const;
 export const listUnprovisionedBuilders = backofficeQuery
   .returns(v.any())
   .handler(async (ctx) => {
+    const organizationScope = ctx.viewer.roles.includes("admin")
+      ? null
+      : ctx.viewer.organizationId;
+    if (!(ctx.viewer.roles.includes("admin") || organizationScope)) {
+      throw new Error("Active organization context is required.");
+    }
     const [memberships, users, brokerages, links] = await Promise.all([
-      ctx.db.query("workosOrganizationMemberships").collect(),
+      organizationScope
+        ? ctx.db
+            .query("workosOrganizationMemberships")
+            .withIndex("by_organization", (q) =>
+              q.eq("workosOrganizationId", organizationScope),
+            )
+            .collect()
+        : ctx.db.query("workosOrganizationMemberships").collect(),
       ctx.db.query("users").collect(),
-      ctx.db.query("brokerages").collect(),
+      organizationScope
+        ? ctx.db
+            .query("brokerages")
+            .withIndex("by_workos_organization", (q) =>
+              q.eq("workosOrganizationId", organizationScope),
+            )
+            .collect()
+        : ctx.db.query("brokerages").collect(),
       ctx.db.query("builderAccountLinks").collect(),
     ]);
 
     const usersByWorkosId = new Map(
       users
         .filter((row) => row.workosUserId)
-        .map((row) => [row.workosUserId as string, row])
+        .map((row) => [row.workosUserId as string, row]),
     );
     const brokerageByOrg = new Map(
-      brokerages.map((row) => [row.workosOrganizationId, row])
+      brokerages.map((row) => [row.workosOrganizationId, row]),
     );
     const linkedUserIds = new Set(
       links
         .filter((link) => link.status === "active")
-        .map((link) => link.workosUserId)
+        .map((link) => link.workosUserId),
     );
 
     const candidates = memberships
@@ -408,7 +811,7 @@ export const listUnprovisionedBuilders = backofficeQuery
         }
         const slugs = membershipRoleSlugs(membership);
         const isBuilder = slugs.some((slug) =>
-          (BUILDER_ROLE_SLUGS as readonly string[]).includes(slug)
+          (BUILDER_ROLE_SLUGS as readonly string[]).includes(slug),
         );
         if (!isBuilder) {
           return false;
@@ -434,8 +837,8 @@ export const listUnprovisionedBuilders = backofficeQuery
       })
       .sort((a, b) =>
         (a.name ?? a.email ?? a.workosUserId).localeCompare(
-          b.name ?? b.email ?? b.workosUserId
-        )
+          b.name ?? b.email ?? b.workosUserId,
+        ),
       );
 
     return { candidates };
@@ -450,7 +853,7 @@ function membershipRoleSlugs(
   membership: Pick<
     Doc<"workosOrganizationMemberships">,
     "roleSlug" | "roleSlugs"
-  >
+  >,
 ): string[] {
   if (membership.roleSlugs.length > 0) {
     return membership.roleSlugs;
@@ -463,7 +866,7 @@ function roleRank(role: "owner" | "staff"): number {
 }
 
 function countByStatus(
-  proposals: ProposalRow[]
+  proposals: ProposalRow[],
 ): Record<ProposalStatus, number> {
   const counts: Record<ProposalStatus, number> = {
     approved: 0,
@@ -535,7 +938,7 @@ export const __test = {
 
 async function requireBrokerageScope(
   ctx: MutationCtx & { viewer: { roles: RoleSlug[]; subject: string } },
-  workosOrganizationId: string
+  workosOrganizationId: string,
 ) {
   if (ctx.viewer.roles.includes("admin")) {
     return;
@@ -545,7 +948,7 @@ async function requireBrokerageScope(
     .withIndex("by_user", (q) => q.eq("workosUserId", ctx.viewer.subject))
     .filter((q) => q.eq(q.field("workosOrganizationId"), workosOrganizationId))
     .first();
-  if (!membership || membership.status !== "active") {
+  if (membership?.status !== "active") {
     throw new Error("Forbidden: WorkOS membership");
   }
   const slugs = membershipRoleSlugs(membership);

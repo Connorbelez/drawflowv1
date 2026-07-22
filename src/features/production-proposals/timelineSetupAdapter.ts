@@ -267,7 +267,7 @@ export function timelineSetupResultToDraftPackage(
 ): ProductionProposalDraftSavePayload {
   return {
     borrowerCoPayBps: result.borrowerCoPayBps,
-    borrowerWorkingCapitalLimitCents: dollarsToCents(result.startingCash),
+    borrowerStartingCashCents: dollarsToCents(result.startingCash),
     buildName: `${result.templateTitle} Proposal`,
     contractorAssignments: result.contractorAssignments,
     costItems: result.costItems,

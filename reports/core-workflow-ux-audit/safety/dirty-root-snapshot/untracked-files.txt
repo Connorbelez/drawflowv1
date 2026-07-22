@@ -1,0 +1,1 @@
+.claude/worktrees/core-workflow-audit-remediation-sparse-20260716/

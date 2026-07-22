@@ -50,6 +50,34 @@ export interface DashboardKanbanColumn extends Record<string, unknown> {
   name: string;
 }
 
+export const MILESTONE_KANBAN_COLUMNS: DashboardKanbanColumn[] = [
+  {
+    description: "Builder marked complete; triage",
+    id: "backlog",
+    name: "Backlog",
+  },
+  {
+    description: "Visit ordered or requested",
+    id: "needsSiteVisit",
+    name: "Needs site visit",
+  },
+  {
+    description: "Visit picked up and scheduled",
+    id: "inProgress",
+    name: "In progress",
+  },
+  {
+    description: "Planned finish date has passed",
+    id: "behindSchedule",
+    name: "Behind schedule",
+  },
+  {
+    description: "Pending staff approval",
+    id: "inReview",
+    name: "In review",
+  },
+];
+
 export interface MilestoneKanbanCard extends Record<string, unknown> {
   address: string;
   buildId: string;
@@ -67,7 +95,7 @@ export interface MilestoneKanbanCard extends Record<string, unknown> {
 export interface ProposalKanbanCard extends Record<string, unknown> {
   address: string;
   approvedAt?: number;
-  borrowerWorkingCapitalLimitCents?: number;
+  borrowerStartingCashCents?: number;
   builder: string;
   builderAssigned?: boolean;
   closeLabel?: string;
@@ -98,18 +126,61 @@ export interface ScheduleEvent {
   label: string;
 }
 
+export type OperationsHandoffAcknowledgementState =
+  | "pending_decision"
+  | "returned"
+  | "acknowledged";
+
+export type OperationsHandoffReturnDecision = "continue" | "reroute" | "close";
+
+export interface OperationsQueueHandoff {
+  _id: string;
+  acknowledgementState: OperationsHandoffAcknowledgementState;
+  acknowledgedAt?: number;
+  acknowledgedByWorkosUserId?: string;
+  createdAt: number;
+  decisionPreview: string;
+  escalatedByWorkosUserId: string;
+  escalationReason: string;
+  evidenceSummary: string;
+  followUpAssignment?: string;
+  queueItemId: string;
+  recommendation: string;
+  requiredAction: string;
+  returnDecision?: OperationsHandoffReturnDecision;
+  returnedAt?: number;
+  returnedByWorkosUserId?: string;
+  returnReason?: string;
+  targetHref: string;
+  targetLabel: string;
+  targetRecordId: string;
+  targetType: string;
+  updatedAt: number;
+  warnings: string[];
+}
+
 export interface QuickAction {
   actionLabel: string;
   address: string;
+  ageLabel: string;
+  authorityLabel: string;
+  blocker: string;
   buildId: string;
+  canAcknowledgeHandoff?: boolean;
   dueLabel: string;
+  entityLabel: string;
+  handoff?: OperationsQueueHandoff;
+  href: string;
   id: string;
+  ownerLabel: string;
+  recommendationLabel: string;
   title: string;
-  type: "milestone" | "siteVisit" | "drawRequest";
+  type: "build" | "drawRequest" | "milestone" | "proposal" | "siteVisit";
 }
 
 export interface BackofficeDashboardData {
   activeBuilds: ActiveBuild[];
+  canMakeFinalDecision?: boolean;
   drawRequests: DashboardDrawRequest[];
   metrics: DashboardMetric[];
   milestoneColumns: DashboardKanbanColumn[];
@@ -184,28 +255,7 @@ export function getExplicitMockBackofficeDashboardData(): BackofficeDashboardDat
         value: 1,
       },
     ],
-    milestoneColumns: [
-      {
-        description: "Builder marked complete; triage",
-        id: "backlog",
-        name: "Backlog",
-      },
-      {
-        description: "Visit ordered or requested",
-        id: "needsSiteVisit",
-        name: "Needs site visit",
-      },
-      {
-        description: "Visit picked up and scheduled",
-        id: "inProgress",
-        name: "In progress",
-      },
-      {
-        description: "Pending staff approval",
-        id: "inReview",
-        name: "In review",
-      },
-    ],
+    milestoneColumns: MILESTONE_KANBAN_COLUMNS,
     milestones: [
       {
         address: "Mock build 1 address",
@@ -245,9 +295,16 @@ export function getExplicitMockBackofficeDashboardData(): BackofficeDashboardDat
       {
         actionLabel: "Mock action - seed demo events",
         address: "Mock build 1 address",
+        ageLabel: "Mock age",
+        authorityLabel: "Mock authority",
+        blocker: "Mock blocker",
         buildId: "MOCK-BUILD-1",
         dueLabel: "Mock due",
+        entityLabel: "Mock build 1 · Mock milestone",
+        href: backofficeBuildWorkspaceHref("mock-build-1"),
         id: "mock-action-1",
+        ownerLabel: "Unassigned",
+        recommendationLabel: "Mock recommendation",
         title: "Mock quick action",
         type: "milestone",
       },

@@ -55,8 +55,10 @@ import {
   FieldError,
   FieldLabel,
 } from "#/components/ui/field.tsx";
+import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
+import { DrawRejectionDialog } from "#/features/build-funding/DrawRejectionDialog.tsx";
 import { cn } from "#/lib/utils.ts";
 
 const CAD_INPUT_CLEANUP_PATTERN = /[$,\s]/g;
@@ -97,11 +99,15 @@ export interface FundingRequestRecord {
   displayId?: string;
   drawKey: string;
   label: string;
+  nextAction?: string;
   releaseDate?: string;
   releasedAt?: string;
   requestedAt?: string;
   requestNote?: string;
+  requestReviewNote?: string;
   reviewedAt?: string;
+  reviewedByWorkosUserId?: string;
+  reviewerRole?: string;
   status: FundingRequestStatus;
   withdrawnAt?: string;
 }
@@ -110,10 +116,12 @@ export interface FundingMilestoneRecord {
   completionClaim?: Record<string, unknown>;
   completionReview?: Record<string, unknown>;
   dayEnd: number;
+  dayStart?: number;
   drawAvailabilityCents: number;
   key: string;
   name: string;
   order: number;
+  startedAt?: number | string;
   status: "planned" | "in_progress" | "complete";
 }
 
@@ -130,6 +138,7 @@ export interface BuildFundingModel {
   approvedMilestoneCents: number;
   availableCents: number;
   backlogMilestoneCents: number;
+  buildLabel: string;
   facilityCents: number;
   forecastDraws: FundingForecastRecord[];
   milestones: FundingMilestoneRecord[];
@@ -152,8 +161,18 @@ type FundingRequestAction = (
   request: FundingRequestRecord
 ) => Promise<unknown> | unknown;
 
+export interface FundingRejectDecision {
+  reason: string;
+  request: FundingRequestRecord;
+}
+
+type FundingRejectAction = (
+  decision: FundingRejectDecision
+) => Promise<unknown> | unknown;
+
 export function projectBuildFunding(input: {
   canRequest: boolean;
+  buildLabel?: string;
   facilityCents?: number;
   milestones: FundingMilestoneRecord[];
   plannedDraws?: FundingForecastRecord[];
@@ -201,6 +220,7 @@ export function projectBuildFunding(input: {
       : approvedMilestoneCents;
   return {
     access: input.canRequest ? "full" : "read-only",
+    buildLabel: input.buildLabel?.trim() || "this Build",
     approvedMilestoneCents,
     availableCents: Math.max(0, unlockedCents - reservedCents),
     backlogMilestoneCents,
@@ -229,7 +249,7 @@ export function BuildFundingWorkspace({
   model: BuildFundingModel;
   onApproveDraw?: FundingRequestAction;
   onOpenMilestone: (milestoneKey: string) => void;
-  onRejectDraw?: FundingRequestAction;
+  onRejectDraw?: FundingRejectAction;
   onReleaseDraw?: FundingRequestAction;
   onRequestDraw?: (input: {
     amountCents: number;
@@ -299,103 +319,111 @@ export function BuildFundingWorkspace({
 
       <div className="grid items-start gap-6 pt-5 xl:grid-cols-[minmax(0,1fr)_18rem]">
         <div className="order-1 min-w-0 xl:col-start-1 xl:row-start-1">
-          <section aria-labelledby="available-balance-heading">
-            <div className="flex flex-wrap items-end justify-between gap-4">
-              <div>
-                <h3
-                  className="font-semibold text-sm"
-                  id="available-balance-heading"
-                >
-                  {lenderView ? "Available to borrower" : "Available now"}
-                </h3>
-                {density === "guided" ? (
-                  <p className="mt-1 max-w-lg text-muted-foreground text-xs">
-                    {lenderView
-                      ? "Approved milestone value less submitted, approved, and released draw requests."
-                      : "Milestone approvals add money. Submitted and approved draw requests reserve money. Released draws remain in the history."}
+          <Frame>
+            <FramePanel className="p-0">
+              <section
+                aria-labelledby="available-balance-heading"
+                className="p-5"
+              >
+                <div className="flex flex-wrap items-end justify-between gap-4">
+                  <div>
+                    <h3
+                      className="font-semibold text-sm"
+                      id="available-balance-heading"
+                    >
+                      {lenderView ? "Available to borrower" : "Available now"}
+                    </h3>
+                    {density === "guided" ? (
+                      <p className="mt-1 max-w-lg text-muted-foreground text-xs">
+                        {lenderView
+                          ? "Approved milestone value less submitted, approved, and released draw requests."
+                          : "Milestone approvals add money. Submitted and approved draw requests reserve money. Released draws remain in the history."}
+                      </p>
+                    ) : null}
+                  </div>
+                  <p
+                    className="font-heading font-semibold text-3xl tabular-nums tracking-tight"
+                    data-testid="funding-available-amount"
+                  >
+                    {formatCad(model.availableCents)}
                   </p>
-                ) : null}
-              </div>
-              <p
-                className="font-heading font-semibold text-3xl tabular-nums tracking-tight"
-                data-testid="funding-available-amount"
-              >
-                {formatCad(model.availableCents)}
-              </p>
-            </div>
-
-            <Accordion
-              className="mt-4 border-y"
-              defaultValue={
-                lenderView ? ["submitted", "completed"] : ["submitted"]
-              }
-              multiple
-            >
-              <FundingGroup
-                amountCents={model.approvedMilestoneCents}
-                description={`${approvedMilestones.length} approved milestone${approvedMilestones.length === 1 ? "" : "s"}`}
-                id="approved"
-                label="Approved milestone unlocks"
-                tone="positive"
-              >
-                <div className="grid gap-2 pb-1 sm:grid-cols-2">
-                  {approvedMilestones.map((milestone) => (
-                    <MilestoneSourceCard
-                      key={milestone.key}
-                      milestone={milestone}
-                      onOpen={() => onOpenMilestone(milestone.key)}
-                      startDate={model.startDate}
-                    />
-                  ))}
-                  {approvedMilestones.length === 0 ? (
-                    <EmptyState copy="No milestone money has been approved yet." />
-                  ) : null}
                 </div>
-              </FundingGroup>
-              <FundingGroup
-                amountCents={sumCents(submitted)}
-                description={`${submitted.length} submitted request${submitted.length === 1 ? "" : "s"}`}
-                id="submitted"
-                label="Submitted draw requests"
-                tone="pending"
-              >
-                <RequestCardGrid requests={submitted} />
-              </FundingGroup>
-              <FundingGroup
-                amountCents={sumCents(completed)}
-                description={`${completed.length} approved or released request${completed.length === 1 ? "" : "s"}`}
-                id="completed"
-                label="Approved / released draws"
-                tone="outflow"
-              >
-                <RequestCardGrid requests={completed} />
-              </FundingGroup>
-              {closed.length > 0 ? (
-                <FundingGroup
-                  amountCents={sumCents(closed)}
-                  description={`${closed.length} closed request${closed.length === 1 ? "" : "s"}`}
-                  id="closed"
-                  label="Withdrawn / rejected requests"
-                  tone="neutral"
+
+                <Accordion
+                  className="mt-4 border-y"
+                  defaultValue={
+                    lenderView ? ["submitted", "completed"] : ["submitted"]
+                  }
+                  multiple
                 >
-                  <RequestCardGrid requests={closed} />
-                </FundingGroup>
-              ) : null}
-            </Accordion>
-            <div className="flex items-center justify-between border-b py-3 font-medium text-sm">
-              <span>
-                {lenderView ? "Available to borrower" : "Available now"}
-              </span>
-              <span className="font-heading text-base tabular-nums">
-                {formatCad(model.availableCents)}
-              </span>
-            </div>
-          </section>
+                  <FundingGroup
+                    amountCents={model.approvedMilestoneCents}
+                    description={`${approvedMilestones.length} approved milestone${approvedMilestones.length === 1 ? "" : "s"}`}
+                    id="approved"
+                    label="Approved milestone unlocks"
+                    tone="positive"
+                  >
+                    <div className="grid gap-2 pb-1 sm:grid-cols-2">
+                      {approvedMilestones.map((milestone) => (
+                        <MilestoneSourceCard
+                          key={milestone.key}
+                          milestone={milestone}
+                          onOpen={() => onOpenMilestone(milestone.key)}
+                          startDate={model.startDate}
+                        />
+                      ))}
+                      {approvedMilestones.length === 0 ? (
+                        <EmptyState copy="No milestone money has been approved yet." />
+                      ) : null}
+                    </div>
+                  </FundingGroup>
+                  <FundingGroup
+                    amountCents={sumCents(submitted)}
+                    description={`${submitted.length} submitted request${submitted.length === 1 ? "" : "s"}`}
+                    id="submitted"
+                    label="Submitted draw requests"
+                    tone="pending"
+                  >
+                    <RequestCardGrid requests={submitted} />
+                  </FundingGroup>
+                  <FundingGroup
+                    amountCents={sumCents(completed)}
+                    description={`${completed.length} approved or released request${completed.length === 1 ? "" : "s"}`}
+                    id="completed"
+                    label="Approved / released draws"
+                    tone="outflow"
+                  >
+                    <RequestCardGrid requests={completed} />
+                  </FundingGroup>
+                  {closed.length > 0 ? (
+                    <FundingGroup
+                      amountCents={sumCents(closed)}
+                      description={`${closed.length} closed request${closed.length === 1 ? "" : "s"}`}
+                      id="closed"
+                      label="Withdrawn / rejected requests"
+                      tone="neutral"
+                    >
+                      <RequestCardGrid requests={closed} />
+                    </FundingGroup>
+                  ) : null}
+                </Accordion>
+                <div className="flex items-center justify-between border-b py-3 font-medium text-sm">
+                  <span>
+                    {lenderView ? "Available to borrower" : "Available now"}
+                  </span>
+                  <span className="font-heading text-base tabular-nums">
+                    {formatCad(model.availableCents)}
+                  </span>
+                </div>
+              </section>
+            </FramePanel>
+          </Frame>
         </div>
 
         {lenderView ? (
           <LenderReviewSidebar
             approvedAwaitingRelease={approvedAwaitingRelease}
+            buildLabel={model.buildLabel}
             density={density}
             forecastDraws={model.forecastDraws}
             milestonesPendingReview={milestonesPendingReview}
@@ -547,6 +575,7 @@ function BuilderRequestSidebar({
 
 function LenderReviewSidebar({
   approvedAwaitingRelease,
+  buildLabel,
   density,
   forecastDraws,
   milestonesPendingReview,
@@ -559,12 +588,13 @@ function LenderReviewSidebar({
   submitted,
 }: {
   approvedAwaitingRelease: FundingRequestRecord[];
+  buildLabel: string;
   density: "guided" | "compact";
   forecastDraws: FundingForecastRecord[];
   milestonesPendingReview: FundingMilestoneRecord[];
   onApproveDraw?: FundingRequestAction;
   onOpenMilestone: (milestoneKey: string) => void;
-  onRejectDraw?: FundingRequestAction;
+  onRejectDraw?: FundingRejectAction;
   onReleaseDraw?: FundingRequestAction;
   released: FundingRequestRecord[];
   startDate: string;
@@ -577,7 +607,7 @@ function LenderReviewSidebar({
     submitted.length +
     approvedAwaitingRelease.length;
   const runReviewAction = async (
-    action: "approve" | "reject" | "release",
+    action: "approve" | "release",
     request: FundingRequestRecord,
     handler: FundingRequestAction | undefined
   ) => {
@@ -590,6 +620,27 @@ function LenderReviewSidebar({
     try {
       await handler(request);
       toast.success(drawReviewSuccessMessage(action, request));
+      return true;
+    } catch (cause) {
+      setReviewError(drawReviewErrorMessage(cause));
+      return false;
+    } finally {
+      setPendingAction(null);
+    }
+  };
+  const runRejectAction = async (
+    request: FundingRequestRecord,
+    reason: string
+  ) => {
+    if (!(onRejectDraw && !pendingAction)) {
+      return false;
+    }
+    const actionKey = `reject:${request.drawKey}`;
+    setPendingAction(actionKey);
+    setReviewError("");
+    try {
+      await onRejectDraw({ reason, request });
+      toast.success(drawReviewSuccessMessage("reject", request));
       return true;
     } catch (cause) {
       setReviewError(drawReviewErrorMessage(cause));
@@ -723,19 +774,16 @@ function LenderReviewSidebar({
                   >
                     Approve
                   </Button>
-                  <Button
-                    className="text-destructive-text"
-                    data-testid={`lender-review-reject-${request.drawKey}`}
+                  <DrawRejectionDialog
+                    amountCents={request.amountCents}
+                    buildLabel={buildLabel}
                     disabled={!onRejectDraw || Boolean(pendingAction)}
                     loading={pendingAction === rejectKey}
-                    onClick={() =>
-                      runReviewAction("reject", request, onRejectDraw)
-                    }
-                    size="sm"
-                    variant="outline"
-                  >
-                    Reject
-                  </Button>
+                    onReject={(reason) => runRejectAction(request, reason)}
+                    requestKey={request.drawKey}
+                    requestLabel={request.displayId ?? request.drawKey}
+                    triggerTestId={`lender-review-reject-${request.drawKey}`}
+                  />
                 </div>
               </article>
             );
@@ -1022,13 +1070,27 @@ function RequestCardGrid({ requests }: { requests: FundingRequestRecord[] }) {
               </Badge>
             </CardAction>
           </CardHeader>
-          <CardContent className="flex items-end justify-between gap-3 px-3 pb-3 pt-0">
-            <p className="min-w-0 text-muted-foreground text-xs">
-              {request.label}
-            </p>
-            <p className="shrink-0 font-heading font-semibold text-base tabular-nums">
-              {formatCad(request.amountCents)}
-            </p>
+          <CardContent className="grid gap-2 px-3 pt-0 pb-3">
+            <div className="flex items-end justify-between gap-3">
+              <p className="min-w-0 text-muted-foreground text-xs">
+                {request.label}
+              </p>
+              <p className="shrink-0 font-heading font-semibold text-base tabular-nums">
+                {formatCad(request.amountCents)}
+              </p>
+            </div>
+            {request.status === "rejected" && request.requestReviewNote ? (
+              <div className="border-t pt-2 text-xs">
+                <p className="font-medium">Reason</p>
+                <p className="mt-1 text-muted-foreground">
+                  {request.requestReviewNote}
+                </p>
+                <p className="mt-2 font-medium">
+                  {request.nextAction ??
+                    "Correct the request and submit it again for review."}
+                </p>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       ))}
@@ -1061,7 +1123,7 @@ function MilestoneSourceCard({
           </Badge>
         </CardAction>
       </CardHeader>
-      <CardContent className="px-3 pb-2 pt-0">
+      <CardContent className="px-3 pt-0 pb-2">
         <p className="font-heading font-semibold text-base tabular-nums">
           +{formatCad(milestone.drawAvailabilityCents)}
         </p>
@@ -1099,116 +1161,243 @@ function MilestoneFundingSchedule({
   viewerRole: "builder" | "lender";
 }) {
   const lenderView = viewerRole === "lender";
+  const [selectedMilestoneKey, setSelectedMilestoneKey] = useState<
+    string | null
+  >(null);
+  const visibleMilestones = milestones.filter(
+    (milestone) => milestoneState(milestone, startDate) !== "approved"
+  );
+  const groupedMilestones = milestoneFundingGroups.map((group) => ({
+    ...group,
+    milestones: visibleMilestones.filter(
+      (milestone) =>
+        milestoneFundingGroup(milestoneState(milestone, startDate)) ===
+        group.key
+    ),
+  }));
+
   return (
-    <section aria-labelledby="milestone-funding-heading">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h3 className="font-semibold text-sm" id="milestone-funding-heading">
-            Milestone funding schedule
-          </h3>
-          {showGuidance ? (
-            <p className="mt-1 max-w-xl text-muted-foreground text-xs">
-              {lenderView
-                ? "Review submitted completions against their evidence before approving each milestone unlock."
-                : "Every planned milestone is visible, including its relevant date and whether the amount is available, pending verification, behind, or planned."}
-            </p>
-          ) : null}
-        </div>
-        <dl
-          aria-label="Milestone funding summary"
-          className="flex flex-wrap gap-x-8 gap-y-3 text-right"
-        >
-          <div>
-            <dt className="text-muted-foreground text-xs">Pending review</dt>
-            <dd className="font-heading font-semibold text-3xl text-warning-foreground tabular-nums tracking-tight">
-              {formatCad(pendingCents)}
-            </dd>
+    <Frame>
+      <FramePanel className="p-0">
+        <section aria-labelledby="milestone-funding-heading">
+          <div className="border-b px-4 py-5 sm:px-5">
+            <div className="flex flex-wrap items-start justify-between gap-5">
+              <div>
+                <p className="font-medium text-muted-foreground text-xs uppercase tracking-[0.14em]">
+                  Construction roadmap
+                </p>
+                <h3
+                  className="mt-1 font-semibold text-base"
+                  id="milestone-funding-heading"
+                >
+                  Milestone funding schedule
+                </h3>
+                {showGuidance ? (
+                  <p className="mt-1 max-w-xl text-muted-foreground text-xs">
+                    {lenderView
+                      ? "Review submitted completions against their evidence. Approved milestones are reconciled in the borrower balance above."
+                      : "Track work in progress, verification, upcoming work, and anything behind schedule. Approved milestones move to the available balance above."}
+                  </p>
+                ) : null}
+              </div>
+              <dl
+                aria-label="Milestone funding summary"
+                className="grid min-w-56 grid-cols-2 gap-4"
+              >
+                <div>
+                  <dt className="text-muted-foreground text-xs">
+                    Pending verification
+                  </dt>
+                  <dd className="mt-1 font-heading font-semibold text-lg text-warning-foreground tabular-nums">
+                    {formatCad(pendingCents)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground text-xs">
+                    Behind schedule
+                  </dt>
+                  <dd className="mt-1 font-heading font-semibold text-destructive-text text-lg tabular-nums">
+                    {formatCad(backlogCents)}
+                  </dd>
+                </div>
+              </dl>
+            </div>
           </div>
-          <div>
-            <dt className="text-muted-foreground text-xs">Behind plan</dt>
-            <dd className="font-heading font-semibold text-3xl text-destructive-text tabular-nums tracking-tight">
-              {formatCad(backlogCents)}
-            </dd>
-          </div>
-        </dl>
-      </div>
-      <ol aria-label="Milestone funding status" className="mt-4 grid gap-2">
-        {milestones.map((milestone) => (
-          <MilestoneFundingCard
-            key={milestone.key}
-            lenderView={lenderView}
-            milestone={milestone}
-            onOpen={() => onOpenMilestone(milestone.key)}
-            startDate={startDate}
-          />
-        ))}
-      </ol>
-    </section>
+
+          <ol
+            aria-label="Milestone funding status"
+            className="grid gap-7 px-3 py-5 sm:px-5"
+          >
+            {groupedMilestones.map((group) =>
+              group.milestones.length > 0 ? (
+                <li key={group.key}>
+                  <section aria-labelledby={`milestone-group-${group.key}`}>
+                    <div className="mb-3 flex items-center gap-3 border-b pb-2">
+                      <span
+                        aria-hidden="true"
+                        className={cn("size-2 rounded-full", group.markerClass)}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <h4
+                          className="font-semibold text-sm"
+                          id={`milestone-group-${group.key}`}
+                        >
+                          {group.label}
+                        </h4>
+                        <p className="text-muted-foreground text-xs">
+                          {group.description}
+                        </p>
+                      </div>
+                      <Badge size="sm" variant={group.badgeVariant}>
+                        {group.milestones.length}
+                      </Badge>
+                    </div>
+                    <ol className="grid gap-3">
+                      {group.milestones.map((milestone) => (
+                        <MilestoneFundingCard
+                          key={milestone.key}
+                          lenderView={lenderView}
+                          milestone={milestone}
+                          onOpen={() => onOpenMilestone(milestone.key)}
+                          onSelect={() =>
+                            setSelectedMilestoneKey(milestone.key)
+                          }
+                          selected={selectedMilestoneKey === milestone.key}
+                          startDate={startDate}
+                        />
+                      ))}
+                    </ol>
+                  </section>
+                </li>
+              ) : null
+            )}
+            {visibleMilestones.length === 0 ? (
+              <li>
+                <EmptyState copy="All milestones are approved. Approved value is reconciled in the borrower balance above." />
+              </li>
+            ) : null}
+          </ol>
+        </section>
+      </FramePanel>
+    </Frame>
   );
 }
+
+const milestoneFundingGroups = [
+  {
+    badgeVariant: "info" as const,
+    description: "Work is underway within its scheduled window.",
+    key: "active" as const,
+    label: "Active",
+    markerClass: "bg-info",
+  },
+  {
+    badgeVariant: "warning" as const,
+    description: "Completion evidence is submitted or needs revision.",
+    key: "pending" as const,
+    label: "Pending verification",
+    markerClass: "bg-warning",
+  },
+  {
+    badgeVariant: "error" as const,
+    description: "The scheduled end date has passed without completion.",
+    key: "behind" as const,
+    label: "Behind schedule",
+    markerClass: "bg-destructive",
+  },
+  {
+    badgeVariant: "outline" as const,
+    description: "Scheduled work that has not started yet.",
+    key: "upcoming" as const,
+    label: "Upcoming",
+    markerClass: "bg-muted-foreground/50",
+  },
+];
 
 function MilestoneFundingCard({
   lenderView,
   milestone,
   onOpen,
+  onSelect,
+  selected,
   startDate,
 }: {
   lenderView: boolean;
   milestone: FundingMilestoneRecord;
   onOpen: () => void;
+  onSelect: () => void;
+  selected: boolean;
   startDate: string;
 }) {
   const state = milestoneState(milestone, startDate);
   const stateLabel = milestoneStateLabel(state);
   const stateCopy = milestoneCardCopy(state, milestone, lenderView);
   return (
-    <li>
+    <li className="grid grid-cols-[6rem_minmax(0,1fr)] items-stretch gap-2 sm:grid-cols-[7.75rem_minmax(0,1fr)] sm:gap-3">
+      <MilestoneDateRail
+        milestone={milestone}
+        selected={selected}
+        startDate={startDate}
+      />
       <Card
         className={cn(
-          "rounded-xl shadow-none",
-          state === "approved" && "border-success/30 bg-success/8",
+          "rounded-xl shadow-none transition-[border-color,background-color,box-shadow] duration-200 ease-out",
+          selected && "border-primary ring-2 ring-primary/30",
+          state === "active" && "border-info/35 bg-info/8",
           state === "pending" && "border-warning/30 bg-warning/8",
           (state === "behind" || state === "revision") &&
-            "border-destructive/30 bg-destructive/8"
+            "border-destructive/30 bg-destructive/8",
+          state === "planned" && "bg-muted/20"
         )}
+        data-selected={selected ? "true" : "false"}
       >
-        <CardHeader className="gap-1 p-3 pb-2">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <Clock3 aria-hidden="true" className="size-4 shrink-0" />
-            <CardTitle className="text-sm">{milestone.name}</CardTitle>
-            <Badge
-              aria-label={`Status: ${stateLabel}`}
-              variant={milestoneBadgeTone(state)}
+        <button
+          aria-label={`Highlight ${milestone.name} dates on the timeline`}
+          aria-pressed={selected}
+          className="w-full rounded-t-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+          onClick={onSelect}
+          type="button"
+        >
+          <CardHeader className="gap-1 p-3 pb-2">
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <Clock3 aria-hidden="true" className="size-4 shrink-0" />
+                <CardTitle className="text-sm">{milestone.name}</CardTitle>
+                <Badge
+                  aria-label={`Status: ${stateLabel}`}
+                  variant={milestoneBadgeTone(state)}
+                >
+                  {stateLabel}
+                </Badge>
+              </div>
+              <div className="flex shrink-0 flex-col items-start gap-0.5 sm:items-end sm:gap-1 sm:text-right">
+                <span className="whitespace-nowrap font-heading font-semibold text-base tabular-nums">
+                  {formatCad(milestone.drawAvailabilityCents)}
+                </span>
+                <span className="text-muted-foreground text-xs">
+                  potential unlock
+                </span>
+              </div>
+            </div>
+            <CardDescription className="text-xs">
+              {milestoneDateCopy(milestone, startDate, state)}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="px-3 pt-0 pb-2">
+            <p
+              className={cn(
+                "text-xs",
+                state === "active" && "text-info-foreground",
+                state === "pending" && "text-warning-foreground",
+                (state === "behind" || state === "revision") &&
+                  "text-destructive-text",
+                state === "planned" && "text-muted-foreground"
+              )}
             >
-              {stateLabel}
-            </Badge>
-          </div>
-          <CardDescription className="text-xs">
-            {milestoneDateCopy(milestone, startDate, state)}
-          </CardDescription>
-          <CardAction className="flex flex-col items-end gap-1 pl-3 text-right">
-            <span className="font-heading font-semibold text-base tabular-nums">
-              {formatCad(milestone.drawAvailabilityCents)}
-            </span>
-            <span className="text-muted-foreground text-xs">
-              {state === "approved" ? "unlocked" : "potential unlock"}
-            </span>
-          </CardAction>
-        </CardHeader>
-        <CardContent className="px-3 pb-2 pt-0">
-          <p
-            className={cn(
-              "text-xs",
-              state === "pending" && "text-warning-foreground",
-              (state === "behind" || state === "revision") &&
-                "text-destructive-text",
-              (state === "approved" || state === "planned") &&
-                "text-muted-foreground"
-            )}
-          >
-            {stateCopy}
-          </p>
-        </CardContent>
+              {stateCopy}
+            </p>
+          </CardContent>
+        </button>
         <CardFooter className="border-t px-3 py-2">
           <Button
             aria-label={`${lenderView ? "Review" : "Open"} ${milestone.name} milestone`}
@@ -1222,6 +1411,91 @@ function MilestoneFundingCard({
         </CardFooter>
       </Card>
     </li>
+  );
+}
+
+function MilestoneDateRail({
+  milestone,
+  selected,
+  startDate,
+}: {
+  milestone: FundingMilestoneRecord;
+  selected: boolean;
+  startDate: string;
+}) {
+  const scheduledStart =
+    milestone.dayStart === undefined
+      ? undefined
+      : addDays(startDate, milestone.dayStart);
+  const scheduledEnd = addDays(startDate, milestone.dayEnd);
+  const actualStart = milestoneActualStartDate(milestone);
+  const actualEnd = milestoneActualEndDate(milestone, startDate);
+
+  return (
+    <fieldset
+      className={cn(
+        "relative m-0 min-h-full min-w-0 border-0 px-0 py-2 text-[0.6875rem] leading-tight",
+        selected ? "text-primary" : "text-muted-foreground"
+      )}
+    >
+      <legend className="sr-only">{milestone.name} date interval</legend>
+      <span
+        aria-hidden="true"
+        className={cn(
+          "absolute top-5 bottom-5 left-[0.3125rem] w-px",
+          selected ? "bg-primary" : "bg-border"
+        )}
+      />
+      <div className="relative flex min-h-full flex-col justify-between gap-8">
+        <TimelineDateTick
+          actualDate={actualStart}
+          boundary="Start"
+          scheduledDate={scheduledStart}
+          selected={selected}
+        />
+        <TimelineDateTick
+          actualDate={actualEnd}
+          boundary="End"
+          scheduledDate={scheduledEnd}
+          selected={selected}
+        />
+      </div>
+    </fieldset>
+  );
+}
+
+function TimelineDateTick({
+  actualDate,
+  boundary,
+  scheduledDate,
+  selected,
+}: {
+  actualDate?: string;
+  boundary: "Start" | "End";
+  scheduledDate?: string;
+  selected: boolean;
+}) {
+  return (
+    <div className="relative pl-4">
+      <span
+        aria-hidden="true"
+        className={cn(
+          "absolute top-1 left-0 size-2.5 rounded-full border-2 bg-background",
+          selected ? "border-primary" : "border-muted-foreground/50"
+        )}
+      />
+      <p className="font-semibold text-foreground">{boundary}</p>
+      <p className="mt-0.5">
+        <span className="sr-only">Scheduled: </span>
+        <time dateTime={scheduledDate}>{formatDate(scheduledDate)}</time>
+      </p>
+      {actualDate ? (
+        <p className={cn("mt-1", selected ? "text-primary" : "text-info")}>
+          <span className="font-medium">Actual </span>
+          <time dateTime={actualDate}>{formatDate(actualDate)}</time>
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -1241,10 +1515,8 @@ function milestoneCardCopy(
   if (state === "revision") {
     return `Requested change: ${completionReviewNote(milestone)}`;
   }
-  if (state === "approved") {
-    return lenderView
-      ? "No action — this milestone unlock is already approved."
-      : "This milestone value is available for draw requests.";
+  if (state === "active") {
+    return "Work is underway within the scheduled interval.";
   }
   return lenderView
     ? "No action until the builder submits milestone completion."
@@ -1605,7 +1877,56 @@ function milestoneState(milestone: FundingMilestoneRecord, startDate: string) {
   if (addDays(startDate, milestone.dayEnd) < todayIso()) {
     return "behind" as const;
   }
+  if (milestone.status === "in_progress") {
+    return "active" as const;
+  }
   return "planned" as const;
+}
+
+function milestoneFundingGroup(state: ReturnType<typeof milestoneState>) {
+  if (state === "active") {
+    return "active" as const;
+  }
+  if (state === "pending" || state === "revision") {
+    return "pending" as const;
+  }
+  if (state === "behind") {
+    return "behind" as const;
+  }
+  return "upcoming" as const;
+}
+
+function milestoneActualStartDate(milestone: FundingMilestoneRecord) {
+  if (typeof milestone.startedAt === "string") {
+    return milestone.startedAt;
+  }
+  if (typeof milestone.startedAt === "number") {
+    const date = new Date(milestone.startedAt);
+    return Number.isNaN(date.valueOf()) ? undefined : date.toISOString();
+  }
+  const claimStart = milestone.completionClaim as
+    | { actualStartDate?: unknown; startedAt?: unknown }
+    | undefined;
+  const value = claimStart?.actualStartDate ?? claimStart?.startedAt;
+  return typeof value === "string" ? value : undefined;
+}
+
+function milestoneActualEndDate(
+  milestone: FundingMilestoneRecord,
+  startDate: string
+) {
+  const claim = milestone.completionClaim as
+    | {
+        actualEndDate?: unknown;
+        completedAt?: unknown;
+        completedDay?: unknown;
+      }
+    | undefined;
+  if (typeof claim?.completedDay === "number") {
+    return addDays(startDate, claim.completedDay);
+  }
+  const value = claim?.actualEndDate ?? claim?.completedAt;
+  return typeof value === "string" ? value : undefined;
 }
 
 function milestoneDateCopy(
@@ -1637,6 +1958,9 @@ function milestoneStateLabel(state: ReturnType<typeof milestoneState>) {
   if (state === "pending") {
     return "Pending verification";
   }
+  if (state === "active") {
+    return "Active";
+  }
   if (state === "behind") {
     return "Behind plan";
   }
@@ -1652,6 +1976,9 @@ function milestoneBadgeTone(state: ReturnType<typeof milestoneState>) {
   }
   if (state === "pending") {
     return "warning" as const;
+  }
+  if (state === "active") {
+    return "info" as const;
   }
   if (state === "behind") {
     return "error" as const;
@@ -1829,7 +2156,7 @@ function drawReviewErrorMessage(cause: unknown) {
   if (DRAW_NETWORK_ERROR_PATTERN.test(message)) {
     return "We could not reach Fairlend. Check your connection and try again.";
   }
-  return message || "We could not update this draw request. Try again.";
+  return "We could not update this draw request. Refresh its status and try again.";
 }
 
 export function parseCadToCents(value: string) {

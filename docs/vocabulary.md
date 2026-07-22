@@ -170,7 +170,7 @@ It includes:
 - build permit PDF,
 - supporting documents,
 - total budget,
-- borrower co-pay percentage,
+- Loan Percentage,
 - starting cash,
 - milestone template selection,
 - milestone worksheet,
@@ -253,17 +253,17 @@ Example: `$1,000,000`.
 
 The lender-approved amount available for reimbursement.
 
-Example: if total budget is `$1,000,000` and the builder co-pay is `20%`, the loan principal may be `$800,000`.
+Example: if total budget is `$1,000,000` and the Loan Percentage is `80%`, the loan principal may be `$800,000`.
 
-### Borrower Co-Pay
+### Loan Percentage
 
-The percentage of each milestone budget the builder is responsible for funding.
+The percentage of each completed milestone budget funded by the loan.
 
-This is stored as basis points, not as a cash amount.
+The product displays and accepts Loan Percentage. The legacy `borrowerCoPayBps` field stores the complementary borrower contribution in basis points for compatibility.
 
 Example:
 
-- `20%` co-pay is stored as `2000` bps.
+- `80%` Loan Percentage corresponds to `borrowerCoPayBps: 2000`.
 - A `$100,000` milestone unlocks `$80,000` in draw availability.
 
 Formula:
@@ -279,6 +279,17 @@ drawAvailabilityCents = round(
 The builder's cash on hand at the start of the build.
 
 This belongs to the build capital model, not the loan facility.
+
+It is an opening balance, not a revolving limit and not the maximum amount the
+builder may spend before requesting a draw. Reimbursements and later borrower
+cash infusions are separate ledger events.
+
+### Required Working Capital
+
+The maximum borrower cash tied up by a specific schedule and draw plan before
+eligible reimbursements are released. This is a derived feasibility metric,
+also described as Peak Unreimbursed Exposure; it is not a borrower-entered
+alias for Starting Cash.
 
 ### Cash Infusion
 

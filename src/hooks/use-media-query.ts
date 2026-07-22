@@ -89,8 +89,11 @@ export function useMediaQuery(
 
   const subscribe = useCallback(
     (callback: () => void) => {
-      if (typeof window === "undefined") {
-        return () => {};
+      if (
+        typeof window === "undefined" ||
+        typeof window.matchMedia !== "function"
+      ) {
+        return () => undefined;
       }
       const mql = window.matchMedia(mediaQuery);
       mql.addEventListener("change", callback);
@@ -100,7 +103,10 @@ export function useMediaQuery(
   );
 
   const getSnapshot = useCallback(() => {
-    if (typeof window === "undefined") {
+    if (
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function"
+    ) {
       return false;
     }
     return window.matchMedia(mediaQuery).matches;

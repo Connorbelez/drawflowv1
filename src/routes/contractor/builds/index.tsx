@@ -42,9 +42,10 @@ function ContractorBuilds() {
                     <Link
                       to="/contractor/builds/$buildId"
                       params={{ buildId: item.parentId }}
+                      search={{ assignmentId: undefined }}
                       className="block"
                     >
-                      <p className="text-sm font-medium">{item.parentName}</p>
+                      <p className="font-medium text-sm">{item.parentName}</p>
                       <p className="text-muted-foreground text-xs">
                         {item.milestoneName} · {item.role}
                       </p>

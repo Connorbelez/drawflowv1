@@ -65,9 +65,21 @@ export function NavUser({
     useAuth();
   const hasAuthenticatedUser = Boolean(user.email.trim());
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
+  const hasBuilderWorkspaceRole = [role, ...(roles ?? [])].some(
+    (value) => value === "builder" || value === "builder-staff"
+  );
   const organizationResult = useQuery(
     api.workosProjection.listCurrentUserOrganizations,
     hasAuthenticatedUser && !visualFixtureEnabled ? {} : "skip"
+  );
+  const brokerRelationshipResult = useQuery(
+    api.brokerageProvisioning.getBuilderBrokerRelationshipSummary,
+    hasAuthenticatedUser &&
+      hasBuilderWorkspaceRole &&
+      organizationId &&
+      !visualFixtureEnabled
+      ? { workosOrganizationId: organizationId }
+      : "skip"
   );
   const [switchingOrganizationId, setSwitchingOrganizationId] = useState<
     string | null
@@ -187,6 +199,42 @@ export function NavUser({
                 </div>
               </div>
             </DropdownMenuGroup>
+            {brokerRelationshipResult ? (
+              <DropdownMenuGroup>
+                <DropdownMenuLabel className="px-2 pb-1">
+                  Broker relationship
+                </DropdownMenuLabel>
+                <div className="mx-1 mb-1 rounded-md border bg-muted/40 p-2">
+                  <div className="flex items-start gap-2">
+                    <Building2 className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <p className="truncate font-medium text-sm">
+                        {brokerRelationshipResult.broker?.name ??
+                          brokerRelationshipResult.brokerage?.displayName ??
+                          "Broker assignment pending"}
+                      </p>
+                      <p className="truncate text-muted-foreground text-xs">
+                        {formatRelationshipStatus(
+                          brokerRelationshipResult.relationship.status
+                        )}
+                      </p>
+                      <p className="truncate text-muted-foreground text-xs">
+                        {brokerRelationshipResult.relationship.effectiveAt
+                          ? `Effective ${formatRelationshipTimestamp(
+                              brokerRelationshipResult.relationship.effectiveAt
+                            )}`
+                          : brokerRelationshipResult.relationship.updatedAt
+                            ? `Updated ${formatRelationshipTimestamp(
+                                brokerRelationshipResult.relationship.updatedAt
+                              )}`
+                            : brokerRelationshipResult.recovery?.message ??
+                              "Waiting for broker confirmation"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </DropdownMenuGroup>
+            ) : null}
             <DropdownMenuGroup>
               <DropdownMenuLabel className="px-2 pb-1">
                 Switch organization
@@ -381,6 +429,21 @@ function formatRoleSlug(slug: string) {
     .filter(Boolean)
     .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
     .join(" ");
+}
+
+function formatRelationshipStatus(status: string) {
+  return status
+    .split("-")
+    .filter(Boolean)
+    .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
+    .join(" ");
+}
+
+function formatRelationshipTimestamp(value: number) {
+  return new Date(value).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
 }
 
 function initialsFor(value: string) {

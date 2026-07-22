@@ -1,0 +1,57 @@
+{
+  "compacted": true,
+  "fullOutputPath": "/Users/connor/.pi/agent/sessions/--Users-connor-Dev-drawFlow-v1-drawflowv1-core-workflow-remediation-20260717--/.pi-agent-browser-artifacts/019f87c0-0e29-7876-a720-bc37adcd50cd/pi-agent-browser-snapshot-db7f79c11a95b623.json",
+  "origin": "http://localhost:3000/builder/proposals",
+  "previewMode": "structured",
+  "viewportOrdering": "dom-signal-prioritized",
+  "previewRefIds": [
+    "e13",
+    "e14",
+    "e15",
+    "e21",
+    "e22",
+    "e23",
+    "e24",
+    "e25",
+    "e1"
+  ],
+  "highValueControlRefIds": [
+    "e122",
+    "e6",
+    "e123",
+    "e124",
+    "e125",
+    "e8",
+    "e126",
+    "e9",
+    "e127",
+    "e12"
+  ],
+  "additionalSectionsOmitted": 0,
+  "previewSections": [
+    {
+      "linesShown": 8,
+      "omittedLines": 107,
+      "role": "heading",
+      "title": "Proposals"
+    },
+    {
+      "linesShown": 1,
+      "omittedLines": 0,
+      "role": "region",
+      "title": "Notifications alt+T"
+    }
+  ],
+  "refCount": 131,
+  "roleCounts": {
+    "region": 1,
+    "link": 9,
+    "button": 21,
+    "navigation": 1,
+    "heading": 1,
+    "columnheader": 7,
+    "cell": 91
+  },
+  "snapshotLineCount": 131,
+  "structuredPreviewUsed": true
+}

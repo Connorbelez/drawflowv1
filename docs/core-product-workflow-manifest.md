@@ -789,7 +789,7 @@ Identifiers use `WF-{DOMAIN}-{NNN}` for parents, `WF-{DOMAIN}-{NNN}.{PERSONA}.{N
   8. `WF-PRP-001.PARENT.00.STEP-08` — After approval, authorized closer records reason/start date and creates active Build plus loan/capital/roadmap records.
 10. **Inputs and required artifacts:**
   - Build identity/site/permits/documents.
-  - Budget, Borrower Working Capital Limit, requested loan/co-pay.
+  - Budget, Borrower Working Capital Limit, requested Loan Percentage.
   - Milestones/costs/durations/dependencies/contractors/materials.
   - Lender policy and optimizer assumptions.
 11. **Outputs and generated artifacts:**

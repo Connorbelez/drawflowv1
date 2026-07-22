@@ -4,7 +4,7 @@ The `/demo/timeline` route now starts with a three-stage proposal-to-roadmap flo
 
 1. Template selection
    - Uses the same construction template concept as the new proposal demo.
-   - Captures total budget, borrower working capital, co-pay, project address, and permit intake/skip state.
+   - Captures total budget, borrower working capital, Loan Percentage, project address, and permit intake/skip state.
    - Mirrors the new proposal summary rail, "what happens next" guidance, compliance note, and four-step setup progress.
    - Defaults to the current single-family full-build roadmap so existing demo expectations remain recognizable.
 

@@ -470,9 +470,9 @@ export function BuildWorkspaceDemo({
           />
         ) : null}
         <DrawPlanComparisonDialog
-          activePlanId={workspace.activePlanId}
           onOpenChange={setDrawPlansOpen}
           open={drawPlansOpen}
+          selectedPlanId={workspace.selectedPlanId}
         />
         <ValidationDialog
           onOpenChange={setValidationOpen}
@@ -711,7 +711,8 @@ function RolePrimaryAction({
           data-testid="proposal-submit"
           disabled={
             workspace.build.proposalStatus === "submitted" ||
-            workspace.validationErrors.length > 0
+            workspace.validationErrors.length > 0 ||
+            !workspace.selectedPlanId
           }
           onClick={() => void workspace.submitProposal()}
         >
@@ -874,13 +875,13 @@ function TimelineControlsStrip({
 }
 
 function DrawPlanComparisonDialog({
-  activePlanId,
   onOpenChange,
   open,
+  selectedPlanId,
 }: {
-  activePlanId: OptimizationPlanId;
   onOpenChange: (open: boolean) => void;
   open: boolean;
+  selectedPlanId?: OptimizationPlanId;
 }) {
   const workspace = useBuildWorkspace();
 
@@ -895,23 +896,29 @@ function DrawPlanComparisonDialog({
         </DialogHeader>
         <div className="grid gap-3 overflow-y-auto pr-1 md:grid-cols-3">
           {workspace.optimizationPlans.map((plan) => (
-            <button
+            <article
               className={cn(
-                "grid gap-3 rounded-md border p-4 text-left transition-colors",
-                plan.id === activePlanId
+                "grid gap-3 rounded-md border p-4",
+                plan.id === selectedPlanId
                   ? "border-emerald-300/60 bg-emerald-300/10 text-emerald-950 dark:text-emerald-50"
-                  : "border-border bg-muted/30 text-muted-foreground hover:bg-muted/60"
+                  : "border-border bg-muted/30 text-muted-foreground"
               )}
               key={plan.id}
-              onClick={() => workspace.setActivePlan(plan.id)}
-              type="button"
             >
               <div className="flex items-start justify-between gap-3">
-                <span className="font-semibold text-sm">{plan.label}</span>
+                <div className="grid gap-1">
+                  <span className="font-semibold text-sm">{plan.label}</span>
+                  {plan.recommended ? (
+                    <Badge className="w-fit" variant="secondary">
+                      Recommended
+                    </Badge>
+                  ) : null}
+                </div>
                 <span className="rounded-sm border border-border px-2 py-1 text-xs">
                   {plan.durationDays}d
                 </span>
               </div>
+              <p className="text-xs">{plan.summary}</p>
               <div className="grid gap-2 text-xs">
                 <span>{compactMoney(plan.totalFees)} draw fees</span>
                 <span>
@@ -921,10 +928,28 @@ function DrawPlanComparisonDialog({
                   {compactMoney(plan.peakWorkingCapital)} peak working capital
                 </span>
               </div>
-              <p className="text-amber-700/90 text-xs dark:text-amber-200/80">
-                {plan.warning}
+              <p
+                className={cn(
+                  "text-xs",
+                  plan.infeasibleReason
+                    ? "text-red-700 dark:text-red-200"
+                    : "text-amber-700/90 dark:text-amber-200/80"
+                )}
+              >
+                {plan.infeasibleReason ?? plan.warning}
               </p>
-            </button>
+              <Button
+                aria-pressed={plan.id === selectedPlanId}
+                data-testid={`draw-plan-option-${plan.id}`}
+                disabled={Boolean(plan.infeasibleReason)}
+                onClick={() => workspace.setActivePlan(plan.id)}
+                variant={plan.id === selectedPlanId ? "default" : "outline"}
+              >
+                {plan.id === selectedPlanId
+                  ? `${plan.label} selected`
+                  : `Select ${plan.label}`}
+              </Button>
+            </article>
           ))}
         </div>
       </DialogContent>

@@ -1,0 +1,57 @@
+{
+  "lifecycle": {
+    "effectiveLaunch": {
+      "browserLaunched": true,
+      "engine": "chrome",
+      "launchHash": 8197565053781422000
+    },
+    "launched": false,
+    "relaunchedBrowser": false,
+    "restartedBackground": false,
+    "restoreStatus": "not_configured",
+    "reused": true,
+    "saveStatus": "not_attempted"
+  },
+  "messages": [
+    {
+      "args": [
+        {
+          "type": "string",
+          "value": "[vite] connecting..."
+        }
+      ],
+      "text": "[vite] connecting...",
+      "type": "debug"
+    },
+    {
+      "args": [
+        {
+          "type": "string",
+          "value": "[vite] connected."
+        }
+      ],
+      "text": "[vite] connected.",
+      "type": "debug"
+    },
+    {
+      "args": [
+        {
+          "type": "string",
+          "value": "[tanstack-router] These exports from \"/Users/connor/Dev/drawFlow/v1/drawflowv1-core-workflow-remediation-20260717/src/routes/contractor/builds/$buildId.tsx\" will not be code-split and will increase your bundle size:\n- ContractorBuildDetail\nFor the best optimization, these items should either have their export statements removed, or be imported from another location that is not a route file."
+        }
+      ],
+      "text": "[tanstack-router] These exports from \"/Users/connor/Dev/drawFlow/v1/drawflowv1-core-workflow-remediation-20260717/src/routes/contractor/builds/$buildId.tsx\" will not be code-split and will increase your bundle size:\n- ContractorBuildDetail\nFor the best optimization, these items should either have their export statements removed, or be imported from another location that is not a route file.",
+      "type": "warning"
+    },
+    {
+      "args": [
+        {
+          "type": "string",
+          "value": "[vite] css hot updated: /src/styles.css"
+        }
+      ],
+      "text": "[vite] css hot updated: /src/styles.css",
+      "type": "debug"
+    }
+  ]
+}
