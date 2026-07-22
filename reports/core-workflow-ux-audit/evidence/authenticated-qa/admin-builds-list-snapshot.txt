@@ -1,0 +1,61 @@
+{
+  "compacted": true,
+  "fullOutputPath": "/Users/connor/.pi/agent/sessions/--Users-connor-Dev-drawFlow-v1-drawflowv1-core-workflow-remediation-20260717--/.pi-agent-browser-artifacts/019f87c0-0e29-7876-a720-bc37adcd50cd/pi-agent-browser-snapshot-2731732104d83f49.json",
+  "origin": "http://localhost:3000/backoffice/builds",
+  "previewMode": "structured",
+  "viewportOrdering": "dom-signal-prioritized",
+  "previewRefIds": [
+    "e11",
+    "e17",
+    "e18",
+    "e19",
+    "e20",
+    "e21",
+    "e22",
+    "e14",
+    "e1"
+  ],
+  "highValueControlRefIds": [
+    "e114",
+    "e7",
+    "e116",
+    "e118",
+    "e120",
+    "e9",
+    "e122",
+    "e10",
+    "e4",
+    "e16"
+  ],
+  "additionalSectionsOmitted": 0,
+  "previewSections": [
+    {
+      "linesShown": 8,
+      "omittedLines": 85,
+      "role": "heading",
+      "title": "Builds"
+    },
+    {
+      "linesShown": 1,
+      "omittedLines": 0,
+      "role": "region",
+      "title": "Notifications alt+T"
+    }
+  ],
+  "refCount": 122,
+  "roleCounts": {
+    "region": 1,
+    "link": 26,
+    "generic": 1,
+    "button": 25,
+    "navigation": 1,
+    "heading": 1,
+    "combobox": 1,
+    "textbox": 1,
+    "row": 5,
+    "columnheader": 10,
+    "cell": 50
+  },
+  "snapshotLineCount": 122,
+  "structuredPreviewUsed": true
+}

@@ -1,0 +1,596 @@
+{
+  "owner": "backend-state",
+  "findings": [
+    {
+      "findingId": "UX-WF-BLD-001-001",
+      "workstream": "active-build",
+      "phase": "active-build-read-model",
+      "dependsOn": [
+        "Canonical active-build milestone projection in convex/production_proposals.ts shared by detail and timeline queries.",
+        "Single UI contract in ProductionBuildDetailSurface for milestone status, submilestone counts, assignment coverage, and financial labels.",
+        "Explicit separation of budgetCents from drawAvailabilityCents everywhere the milestone is rendered."
+      ],
+      "owner": "backend-state",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Return one authoritative milestone summary from `convex/production_proposals.ts` that drives every production build detail, milestone, and timeline projection for the same `activeBuildId`.",
+        "Emit distinct `budgetCents` and `drawAvailabilityCents` fields and reject adapters that relabel one as the other.",
+        "Prevent a milestone from simultaneously projecting `completion submitted`, `100% complete`, incomplete sub-milestone counts, or missing assignment coverage without surfacing a reconciliation state.",
+        "Add `convex/production_proposals.test.ts` coverage that fails when any milestone projection can render contradictory lifecycle, sub-milestone, assignment, or financial labels."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md",
+        "reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md#ux-wf-bld-001-001",
+        "docs/core-product-workflow-manifest.md",
+        "docs/draw_flow_prd.md",
+        "docs/draw_flow_production_prd.md"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [
+        "convex/production_proposals.test.ts"
+      ],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/build-contractor/WF-BLD-001.BLDR.01.STEP-01-active-build-current-desktop-1440x900.png",
+        "reports/core-workflow-ux-audit/evidence/build-contractor/WF-BLD-001.BLDR.01.STEP-01-details-mobile-390x844.png"
+      ],
+      "verificationNotes": [
+        "Verified the finding record in `reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md` and the related workflow contracts in `docs/core-product-workflow-manifest.md`, `docs/draw_flow_prd.md`, and `docs/draw_flow_production_prd.md`.",
+        "Verified existing candidate paths `convex/production_proposals.ts` and `convex/production_proposals.test.ts` in the worktree."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "",
+      "personas": [
+        "Builder"
+      ],
+      "routesOrSurfaces": [
+        "/builder/builds/$buildId",
+        "Build Details tab",
+        "Milestones tab"
+      ],
+      "serverContractTouched": [
+        "convex/production_proposals.ts"
+      ],
+      "viewports": [
+        "1440x900",
+        "390x844"
+      ]
+    },
+    {
+      "findingId": "UX-WF-BLD-001-002",
+      "workstream": "active-build",
+      "phase": "audit-signal-integrity",
+      "dependsOn": [
+        "Separation of auditable domain transitions from timelineRouteState persistence.",
+        "Server-side normalized diff / no-op suppression before writeActiveBuildEvent runs.",
+        "Quick-action presentation that excludes telemetry-only event types."
+      ],
+      "owner": "backend-state",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Keep timeline route/view state out of the material audit log and persist only durable domain transitions.",
+        "Compare normalized prior/new payloads server-side before `writeActiveBuildEvent` and suppress no-op writes.",
+        "Pass a 5-minute passive no-op soak on the live Timeline with zero emitted audit events, zero quick-action duplicates, and zero event-counter growth.",
+        "Render one human-readable audit record per substantive change with actor, entity, field-level diff, reason, and timestamp."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md",
+        "reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md#ux-wf-bld-001-002",
+        "docs/core-product-workflow-manifest.md",
+        "docs/draw_flow_prd.md",
+        "docs/drawflow-calendar-tab-prd.md",
+        "docs/notification-system-prd.md"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [
+        "convex/production_proposals.test.ts"
+      ],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/build-contractor/WF-BLD-001.SYS.01.STEP-05-audit-event-flood-desktop-1440x900.png"
+      ],
+      "verificationNotes": [
+        "Verified the finding record in `reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md`, the active-build and audit contracts in `docs/core-product-workflow-manifest.md`, `docs/draw_flow_prd.md`, `docs/drawflow-calendar-tab-prd.md`, and the notification dedupe rules in `docs/notification-system-prd.md`.",
+        "Verified existing candidate paths `convex/production_proposals.ts` and `convex/production_proposals.test.ts` in the worktree."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "",
+      "personas": [
+        "DrawFlow System",
+        "Builder"
+      ],
+      "routesOrSurfaces": [
+        "/builder/builds/$buildId?tab=timeline",
+        "Events and audit log drawer"
+      ],
+      "serverContractTouched": [
+        "convex/production_proposals.ts"
+      ],
+      "viewports": [
+        "1440x900"
+      ]
+    },
+    {
+      "findingId": "UX-WF-BLD-001-004",
+      "workstream": "active-build",
+      "phase": "live-build-routing",
+      "dependsOn": [
+        "Row classification keyed to activeBuildId instead of approved/closed proposal status alone.",
+        "Transactional proposal closing/provisioning before dashboard exposure.",
+        "Contextual unavailable-state recovery on /builder/builds/$buildId."
+      ],
+      "owner": "backend-state",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Classify live-build dashboard rows from `activeBuildId` plus organization-scoped access validation, not proposal approval state alone.",
+        "Complete proposal closing and active-build provisioning transactionally before exposing an `Open live build` CTA.",
+        "Exclude stale or inaccessible live-build rows from production lists, or label them with a recoverable activation failure state before click.",
+        "Return a contextual unavailable response on `/builder/builds/$buildId` with build identity, reason category, retry, and back-navigation metadata instead of a terminal dead end."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md",
+        "reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md#ux-wf-bld-001-004",
+        "docs/core-product-workflow-manifest.md",
+        "docs/draw_flow_prd.md",
+        "docs/draw_flow_production_prd.md"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [
+        "convex/production_proposals.test.ts"
+      ],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/build-contractor/WF-BLD-001.BLDR.01.STEP-01-builder-dashboard-desktop-1440x900.png",
+        "reports/core-workflow-ux-audit/evidence/build-contractor/WF-BLD-001.BLDR.01.STEP-01-live-build-unavailable-desktop-1440x900.png"
+      ],
+      "verificationNotes": [
+        "Verified the finding record in `reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md` and the related activation/navigation contracts in `docs/core-product-workflow-manifest.md`, `docs/draw_flow_prd.md`, and `docs/draw_flow_production_prd.md`.",
+        "Verified existing candidate paths `convex/production_proposals.ts` and `convex/production_proposals.test.ts` in the worktree."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "",
+      "personas": [
+        "Builder"
+      ],
+      "routesOrSurfaces": [
+        "/builder",
+        "/builder/builds/$buildId",
+        "Live builds table"
+      ],
+      "serverContractTouched": [
+        "convex/production_proposals.ts"
+      ],
+      "viewports": [
+        "1440x900"
+      ]
+    },
+    {
+      "findingId": "UX-WF-DRW-001-001",
+      "workstream": "draw-lifecycle",
+      "phase": "save-failure-containment",
+      "dependsOn": [
+        "Client/server mutation contract parity for active-build timeline plan-state payloads.",
+        "Shared typed error surface across TimelineWorkspace, ActiveBuildTimelineWorkspace, and BuildFundingWorkspace.",
+        "Optimistic-state rollback or explicit unsaved-state reconciliation when durable writes fail."
+      ],
+      "owner": "backend-state",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Make the live-build demo mutation payload and server validator shapes identical before release so extra fields like `minimumCashReserveCents` cannot leak into runtime.",
+        "Rollback or explicitly reconcile optimistic draw, visit, and timeline UI state whenever the durable write fails.",
+        "Return only typed plain-language errors with safe correlation IDs; never render validator schemas, function names, request IDs, or payload internals.",
+        "Prove in `convex/demo_timeline_plans.test.ts` that a failed write leaves no durable-looking local state and that retry remains idempotent."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md",
+        "reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md#ux-wf-drw-001-001",
+        "docs/core-product-workflow-manifest.md",
+        "docs/builder-draw-request-workspace.md",
+        "docs/draw_flow_prd.md"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [
+        "convex/demo_timeline_plans.test.ts"
+      ],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/operations-verification-draws/live-build-builder-save-failed-desktop-1440x900.png",
+        "reports/core-workflow-ux-audit/evidence/operations-verification-draws/live-build-lender-mobile-390x844.png"
+      ],
+      "verificationNotes": [
+        "Verified the finding record in `reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md`, the `WF-DRW-001` acceptance records in `docs/core-product-workflow-manifest.md`, `docs/builder-draw-request-workspace.md`, and the shared error/audit requirements in `docs/draw_flow_prd.md`.",
+        "Verified existing candidate paths `convex/demo_drawflow.ts`, `convex/demo_timeline_plans.ts`, and `convex/demo_timeline_plans.test.ts` in the worktree."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "WF-DRW-001 remains `NEEDS_VALIDATION` in `docs/core-product-workflow-manifest.md`; preserve pooled approved-milestone availability semantics from `docs/builder-draw-request-workspace.md` until draw-group attribution policy is reconciled.",
+      "personas": [
+        "DrawFlow System",
+        "Builder",
+        "Lender Admin / Principal Broker"
+      ],
+      "routesOrSurfaces": [
+        "/builder/demo/dashboard/builds/$buildId",
+        "Live-build timeline workspace",
+        "Notification toast"
+      ],
+      "serverContractTouched": [
+        "convex/demo_drawflow.ts",
+        "convex/demo_timeline_plans.ts"
+      ],
+      "viewports": [
+        "1440x900",
+        "390x844"
+      ]
+    },
+    {
+      "findingId": "UX-WF-DRW-001-002",
+      "workstream": "draw-lifecycle",
+      "phase": "draw-request-validation",
+      "dependsOn": [
+        "Authoritative available-now calculation from approved buildMilestones plus activeBuildDrawRequests and loanFacilities.",
+        "Idempotent requestActiveBuildDraw mutation and requestKey/clientOperationId model.",
+        "Shared funding projections in BuildFundingWorkspace and getActiveBuildTimelineWorkspace."
+      ],
+      "owner": "backend-state",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Compute `available now` authoritatively from approved milestone value, active request reservations, and facility constraints before any request state transition.",
+        "Reject any request amount greater than `available now` and leave the value in editable draft state rather than `requested` or `ready for review`.",
+        "Enforce a concurrent/idempotent single authoritative reservation so simultaneous or retried submissions cannot oversubscribe availability or create duplicate requested records.",
+        "Add `convex/demo_timeline_plans.test.ts` coverage for over-limit rejection, request-key reuse, and legal reservation math across requested, approved, rejected, withdrawn, and released states."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md",
+        "reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md#ux-wf-drw-001-002",
+        "docs/core-product-workflow-manifest.md",
+        "docs/builder-draw-request-workspace.md",
+        "docs/draw_flow_prd.md"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [
+        "convex/demo_timeline_plans.test.ts"
+      ],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/operations-verification-draws/draw-request-invalid-requested-state-desktop.png"
+      ],
+      "verificationNotes": [
+        "Verified the finding record in `reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md`, the `WF-DRW-001` acceptance records in `docs/core-product-workflow-manifest.md`, `docs/builder-draw-request-workspace.md`, and the reimbursement-only draw controls in `docs/draw_flow_prd.md`.",
+        "Verified existing candidate paths `convex/demo_drawflow.ts`, `convex/demo_timeline_plans.ts`, and `convex/demo_timeline_plans.test.ts` in the worktree."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "WF-DRW-001 remains `NEEDS_VALIDATION` in `docs/core-product-workflow-manifest.md`; preserve pooled approved-milestone availability semantics from `docs/builder-draw-request-workspace.md` until draw-group attribution policy is reconciled.",
+      "personas": [
+        "Builder",
+        "Lender Operations / Backoffice Staff",
+        "DrawFlow System"
+      ],
+      "routesOrSurfaces": [
+        "/builder/demo/dashboard/builds/$buildId",
+        "Draw 01 request panel"
+      ],
+      "serverContractTouched": [
+        "convex/demo_drawflow.ts",
+        "convex/demo_timeline_plans.ts"
+      ],
+      "viewports": [
+        "1440x900"
+      ]
+    },
+    {
+      "findingId": "UX-WF-DRW-001-003",
+      "workstream": "draw-lifecycle",
+      "phase": "draw-review-governance",
+      "dependsOn": [
+        "Shared reject-review interaction between build detail and draw queue surfaces.",
+        "Server-side non-empty note validation in rejectActiveBuildDraw.",
+        "Preservation of existing approver/backoffice role boundaries while adding reason governance."
+      ],
+      "owner": "backend-state",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Require a non-empty structured reject reason before `rejectActiveBuildDraw` can transition state.",
+        "Persist actor, role, prior state, new state, amount, warnings, and reject reason atomically with the decision record.",
+        "Return the reject outcome and next-action context to Builder and Operations surfaces through the same authoritative draw review projection.",
+        "Add `convex/demo_timeline_plans.test.ts` coverage that reject stays disabled or rejected server-side when the reason is blank, whitespace, or omitted."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md",
+        "reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md#ux-wf-drw-001-003",
+        "docs/core-product-workflow-manifest.md",
+        "docs/builder-draw-request-workspace.md",
+        "docs/draw_flow_prd.md"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [
+        "convex/demo_timeline_plans.test.ts"
+      ],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/operations-verification-draws/draw-request-invalid-requested-state-desktop.png",
+        "reports/core-workflow-ux-audit/evidence/operations-verification-draws/draw-rejected-without-required-reason-desktop.png"
+      ],
+      "verificationNotes": [
+        "Verified the finding record in `reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md`, the admin draw-decision contract in `docs/core-product-workflow-manifest.md`, `docs/builder-draw-request-workspace.md`, and the approval/audit requirements in `docs/draw_flow_prd.md`.",
+        "Verified existing candidate paths `convex/demo_drawflow.ts`, `convex/demo_timeline_plans.ts`, and `convex/demo_timeline_plans.test.ts` in the worktree."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "WF-DRW-001 remains `NEEDS_VALIDATION` in `docs/core-product-workflow-manifest.md`; preserve pooled approved-milestone availability semantics from `docs/builder-draw-request-workspace.md` until draw-group attribution policy is reconciled.",
+      "personas": [
+        "Lender Admin / Principal Broker",
+        "Builder",
+        "Lender Operations / Backoffice Staff"
+      ],
+      "routesOrSurfaces": [
+        "/builder/demo/dashboard/builds/$buildId",
+        "Lender Draw Review side panel"
+      ],
+      "serverContractTouched": [
+        "convex/demo_drawflow.ts",
+        "convex/demo_timeline_plans.ts"
+      ],
+      "viewports": [
+        "1440x900"
+      ]
+    },
+    {
+      "findingId": "UX-WF-BUD-001-001",
+      "workstream": "budget-governance",
+      "phase": "activation-gating",
+      "dependsOn": [
+        "Shares the same live-build activation gate as UX-WF-BLD-001-004.",
+        "Transactional creation/linking of activeBuilds during proposal closing.",
+        "Dashboard row classification that honors activeBuildId presence and authorization before publishing a live-build CTA."
+      ],
+      "owner": "backend-state",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Create and link the organization-scoped `activeBuildId` transactionally during proposal closing before the dashboard advertises `moved to live build`.",
+        "Gate every builder live-build CTA on a successful access check against the linked active build.",
+        "Expose failed or partial activation as a recoverable activation task with correlation ID, owner, retry, and preserved proposal link instead of a broken live-build route.",
+        "Cover the closing-to-live-build handoff in `convex/production_proposals.test.ts` so incomplete activation cannot publish a usable live-build row."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md",
+        "reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-bud-001-001",
+        "docs/core-product-workflow-manifest.md",
+        "docs/draw_flow_prd.md",
+        "docs/draw_flow_production_prd.md"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [
+        "convex/production_proposals.test.ts"
+      ],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/WF-BUD-001_WF-BUD-001.BLDR.01_WF-BUD-001.BLDR.01.STEP-01_mobile-live-build-unavailable.png"
+      ],
+      "verificationNotes": [
+        "Verified the finding record in `reports/core-workflow-ux-audit/agent-notes/proposal-planning.md` and the live-build activation contracts in `docs/core-product-workflow-manifest.md`, `docs/draw_flow_prd.md`, and `docs/draw_flow_production_prd.md`.",
+        "Verified existing candidate paths `convex/production_proposals.ts` and `convex/production_proposals.test.ts` in the worktree."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "",
+      "personas": [
+        "Builder",
+        "DrawFlow System"
+      ],
+      "routesOrSurfaces": [
+        "/builder",
+        "/builder/builds/$buildId",
+        "Live builds table"
+      ],
+      "serverContractTouched": [
+        "convex/production_proposals.ts"
+      ],
+      "viewports": [
+        "1440x900",
+        "390x844"
+      ]
+    },
+    {
+      "findingId": "UX-WF-BUD-001-002",
+      "workstream": "budget-governance",
+      "phase": "budget-governance",
+      "dependsOn": [
+        "Accessible live-build entry from UX-WF-BUD-001-001.",
+        "Dashboard row model extended from totalBudgetCents-only to capital-plan version plus request metadata.",
+        "Assistant request/catalog compatibility preserved across active-build budget workflows."
+      ],
+      "owner": "backend-state",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Project the active budget version, governing status, variance amount/percentage, and revision required/recommended state into the builder live-build row model.",
+        "Include affected milestones, affected draw requests, current owner, pending decision state, and revision deadline metadata in the same dashboard contract.",
+        "Preserve assistant and build-workspace request/catalog compatibility while adding the budget-governance fields to the authoritative projection.",
+        "Add `convex/production_proposals.test.ts` coverage that live-build rows surface budget revision status without regressing existing builder access and dashboard filters."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md",
+        "reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-bud-001-002",
+        "docs/core-product-workflow-manifest.md",
+        "docs/draw_flow_prd.md",
+        "docs/draw_flow_production_prd.md"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [
+        "convex/production_proposals.test.ts"
+      ],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/WF-PRP-001_WF-PRP-001.BLDR.01_WF-PRP-001.BLDR.01.STEP-01_desktop-builder-dashboard.png"
+      ],
+      "verificationNotes": [
+        "Verified the finding record in `reports/core-workflow-ux-audit/agent-notes/proposal-planning.md` and the budget-governance contracts in `docs/core-product-workflow-manifest.md`, `docs/draw_flow_prd.md`, and `docs/draw_flow_production_prd.md`.",
+        "Verified existing candidate paths `convex/production_proposals.ts` and `convex/production_proposals.test.ts` in the worktree."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "",
+      "personas": [
+        "Builder",
+        "Lender Admin / Principal Broker",
+        "DrawFlow System"
+      ],
+      "routesOrSurfaces": [
+        "/builder",
+        "Live builds overview"
+      ],
+      "serverContractTouched": [
+        "convex/production_proposals.ts"
+      ],
+      "viewports": [
+        "1440x900"
+      ]
+    },
+    {
+      "findingId": "UX-WF-MIL-001-001",
+      "workstream": "milestone-verification",
+      "phase": "phase-1-integrity",
+      "dependsOn": [],
+      "owner": "backend-state",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Generate each site-visit work order from an immutable server-side tuple of organization, build, milestone scope, evidence package, and visit ID, and echo that tuple in requester and inspector projections.",
+        "Enforce cross-build/cross-org mismatch rejection before token open, evidence upload, report submit, or return-to-review mutations can proceed.",
+        "Bind uploaded files and submitted reports to the originating visit tuple so a completion package can only return to the requesting build and milestone.",
+        "Add `convex/demo_site_visit_tokens.test.ts` and `convex/demo_timeline_plans.test.ts` coverage for token tampering, wrong-build routing, wrong-org routing, and successful round-trip return to the initiating review."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md",
+        "reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md#ux-wf-mil-001-001",
+        "docs/core-product-workflow-manifest.md",
+        "docs/draw_flow_prd.md",
+        "docs/drawflow-demo/evidence-site-visit-screen-prd.md"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [
+        "convex/demo_site_visit_tokens.test.ts",
+        "convex/demo_timeline_plans.test.ts"
+      ],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/operations-verification-draws/live-build-site-visit-requested-desktop.png",
+        "reports/core-workflow-ux-audit/evidence/operations-verification-draws/site-visit-submitted-success-mobile.png"
+      ],
+      "verificationNotes": [
+        "Verified the finding record in `reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md`, the `WF-MIL-001` acceptance contracts in `docs/core-product-workflow-manifest.md` and `docs/draw_flow_prd.md`, and the token/visit requirements in `docs/drawflow-demo/evidence-site-visit-screen-prd.md`.",
+        "Verified existing candidate paths `convex/demo_site_visit_tokens.ts`, `convex/demo_site_visit_tokens.test.ts`, `convex/demo_timeline_plans.ts`, and `convex/demo_timeline_plans.test.ts` in the worktree."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "",
+      "personas": [
+        "DrawFlow System",
+        "Lender Operations / Backoffice Staff",
+        "Site Visit Staff / Inspector"
+      ],
+      "routesOrSurfaces": [
+        "/builder/demo/dashboard/builds/$buildId",
+        "/newsitevisit/$buildId/$siteVisitToken",
+        "Mobile visit report"
+      ],
+      "serverContractTouched": [
+        "convex/demo_site_visit_tokens.ts",
+        "convex/demo_timeline_plans.ts"
+      ],
+      "viewports": [
+        "1440x900",
+        "390x844"
+      ]
+    },
+    {
+      "findingId": "UX-WF-MIL-001-002",
+      "workstream": "milestone-verification",
+      "phase": "phase-2-provenance",
+      "dependsOn": [
+        "UX-WF-MIL-001-001"
+      ],
+      "owner": "backend-state",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Persist an explicit location-attempt record with attempted/not-attempted, verified/unverified, accuracy, timestamp, permission outcome, and failure reason fields on the submitted visit report.",
+        "Require a structured acknowledgement and reason when permit or site-plan prerequisites are missing before report submission can complete.",
+        "Retain captured evidence and draft report state even when location verification fails or permissions are denied.",
+        "Add `convex/demo_site_visit_tokens.test.ts` coverage for location verification metadata, permit-exception acknowledgement, and retained evidence on unverified submission paths."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md",
+        "reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md#ux-wf-mil-001-002",
+        "docs/core-product-workflow-manifest.md",
+        "docs/draw_flow_prd.md",
+        "docs/drawflow-demo/evidence-site-visit-screen-prd.md"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [
+        "convex/demo_site_visit_tokens.test.ts"
+      ],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/operations-verification-draws/site-visit-empty-mobile-390x844.png",
+        "reports/core-workflow-ux-audit/evidence/operations-verification-draws/site-visit-submitted-success-mobile.png"
+      ],
+      "verificationNotes": [
+        "Verified the finding record in `reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md`, the provenance and retention contracts in `docs/core-product-workflow-manifest.md` and `docs/draw_flow_prd.md`, and the inspector report requirements in `docs/drawflow-demo/evidence-site-visit-screen-prd.md`.",
+        "Verified existing candidate paths `convex/demo_site_visit_tokens.ts` and `convex/demo_site_visit_tokens.test.ts` in the worktree."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "",
+      "personas": [
+        "Site Visit Staff / Inspector",
+        "Lender Operations / Backoffice Staff",
+        "Lender Admin / Principal Broker"
+      ],
+      "routesOrSurfaces": [
+        "/newsitevisit/$buildId/$siteVisitToken",
+        "Mobile/tablet evidence visit surface"
+      ],
+      "serverContractTouched": [
+        "convex/demo_site_visit_tokens.ts"
+      ],
+      "viewports": [
+        "1440x900",
+        "1024x768",
+        "390x844"
+      ]
+    },
+    {
+      "findingId": "UX-WF-MIL-001-003",
+      "workstream": "milestone-verification",
+      "phase": "phase-3-recovery",
+      "dependsOn": [
+        "UX-WF-MIL-001-001"
+      ],
+      "owner": "backend-state",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Render invalid, expired, and consumed token states from authoritative server status with build identity, reason, and safe recovery metadata.",
+        "Provide a secure regeneration/request-new-link action that notifies the requester and creates an auditable replacement-link request without exposing the raw consumed token.",
+        "Provide copy-safe diagnostic context and return-to-assignment/contact actions that preserve build and visit identity while keeping the consumed token non-reusable.",
+        "Add `convex/demo_site_visit_tokens.test.ts` coverage that consumed tokens stay non-editable, cannot be reopened, and can generate a separate recovery request path."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md",
+        "reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md#ux-wf-mil-001-003",
+        "docs/core-product-workflow-manifest.md",
+        "docs/draw_flow_prd.md",
+        "docs/drawflow-demo/evidence-site-visit-screen-prd.md"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [
+        "convex/demo_site_visit_tokens.test.ts"
+      ],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/operations-verification-draws/site-visit-consumed-token-mobile.png"
+      ],
+      "verificationNotes": [
+        "Verified the finding record in `reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md`, the recovery-state contracts in `docs/core-product-workflow-manifest.md` and `docs/draw_flow_prd.md`, and the token lifecycle requirements in `docs/drawflow-demo/evidence-site-visit-screen-prd.md`.",
+        "Verified existing candidate paths `convex/demo_site_visit_tokens.ts` and `convex/demo_site_visit_tokens.test.ts` in the worktree."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "",
+      "personas": [
+        "Site Visit Staff / Inspector",
+        "Lender Operations / Backoffice Staff"
+      ],
+      "routesOrSurfaces": [
+        "/newsitevisit/$buildId/$siteVisitToken",
+        "Consumed token state"
+      ],
+      "serverContractTouched": [
+        "convex/demo_site_visit_tokens.ts"
+      ],
+      "viewports": [
+        "390x844"
+      ]
+    }
+  ]
+}

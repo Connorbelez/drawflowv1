@@ -1,0 +1,146 @@
+[
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/builder/builds/ks7n0k9bhpe2qzzd3h2r9fg6ah87xg4r?tab=calendar"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/builder/builds/ks7n0k9bhpe2qzzd3h2r9fg6ah87xg4r?tab=calendar"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "1200"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "ms": 1200,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({tab:'calendar',text:(document.body.innerText||'').replace(/\\s+/g,' ').slice(250,900),w:[document.documentElement.clientWidth,document.documentElement.scrollWidth]})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "origin": "http://localhost:3000/builder/builds/ks7n0k9bhpe2qzzd3h2r9fg6ah87xg4r?tab=calendar",
+      "result": "{\"tab\":\"calendar\",\"text\":\" / Live Builds Active Production active Build 4-plex Proposal 26 Luverne Ave, North York, ON M3H 1R4, Canada Events 770 Start 2026-06-02 Budget $1,091,349 Details Milestones Contractors Materials Timeline Evidence Staff Calendar Gantt week 17 warnings 10 needs action Export ICS ICS GOOGLE OUTLOOK Reconcile inbound Save view Site visits My week Capital release Evidence and review Overdue and blocked Risk only Editable Week of June 1 55 scheduled calendar events Today Day Week Month Quarter Agenda Colors Categories Tags Time Mon 1 Tue 2 Wed 3 Thu 4 Fri 5 Sat 6 Sun 7 All day DC/ED All day Start submilestone planned DEMO EX All day Start submiles\",\"w\":[1280,1280]}"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/builder/builds/ks7n0k9bhpe2qzzd3h2r9fg6ah87xg4r?tab=gantt"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/builder/builds/ks7n0k9bhpe2qzzd3h2r9fg6ah87xg4r?tab=gantt"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "1200"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "ms": 1200,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({tab:'gantt',text:(document.body.innerText||'').replace(/\\s+/g,' ').slice(250,900),w:[document.documentElement.clientWidth,document.documentElement.scrollWidth]})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "origin": "http://localhost:3000/builder/builds/ks7n0k9bhpe2qzzd3h2r9fg6ah87xg4r?tab=gantt",
+      "result": "{\"tab\":\"gantt\",\"text\":\" / Live Builds Active Production active Build 4-plex Proposal 26 Luverne Ave, North York, ON M3H 1R4, Canada Events 770 Start 2026-06-02 Budget $1,091,349 Details Milestones Contractors Materials Timeline Evidence Staff Calendar Gantt DrawFlow / Active / Live Build active 4-plex Build Active reimbursement workspace Builder borrower / 26 Luverne Ave, North York, ON M3H 1R4, Canada $1M 7 hard deps Draw plans Validation 6 Audit Outbox Reset workspace Hide milestones Roadmap scale Days Weeks Months Size 120% Dates T# Milestones Draw / Risk Permits, demo & foundation FOUR-PLEX-DRAW-01 Under review $120K 21d 1 blocking 0 blocked-by 1 Underground, f\",\"w\":[1280,1280]}"
+    },
+    "success": true
+  }
+]

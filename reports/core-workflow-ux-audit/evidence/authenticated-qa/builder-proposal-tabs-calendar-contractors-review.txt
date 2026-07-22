@@ -1,0 +1,218 @@
+[
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=calendar"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=calendar"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "1000"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "ms": 1000,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({tab:'calendar',text:(document.body.innerText||'').replace(/\\s+/g,' ').slice(0,550),w:[document.documentElement.clientWidth,document.documentElement.scrollWidth]})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "origin": "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=calendar",
+      "result": "{\n  \"tab\": \"calendar\",\n  \"text\": \"DrawFlow Builder Builder Dashboard Proposals Live Builds Demos Timeline Setup CHANGELOG Product update Performance boosts and UI polish. Learn more About Docs © 2026 DrawFlow Toggle Sidebar Builder Proposals Connor Beleznay c.beleznay@humanfeedback.com Packet Timeline Gantt Milestones Calendar Contractors Review Draw schedule Materials Staff Submitted Seed Scenario - Draft · Draft Site, Toronto, ON Total budget $650,250 Total approved $550,000 Interest rate 9.25% month 1 warnings 0 needs action New event Export ICS ICS GOOGLE OUTLOOK Reconcile \",\n  \"w\": [\n    1280,\n    1280\n  ]\n}"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=contractors"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=contractors"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "1000"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "ms": 1000,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({tab:'contractors',text:(document.body.innerText||'').replace(/\\s+/g,' ').slice(0,550),w:[document.documentElement.clientWidth,document.documentElement.scrollWidth]})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "origin": "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=contractors",
+      "result": "{\n  \"tab\": \"contractors\",\n  \"text\": \"DrawFlow Builder Builder Dashboard Proposals Live Builds Demos Timeline Setup CHANGELOG Product update Performance boosts and UI polish. Learn more About Docs © 2026 DrawFlow Toggle Sidebar Builder Proposals Connor Beleznay c.beleznay@humanfeedback.com Packet Timeline Gantt Milestones Calendar Contractors Review Draw schedule Materials Staff Submitted Seed Scenario - Draft · Draft Site, Toronto, ON Total budget $650,250 Total approved $550,000 Interest rate 9.25% Contractor planning Build the proposal crew roster, assign contractors to mileston\",\n  \"w\": [\n    1280,\n    1280\n  ]\n}"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=review"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=review"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "1000"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "ms": 1000,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({tab:'review',text:(document.body.innerText||'').replace(/\\s+/g,' ').slice(0,550),w:[document.documentElement.clientWidth,document.documentElement.scrollWidth]})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "origin": "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=review",
+      "result": "{\"tab\":\"review\",\"text\":\"DrawFlow Builder Builder Dashboard Proposals Live Builds Demos Timeline Setup CHANGELOG Product update Performance boosts and UI polish. Learn more About Docs © 2026 DrawFlow Toggle Sidebar Builder Proposals DF\",\"w\":[1280,1280]}"
+    },
+    "success": true
+  }
+]

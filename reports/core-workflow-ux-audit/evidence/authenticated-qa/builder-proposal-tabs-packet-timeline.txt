@@ -1,0 +1,146 @@
+[
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=packet"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=packet"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "1000"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "ms": 1000,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({tab:'packet',h:[...document.querySelectorAll('h1,h2,h3')].filter(e=>e.getClientRects().length).slice(0,8).map(e=>e.textContent?.trim()),buttons:[...document.querySelectorAll('button')].filter(e=>e.getClientRects().length).slice(0,10).map(e=>e.textContent?.trim()),w:[document.documentElement.clientWidth,document.documentElement.scrollWidth]})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "origin": "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=packet",
+      "result": "{\n  \"tab\": \"packet\",\n  \"h\": [],\n  \"buttons\": [\n    \"\",\n    \"Toggle Sidebar\",\n    \"\",\n    \"\",\n    \"Connor Beleznayc.beleznay@humanfeedback.com\",\n    \"Packet\",\n    \"Timeline\",\n    \"Gantt\",\n    \"Milestones\",\n    \"Calendar\"\n  ],\n  \"w\": [\n    1280,\n    1280\n  ]\n}"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=timeline"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=timeline"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "1000"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "ms": 1000,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({tab:'timeline',h:[...document.querySelectorAll('h1,h2,h3')].filter(e=>e.getClientRects().length).slice(0,8).map(e=>e.textContent?.trim()),buttons:[...document.querySelectorAll('button')].filter(e=>e.getClientRects().length).slice(0,10).map(e=>e.textContent?.trim()),w:[document.documentElement.clientWidth,document.documentElement.scrollWidth]})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "origin": "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=timeline",
+      "result": "{\"tab\":\"timeline\",\"h\":[],\"buttons\":[\"\",\"Toggle Sidebar\",\"\",\"\",\"DF\",\"\"],\"w\":[1280,1280]}"
+    },
+    "success": true
+  }
+]

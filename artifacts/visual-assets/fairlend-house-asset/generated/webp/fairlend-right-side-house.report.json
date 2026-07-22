@@ -1,0 +1,11 @@
+{
+  "input": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-house-asset/generated/raw/right-side-house-alpha.png",
+  "output": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-house-asset/generated/webp/fairlend-right-side-house.webp",
+  "size": {
+    "width": 1548,
+    "height": 951
+  },
+  "transparent_background": "none",
+  "inferred_background": null,
+  "quality": 92
+}

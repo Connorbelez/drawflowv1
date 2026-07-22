@@ -1,0 +1,106 @@
+{
+  "assetPack": "fairlend-leadership-elie",
+  "screen": "Founder / Leadership Profile: Elie Soberano",
+  "route": "/leadership/elie-soberano",
+  "brandKit": {
+    "name": "Warm Blueprint Brutalist Modern",
+    "path": "/designConcepts/WarmBlueprintBrutalistModern.png",
+    "localReference": "/assets/fairlend-leadership-elie/brand-kit-reference.png",
+    "localReferenceWebp": "/assets/fairlend-leadership-elie/brand-kit-reference.webp"
+  },
+  "conceptSections": [
+    {
+      "section": "founder.hero",
+      "path": "/assets/fairlend-leadership-elie/concept-sections/section-01-hero-profile-header.png"
+    },
+    {
+      "section": "founder.short-bio",
+      "path": "/assets/fairlend-leadership-elie/concept-sections/section-02-short-bio.png"
+    },
+    {
+      "section": "founder.long-bio",
+      "path": "/assets/fairlend-leadership-elie/concept-sections/section-03-long-bio.png"
+    },
+    {
+      "section": "founder.thesis",
+      "path": "/assets/fairlend-leadership-elie/concept-sections/section-04-founder-thesis.png"
+    },
+    {
+      "section": "founder.expertise",
+      "path": "/assets/fairlend-leadership-elie/concept-sections/section-05-areas-of-expertise.png"
+    },
+    {
+      "section": "founder.approved-credentials",
+      "path": "/assets/fairlend-leadership-elie/concept-sections/section-06-approved-credentials.png"
+    },
+    {
+      "section": "founder.quotes",
+      "path": "/assets/fairlend-leadership-elie/concept-sections/section-07-founder-quotes.png"
+    },
+    {
+      "section": "founder.media-contact",
+      "path": "/assets/fairlend-leadership-elie/concept-sections/section-08-media-contact-cta.png",
+      "note": "Combines media appearances empty state and interview contact CTA."
+    }
+  ],
+  "images": {
+    "founderPortraitPlaceholder": {
+      "path": "/assets/fairlend-leadership-elie/images/founder-portrait-placeholder-duotone.png",
+      "webpPath": "/assets/fairlend-leadership-elie/images/founder-portrait-placeholder-duotone.webp",
+      "usage": "Temporary non-identifying portrait art. Replace with approved real headshot before publication."
+    },
+    "heroHousingBlueprintCanvas": {
+      "path": "/assets/fairlend-leadership-elie/images/hero-housing-blueprint-canvas.png",
+      "webpPath": "/assets/fairlend-leadership-elie/images/hero-housing-blueprint-canvas.webp",
+      "usage": "Hero background or supporting architectural plate."
+    },
+    "longBioDossierCollage": {
+      "path": "/assets/fairlend-leadership-elie/images/long-bio-founder-dossier-collage.png",
+      "webpPath": "/assets/fairlend-leadership-elie/images/long-bio-founder-dossier-collage.webp",
+      "usage": "Long bio editorial image."
+    },
+    "thesisConstructionBackground": {
+      "path": "/assets/fairlend-leadership-elie/images/thesis-construction-background.png",
+      "webpPath": "/assets/fairlend-leadership-elie/images/thesis-construction-background.webp",
+      "usage": "Founder thesis full-bleed quote background."
+    },
+    "expertiseMultiplexBlueprintPlate": {
+      "path": "/assets/fairlend-leadership-elie/images/expertise-multiplex-blueprint-plate.png",
+      "webpPath": "/assets/fairlend-leadership-elie/images/expertise-multiplex-blueprint-plate.webp",
+      "usage": "Large image cell in expertise grid."
+    },
+    "credentialsClaimsDocumentStack": {
+      "path": "/assets/fairlend-leadership-elie/images/credentials-claims-document-stack.png",
+      "webpPath": "/assets/fairlend-leadership-elie/images/credentials-claims-document-stack.webp",
+      "usage": "Approved credentials and claims support image."
+    },
+    "quotesEditorialDeskPanel": {
+      "path": "/assets/fairlend-leadership-elie/images/quotes-editorial-desk-panel.png",
+      "webpPath": "/assets/fairlend-leadership-elie/images/quotes-editorial-desk-panel.webp",
+      "usage": "Founder quotes image panel."
+    },
+    "mediaContactInterviewDesk": {
+      "path": "/assets/fairlend-leadership-elie/images/media-contact-interview-desk.png",
+      "webpPath": "/assets/fairlend-leadership-elie/images/media-contact-interview-desk.webp",
+      "usage": "Final media contact CTA background."
+    }
+  },
+  "patterns": {
+    "blueprintGrid": "/assets/fairlend-leadership-elie/patterns/blueprint-grid.svg",
+    "paperGrain": "/assets/fairlend-leadership-elie/patterns/paper-grain.svg"
+  },
+  "icons": {
+    "fairlendMonogram": "/assets/fairlend-leadership-elie/icons/fairlend-monogram.svg",
+    "fairlendCapitalLockup": "/assets/fairlend-leadership-elie/icons/fairlend-capital-lockup.svg",
+    "privateLending": "/assets/fairlend-leadership-elie/icons/private-lending.svg",
+    "mortgageStrategy": "/assets/fairlend-leadership-elie/icons/mortgage-strategy.svg",
+    "constructionFinancing": "/assets/fairlend-leadership-elie/icons/construction-financing.svg",
+    "gtaRealEstate": "/assets/fairlend-leadership-elie/icons/gta-real-estate.svg",
+    "multiplexGardenSuite": "/assets/fairlend-leadership-elie/icons/multiplex-garden-suite.svg",
+    "housingFinance": "/assets/fairlend-leadership-elie/icons/housing-finance.svg",
+    "approvedCheck": "/assets/fairlend-leadership-elie/icons/approved-check.svg",
+    "reviewStamp": "/assets/fairlend-leadership-elie/icons/review-stamp.svg",
+    "warningTriangle": "/assets/fairlend-leadership-elie/icons/warning-triangle.svg",
+    "mediaMic": "/assets/fairlend-leadership-elie/icons/media-mic.svg"
+  }
+}

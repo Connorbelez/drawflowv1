@@ -1,0 +1,62 @@
+{
+  "compacted": true,
+  "fullOutputPath": "/Users/connor/.pi/agent/sessions/--Users-connor-Dev-drawFlow-v1-drawflowv1-core-workflow-remediation-20260717--/.pi-agent-browser-artifacts/019f87c0-0e29-7876-a720-bc37adcd50cd/pi-agent-browser-snapshot-e42d739166517e0c.json",
+  "origin": "http://localhost:3000/backoffice/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6",
+  "previewMode": "structured",
+  "viewportOrdering": "dom-signal-prioritized",
+  "previewRefIds": [
+    "e18",
+    "e19",
+    "e20",
+    "e21",
+    "e22",
+    "e23",
+    "e54",
+    "e24",
+    "e1",
+    "e5"
+  ],
+  "highValueControlRefIds": [
+    "e44",
+    "e87",
+    "e8",
+    "e45",
+    "e46",
+    "e4",
+    "e47",
+    "e10",
+    "e48",
+    "e11"
+  ],
+  "additionalSectionsOmitted": 0,
+  "previewSections": [
+    {
+      "linesShown": 8,
+      "omittedLines": 37,
+      "role": "heading",
+      "title": "Seed Scenario - Draft"
+    },
+    {
+      "linesShown": 2,
+      "omittedLines": 0,
+      "role": "region",
+      "title": "Notifications alt+T"
+    }
+  ],
+  "refCount": 88,
+  "roleCounts": {
+    "region": 1,
+    "link": 21,
+    "generic": 1,
+    "button": 20,
+    "navigation": 1,
+    "tabpanel": 1,
+    "heading": 1,
+    "textbox": 2,
+    "tab": 10,
+    "columnheader": 7,
+    "cell": 23
+  },
+  "snapshotLineCount": 88,
+  "structuredPreviewUsed": true
+}

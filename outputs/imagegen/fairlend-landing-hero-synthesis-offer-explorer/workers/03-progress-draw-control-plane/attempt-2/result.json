@@ -1,0 +1,7 @@
+{
+  "id": "03-progress-draw-control-plane",
+  "status": "failed",
+  "image_path": null,
+  "error": "Native image generation completed but did not expose a writable PNG file path in this environment, so the final PNG could not be saved.",
+  "caveats": ""
+}

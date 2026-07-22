@@ -1,0 +1,407 @@
+// @vitest-environment jsdom
+
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type * as React from "react";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+
+const attachAndInviteContractor = vi.fn();
+const attachContractor = vi.fn();
+const assignContractorToMilestone = vi.fn();
+const removeContractorFromMilestone = vi.fn();
+const createAndAttachContractor = vi.fn();
+const requestDraw = vi.fn();
+const withdrawDraw = vi.fn();
+const requestFacilityChange = vi.fn();
+const requestBudgetRevision = vi.fn();
+const sendContractorInvite = vi.fn();
+const submitMilestoneCompletion = vi.fn();
+
+const activeBuildDetail = {
+  appPermissions: { mode: "full", role: "owner" },
+  build: {
+    _id: "active-build-01",
+    brokerageId: "brokerage-01",
+    buildName: "Builder Active Build",
+  },
+};
+
+const navigate = vi.fn();
+const useMutation = vi.fn();
+const useQuery = vi.fn();
+
+vi.mock("convex/react", () => ({
+  useMutation: (ref: unknown) => useMutation(ref),
+  useQuery: (ref: unknown, args: unknown) => useQuery(ref, args),
+}));
+
+vi.mock("@tanstack/react-router", () => ({
+  createFileRoute: () => (config: unknown) => config,
+  useNavigate: () => navigate,
+}));
+
+vi.mock("#/components/ui/frame.tsx", () => ({
+  Frame: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  FramePanel: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+}));
+
+vi.mock("#/features/builder-staff/BuilderStaffPermissionsPanel.tsx", () => ({
+  BuilderStaffPermissionsPanel: () => (
+    <div data-testid="builder-staff-permissions" />
+  ),
+}));
+
+vi.mock("#/features/production-proposals/visualParityFixtures.ts", () => ({
+  getVisualParityActiveBuildDetail: vi.fn(),
+  getVisualParityActiveBuildTimelineWorkspace: vi.fn(),
+  isProductionVisualParityFixtureEnabled: () => false,
+}));
+
+vi.mock(
+  "#/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx",
+  () => ({
+    ProductionBuildDetailSurface: ({
+      actions,
+      contractorDetailHrefFor,
+    }: {
+      actions?: {
+        assignContractorToMilestone?: (input: {
+          contractorId: string;
+          milestoneKey: string;
+          role: string;
+        }) => unknown;
+        attachContractor?: (input: {
+          contractorId: string;
+          role: string;
+        }) => unknown;
+        createAndAttachContractor?: (input: {
+          contractor: {
+            kind: "company";
+            name: string;
+            trades: string[];
+          };
+          role: string;
+        }) => unknown;
+        requestDraw?: (input: {
+          amountCents: number;
+          drawKey: string;
+        }) => unknown;
+      };
+      contractorDetailHrefFor?: (contractorId: string) => string;
+    }) => (
+      <div data-testid="production-build-surface">
+        {contractorDetailHrefFor ? (
+          <a href={contractorDetailHrefFor("contractor-01")}>
+            Open contractor relationship
+          </a>
+        ) : null}
+        {actions?.assignContractorToMilestone ? (
+          <button
+            data-testid="assign-contractor"
+            onClick={() =>
+              actions.assignContractorToMilestone?.({
+                contractorId: "contractor-01",
+                milestoneKey: "foundation",
+                role: "Masonry lead",
+              })
+            }
+            type="button"
+          >
+            Assign
+          </button>
+        ) : null}
+        {actions?.attachContractor ? (
+          <button
+            data-testid="attach-existing"
+            onClick={() =>
+              actions.attachContractor?.({
+                contractorId: "contractor-01",
+                role: "Masonry crew",
+              })
+            }
+            type="button"
+          >
+            Attach
+          </button>
+        ) : null}
+        {actions?.createAndAttachContractor ? (
+          <button
+            data-testid="create-and-attach"
+            onClick={() =>
+              actions.createAndAttachContractor?.({
+                contractor: {
+                  kind: "company",
+                  name: "TestContractor",
+                  trades: ["Masonry"],
+                },
+                role: "masonry lead.",
+              })
+            }
+            type="button"
+          >
+            Create
+          </button>
+        ) : null}
+        <button
+          data-testid="quick-request-draw-collision-a"
+          onClick={() =>
+            actions?.requestDraw?.({
+              amountCents: 1_010_047,
+              drawKey: "draw-0-10047",
+            })
+          }
+          type="button"
+        >
+          Quick request draw A
+        </button>
+        <button
+          data-testid="quick-request-draw-collision-b"
+          onClick={() =>
+            actions?.requestDraw?.({
+              amountCents: 1_014_464,
+              drawKey: "draw-0-14464",
+            })
+          }
+          type="button"
+        >
+          Quick request draw B
+        </button>
+      </div>
+    ),
+  })
+);
+
+import {
+  BuilderBuildWorkspaceRoute,
+  createBuildAvailabilityReference,
+} from "./index";
+
+describe("BuilderBuildWorkspaceRoute contractor actions", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useQuery
+      .mockReturnValueOnce(activeBuildDetail)
+      .mockReturnValueOnce({})
+      .mockReturnValueOnce({});
+    useMutation
+      .mockReturnValueOnce(requestDraw)
+      .mockReturnValueOnce(withdrawDraw)
+      .mockReturnValueOnce(requestFacilityChange)
+      .mockReturnValueOnce(requestBudgetRevision)
+      .mockReturnValueOnce(assignContractorToMilestone)
+      .mockReturnValueOnce(removeContractorFromMilestone)
+      .mockReturnValueOnce(attachAndInviteContractor)
+      .mockReturnValueOnce(attachContractor)
+      .mockReturnValueOnce(createAndAttachContractor)
+      .mockReturnValueOnce(sendContractorInvite)
+      .mockReturnValueOnce(submitMilestoneCompletion);
+  });
+
+  test("renders a contextual unavailable state with retry and live-build recovery", () => {
+    useQuery.mockReset();
+    useQuery
+      .mockReturnValueOnce(null)
+      .mockReturnValueOnce({})
+      .mockReturnValueOnce({})
+      .mockReturnValueOnce({
+        category: "notFound",
+        requestedBuildId: "missing-build-01",
+      });
+
+    render(
+      <BuilderBuildWorkspaceRoute
+        buildId="missing-build-01"
+        enableContractorLinks
+        includeStaffTab={false}
+        routeBase="/builder"
+        search={{ tab: "details" }}
+        workosOrganizationId="org_production_foundation"
+      />
+    );
+
+    expect(screen.getByText("Build no longer available")).toBeTruthy();
+    expect(screen.getByText("Record not found")).toBeTruthy();
+    expect(screen.queryByText("missing-build-01")).toBeNull();
+    expect(
+      screen.getByText(
+        createBuildAvailabilityReference({
+          buildId: "missing-build-01",
+          category: "notFound",
+        }),
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("DrawFlow Support")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Back to live builds" })
+    );
+    expect(navigate).toHaveBeenCalledWith({ to: "/builder/builds" });
+  });
+
+  test("contractor links preserve the invoking build return path", () => {
+    render(
+      <BuilderBuildWorkspaceRoute
+        buildId="active-build-01"
+        enableContractorLinks
+        includeStaffTab={false}
+        routeBase="/builder"
+        search={{ tab: "contractors" }}
+        workosOrganizationId="org_production_foundation"
+      />
+    );
+
+    expect(
+      screen
+        .getByRole("link", { name: "Open contractor relationship" })
+        .getAttribute("href")
+    ).toBe(
+      "/builder/contractors/contractor-01?fromBuildId=active-build-01"
+    );
+  });
+
+  test("passes production active-build contractor mutations instead of falling back to demo actions", async () => {
+    render(
+      <BuilderBuildWorkspaceRoute
+        buildId="active-build-01"
+        enableContractorLinks
+        includeStaffTab={false}
+        routeBase="/builder"
+        search={{ tab: "contractors" }}
+        workosOrganizationId="org_production_foundation"
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("assign-contractor"));
+    fireEvent.click(screen.getByTestId("attach-existing"));
+    fireEvent.click(screen.getByTestId("create-and-attach"));
+
+    await waitFor(() => {
+      expect(assignContractorToMilestone).toHaveBeenCalledWith({
+        buildId: "active-build-01",
+        contractorId: "contractor-01",
+        milestoneKey: "foundation",
+        role: "Masonry lead",
+        workosOrganizationId: "org_production_foundation",
+      });
+      expect(attachContractor).toHaveBeenCalledWith({
+        buildId: "active-build-01",
+        contractorId: "contractor-01",
+        role: "Masonry crew",
+        workosOrganizationId: "org_production_foundation",
+      });
+      expect(createAndAttachContractor).toHaveBeenCalledWith({
+        buildId: "active-build-01",
+        contractor: {
+          kind: "company",
+          name: "TestContractor",
+          trades: ["Masonry"],
+        },
+        role: "masonry lead.",
+        workosOrganizationId: "org_production_foundation",
+      });
+    });
+  });
+
+  test("omits contractor write controls when active-build permissions do not allow them", () => {
+    useQuery.mockReset();
+    useMutation.mockReset();
+    useQuery
+      .mockReturnValueOnce({
+        ...activeBuildDetail,
+        appPermissions: {
+          mode: "restricted",
+          resources: {
+            contractor: ["view"],
+          },
+          role: "staff",
+        },
+      })
+      .mockReturnValueOnce({})
+      .mockReturnValueOnce({});
+    useMutation
+      .mockReturnValueOnce(requestDraw)
+      .mockReturnValueOnce(withdrawDraw)
+      .mockReturnValueOnce(requestFacilityChange)
+      .mockReturnValueOnce(assignContractorToMilestone)
+      .mockReturnValueOnce(removeContractorFromMilestone)
+      .mockReturnValueOnce(attachAndInviteContractor)
+      .mockReturnValueOnce(attachContractor)
+      .mockReturnValueOnce(createAndAttachContractor)
+      .mockReturnValueOnce(sendContractorInvite)
+      .mockReturnValueOnce(submitMilestoneCompletion);
+
+    render(
+      <BuilderBuildWorkspaceRoute
+        buildId="active-build-01"
+        enableContractorLinks
+        includeStaffTab={false}
+        routeBase="/builder-staff"
+        search={{ tab: "contractors" }}
+        workosOrganizationId="org_production_foundation"
+      />
+    );
+
+    expect(screen.queryByTestId("assign-contractor")).toBeNull();
+    expect(screen.queryByTestId("attach-existing")).toBeNull();
+    expect(screen.queryByTestId("create-and-attach")).toBeNull();
+  });
+
+  test("quick draw requests include distinct client operation IDs for formerly colliding seeds", async () => {
+    useQuery.mockReset();
+    useMutation.mockReset();
+    useQuery
+      .mockReturnValueOnce({
+        ...activeBuildDetail,
+        build: {
+          ...activeBuildDetail.build,
+          _id: "build-40",
+        },
+      })
+      .mockReturnValueOnce({})
+      .mockReturnValueOnce({});
+    useMutation
+      .mockReturnValueOnce(requestDraw)
+      .mockReturnValueOnce(withdrawDraw)
+      .mockReturnValueOnce(requestFacilityChange)
+      .mockReturnValueOnce(assignContractorToMilestone)
+      .mockReturnValueOnce(removeContractorFromMilestone)
+      .mockReturnValueOnce(attachAndInviteContractor)
+      .mockReturnValueOnce(attachContractor)
+      .mockReturnValueOnce(createAndAttachContractor)
+      .mockReturnValueOnce(sendContractorInvite)
+      .mockReturnValueOnce(submitMilestoneCompletion);
+
+    render(
+      <BuilderBuildWorkspaceRoute
+        buildId="build-40"
+        enableContractorLinks
+        includeStaffTab={false}
+        routeBase="/builder"
+        search={{ tab: "details" }}
+        workosOrganizationId="org_production_foundation"
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("quick-request-draw-collision-a"));
+    fireEvent.click(screen.getByTestId("quick-request-draw-collision-b"));
+
+    await waitFor(() => {
+      expect(requestDraw).toHaveBeenCalledTimes(2);
+    });
+
+    const firstClientOperationId = requestDraw.mock.calls[0]?.[0]?.clientOperationId;
+    const secondClientOperationId = requestDraw.mock.calls[1]?.[0]?.clientOperationId;
+
+    expect(firstClientOperationId).toMatch(/^builder-draw:/);
+    expect(secondClientOperationId).toMatch(/^builder-draw:/);
+    expect(firstClientOperationId).not.toBe(secondClientOperationId);
+    expect(firstClientOperationId.length).toBeLessThanOrEqual(128);
+    expect(secondClientOperationId.length).toBeLessThanOrEqual(128);
+  });
+});

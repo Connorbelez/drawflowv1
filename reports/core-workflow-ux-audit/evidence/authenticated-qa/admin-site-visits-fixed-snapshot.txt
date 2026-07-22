@@ -1,0 +1,58 @@
+{
+  "compacted": true,
+  "fullOutputPath": "/Users/connor/.pi/agent/sessions/--Users-connor-Dev-drawFlow-v1-drawflowv1-core-workflow-remediation-20260717--/.pi-agent-browser-artifacts/019f87c0-0e29-7876-a720-bc37adcd50cd/pi-agent-browser-snapshot-59dd2c3a10040ea8.json",
+  "origin": "http://localhost:3000/backoffice/site-visits",
+  "previewMode": "structured",
+  "viewportOrdering": "dom-signal-prioritized",
+  "previewRefIds": [
+    "e20",
+    "e4",
+    "e5",
+    "e6",
+    "e7",
+    "e8",
+    "e9",
+    "e10",
+    "e1",
+    "e13"
+  ],
+  "highValueControlRefIds": [
+    "e45",
+    "e12",
+    "e16",
+    "e47",
+    "e49",
+    "e51",
+    "e18",
+    "e53",
+    "e19",
+    "e63"
+  ],
+  "additionalSectionsOmitted": 0,
+  "previewSections": [
+    {
+      "linesShown": 8,
+      "omittedLines": 27,
+      "role": "heading",
+      "title": "Site visits"
+    },
+    {
+      "linesShown": 2,
+      "omittedLines": 0,
+      "role": "region",
+      "title": "Notifications alt+T"
+    }
+  ],
+  "refCount": 64,
+  "roleCounts": {
+    "region": 1,
+    "link": 21,
+    "generic": 1,
+    "button": 38,
+    "navigation": 1,
+    "heading": 1,
+    "textbox": 1
+  },
+  "snapshotLineCount": 64,
+  "structuredPreviewUsed": true
+}

@@ -1,0 +1,146 @@
+[
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=packet"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=packet"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({tab:'packet',url:location.href,h:[...document.querySelectorAll('h1,h2')].filter(e=>e.getClientRects().length).slice(0,5).map(e=>e.textContent?.trim()),w:[document.documentElement.clientWidth,document.documentElement.scrollWidth]})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "origin": "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=packet",
+      "result": "{\"tab\":\"packet\",\"url\":\"http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=packet\",\"h\":[],\"w\":[1280,1280]}"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=timeline"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=timeline"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({tab:'timeline',url:location.href,h:[...document.querySelectorAll('h1,h2')].filter(e=>e.getClientRects().length).slice(0,5).map(e=>e.textContent?.trim()),w:[document.documentElement.clientWidth,document.documentElement.scrollWidth]})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "origin": "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=timeline",
+      "result": "{\"tab\":\"timeline\",\"url\":\"http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=timeline\",\"h\":[],\"w\":[1280,1280]}"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=gantt"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=gantt"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({tab:'gantt',url:location.href,h:[...document.querySelectorAll('h1,h2')].filter(e=>e.getClientRects().length).slice(0,5).map(e=>e.textContent?.trim()),w:[document.documentElement.clientWidth,document.documentElement.scrollWidth]})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "origin": "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=gantt",
+      "result": "{\"tab\":\"gantt\",\"url\":\"http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=gantt\",\"h\":[],\"w\":[1280,1280]}"
+    },
+    "success": true
+  }
+]

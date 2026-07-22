@@ -1,0 +1,303 @@
+{
+  "owner": "auth-error",
+  "findings": [
+    {
+      "findingId": "UX-WF-TEN-001-001",
+      "workstream": "auth-error",
+      "phase": "Phase 1 - tenant activation recovery",
+      "dependsOn": [
+        "WF-TEN-001 active-brokerage invariant from docs/core-product-workflow-manifest.md",
+        "WorkOS projection freshness and current-organization lookup in convex/workosProjection.ts",
+        "Brokerage/user-management repair authority enforced by convex/workosManagement.ts and convex/brokerageProvisioning.ts"
+      ],
+      "owner": "auth-error",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Authenticated principal-invitee access failures resolve to a typed tenant-activation state instead of a generic `no-workspace-access` wall.",
+        "The recovery surface names the active organization, invited email, required role, invitation status, projection or sync status, and the sender or owner responsible for repair.",
+        "Recovery actions are limited to scope-safe options such as accept invitation, retry projection check, switch organization, or contact Platform Admin, and each action preserves the intended destination.",
+        "The server validates that the displayed organization, invitation, and role metadata belong to the authenticated subject and active WorkOS organization before the UI renders them.",
+        "All backend failures reaching this surface are redacted to plain-language copy plus a support-safe correlation ID; request IDs, stack traces, file paths, validators, and payloads never render.",
+        "Users with unrelated persona-only access, including Technical Admin-only access, do not get mislabeled as activated backoffice users when the principal activation precondition is not satisfied."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/target-manifest.json",
+        "reports/core-workflow-ux-audit/audit-report.md#detailed-findings-register",
+        "reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md#ux-wf-ten-001-001"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-001.LADM.01.STEP-01-desktop-1440x900-protected-access.png",
+        "reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-001.LADM.01.STEP-01-tablet-1024x768-protected-access.png",
+        "reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-001.LADM.01.STEP-01-mobile-390x844-protected-access.png"
+      ],
+      "verificationNotes": [
+        "Verified canonical audit sources: reports/core-workflow-ux-audit/audit-report.md, reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md, and reports/core-workflow-ux-audit/target-manifest.json.",
+        "Verified linked local acceptance records: docs/core-product-workflow-manifest.md WF-TEN-001, docs/draw_flow_production_prd.md section 8.1, and docs/auth-rbac-foundation.md route and RBAC rules.",
+        "Verified candidate paths exist: convex/brokerageProvisioning.ts, convex/workosProjection.ts, convex/workosManagement.ts, convex/authz.ts, src/routes/protected-access.tsx, and src/lib/auth/rbac.ts."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "",
+      "personas": [
+        "Platform Admin",
+        "Lender Admin / Principal Broker",
+        "Unauthorized/error persona",
+        "DrawFlow System"
+      ],
+      "routesOrSurfaces": [
+        "/protected-access?reason=no-workspace-access&workspace=backoffice",
+        "Principal activation recovery surface"
+      ],
+      "serverContractTouched": [
+        "convex/workosProjection.ts",
+        "convex/brokerageProvisioning.ts",
+        "convex/workosManagement.ts",
+        "convex/authz.ts"
+      ],
+      "viewports": [
+        "desktop-1440x900",
+        "tablet-1024x768",
+        "mobile-390x844"
+      ]
+    },
+    {
+      "findingId": "UX-WF-TEN-002-001",
+      "workstream": "auth-error",
+      "phase": "Phase 1 - typed onboarding state",
+      "dependsOn": [
+        "WF-TEN-001 active brokerage precondition",
+        "Server-owned builder identity/profile link in convex/brokerageProvisioning.ts",
+        "Typed route-error containment shared with src/routes/__root.tsx"
+      ],
+      "owner": "auth-error",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Loading `/builder` for an authenticated but not-yet-ready Builder resolves to a typed onboarding or access state from the server contract instead of a route crash.",
+        "The server distinguishes at least missing organization, missing membership, missing profile link, broker assignment missing, and projection pending or failed states so the UI never infers recovery from exception text.",
+        "The route error surface shows plain-language onboarding or recovery copy and a support-safe correlation ID, not raw `Unauthorized`, file paths, middleware frames, validators, request IDs, or stack traces.",
+        "Retry, sign-in, switch-organization, and request-help actions preserve the intended Builder destination and do not bounce the user into an inaccessible backoffice route.",
+        "Brokerage membership and builder profile ownership are validated on the server before dashboard or proposal queries run, and unauthorized contexts fail closed with the same typed contract.",
+        "Fresh-session recovery remains consistent across browser refreshes and new tabs so the Builder sees the same typed state until the underlying onboarding condition changes."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/target-manifest.json",
+        "reports/core-workflow-ux-audit/audit-report.md#detailed-findings-register",
+        "reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md#ux-wf-ten-002-001"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-002.BLDR.01.STEP-04-desktop-unauthorized.png"
+      ],
+      "verificationNotes": [
+        "Verified canonical audit sources: reports/core-workflow-ux-audit/audit-report.md, reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md, and reports/core-workflow-ux-audit/target-manifest.json.",
+        "Verified linked local acceptance records: docs/core-product-workflow-manifest.md WF-TEN-002, docs/draw_flow_production_prd.md section 8.3, and docs/auth-rbac-foundation.md builder and protected-access rules.",
+        "Verified candidate paths exist: convex/production_proposals.ts, convex/brokerageProvisioning.ts, convex/workosProjection.ts, convex/authz.ts, src/routes/builder/index.tsx, src/routes/__root.tsx, and src/lib/auth/rbac.ts."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "",
+      "personas": [
+        "Builder",
+        "Broker",
+        "Unauthorized/error persona",
+        "DrawFlow System"
+      ],
+      "routesOrSurfaces": [
+        "/builder",
+        "Root route error boundary",
+        "Builder onboarding and access recovery state"
+      ],
+      "serverContractTouched": [
+        "convex/production_proposals.ts",
+        "convex/brokerageProvisioning.ts",
+        "convex/workosProjection.ts",
+        "convex/authz.ts"
+      ],
+      "viewports": [
+        "desktop-1440x900"
+      ]
+    },
+    {
+      "findingId": "UX-WF-TEN-002-002",
+      "workstream": "auth-error",
+      "phase": "Phase 2 - builder relationship acknowledgment",
+      "dependsOn": [
+        "UX-WF-TEN-002-001",
+        "Canonical builder/broker relationship summary returned from convex/production_proposals.ts",
+        "Broker-initiated onboarding path in src/features/builder-onboarding/ProvisionBuilderWizard.tsx"
+      ],
+      "owner": "auth-error",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Within one interaction from the Builder workspace, the user can see brokerage name, assigned Broker identity, relationship status, and the latest effective or updated timestamp.",
+        "If the broker relationship is missing, pending, transferred, or failed to project, the workspace shows a typed state and a repair or escalation action instead of omitting the relationship silently.",
+        "The builder relationship summary is sourced from one canonical server response shared by onboarding completion and ongoing workspace or account surfaces; client code does not recompute broker identity from scattered fields.",
+        "The server verifies that the returned broker relationship belongs to the authenticated Builder and active brokerage and redacts any foreign-tenant details.",
+        "Builder proposal entry stays blocked until both brokerage membership and broker assignment are active, with recovery copy explaining what remains incomplete.",
+        "Broker-initiated onboarding, Builder-facing acknowledgment, and later reassignment or repair flows stay consistent after refresh, sign-in, or organization switching."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/target-manifest.json",
+        "reports/core-workflow-ux-audit/audit-report.md#detailed-findings-register",
+        "reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md#ux-wf-ten-002-002"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-002.BLDR.01.STEP-04-desktop-1440x900-no-broker-confirmation.png",
+        "reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-002.BLDR.01.STEP-04-tablet-1024x768-no-broker-confirmation.png",
+        "reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-002.BLDR.01.STEP-04-mobile-390x844-no-broker-confirmation.png"
+      ],
+      "verificationNotes": [
+        "Verified canonical audit sources: reports/core-workflow-ux-audit/audit-report.md, reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md, and reports/core-workflow-ux-audit/target-manifest.json.",
+        "Verified linked local acceptance records: docs/core-product-workflow-manifest.md WF-TEN-002, docs/draw_flow_production_prd.md section 8.3, and docs/auth-rbac-foundation.md builder account-link and projection notes.",
+        "Verified candidate paths exist: convex/production_proposals.ts, convex/brokerageProvisioning.ts, convex/schema.ts, src/components/nav-user.tsx, src/routes/builder/index.tsx, and src/features/builder-onboarding/ProvisionBuilderWizard.tsx."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "",
+      "personas": [
+        "Builder",
+        "Broker",
+        "DrawFlow System"
+      ],
+      "routesOrSurfaces": [
+        "/builder",
+        "Authenticated Builder workspace profile and organization menu",
+        "Builder onboarding completion summary"
+      ],
+      "serverContractTouched": [
+        "convex/production_proposals.ts",
+        "convex/brokerageProvisioning.ts",
+        "convex/schema.ts"
+      ],
+      "viewports": [
+        "desktop-1440x900",
+        "tablet-1024x768",
+        "mobile-390x844"
+      ]
+    },
+    {
+      "findingId": "UX-WF-TEN-003-001",
+      "workstream": "auth-error",
+      "phase": "Phase 1 - transfer authority recovery",
+      "dependsOn": [
+        "UX-WF-TEN-001-001",
+        "Canonical builder-to-broker assignment persistence beyond buildProposals.assignedBrokerWorkosUserId",
+        "Work-routing ownership continuity using convex/schema.ts buildBrokerAssignments"
+      ],
+      "owner": "auth-error",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "An authenticated transfer initiator who lacks authority sees a typed transfer-access state that identifies whether the blocker is wrong organization, missing Principal authority, pending Platform Admin action, or failed projection.",
+        "The recovery surface names source brokerage, intended destination brokerage when known, affected work scope, and the responsible next actor without exposing protected Builder records to unauthorized viewers.",
+        "Cross-brokerage transfer logic is server-enforced against durable assignment history and build routing records instead of a blind `organizationId` or `assignedBrokerWorkosUserId` rewrite.",
+        "The UI exposes only legal recovery actions for the viewer's persona, such as switch organization, request transfer, resume pending transfer, or contact Platform Admin or Principal Broker.",
+        "Active queues, proposals, and builds that will be rerouted or closed are surfaced as scoped counts or status summaries before the user retries or escalates.",
+        "All denial and error states are redacted to plain-language copy plus a support-safe correlation ID, with no raw backend exception details rendered in the browser."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/target-manifest.json",
+        "reports/core-workflow-ux-audit/audit-report.md#detailed-findings-register",
+        "reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md#ux-wf-ten-003-001"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-003.LADM.01.STEP-01-desktop-1440x900-protected-access.png",
+        "reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-003.LADM.01.STEP-01-tablet-1024x768-protected-access.png",
+        "reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-003.LADM.01.STEP-01-mobile-390x844-protected-access.png"
+      ],
+      "verificationNotes": [
+        "Verified canonical audit sources: reports/core-workflow-ux-audit/audit-report.md, reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md, and reports/core-workflow-ux-audit/target-manifest.json.",
+        "Verified linked local acceptance records: docs/core-product-workflow-manifest.md WF-TEN-003, docs/draw_flow_production_prd.md section 8.4, and docs/auth-rbac-foundation.md deferred same-organization-enforcement note.",
+        "Verified candidate paths exist: convex/schema.ts, convex/production_proposals.ts, convex/workosProjection.ts, convex/authz.ts, and src/routes/protected-access.tsx."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "",
+      "personas": [
+        "Lender Admin / Principal Broker",
+        "Platform Admin",
+        "Broker",
+        "Unauthorized/error persona",
+        "DrawFlow System"
+      ],
+      "routesOrSurfaces": [
+        "/protected-access?reason=no-workspace-access&workspace=backoffice",
+        "Transfer authority recovery surface"
+      ],
+      "serverContractTouched": [
+        "convex/production_proposals.ts",
+        "convex/schema.ts",
+        "convex/workosProjection.ts",
+        "convex/authz.ts"
+      ],
+      "viewports": [
+        "desktop-1440x900",
+        "tablet-1024x768",
+        "mobile-390x844"
+      ]
+    },
+    {
+      "findingId": "UX-WF-TEN-004-001",
+      "workstream": "auth-error",
+      "phase": "Phase 1 - role projection/access change recovery",
+      "dependsOn": [
+        "UX-WF-TEN-001-001",
+        "WorkOS membership/role projection freshness in convex/workosProjection.ts",
+        "User-management write authority in convex/workosManagement.ts and convex/authz.ts"
+      ],
+      "owner": "auth-error",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Invite pending, role change pending, projection pending, projection failed, deactivated, and generic no-workspace-access outcomes are emitted as distinct typed states from the server contract.",
+        "The access-change surface shows current organization, current and intended role, effective timestamp, capability delta, and affected-work warnings scoped to the authenticated organization.",
+        "WorkOS management writes remain restricted to `userManagementWrite` authority on the server, while read-only recovery views remain safe for the impacted user and fail closed across organizations.",
+        "After a role change or deactivation, route navigation and query authorization update immediately from fresh projection data or an explicit pending-projection state; stale success access is not allowed.",
+        "A Technical or Organization Admin remains routed to integration-specific access and recovery states rather than being mislabeled as a backoffice success case when only TADM authority is present.",
+        "All access-change failures are redacted to plain-language copy plus a support-safe correlation ID, with explicit retry, request-help, or reroute actions and no stack traces, file paths, or raw WorkOS payloads."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/target-manifest.json",
+        "reports/core-workflow-ux-audit/audit-report.md#detailed-findings-register",
+        "reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md#ux-wf-ten-004-001"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-004.LADM.01.STEP-01-desktop-1440x900-protected-access.png",
+        "reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-004.LADM.01.STEP-01-tablet-1024x768-protected-access.png",
+        "reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-TEN-004.LADM.01.STEP-01-mobile-390x844-protected-access.png"
+      ],
+      "verificationNotes": [
+        "Verified canonical audit sources: reports/core-workflow-ux-audit/audit-report.md, reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md, and reports/core-workflow-ux-audit/target-manifest.json.",
+        "Verified linked local acceptance records: docs/core-product-workflow-manifest.md WF-TEN-004 and WF-INT-001.TADM.01, docs/draw_flow_production_prd.md section 8.2, and docs/auth-rbac-foundation.md user-management and projection recovery notes.",
+        "Verified candidate paths exist: convex/workosProjection.ts, convex/workosManagement.ts, convex/authz.ts, src/routes/protected-access.tsx, src/lib/auth/rbac.ts, and src/features/access-portal/access-routing.ts."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "",
+      "personas": [
+        "Lender Admin / Principal Broker",
+        "Broker",
+        "Lender Operations / Backoffice Staff",
+        "Technical / Organization Admin",
+        "Unauthorized/error persona",
+        "DrawFlow System"
+      ],
+      "routesOrSurfaces": [
+        "/protected-access?reason=no-workspace-access&workspace=backoffice",
+        "Brokerage staff access-change recovery surface"
+      ],
+      "serverContractTouched": [
+        "convex/workosProjection.ts",
+        "convex/workosManagement.ts",
+        "convex/authz.ts"
+      ],
+      "viewports": [
+        "desktop-1440x900",
+        "tablet-1024x768",
+        "mobile-390x844"
+      ]
+    }
+  ]
+}

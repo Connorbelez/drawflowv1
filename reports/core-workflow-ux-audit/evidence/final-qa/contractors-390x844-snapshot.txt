@@ -1,0 +1,247 @@
+{
+  "lifecycle": {
+    "effectiveLaunch": {
+      "browserLaunched": true,
+      "engine": "chrome",
+      "launchHash": 12798390076057946000
+    },
+    "launched": false,
+    "relaunchedBrowser": false,
+    "restartedBackground": false,
+    "restoreStatus": "not_configured",
+    "reused": true,
+    "saveStatus": "not_attempted"
+  },
+  "origin": "http://127.0.0.1:3000/builder/builds/build_visual_hamilton?tab=contractors",
+  "refs": {
+    "e1": {
+      "name": "Notifications alt+T",
+      "role": "region"
+    },
+    "e10": {
+      "name": "DF",
+      "role": "button"
+    },
+    "e11": {
+      "name": "Build workspace section",
+      "role": "combobox"
+    },
+    "e12": {
+      "name": "Breadcrumbs",
+      "role": "navigation"
+    },
+    "e13": {
+      "name": "Hamilton Infill Build",
+      "role": "heading"
+    },
+    "e14": {
+      "name": "",
+      "role": "generic"
+    },
+    "e15": {
+      "name": "Events 5",
+      "role": "button"
+    },
+    "e16": {
+      "name": "Builder",
+      "role": "link"
+    },
+    "e17": {
+      "name": "Live Builds",
+      "role": "link"
+    },
+    "e18": {
+      "name": "View permit",
+      "role": "button"
+    },
+    "e19": {
+      "name": "Details",
+      "role": "option"
+    },
+    "e2": {
+      "name": "Open DrawFlow AI assistant",
+      "role": "button"
+    },
+    "e20": {
+      "name": "Milestones",
+      "role": "option"
+    },
+    "e21": {
+      "name": "Contractors",
+      "role": "option"
+    },
+    "e22": {
+      "name": "Materials",
+      "role": "option"
+    },
+    "e23": {
+      "name": "Timeline",
+      "role": "option"
+    },
+    "e24": {
+      "name": "Evidence",
+      "role": "option"
+    },
+    "e25": {
+      "name": "Staff",
+      "role": "option"
+    },
+    "e26": {
+      "name": "Calendar",
+      "role": "option"
+    },
+    "e27": {
+      "name": "Gantt",
+      "role": "option"
+    },
+    "e28": {
+      "name": "Crew assignment",
+      "role": "region"
+    },
+    "e29": {
+      "name": "Planning intelligence",
+      "role": "region"
+    },
+    "e3": {
+      "name": "Open TanStack Devtools",
+      "role": "button"
+    },
+    "e30": {
+      "name": "Contractor planning",
+      "role": "heading"
+    },
+    "e31": {
+      "name": "Add contractor",
+      "role": "button"
+    },
+    "e32": {
+      "name": "Crew assignment",
+      "role": "heading"
+    },
+    "e33": {
+      "name": "Planning intelligence",
+      "role": "heading"
+    },
+    "e34": {
+      "name": "Permit fit",
+      "role": "heading"
+    },
+    "e35": {
+      "name": "Scheduling intelligence",
+      "role": "heading"
+    },
+    "e36": {
+      "name": "Filter by assignment status",
+      "role": "combobox"
+    },
+    "e37": {
+      "name": "Filter by trade",
+      "role": "combobox"
+    },
+    "e38": {
+      "name": "Select Northstar Masonry",
+      "role": "button"
+    },
+    "e39": {
+      "name": "Select Northline Framing Crew",
+      "role": "button"
+    },
+    "e4": {
+      "name": "Toggle Sidebar",
+      "role": "button"
+    },
+    "e40": {
+      "name": "Invite Northline Framing Crew to platform",
+      "role": "button"
+    },
+    "e41": {
+      "name": "Search contractors",
+      "role": "textbox"
+    },
+    "e42": {
+      "name": "All roster",
+      "role": "option"
+    },
+    "e43": {
+      "name": "Unassigned",
+      "role": "option"
+    },
+    "e44": {
+      "name": "On milestones",
+      "role": "option"
+    },
+    "e45": {
+      "name": "All trades",
+      "role": "option"
+    },
+    "e46": {
+      "name": "brick",
+      "role": "option"
+    },
+    "e47": {
+      "name": "framing",
+      "role": "option"
+    },
+    "e48": {
+      "name": "masonry",
+      "role": "option"
+    },
+    "e49": {
+      "name": "Assign crew",
+      "role": "button"
+    },
+    "e5": {
+      "name": "breadcrumb",
+      "role": "navigation"
+    },
+    "e50": {
+      "name": "Assign crew",
+      "role": "button"
+    },
+    "e51": {
+      "name": "Assign crew",
+      "role": "button"
+    },
+    "e52": {
+      "name": "Assign crew",
+      "role": "button"
+    },
+    "e53": {
+      "name": "Assign crew",
+      "role": "button"
+    },
+    "e54": {
+      "name": "Assign crew",
+      "role": "button"
+    },
+    "e55": {
+      "name": "Assign crew",
+      "role": "button"
+    },
+    "e56": {
+      "name": "Edit",
+      "role": "button"
+    },
+    "e57": {
+      "name": "Remove",
+      "role": "button"
+    },
+    "e6": {
+      "name": "Theme mode: auto. Click to switch mode.",
+      "role": "button"
+    },
+    "e7": {
+      "name": "Notifications",
+      "role": "button"
+    },
+    "e8": {
+      "name": "Build workspace navigation",
+      "role": "navigation"
+    },
+    "e9": {
+      "name": "Contractors workspace",
+      "role": "region"
+    }
+  },
+  "snapshot": "- button \"Toggle Sidebar\" [ref=e4]\n- navigation \"breadcrumb\" [ref=e5]\n- button \"Theme mode: auto. Click to switch mode.\" [ref=e6]\n- button \"Notifications\" [expanded=false, ref=e7]\n- button \"DF\" [expanded=false, ref=e10]\n- navigation \"Breadcrumbs\" [ref=e12]\n  - link \"Builder\" [ref=e16]\n  - link \"Live Builds\" [ref=e17]\n- heading \"Hamilton Infill Build\" [level=1, ref=e13]\n- generic \"View permit\" [ref=e14] clickable [onclick]\n  - button \"View permit\" [disabled, ref=e18]\n- button \"Events 5\" [ref=e15]\n- navigation \"Build workspace navigation\" [ref=e8]\n  - combobox \"Build workspace section\" [expanded=false, ref=e11]: Contractors\n    - option \"Details\" [ref=e19]\n    - option \"Milestones\" [ref=e20]\n    - option \"Contractors\" [selected, ref=e21]\n    - option \"Materials\" [ref=e22]\n    - option \"Timeline\" [ref=e23]\n    - option \"Evidence\" [ref=e24]\n    - option \"Staff\" [ref=e25]\n    - option \"Calendar\" [ref=e26]\n    - option \"Gantt\" [ref=e27]\n- region \"Contractors workspace\" [ref=e9]\n  - heading \"Contractor planning\" [level=2, ref=e30]\n  - button \"Add contractor\" [ref=e31]\n  - region \"Crew assignment\" [ref=e28]\n    - heading \"Crew assignment\" [level=3, ref=e32]\n    - textbox \"Search contractors\" [ref=e41]\n    - combobox \"Filter by assignment status\" [expanded=false, ref=e36]: All roster\n      - option \"All roster\" [selected, ref=e42]\n      - option \"Unassigned\" [ref=e43]\n      - option \"On milestones\" [ref=e44]\n    - combobox \"Filter by trade\" [expanded=false, ref=e37]: All trades\n      - option \"All trades\" [selected, ref=e45]\n      - option \"brick\" [ref=e46]\n      - option \"framing\" [ref=e47]\n      - option \"masonry\" [ref=e48]\n    - button \"Select Northstar Masonry\" [ref=e38]\n    - button \"Select Northline Framing Crew\" [ref=e39]\n    - button \"Invite Northline Framing Crew to platform\" [ref=e40]\n    - button \"Assign crew\" [disabled, ref=e49]\n    - button \"Assign crew\" [disabled, ref=e50]\n    - button \"Assign crew\" [disabled, ref=e51]\n    - button \"Edit\" [ref=e56]\n    - button \"Remove\" [ref=e57]\n    - button \"Assign crew\" [disabled, ref=e52]\n    - button \"Assign crew\" [disabled, ref=e53]\n    - button \"Assign crew\" [disabled, ref=e54]\n    - button \"Assign crew\" [disabled, ref=e55]\n  - region \"Planning intelligence\" [ref=e29]\n    - heading \"Planning intelligence\" [level=3, ref=e33]\n    - heading \"Permit fit\" [level=4, ref=e34]\n    - heading \"Scheduling intelligence\" [level=4, ref=e35]\n- button \"Open DrawFlow AI assistant\" [ref=e2]\n- region \"Notifications alt+T\" [ref=e1]\n- button \"Open TanStack Devtools\" [ref=e3]"
+}

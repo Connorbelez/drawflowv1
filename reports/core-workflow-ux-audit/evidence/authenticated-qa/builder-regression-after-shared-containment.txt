@@ -1,0 +1,146 @@
+[
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6?tab=materials"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "title": "Sign in",
+      "url": "https://vocal-molecule-68-drawflowv-1-fortunate-cassowary-439-dev.authkit.app/?client_id=client_01KR1Z2DEGZWSDBQR4B6RNX3VV&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fcallback&state=Fe26.2*1*50ff8680eb69a7f83e786d850e4fcaa0f721a412aa4c86b9376743cf0cc27d7e*sV9OeqmT5l_QdHbSByPZEQ*y8Ug14N28LwJ2I_M1WGnV5oNZIPu21wsLxCnQ2vkwQy9vyt6ow_JwN0z5mJYIXGuT-kTAWHIcT50J-BZTiN8p3pDfs0AS6KgbQrMW5IuQx8bbLNVLdJ9BTiG3mL1mBniZPYIqvcyEZG3-ZwEkl57bvFSweui5p7ZE9pGkwPZkHDYb8z0qgkDbe5o74JCGlhR_10CAHRUL5-wEE-WhcS_B3hJCLu1waszRVkUBnE6TlHFUMgs2tQbvaySLJUHjejkbEFyTs4-w0pKwr8xzmBzBadWtH_4mg3yUVVRtS6hEh2AQRPWhaNNP90WbEXhOjuBqk_MUbb3AoWEuc5SIBZAZg*1784742763777*8d0e05f304ca46f69ba03da0b18728657ffadcd44e0da9c1dd06ac067f6690f3*-XKGVxwLM7xUbbUY4Ib-pDn7zd8iyeR5KiQrnBaroyY%7E2&authorization_session_id=01KY5ERDHB7FGZ8BJSGHXF61VR"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "1600"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "ms": 1600,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({path:'builder-proposal-materials',w:[document.documentElement.clientWidth,document.documentElement.scrollWidth],viewOnly:document.body.innerText.includes('Build Proposal View only'),mutations:[...document.querySelectorAll('button')].filter(x=>/Add cost item|Edit|Delete/.test(x.textContent||'')).length})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "origin": "https://vocal-molecule-68-drawflowv-1-fortunate-cassowary-439-dev.authkit.app/?client_id=client_01KR1Z2DEGZWSDBQR4B6RNX3VV&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fcallback&state=Fe26.2*1*50ff8680eb69a7f83e786d850e4fcaa0f721a412aa4c86b9376743cf0cc27d7e*sV9OeqmT5l_QdHbSByPZEQ*y8Ug14N28LwJ2I_M1WGnV5oNZIPu21wsLxCnQ2vkwQy9vyt6ow_JwN0z5mJYIXGuT-kTAWHIcT50J-BZTiN8p3pDfs0AS6KgbQrMW5IuQx8bbLNVLdJ9BTiG3mL1mBniZPYIqvcyEZG3-ZwEkl57bvFSweui5p7ZE9pGkwPZkHDYb8z0qgkDbe5o74JCGlhR_10CAHRUL5-wEE-WhcS_B3hJCLu1waszRVkUBnE6TlHFUMgs2tQbvaySLJUHjejkbEFyTs4-w0pKwr8xzmBzBadWtH_4mg3yUVVRtS6hEh2AQRPWhaNNP90WbEXhOjuBqk_MUbb3AoWEuc5SIBZAZg*1784742763777*8d0e05f304ca46f69ba03da0b18728657ffadcd44e0da9c1dd06ac067f6690f3*-XKGVxwLM7xUbbUY4Ib-pDn7zd8iyeR5KiQrnBaroyY%7E2&authorization_session_id=01KY5ERDHB7FGZ8BJSGHXF61VR",
+      "result": "{\"path\":\"builder-proposal-materials\",\"w\":[390,390],\"viewOnly\":false,\"mutations\":0}"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/builder/builds/ks7n0k9bhpe2qzzd3h2r9fg6ah87xg4r?tab=milestones"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "title": "Sign in",
+      "url": "https://vocal-molecule-68-drawflowv-1-fortunate-cassowary-439-dev.authkit.app/?client_id=client_01KR1Z2DEGZWSDBQR4B6RNX3VV&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fcallback&state=Fe26.2*1*d62b8fd0ca0692984023cb4ed746056bc1262d6abfd9dd2f8442f0878d742646*rHg0LPIrQB2u5G242JT-oA*Exvm1PlnlLpSF0r9nNu0CMSQm0EXEWFzTNYzQ3PBB6OnoNr8Y2AxhPiCSrhpaQv12VKw0i3RNIRrdmVmfSRD470llrZpJaV4TDVMaigw-2OcJ85auuutIRTm8hCnhI5dD2HH_v3v4ylpfmb7iR-IihPwMpPy8_rBieobiZzihTRXxErmVl5w9Fb3zdf50d1IyX9lkXq2pIcgt5mgmn_gWFP0nF_7il801pdfvvfxd-OyTMm5gO8j6IX3WmFeD326oueO9gOCneAjlViatNeZKoJzLISVs8GLPNKqDKK4rxYMu-4noZ6A-FcIN8ndQPyP2J0TExZdT497BZILi4_R-w*1784742767047*1b6c3b629c3fbe6690c7429c3415af8b4b92828ad0ac7a5e4a304a8a2a9f4712*EbrLHhcf33X1J-ag5nrGGNs1wsO1eIcjxCiEaDw9HIc%7E2&authorization_session_id=01KY5ERGMMNVDMR6QM2YY7EZSN"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "2200"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "ms": 2200,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({path:'builder-build-milestones',w:[document.documentElement.clientWidth,document.documentElement.scrollWidth],internal:[...document.querySelectorAll('[data-testid=kanban-horizontal-scroll]')].map(x=>[Math.round(x.clientWidth),x.scrollWidth,getComputedStyle(x).overflowX])})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "origin": "https://vocal-molecule-68-drawflowv-1-fortunate-cassowary-439-dev.authkit.app/?client_id=client_01KR1Z2DEGZWSDBQR4B6RNX3VV&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fcallback&state=Fe26.2*1*d62b8fd0ca0692984023cb4ed746056bc1262d6abfd9dd2f8442f0878d742646*rHg0LPIrQB2u5G242JT-oA*Exvm1PlnlLpSF0r9nNu0CMSQm0EXEWFzTNYzQ3PBB6OnoNr8Y2AxhPiCSrhpaQv12VKw0i3RNIRrdmVmfSRD470llrZpJaV4TDVMaigw-2OcJ85auuutIRTm8hCnhI5dD2HH_v3v4ylpfmb7iR-IihPwMpPy8_rBieobiZzihTRXxErmVl5w9Fb3zdf50d1IyX9lkXq2pIcgt5mgmn_gWFP0nF_7il801pdfvvfxd-OyTMm5gO8j6IX3WmFeD326oueO9gOCneAjlViatNeZKoJzLISVs8GLPNKqDKK4rxYMu-4noZ6A-FcIN8ndQPyP2J0TExZdT497BZILi4_R-w*1784742767047*1b6c3b629c3fbe6690c7429c3415af8b4b92828ad0ac7a5e4a304a8a2a9f4712*EbrLHhcf33X1J-ag5nrGGNs1wsO1eIcjxCiEaDw9HIc%7E2&authorization_session_id=01KY5ERGMMNVDMR6QM2YY7EZSN",
+      "result": "{\"path\":\"builder-build-milestones\",\"w\":[390,390],\"internal\":[]}"
+    },
+    "success": true
+  }
+]

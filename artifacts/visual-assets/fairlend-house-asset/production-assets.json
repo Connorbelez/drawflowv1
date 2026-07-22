@@ -1,0 +1,31 @@
+{
+  "image_asset_count": 1,
+  "generation_mode": "built-in image_gen with flat chroma-key background, local chroma-key removal, and visual-asset-pipeline WebP preparation",
+  "notes": "The reference crop was used only to guide image generation. The final WebP was produced from a new generated PNG, not from a screenshot crop or crop conversion.",
+  "assets": [
+    {
+      "id": "right-side-house",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-house-asset/crops/right-side-house.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-house-asset/generated/raw/right-side-house-source.png",
+      "alpha_intermediate_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-house-asset/generated/raw/right-side-house-alpha.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-house-asset/generated/webp/fairlend-right-side-house.webp",
+      "qa_preview_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-house-asset/generated/qa/fairlend-right-side-house-preview.png",
+      "transparent": true,
+      "imagegen_prompt": "Use case: stylized-concept\nAsset type: transparent residential house hero asset\nInput image: the `right-side-house` reference crop shown above is reference only, not source material to extract or convert.\nPrimary request: Generate a brand-new standalone asset, not a screenshot crop: the large right-side luxury residential house from the Fairlend composite, rendered as a premium 3D miniature real-estate model.\nSubject: a large upscale detached residential house with a dark charcoal mansard-style roof, dormer windows, warm glowing interior windows, cream stone/brick facade, front porch, balcony/railings, steps, landscaped entry path, rounded shrubs, mature trees, paved walkway/driveway, and a small matching right-side garden-suite/outbuilding only if it naturally fits the composition.\nStyle/medium: polished 3D miniature architectural diorama, premium real-estate landing-page asset, realistic but stylized clay/model rendering, warm Fairlend visual language.\nComposition/framing: three-quarter isometric view from slightly above, house centered and fully visible, front facade and right side visible, clean silhouette, generous padding, no surrounding city map.\nLighting/mood: warm sunset/studio lighting with soft window glow, elegant shadows within the house/landscaping, upscale residential finance mood.\nBackground for transparency workflow: render on a perfectly flat solid #ff00ff chroma-key background only. The background must be one uniform color with no shadows, gradients, texture, reflections, floor plane, or lighting variation. Do not use #ff00ff anywhere in the subject.\nConstraints: isolate only the house scene. No screenshot pixels, no map grid, no city labels, no Toronto skyline, no CN Tower, no red route line, no red pin, no goal card, no UI cards, no text, no icons, no buttons, no Fairlend logo, no page background, no watermark, no border. Keep the subject fully separated from the chroma background with crisp edges and generous padding.",
+      "post_processing": {
+        "chroma_key": "auto border",
+        "transparent_threshold": 12,
+        "opaque_threshold": 220,
+        "edge_contract": 1,
+        "despill": true,
+        "webp_quality": 92,
+        "trim": true,
+        "padding": 16,
+        "final_size": {
+          "width": 1548,
+          "height": 951
+        }
+      }
+    }
+  ]
+}

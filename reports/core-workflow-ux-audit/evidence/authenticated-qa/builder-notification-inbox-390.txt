@@ -1,0 +1,39 @@
+{
+  "lifecycle": {
+    "effectiveLaunch": {
+      "browserLaunched": true,
+      "engine": "chrome",
+      "launchHash": 16795142570751190000
+    },
+    "launched": false,
+    "relaunchedBrowser": false,
+    "restartedBackground": false,
+    "restoreStatus": "not_configured",
+    "reused": true,
+    "saveStatus": "not_configured"
+  },
+  "origin": "http://localhost:3000/builder",
+  "refs": {
+    "e1": {
+      "name": "Notifications alt+T",
+      "role": "region"
+    },
+    "e2": {
+      "name": "Notifications",
+      "role": "heading"
+    },
+    "e3": {
+      "name": "Close",
+      "role": "button"
+    },
+    "e4": {
+      "name": "All",
+      "role": "button"
+    },
+    "e5": {
+      "name": "Action required",
+      "role": "button"
+    }
+  },
+  "snapshot": "- region \"Notifications alt+T\" [ref=e1]\n- heading \"Notifications\" [level=2, ref=e2]\n- button \"All\" [ref=e4]\n- button \"Action required\" [ref=e5]\n- button \"Close\" [ref=e3]"
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "manifest_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/neuomorphic-hero-map-2026-06-20/asset-manifest.json",
+  "image_asset_count": 1,
+  "assets": [
+    {
+      "id": "neuomorphic-hero-map",
+      "label": "Neuomorphic waterfront map hero image",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/neuomorphic-hero-map-2026-06-20/crops/neuomorphic-hero-map.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/neuomorphic-hero-map-2026-06-20/generated/raw/neuomorphic-hero-map.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/neuomorphic-hero-map-2026-06-20/generated/webp/neuomorphic-hero-map.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Primary transparent hero artwork for DrawFlow marketing surfaces\nPrimary request: Reference image only. Create a standalone transparent hero asset matching the supplied neuomorphic/isometric waterfront construction map: raised cream city-map plinth, blue harbor water, downtown skyline with tower, marina docks, detailed mansion and guest house on the right, trees, warm soft lighting, retained contact shadows and rounded map base. Remove only the surrounding cream page/background outside the artwork. Preserve the artwork proportions, perspective, material texture, and premium soft 3D render style.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "No rectangular background, no cream canvas outside the map, no text, no logos, no cropped-off house, no missing waterfront, no flat vector redraw, no harsh outline, no halo."
+    }
+  ]
+}

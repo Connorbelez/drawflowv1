@@ -1,0 +1,673 @@
+{
+  "owner": "planning",
+  "findings": [
+    {
+      "findingId": "UX-WF-PRP-001-001",
+      "workstream": "proposal-planning",
+      "phase": "Phase 1 — authority boundary and permission projection",
+      "dependsOn": [
+        "convex/production_proposals.ts:getProposalDetailByString appPermissions parity"
+      ],
+      "owner": "planning",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Remove lender-only decision controls from the builder DOM and accessibility tree on /builder/proposals/$proposalId Review so keyboard and screen-reader traversal never reaches Request Changes, Reject, Approve Proposal, Decision reason, or Audited permit waiver controls.",
+        "Remove backoffice draw-row editors from the builder DOM and accessibility tree on /builder/proposals/$proposalId?tab=draw-schedule; builder users may see read-only draw context but no editable textboxes, reason fields, or save actions.",
+        "Keep review and draw-edit controls available on authorized backoffice/final-approver routes without regressing current appPermissions parity from getProposalDetailByString.",
+        "Replace hidden foreign-role controls with explicit builder-facing review status that names the current owner, current proposal lifecycle state, and the next expected handoff action after submit.",
+        "Add DOM and accessibility regression coverage that fails if any lender/backoffice control renders on the builder route and passes only when the authorized reviewer route still exposes the same controls."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md",
+        "reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-prp-001-001",
+        "docs/core-product-workflow-manifest.md",
+        "docs/draw_flow_production_prd.md",
+        "docs/draw_flow_prd.md"
+      ],
+      "filesChanged": [
+        "src/features/production-proposals/ProductionProposalSurfaces.tsx",
+        "src/features/production-proposals/ProductionProposalDrawScheduleEditor.tsx",
+        "src/routes/builder/proposals/$proposalId/index.tsx",
+        "src/routes/backoffice/proposals.$planId.tsx",
+        "convex/production_proposals.ts"
+      ],
+      "testsAddedOrUpdated": [
+        "src/features/production-proposals/ProductionProposalSurfaces.test.tsx",
+        "src/routes/builder/proposals/-proposal.$proposalId.test.ts",
+        "src/routes/backoffice/-proposals.$planId.test.tsx",
+        "convex/production_proposals.test.ts"
+      ],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/WF-PRP-001_WF-PRP-001.BLDR.01_WF-PRP-001.BLDR.01.STEP-04_desktop-review-role-confusion.png",
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/WF-PRP-001_WF-PRP-001.BLDR.01_WF-PRP-001.BLDR.01.STEP-04_desktop-backoffice-controls.png",
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-PRP-001-BLDR-review-snapshot.md",
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-PRP-001-BLDR-draw-snapshot.md"
+      ],
+      "verificationNotes": [
+        "Verbatim illegal-controls proof from reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-PRP-001-BLDR-review-snapshot.md: \"- button \"Request Changes\" [disabled]\"; \"- button \"Reject\" [disabled]\"; \"- button \"Approve Proposal\" [disabled]\"; \"- textbox \"Decision reason\":\"; \"- textbox \"Audited permit waiver Audited permit waiver\":\".",
+        "Verbatim illegal-controls proof from reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-PRP-001-BLDR-draw-snapshot.md: \"- generic: Backoffice draw schedule\"; \"- textbox \"draw-01 label\": Foundation reimbursement draw\"; \"- textbox \"Amount dollars\": text: \"160200\"\"; \"- textbox \"Change reason\":\".",
+        "The remediation must keep builder submission surfaces role-correct while preserving reviewer authority on backoffice/final-approver routes."
+      ],
+      "skillUsage": [
+        "impeccable"
+      ],
+      "notesOrBlocker": "Convex guideline file convex/_generated/ai/guidelines.md is absent in this worktree; preserve the current query/mutation/test contracts unless the canonical guidance file is restored.",
+      "personas": [
+        "Builder",
+        "Lender Operations / Backoffice Staff",
+        "Principal Broker / Lender Admin"
+      ],
+      "routesOrSurfaces": [
+        "/builder/proposals/$proposalId Review tab",
+        "/builder/proposals/$proposalId?tab=draw-schedule",
+        "/backoffice/proposals/$planId reviewer surface"
+      ],
+      "serverContractTouched": [
+        "convex/production_proposals.ts"
+      ],
+      "viewports": [
+        "desktop 1440x900",
+        "tablet 1024x768",
+        "mobile 390x844"
+      ]
+    },
+    {
+      "findingId": "UX-WF-PRP-001-002",
+      "workstream": "proposal-planning",
+      "phase": "Phase 2 — shared proposal navigation and responsive IA",
+      "dependsOn": [
+        "UX-WF-PRP-001-001"
+      ],
+      "owner": "planning",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Ensure every primary proposal stage is reachable, fully named, and visibly discoverable at 1440px, 1024px, and 390px widths without page-level horizontal scroll or clipped labels.",
+        "Preserve TanStack tab and timeframe search-param round-tripping when switching stages, reloading, resizing, or deep-linking across builder, builder-staff, and backoffice proposal routes.",
+        "Provide an accessible overflow or stage-picker pattern below the desktop breakpoint so keyboard users can reach every hidden stage in logical order without relying on swipe-only overflow.",
+        "Keep the active stage name and incomplete or blocked state visible in the compact navigation pattern at tablet and mobile breakpoints.",
+        "Add responsive regression coverage for desktop, tablet, mobile, and 200% zoom that fails on horizontal content loss or truncated active-stage labels."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md",
+        "reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-prp-001-002",
+        "docs/core-product-workflow-manifest.md",
+        "docs/draw_flow_production_prd.md",
+        "docs/draw_flow_prd.md"
+      ],
+      "filesChanged": [
+        "src/features/production-proposals/ProductionProposalSurfaces.tsx",
+        "src/routes/builder/proposals/$proposalId/index.tsx",
+        "src/routes/builder-staff/proposals/$proposalId/index.tsx",
+        "src/routes/backoffice/proposals.$planId.tsx"
+      ],
+      "testsAddedOrUpdated": [
+        "src/features/production-proposals/ProductionProposalSurfaces.test.tsx",
+        "src/routes/builder/proposals/-proposal.$proposalId.test.ts",
+        "src/routes/backoffice/-proposals.$planId.test.tsx"
+      ],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/WF-PRP-001_WF-PRP-001.BLDR.01_WF-PRP-001.BLDR.01.STEP-01_desktop-draft-packet.png",
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/WF-CAL-001_WF-CAL-001.BLDR.01_WF-CAL-001.BLDR.01.STEP-01_tablet-calendar-top.png",
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/WF-CAL-001_WF-CAL-001.BLDR.01_WF-CAL-001.BLDR.01.STEP-01_mobile-calendar.png"
+      ],
+      "verificationNotes": [
+        "The shared proposal shell clipped trailing tabs on desktop, hid trailing tabs and metrics beyond the right edge at 1024x768, and reduced the active Calendar label to \"Ca\" at 390x844.",
+        "Responsive remediation must preserve the existing route-level search-param contract rather than replacing tab state with local-only UI state."
+      ],
+      "skillUsage": [
+        "impeccable"
+      ],
+      "notesOrBlocker": "Late mobile mutation retesting hit a local ECONNRESET/browser-control interruption; the existing responsive overflow evidence is still sufficient for the navigation IA remediation scope.",
+      "personas": [
+        "Builder",
+        "Builder Staff",
+        "Lender Operations / Backoffice Staff"
+      ],
+      "routesOrSurfaces": [
+        "/builder/proposals/$proposalId",
+        "/builder-staff/proposals/$proposalId",
+        "/backoffice/proposals/$planId",
+        "proposal workspace primary tab navigation"
+      ],
+      "serverContractTouched": [],
+      "viewports": [
+        "desktop 1440x900",
+        "tablet 1024x768",
+        "mobile 390x844"
+      ]
+    },
+    {
+      "findingId": "UX-WF-PRP-001-003",
+      "workstream": "proposal-planning",
+      "phase": "Phase 2 — plan comparison persistence and submit gating",
+      "dependsOn": [
+        "UX-WF-PRP-001-001",
+        "convex/schema.ts buildProposals selected-plan snapshot support"
+      ],
+      "owner": "planning",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Add a dedicated plan-comparison stage that renders Cheapest Feasible, Fastest, and Capital-Constrained options side by side with shared metric definitions, infeasibility messaging, and a single recommendation.",
+        "Require an explicit builder selection before Submit enables; do not allow submission from Packet or Review when no preferred plan is stored.",
+        "Persist selected-plan identity and metrics into the frozen proposal snapshot so builder, backoffice, and final-approver surfaces show the same selected-plan context after handoff.",
+        "Keep plan selection builder-owned while preserving lender review and final decision authority on the authorized reviewer surfaces established by UX-WF-PRP-001-001.",
+        "Add regression coverage that verifies unselected plans block submit, selected-plan context survives reload and handoff, and both sides of WF-PRP-001.HO-01 and WF-PRP-001.HO-02 show matching selected-plan data."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md",
+        "reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-prp-001-003",
+        "docs/core-product-workflow-manifest.md",
+        "docs/draw_flow_production_prd.md",
+        "docs/draw_flow_prd.md"
+      ],
+      "filesChanged": [
+        "src/features/production-proposals/ProductionTimelineWorkspace.tsx",
+        "src/features/production-proposals/ProductionProposalSurfaces.tsx",
+        "src/features/production-proposals/productionRoadmapAdapter.ts",
+        "src/features/production-proposals/timelineSetupAdapter.ts",
+        "convex/production_proposals.ts",
+        "convex/schema.ts"
+      ],
+      "testsAddedOrUpdated": [
+        "src/features/production-proposals/ProductionTimelineWorkspace.test.tsx",
+        "src/features/production-proposals/ProductionProposalSurfaces.test.tsx",
+        "src/features/production-proposals/timelineSetupAdapter.test.ts",
+        "convex/production_proposals.test.ts"
+      ],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/WF-PRP-001_WF-PRP-001.BLDR.01_WF-PRP-001.BLDR.01.STEP-02_desktop-timeline.png",
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/WF-PRP-001_WF-PRP-001.BLDR.01_WF-PRP-001.BLDR.01.STEP-06_WF-PRP-001.HO-02_desktop-submitted.png",
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-PRP-001-BLDR-timeline-snapshot.md"
+      ],
+      "verificationNotes": [
+        "The browser audit observed Optimize scenario and cash metrics but no clearly labeled Cheapest Feasible, Fastest, or Capital-Constrained comparison and no explicit Select this plan action before submit.",
+        "The workflow manifest requires WF-PRP-001.PARENT.00.STEP-04 to generate and compare the three plans before WF-PRP-001.PARENT.00.STEP-05 selection and WF-PRP-001.BLDR.01.STEP-06 submission."
+      ],
+      "skillUsage": [
+        "impeccable"
+      ],
+      "notesOrBlocker": "Convex guideline file convex/_generated/ai/guidelines.md is absent in this worktree; preserve the current query/mutation/test contracts unless the canonical guidance file is restored.",
+      "personas": [
+        "Builder",
+        "Lender Operations / Backoffice Staff",
+        "Principal Broker / Lender Admin",
+        "DrawFlow System"
+      ],
+      "routesOrSurfaces": [
+        "/builder/proposals/$proposalId Packet",
+        "/builder/proposals/$proposalId Timeline",
+        "/builder/proposals/$proposalId Review",
+        "/builder/proposals/$proposalId?tab=draw-schedule"
+      ],
+      "serverContractTouched": [
+        "convex/production_proposals.ts",
+        "convex/schema.ts"
+      ],
+      "viewports": [
+        "desktop 1440x900"
+      ]
+    },
+    {
+      "findingId": "UX-WF-MAT-001-001",
+      "workstream": "material-planning",
+      "phase": "Phase 2 — milestone-scoped material workspace",
+      "dependsOn": [
+        "convex/production_proposals.ts proposal cost-item write rules remain authoritative"
+      ],
+      "owner": "planning",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Reduce Materials to one authoritative selected-milestone workspace with exactly one visible add action per selected milestone and an accessible action name that includes the milestone label.",
+        "Remove duplicate accessible controls for identical Add cost item actions so keyboard focus order and screen-reader output expose one primary creation action for the scoped list.",
+        "Keep cost-item recalculation behavior authoritative in convex/production_proposals.ts so UI scoping changes do not bypass proposal cost-item write rules or budget and draw recalculation.",
+        "Show inline milestone scope context and before and after budget impact for the selected milestone and proposal before commit.",
+        "Add regression coverage that verifies milestone switching updates one list, one scoped empty state, and one creation CTA without positional inference."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md",
+        "reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-mat-001-001",
+        "docs/core-product-workflow-manifest.md",
+        "docs/draw_flow_production_prd.md",
+        "docs/build-material-planning.md"
+      ],
+      "filesChanged": [
+        "src/features/material-planning/MaterialPlanningTab.tsx",
+        "src/features/production-proposals/ProductionProposalSurfaces.tsx",
+        "convex/production_proposals.ts"
+      ],
+      "testsAddedOrUpdated": [
+        "src/features/material-planning/MaterialPlanningTab.test.tsx",
+        "convex/production_proposals.test.ts"
+      ],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/WF-MAT-001_WF-MAT-001.BLDR.01_WF-MAT-001.BLDR.01.STEP-01_desktop-materials-empty.png",
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/WF-MAT-001_WF-MAT-001.BLDR.01_WF-MAT-001.BLDR.01.STEP-03_desktop-rollup-after-add.png",
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-MAT-001-BLDR-materials-snapshot.md"
+      ],
+      "verificationNotes": [
+        "The audit observed four identically named Add cost item controls across two milestone sections while a separate milestone combobox remained visible, forcing positional disambiguation even in the accessibility tree.",
+        "The created item recalculated to $250 successfully, so the remediation must improve scope clarity without regressing rollup correctness."
+      ],
+      "skillUsage": [
+        "impeccable"
+      ],
+      "notesOrBlocker": "Materials-specific tablet/mobile interaction was cut short by the late browser interruption; preserve the shared proposal-shell responsive work from UX-WF-PRP-001-002 while executing this milestone-scoped redesign.",
+      "personas": [
+        "Builder",
+        "Lender Operations / Backoffice Staff",
+        "DrawFlow System"
+      ],
+      "routesOrSurfaces": [
+        "/builder/proposals/$proposalId?tab=materials",
+        "Add cost item dialog"
+      ],
+      "serverContractTouched": [
+        "convex/production_proposals.ts"
+      ],
+      "viewports": [
+        "desktop 1440x900"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CAL-001-001",
+      "workstream": "calendar-workspace",
+      "phase": "calendar-semantics",
+      "dependsOn": [
+        "Keep shared export handling in CalendarWorkspace aligned with the current filtered event scope from applyCalendarFilters.",
+        "Preserve the sanctioned server-backed subscription path createCalendarSyncSubscription -> /api/calendar/:subscriptionKey.ics for durable exports and external-calendar delivery.",
+        "Do not regress visualFixtureEnabled query skipping or TanStack timeframe search-param round-tripping on proposal/build calendar routes."
+      ],
+      "owner": "planning",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Show visible export acknowledgement within 100 ms of activation on the current calendar surface; the trigger must enter a loading or progress state that remains visible until success or failure.",
+        "Create exactly one export or download job per user action; repeated activation while the first job is pending must dedupe to the same job and must not emit duplicate .ics downloads or duplicate subscription writes.",
+        "Preserve the current filtered event scope from applyCalendarFilters when exporting, and keep the durable subscription path createCalendarSyncSubscription -> /api/calendar/:subscriptionKey.ics for long-lived feeds.",
+        "Announce a terminal result with filename or subscription label, event count, date range, timezone, and retryable error details when generation fails.",
+        "Add coverage that verifies button state, live-region feedback, deduped job creation, and one successful .ics result on builder and backoffice proposal calendar routes."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md",
+        "reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-cal-001-001",
+        "docs/core-product-workflow-manifest.md",
+        "docs/draw_flow_production_prd.md",
+        "docs/drawflow-calendar-tab-prd.md"
+      ],
+      "filesChanged": [
+        "src/features/calendar-workspace/CalendarWorkspace.tsx",
+        "src/features/calendar-workspace/adapters/proposalCalendarAdapter.ts",
+        "src/routes/builder/proposals/$proposalId/index.tsx",
+        "src/routes/backoffice/proposals.$planId.tsx",
+        "convex/production_proposals.ts",
+        "convex/schema.ts"
+      ],
+      "testsAddedOrUpdated": [
+        "src/features/calendar-workspace/CalendarWorkspace.test.tsx",
+        "src/features/calendar-workspace/adapters/proposalCalendarAdapter.test.ts",
+        "src/features/calendar-workspace/CalendarWorkspace.export.test.tsx",
+        "convex/production_calendar.test.ts"
+      ],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/WF-CAL-001_WF-CAL-001.SYS.01_WF-CAL-001.SYS.01.STEP-05_desktop-export-no-feedback.png",
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-CAL-001-BLDR-export-result-snapshot.md",
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-CAL-001-BLDR-proposal-calendar-snapshot.md"
+      ],
+      "verificationNotes": [
+        "The audit record observed no browser download within ten seconds, no toast, no progress state, and no visible error after activating Export ICS.",
+        "Existing builder/backoffice proposal routes already round-trip timeframe search params and call createCalendarSyncSubscription; remediation must preserve those contracts while adding visible export job state."
+      ],
+      "skillUsage": [
+        "impeccable"
+      ],
+      "notesOrBlocker": "Convex guideline file convex/_generated/ai/guidelines.md is absent in this worktree; preserve the current query/mutation/test contracts unless the canonical guidance file is restored.",
+      "personas": [
+        "DrawFlow System",
+        "Builder",
+        "Lender Operations / Backoffice Staff"
+      ],
+      "routesOrSurfaces": [
+        "/builder/proposals/$proposalId?tab=calendar",
+        "/backoffice/proposals/$planId?tab=calendar",
+        "Export ICS action"
+      ],
+      "serverContractTouched": [
+        "convex/production_proposals.ts",
+        "convex/schema.ts"
+      ],
+      "viewports": [
+        "desktop 1440x900"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CAL-001-002",
+      "workstream": "calendar-workspace",
+      "phase": "calendar-semantics",
+      "dependsOn": [
+        "Correct proposal event editability at query/projection time before changing drawer affordances; current proposal milestone/draw events advertise non-draft editability.",
+        "Preserve draft-only builder mutation rules in reviseProposalMilestoneSchedule and reviseProposalDrawTiming; submitted-state changes must route to a request/authority path instead of direct mutation.",
+        "Keep WF-CAL-001.HO-01 blocked until a committed schedule-change request or authorized material change exists."
+      ],
+      "owner": "planning",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Render submitted proposal milestone and draw schedule dates as read-only on builder surfaces and do not expose focusable editable inputs when lifecycle rules prohibit direct mutation.",
+        "Keep draft-only editability aligned with reviseProposalMilestoneSchedule and reviseProposalDrawTiming so any submitted-state schedule change routes through an explicit request or authority flow instead of silent local reversion.",
+        "When a schedule change is allowed, persist edited values, enable Preview, and show downstream dependency, draw, and capital impact before commit.",
+        "When a schedule change is not allowed, show explicit lifecycle or authority copy in the drawer and announce the blocked state to assistive technology.",
+        "Add regression coverage for submitted versus draft proposal calendars that verifies immutable inputs are not focusable, Preview enables only for legal edits, and WF-CAL-001.HO-01 remains blocked until a committed material change exists."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md",
+        "reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-cal-001-002",
+        "docs/core-product-workflow-manifest.md",
+        "docs/draw_flow_prd.md",
+        "docs/drawflow-calendar-tab-prd.md"
+      ],
+      "filesChanged": [
+        "src/features/calendar-workspace/CalendarEventDetailDrawer.tsx",
+        "src/features/calendar-workspace/adapters/proposalCalendarAdapter.ts",
+        "src/features/calendar-workspace/CalendarWorkspace.tsx",
+        "src/routes/builder/proposals/$proposalId/index.tsx",
+        "convex/production_proposals.ts"
+      ],
+      "testsAddedOrUpdated": [
+        "src/features/calendar-workspace/CalendarWorkspace.test.tsx",
+        "src/features/calendar-workspace/adapters/proposalCalendarAdapter.test.ts",
+        "src/features/calendar-workspace/CalendarEventDetailDrawer.test.tsx",
+        "convex/production_calendar.test.ts"
+      ],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/WF-CAL-001_WF-CAL-001.BLDR.01_WF-CAL-001.BLDR.01.STEP-03_desktop-disabled-preview.png",
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-CAL-001-BLDR-disabled-preview-snapshot.md",
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-CAL-001-BLDR-foundation-event-snapshot.md"
+      ],
+      "verificationNotes": [
+        "The submitted Foundation dialog accepted focus on editable date fields, reverted the changed End date to its original value, and left Preview disabled even after a reason was entered.",
+        "Remediation must change the affordance contract itself; explanatory copy alone is insufficient if immutable fields remain editable in the accessibility tree."
+      ],
+      "skillUsage": [
+        "impeccable"
+      ],
+      "notesOrBlocker": "Convex guideline file convex/_generated/ai/guidelines.md is absent in this worktree; preserve the current query/mutation/test contracts unless the canonical guidance file is restored.",
+      "personas": [
+        "Builder",
+        "DrawFlow System",
+        "Contractor"
+      ],
+      "routesOrSurfaces": [
+        "/builder/proposals/$proposalId?tab=calendar",
+        "Foundation event detail drawer on a submitted proposal"
+      ],
+      "serverContractTouched": [
+        "convex/production_proposals.ts"
+      ],
+      "viewports": [
+        "desktop 1440x900"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CAL-001-004",
+      "workstream": "calendar-workspace",
+      "phase": "calendar-semantics",
+      "dependsOn": [
+        "Keep reminder actions compatible with shared proposal adapter actions, but partition proposal milestone and draw mutations away from reminder events before menu rendering.",
+        "Preserve soft-cancel history: reminder cancellation remains a status patch, not hard delete, and stays auditable.",
+        "Retain assistant closed-catalog reminder keys (create_proposal_reminder, update_proposal_reminder, cancel_proposal_reminder) while changing UI confirmation semantics."
+      ],
+      "owner": "planning",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Partition event actions by event kind and lifecycle before menu rendering so reminder rows do not expose proposal-date, draw-timing, or unrelated mutation actions.",
+        "Preserve assistant closed-catalog reminder keys create_proposal_reminder, update_proposal_reminder, and cancel_proposal_reminder; any UI changes must remain additive to the existing assistant HITL and catalog contract.",
+        "Require an explicit cancellation confirmation that names reminder participants or notification impact and retained history before invoking cancellation.",
+        "Remove duplicate menu entries and return focus to the invoking control after cancel or close on keyboard and assistive-technology paths.",
+        "Add regression coverage for reminder action menus and cancel flows across drawer and context-menu entry points, including any required reason capture already enforced by the underlying contract."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md",
+        "reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-cal-001-004",
+        "docs/core-product-workflow-manifest.md",
+        "docs/drawflow-calendar-tab-prd.md"
+      ],
+      "filesChanged": [
+        "src/features/calendar-workspace/CalendarContextMenu.tsx",
+        "src/features/calendar-workspace/CalendarEventDetailDrawer.tsx",
+        "src/features/calendar-workspace/adapters/proposalCalendarAdapter.ts",
+        "src/features/calendar-workspace/CalendarWorkspace.tsx"
+      ],
+      "testsAddedOrUpdated": [
+        "src/features/calendar-workspace/CalendarContextMenu.test.tsx",
+        "src/features/calendar-workspace/CalendarEventDetailDrawer.test.tsx",
+        "src/features/calendar-workspace/CalendarWorkspace.test.tsx"
+      ],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/WF-CAL-001_WF-CAL-001.BLDR.01_WF-CAL-001.BLDR.01.STEP-05_desktop-reminder-created.png",
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/WF-CAL-001_WF-CAL-001.BLDR.01_WF-CAL-001.BLDR.01.STEP-05_desktop-reminder-cancelled.png",
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-CAL-001-BLDR-custom-event-actions-snapshot.md",
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-CAL-001-BLDR-cancel-reminder-snapshot.md"
+      ],
+      "verificationNotes": [
+        "The audit observed two Open detail entries in the reminder action menu along with Copy link, Export event, Edit reminder, Cancel reminder, New reminder event, Move proposal dates, and Edit draw timing.",
+        "Search verification confirmed the assistant closed catalog already exposes create_proposal_reminder, update_proposal_reminder, and cancel_proposal_reminder in convex/assistant.ts and src/features/assistant/assistantActionCatalog.ts; remediation must preserve those keys."
+      ],
+      "skillUsage": [
+        "impeccable"
+      ],
+      "notesOrBlocker": "Convex guideline file convex/_generated/ai/guidelines.md is absent in this worktree; preserve the current query/mutation/test contracts unless the canonical guidance file is restored.",
+      "personas": [
+        "Builder",
+        "DrawFlow System"
+      ],
+      "routesOrSurfaces": [
+        "/builder/proposals/$proposalId?tab=calendar",
+        "Reminder event action menu",
+        "Reminder cancellation flow"
+      ],
+      "serverContractTouched": [
+        "convex/assistant.ts",
+        "convex/production_proposals.ts"
+      ],
+      "viewports": [
+        "desktop 1440x900"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CAL-001-003",
+      "workstream": "calendar-workspace",
+      "phase": "responsive-a11y-polish",
+      "dependsOn": [
+        "Preserve TanStack tab/timeframe search contracts across builder, builder-staff, and backoffice proposal/build calendar routes.",
+        "Keep proposal shell composition in ProductionProposalReviewSurface and build shell composition in ProductionBuildDetailSurface while compacting the shared calendar workspace.",
+        "Retain visualFixtureEnabled demo/production guards so responsive work does not change which data sources are used."
+      ],
+      "owner": "planning",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Recompose the shared proposal and build calendar workspace for tablet and mobile so the page has no horizontal overflow at 1024px, 390px, or 200% zoom.",
+        "Preserve TanStack tab and timeframe search-param contracts across builder, builder-staff, and backoffice proposal and build calendar routes while moving controls into compact layouts.",
+        "Keep ProductionProposalReviewSurface and ProductionBuildDetailSurface as the owning shells, but collapse stage navigation, actions, and filters into accessible stage pickers, action menus, and bottom-sheet or drawer patterns below the desktop breakpoint.",
+        "Maintain visualFixtureEnabled guard behavior so responsive changes do not switch demo and production data sources.",
+        "Add responsive and accessibility regression coverage for touch-target size, focus order, sticky identity context, and absence of clipped action labels on proposal and build calendar routes."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md",
+        "reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-cal-001-003",
+        "docs/core-product-workflow-manifest.md",
+        "docs/draw_flow_production_prd.md",
+        "docs/drawflow-calendar-tab-prd.md"
+      ],
+      "filesChanged": [
+        "src/components/ui/event-manager.tsx",
+        "src/features/calendar-workspace/CalendarWorkspace.tsx",
+        "src/features/calendar-workspace/CalendarAgendaRail.tsx",
+        "src/routes/builder/proposals/$proposalId/index.tsx",
+        "src/routes/builder-staff/proposals/$proposalId/index.tsx",
+        "src/routes/backoffice/proposals.$planId.tsx",
+        "src/routes/builder/builds/$buildId/index.tsx",
+        "src/routes/builder-staff/builds/$buildId/index.tsx",
+        "src/routes/backoffice/builds/$buildId/route.tsx"
+      ],
+      "testsAddedOrUpdated": [
+        "src/features/calendar-workspace/CalendarWorkspace.responsive.test.tsx",
+        "src/features/calendar-workspace/CalendarWorkspace.test.tsx",
+        "src/features/backoffice-build-detail/ProductionBuildDetailSurface.responsive.test.tsx"
+      ],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/WF-CAL-001_WF-CAL-001.BLDR.01_WF-CAL-001.BLDR.01.STEP-01_tablet-calendar-top.png",
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/WF-CAL-001_WF-CAL-001.BLDR.01_WF-CAL-001.BLDR.01.STEP-01_tablet-calendar.png",
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/WF-CAL-001_WF-CAL-001.BLDR.01_WF-CAL-001.BLDR.01.STEP-01_mobile-calendar.png"
+      ],
+      "verificationNotes": [
+        "Browser evidence captured a 1265px document width at 1024x768 and reduced the active Calendar tab label to \"Ca\" at 390x844, confirming layout overflow rather than isolated styling polish.",
+        "Responsive remediation should stay in the shared calendar workspace and route shells instead of forking separate mobile-only calendar implementations."
+      ],
+      "skillUsage": [
+        "impeccable"
+      ],
+      "notesOrBlocker": "Additional authenticated tablet/mobile mutation passes were interrupted by a late local ECONNRESET/browser-control timeout; existing browser evidence still defines the responsive and a11y backlog for this finding.",
+      "personas": [
+        "Builder",
+        "Builder Staff",
+        "Lender Operations / Backoffice Staff"
+      ],
+      "routesOrSurfaces": [
+        "/builder/proposals/$proposalId?tab=calendar",
+        "/builder-staff/proposals/$proposalId?tab=calendar",
+        "/backoffice/proposals/$planId?tab=calendar",
+        "/builder/builds/$buildId?tab=calendar",
+        "/builder-staff/builds/$buildId?tab=calendar",
+        "/backoffice/builds/$buildId?tab=calendar"
+      ],
+      "serverContractTouched": [],
+      "viewports": [
+        "desktop 1440x900",
+        "tablet 1024x768",
+        "mobile 390x844"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CAL-001-005",
+      "workstream": "calendar-workspace",
+      "phase": "responsive-a11y-polish",
+      "dependsOn": [
+        "Keep backend calendar events as full-range logical records; semantic dedupe should happen in projection and render layers without changing entity ids or route context.",
+        "Preserve visible month-range continuity while removing duplicate day-span fragments from sequential focus and the accessibility tree.",
+        "Keep shared agenda semantics aligned between EventManager and CalendarAgendaRail, not just one surface."
+      ],
+      "owner": "planning",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Project each logical event once per accessible agenda or day output; repeated day-span fragments in month cells may remain visual, but they must be aria-hidden and excluded from sequential focus.",
+        "Ensure keyboard tab order and screen-reader output enumerate each logical Foundation, Shell and Dry-In, submilestone, and draw item once per relevant view, with one action target per logical event.",
+        "Preserve backend event identity and full-range logical records so dedupe happens in projection and render layers without mutating entity ids or route context.",
+        "Keep agenda semantics aligned between EventManager and CalendarAgendaRail so desktop rails and mobile agenda surfaces expose the same deduped accessible model.",
+        "Add a11y regression coverage that counts logical agenda items, validates unique accessible names within a view, and asserts no duplicate focus stops for the same logical event range."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md",
+        "reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-cal-001-005",
+        "docs/core-product-workflow-manifest.md",
+        "docs/drawflow-calendar-tab-prd.md"
+      ],
+      "filesChanged": [
+        "src/components/ui/event-manager.tsx",
+        "src/features/calendar-workspace/CalendarAgendaRail.tsx",
+        "src/features/calendar-workspace/calendarEventProjection.ts",
+        "src/features/calendar-workspace/CalendarWorkspace.tsx"
+      ],
+      "testsAddedOrUpdated": [
+        "src/components/ui/event-manager.a11y.test.tsx",
+        "src/features/calendar-workspace/CalendarWorkspace.test.tsx"
+      ],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-CAL-001-BLDR-proposal-calendar-snapshot.md",
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/WF-CAL-001_WF-CAL-001.BLDR.01_WF-CAL-001.BLDR.01.STEP-01_desktop-month-calendar.png"
+      ],
+      "verificationNotes": [
+        "Verbatim duplicate accessible-tree proof from reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-CAL-001-BLDR-proposal-calendar-snapshot.md includes repeated \"- button \"Foundation, All day, milestone, planned, Day 0 to 30, $160.2K\"\" entries for successive agenda dates and repeated \"- button \"Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning\"\" entries across the same view.",
+        "The current snapshot also repeats nested action buttons for the same logical event, so the remediation must eliminate duplicate focus stops as well as duplicate spoken output."
+      ],
+      "skillUsage": [
+        "impeccable"
+      ],
+      "notesOrBlocker": "Convex guideline file convex/_generated/ai/guidelines.md is absent in this worktree; preserve the current query/mutation/test contracts unless the canonical guidance file is restored.",
+      "personas": [
+        "Builder",
+        "Builder Staff",
+        "Lender Operations / Backoffice Staff",
+        "DrawFlow System"
+      ],
+      "routesOrSurfaces": [
+        "Calendar month grid",
+        "Calendar agenda rail",
+        "/builder/proposals/$proposalId?tab=calendar",
+        "/backoffice/builds/$buildId?tab=calendar"
+      ],
+      "serverContractTouched": [
+        "convex/production_proposals.ts"
+      ],
+      "viewports": [
+        "desktop 1440x900",
+        "mobile 390x844"
+      ]
+    },
+    {
+      "findingId": "UX-WF-MAT-001-002",
+      "workstream": "material-planning",
+      "phase": "Phase 3 — field-level numeric validation and accessibility",
+      "dependsOn": [
+        "UX-WF-MAT-001-001"
+      ],
+      "owner": "planning",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Use numeric field semantics for cost and quantity inputs, with field-specific helper text, accepted range or format guidance, and aria-describedby links from each input to its own error text.",
+        "Set aria-invalid only on the offending field and announce distinct messages for negative cost and zero or invalid quantity without requiring the user to infer which control failed.",
+        "Explain disabled submit state in visible and programmatic text until all requirements are met; do not rely on a generic Must be greater than zero. message alone.",
+        "Keep cents and quantity validation aligned with the authoritative proposal cost-item validators and budget and draw recalculation contract in convex/production_proposals.ts.",
+        "Add regression coverage for keyboard-only validation, screen-reader announcements, and corrected recovery paths in the Add cost item dialog."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md",
+        "reports/core-workflow-ux-audit/agent-notes/proposal-planning.md#ux-wf-mat-001-002",
+        "docs/core-product-workflow-manifest.md",
+        "docs/build-material-planning.md"
+      ],
+      "filesChanged": [
+        "src/features/material-planning/MaterialPlanningTab.tsx",
+        "convex/production_proposals.ts"
+      ],
+      "testsAddedOrUpdated": [
+        "src/features/material-planning/MaterialPlanningTab.test.tsx",
+        "convex/production_proposals.test.ts"
+      ],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/WF-MAT-001_WF-MAT-001.BLDR.01_WF-MAT-001.BLDR.01.STEP-02_desktop-invalid-cost.png",
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-MAT-001-BLDR-invalid-snapshot.md",
+        "reports/core-workflow-ux-audit/evidence/proposal-planning/_WF-MAT-001-BLDR-add-dialog-snapshot.md"
+      ],
+      "verificationNotes": [
+        "The audit entered unit cost -25 and quantity 0 and observed the same generic Must be greater than zero. message while the Add item action stayed disabled.",
+        "Validation remediation should improve field-specific semantics without weakening the existing server-side numeric invariants and rollup calculations."
+      ],
+      "skillUsage": [
+        "impeccable"
+      ],
+      "notesOrBlocker": "Convex guideline file convex/_generated/ai/guidelines.md is absent in this worktree; preserve the current query/mutation/test contracts unless the canonical guidance file is restored.",
+      "personas": [
+        "Builder",
+        "DrawFlow System"
+      ],
+      "routesOrSurfaces": [
+        "/builder/proposals/$proposalId?tab=materials",
+        "Add cost item dialog validation"
+      ],
+      "serverContractTouched": [
+        "convex/production_proposals.ts"
+      ],
+      "viewports": [
+        "desktop 1440x900"
+      ]
+    }
+  ]
+}

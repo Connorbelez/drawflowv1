@@ -1,0 +1,1141 @@
+{
+  "project": "isometric-city-independent-assets",
+  "source_image": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/isometric-city-buildings/source.webp",
+  "notes": "Corrected run: source image used for inventory/proportions only; final production assets are independent transparent sprites, not screenshot crops.",
+  "assets": [
+    {
+      "id": "building-left-pavilion",
+      "label": "Left low pavilion",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "pavilion",
+      "bbox": {
+        "x": 168,
+        "y": 442,
+        "width": 76,
+        "height": 62
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-left-pavilion",
+        "prompt": "Create an independent transparent isometric miniature-city building: Left low pavilion."
+      }
+    },
+    {
+      "id": "building-far-left-highrise",
+      "label": "Far-left high-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "generic",
+      "bbox": {
+        "x": 240,
+        "y": 276,
+        "width": 70,
+        "height": 226
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-far-left-highrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: Far-left high-rise."
+      }
+    },
+    {
+      "id": "building-left-slim-highrise",
+      "label": "Left slim high-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "generic",
+      "bbox": {
+        "x": 313,
+        "y": 336,
+        "width": 65,
+        "height": 168
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-left-slim-highrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: Left slim high-rise."
+      }
+    },
+    {
+      "id": "building-left-central-block",
+      "label": "Left central block",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "generic",
+      "bbox": {
+        "x": 303,
+        "y": 396,
+        "width": 100,
+        "height": 111
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-left-central-block",
+        "prompt": "Create an independent transparent isometric miniature-city building: Left central block."
+      }
+    },
+    {
+      "id": "building-left-front-lowrise",
+      "label": "Left front low-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "lowrise",
+      "bbox": {
+        "x": 389,
+        "y": 443,
+        "width": 98,
+        "height": 90
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-left-front-lowrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: Left front low-rise."
+      }
+    },
+    {
+      "id": "building-mid-left-highrise",
+      "label": "Mid-left high-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "generic",
+      "bbox": {
+        "x": 482,
+        "y": 322,
+        "width": 76,
+        "height": 188
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-mid-left-highrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: Mid-left high-rise."
+      }
+    },
+    {
+      "id": "building-central-tall-tower",
+      "label": "Central tall tower",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "generic",
+      "bbox": {
+        "x": 586,
+        "y": 217,
+        "width": 73,
+        "height": 292
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-central-tall-tower",
+        "prompt": "Create an independent transparent isometric miniature-city building: Central tall tower."
+      }
+    },
+    {
+      "id": "building-central-front-highrise",
+      "label": "Central front high-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "generic",
+      "bbox": {
+        "x": 551,
+        "y": 366,
+        "width": 90,
+        "height": 158
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-central-front-highrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: Central front high-rise."
+      }
+    },
+    {
+      "id": "building-central-side-lowrise",
+      "label": "Central side low-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "generic",
+      "bbox": {
+        "x": 628,
+        "y": 379,
+        "width": 54,
+        "height": 128
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-central-side-lowrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: Central side low-rise."
+      }
+    },
+    {
+      "id": "building-mid-rear-highrise",
+      "label": "Mid rear high-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "generic",
+      "bbox": {
+        "x": 676,
+        "y": 305,
+        "width": 70,
+        "height": 198
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-mid-rear-highrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: Mid rear high-rise."
+      }
+    },
+    {
+      "id": "building-mid-front-highrise",
+      "label": "Mid front high-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "lowrise",
+      "bbox": {
+        "x": 658,
+        "y": 452,
+        "width": 78,
+        "height": 112
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-mid-front-highrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: Mid front high-rise."
+      }
+    },
+    {
+      "id": "building-mid-rear-highrise-two",
+      "label": "Mid rear high-rise two",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "generic",
+      "bbox": {
+        "x": 755,
+        "y": 318,
+        "width": 70,
+        "height": 186
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-mid-rear-highrise-two",
+        "prompt": "Create an independent transparent isometric miniature-city building: Mid rear high-rise two."
+      }
+    },
+    {
+      "id": "building-mid-front-block",
+      "label": "Mid front block",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "lowrise",
+      "bbox": {
+        "x": 612,
+        "y": 496,
+        "width": 80,
+        "height": 94
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-mid-front-block",
+        "prompt": "Create an independent transparent isometric miniature-city building: Mid front block."
+      }
+    },
+    {
+      "id": "building-mid-front-highrise-two",
+      "label": "Mid front high-rise two",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "lowrise",
+      "bbox": {
+        "x": 733,
+        "y": 497,
+        "width": 80,
+        "height": 98
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-mid-front-highrise-two",
+        "prompt": "Create an independent transparent isometric miniature-city building: Mid front high-rise two."
+      }
+    },
+    {
+      "id": "building-art-deco-left",
+      "label": "Left art-deco tower",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "art_deco",
+      "bbox": {
+        "x": 833,
+        "y": 207,
+        "width": 77,
+        "height": 300
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-art-deco-left",
+        "prompt": "Create an independent transparent isometric miniature-city building: Left art-deco tower."
+      }
+    },
+    {
+      "id": "building-art-deco-front-block",
+      "label": "Art-deco front block",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "lowrise",
+      "bbox": {
+        "x": 805,
+        "y": 441,
+        "width": 90,
+        "height": 116
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-art-deco-front-block",
+        "prompt": "Create an independent transparent isometric miniature-city building: Art-deco front block."
+      }
+    },
+    {
+      "id": "building-left-of-dome-highrise",
+      "label": "Left-of-dome high-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "generic",
+      "bbox": {
+        "x": 897,
+        "y": 345,
+        "width": 68,
+        "height": 153
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-left-of-dome-highrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: Left-of-dome high-rise."
+      }
+    },
+    {
+      "id": "building-dome-side-front-block",
+      "label": "Dome-side front block",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "lowrise",
+      "bbox": {
+        "x": 886,
+        "y": 443,
+        "width": 94,
+        "height": 132
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-dome-side-front-block",
+        "prompt": "Create an independent transparent isometric miniature-city building: Dome-side front block."
+      }
+    },
+    {
+      "id": "building-dome-rear-highrise",
+      "label": "Dome rear high-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "generic",
+      "bbox": {
+        "x": 951,
+        "y": 340,
+        "width": 58,
+        "height": 156
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-dome-rear-highrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: Dome rear high-rise."
+      }
+    },
+    {
+      "id": "building-dome-front-lowrise",
+      "label": "Dome front low-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "pavilion",
+      "bbox": {
+        "x": 917,
+        "y": 533,
+        "width": 102,
+        "height": 99
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-dome-front-lowrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: Dome front low-rise."
+      }
+    },
+    {
+      "id": "building-waterfront-lowrise",
+      "label": "Waterfront low-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "pavilion",
+      "bbox": {
+        "x": 877,
+        "y": 602,
+        "width": 134,
+        "height": 99
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-waterfront-lowrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: Waterfront low-rise."
+      }
+    },
+    {
+      "id": "building-columned-tower",
+      "label": "Columned landmark tower",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "art_deco",
+      "bbox": {
+        "x": 1005,
+        "y": 288,
+        "width": 88,
+        "height": 272
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-columned-tower",
+        "prompt": "Create an independent transparent isometric miniature-city building: Columned landmark tower."
+      }
+    },
+    {
+      "id": "building-right-of-dome-midrise",
+      "label": "Right-of-dome mid-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "generic",
+      "bbox": {
+        "x": 1077,
+        "y": 389,
+        "width": 64,
+        "height": 98
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-right-of-dome-midrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: Right-of-dome mid-rise."
+      }
+    },
+    {
+      "id": "building-domed-arena",
+      "label": "Domed arena",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "dome",
+      "bbox": {
+        "x": 994,
+        "y": 444,
+        "width": 284,
+        "height": 218
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-domed-arena",
+        "prompt": "Create an independent transparent isometric miniature-city building: Domed arena."
+      }
+    },
+    {
+      "id": "building-right-rear-highrise",
+      "label": "Right rear high-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "generic",
+      "bbox": {
+        "x": 1165,
+        "y": 368,
+        "width": 70,
+        "height": 154
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-right-rear-highrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: Right rear high-rise."
+      }
+    },
+    {
+      "id": "building-right-rear-highrise-two",
+      "label": "Right rear high-rise two",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "generic",
+      "bbox": {
+        "x": 1270,
+        "y": 404,
+        "width": 66,
+        "height": 174
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-right-rear-highrise-two",
+        "prompt": "Create an independent transparent isometric miniature-city building: Right rear high-rise two."
+      }
+    },
+    {
+      "id": "building-right-small-block",
+      "label": "Right small block",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "lowrise",
+      "bbox": {
+        "x": 1272,
+        "y": 491,
+        "width": 67,
+        "height": 96
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-right-small-block",
+        "prompt": "Create an independent transparent isometric miniature-city building: Right small block."
+      }
+    },
+    {
+      "id": "building-cn-left-tall-highrise",
+      "label": "CN-left tall high-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "generic",
+      "bbox": {
+        "x": 1288,
+        "y": 389,
+        "width": 72,
+        "height": 213
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-cn-left-tall-highrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: CN-left tall high-rise."
+      }
+    },
+    {
+      "id": "building-cn-left-midrise",
+      "label": "CN-left mid-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "lowrise",
+      "bbox": {
+        "x": 1354,
+        "y": 487,
+        "width": 75,
+        "height": 116
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-cn-left-midrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: CN-left mid-rise."
+      }
+    },
+    {
+      "id": "building-cn-tower",
+      "label": "CN-style tower",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "cn_tower",
+      "bbox": {
+        "x": 1388,
+        "y": 14,
+        "width": 123,
+        "height": 702
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-cn-tower",
+        "prompt": "Create an independent transparent isometric miniature-city building: CN-style tower."
+      }
+    },
+    {
+      "id": "building-cn-front-left-lowrise",
+      "label": "CN front-left low-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "pavilion",
+      "bbox": {
+        "x": 1192,
+        "y": 628,
+        "width": 98,
+        "height": 96
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-cn-front-left-lowrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: CN front-left low-rise."
+      }
+    },
+    {
+      "id": "building-cn-west-pavilion",
+      "label": "CN west pavilion",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "pavilion",
+      "bbox": {
+        "x": 1284,
+        "y": 593,
+        "width": 122,
+        "height": 104
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-cn-west-pavilion",
+        "prompt": "Create an independent transparent isometric miniature-city building: CN west pavilion."
+      }
+    },
+    {
+      "id": "building-cn-east-rear-highrise",
+      "label": "CN east rear high-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "generic",
+      "bbox": {
+        "x": 1492,
+        "y": 457,
+        "width": 72,
+        "height": 150
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-cn-east-rear-highrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: CN east rear high-rise."
+      }
+    },
+    {
+      "id": "building-cn-east-front-highrise",
+      "label": "CN east front high-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "lowrise",
+      "bbox": {
+        "x": 1486,
+        "y": 544,
+        "width": 98,
+        "height": 136
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-cn-east-front-highrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: CN east front high-rise."
+      }
+    },
+    {
+      "id": "building-right-front-midrise",
+      "label": "Right front mid-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "lowrise",
+      "bbox": {
+        "x": 1520,
+        "y": 610,
+        "width": 76,
+        "height": 72
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-right-front-midrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: Right front mid-rise."
+      }
+    },
+    {
+      "id": "building-right-east-rear-highrise",
+      "label": "Right east rear high-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "generic",
+      "bbox": {
+        "x": 1564,
+        "y": 392,
+        "width": 78,
+        "height": 216
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-right-east-rear-highrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: Right east rear high-rise."
+      }
+    },
+    {
+      "id": "building-right-mid-lowrise",
+      "label": "Right mid low-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "lowrise",
+      "bbox": {
+        "x": 1543,
+        "y": 537,
+        "width": 94,
+        "height": 94
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-right-mid-lowrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: Right mid low-rise."
+      }
+    },
+    {
+      "id": "building-far-right-highrise",
+      "label": "Far-right high-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "generic",
+      "bbox": {
+        "x": 1650,
+        "y": 458,
+        "width": 78,
+        "height": 148
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-far-right-highrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: Far-right high-rise."
+      }
+    },
+    {
+      "id": "building-far-right-lowrise",
+      "label": "Far-right low-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "lowrise",
+      "bbox": {
+        "x": 1626,
+        "y": 531,
+        "width": 121,
+        "height": 98
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-far-right-lowrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: Far-right low-rise."
+      }
+    },
+    {
+      "id": "building-far-right-edge-lowrise",
+      "label": "Far-right edge low-rise",
+      "classification": "image",
+      "role": "Independent transparent building asset",
+      "kind": "building",
+      "render_kind": "generic",
+      "bbox": {
+        "x": 1698,
+        "y": 529,
+        "width": 49,
+        "height": 144
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "building",
+        "output_basename": "building-far-right-edge-lowrise",
+        "prompt": "Create an independent transparent isometric miniature-city building: Far-right edge low-rise."
+      }
+    },
+    {
+      "id": "surface-left-main-platform",
+      "label": "Left main platform slab",
+      "classification": "image",
+      "role": "Independent transparent surface asset",
+      "kind": "surface",
+      "render_kind": "surface",
+      "bbox": {
+        "x": 14,
+        "y": 493,
+        "width": 392,
+        "height": 91
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "surface",
+        "output_basename": "surface-left-main-platform",
+        "prompt": "Create an independent transparent isometric miniature-city surface: Left main platform slab."
+      }
+    },
+    {
+      "id": "surface-left-water-basin",
+      "label": "Left water basin",
+      "classification": "image",
+      "role": "Independent transparent surface asset",
+      "kind": "surface",
+      "render_kind": "water_surface",
+      "bbox": {
+        "x": 247,
+        "y": 499,
+        "width": 245,
+        "height": 119
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "surface",
+        "output_basename": "surface-left-water-basin",
+        "prompt": "Create an independent transparent isometric miniature-city surface: Left water basin."
+      }
+    },
+    {
+      "id": "surface-center-left-roadway",
+      "label": "Center-left roadway slab",
+      "classification": "image",
+      "role": "Independent transparent surface asset",
+      "kind": "surface",
+      "render_kind": "surface",
+      "bbox": {
+        "x": 402,
+        "y": 488,
+        "width": 258,
+        "height": 91
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "surface",
+        "output_basename": "surface-center-left-roadway",
+        "prompt": "Create an independent transparent isometric miniature-city surface: Center-left roadway slab."
+      }
+    },
+    {
+      "id": "surface-front-left-water-channel",
+      "label": "Front-left water channel",
+      "classification": "image",
+      "role": "Independent transparent surface asset",
+      "kind": "surface",
+      "render_kind": "water_surface",
+      "bbox": {
+        "x": 386,
+        "y": 551,
+        "width": 260,
+        "height": 94
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "surface",
+        "output_basename": "surface-front-left-water-channel",
+        "prompt": "Create an independent transparent isometric miniature-city surface: Front-left water channel."
+      }
+    },
+    {
+      "id": "surface-center-front-landing",
+      "label": "Center front landing",
+      "classification": "image",
+      "role": "Independent transparent surface asset",
+      "kind": "surface",
+      "render_kind": "surface",
+      "bbox": {
+        "x": 520,
+        "y": 599,
+        "width": 96,
+        "height": 70
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "surface",
+        "output_basename": "surface-center-front-landing",
+        "prompt": "Create an independent transparent isometric miniature-city surface: Center front landing."
+      }
+    },
+    {
+      "id": "surface-mid-water-slab",
+      "label": "Mid water slab",
+      "classification": "image",
+      "role": "Independent transparent surface asset",
+      "kind": "surface",
+      "render_kind": "water_surface",
+      "bbox": {
+        "x": 664,
+        "y": 570,
+        "width": 255,
+        "height": 111
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "surface",
+        "output_basename": "surface-mid-water-slab",
+        "prompt": "Create an independent transparent isometric miniature-city surface: Mid water slab."
+      }
+    },
+    {
+      "id": "surface-mid-road-plaza",
+      "label": "Mid road plaza",
+      "classification": "image",
+      "role": "Independent transparent surface asset",
+      "kind": "surface",
+      "render_kind": "surface",
+      "bbox": {
+        "x": 705,
+        "y": 500,
+        "width": 254,
+        "height": 92
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "surface",
+        "output_basename": "surface-mid-road-plaza",
+        "prompt": "Create an independent transparent isometric miniature-city surface: Mid road plaza."
+      }
+    },
+    {
+      "id": "surface-dome-front-water",
+      "label": "Dome front water slab",
+      "classification": "image",
+      "role": "Independent transparent surface asset",
+      "kind": "surface",
+      "render_kind": "water_surface",
+      "bbox": {
+        "x": 831,
+        "y": 652,
+        "width": 258,
+        "height": 74
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "surface",
+        "output_basename": "surface-dome-front-water",
+        "prompt": "Create an independent transparent isometric miniature-city surface: Dome front water slab."
+      }
+    },
+    {
+      "id": "surface-dome-plaza",
+      "label": "Dome plaza surface",
+      "classification": "image",
+      "role": "Independent transparent surface asset",
+      "kind": "surface",
+      "render_kind": "surface",
+      "bbox": {
+        "x": 984,
+        "y": 555,
+        "width": 315,
+        "height": 139
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "surface",
+        "output_basename": "surface-dome-plaza",
+        "prompt": "Create an independent transparent isometric miniature-city surface: Dome plaza surface."
+      }
+    },
+    {
+      "id": "surface-cn-west-water",
+      "label": "CN west water slab",
+      "classification": "image",
+      "role": "Independent transparent surface asset",
+      "kind": "surface",
+      "render_kind": "water_surface",
+      "bbox": {
+        "x": 1197,
+        "y": 670,
+        "width": 260,
+        "height": 78
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "surface",
+        "output_basename": "surface-cn-west-water",
+        "prompt": "Create an independent transparent isometric miniature-city surface: CN west water slab."
+      }
+    },
+    {
+      "id": "surface-cn-circular-plaza",
+      "label": "CN circular plaza",
+      "classification": "image",
+      "role": "Independent transparent surface asset",
+      "kind": "surface",
+      "render_kind": "surface",
+      "bbox": {
+        "x": 1349,
+        "y": 635,
+        "width": 185,
+        "height": 129
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "surface",
+        "output_basename": "surface-cn-circular-plaza",
+        "prompt": "Create an independent transparent isometric miniature-city surface: CN circular plaza."
+      }
+    },
+    {
+      "id": "surface-right-main-platform",
+      "label": "Right main platform",
+      "classification": "image",
+      "role": "Independent transparent surface asset",
+      "kind": "surface",
+      "render_kind": "surface",
+      "bbox": {
+        "x": 1490,
+        "y": 604,
+        "width": 247,
+        "height": 126
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "surface",
+        "output_basename": "surface-right-main-platform",
+        "prompt": "Create an independent transparent isometric miniature-city surface: Right main platform."
+      }
+    },
+    {
+      "id": "surface-right-front-pad",
+      "label": "Right front pad",
+      "classification": "image",
+      "role": "Independent transparent surface asset",
+      "kind": "surface",
+      "render_kind": "surface",
+      "bbox": {
+        "x": 1501,
+        "y": 669,
+        "width": 121,
+        "height": 71
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "surface",
+        "output_basename": "surface-right-front-pad",
+        "prompt": "Create an independent transparent isometric miniature-city surface: Right front pad."
+      }
+    },
+    {
+      "id": "surface-far-right-pad",
+      "label": "Far-right pad",
+      "classification": "image",
+      "role": "Independent transparent surface asset",
+      "kind": "surface",
+      "render_kind": "surface",
+      "bbox": {
+        "x": 1600,
+        "y": 618,
+        "width": 142,
+        "height": 88
+      },
+      "rationale": "This asset must stand alone on transparency with no neighboring city context.",
+      "generation": {
+        "transparent": true,
+        "asset_type": "surface",
+        "output_basename": "surface-far-right-pad",
+        "prompt": "Create an independent transparent isometric miniature-city surface: Far-right pad."
+      }
+    }
+  ]
+}

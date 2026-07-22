@@ -325,15 +325,15 @@
 
 ### Working Capital and Optimizer Components
 
-#### CMP-022 — WorkingCapitalInput
+#### CMP-022 — BorrowerStartingCashInput
 
-**Description:** Numeric input for available borrower working capital.
+**Description:** Numeric input for the borrower's own cash available at build commencement.
 
 **UI/design:** Currency input with plain-language helper text and validation.
 
-**Used in screens:** `uiManifest/screenManifest.md` §25.1 SCR-005 — Available Working Capital Input.
+**Used in screens:** `uiManifest/screenManifest.md` §25.1 SCR-005 — Borrower Starting Cash Input.
 
-**Workflow references:** `draw_flow_prd.md` §7.10 Borrower Working Capital Limit; `draw_flow_prd.md` §8.5 Borrower Working Capital Constraint; `draw_flow_prd.md` §9.2 Optimization Inputs.
+**Workflow references:** `draw_flow_prd.md` §7.10 Borrower Starting Cash; `draw_flow_prd.md` §8.5 Borrower Cash-Flow Feasibility Constraint; `draw_flow_prd.md` §9.2 Optimization Inputs.
 
 ---
 
@@ -343,7 +343,7 @@
 
 **UI/design:** Short educational panel, preferably with simple example math or visual timeline.
 
-**Used in screens:** `uiManifest/screenManifest.md` §25.1 SCR-005 — Available Working Capital Input, `uiManifest/screenManifest.md` §25.1 SCR-008 — Draw Plan Comparison.
+**Used in screens:** `uiManifest/screenManifest.md` §25.1 SCR-005 — Borrower Starting Cash Input, `uiManifest/screenManifest.md` §25.1 SCR-008 — Draw Plan Comparison.
 
 **Workflow references:** `draw_flow_prd.md` §8.5 Borrower Working Capital Constraint; `draw_flow_prd.md` §9.6 Capital-Constrained Plan.
 
@@ -351,11 +351,11 @@
 
 #### CMP-024 — FeasibilityPreview
 
-**Description:** Quick preview of whether entered working capital can support proposed milestone grouping.
+**Description:** Quick preview of whether borrower starting cash covers the plan's derived working-capital requirement.
 
 **UI/design:** Shows feasible/warning/infeasible states and likely stall points.
 
-**Used in screens:** `uiManifest/screenManifest.md` §25.1 SCR-005 — Available Working Capital Input, `uiManifest/screenManifest.md` §25.1 SCR-008 — Draw Plan Comparison.
+**Used in screens:** `uiManifest/screenManifest.md` §25.1 SCR-005 — Borrower Starting Cash Input, `uiManifest/screenManifest.md` §25.1 SCR-008 — Draw Plan Comparison.
 
 **Workflow references:** `draw_flow_prd.md` §9.3 Optimization Outputs; `draw_flow_prd.md` §9.6 Capital-Constrained Plan.
 
@@ -367,7 +367,7 @@
 
 **UI/design:** Locale-aware formatting, validation, no ambiguous decimals.
 
-**Used in screens:** `uiManifest/screenManifest.md` §25.1 SCR-005 — Available Working Capital Input, `uiManifest/screenManifest.md` §25.1 SCR-007 — Draft Build Workspace / Roadmap Wizard, `uiManifest/screenManifest.md` §25.1 SCR-014 — Mobile Proof Upload, `uiManifest/screenManifest.md` §25.1 SCR-023 — Draw Release Approval Detail, `uiManifest/screenManifest.md` §25.1 SCR-025 — Budget Revision Request / Review, `uiManifest/screenManifest.md` §25.1 SCR-026 — Policy Configuration.
+**Used in screens:** `uiManifest/screenManifest.md` §25.1 SCR-005 — Borrower Starting Cash Input, `uiManifest/screenManifest.md` §25.1 SCR-007 — Draft Build Workspace / Roadmap Wizard, `uiManifest/screenManifest.md` §25.1 SCR-014 — Mobile Proof Upload, `uiManifest/screenManifest.md` §25.1 SCR-023 — Draw Release Approval Detail, `uiManifest/screenManifest.md` §25.1 SCR-025 — Budget Revision Request / Review, `uiManifest/screenManifest.md` §25.1 SCR-026 — Policy Configuration.
 
 **Workflow references:** all financial input workflows.
 
@@ -417,7 +417,7 @@
 
 **Used in screens:** `uiManifest/screenManifest.md` §25.1 SCR-008 — Draw Plan Comparison, `uiManifest/screenManifest.md` §25.1 SCR-012 — Active Build Workspace.
 
-**Workflow references:** `draw_flow_prd.md` §7.10 Borrower Working Capital Limit; `draw_flow_prd.md` §9.6 Capital-Constrained Plan.
+**Workflow references:** `draw_flow_prd.md` §7.10 Borrower Starting Cash; `draw_flow_prd.md` §9.6 Capital-Constrained Plan.
 
 ---
 
@@ -1489,7 +1489,7 @@
 
 | Workflow / Story Area | Primary Screens | Supporting Screens |
 |---|---|---|
-| Builder creates Build Proposal | `uiManifest/screenManifest.md` §25.1 SCR-002 — Build Proposal Start, `uiManifest/screenManifest.md` §25.1 SCR-003 — Build Site Location and Map Setup, `uiManifest/screenManifest.md` §25.1 SCR-004 — Permit and Document Upload, `uiManifest/screenManifest.md` §25.1 SCR-005 — Available Working Capital Input, `uiManifest/screenManifest.md` §25.1 SCR-006 — Milestone Template Selection, `uiManifest/screenManifest.md` §25.1 SCR-007 — Draft Build Workspace / Roadmap Wizard, `uiManifest/screenManifest.md` §25.1 SCR-008 — Draw Plan Comparison, `uiManifest/screenManifest.md` §25.1 SCR-009 — Proposal Review and Submit | `uiManifest/screenManifest.md` §25.1 SCR-029 — Secure Deal Chat Panel, `uiManifest/screenManifest.md` §25.1 SCR-030 — Build Site Map Panel |
+| Builder creates Build Proposal | `uiManifest/screenManifest.md` §25.1 SCR-002 — Build Proposal Start, `uiManifest/screenManifest.md` §25.1 SCR-003 — Build Site Location and Map Setup, `uiManifest/screenManifest.md` §25.1 SCR-004 — Permit and Document Upload, `uiManifest/screenManifest.md` §25.1 SCR-005 — Borrower Starting Cash Input, `uiManifest/screenManifest.md` §25.1 SCR-006 — Milestone Template Selection, `uiManifest/screenManifest.md` §25.1 SCR-007 — Draft Build Workspace / Roadmap Wizard, `uiManifest/screenManifest.md` §25.1 SCR-008 — Draw Plan Comparison, `uiManifest/screenManifest.md` §25.1 SCR-009 — Proposal Review and Submit | `uiManifest/screenManifest.md` §25.1 SCR-029 — Secure Deal Chat Panel, `uiManifest/screenManifest.md` §25.1 SCR-030 — Build Site Map Panel |
 | Admin reviews proposal | `uiManifest/screenManifest.md` §25.1 SCR-010 — Admin Proposal Review Queue, `uiManifest/screenManifest.md` §25.1 SCR-011 — Admin Proposal Review Detail | `uiManifest/screenManifest.md` §25.1 SCR-030 — Build Site Map Panel, `uiManifest/screenManifest.md` §25.1 SCR-027 — Audit History |
 | Builder updates active milestone | `uiManifest/screenManifest.md` §25.1 SCR-012 — Active Build Workspace, `uiManifest/screenManifest.md` §25.1 SCR-013 — Milestone Detail Drawer / Page | `uiManifest/screenManifest.md` §25.1 SCR-029 — Secure Deal Chat Panel |
 | Builder marks milestone complete and uploads proof | `uiManifest/screenManifest.md` §25.1 SCR-013 — Milestone Detail Drawer / Page, `uiManifest/screenManifest.md` §25.1 SCR-014 — Mobile Proof Upload | `uiManifest/screenManifest.md` §25.1 SCR-012 — Active Build Workspace, `uiManifest/screenManifest.md` §25.1 SCR-030 — Build Site Map Panel |
@@ -1578,6 +1578,4 @@ Responsive but not primary:
 - proposal intake,
 - chat panel,
 - map panel.
-
-
 

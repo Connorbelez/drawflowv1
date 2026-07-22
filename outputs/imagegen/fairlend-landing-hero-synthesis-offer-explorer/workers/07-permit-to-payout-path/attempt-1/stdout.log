@@ -1,0 +1,5 @@
+Native image generation ran, but it did not expose a savable PNG artifact in the workspace, so I did not fabricate one.
+
+Wrote the required failure JSON here:
+
+[ result.json](/Users/connor/Dev/drawFlow/v1/drawflowv1/outputs/imagegen/fairlend-landing-hero-synthesis-offer-explorer/workers/07-permit-to-payout-path/attempt-1/result.json)

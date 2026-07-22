@@ -1,0 +1,7 @@
+{
+  "id": "05-two-door-priority-builder",
+  "status": "failed",
+  "image_path": null,
+  "error": "Native image generation completed, but no local PNG file handle or binary payload was exposed for saving to the requested path.",
+  "caveats": ""
+}

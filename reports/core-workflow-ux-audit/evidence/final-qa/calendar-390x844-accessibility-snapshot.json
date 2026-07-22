@@ -1,0 +1,68 @@
+{
+  "compacted": true,
+  "fullOutputPath": "/Users/connor/.pi/agent/sessions/--Users-connor-Dev-drawFlow-v1-drawflowv1-core-workflow-remediation-20260717--/.pi-agent-browser-artifacts/019f87c0-0e29-7876-a720-bc37adcd50cd/pi-agent-browser-snapshot-0558560db8ab6de0.json",
+  "origin": "http://127.0.0.1:3000/builder/builds/build_visual_hamilton?tab=calendar",
+  "previewMode": "structured",
+  "viewportOrdering": "dom-signal-prioritized",
+  "previewRefIds": [
+    "e13",
+    "e14",
+    "e20",
+    "e15",
+    "e8",
+    "e11",
+    "e21",
+    "e22",
+    "e9",
+    "e30",
+    "e36",
+    "e37"
+  ],
+  "highValueControlRefIds": [
+    "e113",
+    "e35",
+    "e2",
+    "e4",
+    "e23",
+    "e114",
+    "e40",
+    "e62",
+    "e100",
+    "e3"
+  ],
+  "additionalSectionsOmitted": 1,
+  "previewSections": [
+    {
+      "linesShown": 8,
+      "omittedLines": 7,
+      "role": "heading",
+      "title": "Hamilton Infill Build"
+    },
+    {
+      "linesShown": 2,
+      "omittedLines": 185,
+      "role": "region",
+      "title": "Calendar workspace"
+    },
+    {
+      "linesShown": 2,
+      "omittedLines": 170,
+      "role": "heading",
+      "title": "Week of June 1"
+    }
+  ],
+  "refCount": 212,
+  "roleCounts": {
+    "region": 2,
+    "button": 98,
+    "navigation": 3,
+    "combobox": 2,
+    "heading": 2,
+    "generic": 92,
+    "link": 2,
+    "option": 9,
+    "textbox": 2
+  },
+  "snapshotLineCount": 212,
+  "structuredPreviewUsed": true
+}

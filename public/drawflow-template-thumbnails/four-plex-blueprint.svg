@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">4-plex blueprint elevation</title>
+  <desc id="desc">Blueprint-style front elevation of a four-unit residential building.</desc>
+  <defs>
+    <linearGradient id="sheet" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#062a52" />
+      <stop offset="0.58" stop-color="#042041" />
+      <stop offset="1" stop-color="#03172f" />
+    </linearGradient>
+    <pattern id="smallGrid" width="8" height="8" patternUnits="userSpaceOnUse">
+      <path d="M8 0H0V8" fill="none" stroke="#0f69a2" stroke-opacity="0.16" stroke-width="0.7" />
+    </pattern>
+    <pattern id="largeGrid" width="64" height="64" patternUnits="userSpaceOnUse">
+      <path d="M64 0H0V64" fill="none" stroke="#41b9ff" stroke-opacity="0.13" stroke-width="1.1" />
+    </pattern>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="1.1" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+    <style>
+      .paper { fill: url(#sheet); }
+      .grid-a { fill: url(#smallGrid); }
+      .grid-b { fill: url(#largeGrid); }
+      .frame { fill: none; stroke: #1bb8ff; stroke-opacity: 0.72; stroke-width: 1.1; }
+      .guide { fill: none; stroke: #22c7ff; stroke-dasharray: 7 5; stroke-linecap: round; stroke-opacity: 0.78; stroke-width: 1.2; }
+      .dim { fill: none; stroke: #4dd8ff; stroke-linecap: round; stroke-opacity: 0.86; stroke-width: 1.4; }
+      .thin { fill: none; stroke: #b9ecff; stroke-linecap: round; stroke-linejoin: round; stroke-opacity: 0.78; stroke-width: 1.15; }
+      .line { fill: none; stroke: #e7f8ff; stroke-linecap: round; stroke-linejoin: round; stroke-opacity: 0.96; stroke-width: 2.05; }
+      .cyan { fill: none; stroke: #54d8ff; stroke-linecap: round; stroke-linejoin: round; stroke-opacity: 0.96; stroke-width: 2; }
+      .shade { fill: #0d5b91; fill-opacity: 0.16; stroke: #85e4ff; stroke-opacity: 0.62; stroke-width: 1; }
+      .label { fill: #8ceaff; font: 700 12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; letter-spacing: 0.08em; opacity: 0.72; }
+    </style>
+  </defs>
+
+  <rect class="paper" width="512" height="512" />
+  <rect class="grid-a" width="512" height="512" />
+  <rect class="grid-b" width="512" height="512" />
+  <rect class="frame" x="10" y="10" width="492" height="492" />
+  <rect class="frame" x="16" y="16" width="480" height="480" opacity="0.46" />
+
+  <g class="dim" opacity="0.9">
+    <path d="M48 44h28M62 30v28" />
+    <circle cx="62" cy="44" r="8" />
+    <path d="M436 44h28M450 30v28" />
+    <circle cx="450" cy="44" r="8" />
+    <path d="M48 468h28M62 454v28" />
+    <circle cx="62" cy="468" r="8" />
+    <path d="M436 468h28M450 454v28" />
+    <circle cx="450" cy="468" r="8" />
+  </g>
+
+  <g class="guide">
+    <path d="M86 123h340M54 352h404M74 392h380" />
+    <path d="M96 96v332M184 96v332M256 84v344M328 96v332M416 96v332" opacity="0.5" />
+    <path d="M54 161h22M436 161h22M54 236h22M436 236h22M54 314h22M436 314h22" />
+  </g>
+
+  <g class="dim">
+    <path d="M70 129v273" />
+    <path d="M64 129h16M64 402h16M70 129l-5 9M70 129l5 9M70 402l-5-9M70 402l5-9" />
+    <path d="M442 129v273" />
+    <path d="M432 129h20M432 402h20M442 129l-5 9M442 129l5 9M442 402l-5-9M442 402l5-9" />
+    <path d="M112 426h288" />
+    <path d="M112 420v12M184 420v12M256 420v12M328 420v12M400 420v12" />
+  </g>
+
+  <g filter="url(#glow)">
+    <path class="cyan" d="M89 168l42-42h246l42 42" />
+    <path class="line" d="M78 178h434" />
+    <path class="line" d="M101 178v214M411 178v214" />
+    <path class="line" d="M93 392h326" />
+    <path class="line" d="M112 392v22M400 392v22M93 414h326" />
+
+    <path class="line" d="M112 178v214M184 178v214M256 178v214M328 178v214M400 178v214" />
+    <path class="thin" d="M118 187h66M190 187h66M262 187h66M334 187h66" />
+    <path class="thin" d="M118 247h66M190 247h66M262 247h66M334 247h66" />
+    <path class="thin" d="M118 316h66M190 316h66M262 316h66M334 316h66" />
+
+    <path class="line" d="M112 178l32-32h38l32 32" />
+    <path class="line" d="M184 178l32-32h38l32 32" />
+    <path class="line" d="M256 178l32-32h38l32 32" />
+    <path class="line" d="M328 178l32-32h38l32 32" />
+    <path class="thin" d="M144 146v32M216 146v32M288 146v32M360 146v32" opacity="0.8" />
+
+    <g>
+      <rect class="shade" x="125" y="202" width="42" height="38" />
+      <rect class="shade" x="197" y="202" width="42" height="38" />
+      <rect class="shade" x="269" y="202" width="42" height="38" />
+      <rect class="shade" x="341" y="202" width="42" height="38" />
+      <rect class="shade" x="125" y="270" width="42" height="38" />
+      <rect class="shade" x="197" y="270" width="42" height="38" />
+      <rect class="shade" x="269" y="270" width="42" height="38" />
+      <rect class="shade" x="341" y="270" width="42" height="38" />
+      <path class="thin" d="M146 202v38M125 221h42M218 202v38M197 221h42M290 202v38M269 221h42M362 202v38M341 221h42" />
+      <path class="thin" d="M146 270v38M125 289h42M218 270v38M197 289h42M290 270v38M269 289h42M362 270v38M341 289h42" />
+    </g>
+
+    <g>
+      <path class="line" d="M128 392v-51h36v51" />
+      <path class="line" d="M200 392v-51h36v51" />
+      <path class="line" d="M272 392v-51h36v51" />
+      <path class="line" d="M344 392v-51h36v51" />
+      <path class="thin" d="M146 347v45M218 347v45M290 347v45M362 347v45" />
+      <circle cx="156" cy="368" r="2.2" fill="#dff8ff" opacity="0.9" />
+      <circle cx="228" cy="368" r="2.2" fill="#dff8ff" opacity="0.9" />
+      <circle cx="300" cy="368" r="2.2" fill="#dff8ff" opacity="0.9" />
+      <circle cx="372" cy="368" r="2.2" fill="#dff8ff" opacity="0.9" />
+    </g>
+
+    <path class="thin" d="M92 178l22-28h28M420 178l-22-28h-28" />
+    <path class="thin" d="M103 188h308M103 194h308M103 400h308M103 407h308" opacity="0.78" />
+    <path class="thin" d="M96 414h-20M416 414h20M82 414v19M430 414v19" />
+  </g>
+
+  <g class="guide" opacity="0.58">
+    <path d="M104 440h312" />
+    <path d="M104 440v16M184 440v16M256 440v16M328 440v16M416 440v16" />
+  </g>
+  <text class="label" x="100" y="470">4-PLEX ELEVATION</text>
+</svg>

@@ -1,0 +1,238 @@
+{
+  "id": "fairlend-hero-synthesis",
+  "title": "FairLend Landing Page Hero Synthesis",
+  "summary": "Eight one-hero landing page concepts that blend FairLend corporate/brokerage trust with a high-converting builder project-review flow.",
+  "whenToUse": "Use for deciding which landing page hero direction should anchor FairLend's broader company positioning while converting construction build-financing borrowers.",
+  "requiredInputs": [
+    "FairLend brand posture",
+    "Builder/developer conversion flow",
+    "Licensed brokerage proof cues",
+    "Canadian housing/construction imagery"
+  ],
+  "riskGates": [
+    "Do not make a collage or contact sheet.",
+    "Do not invent awards, rates, endorsements, or third-party logos.",
+    "Generated typography is directional; final copy should be composited deterministically after a route is selected."
+  ],
+  "review": {
+    "title": "FairLend hero synthesis concepts",
+    "summary": "Eight unique landing-page hero mockups blending brokerage trust with the high-converting project-review flow.",
+    "preset": "image-wall",
+    "showCaptions": true,
+    "showControls": true,
+    "minTileWidth": 360,
+    "contactSheetColumns": 4,
+    "contactSheetThumb": 300
+  },
+  "families": [
+    {
+      "id": "licensed-project-review",
+      "title": "Licensed Project Review",
+      "category": "Landing Page Hero",
+      "summary": "Lead with the conversion quiz, but flank it with brokerage licensing and corporate proof so the two-minute review feels credible.",
+      "businessGoal": "Increase builder starts without losing the trust created by the brokerage/company page.",
+      "scene": "A polished desktop landing-page hero screenshot for FairLend: warm off-white page, full top navigation, large editorial serif headline on the left, a compact Step 1 of 7 project-review module near the CTA, and a right-side Canadian multiplex construction image with a translucent licensed brokerage proof card.",
+      "focus": "Primary focus is the builder/developer starting a project review, with secondary focus on licensed brokerage legitimacy.",
+      "decision": "Can the homepage become a company-trust hero and a builder conversion entry point at once?",
+      "elements": [
+        "single desktop website hero mockup",
+        "FairLend-style nav and wordmark",
+        "large serif headline about build financing and fair lending",
+        "Step 1 of 7 progress pill",
+        "three friction-reduction chips",
+        "primary coral project-review CTA",
+        "licensed brokerage proof card",
+        "Canadian multiplex construction/blueprint visual"
+      ],
+      "constraints": [
+        "one unique hero page only, no collage, no multiple thumbnails, no mood board",
+        "premium brokerage aesthetic, low-radius UI, clean whitespace",
+        "conversion elements must be prominent but not gimmicky",
+        "generated text should be sparse and approximate, final text can be rebuilt later"
+      ],
+      "avoid": "contact sheets, page grids, generic SaaS dashboard, fake awards, fake rates, fake partner marks, discount framing, overly rounded cartoon UI"
+    },
+    {
+      "id": "company-trust-with-quiz",
+      "title": "Company Trust With Quiz",
+      "category": "Landing Page Hero",
+      "summary": "Keep the first page's broad 'Building the future of Fair Lending' posture, then place a slim builder qualification card directly below the promise.",
+      "businessGoal": "Retain corporate credibility while making the next action unmistakable for build-financing prospects.",
+      "scene": "A high-fidelity FairLend homepage hero mockup with a monumental serif company headline on a warm beige canvas, a realistic Canadian urban housing image fading into blue blueprint lines, and a centered embedded review card with progress dots, low-friction chips, and two stacked CTAs.",
+      "focus": "The synthesis of brand narrative and practical builder qualification.",
+      "decision": "Does a corporate homepage hero convert better when the review flow is embedded as the first action?",
+      "elements": [
+        "single desktop website hero mockup",
+        "large company-level headline",
+        "subcopy about build financing, private mortgages, investor access",
+        "embedded seven-step review card",
+        "transparent terms and technology-led underwriting proof points",
+        "realistic Canadian multiplex image",
+        "blueprint overlay",
+        "coral primary CTA"
+      ],
+      "constraints": [
+        "one page hero only",
+        "the review card should feel native to the brokerage brand",
+        "use generous editorial spacing",
+        "avoid dense explanatory text"
+      ],
+      "avoid": "separate landing pages side by side, collage, fake regulatory seals, heavy gradients, generic tech startup look"
+    },
+    {
+      "id": "progress-draw-control-plane",
+      "title": "Progress Draw Control Plane",
+      "category": "Landing Page Hero",
+      "summary": "Turn the hero into an operational control plane: roadmap, draw grouping, evidence, and funding release all visible in one premium hero.",
+      "businessGoal": "Speak directly to developers who care about draw execution while maintaining FairLend's institutional confidence.",
+      "scene": "A desktop landing-page hero mockup with the FairLend nav, a strong serif headline about financing that moves with construction progress, and a right-side product-like visual showing a construction roadmap, milestone cards, draw group brackets, evidence status, and a small licensed brokerage badge over a tasteful Canadian build site image.",
+      "focus": "Construction draw management clarity, with brokerage authority as the credibility layer.",
+      "decision": "Would developer/operators convert better when the hero visual shows the actual draw workflow instead of only a finished building?",
+      "elements": [
+        "single desktop website hero mockup",
+        "roadmap or Gantt-style hero visual",
+        "milestone cards",
+        "draw group bounding boxes",
+        "evidence status chips",
+        "licensed brokerage badge",
+        "project review CTA",
+        "subtle blueprint texture"
+      ],
+      "constraints": [
+        "product UI should be visual and sparse, not a dense dashboard",
+        "maintain warm FairLend editorial tone",
+        "CTA remains visible above the fold"
+      ],
+      "avoid": "generic analytics SaaS, fake customer data, tiny unreadable tables, collage, overly dark fintech styling"
+    },
+    {
+      "id": "site-verified-brokerage",
+      "title": "Site-Verified Brokerage",
+      "category": "Landing Page Hero",
+      "summary": "Use the site-visit/evidence angle as proof: FairLend funds verified progress, not paperwork promises.",
+      "businessGoal": "Convert serious builders by making the reimbursement-draw logic feel concrete and governed.",
+      "scene": "A sophisticated FairLend hero mockup showing a construction site or partially completed multiplex on the right, with overlaid evidence cards, geofence/location verification cue, site-visit note, and a small brokerage/license proof card. The left side carries a serif headline, low-friction chips, Step 1 of 7 progress, and a coral Start project review CTA.",
+      "focus": "Verified progress and trustworthy governance.",
+      "decision": "Does evidence-first construction language make the financing offer feel more credible and specific?",
+      "elements": [
+        "single desktop website hero mockup",
+        "construction site / partially built multiplex image",
+        "evidence package card",
+        "site visit status",
+        "location verification cue",
+        "licensed brokerage proof",
+        "Step 1 progress cue",
+        "primary conversion CTA"
+      ],
+      "constraints": [
+        "the construction evidence should feel professional, not surveillance-heavy",
+        "keep legal/proof cues restrained",
+        "do not imply proactive advance funding"
+      ],
+      "avoid": "collage, police-like geofence visuals, fake personal data, fake loan approvals, aggressive sales design"
+    },
+    {
+      "id": "two-door-priority-builder",
+      "title": "Two-Door, Builder First",
+      "category": "Landing Page Hero",
+      "summary": "Keep FairLend's two-sided business clear, but make Build Financing the dominant path and Investor Platform the secondary path.",
+      "businessGoal": "Clarify FairLend as brokerage and investment company while optimizing for the builder/developer segment.",
+      "scene": "A premium FairLend desktop hero mockup with one large left headline and two action panels below: a dominant build-financing project-review panel with progress dots and coral CTA, plus a quieter investor-platform panel. On the right, a realistic Canadian multifamily property fades from blueprint sketch to completed structure, with a brokerage license card tucked near the image.",
+      "focus": "Segment clarity without splitting the page into equal competing heroes.",
+      "decision": "Can the hero serve both borrowers and investors while clearly prioritizing the conversion-critical builder flow?",
+      "elements": [
+        "single desktop website hero mockup",
+        "two path panels with build financing dominant",
+        "investor platform secondary cue",
+        "project review stepper",
+        "brokerage license proof",
+        "blueprint-to-building transition",
+        "deep green and coral FairLend palette"
+      ],
+      "constraints": [
+        "do not create a two-page collage",
+        "build path must be visually primary",
+        "investor path should not steal the main CTA"
+      ],
+      "avoid": "equal-weight split causing choice paralysis, generic tabs, fake investor returns, cluttered nav"
+    },
+    {
+      "id": "capital-confidence-meter",
+      "title": "Capital Confidence Meter",
+      "category": "Landing Page Hero",
+      "summary": "Translate working-capital constraints and lender policy into a builder-friendly feasibility readout in the hero.",
+      "businessGoal": "Attract developers who need to know whether their project can survive draw timing, fees, and capital limits.",
+      "scene": "A FairLend landing-page hero mockup with a serif headline about knowing which draw plan works before you build, a right-side feasibility card showing working-capital limit, draw policy limit, milestone timeline, and 'review starts in minutes' cues, layered over blueprint and Canadian construction imagery. Include subtle license/company proof and a strong coral CTA.",
+      "focus": "Financial feasibility and borrower working-capital relief.",
+      "decision": "Does a capital-planning promise differentiate FairLend from generic construction financing pages?",
+      "elements": [
+        "single desktop website hero mockup",
+        "capital feasibility panel",
+        "working capital limit visual",
+        "draw policy limit visual",
+        "draw timeline",
+        "Step 1 of 7 cue",
+        "licensed company proof",
+        "primary Start project review CTA"
+      ],
+      "constraints": [
+        "do not show exact rates or unverified approvals",
+        "keep the feasibility visuals clean and high-level",
+        "use premium brokerage styling"
+      ],
+      "avoid": "fake calculator math, dense spreadsheet UI, hard-sell lending copy, collage, generic banking stock imagery"
+    },
+    {
+      "id": "permit-to-payout-path",
+      "title": "Permit To Payout Path",
+      "category": "Landing Page Hero",
+      "summary": "Show the journey from proposal, permits, budget, milestones, evidence, approval, to reimbursement payout.",
+      "businessGoal": "Make the seven-step review feel like a governed financing path, not just a lead form.",
+      "scene": "A clean FairLend hero mockup where the main visual is a horizontal path from permit document to budget to milestone to evidence to admin approval to draw release, integrated over a Canadian multiplex blueprint and photo blend. The left headline uses the FairLend serif tone, with chips for no credit check, no documents required, and two minutes, plus a coral project review CTA and small brokerage proof.",
+      "focus": "Process clarity from intake to reimbursement draw release.",
+      "decision": "Will prospects trust the conversion flow more when the hero shows what happens after the form starts?",
+      "elements": [
+        "single desktop website hero mockup",
+        "process path or timeline",
+        "permit/budget/milestone/evidence/approval/draw release icons",
+        "seven-step progress cue",
+        "blueprint and property imagery",
+        "brokerage proof card",
+        "conversion chips",
+        "coral CTA"
+      ],
+      "constraints": [
+        "do not make a diagram-only page; it should still feel like a premium landing hero",
+        "show reimbursement draw release only after completion/approval",
+        "text must be sparse"
+      ],
+      "avoid": "infographic poster, flowchart collage, fake approval guarantees, cramped icon rows"
+    },
+    {
+      "id": "brokerage-card-as-conversion-anchor",
+      "title": "Brokerage Card As Conversion Anchor",
+      "category": "Landing Page Hero",
+      "summary": "Promote the license/proof card into the anchor beside the CTA, turning trust into the reason to start the review now.",
+      "businessGoal": "Use the first page's strongest trust artifact to reduce anxiety around the second page's lead-capture flow.",
+      "scene": "A refined FairLend desktop hero mockup with a large left conversion headline, Step 1 of 7 pill, chips, and stacked CTAs. The dominant right-side visual is a beautiful license/business proof card integrated with a realistic Canadian build-financing scene behind it: blueprint overlay, multifamily property, and a small draw roadmap strip.",
+      "focus": "Trust object as conversion support.",
+      "decision": "Does a more prominent license proof card improve the credibility of the project-review CTA?",
+      "elements": [
+        "single desktop website hero mockup",
+        "large brokerage license proof card",
+        "project review CTA block",
+        "seven-step progress cue",
+        "friction-reduction chips",
+        "multifamily property visual",
+        "blueprint overlay",
+        "draw roadmap strip"
+      ],
+      "constraints": [
+        "the license card should feel official but not like a fake government seal",
+        "avoid overloading the hero with legal text",
+        "preserve FairLend premium palette"
+      ],
+      "avoid": "fake seals, fake awards, collage, generic certificate graphic, unreadable legal microcopy"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+.timeline-route-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@media (min-width: 640px) {
+  .timeline-route-header {
+    gap: 14px;
+  }
+}
+
+.timeline-route-header__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in oklch, var(--muted) 72%, transparent);
+}
+
+@media (min-width: 640px) {
+  .timeline-route-header__actions {
+    gap: 8px;
+    padding: 10px 12px;
+  }
+}

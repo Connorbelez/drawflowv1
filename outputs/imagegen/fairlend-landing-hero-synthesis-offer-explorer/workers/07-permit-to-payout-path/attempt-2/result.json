@@ -1,0 +1,7 @@
+{
+  "id": "07-permit-to-payout-path",
+  "status": "failed",
+  "image_path": null,
+  "error": "Native image generation returned an image but did not expose a savable PNG file artifact in the workspace or writable temp directories.",
+  "caveats": ""
+}

@@ -1,0 +1,11 @@
+{
+  "input": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/toronto-hero-extraction/generated/raw/toronto-cityscape.png",
+  "output": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/toronto-hero-extraction/generated/webp/toronto-cityscape.webp",
+  "size": {
+    "width": 1406,
+    "height": 1032
+  },
+  "transparent_background": "auto",
+  "inferred_background": null,
+  "quality": 92
+}

@@ -4,154 +4,171 @@ Quick reference for agents after PRD split. Each row gives file location, sectio
 
 | File | Section / ID | Title | Line |
 |---|---:|---|---:|
+| `builder-draw-request-workspace.md` | — | Builder Draw Request Workspace | 1 |
+| `fairlend-soft-brutalist-blueprint-design-brief.md` | — | Fairlend Soft Brutalist Blueprint Design Brief | 1 |
+| `build-material-planning.md` | — | Build Material Planning | 1 |
+| `contractors-v1.md` | — | Contractors v1 Implementation Notes | 1 |
+| `drawflow-calendar-tab-prd.md` | — | DrawFlow Calendar Tab PRD | 1 |
+| `draw_flow_production_prd.md` | — | DrawFlow Production PRD | 1 |
+| `draw_flow_production_prd.md` | 1 | Purpose | 12 |
+| `draw_flow_production_prd.md` | 3 | Tenancy and Organization Model | 45 |
+| `draw_flow_production_prd.md` | 4 | Personas and Role Boundaries | 97 |
+| `draw_flow_production_prd.md` | 5 | Authentication Requirements | 247 |
+| `draw_flow_production_prd.md` | 6 | Authorization Model | 283 |
+| `draw_flow_production_prd.md` | 7 | Production Domain Schema | 348 |
+| `draw_flow_production_prd.md` | 8 | Core Workflows | 450 |
+| `draw_flow_production_prd.md` | 9 | Required Product Surfaces | 652 |
+| `draw_flow_production_prd.md` | 11 | MVP Acceptance Criteria | 748 |
+| `draw_flow_production_prd.md` | 12 | Open Product Decisions | 770 |
 | `draw_flow_prd.md` | — | DrawFlow PRD | 1 |
-| `draw_flow_prd.md` | 1 | Executive Summary | 12 |
-| `draw_flow_prd.md` | 2 | Product Positioning | 26 |
-| `draw_flow_prd.md` | 2.1 | FairLend Module First | 28 |
-| `draw_flow_prd.md` | 2.2 | Standalone Software Later | 45 |
-| `draw_flow_prd.md` | 2.3 | Product Category | 60 |
-| `draw_flow_prd.md` | 3 | Problem Statement | 78 |
-| `draw_flow_prd.md` | 4 | Product Goals | 110 |
-| `draw_flow_prd.md` | 4.1 | Primary Goals | 112 |
-| `draw_flow_prd.md` | 4.2 | Secondary Goals | 125 |
-| `draw_flow_prd.md` | 5 | Non-Goals | 136 |
-| `draw_flow_prd.md` | 6 | Target Users and Personas | 158 |
-| `draw_flow_prd.md` | 6.1 | Builder / Developer Principal | 160 |
-| `draw_flow_prd.md` | 6.2 | Builder Staff | 186 |
-| `draw_flow_prd.md` | 6.3 | Lender Admin | 208 |
-| `draw_flow_prd.md` | 6.4 | Lender Staff / Operations Analyst | 232 |
-| `draw_flow_prd.md` | 6.5 | Site Visit Staff / Inspector | 258 |
-| `draw_flow_prd.md` | 7 | Core Product Concepts | 280 |
-| `draw_flow_prd.md` | 7.1 | Build | 282 |
-| `draw_flow_prd.md` | 7.2 | Loan | 306 |
-| `draw_flow_prd.md` | 7.3 | Build Proposal | 324 |
-| `draw_flow_prd.md` | 7.4 | Budget | 346 |
-| `draw_flow_prd.md` | 7.5 | Construction Roadmap | 363 |
-| `draw_flow_prd.md` | 7.6 | Milestone | 382 |
-| `draw_flow_prd.md` | 7.7 | Subtask | 408 |
-| `draw_flow_prd.md` | 7.8 | Draw | 421 |
-| `draw_flow_prd.md` | 7.9 | Draw Group | 444 |
-| `draw_flow_prd.md` | 7.10 | Borrower Working Capital Limit | 462 |
-| `draw_flow_prd.md` | 7.11 | Lender Draw Policy Limit | 479 |
-| `draw_flow_prd.md` | 7.12 | Evidence Package | 495 |
-| `draw_flow_prd.md` | 7.13 | Site Visit | 515 |
-| `draw_flow_prd.md` | 8 | Core Business Rules | 535 |
-| `draw_flow_prd.md` | 8.1 | Reimbursement-Only Draw Model | 537 |
-| `draw_flow_prd.md` | 8.2 | Interest Accrual | 555 |
-| `draw_flow_prd.md` | 8.3 | Draw Fee | 573 |
-| `draw_flow_prd.md` | 8.4 | Lender Draw Policy | 587 |
-| `draw_flow_prd.md` | 8.5 | Borrower Working Capital Constraint | 601 |
-| `draw_flow_prd.md` | 8.6 | Milestone Dependencies | 616 |
-| `draw_flow_prd.md` | 8.7 | Site Visit Control | 634 |
-| `draw_flow_prd.md` | 8.8 | Geofenced Proof-of-Completion | 646 |
-| `draw_flow_prd.md` | 8.9 | Budget Overrun and Revision | 660 |
-| `draw_flow_prd.md` | 9 | Optimization Requirements | 677 |
-| `draw_flow_prd.md` | 9.1 | Optimization Purpose | 679 |
-| `draw_flow_prd.md` | 9.2 | Optimization Inputs | 685 |
-| `draw_flow_prd.md` | 9.3 | Optimization Outputs | 704 |
-| `draw_flow_prd.md` | 9.4 | Default Recommendation: Cheapest Feasible Plan | 722 |
-| `draw_flow_prd.md` | 9.5 | Fastest Plan | 738 |
-| `draw_flow_prd.md` | 9.6 | Capital-Constrained Plan | 752 |
-| `draw_flow_prd.md` | 9.7 | Plan Comparison | 764 |
-| `draw_flow_prd.md` | 10 | Core Build Workspace | 778 |
-| `draw_flow_prd.md` | 10.1 | Product Role | 780 |
-| `draw_flow_prd.md` | 10.2 | Layout | 800 |
-| `draw_flow_prd.md` | — | Left Column: Milestone Rail | 804 |
-| `draw_flow_prd.md` | — | Right Column: Schedule / Gantt Roadmap | 826 |
-| `draw_flow_prd.md` | — | Top Bar | 844 |
-| `draw_flow_prd.md` | — | Bottom Status Region | 855 |
-| `draw_flow_prd.md` | 10.3 | Draw Group Visualization | 865 |
-| `draw_flow_prd.md` | 10.4 | Core Workspace Interactions | 886 |
-| `draw_flow_prd.md` | 10.5 | Builder Lead Usage | 912 |
-| `draw_flow_prd.md` | 10.6 | Lender Admin Usage | 926 |
-| `draw_flow_prd.md` | 10.7 | Relationship to Other Interfaces | 941 |
-| `draw_flow_prd.md` | 11 | User Flows | 958 |
-| `draw_flow_prd.md` | 11.1 | Builder Application / Build Proposal Flow | 960 |
-| `draw_flow_prd.md` | 11.2 | Lender Admin Proposal Review Flow | 982 |
-| `draw_flow_prd.md` | 11.3 | Active Build Update Flow | 996 |
-| `draw_flow_prd.md` | 11.4 | Evidence Review Flow | 1009 |
-| `draw_flow_prd.md` | 11.5 | Site Visit Flow | 1022 |
-| `draw_flow_prd.md` | 11.6 | Milestone Approval and Draw Release Flow | 1035 |
-| `draw_flow_prd.md` | 11.7 | Budget Revision Flow | 1050 |
-| `draw_flow_prd.md` | 12 | Screens and Interfaces | 1063 |
-| `draw_flow_prd.md` | 12.1 | Core Shared Interface | 1065 |
-| `draw_flow_prd.md` | — | Build Workspace | 1067 |
-| `draw_flow_prd.md` | 12.2 | Builder Interfaces | 1083 |
-| `draw_flow_prd.md` | 12.3 | Lender Admin Interfaces | 1096 |
-| `draw_flow_prd.md` | 12.4 | Lender Staff Interfaces | 1107 |
-| `draw_flow_prd.md` | 12.5 | Site Visit Interfaces | 1115 |
-| `draw_flow_prd.md` | 13 | Functional Requirements | 1125 |
-| `draw_flow_prd.md` | 13.1 | Multi-Tenancy and Organization Scoping | 1127 |
-| `draw_flow_prd.md` | 13.2 | Proposal Intake | 1135 |
-| `draw_flow_prd.md` | 13.3 | Milestone Templates | 1147 |
-| `draw_flow_prd.md` | 13.4 | Dependency Management | 1157 |
-| `draw_flow_prd.md` | 13.5 | Draw Planning | 1166 |
-| `draw_flow_prd.md` | 13.6 | Milestone Progress | 1176 |
-| `draw_flow_prd.md` | 13.7 | Evidence Upload | 1186 |
-| `draw_flow_prd.md` | 13.8 | Site Visits | 1195 |
-| `draw_flow_prd.md` | 13.9 | Milestone Approval | 1205 |
-| `draw_flow_prd.md` | 13.10 | Draw Release | 1213 |
-| `draw_flow_prd.md` | 13.11 | Offline Sync | 1222 |
-| `draw_flow_prd.md` | 14 | RBAC and Permissions | 1241 |
-| `draw_flow_prd.md` | 14.1 | Roles | 1243 |
-| `draw_flow_prd.md` | 14.2 | Permission Principles | 1254 |
-| `draw_flow_prd.md` | 14.3 | Permissions Matrix | 1263 |
-| `draw_flow_prd.md` | 15 | Status Models | 1287 |
-| `draw_flow_prd.md` | 15.1 | Milestone Statuses | 1289 |
-| `draw_flow_prd.md` | 15.2 | Draw Statuses | 1311 |
-| `draw_flow_prd.md` | 15.3 | Site Visit Statuses | 1326 |
-| `draw_flow_prd.md` | 15.4 | Budget Revision Statuses | 1340 |
-| `draw_flow_prd.md` | 16 | API and Webhook Requirements | 1356 |
-| `draw_flow_prd.md` | 16.1 | API-First Requirement | 1358 |
-| `draw_flow_prd.md` | 16.2 | External ID Mapping | 1380 |
-| `draw_flow_prd.md` | 16.3 | Webhook Registry | 1391 |
-| `draw_flow_prd.md` | 17 | Audit and Compliance Requirements | 1434 |
-| `draw_flow_prd.md` | 18 | Notifications and Work Queues | 1476 |
-| `draw_flow_prd.md` | 18.1 | Notifications | 1478 |
-| `draw_flow_prd.md` | 18.2 | Lender Operations Kanban | 1496 |
-| `draw_flow_prd.md` | 18.3 | Kanban-Based Operational Workflows | 1513 |
-| `draw_flow_prd.md` | 18.3.1 | Purpose | 1515 |
-| `draw_flow_prd.md` | 18.3.2 | Operational Objects | 1536 |
-| `draw_flow_prd.md` | 18.3.3 | Kanban Board Types | 1630 |
-| `draw_flow_prd.md` | 18.3.4 | Flow 1 — Builder Marks Milestone Complete | 1754 |
-| `draw_flow_prd.md` | 18.3.5 | Flow 2 — Staff Picks Up Evidence Review Work Order | 1787 |
-| `draw_flow_prd.md` | 18.3.6 | Flow 3 — Builder Responds to More Information Request | 1839 |
-| `draw_flow_prd.md` | 18.3.7 | Flow 4 — Site Visit Work Order Fulfillment | 1865 |
-| `draw_flow_prd.md` | 18.3.8 | Flow 5 — Admin Reviews Proof and Recommendation | 1913 |
-| `draw_flow_prd.md` | 18.3.9 | Flow 6 — Draw Becomes Ready for Release | 1968 |
-| `draw_flow_prd.md` | 18.3.10 | Flow 7 — Admin Approves and Releases Draw | 1990 |
-| `draw_flow_prd.md` | 18.3.11 | Flow 8 — Builder Confirms Receipt of Draw | 2027 |
-| `draw_flow_prd.md` | 18.3.12 | Exception Paths | 2069 |
-| `draw_flow_prd.md` | 18.3.13 | Kanban Card Requirements | 2092 |
-| `draw_flow_prd.md` | 18.3.14 | Audit Events for Kanban Flow | 2113 |
-| `draw_flow_prd.md` | 19 | Analytics and Reporting | 2139 |
-| `draw_flow_prd.md` | 19.1 | Builder-Facing Metrics | 2141 |
-| `draw_flow_prd.md` | 19.2 | Lender-Facing Metrics | 2155 |
-| `draw_flow_prd.md` | 19.3 | Operational Metrics | 2169 |
-| `draw_flow_prd.md` | 20 | MVP Scope | 2183 |
-| `draw_flow_prd.md` | 20.1 | In Scope | 2185 |
-| `draw_flow_prd.md` | 20.2 | Out of Scope for MVP | 2216 |
-| `draw_flow_prd.md` | 20.3 | Stretch Goals | 2231 |
-| `draw_flow_prd.md` | 21 | MVP Definition of Done | 2244 |
-| `draw_flow_prd.md` | 22 | Success Metrics | 2270 |
-| `draw_flow_prd.md` | 22.1 | Adoption Metrics | 2272 |
-| `draw_flow_prd.md` | 22.2 | Efficiency Metrics | 2279 |
-| `draw_flow_prd.md` | 22.3 | Financial Planning Metrics | 2287 |
-| `draw_flow_prd.md` | 22.4 | Control Metrics | 2296 |
-| `draw_flow_prd.md` | 23 | Open Decisions Before Technical Spec | 2307 |
-| `draw_flow_prd.md` | 23.1 | Partial Draws | 2311 |
-| `draw_flow_prd.md` | 23.2 | Geofence Strictness | 2320 |
-| `draw_flow_prd.md` | 23.3 | Borrower Working Capital UX | 2331 |
-| `draw_flow_prd.md` | 23.4 | Post-Approval Builder Edit Rules | 2340 |
-| `draw_flow_prd.md` | 23.5 | API/Webhook MVP Depth | 2351 |
-| `draw_flow_prd.md` | 24 | Recommended Next Document | 2362 |
+| `production-proposal-gantt-workspace.md` | — | Production Proposal Gantt Workspace | 1 |
+| `draw_flow_prd.md` | 1 | Executive Summary | 14 |
+| `draw_flow_prd.md` | 2 | Product Positioning | 28 |
+| `draw_flow_prd.md` | 2.1 | FairLend Module First | 30 |
+| `draw_flow_prd.md` | 2.2 | Standalone Software Later | 47 |
+| `draw_flow_prd.md` | 2.3 | Product Category | 62 |
+| `draw_flow_prd.md` | 3 | Problem Statement | 80 |
+| `draw_flow_prd.md` | 4 | Product Goals | 112 |
+| `draw_flow_prd.md` | 4.1 | Primary Goals | 114 |
+| `draw_flow_prd.md` | 4.2 | Secondary Goals | 127 |
+| `draw_flow_prd.md` | 5 | Non-Goals | 138 |
+| `draw_flow_prd.md` | 6 | Target Users and Personas | 160 |
+| `draw_flow_prd.md` | 6.1 | Builder / Developer Principal | 162 |
+| `draw_flow_prd.md` | 6.2 | Builder Staff | 188 |
+| `draw_flow_prd.md` | 6.3 | Lender Admin | 210 |
+| `draw_flow_prd.md` | 6.4 | Lender Staff / Operations Analyst | 234 |
+| `draw_flow_prd.md` | 6.5 | Site Visit Staff / Inspector | 260 |
+| `draw_flow_prd.md` | 7 | Core Product Concepts | 282 |
+| `draw_flow_prd.md` | 7.1 | Build | 284 |
+| `draw_flow_prd.md` | 7.2 | Loan | 308 |
+| `draw_flow_prd.md` | 7.3 | Build Proposal | 326 |
+| `draw_flow_prd.md` | 7.4 | Budget | 348 |
+| `draw_flow_prd.md` | 7.5 | Construction Roadmap | 365 |
+| `draw_flow_prd.md` | 7.6 | Milestone | 384 |
+| `draw_flow_prd.md` | 7.7 | Subtask | 410 |
+| `draw_flow_prd.md` | 7.8 | Draw | 423 |
+| `draw_flow_prd.md` | 7.9 | Draw Group | 446 |
+| `draw_flow_prd.md` | 7.10 | Borrower Starting Cash | 464 |
+| `draw_flow_prd.md` | 7.11 | Lender Draw Policy Limit | 481 |
+| `draw_flow_prd.md` | 7.12 | Evidence Package | 497 |
+| `draw_flow_prd.md` | 7.13 | Site Visit | 517 |
+| `draw_flow_prd.md` | 8 | Core Business Rules | 537 |
+| `draw_flow_prd.md` | 8.1 | Reimbursement-Only Draw Model | 539 |
+| `draw_flow_prd.md` | 8.2 | Interest Accrual | 557 |
+| `draw_flow_prd.md` | 8.3 | Draw Fee | 575 |
+| `draw_flow_prd.md` | 8.4 | Lender Draw Policy | 589 |
+| `draw_flow_prd.md` | 8.5 | Borrower Working Capital Constraint | 603 |
+| `draw_flow_prd.md` | 8.6 | Milestone Dependencies | 618 |
+| `draw_flow_prd.md` | 8.7 | Site Visit Control | 636 |
+| `draw_flow_prd.md` | 8.8 | Geofenced Proof-of-Completion | 648 |
+| `draw_flow_prd.md` | 8.9 | Budget Overrun and Revision | 662 |
+| `draw_flow_prd.md` | 9 | Optimization Requirements | 679 |
+| `draw_flow_prd.md` | 9.1 | Optimization Purpose | 681 |
+| `draw_flow_prd.md` | 9.2 | Optimization Inputs | 687 |
+| `draw_flow_prd.md` | 9.3 | Optimization Outputs | 706 |
+| `draw_flow_prd.md` | 9.4 | Default Recommendation: Cheapest Feasible Plan | 724 |
+| `draw_flow_prd.md` | 9.5 | Fastest Plan | 740 |
+| `draw_flow_prd.md` | 9.6 | Capital-Constrained Plan | 754 |
+| `draw_flow_prd.md` | 9.7 | Plan Comparison | 766 |
+| `draw_flow_prd.md` | 10 | Core Build Workspace | 780 |
+| `draw_flow_prd.md` | 10.1 | Product Role | 782 |
+| `draw_flow_prd.md` | 10.2 | Layout | 802 |
+| `draw_flow_prd.md` | — | Left Column: Milestone Rail | 806 |
+| `draw_flow_prd.md` | — | Right Column: Schedule / Gantt Roadmap | 828 |
+| `draw_flow_prd.md` | — | Top Bar | 846 |
+| `draw_flow_prd.md` | — | Bottom Status Region | 857 |
+| `draw_flow_prd.md` | 10.3 | Draw Group Visualization | 867 |
+| `draw_flow_prd.md` | 10.4 | Core Workspace Interactions | 888 |
+| `draw_flow_prd.md` | 10.5 | Builder Lead Usage | 914 |
+| `draw_flow_prd.md` | 10.6 | Lender Admin Usage | 928 |
+| `draw_flow_prd.md` | 10.7 | Relationship to Other Interfaces | 943 |
+| `draw_flow_prd.md` | 11 | User Flows | 960 |
+| `draw_flow_prd.md` | 11.1 | Builder Application / Build Proposal Flow | 962 |
+| `draw_flow_prd.md` | 11.2 | Lender Admin Proposal Review Flow | 984 |
+| `draw_flow_prd.md` | 11.3 | Active Build Update Flow | 998 |
+| `draw_flow_prd.md` | 11.4 | Evidence Review Flow | 1011 |
+| `draw_flow_prd.md` | 11.5 | Site Visit Flow | 1024 |
+| `draw_flow_prd.md` | 11.6 | Milestone Approval and Draw Release Flow | 1037 |
+| `draw_flow_prd.md` | 11.7 | Budget Revision Flow | 1052 |
+| `draw_flow_prd.md` | 12 | Screens and Interfaces | 1065 |
+| `draw_flow_prd.md` | 12.1 | Core Shared Interface | 1067 |
+| `draw_flow_prd.md` | — | Build Workspace | 1069 |
+| `draw_flow_prd.md` | 12.2 | Builder Interfaces | 1085 |
+| `draw_flow_prd.md` | 12.3 | Lender Admin Interfaces | 1098 |
+| `draw_flow_prd.md` | 12.4 | Lender Staff Interfaces | 1109 |
+| `draw_flow_prd.md` | 12.5 | Site Visit Interfaces | 1117 |
+| `draw_flow_prd.md` | 13 | Functional Requirements | 1127 |
+| `draw_flow_prd.md` | 13.1 | Multi-Tenancy and Organization Scoping | 1129 |
+| `draw_flow_prd.md` | 13.2 | Proposal Intake | 1137 |
+| `draw_flow_prd.md` | 13.3 | Milestone Templates | 1149 |
+| `draw_flow_prd.md` | 13.4 | Dependency Management | 1159 |
+| `draw_flow_prd.md` | 13.5 | Draw Planning | 1168 |
+| `draw_flow_prd.md` | 13.6 | Milestone Progress | 1178 |
+| `draw_flow_prd.md` | 13.7 | Evidence Upload | 1188 |
+| `draw_flow_prd.md` | 13.8 | Site Visits | 1197 |
+| `draw_flow_prd.md` | 13.9 | Milestone Approval | 1207 |
+| `draw_flow_prd.md` | 13.10 | Draw Release | 1215 |
+| `draw_flow_prd.md` | 13.11 | Offline Sync | 1224 |
+| `draw_flow_prd.md` | 14 | RBAC and Permissions | 1243 |
+| `draw_flow_prd.md` | 14.1 | Roles | 1245 |
+| `draw_flow_prd.md` | 14.2 | Permission Principles | 1256 |
+| `draw_flow_prd.md` | 14.3 | Permissions Matrix | 1265 |
+| `draw_flow_prd.md` | 15 | Status Models | 1289 |
+| `draw_flow_prd.md` | 15.1 | Milestone Statuses | 1291 |
+| `draw_flow_prd.md` | 15.2 | Draw Statuses | 1313 |
+| `draw_flow_prd.md` | 15.3 | Site Visit Statuses | 1328 |
+| `draw_flow_prd.md` | 15.4 | Budget Revision Statuses | 1342 |
+| `draw_flow_prd.md` | 16 | API and Webhook Requirements | 1358 |
+| `draw_flow_prd.md` | 16.1 | API-First Requirement | 1360 |
+| `draw_flow_prd.md` | 16.2 | External ID Mapping | 1382 |
+| `draw_flow_prd.md` | 16.3 | Webhook Registry | 1393 |
+| `draw_flow_prd.md` | 17 | Audit and Compliance Requirements | 1436 |
+| `draw_flow_prd.md` | 18 | Notifications and Work Queues | 1478 |
+| `draw_flow_prd.md` | 18.1 | Notifications | 1480 |
+| `draw_flow_prd.md` | 18.2 | Lender Operations Kanban | 1498 |
+| `draw_flow_prd.md` | 18.3 | Kanban-Based Operational Workflows | 1515 |
+| `draw_flow_prd.md` | 18.3.1 | Purpose | 1517 |
+| `draw_flow_prd.md` | 18.3.2 | Operational Objects | 1538 |
+| `draw_flow_prd.md` | 18.3.3 | Kanban Board Types | 1632 |
+| `draw_flow_prd.md` | 18.3.4 | Flow 1 — Builder Marks Milestone Complete | 1756 |
+| `draw_flow_prd.md` | 18.3.5 | Flow 2 — Staff Picks Up Evidence Review Work Order | 1789 |
+| `draw_flow_prd.md` | 18.3.6 | Flow 3 — Builder Responds to More Information Request | 1841 |
+| `draw_flow_prd.md` | 18.3.7 | Flow 4 — Site Visit Work Order Fulfillment | 1867 |
+| `draw_flow_prd.md` | 18.3.8 | Flow 5 — Admin Reviews Proof and Recommendation | 1915 |
+| `draw_flow_prd.md` | 18.3.9 | Flow 6 — Draw Becomes Ready for Release | 1970 |
+| `draw_flow_prd.md` | 18.3.10 | Flow 7 — Admin Approves and Releases Draw | 1992 |
+| `draw_flow_prd.md` | 18.3.11 | Flow 8 — Builder Confirms Receipt of Draw | 2029 |
+| `draw_flow_prd.md` | 18.3.12 | Exception Paths | 2071 |
+| `draw_flow_prd.md` | 18.3.13 | Kanban Card Requirements | 2094 |
+| `draw_flow_prd.md` | 18.3.14 | Audit Events for Kanban Flow | 2115 |
+| `draw_flow_prd.md` | 19 | Analytics and Reporting | 2141 |
+| `draw_flow_prd.md` | 19.1 | Builder-Facing Metrics | 2143 |
+| `draw_flow_prd.md` | 19.2 | Lender-Facing Metrics | 2157 |
+| `draw_flow_prd.md` | 19.3 | Operational Metrics | 2171 |
+| `draw_flow_prd.md` | 20 | MVP Scope | 2185 |
+| `draw_flow_prd.md` | 20.1 | In Scope | 2187 |
+| `draw_flow_prd.md` | 20.2 | Out of Scope for MVP | 2218 |
+| `draw_flow_prd.md` | 20.3 | Stretch Goals | 2233 |
+| `draw_flow_prd.md` | 21 | MVP Definition of Done | 2246 |
+| `draw_flow_prd.md` | 22 | Success Metrics | 2272 |
+| `draw_flow_prd.md` | 22.1 | Adoption Metrics | 2274 |
+| `draw_flow_prd.md` | 22.2 | Efficiency Metrics | 2281 |
+| `draw_flow_prd.md` | 22.3 | Financial Planning Metrics | 2289 |
+| `draw_flow_prd.md` | 22.4 | Control Metrics | 2298 |
+| `draw_flow_prd.md` | 23 | Open Decisions Before Technical Spec | 2309 |
+| `draw_flow_prd.md` | 23.1 | Partial Draws | 2313 |
+| `draw_flow_prd.md` | 23.2 | Geofence Strictness | 2322 |
+| `draw_flow_prd.md` | 23.3 | Borrower Working Capital UX | 2333 |
+| `draw_flow_prd.md` | 23.4 | Post-Approval Builder Edit Rules | 2342 |
+| `draw_flow_prd.md` | 23.5 | API/Webhook MVP Depth | 2353 |
+| `draw_flow_prd.md` | 24 | Recommended Next Document | 2364 |
 | `uiManifest/screenManifest.md` | 25 | Screen Manifest | 3 |
 | `uiManifest/screenManifest.md` | 25.1 | Screen Manifest | 16 |
 | `uiManifest/screenManifest.md` | SCR-001 | Authenticated App Shell | 18 |
 | `uiManifest/screenManifest.md` | SCR-002 | Build Proposal Start | 39 |
 | `uiManifest/screenManifest.md` | SCR-003 | Build Site Location and Map Setup | 63 |
 | `uiManifest/screenManifest.md` | SCR-004 | Permit and Document Upload | 89 |
-| `uiManifest/screenManifest.md` | SCR-005 | Available Working Capital Input | 114 |
+| `uiManifest/screenManifest.md` | SCR-005 | Borrower Starting Cash Input | 114 |
 | `uiManifest/screenManifest.md` | SCR-006 | Milestone Template Selection | 138 |
 | `uiManifest/screenManifest.md` | SCR-007 | Draft Build Workspace / Roadmap Wizard | 160 |
 | `uiManifest/screenManifest.md` | SCR-008 | Draw Plan Comparison | 186 |

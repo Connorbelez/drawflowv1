@@ -1,0 +1,626 @@
+[
+  {
+    "label": "desktop",
+    "width": 1440,
+    "height": 1000,
+    "route": "builder-proposal-materials",
+    "filePath": "/Users/connor/.codex/worktrees/86ed/drawflowv1/reports/impeccable-material-audit/after/desktop-builder-proposal-materials.png",
+    "metrics": {
+      "materialY": 174,
+      "materialVisible": true,
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "hasHorizontalOverflow": false,
+      "materialUnlabeledControls": [],
+      "materialSmallTargets": [
+        {
+          "tag": "SELECT",
+          "slot": "native-select",
+          "role": null,
+          "text": "Site prep & foundationFraming & structureRough-in ",
+          "width": 288,
+          "height": 28
+        },
+        {
+          "tag": "BUTTON",
+          "slot": "button",
+          "role": null,
+          "text": "Edit",
+          "width": 64,
+          "height": 28
+        },
+        {
+          "tag": "BUTTON",
+          "slot": "button",
+          "role": null,
+          "text": "Delete",
+          "width": 81,
+          "height": 28
+        },
+        {
+          "tag": "BUTTON",
+          "slot": "button",
+          "role": null,
+          "text": "Edit",
+          "width": 64,
+          "height": 28
+        },
+        {
+          "tag": "BUTTON",
+          "slot": "button",
+          "role": null,
+          "text": "Delete",
+          "width": 81,
+          "height": 28
+        },
+        {
+          "tag": "BUTTON",
+          "slot": "button",
+          "role": null,
+          "text": "Edit",
+          "width": 64,
+          "height": 28
+        },
+        {
+          "tag": "BUTTON",
+          "slot": "button",
+          "role": null,
+          "text": "Delete",
+          "width": 81,
+          "height": 28
+        },
+        {
+          "tag": "INPUT",
+          "slot": "input",
+          "role": null,
+          "text": "",
+          "width": 340,
+          "height": 30
+        },
+        {
+          "tag": "SELECT",
+          "slot": "native-select",
+          "role": null,
+          "text": "MaterialEquipment",
+          "width": 165,
+          "height": 28
+        },
+        {
+          "tag": "SELECT",
+          "slot": "native-select",
+          "role": null,
+          "text": "Site prep & foundationFraming & structureRough-in ",
+          "width": 165,
+          "height": 28
+        },
+        {
+          "tag": "INPUT",
+          "slot": "input",
+          "role": null,
+          "text": "",
+          "width": 163,
+          "height": 30
+        },
+        {
+          "tag": "INPUT",
+          "slot": "input",
+          "role": null,
+          "text": "",
+          "width": 163,
+          "height": 30
+        },
+        {
+          "tag": "INPUT",
+          "slot": "input",
+          "role": null,
+          "text": "",
+          "width": 340,
+          "height": 30
+        },
+        {
+          "tag": "INPUT",
+          "slot": "input",
+          "role": null,
+          "text": "",
+          "width": 340,
+          "height": 30
+        },
+        {
+          "tag": "BUTTON",
+          "slot": "button",
+          "role": null,
+          "text": "Add item",
+          "width": 96,
+          "height": 28
+        }
+      ],
+      "tabs": [
+        {
+          "text": "Timeline",
+          "selected": "false",
+          "width": 76,
+          "height": 32
+        },
+        {
+          "text": "Materials",
+          "selected": "true",
+          "width": 81,
+          "height": 32
+        }
+      ],
+      "textHasStoredInCents": false,
+      "textMentionsPrompt": false
+    }
+  },
+  {
+    "label": "desktop",
+    "width": 1440,
+    "height": 1000,
+    "route": "backoffice-proposal-materials",
+    "filePath": "/Users/connor/.codex/worktrees/86ed/drawflowv1/reports/impeccable-material-audit/after/desktop-backoffice-proposal-materials.png",
+    "metrics": {
+      "materialY": 190,
+      "materialVisible": true,
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "hasHorizontalOverflow": false,
+      "materialUnlabeledControls": [],
+      "materialSmallTargets": [
+        {
+          "tag": "SELECT",
+          "slot": "native-select",
+          "role": null,
+          "text": "Site prep & foundationFraming & structureRough-in ",
+          "width": 288,
+          "height": 28
+        },
+        {
+          "tag": "BUTTON",
+          "slot": "button",
+          "role": null,
+          "text": "Edit",
+          "width": 64,
+          "height": 28
+        },
+        {
+          "tag": "BUTTON",
+          "slot": "button",
+          "role": null,
+          "text": "Delete",
+          "width": 81,
+          "height": 28
+        },
+        {
+          "tag": "BUTTON",
+          "slot": "button",
+          "role": null,
+          "text": "Edit",
+          "width": 64,
+          "height": 28
+        },
+        {
+          "tag": "BUTTON",
+          "slot": "button",
+          "role": null,
+          "text": "Delete",
+          "width": 81,
+          "height": 28
+        },
+        {
+          "tag": "BUTTON",
+          "slot": "button",
+          "role": null,
+          "text": "Edit",
+          "width": 64,
+          "height": 28
+        },
+        {
+          "tag": "BUTTON",
+          "slot": "button",
+          "role": null,
+          "text": "Delete",
+          "width": 81,
+          "height": 28
+        },
+        {
+          "tag": "INPUT",
+          "slot": "input",
+          "role": null,
+          "text": "",
+          "width": 340,
+          "height": 30
+        },
+        {
+          "tag": "SELECT",
+          "slot": "native-select",
+          "role": null,
+          "text": "MaterialEquipment",
+          "width": 165,
+          "height": 28
+        },
+        {
+          "tag": "SELECT",
+          "slot": "native-select",
+          "role": null,
+          "text": "Site prep & foundationFraming & structureRough-in ",
+          "width": 165,
+          "height": 28
+        },
+        {
+          "tag": "INPUT",
+          "slot": "input",
+          "role": null,
+          "text": "",
+          "width": 163,
+          "height": 30
+        },
+        {
+          "tag": "INPUT",
+          "slot": "input",
+          "role": null,
+          "text": "",
+          "width": 163,
+          "height": 30
+        },
+        {
+          "tag": "INPUT",
+          "slot": "input",
+          "role": null,
+          "text": "",
+          "width": 340,
+          "height": 30
+        },
+        {
+          "tag": "INPUT",
+          "slot": "input",
+          "role": null,
+          "text": "",
+          "width": 340,
+          "height": 30
+        },
+        {
+          "tag": "BUTTON",
+          "slot": "button",
+          "role": null,
+          "text": "Add item",
+          "width": 96,
+          "height": 28
+        }
+      ],
+      "tabs": [
+        {
+          "text": "Timeline",
+          "selected": "false",
+          "width": 76,
+          "height": 32
+        },
+        {
+          "text": "Review",
+          "selected": "false",
+          "width": 67,
+          "height": 32
+        },
+        {
+          "text": "Draw schedule",
+          "selected": "false",
+          "width": 116,
+          "height": 32
+        },
+        {
+          "text": "Materials",
+          "selected": "true",
+          "width": 81,
+          "height": 32
+        },
+        {
+          "text": "Packet",
+          "selected": "false",
+          "width": 65,
+          "height": 32
+        }
+      ],
+      "textHasStoredInCents": false,
+      "textMentionsPrompt": false
+    }
+  },
+  {
+    "label": "desktop",
+    "width": 1440,
+    "height": 1000,
+    "route": "backoffice-build-materials",
+    "filePath": "/Users/connor/.codex/worktrees/86ed/drawflowv1/reports/impeccable-material-audit/after/desktop-backoffice-build-materials.png",
+    "metrics": {
+      "materialY": 342,
+      "materialVisible": true,
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "hasHorizontalOverflow": false,
+      "materialUnlabeledControls": [],
+      "materialSmallTargets": [
+        {
+          "tag": "SELECT",
+          "slot": "native-select",
+          "role": null,
+          "text": "Site prep & foundationFraming & structureRough-in ",
+          "width": 193,
+          "height": 28
+        }
+      ],
+      "tabs": [
+        {
+          "text": "Details",
+          "selected": "false",
+          "width": 62,
+          "height": 36
+        },
+        {
+          "text": "Timeline",
+          "selected": "false",
+          "width": 72,
+          "height": 36
+        },
+        {
+          "text": "Materials",
+          "selected": "true",
+          "width": 75,
+          "height": 36
+        },
+        {
+          "text": "Calendar",
+          "selected": "false",
+          "width": 73,
+          "height": 36
+        },
+        {
+          "text": "Gantt",
+          "selected": "false",
+          "width": 55,
+          "height": 36
+        }
+      ],
+      "textHasStoredInCents": false,
+      "textMentionsPrompt": false
+    }
+  },
+  {
+    "label": "desktop",
+    "width": 1440,
+    "height": 1000,
+    "route": "builder-build-materials",
+    "filePath": "/Users/connor/.codex/worktrees/86ed/drawflowv1/reports/impeccable-material-audit/after/desktop-builder-build-materials.png",
+    "metrics": {
+      "materialY": 326,
+      "materialVisible": true,
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "hasHorizontalOverflow": false,
+      "materialUnlabeledControls": [],
+      "materialSmallTargets": [
+        {
+          "tag": "SELECT",
+          "slot": "native-select",
+          "role": null,
+          "text": "Site prep & foundationFraming & structureRough-in ",
+          "width": 202,
+          "height": 28
+        }
+      ],
+      "tabs": [
+        {
+          "text": "Details",
+          "selected": "false",
+          "width": 62,
+          "height": 36
+        },
+        {
+          "text": "Timeline",
+          "selected": "false",
+          "width": 72,
+          "height": 36
+        },
+        {
+          "text": "Materials",
+          "selected": "true",
+          "width": 75,
+          "height": 36
+        },
+        {
+          "text": "Calendar",
+          "selected": "false",
+          "width": 73,
+          "height": 36
+        },
+        {
+          "text": "Gantt",
+          "selected": "false",
+          "width": 55,
+          "height": 36
+        }
+      ],
+      "textHasStoredInCents": false,
+      "textMentionsPrompt": false
+    }
+  },
+  {
+    "label": "mobile",
+    "width": 390,
+    "height": 844,
+    "route": "builder-proposal-materials",
+    "filePath": "/Users/connor/.codex/worktrees/86ed/drawflowv1/reports/impeccable-material-audit/after/mobile-builder-proposal-materials.png",
+    "metrics": {
+      "materialY": 174,
+      "materialVisible": true,
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "hasHorizontalOverflow": false,
+      "materialUnlabeledControls": [],
+      "materialSmallTargets": [],
+      "tabs": [
+        {
+          "text": "Timeline",
+          "selected": "false",
+          "width": 84,
+          "height": 44
+        },
+        {
+          "text": "Materials",
+          "selected": "true",
+          "width": 90,
+          "height": 44
+        }
+      ],
+      "textHasStoredInCents": false,
+      "textMentionsPrompt": false
+    }
+  },
+  {
+    "label": "mobile",
+    "width": 390,
+    "height": 844,
+    "route": "backoffice-proposal-materials",
+    "filePath": "/Users/connor/.codex/worktrees/86ed/drawflowv1/reports/impeccable-material-audit/after/mobile-backoffice-proposal-materials.png",
+    "metrics": {
+      "materialY": 220,
+      "materialVisible": true,
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "hasHorizontalOverflow": false,
+      "materialUnlabeledControls": [],
+      "materialSmallTargets": [],
+      "tabs": [
+        {
+          "text": "Timeline",
+          "selected": "false",
+          "width": 84,
+          "height": 44
+        },
+        {
+          "text": "Review",
+          "selected": "false",
+          "width": 74,
+          "height": 44
+        },
+        {
+          "text": "Draw schedule",
+          "selected": "false",
+          "width": 129,
+          "height": 44
+        },
+        {
+          "text": "Materials",
+          "selected": "true",
+          "width": 90,
+          "height": 44
+        },
+        {
+          "text": "Packet",
+          "selected": "false",
+          "width": 71,
+          "height": 44
+        }
+      ],
+      "textHasStoredInCents": false,
+      "textMentionsPrompt": false
+    }
+  },
+  {
+    "label": "mobile",
+    "width": 390,
+    "height": 844,
+    "route": "backoffice-build-materials",
+    "filePath": "/Users/connor/.codex/worktrees/86ed/drawflowv1/reports/impeccable-material-audit/after/mobile-backoffice-build-materials.png",
+    "metrics": {
+      "materialY": 467,
+      "materialVisible": true,
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "hasHorizontalOverflow": false,
+      "materialUnlabeledControls": [],
+      "materialSmallTargets": [],
+      "tabs": [
+        {
+          "text": "Details",
+          "selected": "false",
+          "width": 62,
+          "height": 44
+        },
+        {
+          "text": "Timeline",
+          "selected": "false",
+          "width": 72,
+          "height": 44
+        },
+        {
+          "text": "Materials",
+          "selected": "true",
+          "width": 75,
+          "height": 44
+        },
+        {
+          "text": "Calendar",
+          "selected": "false",
+          "width": 73,
+          "height": 44
+        },
+        {
+          "text": "Gantt",
+          "selected": "false",
+          "width": 55,
+          "height": 44
+        }
+      ],
+      "textHasStoredInCents": false,
+      "textMentionsPrompt": false
+    }
+  },
+  {
+    "label": "mobile",
+    "width": 390,
+    "height": 844,
+    "route": "builder-build-materials",
+    "filePath": "/Users/connor/.codex/worktrees/86ed/drawflowv1/reports/impeccable-material-audit/after/mobile-builder-build-materials.png",
+    "metrics": {
+      "materialY": 455,
+      "materialVisible": true,
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "hasHorizontalOverflow": false,
+      "materialUnlabeledControls": [],
+      "materialSmallTargets": [],
+      "tabs": [
+        {
+          "text": "Details",
+          "selected": "false",
+          "width": 62,
+          "height": 44
+        },
+        {
+          "text": "Timeline",
+          "selected": "false",
+          "width": 72,
+          "height": 44
+        },
+        {
+          "text": "Materials",
+          "selected": "true",
+          "width": 75,
+          "height": 44
+        },
+        {
+          "text": "Calendar",
+          "selected": "false",
+          "width": 73,
+          "height": 44
+        },
+        {
+          "text": "Gantt",
+          "selected": "false",
+          "width": 58,
+          "height": 44
+        }
+      ],
+      "textHasStoredInCents": false,
+      "textMentionsPrompt": false
+    }
+  }
+]

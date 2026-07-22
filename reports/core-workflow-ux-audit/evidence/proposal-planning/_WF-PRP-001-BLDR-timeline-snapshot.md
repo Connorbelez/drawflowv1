@@ -1,0 +1,282 @@
+- link "DrawFlow DrawFlow Builder":
+  - /url: /builder
+  - img "DrawFlow"
+  - generic: DrawFlow Builder
+- generic: Builder
+- list:
+  - link "Dashboard":
+    - /url: /builder
+    - generic: Dashboard
+  - link "Proposals":
+    - /url: /builder/proposals
+    - generic: Proposals
+  - link "Live Builds":
+    - /url: /builder/proposals
+    - generic: Live Builds
+- generic: Demos
+- list:
+  - link "Timeline Setup":
+    - /url: /demo/timeline
+    - generic: Timeline Setup
+- generic: CHANGELOG
+- paragraph: Product update
+- generic: Performance boosts and UI polish.
+- link "Learn more":
+  - /url: "#"
+- button:
+- list:
+  - link "About":
+    - /url: /about
+    - generic: About
+  - link "Docs":
+    - /url: /demo
+    - generic: Docs
+- paragraph: © 2026 DrawFlow
+- main:
+  - button "Toggle Sidebar":
+    - generic: Toggle Sidebar
+  - separator
+  - navigation "breadcrumb":
+    - list:
+      - link "Builder":
+        - /url: /builder
+      - generic: Proposals
+  - 'button "Theme mode: dark. Click to switch mode."':
+  - button "Notifications":
+  - separator
+  - list:
+    - button "Connor Beleznay Connor Beleznay c.beleznay@humanfeedback.com":
+      - img "Connor Beleznay"
+      - generic: Connor Beleznay
+      - generic: c.beleznay@humanfeedback.com
+  - tablist "Proposal workspace sections":
+    - tab "Packet"
+    - tab "Timeline" [active] [selected]
+    - tab "Gantt"
+    - tab "Milestones"
+    - tab "Calendar"
+    - tab "Contractors"
+    - tab "Review"
+    - tab "Draw schedule"
+    - tab "Materials"
+    - tab "Staff"
+  - generic: Draft
+  - generic: Seed Scenario - Draft
+  - generic: ·
+  - generic: Draft Site, Toronto, ON
+  - generic: Total budget
+  - strong: $650,000
+  - generic: Total approved
+  - strong: $600,000
+  - generic: Interest rate
+  - strong: 9.25%
+  - tabpanel "Timeline":
+    - region "Proposal timeline preview":
+      - generic: Proposal mode
+      - generic: "?proposal=k576cjjvp3xqptqrp8s4yq9qtn87kqw6"
+      - generic: draft
+      - generic: Saving
+      - text: Live
+      - text: "1"
+      - button "Undo":
+        - text: Undo
+      - button "Redo" [disabled]:
+        - text: Redo
+      - button "Live link":
+        - text: Live link
+      - button "Access":
+        - text: Access
+      - button "Submit Proposal":
+        - text: Submit Proposal
+      - link "Backoffice":
+        - /url: /backoffice/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6
+        - text: Backoffice
+      - link "Builder proposal link":
+        - /url: /builder/proposals/k576cjjvp3xqptqrp8s4yq9qtn87kqw6
+      - button "Optimize scenario":
+        - text: Optimize scenario
+      - button "Share":
+        - text: Share
+      - button "Reset":
+        - text: Reset
+      - switch [checked]
+      - checkbox [checked]
+      - text: Straight line
+      - generic: Controlled graph
+      - generic: Milestone cost
+      - generic: Cash on hand
+      - heading "Cash requirement vs draw recovery" [level=2]
+      - generic: Initial cash on hand
+      - spinbutton "Initial cash on hand": "400000"
+      - generic: Minimum cash reserve
+      - spinbutton "Minimum cash reserve": "0"
+      - paragraph: Probe
+      - paragraph: Hover chart
+      - paragraph: Cash
+      - paragraph: "-"
+      - paragraph: Interest paid
+      - paragraph: "-"
+      - paragraph: Ending cash
+      - paragraph: $350,000
+      - paragraph: Lender cash
+      - paragraph: $600,000
+      - paragraph: Builder cash
+      - paragraph: $50,000
+      - paragraph: Total interest
+      - paragraph: $3,669
+      - paragraph: Cash risk
+      - paragraph: 1 flagged
+      - generic: Day 75
+      - generic: needs $10,000 before Shell and Dry-In daily spend
+      - generic: Milestone cost gate costDay 0
+      - generic: Cash on hand
+      - generic: 400,000
+      - generic: Reimbursable
+      - generic: 200,000
+      - generic: Out of pocket
+      - generic: "0"
+      - generic: Cash infusion
+      - generic: "0"
+      - application:
+        - generic: Milestone cost gateEnds Day 30
+        - generic: Milestone cost gateEnds Day 76
+        - generic: Short $10,000
+        - generic: Day 0
+        - generic: Day 20
+        - generic: Day 41
+        - generic: Day 61
+        - generic: Day 81
+        - generic: $0
+        - generic: $150K
+        - generic: $300K
+        - generic: $504K
+      - generic: Day 0
+      - generic: Day 3
+      - generic: Day 6
+      - generic: Day 9
+      - generic: Day 12
+      - generic: Day 16
+      - generic: Day 19
+      - generic: Day 22
+      - generic: Day 25
+      - generic: Day 28
+      - generic: Day 31
+      - generic: Day 34
+      - generic: Day 37
+      - generic: Day 41
+      - generic: Day 44
+      - generic: Day 47
+      - generic: Day 50
+      - generic: Day 53
+      - generic: Day 56
+      - generic: Day 59
+      - generic: Day 62
+      - generic: Day 65
+      - generic: Day 69
+      - generic: Day 72
+      - generic: Day 75
+      - generic: Day 78
+      - generic: Day 81
+      - button "Timeline insertion rail"
+      - generic: Today
+      - generic: Proposal start
+      - button "Edit Foundation reimbursement draw date and amount":
+        - text: Foundation reimbursement draw
+        - generic: $240,000
+        - text: Day 30
+        - generic: Planned
+      - button "Edit Shell and Dry-In reimbursement draw date and amount":
+        - text: Shell and Dry-In reimbursement draw
+        - generic: $360,000
+        - text: Day 75
+        - generic: Planned
+      - generic: Policy checkpoint
+      - generic: Lender limit
+      - button "Set progress to Foundation":
+      - button "Milestone end on day 30 for Foundation":
+      - button "Toggle expand":
+        - paragraph: Milestone 1
+        - heading "Foundation" [level=3]
+        - paragraph: Planned cost
+        - paragraph: $200,000
+        - generic "In progress":
+          - generic: In progress
+      - button "Set progress to Shell and Dry-In":
+        - generic: "2"
+      - button "Milestone end on day 76 for Shell and Dry-In":
+      - button "Toggle expand":
+        - paragraph: Milestone 2
+        - heading "Shell and Dry-In" [level=3]
+        - paragraph: Planned cost
+        - paragraph: $450,000
+        - generic "Upcoming":
+          - generic: Upcoming
+      - generic: Draw availability
+      - generic: Interest-bearing draw
+      - generic: Additional available draw
+      - application:
+        - generic: Day 0
+        - generic: Day 20
+        - generic: Day 41
+        - generic: Day 61
+        - generic: Day 81
+        - generic: $0
+        - generic: $200K
+        - generic: $400K
+        - generic: $672K
+      - paragraph: Top line
+      - paragraph: $600,000
+      - paragraph: Interest-bearing
+      - paragraph: $600,000
+      - paragraph: Additional
+      - paragraph: $0
+      - paragraph: Probe delta
+      - paragraph: Hover
+      - paragraph: Total interest
+      - paragraph: $3,669
+      - generic: Delta between lines
+      - generic: Hover the chart or roadmap
+      - complementary:
+        - paragraph: Planned milestone
+        - heading "Foundation" [level=2]
+        - paragraph: Scheduled from Day 0 to Day 30
+        - generic: Proposal planning
+        - term: Milestone cost
+        - definition: $200,000
+        - term: Draw availability unlocked
+        - definition:
+          - button "Draw availability unlocked":
+            - generic: $240,000
+        - term: Duration
+        - definition: 30 days
+        - term: Draw date
+        - definition: Day 35
+        - paragraph: Sub-milestones
+        - list:
+          - generic: Forms and pour
+          - button "Forms and pour budget":
+            - generic: $100,000
+          - generic: Waterproofing and backfill
+          - button "Waterproofing and backfill budget":
+            - generic: $100,000
+        - heading "Contractors" [level=3]
+        - generic: "0"
+        - paragraph: No contractors assigned to this milestone yet.
+        - article:
+          - paragraph: Closeout ledger
+          - heading "Live financial overview" [level=3]
+          - term:
+            - text: Released
+          - definition: $600,000
+          - term:
+            - text: Draw fees
+          - definition: $1,000
+          - term: Interest paid
+          - definition: $3,669
+          - term: Draw count
+          - definition: 2 x $500
+  - button "Open DrawFlow AI assistant":
+- region "Notifications alt+T"
+- button "Open TanStack Devtools":
+  - img "TanStack Devtools"
+- generic: $200K

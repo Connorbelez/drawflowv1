@@ -1,0 +1,67 @@
+{
+  "compacted": true,
+  "fullOutputPath": "/Users/connor/.pi/agent/sessions/--Users-connor-Dev-drawFlow-v1-drawflowv1-core-workflow-remediation-20260717--/.pi-agent-browser-artifacts/019f87c0-0e29-7876-a720-bc37adcd50cd/pi-agent-browser-snapshot-14abfdff076adb81.json",
+  "origin": "http://localhost:3000/backoffice/builds/ks7n0k9bhpe2qzzd3h2r9fg6ah87xg4r",
+  "previewMode": "structured",
+  "viewportOrdering": "dom-signal-prioritized",
+  "previewRefIds": [
+    "e76",
+    "e98",
+    "e109",
+    "e74",
+    "e97",
+    "e77",
+    "e99"
+  ],
+  "highValueControlRefIds": [
+    "e44",
+    "e16",
+    "e58",
+    "e8",
+    "e105",
+    "e47",
+    "e55",
+    "e59",
+    "e17",
+    "e18"
+  ],
+  "additionalSectionsOmitted": 12,
+  "previewSections": [
+    {
+      "linesShown": 3,
+      "omittedLines": 0,
+      "role": "article",
+      "title": "FOUR-PLEX-DRAW-04MEP rough-insPlanned0%Budget$103KStart2026-08-26Due2026-09-19Scope0/4 doneHVACPLUMB"
+    },
+    {
+      "linesShown": 2,
+      "omittedLines": 1,
+      "role": "heading",
+      "title": "Milestone review board"
+    },
+    {
+      "linesShown": 2,
+      "omittedLines": 1,
+      "role": "article",
+      "title": "FOUR-PLEX-DRAW-05Insulation, drywall & stairsPlanned0%Budget$88KStart2026-09-24Due2026-10-08Scope0/2"
+    }
+  ],
+  "refCount": 115,
+  "roleCounts": {
+    "region": 4,
+    "link": 25,
+    "generic": 1,
+    "button": 37,
+    "navigation": 2,
+    "tab": 13,
+    "heading": 10,
+    "textbox": 6,
+    "tabpanel": 1,
+    "spinbutton": 4,
+    "combobox": 1,
+    "article": 7,
+    "option": 4
+  },
+  "snapshotLineCount": 115,
+  "structuredPreviewUsed": true
+}

@@ -1,0 +1,209 @@
+- link "DrawFlow DrawFlow Builder":
+  - /url: /builder
+  - img "DrawFlow"
+  - generic: DrawFlow Builder
+- generic: Builder
+- list:
+  - link "Dashboard":
+    - /url: /builder
+    - generic: Dashboard
+  - link "Proposals":
+    - /url: /builder/proposals
+    - generic: Proposals
+  - link "Live Builds":
+    - /url: /builder/proposals
+    - generic: Live Builds
+- generic: Demos
+- list:
+  - link "Timeline Setup":
+    - /url: /demo/timeline
+    - generic: Timeline Setup
+- generic: CHANGELOG
+- paragraph: Product update
+- generic: Performance boosts and UI polish.
+- link "Learn more":
+  - /url: "#"
+- button:
+- list:
+  - link "About":
+    - /url: /about
+    - generic: About
+  - link "Docs":
+    - /url: /demo
+    - generic: Docs
+- paragraph: © 2026 DrawFlow
+- main:
+  - button "Toggle Sidebar":
+    - generic: Toggle Sidebar
+  - separator
+  - navigation "breadcrumb":
+    - list:
+      - link "Builder":
+        - /url: /builder
+      - generic: Proposals
+  - 'button "Theme mode: dark. Click to switch mode."':
+  - button "Notifications":
+  - separator
+  - list:
+    - button "Connor Beleznay Connor Beleznay c.beleznay@humanfeedback.com":
+      - img "Connor Beleznay"
+      - generic: Connor Beleznay
+      - generic: c.beleznay@humanfeedback.com
+  - tablist "Proposal workspace sections":
+    - tab "Packet" [selected]
+    - tab "Timeline"
+    - tab "Gantt"
+    - tab "Milestones"
+    - tab "Calendar"
+    - tab "Contractors"
+    - tab "Review"
+    - tab "Draw schedule"
+    - tab "Materials"
+    - tab "Staff"
+  - generic: Submitted
+  - generic: Seed Scenario - Draft
+  - generic: ·
+  - generic: Draft Site, Toronto, ON
+  - generic: Total budget
+  - strong: $650,250
+  - generic: Total approved
+  - strong: $550,000
+  - generic: Interest rate
+  - strong: 9.25%
+  - tabpanel "Packet":
+    - generic: Build, site, and loan summary
+    - img "Seed Scenario - Draft satellite view"
+    - term: Build
+    - definition: Seed Scenario - Draft
+    - term: Location
+    - definition: Draft Site, Toronto, ON
+    - term: Status
+    - definition: Submitted
+    - term: Proposed start date
+    - definition:
+      - generic: Not set
+      - button "Edit proposed start date":
+    - term: Planned duration
+    - definition: 75 days
+    - term: Loan principal
+    - definition: $550,000
+    - term: Interest rate
+    - definition: 9.25%
+    - term: Interest trigger
+    - definition: Funds released
+    - term: Reimbursement model
+    - definition: Work complete before release
+    - generic: Milestone and submilestone worksheet
+    - button "Add milestone":
+      - text: Add milestone
+    - table:
+      - rowgroup:
+        - row "Scope Window Budget Edit":
+          - columnheader "Scope"
+          - columnheader "Window"
+          - columnheader "Budget"
+          - columnheader "Edit"
+      - rowgroup:
+        - row "Foundation 2 submilestones Day 0 to 30 $200,250 Add submilestone to Foundation Edit Foundation packet row":
+          - cell "Foundation 2 submilestones":
+            - text: Foundation
+            - generic: 2 submilestones
+          - cell "Day 0 to 30"
+          - cell "$200,250"
+          - cell "Add submilestone to Foundation Edit Foundation packet row":
+            - button "Add submilestone to Foundation":
+            - button "Edit Foundation packet row":
+        - row "Forms and pour Day 0 to 11d $100,125":
+          - cell "Forms and pour"
+          - cell "Day 0 to 11d":
+            - text: Day 0 to 1
+            - generic: 1d
+          - cell "$100,125"
+          - cell
+        - row "Waterproofing and backfill Day 15 to 161d $100,125":
+          - cell "Waterproofing and backfill"
+          - cell "Day 15 to 161d":
+            - text: Day 15 to 16
+            - generic: 1d
+          - cell "$100,125"
+          - cell
+        - row "Shell and Dry-In 1 submilestones Day 31 to 75 $450,000 Add submilestone to Shell and Dry-In Edit Shell and Dry-In packet row":
+          - cell "Shell and Dry-In 1 submilestones":
+            - text: Shell and Dry-In
+            - generic: 1 submilestones
+          - cell "Day 31 to 75"
+          - cell "$450,000"
+          - cell "Add submilestone to Shell and Dry-In Edit Shell and Dry-In packet row":
+            - button "Add submilestone to Shell and Dry-In":
+            - button "Edit Shell and Dry-In packet row":
+        - row "Shell and Dry-In scope Day 31 to 7645d $450,000":
+          - cell "Shell and Dry-In scope"
+          - cell "Day 31 to 7645d":
+            - text: Day 31 to 76
+            - generic: 45d
+          - cell "$450,000"
+          - cell
+    - generic: Draw schedule snapshot
+    - table:
+      - rowgroup:
+        - row "Draw Timing Available":
+          - columnheader "Draw"
+          - columnheader "Timing"
+          - columnheader "Available"
+      - rowgroup:
+        - row "Foundation reimbursement draw Day 30 $160,200":
+          - cell "Foundation reimbursement draw"
+          - cell "Day 30"
+          - cell "$160,200"
+        - row "Shell and Dry-In reimbursement draw Day 75 $360,000":
+          - cell "Shell and Dry-In reimbursement draw"
+          - cell "Day 75"
+          - cell "$360,000"
+    - generic: Closing financials
+    - generic: Budget
+    - generic: $650,250
+    - generic: Approved principal
+    - generic: $550,000
+    - generic: Scheduled reimbursements
+    - generic: $520,200
+    - generic: Reimbursements scheduled
+    - generic: $520,200
+    - generic: Borrower co-pay
+    - generic: $100,250
+    - generic: Working capital limit
+    - generic: $400,000
+    - term: Draw policy limit
+    - definition: $550,000
+    - term: Funding gap
+    - definition: $0
+    - term: Closing state
+    - definition: Pre-closing review
+    - generic: Build details
+    - generic: Milestones
+    - generic: "2"
+    - generic: Submilestones
+    - generic: "2"
+    - generic: Draws
+    - generic: "2"
+    - generic: Duration
+    - generic: 75 days
+    - generic: Permit
+    - generic: No permit packet linked
+    - generic: Permit missing
+    - generic: Documents
+    - generic: Permit missing
+    - generic: Approval requires permit upload or audited waiver.
+    - button "Permit packet Drop the issued permit or browse from your device. PDF preferred. Images are accepted when the municipality issued the permit as an image.":
+      - generic: Permit packet
+      - generic: Drop the issued permit or browse from your device.
+      - generic: PDF preferred. Images are accepted when the municipality issued the permit as an image.
+    - button "Upload permit" [disabled]:
+      - text: Upload permit
+  - button "Open DrawFlow AI assistant":
+- region "Notifications alt+T":
+  - list:
+    - button "Close toast":
+    - generic: Proposal submitted to lender review.
+- button "Open TanStack Devtools":
+  - img "TanStack Devtools"
+- generic: $200K

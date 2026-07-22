@@ -1,0 +1,8 @@
+{
+  "compacted": true,
+  "fullOutputPath": "/Users/connor/.pi/agent/sessions/--Users-connor-Dev-drawFlow-v1-drawflowv1-core-workflow-remediation-20260717--/.pi-agent-browser-artifacts/019f87c0-0e29-7876-a720-bc37adcd50cd/pi-agent-browser-output-518465360a7ef63f.json",
+  "outputCharCount": 3900,
+  "outputLineCount": 160,
+  "previewCharCount": 1021,
+  "previewLineCount": 40
+}

@@ -1,0 +1,160 @@
+- link:
+  - /url: /builder
+  - generic: DrawFlow Builder
+- generic: Builder
+- list:
+  - link:
+    - /url: /builder
+    - generic: Dashboard
+  - link:
+    - /url: /builder/proposals
+    - generic: Proposals
+  - link:
+    - /url: /builder/proposals
+    - generic: Live Builds
+- generic: Demos
+- list:
+  - link:
+    - /url: /demo/timeline
+    - generic: Timeline Setup
+- generic: CHANGELOG
+- paragraph: Product update
+- generic: Performance boosts and UI polish.
+- link:
+  - /url: "#"
+  - text: Learn more
+- button:
+- list:
+  - link:
+    - /url: /about
+    - generic: About
+  - link:
+    - /url: /demo
+    - generic: Docs
+- paragraph: © 2026 DrawFlow
+- main:
+  - button:
+    - generic: Toggle Sidebar
+  - separator
+  - navigation:
+    - list:
+      - link:
+        - /url: /builder
+        - text: Builder
+      - generic: Proposals
+  - button:
+  - button:
+  - separator
+  - list:
+    - button:
+      - generic: Connor Beleznay
+      - generic: c.beleznay@humanfeedback.com
+  - tablist:
+    - tab: Packet
+    - tab: Timeline
+    - tab: Gantt
+    - tab: Milestones
+    - tab: Calendar
+    - tab: Contractors
+    - tab: Review
+    - tab: Draw schedule
+    - tab [selected]: Materials
+    - tab: Staff
+  - generic: Draft
+  - generic: Seed Scenario - Draft
+  - generic: ·
+  - generic: Draft Site, Toronto, ON
+  - generic: Total budget
+  - strong: $650,000
+  - generic: Total approved
+  - strong: $600,000
+  - generic: Interest rate
+  - strong: 9.25%
+  - tabpanel:
+    - generic: Build Proposal
+    - generic: Planning editable
+    - heading [level=2]: Material and equipment planning
+    - paragraph: Cost-only entries stay attached to milestones and relevant sub-milestones without becoming construction tasks.
+    - combobox
+    - term: Cost item total
+    - definition: $0
+    - term: Material lines
+    - definition: "0"
+    - term: Equipment lines
+    - definition: "0"
+    - term: Suppliers
+    - definition: "0"
+    - heading [level=3]: Foundation
+    - paragraph: 0 items / $0 cost-only detail
+    - generic: $200,000
+    - button:
+      - text: Add cost item
+    - generic: No material or equipment entries are attached to this milestone.
+    - button:
+      - text: Add cost item
+    - heading [level=3]: Shell and Dry-In
+    - paragraph: 0 items / $0 cost-only detail
+    - generic: $450,000
+    - button:
+      - text: Add cost item
+    - generic: No material or equipment entries are attached to this milestone.
+    - button:
+      - text: Add cost item
+    - complementary:
+      - heading [level=3]: Attached sub-milestones
+      - generic: Forms and pour
+      - generic: Waterproofing and backfill
+  - button:
+- region "Notifications alt+T"
+- button:
+- generic: $200K
+- dialog "Add cost item":
+  - heading "Add cost item" [level=2]
+  - paragraph: Foundation material and equipment detail. Enter the per-unit dollar amount; quantity controls the total.
+  - generic: Title
+  - textbox "Title": Audit concrete package
+  - generic: Description
+  - button:
+  - button:
+  - button:
+  - button:
+  - button "Link":
+    - paragraph: Link
+  - button "Image":
+    - generic: Image
+  - button:
+  - generic "Description":
+    - textbox:
+      - paragraph: Scope notes, supplier terms, or image references...
+  - generic: Type
+  - combobox "Type":
+    - option "Material" [selected]
+    - option "Equipment"
+  - generic: Milestone
+  - combobox "Milestone":
+    - option "Foundation" [selected]
+    - option "Shell and Dry-In"
+  - generic: Cost per unit (USD)
+  - textbox "Cost per unit (USD)":
+    - /placeholder: "0.00"
+    - text: "-25"
+  - paragraph: Must be greater than zero.
+  - generic: Quantity
+  - textbox "Quantity" [active]: "0"
+  - paragraph: Supports partial quantities.
+  - generic: Supplier
+  - textbox "Supplier"
+  - generic: Change reason
+  - textbox "Change reason":
+    - /placeholder: Required once a proposal is under review
+  - generic: Relevant sub-milestones
+  - checkbox "Forms and pour"
+  - checkbox
+  - generic: Forms and pour
+  - checkbox "Waterproofing and backfill"
+  - checkbox
+  - generic: Waterproofing and backfill
+  - button "Cancel"
+  - button "Add item" [disabled]:
+    - text: Add item
+  - button "Close":

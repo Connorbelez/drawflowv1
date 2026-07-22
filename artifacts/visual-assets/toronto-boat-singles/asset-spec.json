@@ -1,0 +1,46 @@
+{
+  "project": "drawflow-toronto-boat-singles",
+  "notes": "Standalone sailboat assets extracted from public/assets/toronto-hero-extraction/webp/boats-in-water.webp. Crops are reference material only; production assets are generated, alpha-cleaned, optimized, and validated separately.",
+  "assets": [
+    {
+      "id": "sailboat-upper-center",
+      "label": "Upper Center Sailboat",
+      "classification": "image",
+      "role": "Standalone transparent sailboat asset from the upper-center boat in the grouped boats overlay.",
+      "bbox": {
+        "x": 810,
+        "y": 0,
+        "width": 225,
+        "height": 300
+      },
+      "rationale": "The sailboat is a stylized raster miniature with shaded hull, sails, mast, and antialiased edges that should be a transparent bitmap asset.",
+      "generation": {
+        "asset_type": "transparent sailboat cutout",
+        "output_basename": "sailboat-upper-center",
+        "transparent": true,
+        "prompt": "Create a standalone transparent-background cutout of a single stylized white sailboat matching the reference crop. Preserve the isometric miniature render style, white triangular sail, slim mast, white hull, warm beige interior shadowing, soft grey edge shading, and the same upper-center sailboat orientation. Output only this one sailboat, with no docks, marina pieces, water, shoreline, or other boats.",
+        "negative_prompt": "No docks, no marina pieces, no second boat, no blue water, no shoreline, no rectangular crop background, no text, no watermark."
+      }
+    },
+    {
+      "id": "sailboat-lower-left",
+      "label": "Lower Left Sailboat",
+      "classification": "image",
+      "role": "Standalone transparent sailboat asset from the lower-left boat in the grouped boats overlay.",
+      "bbox": {
+        "x": 160,
+        "y": 399,
+        "width": 200,
+        "height": 282
+      },
+      "rationale": "The sailboat is a stylized raster miniature with shaded hull, sails, mast, and antialiased edges that should be a transparent bitmap asset.",
+      "generation": {
+        "asset_type": "transparent sailboat cutout",
+        "output_basename": "sailboat-lower-left",
+        "transparent": true,
+        "prompt": "Create a standalone transparent-background cutout of a single stylized white sailboat matching the reference crop. Preserve the isometric miniature render style, white triangular sail, slim mast, white hull, warm beige interior shadowing, soft grey edge shading, and the same lower-left sailboat orientation. Output only this one sailboat, with no docks, marina pieces, water, shoreline, or other boats.",
+        "negative_prompt": "No docks, no marina pieces, no second boat, no blue water, no shoreline, no rectangular crop background, no text, no watermark."
+      }
+    }
+  ]
+}

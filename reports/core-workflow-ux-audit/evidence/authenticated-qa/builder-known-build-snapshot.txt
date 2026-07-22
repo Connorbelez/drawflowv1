@@ -1,0 +1,66 @@
+{
+  "compacted": true,
+  "fullOutputPath": "/Users/connor/.pi/agent/sessions/--Users-connor-Dev-drawFlow-v1-drawflowv1-core-workflow-remediation-20260717--/.pi-agent-browser-artifacts/019f87c0-0e29-7876-a720-bc37adcd50cd/pi-agent-browser-snapshot-4bf52332079e8e87.json",
+  "origin": "http://localhost:3000/builder/builds/ks7n0k9bhpe2qzzd3h2r9fg6ah87xg4r",
+  "previewMode": "structured",
+  "viewportOrdering": "dom-signal-prioritized",
+  "previewRefIds": [
+    "e64",
+    "e86",
+    "e99",
+    "e62",
+    "e85",
+    "e65",
+    "e87"
+  ],
+  "highValueControlRefIds": [
+    "e31",
+    "e15",
+    "e43",
+    "e7",
+    "e93",
+    "e34",
+    "e41",
+    "e44",
+    "e16",
+    "e17"
+  ],
+  "additionalSectionsOmitted": 12,
+  "previewSections": [
+    {
+      "linesShown": 3,
+      "omittedLines": 0,
+      "role": "article",
+      "title": "FOUR-PLEX-DRAW-04MEP rough-insPlanned0%Budget$103KStart2026-08-26Due2026-09-19Scope0/4 doneHVACPLUMB"
+    },
+    {
+      "linesShown": 2,
+      "omittedLines": 1,
+      "role": "heading",
+      "title": "Milestone Kanban"
+    },
+    {
+      "linesShown": 2,
+      "omittedLines": 1,
+      "role": "article",
+      "title": "FOUR-PLEX-DRAW-05Insulation, drywall & stairsPlanned0%Budget$88KStart2026-09-24Due2026-10-08Scope0/2"
+    }
+  ],
+  "refCount": 105,
+  "roleCounts": {
+    "region": 4,
+    "link": 13,
+    "button": 36,
+    "navigation": 2,
+    "tab": 13,
+    "heading": 11,
+    "textbox": 6,
+    "tabpanel": 1,
+    "spinbutton": 7,
+    "combobox": 1,
+    "article": 7,
+    "option": 4
+  },
+  "snapshotLineCount": 105,
+  "structuredPreviewUsed": true
+}

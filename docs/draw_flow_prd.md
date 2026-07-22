@@ -5,7 +5,9 @@
 **Document type:** Product Requirements Document  
 **Status:** Revised product draft  
 **Primary audience:** Product, engineering, lender operations, builder operations, executive stakeholders, future implementation agents  
-**Last updated:** May 7, 2026
+**Last updated:** May 25, 2026
+
+**Productionization companion:** `docs/draw_flow_production_prd.md` is authoritative for the May 25 production model covering WorkOS auth, brokerage tenancy, Principal Broker/Broker/Backoffice/Builder/Contractor roles, RBAC, contractor profile/account separation, production schema, and organization/workflow management. Where this older PRD uses generic lender-side role language, the production companion defines the current target model.
 
 ---
 
@@ -459,13 +461,17 @@ A Draw Group includes:
 - status,
 - warnings.
 
-## 7.10 Borrower Working Capital Limit
+## 7.10 Borrower Starting Cash
 
-The Borrower Working Capital Limit is the maximum unreimbursed amount the builder can carry before needing reimbursement.
+Borrower Starting Cash is the borrower's own cash available at the start of the build, before any reimbursement draws are released.
 
-This is a builder-provided input and a primary optimizer constraint.
+This is a builder-provided opening balance in the build capital model. It is not a draw, a loan advance, a lender policy limit, or a recurring allowance that resets after each reimbursement.
 
-It represents the practical ceiling on how much work can be completed before a draw is released. Because v1 is reimbursement-based, the borrower must finance work before reimbursement. This means borrower working capital directly affects:
+Because v1 is reimbursement-based, the borrower must use this cash to fund eligible work before reimbursement. Released reimbursements replenish the build's cash balance. Additional borrower cash infusions are modeled as separate capital events.
+
+The optimizer derives **Required Working Capital** (also called **Peak Unreimbursed Exposure**) from the schedule and draw plan. That derived metric is the greatest amount of borrower cash tied up at any point before eligible reimbursements are released. A plan is capital-feasible only when the projected cash ledger remains above the configured minimum reserve.
+
+Borrower Starting Cash affects:
 
 - feasible milestone sequencing,
 - feasible parallelization,
@@ -474,7 +480,7 @@ It represents the practical ceiling on how much work can be completed before a d
 - capital-constrained plan generation,
 - and schedule feasibility.
 
-This concept must not be confused with lender draw policy limits.
+Borrower Starting Cash, Required Working Capital, and Lender Draw Policy Limit are three distinct concepts and must be stored, calculated, and displayed separately.
 
 ## 7.11 Lender Draw Policy Limit
 
@@ -490,7 +496,7 @@ It may include:
 - partial draw policy,
 - draw fee policy.
 
-This is distinct from Borrower Working Capital Limit.
+This is distinct from Borrower Starting Cash and derived Required Working Capital.
 
 ## 7.12 Evidence Package
 
@@ -598,13 +604,13 @@ Lender draw policy may define:
 - variance thresholds,
 - override rules.
 
-## 8.5 Borrower Working Capital Constraint
+## 8.5 Borrower Cash-Flow Feasibility Constraint
 
 Because v1 is reimbursement-only, the borrower must have enough capital to complete work before reimbursement.
 
-The borrower working-capital constraint is a primary feasibility rule.
+The borrower cash ledger is a primary feasibility rule. It begins with Borrower Starting Cash, decreases as work is paid for, and increases only when a borrower cash infusion or an eligible reimbursement is actually released.
 
-The optimizer must use the Borrower Working Capital Limit to determine:
+The optimizer must derive Required Working Capital and use the cash ledger to determine:
 
 - which milestones can be completed before the next reimbursement,
 - whether parallel work is feasible,
@@ -964,7 +970,7 @@ The product should avoid splitting roadmap, draw, evidence, and approval state i
 3. Builder enters build site location.
 4. Builder uploads required permits and documents.
 5. Builder enters requested loan amount or total build budget.
-6. Builder enters Borrower Working Capital Limit.
+6. Builder enters Borrower Starting Cash.
 7. Builder selects a milestone template.
 8. System generates default milestones, cost percentages, duration assumptions, and default dependencies.
 9. Builder edits milestones, costs, durations, and dependencies.
@@ -1138,7 +1144,7 @@ Must include:
 - Builder can enter build site location.
 - Builder can upload required permits/documents.
 - Builder can select milestone template.
-- Builder can enter Borrower Working Capital Limit.
+- Builder can enter Borrower Starting Cash.
 - Builder can edit milestone cost/duration.
 - Builder can edit dependencies.
 - Builder can submit proposal.
@@ -2189,7 +2195,7 @@ The following events should be audited:
 3. Builder/developer Build Proposal flow.
 4. Permit/document upload.
 5. Build site location capture.
-6. Borrower Working Capital Limit input.
+6. Borrower Starting Cash input.
 7. Milestone template selection.
 8. Milestone editing.
 9. Dependency editing.
@@ -2328,14 +2334,14 @@ Decision needed:
 
 Recommendation: allow upload, flag as location-unverified, require lender/admin review.
 
-## 23.3 Borrower Working Capital UX
+## 23.3 Borrower Starting Cash UX
 
-Decision needed:
+Decision:
 
-- Should the input be called Available Working Capital, Max Unreimbursed Exposure, or Borrower Working Capital Limit?
-- Should it be a single number or phase-specific?
-
-Recommendation: start with one numeric field called **Available Working Capital** with helper text explaining it as the maximum amount the builder can spend before reimbursement.
+- The builder-provided input is called **Borrower Starting Cash**.
+- Helper text: **The borrower's own cash available at the start of the build, before any reimbursement draws are released.**
+- **Required Working Capital / Peak Unreimbursed Exposure** is a system-derived plan metric, never an alias for starting cash.
+- Any later borrower contribution is recorded as an explicit capital-infusion event rather than silently increasing starting cash.
 
 ## 23.4 Post-Approval Builder Edit Rules
 
@@ -2376,6 +2382,4 @@ The next document should be a technical specification covering:
 11. audit/event model,
 12. implementation phases,
 13. acceptance criteria by subsystem.
-
-
 

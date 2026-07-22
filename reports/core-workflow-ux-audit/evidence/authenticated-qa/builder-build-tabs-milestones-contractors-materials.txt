@@ -1,0 +1,218 @@
+[
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/builder/builds/ks7n0k9bhpe2qzzd3h2r9fg6ah87xg4r?tab=milestones"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/builder/builds/ks7n0k9bhpe2qzzd3h2r9fg6ah87xg4r?tab=milestones"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "900"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "ms": 900,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({tab:'milestones',text:(document.body.innerText||'').replace(/\\s+/g,' ').slice(250,800),w:[document.documentElement.clientWidth,document.documentElement.scrollWidth]})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "origin": "http://localhost:3000/builder/builds/ks7n0k9bhpe2qzzd3h2r9fg6ah87xg4r?tab=milestones",
+      "result": "{\"tab\":\"milestones\",\"text\":\" / Live Builds Active Production active Build 4-plex Proposal 26 Luverne Ave, North York, ON M3H 1R4, Canada Events 770 Start 2026-06-02 Budget $1,091,349 Details Milestones Contractors Materials Timeline Evidence Staff Calendar Gantt Milestone Kanban Read-only projection · drag locked · open a card for full detail Show completed Off BACKLOG 5 FOUR-PLEX-DRAW-04 MEP rough-ins Planned 0% Budget $103K Start 2026-08-26 Due 2026-09-19 Scope 0/4 done HVAC PLUMBING PLUMBING SUPPLIES + 1 more… Assign 58d left FOUR-PLEX-DRAW-05 Insulation, drywall & sta\",\"w\":[1280,1458]}"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/builder/builds/ks7n0k9bhpe2qzzd3h2r9fg6ah87xg4r?tab=contractors"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/builder/builds/ks7n0k9bhpe2qzzd3h2r9fg6ah87xg4r?tab=contractors"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "900"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "ms": 900,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({tab:'contractors',text:(document.body.innerText||'').replace(/\\s+/g,' ').slice(250,800),w:[document.documentElement.clientWidth,document.documentElement.scrollWidth]})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "origin": "http://localhost:3000/builder/builds/ks7n0k9bhpe2qzzd3h2r9fg6ah87xg4r?tab=contractors",
+      "result": "{\"tab\":\"contractors\",\"text\":\" / Live Builds Active Production active Build 4-plex Proposal 26 Luverne Ave, North York, ON M3H 1R4, Canada Events 770 Start 2026-06-02 Budget $1,091,349 Details Milestones Contractors Materials Timeline Evidence Staff Calendar Gantt Contractor planning Build the proposal crew roster, assign contractors to milestones, and review permit fit and schedule signals before submission. Add contractor Roster 3 Assignments 0 Conflicts 0 Equipment holds 0 Crew assignment Select a contractor from the roster, then drag onto a milestone or use Assign crew.\",\"w\":[1280,1280]}"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/builder/builds/ks7n0k9bhpe2qzzd3h2r9fg6ah87xg4r?tab=materials"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/builder/builds/ks7n0k9bhpe2qzzd3h2r9fg6ah87xg4r?tab=materials"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "900"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "ms": 900,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({tab:'materials',text:(document.body.innerText||'').replace(/\\s+/g,' ').slice(250,800),w:[document.documentElement.clientWidth,document.documentElement.scrollWidth]})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 16795142570751190000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_configured"
+      },
+      "origin": "http://localhost:3000/builder/builds/ks7n0k9bhpe2qzzd3h2r9fg6ah87xg4r?tab=materials",
+      "result": "{\"tab\":\"materials\",\"text\":\" / Live Builds Active Production active Build 4-plex Proposal 26 Luverne Ave, North York, ON M3H 1R4, Canada Events 770 Start 2026-06-02 Budget $1,091,349 Details Milestones Contractors Materials Timeline Evidence Staff Calendar Gantt Active Build View only Material and equipment planning Cost-only entries stay attached to milestones and relevant sub-milestones without becoming construction tasks. Permits, demo & foundation Underground, framing & roof Service upgrade & envelope MEP rough-ins Insulation, drywall & stairs Tile, flooring & trim Ki\",\"w\":[1280,1280]}"
+    },
+    "success": true
+  }
+]

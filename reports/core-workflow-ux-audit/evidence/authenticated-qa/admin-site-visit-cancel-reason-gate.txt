@@ -1,0 +1,43 @@
+{
+  "lifecycle": {
+    "effectiveLaunch": {
+      "browserLaunched": true,
+      "engine": "chrome",
+      "launchHash": 8197565053781422000
+    },
+    "launched": false,
+    "relaunchedBrowser": false,
+    "restartedBackground": false,
+    "restoreStatus": "not_configured",
+    "reused": true,
+    "saveStatus": "not_attempted"
+  },
+  "origin": "http://localhost:3000/backoffice/site-visits",
+  "refs": {
+    "e1": {
+      "name": "Notifications alt+T",
+      "role": "region"
+    },
+    "e2": {
+      "name": "Cancel site visit",
+      "role": "heading"
+    },
+    "e3": {
+      "name": "Reason",
+      "role": "textbox"
+    },
+    "e4": {
+      "name": "Keep visit",
+      "role": "button"
+    },
+    "e5": {
+      "name": "Cancel visit",
+      "role": "button"
+    },
+    "e6": {
+      "name": "Close",
+      "role": "button"
+    }
+  },
+  "snapshot": "- region \"Notifications alt+T\" [ref=e1]\n- heading \"Cancel site visit\" [level=2, ref=e2]\n- textbox \"Reason\" [ref=e3]\n- button \"Keep visit\" [ref=e4]\n- button \"Cancel visit\" [disabled, ref=e5]\n- button \"Close\" [ref=e6]"
+}
