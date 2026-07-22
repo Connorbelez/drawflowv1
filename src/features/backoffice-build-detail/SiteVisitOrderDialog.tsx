@@ -1,7 +1,7 @@
 "use client";
 
-import { Camera, ClipboardCheck, Sparkles } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Camera, CheckCircle2, ClipboardCheck, Sparkles } from "lucide-react";
+import { type ReactNode, useEffect, useState } from "react";
 import { FieldRichTextEditor } from "#/components/rich-text/field-rich-text.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -14,6 +14,21 @@ import {
   DialogPopup,
   DialogTitle,
 } from "#/components/ui/dialog.tsx";
+import {
+  Item,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemMedia,
+  ItemTitle,
+} from "#/components/ui/item.tsx";
+import {
+  Progress,
+  ProgressIndicator,
+  ProgressLabel,
+  ProgressTrack,
+} from "#/components/ui/progress.tsx";
+import { Spinner } from "#/components/ui/spinner.tsx";
 
 export interface SiteVisitGuidance {
   cameraAngles: string;
@@ -55,6 +70,15 @@ export interface SiteVisitOrderRequest {
   requestedTime?: string;
 }
 
+type GuidanceGenerationState =
+  | { status: "idle" }
+  | { status: "generating" }
+  | {
+      source?: SiteVisitGuidanceGenerationResult["source"];
+      status: "generated";
+    }
+  | { status: "error" };
+
 export function SiteVisitOrderDialog({
   build,
   milestone,
@@ -86,6 +110,8 @@ export function SiteVisitOrderDialog({
   const [pendingAction, setPendingAction] = useState<
     "confirm" | "generate" | null
   >(null);
+  const [generationState, setGenerationState] =
+    useState<GuidanceGenerationState>({ status: "idle" });
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -94,6 +120,7 @@ export function SiteVisitOrderDialog({
     }
     setGuidance(initialGuidance(milestone));
     setPendingAction(null);
+    setGenerationState({ status: "idle" });
     setError("");
   }, [milestone, open]);
 
@@ -102,6 +129,7 @@ export function SiteVisitOrderDialog({
       return;
     }
     setPendingAction("generate");
+    setGenerationState({ status: "generating" });
     setError("");
     try {
       const generated = await onGenerate({
@@ -114,7 +142,12 @@ export function SiteVisitOrderDialog({
         cameraAngles: generated.cameraAngles,
         whatToVerify: generated.whatToVerify,
       });
+      setGenerationState({
+        source: generated.source,
+        status: "generated",
+      });
     } catch (cause) {
+      setGenerationState({ status: "error" });
       setError(
         cause instanceof Error
           ? cause.message
@@ -124,6 +157,8 @@ export function SiteVisitOrderDialog({
       setPendingAction(null);
     }
   };
+
+  const hasGenerated = generationState.status === "generated";
 
   const confirm = async () => {
     if (
@@ -206,17 +241,25 @@ export function SiteVisitOrderDialog({
             <Button
               disabled={!onGenerate || pendingAction !== null}
               loading={pendingAction === "generate"}
-              onClick={() => void generate()}
+              onClick={generate}
               type="button"
               variant="outline"
             >
               <Sparkles aria-hidden="true" />
-              Write with DrawFlow AI
+              {hasGenerated
+                ? "Rewrite with DrawFlow AI"
+                : "Write with DrawFlow AI"}
             </Button>
           </div>
 
+          <GuidanceGenerationStatus
+            generationState={generationState}
+            milestoneName={milestone?.name}
+            submilestoneCount={submilestones.length}
+          />
+
           <div className="grid gap-5 lg:grid-cols-2">
-            <label className="grid min-w-0 gap-2 text-sm">
+            <div className="grid min-w-0 gap-2 text-sm">
               <span className="font-semibold">What to verify</span>
               <FieldRichTextEditor
                 ariaLabel="What to verify"
@@ -227,8 +270,8 @@ export function SiteVisitOrderDialog({
                 placeholder="Add a concise verification checklist…"
                 value={guidance.whatToVerify}
               />
-            </label>
-            <label className="grid min-w-0 gap-2 text-sm">
+            </div>
+            <div className="grid min-w-0 gap-2 text-sm">
               <span className="font-semibold">Required photo angles</span>
               <FieldRichTextEditor
                 ariaLabel="Required photo angles"
@@ -239,7 +282,7 @@ export function SiteVisitOrderDialog({
                 placeholder="List the required wide, detail, and context views…"
                 value={guidance.cameraAngles}
               />
-            </label>
+            </div>
           </div>
 
           {error ? (
@@ -263,7 +306,7 @@ export function SiteVisitOrderDialog({
           <Button
             disabled={pendingAction !== null || !guidanceIsComplete(guidance)}
             loading={pendingAction === "confirm"}
-            onClick={() => void confirm()}
+            onClick={confirm}
             type="button"
           >
             <Camera aria-hidden="true" />
@@ -273,6 +316,187 @@ export function SiteVisitOrderDialog({
       </DialogPopup>
     </Dialog>
   );
+}
+
+function GuidanceGenerationStatus({
+  generationState,
+  milestoneName,
+  submilestoneCount,
+}: {
+  generationState: GuidanceGenerationState;
+  milestoneName?: string;
+  submilestoneCount: number;
+}) {
+  const isGenerating = generationState.status === "generating";
+  const hasGenerated = generationState.status === "generated";
+  const status = generationStatusCopy(
+    generationState,
+    milestoneName,
+    submilestoneCount
+  );
+  const progressValue = isGenerating ? null : hasGenerated ? 100 : 0;
+  const activeClassName = isGenerating
+    ? "border-primary/20 bg-primary/5"
+    : undefined;
+
+  return (
+    <div
+      aria-busy={isGenerating}
+      aria-live="polite"
+      className="grid gap-3"
+      data-testid="site-visit-ai-generation-status"
+    >
+      <Progress value={progressValue}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <ProgressLabel className="flex items-center gap-2">
+            <GenerationStateIcon generationState={generationState} />
+            {status.title}
+          </ProgressLabel>
+          <Badge variant={status.badgeVariant}>{status.badge}</Badge>
+        </div>
+        <p className="text-muted-foreground text-xs">{status.description}</p>
+        <ProgressTrack>
+          <ProgressIndicator
+            className={
+              isGenerating
+                ? "h-full w-2/5 animate-pulse motion-reduce:animate-none"
+                : "h-full"
+            }
+          />
+        </ProgressTrack>
+      </Progress>
+
+      <ItemGroup
+        aria-label="AI generation targets"
+        className="grid gap-2 sm:grid-cols-2"
+      >
+        <Item className={activeClassName} size="sm" variant="muted">
+          <ItemMedia
+            aria-hidden="true"
+            className="size-8 rounded-md border bg-background"
+            variant="icon"
+          >
+            <GenerationTargetIcon
+              fallback={<ClipboardCheck />}
+              generationState={generationState}
+            />
+          </ItemMedia>
+          <ItemContent>
+            <ItemTitle>Verification checklist</ItemTitle>
+            <ItemDescription>
+              What to verify for {milestoneName ?? "this milestone"}
+            </ItemDescription>
+          </ItemContent>
+        </Item>
+        <Item className={activeClassName} size="sm" variant="muted">
+          <ItemMedia
+            aria-hidden="true"
+            className="size-8 rounded-md border bg-background"
+            variant="icon"
+          >
+            <GenerationTargetIcon
+              fallback={<Camera />}
+              generationState={generationState}
+            />
+          </ItemMedia>
+          <ItemContent>
+            <ItemTitle>Required photo angles</ItemTitle>
+            <ItemDescription>
+              Wide, detail, and context coverage for the selected scope
+            </ItemDescription>
+          </ItemContent>
+        </Item>
+      </ItemGroup>
+    </div>
+  );
+}
+
+function GenerationStateIcon({
+  generationState,
+}: {
+  generationState: GuidanceGenerationState;
+}) {
+  if (generationState.status === "generating") {
+    return (
+      <Spinner className="size-4 text-primary motion-reduce:animate-none" />
+    );
+  }
+  if (generationState.status === "generated") {
+    return (
+      <CheckCircle2
+        aria-hidden="true"
+        className="size-4 text-success-foreground"
+      />
+    );
+  }
+  return <Sparkles aria-hidden="true" className="size-4" />;
+}
+
+function GenerationTargetIcon({
+  fallback,
+  generationState,
+}: {
+  fallback: ReactNode;
+  generationState: GuidanceGenerationState;
+}) {
+  if (generationState.status === "generating") {
+    return <Spinner className="text-primary motion-reduce:animate-none" />;
+  }
+  if (generationState.status === "generated") {
+    return <CheckCircle2 className="text-success-foreground" />;
+  }
+  return fallback;
+}
+
+function generationStatusCopy(
+  generationState: GuidanceGenerationState,
+  milestoneName: string | undefined,
+  submilestoneCount: number
+) {
+  const scope = `${milestoneName ?? "the milestone"} and ${formatScopeCount(
+    submilestoneCount
+  )}`;
+  switch (generationState.status) {
+    case "generating":
+      return {
+        badge: "Generating",
+        badgeVariant: "info" as const,
+        description: `Using ${scope} to draft both editable guidance sections.`,
+        title: "Drafting field guidance",
+      };
+    case "generated":
+      if (generationState.source === "fallback") {
+        return {
+          badge: "Field rules used",
+          badgeVariant: "warning" as const,
+          description:
+            "The model provider was unavailable, so DrawFlow completed both sections with deterministic field rules. Review and edit before ordering.",
+          title: "DrawFlow guidance ready",
+        };
+      }
+      return {
+        badge: "Draft ready",
+        badgeVariant: "success" as const,
+        description:
+          "DrawFlow AI completed both sections. Review and edit the draft before ordering the site visit.",
+        title: "AI draft ready",
+      };
+    case "error":
+      return {
+        badge: "Retry needed",
+        badgeVariant: "error" as const,
+        description:
+          "No guidance was replaced. Review the error below and retry generation.",
+        title: "Generation did not finish",
+      };
+    default:
+      return {
+        badge: "Ready to draft",
+        badgeVariant: "outline" as const,
+        description: `DrawFlow will use ${scope} to write both editable guidance sections.`,
+        title: "AI generation targets",
+      };
+  }
 }
 
 function initialGuidance(
@@ -295,4 +519,13 @@ function initialGuidance(
 
 function guidanceIsComplete(guidance: SiteVisitGuidance) {
   return Boolean(guidance.cameraAngles.trim() && guidance.whatToVerify.trim());
+}
+
+function formatScopeCount(submilestoneCount: number) {
+  if (submilestoneCount === 0) {
+    return "the milestone-wide scope";
+  }
+  return `${submilestoneCount} selected submilestone${
+    submilestoneCount === 1 ? "" : "s"
+  }`;
 }

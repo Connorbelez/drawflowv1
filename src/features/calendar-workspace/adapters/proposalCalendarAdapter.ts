@@ -42,6 +42,10 @@ export function buildProposalCalendarWorkspaceFromDetail(
   options: { baseDate?: string; organizationId?: string } = {}
 ): DrawFlowCalendarWorkspaceData {
   const proposal = detail.proposal ?? {};
+  const isDraftProposal = proposal.status === "draft";
+  const proposalScheduleImmutableReason = isDraftProposal
+    ? undefined
+    : "Only draft proposal schedules can be changed from the calendar.";
   const organizationId =
     options.organizationId ?? proposal.organizationId ?? "visual-fixture";
   const baseDate = resolveProposalCalendarBaseDate(
@@ -63,11 +67,11 @@ export function buildProposalCalendarWorkspaceFromDetail(
         editable: {
           canChangeAssignee: false,
           canChangeStatus: false,
-          canMove: proposal.status !== "closed",
-          canResizeEnd: proposal.status !== "closed",
-          canResizeStart: proposal.status !== "closed",
-          requiredReason:
-            proposal.status === "draft" ? "none" : "scheduleChange",
+          canMove: isDraftProposal,
+          canResizeEnd: isDraftProposal,
+          canResizeStart: isDraftProposal,
+          immutableReason: proposalScheduleImmutableReason,
+          requiredReason: "none",
         },
         endsAt: addDaysIso(baseDate, milestone.dayEnd ?? 0),
         entity: {
@@ -113,11 +117,11 @@ export function buildProposalCalendarWorkspaceFromDetail(
         editable: {
           canChangeAssignee: false,
           canChangeStatus: false,
-          canMove: proposal.status !== "closed",
-          canResizeEnd: proposal.status !== "closed",
+          canMove: isDraftProposal,
+          canResizeEnd: isDraftProposal,
           canResizeStart: false,
-          requiredReason:
-            proposal.status === "draft" ? "none" : "scheduleChange",
+          immutableReason: proposalScheduleImmutableReason,
+          requiredReason: "none",
         },
         endsAt: addDaysIso(
           startsAt,
@@ -155,11 +159,11 @@ export function buildProposalCalendarWorkspaceFromDetail(
         editable: {
           canChangeAssignee: false,
           canChangeStatus: false,
-          canMove: proposal.status !== "closed",
+          canMove: isDraftProposal,
           canResizeEnd: false,
           canResizeStart: false,
-          requiredReason:
-            proposal.status === "draft" ? "none" : "scheduleChange",
+          immutableReason: proposalScheduleImmutableReason,
+          requiredReason: "none",
         },
         entity: {
           id: String(draw._id ?? draw.drawKey),
@@ -238,24 +242,22 @@ export function buildProposalCalendarActions(
 ): CalendarAction[] {
   return [
     eventAction(
-      "open-proposal-event",
-      "Open detail",
-      "Review this calendar event.",
-      async () => {}
-    ),
-    eventAction(
       "revise-proposal-milestone",
       "Move proposal dates",
       "Adjust planned milestone dates.",
       async () => {},
-      Boolean(actions.reviseMilestoneSchedule)
+      Boolean(actions.reviseMilestoneSchedule),
+      (context) =>
+        context.event?.kind === "milestone" ||
+        context.event?.kind === "submilestone"
     ),
     eventAction(
       "revise-proposal-draw",
       "Edit draw timing",
       "Adjust planned reimbursement timing.",
       async () => {},
-      Boolean(actions.reviseDrawTiming)
+      Boolean(actions.reviseDrawTiming),
+      (context) => context.event?.kind === "draw"
     ),
     dateAction(
       "add-proposal-evidence-due",
@@ -288,6 +290,9 @@ export function createProposalCalendarEditHandler(input: {
 }) {
   const baseDate = resolveProposalCalendarBaseDate(input.baseDate);
   return async (request: CalendarEditRequest) => {
+    if (!proposalCalendarEventAllowsEdit(request)) {
+      return;
+    }
     const event = request.event;
     if (
       (event.kind === "milestone" || event.kind === "submilestone") &&
@@ -330,12 +335,25 @@ export function createProposalCalendarEditHandler(input: {
   };
 }
 
+function proposalCalendarEventAllowsEdit(
+  request: CalendarEditRequest
+): boolean {
+  if (request.changeType === "resizeEnd") {
+    return request.event.editable.canResizeEnd;
+  }
+  if (request.changeType === "resizeStart") {
+    return request.event.editable.canResizeStart;
+  }
+  return request.event.editable.canMove;
+}
+
 function eventAction(
   id: string,
   label: string,
   description: string,
   onSelect: CalendarAction["onSelect"],
-  enabled = true
+  enabled = true,
+  isVisible?: CalendarAction["isVisible"]
 ): CalendarAction {
   return {
     appliesTo: "event",
@@ -348,6 +366,7 @@ function eventAction(
         },
     description,
     id,
+    isVisible,
     label,
     onSelect,
     requiresConfirmation: false,

@@ -1,8 +1,11 @@
 "use client";
 
 import {
+  AlertTriangle,
+  CalendarClock,
   CheckCircle2,
   ChevronDown,
+  CircleDot,
   ClipboardCheck,
   Copy,
   ExternalLink,
@@ -52,9 +55,11 @@ import { Textarea } from "#/components/ui/textarea.tsx";
 import {
   BuildFundingWorkspace,
   type DrawRequestReceipt,
+  type FundingRejectDecision,
   type FundingRequestRecord,
   projectBuildFunding,
 } from "#/features/build-funding/BuildFundingWorkspace.tsx";
+import { DrawRejectionDialog } from "#/features/build-funding/DrawRejectionDialog.tsx";
 import {
   BuildPermitViewerDrawer,
   firstPermitDocument,
@@ -101,7 +106,11 @@ import {
   ActiveBuildTimelineWorkspace,
   type ActiveBuildTimelineWorkspaceProps,
 } from "./ActiveBuildTimelineWorkspace";
-import { type BuildDetailSubTab, BuildDetailTabBar } from "./BuildDetailTabs";
+import {
+  BUILD_DETAIL_TABS,
+  type BuildDetailSubTab,
+  BuildDetailTabBar,
+} from "./BuildDetailTabs";
 import { ContractorsCard } from "./ContractorsCard";
 import { EventRailSheet } from "./EventRail";
 import {
@@ -169,6 +178,10 @@ export interface ProductionBuildDetailActions {
     siteVisitGuidance?: SiteVisitGuidance;
     submilestoneKeys?: string[];
   }) => Promise<unknown> | unknown;
+  attachAndInviteContractor?: (input: {
+    contractorId: string;
+    role: string;
+  }) => Promise<unknown> | unknown;
   attachContractor?: (input: {
     contractorId: string;
     role: string;
@@ -208,18 +221,19 @@ export interface ProductionBuildDetailActions {
     };
     milestoneKey: string;
     role: string;
+    submilestoneKeys?: string[];
   }) =>
-    | Promise<unknown | string | { contractorId?: string }>
-    | unknown
+    | Promise<string | void | { contractorId?: string }>
     | string
+    | void
     | { contractorId?: string };
   createAndAttachContractor?: (input: {
     contractor: ContractorProfileDraft;
     role: string;
   }) =>
-    | Promise<unknown | string | { contractorId?: string }>
-    | unknown
+    | Promise<string | void | { contractorId?: string }>
     | string
+    | void
     | { contractorId?: string };
   createCalendarSyncSubscription?: (input: {
     direction: "bidirectional" | "outbound";
@@ -242,11 +256,27 @@ export interface ProductionBuildDetailActions {
     provider: "google" | "ics" | "outlook";
     subscriptionKey?: string;
   }) => Promise<unknown> | unknown;
-  rejectDraw?: (draw: ProductionDraw) => Promise<unknown> | unknown;
+  rejectDraw?: (input: {
+    draw: ProductionDraw;
+    reason: string;
+  }) => Promise<unknown> | unknown;
   rejectMilestone?: (input: {
     milestoneKey: string;
   }) => Promise<unknown> | unknown;
   releaseDraw?: (draw: ProductionDraw) => Promise<unknown> | unknown;
+  removeContractorFromMilestone?: (input: {
+    assignmentId: string;
+    contractorId: string;
+    milestoneKey: string;
+    reason: string;
+    submilestoneKey?: string;
+  }) => Promise<unknown> | unknown;
+  requestBudgetRevision?: (input: {
+    borrowerCoPayBps: number;
+    borrowerStartingCashCents: number;
+    lenderDrawPolicyLimitCents: number;
+    reason: string;
+  }) => Promise<unknown> | unknown;
   requestDraw?: (draw: ProductionDraw) => Promise<unknown> | unknown;
   requestDrawAmount?: (input: {
     amountCents: number;
@@ -273,6 +303,11 @@ export interface ProductionBuildDetailActions {
     requestedDay: number;
     requestedTime?: string;
     visitId: string;
+  }) => Promise<unknown> | unknown;
+  reviewBudgetRevision?: (input: {
+    note: string;
+    requestId: string;
+    status: "approved" | "rejected";
   }) => Promise<unknown> | unknown;
   reviewEvidence?: (input: {
     accepted: boolean;
@@ -339,6 +374,12 @@ export interface ProductionBuildDetailActions {
     note?: string;
   }) => Promise<unknown> | unknown;
   submitDrawForAdmin?: (draw: ProductionDraw) => Promise<unknown> | unknown;
+  submitMilestoneCompletion?: (input: {
+    actualCostCents?: number;
+    completedDay: number;
+    milestoneKey: string;
+    note?: string;
+  }) => Promise<unknown> | unknown;
   updateNonFinancialDetails?: (input: {
     buildName: string;
     location: string;
@@ -348,6 +389,20 @@ export interface ProductionBuildDetailActions {
     reason: string;
     startDate: string;
   }) => Promise<unknown> | unknown;
+  updateSubmilestoneExecution?: (input: {
+    actualCostCents?: number | null;
+    fieldNote?: string | null;
+    milestoneKey: string;
+    reason?: string;
+    status?: ProductionMilestoneStatus;
+    submilestoneKey: string;
+  }) => Promise<unknown> | unknown;
+  uploadSubmilestoneEvidence?: (input: {
+    file: File;
+    locationVerified: boolean;
+    milestoneKey: string;
+    submilestoneKey: string;
+  }) => Promise<unknown> | unknown;
   withdrawDraw?: (drawKey: string) => Promise<unknown> | unknown;
 }
 
@@ -355,6 +410,7 @@ export interface ProductionBuildDetail {
   appPermissions?: BuilderStaffAppPermissions | null;
   auditEvents?: ProductionAuditEvent[];
   availableContractors?: ProductionAvailableContractor[];
+  budgetRevisionRequests?: ProductionBudgetRevisionRequest[];
   build: {
     _id: string;
     buildName: string;
@@ -370,7 +426,7 @@ export interface ProductionBuildDetail {
     updatedAt?: number;
   };
   capitalPlan?: {
-    borrowerWorkingCapitalLimitCents: number;
+    borrowerStartingCashCents: number;
     borrowerCoPayBps: number;
     lenderDrawPolicyLimitCents: number;
     version: number;
@@ -412,6 +468,7 @@ export interface ProductionBuildDetail {
 interface ProductionMilestone {
   _id: string;
   budgetCents: number;
+  completedSubmilestoneCount?: number;
   completionClaim?: Record<string, unknown>;
   completionReview?: Record<string, any>;
   dayEnd: number;
@@ -423,19 +480,31 @@ interface ProductionMilestone {
   isDragLocked?: boolean;
   key: string;
   name: string;
+  normalizedProgressPercent?: number;
   order: number;
   policyState?: string;
   progressPercent?: number;
+  reconciliationIssues?: Array<{
+    code: string;
+    message: string;
+    severity: "warning";
+  }>;
+  reconciliationState?: "consistent" | "warning";
   siteVisitGuidance?: SiteVisitGuidance;
   startedAt?: number;
   status: ProductionMilestoneStatus;
+  totalSubmilestoneCount?: number;
   updatedAt?: number;
 }
 
 interface ProductionSubmilestone {
   _id: string;
+  actualCostCents?: number;
   budgetCents?: number;
+  completedAt?: number;
+  completedByWorkosUserId?: string;
   durationDays?: number;
+  fieldNote?: string;
   key: string;
   milestoneKey: string;
   name: string;
@@ -501,6 +570,30 @@ interface ProductionFacilityChangeRequest {
   updatedAt?: number;
 }
 
+interface ProductionBudgetRevisionRequest {
+  _id: string;
+  approvedCapitalPlanId?: string;
+  baseVersion: number;
+  createdAt: number;
+  priorState: {
+    borrowerCoPayBps: number;
+    borrowerStartingCashCents: number;
+    lenderDrawPolicyLimitCents: number;
+    version: number;
+  };
+  reason: string;
+  requestedByWorkosUserId: string;
+  requestedPayload: {
+    borrowerCoPayBps: number;
+    borrowerStartingCashCents: number;
+    lenderDrawPolicyLimitCents: number;
+  };
+  reviewerWorkosUserId?: string;
+  reviewNote?: string;
+  status: "requested" | "approved" | "rejected";
+  varianceCents: number;
+}
+
 interface ProductionSitePhoto {
   caption: string;
   evidenceKey?: string;
@@ -550,9 +643,15 @@ interface ProductionNote {
 
 interface ProductionRailEvent {
   _id: string;
+  actionLabel: string;
+  body: string;
   createdAt: number;
-  eventType: string;
-  payloadPreview: string;
+  entityLabel: string;
+  entityType: string;
+  href: string;
+  resolutionMode: "domain" | "recipient";
+  sourceLabel: string;
+  title: string;
 }
 
 interface ProductionAuditEvent {
@@ -560,10 +659,18 @@ interface ProductionAuditEvent {
   actorPersona: string;
   afterSummary?: string;
   beforeSummary?: string;
+  changes?: Array<{
+    after: string;
+    before: string;
+    field: string;
+  }>;
+  command?: string;
   createdAt: number;
   entityLabel?: string;
   entityType: string;
   eventType: string;
+  reason?: string;
+  warnings?: string[];
 }
 
 interface ProductionAttachedContractor {
@@ -630,6 +737,7 @@ interface ProductionSiteVisit {
   requestedDay: number;
   requestedTime?: string;
   status: string;
+  submilestoneKeys?: string[];
   tokenConsumedAt?: number;
   tokenExpiresAt?: number;
   tokenOpenedAt?: number;
@@ -720,12 +828,16 @@ export function ProductionBuildDetailSurface({
   const eventsOpen = rail === "open";
   const eventCount =
     (detail.auditEvents?.length ?? 0) + (detail.quickActionEvents?.length ?? 0);
+  const activeTabLabel =
+    BUILD_DETAIL_TABS.find((tab) => tab.value === activeTab)?.label ?? "Build";
   const permit = firstPermitDocument(detail.documents);
   const [localActiveMilestoneKey, setLocalActiveMilestoneKey] = useState<
     string | null
   >(milestoneKey ?? null);
-  const [assignContractorMilestoneKey, setAssignContractorMilestoneKey] =
-    useState<string | null>(null);
+  const [assignContractorTarget, setAssignContractorTarget] = useState<{
+    milestoneKey: string;
+    submilestoneKeys?: string[];
+  } | null>(null);
   const [siteVisitOrderRequest, setSiteVisitOrderRequest] =
     useState<SiteVisitOrderRequest | null>(null);
   const activeMilestoneKey = milestoneKey ?? localActiveMilestoneKey;
@@ -807,106 +919,114 @@ export function ProductionBuildDetailSurface({
           onChangeTab={onChangeTab}
           tabs={visibleTabs}
         />
-        {activeTab === "details" ? (
-          <ProductionDetailsTab
-            actions={actions}
-            contractorDetailHrefFor={contractorDetailHrefFor}
-            currentDay={currentDay}
-            detail={detail}
-            fundingWorkspaceEnabled={fundingWorkspaceEnabled}
-            onAssignContractor={
-              actions?.assignContractorToMilestone ||
-              actions?.createAndAssignContractor
-                ? (card) => setAssignContractorMilestoneKey(card.milestoneKey)
-                : undefined
-            }
-            onCardClick={(card) => setActiveMilestoneKey(card.milestoneKey)}
-            onOpenMilestone={setActiveMilestoneKey}
-            projection={projection}
-            viewerRole={viewerRole}
-          />
-        ) : null}
-        {activeTab === "milestones" ? (
-          <ProductionMilestonesTab
-            actions={actions}
-            currentDay={currentDay}
-            detail={detail}
-            onAssignContractor={
-              actions?.assignContractorToMilestone ||
-              actions?.createAndAssignContractor
-                ? (card) => setAssignContractorMilestoneKey(card.milestoneKey)
-                : undefined
-            }
-            onCardClick={(card) => setActiveMilestoneKey(card.milestoneKey)}
-            projection={projection}
-            viewerRole={viewerRole}
-          />
-        ) : null}
-        {activeTab === "contractors" ? (
-          <ProductionContractorsTab
-            actions={actions}
-            contractorDetailHrefFor={contractorDetailHrefFor}
-            detail={detail}
-            viewerRole={viewerRole}
-          />
-        ) : null}
-        {activeTab === "timeline" ? (
-          <ProductionTimelineTab
-            actions={actions}
-            activeBuildId={activeBuildId}
-            detail={detail}
-            onRequestSiteVisit={requestSiteVisit}
-            timelineWorkspace={timelineWorkspace}
-            viewerRole={viewerRole}
-            workosOrganizationId={workosOrganizationId}
-          />
-        ) : null}
-        {activeTab === "evidence" ? (
-          <ProductionEvidenceTab
-            actions={actions}
-            detail={detail}
-            onOpenMilestone={(milestoneKey) =>
-              setActiveMilestoneKey(milestoneKey)
-            }
-            projection={projection}
-          />
-        ) : null}
-        {activeTab === "materials" ? (
-          <ProductionBuildMaterialsTab
-            actions={actions?.materialPlanning}
-            detail={detail}
-          />
-        ) : null}
-        {activeTab === "staff" ? staff : null}
-        {activeTab === "calendar" ? (
-          <ProductionCalendarTab
-            actions={actions}
-            calendarTimeframe={calendarTimeframe}
-            calendarWorkspace={calendarWorkspace}
-            detail={detail}
-            onChangeCalendarTimeframe={onChangeCalendarTimeframe}
-            onChangeTab={onChangeTab}
-            onRequestSiteVisit={requestSiteVisit}
-            workosOrganizationId={workosOrganizationId}
-          />
-        ) : null}
-        {activeTab === "gantt" ? (
-          <ProductionGanttTab
-            actions={actions}
-            activeBuildId={activeBuildId}
-            detail={detail}
-            onRequestSiteVisit={requestSiteVisit}
-            timelineWorkspace={timelineWorkspace}
-            viewerRole={viewerRole}
-            workosOrganizationId={workosOrganizationId}
-          />
-        ) : null}
+        <section
+          aria-label={`${activeTabLabel} workspace`}
+          className="min-w-0"
+          data-testid="active-build-workspace-section"
+        >
+          {activeTab === "details" ? (
+            <ProductionDetailsTab
+              actions={actions}
+              contractorDetailHrefFor={contractorDetailHrefFor}
+              currentDay={currentDay}
+              detail={detail}
+              fundingWorkspaceEnabled={fundingWorkspaceEnabled}
+              onAssignContractor={
+                actions?.assignContractorToMilestone ||
+                actions?.createAndAssignContractor
+                  ? (card) =>
+                      setAssignContractorTarget({
+                        milestoneKey: card.milestoneKey,
+                      })
+                  : undefined
+              }
+              onCardClick={(card) => setActiveMilestoneKey(card.milestoneKey)}
+              onOpenMilestone={setActiveMilestoneKey}
+              projection={projection}
+              viewerRole={viewerRole}
+            />
+          ) : null}
+          {activeTab === "milestones" ? (
+            <ProductionMilestonesTab
+              currentDay={currentDay}
+              detail={detail}
+              onAssignContractor={
+                actions?.assignContractorToMilestone ||
+                actions?.createAndAssignContractor
+                  ? (card) =>
+                      setAssignContractorTarget({
+                        milestoneKey: card.milestoneKey,
+                      })
+                  : undefined
+              }
+              onCardClick={(card) => setActiveMilestoneKey(card.milestoneKey)}
+              projection={projection}
+              viewerRole={viewerRole}
+            />
+          ) : null}
+          {activeTab === "contractors" ? (
+            <ProductionContractorsTab
+              actions={actions}
+              detail={detail}
+              viewerRole={viewerRole}
+            />
+          ) : null}
+          {activeTab === "timeline" ? (
+            <ProductionTimelineTab
+              actions={actions}
+              activeBuildId={activeBuildId}
+              detail={detail}
+              onRequestSiteVisit={requestSiteVisit}
+              timelineWorkspace={timelineWorkspace}
+              viewerRole={viewerRole}
+              workosOrganizationId={workosOrganizationId}
+            />
+          ) : null}
+          {activeTab === "evidence" ? (
+            <ProductionEvidenceTab
+              actions={actions}
+              detail={detail}
+              onOpenMilestone={(milestoneKey) =>
+                setActiveMilestoneKey(milestoneKey)
+              }
+              projection={projection}
+            />
+          ) : null}
+          {activeTab === "materials" ? (
+            <ProductionBuildMaterialsTab
+              actions={actions?.materialPlanning}
+              detail={detail}
+            />
+          ) : null}
+          {activeTab === "staff" ? staff : null}
+          {activeTab === "calendar" ? (
+            <ProductionCalendarTab
+              actions={actions}
+              calendarTimeframe={calendarTimeframe}
+              calendarWorkspace={calendarWorkspace}
+              detail={detail}
+              onChangeCalendarTimeframe={onChangeCalendarTimeframe}
+              onChangeTab={onChangeTab}
+              onRequestSiteVisit={requestSiteVisit}
+              workosOrganizationId={workosOrganizationId}
+            />
+          ) : null}
+          {activeTab === "gantt" ? (
+            <ProductionGanttTab
+              actions={actions}
+              activeBuildId={activeBuildId}
+              detail={detail}
+              onRequestSiteVisit={requestSiteVisit}
+              timelineWorkspace={timelineWorkspace}
+              viewerRole={viewerRole}
+              workosOrganizationId={workosOrganizationId}
+            />
+          ) : null}
+        </section>
       </section>
       <EventRailSheet
         auditEvents={detail.auditEvents ?? []}
         onOpenChange={(open) => onChangeRail(open ? "open" : "closed")}
-        onResolve={(_event) => {}}
-        onView={(_event) => {}}
         open={eventsOpen}
         quickActionEvents={detail.quickActionEvents ?? []}
       />
@@ -929,10 +1049,17 @@ export function ProductionBuildDetailSurface({
           assignmentsSourceLabel="buildContractorAssignments"
           data={sheetData}
           eventsSourceLabel="activeBuildAuditEvents"
+          key={activeMilestoneKey ?? "milestone-sheet"}
           onAssignContractor={
             actions?.assignContractorToMilestone ||
             actions?.createAndAssignContractor
-              ? (milestoneKey) => setAssignContractorMilestoneKey(milestoneKey)
+              ? (milestoneKey, submilestoneKey) =>
+                  setAssignContractorTarget({
+                    milestoneKey,
+                    ...(submilestoneKey
+                      ? { submilestoneKeys: [submilestoneKey] }
+                      : {}),
+                  })
               : undefined
           }
           onClose={() => setActiveMilestoneKey(null)}
@@ -943,6 +1070,9 @@ export function ProductionBuildDetailSurface({
                 }
               : undefined
           }
+          onSubmitCompletion={actions?.submitMilestoneCompletion}
+          onUpdateSubmilestone={actions?.updateSubmilestoneExecution}
+          onUploadEvidence={actions?.uploadSubmilestoneEvidence}
         />
       )}
       <SiteVisitOrderDialog
@@ -967,43 +1097,47 @@ export function ProductionBuildDetailSurface({
         createLabel="Create and assign"
         description="Assign an existing build contractor or create a profile and attach it to this milestone scope."
         onAttachExisting={async ({ assignmentCost, contractorId, role }) => {
-          if (!assignContractorMilestoneKey) {
+          if (!assignContractorTarget) {
             return;
           }
           await actions?.assignContractorToMilestone?.({
             assignmentCost,
             contractorId,
-            milestoneKey: assignContractorMilestoneKey,
+            milestoneKey: assignContractorTarget.milestoneKey,
             role,
+            submilestoneKeys: assignContractorTarget.submilestoneKeys,
           });
         }}
         onCreate={async ({ assignmentCost, contractor, role }) => {
-          if (!assignContractorMilestoneKey) {
+          if (!assignContractorTarget) {
             return;
           }
-          return await actions?.createAndAssignContractor?.({
+          return actions?.createAndAssignContractor?.({
             assignmentCost,
             contractor,
-            milestoneKey: assignContractorMilestoneKey,
+            milestoneKey: assignContractorTarget.milestoneKey,
             role: role ?? "Contractor",
+            submilestoneKeys: assignContractorTarget.submilestoneKeys,
           });
         }}
         onInviteCreatedContractor={
           actions?.inviteContractor
-            ? (contractorId) => actions.inviteContractor?.(contractorId)
+            ? async (contractorId) => {
+                await actions.inviteContractor?.(contractorId);
+              }
             : undefined
         }
         onOpenChange={(open) => {
           if (!open) {
-            setAssignContractorMilestoneKey(null);
+            setAssignContractorTarget(null);
           }
         }}
-        open={Boolean(assignContractorMilestoneKey)}
+        open={Boolean(assignContractorTarget)}
         requireRole
         showAssignmentCost
         title={
-          assignContractorMilestoneKey
-            ? `Assign contractor to ${assignContractorMilestoneKey}`
+          assignContractorTarget
+            ? `Assign contractor to ${assignContractorTarget.submilestoneKeys?.[0] ?? assignContractorTarget.milestoneKey}`
             : "Assign contractor"
         }
       />
@@ -1149,12 +1283,14 @@ function ProductionDetailsTab({
         className={cn(
           "grid items-stretch gap-3 sm:gap-4",
           activeOverviewSection !== "draws" &&
-            "xl:grid-cols-[minmax(280px,0.85fr)_minmax(0,1.6fr)]"
+            "xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]"
         )}
+        data-testid="build-overview-layout"
       >
         <ProductionBuildDetailsCard
           actions={actions}
           activeSection={activeOverviewSection}
+          currentDay={currentDay}
           detail={detail}
           fundingWorkspaceEnabled={fundingWorkspaceEnabled}
           onOpenMilestone={onOpenMilestone}
@@ -1183,6 +1319,11 @@ function ProductionDetailsTab({
       ) : null}
 
       <FacilityChangeRequestsCard actions={actions} detail={detail} />
+      <BudgetRevisionCard
+        actions={actions}
+        detail={detail}
+        viewerRole={viewerRole}
+      />
 
       <MilestoneKanban
         cards={kanbanCards}
@@ -1245,9 +1386,26 @@ function fundingRequestAction(
   };
 }
 
+function fundingRejectAction(
+  draws: ProductionDraw[],
+  action?: ProductionBuildDetailActions["rejectDraw"]
+) {
+  if (!action) {
+    return;
+  }
+  return (decision: FundingRejectDecision) => {
+    const draw = draws.find((row) => row.drawKey === decision.request.drawKey);
+    if (!draw) {
+      throw new Error("This draw request is no longer available.");
+    }
+    return action({ draw, reason: decision.reason });
+  };
+}
+
 function ProductionBuildDetailsCard({
   activeSection,
   actions,
+  currentDay,
   detail,
   fundingWorkspaceEnabled,
   onOpenMilestone,
@@ -1257,6 +1415,7 @@ function ProductionBuildDetailsCard({
 }: {
   activeSection: BuildOverviewSection;
   actions?: ProductionBuildDetailActions;
+  currentDay: number;
   detail: ProductionBuildDetail;
   fundingWorkspaceEnabled: boolean;
   onOpenMilestone: (milestoneKey: string) => void;
@@ -1265,8 +1424,8 @@ function ProductionBuildDetailsCard({
   viewerRole: "builder" | "lender";
 }) {
   const currentOverview = useMemo(
-    () => buildCurrentBuildOverview(detail, projection),
-    [detail, projection]
+    () => buildCurrentBuildOverview(detail, projection, currentDay),
+    [currentDay, detail, projection]
   );
   const siteVisitsOpen =
     detail.siteVisits?.filter((visit) => visit.status === "requested").length ??
@@ -1325,6 +1484,7 @@ function ProductionBuildDetailsCard({
 
             <TabsPanel value="current">
               <CurrentBuildOverviewPanel
+                currentDay={currentDay}
                 currentOverview={currentOverview}
                 detail={detail}
                 onReviewMilestone={(milestone) =>
@@ -1344,6 +1504,7 @@ function ProductionBuildDetailsCard({
                   model={projectBuildFunding({
                     availability: detail.drawFunding,
                     canRequest: Boolean(actions?.requestDrawAmount),
+                    buildLabel: detail.build.buildName,
                     facilityCents: detail.loanFacility?.principalCents,
                     milestones: detail.milestones,
                     plannedDraws:
@@ -1363,7 +1524,7 @@ function ProductionBuildDetailsCard({
                     actions?.approveDraw
                   )}
                   onOpenMilestone={onOpenMilestone}
-                  onRejectDraw={fundingRequestAction(
+                  onRejectDraw={fundingRejectAction(
                     detail.draws,
                     actions?.rejectDraw
                   )}
@@ -1425,12 +1586,17 @@ function ProductionBuildDetailsCard({
   );
 }
 
+interface CurrentMilestoneHorizon {
+  behindSchedule: ProductionMilestone[];
+  current: ProductionMilestone[];
+  next: ProductionMilestone | null;
+}
+
 interface CurrentBuildOverview {
-  activeMilestones: ProductionMilestone[];
   committedDrawCents: number;
   currentAvailabilityCents: number;
   drawnCents: number;
-  nextMilestone: ProductionMilestone | null;
+  milestoneHorizon: CurrentMilestoneHorizon;
   percentComplete: number;
   requestableAmountCents: number;
   totalApprovedCents: number;
@@ -1438,194 +1604,412 @@ interface CurrentBuildOverview {
 }
 
 function CurrentBuildOverviewPanel({
+  currentDay,
   currentOverview,
   detail,
   onReviewMilestone,
   projection,
   viewerRole,
 }: {
+  currentDay: number;
   currentOverview: CurrentBuildOverview;
   detail: ProductionBuildDetail;
   onReviewMilestone: (milestone: ProductionMilestone) => void;
   projection: ProductionBuildProjection;
   viewerRole: "builder" | "lender";
 }) {
+  const horizon = currentOverview.milestoneHorizon;
   return (
     <div className="grid gap-4" data-testid="build-overview-current-panel">
-      <section className="grid gap-3">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h3 className="font-semibold text-sm">Current milestone</h3>
-            <p className="text-muted-foreground text-xs">
-              Active work, assignments, and completion authority.
-            </p>
-          </div>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h3 className="font-semibold text-sm">Schedule horizon</h3>
+          <p className="text-muted-foreground text-xs">
+            Timing, ownership, and approved budget against the Build roadmap.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge size="sm" variant="outline">
+            Build day {currentDay}
+          </Badge>
           <Badge size="sm" variant="info">
             {currentOverview.percentComplete}% complete
           </Badge>
         </div>
+      </div>
 
-        {currentOverview.activeMilestones.length > 0 ? (
-          <div className="grid gap-3" data-testid="current-milestones">
-            {currentOverview.activeMilestones.map((milestone) => {
-              const contractors = contractorAssignmentsForMilestone(
-                detail,
-                milestone.key
-              );
-              const submilestones =
-                projection.submilestonesByMilestone.get(milestone.key) ?? [];
-              const progressPercent = milestoneProgressPercent(
-                milestone,
-                submilestones
-              );
-              const actionLabel =
-                viewerRole === "lender"
-                  ? "Review milestone completion"
-                  : "Complete Milestone";
-              return (
-                <article
-                  className="grid gap-3 border-border border-t pt-3 first:border-t-0 first:pt-0"
-                  data-testid={`current-milestone-${milestone.key}`}
-                  key={milestone.key}
-                >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h4 className="break-words font-semibold text-base">
-                          {milestone.name}
-                        </h4>
-                        <Badge
-                          size="sm"
-                          variant={
-                            milestoneHasPendingCompletionClaim(milestone)
-                              ? "warning"
-                              : "info"
-                          }
-                        >
-                          {milestoneHasPendingCompletionClaim(milestone)
-                            ? "Completion submitted"
-                            : "In progress"}
-                        </Badge>
-                      </div>
-                      <p className="mt-1 text-muted-foreground text-xs">
-                        {formatDate(
-                          addDaysSafe(
-                            detail.build.startDate,
-                            milestone.dayStart
-                          )
-                        )}{" "}
-                        to{" "}
-                        {formatDate(
-                          addDaysSafe(detail.build.startDate, milestone.dayEnd)
-                        )}
-                      </p>
-                    </div>
-                    <Button
-                      className="shrink-0"
-                      data-testid={`current-milestone-review-${milestone.key}`}
-                      onClick={() => onReviewMilestone(milestone)}
-                      size="sm"
-                      type="button"
-                    >
-                      <CheckCircle2 aria-hidden="true" />
-                      {actionLabel}
-                    </Button>
-                  </div>
+      <Frame data-testid="current-milestone-horizon">
+        <CurrentMilestoneHorizonSection
+          currentDay={currentDay}
+          description="Incomplete work past its planned end date."
+          detail={detail}
+          emptyMessage="No milestones are behind schedule."
+          lane="behind-schedule"
+          milestones={horizon.behindSchedule}
+          onReviewMilestone={onReviewMilestone}
+          projection={projection}
+          title="Behind Schedule Milestones"
+          viewerRole={viewerRole}
+        />
+        <CurrentMilestoneHorizonSection
+          currentDay={currentDay}
+          description="Active work and completion submissions in flight."
+          detail={detail}
+          emptyMessage="No milestones are currently active."
+          lane="current"
+          milestones={horizon.current}
+          onReviewMilestone={onReviewMilestone}
+          projection={projection}
+          title="Current Milestones"
+          viewerRole={viewerRole}
+        />
+        <CurrentMilestoneHorizonSection
+          currentDay={currentDay}
+          description="The next incomplete milestone in the approved roadmap."
+          detail={detail}
+          emptyMessage="No upcoming milestone remains."
+          lane="next-upcoming"
+          milestones={horizon.next ? [horizon.next] : []}
+          onReviewMilestone={onReviewMilestone}
+          projection={projection}
+          title="Next Upcoming Milestone"
+          viewerRole={viewerRole}
+        />
+      </Frame>
+    </div>
+  );
+}
 
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    <OverviewMetric
-                      label="Budget"
-                      value={formatCents(milestone.budgetCents)}
-                    />
-                    <OverviewMetric
-                      label="Draw unlock"
-                      value={formatCents(milestone.drawAvailabilityCents)}
-                    />
-                    <OverviewMetric
-                      label="Progress"
-                      value={`${progressPercent}%`}
-                    />
-                  </div>
+type CurrentMilestoneHorizonLane =
+  | "behind-schedule"
+  | "current"
+  | "next-upcoming";
 
-                  <div>
-                    <div className="flex items-center justify-between gap-3 text-xs">
-                      <span className="text-muted-foreground">Progress</span>
-                      <span className="tabular-nums">{progressPercent}%</span>
-                    </div>
-                    <span
-                      aria-hidden="true"
-                      className="mt-1 block h-1.5 overflow-hidden rounded-full bg-muted"
-                    >
-                      <span
-                        className="block h-full bg-primary"
-                        style={{ width: `${progressPercent}%` }}
-                      />
-                    </span>
-                  </div>
-
-                  <div>
-                    <p className="mb-2 text-muted-foreground text-xs uppercase">
-                      Assigned contractors
-                    </p>
-                    {contractors.length > 0 ? (
-                      <ul className="grid gap-2">
-                        {contractors.map((contractor) => (
-                          <li
-                            className="flex min-w-0 items-center gap-2 text-sm"
-                            data-testid={`current-milestone-contractor-${milestone.key}`}
-                            key={`${milestone.key}-${contractor.name}-${contractor.role ?? ""}`}
-                          >
-                            <span className="grid size-7 shrink-0 place-items-center rounded-md bg-primary/15 font-semibold text-primary text-xs">
-                              {initialsFor(contractor.name)}
-                            </span>
-                            <span className="min-w-0">
-                              <span className="break-words font-medium">
-                                {contractor.name}
-                              </span>
-                              {contractor.role ? (
-                                <span className="ml-2 text-muted-foreground text-xs">
-                                  {contractor.role}
-                                </span>
-                              ) : null}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-muted-foreground text-sm">
-                        No contractors assigned.
-                      </p>
-                    )}
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        ) : (
-          <div
-            className="border-border border-t pt-3"
-            data-testid="current-milestones-empty"
-          >
-            <p className="font-medium text-sm">No active milestone.</p>
-            {currentOverview.nextMilestone ? (
-              <p className="mt-1 text-muted-foreground text-xs">
-                Next scheduled: {currentOverview.nextMilestone.name} on{" "}
-                {formatDate(
-                  addDaysSafe(
-                    detail.build.startDate,
-                    currentOverview.nextMilestone.dayStart
-                  )
-                )}
-                .
-              </p>
-            ) : (
-              <p className="mt-1 text-muted-foreground text-xs">
-                All milestones are complete.
-              </p>
+function CurrentMilestoneHorizonSection({
+  currentDay,
+  description,
+  detail,
+  emptyMessage,
+  lane,
+  milestones,
+  onReviewMilestone,
+  projection,
+  title,
+  viewerRole,
+}: {
+  currentDay: number;
+  description: string;
+  detail: ProductionBuildDetail;
+  emptyMessage: string;
+  lane: CurrentMilestoneHorizonLane;
+  milestones: ProductionMilestone[];
+  onReviewMilestone: (milestone: ProductionMilestone) => void;
+  projection: ProductionBuildProjection;
+  title: string;
+  viewerRole: "builder" | "lender";
+}) {
+  const sectionTestId =
+    lane === "behind-schedule"
+      ? "behind-schedule-milestones"
+      : lane === "current"
+        ? "current-milestones"
+        : "next-upcoming-milestone";
+  return (
+    <FramePanel
+      className={cn(
+        "p-3 sm:p-4",
+        lane === "behind-schedule" &&
+          "border-destructive/25 bg-destructive/[0.035]",
+        lane === "current" && "border-primary/25 bg-primary/[0.035]"
+      )}
+      data-testid={sectionTestId}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-2.5">
+          <span
+            className={cn(
+              "grid size-7 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground",
+              lane === "behind-schedule" &&
+                "bg-destructive/10 text-destructive",
+              lane === "current" && "bg-primary/12 text-primary"
             )}
+          >
+            {lane === "behind-schedule" ? (
+              <AlertTriangle aria-hidden="true" className="size-3.5" />
+            ) : lane === "current" ? (
+              <CircleDot aria-hidden="true" className="size-3.5" />
+            ) : (
+              <CalendarClock aria-hidden="true" className="size-3.5" />
+            )}
+          </span>
+          <div className="min-w-0">
+            <h4 className="font-semibold text-sm">{title}</h4>
+            <p className="mt-0.5 max-w-[65ch] text-muted-foreground text-xs">
+              {description}
+            </p>
           </div>
-        )}
-      </section>
+        </div>
+        <Badge
+          aria-label={`${milestones.length} ${title.toLowerCase()}`}
+          size="sm"
+          variant={
+            lane === "behind-schedule"
+              ? "error"
+              : lane === "current"
+                ? "info"
+                : "outline"
+          }
+        >
+          {milestones.length}
+        </Badge>
+      </div>
+
+      {milestones.length > 0 ? (
+        <div className="mt-4 grid gap-4">
+          {milestones.map((milestone) => (
+            <CurrentMilestoneHorizonItem
+              currentDay={currentDay}
+              detail={detail}
+              key={milestone.key}
+              lane={lane}
+              milestone={milestone}
+              onReviewMilestone={onReviewMilestone}
+              projection={projection}
+              viewerRole={viewerRole}
+            />
+          ))}
+        </div>
+      ) : (
+        <p
+          className="mt-4 border-border border-t pt-3 text-muted-foreground text-sm"
+          data-testid={`${sectionTestId}-empty`}
+        >
+          {emptyMessage}
+        </p>
+      )}
+    </FramePanel>
+  );
+}
+
+function CurrentMilestoneHorizonItem({
+  currentDay,
+  detail,
+  lane,
+  milestone,
+  onReviewMilestone,
+  projection,
+  viewerRole,
+}: {
+  currentDay: number;
+  detail: ProductionBuildDetail;
+  lane: CurrentMilestoneHorizonLane;
+  milestone: ProductionMilestone;
+  onReviewMilestone: (milestone: ProductionMilestone) => void;
+  projection: ProductionBuildProjection;
+  viewerRole: "builder" | "lender";
+}) {
+  const contractors = contractorAssignmentsForMilestone(detail, milestone.key);
+  const submilestones =
+    projection.submilestonesByMilestone.get(milestone.key) ?? [];
+  const progressPercent = milestoneProgressPercent(milestone, submilestones);
+  const isOperationallyActive = isCurrentActiveMilestone(milestone);
+  const actionLabel =
+    viewerRole === "lender"
+      ? "Review milestone completion"
+      : "Complete Milestone";
+  const daysBehind = Math.max(0, currentDay - milestone.dayEnd);
+  const itemTestId = isOperationallyActive
+    ? `current-milestone-${milestone.key}`
+    : `${lane}-milestone-${milestone.key}`;
+
+  return (
+    <article
+      className="grid gap-3 border-border border-t pt-4 first:border-t-0 first:pt-0"
+      data-schedule-lane={lane}
+      data-testid={itemTestId}
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h5 className="break-words font-semibold text-base">
+              {milestone.name}
+            </h5>
+            <MilestoneHorizonStatusBadge
+              daysBehind={daysBehind}
+              lane={lane}
+              milestone={milestone}
+            />
+          </div>
+        </div>
+        {isOperationallyActive ? (
+          <Button
+            className="shrink-0"
+            data-testid={`current-milestone-review-${milestone.key}`}
+            onClick={() => onReviewMilestone(milestone)}
+            size="sm"
+            type="button"
+          >
+            <CheckCircle2 aria-hidden="true" />
+            {actionLabel}
+          </Button>
+        ) : null}
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <OverviewMetric
+          label="Budget"
+          value={formatCents(milestone.budgetCents)}
+        />
+        <OverviewMetric
+          label="Planned start"
+          truncateValue={false}
+          value={formatDate(
+            addDaysSafe(detail.build.startDate, milestone.dayStart)
+          )}
+        />
+        <OverviewMetric
+          label="Planned end"
+          truncateValue={false}
+          value={formatDate(
+            addDaysSafe(detail.build.startDate, milestone.dayEnd)
+          )}
+        />
+        <OverviewMetric
+          label="Draw unlock"
+          value={formatCents(milestone.drawAvailabilityCents)}
+        />
+      </div>
+
+      <MilestoneContractorList
+        contractors={contractors}
+        milestoneKey={milestone.key}
+      />
+
+      {milestone.reconciliationState === "warning" &&
+      milestone.reconciliationIssues?.length ? (
+        <div
+          aria-live="polite"
+          className="grid gap-1 text-amber-700 text-xs dark:text-amber-300"
+          data-testid={`milestone-reconciliation-${milestone.key}`}
+          role="status"
+        >
+          <span className="font-medium">Milestone data needs review</span>
+          {milestone.reconciliationIssues.map((issue) => (
+            <span key={issue.code}>{issue.message}</span>
+          ))}
+        </div>
+      ) : null}
+
+      {isOperationallyActive ? (
+        <div>
+          <div className="flex items-center justify-between gap-3 text-xs">
+            <span className="text-muted-foreground">Progress</span>
+            <span className="tabular-nums">{progressPercent}%</span>
+          </div>
+          <span
+            aria-hidden="true"
+            className="mt-1 block h-1.5 overflow-hidden rounded-full bg-muted"
+          >
+            <span
+              className="block h-full bg-primary"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </span>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function MilestoneHorizonStatusBadge({
+  daysBehind,
+  lane,
+  milestone,
+}: {
+  daysBehind: number;
+  lane: CurrentMilestoneHorizonLane;
+  milestone: ProductionMilestone;
+}) {
+  if (lane === "behind-schedule") {
+    return (
+      <>
+        <Badge size="sm" variant="error">
+          {daysBehind} day{daysBehind === 1 ? "" : "s"} behind
+        </Badge>
+        <Badge
+          size="sm"
+          variant={
+            milestoneHasPendingCompletionClaim(milestone)
+              ? "warning"
+              : milestone.status === "in_progress"
+                ? "info"
+                : "outline"
+          }
+        >
+          {milestoneHasPendingCompletionClaim(milestone)
+            ? "Completion submitted"
+            : milestone.status === "in_progress"
+              ? "In progress"
+              : "Not started"}
+        </Badge>
+      </>
+    );
+  }
+  if (milestoneHasPendingCompletionClaim(milestone)) {
+    return (
+      <Badge size="sm" variant="warning">
+        Completion submitted
+      </Badge>
+    );
+  }
+  return (
+    <Badge size="sm" variant={lane === "current" ? "info" : "outline"}>
+      {lane === "current" ? "In progress" : "Upcoming"}
+    </Badge>
+  );
+}
+
+function MilestoneContractorList({
+  contractors,
+  milestoneKey,
+}: {
+  contractors: ReturnType<typeof contractorAssignmentsForMilestone>;
+  milestoneKey: string;
+}) {
+  return (
+    <div>
+      <p className="mb-2 text-muted-foreground text-xs uppercase">
+        Assigned contractors
+      </p>
+      {contractors.length > 0 ? (
+        <ul className="flex flex-wrap gap-x-5 gap-y-2">
+          {contractors.map((contractor) => (
+            <li
+              className="flex min-w-0 items-center gap-2 text-sm"
+              data-testid={`current-milestone-contractor-${milestoneKey}`}
+              key={`${milestoneKey}-${contractor.name}-${contractor.role ?? ""}`}
+            >
+              <span className="grid size-7 shrink-0 place-items-center rounded-md bg-primary/15 font-semibold text-primary text-xs">
+                {initialsFor(contractor.name)}
+              </span>
+              <span className="min-w-0">
+                <span className="break-words font-medium">
+                  {contractor.name}
+                </span>
+                {contractor.role ? (
+                  <span className="ml-2 text-muted-foreground text-xs">
+                    {contractor.role}
+                  </span>
+                ) : null}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-muted-foreground text-sm">
+          No contractors assigned.
+        </p>
+      )}
     </div>
   );
 }
@@ -1688,16 +2072,18 @@ function DrawOverviewPanel({
     fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
   ) => {
     if (!fn || pendingDrawAction) {
-      return;
+      return false;
     }
     setPendingDrawAction(`${actionKey}:${draw.drawKey}`);
     setDrawActionError("");
     try {
       await fn(draw);
+      return true;
     } catch (cause) {
       setDrawActionError(
         cause instanceof Error ? cause.message : "Unable to update draw."
       );
+      return false;
     } finally {
       setPendingDrawAction(null);
     }
@@ -1903,7 +2289,7 @@ function DrawSummaryList({
     actionKey: string,
     draw: ProductionDraw,
     fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   pendingActionKey?: string | null;
   testId: string;
   title: string;
@@ -1958,7 +2344,7 @@ function DrawSummaryItem({
     actionKey: string,
     draw: ProductionDraw,
     fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   pendingActionKey?: string | null;
   viewerRole?: "builder" | "lender";
 }) {
@@ -2008,6 +2394,7 @@ function DrawSummaryItem({
         {viewerRole === "lender" && onRunAction ? (
           <DrawActionGroup
             actions={actions}
+            buildLabel={detail.build.buildName}
             draw={draw}
             onRunAction={onRunAction}
             pendingActionKey={pendingActionKey}
@@ -2020,17 +2407,19 @@ function DrawSummaryItem({
 
 function DrawActionGroup({
   actions,
+  buildLabel,
   draw,
   onRunAction,
   pendingActionKey,
 }: {
   actions?: ProductionBuildDetailActions;
+  buildLabel: string;
   draw: ProductionDraw;
   onRunAction: (
     actionKey: string,
     draw: ProductionDraw,
     fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   pendingActionKey?: string | null;
 }) {
   const isPending = (actionKey: string) =>
@@ -2067,11 +2456,19 @@ function DrawActionGroup({
           onClick={() => onRunAction("approve", draw, actions?.approveDraw)}
           testId={`draw-overview-approve-${draw.drawKey}`}
         />
-        <DrawActionButton
+        <DrawRejectionDialog
+          amountCents={draw.amountCents}
+          buildLabel={buildLabel}
           disabled={!actions?.rejectDraw || Boolean(pendingActionKey)}
-          label={isPending("reject") ? "Rejecting..." : "Reject"}
-          onClick={() => onRunAction("reject", draw, actions?.rejectDraw)}
-          testId={`draw-overview-reject-${draw.drawKey}`}
+          loading={isPending("reject")}
+          onReject={(reason) =>
+            onRunAction("reject", draw, (targetDraw) =>
+              actions?.rejectDraw?.({ draw: targetDraw, reason })
+            )
+          }
+          requestKey={draw.drawKey}
+          requestLabel={draw.label}
+          triggerTestId={`draw-overview-reject-${draw.drawKey}`}
         />
       </div>
     );
@@ -2166,10 +2563,10 @@ function LoanMetadataPanel({
     <div data-testid="build-overview-loan-panel">
       <h3 className="mb-3 font-semibold text-sm">Loan Details</h3>
       <dl className="grid grid-cols-[minmax(0,1fr)] gap-y-1.5 text-sm sm:grid-cols-[120px_1fr]">
-        <Label>Working capital limit</Label>
+        <Label>Borrower starting cash</Label>
         <span className="min-w-0 break-words">
           {formatCents(
-            detail.capitalPlan?.borrowerWorkingCapitalLimitCents ?? 0
+            detail.capitalPlan?.borrowerStartingCashCents ?? 0
           )}
         </span>
         <Label>Lender policy limit</Label>
@@ -2211,10 +2608,12 @@ function LoanMetadataPanel({
 function OverviewMetric({
   label,
   testId,
+  truncateValue = true,
   value,
 }: {
   label: string;
   testId?: string;
+  truncateValue?: boolean;
   value: string;
 }) {
   return (
@@ -2223,7 +2622,14 @@ function OverviewMetric({
       data-testid={testId}
     >
       <p className="text-muted-foreground text-xs uppercase">{label}</p>
-      <p className="truncate font-semibold text-sm tabular-nums">{value}</p>
+      <p
+        className={cn(
+          "break-words font-semibold text-sm tabular-nums",
+          truncateValue && "truncate"
+        )}
+      >
+        {value}
+      </p>
     </div>
   );
 }
@@ -2248,6 +2654,7 @@ function MilestoneCompletionReviewSheet({
   const [note, setNote] = useState("");
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [actionSuccess, setActionSuccess] = useState("");
   const [locallyCancelledVisitIds, setLocallyCancelledVisitIds] = useState<
     Set<string>
   >(() => new Set());
@@ -2294,6 +2701,34 @@ function MilestoneCompletionReviewSheet({
   const completedScopeCount = scopeRows.filter(
     (row) => row.status === "complete"
   ).length;
+  const milestoneApproved = isMilestoneApprovedForDrawAvailability(milestone);
+  const builderEvidenceAccepted =
+    builderRows.length > 0 &&
+    builderRows.every((row) => evidenceStatusIsAccepted(row.status));
+  const approvalExceptions = [
+    ...(scopeRows.length > 0 && completedScopeCount < scopeRows.length
+      ? [
+          `${completedScopeCount}/${scopeRows.length} scope items are marked complete.`,
+        ]
+      : []),
+    ...(builderRows.length === 0
+      ? ["No builder evidence package is attached."]
+      : []),
+    ...(builderRows.some((row) => row.locationState === "unverified")
+      ? ["Builder evidence location is unverified."]
+      : []),
+    ...(latestVisit &&
+    latestVisit.status !== "complete" &&
+    latestVisit.status !== "cancelled"
+      ? [
+          siteVisitTokenStateLabel(latestVisit) === "Expired"
+            ? "The site visit token expired before a report was completed."
+            : "The ordered site visit does not have a completed report.",
+        ]
+      : []),
+  ];
+  const decisionNote = note.trim();
+  const approvalNoteRequired = approvalExceptions.length > 0;
   const claimSubmittedAt = stringFromRecord(
     milestone.completionClaim,
     "submittedAt"
@@ -2315,6 +2750,7 @@ function MilestoneCompletionReviewSheet({
     setNote("");
     setPendingAction(null);
     setError("");
+    setActionSuccess("");
   }, [milestone.key, open]);
 
   useEffect(() => {
@@ -2331,11 +2767,18 @@ function MilestoneCompletionReviewSheet({
     }
     setPendingAction(actionKey);
     setError("");
+    setActionSuccess("");
     try {
       await action();
-      if (actionKey === "approve-completion") {
-        onOpenChange(false);
-      }
+      setActionSuccess(
+        actionKey === "approve-completion"
+          ? "Milestone completion approved. Close this review to return to the updated board."
+          : actionKey === "approve-evidence"
+            ? "Builder evidence approved."
+            : actionKey === "request-info"
+              ? "More information requested from the builder."
+              : ""
+      );
       return true;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : fallbackError);
@@ -2345,36 +2788,42 @@ function MilestoneCompletionReviewSheet({
     }
   }
 
-  const approveCompletion = () =>
-    runReviewAction(
+  const approveCompletion = () => {
+    if (approvalNoteRequired && !decisionNote) {
+      setError("A decision rationale is required to approve with exceptions.");
+      return Promise.resolve(false);
+    }
+    return runReviewAction(
       "approve-completion",
       "Unable to approve milestone completion.",
       () =>
         actions?.approveMilestone?.({
           milestoneKey: milestone.key,
-          note: note.trim() || "Approved from milestone completion review.",
+          note: decisionNote || "Approved from milestone completion review.",
         })
     );
-  const requestInfo = () =>
-    runReviewAction(
+  };
+  const requestInfo = () => {
+    if (!decisionNote) {
+      setError("Describe what the builder must clarify.");
+      return Promise.resolve(false);
+    }
+    return runReviewAction(
       "request-info",
       "Unable to request more information.",
       () =>
         actions?.requestMilestoneInfo
           ? actions.requestMilestoneInfo({
               milestoneKey: milestone.key,
-              note:
-                note.trim() ||
-                "More information requested from milestone completion review.",
+              note: decisionNote,
             })
           : actions?.reviewEvidence?.({
               accepted: false,
               milestoneKey: milestone.key,
-              note:
-                note.trim() ||
-                "More information requested from milestone completion review.",
+              note: decisionNote,
             })
     );
+  };
   const approveBuilderEvidence = () =>
     runReviewAction(
       "approve-evidence",
@@ -2598,21 +3047,30 @@ function MilestoneCompletionReviewSheet({
                     </p>
                   )}
                 </CardPanel>
-                <CardFooter className="border-t px-4 py-2.5">
-                  <Button
-                    disabled={
-                      !actions?.reviewEvidence || pendingAction !== null
-                    }
-                    loading={pendingAction === "approve-evidence"}
-                    onClick={() => approveBuilderEvidence()}
-                    size="sm"
-                    type="button"
-                    variant="outline"
-                  >
-                    <FileCheck2 aria-hidden="true" />
-                    Approve evidence
-                  </Button>
-                </CardFooter>
+                {builderRows.length > 0 ? (
+                  <CardFooter className="border-t px-4 py-2.5">
+                    {builderEvidenceAccepted ? (
+                      <Badge variant="success">
+                        <CheckCircle2 aria-hidden="true" />
+                        Evidence approved
+                      </Badge>
+                    ) : (
+                      <Button
+                        disabled={
+                          !actions?.reviewEvidence || pendingAction !== null
+                        }
+                        loading={pendingAction === "approve-evidence"}
+                        onClick={() => approveBuilderEvidence()}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                      >
+                        <FileCheck2 aria-hidden="true" />
+                        Approve evidence
+                      </Button>
+                    )}
+                  </CardFooter>
+                ) : null}
               </Card>
             </div>
 
@@ -2764,12 +3222,35 @@ function MilestoneCompletionReviewSheet({
             </CardHeader>
             <CardPanel className="px-4 pt-0 pb-4">
               <label
-                className="sr-only"
+                className="mb-2 block font-medium text-sm"
                 htmlFor="milestone-completion-review-note"
               >
-                Review note
+                Decision rationale
+                {approvalNoteRequired && !milestoneApproved ? (
+                  <span className="text-destructive"> (required)</span>
+                ) : null}
               </label>
+              {approvalExceptions.length > 0 && !milestoneApproved ? (
+                <div
+                  className="mb-3 rounded-lg border border-warning/30 bg-warning/8 p-3"
+                  data-testid="milestone-review-exceptions"
+                >
+                  <div className="flex items-center gap-2 font-medium text-sm">
+                    <AlertTriangle
+                      aria-hidden="true"
+                      className="size-4 text-warning"
+                    />
+                    Approval requires an override rationale
+                  </div>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground text-xs">
+                    {approvalExceptions.map((exception) => (
+                      <li key={exception}>{exception}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
               <Textarea
+                disabled={milestoneApproved || pendingAction !== null}
                 id="milestone-completion-review-note"
                 onChange={(event) => setNote(event.currentTarget.value)}
                 placeholder="State what was verified, or what the builder must clarify."
@@ -2780,6 +3261,15 @@ function MilestoneCompletionReviewSheet({
                   {error}
                 </p>
               ) : null}
+              {actionSuccess ? (
+                <p
+                  className="mt-2 flex items-center gap-2 text-sm text-success"
+                  role="status"
+                >
+                  <CheckCircle2 aria-hidden="true" className="size-4" />
+                  {actionSuccess}
+                </p>
+              ) : null}
             </CardPanel>
           </Card>
         </SheetPanel>
@@ -2788,32 +3278,46 @@ function MilestoneCompletionReviewSheet({
           <SheetClose render={<Button type="button" variant="ghost" />}>
             Close
           </SheetClose>
-          <Button
-            disabled={
-              !(actions?.requestMilestoneInfo || actions?.reviewEvidence) ||
-              pendingAction !== null
-            }
-            loading={pendingAction === "request-info"}
-            onClick={() => {
-              requestInfo();
-            }}
-            type="button"
-            variant="outline"
-          >
-            <MessageSquare aria-hidden="true" />
-            Request more info
-          </Button>
-          <Button
-            disabled={!actions?.approveMilestone || pendingAction !== null}
-            loading={pendingAction === "approve-completion"}
-            onClick={() => {
-              approveCompletion();
-            }}
-            type="button"
-          >
-            <CheckCircle2 aria-hidden="true" />
-            Approve completion
-          </Button>
+          {milestoneApproved ? (
+            <Badge variant="success">
+              <CheckCircle2 aria-hidden="true" />
+              Completion approved
+            </Badge>
+          ) : (
+            <>
+              <Button
+                disabled={
+                  !(actions?.requestMilestoneInfo || actions?.reviewEvidence) ||
+                  pendingAction !== null ||
+                  !decisionNote
+                }
+                loading={pendingAction === "request-info"}
+                onClick={() => {
+                  requestInfo();
+                }}
+                type="button"
+                variant="outline"
+              >
+                <MessageSquare aria-hidden="true" />
+                Request more info
+              </Button>
+              <Button
+                disabled={
+                  !actions?.approveMilestone ||
+                  pendingAction !== null ||
+                  (approvalNoteRequired && !decisionNote)
+                }
+                loading={pendingAction === "approve-completion"}
+                onClick={() => {
+                  approveCompletion();
+                }}
+                type="button"
+              >
+                <CheckCircle2 aria-hidden="true" />
+                Approve completion
+              </Button>
+            </>
+          )}
         </SheetFooter>
       </SheetPopup>
     </Sheet>
@@ -2879,10 +3383,14 @@ function SiteVisitReviewState({
   const { copyToClipboard, isCopied } = useCopyToClipboard();
   const tokenUrl = visit.url;
   const tokenValue = visit.visitId;
+  const tokenExpired = Boolean(
+    visit.tokenExpiresAt && visit.tokenExpiresAt <= Date.now()
+  );
   const canOperateOnToken =
     visit.status !== "complete" &&
     visit.status !== "cancelled" &&
     !visit.tokenConsumedAt;
+  const canUseToken = canOperateOnToken && !tokenExpired;
 
   return (
     <div className="grid gap-3" data-testid="site-visit-token-panel">
@@ -2946,9 +3454,17 @@ function SiteVisitReviewState({
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {tokenUrl ? (
+        {tokenUrl && canUseToken ? (
           <Button
-            render={<a href={tokenUrl} rel="noreferrer" target="_blank" />}
+            render={
+              // biome-ignore lint/a11y/useAnchorContent: Button supplies the rendered anchor text.
+              <a
+                aria-label="Open site visit token link"
+                href={tokenUrl}
+                rel="noreferrer"
+                target="_blank"
+              />
+            }
             size="sm"
             variant="outline"
           >
@@ -2956,16 +3472,18 @@ function SiteVisitReviewState({
             Open token link
           </Button>
         ) : null}
-        <Button
-          onClick={() => copyToClipboard(tokenValue)}
-          size="sm"
-          type="button"
-          variant="outline"
-        >
-          <Copy aria-hidden="true" />
-          {isCopied ? "Copied" : "Copy token"}
-        </Button>
-        {tokenUrl ? (
+        {canUseToken ? (
+          <Button
+            onClick={() => copyToClipboard(tokenValue)}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <Copy aria-hidden="true" />
+            {isCopied ? "Copied" : "Copy token"}
+          </Button>
+        ) : null}
+        {tokenUrl && canUseToken ? (
           <Button
             onClick={() => copyToClipboard(tokenUrl)}
             size="sm"
@@ -2977,7 +3495,9 @@ function SiteVisitReviewState({
           </Button>
         ) : null}
         <Button
-          disabled={!canRegenerate || pendingAction !== null}
+          disabled={
+            !(canRegenerate && canOperateOnToken) || pendingAction !== null
+          }
           loading={pendingAction === "regenerate-site-visit-token"}
           onClick={onRegenerate}
           size="sm"
@@ -3335,14 +3855,16 @@ function ProductionDrawsTable({
     fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
   ) => {
     if (!fn || pendingDraw) {
-      return;
+      return false;
     }
     setPendingDraw(draw.drawKey);
     setError("");
     try {
       await fn(draw);
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      return false;
     } finally {
       setPendingDraw(null);
     }
@@ -3447,11 +3969,22 @@ function ProductionDrawsTable({
                               onClick={() => run(draw, actions?.approveDraw)}
                               testId={`build-detail-draw-approve-${draw.drawKey}`}
                             />
-                            <DrawActionButton
+                            <DrawRejectionDialog
+                              amountCents={draw.amountCents}
+                              buildLabel={detail.build.buildName}
                               disabled={!actions?.rejectDraw || pending}
-                              label="Reject"
-                              onClick={() => run(draw, actions?.rejectDraw)}
-                              testId={`build-detail-draw-reject-${draw.drawKey}`}
+                              loading={pending}
+                              onReject={(reason) =>
+                                run(draw, (targetDraw) =>
+                                  actions?.rejectDraw?.({
+                                    draw: targetDraw,
+                                    reason,
+                                  })
+                                )
+                              }
+                              requestKey={draw.drawKey}
+                              requestLabel={draw.label}
+                              triggerTestId={`build-detail-draw-reject-${draw.drawKey}`}
                             />
                           </>
                         ) : null}
@@ -3762,6 +4295,241 @@ function FacilityChangeRequestsCard({
   );
 }
 
+function BudgetRevisionCard({
+  actions,
+  detail,
+  viewerRole,
+}: {
+  actions?: ProductionBuildDetailActions;
+  detail: ProductionBuildDetail;
+  viewerRole: "builder" | "lender";
+}) {
+  const current = detail.capitalPlan;
+  const requests = detail.budgetRevisionRequests ?? [];
+  const pendingRequest = requests.find(
+    (request) => request.status === "requested"
+  );
+  const [workingCapital, setWorkingCapital] = useState(
+    String(Math.round((current?.borrowerStartingCashCents ?? 0) / 100))
+  );
+  const [policyLimit, setPolicyLimit] = useState(
+    String(Math.round((current?.lenderDrawPolicyLimitCents ?? 0) / 100))
+  );
+  const [loanPercentage, setLoanPercentage] = useState(
+    String((10_000 - (current?.borrowerCoPayBps ?? 0)) / 100)
+  );
+  const [reason, setReason] = useState("");
+  const [reviewNote, setReviewNote] = useState("");
+  const [pendingAction, setPendingAction] = useState("");
+  const [error, setError] = useState("");
+
+  const run = async (key: string, action: () => Promise<unknown> | unknown) => {
+    if (pendingAction) {
+      return;
+    }
+    setPendingAction(key);
+    setError("");
+    try {
+      await action();
+      setReason("");
+      setReviewNote("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setPendingAction("");
+    }
+  };
+  const requestRevision = () =>
+    run("request", () =>
+      actions?.requestBudgetRevision?.({
+        borrowerCoPayBps: 10_000 - Math.round(Number(loanPercentage) * 100),
+        borrowerStartingCashCents: Math.round(
+          Number(workingCapital) * 100
+        ),
+        lenderDrawPolicyLimitCents: Math.round(Number(policyLimit) * 100),
+        reason: reason.trim(),
+      })
+    );
+  const reviewRevision = (status: "approved" | "rejected") => {
+    if (!pendingRequest) {
+      return;
+    }
+    return run(status, () =>
+      actions?.reviewBudgetRevision?.({
+        note: reviewNote.trim(),
+        requestId: pendingRequest._id,
+        status,
+      })
+    );
+  };
+
+  return (
+    <Card data-testid="budget-revision-governance">
+      <CardHeader className="flex flex-row items-start justify-between gap-3 p-3 sm:p-4">
+        <div>
+          <CardTitle className="text-sm">Budget governance</CardTitle>
+          <p className="mt-1 text-muted-foreground text-xs">
+            Versioned capital-plan revisions preserve every prior governing
+            Budget.
+          </p>
+        </div>
+        <Badge variant={pendingRequest ? "warning" : "outline"}>
+          {current ? `Capital plan v${current.version}` : "No active version"}
+        </Badge>
+      </CardHeader>
+      <CardContent className="grid gap-4 p-3 pt-0 sm:p-4 sm:pt-0 lg:grid-cols-2">
+        {viewerRole === "builder" ? (
+          <section aria-label="Request budget revision" className="grid gap-3">
+            <div className="grid gap-2 sm:grid-cols-3">
+              <label
+                className="grid gap-1 text-xs"
+                htmlFor="budget-working-capital"
+              >
+                <span className="font-medium">Working capital ($)</span>
+                <Input
+                  data-testid="budget-working-capital"
+                  id="budget-working-capital"
+                  min="0"
+                  onChange={(event) => setWorkingCapital(event.target.value)}
+                  type="number"
+                  value={workingCapital}
+                />
+              </label>
+              <label
+                className="grid gap-1 text-xs"
+                htmlFor="budget-policy-limit"
+              >
+                <span className="font-medium">Draw policy limit ($)</span>
+                <Input
+                  data-testid="budget-policy-limit"
+                  id="budget-policy-limit"
+                  min="0"
+                  onChange={(event) => setPolicyLimit(event.target.value)}
+                  type="number"
+                  value={policyLimit}
+                />
+              </label>
+              <label
+                className="grid gap-1 text-xs"
+                htmlFor="budget-loan-percentage"
+              >
+                <span className="font-medium">Loan Percentage (%)</span>
+                <Input
+                  data-testid="budget-loan-percentage"
+                  id="budget-loan-percentage"
+                  max="100"
+                  min="0"
+                  onChange={(event) => setLoanPercentage(event.target.value)}
+                  type="number"
+                  value={loanPercentage}
+                />
+              </label>
+            </div>
+            <Textarea
+              aria-label="Budget revision reason"
+              onChange={(event) => setReason(event.target.value)}
+              placeholder="Explain the variance and affected work"
+              value={reason}
+            />
+            <Button
+              disabled={
+                !(actions?.requestBudgetRevision && reason.trim()) ||
+                Boolean(pendingRequest) ||
+                Boolean(pendingAction)
+              }
+              onClick={requestRevision}
+              size="sm"
+              type="button"
+            >
+              {pendingAction === "request" ? "Submitting…" : "Request revision"}
+            </Button>
+          </section>
+        ) : (
+          <section aria-label="Review budget revision" className="grid gap-3">
+            <Textarea
+              aria-label="Budget revision decision note"
+              disabled={!pendingRequest}
+              onChange={(event) => setReviewNote(event.target.value)}
+              placeholder="Record the admin decision rationale"
+              value={reviewNote}
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                disabled={
+                  !(
+                    actions?.reviewBudgetRevision &&
+                    pendingRequest &&
+                    reviewNote.trim()
+                  ) || Boolean(pendingAction)
+                }
+                onClick={() => reviewRevision("approved")}
+                size="sm"
+                type="button"
+              >
+                Approve revision
+              </Button>
+              <Button
+                disabled={
+                  !(
+                    actions?.reviewBudgetRevision &&
+                    pendingRequest &&
+                    reviewNote.trim()
+                  ) || Boolean(pendingAction)
+                }
+                onClick={() => reviewRevision("rejected")}
+                size="sm"
+                type="button"
+                variant="destructive"
+              >
+                Reject revision
+              </Button>
+            </div>
+          </section>
+        )}
+        <section aria-label="Budget version history" className="grid gap-2">
+          {requests.length ? (
+            requests.slice(0, 5).map((request) => (
+              <Card key={request._id}>
+                <CardContent className="grid gap-1 p-3 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium">
+                      v{request.baseVersion} → v{request.baseVersion + 1}
+                    </span>
+                    <StatusPill status={request.status} />
+                  </div>
+                  <span>
+                    {request.varianceCents >= 0 ? "+" : ""}
+                    {formatCents(request.varianceCents)} policy variance
+                  </span>
+                  <span className="text-muted-foreground">
+                    {request.reason}
+                  </span>
+                  {request.reviewNote ? (
+                    <span className="text-muted-foreground">
+                      Decision: {request.reviewNote}
+                    </span>
+                  ) : null}
+                </CardContent>
+              </Card>
+            ))
+          ) : (
+            <p className="text-muted-foreground text-xs">
+              No Budget revisions have been requested. Capital plan v
+              {current?.version ?? 1}
+              remains governing.
+            </p>
+          )}
+        </section>
+        {error ? (
+          <p className="text-destructive text-xs lg:col-span-2" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 function facilityRequestLabel(request: ProductionFacilityChangeRequest) {
   if (request.requestType === "principalIncrease") {
     return `Principal increase to ${formatCents(
@@ -4011,7 +4779,6 @@ function ProductionNotesCard({
 }
 
 function ProductionMilestonesTab({
-  actions,
   currentDay,
   detail,
   onAssignContractor,
@@ -4019,7 +4786,6 @@ function ProductionMilestonesTab({
   projection,
   viewerRole,
 }: {
-  actions?: ProductionBuildDetailActions;
   currentDay: number;
   detail: ProductionBuildDetail;
   onAssignContractor?: (card: KanbanCardData) => void;
@@ -4070,32 +4836,46 @@ function ProductionContractorsTab({
       <ContractorPlanningPanel
         canMutate={Boolean(
           actions?.assignContractorToMilestone ||
+            actions?.removeContractorFromMilestone ||
+            actions?.attachAndInviteContractor ||
             actions?.attachContractor ||
             actions?.createAndAttachContractor
         )}
         milestones={milestones}
         onAssignToMilestone={
           actions?.assignContractorToMilestone
-            ? ({
+            ? async ({
                 assignmentCost,
                 contractorId,
                 milestoneKey,
                 role,
                 submilestoneKeys,
-              }) =>
-                actions.assignContractorToMilestone?.({
+              }) => {
+                await actions.assignContractorToMilestone?.({
                   assignmentCost,
                   contractorId,
                   milestoneKey,
                   role,
                   submilestoneKeys,
-                })
+                });
+              }
+            : undefined
+        }
+        onAttachAndInviteExisting={
+          actions?.attachAndInviteContractor
+            ? async ({ contractorId, role }) => {
+                await actions.attachAndInviteContractor?.({
+                  contractorId,
+                  role,
+                });
+              }
             : undefined
         }
         onAttachExisting={
           actions?.attachContractor
-            ? ({ contractorId, role }) =>
-                actions.attachContractor?.({ contractorId, role })
+            ? async ({ contractorId, role }) => {
+                await actions.attachContractor?.({ contractorId, role });
+              }
             : undefined
         }
         onCreateAndAttach={
@@ -4109,7 +4889,16 @@ function ProductionContractorsTab({
         }
         onInviteCreatedContractor={
           actions?.inviteContractor
-            ? (contractorId) => actions.inviteContractor?.(contractorId)
+            ? async (contractorId) => {
+                await actions.inviteContractor?.(contractorId);
+              }
+            : undefined
+        }
+        onRemoveFromMilestone={
+          actions?.removeContractorFromMilestone
+            ? async (input) => {
+                await actions.removeContractorFromMilestone?.(input);
+              }
             : undefined
         }
         planning={planning}
@@ -4139,9 +4928,14 @@ function productionBuildMilestonesForContractors(
 
 function contractorsCardActions(actions?: ProductionBuildDetailActions) {
   return {
+    onAttachAndInviteExisting: actions?.attachAndInviteContractor
+      ? async (input: { contractorId: string; role: string }) => {
+          await actions.attachAndInviteContractor?.(input);
+        }
+      : undefined,
     onAttachExisting: actions?.attachContractor
-      ? (input: { contractorId: string; role: string }) => {
-          void actions.attachContractor?.(input);
+      ? async (input: { contractorId: string; role: string }) => {
+          await actions.attachContractor?.(input);
         }
       : undefined,
     onCreateAndAttach: actions?.createAndAttachContractor
@@ -4149,7 +4943,9 @@ function contractorsCardActions(actions?: ProductionBuildDetailActions) {
           actions.createAndAttachContractor?.(input)
       : undefined,
     onInviteCreatedContractor: actions?.inviteContractor
-      ? (contractorId: string) => actions.inviteContractor?.(contractorId)
+      ? async (contractorId: string) => {
+          await actions.inviteContractor?.(contractorId);
+        }
       : undefined,
     sourceLabel: "production_contractors",
   };
@@ -5106,19 +5902,21 @@ function buildProductionKanbanCards(
     const submilestones =
       projection.submilestonesByMilestone.get(milestone.key) ?? [];
     const progressPercent =
-      typeof milestone.progressPercent === "number"
-        ? clampPercent(milestone.progressPercent)
+      typeof milestone.normalizedProgressPercent === "number"
+        ? clampPercent(milestone.normalizedProgressPercent)
         : submilestones.length > 0
           ? Math.round(
               (submilestones.filter((sub) => sub.status === "complete").length /
                 submilestones.length) *
                 100
             )
-          : milestone.status === "complete"
-            ? 100
-            : milestone.status === "in_progress"
-              ? 50
-              : 0;
+          : typeof milestone.progressPercent === "number"
+            ? clampPercent(milestone.progressPercent)
+            : milestone.status === "complete"
+              ? 100
+              : milestone.status === "in_progress"
+                ? 50
+                : 0;
     const state = resolveProductionMilestoneKanbanState({
       currentDay,
       draw,
@@ -5155,6 +5953,7 @@ function buildProductionKanbanCards(
           ? draw.amountCents
           : undefined,
       requiresSiteVisit:
+        !isMilestoneApprovedForDrawAvailability(milestone) &&
         milestone.completionReview?.siteVisit?.status === "requested",
       status: state.status,
       submittedAt: draw?.requestedAt
@@ -5194,6 +5993,13 @@ function resolveProductionMilestoneKanbanState({
   column: KanbanColumn;
   status: string;
 } {
+  if (isMilestoneApprovedForDrawAvailability(milestone)) {
+    return {
+      canStartWork: false,
+      column: "MarkedComplete",
+      status: "completion_approved",
+    };
+  }
   if (milestone.completionReview?.siteVisit?.status === "requested") {
     return { canStartWork: false, column: "SiteVisit", status: "review" };
   }
@@ -5202,13 +6008,6 @@ function resolveProductionMilestoneKanbanState({
     milestone.evidenceState === "Info requested"
   ) {
     return { canStartWork: false, column: "NeedsApproval", status: "review" };
-  }
-  if (milestone.status === "complete") {
-    return {
-      canStartWork: false,
-      column: "MarkedComplete",
-      status: "completion_approved",
-    };
   }
   if (milestone.completionClaim) {
     return {
@@ -5340,10 +6139,23 @@ function buildMilestoneSheetData(
     milestone.completionClaim,
     "submittedAt"
   );
-  const submittedAtValue = completionSubmittedAt ?? draw?.requestedAt;
-  const parsedSubmittedAt = submittedAtValue
-    ? Date.parse(submittedAtValue)
+  const parsedSubmittedAt = completionSubmittedAt
+    ? Date.parse(completionSubmittedAt)
     : Number.NaN;
+  const sourceSubmilestones = detail.submilestones
+    .filter((row) => row.milestoneKey === milestone.key)
+    .sort((left, right) => left.order - right.order);
+  const explicitBudgetCents = sourceSubmilestones.reduce(
+    (sum, row) => sum + Math.max(0, row.budgetCents ?? 0),
+    0
+  );
+  const missingBudgetCount = sourceSubmilestones.filter(
+    (row) => !row.budgetCents || row.budgetCents <= 0
+  ).length;
+  const distributedBudgetCents = Math.round(
+    Math.max(0, milestone.budgetCents - explicitBudgetCents) /
+      Math.max(1, missingBudgetCount)
+  );
   return {
     canStartWork: state.canStartWork,
     column: state.column,
@@ -5355,8 +6167,12 @@ function buildMilestoneSheetData(
       })
     ),
     drawGroupKey: draw?.drawKey ?? milestone.key,
+    currentDay,
     milestoneKey: milestone.key,
     name: milestone.name,
+    plannedBudgetCents: milestone.budgetCents,
+    plannedEndDate: addDaysSafe(detail.build.startDate, milestone.dayEnd),
+    plannedStartDate: addDaysSafe(detail.build.startDate, milestone.dayStart),
     recentEvents: events,
     reviewRequest:
       reviewStatus === "revisionRequested" && reviewNote
@@ -5374,6 +6190,103 @@ function buildMilestoneSheetData(
     submittedAt: Number.isFinite(parsedSubmittedAt)
       ? parsedSubmittedAt
       : undefined,
+    submilestones: sourceSubmilestones.map((submilestone) => {
+      const startDay =
+        submilestone.startDay ??
+        milestone.dayStart + Math.max(0, submilestone.order - 1);
+      const durationDays = Math.max(1, submilestone.durationDays ?? 1);
+      const assignments = (detail.milestoneContractorAssignments ?? [])
+        .filter(
+          (assignment) =>
+            assignment.milestoneKey === milestone.key &&
+            assignment.submilestoneKey === submilestone.key
+        )
+        .map((assignment) => ({
+          actualCostCents: assignment.actualCostCents,
+          actualHours: assignment.actualHours,
+          agreedRateCents: assignment.agreedRateCents,
+          agreedRateUnit: assignment.agreedRateUnit,
+          contractorId: assignment.contractorId,
+          costNotes: assignment.costNotes,
+          estimatedCostCents: assignment.estimatedCostCents,
+          estimatedHours: assignment.estimatedHours,
+          name: assignment.contractor?.name ?? "Assigned contractor",
+          role: assignment.role,
+          status: assignment.status,
+        }));
+      const materials = (detail.costItems ?? [])
+        .filter((item) =>
+          item.relevantSubmilestoneKeys.includes(submilestone.key)
+        )
+        .map((item) => ({
+          description: item.description,
+          id: item._id,
+          quantity: item.quantity,
+          supplier: item.supplier,
+          title: item.title,
+          totalCents: materialPlanningItemTotal(item),
+          type: item.itemType,
+        }));
+      const evidence = (detail.evidenceAssets ?? [])
+        .filter(
+          (asset) =>
+            asset.milestoneKey === milestone.key &&
+            asset.submilestoneKey === submilestone.key
+        )
+        .map((asset) => ({
+          createdAt: asset.createdAt,
+          evidenceKey: asset.evidenceKey,
+          fileName: asset.fileName,
+          label: asset.label,
+          locationVerified: asset.locationVerified ?? false,
+          mimeType: asset.mimeType,
+          previewUrl: asset.previewUrl,
+          sizeBytes: asset.sizeBytes,
+          source: asset.source,
+          tag: asset.tag,
+        }));
+      const siteVisits = (detail.siteVisits ?? [])
+        .filter(
+          (visit) =>
+            visit.milestoneKey === milestone.key &&
+            (visit.submilestoneKeys ?? []).includes(submilestone.key)
+        )
+        .map((visit) => ({
+          completedAt: visit.completedAt,
+          note: visit.note,
+          recordNote: visit.recordNote,
+          recordNoteFormat: visit.recordNoteFormat,
+          requestedAt: visit.requestedAt,
+          status: visit.status,
+          visitId: visit.visitId,
+        }));
+      return {
+        actualCostCents: submilestone.actualCostCents,
+        assignments,
+        budgetCents:
+          submilestone.budgetCents && submilestone.budgetCents > 0
+            ? submilestone.budgetCents
+            : distributedBudgetCents,
+        completedAt: submilestone.completedAt,
+        completedByWorkosUserId: submilestone.completedByWorkosUserId,
+        description:
+          materials.find((item) => item.description)?.description ??
+          `Complete and document the ${submilestone.name.toLowerCase()} scope against the approved construction roadmap.`,
+        endDate: addDaysSafe(
+          detail.build.startDate,
+          startDay + durationDays - 1
+        ),
+        evidence,
+        fieldNote: submilestone.fieldNote,
+        key: submilestone.key,
+        materials,
+        name: submilestone.name,
+        order: submilestone.order,
+        siteVisits,
+        startDate: addDaysSafe(detail.build.startDate, startDay),
+        status: submilestone.status,
+      };
+    }),
   };
 }
 
@@ -5448,16 +6361,36 @@ function buildProductionBuildProjection(
 
 function buildCurrentBuildOverview(
   detail: ProductionBuildDetail,
-  projection: ProductionBuildProjection
+  projection: ProductionBuildProjection,
+  currentDay: number
 ): CurrentBuildOverview {
-  const activeMilestones = projection.milestones
-    .filter(isCurrentActiveMilestone)
-    .sort(compareMilestonesMostRecentFirst);
-  const nextMilestone =
-    projection.milestones.find(
+  const incompleteMilestones = projection.milestones.filter(
+    (milestone) => !isMilestoneApprovedForDrawAvailability(milestone)
+  );
+  const behindSchedule = incompleteMilestones
+    .filter((milestone) => currentDay > milestone.dayEnd)
+    .sort(compareMilestonesMostOverdueFirst);
+  const behindScheduleKeys = new Set(
+    behindSchedule.map((milestone) => milestone.key)
+  );
+  const current = incompleteMilestones
+    .filter(
       (milestone) =>
-        !isCurrentActiveMilestone(milestone) && milestone.status !== "complete"
-    ) ?? null;
+        !behindScheduleKeys.has(milestone.key) &&
+        isCurrentActiveMilestone(milestone)
+    )
+    .sort(compareMilestonesMostRecentFirst);
+  const currentKeys = new Set(current.map((milestone) => milestone.key));
+  const next =
+    incompleteMilestones
+      .filter(
+        (milestone) =>
+          !(
+            behindScheduleKeys.has(milestone.key) ||
+            currentKeys.has(milestone.key)
+          )
+      )
+      .sort(compareMilestonesScheduleFirst)[0] ?? null;
   const approvedMilestoneAvailabilityCents = projection.milestones
     .filter(isMilestoneApprovedForDrawAvailability)
     .reduce((sum, milestone) => sum + milestone.drawAvailabilityCents, 0);
@@ -5482,16 +6415,33 @@ function buildCurrentBuildOverview(
       : 0;
 
   return {
-    activeMilestones,
     committedDrawCents,
     currentAvailabilityCents,
     drawnCents,
-    nextMilestone,
+    milestoneHorizon: {
+      behindSchedule,
+      current,
+      next,
+    },
     percentComplete: buildPercentComplete(projection.milestones),
     requestableAmountCents,
     totalApprovedCents,
     upcomingDraw,
   };
+}
+
+function compareMilestonesMostOverdueFirst(
+  left: ProductionMilestone,
+  right: ProductionMilestone
+): number {
+  return left.dayEnd - right.dayEnd || left.order - right.order;
+}
+
+function compareMilestonesScheduleFirst(
+  left: ProductionMilestone,
+  right: ProductionMilestone
+): number {
+  return left.dayStart - right.dayStart || left.order - right.order;
 }
 
 function compareMilestonesMostRecentFirst(
@@ -5794,6 +6744,9 @@ function milestoneProgressPercent(
   milestone: ProductionMilestone,
   submilestones: ProductionSubmilestone[]
 ): number {
+  if (typeof milestone.normalizedProgressPercent === "number") {
+    return clampPercent(milestone.normalizedProgressPercent);
+  }
   if (typeof milestone.progressPercent === "number") {
     return clampPercent(milestone.progressPercent);
   }
@@ -5862,45 +6815,54 @@ function buildBuilderEvidenceRows(
       .filter((draw) => draw.milestoneKey)
       .map((draw) => [draw.milestoneKey as string, draw])
   );
-  return projection.milestones
-    .map((milestone) => {
-      const assets = evidenceAssetsForMilestone(detail, milestone.key).filter(
-        (asset) => !isSiteVisitEvidenceAsset(asset)
-      );
-      if (!hasBuilderSubmittedEvidence(milestone) && assets.length === 0) {
-        return null;
-      }
-      const claim = milestone.completionClaim;
-      const review = milestone.completionReview;
-      const completedDay = numberFromRecord(claim, "completedDay");
-      const submittedAt =
-        stringFromRecord(claim, "submittedAt") ??
-        stringFromRecord(review, "reviewedAt") ??
-        (completedDay === undefined
-          ? undefined
-          : addDaysSafe(detail.build.startDate, completedDay));
-      const note =
-        stringFromRecord(claim, "note") ?? stringFromRecord(review, "note");
-      const status =
-        stringFromRecord(review, "status") ??
-        milestone.evidenceState ??
-        "Submitted";
-      return {
-        amountCents:
-          drawByMilestone.get(milestone.key)?.amountCents ??
-          milestone.drawAvailabilityCents,
-        assets,
-        id: `builder-${milestone.key}`,
-        locationState: evidenceLocationState(detail, milestone.key),
-        milestoneKey: milestone.key,
-        milestoneName: milestone.name,
-        note,
-        source: "builder",
-        status,
-        submittedAt,
-      } satisfies ProductionEvidenceRow;
-    })
-    .filter((row): row is ProductionEvidenceRow => row !== null);
+  return projection.milestones.flatMap((milestone) => {
+    const assets = evidenceAssetsForMilestone(detail, milestone.key).filter(
+      (asset) => !isSiteVisitEvidenceAsset(asset)
+    );
+    if (!hasBuilderSubmittedEvidence(milestone) && assets.length === 0) {
+      return [];
+    }
+    const claim = milestone.completionClaim;
+    const review = milestone.completionReview;
+    const evidenceReview =
+      review?.evidenceReview &&
+      typeof review.evidenceReview === "object" &&
+      !Array.isArray(review.evidenceReview)
+        ? (review.evidenceReview as Record<string, unknown>)
+        : undefined;
+    const completedDay = numberFromRecord(claim, "completedDay");
+    const submittedAt =
+      stringFromRecord(claim, "submittedAt") ??
+      stringFromRecord(review, "reviewedAt") ??
+      (completedDay === undefined
+        ? undefined
+        : addDaysSafe(detail.build.startDate, completedDay));
+    const note =
+      stringFromRecord(claim, "note") ?? stringFromRecord(review, "note");
+    const status =
+      evidenceReview?.accepted === true
+        ? "Accepted"
+        : evidenceReview?.accepted === false
+          ? "Info requested"
+          : (stringFromRecord(review, "status") ??
+            milestone.evidenceState ??
+            "Submitted");
+    const row: ProductionEvidenceRow = {
+      amountCents:
+        drawByMilestone.get(milestone.key)?.amountCents ??
+        milestone.drawAvailabilityCents,
+      assets,
+      id: `builder-${milestone.key}`,
+      locationState: evidenceLocationState(detail, milestone.key),
+      milestoneKey: milestone.key,
+      milestoneName: milestone.name,
+      note,
+      source: "builder",
+      status,
+      submittedAt,
+    };
+    return [row];
+  });
 }
 
 function buildCompletedSiteVisitRows(
@@ -6134,6 +7096,15 @@ function evidenceStatusVariant(
     return "info";
   }
   return "outline";
+}
+
+function evidenceStatusIsAccepted(status: string): boolean {
+  const normalized = status.toLowerCase();
+  return (
+    normalized.includes("approved") ||
+    normalized.includes("accepted") ||
+    normalized === "complete"
+  );
 }
 
 function stringFromRecord(

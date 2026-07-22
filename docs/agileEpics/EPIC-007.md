@@ -65,10 +65,10 @@ Allow builder/developer borrowers to create a structured Build Proposal with bui
 - `uiManifest/screenManifest.md` §25.1 SCR-002 — Build Proposal Start.
 - `uiManifest/screenManifest.md` §25.1 SCR-003 — Build Site Location and Map Setup.
 - `uiManifest/screenManifest.md` §25.1 SCR-004 — Permit and Document Upload.
-- `uiManifest/screenManifest.md` §25.1 SCR-005 — Available Working Capital Input.
+- `uiManifest/screenManifest.md` §25.1 SCR-005 — Borrower Starting Cash Input.
 - `uiManifest/componentManifest.md` §25.2 CMP-006 — ProposalStepper.
 - `uiManifest/componentManifest.md` §25.2 CMP-007 — BuildIdentityForm.
-- `uiManifest/componentManifest.md` §25.2 CMP-022 — WorkingCapitalInput.
+- `uiManifest/componentManifest.md` §25.2 CMP-022 — BorrowerStartingCashInput.
 - UNRESOLVED CMP-047 — ReadinessChecklist (definition missing from current docs).
 
 ### Acceptance Criteria

@@ -31,6 +31,83 @@ describe("BuilderTimelineDashboardSurface", () => {
     ).toBeNull();
   });
 
+  test("keeps approved proposals without an accessible build assignment on the proposal route", () => {
+    const onNavigate = vi.fn();
+    render(
+      <BuilderTimelineDashboardSurface
+        onNavigate={onNavigate}
+        rows={[
+          {
+            ...baseRow,
+            buildName: "Approved proposal without assignment",
+            kind: "proposal",
+            planId: "proposal_unassigned",
+            status: "approved",
+          } as TimelinePlanRow,
+        ]}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", {
+        name: "Open live build Approved proposal without assignment",
+      }),
+    ).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Open proposal Approved proposal without assignment",
+      }),
+    );
+    expect(onNavigate).toHaveBeenCalledWith(
+      "/builder/demo/dashboard/proposals/$draftId",
+      { draftId: "proposal_unassigned" },
+    );
+  });
+
+  test("surfaces pending budget revision governance before opening a live build", () => {
+    render(
+      <BuilderTimelineDashboardSurface
+        onNavigate={vi.fn()}
+        rows={[
+          {
+            ...baseRow,
+            budgetGovernance: {
+              activeVersion: 1,
+              activeVersionLabel: "Capital plan v1",
+              affectedDrawRequestCount: 1,
+              affectedMilestoneCount: 2,
+              currentOwner: "Lender Admin",
+              decisionStatus: "pending",
+              proposedVersion: 2,
+              proposedVersionLabel: "Proposed capital plan v2",
+              revisionDeadline: null,
+              revisionPriority: "required",
+              varianceBps: 909,
+              varianceCents: 50_000,
+            },
+            buildKey: "build_budget_revision",
+            buildName: "Budget revision build",
+            kind: "activeBuild",
+            planId: "build_budget_revision",
+            status: "approved",
+          } as TimelinePlanRow,
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Required budget revision")).toBeTruthy();
+    expect(
+      screen.getByText("Capital plan v1 → Proposed capital plan v2"),
+    ).toBeTruthy();
+    expect(screen.getByText("+$500 · +9.1%")).toBeTruthy();
+    expect(screen.getByText("Lender Admin · Pending")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "View revision Budget revision build" }),
+    ).toBeTruthy();
+    expect(screen.getByText("2 milestones · 1 open draw")).toBeTruthy();
+  });
+
   test("routes explicit proposal and active-build rows independently", () => {
     const onNavigate = vi.fn();
     render(

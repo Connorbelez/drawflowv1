@@ -1094,12 +1094,52 @@ describe("durable timeline plan helpers", () => {
         status: "approved",
       },
     );
+
+    await expect(
+      t.mutation(api.demo_timeline_plans.demo_submitTimelineDrawRequest, {
+        amountCents: 999_999,
+        drawKey: "draw-01",
+        note: "Over available capacity.",
+        planId: created.timelineId,
+      }),
+    ).rejects.toThrow(/available draw limit/i);
     await t.mutation(api.demo_timeline_plans.demo_submitTimelineDrawRequest, {
       amountCents: 75_000,
       drawKey: "draw-01",
       note: "Foundation reimbursement.",
       planId: created.timelineId,
     });
+
+    await t.mutation(api.demo_timeline_plans.demo_submitTimelineDrawRequest, {
+      amountCents: 75_000,
+      drawKey: "draw-01",
+      note: "Foundation reimbursement.",
+      planId: created.timelineId,
+    });
+    await expect(
+      t.mutation(api.demo_timeline_plans.demo_submitTimelineDrawRequest, {
+        amountCents: 76_000,
+        drawKey: "draw-01",
+        note: "Changed amount under the same request.",
+        planId: created.timelineId,
+      }),
+    ).rejects.toThrow(/already requested with a different amount/i);
+    const requestEvents = await t.run(async (ctx: any) =>
+      await ctx.db
+        .query("demo_timelineEvents")
+        .withIndex("by_plan_and_entity", (q: any) =>
+          q
+            .eq("planId", created.timelineId)
+            .eq("entityType", "timeline_draw")
+            .eq("entityKey", "draw-01"),
+        )
+        .collect(),
+    );
+    expect(
+      requestEvents.filter(
+        (event: any) => event.eventType === "TimelineDrawRequestSubmitted",
+      ),
+    ).toHaveLength(1);
 
     const rows = await t.query(
       api.demo_timeline_plans.demo_getSubmittedProposalsForBackoffice,
@@ -1291,6 +1331,11 @@ describe("durable timeline plan helpers", () => {
       new RegExp(`^/newsitevisit/${buildId}/${request.token}$`),
     );
     expect(buildId).toMatch(/^demo-timeline-/);
+    expect(request).toMatchObject({
+      evidencePackageId: `DEMO-EP-${created.timelineId}-foundation`,
+      organizationScopeKey: expect.any(String),
+      workOrderId: expect.stringMatching(/^DEMO-WO-foundation-/),
+    });
 
     const visit = await t.query(api.demo_drawflow.demo_getSiteVisitByToken, {
       buildId,
@@ -1301,6 +1346,11 @@ describe("durable timeline plan helpers", () => {
       available: true,
       build: { key: buildId },
     });
+    expect(visit.visit).toMatchObject({
+      evidencePackageId: request.evidencePackageId,
+      organizationScopeKey: request.organizationScopeKey,
+      workOrderId: request.workOrderId,
+    });
     expect(visit.targets).toHaveLength(1);
     expect(visit.targets[0]).toMatchObject({
       milestoneKey: "foundation",
@@ -1310,6 +1360,19 @@ describe("durable timeline plan helpers", () => {
     expect(visit.targets[0].guidance).toMatchObject({
       cameraAngles: expect.stringContaining("Wide footing overview"),
       whatToVerify: expect.stringContaining("Forms match approved footing layout"),
+    });
+    await t.run((ctx: any) =>
+      ctx.db.patch(request.visitId, { workOrderId: "DEMO-WO-tampered" }),
+    );
+    const tampered = await t.query(api.demo_drawflow.demo_getSiteVisitByToken, {
+      buildId,
+      token: request.token,
+    });
+    expect(tampered).toMatchObject({
+      available: false,
+      reason: "not_found",
+      status: "invalid",
+      visit: null,
     });
   });
 });

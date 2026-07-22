@@ -49,7 +49,11 @@ const BACKOFFICE_ROLES: readonly RoleSlug[] = [
   "broker-staff",
 ];
 
-const BUILDER_ROLES: readonly RoleSlug[] = ["admin", "builder", "builder-staff"];
+const BUILDER_ROLES: readonly RoleSlug[] = [
+  "admin",
+  "builder",
+  "builder-staff",
+];
 
 // ---------------------------------------------------------------------------
 // Brokerage scope resolution (self-service reachable by member role)
@@ -72,9 +76,7 @@ async function resolveBrokerageScopeOrThrow(
   const membership = await ctx.db
     .query("workosOrganizationMemberships")
     .withIndex("by_user", (q) => q.eq("workosUserId", subject))
-    .filter((q) =>
-      q.eq(q.field("workosOrganizationId"), workosOrganizationId)
-    )
+    .filter((q) => q.eq(q.field("workosOrganizationId"), workosOrganizationId))
     .first();
   const activeTokenOrganizationId = activeViewer.organizationId?.trim();
   if (
@@ -147,15 +149,9 @@ async function writeContractorIdentityEvent(
 // Onboarding state machine helpers (PRD §14.1)
 // ---------------------------------------------------------------------------
 
-const ONBOARDING_SUBMITTABLE_STATES = new Set([
-  "draft",
-  "changes_requested",
-]);
+const ONBOARDING_SUBMITTABLE_STATES = new Set(["draft", "changes_requested"]);
 
-function assertOnboardingTransition(
-  from: string,
-  to: string
-): void {
+function assertOnboardingTransition(from: string, to: string): void {
   // PRD §14.1 state machine.
   const allowed: Record<string, string[]> = {
     draft: ["pending_backoffice_review"],
@@ -170,7 +166,7 @@ function assertOnboardingTransition(
     merged: ["active"],
   };
   const targets = allowed[from];
-  if (!targets || !targets.includes(to)) {
+  if (!(targets && targets.includes(to))) {
     throw new Error(
       `Invalid onboarding transition: ${from} -> ${to} (PRD §14.1)`
     );
@@ -310,8 +306,7 @@ export const saveContractorOnboardingDraft = authenticatedMutation
         organizationId: args.workosOrganizationId,
         source: "self_service",
         status: "active",
-        trades:
-          (args.draftFields as { trades?: string[] })?.trades ?? [],
+        trades: (args.draftFields as { trades?: string[] })?.trades ?? [],
         createdAt: now,
         updatedAt: now,
       });
@@ -392,9 +387,7 @@ export const submitContractorOnboarding = authenticatedMutation
   })
   .public();
 
-function redactOnboardingReview(
-  review: Doc<"contractorOnboardingReviews">
-) {
+function redactOnboardingReview(review: Doc<"contractorOnboardingReviews">) {
   return {
     _id: review._id,
     status: review.status,
@@ -605,10 +598,7 @@ export const approveContractorOnboarding = backofficeMutation
     if (!review || review.brokerageId !== scope.brokerage._id) {
       throw new Error("Onboarding review not found.");
     }
-    assertOnboardingTransition(
-      review.status,
-      "approved_pending_workos"
-    );
+    assertOnboardingTransition(review.status, "approved_pending_workos");
     const now = Date.now();
     await ctx.db.patch(review._id, {
       status: "approved_pending_workos",
@@ -636,12 +626,16 @@ export const approveContractorOnboarding = backofficeMutation
     // Request WorkOS contractor role promotion. The profile is linked once the
     // role/session sync completes (PRD §7.1 step 10-11). Fire-and-forget; the
     // webhook projection owns the authoritative role state.
-    await ctx.scheduler.runAfter(0, internal.workosManagement.createClaimMembershipForUser, {
-      organizationId: args.workosOrganizationId,
-      primaryRoleSlug: "contractor",
-      roleSlugs: ["contractor"],
-      userId: review.applicantWorkosUserId,
-    });
+    await ctx.scheduler.runAfter(
+      0,
+      internal.workosManagement.createClaimMembershipForUser,
+      {
+        organizationId: args.workosOrganizationId,
+        primaryRoleSlug: "contractor",
+        roleSlugs: ["contractor"],
+        userId: review.applicantWorkosUserId,
+      }
+    );
 
     return review._id;
   })
@@ -760,6 +754,16 @@ export const finalizeContractorOnboardingRoleSync = backofficeMutation
     if (review.status !== "approved_pending_workos") {
       return false;
     }
+    const contractor = await ctx.db.get(review.contractorId);
+    if (!contractor || contractor.brokerageId !== scope.brokerage._id) {
+      return false;
+    }
+    if (
+      contractor.accountWorkosUserId &&
+      contractor.accountWorkosUserId !== args.applicantWorkosUserId
+    ) {
+      return false;
+    }
     const now = Date.now();
     await ctx.db.patch(review.contractorId, {
       accountWorkosUserId: args.applicantWorkosUserId,
@@ -790,6 +794,85 @@ export const finalizeContractorOnboardingRoleSync = backofficeMutation
 // Invited contractor claim (PRD §7.3, §14.2)
 // ---------------------------------------------------------------------------
 
+export async function createContractorProfileInviteClaim(
+  ctx: MutationCtx,
+  input: {
+    actorRoles: readonly RoleSlug[];
+    actorSubject: string;
+    brokerageId: Id<"brokerages">;
+    contractor: Doc<"contractorProfiles">;
+    expiresInDays?: number;
+    workosOrganizationId: string;
+  }
+): Promise<Id<"contractorInviteClaims">> {
+  const normalizedEmail = normalizeContractorEmail(input.contractor.email);
+  if (!normalizedEmail) {
+    throw new Error(
+      "Contractor profile has no email; cannot send an invitation."
+    );
+  }
+
+  const now = Date.now();
+  const priorLive = await ctx.db
+    .query("contractorInviteClaims")
+    .withIndex("by_contractor_state", (q) =>
+      q.eq("contractorId", input.contractor._id).eq("state", "invited")
+    )
+    .collect();
+  for (const prior of priorLive) {
+    await ctx.db.patch(prior._id, {
+      revokedAt: now,
+      revokedByWorkosUserId: input.actorSubject,
+      state: "revoked",
+      updatedAt: now,
+    });
+  }
+
+  const expiresAt =
+    input.expiresInDays === undefined
+      ? undefined
+      : now + Math.max(1, input.expiresInDays) * 86_400_000;
+  const claimId = await ctx.db.insert("contractorInviteClaims", {
+    brokerageId: input.brokerageId,
+    contractorId: input.contractor._id,
+    expiresAt,
+    invitedNormalizedEmail: normalizedEmail,
+    inviterWorkosUserId: input.actorSubject,
+    organizationId: input.workosOrganizationId,
+    state: "invited",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  if (!input.contractor.accountWorkosUserId) {
+    await ctx.db.patch(input.contractor._id, {
+      onboardingStatus: "invited",
+      updatedAt: now,
+    });
+  }
+  await ctx.scheduler.runAfter(
+    0,
+    internal.workosManagement.inviteContractorUser,
+    {
+      email: normalizedEmail,
+      organizationId: input.workosOrganizationId,
+    }
+  );
+  await writeContractorIdentityEvent(ctx, {
+    actorRoles: input.actorRoles,
+    actorSubject: input.actorSubject,
+    brokerageId: input.brokerageId,
+    command: "sendContractorProfileInvite",
+    contractorId: input.contractor._id,
+    entityType: "contractorInviteClaim",
+    eventType: "contractor.invite.sent",
+    newState: JSON.stringify({ claimId, normalizedEmail }),
+    organizationId: input.workosOrganizationId,
+  });
+
+  return claimId;
+}
+
 /**
  * Send a WorkOS organization invitation with the `contractor` role and create
  * the app-level claim intent (PRD §7.3, §7.5, §11.3). Backoffice can invite any
@@ -818,7 +901,7 @@ export const sendContractorProfileInvite = authenticatedMutation
     const isBuilderSide = scope.roles.some((role) =>
       BUILDER_ROLES.includes(role)
     );
-    if (!isBackoffice && !isBuilderSide) {
+    if (!(isBackoffice || isBuilderSide)) {
       throw new Error("Forbidden: invite permission");
     }
     // Builder-side can only invite profiles attached to their own
@@ -832,99 +915,129 @@ export const sendContractorProfileInvite = authenticatedMutation
       );
     }
 
-    const normalizedEmail = normalizeContractorEmail(contractor.email);
-    if (!normalizedEmail) {
-      throw new Error(
-        "Contractor profile has no email; cannot send an invitation."
-      );
-    }
-
-    // Revoke any prior live invite for this profile (single live claim, PRD
-    // §7.3 single-use after successful claim).
-    const now = Date.now();
-    const priorLive = await ctx.db
-      .query("contractorInviteClaims")
-      .withIndex("by_contractor_state", (q) =>
-        q
-          .eq("contractorId", args.contractorId)
-          .eq("state", "invited")
-      )
-      .collect();
-    for (const prior of priorLive) {
-      await ctx.db.patch(prior._id, {
-        revokedAt: now,
-        revokedByWorkosUserId: scope.subject,
-        state: "revoked",
-        updatedAt: now,
-      });
-    }
-
-    const expiresAt =
-      args.expiresInDays === undefined
-        ? undefined
-        : now + Math.max(1, args.expiresInDays) * 86_400_000;
-
-    const claimId = await ctx.db.insert("contractorInviteClaims", {
-      brokerageId: scope.brokerage._id,
-      contractorId: args.contractorId,
-      expiresAt,
-      invitedNormalizedEmail: normalizedEmail,
-      inviterWorkosUserId: scope.subject,
-      organizationId: args.workosOrganizationId,
-      state: "invited",
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    // WorkOS organization invitation — WorkOS owns membership + role projection
-    // (PRD §7.5). Fire-and-forget; the webhook finalizes projection.
-    await ctx.scheduler.runAfter(0, internal.workosManagement.inviteContractorUser, {
-      email: normalizedEmail,
-      organizationId: args.workosOrganizationId,
-    });
-
-    await writeContractorIdentityEvent(ctx, {
+    return await createContractorProfileInviteClaim(ctx, {
       actorRoles: scope.roles,
       actorSubject: scope.subject,
       brokerageId: scope.brokerage._id,
-      command: "sendContractorProfileInvite",
-      contractorId: args.contractorId,
-      entityType: "contractorInviteClaim",
-      eventType: "contractor.invite.sent",
-      newState: JSON.stringify({ claimId, normalizedEmail }),
-      organizationId: args.workosOrganizationId,
+      contractor,
+      expiresInDays: args.expiresInDays,
+      workosOrganizationId: args.workosOrganizationId,
     });
-
-    return claimId;
   })
   .public();
 
 async function assertContractorAttachedToBuilderScope(
   ctx: QueryCtx,
   contractorId: Id<"contractorProfiles">,
-  _inviterSubject: string,
-  _workosOrganizationId: string
+  inviterSubject: string,
+  workosOrganizationId: string
 ) {
   // Builder/staff can invite a contractor only if that contractor is already
   // attached to one of the inviter's proposals/builds (PRD §11.3, user story
-  // 48, 51). For admin (which is both builder + backoffice side) this is
-  // always satisfied; for true builder/builder-staff we look for an assignment
-  // on a proposal/build whose builder-side staff includes the inviter.
-  const proposalAssignments = await ctx.db
-    .query("proposalMilestoneContractorAssignments")
-    .withIndex("by_contractor", (q) => q.eq("contractorId", contractorId))
-    .filter((q) => q.neq(q.field("status"), "removed"))
-    .first();
-  const buildAssignments = await ctx.db
-    .query("milestoneContractorAssignments")
-    .withIndex("by_contractor", (q) => q.eq("contractorId", contractorId))
-    .filter((q) => q.neq(q.field("status"), "removed"))
-    .first();
-  if (!proposalAssignments && !buildAssignments) {
+  // 48, 51). Resolve the inviter's active builder profiles, then require at
+  // least one active contractor assignment whose parent proposal/build belongs
+  // to one of those builder profiles.
+  const builderLinks = await ctx.db
+    .query("builderAccountLinks")
+    .withIndex("by_user", (q) => q.eq("workosUserId", inviterSubject))
+    .collect();
+  const activeBuilderProfileIds = new Set<Id<"builderProfiles">>();
+  for (const link of builderLinks) {
+    if (link.status !== "active") {
+      continue;
+    }
+    const builderProfile = await ctx.db.get(link.builderProfileId);
+    if (
+      builderProfile &&
+      builderProfile.status === "active" &&
+      builderProfile.organizationId === workosOrganizationId
+    ) {
+      activeBuilderProfileIds.add(builderProfile._id);
+    }
+  }
+
+  if (activeBuilderProfileIds.size === 0) {
     throw new Error(
       "Forbidden: contractor is not attached to any of your proposals/builds"
     );
   }
+
+  const proposalAttachments = await ctx.db
+    .query("proposalContractorAssignments")
+    .withIndex("by_contractor", (q) => q.eq("contractorId", contractorId))
+    .collect();
+  for (const attachment of proposalAttachments) {
+    if (attachment.status !== "active") {
+      continue;
+    }
+    const proposal = await ctx.db.get(attachment.proposalId);
+    if (
+      proposal?.builderProfileId &&
+      activeBuilderProfileIds.has(proposal.builderProfileId)
+    ) {
+      return;
+    }
+  }
+
+  for (const builderProfileId of activeBuilderProfileIds) {
+    const proposals = await ctx.db
+      .query("buildProposals")
+      .withIndex("by_builder", (q) =>
+        q.eq("builderProfileId", builderProfileId)
+      )
+      .collect();
+    for (const proposal of proposals) {
+      if (!proposal.activeBuildId) {
+        continue;
+      }
+      const attachment = await ctx.db
+        .query("buildContractorAssignments")
+        .withIndex("by_build_contractor", (q) =>
+          q
+            .eq("buildId", proposal.activeBuildId!)
+            .eq("contractorId", contractorId)
+        )
+        .unique();
+      if (attachment && attachment.status !== "inactive") {
+        return;
+      }
+    }
+  }
+
+  const proposalAssignments = await ctx.db
+    .query("proposalMilestoneContractorAssignments")
+    .withIndex("by_contractor", (q) => q.eq("contractorId", contractorId))
+    .collect();
+  for (const assignment of proposalAssignments) {
+    if (assignment.status === "removed") {
+      continue;
+    }
+    const proposal = await ctx.db.get(assignment.proposalId);
+    if (
+      proposal?.builderProfileId &&
+      activeBuilderProfileIds.has(proposal.builderProfileId)
+    ) {
+      return;
+    }
+  }
+
+  const buildAssignments = await ctx.db
+    .query("milestoneContractorAssignments")
+    .withIndex("by_contractor", (q) => q.eq("contractorId", contractorId))
+    .collect();
+  for (const assignment of buildAssignments) {
+    if (assignment.status === "removed") {
+      continue;
+    }
+    const build = await ctx.db.get(assignment.buildId);
+    if (build && activeBuilderProfileIds.has(build.builderProfileId)) {
+      return;
+    }
+  }
+
+  throw new Error(
+    "Forbidden: contractor is not attached to any of your proposals/builds"
+  );
 }
 
 export const resendContractorProfileInvite = backofficeMutation
@@ -959,10 +1072,14 @@ export const resendContractorProfileInvite = backofficeMutation
     });
     const email = claim.invitedNormalizedEmail;
     if (email) {
-      await ctx.scheduler.runAfter(0, internal.workosManagement.inviteContractorUser, {
-        email,
-        organizationId: args.workosOrganizationId,
-      });
+      await ctx.scheduler.runAfter(
+        0,
+        internal.workosManagement.inviteContractorUser,
+        {
+          email,
+          organizationId: args.workosOrganizationId,
+        }
+      );
     }
     await writeContractorIdentityEvent(ctx, {
       actorRoles: scope.roles,
@@ -1071,44 +1188,19 @@ async function resolvePendingClaimForUser(
   brokerageId: Id<"brokerages">,
   applicantSubject: string
 ): Promise<Doc<"contractorInviteClaims"> | null> {
-  // Prefer a claim that already recorded this user as the accepter; otherwise
-  // fall back to an email match against the viewer's normalized identity email
-  // (supplied out-of-band here by membership lookup).
   const byAccepter = await ctx.db
     .query("contractorInviteClaims")
     .withIndex("by_accepted_user", (q) =>
       q.eq("acceptedWorkosUserId", applicantSubject)
     )
     .filter((q) =>
-      q.eq(q.field("state"), "accepted_pending_confirmation")
+      q.and(
+        q.eq(q.field("state"), "accepted_pending_confirmation"),
+        q.eq(q.field("brokerageId"), brokerageId)
+      )
     )
     .first();
-  if (byAccepter) {
-    return byAccepter;
-  }
-  // Look up the user's email via projection to match invited_normalized_email.
-  const user = await ctx.db
-    .query("users")
-    .withIndex("by_workos_user_id", (q) => q.eq("workosUserId", applicantSubject))
-    .first();
-  const normalizedEmail = normalizeContractorEmail(user?.email);
-  if (!normalizedEmail) {
-    return null;
-  }
-  return (
-    (await ctx.db
-      .query("contractorInviteClaims")
-      .withIndex("by_invited_email", (q) =>
-        q.eq("invitedNormalizedEmail", normalizedEmail)
-      )
-      .filter((q) =>
-        q.and(
-          q.eq(q.field("state"), "invited"),
-          q.eq(q.field("brokerageId"), brokerageId)
-        )
-      )
-      .first()) ?? null
-  );
+  return byAccepter ?? null;
 }
 
 /**

@@ -26,6 +26,12 @@ type AttachedContractor = {
   city?: string;
   email?: string;
   hourlyRateCents?: number;
+  lifecycleState?:
+    | "acknowledgement_pending"
+    | "active"
+    | "assigned"
+    | "attached"
+    | "invited";
   trades?: string[];
 };
 
@@ -42,6 +48,10 @@ type AvailableContractor = {
 };
 
 interface ContractorActions {
+  onAttachAndInviteExisting?: (input: {
+    contractorId: string;
+    role: string;
+  }) => Promise<void> | void;
   onAttachExisting?: (input: {
     contractorId: string;
     role: string;
@@ -56,6 +66,19 @@ interface ContractorActions {
     | { contractorId?: string };
   onInviteCreatedContractor?: (contractorId: string) => Promise<void> | void;
   sourceLabel?: string;
+}
+
+function contractorLifecycleLabel(
+  state: NonNullable<AttachedContractor["lifecycleState"]>
+) {
+  const labels = {
+    acknowledgement_pending: "Assigned · Acknowledgement pending",
+    active: "Active · Account linked",
+    assigned: "Assigned · Not invited",
+    attached: "Attached · Not invited",
+    invited: "Invited · Claim pending",
+  } as const;
+  return labels[state];
 }
 
 interface ContractorsCardProps {
@@ -76,6 +99,9 @@ export function ContractorsCard({
   contractorDetailHrefFor,
 }: ContractorsCardProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const canAddContractor =
+    actions === undefined ||
+    Boolean(actions.onAttachExisting || actions.onCreateAndAttach);
   const drawerAvailableContractors: ContractorDrawerAvailableContractor[] =
     availableContractors.map((contractor) => ({
       _id: String(contractor._id),
@@ -106,14 +132,16 @@ export function ContractorsCard({
             {contractors.length} attached
           </p>
         </div>
-        <Button
-          data-testid="contractors-open-add"
-          onClick={() => setDrawerOpen(true)}
-          size="sm"
-          type="button"
-        >
-          Add contractor
-        </Button>
+        {canAddContractor ? (
+          <Button
+            data-testid="contractors-open-add"
+            onClick={() => setDrawerOpen(true)}
+            size="sm"
+            type="button"
+          >
+            Add contractor
+          </Button>
+        ) : null}
       </CardHeader>
       <CardContent
         className="grid auto-rows-max content-start items-start gap-2 p-4 pt-0"
@@ -175,6 +203,11 @@ export function ContractorsCard({
                       : ""}
                     {contractor.email ? ` / ${contractor.email}` : ""}
                   </p>
+                  {contractor.lifecycleState ? (
+                    <p className="mt-1 font-medium text-[11px] text-foreground">
+                      {contractorLifecycleLabel(contractor.lifecycleState)}
+                    </p>
+                  ) : null}
                 </div>
               </div>
             );
@@ -182,7 +215,7 @@ export function ContractorsCard({
         )}
       </CardContent>
 
-      {drawerOpen ? (
+      {canAddContractor && drawerOpen ? (
         <ContractorBuildQuickAddDrawer
           actions={actions}
           availableContractors={drawerAvailableContractors}
@@ -214,6 +247,7 @@ function ContractorBuildQuickAddDrawer({
         availableContractors={availableContractors}
         createLabel="Create and add"
         description="Create or attach a contractor with equipment, capability, pay, and contact data before assigning milestone work."
+        onAttachAndInviteExisting={actions.onAttachAndInviteExisting}
         onAttachExisting={actions.onAttachExisting}
         onCreate={({ contractor, role }) =>
           actions.onCreateAndAttach?.({
@@ -262,13 +296,13 @@ function DemoContractorBuildQuickAddDrawer({
       availableContractors={availableContractors}
       createLabel="Create and add"
       description="Create or attach a contractor with equipment, capability, pay, and contact data before assigning milestone work."
-      onAttachExisting={({ contractorId, role }) =>
-        demoAttach({
+      onAttachExisting={async ({ contractorId, role }) => {
+        await demoAttach({
           buildId: buildId as Id<"demo_builds">,
           contractorId: contractorId as Id<"demo_contractors">,
           role,
-        })
-      }
+        });
+      }}
       onCreate={({ contractor, role }) =>
         demoCreate({
           buildId: buildId as Id<"demo_builds">,

@@ -1,9 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/backoffice/builders/builderId")({
-  component: RouteComponent,
+  beforeLoad: () => {
+    throw redirect({ to: "/backoffice/builders" });
+  },
 });
-
-function RouteComponent() {
-  return <div>Hello "/backoffice/builders/builderId"!</div>;
-}

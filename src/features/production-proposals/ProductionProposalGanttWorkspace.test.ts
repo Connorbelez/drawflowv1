@@ -230,7 +230,7 @@ describe("ProductionProposalGanttWorkspace draw-group derivation", () => {
 
     const workspace = mapProposalGanttWorkspace({
       activePlanId: "cheapestFeasible",
-      borrowerWorkingCapitalLimitCents: 50_000_00,
+      borrowerStartingCashCents: 50_000_00,
       buildName: "Proposal build",
       dependencies: [],
       drawGroups: group ? [group] : [],
@@ -252,6 +252,48 @@ describe("ProductionProposalGanttWorkspace draw-group derivation", () => {
     expect(workspace.drawGroups[0]?.eligibleAt.getTime()).toBe(
       new Date(2026, 5, 46).getTime(),
     );
+  });
+
+  test("keeps borrower starting cash separate from derived working-capital need", () => {
+    const [group] = deriveProposalDrawGroups({
+      borrowerCoPayBps: 0,
+      draws: [
+        {
+          amountCents: 100_000_00,
+          drawKey: "D1",
+          label: "Draw 1",
+          milestoneKey: "m1",
+          timingDay: 20,
+        },
+      ],
+      milestones: milestones.slice(0, 1),
+    });
+
+    const workspace = mapProposalGanttWorkspace({
+      activePlanId: "capitalConstrained",
+      borrowerStartingCashCents: 40_000_00,
+      buildName: "Proposal build",
+      dependencies: [],
+      drawGroups: group ? [group] : [],
+      issues: [],
+      lenderDrawPolicyLimitCents: 100_000_00,
+      location: "Hamilton, ON",
+      milestones: milestones.slice(0, 1),
+      proposalStatus: "draft",
+      role: "lenderAdmin",
+      selectedMilestoneId: "",
+    });
+
+    expect(workspace.budget.borrowerStartingCash).toBe(40_000);
+    expect(
+      workspace.optimizationPlans.find(
+        (plan) => plan.id === "capitalConstrained",
+      ),
+    ).toMatchObject({
+      infeasibleReason: expect.stringMatching(/starting cash.*requires/i),
+      peakWorkingCapital: 100_000,
+      recommended: false,
+    });
   });
 
   test("normalizing draw rows keeps draw timing and amount synced to milestone edits", () => {
@@ -347,7 +389,7 @@ describe("ProductionProposalGanttWorkspace draw-group derivation", () => {
 
     const workspace = mapProposalGanttWorkspace({
       activePlanId: "capitalConstrained",
-      borrowerWorkingCapitalLimitCents: 50_000_00,
+      borrowerStartingCashCents: 50_000_00,
       buildName: "Proposal build",
       dependencies: [],
       drawGroups: group ? [group] : [],
@@ -430,7 +472,7 @@ describe("ProductionProposalGanttWorkspace draw-group derivation", () => {
       },
       proposal: {
         borrowerCoPayBps: 2_000,
-        borrowerWorkingCapitalLimitCents: 40_000_00,
+        borrowerStartingCashCents: 40_000_00,
         buildName: "Proposal build",
         lenderDrawPolicyLimitCents: 240_000_00,
         location: "Hamilton, ON",
@@ -519,7 +561,7 @@ describe("ProductionProposalGanttWorkspace draw-group derivation", () => {
 
     const workspace = mapProposalGanttWorkspace({
       activePlanId: "cheapestFeasible",
-      borrowerWorkingCapitalLimitCents: 50_000_00,
+      borrowerStartingCashCents: 50_000_00,
       buildName: "4-plex proposal",
       dependencies: [],
       drawGroups: group ? [group] : [],

@@ -19,4 +19,9 @@ describe("resolveAccessDestination", () => {
     expect(resolveAccessDestination([])).toBeNull();
     expect(resolveAccessDestination([null, undefined, "unknown-role"])).toBeNull();
   });
+
+  test("does not grant workspace access to unsupported platform-admin aliases", () => {
+    expect(resolveAccessDestination(["platform-admin"])).toBeNull();
+    expect(resolveAccessDestination(["platform admin"])).toBeNull();
+  });
 });

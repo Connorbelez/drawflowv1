@@ -73,6 +73,12 @@ export function CalendarEventDetailDrawer({
   const reasonRequired = event?.editable.requiredReason
     ? event.editable.requiredReason !== "none"
     : false;
+  const canEditSchedule = Boolean(
+    event &&
+      (event.editable.canMove ||
+        event.editable.canResizeEnd ||
+        event.editable.canResizeStart)
+  );
   const canSubmitDateEdit = useMemo(() => {
     if (!(event && startsAt)) {
       return false;
@@ -129,75 +135,82 @@ export function CalendarEventDetailDrawer({
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="grid gap-3 p-4 pt-0">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="grid gap-1.5">
-                      <Label htmlFor="calendar-event-start">Start date</Label>
-                      <Input
-                        disabled={!event.editable.canMove}
-                        id="calendar-event-start"
-                        onChange={(inputEvent) =>
-                          setStartsAt(inputEvent.target.value)
-                        }
-                        type="date"
-                        value={startsAt}
-                      />
-                    </div>
-                    <div className="grid gap-1.5">
-                      <Label htmlFor="calendar-event-end">End date</Label>
-                      <Input
-                        disabled={!event.editable.canResizeEnd}
-                        id="calendar-event-end"
-                        onChange={(inputEvent) =>
-                          setEndsAt(inputEvent.target.value)
-                        }
-                        type="date"
-                        value={endsAt}
-                      />
-                    </div>
-                  </div>
-                  {event.editable.immutableReason ? (
+                  {canEditSchedule ? (
+                    <>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="grid gap-1.5">
+                          <Label htmlFor="calendar-event-start">
+                            Start date
+                          </Label>
+                          <Input
+                            disabled={!event.editable.canMove}
+                            id="calendar-event-start"
+                            onChange={(inputEvent) =>
+                              setStartsAt(inputEvent.target.value)
+                            }
+                            type="date"
+                            value={startsAt}
+                          />
+                        </div>
+                        <div className="grid gap-1.5">
+                          <Label htmlFor="calendar-event-end">End date</Label>
+                          <Input
+                            disabled={!event.editable.canResizeEnd}
+                            id="calendar-event-end"
+                            onChange={(inputEvent) =>
+                              setEndsAt(inputEvent.target.value)
+                            }
+                            type="date"
+                            value={endsAt}
+                          />
+                        </div>
+                      </div>
+                      {reasonRequired ? (
+                        <div className="grid gap-1.5">
+                          <Label htmlFor="calendar-event-reason">
+                            Audit reason
+                          </Label>
+                          <Textarea
+                            id="calendar-event-reason"
+                            onChange={(inputEvent) =>
+                              setReason(inputEvent.target.value)
+                            }
+                            placeholder="Record the reason for the schedule change."
+                            value={reason}
+                          />
+                        </div>
+                      ) : null}
+                      <Button
+                        disabled={!canSubmitDateEdit}
+                        onClick={() => {
+                          if (!(event && startsAt)) {
+                            return;
+                          }
+                          onRequestEdit({
+                            changeType:
+                              startsAt === event.startsAt
+                                ? "resizeEnd"
+                                : "move",
+                            event,
+                            nextEndsAt: endsAt || undefined,
+                            nextStartsAt: startsAt,
+                            priorEndsAt: event.endsAt,
+                            priorStartsAt: event.startsAt,
+                            reason: reason.trim() || undefined,
+                          });
+                        }}
+                        size="sm"
+                      >
+                        <MoveRight />
+                        Preview schedule edit
+                      </Button>
+                    </>
+                  ) : event.editable.immutableReason ? (
                     <p className="flex items-center gap-2 text-muted-foreground text-xs">
                       <Lock className="size-3.5" />
                       {event.editable.immutableReason}
                     </p>
                   ) : null}
-                  {reasonRequired ? (
-                    <div className="grid gap-1.5">
-                      <Label htmlFor="calendar-event-reason">
-                        Audit reason
-                      </Label>
-                      <Textarea
-                        id="calendar-event-reason"
-                        onChange={(inputEvent) =>
-                          setReason(inputEvent.target.value)
-                        }
-                        placeholder="Record the reason for the schedule change."
-                        value={reason}
-                      />
-                    </div>
-                  ) : null}
-                  <Button
-                    disabled={!canSubmitDateEdit}
-                    onClick={() => {
-                      if (!(event && startsAt)) {
-                        return;
-                      }
-                      onRequestEdit({
-                        changeType:
-                          startsAt === event.startsAt ? "resizeEnd" : "move",
-                        event,
-                        nextEndsAt: endsAt || undefined,
-                        nextStartsAt: startsAt,
-                        priorEndsAt: event.endsAt,
-                        priorStartsAt: event.startsAt,
-                        reason: reason.trim() || undefined,
-                      });
-                    }}
-                    size="sm"
-                  >
-                    <MoveRight />
-                    Preview schedule edit
-                  </Button>
                 </CardContent>
               </Card>
               <Card>

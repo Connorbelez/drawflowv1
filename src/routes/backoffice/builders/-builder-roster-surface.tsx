@@ -25,6 +25,7 @@ import {
   Search,
   SlidersHorizontal,
   UserPlus,
+  UserRoundCog,
   X,
 } from "lucide-react";
 import { type ReactElement, useMemo, useState } from "react";
@@ -91,10 +92,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "#/components/ui/tooltip.tsx";
+import { BrokerAssignmentDialog } from "#/features/broker-assignments/BrokerAssignmentDialog.tsx";
 import { cn } from "#/lib/utils.ts";
 
 import { BuilderDetailDrawer } from "./-builder-detail-drawer";
 import {
+  type AssignableBrokerage,
   type BrokerageOption,
   type BuilderRow,
   type BuilderStage,
@@ -110,6 +113,17 @@ import {
 } from "./-builder-roster-types";
 
 export interface BuilderRosterHandlers {
+  onAssignBroker: (input: {
+    assignedBrokerWorkosUserId: string;
+    builderProfileIds: string[];
+    reason: string;
+  }) => Promise<{
+    assigned: number;
+    processed: number;
+    reassigned: number;
+    repaired: number;
+    unchanged: number;
+  }>;
   onInviteBuilder: () => void;
   onLinkAccount: (input: {
     builderProfileId: string;
@@ -129,10 +143,17 @@ export interface BuilderRosterHandlers {
 }
 
 interface BuilderRosterSurfaceProps extends BuilderRosterHandlers {
+  assignableBrokerages: AssignableBrokerage[];
   brokerages: BrokerageOption[];
+  brokerOptionsPending: boolean;
   builders: BuilderRow[] | undefined;
   pending: boolean;
   unprovisionedBuilders: UnprovisionedBuilder[] | undefined;
+}
+
+interface BrokerAssignmentDialogState {
+  clearSelectionOnSuccess: boolean;
+  targets: BuilderRow[];
 }
 
 type StatusFilter = "all" | "active" | "inactive";
@@ -156,6 +177,8 @@ const globalFilterFn: FilterFn<BuilderRow> = (row, _columnId, value) => {
     builder.legalName ?? "",
     builder.organizationName,
     builder.brokerage?.displayName ?? "",
+    builder.brokerAssignment?.broker?.name ?? "",
+    builder.brokerAssignment?.broker?.email ?? "",
     ...builder.accounts.flatMap((account) => [
       account.name ?? "",
       account.email ?? "",
@@ -169,9 +192,12 @@ const globalFilterFn: FilterFn<BuilderRow> = (row, _columnId, value) => {
 };
 
 export function BuilderRosterSurface({
+  assignableBrokerages,
+  brokerOptionsPending,
   brokerages,
   builders,
   onInviteBuilder,
+  onAssignBroker,
   onLinkAccount,
   onProvisionBuilder,
   onSetProfileStatus,
@@ -191,6 +217,8 @@ export function BuilderRosterSurface({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [brokerageFilter, setBrokerageFilter] = useState<string>("all");
   const [openBuilderId, setOpenBuilderId] = useState<string | null>(null);
+  const [assignmentDialog, setAssignmentDialog] =
+    useState<BrokerAssignmentDialogState | null>(null);
 
   const filteredByFacets = useMemo(
     () =>
@@ -209,7 +237,16 @@ export function BuilderRosterSurface({
     [rows, statusFilter, brokerageFilter]
   );
 
-  const columns = useMemo<ColumnDef<BuilderRow>[]>(() => buildColumns(), []);
+  const columns = useMemo<ColumnDef<BuilderRow>[]>(
+    () =>
+      buildColumns((builder) =>
+        setAssignmentDialog({
+          clearSelectionOnSuccess: false,
+          targets: [builder],
+        })
+      ),
+    []
+  );
 
   const table = useReactTable({
     columns,
@@ -307,6 +344,12 @@ export function BuilderRosterSurface({
                   );
                   setRowSelection({});
                 }}
+                onAssign={() =>
+                  setAssignmentDialog({
+                    clearSelectionOnSuccess: true,
+                    targets: selectedRows.map((row) => row.original),
+                  })
+                }
                 onClear={() => setRowSelection({})}
                 onDeactivate={async () => {
                   await Promise.all(
@@ -388,6 +431,7 @@ export function BuilderRosterSurface({
                             key={cell.id}
                             onClick={
                               cell.column.id === "select" ||
+                              cell.column.id === "broker" ||
                               cell.column.id === "actions"
                                 ? (event) => event.stopPropagation()
                                 : undefined
@@ -437,6 +481,25 @@ export function BuilderRosterSurface({
         onSetProfileStatus={onSetProfileStatus}
         onUnlinkAccount={onUnlinkAccount}
         open={openBuilder !== null}
+      />
+
+      <BrokerAssignmentDialog
+        brokerages={assignableBrokerages}
+        brokerOptionsPending={brokerOptionsPending}
+        onAssign={onAssignBroker}
+        onAssigned={() => {
+          if (assignmentDialog?.clearSelectionOnSuccess) {
+            setRowSelection({});
+          }
+          setAssignmentDialog(null);
+        }}
+        onOpenChange={(open) => {
+          if (!open) {
+            setAssignmentDialog(null);
+          }
+        }}
+        open={assignmentDialog !== null}
+        targets={assignmentDialog?.targets ?? []}
       />
     </TooltipProvider>
   );
@@ -616,7 +679,9 @@ function ProvisionBuilderDialog({
   );
 }
 
-function buildColumns(): ColumnDef<BuilderRow>[] {
+function buildColumns(
+  onOpenBrokerAssignment: (builder: BuilderRow) => void
+): ColumnDef<BuilderRow>[] {
   return [
     {
       cell: ({ row }) => (
@@ -630,7 +695,7 @@ function buildColumns(): ColumnDef<BuilderRow>[] {
       enableSorting: false,
       header: ({ table }) => (
         <Checkbox
-          aria-label="Select all builders"
+          aria-label="Select all Builders on this page"
           checked={
             table.getIsAllPageRowsSelected()
               ? true
@@ -654,6 +719,21 @@ function buildColumns(): ColumnDef<BuilderRow>[] {
       size: 280,
       sortingFn: (a, b) =>
         a.original.displayName.localeCompare(b.original.displayName),
+    },
+    {
+      accessorFn: (row) =>
+        row.brokerAssignment?.broker?.name ??
+        row.brokerAssignment?.assignedBrokerWorkosUserId ??
+        "",
+      cell: ({ row }) => (
+        <BrokerAssignmentCell
+          builder={row.original}
+          onAssign={() => onOpenBrokerAssignment(row.original)}
+        />
+      ),
+      header: ({ column }) => <SortHeader column={column} label="Broker" />,
+      id: "broker",
+      size: 280,
     },
     {
       accessorFn: (row) => row.stage,
@@ -1064,41 +1144,104 @@ const COLUMN_LABELS: Record<string, string> = {
 function BulkActionBar({
   busyDisabled,
   onActivate,
+  onAssign,
   onClear,
   onDeactivate,
   selectedCount,
 }: {
   busyDisabled: boolean;
   onActivate: () => Promise<void>;
+  onAssign: () => void;
   onClear: () => void;
   onDeactivate: () => Promise<void>;
   selectedCount: number;
 }): ReactElement {
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-accent/40 px-3 py-2">
-      <span className="font-medium text-sm">{selectedCount} selected</span>
-      <div className="flex-1" />
+    <Frame>
+      <FramePanel className="flex flex-wrap items-center gap-2 p-2.5">
+        <span className="font-medium text-sm">{selectedCount} selected</span>
+        <div className="flex-1" />
+        <Button disabled={busyDisabled} onClick={onAssign} size="sm">
+          <UserRoundCog />
+          Assign broker
+        </Button>
+        <Button
+          disabled={busyDisabled}
+          onClick={() => onActivate()}
+          size="sm"
+          variant="outline"
+        >
+          <Power />
+          Activate
+        </Button>
+        <Button
+          disabled={busyDisabled}
+          onClick={() => onDeactivate()}
+          size="sm"
+          variant="destructive-outline"
+        >
+          <Power />
+          Deactivate
+        </Button>
+        <Button onClick={onClear} size="sm" variant="ghost">
+          <X />
+          Clear
+        </Button>
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function BrokerAssignmentCell({
+  builder,
+  onAssign,
+}: {
+  builder: BuilderRow;
+  onAssign: () => void;
+}): ReactElement {
+  const assignment = builder.brokerAssignment;
+  const broker = assignment?.broker;
+  const assignedBrokerId = assignment?.assignedBrokerWorkosUserId;
+  const actionLabel = assignedBrokerId
+    ? assignment?.healthy
+      ? "Change"
+      : "Repair"
+    : "Assign";
+  const brokerName = broker?.name ?? broker?.email ?? "Unassigned";
+  const brokerDetail = broker?.name
+    ? broker.email
+    : assignedBrokerId && !broker
+      ? "Broker record unavailable"
+      : "No active broker assignment";
+
+  return (
+    <div className="flex min-w-60 items-center gap-2.5">
+      <Avatar className="size-7">
+        <AvatarImage alt="" src={broker?.profilePictureUrl ?? undefined} />
+        <AvatarFallback className="text-[10px]">
+          {broker ? initials(broker.name, broker.email) : "?"}
+        </AvatarFallback>
+      </Avatar>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="truncate font-medium text-sm">{brokerName}</span>
+          <Badge variant={assignment?.healthy ? "success" : "warning"}>
+            {assignment?.healthy ? "Assigned" : "Needs assignment"}
+          </Badge>
+        </div>
+        <p className="truncate text-muted-foreground text-xs">{brokerDetail}</p>
+      </div>
       <Button
-        disabled={busyDisabled}
-        onClick={() => onActivate()}
+        aria-label={`${actionLabel} broker for ${builder.displayName}`}
+        disabled={builder.status !== "active" || !builder.brokerage}
+        onClick={(event) => {
+          event.stopPropagation();
+          onAssign();
+        }}
         size="sm"
         variant="outline"
       >
-        <Power />
-        Activate
-      </Button>
-      <Button
-        disabled={busyDisabled}
-        onClick={() => onDeactivate()}
-        size="sm"
-        variant="destructive-outline"
-      >
-        <Power />
-        Deactivate
-      </Button>
-      <Button onClick={onClear} size="sm" variant="ghost">
-        <X />
-        Clear
+        {actionLabel}
       </Button>
     </div>
   );

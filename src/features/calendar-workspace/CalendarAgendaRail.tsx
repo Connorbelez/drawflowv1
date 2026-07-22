@@ -20,9 +20,10 @@ import {
   bucketLabel,
   eventIsCapitalAffecting,
   eventNeedsAction,
+  formatAccessibleEventRange,
   formatCentsCompact,
   formatDateRange,
-  groupEventsByDate,
+  groupLogicalEventsByStartDate,
   groupedByBucket,
 } from "./calendarEventProjection";
 import type {
@@ -52,7 +53,7 @@ export function CalendarAgendaRail({
   surface: CalendarSurface;
   timeframe: CalendarTimeframe;
 }) {
-  const byDate = groupEventsByDate(events);
+  const byDate = groupLogicalEventsByStartDate(events);
   const sortedDates = [...byDate.keys()].sort();
 
   return (
@@ -172,6 +173,7 @@ function buildAgendaEventAriaLabel(
 ) {
   return [
     event.title,
+    formatAccessibleEventRange(event),
     bucketLabel(event.timeBucket),
     event.kind,
     event.status,

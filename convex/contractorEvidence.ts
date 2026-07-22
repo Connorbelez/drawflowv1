@@ -123,7 +123,9 @@ async function writeEvidenceEvent(
     brokerageId: input.brokerageId,
     command: input.command,
     createdAt: Date.now(),
-    entityId: input.evidenceId ? String(input.evidenceId) : String(input.contractorId),
+    entityId: input.evidenceId
+      ? String(input.evidenceId)
+      : String(input.contractorId),
     entityType: input.evidenceId ? "contractorEvidence" : "contractorProfile",
     eventType: input.eventType,
     newState: input.newState,
@@ -145,9 +147,7 @@ async function writeEvidenceEvent(
  */
 export const generateContractorEvidenceUploadUrl = contractorRoleMutation
   .returns(v.string())
-  .handler(async (ctx) => {
-    return await ctx.storage.generateUploadUrl();
-  })
+  .handler(async (ctx) => await ctx.storage.generateUploadUrl())
   .public();
 
 /**
@@ -195,6 +195,29 @@ export const uploadContractorSupportingEvidence = contractorRoleMutation
       }
     );
 
+    const existingEvidence = await findMatchingEvidenceUpload(
+      ctx,
+      contractor._id,
+      {
+        assignmentType: args.assignmentType,
+        buildAssignmentId: args.buildAssignmentId,
+        caption: args.caption,
+        fileName: args.fileName,
+        linkedReminderEventId: args.linkedReminderEventId,
+        milestoneKey: args.milestoneKey,
+        mimeType: args.mimeType,
+        proposalAssignmentId: args.proposalAssignmentId,
+        sizeBytes: args.sizeBytes,
+        storageId: args.storageId,
+        submilestoneKey: args.submilestoneKey,
+        tags: args.tags,
+        takenAt: args.takenAt,
+      }
+    );
+    if (existingEvidence) {
+      return existingEvidence._id;
+    }
+
     const now = Date.now();
     const evidenceId = await ctx.db.insert("contractorEvidence", {
       buildAssignmentId: args.buildAssignmentId,
@@ -241,6 +264,58 @@ export const uploadContractorSupportingEvidence = contractorRoleMutation
   })
   .public();
 
+async function findMatchingEvidenceUpload(
+  ctx: QueryCtx,
+  contractorId: Id<"contractorProfiles">,
+  input: {
+    assignmentType: "proposal" | "build";
+    proposalAssignmentId?: Id<"proposalMilestoneContractorAssignments">;
+    buildAssignmentId?: Id<"milestoneContractorAssignments">;
+    milestoneKey: string;
+    submilestoneKey?: string;
+    caption: string;
+    storageId: Id<"_storage">;
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+    tags?: string[];
+    takenAt?: number;
+    linkedReminderEventId?: string;
+  }
+): Promise<Doc<"contractorEvidence"> | null> {
+  const rows = await ctx.db
+    .query("contractorEvidence")
+    .withIndex("by_contractor", (q) => q.eq("contractorId", contractorId))
+    .collect();
+  return (
+    rows.find(
+      (row) =>
+        row.targetType === input.assignmentType &&
+        row.proposalAssignmentId === input.proposalAssignmentId &&
+        row.buildAssignmentId === input.buildAssignmentId &&
+        row.milestoneKey === input.milestoneKey &&
+        row.submilestoneKey === input.submilestoneKey &&
+        row.caption === input.caption &&
+        row.storageId === input.storageId &&
+        row.fileName === input.fileName &&
+        row.mimeType === input.mimeType &&
+        row.sizeBytes === input.sizeBytes &&
+        row.takenAt === input.takenAt &&
+        row.linkedReminderEventId === input.linkedReminderEventId &&
+        stringArrayEquals(row.tags, input.tags)
+    ) ?? null
+  );
+}
+
+function stringArrayEquals(left?: string[], right?: string[]): boolean {
+  const leftValues = left ?? [];
+  const rightValues = right ?? [];
+  return (
+    leftValues.length === rightValues.length &&
+    leftValues.every((value, index) => value === rightValues[index])
+  );
+}
+
 /**
  * Contractor-visible evidence history (their own submissions + relevant scope
  * feedback). PRD §8.7: contractor sees their own submitted evidence only.
@@ -258,21 +333,23 @@ export const listContractorEvidence = contractorRoleQuery
     if (args.buildId) {
       rows = await ctx.db
         .query("contractorEvidence")
-        .withIndex("by_build", (q) => q.eq("buildId", args.buildId as Id<"activeBuilds">))
+        .withIndex("by_build", (q) =>
+          q.eq("buildId", args.buildId as Id<"activeBuilds">)
+        )
         .filter((q) => q.eq(q.field("contractorId"), contractor._id))
         .collect();
     } else if (args.proposalId) {
       rows = await ctx.db
         .query("contractorEvidence")
-        .withIndex("by_proposal", (q) => q.eq("proposalId", args.proposalId as Id<"buildProposals">))
+        .withIndex("by_proposal", (q) =>
+          q.eq("proposalId", args.proposalId as Id<"buildProposals">)
+        )
         .filter((q) => q.eq(q.field("contractorId"), contractor._id))
         .collect();
     } else {
       rows = await ctx.db
         .query("contractorEvidence")
-        .withIndex("by_contractor", (q) =>
-          q.eq("contractorId", contractor._id)
-        )
+        .withIndex("by_contractor", (q) => q.eq("contractorId", contractor._id))
         .collect();
     }
     return rows
@@ -303,12 +380,16 @@ export const listContractorEvidenceForReview = backofficeQuery
     if (args.buildId) {
       rows = await ctx.db
         .query("contractorEvidence")
-        .withIndex("by_build", (q) => q.eq("buildId", args.buildId as Id<"activeBuilds">))
+        .withIndex("by_build", (q) =>
+          q.eq("buildId", args.buildId as Id<"activeBuilds">)
+        )
         .collect();
     } else if (args.proposalId) {
       rows = await ctx.db
         .query("contractorEvidence")
-        .withIndex("by_proposal", (q) => q.eq("proposalId", args.proposalId as Id<"buildProposals">))
+        .withIndex("by_proposal", (q) =>
+          q.eq("proposalId", args.proposalId as Id<"buildProposals">)
+        )
         .collect();
     } else if (args.contractorId) {
       rows = await ctx.db
@@ -492,35 +573,65 @@ export const acknowledgeContractorAssignment = contractorRoleMutation
   .returns(v.id("contractorAcknowledgements"))
   .handler(async (ctx, args) => {
     const contractor = ctx.contractorProfile;
-    await authorizeAssignmentScope(ctx, contractor._id, {
-      assignmentType: args.assignmentType,
-      buildAssignmentId: args.buildAssignmentId,
-      milestoneKey: "",
-      proposalAssignmentId: args.proposalAssignmentId,
-    });
+    const assignmentScope = await authorizeAssignmentScope(
+      ctx,
+      contractor._id,
+      {
+        assignmentType: args.assignmentType,
+        buildAssignmentId: args.buildAssignmentId,
+        milestoneKey: "",
+        proposalAssignmentId: args.proposalAssignmentId,
+      }
+    );
     const now = Date.now();
     const existing = await findAcknowledgement(ctx, contractor._id, args);
+    let acknowledgementId: Id<"contractorAcknowledgements">;
     if (existing) {
       await ctx.db.patch(existing._id, {
         acknowledgedAt: now,
         state: "acknowledged",
         updatedAt: now,
       });
-      return existing._id;
+      acknowledgementId = existing._id;
+    } else {
+      acknowledgementId = await ctx.db.insert("contractorAcknowledgements", {
+        acknowledgedAt: now,
+        assignmentType: args.assignmentType,
+        brokerageId: contractor.brokerageId,
+        buildAssignmentId: args.buildAssignmentId,
+        contractorId: contractor._id,
+        kind: args.kind,
+        organizationId: args.workosOrganizationId,
+        proposalAssignmentId: args.proposalAssignmentId,
+        state: "acknowledged",
+        createdAt: now,
+        updatedAt: now,
+      });
     }
-    return await ctx.db.insert("contractorAcknowledgements", {
-      acknowledgedAt: now,
-      assignmentType: args.assignmentType,
-      brokerageId: contractor.brokerageId,
+    await completeContractorAssignmentHandoff(ctx, {
+      assignmentScope,
+      contractor,
+      now,
+      response: "acknowledged",
       buildAssignmentId: args.buildAssignmentId,
-      contractorId: contractor._id,
-      kind: args.kind,
-      organizationId: args.workosOrganizationId,
       proposalAssignmentId: args.proposalAssignmentId,
-      state: "acknowledged",
-      createdAt: now,
-      updatedAt: now,
     });
+    await writeEvidenceEvent(ctx, {
+      actorRoles: viewerRoles(ctx),
+      actorSubject: viewerSubject(ctx),
+      brokerageId: contractor.brokerageId,
+      command: "acknowledgeContractorAssignment",
+      contractorId: contractor._id,
+      eventType: "contractor.assignment.acknowledged",
+      newState: JSON.stringify({
+        acknowledgementId,
+        assignmentType: args.assignmentType,
+        buildAssignmentId: args.buildAssignmentId,
+        proposalAssignmentId: args.proposalAssignmentId,
+      }),
+      organizationId: args.workosOrganizationId,
+    });
+    return acknowledgementId;
   })
   .public();
 
@@ -589,9 +700,7 @@ async function findAcknowledgement(
   const rows = await ctx.db
     .query("contractorAcknowledgements")
     .withIndex("by_contractor_kind_state", (q) =>
-      q
-        .eq("contractorId", contractorId)
-        .eq("kind", input.kind)
+      q.eq("contractorId", contractorId).eq("kind", input.kind)
     )
     .collect();
   return (
@@ -604,6 +713,126 @@ async function findAcknowledgement(
             row.buildAssignmentId === input.buildAssignmentId))
     ) ?? null
   );
+}
+
+async function completeContractorAssignmentHandoff(
+  ctx: MutationCtx,
+  input: {
+    assignmentScope: {
+      buildId: Id<"activeBuilds"> | null;
+      proposalId: Id<"buildProposals"> | null;
+    };
+    buildAssignmentId?: Id<"milestoneContractorAssignments">;
+    contractor: Doc<"contractorProfiles">;
+    now: number;
+    proposalAssignmentId?: Id<"proposalMilestoneContractorAssignments">;
+    response: "acknowledged" | "clarification_requested" | "scope_disputed";
+  }
+) {
+  const assignmentId = input.buildAssignmentId ?? input.proposalAssignmentId;
+  if (!assignmentId) {
+    return;
+  }
+  const contractorRecipient = input.contractor.accountWorkosUserId;
+  if (contractorRecipient && input.buildAssignmentId) {
+    for (const operation of ["created", "updated"] as const) {
+      const delivery = await ctx.db
+        .query("recipientDeliveries")
+        .withIndex("by_recipient_dedupe", (q) =>
+          q
+            .eq("organizationId", input.contractor.organizationId)
+            .eq("recipientWorkosUserId", contractorRecipient)
+            .eq(
+              "dedupeKey",
+              `contractor-assignment:${input.buildAssignmentId}:${operation}`
+            )
+        )
+        .first();
+      if (delivery && delivery.status !== "resolved") {
+        await ctx.db.patch(delivery._id, {
+          status: "resolved",
+          updatedAt: input.now,
+        });
+      }
+    }
+  }
+
+  const proposal = input.assignmentScope.proposalId
+    ? await ctx.db.get(input.assignmentScope.proposalId)
+    : input.assignmentScope.buildId
+      ? await ctx.db
+          .get(input.assignmentScope.buildId)
+          .then((build) => (build ? ctx.db.get(build.proposalId) : null))
+      : null;
+  if (!proposal?.builderProfileId) {
+    return;
+  }
+  const builderProfileId = proposal.builderProfileId;
+  const links = await ctx.db
+    .query("builderAccountLinks")
+    .withIndex("by_builder", (q) => q.eq("builderProfileId", builderProfileId))
+    .collect();
+  const recipients = new Set(
+    links
+      .filter(
+        (link) =>
+          link.status === "active" &&
+          link.brokerageId === input.contractor.brokerageId
+      )
+      .map((link) => link.workosUserId)
+  );
+  const build = input.assignmentScope.buildId
+    ? await ctx.db.get(input.assignmentScope.buildId)
+    : null;
+  const responseLabel =
+    input.response === "acknowledged"
+      ? "acknowledged"
+      : input.response === "scope_disputed"
+        ? "disputed the scope"
+        : "requested clarification";
+  const actionRequired = input.response !== "acknowledged";
+  const dedupeKey = `contractor-assignment-response:${assignmentId}:${input.response}`;
+  for (const recipientWorkosUserId of recipients) {
+    const existing = await ctx.db
+      .query("recipientDeliveries")
+      .withIndex("by_recipient_dedupe", (q) =>
+        q
+          .eq("organizationId", input.contractor.organizationId)
+          .eq("recipientWorkosUserId", recipientWorkosUserId)
+          .eq("dedupeKey", dedupeKey)
+      )
+      .first();
+    const delivery = {
+      actionLabel: actionRequired ? "Review assignment" : "View assignment",
+      actionRequired,
+      body: `${input.contractor.name} ${responseLabel}.`,
+      createdAt: input.now,
+      entityId: String(assignmentId),
+      entityLabel: build
+        ? `${build.buildName} · ${input.contractor.name}`
+        : `${proposal.buildName} · ${input.contractor.name}`,
+      entityType: "contractorAssignment",
+      href: build
+        ? `/builder/builds/${build._id}?tab=contractors`
+        : `/builder/proposals/${proposal._id}?tab=contractors`,
+      resolutionMode: "domain" as const,
+      sourceLabel: "Contractor",
+      status: "unread" as const,
+      title: `Assignment ${responseLabel}`,
+      updatedAt: input.now,
+    };
+    if (existing) {
+      await ctx.db.patch(existing._id, delivery);
+    } else {
+      await ctx.db.insert("recipientDeliveries", {
+        ...delivery,
+        brokerageId: input.contractor.brokerageId,
+        dedupeKey,
+        organizationId: input.contractor.organizationId,
+        recipientWorkosUserId,
+      });
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -732,17 +961,52 @@ async function createScopeIssue(
     summary: input.args.summary,
     updatedAt: now,
   });
+  const acknowledgementState =
+    input.kind === "mismatch" ? "scope_disputed" : "clarification_requested";
+  const acknowledgement = await findAcknowledgement(ctx, input.contractorId, {
+    assignmentType: input.args.assignmentType,
+    buildAssignmentId: input.args.buildAssignmentId,
+    kind: "assignment",
+    proposalAssignmentId: input.args.proposalAssignmentId,
+  });
+  if (acknowledgement) {
+    await ctx.db.patch(acknowledgement._id, {
+      acknowledgedAt: undefined,
+      state: acknowledgementState,
+      updatedAt: now,
+    });
+  }
+  const contractor = await ctx.db.get(input.contractorId);
+  if (contractor) {
+    await completeContractorAssignmentHandoff(ctx, {
+      assignmentScope: {
+        buildId: input.buildId,
+        proposalId: input.proposalId,
+      },
+      buildAssignmentId: input.args.buildAssignmentId,
+      contractor,
+      now,
+      proposalAssignmentId: input.args.proposalAssignmentId,
+      response: acknowledgementState,
+    });
+  }
   await writeEvidenceEvent(ctx, {
     actorRoles: input.roles,
     actorSubject: input.raisedBySubject,
     brokerageId: input.scopeBrokerageId,
-    command: input.kind === "mismatch" ? "flagContractorScopeMismatch" : "requestContractorScopeClarification",
+    command:
+      input.kind === "mismatch"
+        ? "flagContractorScopeMismatch"
+        : "requestContractorScopeClarification",
     contractorId: input.contractorId,
     eventType:
       input.kind === "mismatch"
         ? "contractor.scope.mismatch_flagged"
         : "contractor.scope.clarification_requested",
-    newState: JSON.stringify({ issueId, milestoneKey: input.args.milestoneKey }),
+    newState: JSON.stringify({
+      issueId,
+      milestoneKey: input.args.milestoneKey,
+    }),
     organizationId: input.args.workosOrganizationId,
   });
   return issueId;
@@ -776,6 +1040,61 @@ export const resolveContractorScopeIssue = backofficeMutation
       status: "resolved",
       updatedAt: now,
     });
+    const acknowledgement = await findAcknowledgement(ctx, issue.contractorId, {
+      assignmentType: issue.assignmentType,
+      buildAssignmentId: issue.buildAssignmentId,
+      kind: "assignment",
+      proposalAssignmentId: issue.proposalAssignmentId,
+    });
+    if (acknowledgement) {
+      await ctx.db.patch(acknowledgement._id, {
+        state: "resolved",
+        updatedAt: now,
+      });
+    }
+    const contractor = await ctx.db.get(issue.contractorId);
+    const contractorRecipient = contractor?.accountWorkosUserId;
+    if (contractor && contractorRecipient) {
+      const dedupeKey = `contractor-scope-resolution:${issue._id}`;
+      const existingDelivery = await ctx.db
+        .query("recipientDeliveries")
+        .withIndex("by_recipient_dedupe", (q) =>
+          q
+            .eq("organizationId", issue.organizationId)
+            .eq("recipientWorkosUserId", contractorRecipient)
+            .eq("dedupeKey", dedupeKey)
+        )
+        .first();
+      const delivery = {
+        actionLabel: issue.buildId ? "Review assignment" : "View work",
+        actionRequired: false,
+        body:
+          args.note ?? "The Builder resolved your assignment scope request.",
+        createdAt: now,
+        entityId: String(issue._id),
+        entityLabel: `${contractor.name} · ${issue.milestoneKey}`,
+        entityType: "contractorScopeIssue",
+        href: issue.buildId
+          ? `/contractor/builds/${issue.buildId}?assignmentId=${issue.buildAssignmentId ?? ""}`
+          : "/contractor/work",
+        resolutionMode: "domain" as const,
+        sourceLabel: "Builder",
+        status: "unread" as const,
+        title: "Assignment scope response ready",
+        updatedAt: now,
+      };
+      if (existingDelivery) {
+        await ctx.db.patch(existingDelivery._id, delivery);
+      } else {
+        await ctx.db.insert("recipientDeliveries", {
+          ...delivery,
+          brokerageId: issue.brokerageId,
+          dedupeKey,
+          organizationId: issue.organizationId,
+          recipientWorkosUserId: contractorRecipient,
+        });
+      }
+    }
     await ctx.db.insert("contractorNotifications", {
       brokerageId: scope.brokerage._id,
       body: args.note,
@@ -816,9 +1135,7 @@ export const listContractorScopeIssues = contractorRoleQuery
     const contractor = ctx.contractorProfile;
     const rows = await ctx.db
       .query("contractorScopeIssues")
-      .withIndex("by_contractor", (q) =>
-        q.eq("contractorId", contractor._id)
-      )
+      .withIndex("by_contractor", (q) => q.eq("contractorId", contractor._id))
       .collect();
     return rows
       .sort((a, b) => b.createdAt - a.createdAt)
@@ -881,7 +1198,9 @@ export const markContractorNotificationRead = contractorRoleMutation
     const contractor = ctx.contractorProfile;
     const notification = await ctx.db.get(args.notificationId);
     if (!notification || notification.contractorId !== contractor._id) {
-      throw new Error("Forbidden: notification does not belong to your profile.");
+      throw new Error(
+        "Forbidden: notification does not belong to your profile."
+      );
     }
     await ctx.db.patch(args.notificationId, { readAt: Date.now() });
     return true;
@@ -915,9 +1234,7 @@ async function resolveBrokerageScopeOrThrow(
   const membership = await ctx.db
     .query("workosOrganizationMemberships")
     .withIndex("by_user", (q) => q.eq("workosUserId", subject))
-    .filter((q) =>
-      q.eq(q.field("workosOrganizationId"), workosOrganizationId)
-    )
+    .filter((q) => q.eq(q.field("workosOrganizationId"), workosOrganizationId))
     .first();
   const activeTokenOrganizationId = viewer.organizationId?.trim();
   if (
@@ -935,8 +1252,6 @@ async function resolveBrokerageScopeOrThrow(
   if (!brokerage) {
     throw new Error("Forbidden: brokerage");
   }
-  const roles = normalizeRoleSlugs(
-    viewer.roles ?? membership?.roleSlugs ?? []
-  );
+  const roles = normalizeRoleSlugs(viewer.roles ?? membership?.roleSlugs ?? []);
   return { brokerage, roles, subject };
 }

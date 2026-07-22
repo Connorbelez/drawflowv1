@@ -49,7 +49,9 @@ const contractorRoleMutation = contractorMutation.use(
 function isContractorVisibleBuild(
   build: Doc<"activeBuilds"> | null
 ): build is Doc<"activeBuilds"> {
-  return Boolean(build && (build.status === "active" || build.status === "future_start"));
+  return Boolean(
+    build && (build.status === "active" || build.status === "future_start")
+  );
 }
 
 /**
@@ -257,10 +259,8 @@ export const getContractorWorkspaceSummary = contractorRoleQuery
   .returns(v.any())
   .handler(async (ctx) => {
     const contractor = ctx.contractorProfile;
-    const { proposalAssignments, buildAssignments } = await loadContractorAssignments(
-      ctx,
-      contractor._id
-    );
+    const { proposalAssignments, buildAssignments } =
+      await loadContractorAssignments(ctx, contractor._id);
 
     const activeProposalIds = new Set<Id<"buildProposals">>();
     for (const assignment of proposalAssignments) {
@@ -288,8 +288,8 @@ export const getContractorWorkspaceSummary = contractorRoleQuery
       (p): p is Doc<"buildProposals"> =>
         Boolean(p) && (p as Doc<"buildProposals">).status !== "closed"
     );
-    const activeBuildsList = builds.filter(
-      (b): b is Doc<"activeBuilds"> => isContractorVisibleBuild(b as Doc<"activeBuilds"> | null)
+    const activeBuildsList = builds.filter((b): b is Doc<"activeBuilds"> =>
+      isContractorVisibleBuild(b as Doc<"activeBuilds"> | null)
     );
 
     const today = new Date();
@@ -330,7 +330,9 @@ export const listContractorWorkItems = contractorRoleQuery
   .returns(v.array(workItemValidator))
   .handler(async (ctx) => {
     const contractor = ctx.contractorProfile;
-    const { proposalAssignments, buildAssignments } = await loadContractorAssignments(
+    const { proposalAssignments, buildAssignments } =
+      await loadContractorAssignments(ctx, contractor._id);
+    const acknowledgedAssignmentKeys = await loadAcknowledgedAssignmentKeys(
       ctx,
       contractor._id
     );
@@ -352,7 +354,13 @@ export const listContractorWorkItems = contractorRoleQuery
         submilestoneName = sub?.name ?? null;
       }
       items.push(
-        toProposalWorkItem(assignment, proposal, milestone, submilestoneName)
+        toProposalWorkItem(
+          assignment,
+          proposal,
+          milestone,
+          submilestoneName,
+          acknowledgedAssignmentKeys.has(`proposal:${assignment._id}`)
+        )
       );
     }
 
@@ -370,7 +378,15 @@ export const listContractorWorkItems = contractorRoleQuery
         const sub = await ctx.db.get(assignment.buildSubmilestoneId);
         submilestoneName = sub?.name ?? null;
       }
-      items.push(toBuildWorkItem(assignment, build, milestone, submilestoneName));
+      items.push(
+        toBuildWorkItem(
+          assignment,
+          build,
+          milestone,
+          submilestoneName,
+          acknowledgedAssignmentKeys.has(`build:${assignment._id}`)
+        )
+      );
     }
 
     // Urgency sort: active/planned first, then by earliest planned start day.
@@ -402,11 +418,43 @@ function urgencyRank(status: string): number {
   return 3;
 }
 
+async function loadAcknowledgedAssignmentKeys(
+  ctx: QueryCtx,
+  contractorId: Id<"contractorProfiles">
+): Promise<Set<string>> {
+  const acknowledgements = await ctx.db
+    .query("contractorAcknowledgements")
+    .withIndex("by_contractor_kind_state", (q) =>
+      q
+        .eq("contractorId", contractorId)
+        .eq("kind", "assignment")
+        .eq("state", "acknowledged")
+    )
+    .collect();
+  const keys = new Set<string>();
+  for (const acknowledgement of acknowledgements) {
+    if (
+      acknowledgement.assignmentType === "proposal" &&
+      acknowledgement.proposalAssignmentId
+    ) {
+      keys.add(`proposal:${acknowledgement.proposalAssignmentId}`);
+    }
+    if (
+      acknowledgement.assignmentType === "build" &&
+      acknowledgement.buildAssignmentId
+    ) {
+      keys.add(`build:${acknowledgement.buildAssignmentId}`);
+    }
+  }
+  return keys;
+}
+
 function toProposalWorkItem(
   assignment: Doc<"proposalMilestoneContractorAssignments">,
   proposal: Doc<"buildProposals">,
   milestone: Doc<"proposalMilestones"> | null,
-  submilestoneName: string | null
+  submilestoneName: string | null,
+  acknowledged: boolean
 ): ContractorWorkItem {
   return {
     _id: `proposal:${assignment._id}`,
@@ -421,7 +469,9 @@ function toProposalWorkItem(
     role: assignment.role,
     status: assignment.status,
     scheduleStatus: milestone?.timelineStatus ?? "planned",
-    acknowledgementStatus: "pending_acknowledgement",
+    acknowledgementStatus: acknowledged
+      ? "acknowledged"
+      : "pending_acknowledgement",
     evidenceStatus: "not_submitted",
     issueStatus: "none",
     plannedStartDay: milestone?.dayStart ?? null,
@@ -436,7 +486,8 @@ function toBuildWorkItem(
   assignment: Doc<"milestoneContractorAssignments">,
   build: Doc<"activeBuilds">,
   milestone: Doc<"buildMilestones"> | null,
-  submilestoneName: string | null
+  submilestoneName: string | null,
+  acknowledged: boolean
 ): ContractorWorkItem {
   return {
     _id: `build:${assignment._id}`,
@@ -451,7 +502,9 @@ function toBuildWorkItem(
     role: assignment.role,
     status: assignment.status,
     scheduleStatus: milestone?.status ?? "planned",
-    acknowledgementStatus: "pending_acknowledgement",
+    acknowledgementStatus: acknowledged
+      ? "acknowledged"
+      : "pending_acknowledgement",
     evidenceStatus: "not_submitted",
     issueStatus: "none",
     plannedStartDay: milestone?.dayStart ?? null,
@@ -499,7 +552,10 @@ export const getContractorProposalDetail = contractorRoleQuery
       [...assignedMilestoneIds].map((id) => ctx.db.get(id))
     );
 
-    const permitDocuments = await contractorVisibleDocumentsForProposal(ctx, args.proposalId);
+    const permitDocuments = await contractorVisibleDocumentsForProposal(
+      ctx,
+      args.proposalId
+    );
     const builderContact = await builderContactForProposal(ctx, proposal);
 
     return {
@@ -564,7 +620,18 @@ export const getContractorBuildDetail = contractorRoleQuery
       .collect();
 
     if (myAssignments.length === 0) {
-      throw new Error("Forbidden: not assigned to this build");
+      return {
+        assignedScope: [],
+        availability: {
+          message:
+            "This assignment is no longer active. Return to your work list to review your current scope.",
+          reference: `CTR-WORK-${String(args.buildId).slice(-8).toUpperCase()}`,
+          state: "assignment_unavailable",
+        },
+        build: null,
+        builderContact: null,
+        permitDocuments: [],
+      };
     }
 
     const assignedMilestoneIds = new Set(
@@ -574,14 +641,34 @@ export const getContractorBuildDetail = contractorRoleQuery
       [...assignedMilestoneIds].map((id) => ctx.db.get(id))
     );
 
-    const permitDocuments = await contractorVisibleDocumentsForBuild(ctx, args.buildId);
+    const permitDocuments = await contractorVisibleDocumentsForBuild(
+      ctx,
+      args.buildId
+    );
     const builderContact = await builderContactForBuild(ctx, build);
+    const acknowledgements = await ctx.db
+      .query("contractorAcknowledgements")
+      .withIndex("by_contractor", (q) => q.eq("contractorId", contractor._id))
+      .collect();
+    const acknowledgementByAssignmentId = new Map(
+      acknowledgements
+        .filter(
+          (acknowledgement) =>
+            acknowledgement.kind === "assignment" &&
+            acknowledgement.buildAssignmentId !== undefined
+        )
+        .map((acknowledgement) => [
+          String(acknowledgement.buildAssignmentId),
+          acknowledgement,
+        ])
+    );
 
     return {
       build: {
         _id: build._id,
         buildName: build.buildName,
         location: build.location,
+        organizationId: build.organizationId,
         status: build.status,
         startDate: build.startDate,
       },
@@ -591,6 +678,8 @@ export const getContractorBuildDetail = contractorRoleQuery
         );
         return {
           assignmentId: assignment._id,
+          acknowledgement:
+            acknowledgementByAssignmentId.get(String(assignment._id)) ?? null,
           milestoneKey: assignment.milestoneKey,
           milestoneName: milestone?.name ?? assignment.milestoneKey,
           submilestoneKey: assignment.submilestoneKey ?? null,
@@ -638,10 +727,8 @@ export const listContractorScheduleEvents = contractorRoleQuery
   .returns(v.array(scheduleEventValidator))
   .handler(async (ctx) => {
     const contractor = ctx.contractorProfile;
-    const { buildAssignments, proposalAssignments } = await loadContractorAssignments(
-      ctx,
-      contractor._id
-    );
+    const { buildAssignments, proposalAssignments } =
+      await loadContractorAssignments(ctx, contractor._id);
     const events = await projectContractorSchedule(ctx, {
       contractorId: contractor._id,
       fromMs: 0,
@@ -761,7 +848,9 @@ async function projectContractorSchedule(
 
   // Coordination reminders from the shared calendar projection, scoped to the
   // contractor's assigned proposals (PRD §8.6). ICS feed is deferred.
-  const proposalIds = new Set(input.proposalAssignments.map((a) => a.proposalId));
+  const proposalIds = new Set(
+    input.proposalAssignments.map((a) => a.proposalId)
+  );
   for (const proposalId of proposalIds) {
     const reminders = await ctx.db
       .query("calendarReminderEvents")
@@ -976,7 +1065,9 @@ export const updateContractorOperationalProfile = contractorRoleMutation
       website: normalizeOptionalString(args.website),
       description: normalizeOptionalString(args.description),
       phone: normalizeOptionalString(args.phone),
-      serviceAreaPrimaryCity: normalizeOptionalString(args.serviceAreaPrimaryCity),
+      serviceAreaPrimaryCity: normalizeOptionalString(
+        args.serviceAreaPrimaryCity
+      ),
       serviceAreaRadiusKm:
         args.serviceAreaRadiusKm === undefined
           ? undefined
@@ -1123,7 +1214,7 @@ function computeProfileReadiness(
   if (contractor.trades.length === 0) {
     missingFields.push("trades");
   }
-  if (!contractor.city && !contractor.serviceAreaPrimaryCity) {
+  if (!(contractor.city || contractor.serviceAreaPrimaryCity)) {
     missingFields.push("service area");
   }
   if (!contractor.phone) {
@@ -1144,7 +1235,7 @@ function computeProfileReadiness(
 
 function normalizeOptionalString(value?: string): string | undefined {
   if (value === undefined) {
-    return undefined;
+    return;
   }
   const trimmed = value.trim();
   return trimmed ? trimmed : undefined;

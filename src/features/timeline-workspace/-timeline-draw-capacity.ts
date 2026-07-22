@@ -1,7 +1,7 @@
 import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
 import {
-  buildMilestoneSpendEvents,
-  type MilestoneSpendEvent,
+  DEFAULT_DRAW_REVIEW_LAG_DAYS,
+  getMilestoneEndX,
 } from "./-timeline-milestone-schedule.ts";
 import {
   type DemoMilestone,
@@ -15,7 +15,6 @@ export interface MilestoneDrawCapacityEvent {
   label: string;
   milestoneId: string;
   milestoneName: string;
-  sourceSpendEvent: MilestoneSpendEvent;
 }
 
 export function buildMilestoneDrawCapacityEvents(
@@ -25,68 +24,39 @@ export function buildMilestoneDrawCapacityEvents(
     return [];
   }
 
-  const spendEvents = buildMilestoneSpendEvents(item);
-  const totalSpend = spendEvents.reduce(
-    (total, event) => total + normalizeCurrency(event.amount),
-    0
-  );
   const totalCapacity = getMilestoneDrawAvailabilityAmount(item.data);
 
-  if (totalSpend <= 0 || totalCapacity <= 0) {
+  if (totalCapacity <= 0) {
     return [];
   }
 
-  let allocatedCapacity = 0;
-
-  return spendEvents.flatMap((event, index) => {
-    const remainingCapacity = totalCapacity - allocatedCapacity;
-    if (remainingCapacity <= 0) {
-      return [];
-    }
-
-    const isFinalEvent = index === spendEvents.length - 1;
-    const eventCapacity = isFinalEvent
-      ? remainingCapacity
-      : Math.min(
-          remainingCapacity,
-          Math.round(
-            (normalizeCurrency(event.amount) * totalCapacity) / totalSpend
-          )
-        );
-    allocatedCapacity += eventCapacity;
-
-    if (eventCapacity <= 0) {
-      return [];
-    }
-
-    return [
-      {
-        amount: eventCapacity,
-        day: event.day,
-        id: `${event.id}-capacity`,
-        label: `${event.milestoneName} accrued capacity`,
-        milestoneId: event.milestoneId,
-        milestoneName: event.milestoneName,
-        sourceSpendEvent: event,
-      },
-    ];
-  });
+  const milestoneName = item.data.name?.trim() || item.label || item.id;
+  return [
+    {
+      amount: totalCapacity,
+      day: getMilestoneEndX(item) + DEFAULT_DRAW_REVIEW_LAG_DAYS,
+      id: `${item.id}-reimbursement-capacity`,
+      label: `${milestoneName} reimbursement eligibility`,
+      milestoneId: item.id,
+      milestoneName,
+    },
+  ];
 }
 
 export function getAccruedMilestoneDrawCapacity(
   item: TimelineItem<DemoMilestone>,
   day: number
 ) {
+  if (item.data?.status === "complete") {
+    const completedDay =
+      item.data.completionClaim?.completedDay ?? getMilestoneEndX(item);
+    if (completedDay <= day) {
+      return getMilestoneDrawAvailabilityAmount(item.data);
+    }
+  }
+
   return buildMilestoneDrawCapacityEvents(item).reduce(
     (total, event) => (event.day <= day ? total + event.amount : total),
     0
   );
-}
-
-function normalizeCurrency(value: number | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return 0;
-  }
-
-  return Math.max(0, Math.round(value));
 }

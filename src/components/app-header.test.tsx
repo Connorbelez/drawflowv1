@@ -32,6 +32,12 @@ vi.mock("#/components/nav-user.tsx", () => ({
   ),
 }));
 
+vi.mock("#/components/notification-inbox.tsx", () => ({
+  NotificationInbox: () => (
+    <button aria-label="Notifications" type="button" />
+  ),
+}));
+
 vi.mock("#/components/route-breadcrumbs.tsx", () => ({
   RouteBreadcrumbs: () => <nav aria-label="Breadcrumb">Backoffice</nav>,
 }));
@@ -75,15 +81,23 @@ describe("AppHeader", () => {
     document.documentElement.classList.remove("light", "dark");
   });
 
-  test("renders the compact theme switch in the right header actions", async () => {
+  test("renders touch-safe mobile header actions", async () => {
     render(<AppHeader />);
 
     const themeSwitch = await screen.findByRole("button", {
       name: /theme mode: auto/i,
     });
 
-    expect(themeSwitch.className).toContain("size-8");
+    expect(themeSwitch.className).toContain("size-11");
+    expect(themeSwitch.className).toContain("md:size-8");
     expect(screen.getByRole("button", { name: "Notifications" })).toBeTruthy();
+
+    const header = screen.getByRole("banner");
+    const [navigationGroup, accountGroup] = Array.from(header.children);
+    expect(navigationGroup.className).toContain("min-w-0");
+    expect(navigationGroup.className).toContain("flex-1");
+    expect(navigationGroup.className).toContain("overflow-hidden");
+    expect(accountGroup.className).toContain("shrink-0");
 
     fireEvent.click(themeSwitch);
 

@@ -9,11 +9,19 @@ const mockConvex = vi.hoisted(() => {
       if (input?.reportNotes !== undefined) {
         state.liveVisitState = consumedVisitState();
       }
+      if (input?.reason && input?.token) {
+        return { reference: "SVR-RECOVER1", requested: true };
+      }
       return null;
     }),
   };
   return state;
 });
+
+const mockToast = vi.hoisted(() => ({
+  error: vi.fn(),
+  warning: vi.fn(),
+}));
 
 vi.mock("convex/react", () => ({
   ConvexProvider: ({ children }: { children: React.ReactNode }) => children,
@@ -23,6 +31,8 @@ vi.mock("convex/react", () => ({
   useMutation: vi.fn(() => mockConvex.mutation),
   useQuery: vi.fn(() => mockConvex.liveVisitState),
 }));
+
+vi.mock("sonner", () => ({ toast: mockToast }));
 
 import { SiteVisitTokenRoute } from "./SiteVisitTokenRoute";
 
@@ -34,6 +44,8 @@ describe("SiteVisitTokenRoute", () => {
   beforeEach(() => {
     mockConvex.liveVisitState = activeVisitState();
     mockConvex.mutation.mockClear();
+    mockToast.error.mockClear();
+    mockToast.warning.mockClear();
     getUserMedia.mockClear();
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
@@ -60,6 +72,51 @@ describe("SiteVisitTokenRoute", () => {
       expect(screen.getByText("Site visit recorded")).toBeTruthy();
     });
     expect(screen.queryByText("Visit unavailable")).toBeNull();
+  });
+
+  test("keeps submission clickable and explains every incomplete requirement", () => {
+    const active = activeVisitState();
+    mockConvex.liveVisitState = {
+      ...active,
+      files: [],
+      permit: null,
+    };
+
+    render(
+      <SiteVisitTokenRoute
+        buildId="k57activebuild"
+        siteVisitToken="fresh-token"
+        source="production"
+      />,
+    );
+
+    const submitButton = screen.getByRole("button", {
+      name: /submit report/i,
+    }) as HTMLButtonElement;
+    expect(submitButton.disabled).toBe(false);
+
+    fireEvent.click(submitButton);
+
+    expect(mockToast.warning).toHaveBeenCalledWith(
+      "Report not ready",
+      expect.objectContaining({
+        description: expect.stringContaining(
+          "Add at least one evidence photo or video.",
+        ),
+      }),
+    );
+    const description = mockToast.warning.mock.calls[0]?.[1]?.description;
+    expect(description).toContain(
+      "Acknowledge that the permit was unavailable.",
+    );
+    expect(description).toContain(
+      "Add the alternate-verification reason for the missing permit.",
+    );
+    expect(
+      mockConvex.mutation.mock.calls.some(
+        ([input]) => input?.reportNotes !== undefined,
+      ),
+    ).toBe(false);
   });
 
   test("opens the build permit tab from the site visit navigation", () => {
@@ -118,6 +175,34 @@ describe("SiteVisitTokenRoute", () => {
         video: { facingMode: { ideal: "environment" } },
       }),
     );
+  });
+
+  test("keeps a consumed token read-only and requests a separate auditable link", async () => {
+    mockConvex.liveVisitState = consumedVisitState();
+
+    render(
+      <SiteVisitTokenRoute
+        buildId="k57activebuild"
+        siteVisitToken="secret-consumed-token"
+        source="production"
+      />,
+    );
+
+    expect(screen.getByText("Site visit already complete")).toBeTruthy();
+    expect(screen.getByText("Submitted · read only")).toBeTruthy();
+    expect(screen.queryByText(/secret-consumed-token/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /submit report/i })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /request a new link/i }));
+
+    await waitFor(() => {
+      expect(mockConvex.mutation).toHaveBeenCalledWith({
+        buildId: "k57activebuild",
+        reason: "A new site visit is required for this Build.",
+        token: "secret-consumed-token",
+      });
+      expect(screen.getByText(/reference SVR-RECOVER1/i)).toBeTruthy();
+    });
   });
 });
 

@@ -161,7 +161,7 @@ export function ActiveBuildGanttWorkspace({
         await assignContractorToMilestone({
           ...assignmentCost,
           buildId,
-          contractorId: contractorId as Id<"contractors">,
+          contractorId: contractorId as Id<"contractorProfiles">,
           milestoneKey: scope.milestoneKey,
           role,
           submilestoneKeys: submilestoneKeys ?? scope.submilestoneKeys,
@@ -846,7 +846,10 @@ function mapActiveBuildWorkspace({
         riskFlags: [],
         status: visit.status,
         targetMilestoneKeys: [visit.milestoneKey],
-        tokenExpiresAt: new Date(visit.tokenExpiresAt).toISOString(),
+        tokenExpiresAt:
+          typeof visit.tokenExpiresAt === "number"
+            ? new Date(visit.tokenExpiresAt).toISOString()
+            : undefined,
       })),
       staffRecommendation: milestone.completionReview?.status ?? "",
       startAt: dateFromDay(detail.build.startDate, milestone.dayStart),
@@ -864,13 +867,15 @@ function mapActiveBuildWorkspace({
       (milestone) => milestone.key === draw.milestoneKey
     );
     const firstOrder =
-      Math.min(
-        ...scopedMilestones.map((milestone) =>
-          sortedMilestones.findIndex((item) => item.key === milestone.id)
-        )
-      ) ||
-      fallbackMilestone?.order - 1 ||
-      index;
+      scopedMilestones.length > 0
+        ? Math.min(
+            ...scopedMilestones.map((milestone) =>
+              sortedMilestones.findIndex((item) => item.key === milestone.id)
+            )
+          )
+        : fallbackMilestone
+          ? fallbackMilestone.order - 1
+          : index;
     return {
       amount: centsToDollars(draw.amountCents),
       eligibleAt: dateFromDay(detail.build.startDate, draw.timingDay),
@@ -926,10 +931,10 @@ function mapActiveBuildWorkspace({
   }));
   const outboxEvents: OutboxEvent[] = (detail.quickActionEvents ?? []).map(
     (event) => ({
-      eventType: event.eventType,
+      eventType: event.entityType,
       id: event._id,
-      payloadPreview: event.payloadPreview,
-      relatedEntity: detail.build._id,
+      payloadPreview: event.body,
+      relatedEntity: event.entityLabel,
       status: "pending",
       timestamp: new Date(event.createdAt).toISOString(),
     })
@@ -939,8 +944,8 @@ function mapActiveBuildWorkspace({
     activePlanId,
     auditEvents,
     budget: {
-      borrowerWorkingCapitalLimit: centsToDollars(
-        detail.capitalPlan?.borrowerWorkingCapitalLimitCents ?? 0
+      borrowerStartingCash: centsToDollars(
+        detail.capitalPlan?.borrowerStartingCashCents ?? 0
       ),
       drawFeeBps: 0,
       interestRatePct: (detail.loanFacility?.interestAnnualBps ?? 0) / 100,
@@ -1136,7 +1141,7 @@ function buildOptimizationPlans(
       id: "capitalConstrained",
       label: "Capital-Constrained",
       peakWorkingCapital: centsToDollars(
-        detail.capitalPlan?.borrowerWorkingCapitalLimitCents ?? 0
+        detail.capitalPlan?.borrowerStartingCashCents ?? 0
       ),
       projectedInterest: Math.round(principal * 0.028),
       summary:

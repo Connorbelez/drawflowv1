@@ -16,7 +16,7 @@ describe("optimizeTimelineDrawSchedule", () => {
     const result = optimizeTimelineDrawSchedule({
       capitalSpikes: [
         cashInfusion("borrower-day-zero-capital", 100, 0),
-        capitalCost("supplier-deposit", 50, 10),
+        capitalCost("supplier-deposit", 50, 15),
       ],
       items: [
         milestone("foundation", 0, 5, 100, 100, {
@@ -34,14 +34,14 @@ describe("optimizeTimelineDrawSchedule", () => {
       amount: 50,
       label: "Draw 01",
     });
-    expect(result.draws[0]?.x).toBeLessThan(10);
+    expect(result.draws[0]?.x).toBeLessThan(15);
   });
 
   test("combines near-term reserve needs when avoiding another draw fee is cheaper", () => {
     const result = optimizeTimelineDrawSchedule({
       capitalSpikes: [
-        capitalCost("framing-overrun", 10, 10),
-        capitalCost("permit-overrun", 10, 11),
+        capitalCost("framing-overrun", 10, 15),
+        capitalCost("permit-overrun", 10, 16),
       ],
       items: [milestone("foundation", 0, 5, 100, 100)],
       minimumCashReserve: 0,
@@ -56,7 +56,7 @@ describe("optimizeTimelineDrawSchedule", () => {
       customDate: true,
       label: "Draw 01",
     });
-    expect(result.draws[0]?.x).toBeLessThan(10);
+    expect(result.draws[0]?.x).toBeLessThan(15);
     expect(result.drawFees).toBe(500);
   });
 
@@ -88,7 +88,7 @@ describe("optimizeTimelineDrawSchedule", () => {
   test("splits distant reserve needs when late interest savings beat another draw fee", () => {
     const result = optimizeTimelineDrawSchedule({
       capitalSpikes: [
-        capitalCost("small-carry-need", 1, 10),
+        capitalCost("small-carry-need", 1, 15),
         capitalCost("large-late-need", 1_000_000, 5_000),
       ],
       items: [milestone("sitework", 0, 5, 1, 2_000_000)],
@@ -99,7 +99,7 @@ describe("optimizeTimelineDrawSchedule", () => {
 
     expect(result.status).toBe("optimized");
     expect(result.draws.map((draw) => draw.amount)).toEqual([1, 1_000_000]);
-    expect(result.draws[0]?.x).toBeLessThan(10);
+    expect(result.draws[0]?.x).toBeLessThan(15);
     expect(result.draws[1]?.x).toBeLessThan(5_000);
     expect(result.drawFees).toBe(1_000);
   });
@@ -107,8 +107,8 @@ describe("optimizeTimelineDrawSchedule", () => {
   test("accounts for cash infusions when calculating cumulative draw need", () => {
     const result = optimizeTimelineDrawSchedule({
       capitalSpikes: [
-        capitalCost("carry-cost", 35, 10),
-        cashInfusion("sponsor-injection", 30, 12),
+        capitalCost("carry-cost", 35, 15),
+        cashInfusion("sponsor-injection", 30, 17),
         capitalCost("late-cost", 40, 20),
       ],
       items: [milestone("foundation", 0, 5, 50, 100)],
@@ -125,8 +125,8 @@ describe("optimizeTimelineDrawSchedule", () => {
   test("uses pre-event cash infusions before declaring draw availability infeasible", () => {
     const result = optimizeTimelineDrawSchedule({
       capitalSpikes: [
-        cashInfusion("sponsor-injection", 30, 8),
-        capitalCost("large-site-cost", 120, 10),
+        cashInfusion("sponsor-injection", 30, 14),
+        capitalCost("large-site-cost", 120, 15),
       ],
       items: [milestone("availability-unlock", 0, 5, 100, 100)],
       minimumCashReserve: 0,
@@ -173,7 +173,7 @@ describe("optimizeTimelineDrawSchedule", () => {
     ).toBeGreaterThanOrEqual(0);
   });
 
-  test("draws during distributed milestone spend after reimbursement capacity accrues", () => {
+  test("does not unlock reimbursement capacity until milestone completion and review", () => {
     const items = [milestone("long-running-work", 10, 10, 100, 100)];
     const range = { max: 30, min: 0, unit: "days" } as const;
     const result = optimizeTimelineDrawSchedule({
@@ -184,19 +184,9 @@ describe("optimizeTimelineDrawSchedule", () => {
       startingCash: 50,
     });
 
-    expect(result.status).toBe("optimized");
-    expect(result.draws).toHaveLength(1);
-    expect(result.draws[0]).toMatchObject({
-      amount: 50,
-      itemId: "long-running-work",
-      x: 14,
-    });
-    expect(
-      buildCashShortfallPoints(
-        buildTimelineCashflowData(items, result.draws, [], range, 50),
-        0,
-      ),
-    ).toEqual([]);
+    expect(result.status).toBe("infeasible");
+    expect(result.draws).toEqual([]);
+    expect(result.infeasibleReason).toContain("long-running-work");
   });
 
   test("reports cash infusions and capital spikes in availability infeasible reasons", () => {

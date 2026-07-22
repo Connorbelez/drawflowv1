@@ -4,9 +4,13 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { CalendarWorkspace } from "./CalendarWorkspace";
+import { buildProposalCalendarActions } from "./adapters/proposalCalendarAdapter";
 import type { DrawFlowCalendarWorkspaceData } from "./calendarTypes";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 const workspace: DrawFlowCalendarWorkspaceData = {
   defaultTimeframe: "month",
@@ -88,6 +92,68 @@ const workspace: DrawFlowCalendarWorkspaceData = {
   warnings: [{ label: "Depends on permit", severity: "warning" }],
 };
 
+const workspaceWithReminder: DrawFlowCalendarWorkspaceData = {
+  ...workspace,
+  events: [
+    ...workspace.events,
+    {
+      allDay: true,
+      auditRequired: false,
+      editable: {
+        canChangeAssignee: true,
+        canChangeStatus: true,
+        canMove: true,
+        canResizeEnd: true,
+        canResizeStart: true,
+        requiredReason: "none",
+      },
+      entity: { id: "reminder-1", type: "calendarReminder" },
+      id: "proposal:reminder:reminder-1",
+      kind: "reminder",
+      organizationId: "org-test",
+      participants: [
+        {
+          displayName: "Production Builder",
+          key: "builder:builder-1",
+          participantType: "builderProfile",
+          role: "builder",
+        },
+      ],
+      relatedEntityIds: ["proposal-1", "builder-1"],
+      startsAt: "2026-06-15",
+      status: "planned",
+      subtitle: "Coordinate the next inspection.",
+      surface: "proposal",
+      timeBucket: "allDay",
+      timezone: "America/Toronto",
+      title: "Coordination reminder",
+      warnings: [],
+    },
+  ],
+};
+
+const workspaceWithCancelledReminder: DrawFlowCalendarWorkspaceData = {
+  ...workspaceWithReminder,
+  events: workspaceWithReminder.events.map((event) =>
+    event.kind === "reminder"
+      ? {
+          ...event,
+          editable: {
+            ...event.editable,
+            canChangeAssignee: false,
+            canChangeStatus: false,
+            canMove: false,
+            canResizeEnd: false,
+            canResizeStart: false,
+            immutableReason:
+              "Cancelled reminder events are retained for calendar history.",
+          },
+          status: "cancelled" as const,
+        }
+      : event,
+  ),
+};
+
 const workspaceWithSuppressedEvents: DrawFlowCalendarWorkspaceData = {
   ...workspace,
   events: [
@@ -167,6 +233,24 @@ describe("CalendarWorkspace", () => {
     expect(onTimeframeChange).toHaveBeenCalledWith("week");
   });
 
+  test("renders only compact timeframe navigation on phone layouts", async () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        addEventListener: vi.fn(),
+        matches: query.includes("max-width"),
+        media: query,
+        onchange: null,
+        removeEventListener: vi.fn(),
+      })),
+    );
+
+    render(<CalendarWorkspace workspace={workspace} />);
+
+    expect(await screen.findByRole("combobox")).toBeTruthy();
+    expect(screen.queryByRole("tablist", { name: "Calendar timeframe" })).toBeNull();
+  });
+
   test("applies saved view and search filters to projected events", () => {
     render(<CalendarWorkspace workspace={workspace} />);
 
@@ -197,19 +281,61 @@ describe("CalendarWorkspace", () => {
     expect(within(endDate as HTMLElement).getByText("End")).toBeTruthy();
   });
 
-  test("renders calendar cards with dark mode contrast classes and accessible labels", () => {
-    render(<CalendarWorkspace workspace={workspace} />);
+  test("exposes each logical range once and removes visual fragments from sequential focus", () => {
+    const { container } = render(<CalendarWorkspace workspace={workspace} />);
 
-    const gridEvent = screen.getByRole("button", {
-      name: "Foundation, All day, Start, milestone, planned, 1 warning",
-    });
-    expect(gridEvent.className).toContain("dark:bg-amber-950/55");
-    expect(gridEvent.className).toContain("dark:text-amber-100");
-    expect(gridEvent.className).toContain("dark:border-amber-700/70");
+    expect(
+      screen.getAllByRole("button", {
+        name: "Foundation, 2026-06-01 to 2026-06-20, 20 days, All day, milestone, planned, Day 0 to 20, $225K, 1 warning",
+      }),
+    ).toHaveLength(1);
+
+    const startDate = container.querySelector('[data-calendar-date="2026-06-01"]');
+    const endDate = container.querySelector('[data-calendar-date="2026-06-20"]');
+    expect(startDate).toBeTruthy();
+    expect(endDate).toBeTruthy();
+    expect(within(startDate as HTMLElement).queryByRole("button", { name: /Foundation/i })).toBeNull();
+    expect(within(endDate as HTMLElement).queryByRole("button", { name: /Foundation/i })).toBeNull();
+  });
+
+  test("renders one logical agenda item per event without a duplicate agenda rail", () => {
+    render(<CalendarWorkspace initialTimeframe="agenda" workspace={workspace} />);
+
+    expect(screen.queryByTestId("calendar-agenda-rail")).toBeNull();
+    expect(
+      screen.getAllByRole("button", {
+        name: "Foundation, 2026-06-01 to 2026-06-20, 20 days, All day, milestone, planned, 1 warning",
+      }),
+    ).toHaveLength(1);
+    expect(
+      screen
+        .getAllByRole("button")
+        .filter((element) =>
+          element.getAttribute("aria-label")?.includes("Foundation"),
+        )
+        .filter(
+          (element) =>
+            !element.getAttribute("aria-label")?.includes("reimbursement"),
+        ),
+    ).toHaveLength(1);
+  });
+
+  test("renders calendar cards with dark mode contrast classes and accessible labels", () => {
+    const { container } = render(<CalendarWorkspace workspace={workspace} />);
+
+    const startDate = container.querySelector('[data-calendar-date="2026-06-01"]');
+    expect(startDate).toBeTruthy();
+    const gridEvent = within(startDate as HTMLElement)
+      .getByText("Foundation")
+      .closest('[aria-hidden="true"]');
+    expect(gridEvent).toBeTruthy();
+    expect(gridEvent?.className).toContain("dark:bg-amber-950/55");
+    expect(gridEvent?.className).toContain("dark:text-amber-100");
+    expect(gridEvent?.className).toContain("dark:border-amber-700/70");
 
     const agendaRail = screen.getByTestId("calendar-agenda-rail");
     const agendaEvents = within(agendaRail).getAllByRole("button", {
-      name: "Foundation, All day, milestone, planned, Day 0 to 20, $225K, 1 warning",
+      name: "Foundation, 2026-06-01 to 2026-06-20, 20 days, All day, milestone, planned, Day 0 to 20, $225K, 1 warning",
     });
     for (const agendaEvent of agendaEvents) {
       expect(agendaEvent.className).toContain("dark:bg-muted/35");
@@ -241,6 +367,123 @@ describe("CalendarWorkspace", () => {
       target: { value: "working-capital" },
     });
     expect(screen.queryByText("Borrower working-capital exposure")).toBeNull();
+  });
+
+  test("limits reminder menus to one set of reminder-relevant actions", () => {
+    render(
+      <CalendarWorkspace
+        actions={buildProposalCalendarActions({
+          reviseDrawTiming: vi.fn(),
+          reviseMilestoneSchedule: vi.fn(),
+        })}
+        onCreateReminderEvent={vi.fn()}
+        onDeleteReminderEvent={vi.fn()}
+        onUpdateReminderEvent={vi.fn()}
+        workspace={workspaceWithReminder}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByLabelText("Coordination reminder actions")[0]);
+
+    expect(screen.getAllByText("Open detail")).toHaveLength(1);
+    expect(screen.getByText("Edit reminder")).toBeTruthy();
+    expect(screen.getByText("Export event")).toBeTruthy();
+    expect(screen.getByText("Cancel reminder")).toBeTruthy();
+    expect(screen.queryByText("New reminder event")).toBeNull();
+    expect(screen.queryByText("Copy link")).toBeNull();
+    expect(screen.queryByText("Move proposal dates")).toBeNull();
+    expect(screen.queryByText("Edit draw timing")).toBeNull();
+  });
+
+  test("confirms reminder cancellation and records the optional reason", async () => {
+    const onDeleteReminderEvent = vi.fn();
+    render(
+      <CalendarWorkspace
+        onDeleteReminderEvent={onDeleteReminderEvent}
+        workspace={workspaceWithReminder}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByLabelText("Coordination reminder actions")[0]);
+    fireEvent.click(screen.getByText("Cancel reminder"));
+
+    expect(onDeleteReminderEvent).not.toHaveBeenCalled();
+    const dialog = screen.getByRole("dialog", {
+      name: "Cancel Coordination reminder?",
+    });
+    expect(dialog.textContent).toContain(
+      "The reminder stays in calendar history",
+    );
+    expect(dialog.textContent).toContain(
+      "Assigned participants may receive cancellation notifications",
+    );
+    fireEvent.change(
+      within(dialog).getByLabelText("Cancellation reason (optional)"),
+      { target: { value: "Inspection moved to the build schedule." } },
+    );
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Cancel reminder" }),
+    );
+
+    await waitFor(() =>
+      expect(onDeleteReminderEvent).toHaveBeenCalledWith({
+        eventId: "reminder-1",
+        reason: "Inspection moved to the build schedule.",
+      }),
+    );
+  });
+
+  test("returns focus to the reminder action trigger when cancellation is dismissed", async () => {
+    render(
+      <CalendarWorkspace
+        onDeleteReminderEvent={vi.fn()}
+        workspace={workspaceWithReminder}
+      />,
+    );
+
+    const actionTrigger = screen.getAllByLabelText(
+      "Coordination reminder actions",
+    )[0];
+    fireEvent.click(actionTrigger);
+    fireEvent.click(screen.getByText("Cancel reminder"));
+    expect(
+      screen.getByRole("dialog", { name: "Cancel Coordination reminder?" }),
+    ).toBeTruthy();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", {
+          name: "Cancel Coordination reminder?",
+        }),
+      ).toBeNull(),
+    );
+    expect(document.activeElement).toBe(actionTrigger);
+  });
+
+  test("keeps cancelled reminders read-only and auditable", () => {
+    render(
+      <CalendarWorkspace
+        onDeleteReminderEvent={vi.fn()}
+        onUpdateReminderEvent={vi.fn()}
+        workspace={workspaceWithCancelledReminder}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByLabelText("Coordination reminder actions")[0]);
+    expect(screen.queryByText("Edit reminder")).toBeNull();
+    expect(screen.queryByText("Cancel reminder")).toBeNull();
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    fireEvent.click(screen.getAllByText("Coordination reminder")[0]);
+    expect(
+      screen.getByText(
+        "Cancelled reminder events are retained for calendar history.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText("Start date")).toBeNull();
+    expect(screen.queryByLabelText("End date")).toBeNull();
   });
 
   test("creates reminder-only calendar events from the workspace toolbar", async () => {
@@ -328,11 +571,12 @@ describe("CalendarWorkspace", () => {
 
     const dateCell = container.querySelector('[data-calendar-date="2026-06-20"]');
     expect(dateCell).toBeTruthy();
-    const eventTile = within(dateCell as HTMLElement).getAllByRole("button", {
-      name: /foundation/i,
-    })[0];
+    const eventTile = within(dateCell as HTMLElement)
+      .getByText("Foundation")
+      .closest('[aria-hidden="true"]');
+    expect(eventTile).toBeTruthy();
 
-    fireEvent.contextMenu(eventTile);
+    fireEvent.contextMenu(eventTile as HTMLElement);
     fireEvent.click(screen.getByText("New reminder event"));
     expect((screen.getByLabelText("Start date") as HTMLInputElement).value).toBe(
       "2026-06-20",

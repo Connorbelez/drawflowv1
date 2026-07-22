@@ -213,7 +213,7 @@ export function AppShell({
     <SidebarProvider>
       <AppSidebar {...sidebar} />
       <SidebarInset>
-        <AppHeader />
+        <AppHeader workosOrganizationId={organizationId} />
         <div
           className={cn(
             "flex min-h-0 w-full flex-1 flex-col p-0",

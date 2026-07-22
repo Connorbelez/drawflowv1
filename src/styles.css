@@ -8,6 +8,13 @@
   z-index: 120;
 }
 
+body:has([data-slot='drawer-popup']) [data-drawflow-assistant-launcher],
+body:has([data-slot='sheet-popup']) [data-drawflow-assistant-launcher],
+body:has([data-slot='dialog-popup']) [data-drawflow-assistant-launcher],
+body:has([data-slot='alert-dialog-popup']) [data-drawflow-assistant-launcher] {
+  display: none;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 :root {

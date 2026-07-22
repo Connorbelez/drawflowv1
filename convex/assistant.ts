@@ -5,6 +5,7 @@ import OpenAI from "openai";
 import { z } from "zod/v4";
 
 import { api } from "./_generated/api";
+import { resolveAssistantModel } from "./assistantProvider";
 import {
   authenticatedAction,
   authenticatedMutation,
@@ -12,6 +13,10 @@ import {
   normalizeRoleSlugs,
   type RoleSlug,
 } from "./authz";
+import {
+  draftSiteVisitGuidance,
+  fallbackSiteVisitGuidance,
+} from "./siteVisitGuidance";
 import type { Doc, Id, MutationCtx, QueryCtx, TableNames } from "./types";
 
 const BACKOFFICE_ROLES = [
@@ -306,7 +311,13 @@ export const getProviderStatus = authenticatedAction
         ? "openrouter"
         : "unconfigured";
     return {
-      defaultModel: process.env.DRAWFLOW_ASSISTANT_MODEL ?? "gpt-4.1-mini",
+      defaultModel:
+        provider === "unconfigured"
+          ? (process.env.DRAWFLOW_ASSISTANT_MODEL ?? "gpt-4.1-mini")
+          : resolveAssistantModel(
+              provider,
+              process.env.DRAWFLOW_ASSISTANT_MODEL
+            ),
       openaiConfigured,
       openrouterConfigured,
       provider,
@@ -363,33 +374,15 @@ export const generateSiteVisitGuidance = authenticatedAction
         ? { baseURL: "https://openrouter.ai/api/v1" }
         : {}),
     });
-    const response = await client.chat.completions.create({
-      messages: [
-        {
-          content:
-            "You are DrawFlow's construction field-review assistant. Draft practical inspection instructions for a low-friction evidence visit. Return strict JSON only with two string-array properties: whatToVerify and cameraAngles. Write 3-6 concise, observable bullets per property. Never infer code compliance, certify work, or add scope outside the supplied milestone and submilestones.",
-          role: "system",
-        },
-        {
-          content: JSON.stringify({
-            build: args.build,
-            currentGuidance: args.currentGuidance,
-            milestone: args.milestone,
-            submilestones: args.submilestones,
-          }),
-          role: "user",
-        },
-      ],
-      model: process.env.DRAWFLOW_ASSISTANT_MODEL ?? "gpt-4.1-mini",
-      response_format: { type: "json_object" },
-      temperature: 0.2,
+    return await draftSiteVisitGuidance({
+      client,
+      input: args,
+      model: resolveAssistantModel(
+        provider,
+        process.env.DRAWFLOW_ASSISTANT_MODEL
+      ),
+      provider,
     });
-    const parsed = parseSiteVisitGuidanceDraft(
-      response.choices[0]?.message.content
-    );
-    return parsed
-      ? { ...parsed, source: provider }
-      : { ...fallback, source: "fallback" as const };
   })
   .public();
 
@@ -418,34 +411,44 @@ export const runAssistantTurn = authenticatedAction
     if (!apiKey) {
       throw new Error("DrawFlow assistant model provider is not configured.");
     }
-    const model = process.env.DRAWFLOW_ASSISTANT_MODEL ?? "gpt-4.1-mini";
+    const model = resolveAssistantModel(
+      provider,
+      process.env.DRAWFLOW_ASSISTANT_MODEL
+    );
     const client = new OpenAI({
       apiKey,
       ...(provider === "openrouter"
         ? { baseURL: "https://openrouter.ai/api/v1" }
         : {}),
     });
-    const response = await client.chat.completions.create({
-      messages: [
-        {
-          content:
-            "You are the DrawFlow in-product assistant. Do not reveal raw chain-of-thought. Use only the closed DrawFlow action catalog for mutations, and tell the user that data-changing actions require HITL preview and confirmation.",
-          role: "system",
-        },
-        {
-          content: `Route context:\n${JSON.stringify(sanitizeForPersistence(args.routeContext))}\n\nUser request:\n${args.prompt}`,
-          role: "user",
-        },
-      ],
-      model,
-      temperature: 0.2,
-    });
+    const response = await client.chat.completions
+      .create({
+        messages: [
+          {
+            content:
+              "You are the DrawFlow in-product assistant. Do not reveal raw chain-of-thought. Use only the closed DrawFlow action catalog for mutations, and tell the user that data-changing actions require HITL preview and confirmation.",
+            role: "system",
+          },
+          {
+            content: `Route context:\n${JSON.stringify(sanitizeForPersistence(args.routeContext))}\n\nUser request:\n${args.prompt}`,
+            role: "user",
+          },
+        ],
+        model,
+        temperature: 0.2,
+      })
+      .catch(() => {
+        console.warn(
+          `[assistant] ${provider} response request failed; returning fail-soft guidance.`
+        );
+        return null;
+      });
     return {
       model,
       provider,
       text:
-        response.choices[0]?.message.content ??
-        "I could not generate a DrawFlow assistant response.",
+        response?.choices[0]?.message.content ??
+        "The model provider is temporarily unavailable. I can still help with DrawFlow context, navigation, generated forms, and human-reviewed action previews.",
     };
   })
   .public();
@@ -479,7 +482,10 @@ export const planAssistantTurn = authenticatedAction
         }),
       };
     }
-    const model = process.env.DRAWFLOW_ASSISTANT_MODEL ?? "gpt-4.1-mini";
+    const model = resolveAssistantModel(
+      provider,
+      process.env.DRAWFLOW_ASSISTANT_MODEL
+    );
     const client = new OpenAI({
       apiKey,
       ...(provider === "openrouter"
@@ -492,37 +498,47 @@ export const planAssistantTurn = authenticatedAction
       routeContext: args.routeContext,
       siteMap: args.siteMap,
     });
-    const response = await client.chat.completions.create({
-      messages: [
-        {
-          content:
-            "You are the DrawFlow in-product AI operations assistant. Return compact JSON only. You may answer, brief, ask clarifying questions, propose navigation, or prepare HITL actions. Never claim a data-changing action was completed. Use internal DrawFlow context only. If missing details block a safe action, ask concise questions or request a generated form. Do not navigate for a briefing unless the user explicitly asks to open a page. Known-choice inputs must use generated controls, not passive numbered questions. Queue, proposal-review, and risk prompts must include reviewTable UI with action rows.",
-          role: "system",
-        },
-        {
-          content: JSON.stringify({
-            allowedResponseShape: {
-              actions:
-                "Array of closed-catalog actions to preview; empty if not certain.",
-              navigation:
-                "Optional {to,label,reason,routeId} from the permitted site map.",
-              text: "Short assistant response.",
-              uiParts:
-                "Array of generated UI parts: briefing, questionnaire, structuredForm, reviewTable.",
-            },
-            assistantContext: sanitizeForPersistence(args.assistantContext),
-            fallbackIntentHint: fallback.intent,
-            routeContext: sanitizeForPersistence(args.routeContext),
-            siteMap: sanitizeForPersistence(args.siteMap),
-            userRequest: args.prompt,
-          }),
-          role: "user",
-        },
-      ],
-      model,
-      response_format: { type: "json_object" },
-      temperature: 0.2,
-    });
+    const response = await client.chat.completions
+      .create({
+        messages: [
+          {
+            content:
+              "You are the DrawFlow in-product AI operations assistant. Return compact JSON only. You may answer, brief, ask clarifying questions, propose navigation, or prepare HITL actions. Never claim a data-changing action was completed. Use internal DrawFlow context only. If missing details block a safe action, ask concise questions or request a generated form. Do not navigate for a briefing unless the user explicitly asks to open a page. Known-choice inputs must use generated controls, not passive numbered questions. Queue, proposal-review, and risk prompts must include reviewTable UI with action rows.",
+            role: "system",
+          },
+          {
+            content: JSON.stringify({
+              allowedResponseShape: {
+                actions:
+                  "Array of closed-catalog actions to preview; empty if not certain.",
+                navigation:
+                  "Optional {to,label,reason,routeId} from the permitted site map.",
+                text: "Short assistant response.",
+                uiParts:
+                  "Array of generated UI parts: briefing, questionnaire, structuredForm, reviewTable.",
+              },
+              assistantContext: sanitizeForPersistence(args.assistantContext),
+              fallbackIntentHint: fallback.intent,
+              routeContext: sanitizeForPersistence(args.routeContext),
+              siteMap: sanitizeForPersistence(args.siteMap),
+              userRequest: args.prompt,
+            }),
+            role: "user",
+          },
+        ],
+        model,
+        response_format: { type: "json_object" },
+        temperature: 0.2,
+      })
+      .catch(() => {
+        console.warn(
+          `[assistant] ${provider} planner request failed; using deterministic fallback.`
+        );
+        return null;
+      });
+    if (!response) {
+      return { source: "fallback", ...fallback };
+    }
     const content = response.choices[0]?.message.content ?? "{}";
     const parsed = parsePlannerJson(content);
     const parsedNavigation = normalizePlannerRecord(parsed.navigation);
@@ -4343,14 +4359,16 @@ async function applyBuildProposalFromSetup(
     (sum, milestone) => sum + milestone.budgetCents,
     0
   );
-  const borrowerCoPayBps = normalizeBps(
-    input.borrowerCoPayBps ?? input.coPayBps ?? 2000
-  );
-  const borrowerWorkingCapitalLimitCents = positiveCentsOrFallback(
-    input.borrowerWorkingCapitalLimitCents ??
+  const borrowerCoPayBps =
+    input.loanPercentageBps === undefined
+      ? normalizeBps(input.borrowerCoPayBps ?? input.coPayBps ?? 2000)
+      : TOTAL_BPS - normalizeBps(input.loanPercentageBps);
+  const borrowerStartingCashCents = requiredPositiveCents(
+    input.borrowerStartingCashCents ??
+      input.borrowerWorkingCapitalLimitCents ??
       input.maxCashOnHandCents ??
       input.startingCashCents,
-    Math.max(1, Math.round(totalBudgetCents * 0.32))
+    "Borrower starting cash must be greater than zero."
   );
   const lenderDrawPolicyLimitCents = positiveCentsOrFallback(
     input.lenderDrawPolicyLimitCents ??
@@ -4365,7 +4383,7 @@ async function applyBuildProposalFromSetup(
     (api as any).production_proposals.saveDraftProposalPackage,
     {
       borrowerCoPayBps,
-      borrowerWorkingCapitalLimitCents,
+      borrowerStartingCashCents,
       buildName,
       contractorAssignments: normalizeSetupContractorAssignments(
         input.contractorAssignments
@@ -6571,71 +6589,4 @@ function sanitizeForPersistence(value: unknown): any {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
-}
-
-function fallbackSiteVisitGuidance(input: {
-  build: { location?: string; name: string };
-  milestone: { key: string; name: string };
-  submilestones: Array<{ key: string; name: string }>;
-}) {
-  const scopeNames = input.submilestones.map((item) => item.name);
-  const scopeLabel =
-    scopeNames.length > 0 ? scopeNames.join(", ") : input.milestone.name;
-  const location = input.build.location?.trim();
-  return {
-    cameraAngles: assistantGuidanceHtml([
-      `Wide context view showing the ${input.milestone.name} work within the build site.`,
-      `Detail views of visible completion and workmanship for ${scopeLabel}.`,
-      `Reference view tying the inspected area to ${location || input.build.name}.`,
-    ]),
-    whatToVerify: assistantGuidanceHtml([
-      `Verify the visible ${input.milestone.name} scope is complete for reimbursement review.`,
-      `Check the in-scope work: ${scopeLabel}.`,
-      "Record incomplete work, visible defects, access limitations, and other exceptions.",
-    ]),
-  };
-}
-
-function parseSiteVisitGuidanceDraft(content: string | null | undefined) {
-  if (!content) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(content.replace(/^```(?:json)?\s*|\s*```$/g, ""));
-    const whatToVerify = assistantGuidanceLines(parsed?.whatToVerify);
-    const cameraAngles = assistantGuidanceLines(parsed?.cameraAngles);
-    if (!(whatToVerify.length && cameraAngles.length)) {
-      return null;
-    }
-    return {
-      cameraAngles: assistantGuidanceHtml(cameraAngles),
-      whatToVerify: assistantGuidanceHtml(whatToVerify),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function assistantGuidanceLines(value: unknown) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value
-    .filter((item): item is string => typeof item === "string")
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .slice(0, 6);
-}
-
-function assistantGuidanceHtml(lines: string[]) {
-  return `<ul>${lines
-    .map(
-      (line) =>
-        `<li>${line
-          .replaceAll("&", "&amp;")
-          .replaceAll("<", "&lt;")
-          .replaceAll(">", "&gt;")
-          .replaceAll('"', "&quot;")}</li>`
-    )
-    .join("")}</ul>`;
 }

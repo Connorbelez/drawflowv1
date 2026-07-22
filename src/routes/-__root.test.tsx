@@ -86,6 +86,20 @@ describe("RootDocument", () => {
     expect(markup).toContain('data-testid="global-toaster"');
     expect(markup).toContain('data-position="top-right"');
   });
+
+  test("runs local service-worker recovery before route hydration", () => {
+    const markup = renderToStaticMarkup(
+      <RootDocument>
+        <main>Workspace</main>
+      </RootDocument>
+    );
+
+    expect(markup).toContain("drawflow:dev-service-worker-recovery-attempts");
+    expect(markup).toContain("getRegistrations");
+    expect(markup.indexOf("getRegistrations")).toBeLessThan(
+      markup.indexOf("Workspace")
+    );
+  });
 });
 
 describe("RootError", () => {
@@ -102,14 +116,36 @@ describe("RootError", () => {
     expect(markup).toContain("Try again");
     expect(markup).toContain("Back to backoffice");
   });
+
+  test("redacts mutation names, request ids, file paths, and stack traces from route failures", () => {
+    const markup = renderToStaticMarkup(
+      <RootError
+        error={new Error(
+          "[Request ID: req_123] Could not run mutation api.workosManagement.updateMembershipRoles from /Users/connor/Dev/drawFlow/v1/drawflowv1-core-workflow-remediation-20260717/convex/workosManagement.ts\n    at handler (/Users/connor/Dev/drawFlow/v1/drawflowv1-core-workflow-remediation-20260717/convex/workosManagement.ts:231:5)\n    at stack trace frame",
+        )}
+        reset={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain("DrawFlow could not load this screen.");
+    expect(markup).not.toContain("api.workosManagement.updateMembershipRoles");
+    expect(markup).not.toContain("req_123");
+    expect(markup).not.toContain("/Users/connor/Dev/drawFlow");
+    expect(markup).not.toContain("stack trace frame");
+  });
 });
 
 describe("root auth boundary", () => {
   test("treats AuthKit failures as an unauthenticated local session", async () => {
     vi.mocked(getAuth).mockRejectedValueOnce(new Error("HTTPError"));
     const clearAuth = vi.fn();
+    const rootBeforeLoad = (
+      Route as unknown as {
+        beforeLoad?: (input: never) => Promise<unknown>;
+      }
+    ).beforeLoad;
 
-    const auth = await Route.beforeLoad?.({
+    const auth = await rootBeforeLoad?.({
       context: {
         convexQueryClient: {
           serverHttpClient: {

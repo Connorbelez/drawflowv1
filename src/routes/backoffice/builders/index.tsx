@@ -9,6 +9,7 @@ import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { BuilderRosterSurface } from "./-builder-roster-surface";
 import type {
+  AssignableBrokersResult,
   BuilderRosterResult,
   UnprovisionedBuildersResult,
 } from "./-builder-roster-types";
@@ -30,6 +31,10 @@ function BuildersRoute() {
   const roster = useQuery(api.builderRoster.listBuilderRoster, {}) as
     | BuilderRosterResult
     | undefined;
+  const assignableBrokers = useQuery(
+    api.builderRoster.listAssignableBrokers,
+    {}
+  ) as AssignableBrokersResult | undefined;
   const linkBuilderAccount = useMutation(
     api.brokerageProvisioning.linkBuilderAccount
   );
@@ -38,6 +43,9 @@ function BuildersRoute() {
   );
   const setBuilderProfileStatus = useMutation(
     api.builderRoster.setBuilderProfileStatus
+  );
+  const assignBuildersToBroker = useMutation(
+    api.builderRoster.assignBuildersToBroker
   );
   const provisionBuilderProfile = useMutation(
     api.brokerageProvisioning.provisionBuilderProfile
@@ -107,6 +115,33 @@ function BuildersRoute() {
     [setBuilderProfileStatus]
   );
 
+  const onAssignBroker = useCallback(
+    async (input: {
+      assignedBrokerWorkosUserId: string;
+      builderProfileIds: string[];
+      reason: string;
+    }) => {
+      try {
+        const result = await assignBuildersToBroker({
+          assignedBrokerWorkosUserId: input.assignedBrokerWorkosUserId,
+          builderProfileIds: input.builderProfileIds as Id<"builderProfiles">[],
+          reason: input.reason,
+        });
+        const changed = result.assigned + result.reassigned + result.repaired;
+        toast.success(
+          changed === 0
+            ? "Broker assignment already current"
+            : `${changed} Builder${changed === 1 ? "" : "s"} assigned`
+        );
+        return result;
+      } catch (error) {
+        toast.error(actionErrorMessage(error));
+        throw error;
+      }
+    },
+    [assignBuildersToBroker]
+  );
+
   const onInviteBuilder = useCallback(() => {
     navigate({ to: "/backoffice/user-management" });
   }, [navigate]);
@@ -131,7 +166,10 @@ function BuildersRoute() {
     <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:py-8">
       <BuilderRosterSurface
         brokerages={roster?.brokerages ?? []}
+        assignableBrokerages={assignableBrokers?.brokerages ?? []}
+        brokerOptionsPending={assignableBrokers === undefined}
         builders={roster?.builders}
+        onAssignBroker={onAssignBroker}
         onInviteBuilder={onInviteBuilder}
         onLinkAccount={onLinkAccount}
         onProvisionBuilder={onProvisionBuilder}

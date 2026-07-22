@@ -32,7 +32,13 @@ import {
   UserRound,
   UserRoundX,
 } from "lucide-react";
-import { type ReactElement, useEffect, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  type ReactElement,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { toast } from "sonner";
 
 import {
@@ -117,12 +123,14 @@ import {
 } from "#/features/backoffice-dashboard/kanban-card-detail-sheet.tsx";
 import { MetricDetailSheet } from "#/features/backoffice-dashboard/metric-detail-sheet.tsx";
 import { getMetricDrilldownItems } from "#/features/backoffice-dashboard/metric-drilldown.ts";
+import { MILESTONE_KANBAN_COLUMNS } from "#/features/backoffice-dashboard/mock-data.ts";
 import type {
   ActiveBuild,
   BackofficeDashboardData,
   DashboardKanbanColumn,
   DashboardMetric,
   MilestoneKanbanCard,
+  OperationsHandoffReturnDecision,
   ProposalKanbanCard,
   QuickAction,
   ScheduleEvent,
@@ -197,8 +205,10 @@ const priorityVariant: Record<
 };
 
 const actionIcon = {
+  build: CircleAlert,
   drawRequest: FileText,
   milestone: CheckCircle2,
+  proposal: FileText,
   siteVisit: ClipboardCheck,
 } satisfies Record<QuickAction["type"], typeof FileText>;
 
@@ -221,6 +231,21 @@ export interface ClosingConfirmationInput {
   reason: string;
 }
 
+export interface OperationsEscalationInput {
+  decisionPreview: string;
+  evidenceSummary: string;
+  reason: string;
+  recommendation: string;
+  requiredAction: string;
+  warnings: string[];
+}
+
+export interface OperationsReturnDecisionInput {
+  decision: OperationsHandoffReturnDecision;
+  followUpAssignment: string;
+  reason: string;
+}
+
 export interface ProductionBuilderOption {
   _id: string;
   displayName: string;
@@ -229,9 +254,26 @@ export interface ProductionBuilderOption {
 export function normalizeProductionBackofficeDashboard(
   result: ProductionDashboardQueryResult
 ): ProductionBackofficeDashboardData {
+  const milestoneColumnsById = new Map(
+    result.milestoneColumns.map((column) => [column.id, column])
+  );
+  const canonicalMilestoneColumnIds = new Set(
+    MILESTONE_KANBAN_COLUMNS.map((column) => column.id)
+  );
+  const milestoneColumns = [
+    ...MILESTONE_KANBAN_COLUMNS.map((column) => ({
+      ...column,
+      ...milestoneColumnsById.get(column.id),
+    })),
+    ...result.milestoneColumns.filter(
+      (column) => !canonicalMilestoneColumnIds.has(column.id)
+    ),
+  ];
+
   return {
     ...result,
     approvedPendingClosing: result.approvedPendingClosing ?? [],
+    milestoneColumns,
     scheduleDate: new Date(result.scheduleDate),
     submittedProposals: result.submittedProposals ?? [],
   };
@@ -258,6 +300,15 @@ function RouteComponent() {
     api.production_proposals.deleteActiveBuild
   );
   const archiveProposal = useMutation(api.production_proposals.rejectProposal);
+  const escalateOperationsQueueItem = useMutation(
+    api.production_proposals.escalateOperationsQueueItem
+  );
+  const returnOperationsEscalationDecision = useMutation(
+    api.production_proposals.returnOperationsEscalationDecision
+  );
+  const acknowledgeOperationsEscalationReturn = useMutation(
+    api.production_proposals.acknowledgeOperationsEscalationReturn
+  );
   const { data: buildersResult } = useSuspenseQuery(
     context.convexQueryClient.queryOptions(
       api.production_proposals.listActiveBrokerageBuilderOptions,
@@ -278,6 +329,12 @@ function RouteComponent() {
     <BackofficeDashboard
       builders={buildersResult ?? []}
       dashboard={dashboard}
+      onAcknowledgeHandoff={(handoffId) =>
+        acknowledgeOperationsEscalationReturn({
+          handoffId: handoffId as Id<"operationsQueueHandoffs">,
+          workosOrganizationId,
+        })
+      }
       onArchiveProposal={(proposal, reason) =>
         archiveProposal({
           proposalId: (proposal.proposalId ??
@@ -308,6 +365,13 @@ function RouteComponent() {
           workosOrganizationId,
         })
       }
+      onEscalate={(action, input) =>
+        escalateOperationsQueueItem({
+          ...input,
+          queueItemId: action.id,
+          workosOrganizationId,
+        })
+      }
       onOpenUnassignedDrafts={() =>
         navigate({ to: "/backoffice/proposals/unassigned" })
       }
@@ -324,6 +388,13 @@ function RouteComponent() {
           workosOrganizationId,
         })
       }
+      onReturnDecision={(handoffId, input) =>
+        returnOperationsEscalationDecision({
+          ...input,
+          handoffId: handoffId as Id<"operationsQueueHandoffs">,
+          workosOrganizationId,
+        })
+      }
       onStartNewBuildWorkflow={() =>
         navigate({ to: "/backoffice/proposals/new" })
       }
@@ -334,16 +405,20 @@ function RouteComponent() {
 export function BackofficeDashboard({
   builders,
   dashboard,
+  onAcknowledgeHandoff,
   onArchiveProposal,
   onAssignBuilder,
   onDeleteActiveBuild,
   onDeleteDraft,
+  onEscalate,
   onOpenUnassignedDrafts,
   onStartNewBuildWorkflow,
   onRecordClosing,
+  onReturnDecision,
 }: {
   builders: ProductionBuilderOption[];
   dashboard: ProductionBackofficeDashboardData;
+  onAcknowledgeHandoff: (handoffId: string) => Promise<unknown>;
   onArchiveProposal: (
     proposal: ProposalKanbanCard,
     reason: string
@@ -354,11 +429,19 @@ export function BackofficeDashboard({
   ) => Promise<unknown>;
   onDeleteActiveBuild: (build: ActiveBuild, reason: string) => Promise<unknown>;
   onDeleteDraft: (proposal: ProposalKanbanCard) => Promise<unknown>;
+  onEscalate: (
+    action: QuickAction,
+    input: OperationsEscalationInput
+  ) => Promise<unknown>;
   onOpenUnassignedDrafts: () => Promise<unknown> | unknown;
   onStartNewBuildWorkflow: () => Promise<unknown> | unknown;
   onRecordClosing: (
     proposal: ProposalKanbanCard,
     input: ClosingConfirmationInput
+  ) => Promise<unknown>;
+  onReturnDecision: (
+    handoffId: string,
+    input: OperationsReturnDecisionInput
   ) => Promise<unknown>;
 }) {
   const [sidebarProposal, setSidebarProposal] =
@@ -432,10 +515,14 @@ export function BackofficeDashboard({
           />
         </section>
         <ScheduleRail
+          canMakeFinalDecision={dashboard.canMakeFinalDecision ?? false}
           collapsed={scheduleCalendarCollapsed}
           date={dashboard.scheduleDate}
           events={dashboard.scheduleEvents}
+          onAcknowledgeHandoff={onAcknowledgeHandoff}
           onCollapsedChange={setScheduleCalendarCollapsed}
+          onEscalate={onEscalate}
+          onReturnDecision={onReturnDecision}
           quickActions={dashboard.quickActions}
         />
       </main>
@@ -1063,7 +1150,7 @@ function ProposalQueueTable({
   );
 }
 
-function MilestoneKanban({
+export function MilestoneKanban({
   columns,
   milestones,
 }: {
@@ -1106,11 +1193,19 @@ function MilestoneKanban({
             >
               {(column) => (
                 <KanbanBoard
-                  className="rounded-none border-0 border-r bg-card shadow-none ring-0 last:border-r-0"
+                  className={cn(
+                    "rounded-none border-0 border-r bg-card shadow-none ring-0 last:border-r-0",
+                    column.id === "behindSchedule" && "bg-destructive/5"
+                  )}
                   id={column.id}
                   key={column.id}
                 >
-                  <KanbanHeader className="space-y-1 border-b p-4">
+                  <KanbanHeader
+                    className={cn(
+                      "space-y-1 border-b p-4",
+                      column.id === "behindSchedule" && "bg-destructive/8"
+                    )}
+                  >
                     <div className="flex items-center gap-2">
                       <span>{column.name}</span>
                       <Badge variant="outline">
@@ -2234,16 +2329,30 @@ export function ClosingConfirmationDialog({
 }
 
 export function ScheduleRail({
+  canMakeFinalDecision = false,
   collapsed,
   date,
   events,
+  onAcknowledgeHandoff,
   onCollapsedChange,
+  onEscalate,
+  onReturnDecision,
   quickActions,
 }: {
+  canMakeFinalDecision?: boolean;
   collapsed: boolean;
   date: Date;
   events: ScheduleEvent[];
+  onAcknowledgeHandoff?: (handoffId: string) => Promise<unknown>;
   onCollapsedChange: (collapsed: boolean) => void;
+  onEscalate?: (
+    action: QuickAction,
+    input: OperationsEscalationInput
+  ) => Promise<unknown>;
+  onReturnDecision?: (
+    handoffId: string,
+    input: OperationsReturnDecisionInput
+  ) => Promise<unknown>;
   quickActions: QuickAction[];
 }) {
   const eventDays = useMemo(
@@ -2336,12 +2445,22 @@ export function ScheduleRail({
           </div>
         </CardHeader>
         <CardContent className="space-y-3 p-4">
-          {quickActions.map((action) => (
-            <QuickActionCard action={action} key={action.id} />
-          ))}
-          <Button className="w-full" variant="outline">
-            View all events
-          </Button>
+          {quickActions.length === 0 ? (
+            <p className="rounded-lg border border-dashed p-4 text-center text-muted-foreground text-sm">
+              No operational items need action.
+            </p>
+          ) : (
+            quickActions.map((action) => (
+              <QuickActionCard
+                action={action}
+                canMakeFinalDecision={canMakeFinalDecision}
+                key={action.id}
+                onAcknowledgeHandoff={onAcknowledgeHandoff}
+                onEscalate={onEscalate}
+                onReturnDecision={onReturnDecision}
+              />
+            ))
+          )}
         </CardContent>
       </Card>
     </aside>
@@ -2367,44 +2486,443 @@ function ScheduleEventRow({ event }: { event: ScheduleEvent }) {
   );
 }
 
-function QuickActionCard({ action }: { action: QuickAction }) {
+function QuickActionCard({
+  action,
+  canMakeFinalDecision,
+  onAcknowledgeHandoff,
+  onEscalate,
+  onReturnDecision,
+}: {
+  action: QuickAction;
+  canMakeFinalDecision: boolean;
+  onAcknowledgeHandoff?: (handoffId: string) => Promise<unknown>;
+  onEscalate?: (
+    action: QuickAction,
+    input: OperationsEscalationInput
+  ) => Promise<unknown>;
+  onReturnDecision?: (
+    handoffId: string,
+    input: OperationsReturnDecisionInput
+  ) => Promise<unknown>;
+}) {
   const Icon = actionIcon[action.type];
+  const [dialogMode, setDialogMode] = useState<"escalate" | "return" | null>(
+    null
+  );
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [returnDecision, setReturnDecision] =
+    useState<OperationsHandoffReturnDecision>("continue");
+  const handoff = action.handoff;
+
+  async function handleEscalationSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!onEscalate) {
+      return;
+    }
+    const formData = new FormData(event.currentTarget);
+    setPending(true);
+    setError(null);
+    try {
+      await onEscalate(action, {
+        decisionPreview: String(formData.get("decisionPreview") ?? ""),
+        evidenceSummary: String(formData.get("evidenceSummary") ?? ""),
+        reason: String(formData.get("reason") ?? ""),
+        recommendation: String(formData.get("recommendation") ?? ""),
+        requiredAction: String(formData.get("requiredAction") ?? ""),
+        warnings: String(formData.get("warnings") ?? "")
+          .split("\n")
+          .map((warning) => warning.trim())
+          .filter(Boolean),
+      });
+      setDialogMode(null);
+    } catch {
+      setError("Unable to send this escalation. Try again.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function handleReturnSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!(handoff && onReturnDecision)) {
+      return;
+    }
+    const formData = new FormData(event.currentTarget);
+    setPending(true);
+    setError(null);
+    try {
+      await onReturnDecision(handoff._id, {
+        decision: returnDecision,
+        followUpAssignment: String(
+          formData.get("followUpAssignment") ?? ""
+        ),
+        reason: String(formData.get("returnReason") ?? ""),
+      });
+      setDialogMode(null);
+    } catch {
+      setError("Unable to return this decision. Try again.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function handleAcknowledge() {
+    if (!(handoff && onAcknowledgeHandoff)) {
+      return;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      await onAcknowledgeHandoff(handoff._id);
+    } catch {
+      setError("Unable to acknowledge this return. Try again.");
+    } finally {
+      setPending(false);
+    }
+  }
 
   return (
-    <div className="space-y-3 rounded-lg border bg-background p-3">
-      <div className="flex items-start gap-3">
-        <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-secondary text-secondary-foreground">
-          <Icon className="size-4" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-muted-foreground text-xs uppercase tracking-wide">
-              {formatActionType(action.type)}
-            </p>
-            <span className="text-muted-foreground text-xs">
-              {action.dueLabel}
-            </span>
+    <>
+      <article className="space-y-3 rounded-lg border bg-background p-3">
+        <div className="flex items-start gap-3">
+          <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-secondary text-secondary-foreground">
+            <Icon aria-hidden="true" className="size-4" />
           </div>
-          <p className="text-muted-foreground text-xs">
-            {action.buildId} · {action.address}
-          </p>
-          <p className="font-medium text-sm">{action.title}</p>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <p className="font-medium text-sm">{action.title}</p>
+              <span className="shrink-0 text-muted-foreground text-xs">
+                {action.ageLabel}
+              </span>
+            </div>
+            <p className="mt-1 text-muted-foreground text-xs">
+              {action.entityLabel}
+            </p>
+            <p className="text-muted-foreground text-xs">
+              {action.buildId} · {action.address}
+            </p>
+          </div>
         </div>
-      </div>
-      <div className="flex gap-2">
-        <Button className="flex-1" size="sm">
-          {action.actionLabel}
-        </Button>
-        <Button
-          aria-label={`More actions for ${action.title}`}
-          size="icon-sm"
-          variant="outline"
-        >
-          <ChevronDown />
-        </Button>
-      </div>
-    </div>
+        <dl className="grid gap-2 text-xs">
+          <div className="flex items-start justify-between gap-3">
+            <dt className="text-muted-foreground">Owner</dt>
+            <dd className="text-right font-medium">{action.ownerLabel}</dd>
+          </div>
+          <div className="flex items-start justify-between gap-3">
+            <dt className="text-muted-foreground">Blocker</dt>
+            <dd className="max-w-44 text-right">{action.blocker}</dd>
+          </div>
+          <div className="flex items-start justify-between gap-3">
+            <dt className="text-muted-foreground">Recommendation</dt>
+            <dd className="max-w-44 text-right">
+              {action.recommendationLabel}
+            </dd>
+          </div>
+        </dl>
+
+        {handoff ? <OperationsHandoffSummary action={action} /> : null}
+        {error ? (
+          <p className="text-destructive text-xs" role="alert">
+            {error}
+          </p>
+        ) : null}
+
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+          <div>
+            <p className="font-medium text-xs">{action.authorityLabel}</p>
+            <p className="text-muted-foreground text-xs">{action.dueLabel}</p>
+          </div>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              render={<a href={action.href}>{action.actionLabel}</a>}
+              size="sm"
+              variant="outline"
+            >
+              {action.actionLabel}
+            </Button>
+            {!handoff && onEscalate ? (
+              <Button onClick={() => setDialogMode("escalate")} size="sm">
+                Prepare escalation
+              </Button>
+            ) : null}
+            {handoff?.acknowledgementState === "pending_decision" &&
+            canMakeFinalDecision &&
+            onReturnDecision ? (
+              <Button onClick={() => setDialogMode("return")} size="sm">
+                Record return decision
+              </Button>
+            ) : null}
+            {handoff?.acknowledgementState === "pending_decision" &&
+            !canMakeFinalDecision ? (
+              <Badge variant="warning">Awaiting Lender Admin</Badge>
+            ) : null}
+            {handoff?.acknowledgementState === "returned" &&
+            action.canAcknowledgeHandoff &&
+            onAcknowledgeHandoff ? (
+              <Button
+                loading={pending}
+                onClick={handleAcknowledge}
+                size="sm"
+                variant="secondary"
+              >
+                Acknowledge return
+              </Button>
+            ) : null}
+            {handoff?.acknowledgementState === "acknowledged" ? (
+              <Badge variant="success">Return acknowledged</Badge>
+            ) : null}
+          </div>
+        </div>
+      </article>
+
+      <Dialog
+        onOpenChange={(open) => {
+          if (!(open || pending)) {
+            setDialogMode(null);
+            setError(null);
+          }
+        }}
+        open={dialogMode === "escalate"}
+      >
+        <DialogContent className="sm:max-w-xl">
+          <form onSubmit={handleEscalationSubmit}>
+            <DialogHeader>
+              <DialogTitle>Escalate {action.title.toLowerCase()}</DialogTitle>
+              <DialogDescription>
+                Package the evidence, recommendation, warnings, required action,
+                and decision preview before handing this item to Lender Admin.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogPanel className="grid gap-4">
+              <OperationsHandoffTextarea
+                label="Evidence summary"
+                name="evidenceSummary"
+              />
+              <OperationsHandoffTextarea
+                label="Recommendation"
+                name="recommendation"
+              />
+              <OperationsHandoffTextarea
+                description="Enter one warning per line."
+                label="Warnings"
+                name="warnings"
+                required={false}
+              />
+              <OperationsHandoffTextarea
+                label="Required action"
+                name="requiredAction"
+              />
+              <OperationsHandoffTextarea
+                label="Decision preview"
+                name="decisionPreview"
+              />
+              <OperationsHandoffTextarea
+                label="Escalation reason"
+                name="reason"
+              />
+              {error ? (
+                <p className="text-destructive text-sm" role="alert">
+                  {error}
+                </p>
+              ) : null}
+            </DialogPanel>
+            <DialogFooter>
+              <DialogClose render={<Button type="button" variant="outline" />}>
+                Cancel
+              </DialogClose>
+              <Button loading={pending} type="submit">
+                Send to Lender Admin
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        onOpenChange={(open) => {
+          if (!(open || pending)) {
+            setDialogMode(null);
+            setError(null);
+          }
+        }}
+        open={dialogMode === "return"}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <form onSubmit={handleReturnSubmit}>
+            <DialogHeader>
+              <DialogTitle>Return operations decision</DialogTitle>
+              <DialogDescription>
+                Record the decision, reason, and follow-up assignment. This does
+                not replace the canonical approval or release action.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogPanel className="grid gap-4">
+              <label className="grid gap-1.5 text-sm" htmlFor={`decision-${action.id}`}>
+                <span className="font-medium">Return decision</span>
+                <select
+                  className="h-9 rounded-lg border bg-background px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  id={`decision-${action.id}`}
+                  onChange={(event) =>
+                    setReturnDecision(
+                      event.target.value as OperationsHandoffReturnDecision
+                    )
+                  }
+                  value={returnDecision}
+                >
+                  <option value="continue">Continue</option>
+                  <option value="reroute">Reroute</option>
+                  <option value="close">Close</option>
+                </select>
+              </label>
+              <OperationsHandoffTextarea
+                label="Return reason"
+                name="returnReason"
+              />
+              <OperationsHandoffTextarea
+                label="Follow-up assignment"
+                name="followUpAssignment"
+              />
+              {error ? (
+                <p className="text-destructive text-sm" role="alert">
+                  {error}
+                </p>
+              ) : null}
+            </DialogPanel>
+            <DialogFooter>
+              <DialogClose render={<Button type="button" variant="outline" />}>
+                Cancel
+              </DialogClose>
+              <Button loading={pending} type="submit">
+                Return to operations
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
   );
+}
+
+function OperationsHandoffSummary({ action }: { action: QuickAction }) {
+  const handoff = action.handoff;
+  if (!handoff) {
+    return null;
+  }
+  return (
+    <section
+      aria-label="Operations handoff"
+      className="grid gap-2 rounded-lg bg-muted/60 p-3 text-xs"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-medium">Operations handoff</p>
+        <Badge variant="outline">
+          {formatHandoffState(handoff.acknowledgementState)}
+        </Badge>
+      </div>
+      <p>
+        <span className="text-muted-foreground">Evidence: </span>
+        {handoff.evidenceSummary}
+      </p>
+      <p>
+        <span className="text-muted-foreground">Recommendation: </span>
+        {handoff.recommendation}
+      </p>
+      <p>
+        <span className="text-muted-foreground">Required action: </span>
+        {handoff.requiredAction}
+      </p>
+      <p>
+        <span className="text-muted-foreground">Decision preview: </span>
+        {handoff.decisionPreview}
+      </p>
+      {handoff.warnings.length > 0 ? (
+        <div>
+          <p className="text-muted-foreground">Warnings</p>
+          <ul className="list-disc pl-4">
+            {handoff.warnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {handoff.returnReason ? (
+        <div className="grid gap-1 border-t pt-2">
+          <p className="font-medium">
+            Returned: {formatReturnDecision(handoff.returnDecision)}
+          </p>
+          <p>{handoff.returnReason}</p>
+          {handoff.followUpAssignment ? (
+            <p>
+              <span className="text-muted-foreground">Follow-up: </span>
+              {handoff.followUpAssignment}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function OperationsHandoffTextarea({
+  description,
+  label,
+  name,
+  required = true,
+}: {
+  description?: string;
+  label: string;
+  name: string;
+  required?: boolean;
+}) {
+  const id = `operations-handoff-${name}`;
+  const descriptionId = description ? `${id}-description` : undefined;
+  return (
+    <label className="grid gap-1.5 text-sm" htmlFor={id}>
+      <span className="font-medium">{label}</span>
+      {description ? (
+        <span className="text-muted-foreground text-xs" id={descriptionId}>
+          {description}
+        </span>
+      ) : null}
+      <Textarea
+        aria-describedby={descriptionId}
+        aria-label={label}
+        id={id}
+        minLength={required ? 8 : undefined}
+        name={name}
+        required={required}
+        rows={3}
+      />
+    </label>
+  );
+}
+
+function formatHandoffState(
+  state: NonNullable<QuickAction["handoff"]>["acknowledgementState"]
+) {
+  const labels = {
+    acknowledged: "Acknowledged",
+    pending_decision: "Awaiting decision",
+    returned: "Returned",
+  } satisfies Record<
+    NonNullable<QuickAction["handoff"]>["acknowledgementState"],
+    string
+  >;
+  return labels[state];
+}
+
+function formatReturnDecision(
+  decision: OperationsHandoffReturnDecision | undefined
+) {
+  if (!decision) {
+    return "Decision recorded";
+  }
+  return {
+    close: "Close",
+    continue: "Continue",
+    reroute: "Reroute",
+  }[decision];
 }
 
 function formatMilestoneState(state: ActiveBuild["milestoneState"]) {
@@ -2426,16 +2944,6 @@ function formatBuildStatusFilter(status: ActiveBuild["status"] | "all") {
   };
 
   return labels[status];
-}
-
-function formatActionType(type: QuickAction["type"]) {
-  const labels: Record<QuickAction["type"], string> = {
-    drawRequest: "Draw request",
-    milestone: "Milestone",
-    siteVisit: "Site visit",
-  };
-
-  return labels[type];
 }
 
 function centsToCurrency(value: number) {

@@ -543,9 +543,9 @@ function buildColumns(): ColumnDef<BuildRosterRow>[] {
     },
     {
       accessorFn: (row) =>
-        row.original.drawRequestsPending +
-        row.original.milestonesInReview +
-        row.original.siteVisitsExpired,
+        row.drawRequestsPending +
+        row.milestonesInReview +
+        row.siteVisitsExpired,
       cell: ({ row }) => <SignalsCell build={row.original} />,
       enableSorting: false,
       header: () => <span>Signals</span>,

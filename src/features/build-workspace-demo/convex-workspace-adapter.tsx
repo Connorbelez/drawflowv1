@@ -35,7 +35,7 @@ const EMPTY_WORKSPACE = {
     siteAddress: "Hamilton, ON",
   },
   budget: {
-    borrowerWorkingCapitalLimit: 260_000,
+    borrowerStartingCash: 260_000,
     drawFeeBps: 0,
     interestRatePct: 12,
     lenderDrawPolicyLimit: 480_000,
@@ -418,7 +418,7 @@ function mapWorkspace(
       siteAddress: "Hamilton, ON",
     },
     budget: {
-      borrowerWorkingCapitalLimit: dollars(
+      borrowerStartingCash: dollars(
         workspace?.build?.workingCapitalLimitCents
       ),
       drawFeeBps: 0,
@@ -561,6 +561,7 @@ export function useConvexBuildWorkspace(
   );
   const [activePlanId, setActivePlanId] =
     useState<OptimizationPlanId>("capitalConstrained");
+  const [selectedPlanId, setSelectedPlanId] = useState<OptimizationPlanId>();
 
   useEffect(() => {
     if (workspace?.needsSeed) {
@@ -592,6 +593,7 @@ export function useConvexBuildWorkspace(
     ...EMPTY_WORKSPACE,
     ...mapped,
     activePlanId,
+    selectedPlanId,
     isLoading: workspace === undefined,
     mode,
     needsSeed: Boolean(workspace?.needsSeed),
@@ -622,6 +624,7 @@ export function useConvexBuildWorkspace(
     applyRecommendedPlan: async () => {
       await applyPlanMutation({});
       setActivePlanId("capitalConstrained");
+      setSelectedPlanId("capitalConstrained");
     },
     applyIssueQuickFix: async (issue) => {
       if (!issue.quickFix) {
@@ -636,6 +639,7 @@ export function useConvexBuildWorkspace(
       if (issue.quickFix.action === "applyRecommendedPlan") {
         await applyPlanMutation({});
         setActivePlanId("capitalConstrained");
+        setSelectedPlanId("capitalConstrained");
         return;
       }
       await quickFixMutation({
@@ -815,6 +819,7 @@ export function useConvexBuildWorkspace(
       setSelectedMilestoneId("");
       setLocallyDismissedIssueKeys(new Set());
       setRole("builderLead");
+      setSelectedPlanId(undefined);
     },
     reviewEvidence: async (milestoneId, accepted, reason) => {
       await reviewEvidenceMutation({
@@ -825,7 +830,10 @@ export function useConvexBuildWorkspace(
       });
     },
     selectMilestone: setSelectedMilestoneId,
-    setActivePlan: setActivePlanId,
+    setActivePlan: (planId) => {
+      setActivePlanId(planId);
+      setSelectedPlanId(planId);
+    },
     setDependencyHardness: async (
       dependencyId,
       hardness: DependencyHardness

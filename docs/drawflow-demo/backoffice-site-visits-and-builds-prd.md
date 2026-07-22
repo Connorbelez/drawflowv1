@@ -184,7 +184,7 @@ A broker's actual mental model is money-at-risk, not build count. The header com
 - **Committed** = Σ `loanFacilities.principalCents`.
 - **Released MTD / today** from release timestamps.
 - **Interest accruing** = facilities where funds released (interest starts at release per domain rule #1) — surfaced as a live exposure figure, the thing that makes lending real.
-- **Working-capital pressure** — builds where borrower co-pay obligations vs. `borrowerWorkingCapitalLimitCents` are tight; a leading indicator of a draw about to stall.
+- **Working-capital pressure** — builds where borrower contribution obligations vs. `borrowerWorkingCapitalLimitCents` are tight; a leading indicator of a draw about to stall.
 
 Each figure is a filter into the rows below. The roll-up is honest about the reimbursement model: it shows released vs. committed vs. remaining, never implies money out the door before work is verified.
 

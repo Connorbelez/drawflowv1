@@ -3796,7 +3796,6 @@ function SubMilestoneFocusedTabs({
         value="field-guidance"
       >
         <SubMilestoneFieldGuidanceEditor
-          onCommitField={onCommitField}
           onUpdateSubMilestone={onUpdateSubMilestone}
           row={row}
           subMilestone={subMilestone}
@@ -3807,12 +3806,10 @@ function SubMilestoneFocusedTabs({
 }
 
 function SubMilestoneFieldGuidanceEditor({
-  onCommitField,
   onUpdateSubMilestone,
   row,
   subMilestone,
 }: {
-  onCommitField: () => void;
   onUpdateSubMilestone: (
     subMilestoneId: string,
     patch: Partial<TimelineMilestoneWorksheetSubMilestone>,
@@ -3838,31 +3835,23 @@ function SubMilestoneFieldGuidanceEditor({
           <p>{row.name}</p>
         </div>
       </div>
-      <label className="timeline-submilestone-detail-field is-wide">
+      <div className="timeline-submilestone-detail-field is-wide timeline-field-rich-text-field">
         <span>Verification note</span>
-        <textarea
-          aria-label={`${subMilestoneName} verification note`}
-          data-testid={`timeline-setup-submilestone-guidance-description-${subMilestone.id}`}
-          onBlur={onCommitField}
-          onChange={(event) =>
+        <FieldRichTextEditor
+          ariaLabel={`${subMilestoneName} verification note`}
+          editorMinHeightClass="[&_.ProseMirror]:min-h-44"
+          onChange={(description) =>
             onUpdateSubMilestone(
               subMilestone.id,
-              {
-                description: event.currentTarget.value,
-              },
-              { commit: false }
+              { description },
+              { commit: true }
             )
           }
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              onCommitField();
-              event.currentTarget.blur();
-            }
-          }}
+          placeholder="Add a concise verification checklist…"
+          testId={`timeline-setup-submilestone-guidance-description-${subMilestone.id}`}
           value={subMilestone.description}
         />
-      </label>
+      </div>
     </section>
   );
 }

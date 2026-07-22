@@ -1,11 +1,14 @@
 import { expect, test } from "@playwright/test";
 
 const NEW_PROPOSAL_URL = /\/demo\/drawflow\/new-proposal\?draftId=/;
+const CURRENT_PROPOSAL_URL = /\/demo\/timeline(?:\?.*)?$/;
 const MILESTONE_ROW_TEST_ID = /^builder-milestone-row-/;
 const CUSTOM_MILESTONE_ROW_TEST_ID = /^builder-milestone-row-custom_/;
 const ROADMAP_DAY_TEXT = /D\d+/;
 const ROADMAP_MONEY_TEXT = /\$\d+(?:\.\d)?[KM]/;
 const WORKSPACE_ROUTE_URL = /\/demo\/drawflow\/(proposal|active)/;
+const INVALID_HOOK_ERROR_TEXT =
+  /Invalid hook call|TooltipRoot|Cannot read properties of null \(reading 'useRef'\)/;
 
 test("Builder new proposal route handles a stale draft id without a Convex query crash", async ({
   page,
@@ -37,13 +40,11 @@ test("Builder new proposal route does not emit invalid hook errors in the sideba
   );
   await expect(page.locator("body")).toBeVisible();
 
-  expect(clientErrors.join("\n")).not.toMatch(
-    /Invalid hook call|TooltipRoot|Cannot read properties of null \(reading 'useRef'\)/
-  );
+  expect(clientErrors.join("\n")).not.toMatch(INVALID_HOOK_ERROR_TEXT);
 });
 
 test("Main demo dropdown includes every demo route", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/demo/timeline");
   await page.getByRole("button", { name: "Demos" }).click();
 
   await expect(
@@ -129,7 +130,7 @@ test("Milestone editor stays usable without horizontal overflow on mobile", asyn
   expect(Math.max(...overflow.rowOverflow)).toBeLessThanOrEqual(1);
 });
 
-test("Builder proposal setup and milestone editor expose co-pay, reorder, draw grouping, and clear actions", async ({
+test("Builder proposal setup and milestone editor expose borrower contribution, reorder, draw grouping, and clear actions", async ({
   page,
 }) => {
   await page.goto("/demo/drawflow/new-proposal");
@@ -138,11 +139,11 @@ test("Builder proposal setup and milestone editor expose co-pay, reorder, draw g
 
   await page.getByTestId("builder-total-budget").fill("$1,850,000");
   await page.getByTestId("builder-max-cash").fill("$260,000");
-  await page.getByTestId("builder-co-pay").fill("$50,000");
+  await page.getByTestId("builder-borrower-contribution").fill("$50,000");
   const summary = page.locator(".pb-template-aside");
-  await expect(summary.getByText("Co-pay")).toBeVisible();
+  await expect(summary.getByText("Borrower Contribution")).toBeVisible();
   await expect(summary.getByText("$50,000")).toBeVisible();
-  await expect(summary.getByText("Reimbursement Scope")).toBeVisible();
+  await expect(summary.getByText("Loan Amount")).toBeVisible();
   await expect(summary.getByText("$1,800,000")).toBeVisible();
 
   await page
@@ -194,14 +195,30 @@ test("Builder proposal setup and milestone editor expose co-pay, reorder, draw g
   ).toHaveValue("$0");
 });
 
-test("Builder dashboard to new proposal demo reaches the workspace boundary without opening the workspace demo", async ({
+test("Builder dashboard starts the current proposal demo", async ({ page }) => {
+  await page.goto("/demo/drawflow/builder-dashboard");
+
+  await expect(
+    page.getByRole("heading", { name: "Builder dashboard" })
+  ).toBeVisible();
+  await expect(page.getByText("Live builds", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Recent proposal workspaces", { exact: true })
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Start new proposal" }).click();
+  await expect(page).toHaveURL(CURRENT_PROPOSAL_URL);
+  await expect(
+    page.getByTestId("timeline-setup-template-screen")
+  ).toBeVisible();
+  await expect(page.getByText("Proposal Summary")).toBeVisible();
+});
+
+test("Builder new proposal demo reaches the workspace boundary without opening the workspace demo", async ({
   page,
 }) => {
-  await page.goto("/demo/drawflow/builder-dashboard");
-  await expect(page.getByTestId("builder-dashboard-shell")).toBeVisible();
-
-  await page.getByTestId("builder-dashboard-new-proposal").click();
-  await expect(page).toHaveURL(NEW_PROPOSAL_URL);
+  await page.goto("/demo/drawflow/new-proposal");
+  await page.getByRole("button", { name: "Create draft" }).click();
   await expect(page.getByTestId("builder-template-screen")).toBeVisible();
   await expect(page.getByTestId("builder-proposal-sidebar")).toBeVisible();
   await expect(

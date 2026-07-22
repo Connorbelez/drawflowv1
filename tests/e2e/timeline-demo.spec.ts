@@ -24,6 +24,7 @@ async function openGeneratedTimeline(page: Page) {
   ).toBeVisible();
   await page.getByTestId("timeline-setup-continue-budget").click();
   await expect(page.getByTestId("timeline-setup-budget-screen")).toBeVisible();
+  await page.getByRole("tab", { name: "Worksheet" }).click();
   await expect(page.getByTestId("timeline-setup-budget-table")).toBeVisible();
   await page.getByTestId("timeline-setup-complete").click();
   await expect(page.getByTestId("animated-curved-timeline")).toBeVisible();
@@ -42,6 +43,7 @@ async function openDurableGeneratedTimeline(page: Page) {
   ).toBeVisible();
   await page.getByTestId("timeline-setup-continue-budget").click();
   await expect(page.getByTestId("timeline-setup-budget-screen")).toBeVisible();
+  await page.getByRole("tab", { name: "Worksheet" }).click();
   await page.getByTestId("timeline-setup-durable-route-toggle").click();
   await expect(
     page.getByTestId("timeline-setup-durable-route-toggle")
@@ -66,16 +68,16 @@ test("timeline setup selects a template, edits the blueprint budget table, and g
   await expect(page.getByText("Proposal Summary")).toBeVisible();
   await expect(page.getByText("What happens next")).toBeVisible();
   await expect(page.getByText("Compliance Note")).toBeVisible();
-  await expect(page.getByLabel("Co-pay")).toBeVisible();
+  await expect(page.getByLabel("Loan Percentage")).toBeVisible();
   await expect(
-    page.getByRole("complementary").getByText("Reimbursement Scope")
+    page.getByRole("complementary").getByText("Borrower Contribution")
   ).toBeVisible();
   await expect(page.getByLabel("Project address")).toBeVisible();
   await page.getByTestId("timeline-setup-budget-input").fill("$1,320,000");
   await page.getByTestId("timeline-setup-cash-input").fill("$425,000");
-  await page.getByTestId("timeline-setup-co-pay-input").fill("$25,000");
+  await page.getByTestId("timeline-setup-loan-percentage-input").fill("75");
   await page.getByTestId("timeline-setup-address-input").fill("Toronto, ON");
-  await expect(page.getByText("$1,295,000")).toBeVisible();
+  await expect(page.getByText("$990,000")).toBeVisible();
   await expect(page.getByText("Toronto, ON")).toBeVisible();
   await page
     .getByTestId("timeline-setup-permit-input")
@@ -88,6 +90,7 @@ test("timeline setup selects a template, edits the blueprint budget table, and g
   await page.getByTestId("timeline-setup-continue-budget").click();
 
   await expect(page.getByTestId("timeline-setup-budget-screen")).toBeVisible();
+  await page.getByRole("tab", { name: "Worksheet" }).click();
   await expect(
     page.getByTestId("timeline-setup-budget-screen").getByText("Toronto, ON")
   ).toBeVisible();

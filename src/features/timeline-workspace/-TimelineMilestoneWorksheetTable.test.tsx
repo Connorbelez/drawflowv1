@@ -30,6 +30,7 @@ vi.mock("#/components/rich-text/field-rich-text.tsx", () => ({
     value: string;
   }) => (
     <textarea
+      data-rich-text-editor="true"
       data-testid={testId}
       onChange={(event) => onChange(`<p>${event.currentTarget.value}</p>`)}
       value={value.replace(/<[^>]+>/g, "")}
@@ -568,12 +569,13 @@ describe("TimelineMilestoneWorksheetTable", () => {
     );
 
     fireEvent.click(within(sheet).getByRole("tab", { name: "Field Guidance" }));
-    fireEvent.change(
-      within(sheet).getByTestId(
-        "timeline-setup-submilestone-guidance-description-site-prep-foundation-sub-1"
-      ),
-      { target: { value: "Verify footing layout before pour." } }
+    const guidanceEditor = within(sheet).getByTestId(
+      "timeline-setup-submilestone-guidance-description-site-prep-foundation-sub-1"
     );
+    expect(guidanceEditor.getAttribute("data-rich-text-editor")).toBe("true");
+    fireEvent.change(guidanceEditor, {
+      target: { value: "Verify footing layout before pour." },
+    });
 
     expect(onRowsChange).toHaveBeenLastCalledWith(
       expect.arrayContaining([
@@ -581,7 +583,7 @@ describe("TimelineMilestoneWorksheetTable", () => {
           key: "site-prep-foundation",
           subMilestoneDetails: [
             expect.objectContaining({
-              description: "Verify footing layout before pour.",
+              description: "<p>Verify footing layout before pour.</p>",
               id: "site-prep-foundation-sub-1",
             }),
           ],
@@ -1349,7 +1351,7 @@ describe("TimelineMilestoneWorksheetTable", () => {
     );
 
     openExpandedMilestoneTab("Materials");
-    fireEvent.click(screen.getAllByRole("button", { name: "Add cost item" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /Add cost item/i })[0]);
     fireEvent.change(screen.getByLabelText("Title"), {
       target: { value: "Foundation material package" },
     });

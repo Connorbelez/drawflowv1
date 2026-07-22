@@ -15,7 +15,7 @@ the milestone budget but should not appear as sub-milestones.
 
 The item total is `costCents * quantity`. Proposal item creates, updates, and
 deletes adjust the attached milestone budget by delta, recalculate the
-milestone draw availability from borrower co-pay rules, and refresh the
+milestone draw availability from Loan Percentage rules, and refresh the
 proposal total budget. The entries stay separate from `proposalSubmilestones`
 and `buildSubmilestones`.
 

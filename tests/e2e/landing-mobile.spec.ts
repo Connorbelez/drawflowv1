@@ -6,29 +6,46 @@ test("landing page header stays usable on mobile", async ({ page }) => {
   await page.goto(baseUrl ? new URL("/", baseUrl).toString() : "/");
 
   await expect(
-    page.getByText("DrawFlow · Coupled control system")
+    page.getByRole("heading", {
+      level: 1,
+      name: "One entry point. Your DrawFlow workspace.",
+    })
   ).toBeVisible();
-  const navigation = page.getByRole("navigation");
+
+  const header = page.getByRole("banner");
   await expect(
-    navigation.getByRole("link", { name: "drawFlow" })
+    header.getByRole("link", { name: "DrawFlow access portal" })
   ).toBeVisible();
-  await expect(navigation.getByRole("link", { name: "Demos" })).toBeVisible();
-  await expect(navigation.getByRole("link", { name: "Sign in" })).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Workspace access" })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Continue to secure sign in" })
+  ).toBeVisible();
 
   const mobileMetrics = await page.evaluate(() => {
     const viewportWidth = document.documentElement.clientWidth;
-    const sheetBar = document.querySelector(".lbp-sheet-bar");
-    const header = document.querySelector("header");
-    const firstSchedule = document.querySelector(".lbp-schedule");
+    const headerElement = document.querySelector("header");
+    const intro = document.querySelector(".access-intro");
+    const workspaceAccess = document.querySelector(".access-selector-section");
     const undersizedTapTargets = [...document.querySelectorAll("a,button")]
       .map((element) => {
         const rect = element.getBoundingClientRect();
         const style = getComputedStyle(element);
         return {
+          label:
+            element.getAttribute("aria-label") ??
+            element.textContent?.trim().replace(/\s+/g, " ").slice(0, 80) ??
+            "",
+          tagName: element.tagName.toLowerCase(),
           height: rect.height,
           visible:
             rect.width > 0 &&
             rect.height > 0 &&
+            rect.right > 0 &&
+            rect.bottom > 0 &&
+            rect.left < viewportWidth &&
+            rect.top < window.innerHeight &&
             style.display !== "none" &&
             style.visibility !== "hidden",
           width: rect.width,
@@ -42,24 +59,19 @@ test("landing page header stays usable on mobile", async ({ page }) => {
       hasDocumentOverflow:
         document.documentElement.scrollWidth > viewportWidth ||
         document.body.scrollWidth > viewportWidth,
-      headerHeight: header?.getBoundingClientRect().height ?? 0,
-      scheduleHasHorizontalScroll:
-        firstSchedule?.parentElement != null &&
-        firstSchedule.parentElement.scrollWidth >
-          firstSchedule.parentElement.clientWidth,
-      scheduleHeight: firstSchedule?.getBoundingClientRect().height ?? 0,
-      sheetBarHeight: sheetBar?.getBoundingClientRect().height ?? 0,
-      sheetBarWidth: sheetBar?.getBoundingClientRect().width ?? 0,
-      undersizedTapTargetCount: undersizedTapTargets.length,
+      headerHeight: headerElement?.getBoundingClientRect().height ?? 0,
+      headerWidth: headerElement?.getBoundingClientRect().width ?? 0,
+      introWidth: intro?.getBoundingClientRect().width ?? 0,
+      undersizedTapTargets,
       viewportWidth,
+      workspaceAccessWidth: workspaceAccess?.getBoundingClientRect().width ?? 0,
     };
   });
 
   expect(mobileMetrics.hasDocumentOverflow).toBe(false);
-  expect(mobileMetrics.sheetBarWidth).toBe(mobileMetrics.viewportWidth);
-  expect(mobileMetrics.sheetBarHeight).toBeLessThan(48);
-  expect(mobileMetrics.headerHeight).toBeLessThan(72);
-  expect(mobileMetrics.scheduleHasHorizontalScroll).toBe(false);
-  expect(mobileMetrics.scheduleHeight).toBeLessThan(1300);
-  expect(mobileMetrics.undersizedTapTargetCount).toBe(0);
+  expect(mobileMetrics.headerWidth).toBe(mobileMetrics.viewportWidth);
+  expect(mobileMetrics.headerHeight).toBeLessThanOrEqual(72);
+  expect(mobileMetrics.introWidth).toBe(mobileMetrics.viewportWidth);
+  expect(mobileMetrics.workspaceAccessWidth).toBe(mobileMetrics.viewportWidth);
+  expect(mobileMetrics.undersizedTapTargets).toEqual([]);
 });

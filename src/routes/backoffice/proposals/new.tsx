@@ -33,22 +33,22 @@ function NewBackofficeProductionProposalRoute() {
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
   const createContextQuery = useQuery(
     api.production_proposals.getBrokerProposalCreateContext,
-    visualFixtureEnabled ? "skip" : { workosOrganizationId }
+    visualFixtureEnabled ? "skip" : { workosOrganizationId },
   );
   const createContext = visualFixtureEnabled
     ? getVisualParityCreateContext()
     : createContextQuery;
   const createBrokerDraft = useMutation(
-    api.production_proposals.createBrokerDraftProposal
+    api.production_proposals.createBrokerDraftProposal,
   );
   const saveDraft = useMutation(
-    api.production_proposals.saveDraftProposalPackage
+    api.production_proposals.saveDraftProposalPackage,
   );
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState("");
   const setupTemplates = useMemo(
     () => productionTemplatesToTimelineSetupTemplates(createContext?.templates),
-    [createContext?.templates]
+    [createContext?.templates],
   );
 
   async function createProductionProposal(result: TimelineSetupResult) {
@@ -62,6 +62,7 @@ function NewBackofficeProductionProposalRoute() {
     try {
       const packagePayload = timelineSetupResultToDraftPackage(result);
       const proposalId = await createBrokerDraft({
+        assignedBrokerWorkosUserId: result.assignedBrokerWorkosUserId,
         buildName: packagePayload.buildName,
         location: packagePayload.location,
         proposedStartDate: packagePayload.proposedStartDate,
@@ -80,7 +81,7 @@ function NewBackofficeProductionProposalRoute() {
       setError(
         caught instanceof Error
           ? caught.message
-          : "Production proposal creation failed."
+          : "Production proposal creation failed.",
       );
     } finally {
       setIsCreating(false);
@@ -114,7 +115,11 @@ function NewBackofficeProductionProposalRoute() {
       <div className="timeline-setup-app-shell-route">
         <TimelineSetupFlow
           baseItems={PRODUCTION_SETUP_BASE_ITEMS}
+          brokerOptions={createContext?.brokers ?? []}
           contractorOptions={createContext?.availableContractors ?? []}
+          defaultAssignedBrokerWorkosUserId={
+            createContext?.defaultAssignedBrokerWorkosUserId
+          }
           onComplete={(result) => void createProductionProposal(result)}
           settingsTemplates={setupTemplates}
         />

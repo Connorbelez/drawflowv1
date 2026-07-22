@@ -105,6 +105,94 @@ export function validateIncludedSiteVisitMilestones({
   );
 }
 
+export interface SiteVisitLocationAttempt {
+  accuracyMeters?: number;
+  attempted: boolean;
+  attemptedAt?: number;
+  failureReason?: string;
+  permissionOutcome: "denied" | "granted" | "not_requested" | "unavailable";
+  verified: boolean;
+}
+
+export interface SiteVisitPrerequisiteException {
+  acknowledged: boolean;
+  reason: string;
+}
+
+export function validateSiteVisitReplacementRequest({
+  reason,
+  tokenState,
+}: {
+  reason: string;
+  tokenState: "active" | "consumed" | "expired";
+}) {
+  if (tokenState === "active") {
+    throw new Error(
+      "Only expired or consumed site visits can request a new link."
+    );
+  }
+  const normalizedReason = reason.trim();
+  if (!normalizedReason) {
+    throw new Error("A replacement-link request reason is required.");
+  }
+  return { reason: normalizedReason, tokenState };
+}
+
+export function createSiteVisitRecoveryReference(randomValue: string) {
+  return `SVR-${randomValue.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
+}
+
+export function validateSiteVisitSubmissionContext({
+  locationAttempt,
+  missingPrerequisites,
+  prerequisiteException,
+}: {
+  locationAttempt: SiteVisitLocationAttempt;
+  missingPrerequisites: Array<"permit" | "site_plan">;
+  prerequisiteException?: SiteVisitPrerequisiteException;
+}) {
+  if (locationAttempt.verified && !locationAttempt.attempted) {
+    throw new Error("Location cannot be verified without an attempt.");
+  }
+  if (locationAttempt.attempted && !locationAttempt.attemptedAt) {
+    throw new Error("Location attempt time is required.");
+  }
+  if (locationAttempt.verified && locationAttempt.permissionOutcome !== "granted") {
+    throw new Error("Verified location requires granted permission.");
+  }
+  if (!locationAttempt.verified && !locationAttempt.failureReason?.trim()) {
+    throw new Error("An unverified location reason is required.");
+  }
+
+  const normalizedMissingPrerequisites = [...new Set(missingPrerequisites)];
+  if (normalizedMissingPrerequisites.length > 0) {
+    if (!prerequisiteException?.acknowledged) {
+      throw new Error("A prerequisite exception acknowledgement is required.");
+    }
+    if (!prerequisiteException.reason.trim()) {
+      throw new Error("A prerequisite exception reason is required.");
+    }
+  }
+
+  return {
+    locationAttempt: {
+      ...locationAttempt,
+      ...(locationAttempt.failureReason
+        ? { failureReason: locationAttempt.failureReason.trim() }
+        : {}),
+    },
+    missingPrerequisites: normalizedMissingPrerequisites,
+    ...(normalizedMissingPrerequisites.length > 0 && prerequisiteException
+      ? {
+          prerequisiteException: {
+            acknowledged: true,
+            reason: prerequisiteException.reason.trim(),
+          },
+        }
+      : {}),
+  };
+}
+
 export function validateSiteVisitReportSubmission({
   compressedPackageBytes,
   reportNotes,

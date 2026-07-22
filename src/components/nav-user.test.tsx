@@ -8,6 +8,7 @@ const signOut = vi.fn<() => Promise<void>>().mockResolvedValue();
 const switchToOrganization =
   vi.fn<(organizationId: string) => Promise<void | { error: string }>>()
     .mockResolvedValue();
+let useQueryCallCount = 0;
 
 vi.mock("@tanstack/react-router", () => ({
   useRouter: () => ({ invalidate }),
@@ -24,34 +25,56 @@ vi.mock("@workos/authkit-tanstack-react-start/client", () => ({
 }));
 
 vi.mock("convex/react", () => ({
-  useQuery: () => ({
-    organizations: [
-      {
-        membershipId: "om_fairlend",
-        organizationName: "FairLend",
-        roleNames: ["Principal Broker"],
-        roleSlug: "principle-broker",
-        roleSlugs: ["principle-broker"],
-        workosOrganizationId: "org_fairlend",
-      },
-      {
-        membershipId: "om_oakline",
-        organizationName: "Oakline Builds",
-        roleNames: ["Builder"],
-        roleSlug: "builder",
-        roleSlugs: ["builder"],
+  useQuery: () => {
+    useQueryCallCount += 1;
+    if (useQueryCallCount % 2 === 1) {
+      return {
+        organizations: [
+          {
+            membershipId: "om_fairlend",
+            organizationName: "FairLend",
+            roleNames: ["Principal Broker"],
+            roleSlug: "principle-broker",
+            roleSlugs: ["principle-broker"],
+            workosOrganizationId: "org_fairlend",
+          },
+          {
+            membershipId: "om_oakline",
+            organizationName: "Oakline Builds",
+            roleNames: ["Builder"],
+            roleSlug: "builder",
+            roleSlugs: ["builder"],
+            workosOrganizationId: "org_oakline",
+          },
+          {
+            membershipId: "om_fairlend_duplicate",
+            organizationName: "FairLend",
+            roleNames: ["Admin"],
+            roleSlug: "admin",
+            roleSlugs: ["admin"],
+            workosOrganizationId: "org_fairlend_duplicate",
+          },
+        ],
+      };
+    }
+    return {
+      brokerage: {
+        displayName: "Oakline Builds",
         workosOrganizationId: "org_oakline",
       },
-      {
-        membershipId: "om_fairlend_duplicate",
-        organizationName: "FairLend",
-        roleNames: ["Admin"],
-        roleSlug: "admin",
-        roleSlugs: ["admin"],
-        workosOrganizationId: "org_fairlend_duplicate",
+      broker: {
+        email: "broker@oakline.test",
+        name: "Alex Broker",
+        workosUserId: "user_broker",
       },
-    ],
-  }),
+      recovery: null,
+      relationship: {
+        effectiveAt: 1_720_000_000_000,
+        status: "active",
+        updatedAt: 1_720_000_000_000,
+      },
+    };
+  },
 }));
 
 vi.mock("sonner", () => ({
@@ -85,6 +108,7 @@ afterEach(() => {
   invalidate.mockClear();
   signOut.mockClear();
   switchToOrganization.mockClear();
+  useQueryCallCount = 0;
 });
 
 describe("NavUser", () => {
@@ -108,6 +132,17 @@ describe("NavUser", () => {
       expect(switchToOrganization).toHaveBeenCalledWith("org_fairlend")
     );
     expect(invalidate).toHaveBeenCalledTimes(1);
+  });
+
+  test("shows the builder's broker relationship in the account menu", () => {
+    renderNavUser();
+
+    fireEvent.click(screen.getByRole("button", { name: /Connor Belezney/i }));
+
+    expect(screen.getByText("Broker relationship")).toBeTruthy();
+    expect(screen.getByText("Alex Broker")).toBeTruthy();
+    expect(screen.getByText("Active")).toBeTruthy();
+    expect(screen.getByText(/Effective/i)).toBeTruthy();
   });
 
   test("keeps log out wired to AuthKit sign out", async () => {

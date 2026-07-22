@@ -10,7 +10,10 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 
-import { BuilderStaffPermissionsPanel } from "./BuilderStaffPermissionsPanel";
+import {
+  BuilderStaffPermissionsPanel,
+  type StaffDirectory,
+} from "./BuilderStaffPermissionsPanel";
 
 const convexHooks = vi.hoisted(() => ({
   useAction: vi.fn(),
@@ -161,6 +164,52 @@ function renderPanel(directoryOverride: typeof directory = directory) {
 }
 
 describe("BuilderStaffPermissionsPanel", () => {
+  test("shows builder and staff emails in the roster and selected-member detail", async () => {
+    renderPanel();
+
+    await waitFor(() =>
+      expect(screen.getAllByText("staff@example.com")).toHaveLength(2),
+    );
+    expect(screen.getAllByText("owner@example.com")).toHaveLength(1);
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Owner Builder.*owner@example\.com.*Owner · full access/,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getAllByText("owner@example.com")).toHaveLength(2),
+    );
+    expect(screen.getAllByText("staff@example.com")).toHaveLength(1);
+  });
+
+  test("renders an injected fixture directory without a Convex read", async () => {
+    const fixtureDirectory = {
+      ...directory,
+      actions: [...directory.actions],
+      resources: [...resources],
+      scope: "activeBuild",
+    } as StaffDirectory;
+    convexHooks.useQuery.mockReturnValue(undefined);
+    convexHooks.useMutation.mockReturnValue(vi.fn());
+    convexHooks.useAction.mockReturnValue(vi.fn());
+
+    render(
+      <BuilderStaffPermissionsPanel
+        buildId={"active_build_visual" as never}
+        fixtureDirectory={fixtureDirectory}
+        scope="activeBuild"
+        workosOrganizationId="org_visual"
+      />,
+    );
+
+    expect(convexHooks.useQuery).toHaveBeenCalledWith(expect.anything(), "skip");
+    expect(screen.getAllByText("Staff Builder")).toHaveLength(2);
+    await waitFor(() =>
+      expect(screen.getByText("user_staff")).toBeTruthy(),
+    );
+  });
   test("provisions an email through the builder-staff action", async () => {
     const { provisionProposal } = renderPanel();
 

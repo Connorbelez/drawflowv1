@@ -86,7 +86,7 @@ interface PlanState {
 export function optimizeTimelineDrawSchedule(
   input: TimelineDrawOptimizationInput
 ): TimelineDrawOptimizationResult {
-  const range = normalizeRange(input.range);
+  const range = extendRangeThroughLastCashEvent(normalizeRange(input.range), input);
   const startingCash = normalizeCurrency(input.startingCash);
   const reserve = normalizeCurrency(input.minimumCashReserve);
   const interestAnnualBps = normalizeInterestAnnualBps(input.interestAnnualBps);
@@ -238,6 +238,25 @@ export function optimizeTimelineDrawSchedule(
     status: "optimized",
     totalCost: drawFees + interestCost,
     totalDrawAmount,
+  };
+}
+
+function extendRangeThroughLastCashEvent(
+  range: Required<TimelineRange>,
+  input: TimelineDrawOptimizationInput
+): Required<TimelineRange> {
+  const lastEventDay = Math.max(
+    range.max,
+    ...input.capitalSpikes.map((spike) => spike.x),
+    ...input.items.flatMap((item) => [
+      ...buildMilestoneSpendEvents(item).map((event) => event.day),
+      ...buildMilestoneDrawCapacityEvents(item).map((event) => event.day),
+    ])
+  );
+
+  return {
+    ...range,
+    max: Number.isFinite(lastEventDay) ? lastEventDay : range.max,
   };
 }
 

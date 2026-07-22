@@ -10,7 +10,7 @@ import {
   Search,
   Wifi,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -38,6 +38,7 @@ import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
+import { cn } from "#/lib/utils.ts";
 import { CalendarAgendaRail } from "./CalendarAgendaRail";
 import { CalendarOverflowMenu } from "./CalendarContextMenu";
 import { CalendarEventDetailDrawer } from "./CalendarEventDetailDrawer";
@@ -85,6 +86,12 @@ export interface CalendarWorkspaceProps {
     eventId: string;
     reason?: string;
   }) => Promise<unknown> | unknown;
+  onExportIcs?: (input: {
+    events: DrawFlowCalendarEvent[];
+    filename: string;
+    icsText: string;
+    sourceTitle: string;
+  }) => Promise<unknown> | unknown;
   onRecordExternalSyncChange?: (input: {
     changeKey: string;
     externalEventId?: string;
@@ -115,6 +122,7 @@ export function CalendarWorkspace({
   onCreateReminderEvent,
   onCreateSyncSubscription,
   onDeleteReminderEvent,
+  onExportIcs,
   onRecordExternalSyncChange,
   onSaveView,
   onTimeframeChange,
@@ -139,8 +147,19 @@ export function CalendarWorkspace({
   const [reminderDraft, setReminderDraft] = useState<ReminderDraft | null>(
     null
   );
+  const [pendingReminderCancellation, setPendingReminderCancellation] =
+    useState<DrawFlowCalendarEvent | null>(null);
+  const [reminderCancellationReason, setReminderCancellationReason] =
+    useState("");
+  const [reminderCancellationBusy, setReminderCancellationBusy] =
+    useState(false);
   const [syncFeedUrl, setSyncFeedUrl] = useState<string | null>(null);
   const [syncBusy, setSyncBusy] = useState<string | null>(null);
+  const [exportState, setExportState] = useState<{
+    message: string;
+    status: "error" | "idle" | "pending" | "success";
+  }>({ message: "", status: "idle" });
+  const exportInFlight = useRef(false);
 
   useEffect(() => {
     if (initialTimeframe) {
@@ -181,6 +200,50 @@ export function CalendarWorkspace({
         : [],
     [filters, normalizedWorkspace]
   );
+
+  async function exportFilteredEvents() {
+    if (!normalizedWorkspace || exportInFlight.current) {
+      return;
+    }
+
+    const filename = `${normalizedWorkspace.surface}-calendar.ics`;
+    const exportSummary = summarizeCalendarExport(filteredEvents);
+    const icsText = buildIcsForEvents(
+      filteredEvents,
+      normalizedWorkspace.source.title
+    );
+    exportInFlight.current = true;
+    setExportState({
+      message: `Preparing ${filename} for ${formatEventCount(exportSummary.eventCount)}.`,
+      status: "pending",
+    });
+
+    try {
+      if (onExportIcs) {
+        await onExportIcs({
+          events: filteredEvents,
+          filename,
+          icsText,
+          sourceTitle: normalizedWorkspace.source.title,
+        });
+      } else {
+        downloadTextFile(filename, icsText);
+      }
+      setExportState({
+        message: `Exported ${filename}: ${formatEventCount(exportSummary.eventCount)}, ${exportSummary.rangeLabel}, ${exportSummary.timezoneLabel}.`,
+        status: "success",
+      });
+    } catch {
+      setExportState({
+        message:
+          "Calendar export failed. Try again or create an ICS subscription instead.",
+        status: "error",
+      });
+    } finally {
+      exportInFlight.current = false;
+    }
+  }
+
   const managedEvents = useMemo(
     () => filteredEvents.map(drawFlowEventToManagedEvent),
     [filteredEvents]
@@ -227,15 +290,12 @@ export function CalendarWorkspace({
               ),
             onBulkMove: (events, dayDelta) =>
               setPendingBulkMove({ dayDelta, events }),
-            onDeleteReminder: async (event) => {
+            onDeleteReminder: (event) => {
               if (event.entity.type !== "calendarReminder") {
                 return;
               }
-              await onDeleteReminderEvent?.({
-                eventId: event.entity.id,
-                reason: "Cancelled from calendar workspace.",
-              });
-              toast.success("Calendar reminder cancelled.");
+              setReminderCancellationReason("");
+              setPendingReminderCancellation(event);
             },
             onEditReminder: (event) => {
               if (event.entity.type !== "calendarReminder") {
@@ -332,15 +392,8 @@ export function CalendarWorkspace({
                 setSyncBusy(null);
               }
             }}
-            onExport={() =>
-              downloadTextFile(
-                `${normalizedWorkspace.surface}-calendar.ics`,
-                buildIcsForEvents(
-                  filteredEvents,
-                  normalizedWorkspace.source.title
-                )
-              )
-            }
+            exportState={exportState}
+            onExport={exportFilteredEvents}
             onNewReminder={() =>
               setReminderDraft(
                 emptyReminderDraft(
@@ -451,16 +504,18 @@ export function CalendarWorkspace({
           </Frame>
         </div>
 
-        <CalendarAgendaRail
-          actions={allActions}
-          className="min-h-[24rem] xl:min-h-0"
-          events={filteredEvents}
-          onSelectEvent={(event) => setSelectedEventId(event.id)}
-          selectedEventId={selectedEventId}
-          source={normalizedWorkspace.source}
-          surface={normalizedWorkspace.surface}
-          timeframe={timeframe}
-        />
+        {timeframe === "agenda" ? null : (
+          <CalendarAgendaRail
+            actions={allActions}
+            className="min-h-[24rem] xl:min-h-0"
+            events={filteredEvents}
+            onSelectEvent={(event) => setSelectedEventId(event.id)}
+            selectedEventId={selectedEventId}
+            source={normalizedWorkspace.source}
+            surface={normalizedWorkspace.surface}
+            timeframe={timeframe}
+          />
+        )}
       </div>
 
       <CalendarEventDetailDrawer
@@ -645,6 +700,89 @@ export function CalendarWorkspace({
               }}
             >
               Move selected
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        onOpenChange={(open) => {
+          if (!(open || reminderCancellationBusy)) {
+            setPendingReminderCancellation(null);
+            setReminderCancellationReason("");
+          }
+        }}
+        open={Boolean(pendingReminderCancellation)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Cancel {pendingReminderCancellation?.title ?? "reminder"}?
+            </DialogTitle>
+            <DialogDescription>
+              The reminder stays in calendar history as cancelled. Assigned
+              participants may receive cancellation notifications, so confirm
+              that this coordination event is no longer needed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor="reminder-cancellation-reason">
+              Cancellation reason (optional)
+            </Label>
+            <Textarea
+              id="reminder-cancellation-reason"
+              onChange={(event) =>
+                setReminderCancellationReason(event.target.value)
+              }
+              placeholder="Explain why this reminder is being cancelled."
+              value={reminderCancellationReason}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              disabled={reminderCancellationBusy}
+              onClick={() => {
+                setPendingReminderCancellation(null);
+                setReminderCancellationReason("");
+              }}
+              variant="outline"
+            >
+              Keep reminder
+            </Button>
+            <Button
+              disabled={reminderCancellationBusy}
+              onClick={async () => {
+                const event = pendingReminderCancellation;
+                if (event?.entity.type !== "calendarReminder") {
+                  return;
+                }
+                setReminderCancellationBusy(true);
+                try {
+                  await onDeleteReminderEvent?.({
+                    eventId: event.entity.id,
+                    reason:
+                      reminderCancellationReason.trim() ||
+                      "Cancelled from calendar workspace.",
+                  });
+                  toast.success(
+                    "Calendar reminder cancelled and retained in history."
+                  );
+                  setPendingReminderCancellation(null);
+                  setReminderCancellationReason("");
+                } catch {
+                  toast.error(
+                    "Calendar reminder cancellation failed. Try again."
+                  );
+                } finally {
+                  setReminderCancellationBusy(false);
+                }
+              }}
+              variant="destructive"
+            >
+              {reminderCancellationBusy ? (
+                <Loader2 className="animate-spin" />
+              ) : null}
+              Cancel reminder
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1094,8 +1232,47 @@ function calendarTimeBucketLabel(
   return labels[bucket];
 }
 
+function summarizeCalendarExport(events: DrawFlowCalendarEvent[]) {
+  const dates = events
+    .flatMap((event) => [event.startsAt, event.endsAt])
+    .filter((value): value is string => Boolean(value))
+    .map((value) => value.slice(0, 10))
+    .sort();
+  const firstDate = dates[0];
+  const lastDate = dates.at(-1);
+  const timezones = Array.from(new Set(events.map((event) => event.timezone)));
+
+  return {
+    eventCount: events.length,
+    rangeLabel:
+      firstDate && lastDate
+        ? firstDate === lastDate
+          ? formatCalendarExportDate(firstDate)
+          : `${formatCalendarExportDate(firstDate)} to ${formatCalendarExportDate(lastDate)}`
+        : "No dated events",
+    timezoneLabel:
+      timezones.length === 1
+        ? (timezones[0] ?? "Timezone unavailable")
+        : `${timezones.length} timezones`,
+  };
+}
+
+function formatCalendarExportDate(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    month: "long",
+    timeZone: "UTC",
+    year: "numeric",
+  }).format(new Date(`${value}T00:00:00Z`));
+}
+
+function formatEventCount(count: number) {
+  return `${count} event${count === 1 ? "" : "s"}`;
+}
+
 function CalendarWorkspaceToolbar({
   events,
+  exportState,
   filters,
   actions,
   canCreateReminderEvents,
@@ -1118,9 +1295,13 @@ function CalendarWorkspaceToolbar({
   actions: CalendarAction[];
   canCreateReminderEvents: boolean;
   events: DrawFlowCalendarEvent[];
+  exportState: {
+    message: string;
+    status: "error" | "idle" | "pending" | "success";
+  };
   filters: CalendarFilters;
   onCreateSyncSubscription: (provider: "google" | "ics" | "outlook") => void;
-  onExport: () => void;
+  onExport: () => Promise<void> | void;
   onNewReminder: () => void;
   onRecordInbound: () => void;
   onSaveView: () => void;
@@ -1171,9 +1352,20 @@ function CalendarWorkspaceToolbar({
                 New event
               </Button>
             ) : null}
-            <Button onClick={onExport} size="sm" variant="outline">
-              <Download />
-              Export ICS
+            <Button
+              disabled={exportState.status === "pending"}
+              onClick={onExport}
+              size="sm"
+              variant="outline"
+            >
+              {exportState.status === "pending" ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <Download />
+              )}
+              {exportState.status === "pending"
+                ? "Exporting ICS"
+                : "Export ICS"}
             </Button>
             {(["ics", "google", "outlook"] as const).map((provider) => (
               <Button
@@ -1201,6 +1393,20 @@ function CalendarWorkspaceToolbar({
             </Button>
           </div>
         </div>
+        {exportState.message ? (
+          <p
+            aria-live={exportState.status === "error" ? "assertive" : "polite"}
+            className={cn(
+              "text-sm",
+              exportState.status === "error"
+                ? "text-destructive"
+                : "text-muted-foreground"
+            )}
+            role={exportState.status === "error" ? "alert" : "status"}
+          >
+            {exportState.message}
+          </p>
+        ) : null}
         <div className="grid gap-2 lg:grid-cols-[minmax(14rem,22rem)_1fr] lg:items-center">
           <div className="relative">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -1309,7 +1515,7 @@ function buildDefaultCalendarActions(input: {
   canUpdateReminderEvents: boolean;
   exportEvents: (events: DrawFlowCalendarEvent[], filename: string) => void;
   onBulkMove: (events: DrawFlowCalendarEvent[], dayDelta: number) => void;
-  onDeleteReminder: (event: DrawFlowCalendarEvent) => Promise<void>;
+  onDeleteReminder: (event: DrawFlowCalendarEvent) => void;
   onEditReminder: (event: DrawFlowCalendarEvent) => void;
   onNewReminder: (date: string) => void;
   onOpen: (event: DrawFlowCalendarEvent) => void;
@@ -1359,6 +1565,7 @@ function buildDefaultCalendarActions(input: {
             description: "Create a reminder-only event on this calendar date.",
             icon: <CalendarPlus className="size-4" />,
             id: "new-reminder-event-from-event",
+            isVisible: (context) => context.event?.kind !== "reminder",
             label: "New reminder event",
             onSelect: (context) => {
               input.onNewReminder(
@@ -1377,6 +1584,7 @@ function buildDefaultCalendarActions(input: {
       availability: { state: "enabled" },
       description: "Copy an event deep link.",
       id: "copy-event-link",
+      isVisible: (context) => context.event?.kind !== "reminder",
       label: "Copy link",
       onSelect: async (context) => {
         const link = `${window.location.origin}${window.location.pathname}?calendarEvent=${context.event?.id ?? ""}`;
@@ -1406,7 +1614,9 @@ function buildDefaultCalendarActions(input: {
       description: "Edit this reminder-only calendar event.",
       id: "edit-reminder-event",
       isVisible: (context) =>
-        input.canUpdateReminderEvents && context.event?.kind === "reminder",
+        input.canUpdateReminderEvents &&
+        context.event?.kind === "reminder" &&
+        context.event.status !== "cancelled",
       label: "Edit reminder",
       onSelect: (context) => {
         if (context.event?.kind === "reminder") {
@@ -1422,11 +1632,13 @@ function buildDefaultCalendarActions(input: {
       description: "Cancel this reminder-only calendar event.",
       id: "cancel-reminder-event",
       isVisible: (context) =>
-        input.canDeleteReminderEvents && context.event?.kind === "reminder",
+        input.canDeleteReminderEvents &&
+        context.event?.kind === "reminder" &&
+        context.event.status !== "cancelled",
       label: "Cancel reminder",
-      onSelect: async (context) => {
+      onSelect: (context) => {
         if (context.event?.kind === "reminder") {
-          await input.onDeleteReminder(context.event);
+          input.onDeleteReminder(context.event);
         }
       },
       requiresConfirmation: true,

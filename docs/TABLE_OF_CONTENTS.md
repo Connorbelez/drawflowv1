@@ -48,7 +48,7 @@ Quick reference for agents after PRD split. Each row gives file location, sectio
 | `draw_flow_prd.md` | 7.7 | Subtask | 410 |
 | `draw_flow_prd.md` | 7.8 | Draw | 423 |
 | `draw_flow_prd.md` | 7.9 | Draw Group | 446 |
-| `draw_flow_prd.md` | 7.10 | Borrower Working Capital Limit | 464 |
+| `draw_flow_prd.md` | 7.10 | Borrower Starting Cash | 464 |
 | `draw_flow_prd.md` | 7.11 | Lender Draw Policy Limit | 481 |
 | `draw_flow_prd.md` | 7.12 | Evidence Package | 497 |
 | `draw_flow_prd.md` | 7.13 | Site Visit | 517 |
@@ -168,7 +168,7 @@ Quick reference for agents after PRD split. Each row gives file location, sectio
 | `uiManifest/screenManifest.md` | SCR-002 | Build Proposal Start | 39 |
 | `uiManifest/screenManifest.md` | SCR-003 | Build Site Location and Map Setup | 63 |
 | `uiManifest/screenManifest.md` | SCR-004 | Permit and Document Upload | 89 |
-| `uiManifest/screenManifest.md` | SCR-005 | Available Working Capital Input | 114 |
+| `uiManifest/screenManifest.md` | SCR-005 | Borrower Starting Cash Input | 114 |
 | `uiManifest/screenManifest.md` | SCR-006 | Milestone Template Selection | 138 |
 | `uiManifest/screenManifest.md` | SCR-007 | Draft Build Workspace / Roadmap Wizard | 160 |
 | `uiManifest/screenManifest.md` | SCR-008 | Draw Plan Comparison | 186 |

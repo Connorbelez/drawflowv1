@@ -50,19 +50,22 @@ test("admin review has site visit quick actions and draw group aggregate breadcr
     page.getByTestId("admin-assign-site-visit-inline")
   ).toBeVisible();
   await page.getByTestId("admin-start-site-visit-inline").click();
-  await expect(
-    page.getByRole("heading", { name: "Site visit interface" })
-  ).toBeVisible();
-  await page
-    .getByTestId("admin-site-visit-note")
+  const requestSiteVisitDialog = page.getByRole("dialog", {
+    name: "Request site visit",
+  });
+  await expect(requestSiteVisitDialog).toBeVisible();
+  await expect(requestSiteVisitDialog.getByText("Permits", { exact: true })).toHaveCount(2);
+  await requestSiteVisitDialog
+    .getByRole("textbox", { name: "Request reason" })
     .fill("Observed incomplete work.");
   await expect(
-    page.getByTestId("admin-submit-site-visit-report")
+    requestSiteVisitDialog.getByRole("button", { name: "Generate Token" })
   ).toBeEnabled();
-  await page.getByRole("button", { name: "Cancel" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Site visit interface" })
-  ).toHaveCount(0);
+  await requestSiteVisitDialog
+    .getByRole("button", { name: "Close" })
+    .first()
+    .click();
+  await expect(requestSiteVisitDialog).toHaveCount(0);
 
   await page.getByTestId("admin-breadcrumb-draw-group").click();
   await expect(

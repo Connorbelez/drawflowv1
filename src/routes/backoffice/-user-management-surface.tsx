@@ -147,6 +147,16 @@ export function UserManagementSurface({
         : [],
     [projections, roles, organizationRoles, memberships]
   );
+  const roleOptionsByOrganization = useMemo(
+    () =>
+      collectRoleOptionsByOrganization(
+        roles,
+        organizationRoles,
+        memberships,
+        organizations
+      ),
+    [roles, organizationRoles, memberships, organizations]
+  );
 
   const organizationsById = useMemo(
     () =>
@@ -341,7 +351,7 @@ export function UserManagementSurface({
         }}
         organizationsById={organizationsById}
         provisioningByOrg={provisioningByOrg}
-        roleOptions={roleOptions}
+        roleOptionsByOrganization={roleOptionsByOrganization}
         workspaceOrganizations={organizations}
       />
 
@@ -1896,6 +1906,50 @@ function collectRoleOptions(
     }
   }
   return [...collected].sort();
+}
+
+function collectRoleOptionsByOrganization(
+  roles: WorkosRoleRow[],
+  organizationRoles: WorkosRoleRow[],
+  memberships: WorkosMembershipRow[],
+  organizations: WorkosOrganizationRow[]
+): Map<string, string[]> {
+  const environmentRoles = roles
+    .filter((role) => role.status !== "deleted" && role.slug)
+    .map((role) => role.slug);
+  const collected = new Map<string, Set<string>>();
+
+  for (const organization of organizations) {
+    collected.set(organization.workosOrganizationId, new Set(environmentRoles));
+  }
+  for (const role of organizationRoles) {
+    if (role.status === "deleted" || !role.slug || !role.workosOrganizationId) {
+      continue;
+    }
+    const options =
+      collected.get(role.workosOrganizationId) ?? new Set(environmentRoles);
+    options.add(role.slug);
+    collected.set(role.workosOrganizationId, options);
+  }
+  for (const membership of memberships) {
+    const options =
+      collected.get(membership.workosOrganizationId) ??
+      new Set(environmentRoles);
+    if (membership.roleSlug) {
+      options.add(membership.roleSlug);
+    }
+    for (const role of membership.roleSlugs ?? []) {
+      options.add(role);
+    }
+    collected.set(membership.workosOrganizationId, options);
+  }
+
+  return new Map(
+    [...collected].map(([organizationId, options]) => [
+      organizationId,
+      [...options].sort(),
+    ])
+  );
 }
 
 const INITIALS_EMAIL_RE = /@.*/;

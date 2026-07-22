@@ -2,7 +2,11 @@ import { v } from "convex/values";
 
 import type { Doc, TableNames } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
-import { authenticatedQuery, backofficeQuery } from "./authz";
+import {
+  type AuthorizedViewer,
+  authenticatedQuery,
+  backofficeQuery,
+} from "./authz";
 import { fluent } from "./fluent";
 
 interface WorkosEvent {
@@ -143,9 +147,23 @@ export const listUserManagement = backofficeQuery
     })
   )
   .handler(async (ctx) => {
-    const memberships = await ctx.db
+    const organizationScope = resolveUserManagementOrganizationScope(
+      ctx.viewer
+    );
+    const allMemberships = await ctx.db
       .query("workosOrganizationMemberships")
       .collect();
+    const memberships = allMemberships.filter(
+      (membership) =>
+        organizationScope === null ||
+        membership.workosOrganizationId === organizationScope
+    );
+    const visibleOrganizationIds = new Set(
+      memberships.map((membership) => membership.workosOrganizationId)
+    );
+    const visibleUserIds = new Set(
+      memberships.map((membership) => membership.workosUserId)
+    );
     const rolesByUserId = new Map<string, Set<string>>();
 
     for (const membership of memberships) {
@@ -171,23 +189,39 @@ export const listUserManagement = backofficeQuery
       rolesByUserId.set(membership.workosUserId, userRoles);
     }
 
-    const users = (await ctx.db.query("users").collect()).map((user) => {
-      const roleSlugs = [
-        ...(rolesByUserId.get(user.workosUserId ?? "") ?? []),
-      ].sort();
-      return {
-        ...user,
-        roles: roleSlugs.join(", "),
-        roleSlugs,
-      };
-    });
+    const users = (await ctx.db.query("users").collect())
+      .filter(
+        (user) =>
+          organizationScope === null ||
+          visibleUserIds.has(user.workosUserId ?? "")
+      )
+      .map((user) => {
+        const roleSlugs = [
+          ...(rolesByUserId.get(user.workosUserId ?? "") ?? []),
+        ].sort();
+        return {
+          ...user,
+          roles: roleSlugs.join(", "),
+          roleSlugs,
+        };
+      });
 
     return {
       memberships,
-      organizationRoles: await ctx.db
-        .query("workosOrganizationRoles")
-        .collect(),
-      organizations: await ctx.db.query("workosOrganizations").collect(),
+      organizationRoles: (
+        await ctx.db.query("workosOrganizationRoles").collect()
+      ).filter(
+        (role) =>
+          organizationScope === null ||
+          visibleOrganizationIds.has(role.workosOrganizationId)
+      ),
+      organizations: (
+        await ctx.db.query("workosOrganizations").collect()
+      ).filter(
+        (organization) =>
+          organizationScope === null ||
+          organization.workosOrganizationId === organizationScope
+      ),
       permissions: await ctx.db.query("workosPermissions").collect(),
       roles: await ctx.db.query("workosRoles").collect(),
       users,
@@ -372,6 +406,17 @@ function projectionUpdatedAt(
   projection: Pick<Doc<"workosOrganizations">, "createdAt" | "updatedAt"> | null
 ) {
   return projection?.updatedAt ?? projection?.createdAt ?? 0;
+}
+
+function resolveUserManagementOrganizationScope(viewer: AuthorizedViewer) {
+  if (viewer.roles.includes("admin")) {
+    return null;
+  }
+  const organizationId = viewer.organizationId?.trim();
+  if (!organizationId) {
+    throw new Error("Forbidden: organization scope");
+  }
+  return organizationId;
 }
 
 export const listSyncStatus = backofficeQuery
@@ -655,6 +700,88 @@ async function upsertMembership(
       patch as InsertDoc<"workosOrganizationMemberships">
     );
   }
+
+  const projectedStatus = patch.status ?? row?.status;
+  const projectedRoles = patch.roleSlugs ?? row?.roleSlugs ?? [];
+  if (projectedStatus === "active" && projectedRoles.includes("contractor")) {
+    await acceptContractorInviteClaimFromMembership(ctx, {
+      now,
+      workosOrganizationId: resolvedWorkosOrganizationId,
+      workosUserId: resolvedWorkosUserId,
+    });
+  }
+}
+
+async function acceptContractorInviteClaimFromMembership(
+  ctx: MutationCtx,
+  input: {
+    now: number;
+    workosOrganizationId: string;
+    workosUserId: string;
+  }
+) {
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_workos_user_id", (q) =>
+      q.eq("workosUserId", input.workosUserId)
+    )
+    .first();
+  const normalizedEmail = user?.email.trim().toLowerCase();
+  if (!normalizedEmail) {
+    return;
+  }
+  const candidates = await ctx.db
+    .query("contractorInviteClaims")
+    .withIndex("by_invited_email", (q) =>
+      q.eq("invitedNormalizedEmail", normalizedEmail)
+    )
+    .collect();
+  const liveClaims = candidates
+    .filter(
+      (claim) =>
+        claim.organizationId === input.workosOrganizationId &&
+        claim.state === "invited" &&
+        (claim.expiresAt === undefined || claim.expiresAt >= input.now)
+    )
+    .sort((left, right) => right.createdAt - left.createdAt);
+  const claim = liveClaims[0];
+  if (!claim) {
+    return;
+  }
+  await ctx.db.patch(claim._id, {
+    acceptedWorkosUserId: input.workosUserId,
+    state: "accepted_pending_confirmation",
+    updatedAt: input.now,
+  });
+  for (const staleClaim of liveClaims.slice(1)) {
+    await ctx.db.patch(staleClaim._id, {
+      revokedAt: input.now,
+      revokedByWorkosUserId: "system:workos-projection",
+      revokeReason: "A newer contractor invitation was accepted.",
+      state: "revoked",
+      updatedAt: input.now,
+    });
+  }
+  await ctx.db.insert("auditEvents", {
+    actorRoles: ["system"],
+    actorWorkosUserId: "system:workos-projection",
+    brokerageId: claim.brokerageId,
+    command: "acceptContractorInviteClaimFromMembership",
+    createdAt: input.now,
+    entityId: String(claim._id),
+    entityType: "contractorInviteClaim",
+    eventType: "contractor.invite.accepted",
+    newState: JSON.stringify({
+      acceptedWorkosUserId: input.workosUserId,
+      state: "accepted_pending_confirmation",
+    }),
+    organizationId: claim.organizationId,
+    priorState: JSON.stringify({ state: "invited" }),
+    warnings:
+      liveClaims.length > 1
+        ? [`Revoked ${liveClaims.length - 1} older matching invitation(s).`]
+        : [],
+  });
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: WorkOS role payloads have varying external shapes.

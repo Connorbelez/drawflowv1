@@ -721,7 +721,7 @@ function BuildDetailsCard({
       <hr className="my-4 border-border" />
       <h3 className="mb-2 font-semibold text-sm">Loan Details</h3>
       <dl className="grid grid-cols-[120px_1fr] gap-y-1.5 text-sm">
-        <Label>Working capital limit</Label>
+        <Label>Borrower starting cash</Label>
         <span>{formatCents(build.workingCapitalLimitCents)}</span>
         <Label>Lender policy limit</Label>
         <span>{formatCents(build.lenderDrawPolicyLimitCents)}</span>

@@ -364,11 +364,11 @@ function ComparisonSection(): ReactElement {
       <div className="df-limit-board">
         <WalletCards aria-hidden />
         <div>
-          <strong>Working capital is not lender policy.</strong>
+          <strong>Starting cash is not lender policy.</strong>
           <p>
-            Borrower Working Capital Limit and Lender Draw Policy Limit are
-            separate controls. The interface should keep both visible before a
-            builder selects a draw plan.
+            Borrower Starting Cash, derived Required Working Capital, and the
+            Lender Draw Policy Limit are separate values. The interface keeps
+            them visible before a builder selects a draw plan.
           </p>
         </div>
       </div>

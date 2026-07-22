@@ -12,6 +12,12 @@ export type BuilderProposal = BuilderRow["proposals"][number];
 export type BuilderBuild = BuilderRow["builds"][number];
 export type BrokerageOption = BuilderRosterResult["brokerages"][number];
 
+export type AssignableBrokersResult = FunctionReturnType<
+  typeof api.builderRoster.listAssignableBrokers
+>;
+export type AssignableBrokerage = AssignableBrokersResult["brokerages"][number];
+export type AssignableBroker = AssignableBrokerage["brokers"][number];
+
 export type UnprovisionedBuildersResult = FunctionReturnType<
   typeof api.builderRoster.listUnprovisionedBuilders
 >;

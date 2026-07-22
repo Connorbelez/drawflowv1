@@ -82,7 +82,7 @@ export interface ProposalPlanningSnapshot {
     tone?: string;
   }>;
   proposal: {
-    borrowerWorkingCapitalLimitCents: number;
+    borrowerStartingCashCents: number;
     lenderDrawPolicyLimitCents: number;
     timelineCurrentDay?: number;
     timelineProgressValue?: number;
@@ -540,7 +540,9 @@ export async function captureProposalPlanningSnapshot(
       tone: milestone.tone,
     })),
     proposal: {
-      borrowerWorkingCapitalLimitCents:
+      borrowerStartingCashCents:
+        proposal.borrowerStartingCashCents ??
+        proposal.timelineStartingCashCents ??
         proposal.borrowerWorkingCapitalLimitCents,
       lenderDrawPolicyLimitCents: proposal.lenderDrawPolicyLimitCents,
       timelineCurrentDay: proposal.timelineCurrentDay,
@@ -650,8 +652,10 @@ export async function restoreProposalPlanningSnapshot(
     });
   }
   await ctx.db.patch(auth.proposal._id, {
+    borrowerStartingCashCents: snapshot.proposal.borrowerStartingCashCents,
+    // Dual-write until the legacy field is narrowed out after backfill.
     borrowerWorkingCapitalLimitCents:
-      snapshot.proposal.borrowerWorkingCapitalLimitCents,
+      snapshot.proposal.borrowerStartingCashCents,
     lenderDrawPolicyLimitCents: snapshot.proposal.lenderDrawPolicyLimitCents,
     timelineCurrentDay: snapshot.proposal.timelineCurrentDay,
     timelineProgressValue: snapshot.proposal.timelineProgressValue,

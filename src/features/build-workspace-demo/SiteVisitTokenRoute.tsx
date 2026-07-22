@@ -24,6 +24,7 @@ import {
   X,
 } from "lucide-react";
 import { type ChangeEvent, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   DeviceCaptureDialog,
   type DeviceCaptureKind,
@@ -63,7 +64,10 @@ import {
 } from "./site-visit-evidence-staging";
 import {
   formatSiteVisitBytes,
+  locationAttemptFromError,
+  locationAttemptFromPosition,
   resolveSiteVisitUnavailableCopy,
+  type SiteVisitLocationAttempt,
 } from "./site-visit-token-route-model";
 
 const tokenConvex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL);
@@ -285,16 +289,40 @@ function SiteVisitTokenRouteContent({
           .submitActiveBuildTokenizedSiteVisitReport
       : api.demo_drawflow.demo_submitTokenizedSiteVisitReport
   );
+  const requestReplacement = useMutation(
+    source === "production"
+      ? (api as any).production_proposals
+          .requestActiveBuildSiteVisitReplacementLink
+      : (api as any).demo_drawflow.demo_requestSiteVisitReplacementLink
+  );
   const openedRef = useRef(false);
   const [selectedTarget, setSelectedTarget] = useState("visit-wide");
   const [reportNotes, setReportNotes] = useState(DEFAULT_REPORT_NOTES);
   const [completionObserved, setCompletionObserved] = useState(true);
   const [recommendedOutcome, setRecommendedOutcome] = useState("approve");
   const [qualityRating, setQualityRating] = useState("");
+  const [locationAttempt, setLocationAttempt] =
+    useState<SiteVisitLocationAttempt>({
+      attempted: false,
+      failureReason: "Location verification was not attempted.",
+      permissionOutcome: "not_requested",
+      verified: false,
+    });
+  const [checkingLocation, setCheckingLocation] = useState(false);
+  const [prerequisiteAcknowledged, setPrerequisiteAcknowledged] =
+    useState(false);
+  const [prerequisiteReason, setPrerequisiteReason] = useState("");
   const [stagedItems, setStagedItems] = useState<StagedItem[]>([]);
   const [uploadingCount, setUploadingCount] = useState(0);
+  const [submittingReport, setSubmittingReport] = useState(false);
   const [drawer, setDrawer] = useState<DrawerKey | null>(null);
   const [error, setError] = useState("");
+  const [requestingReplacement, setRequestingReplacement] = useState(false);
+  const [replacementError, setReplacementError] = useState("");
+  const [replacementReason, setReplacementReason] = useState(
+    "A new site visit is required for this Build."
+  );
+  const [replacementReference, setReplacementReference] = useState("");
   const [submittedSummary, setSubmittedSummary] =
     useState<SubmittedSummary | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -303,6 +331,25 @@ function SiteVisitTokenRouteContent({
     const timer = window.setInterval(() => setNow(Date.now()), 15_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  const requestNewLink = async () => {
+    setReplacementError("");
+    setRequestingReplacement(true);
+    try {
+      const result = (await requestReplacement({
+        buildId,
+        reason: replacementReason,
+        token: siteVisitToken,
+      })) as { reference: string; requested: true };
+      setReplacementReference(result.reference);
+    } catch {
+      setReplacementError(
+        "The replacement-link request could not be recorded. Contact the requester and share the Build identity shown below."
+      );
+    } finally {
+      setRequestingReplacement(false);
+    }
+  };
 
   useEffect(() => {
     if (
@@ -376,40 +423,102 @@ function SiteVisitTokenRouteContent({
   if (!visitState.available) {
     const copy = resolveSiteVisitUnavailableCopy(visitState);
     const build = visitState.build ?? null;
+    const consumed = visitState.reason === "consumed";
     const expired = visitState.reason === "expired";
+    const detailItems: [string, string][] = consumed
+      ? [
+          ["Report status", "Submitted · read only"],
+          [
+            "Submitted",
+            `${formatVisitTime(visitState.visit?.completedAt)} · ${formatVisitDay(visitState.visit?.completedAt)}`,
+          ],
+          ["Build", deriveBuildCode(buildId, build)],
+          ["Milestone", visitState.visit?.milestoneKey ?? "Assigned visit"],
+        ]
+      : expired
+        ? [
+            [
+              "Token issued",
+              `${formatVisitTime(visitState.visit?.createdAt)} · ${formatVisitDay(visitState.visit?.createdAt)}`,
+            ],
+            [
+              "Expired at",
+              `${formatVisitTime(visitState.visit?.tokenExpiresAt)} · ${formatVisitDay(visitState.visit?.tokenExpiresAt)}`,
+            ],
+            ["Build", deriveBuildCode(buildId, build)],
+            ["Reason", "Visit window elapsed"],
+          ]
+        : [
+            ["Reason", "Build and assignment do not match"],
+            ["Build", deriveBuildCode(buildId, build)],
+            [
+              "Next action",
+              "Return to the assignment or contact the requester",
+            ],
+            ["Support", "ops@drawflow.app"],
+          ];
     return (
       <MobileShell
         build={build}
         buildCode={deriveBuildCode(buildId, build)}
-        status="expired"
-        statusText={expired ? "Expired" : "Invalid"}
-        timeText="Token void"
+        status={consumed ? "complete" : "expired"}
+        statusText={consumed ? "Complete" : expired ? "Expired" : "Invalid"}
+        timeText={consumed ? "Read only" : "Token void"}
       >
         <OutcomeCard
-          body={copy.body}
-          detailItems={
-            expired
-              ? [
-                  [
-                    "Token issued",
-                    `${formatVisitTime(visitState.visit?.createdAt)} · ${formatVisitDay(visitState.visit?.createdAt)}`,
-                  ],
-                  [
-                    "Expired at",
-                    `${formatVisitTime(visitState.visit?.tokenExpiresAt)} · ${formatVisitDay(visitState.visit?.tokenExpiresAt)}`,
-                  ],
-                  ["Build", deriveBuildCode(buildId, build)],
-                  ["Reason", "Window elapsed"],
-                ]
-              : [
-                  ["Reason", "Build / token mismatch"],
-                  ["Token tail", tokenTail(siteVisitToken)],
-                  ["Build", deriveBuildCode(buildId, build)],
-                  ["Support", "ops@drawflow.app"],
-                ]
+          actions={
+            copy.canRequestReplacement ? (
+              <div className="mt-6 grid gap-3 border-t pt-5 text-left">
+                {replacementReference ? (
+                  <div className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-emerald-950 text-sm">
+                    <p className="font-medium">New-link request recorded</p>
+                    <p className="mt-1">
+                      Reference {replacementReference}. The requester has an
+                      auditable task to issue a separate link.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <label className="grid gap-2 text-sm">
+                      Reason for another link
+                      <textarea
+                        className="min-h-20 rounded-md border bg-background p-2 text-foreground"
+                        onChange={(event) =>
+                          setReplacementReason(event.currentTarget.value)
+                        }
+                        value={replacementReason}
+                      />
+                    </label>
+                    <Button
+                      disabled={
+                        requestingReplacement || !replacementReason.trim()
+                      }
+                      onClick={() => void requestNewLink()}
+                      type="button"
+                    >
+                      {requestingReplacement ? (
+                        <LoaderCircle className="animate-spin" />
+                      ) : (
+                        <ExternalLink />
+                      )}
+                      Request a new link
+                    </Button>
+                  </>
+                )}
+                {replacementError ? (
+                  <p className="text-destructive text-sm" role="alert">
+                    {replacementError}
+                  </p>
+                ) : null}
+              </div>
+            ) : null
           }
+          body={copy.body}
+          detailItems={detailItems}
           icon={
-            expired ? (
+            consumed ? (
+              <CheckCircle2 className="size-6" />
+            ) : expired ? (
               <Clock3 className="size-6" />
             ) : (
               <Lock className="size-6" />
@@ -417,13 +526,14 @@ function SiteVisitTokenRouteContent({
           }
           stamp={copy.stamp}
           title={copy.title}
-          tone="danger"
+          tone={consumed ? "neutral" : "danger"}
         />
       </MobileShell>
     );
   }
 
   const { build, files, permit, targets, visit } = visitState;
+  const missingPrerequisites = permit ? [] : (["permit"] as const);
   const selectedScope = parseSelectedVisitTarget(selectedTarget);
   const selectedMilestoneKey = selectedScope.milestoneKey;
   const selectedSubmilestoneKey = selectedScope.submilestoneKey;
@@ -441,6 +551,28 @@ function SiteVisitTokenRouteContent({
     0,
     Math.ceil(((visit.tokenExpiresAt ?? now) - now) / 60_000)
   );
+
+  const verifyLocation = () => {
+    setCheckingLocation(true);
+    if (!navigator.geolocation) {
+      setLocationAttempt(locationAttemptFromError({ code: 2 }, Date.now()));
+      setCheckingLocation(false);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLocationAttempt(
+          locationAttemptFromPosition(position.coords, Date.now())
+        );
+        setCheckingLocation(false);
+      },
+      (locationError) => {
+        setLocationAttempt(locationAttemptFromError(locationError, Date.now()));
+        setCheckingLocation(false);
+      },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15_000 }
+    );
+  };
 
   const stageSelectedFiles = (selectedFiles: File[]) => {
     if (selectedFiles.length === 0) {
@@ -529,6 +661,25 @@ function SiteVisitTokenRouteContent({
 
   const submit = async () => {
     setError("");
+    const blockers = reportSubmissionBlockers({
+      evidenceCount: files.length + stagedItems.length,
+      hasReportNotes: richTextHtmlHasText(reportNotes),
+      missingPermit: missingPrerequisites.length > 0,
+      prerequisiteAcknowledged,
+      prerequisiteReason,
+      uploadingCount,
+    });
+    if (blockers.length > 0) {
+      toast.warning("Report not ready", {
+        description: `${blockers.length} requirement${
+          blockers.length === 1 ? "" : "s"
+        } remain: ${blockers.join(" • ")}`,
+        duration: 10_000,
+      });
+      return;
+    }
+
+    setSubmittingReport(true);
     try {
       const stagedCount = stagedItems.length;
       if (stagedCount > 0) {
@@ -539,6 +690,16 @@ function SiteVisitTokenRouteContent({
       const reportPayload: Record<string, unknown> = {
         buildId,
         completionObserved,
+        locationAttempt,
+        missingPrerequisites,
+        ...(missingPrerequisites.length > 0
+          ? {
+              prerequisiteException: {
+                acknowledged: prerequisiteAcknowledged,
+                reason: prerequisiteReason,
+              },
+            }
+          : {}),
         recommendedOutcome,
         reportNotes,
         token: siteVisitToken,
@@ -563,11 +724,14 @@ function SiteVisitTokenRouteContent({
         visitId: siteVisitToken.slice(-6).toUpperCase(),
       });
     } catch (submitError) {
-      setError(
+      const message =
         submitError instanceof Error
           ? submitError.message
-          : "Unable to submit site visit report."
-      );
+          : "Unable to submit site visit report.";
+      setError(message);
+      toast.error("Report submission failed", { description: message });
+    } finally {
+      setSubmittingReport(false);
     }
   };
 
@@ -592,6 +756,9 @@ function SiteVisitTokenRouteContent({
           <DesktopLocationPanel
             build={build}
             buildCode={deriveBuildCode(buildId, build)}
+            checking={checkingLocation}
+            locationAttempt={locationAttempt}
+            onVerify={verifyLocation}
           />
           <DesktopPermitPanel permit={permit} />
           <DesktopScopePanel targets={targets} />
@@ -668,6 +835,44 @@ function SiteVisitTokenRouteContent({
                   />
                   Completion observed on site
                 </label>
+                <LocationAttemptSummary
+                  attempt={locationAttempt}
+                  checking={checkingLocation}
+                  onVerify={verifyLocation}
+                />
+                {missingPrerequisites.length > 0 ? (
+                  <div className="grid gap-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-950 text-sm">
+                    <p className="font-medium">Permit prerequisite missing</p>
+                    <p>
+                      Evidence and notes stay available, but submission requires
+                      an acknowledgement and reason.
+                    </p>
+                    <label className="flex items-start gap-2">
+                      <input
+                        checked={prerequisiteAcknowledged}
+                        className="mt-1"
+                        onChange={(event) =>
+                          setPrerequisiteAcknowledged(
+                            event.currentTarget.checked
+                          )
+                        }
+                        type="checkbox"
+                      />
+                      I acknowledge the permit was unavailable for this visit.
+                    </label>
+                    <label className="grid gap-2">
+                      Exception reason
+                      <textarea
+                        className="min-h-20 rounded-md border bg-background p-2 text-foreground"
+                        onChange={(event) =>
+                          setPrerequisiteReason(event.currentTarget.value)
+                        }
+                        placeholder="Describe the alternate verification performed."
+                        value={prerequisiteReason}
+                      />
+                    </label>
+                  </div>
+                ) : null}
                 <label className="grid gap-2 text-sm">
                   Work quality
                   <select
@@ -710,11 +915,8 @@ function SiteVisitTokenRouteContent({
               ) : null}
               <Button
                 className="mt-4 w-full"
-                disabled={
-                  uploadingCount > 0 ||
-                  !richTextHtmlHasText(reportNotes) ||
-                  files.length + stagedItems.length === 0
-                }
+                disabled={submittingReport}
+                loading={submittingReport}
                 onClick={() => void submit()}
                 type="button"
               >
@@ -732,11 +934,14 @@ function SiteVisitTokenRouteContent({
       <SiteVisitDrawer
         build={build}
         buildCode={deriveBuildCode(buildId, build)}
+        checkingLocation={checkingLocation}
         files={files}
+        locationAttempt={locationAttempt}
         onClose={() => setDrawer(null)}
-        onStageFiles={stageFiles}
         onStageCapturedFile={(file) => stageSelectedFiles([file])}
+        onStageFiles={stageFiles}
         onUploadStaged={() => void uploadStagedFiles()}
+        onVerifyLocation={verifyLocation}
         open={drawer !== null}
         permit={permit}
         selectedTarget={selectedTarget}
@@ -751,6 +956,48 @@ function SiteVisitTokenRouteContent({
       />
     </MobileShell>
   );
+}
+
+function reportSubmissionBlockers({
+  evidenceCount,
+  hasReportNotes,
+  missingPermit,
+  prerequisiteAcknowledged,
+  prerequisiteReason,
+  uploadingCount,
+}: {
+  evidenceCount: number;
+  hasReportNotes: boolean;
+  missingPermit: boolean;
+  prerequisiteAcknowledged: boolean;
+  prerequisiteReason: string;
+  uploadingCount: number;
+}) {
+  const blockers: string[] = [];
+  if (uploadingCount > 0) {
+    blockers.push(
+      `Wait for ${uploadingCount} evidence upload${
+        uploadingCount === 1 ? "" : "s"
+      } to finish.`
+    );
+  }
+  if (!hasReportNotes) {
+    blockers.push(
+      "Add a field note describing observed completion and exceptions."
+    );
+  }
+  if (evidenceCount === 0) {
+    blockers.push("Add at least one evidence photo or video.");
+  }
+  if (missingPermit && !prerequisiteAcknowledged) {
+    blockers.push("Acknowledge that the permit was unavailable.");
+  }
+  if (missingPermit && !prerequisiteReason.trim()) {
+    blockers.push(
+      "Add the alternate-verification reason for the missing permit."
+    );
+  }
+  return blockers;
 }
 
 function MobileShell({
@@ -867,7 +1114,9 @@ function SiteVisitCapturePanel({
   uploadingCount: number;
   variant?: "drawer" | "page";
 }) {
-  const [captureKind, setCaptureKind] = useState<DeviceCaptureKind | null>(null);
+  const [captureKind, setCaptureKind] = useState<DeviceCaptureKind | null>(
+    null
+  );
 
   return (
     <>
@@ -1023,9 +1272,7 @@ function CaptureButton({
       className="grid min-h-28 cursor-pointer place-items-center p-2 text-center transition-colors hover:border-primary/40 hover:bg-accent/5 sm:min-h-32 lg:min-h-24"
       data-testid={`site-visit-capture-${label.toLowerCase().replace(/\s+/g, "-")}`}
       onClick={onActivate}
-      render={
-        onActivate ? <button type="button" /> : <label role="button" />
-      }
+      render={onActivate ? <button type="button" /> : <label role="button" />}
     >
       {accept && onChange ? (
         <input
@@ -1246,20 +1493,26 @@ function NavButton({
 function DesktopLocationPanel({
   build,
   buildCode,
+  checking,
+  locationAttempt,
+  onVerify,
 }: {
   build: VisitBuild;
   buildCode: string;
+  checking: boolean;
+  locationAttempt: SiteVisitLocationAttempt;
+  onVerify: () => void;
 }) {
   return (
     <Frame>
       <FramePanel className="p-4">
         <SectionTitle code="A.01" title="Location" />
-        <div className="mt-4 grid min-h-32 place-items-center rounded-md border bg-muted/40 text-center text-muted-foreground">
-          <div>
-            <MapPin className="mx-auto mb-2 size-6 text-primary" />
-            <p className="font-medium text-sm">Site plan pending</p>
-            <p className="text-xs">27.84 / -82.71</p>
-          </div>
+        <div className="mt-4">
+          <LocationAttemptSummary
+            attempt={locationAttempt}
+            checking={checking}
+            onVerify={onVerify}
+          />
         </div>
         <dl className="mt-4 grid gap-3 text-sm">
           <InfoItem label="Build" value={buildCode} />
@@ -1370,8 +1623,11 @@ function DesktopGuidePanel({ targets }: { targets: VisitTarget[] }) {
 function SiteVisitDrawer({
   build,
   buildCode,
+  checkingLocation,
   files,
+  locationAttempt,
   onClose,
+  onVerifyLocation,
   onStageCapturedFile,
   onStageFiles,
   onUploadStaged,
@@ -1389,8 +1645,11 @@ function SiteVisitDrawer({
 }: {
   build: VisitBuild;
   buildCode: string;
+  checkingLocation: boolean;
   files: VisitFile[];
+  locationAttempt: SiteVisitLocationAttempt;
   onClose: () => void;
+  onVerifyLocation: () => void;
   onStageCapturedFile: (file: File) => void;
   onStageFiles: (event: ChangeEvent<HTMLInputElement>) => void;
   onUploadStaged: () => void;
@@ -1447,7 +1706,13 @@ function SiteVisitDrawer({
         </header>
         <DrawerPanel className="p-4" scrollFade={false}>
           {type === "location" ? (
-            <LocationPanel build={build} buildCode={buildCode} />
+            <LocationPanel
+              build={build}
+              buildCode={buildCode}
+              checking={checkingLocation}
+              locationAttempt={locationAttempt}
+              onVerify={onVerifyLocation}
+            />
           ) : type === "permit" ? (
             <PermitPanel permit={permit} />
           ) : type === "scope" ? (
@@ -1478,38 +1743,111 @@ function SiteVisitDrawer({
   );
 }
 
+function LocationAttemptSummary({
+  attempt,
+  checking,
+  onVerify,
+}: {
+  attempt: SiteVisitLocationAttempt;
+  checking: boolean;
+  onVerify: () => void;
+}) {
+  return (
+    <div className="grid gap-3 rounded-md border bg-muted/30 p-3 text-sm">
+      <div className="flex items-start gap-3">
+        <div className="grid size-9 shrink-0 place-items-center rounded-full bg-background">
+          {checking ? (
+            <LoaderCircle className="size-4 animate-spin" />
+          ) : attempt.verified ? (
+            <Check className="size-4 text-emerald-700" />
+          ) : (
+            <MapPin className="size-4 text-amber-700" />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="font-medium">
+            {checking
+              ? "Checking browser location"
+              : attempt.verified
+                ? "Location verified"
+                : attempt.attempted
+                  ? "Location attempt unverified"
+                  : "Location not attempted"}
+          </p>
+          <p className="mt-1 text-muted-foreground text-xs">
+            {attempt.verified
+              ? `Recorded with ±${attempt.accuracyMeters ?? 0} m accuracy.`
+              : attempt.failureReason}
+          </p>
+        </div>
+      </div>
+      <Button
+        disabled={checking}
+        onClick={onVerify}
+        size="sm"
+        type="button"
+        variant="outline"
+      >
+        <MapPin />
+        {attempt.attempted ? "Retry location" : "Verify location"}
+      </Button>
+    </div>
+  );
+}
+
 function LocationPanel({
   build,
   buildCode,
+  checking,
+  locationAttempt,
+  onVerify,
 }: {
   build: VisitBuild;
   buildCode: string;
+  checking: boolean;
+  locationAttempt: SiteVisitLocationAttempt;
+  onVerify: () => void;
 }) {
   return (
     <div className="grid gap-4">
-      <div className="grid min-h-56 place-items-center rounded-lg border bg-muted text-center text-muted-foreground">
-        <div>
-          <MapPin className="mx-auto mb-2 size-8 text-primary" />
-          <p className="font-medium">Satellite image under construction</p>
-          <p className="text-xs">02 / Site plan A.01</p>
-        </div>
-      </div>
+      <LocationAttemptSummary
+        attempt={locationAttempt}
+        checking={checking}
+        onVerify={onVerify}
+      />
       <Frame>
         <FramePanel className="p-4">
           <div className="flex justify-between gap-3 text-xs uppercase tracking-[0.16em]">
-            <span>Parcel · {buildCode}</span>
-            <span>Lat 27.84 / Lon -82.71</span>
+            <span>Build · {buildCode}</span>
+            <span>
+              {locationAttempt.verified
+                ? "Location verified"
+                : "Location unverified"}
+            </span>
           </div>
           <h3 className="mt-4 font-semibold text-primary text-sm uppercase tracking-[0.18em]">
             Site address
           </h3>
           <p className="mt-2 font-semibold text-2xl">{deriveAddress(build)}</p>
-          <p className="text-muted-foreground">{deriveCityLine(build)} 33781</p>
+          <p className="text-muted-foreground">{deriveCityLine(build)}</p>
           <dl className="mt-4 grid grid-cols-2 gap-4 text-sm">
             <InfoItem label="Build" value={buildCode} />
-            <InfoItem label="Parcel" value="19-30-16-00000-110-0700" />
-            <InfoItem label="County" value="Pinellas" />
-            <InfoItem label="Zone" value="R-2" />
+            <InfoItem
+              label="Attempt"
+              value={locationAttempt.attempted ? "Recorded" : "Not attempted"}
+            />
+            <InfoItem
+              label="Verification"
+              value={locationAttempt.verified ? "Verified" : "Unverified"}
+            />
+            <InfoItem
+              label="Accuracy"
+              value={
+                locationAttempt.accuracyMeters === undefined
+                  ? "Unavailable"
+                  : `±${locationAttempt.accuracyMeters} m`
+              }
+            />
           </dl>
           <Button className="mt-5 w-full" disabled variant="outline">
             Open directions — under construction
@@ -1761,6 +2099,7 @@ function PermitMeta({ permit }: { permit: VisitPermit }) {
 }
 
 function OutcomeCard({
+  actions,
   body,
   detailItems = [],
   icon,
@@ -1768,6 +2107,7 @@ function OutcomeCard({
   title,
   tone,
 }: {
+  actions?: React.ReactNode;
   body: string;
   detailItems?: [string, string][];
   icon: React.ReactNode;
@@ -1801,6 +2141,7 @@ function OutcomeCard({
             ))}
           </dl>
         ) : null}
+        {actions}
       </FramePanel>
     </Frame>
   );
@@ -2033,10 +2374,6 @@ function slugifyTargetKey(value: string) {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "") || "scope"
   );
-}
-
-function tokenTail(token: string) {
-  return `...${token.slice(-4).toUpperCase()}`;
 }
 
 function formatVisitTime(value?: number) {

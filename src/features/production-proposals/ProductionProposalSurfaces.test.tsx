@@ -17,6 +17,7 @@ import {
   ProductionProposalPackageSurface,
   ProductionProposalReviewSurface,
   ProductionProposalSettingsSurface,
+  type ProductionProposalDetail,
   toTimelineRows,
 } from "./ProductionProposalSurfaces";
 
@@ -50,7 +51,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-const proposalDetail = {
+const proposalDetail: ProductionProposalDetail = {
   documents: [
     {
       documentType: "permit",
@@ -81,7 +82,7 @@ const proposalDetail = {
   proposal: {
     buildName: "Elm Street Build",
     borrowerCoPayBps: 2_000,
-    borrowerWorkingCapitalLimitCents: 400_000_00,
+    borrowerStartingCashCents: 400_000_00,
     interestAnnualBps: 925,
     lenderDrawPolicyLimitCents: 550_000_00,
     location: "123 Elm Street",
@@ -115,7 +116,7 @@ describe("ProductionProposalPackageSurface", () => {
     expect(screen.getByText("Readiness warnings")).toBeTruthy();
     expect(screen.getByText("Submit proposal")).toBeTruthy();
     expect(screen.getByText("Approved amount")).toBeTruthy();
-    expect(screen.queryByText("Borrower co-pay")).toBeNull();
+    expect(screen.queryByText("Borrower Contribution")).toBeNull();
     expect(screen.getByTestId("build-permit-viewer-trigger")).toBeTruthy();
   });
 
@@ -503,6 +504,93 @@ describe("ProductionProposalSettingsSurface", () => {
 });
 
 describe("ProductionProposalReviewSurface", () => {
+  test("union-merges review content into packet without duplicating packet summaries", () => {
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          assignment: {
+            broker: {
+              email: "river@fairlend.example",
+              name: "River Han",
+              workosUserId: "user_broker",
+            },
+            brokerage: {
+              displayName: "FairLend Brokerage",
+              workosOrganizationId: "org_fairlend",
+            },
+            builder: {
+              _id: "builder_1",
+              accounts: [
+                {
+                  email: "owner@northline.example",
+                  name: "Avery North",
+                  role: "owner",
+                  workosUserId: "user_owner",
+                },
+                {
+                  email: "site@northline.example",
+                  name: "Sam Field",
+                  role: "staff",
+                  workosUserId: "user_staff",
+                },
+              ],
+              displayName: "Northline Homes",
+              ownerEmail: "owner@northline.example",
+              status: "active",
+            },
+            builderAssigned: true,
+          },
+          proposal: { ...proposalDetail.proposal, status: "submitted" },
+        }}
+        onApprove={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+      />,
+    );
+
+    const packet = screen.getByTestId("production-proposal-packet-tab");
+    const reviewDecision = within(packet)
+      .getByText("Review decision")
+      .closest('[data-slot="card"]');
+    const mergedOverview = reviewDecision?.parentElement;
+
+    expect(reviewDecision).toBeTruthy();
+    expect(mergedOverview?.className).toContain("items-start");
+    expect(within(packet).getByText("Parties & assignment")).toBeTruthy();
+    expect(within(packet).getByText("Northline Homes")).toBeTruthy();
+    expect(within(packet).getByText("Avery North")).toBeTruthy();
+    expect(within(packet).getByText("Sam Field")).toBeTruthy();
+    expect(within(packet).getByText("Review snapshot")).toBeTruthy();
+    expect(within(packet).getByText("Readiness")).toBeTruthy();
+
+    expect(within(packet).getAllByText("Total budget")).toHaveLength(1);
+    expect(within(packet).getAllByText("Borrower starting cash")).toHaveLength(
+      1,
+    );
+    expect(
+      within(packet).getAllByText("Permit PDF linked: permit.pdf")
+    ).toHaveLength(1);
+    expect(within(packet).queryByText("Build details")).toBeNull();
+    expect(within(packet).queryByText("Documents")).toBeNull();
+
+    expect(within(packet).getByText("Proposed start date")).toBeTruthy();
+    expect(within(packet).getByText("Submilestones")).toBeTruthy();
+    expect(within(packet).getByText("Interest trigger")).toBeTruthy();
+    expect(within(packet).getByText("Reimbursement model")).toBeTruthy();
+    expect(within(packet).getByText("Scheduled reimbursements")).toBeTruthy();
+    expect(within(packet).getByText("Borrower Contribution")).toBeTruthy();
+    expect(within(packet).getByText("Draw policy limit")).toBeTruthy();
+    expect(within(packet).getByText("Funding gap")).toBeTruthy();
+    expect(within(packet).getByText("Closing state")).toBeTruthy();
+    expect(
+      within(packet).getByText("Milestone and submilestone worksheet"),
+    ).toBeTruthy();
+    expect(within(packet).getByText("Draw schedule snapshot")).toBeTruthy();
+
+    expect(screen.getByRole("tab", { name: "Review" })).toBeTruthy();
+  });
+
   test("renders builder, broker, and brokerage identity on the review tab", () => {
     render(
       <ProductionProposalReviewSurface
@@ -521,8 +609,23 @@ describe("ProductionProposalReviewSurface", () => {
             },
             builder: {
               _id: "builder_1",
+              accounts: [
+                {
+                  email: "owner@northline.example",
+                  name: "Avery North",
+                  role: "owner",
+                  workosUserId: "user_owner",
+                },
+                {
+                  email: "site@northline.example",
+                  name: "Sam Field",
+                  role: "staff",
+                  workosUserId: "user_staff",
+                },
+              ],
               displayName: "Northline Homes",
               ownerEmail: "owner@northline.example",
+              status: "active",
             },
             builderAssigned: true,
           },
@@ -538,9 +641,82 @@ describe("ProductionProposalReviewSurface", () => {
 
     expect(screen.getByText("Parties & assignment")).toBeTruthy();
     expect(screen.getByText("Northline Homes")).toBeTruthy();
-    expect(screen.getByText("owner@northline.example")).toBeTruthy();
+    expect(screen.getByText("Avery North")).toBeTruthy();
+    expect(screen.getByText("Sam Field")).toBeTruthy();
+    expect(screen.getByText("Owner")).toBeTruthy();
+    expect(screen.getByText("Staff")).toBeTruthy();
+    expect(screen.getByText("2 members")).toBeTruthy();
     expect(screen.getByText("River Han")).toBeTruthy();
     expect(screen.getByText("FairLend Brokerage")).toBeTruthy();
+  });
+
+  test("assigns an eligible broker from Parties & assignment with an audit reason", async () => {
+    const onAssignBroker = vi.fn().mockResolvedValue({ operation: "assigned" });
+    render(
+      <ProductionProposalReviewSurface
+        assignableBrokerages={[
+          {
+            brokerageId: "brokerage_1",
+            brokerageName: "FairLend Brokerage",
+            brokers: [
+              {
+                email: "river@fairlend.example",
+                isPrincipal: false,
+                name: "River Han",
+                workosUserId: "user_broker",
+              },
+            ],
+          },
+        ]}
+        detail={{
+          ...proposalDetail,
+          assignment: {
+            broker: null,
+            brokerage: {
+              _id: "brokerage_1",
+              displayName: "FairLend Brokerage",
+            },
+            builder: {
+              _id: "builder_1",
+              displayName: "Northline Homes",
+              ownerEmail: "owner@northline.example",
+              status: "active",
+            },
+            builderAssigned: true,
+          },
+          proposal: { ...proposalDetail.proposal, status: "submitted" },
+        }}
+        initialActiveTab="review"
+        onAssignBroker={onAssignBroker}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Assign broker for Northline Homes",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByLabelText("Broker"));
+    fireEvent.click(
+      await screen.findByRole("option", { name: /River Han/i }),
+    );
+    fireEvent.change(within(dialog).getByLabelText("Audit reason"), {
+      target: {
+        value: "Assign River to own underwriting and proposal review.",
+      },
+    });
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Assign Builder" }),
+    );
+
+    await waitFor(() =>
+      expect(onAssignBroker).toHaveBeenCalledWith(
+        "user_broker",
+        "Assign River to own underwriting and proposal review.",
+      ),
+    );
+    expect(toast.success).toHaveBeenCalledWith("Broker assigned.");
   });
 
   test("exposes the uploaded permit viewer from review readiness", () => {
@@ -624,7 +800,7 @@ describe("ProductionProposalReviewSurface", () => {
           activeBuild: null,
           draws: [
             {
-              ...proposalDetail.draws[0],
+              ...proposalDetail.draws![0]!,
               amountCents: 80_000_500,
             },
           ],
@@ -650,7 +826,7 @@ describe("ProductionProposalReviewSurface", () => {
     expect(screen.getAllByText("$1,052,000").length).toBeGreaterThan(0);
     expect(screen.getByText("Total approved")).toBeTruthy();
     expect(screen.getAllByText("$800,005").length).toBeGreaterThan(0);
-    expect(screen.queryByText("Co-pay amount")).toBeNull();
+    expect(screen.queryByText("Borrower Contribution amount")).toBeNull();
     expect(screen.getAllByText("Interest rate").length).toBeGreaterThan(0);
     expect(screen.getAllByText("9.25%").length).toBeGreaterThan(0);
     expect(
@@ -670,9 +846,9 @@ describe("ProductionProposalReviewSurface", () => {
         'input[aria-label="Total approved"]',
       );
       expect(input).toBeTruthy();
-      return input;
+      return input!;
     });
-    expect((approvedAmountInput as HTMLInputElement).value).toBe("800005");
+    expect(approvedAmountInput.value).toBe("800005");
     fireEvent.change(approvedAmountInput, { target: { value: "873080" } });
     fireEvent.keyDown(approvedAmountInput, { key: "Enter" });
 
@@ -690,9 +866,9 @@ describe("ProductionProposalReviewSurface", () => {
         'input[aria-label="Interest rate"]',
       );
       expect(input).toBeTruthy();
-      return input;
+      return input!;
     });
-    expect((interestInput as HTMLInputElement).value).toBe("9.25");
+    expect(interestInput.value).toBe("9.25");
     fireEvent.change(interestInput, { target: { value: "10.5" } });
     fireEvent.keyDown(interestInput, { key: "Enter" });
 
@@ -743,11 +919,138 @@ describe("ProductionProposalReviewSurface", () => {
     expect(screen.getByText("Cedarpoint Builders")).toBeTruthy();
     fireEvent.change(input, { target: { value: "northline" } });
     fireEvent.click(await screen.findByText("Northline Homes"));
-    fireEvent.click(screen.getByRole("button", { name: "Assign builder" }));
+    fireEvent.click(screen.getByRole("button", { name: "Link builder" }));
 
     await waitFor(() =>
       expect(onAssignBuilder).toHaveBeenCalledWith("builder_northline"),
     );
+  });
+
+  test("matches keyboard autocomplete selection to the builder entity", async () => {
+    const onAssignBuilder = vi.fn();
+    render(
+      <ProductionProposalReviewSurface
+        builders={[
+          {
+            _id: "builder_connor",
+            displayName: "Connor Beleznay",
+            email: "c.beleznay@humanfeedback.com",
+          },
+        ]}
+        detail={{
+          ...proposalDetail,
+          assignment: {
+            brokerage: { displayName: "FairLend Brokerage" },
+            builder: null,
+            builderAssigned: false,
+          },
+          proposal: { ...proposalDetail.proposal, status: "draft" },
+        }}
+        initialActiveTab="packet"
+        onAssignBuilder={onAssignBuilder}
+      />,
+    );
+
+    const input = screen.getByRole("combobox", { name: "Builder assignee" });
+    const linkButton = screen.getByRole("button", { name: "Link builder" });
+    expect((linkButton as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(input);
+    expect(await screen.findByText("Connor Beleznay")).toBeTruthy();
+    expect(screen.getByText("c.beleznay@humanfeedback.com")).toBeTruthy();
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect((input as HTMLInputElement).value).toBe(
+      "Connor Beleznay (c.beleznay@humanfeedback.com)",
+    );
+    expect((linkButton as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(linkButton);
+    await waitFor(() =>
+      expect(onAssignBuilder).toHaveBeenCalledWith("builder_connor"),
+    );
+  });
+
+  test("offers builder linking and onboarding for an unassigned submitted proposal", () => {
+    const onOnboardBuilder = vi.fn();
+    render(
+      <ProductionProposalReviewSurface
+        builders={[
+          {
+            _id: "builder_northline",
+            displayName: "Northline Homes",
+            email: "owner@northline.example",
+          },
+        ]}
+        detail={{
+          ...proposalDetail,
+          assignment: {
+            brokerage: { displayName: "FairLend Brokerage" },
+            builder: null,
+            builderAssigned: false,
+          },
+          proposal: { ...proposalDetail.proposal, status: "submitted" },
+        }}
+        initialActiveTab="review"
+        onApprove={vi.fn()}
+        onAssignBuilder={vi.fn()}
+        onClose={vi.fn()}
+        onOnboardBuilder={onOnboardBuilder}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("No builder attached")).toBeTruthy();
+    expect(
+      screen.getByRole("combobox", { name: "Builder assignee" }),
+    ).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Onboard new builder" }),
+    );
+    expect(onOnboardBuilder).toHaveBeenCalledTimes(1);
+  });
+
+  test("offers builder linking and onboarding for an unassigned approved proposal", () => {
+    const onCreateClaimLink = vi.fn();
+    const onOnboardBuilder = vi.fn();
+    render(
+      <ProductionProposalReviewSurface
+        builders={[
+          {
+            _id: "builder_northline",
+            displayName: "Northline Homes",
+            email: "owner@northline.example",
+          },
+        ]}
+        detail={{
+          ...proposalDetail,
+          assignment: {
+            brokerage: { displayName: "FairLend Brokerage" },
+            builder: null,
+            builderAssigned: false,
+          },
+          proposal: { ...proposalDetail.proposal, status: "approved" },
+        }}
+        initialActiveTab="review"
+        onAssignBuilder={vi.fn()}
+        onCreateClaimLink={onCreateClaimLink}
+        onOnboardBuilder={onOnboardBuilder}
+      />,
+    );
+
+    expect(screen.getByText("No builder attached")).toBeTruthy();
+    expect(
+      screen.getByRole("combobox", { name: "Builder assignee" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Create claim link" }),
+    ).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Onboard new builder" }),
+    );
+    expect(onOnboardBuilder).toHaveBeenCalledTimes(1);
+    expect(onCreateClaimLink).not.toHaveBeenCalled();
   });
 
   test("unassigns an assigned broker draft from the proposal detail panel", async () => {
@@ -818,7 +1121,9 @@ describe("ProductionProposalReviewSurface", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Create claim link" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create self-claim link" }),
+    );
 
     await waitFor(() => expect(onCreateClaimLink).toHaveBeenCalledTimes(1));
     const linkInput = await screen.findByDisplayValue(
@@ -867,6 +1172,51 @@ describe("ProductionProposalReviewSurface", () => {
     expect(screen.getByText("Build, site, and loan summary")).toBeTruthy();
     expect(screen.queryByTestId("timeline-slot")).toBeNull();
     expect(screen.queryByText("Submit proposal")).toBeNull();
+  });
+
+  test("provides a compact, fully named stage picker with active lifecycle state", () => {
+    const onChangeReviewTab = vi.fn();
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          proposal: { ...proposalDetail.proposal, status: "submitted" },
+        }}
+        onApprove={vi.fn()}
+        onChangeReviewTab={onChangeReviewTab}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+        timeline={<div>Timeline workspace</div>}
+      />,
+    );
+
+    const picker = screen.getByLabelText("Proposal workspace stage");
+    expect(
+      within(picker)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual([
+      "Packet",
+      "Timeline",
+      "Milestones",
+      "Calendar",
+      "Review",
+      "Draw schedule",
+      "Materials",
+    ]);
+    expect(screen.getByText("Current stage")).toBeTruthy();
+    expect(screen.getByTestId("proposal-compact-active-stage").textContent).toBe(
+      "Packet",
+    );
+    expect(screen.getByText("Editing blocked while submitted")).toBeTruthy();
+
+    fireEvent.change(picker, { target: { value: "calendar" } });
+
+    expect(onChangeReviewTab).toHaveBeenCalledWith("calendar");
+    expect(screen.getByTestId("proposal-compact-active-stage").textContent).toBe(
+      "Calendar",
+    );
   });
 
   test("reuses the milestone budget worksheet in the production milestones tab", () => {
@@ -994,7 +1344,7 @@ describe("ProductionProposalReviewSurface", () => {
     ).toBeTruthy();
     expect(screen.getByText("Forms and pour")).toBeTruthy();
     expect(screen.getByText("Day 4 to 6")).toBeTruthy();
-    expect(screen.getByText("Borrower co-pay")).toBeTruthy();
+    expect(screen.getByText("Borrower Contribution")).toBeTruthy();
     expect(screen.getByText("$50,000")).toBeTruthy();
     expect(screen.getByText("Scheduled reimbursements")).toBeTruthy();
     expect(screen.getAllByText("$400,000").length).toBeGreaterThan(0);
@@ -1110,7 +1460,11 @@ describe("ProductionProposalReviewSurface", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Packet" }));
 
     expect(screen.getByText("Permit packet")).toBeTruthy();
-    expect(screen.getAllByText("Permit missing").length).toBeGreaterThan(0);
+    expect(
+      screen.getByText(
+        "Permit PDF or audited waiver is required before approval.",
+      ),
+    ).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("Select permit document"), {
       target: { files: [file] },
@@ -1390,7 +1744,12 @@ describe("ProductionProposalReviewSurface", () => {
     );
 
     fireEvent.click(screen.getByRole("tab", { name: "Review" }));
-    fireEvent.click(screen.getByTestId("production-review-tab-approve-proposal"));
+    const approveButton = screen.getByTestId(
+      "production-review-tab-approve-proposal"
+    );
+    expect(approveButton.parentElement?.className).toContain("min-w-0");
+    expect(approveButton.parentElement?.className).toContain("grid-cols-1");
+    fireEvent.click(approveButton);
 
     expect(onApprove).not.toHaveBeenCalled();
     expect(toast.error).toHaveBeenCalledWith(
@@ -1431,6 +1790,47 @@ describe("ProductionProposalReviewSurface", () => {
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalledWith("A reason is required.");
     });
+  });
+
+  test("omits lender-only decision controls from unauthorized review tabs", () => {
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          documents: [],
+          permitWaiver: null,
+          proposal: { ...proposalDetail.proposal, status: "submitted" },
+        }}
+        initialActiveTab="review"
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Request Changes" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reject" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Approve Proposal" }),
+    ).toBeNull();
+    expect(screen.queryByLabelText("Decision reason")).toBeNull();
+    expect(screen.queryByLabelText("Audited permit waiver")).toBeNull();
+  });
+
+  test("omits backoffice draw editors from unauthorized draw schedule tabs", () => {
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          proposal: { ...proposalDetail.proposal, status: "submitted" },
+        }}
+        initialActiveTab="draws"
+      />,
+    );
+
+    expect(screen.queryByLabelText("draw-01 label")).toBeNull();
+    expect(screen.queryByLabelText("Amount dollars")).toBeNull();
+    expect(screen.queryByLabelText("Change reason")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save draw row" })).toBeNull();
   });
 
   test("edits submitted draw schedule rows with an explicit review reason", () => {
@@ -1521,22 +1921,46 @@ describe("ProductionProposalReviewSurface", () => {
 });
 
 describe("toTimelineRows", () => {
-  test("maps closed proposals to approved-style timeline rows for reused builder tables", () => {
+  test("keeps closed proposals without an active build assignment on proposal routes", () => {
     expect(
       toTimelineRows([
         {
           column: "closed",
           proposalId: "proposal-1",
-          title: "Closed build",
+          title: "Closed proposal",
           totalBudgetCents: 1_000_000,
           updatedAt: 123,
         },
       ]),
     ).toEqual([
       expect.objectContaining({
+        buildKey: undefined,
+        kind: "proposal",
         planId: "proposal-1",
         status: "approved",
         totalBudgetCents: 1_000_000,
+      }),
+    ]);
+  });
+
+  test("projects closed proposals with accessible build assignments as live builds", () => {
+    expect(
+      toTimelineRows([
+        {
+          activeBuildId: "active-build-1",
+          column: "closed",
+          proposalId: "proposal-1",
+          title: "Assigned build",
+          totalBudgetCents: 1_000_000,
+          updatedAt: 123,
+        },
+      ]),
+    ).toEqual([
+      expect.objectContaining({
+        buildKey: "active-build-1",
+        kind: "activeBuild",
+        planId: "proposal-1",
+        status: "approved",
       }),
     ]);
   });

@@ -11,6 +11,7 @@ const newBuilder: BuilderOnboardingState = {
   hasProfile: true,
   hasProposals: false,
   isBuilder: true,
+  relationshipStatus: "active",
 };
 
 describe("resolveBuilderHomeView", () => {
@@ -72,6 +73,40 @@ describe("resolveBuilderHomeView", () => {
         state: newBuilder,
       }),
     ).toBe("dashboard");
+  });
+
+  test("a builder without an active broker relationship stays blocked from create-context even when forceDashboard is set", () => {
+    const relationshipPending = {
+      ...newBuilder,
+      complete: true,
+      hasProposals: true,
+      relationshipStatus: "missing-broker-assignment",
+    } as BuilderOnboardingState & {
+      relationshipStatus: "missing-broker-assignment";
+    };
+
+    expect(
+      resolveBuilderHomeView({
+        fixtureEnabled: false,
+        forceDashboard: true,
+        state: relationshipPending,
+      }),
+    ).toBe("relationship-pending");
+  });
+
+
+  test("a typed activation failure renders access recovery before generic profile guidance", () => {
+    expect(
+      resolveBuilderHomeView({
+        fixtureEnabled: false,
+        forceDashboard: false,
+        state: {
+          ...newBuilder,
+          hasProfile: false,
+          recovery: { kind: "projection-pending" },
+        },
+      }),
+    ).toBe("access-recovery");
   });
 
   test("a builder without a linked profile sees profile-pending guidance", () => {

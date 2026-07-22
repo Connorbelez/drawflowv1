@@ -24,8 +24,61 @@ function adminTest() {
   } as any);
 }
 
+function principalBrokerTest() {
+  return convexTest(schema, modules).withIdentity({
+    email: "principal@example.com",
+    name: "Principal Broker",
+    organizationId: "org_fixture",
+    role: "principle-broker",
+    roles: ["principle-broker"],
+    subject: "user_principal",
+    tokenIdentifier: "https://api.workos.com/|user_principal",
+  } as any);
+}
+
+async function seedScopedWorkosProjectionState(t: any) {
+  await t.run(async (ctx: any) => {
+    await ctx.db.insert("workosOrganizations", {
+      domains: [],
+      name: "FairLend",
+      sourceEventId: "seed_org_fixture",
+      sourceEventType: "organization.created",
+      status: "active",
+      workosOrganizationId: "org_fixture",
+    });
+    await ctx.db.insert("workosOrganizations", {
+      domains: [],
+      name: "Oakline Builds",
+      sourceEventId: "seed_org_foreign",
+      sourceEventType: "organization.created",
+      status: "active",
+      workosOrganizationId: "org_foreign",
+    });
+    await ctx.db.insert("workosOrganizationMemberships", {
+      roleSlug: "principle-broker",
+      roleSlugs: ["principle-broker"],
+      sourceEventId: "seed_membership_principal",
+      sourceEventType: "organization_membership.created",
+      status: "active",
+      workosMembershipId: "om_principal_fixture",
+      workosOrganizationId: "org_fixture",
+      workosUserId: "user_principal",
+    });
+    await ctx.db.insert("workosOrganizationMemberships", {
+      roleSlug: "builder",
+      roleSlugs: ["builder"],
+      sourceEventId: "seed_membership_foreign",
+      sourceEventType: "organization_membership.created",
+      status: "active",
+      workosMembershipId: "om_foreign",
+      workosOrganizationId: "org_foreign",
+      workosUserId: "user_foreign",
+    });
+  });
+}
+
 describe("WorkOS management actions", () => {
-  test("sends either roleSlugs or roleSlug to WorkOS membership writes, never both", () => {
+  test("orders multi-role membership writes by selected primary role", () => {
     expect(
       buildWorkosMembershipRolesPayload({
         primaryRoleSlug: "builder",
@@ -35,7 +88,7 @@ describe("WorkOS management actions", () => {
     expect(
       buildWorkosMembershipRolesPayload({
         primaryRoleSlug: "broker",
-        roleSlugs: ["broker", "builder"],
+        roleSlugs: ["builder", "broker"],
       })
     ).toEqual({ roleSlugs: ["broker", "builder"] });
     expect(
@@ -44,6 +97,32 @@ describe("WorkOS management actions", () => {
         roleSlugs: [],
       })
     ).toEqual({ roleSlug: "builder" });
+  });
+
+  test("projects accepted WorkOS role changes immediately", async () => {
+    const t = adminTest();
+    await seedScopedWorkosProjectionState(t);
+
+    await t.action(api.workosManagement.updateMembershipRoles, {
+      membershipId: "om_principal_fixture",
+      primaryRoleSlug: "broker",
+      roleSlugs: ["admin", "broker"],
+    });
+
+    const projections = await t.query(
+      api.workosProjection.listUserManagement,
+      {},
+    );
+    expect(projections.memberships).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          roleSlug: "broker",
+          roleSlugs: ["broker", "admin"],
+          sourceEventType: "organization_membership.updated",
+          workosMembershipId: "om_principal_fixture",
+        }),
+      ]),
+    );
   });
 
   test("treats existing organization-member invitation failures as idempotent conflicts", () => {
@@ -418,6 +497,129 @@ describe("WorkOS management actions", () => {
       }),
     ]);
   });
+
+  test("repeated directory sync restores the authoritative WorkOS organization name", async () => {
+    const t = adminTest();
+
+    await t.action(api.workosManagement.syncWorkosDirectory, {});
+    await t.run(async (ctx: any) => {
+      const organization = await ctx.db
+        .query("workosOrganizations")
+        .withIndex("by_workos_organization_id", (q: any) =>
+          q.eq("workosOrganizationId", "org_fixture"),
+        )
+        .unique();
+      if (!organization) {
+        throw new Error("organization projection not found");
+      }
+      await ctx.db.patch(organization._id, {
+        name: "FairLendBrokerage",
+      });
+    });
+
+    await t.action(api.workosManagement.syncWorkosDirectory, {});
+
+    const projections = await t.query(
+      api.workosProjection.listUserManagement,
+      {},
+    );
+    expect(projections.organizations).toEqual([
+      expect.objectContaining({
+        name: "FairLend",
+        workosOrganizationId: "org_fixture",
+      }),
+    ]);
+  });
+
+  test.each([
+    {
+      args: {
+        email: "foreign.builder@example.com",
+        organizationId: "org_foreign",
+        roleSlug: "builder",
+      },
+      invoke: (t: any) => t.action(api.workosManagement.inviteUser, {
+        email: "foreign.builder@example.com",
+        organizationId: "org_foreign",
+        roleSlug: "builder",
+      }),
+      label: "inviteUser",
+    },
+    {
+      args: {
+        membershipId: "om_foreign",
+        roleSlug: "builder",
+      },
+      invoke: (t: any) => t.action(api.workosManagement.updateMembershipRole, {
+        membershipId: "om_foreign",
+        roleSlug: "builder",
+      }),
+      label: "updateMembershipRole",
+    },
+    {
+      args: {
+        membershipId: "om_foreign",
+        primaryRoleSlug: "builder",
+        roleSlugs: ["builder"],
+      },
+      invoke: (t: any) => t.action(api.workosManagement.updateMembershipRoles, {
+        membershipId: "om_foreign",
+        primaryRoleSlug: "builder",
+        roleSlugs: ["builder"],
+      }),
+      label: "updateMembershipRoles",
+    },
+    {
+      args: {
+        organizationId: "org_foreign",
+        primaryRoleSlug: "builder",
+        roleSlugs: ["builder"],
+        userId: "user_foreign",
+      },
+      invoke: (t: any) => t.action(api.workosManagement.createMembership, {
+        organizationId: "org_foreign",
+        primaryRoleSlug: "builder",
+        roleSlugs: ["builder"],
+        userId: "user_foreign",
+      }),
+      label: "createMembership",
+    },
+    {
+      args: {
+        membershipId: "om_foreign",
+      },
+      invoke: (t: any) => t.action(api.workosManagement.removeMembership, {
+        membershipId: "om_foreign",
+      }),
+      label: "removeMembership",
+    },
+    {
+      args: {
+        membershipId: "om_foreign",
+      },
+      invoke: (t: any) => t.action(api.workosManagement.deactivateMembership, {
+        membershipId: "om_foreign",
+      }),
+      label: "deactivateMembership",
+    },
+    {
+      args: {
+        membershipId: "om_foreign",
+      },
+      invoke: (t: any) => t.action(api.workosManagement.reactivateMembership, {
+        membershipId: "om_foreign",
+      }),
+      label: "reactivateMembership",
+    },
+  ])(
+    "rejects $label when a tenant-scoped operator targets a foreign organization or membership",
+    async ({ invoke }) => {
+      const t = principalBrokerTest();
+      await seedScopedWorkosProjectionState(t);
+
+      await expect(invoke(t)).rejects.toThrow(/Forbidden/);
+    },
+  );
 
   test("requires user-management write capability for WorkOS-owned writes", async () => {
     const t = convexTest(schema, modules).withIdentity({
