@@ -1556,6 +1556,54 @@ describe("DrawFlow assistant deterministic planner fallbacks", () => {
     });
   });
 
+  test("classifies natural task-list wording as a deterministic briefing", async () => {
+    const { t } = await seeded(["admin"], "planner_briefing_natural_wording");
+
+    const response = await planWithFallback(t, {
+      assistantContext: {
+        operationalBriefing: {
+          sections: [
+            {
+              id: "today",
+              items: [
+                {
+                  href: "/builder/builds/build_123",
+                  id: "build-task:1",
+                  kind: "buildTask",
+                  priority: "high",
+                  title: "Upload foundation evidence",
+                },
+              ],
+              title: "Today",
+            },
+          ],
+          summary: { total: 1 },
+        },
+      },
+      prompt: "What tasks I have?",
+    });
+
+    expect(response).toMatchObject({
+      intent: "briefing",
+      navigation: null,
+      uiParts: [
+        {
+          sections: [
+            {
+              items: [
+                expect.objectContaining({
+                  id: "build-task:1",
+                  title: "Upload foundation evidence",
+                }),
+              ],
+            },
+          ],
+          type: "briefing",
+        },
+      ],
+    });
+  });
+
   test("plans draw queue navigation with post-navigation summary table", async () => {
     const { t } = await seeded(["admin"], "planner_draw_queue_admin");
 

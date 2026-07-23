@@ -2,11 +2,15 @@
 
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { AssistantGenerativeUI } from "./AssistantGenerativeUI.tsx";
+import {
+  AssistantGenerativeUI,
+  type AssistantGeneratedUiPart,
+} from "./AssistantGenerativeUI.tsx";
 
 describe("AssistantGenerativeUI", () => {
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
   });
 
   test("renders milestone selection as a dropdown for material forms", () => {
@@ -322,6 +326,72 @@ describe("AssistantGenerativeUI", () => {
       reason: "Requested draw needs approval",
       to: "/backoffice/builds/build_123",
     });
+  });
+
+  test("renders a partially streamed review table without crashing the route", () => {
+    const partialReviewTable = [
+      {
+        columns: ["Task", "Priority"],
+        title: "Task review",
+        type: "reviewTable",
+      },
+    ] as unknown as AssistantGeneratedUiPart[];
+
+    expect(() =>
+      render(
+        <AssistantGenerativeUI
+          onNavigate={vi.fn()}
+          onSubmitCostItem={vi.fn()}
+          parts={partialReviewTable}
+        />
+      )
+    ).not.toThrow();
+    expect(screen.getByTestId("assistant-review-table")).toBeTruthy();
+  });
+
+  test("renders partially streamed briefing items without React key warnings", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const partialBriefing = [
+      {
+        sections: [
+          {
+            items: [
+              {
+                kind: "proposalReview",
+                priority: "high",
+                title: "Review submitted proposal",
+              },
+            ],
+            title: "Today",
+          },
+        ],
+        title: "Your tasks",
+        type: "briefing",
+      },
+    ] as unknown as AssistantGeneratedUiPart[];
+
+    render(
+      <AssistantGenerativeUI
+        onNavigate={vi.fn()}
+        onSubmitCostItem={vi.fn()}
+        parts={partialBriefing}
+      />
+    );
+
+    expect(screen.getByTestId("assistant-briefing")).toBeTruthy();
+    expect(
+      consoleError.mock.calls.filter((call) =>
+        call.some((value) =>
+          String(value).includes(
+            'Each child in a list should have a unique "key" prop.'
+          )
+        )
+      )
+    ).toHaveLength(
+      0
+    );
   });
 
   test("submits workflow-aware autocomplete selections through the workflow UI event bridge", async () => {

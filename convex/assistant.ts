@@ -2522,6 +2522,10 @@ function hasBriefingIntent(prompt: string) {
     prompt.includes("briefing") ||
     prompt.includes("tasks for today") ||
     prompt.includes("what are my tasks") ||
+    prompt.includes("what tasks i have") ||
+    prompt.includes("what tasks do i have") ||
+    prompt.includes("show me my tasks") ||
+    prompt.includes("list my tasks") ||
     prompt.includes("what do i need to do") ||
     prompt.includes("what needs my attention")
   );

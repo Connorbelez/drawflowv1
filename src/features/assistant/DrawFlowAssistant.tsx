@@ -51,6 +51,7 @@ import {
   AssistantGenerativeUI,
   type AssistantCostItemDraft,
   type AssistantGeneratedUiPart,
+  normalizeAssistantGeneratedUiParts as normalizeGeneratedUiParts,
 } from "./AssistantGenerativeUI.tsx";
 import {
   buildDeterministicWorkflowPlan,
@@ -2108,13 +2109,6 @@ function normalizePlannerActions(value: unknown): PlannedAction[] {
   return value.filter(isPlannedAction);
 }
 
-function normalizeGeneratedUiParts(value: unknown): AssistantGeneratedUiPart[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value.filter(isGeneratedUiPart);
-}
-
 function normalizePlannerNavigation(value: unknown) {
   if (!isRecord(value) || typeof value.to !== "string") {
     return null;
@@ -2196,21 +2190,6 @@ function isPlannedAction(value: unknown): value is PlannedAction {
     typeof value.actionKey === "string" &&
     typeof value.clientRequestId === "string" &&
     isRecord(value.input)
-  );
-}
-
-function isGeneratedUiPart(value: unknown): value is AssistantGeneratedUiPart {
-  return (
-    isRecord(value) &&
-    typeof value.type === "string" &&
-    [
-      "briefing",
-      "navigation",
-      "questionnaire",
-      "reviewTable",
-      "selector",
-      "structuredForm",
-    ].includes(value.type)
   );
 }
 

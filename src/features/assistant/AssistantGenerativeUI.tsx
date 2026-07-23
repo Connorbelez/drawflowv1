@@ -12,13 +12,19 @@ import type { Dispatch, SetStateAction } from "react";
 import { useMemo, useState } from "react";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
-import { Card, CardHeader, CardPanel, CardTitle } from "#/components/ui/card.tsx";
+import {
+  Card,
+  CardHeader,
+  CardPanel,
+  CardTitle,
+} from "#/components/ui/card.tsx";
 import {
   AssistantAutocompleteSelection,
   type AssistantSelectionOption,
 } from "./AssistantAutocompleteSelection.tsx";
 
 type AssistantGeneratedAction = {
+  id?: string;
   kind?: string;
   label: string;
   payload?: unknown;
@@ -125,13 +131,381 @@ type AssistantBriefingItem = {
   title: string;
 };
 
-type AssistantQuestion = 
+type AssistantQuestion =
   | string
   | {
       choices?: Array<{ label: string; value: string }>;
       id?: string;
       label: string;
     };
+
+export function normalizeAssistantGeneratedUiParts(
+  value: unknown
+): AssistantGeneratedUiPart[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((candidate, partIndex) => {
+    const part = normalizeAssistantGeneratedUiPart(candidate, partIndex);
+    return part ? [part] : [];
+  });
+}
+
+function normalizeAssistantGeneratedUiPart(
+  candidate: unknown,
+  partIndex: number
+): AssistantGeneratedUiPart | null {
+  if (!isGeneratedUiRecord(candidate)) {
+    return null;
+  }
+  switch (candidate.type) {
+    case "briefing":
+      return normalizeBriefingPart(candidate, partIndex);
+    case "navigation":
+      return normalizeNavigationPart(candidate);
+    case "questionnaire":
+      return normalizeQuestionnairePart(candidate, partIndex);
+    case "reviewTable":
+      return normalizeReviewTablePart(candidate, partIndex);
+    case "selector":
+      return normalizeSelectorPart(candidate);
+    case "structuredForm":
+      return normalizeStructuredFormPart(candidate);
+    default:
+      return null;
+  }
+}
+
+function normalizeBriefingPart(
+  candidate: Record<string, unknown>,
+  partIndex: number
+): Extract<AssistantGeneratedUiPart, { type: "briefing" }> {
+  const sectionIds = new Map<string, number>();
+  const sections = Array.isArray(candidate.sections)
+    ? candidate.sections.flatMap((rawSection, sectionIndex) => {
+        if (!isGeneratedUiRecord(rawSection)) {
+          return [];
+        }
+        const title =
+          generatedUiString(rawSection.title) ?? `Section ${sectionIndex + 1}`;
+        const sectionId = uniqueGeneratedUiId(
+          generatedUiString(rawSection.id),
+          `briefing:${partIndex}:section:${sectionIndex}`,
+          sectionIds
+        );
+        return [
+          {
+            id: sectionId,
+            items: normalizeBriefingItems(rawSection.items, sectionId),
+            title,
+          },
+        ];
+      })
+    : [];
+  return {
+    ...generatedUiWorkflowFields(candidate),
+    sections,
+    summary: isGeneratedUiRecord(candidate.summary)
+      ? candidate.summary
+      : undefined,
+    title: generatedUiString(candidate.title) ?? "Operational briefing",
+    type: "briefing",
+  };
+}
+
+function normalizeBriefingItems(value: unknown, sectionId: string) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const itemIds = new Map<string, number>();
+  return value.flatMap((rawItem, itemIndex) => {
+    if (!isGeneratedUiRecord(rawItem)) {
+      return [];
+    }
+    const title = generatedUiString(rawItem.title) ?? "Task";
+    const kind = generatedUiString(rawItem.kind) ?? "task";
+    return [
+      {
+        actions: normalizeGeneratedUiActions(rawItem.actions),
+        detail: generatedUiString(rawItem.detail),
+        href: generatedUiString(rawItem.href),
+        id: uniqueGeneratedUiId(
+          generatedUiString(rawItem.id),
+          `${sectionId}:item:${itemIndex}:${kind}:${title}`,
+          itemIds
+        ),
+        kind,
+        priority: generatedUiPriority(rawItem.priority),
+        source: generatedUiString(rawItem.source),
+        title,
+      },
+    ];
+  });
+}
+
+function normalizeNavigationPart(
+  candidate: Record<string, unknown>
+): Extract<AssistantGeneratedUiPart, { type: "navigation" }> | null {
+  const to = generatedUiString(candidate.to);
+  if (!to) {
+    return null;
+  }
+  return {
+    ...generatedUiWorkflowFields(candidate),
+    label: generatedUiString(candidate.label) ?? to,
+    reason: generatedUiString(candidate.reason),
+    to,
+    type: "navigation",
+  };
+}
+
+function normalizeQuestionnairePart(
+  candidate: Record<string, unknown>,
+  partIndex: number
+): Extract<AssistantGeneratedUiPart, { type: "questionnaire" }> {
+  const questionIds = new Map<string, number>();
+  const questions = Array.isArray(candidate.questions)
+    ? candidate.questions.flatMap((question, questionIndex) => {
+        if (typeof question === "string" && question.trim()) {
+          const label = question.trim();
+          return [
+            {
+              id: uniqueGeneratedUiId(
+                undefined,
+                `questionnaire:${partIndex}:question:${questionIndex}:${label}`,
+                questionIds
+              ),
+              label,
+            },
+          ];
+        }
+        if (!isGeneratedUiRecord(question)) {
+          return [];
+        }
+        const label = generatedUiString(question.label);
+        if (!label) {
+          return [];
+        }
+        return [
+          {
+            choices: normalizeGeneratedUiChoices(question.choices),
+            id: uniqueGeneratedUiId(
+              generatedUiString(question.id),
+              `questionnaire:${partIndex}:question:${questionIndex}:${label}`,
+              questionIds
+            ),
+            label,
+          },
+        ];
+      })
+    : [];
+  return {
+    ...generatedUiWorkflowFields(candidate),
+    questions,
+    title: generatedUiString(candidate.title) ?? "Quick details",
+    type: "questionnaire",
+  };
+}
+
+function normalizeGeneratedUiChoices(value: unknown) {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const seen = new Set<string>();
+  return value.flatMap((choice) => {
+    if (!isGeneratedUiRecord(choice)) {
+      return [];
+    }
+    const label = generatedUiString(choice.label);
+    const choiceValue = generatedUiString(choice.value);
+    const key = `${choiceValue}:${label}`;
+    if (!(label && choiceValue) || seen.has(key)) {
+      return [];
+    }
+    seen.add(key);
+    return [{ label, value: choiceValue }];
+  });
+}
+
+function normalizeReviewTablePart(
+  candidate: Record<string, unknown>,
+  partIndex: number
+): Extract<AssistantGeneratedUiPart, { type: "reviewTable" }> {
+  const rowIds = new Map<string, number>();
+  const rows = Array.isArray(candidate.rows)
+    ? candidate.rows.flatMap((rawRow, rowIndex) => {
+        if (!isGeneratedUiRecord(rawRow)) {
+          return [];
+        }
+        return [
+          {
+            actions: normalizeGeneratedUiActions(rawRow.actions),
+            id: uniqueGeneratedUiId(
+              generatedUiString(rawRow.id),
+              `review-table:${partIndex}:row:${rowIndex}`,
+              rowIds
+            ),
+            values: Array.isArray(rawRow.values) ? rawRow.values : [],
+          },
+        ];
+      })
+    : [];
+  return {
+    ...generatedUiWorkflowFields(candidate),
+    columns: generatedUiStringArray(candidate.columns),
+    rows,
+    title: generatedUiString(candidate.title) ?? "Review",
+    type: "reviewTable",
+  };
+}
+
+function normalizeSelectorPart(
+  candidate: Record<string, unknown>
+): Extract<AssistantGeneratedUiPart, { type: "selector" }> | null {
+  if (candidate.selectorKind !== "reminderTarget") {
+    return null;
+  }
+  return {
+    ...generatedUiWorkflowFields(candidate),
+    emptyText: generatedUiString(candidate.emptyText),
+    placeholder: generatedUiString(candidate.placeholder),
+    selectorKind: "reminderTarget",
+    title: generatedUiString(candidate.title) ?? "Choose a target",
+    type: "selector",
+  };
+}
+
+function normalizeStructuredFormPart(
+  candidate: Record<string, unknown>
+): Extract<AssistantGeneratedUiPart, { type: "structuredForm" }> | null {
+  if (
+    candidate.formKind !== "costItem" ||
+    !isGeneratedUiRecord(candidate.target) ||
+    (candidate.target.kind !== "activeBuild" &&
+      candidate.target.kind !== "proposal")
+  ) {
+    return null;
+  }
+  return {
+    ...generatedUiWorkflowFields(candidate),
+    defaults: isGeneratedUiRecord(candidate.defaults)
+      ? candidate.defaults
+      : undefined,
+    fields: generatedUiStringArray(candidate.fields),
+    formKind: "costItem",
+    milestoneOptions: normalizeMilestoneOptions(candidate.milestoneOptions),
+    target: {
+      buildId: generatedUiString(candidate.target.buildId),
+      kind: candidate.target.kind,
+      proposalId: generatedUiString(candidate.target.proposalId),
+    },
+    title: generatedUiString(candidate.title) ?? "Cost item",
+    type: "structuredForm",
+  };
+}
+
+function normalizeMilestoneOptions(value: unknown) {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.flatMap((option) => {
+    if (!isGeneratedUiRecord(option)) {
+      return [];
+    }
+    const key = generatedUiString(option.key);
+    return key
+      ? [
+          {
+            key,
+            label: generatedUiString(option.label),
+            name: generatedUiString(option.name),
+          },
+        ]
+      : [];
+  });
+}
+
+function generatedUiWorkflowFields(value: Record<string, unknown>) {
+  return {
+    stepId: generatedUiString(value.stepId),
+    workflowRunId: generatedUiString(value.workflowRunId),
+  };
+}
+
+function normalizeGeneratedUiActions(
+  value: unknown
+): AssistantGeneratedAction[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const actionIds = new Map<string, number>();
+  return value.flatMap((candidate, actionIndex) => {
+    if (!isGeneratedUiRecord(candidate)) {
+      return [];
+    }
+    const label = generatedUiString(candidate.label);
+    const kind = generatedUiString(candidate.kind);
+    const reason = generatedUiString(candidate.reason);
+    const to = generatedUiString(candidate.to);
+    if (!label) {
+      return [];
+    }
+    return [
+      {
+        id: uniqueGeneratedUiId(
+          generatedUiString(candidate.id),
+          `action:${actionIndex}:${label}:${to ?? kind ?? "action"}`,
+          actionIds
+        ),
+        kind,
+        label,
+        payload: candidate.payload,
+        reason,
+        to,
+      },
+    ];
+  });
+}
+
+function generatedUiPriority(
+  value: unknown
+): AssistantBriefingItem["priority"] {
+  return value === "critical" ||
+    value === "high" ||
+    value === "medium" ||
+    value === "low"
+    ? value
+    : "medium";
+}
+
+function generatedUiString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function generatedUiStringArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((candidate) => {
+    const normalized = generatedUiString(candidate);
+    return normalized ? [normalized] : [];
+  });
+}
+
+function uniqueGeneratedUiId(
+  value: string | undefined,
+  fallback: string,
+  seen: Map<string, number>
+) {
+  const candidate = value ?? fallback;
+  const occurrence = seen.get(candidate) ?? 0;
+  seen.set(candidate, occurrence + 1);
+  return occurrence === 0 ? candidate : `${candidate}:${occurrence}`;
+}
+
+function isGeneratedUiRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 export function AssistantGenerativeUI({
   onNavigate,
@@ -148,12 +522,16 @@ export function AssistantGenerativeUI({
   selectionLoading?: boolean;
   selectionOptions?: AssistantSelectionOption[];
 }) {
-  if (parts.length === 0) {
+  const normalizedParts = useMemo(
+    () => normalizeAssistantGeneratedUiParts(parts),
+    [parts]
+  );
+  if (normalizedParts.length === 0) {
     return null;
   }
   return (
     <div className="space-y-3" data-testid="assistant-generative-ui">
-      {parts.map((part, index) => {
+      {normalizedParts.map((part, index) => {
         const key = `${part.type}:${index}`;
         if (part.type === "briefing") {
           return (
@@ -288,7 +666,7 @@ function AssistantBriefing({
                         {item.actions?.map((action) => (
                           <AssistantActionButton
                             action={action}
-                            key={`${item.id}:${action.label}:${action.to ?? action.kind ?? "action"}`}
+                            key={action.id}
                             onNavigate={onNavigate}
                             onWorkflowUiEvent={onWorkflowUiEvent}
                             partStepId={part.stepId}
@@ -330,7 +708,10 @@ function AssistantQuestionnaire({
             typeof question === "string" ? { label: question } : question;
           const questionKey = normalizedQuestion.id ?? normalizedQuestion.label;
           return (
-            <div className="rounded-md border bg-background p-3 text-sm" key={questionKey}>
+            <div
+              className="rounded-md border bg-background p-3 text-sm"
+              key={questionKey}
+            >
               <div>
                 <span className="mr-2 text-muted-foreground text-xs">
                   {index + 1}.
@@ -344,26 +725,24 @@ function AssistantQuestionnaire({
                     return (
                       <Button
                         aria-pressed={selected}
-                        key={choice.value}
-                        onClick={() =>
-                          {
-                            setAnswers((current) => ({
-                              ...current,
-                              [questionKey]: choice.value,
-                            }));
-                            if (part.workflowRunId && part.stepId) {
-                              onWorkflowUiEvent?.({
-                                payload: {
-                                  choice,
-                                  question: normalizedQuestion,
-                                },
-                                stepId: part.stepId,
-                                type: "choice",
-                                workflowRunId: part.workflowRunId,
-                              });
-                            }
+                        key={`${choice.value}:${choice.label}`}
+                        onClick={() => {
+                          setAnswers((current) => ({
+                            ...current,
+                            [questionKey]: choice.value,
+                          }));
+                          if (part.workflowRunId && part.stepId) {
+                            onWorkflowUiEvent?.({
+                              payload: {
+                                choice,
+                                question: normalizedQuestion,
+                              },
+                              stepId: part.stepId,
+                              type: "choice",
+                              workflowRunId: part.workflowRunId,
+                            });
                           }
-                        }
+                        }}
                         size="sm"
                         type="button"
                         variant={selected ? "default" : "outline"}
@@ -392,7 +771,14 @@ function AssistantReviewTable({
   onWorkflowUiEvent?: AssistantWorkflowUiEventHandler;
   part: Extract<AssistantGeneratedUiPart, { type: "reviewTable" }>;
 }) {
-  const hasActions = part.rows.some((row) => (row.actions ?? []).length > 0);
+  const columns = Array.isArray(part.columns) ? part.columns : [];
+  const rows = Array.isArray(part.rows) ? part.rows : [];
+  const columnIds = new Map<string, number>();
+  const keyedColumns = columns.map((column) => ({
+    id: uniqueGeneratedUiId(column, column, columnIds),
+    label: column,
+  }));
+  const hasActions = rows.some((row) => (row.actions ?? []).length > 0);
   return (
     <Card data-testid="assistant-review-table">
       <CardHeader className="p-4 pb-3">
@@ -406,9 +792,12 @@ function AssistantReviewTable({
           <table className="w-full min-w-96 text-left text-xs">
             <thead className="text-muted-foreground">
               <tr>
-                {part.columns.map((column) => (
-                  <th className="border-b py-2 pr-3 font-medium" key={column}>
-                    {column}
+                {keyedColumns.map((column) => (
+                  <th
+                    className="border-b py-2 pr-3 font-medium"
+                    key={column.id}
+                  >
+                    {column.label}
                   </th>
                 ))}
                 {hasActions ? (
@@ -417,20 +806,25 @@ function AssistantReviewTable({
               </tr>
             </thead>
             <tbody>
-              {part.rows.map((row) => (
+              {rows.map((row) => (
                 <tr key={row.id}>
-                  {row.values.map((value, index) => (
-                    <td className="border-b py-2 pr-3" key={`${row.id}:${index}`}>
-                      {String(value ?? "")}
-                    </td>
-                  ))}
+                  {(Array.isArray(row.values) ? row.values : []).map(
+                    (value, index) => (
+                      <td
+                        className="border-b py-2 pr-3"
+                        key={`${row.id}:${index}`}
+                      >
+                        {String(value ?? "")}
+                      </td>
+                    )
+                  )}
                   {hasActions ? (
                     <td className="border-b py-2 pr-3">
                       <div className="flex flex-wrap gap-2">
                         {(row.actions ?? []).map((action) => (
                           <AssistantActionButton
                             action={action}
-                            key={`${row.id}:${action.label}:${action.to ?? action.kind ?? "action"}`}
+                            key={action.id}
                             onNavigate={onNavigate}
                             onWorkflowUiEvent={onWorkflowUiEvent}
                             partStepId={part.stepId}
