@@ -18,6 +18,7 @@ export type DrawFlowAssistantRouteContext = {
   selectedCalendarEventId?: string;
   selectedDrawKey?: string;
   selectedMilestoneKey?: string;
+  selectedSubmilestoneKeys?: string[];
   selectedPanel?: string;
   userId?: string | null;
   workspace?: "backoffice" | "builder" | "builder-staff";
@@ -64,6 +65,8 @@ export function buildAssistantRouteContext({
   const proposalId = params.proposalId ?? params.planId;
   const activeBuildId = params.buildId;
   const selectedPanel = stringValue(search.tab ?? search.panel);
+  // selectedSubmilestoneKeys is NOT URL-derived: it is conversational focus
+  // merged from assistantPlanningFocus at turn-send time (see DrawFlowAssistant).
   const selectedCalendarEventId = stringValue(search.eventId);
   const selectedMilestoneKey = stringValue(
     search.milestoneKey ?? search.activeMilestoneKey

@@ -26,7 +26,14 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import { Fragment, type ReactNode, useEffect, useMemo, useState } from "react";
+import {
+  Fragment,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import { GoogleAddressAutocomplete } from "#/components/address/GoogleAddressAutocomplete.tsx";
 import {
@@ -180,6 +187,10 @@ import {
   dateFromProposalDayOffset,
   isValidIsoDateOnly,
 } from "./proposalScheduleDates.ts";
+import {
+  ScheduleWindowPicker,
+  type ScheduleWindowValue,
+} from "#/features/timeline-workspace/-ScheduleWindowPicker.tsx";
 
 export type ProductionProposalStatus =
   | "draft"
@@ -4094,6 +4105,83 @@ function ProposalPacketSnapshot({
     );
   }
 
+  /**
+   * Commits a window-only edit (start day + duration) for an individual
+   * submilestone by rebuilding the full PacketMilestonePatch from the current
+   * group. Mirrors the exclusive-end semantics of the packet table
+   * (dayEnd = startDay + durationDays) and reuses ScheduleWindowPicker so the
+   * existing-proposal packet surface matches the worksheet-table interaction.
+   */
+  async function commitSubmilestoneWindow(
+    group: PacketMilestoneGroup,
+    window: ScheduleWindowValue,
+    submilestoneKey: string
+  ) {
+    if (!onUpdateMilestone) {
+      return;
+    }
+    const nextStartDay = Math.round(window.startDay);
+    const nextDurationDays = Math.max(1, Math.round(window.durationDays));
+    const milestone = group.milestone;
+
+    const submilestonePatches: PacketSubmilestonePatch[] =
+      group.submilestones.map((submilestone, index) => {
+        const currentStartDay =
+          submilestone.startDay ??
+          milestone.dayStart + group.fallbackStartOffsets[index];
+        const currentDurationDays =
+          submilestone.durationDays ?? group.fallbackDurations[index] ?? 1;
+        const budgetCents =
+          submilestone.budgetCents ?? group.fallbackBudgets[index] ?? 0;
+        if (submilestone.key !== submilestoneKey) {
+          return {
+            budgetCents,
+            durationDays: currentDurationDays,
+            key: submilestone.key,
+            name: submilestone.name,
+            order: submilestone.order ?? index + 1,
+            startDay: currentStartDay,
+          };
+        }
+        return {
+          budgetCents,
+          durationDays: nextDurationDays,
+          key: submilestone.key,
+          name: submilestone.name,
+          order: submilestone.order ?? index + 1,
+          startDay: nextStartDay,
+        };
+      });
+
+    // The milestone window is always recomputed from the (now-updated)
+    // submilestone windows. dayEnd uses exclusive-end semantics to match the
+    // packet labels and the save path's validation.
+    const windows = submilestonePatches.map((submilestone) => ({
+      dayEnd: (submilestone.startDay ?? 0) + (submilestone.durationDays ?? 1),
+      dayStart: submilestone.startDay ?? 0,
+    }));
+    const dayStart = Math.min(...windows.map((w) => w.dayStart));
+    const dayEnd = Math.max(...windows.map((w) => w.dayEnd));
+
+    const patch: PacketMilestonePatch = {
+      budgetCents: milestone.budgetCents,
+      dayEnd,
+      dayStart,
+      durationDays: Math.max(1, dayEnd - dayStart),
+      name: milestone.name,
+      submilestones: submilestonePatches,
+    };
+
+    setPendingMilestoneKey(milestone.key);
+    try {
+      await onUpdateMilestone(milestone.key, patch);
+    } catch (error) {
+      toast.error(productionProposalActionErrorMessage(error));
+    } finally {
+      setPendingMilestoneKey(null);
+    }
+  }
+
   function updateSubmilestoneOverlayStartDay(value: string) {
     setSubmilestoneOverlayDraft((current) => {
       if (!current) {
@@ -4703,6 +4791,25 @@ function ProposalPacketSnapshot({
                                     value={submilestone.dayEndDraft}
                                   />
                                 </div>
+                              ) : canEditMilestones && canShowRealDates ? (
+                                <PacketSubmilestoneWindowCell
+                                  dateDisplayMode={dateDisplayMode}
+                                  durationDays={durationDays}
+                                  onCommit={(window) =>
+                                    void commitSubmilestoneWindow(
+                                      group,
+                                      window,
+                                      submilestone.key
+                                    )
+                                  }
+                                  pending={
+                                    pendingMilestoneKey === group.milestone.key
+                                  }
+                                  proposedStartDate={proposedStartDate}
+                                  startDay={startDay}
+                                  submilestoneName={submilestone.name}
+                                  testId={`packet-submilestone-window-${group.milestone.key}-${submilestone.key}`}
+                                />
                               ) : (
                                 <>
                                   {formatPacketWindow({
@@ -5707,6 +5814,69 @@ function packetSubmilestoneTableRows(
       startDayDraft: String(startDay),
     };
   });
+}
+
+/**
+ * Clickable window cell for a packet submilestone row. Holds the transient
+ * ScheduleWindowValue while the picker is open and commits the rebuilt
+ * PacketMilestonePatch on close. Exclusive-end semantics match the packet
+ * labels ("Day X to Y" where Y = start + duration) and the save path.
+ */
+function PacketSubmilestoneWindowCell({
+  dateDisplayMode,
+  durationDays,
+  onCommit,
+  pending,
+  proposedStartDate,
+  startDay,
+  submilestoneName,
+  testId,
+}: {
+  dateDisplayMode: "relative" | "real";
+  durationDays: number;
+  onCommit: (window: ScheduleWindowValue) => void;
+  pending: boolean;
+  proposedStartDate: string;
+  startDay: number;
+  submilestoneName: string;
+  testId: string;
+}) {
+  const pendingWindowRef = useRef<ScheduleWindowValue | null>(null);
+
+  return (
+    <ScheduleWindowPicker
+      durationDays={durationDays}
+      label={submilestoneName}
+      minDayOffset={0}
+      onCommit={() => {
+        const next = pendingWindowRef.current;
+        if (next && !pending) {
+          onCommit(next);
+        }
+        pendingWindowRef.current = null;
+      }}
+      onWindowChange={(next) => {
+        pendingWindowRef.current = next;
+      }}
+      proposedStartDate={proposedStartDate}
+      startDay={startDay}
+      testId={testId}
+      trigger={
+        <span className="text-left underline-offset-2 hover:underline">
+          {formatPacketWindow({
+            dateDisplayMode,
+            dayEnd: startDay + durationDays,
+            dayStart: startDay,
+            proposedStartDate,
+          })}
+          <span className="ml-1 text-muted-foreground text-xs">
+            {durationDays}d
+          </span>
+        </span>
+      }
+      triggerClassName="inline-flex items-center gap-1 text-sm tabular-nums rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+    />
+  );
 }
 
 function formatPacketWindow({

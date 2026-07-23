@@ -59,12 +59,32 @@ describe("moveScheduleWindowNode", () => {
   test("moving the end node later keeps the start pinned", () => {
     expect(
       moveScheduleWindowNode(value, "end", "2026-06-20", PROPOSED_START_DATE)
-    ).toEqual({ durationDays: 20, startDay: 0 });
+    ).toEqual({ durationDays: 19, startDay: 0 });
   });
 
   test("the end node cannot cross the start node", () => {
     expect(
       moveScheduleWindowNode(value, "end", "2026-05-20", PROPOSED_START_DATE)
+    ).toEqual({ durationDays: 1, startDay: 0 });
+  });
+
+  test("minDayOffset clamps the start node before the schedule origin", () => {
+    // Exclusive-end window: day 0..14. With minDayOffset 3 the start cannot
+    // move earlier than day 3, even when the pointer points at 2026-05-28.
+    expect(
+      moveScheduleWindowNode(value, "start", "2026-05-28", PROPOSED_START_DATE, {
+        minDayOffset: 3,
+      })
+    ).toEqual({ durationDays: 11, startDay: 3 });
+  });
+
+  test("minDayOffset clamps the end node before the schedule origin", () => {
+    // End target day -12 is clamped up to minDayOffset 1, yielding a one-day
+    // window that still satisfies the exclusive-end invariant (end > start).
+    expect(
+      moveScheduleWindowNode(value, "end", "2026-05-20", PROPOSED_START_DATE, {
+        minDayOffset: 1,
+      })
     ).toEqual({ durationDays: 1, startDay: 0 });
   });
 });
@@ -129,7 +149,9 @@ describe("ScheduleWindowPicker", () => {
     openPicker();
 
     expect(dayCell("2026-06-01").classList.contains("range-start")).toBe(true);
-    expect(dayCell("2026-06-14").classList.contains("range-end")).toBe(true);
+    // Exclusive-end: a 14d window starting on day 0 ends on day 14
+    // (2026-06-15), matching the "Day X to Y" window labels.
+    expect(dayCell("2026-06-15").classList.contains("range-end")).toBe(true);
     expect(
       screen.getByTestId("framing-window-start-node").getAttribute(
         "aria-pressed"
@@ -146,7 +168,7 @@ describe("ScheduleWindowPicker", () => {
     render(<ControlledPicker />);
     openPicker();
 
-    clickDay("2026-06-14");
+    clickDay("2026-06-15");
 
     expect(
       screen.getByTestId("framing-window-end-node").getAttribute(
@@ -172,7 +194,9 @@ describe("ScheduleWindowPicker", () => {
       startDay: 4,
     });
     expect(dayCell("2026-06-05").classList.contains("range-start")).toBe(true);
-    expect(dayCell("2026-06-14").classList.contains("range-end")).toBe(true);
+    // Moving the start pins the end: exclusive end stays on day 14
+    // (2026-06-15); duration shrinks from 14 to 10 to compensate.
+    expect(dayCell("2026-06-15").classList.contains("range-end")).toBe(true);
   });
 
   test("clicking another date moves only the armed end node", () => {
@@ -184,7 +208,7 @@ describe("ScheduleWindowPicker", () => {
     clickDay("2026-06-20");
 
     expect(onWindowChange).toHaveBeenLastCalledWith({
-      durationDays: 20,
+      durationDays: 19,
       startDay: 0,
     });
     expect(dayCell("2026-06-01").classList.contains("range-start")).toBe(true);

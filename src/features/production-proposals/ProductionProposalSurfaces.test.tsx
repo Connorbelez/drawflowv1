@@ -1621,6 +1621,88 @@ describe("ProductionProposalReviewSurface", () => {
     );
   });
 
+  test("packet submilestone window cell opens a range picker and commits the rebuilt patch", async () => {
+    const onUpdatePacketMilestone = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          milestones: [
+            {
+              budgetCents: 500_000_00,
+              dayEnd: 30,
+              dayStart: 0,
+              key: "foundation",
+              name: "Foundation",
+              order: 1,
+            },
+          ],
+          submilestones: [
+            {
+              budgetCents: 250_000_00,
+              durationDays: 30,
+              key: "forms",
+              milestoneKey: "foundation",
+              name: "Forms and pour",
+              order: 1,
+              startDay: 0,
+            },
+          ],
+          proposal: {
+            ...proposalDetail.proposal,
+            proposedStartDate: "2026-06-01",
+            status: "submitted",
+          },
+        }}
+        onApprove={vi.fn()}
+        onClose={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+        onUpdatePacketMilestone={onUpdatePacketMilestone}
+        timeline={<div data-testid="timeline-slot">Timeline workspace</div>}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByTestId("packet-submilestone-window-foundation-forms"),
+    );
+
+    // Arm the end node and move it to 2026-06-10 (day 9); start stays day 0.
+    fireEvent.click(
+      screen.getByTestId(
+        "packet-submilestone-window-foundation-forms-end-node",
+      ),
+    );
+    const endButton = document.querySelector(
+      '[data-day="2026-06-10"] button',
+    ) as HTMLButtonElement;
+    fireEvent.click(endButton);
+
+    fireEvent.click(screen.getByRole("button", { name: /done/i }));
+
+    await waitFor(() =>
+      expect(onUpdatePacketMilestone).toHaveBeenCalledWith("foundation", {
+        budgetCents: 500_000_00,
+        // Milestone window recomputed from the single submilestone: 0..9.
+        dayEnd: 9,
+        dayStart: 0,
+        durationDays: 9,
+        name: "Foundation",
+        submilestones: [
+          {
+            budgetCents: 250_000_00,
+            durationDays: 9,
+            key: "forms",
+            name: "Forms and pour",
+            order: 1,
+            startDay: 0,
+          },
+        ],
+      }),
+    );
+  });
+
   test("creates a packet milestone from the add milestone sheet", async () => {
     const onCreatePacketMilestone = vi.fn().mockResolvedValue(undefined);
 

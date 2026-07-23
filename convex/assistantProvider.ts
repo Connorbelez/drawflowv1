@@ -1,6 +1,6 @@
 export type AssistantProvider = "openai" | "openrouter";
 
-const DEFAULT_OPENAI_MODEL = "gpt-4.1-mini";
+const DEFAULT_OPENAI_MODEL = "gpt-5.4-mini";
 
 export function resolveAssistantModel(
   provider: AssistantProvider,

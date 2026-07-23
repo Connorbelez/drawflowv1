@@ -1882,8 +1882,10 @@ describe("summary table window range editing", () => {
 
     expect(onRowsChange).toHaveBeenLastCalledWith([
       expect.objectContaining({
-        durationDays: 10,
-        durationText: "10",
+        // Exclusive-end: pointing the end node at 2026-06-10 (day 9) yields
+        // a 9-day window (start day 0..9), matching the "Day X to Y" labels.
+        durationDays: 9,
+        durationText: "9",
         key: "milestone-1",
         startDay: 0,
       }),
