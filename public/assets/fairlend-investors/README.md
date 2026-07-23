@@ -1,0 +1,191 @@
+# Fairlend Investors Assets
+
+Generated from `public/designConcepts/investors/` mockups.
+
+- Total assets: `50`
+- Transparent/alpha WebP assets: `47`
+- SVG masks/marks: `3`
+- Source mockups inspected: `10`
+
+## Strategy
+
+- Extract reusable photographic/render plates from the mockups as transparent WebP files.
+- Extract architectural drawings, drafting fragments, stamps, diagrams, and document props as alpha WebP overlays when they appear as raster art in the mockups.
+- Generate reusable SVG masks for repeatable drafting grids, ruled document lines, and the simplified Fairlend mark when vector composition is cleaner than raster extraction.
+- Do not extract live text, buttons, form fields, ruled table cells, or simple layout boxes as images; those should be implemented as HTML/CSS so the final page remains accessible and responsive.
+
+## Coverage
+
+- `investors.borrower-project-types`: 13 assets
+  - Six project images, six blueprint inserts/panels, left elevation, and paper grain cover the dossier-board visual assets.
+- `investors.disclaimers`: 6 assets
+  - Top building linework, counsel-review panel, paper grain, drafting fragments, grid mask, and ruled-line SVG cover the disclosure visual assets.
+- `investors.hero`: 8 assets
+  - Hero building plate, dark blueprint elevation panel, monogram tile, global paper grain, drafting fragments, grid mask, and vector mark cover the non-text visual assets.
+- `investors.private-credit-overview`: 6 assets
+  - Collateral plate, security structure, borrower obligations, loan agreement, risk ledger, and paper grain cover the explainer diagram assets.
+- `investors.request-info`: 7 assets
+  - Building strip, two drafting fragments, paper grain, drafting overlay, grid mask, and vector mark cover the CTA visual layer; the form remains HTML/CSS.
+- `investors.risk-management`: 4 assets
+  - Elevation linework, risk-aware stamp, paper grain, and ruled-line SVG cover the visual layer; the risk register itself should be HTML/CSS.
+- `investors.thesis`: 10 assets
+  - Midrise render, elevation, site plan, GTA map, permit card, paper grain, drafting fragments, grid mask, ruled lines, and vector mark cover the planning-board collage.
+- `investors.underwriting`: 4 assets
+  - Underwriting wheel, loan-file dossier, footer elevation, and paper grain cover the non-text visual assets.
+- `investors.why-affordable-sustainable`: 6 assets
+  - Four typology images, section drawing, and paper grain cover the typology strip and supporting architectural graphic.
+- `investors.why-housing-finance`: 7 assets
+  - Central building cutout, site plan, blueprint section, homes node, paper grain, drafting fragments, and grid mask cover the network/architectural visuals.
+
+## Assets
+
+- `imagery/hero-midrise-building.webp` (rectangular-photo-plate, 700x801, alpha 0..255, transparent=true)
+  - Sections: `investors.hero`
+  - Usage: Hero residential rental building plate, right side of the opening fold.
+- `blueprints/hero-blueprint-elevation-panel.webp` (blueprint-panel, 402x430, alpha 0..255, transparent=true)
+  - Sections: `investors.hero`
+  - Usage: Dark trust-blue elevation panel behind the hero building.
+- `marks/hero-monogram-tile.webp` (brand-tile, 191x160, alpha 0..255, transparent=true)
+  - Sections: `investors.hero`
+  - Usage: Pale mint Fairlend monogram tile used as a hero brand anchor.
+- `imagery/hero-architecture-collage.webp` (architecture-collage, 926x1024, alpha 0..255, transparent=true)
+  - Sections: `investors.hero`
+  - Usage: Hero right-side architecture collage preserving the reference photo, blueprint, street, stamp, and soft paper blend without embedding page text.
+- `imagery/thesis-midrise-render.webp` (rectangular-render-plate, 573x450, alpha 0..255, transparent=true)
+  - Sections: `investors.thesis`
+  - Usage: Investment thesis mid-rise rental render.
+- `blueprints/thesis-blueprint-elevation.webp` (blueprint-panel, 292x450, alpha 0..255, transparent=true)
+  - Sections: `investors.thesis`
+  - Usage: Investment thesis dark-blue elevation panel.
+- `blueprints/thesis-site-plan.webp` (site-plan-linework, 332x252, alpha 0..255, transparent=true)
+  - Sections: `investors.thesis`
+  - Usage: Site-plan drawing plate for the thesis planning-board collage.
+- `blueprints/thesis-gta-context-map.webp` (context-map, 241x252, alpha 0..255, transparent=true)
+  - Sections: `investors.thesis`
+  - Usage: GTA context-map fragment for the investment thesis collage.
+- `documents/thesis-building-permit-card.webp` (permit-card, 226x222, alpha 0..255, transparent=true)
+  - Sections: `investors.thesis`
+  - Usage: Permit-card visual used in the thesis memo board.
+- `diagrams/private-credit-collateral-plate.webp` (collateral-document-plate, 267x454, alpha 0..255, transparent=true)
+  - Sections: `investors.private-credit-overview`
+  - Usage: Real estate collateral document block in the private-credit explainer.
+- `diagrams/private-credit-security-structure.webp` (security-structure-block, 201x415, alpha 0..255, transparent=true)
+  - Sections: `investors.private-credit-overview`
+  - Usage: Dark security-structure block from the private-credit diagram.
+- `diagrams/private-credit-borrower-obligations.webp` (borrower-obligations-sheet, 302x426, alpha 0..255, transparent=true)
+  - Sections: `investors.private-credit-overview`
+  - Usage: Borrower obligations document sheet in the private-credit diagram.
+- `documents/private-credit-loan-agreement.webp` (loan-agreement-sheet, 173x257, alpha 0..255, transparent=true)
+  - Sections: `investors.private-credit-overview`
+  - Usage: Loan agreement document overlay.
+- `diagrams/private-credit-risk-ledger.webp` (risk-ledger-panel, 498x661, alpha 0..255, transparent=true)
+  - Sections: `investors.private-credit-overview`
+  - Usage: Risk ledger panel for the private-credit education section.
+- `imagery/housing-finance-central-building.webp` (building-render-cutout, 418x255, alpha 0..255, transparent=true)
+  - Sections: `investors.why-housing-finance`
+  - Usage: Central residential building anchor for the housing-finance network.
+- `blueprints/housing-finance-site-plan.webp` (site-plan-linework, 537x292, alpha 0..255, transparent=true)
+  - Sections: `investors.why-housing-finance`
+  - Usage: Lower site-plan drawing behind the housing-finance network.
+- `blueprints/housing-finance-blueprint-section.webp` (blueprint-panel, 347x309, alpha 0..255, transparent=true)
+  - Sections: `investors.why-housing-finance`
+  - Usage: Right-side blue building section panel.
+- `diagrams/housing-finance-homes-node.webp` (network-node, 238x204, alpha 0..255, transparent=true)
+  - Sections: `investors.why-housing-finance`
+  - Usage: Pale mint homes node for the housing-finance relationship map.
+- `imagery/affordable-garden-suite.webp` (typology-photo, 355x304, alpha 0..255, transparent=true)
+  - Sections: `investors.why-affordable-sustainable`
+  - Usage: Garden suite typology image.
+- `imagery/affordable-multiplex.webp` (typology-photo, 363x304, alpha 0..255, transparent=true)
+  - Sections: `investors.why-affordable-sustainable`
+  - Usage: Multiplex typology image.
+- `imagery/affordable-rental-infill.webp` (typology-photo, 347x304, alpha 0..255, transparent=true)
+  - Sections: `investors.why-affordable-sustainable`
+  - Usage: Rental infill typology image.
+- `imagery/affordable-sustainable-retrofit.webp` (typology-photo, 366x304, alpha 0..255, transparent=true)
+  - Sections: `investors.why-affordable-sustainable`
+  - Usage: Sustainable retrofit typology image.
+- `blueprints/affordable-section-drawing.webp` (section-linework, 456x196, alpha 0..255, transparent=true)
+  - Sections: `investors.why-affordable-sustainable`
+  - Usage: Missing-middle section drawing and land-use diagram.
+- `blueprints/risk-management-elevation-linework.webp` (elevation-linework, 474x481, alpha 0..255, transparent=true)
+  - Sections: `investors.risk-management`
+  - Usage: Risk-management building elevation linework.
+- `stamps/risk-management-risk-aware-stamp.webp` (copper-stamp, 182x146, alpha 0..255, transparent=true)
+  - Sections: `investors.risk-management`
+  - Usage: Circular risk-aware stamp.
+- `diagrams/underwriting-wheel.webp` (underwriting-wheel, 494x533, alpha 0..255, transparent=true)
+  - Sections: `investors.underwriting`
+  - Usage: Underwriting discipline wheel around the central loan memorandum.
+- `documents/underwriting-loan-file-dossier.webp` (loan-file-dossier, 354x626, alpha 0..255, transparent=true)
+  - Sections: `investors.underwriting`
+  - Usage: Loan-file dossier with appraisal, budget, permits, and exit-plan tabs.
+- `blueprints/underwriting-footer-elevation.webp` (elevation-linework, 344x85, alpha 0..255, transparent=true)
+  - Sections: `investors.underwriting`
+  - Usage: Small footer elevation drawing used under the underwriting section.
+- `imagery/project-types-multiplex.webp` (project-type-photo, 269x252, alpha 0..255, transparent=true)
+  - Sections: `investors.borrower-project-types`
+  - Usage: Multiplex project-type image.
+- `imagery/project-types-garden-suite.webp` (project-type-photo, 282x252, alpha 0..255, transparent=true)
+  - Sections: `investors.borrower-project-types`
+  - Usage: Garden-suite / laneway-suite project-type image.
+- `imagery/project-types-construction-draw.webp` (project-type-photo, 269x236, alpha 0..255, transparent=true)
+  - Sections: `investors.borrower-project-types`
+  - Usage: Construction draw financing project-type image.
+- `imagery/project-types-small-developer.webp` (project-type-photo, 311x236, alpha 0..255, transparent=true)
+  - Sections: `investors.borrower-project-types`
+  - Usage: Small developer rental housing project-type image.
+- `imagery/project-types-private-mortgage.webp` (project-type-photo, 192x225, alpha 0..255, transparent=true)
+  - Sections: `investors.borrower-project-types`
+  - Usage: Private mortgage solution project-type image.
+- `imagery/project-types-rental-pathway.webp` (project-type-photo, 314x225, alpha 0..255, transparent=true)
+  - Sections: `investors.borrower-project-types`
+  - Usage: Longer-term rental pathway project-type image.
+- `blueprints/project-types-left-elevation.webp` (elevation-linework, 313x176, alpha 0..255, transparent=true)
+  - Sections: `investors.borrower-project-types`
+  - Usage: Left-side elevation drawing in the borrower/project-types section.
+- `blueprints/project-types-multiplex-plan.webp` (floor-plan-linework, 144x252, alpha 0..255, transparent=true)
+  - Sections: `investors.borrower-project-types`
+  - Usage: Multiplex floor-plan insert.
+- `blueprints/project-types-lane-plan.webp` (floor-plan-linework, 145x252, alpha 0..255, transparent=true)
+  - Sections: `investors.borrower-project-types`
+  - Usage: Laneway suite rear-yard plan insert.
+- `blueprints/project-types-construction-blueprint.webp` (blueprint-panel, 145x236, alpha 0..255, transparent=true)
+  - Sections: `investors.borrower-project-types`
+  - Usage: Construction draw blue elevation panel.
+- `blueprints/project-types-developer-blueprint.webp` (blueprint-panel, 145x236, alpha 0..255, transparent=true)
+  - Sections: `investors.borrower-project-types`
+  - Usage: Small developer blue elevation panel.
+- `blueprints/project-types-rental-plan-blueprint.webp` (blueprint-panel, 305x225, alpha 0..255, transparent=true)
+  - Sections: `investors.borrower-project-types`
+  - Usage: Rental pathway blue site-plan panel.
+- `blueprints/disclosures-top-building-linework.webp` (building-linework, 408x259, alpha 0..255, transparent=true)
+  - Sections: `investors.disclaimers`
+  - Usage: Top-right building linework behind the important-information section.
+- `stamps/disclosures-counsel-review-stamp.webp` (counsel-review-panel, 486x322, alpha 0..255, transparent=true)
+  - Sections: `investors.disclaimers`
+  - Usage: Counsel review required stamp panel.
+- `imagery/request-info-building-strip.webp` (wide-building-strip, 907x306, alpha 0..255, transparent=true)
+  - Sections: `investors.request-info`
+  - Usage: Bottom residential building strip used in the request-information CTA.
+- `blueprints/request-info-blueprint-top-fragment.webp` (drafting-fragment, 392x191, alpha 0..255, transparent=true)
+  - Sections: `investors.request-info`
+  - Usage: Top drafting-line fragment for the request-information background.
+- `blueprints/request-info-blueprint-center-fragment.webp` (drafting-fragment, 329x312, alpha 0..255, transparent=true)
+  - Sections: `investors.request-info`
+  - Usage: Center drafting-line fragment behind the request-information copy.
+- `patterns/paper-grain-overlay.webp` (transparent-webp-overlay, 1024x1024, alpha 0..53, transparent=true)
+  - Sections: `investors.borrower-project-types`, `investors.disclaimers`, `investors.hero`, `investors.private-credit-overview`, `investors.request-info`, `investors.risk-management`, `investors.thesis`, `investors.underwriting`, `investors.why-affordable-sustainable`, `investors.why-housing-finance`
+  - Usage: Subtle transparent paper grain overlay for limestone page backgrounds.
+- `patterns/architectural-drafting-fragments.webp` (transparent-webp-overlay, 1400x900, alpha 0..68, transparent=true)
+  - Sections: `investors.hero`, `investors.thesis`, `investors.why-housing-finance`, `investors.disclaimers`, `investors.request-info`
+  - Usage: Reusable transparent architectural drafting fragments for section backgrounds.
+- `patterns/blueprint-grid-mask.svg` (svg-mask, SVG transparent by composition)
+  - Sections: `investors.hero`, `investors.thesis`, `investors.why-housing-finance`, `investors.disclaimers`, `investors.request-info`
+  - Usage: Reusable drafting grid for pale-blue architectural overlays.
+- `patterns/ruled-document-lines.svg` (svg-mask, SVG transparent by composition)
+  - Sections: `investors.thesis`, `investors.risk-management`, `investors.disclaimers`
+  - Usage: Reusable thin ruled-line document pattern for disclosure and memo panels.
+- `marks/fairlend-monogram-line.svg` (svg-mark, SVG transparent by composition)
+  - Sections: `investors.hero`, `investors.thesis`, `investors.request-info`
+  - Usage: Simplified Fairlend monogram mark for small tiles and stamps.

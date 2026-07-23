@@ -1,0 +1,26 @@
+{
+  "project": "drawflow",
+  "notes": "Production extraction of the supplied neuomorphic/isometric waterfront map hero image. User requested the hero image with the surrounding cream page background removed and true transparency preserved.",
+  "assets": [
+    {
+      "id": "neuomorphic-hero-map",
+      "label": "Neuomorphic waterfront map hero image",
+      "classification": "image",
+      "role": "Primary transparent hero artwork for DrawFlow marketing surfaces",
+      "bbox": {
+        "x": 0,
+        "y": 0,
+        "width": 1672,
+        "height": 941
+      },
+      "rationale": "The source is a dense raster illustration with complex lighting, water, buildings, trees, plinth edges, shadows, and material texture. It should remain a single raster image asset.",
+      "generation": {
+        "asset_type": "transparent hero raster artwork",
+        "output_basename": "neuomorphic-hero-map",
+        "transparent": true,
+        "prompt": "Reference image only. Create a standalone transparent hero asset matching the supplied neuomorphic/isometric waterfront construction map: raised cream city-map plinth, blue harbor water, downtown skyline with tower, marina docks, detailed mansion and guest house on the right, trees, warm soft lighting, retained contact shadows and rounded map base. Remove only the surrounding cream page/background outside the artwork. Preserve the artwork proportions, perspective, material texture, and premium soft 3D render style.",
+        "negative_prompt": "No rectangular background, no cream canvas outside the map, no text, no logos, no cropped-off house, no missing waterfront, no flat vector redraw, no harsh outline, no halo."
+      }
+    }
+  ]
+}

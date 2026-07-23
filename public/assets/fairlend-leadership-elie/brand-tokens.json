@@ -1,0 +1,29 @@
+{
+  "sourceBrandKit": "/designConcepts/WarmBlueprintBrutalistModern.png",
+  "name": "Fairlend Leadership - Warm Blueprint Brutalist Modern",
+  "palette": {
+    "draftPaper": "#FAF5EC",
+    "pineInk": "#073C33",
+    "steelBlueprint": "#4D83B6",
+    "terracotta": "#C9643E",
+    "washedEucalyptus": "#D9E7D6",
+    "graphite": "#262C2A"
+  },
+  "typography": {
+    "display": "condensed brutalist uppercase display, Fairlend Condensed style",
+    "body": "Inter-like clean sans",
+    "editorial": "serif only for controlled pull quotes if needed"
+  },
+  "radius": {
+    "cards": "6px",
+    "buttons": "4px",
+    "mediaFrames": "8px"
+  },
+  "usageNotes": [
+    "Use draftPaper as the dominant page background.",
+    "Use pineInk for primary text and structural panels.",
+    "Use steelBlueprint for blueprint lines, secondary panels, and drawing overlays.",
+    "Use terracotta only for primary CTAs, warnings, and small editorial accents.",
+    "Do not publish the portrait placeholder as the real Elie Soberano headshot."
+  ]
+}

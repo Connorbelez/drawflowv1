@@ -1,0 +1,968 @@
+- link "DrawFlow DrawFlow Builder":
+  - /url: /builder
+  - img "DrawFlow"
+  - generic: DrawFlow Builder
+- generic: Builder
+- list:
+  - link "Dashboard":
+    - /url: /builder
+    - generic: Dashboard
+  - link "Proposals":
+    - /url: /builder/proposals
+    - generic: Proposals
+  - link "Live Builds":
+    - /url: /builder/proposals
+    - generic: Live Builds
+- generic: Demos
+- list:
+  - link "Timeline Setup":
+    - /url: /demo/timeline
+    - generic: Timeline Setup
+- generic: CHANGELOG
+- paragraph: Product update
+- generic: Performance boosts and UI polish.
+- link "Learn more":
+  - /url: "#"
+- button:
+- list:
+  - link "About":
+    - /url: /about
+    - generic: About
+  - link "Docs":
+    - /url: /demo
+    - generic: Docs
+- paragraph: © 2026 DrawFlow
+- main:
+  - button "Toggle Sidebar":
+    - generic: Toggle Sidebar
+  - separator
+  - navigation "breadcrumb":
+    - list:
+      - link "Builder":
+        - /url: /builder
+      - generic: Proposals
+  - 'button "Theme mode: dark. Click to switch mode."':
+  - button "Notifications":
+  - separator
+  - list:
+    - button "Connor Beleznay Connor Beleznay c.beleznay@humanfeedback.com":
+      - img "Connor Beleznay"
+      - generic: Connor Beleznay
+      - generic: c.beleznay@humanfeedback.com
+  - tablist "Proposal workspace sections":
+    - tab "Packet"
+    - tab "Timeline"
+    - tab "Gantt"
+    - tab "Milestones"
+    - tab "Calendar" [active] [selected]
+    - tab "Contractors"
+    - tab "Review"
+    - tab "Draw schedule"
+    - tab "Materials"
+    - tab "Staff"
+  - generic: Submitted
+  - generic: Seed Scenario - Draft
+  - generic: ·
+  - generic: Draft Site, Toronto, ON
+  - generic: Total budget
+  - strong: $650,250
+  - generic: Total approved
+  - strong: $550,000
+  - generic: Interest rate
+  - strong: 9.25%
+  - tabpanel "Calendar":
+    - generic: month
+    - generic: 1 warnings
+    - generic: 1 needs action
+    - button "New event":
+      - text: New event
+    - button "Export ICS":
+      - text: Export ICS
+    - button "ICS":
+      - text: ICS
+    - button "GOOGLE":
+      - text: GOOGLE
+    - button "OUTLOOK":
+      - text: OUTLOOK
+    - button "Reconcile inbound":
+      - text: Reconcile inbound
+    - button "Save view":
+      - text: Save view
+    - textbox "Search calendar"
+    - button "Proposal feasibility"
+    - button "My week"
+    - button "Capital release"
+    - button "Evidence and review"
+    - button "Overdue and blocked"
+    - button "Risk only"
+    - button "Editable"
+    - heading "June 2026" [level=2]
+    - paragraph: 7 scheduled calendar events
+    - button "Previous calendar range":
+    - button "Today"
+    - button "Next calendar range":
+    - tablist "Calendar timeframe":
+      - tab "Day":
+        - text: Day
+      - tab "Week":
+        - text: Week
+      - tab "Month" [selected]:
+        - text: Month
+      - tab "Quarter":
+        - text: Quarter
+      - tab "Agenda":
+        - text: Agenda
+    - textbox "Search visible events"
+    - button "Colors":
+      - text: Colors
+    - button "Categories":
+      - text: Categories
+    - button "Tags":
+      - text: Tags
+    - generic: Mon
+    - generic: Tue
+    - generic: Wed
+    - generic: Thu
+    - generic: Fri
+    - generic: Sat
+    - generic: Sun
+    - generic: "1"
+    - generic: "4"
+    - button "Forms and pour, All day, Start, submilestone, proposed":
+      - generic: Forms and pour
+      - text: All day
+      - generic: Start
+      - generic: submilestone
+      - generic: proposed
+      - button "Forms and pour actions":
+    - button "Foundation, All day, Start, milestone, planned":
+      - generic: Foundation
+      - text: All day
+      - generic: Start
+      - generic: milestone
+      - generic: planned
+      - button "Foundation actions":
+    - button "Waterproofing and backfill, All day, Start, submilestone, proposed":
+      - generic: Waterproofing and backfill
+      - text: All day
+      - generic: Start
+      - generic: submilestone
+      - generic: proposed
+      - button "Waterproofing and backfill actions":
+    - button "seed-budget.pdf, 12 PM - 1 PM, evidence, submitted":
+      - generic: seed-budget.pdf
+      - text: 12 PM - 1 PM
+      - generic: evidence
+      - generic: submitted
+      - button "seed-budget.pdf actions":
+    - generic: "2"
+    - generic: "2"
+    - button "Forms and pour, All day, End, submilestone, proposed":
+      - generic: Forms and pour
+      - text: All day
+      - generic: End
+      - generic: submilestone
+      - generic: proposed
+      - button "Forms and pour actions":
+    - button "Waterproofing and backfill, All day, End, submilestone, proposed":
+      - generic: Waterproofing and backfill
+      - text: All day
+      - generic: End
+      - generic: submilestone
+      - generic: proposed
+      - button "Waterproofing and backfill actions":
+    - generic: "3"
+    - generic: "4"
+    - generic: "5"
+    - generic: "6"
+    - generic: "7"
+    - generic: "8"
+    - generic: "9"
+    - generic: "10"
+    - generic: "11"
+    - generic: "12"
+    - generic: "13"
+    - generic: "14"
+    - generic: "15"
+    - generic: "16"
+    - generic: "17"
+    - generic: "18"
+    - generic: "19"
+    - generic: "20"
+    - generic: "21"
+    - generic: "22"
+    - generic: "23"
+    - generic: "24"
+    - generic: "25"
+    - generic: "26"
+    - generic: "27"
+    - generic: "28"
+    - generic: "29"
+    - generic: "30"
+    - generic: "1"
+    - generic: "2"
+    - button "Foundation, All day, End, milestone, planned":
+      - generic: Foundation
+      - text: All day
+      - generic: End
+      - generic: milestone
+      - generic: planned
+      - button "Foundation actions":
+    - button "Foundation reimbursement draw, 5 PM - 6 PM, draw, proposed":
+      - generic: Foundation reimbursement draw
+      - text: 5 PM - 6 PM
+      - generic: draw
+      - generic: proposed
+      - button "Foundation reimbursement draw actions":
+    - generic: "2"
+    - generic: "1"
+    - button "Shell and Dry-In, All day, Start, milestone, planned, 1 warning":
+      - generic: Shell and Dry-In
+      - text: All day
+      - generic: Start
+      - generic: milestone
+      - generic: planned
+      - button "Shell and Dry-In actions":
+    - generic: "3"
+    - generic: "4"
+    - generic: "5"
+    - generic: "6"
+    - generic: "7"
+    - generic: "8"
+    - generic: "9"
+    - generic: "10"
+    - generic: "11"
+    - generic: "12"
+    - complementary:
+      - paragraph: Agenda
+      - paragraph: Today, upcoming, overdue, and unscheduled work.
+      - generic: 7 events
+      - generic: 2026-06-01
+      - generic: "4"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - button "Forms and pour, All day, submilestone, proposed, foundation":
+        - generic: Forms and pour
+        - generic: proposed
+        - generic: foundation
+        - button "Forms and pour actions":
+      - button "Waterproofing and backfill, All day, submilestone, proposed, foundation":
+        - generic: Waterproofing and backfill
+        - generic: proposed
+        - generic: foundation
+        - button "Waterproofing and backfill actions":
+      - paragraph: Midday
+      - button "seed-budget.pdf, Midday, evidence, submitted, budget":
+        - generic: seed-budget.pdf
+        - generic: submitted
+        - generic: budget
+        - button "seed-budget.pdf actions":
+      - generic: 2026-06-02
+      - generic: "3"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - button "Forms and pour, All day, submilestone, proposed, foundation":
+        - generic: Forms and pour
+        - generic: proposed
+        - generic: foundation
+        - button "Forms and pour actions":
+      - button "Waterproofing and backfill, All day, submilestone, proposed, foundation":
+        - generic: Waterproofing and backfill
+        - generic: proposed
+        - generic: foundation
+        - button "Waterproofing and backfill actions":
+      - generic: 2026-06-03
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-04
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-05
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-06
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-07
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-08
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-09
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-10
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-11
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-12
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-13
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-14
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-15
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-16
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-17
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-18
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-19
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-20
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-21
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-22
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-23
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-24
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-25
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-26
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-27
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-28
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-29
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-06-30
+      - generic: "1"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - generic: 2026-07-01
+      - generic: "2"
+      - paragraph: All day
+      - button "Foundation, All day, milestone, planned, Day 0 to 30, $160.2K":
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button "Foundation actions":
+      - paragraph: End of day
+      - button "Foundation reimbursement draw, End of day, draw, proposed, Draw availability, day 30, $160.2K":
+        - generic: Foundation reimbursement draw
+        - generic: proposed
+        - generic: Draw availability, day 30
+        - generic: $160.2K
+        - button "Foundation reimbursement draw actions":
+      - generic: 2026-07-02
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-03
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-04
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-05
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-06
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-07
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-08
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-09
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-10
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-11
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-12
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-13
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-14
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-15
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-16
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-17
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-18
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-19
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-20
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-21
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-22
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-23
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-24
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-25
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-26
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-27
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-28
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-29
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-30
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-07-31
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-08-01
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-08-02
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-08-03
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-08-04
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-08-05
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-08-06
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-08-07
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-08-08
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-08-09
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-08-10
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-08-11
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-08-12
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-08-13
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-08-14
+      - generic: "1"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - generic: 2026-08-15
+      - generic: "2"
+      - paragraph: All day
+      - button "Shell and Dry-In, All day, milestone, planned, Day 31 to 75, $360K, 1 warning":
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button "Shell and Dry-In actions":
+      - paragraph: End of day
+      - button "Shell and Dry-In reimbursement draw, End of day, draw, proposed, Draw availability, day 75, $360K":
+        - generic: Shell and Dry-In reimbursement draw
+        - generic: proposed
+        - generic: Draw availability, day 75
+        - generic: $360K
+        - button "Shell and Dry-In reimbursement draw actions":
+  - button "Open DrawFlow AI assistant":
+- region "Notifications alt+T"
+- button "Open TanStack Devtools":
+  - img "TanStack Devtools"
+- generic: $200K

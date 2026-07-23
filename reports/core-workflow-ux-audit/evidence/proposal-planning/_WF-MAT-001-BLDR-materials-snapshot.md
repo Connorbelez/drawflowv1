@@ -1,0 +1,113 @@
+- link "DrawFlow DrawFlow Builder":
+  - /url: /builder
+  - img "DrawFlow"
+  - generic: DrawFlow Builder
+- generic: Builder
+- list:
+  - link "Dashboard":
+    - /url: /builder
+    - generic: Dashboard
+  - link "Proposals":
+    - /url: /builder/proposals
+    - generic: Proposals
+  - link "Live Builds":
+    - /url: /builder/proposals
+    - generic: Live Builds
+- generic: Demos
+- list:
+  - link "Timeline Setup":
+    - /url: /demo/timeline
+    - generic: Timeline Setup
+- generic: CHANGELOG
+- paragraph: Product update
+- generic: Performance boosts and UI polish.
+- link "Learn more":
+  - /url: "#"
+- button:
+- list:
+  - link "About":
+    - /url: /about
+    - generic: About
+  - link "Docs":
+    - /url: /demo
+    - generic: Docs
+- paragraph: © 2026 DrawFlow
+- main:
+  - button "Toggle Sidebar":
+    - generic: Toggle Sidebar
+  - separator
+  - navigation "breadcrumb":
+    - list:
+      - link "Builder":
+        - /url: /builder
+      - generic: Proposals
+  - 'button "Theme mode: dark. Click to switch mode."':
+  - button "Notifications":
+  - separator
+  - list:
+    - button "Connor Beleznay Connor Beleznay c.beleznay@humanfeedback.com":
+      - img "Connor Beleznay"
+      - generic: Connor Beleznay
+      - generic: c.beleznay@humanfeedback.com
+  - tablist "Proposal workspace sections":
+    - tab "Packet"
+    - tab "Timeline"
+    - tab "Gantt"
+    - tab "Milestones"
+    - tab "Calendar"
+    - tab "Contractors"
+    - tab "Review"
+    - tab "Draw schedule"
+    - tab "Materials" [active] [selected]
+    - tab "Staff"
+  - generic: Draft
+  - generic: Seed Scenario - Draft
+  - generic: ·
+  - generic: Draft Site, Toronto, ON
+  - generic: Total budget
+  - strong: $650,000
+  - generic: Total approved
+  - strong: $600,000
+  - generic: Interest rate
+  - strong: 9.25%
+  - tabpanel "Materials":
+    - generic: Build Proposal
+    - generic: Planning editable
+    - heading "Material and equipment planning" [level=2]
+    - paragraph: Cost-only entries stay attached to milestones and relevant sub-milestones without becoming construction tasks.
+    - combobox "Select milestone":
+      - option "Foundation" [selected]
+      - option "Shell and Dry-In"
+    - term: Cost item total
+    - definition: $0
+    - term: Material lines
+    - definition: "0"
+    - term: Equipment lines
+    - definition: "0"
+    - term: Suppliers
+    - definition: "0"
+    - heading "Foundation" [level=3]
+    - paragraph: 0 items / $0 cost-only detail
+    - generic: $200,000
+    - button "Add cost item":
+      - text: Add cost item
+    - generic: No material or equipment entries are attached to this milestone.
+    - button "Add cost item":
+      - text: Add cost item
+    - heading "Shell and Dry-In" [level=3]
+    - paragraph: 0 items / $0 cost-only detail
+    - generic: $450,000
+    - button "Add cost item":
+      - text: Add cost item
+    - generic: No material or equipment entries are attached to this milestone.
+    - button "Add cost item":
+      - text: Add cost item
+    - complementary:
+      - heading "Attached sub-milestones" [level=3]
+      - generic: Forms and pour
+      - generic: Waterproofing and backfill
+  - button "Open DrawFlow AI assistant":
+- region "Notifications alt+T"
+- button "Open TanStack Devtools":
+  - img "TanStack Devtools"
+- generic: $200K

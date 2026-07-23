@@ -1,0 +1,111 @@
+{
+  "lifecycle": {
+    "effectiveLaunch": {
+      "browserLaunched": true,
+      "engine": "chrome",
+      "launchHash": 8197565053781422000
+    },
+    "launched": false,
+    "relaunchedBrowser": false,
+    "restartedBackground": false,
+    "restoreStatus": "not_configured",
+    "reused": true,
+    "saveStatus": "not_attempted"
+  },
+  "origin": "http://localhost:3000/backoffice/contractors/zh73prs0e84c07rhx65w96m8ss87ytdm",
+  "refs": {
+    "e1": {
+      "name": "Notifications alt+T",
+      "role": "region"
+    },
+    "e10": {
+      "name": "Edit profile",
+      "role": "button"
+    },
+    "e11": {
+      "name": "Connor Beleznay Connor Beleznay connor.belez@gmail.com",
+      "role": "button"
+    },
+    "e12": {
+      "name": "Deactivate profile",
+      "role": "button"
+    },
+    "e13": {
+      "name": "Identity operations",
+      "role": "heading"
+    },
+    "e14": {
+      "name": "Send invite",
+      "role": "button"
+    },
+    "e15": {
+      "name": "Deactivate",
+      "role": "button"
+    },
+    "e16": {
+      "name": "Unlink account",
+      "role": "button"
+    },
+    "e17": {
+      "name": "Resolve duplicate (merge into canonical)",
+      "role": "heading"
+    },
+    "e18": {
+      "name": "Canonical contractor id",
+      "role": "textbox"
+    },
+    "e19": {
+      "name": "Merge",
+      "role": "button"
+    },
+    "e2": {
+      "name": "Open DrawFlow AI assistant",
+      "role": "button"
+    },
+    "e20": {
+      "name": "Work history",
+      "role": "heading"
+    },
+    "e21": {
+      "name": "Link account",
+      "role": "button"
+    },
+    "e22": {
+      "name": "WORKOS USER",
+      "role": "button"
+    },
+    "e23": {
+      "name": "WORKOS USER",
+      "role": "combobox"
+    },
+    "e3": {
+      "name": "Open TanStack Devtools",
+      "role": "button"
+    },
+    "e4": {
+      "name": "Toggle Sidebar",
+      "role": "button"
+    },
+    "e5": {
+      "name": "breadcrumb",
+      "role": "navigation"
+    },
+    "e6": {
+      "name": "Theme mode: dark. Click to switch mode.",
+      "role": "button"
+    },
+    "e7": {
+      "name": "Notifications",
+      "role": "button"
+    },
+    "e8": {
+      "name": "Contractors",
+      "role": "link"
+    },
+    "e9": {
+      "name": "Oscar Concreate & Handyman",
+      "role": "heading"
+    }
+  },
+  "snapshot": "- button \"Toggle Sidebar\" [ref=e4]\n- navigation \"breadcrumb\" [ref=e5]\n- button \"Theme mode: dark. Click to switch mode.\" [ref=e6]\n- button \"Notifications\" [expanded=false, ref=e7]\n- button \"Connor Beleznay Connor Beleznay connor.belez@gmail.com\" [expanded=false, ref=e11]\n- link \"Contractors\" [ref=e8]\n- heading \"Oscar Concreate & Handyman\" [level=1, ref=e9]\n- button \"Edit profile\" [ref=e10]\n- heading \"Work history\" [level=2, ref=e20]\n- button \"Deactivate profile\" [ref=e12]\n- combobox \"WORKOS USER\" [expanded=false, ref=e23]\n- button \"WORKOS USER\" [expanded=false, ref=e22]\n- button \"Link account\" [disabled, ref=e21]\n- heading \"Identity operations\" [level=2, ref=e13]\n- button \"Send invite\" [ref=e14]\n- button \"Deactivate\" [ref=e15]\n- button \"Unlink account\" [ref=e16]\n- heading \"Resolve duplicate (merge into canonical)\" [level=3, ref=e17]\n- textbox \"Canonical contractor id\" [ref=e18]\n- button \"Merge\" [disabled, ref=e19]\n- button \"Open DrawFlow AI assistant\" [ref=e2]\n- region \"Notifications alt+T\" [ref=e1]\n- button \"Open TanStack Devtools\" [ref=e3]"
+}

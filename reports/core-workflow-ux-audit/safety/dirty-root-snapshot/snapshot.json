@@ -1,0 +1,15 @@
+{
+  "root": "/Users/connor/Dev/drawFlow/v1/drawflowv1",
+  "capturedAfterCheckpointCommit": "42d6d212c5b43fa316c10a6141bf2ec760fc670a",
+  "branch": "06-15-marketing-pages-prod",
+  "trackedDiffPaths": [],
+  "stagedDiffPaths": [],
+  "untrackedPaths": [
+    ".claude/worktrees/core-workflow-audit-remediation-sparse-20260716/"
+  ],
+  "notes": [
+    "git diff --name-only returned no paths after the checkpoint commit.",
+    "git diff --cached --name-only returned no paths after the checkpoint commit.",
+    "The remaining untracked path is an existing registered nested worktree and is outside the frozen audit target set."
+  ]
+}

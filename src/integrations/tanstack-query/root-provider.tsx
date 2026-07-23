@@ -7,8 +7,15 @@ export function getContext() {
     throw new Error('Missing VITE_CONVEX_URL environment variable')
   }
 
-  const queryClient = new QueryClient()
   const convexQueryClient = new ConvexQueryClient(convexUrl)
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        queryFn: convexQueryClient.queryFn(),
+        queryKeyHashFn: convexQueryClient.hashFn(),
+      },
+    },
+  })
   convexQueryClient.connect(queryClient)
 
   return {

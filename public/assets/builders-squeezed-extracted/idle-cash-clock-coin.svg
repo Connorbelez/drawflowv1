@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 68 68" role="img" aria-label="Idle cash clock and coin icon">
+  <title>Idle cash clock and coin icon</title>
+
+  <g fill="none" stroke="#f15a49" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="29" cy="29" r="24"/>
+    <path d="M29 12v17l-11 7"/>
+    <path d="M16 9 12 4M46 9l4-5M29 4V1M8 29H3M55 29h5"/>
+    <circle cx="52" cy="49" r="13" fill="#fbfbf6"/>
+    <path d="M52 41v18M57 45c-4-3-12-1-12 4 0 7 14 3 14 10 0 5-8 7-14 3"/>
+  </g>
+</svg>

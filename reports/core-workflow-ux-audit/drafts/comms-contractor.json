@@ -1,0 +1,602 @@
+{
+  "owner": "comms-contractor",
+  "findings": [
+    {
+      "findingId": "UX-WF-CTR-001-001",
+      "workstream": "contractor-onboarding",
+      "phase": "identity-handoff-visibility",
+      "dependsOn": [
+        "Builder-scoped contractor relationship read model",
+        "Invite/claim status projection that works before milestone assignment"
+      ],
+      "owner": "comms-contractor",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Render a contractor detail link only when the current Builder has builder-scoped read access to that contractor relationship; otherwise render a non-interactive status card with the same invite and claim context.",
+        "Opening a newly attached contractor from the Builder flow lands on a builder-scoped relationship and status surface that shows profile identity, invited email, brokerage, claim state, review or compliance state, assignment status, and the next legal action.",
+        "WF-CTR-001.HO-01 preserves the sender-visible return path so the Builder can navigate back to the invoking Build or contractor list without losing which contractor was just invited or attached.",
+        "Contractor receiver auth stays least-privilege: contractor access is granted only after the bound claim, role, and profile link are active, and Builder detail access never depends on contractor-only permissions.",
+        "Forbidden, stale, or revoked-detail failures render a typed redacted recovery state with safe correlation context only; request IDs, Convex function names, filesystem paths, payloads, and stack traces are absent from the DOM and accessibility tree."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md#ux-wf-ctr-001-001",
+        "reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md#ux-wf-ctr-001-001",
+        "docs/core-product-workflow-manifest.md#wf-ctr-001--contractor-profile-invitation-onboarding-claim-and-review"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-CTR-001.BLDR.01.STEP-05-desktop-contractor-detail-forbidden.png"
+      ],
+      "verificationNotes": [
+        "Verified the audit register entry, canonical note section, workflow-manifest acceptance record, and matching target-manifest phase/dependency entry in this worktree.",
+        "Verified existing candidate paths: src/routes/builder/contractors/$contractorId.tsx; src/features/contractors/ContractorDetailSurface.tsx; convex/contractorWorkspace.ts; convex/contractorAuth.ts.",
+        "Attempted to read convex/_generated/ai/guidelines.md per CLAUDE.md, but the file is absent in this worktree; backend-contract notes are therefore limited to the audit, manifest, file-lock, and verified existing contract paths."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "",
+      "personas": [
+        "Builder",
+        "Contractor",
+        "Lender Operations / Backoffice Staff",
+        "DrawFlow System"
+      ],
+      "routesOrSurfaces": [
+        "/builder/contractors/{contractorId}",
+        "Attached contractor card in Build Workspace",
+        "Builder-scoped contractor relationship/status view"
+      ],
+      "serverContractTouched": [
+        "convex/contractorWorkspace.ts",
+        "convex/contractorAuth.ts"
+      ],
+      "viewports": [
+        "desktop 1440x900"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CTR-001-002",
+      "workstream": "contractor-onboarding",
+      "phase": "identity-handoff-state-model",
+      "dependsOn": [
+        "Invite claim projection from contractorInviteClaims",
+        "Builder-visible acknowledgement and notification projection"
+      ],
+      "owner": "comms-contractor",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "The attached contractor card exposes the full lifecycle states as separate labeled states: not invited, sending, invited, accepted-pending-confirmation, claimed, review-required, changes-requested, sync-pending, active, expired, and failed.",
+        "Each lifecycle state shows the receiving actor, sent timestamp, expiry or last-updated timestamp, and the next legal action so the Builder can monitor the handoff without opening a hidden admin-only surface.",
+        "WF-CTR-001.HO-01 creates one auditable sender-to-receiver handoff record and keeps Builder-visible acknowledgement state until the contractor claims or the handoff reaches a terminal outcome.",
+        "Builders can perform only valid follow-up actions for the current state, such as resend, cancel, repair, or open status, and invalid controls are absent from both the DOM and the accessibility tree.",
+        "Backoffice review and system sync states remain visible in the same relationship history so sender, receiver, entity identity, acknowledgement, and return path survive claim, review, and activation.",
+        "Any invite, claim, review, or sync failure renders plain-language recovery copy that preserves current state and context without leaking backend internals."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md#ux-wf-ctr-001-002",
+        "reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md#ux-wf-ctr-001-002",
+        "docs/core-product-workflow-manifest.md#wf-ctr-001--contractor-profile-invitation-onboarding-claim-and-review"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-CTR-001.BLDR.01.STEP-04-WF-CTR-001.HO-01-desktop-invite-ready.png",
+        "reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-CTR-001.BLDR.01.STEP-05-WF-CTR-001.HO-01-desktop-attached.png"
+      ],
+      "verificationNotes": [
+        "Verified the audit register entry, canonical note section, workflow-manifest acceptance record, and matching target-manifest phase/dependency entry in this worktree.",
+        "Verified existing candidate paths: src/features/contractors/ContractorQuickAddDrawer.tsx; src/features/contractors/ContractorRosterTable.tsx; convex/contractorOnboarding.ts; convex/contractorWorkspace.ts.",
+        "Attempted to read convex/_generated/ai/guidelines.md per CLAUDE.md, but the file is absent in this worktree; backend-contract notes are therefore limited to the audit, manifest, file-lock, and verified existing contract paths."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "",
+      "personas": [
+        "Builder",
+        "Contractor",
+        "Lender Operations / Backoffice Staff",
+        "DrawFlow System"
+      ],
+      "routesOrSurfaces": [
+        "Add contractor sheet",
+        "Attached-contractor list in Build Workspace",
+        "Builder contractor relationship history"
+      ],
+      "serverContractTouched": [
+        "convex/contractorOnboarding.ts",
+        "convex/contractorWorkspace.ts"
+      ],
+      "viewports": [
+        "desktop 1440x900"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CTR-002-001",
+      "workstream": "contractor-assignment",
+      "phase": "assignment-auth-contract",
+      "dependsOn": [
+        "Builder-scoped active-build write authorization contract",
+        "Shared attach/assign mutation service across Milestones and Contractors tabs"
+      ],
+      "owner": "comms-contractor",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "An authorized Builder can create, update, and remove an assignment on their own Build from both the Milestones surface and the Contractors surface using one shared assignment contract and consistent success feedback.",
+        "An actor lacking Builder-scoped active-Build write authority never sees an enabled Assign contractor or Assign crew control; illegal controls are absent from the DOM and accessibility tree rather than failing after click.",
+        "Both sender surfaces preflight scope and permission before confirmation and identify the target build, milestone or sub-milestone, contractor, and assignment state in plain language.",
+        "A successful assignment creates exactly one WF-CTR-002.HO-01 delivery and acknowledgement request for the receiving contractor and preserves a Builder-visible return path to the invoking surface.",
+        "Contractor receiver auth remains least-privilege so only the assigned contractor can open the assigned scope, and assignment changes immediately update visible receiver access and sender status.",
+        "Authorization, stale-state, or transition failures render typed redacted recovery states and never expose mutation names, request IDs, filesystem paths, payloads, or stack traces."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md#ux-wf-ctr-002-001",
+        "reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md#ux-wf-ctr-002-001",
+        "docs/core-product-workflow-manifest.md#wf-ctr-002--contractor-assignment-schedule-acknowledgement-scope-clarification-and-supporting-evidence"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/build-contractor/WF-CTR-002.BLDR.01.STEP-01-HO-01-raw-server-error-desktop-1440x900.png",
+        "reports/core-workflow-ux-audit/evidence/build-contractor/WF-CTR-002.BLDR.01.STEP-01-crew-confirm-forbidden-desktop-1440x900.png"
+      ],
+      "verificationNotes": [
+        "Verified the audit register entry, canonical note section, workflow-manifest acceptance record, and matching target-manifest phase/dependency entry in this worktree.",
+        "Verified existing candidate paths: src/features/backoffice-build-detail/ContractorsCard.tsx; src/features/backoffice-build-detail/MilestoneDetailSheet.tsx; convex/contractorAuth.ts; convex/contractorWorkspace.ts; convex/production_proposals.ts.",
+        "Attempted to read convex/_generated/ai/guidelines.md per CLAUDE.md, but the file is absent in this worktree; backend-contract notes are therefore limited to the audit, manifest, file-lock, and verified existing contract paths."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "Implementation spans comms-contractor backend files plus shared build and timeline sender surfaces that are locked to workspace-ui and backend-state owners.",
+      "personas": [
+        "Builder",
+        "Contractor",
+        "Lender Operations / Backoffice Staff",
+        "DrawFlow System"
+      ],
+      "routesOrSurfaces": [
+        "Active Build Milestones assignment dialog",
+        "Active Build Contractors assignment dialog"
+      ],
+      "serverContractTouched": [
+        "convex/contractorAuth.ts",
+        "convex/contractorWorkspace.ts",
+        "convex/production_proposals.ts"
+      ],
+      "viewports": [
+        "desktop 1440x900"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CTR-002-002",
+      "workstream": "contractor-assignment",
+      "phase": "attach-invite-lifecycle",
+      "dependsOn": [
+        "Canonical contractor lifecycle: directory -> attached -> assigned -> invited",
+        "Builder-owned scope check instead of global any-assignment check"
+      ],
+      "owner": "comms-contractor",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "A contractor cannot be invited from the Build roster until the relationship is actually attached to Builder scope, and the surface names the current lifecycle state as directory, attached, assigned, invited, or acknowledgement pending.",
+        "When the user selects a permitted combined action, attach and invite complete atomically or neither state persists.",
+        "Roster terminology, badges, and enabled actions stay consistent with backend authorization at desktop and mobile breakpoints.",
+        "A successful invite produces one scoped contractor delivery with build or milestone context, required acknowledgement, and a Builder-visible pending state.",
+        "Builder and receiver can follow the handoff return path: the Builder sees acknowledgement status on the roster, and the contractor can open only the bound scope.",
+        "Failure states remain concise and actionable on mobile and do not render backend internals."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md#ux-wf-ctr-002-002",
+        "reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md#ux-wf-ctr-002-002",
+        "docs/core-product-workflow-manifest.md#wf-ctr-002--contractor-assignment-schedule-acknowledgement-scope-clarification-and-supporting-evidence"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/build-contractor/WF-CTR-002.BLDR.01.STEP-02-HO-01-invite-forbidden-mobile-390x844.png"
+      ],
+      "verificationNotes": [
+        "Verified the audit register entry, canonical note section, workflow-manifest acceptance record, and matching target-manifest phase/dependency entry in this worktree.",
+        "Verified existing candidate paths: src/features/backoffice-build-detail/ContractorsCard.tsx; src/features/contractors/ContractorRosterTable.tsx; convex/contractorOnboarding.ts; convex/contractorWorkspace.ts; convex/contractorAuth.ts.",
+        "Attempted to read convex/_generated/ai/guidelines.md per CLAUDE.md, but the file is absent in this worktree; backend-contract notes are therefore limited to the audit, manifest, file-lock, and verified existing contract paths."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "",
+      "personas": [
+        "Builder",
+        "Contractor",
+        "Lender Operations / Backoffice Staff",
+        "DrawFlow System"
+      ],
+      "routesOrSurfaces": [
+        "Active Build Contractors roster",
+        "Proposal roster invite action",
+        "Mobile invite failure state"
+      ],
+      "serverContractTouched": [
+        "convex/contractorOnboarding.ts",
+        "convex/contractorWorkspace.ts",
+        "convex/contractorAuth.ts"
+      ],
+      "viewports": [
+        "mobile 390x844"
+      ]
+    },
+    {
+      "findingId": "UX-WF-OPS-001-001",
+      "workstream": "operations-queue",
+      "phase": "backoffice-triage-queue",
+      "dependsOn": [
+        "WF-OPS-001.SYS.01 aggregate/join -> derive risk/urgency -> materialize/route -> track aging/resolution",
+        "WF-DRW-001, WF-MIL-001, and WF-BLD-001 upstream domain records for queue items",
+        "claim/assignment plus recommendation/acknowledgement state model",
+        "deep-link contract to shared backoffice build-detail, draw-control-room, and site-visit control-room surfaces",
+        "WF-OPS-001.HO-01 and WF-OPS-001.HO-02 acknowledgement contract"
+      ],
+      "owner": "comms-contractor",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Every material proposal, build, milestone, draw, and site-visit item on Backoffice home exposes visible owner or claim state, age or SLA, blocker, recommendation state, and the next permitted action.",
+        "The queue distinguishes non-final staff actions from Lender Admin authority actions and does not present final-approval, override, or release controls to non-authority roles.",
+        "Each queue item deep-links into the canonical build, draw control room, or site-visit surface without losing entity context or assignment history.",
+        "WF-OPS-001.HO-01 records an explicit escalation package with the target record, evidence or recommendation, warnings, required reason or action, and decision preview before Lender Admin handoff.",
+        "WF-OPS-001.HO-02 records the return decision, reason, follow-up assignment, and acknowledgement so operations can close, reroute, or continue the item from the same queue.",
+        "Overdue, blocked, unassigned, or stale-projection items remain visibly accountable and are never hidden behind aggregate counts alone."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md#ux-wf-ops-001-001",
+        "reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md#ux-wf-ops-001-001",
+        "docs/core-product-workflow-manifest.md#wf-ops-001--backoffice-portfolio-and-work-queue-triage"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/_preflight/backoffice-home-desktop.png"
+      ],
+      "verificationNotes": [
+        "Verified the audit register entry, canonical note section, workflow-manifest acceptance record, and matching target-manifest phase/dependency entry in this worktree.",
+        "Verified existing candidate paths: src/routes/backoffice/index.tsx; src/features/backoffice-build-detail/BuildDetailRoute.tsx; src/features/backoffice-draws/draw-control-room.tsx; src/features/backoffice-site-visits/site-visit-control-room.tsx; convex/production_proposals.ts; convex/schema.ts.",
+        "Attempted to read convex/_generated/ai/guidelines.md per CLAUDE.md, but the file is absent in this worktree; backend-contract notes are therefore limited to the audit, manifest, file-lock, and verified existing contract paths."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "Queue projection and deep-link work will require coordinator and workspace-ui alignment on shared backoffice build-detail and control-room surfaces.",
+      "personas": [
+        "Lender Operations / Backoffice Staff",
+        "Lender Admin / Principal Broker",
+        "Broker",
+        "DrawFlow System"
+      ],
+      "routesOrSurfaces": [
+        "/backoffice",
+        "Authenticated production Backoffice home",
+        "Active builds table",
+        "Submitted-proposal review surface",
+        "Milestone kanban"
+      ],
+      "serverContractTouched": [
+        "convex/production_proposals.ts",
+        "convex/schema.ts"
+      ],
+      "viewports": [
+        "desktop 1440x900"
+      ]
+    },
+    {
+      "findingId": "UX-WF-COM-001-001",
+      "workstream": "notifications",
+      "phase": "builder-inbox-entry",
+      "dependsOn": [
+        "WF-COM-001.SYS.01.STEP-04 create deliveries/attempts",
+        "WF-COM-001.SYS.01.STEP-05 serve a delivery-first inbox",
+        "generic in-app recipient delivery model for builder/backoffice/admin personas, not only contractorNotifications",
+        "canonical deep links into /backoffice/builds/$buildId, /backoffice/draws, and /backoffice/site-visits",
+        "UX-WF-COM-001-002 deduped human-readable event projection"
+      ],
+      "owner": "comms-contractor",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Activating Notifications opens an accessible, named inbox within 300 ms; if delivery content is not yet ready, a visible loading state appears without leaving the trigger inert.",
+        "Focus moves into the opened inbox on activation and provides focus return to the invoking control on close.",
+        "The inbox exposes unread and action-required state, filters, entity context, sender or system source, age, and one legal next action per delivery.",
+        "A seeded Builder delivery can be read, followed, dismissed, and resolved from canonical domain state without leaving the inbox in an ambiguous state.",
+        "Only the authenticated recipient can read or mutate their delivery rows; stale or unauthorized action links route to a typed recovery state instead of a blank no-op or leaked backend error.",
+        "Closing or resolving the inbox preserves the sender, receiver, and return path to the originating build, draw, site visit, or proposal context."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md#ux-wf-com-001-001",
+        "reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md#ux-wf-com-001-001",
+        "docs/core-product-workflow-manifest.md#wf-com-001--actionable-notification-inbox-and-resolution"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/build-contractor/WF-COM-001.BLDR.01.STEP-01-notifications-no-op-desktop-1440x900.png",
+        "reports/core-workflow-ux-audit/evidence/build-contractor/WF-COM-001.BLDR.01.STEP-01-notifications-no-op-mobile-390x844.png"
+      ],
+      "verificationNotes": [
+        "Verified the audit register entry, canonical note section, workflow-manifest acceptance record, and matching target-manifest phase/dependency entry in this worktree.",
+        "Verified existing candidate paths: src/components/app-header.tsx; src/components/app-shell.tsx; src/components/nav-user.tsx; convex/schema.ts; convex/production_proposals.ts.",
+        "Attempted to read convex/_generated/ai/guidelines.md per CLAUDE.md, but the file is absent in this worktree; backend-contract notes are therefore limited to the audit, manifest, file-lock, and verified existing contract paths."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "Inbox entry and focus management depend on coordinator-owned shared shell and app-shell files per file-lock-manifest.",
+      "personas": [
+        "Builder",
+        "DrawFlow System",
+        "Lender Operations / Backoffice Staff",
+        "Lender Admin / Principal Broker",
+        "Contractor"
+      ],
+      "routesOrSurfaces": [
+        "Global header Notifications button",
+        "Builder dashboard",
+        "Active Build header",
+        "Notification inbox surface"
+      ],
+      "serverContractTouched": [
+        "convex/schema.ts",
+        "convex/production_proposals.ts"
+      ],
+      "viewports": [
+        "desktop 1440x900",
+        "mobile 390x844"
+      ]
+    },
+    {
+      "findingId": "UX-WF-COM-001-002",
+      "workstream": "notifications",
+      "phase": "notification-projection-and-audit-separation",
+      "dependsOn": [
+        "WF-COM-001.SYS.01 validate taxonomy/scope -> dedupe -> resolve recipients -> create deliveries -> serve inbox -> resolve from domain outcome",
+        "UX-WF-BLD-001-002 audit-event flood cleanup",
+        "eventOutbox -> per-recipient delivery projection instead of raw audit reuse",
+        "domain-outcome-based resolution contract before any Resolve CTA is exposed"
+      ],
+      "owner": "comms-contractor",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Only delivery-first notification items appear in quick actions and inbox surfaces; raw audit telemetry and passive view-state events do not.",
+        "Each visible quick action shows a human-readable title, entity, cause, sender or system source, age, owner or assignee when applicable, and the next canonical action.",
+        "Duplicate events collapse into one delivery per recipient and context while audit history remains immutable and separately navigable.",
+        "Resolve and dismiss actions are enabled only when backed by a canonical domain outcome or legal recipient action; illegal resolve controls are absent from the DOM and accessibility tree.",
+        "Raw JSON, internal IDs, filesystem paths, mutation names, validator text, and stack details are hidden by default and unavailable in recipient-facing surfaces.",
+        "Notification deep links open the correct build, draw, or site-visit context and preserve sender and receiver acknowledgement state until domain resolution completes."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md#ux-wf-com-001-002",
+        "reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md#ux-wf-com-001-002",
+        "docs/core-product-workflow-manifest.md#wf-com-001--actionable-notification-inbox-and-resolution"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/build-contractor/WF-BLD-001.SYS.01.STEP-05-audit-event-flood-desktop-1440x900.png"
+      ],
+      "verificationNotes": [
+        "Verified the audit register entry, canonical note section, workflow-manifest acceptance record, and matching target-manifest phase/dependency entry in this worktree.",
+        "Verified existing candidate paths: src/features/backoffice-build-detail/EventRail.tsx; src/features/backoffice-build-detail/BuildTimelinePanel.tsx; src/features/backoffice-build-detail/ActiveBuildTimelineWorkspace.tsx; convex/schema.ts; convex/production_proposals.ts.",
+        "Attempted to read convex/_generated/ai/guidelines.md per CLAUDE.md, but the file is absent in this worktree; backend-contract notes are therefore limited to the audit, manifest, file-lock, and verified existing contract paths."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "No dedicated notification-delivery contract file exists in the frozen candidate path set; remediation likely spans shared schema and outbox work beyond the comms-contractor boundary.",
+      "personas": [
+        "Builder",
+        "DrawFlow System",
+        "Lender Operations / Backoffice Staff",
+        "Lender Admin / Principal Broker",
+        "Contractor"
+      ],
+      "routesOrSurfaces": [
+        "Events and audit log",
+        "EVENTS + QUICK ACTION drawer",
+        "Active Build Timeline events"
+      ],
+      "serverContractTouched": [
+        "convex/schema.ts",
+        "convex/production_proposals.ts"
+      ],
+      "viewports": [
+        "desktop 1440x900"
+      ]
+    },
+    {
+      "findingId": "UX-WF-INT-001-001",
+      "workstream": "integrations",
+      "phase": "integration-operations-console",
+      "dependsOn": [
+        "WF-INT-001.TADM.01 create/rotate/revoke -> configure endpoint/subscriptions -> confirm dangerous change -> review logs -> repair/disable/retry",
+        "WF-INT-001.SYS.01 pending -> delivered | failed | retry_pending delivery log",
+        "technical-admin-only route and permission boundary distinct from proposal settings",
+        "tenant-scoped config, secret handling, attempt timeline, retry/backoff, and audit data model",
+        "existing calendarSyncSubscriptions/calendarSyncChanges plus /api/calendar/*.ics are precedent only, not the full webhook/integration lifecycle surface"
+      ],
+      "owner": "comms-contractor",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "An authorized Technical or Organization Admin can create, validate, activate, disable, rotate, and revoke tenant-scoped endpoints, keys, and secrets from one dedicated integration operations surface.",
+        "The surface separates integration authority from proposal or general settings pages and does not expose integration controls to non-admin personas.",
+        "Every delivery attempt shows stable event and delivery IDs, endpoint, payload version metadata, attempt time, delivered, failed, or retry-pending status, and secret-safe error details.",
+        "WF-INT-001.HO-01 records configuration save or activation with endpoint, subscription, secret or key state, mappings, and confirmation reason before the system accepts the change.",
+        "WF-INT-001.HO-02 records failure, repair, disable, rotate, or retry feedback back to the admin and keeps the failure actionable until acknowledged or resolved.",
+        "Retrying or repairing a failed delivery does not mutate the original domain transaction, and failure recovery never exposes secret values or signing material in the UI."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md#ux-wf-int-001-001",
+        "reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md#ux-wf-int-001-001",
+        "docs/core-product-workflow-manifest.md#wf-int-001--apiwebhook-configuration-lifecycle-delivery-and-failure-review"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/operations-verification-draws/production-integrations-settings-auth-wall.png"
+      ],
+      "verificationNotes": [
+        "Verified the audit register entry, canonical note section, workflow-manifest acceptance record, and matching target-manifest phase/dependency entry in this worktree.",
+        "Verified existing candidate paths: src/routes/backoffice/settings/index.tsx; src/routes/backoffice/settings/route.tsx; convex/http.ts; convex/schema.ts.",
+        "Attempted to read convex/_generated/ai/guidelines.md per CLAUDE.md, but the file is absent in this worktree; backend-contract notes are therefore limited to the audit, manifest, file-lock, and verified existing contract paths."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "Browser proof stayed blocked in the source audit because no Technical Admin fixture or reachable integration administration surface was available.",
+      "personas": [
+        "Technical / Organization Admin",
+        "DrawFlow System"
+      ],
+      "routesOrSurfaces": [
+        "/backoffice/settings",
+        "WorkOS sign-in wall",
+        "Integration operations console"
+      ],
+      "serverContractTouched": [
+        "convex/http.ts",
+        "convex/schema.ts"
+      ],
+      "viewports": [
+        "desktop 1440x900"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CTR-001-003",
+      "workstream": "contractor-onboarding-ui",
+      "phase": "mobile-drawer-reflow",
+      "dependsOn": [
+        "Shared mobile drawer layout tokens",
+        "Assistant launcher safe-area suppression while drawers are open"
+      ],
+      "owner": "comms-contractor",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "At 390x844 the Add contractor sheet is full-width or task-width and neither the document nor the sheet scrolls horizontally.",
+        "At 1024x768 the document and the sheet remain within the viewport with no horizontal overflow.",
+        "Every label, chip, brokerage-scoped metadata row, field, and action remains fully visible and readable without horizontal panning or clipped text.",
+        "Floating assistant or devtools utilities are suppressed or offset while the drawer is open so they never overlap the primary or cancel action region.",
+        "Focus is trapped within one sheet, vertical scrolling happens inside the sheet, and sticky primary and cancel actions remain visible with 44px minimum touch targets.",
+        "Switching Existing and New modes preserves visible state only and does not leave hidden search or obstructive controls behind the active surface."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md#ux-wf-ctr-001-003",
+        "reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md#ux-wf-ctr-001-003",
+        "docs/core-product-workflow-manifest.md#wf-ctr-001--contractor-profile-invitation-onboarding-claim-and-review"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-CTR-001.BLDR.01.STEP-01-mobile-390x844-sheet.png",
+        "reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-CTR-001.BLDR.01.STEP-02-mobile-390x844-form-overflow.png",
+        "reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-CTR-001.BLDR.01.STEP-01-tablet-1024x768-overflow.png"
+      ],
+      "verificationNotes": [
+        "Verified the audit register entry, canonical note section, workflow-manifest acceptance record, and matching target-manifest phase/dependency entry in this worktree.",
+        "Verified existing candidate paths: src/features/contractors/ContractorQuickAddDrawer.tsx; src/features/contractors/WorkosUserAutocomplete.tsx; src/features/assistant/DrawFlowAssistantLauncher.tsx."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "Floating-utility overlap mitigation depends on coordinator-owned shared shell and assistant launcher behavior.",
+      "personas": [
+        "Builder"
+      ],
+      "routesOrSurfaces": [
+        "Add contractor side sheet",
+        "Existing mode",
+        "New mode"
+      ],
+      "serverContractTouched": [],
+      "viewports": [
+        "mobile 390x844",
+        "tablet 1024x768"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CTR-001-004",
+      "workstream": "contractor-onboarding-validation",
+      "phase": "validation-semantics",
+      "dependsOn": [
+        "Explicit client-side email validation state"
+      ],
+      "owner": "comms-contractor",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "Invalid email shows persistent inline plain-language guidance on input or blur and identifies the field as invalid with aria-invalid and programmatically associated error text.",
+        "The sheet exposes a discoverable reason when Create and add is disabled, including which field blocks submission and what valid format is expected.",
+        "Correcting the email clears the invalid state and re-enables submission without requiring edits to unrelated fields.",
+        "Validation guidance remains visible and announced at desktop and mobile breakpoints without clipping, overlap, or hidden-only messaging.",
+        "No raw validator text, silent disable-only state, or inaccessible error copy appears in the DOM."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md#ux-wf-ctr-001-004",
+        "reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md#ux-wf-ctr-001-004",
+        "docs/core-product-workflow-manifest.md#wf-ctr-001--contractor-profile-invitation-onboarding-claim-and-review"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-CTR-001.BLDR.01.STEP-02-desktop-invalid-email-no-error.png",
+        "reports/core-workflow-ux-audit/evidence/identity-onboarding/WF-CTR-001.BLDR.01.STEP-02-mobile-390x844-form-overflow.png"
+      ],
+      "verificationNotes": [
+        "Verified the audit register entry, canonical note section, workflow-manifest acceptance record, and matching target-manifest phase/dependency entry in this worktree.",
+        "Verified existing candidate paths: src/features/contractors/ContractorQuickAddDrawer.tsx; src/features/contractors/WorkosUserAutocomplete.tsx."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "",
+      "personas": [
+        "Builder"
+      ],
+      "routesOrSurfaces": [
+        "Add contractor sheet",
+        "New mode"
+      ],
+      "serverContractTouched": [],
+      "viewports": [
+        "desktop 1440x900",
+        "mobile 390x844"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CTR-002-003",
+      "workstream": "contractor-assignment-ui",
+      "phase": "assignment-surface-accessibility",
+      "dependsOn": [
+        "Single-surface assignment flow",
+        "Accessible non-nested contractor roster and milestone cards"
+      ],
+      "owner": "comms-contractor",
+      "status": "not-started",
+      "acceptanceCriteria": [
+        "No interactive card, row, or option contains another interactive control; separate actions are rendered as separate focusable elements with unique accessible names.",
+        "Assignment uses one primary surface at a time, with focus trapped inside it and focus returning to the invoking control on close.",
+        "Only legal actions for the current Builder state are rendered; hidden or disabled-but-illegal actions are removed from the DOM and accessibility tree.",
+        "The selected contractor, scope, Existing or New mode, required fields, and disabled reasons are programmatically exposed and visibly labeled.",
+        "The workflow uses human-readable build and milestone labels rather than internal slugs and presents one normalized commercial-terms and rate model.",
+        "Hidden search state does not leak between Existing and New modes, and keyboard or touch users can complete the flow without ambiguous stacked dialogs or unexplained disabled actions."
+      ],
+      "sourceAuditLinks": [
+        "reports/core-workflow-ux-audit/audit-report.md#ux-wf-ctr-002-003",
+        "reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md#ux-wf-ctr-002-003",
+        "docs/core-product-workflow-manifest.md#wf-ctr-002--contractor-assignment-schedule-acknowledgement-scope-clarification-and-supporting-evidence"
+      ],
+      "filesChanged": [],
+      "testsAddedOrUpdated": [],
+      "browserEvidence": [
+        "reports/core-workflow-ux-audit/evidence/build-contractor/WF-CTR-002.BLDR.01.STEP-01-HO-01-assignment-forbidden-desktop-1440x900.png",
+        "reports/core-workflow-ux-audit/evidence/build-contractor/WF-CTR-002.BLDR.01.STEP-01-contractors-mobile-390x844.png"
+      ],
+      "verificationNotes": [
+        "Verified the audit register entry, canonical note section, workflow-manifest acceptance record, and matching target-manifest phase/dependency entry in this worktree.",
+        "Verified existing candidate paths: src/features/backoffice-build-detail/ContractorsCard.tsx; src/features/backoffice-build-detail/MilestoneDetailSheet.tsx; src/features/contractors/ContractorRosterTable.tsx."
+      ],
+      "skillUsage": [],
+      "notesOrBlocker": "Visible sender surfaces span workspace-ui-owned build-detail and timeline files even though the contractor workflow itself is in the comms-contractor cluster.",
+      "personas": [
+        "Builder",
+        "Contractor"
+      ],
+      "routesOrSurfaces": [
+        "Milestone card",
+        "Milestone-detail drawer",
+        "Contractor roster",
+        "Assignment dialog"
+      ],
+      "serverContractTouched": [],
+      "viewports": [
+        "desktop 1440x900",
+        "mobile 390x844"
+      ]
+    }
+  ]
+}

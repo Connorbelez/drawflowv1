@@ -1,0 +1,90 @@
+{
+  "source": "/Users/connor/Library/Application Support/CleanShot/media/media_fb9M6vSnuj/CleanShot 2026-06-15 at 13.18.22@2x.png",
+  "note": "Direct raster crops from the supplied screenshot. These are not SVG recreations and not imagegen outputs.",
+  "assets": [
+    {
+      "id": "finance-icon-residential-private-mortgages",
+      "bbox": {
+        "x": 1031,
+        "y": 951,
+        "width": 112,
+        "height": 112
+      },
+      "public_png": "public/assets/about-webp/extracted/finance-icon-residential-private-mortgages.png",
+      "public_webp": "public/assets/about-webp/extracted/finance-icon-residential-private-mortgages.webp",
+      "artifact_png": "artifacts/visual-assets/fairlend-about-finance-assets/extracted/finance-icon-residential-private-mortgages.png"
+    },
+    {
+      "id": "finance-icon-mortgage-investments",
+      "bbox": {
+        "x": 1444,
+        "y": 945,
+        "width": 100,
+        "height": 118
+      },
+      "public_png": "public/assets/about-webp/extracted/finance-icon-mortgage-investments.png",
+      "public_webp": "public/assets/about-webp/extracted/finance-icon-mortgage-investments.webp",
+      "artifact_png": "artifacts/visual-assets/fairlend-about-finance-assets/extracted/finance-icon-mortgage-investments.png"
+    },
+    {
+      "id": "finance-icon-multiplex-financing",
+      "bbox": {
+        "x": 1884,
+        "y": 944,
+        "width": 112,
+        "height": 116
+      },
+      "public_png": "public/assets/about-webp/extracted/finance-icon-multiplex-financing.png",
+      "public_webp": "public/assets/about-webp/extracted/finance-icon-multiplex-financing.webp",
+      "artifact_png": "artifacts/visual-assets/fairlend-about-finance-assets/extracted/finance-icon-multiplex-financing.png"
+    },
+    {
+      "id": "finance-icon-garden-suites",
+      "bbox": {
+        "x": 1029,
+        "y": 1137,
+        "width": 116,
+        "height": 106
+      },
+      "public_png": "public/assets/about-webp/extracted/finance-icon-garden-suites.png",
+      "public_webp": "public/assets/about-webp/extracted/finance-icon-garden-suites.webp",
+      "artifact_png": "artifacts/visual-assets/fairlend-about-finance-assets/extracted/finance-icon-garden-suites.png"
+    },
+    {
+      "id": "finance-icon-bridge-loans",
+      "bbox": {
+        "x": 1446,
+        "y": 1139,
+        "width": 108,
+        "height": 118
+      },
+      "public_png": "public/assets/about-webp/extracted/finance-icon-bridge-loans.png",
+      "public_webp": "public/assets/about-webp/extracted/finance-icon-bridge-loans.webp",
+      "artifact_png": "artifacts/visual-assets/fairlend-about-finance-assets/extracted/finance-icon-bridge-loans.png"
+    },
+    {
+      "id": "finance-icon-purpose-built-rentals",
+      "bbox": {
+        "x": 1884,
+        "y": 1134,
+        "width": 114,
+        "height": 124
+      },
+      "public_png": "public/assets/about-webp/extracted/finance-icon-purpose-built-rentals.png",
+      "public_webp": "public/assets/about-webp/extracted/finance-icon-purpose-built-rentals.webp",
+      "artifact_png": "artifacts/visual-assets/fairlend-about-finance-assets/extracted/finance-icon-purpose-built-rentals.png"
+    },
+    {
+      "id": "right-blueprint-draft-visible-strip",
+      "bbox": {
+        "x": 2204,
+        "y": 275,
+        "width": 100,
+        "height": 430
+      },
+      "public_png": "public/assets/about-webp/extracted/right-blueprint-draft-visible-strip.png",
+      "public_webp": "public/assets/about-webp/extracted/right-blueprint-draft-visible-strip.webp",
+      "artifact_png": "artifacts/visual-assets/fairlend-about-finance-assets/extracted/right-blueprint-draft-visible-strip.png"
+    }
+  ]
+}

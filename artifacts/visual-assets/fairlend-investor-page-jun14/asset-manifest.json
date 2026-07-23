@@ -1,0 +1,347 @@
+{
+  "schema_version": 1,
+  "project": "fairlend-investor-page-jun14",
+  "notes": "Restored visual asset pipeline spec for the June 14 Fairlend investor page mockup. Crops are reference-only; production files use generated assets.",
+  "source_image": "/Users/connor/Downloads/ChatGPT Image Jun 14 2026 from Investor Page (1).png",
+  "source_size": {
+    "width": 1448,
+    "height": 1086
+  },
+  "created_at": "2026-06-15T18:24:26.183018+00:00",
+  "output_dir": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14",
+  "contact_sheet": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/contact-sheet.png",
+  "assets": [
+    {
+      "id": "investor-top-navigation",
+      "label": "Investor top navigation",
+      "classification": "component",
+      "role": "Live cream navigation with brand, menus, CTA, and language control.",
+      "bbox": {
+        "x": 0,
+        "y": 0,
+        "width": 1448,
+        "height": 94
+      },
+      "rationale": "Implemented as live React/CSS rather than rasterized crop.",
+      "implementation": {
+        "component_name": "InvestorTopNavigation",
+        "acceptance": "Live cream navigation with brand, menus, CTA, and language control."
+      },
+      "crop_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/crops/investor-top-navigation.png",
+      "crop_size": {
+        "width": 1448,
+        "height": 94
+      }
+    },
+    {
+      "id": "investor-section-rail",
+      "label": "Investor section rail",
+      "classification": "component",
+      "role": "Reusable vertical rail with rotated section copy and rules.",
+      "bbox": {
+        "x": 0,
+        "y": 94,
+        "width": 78,
+        "height": 992
+      },
+      "rationale": "Implemented as live React/CSS rather than rasterized crop.",
+      "implementation": {
+        "component_name": "InvestorSectionRail",
+        "acceptance": "Reusable vertical rail with rotated section copy and rules."
+      },
+      "crop_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/crops/investor-section-rail.png",
+      "crop_size": {
+        "width": 78,
+        "height": 992
+      }
+    },
+    {
+      "id": "hero-copy-composition",
+      "label": "Hero copy and CTAs",
+      "classification": "component",
+      "role": "Live headline, marker, lede, and CTAs.",
+      "bbox": {
+        "x": 78,
+        "y": 94,
+        "width": 627,
+        "height": 557
+      },
+      "rationale": "Implemented as live React/CSS rather than rasterized crop.",
+      "implementation": {
+        "component_name": "HeroCopyComposition",
+        "acceptance": "Live headline, marker, lede, and CTAs."
+      },
+      "crop_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/crops/hero-copy-composition.png",
+      "crop_size": {
+        "width": 627,
+        "height": 557
+      }
+    },
+    {
+      "id": "paths-intro-composition",
+      "label": "Investor paths intro",
+      "classification": "component",
+      "role": "Live section marker, headline, body copy, and sketch placement.",
+      "bbox": {
+        "x": 78,
+        "y": 652,
+        "width": 360,
+        "height": 434
+      },
+      "rationale": "Implemented as live React/CSS rather than rasterized crop.",
+      "implementation": {
+        "component_name": "PathsIntroComposition",
+        "acceptance": "Live section marker, headline, body copy, and sketch placement."
+      },
+      "crop_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/crops/paths-intro-composition.png",
+      "crop_size": {
+        "width": 360,
+        "height": 434
+      }
+    },
+    {
+      "id": "private-mortgage-path-card",
+      "label": "Private mortgage path card",
+      "classification": "component",
+      "role": "Reusable Card-based green investor path surface.",
+      "bbox": {
+        "x": 438,
+        "y": 688,
+        "width": 443,
+        "height": 381
+      },
+      "rationale": "Implemented as live React/CSS rather than rasterized crop.",
+      "implementation": {
+        "component_name": "PrivateMortgagePathCard",
+        "acceptance": "Reusable Card-based green investor path surface."
+      },
+      "crop_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/crops/private-mortgage-path-card.png",
+      "crop_size": {
+        "width": 443,
+        "height": 381
+      }
+    },
+    {
+      "id": "build-funding-path-card",
+      "label": "Build funding path card",
+      "classification": "component",
+      "role": "Reusable Card-based blue investor path surface.",
+      "bbox": {
+        "x": 895,
+        "y": 688,
+        "width": 510,
+        "height": 381
+      },
+      "rationale": "Implemented as live React/CSS rather than rasterized crop.",
+      "implementation": {
+        "component_name": "BuildFundingPathCard",
+        "acceptance": "Reusable Card-based blue investor path surface."
+      },
+      "crop_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/crops/build-funding-path-card.png",
+      "crop_size": {
+        "width": 510,
+        "height": 381
+      }
+    },
+    {
+      "id": "hero-multifamily-building-photo",
+      "label": "Hero multifamily building photo",
+      "classification": "image",
+      "role": "Photoreal dusk multifamily building.",
+      "bbox": {
+        "x": 1047,
+        "y": 94,
+        "width": 401,
+        "height": 557
+      },
+      "rationale": "Generated as standalone raster artwork and optimized to WebP for production.",
+      "generation": {
+        "prompt": "Reference image only. Generate a standalone Fairlend investor page asset: Photoreal dusk multifamily building. No UI chrome outside the asset, no crop artifacts.",
+        "negative_prompt": "UI chrome, crop artifacts, unrelated logos, unrelated text, people in foreground",
+        "transparent": false,
+        "asset_type": "rectangular-image",
+        "output_basename": "hero-multifamily-building-photo"
+      },
+      "crop_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/crops/hero-multifamily-building-photo.png",
+      "crop_size": {
+        "width": 401,
+        "height": 557
+      }
+    },
+    {
+      "id": "hero-blueprint-board",
+      "label": "Hero blueprint board",
+      "classification": "image",
+      "role": "Deep blue architectural blueprint board.",
+      "bbox": {
+        "x": 871,
+        "y": 121,
+        "width": 207,
+        "height": 468
+      },
+      "rationale": "Generated as standalone raster artwork and optimized to WebP for production.",
+      "generation": {
+        "prompt": "Reference image only. Generate a standalone Fairlend investor page asset: Deep blue architectural blueprint board. No UI chrome outside the asset, no crop artifacts.",
+        "negative_prompt": "UI chrome, crop artifacts, unrelated logos, unrelated text, people in foreground",
+        "transparent": false,
+        "asset_type": "rectangular-image",
+        "output_basename": "hero-blueprint-board"
+      },
+      "crop_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/crops/hero-blueprint-board.png",
+      "crop_size": {
+        "width": 207,
+        "height": 468
+      }
+    },
+    {
+      "id": "hero-good-homes-note",
+      "label": "Hero good homes paper note",
+      "classification": "image",
+      "role": "Cream paper note with typed housing message and street sketch.",
+      "bbox": {
+        "x": 699,
+        "y": 236,
+        "width": 250,
+        "height": 290
+      },
+      "rationale": "Generated as standalone raster artwork and optimized to WebP for production.",
+      "generation": {
+        "prompt": "Reference image only. Generate a standalone Fairlend investor page asset: Cream paper note with typed housing message and street sketch. No UI chrome outside the asset, no crop artifacts.",
+        "negative_prompt": "UI chrome, crop artifacts, unrelated logos, unrelated text, people in foreground",
+        "transparent": true,
+        "asset_type": "transparent-illustration",
+        "output_basename": "hero-good-homes-note"
+      },
+      "crop_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/crops/hero-good-homes-note.png",
+      "crop_size": {
+        "width": 250,
+        "height": 290
+      }
+    },
+    {
+      "id": "hero-return-ledger-note",
+      "label": "Hero return ledger note",
+      "classification": "image",
+      "role": "Blue grid note with return principles.",
+      "bbox": {
+        "x": 966,
+        "y": 466,
+        "width": 185,
+        "height": 175
+      },
+      "rationale": "Generated as standalone raster artwork and optimized to WebP for production.",
+      "generation": {
+        "prompt": "Reference image only. Generate a standalone Fairlend investor page asset: Blue grid note with return principles. No UI chrome outside the asset, no crop artifacts.",
+        "negative_prompt": "UI chrome, crop artifacts, unrelated logos, unrelated text, people in foreground",
+        "transparent": true,
+        "asset_type": "transparent-illustration",
+        "output_basename": "hero-return-ledger-note"
+      },
+      "crop_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/crops/hero-return-ledger-note.png",
+      "crop_size": {
+        "width": 185,
+        "height": 175
+      }
+    },
+    {
+      "id": "hero-monogram-stamp",
+      "label": "Hero monogram stamp",
+      "classification": "image",
+      "role": "Dark green Fairlend monogram stamp.",
+      "bbox": {
+        "x": 1285,
+        "y": 124,
+        "width": 132,
+        "height": 133
+      },
+      "rationale": "Generated as standalone raster artwork and optimized to WebP for production.",
+      "generation": {
+        "prompt": "Reference image only. Generate a standalone Fairlend investor page asset: Dark green Fairlend monogram stamp. No UI chrome outside the asset, no crop artifacts.",
+        "negative_prompt": "UI chrome, crop artifacts, unrelated logos, unrelated text, people in foreground",
+        "transparent": true,
+        "asset_type": "transparent-illustration",
+        "output_basename": "hero-monogram-stamp"
+      },
+      "crop_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/crops/hero-monogram-stamp.png",
+      "crop_size": {
+        "width": 132,
+        "height": 133
+      }
+    },
+    {
+      "id": "paths-neighborhood-sketch",
+      "label": "Paths neighborhood sketch",
+      "classification": "image",
+      "role": "Graphite neighborhood street sketch.",
+      "bbox": {
+        "x": 114,
+        "y": 941,
+        "width": 291,
+        "height": 120
+      },
+      "rationale": "Generated as standalone raster artwork and optimized to WebP for production.",
+      "generation": {
+        "prompt": "Reference image only. Generate a standalone Fairlend investor page asset: Graphite neighborhood street sketch. No UI chrome outside the asset, no crop artifacts.",
+        "negative_prompt": "UI chrome, crop artifacts, unrelated logos, unrelated text, people in foreground",
+        "transparent": true,
+        "asset_type": "transparent-illustration",
+        "output_basename": "paths-neighborhood-sketch"
+      },
+      "crop_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/crops/paths-neighborhood-sketch.png",
+      "crop_size": {
+        "width": 291,
+        "height": 120
+      }
+    },
+    {
+      "id": "private-mortgage-house-linework",
+      "label": "Private mortgage house linework",
+      "classification": "image",
+      "role": "Transparent detached house linework.",
+      "bbox": {
+        "x": 623,
+        "y": 739,
+        "width": 247,
+        "height": 235
+      },
+      "rationale": "Generated as standalone raster artwork and optimized to WebP for production.",
+      "generation": {
+        "prompt": "Reference image only. Generate a standalone Fairlend investor page asset: Transparent detached house linework. No UI chrome outside the asset, no crop artifacts.",
+        "negative_prompt": "UI chrome, crop artifacts, unrelated logos, unrelated text, people in foreground",
+        "transparent": true,
+        "asset_type": "transparent-illustration",
+        "output_basename": "private-mortgage-house-linework"
+      },
+      "crop_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/crops/private-mortgage-house-linework.png",
+      "crop_size": {
+        "width": 247,
+        "height": 235
+      }
+    },
+    {
+      "id": "build-funding-blueprint-linework",
+      "label": "Build funding blueprint linework",
+      "classification": "image",
+      "role": "Transparent crane and construction blueprint linework.",
+      "bbox": {
+        "x": 1114,
+        "y": 699,
+        "width": 289,
+        "height": 287
+      },
+      "rationale": "Generated as standalone raster artwork and optimized to WebP for production.",
+      "generation": {
+        "prompt": "Reference image only. Generate a standalone Fairlend investor page asset: Transparent crane and construction blueprint linework. No UI chrome outside the asset, no crop artifacts.",
+        "negative_prompt": "UI chrome, crop artifacts, unrelated logos, unrelated text, people in foreground",
+        "transparent": true,
+        "asset_type": "transparent-illustration",
+        "output_basename": "build-funding-blueprint-linework"
+      },
+      "crop_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/crops/build-funding-blueprint-linework.png",
+      "crop_size": {
+        "width": 289,
+        "height": 287
+      }
+    }
+  ]
+}

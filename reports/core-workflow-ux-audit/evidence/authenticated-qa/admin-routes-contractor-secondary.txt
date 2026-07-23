@@ -1,0 +1,146 @@
+[
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/backoffice/contractors/onboarding"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/backoffice/contractors/onboarding"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "900"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "ms": 900,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({path:'contractors/onboarding',url:location.pathname,text:(document.body.innerText||'').replace(/\\s+/g,' ').slice(250,950),w:[document.documentElement.clientWidth,document.documentElement.scrollWidth]})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "origin": "http://localhost:3000/backoffice/contractors/onboarding",
+      "result": "{\n  \"path\": \"contractors/onboarding\",\n  \"url\": \"/backoffice/contractors/onboarding\",\n  \"text\": \"mance boosts and UI polish. Learn more About Docs © 2026 DrawFlow Toggle Sidebar Backoffice Contractors Onboarding review Connor Beleznay connor.belez@gmail.com CONTRACTOR OPERATIONS Onboarding review Self-service contractor onboardings awaiting review. Approve to request WorkOS contractor role promotion, reject with a reason, or request changes. No onboarding applications awaiting review.\",\n  \"w\": [\n    1280,\n    1280\n  ]\n}"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "open",
+      "http://localhost:3000/backoffice/contractor-directory"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "title": "drawFlow",
+      "url": "http://localhost:3000/backoffice/contractor-directory"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "wait",
+      "900"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "ms": 900,
+      "waited": "timeout"
+    },
+    "success": true
+  },
+  {
+    "command": [
+      "eval",
+      "JSON.stringify({path:'contractor-directory',url:location.pathname,text:(document.body.innerText||'').replace(/\\s+/g,' ').slice(250,950),w:[document.documentElement.clientWidth,document.documentElement.scrollWidth]})"
+    ],
+    "result": {
+      "lifecycle": {
+        "effectiveLaunch": {
+          "browserLaunched": true,
+          "engine": "chrome",
+          "launchHash": 8197565053781422000
+        },
+        "launched": false,
+        "relaunchedBrowser": false,
+        "restartedBackground": false,
+        "restoreStatus": "not_configured",
+        "reused": true,
+        "saveStatus": "not_attempted"
+      },
+      "origin": "http://localhost:3000/backoffice/contractor-directory",
+      "result": "{\n  \"path\": \"contractor-directory\",\n  \"url\": \"/backoffice/contractor-directory\",\n  \"text\": \"mance boosts and UI polish. Learn more About Docs © 2026 DrawFlow Toggle Sidebar Backoffice Connor Beleznay connor.belez@gmail.com Not Found\",\n  \"w\": [\n    1280,\n    1280\n  ]\n}"
+    },
+    "success": true
+  }
+]

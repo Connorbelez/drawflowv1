@@ -1,0 +1,388 @@
+{
+  "source": "/Users/connor/Downloads/Generated image 1 (2).png",
+  "sourceSize": {
+    "width": 1672,
+    "height": 941
+  },
+  "outputDirectory": "public/assets/builders-squeezed-extracted",
+  "assetCount": 29,
+  "assets": [
+    {
+      "name": "draw-note-1-upfront",
+      "label": "Rigid schedule draw note: Draw 1",
+      "type": "transparent-webp",
+      "path": "public/assets/builders-squeezed-extracted/draw-note-1-upfront.webp",
+      "sourceRegion": {
+        "x": 188,
+        "y": 430,
+        "width": 134,
+        "height": 176
+      },
+      "notes": "Polygon extraction keeps the paper note, pin, stamp, and internal typography with transparent outside corners."
+    },
+    {
+      "name": "draw-note-2-midpoint",
+      "label": "Rigid schedule draw note: Draw 2",
+      "type": "transparent-webp",
+      "path": "public/assets/builders-squeezed-extracted/draw-note-2-midpoint.webp",
+      "sourceRegion": {
+        "x": 399,
+        "y": 426,
+        "width": 132,
+        "height": 170
+      },
+      "notes": "Polygon extraction keeps the paper note, pin, stamp, and internal typography with transparent outside corners."
+    },
+    {
+      "name": "draw-note-3-final",
+      "label": "Rigid schedule draw note: Draw 3",
+      "type": "transparent-webp",
+      "path": "public/assets/builders-squeezed-extracted/draw-note-3-final.webp",
+      "sourceRegion": {
+        "x": 597,
+        "y": 410,
+        "width": 132,
+        "height": 174
+      },
+      "notes": "Polygon extraction keeps the paper note, pin, stamp, and internal typography with transparent outside corners."
+    },
+    {
+      "name": "drawflow-logo-lockup",
+      "label": "DrawFlow logo lockup",
+      "type": "transparent-webp",
+      "path": "public/assets/builders-squeezed-extracted/drawflow-logo-lockup.webp",
+      "sourceRegion": {
+        "x": 1415,
+        "y": 48,
+        "width": 193,
+        "height": 57
+      },
+      "notes": "Ink-only extraction of the brand mark, wordmark, and BY FAIRLEND line."
+    },
+    {
+      "name": "build-smarter-stamp",
+      "label": "Build smarter stamp",
+      "type": "transparent-webp",
+      "path": "public/assets/builders-squeezed-extracted/build-smarter-stamp.webp",
+      "sourceRegion": {
+        "x": 1338,
+        "y": 120,
+        "width": 272,
+        "height": 138
+      },
+      "notes": "Ink-only extraction of the tilted stamp, grid, words, border, and signature."
+    },
+    {
+      "name": "left-building-blueprint",
+      "label": "Left partial building blueprint",
+      "type": "transparent-webp",
+      "path": "public/assets/builders-squeezed-extracted/left-building-blueprint.webp",
+      "sourceRegion": {
+        "x": 0,
+        "y": 510,
+        "width": 170,
+        "height": 194
+      },
+      "notes": "Blue-line-only extraction of the partial blueprint linework on the left edge."
+    },
+    {
+      "name": "modern-home-blueprint",
+      "label": "Modern home blueprint",
+      "type": "transparent-webp",
+      "path": "public/assets/builders-squeezed-extracted/modern-home-blueprint.webp",
+      "sourceRegion": {
+        "x": 940,
+        "y": 546,
+        "width": 654,
+        "height": 184
+      },
+      "notes": "Blue-line-only extraction of the large home blueprint linework under the milestone draw plan."
+    },
+    {
+      "name": "drawflow-logo-mark",
+      "label": "DrawFlow house logo mark",
+      "type": "svg",
+      "path": "public/assets/builders-squeezed-extracted/drawflow-logo-mark.svg",
+      "sourceRegion": {
+        "x": 1418,
+        "y": 50,
+        "width": 40,
+        "height": 41
+      },
+      "notes": "Clean SVG recreation of the source logo mark for scalable reuse."
+    },
+    {
+      "name": "push-pin",
+      "label": "Pinned note push pin",
+      "type": "svg",
+      "path": "public/assets/builders-squeezed-extracted/push-pin.svg",
+      "sourceRegion": {
+        "x": 241,
+        "y": 424,
+        "width": 19,
+        "height": 39
+      },
+      "notes": "Reusable pin from the three released draw notes."
+    },
+    {
+      "name": "released-stamp",
+      "label": "Released stamp",
+      "type": "svg",
+      "path": "public/assets/builders-squeezed-extracted/released-stamp.svg",
+      "sourceRegion": {
+        "x": 219,
+        "y": 548,
+        "width": 81,
+        "height": 32
+      },
+      "notes": "Reusable red released stamp from the draw-note cards."
+    },
+    {
+      "name": "cash-stress-dashed-curve",
+      "label": "Cash stress dashed curve",
+      "type": "svg",
+      "path": "public/assets/builders-squeezed-extracted/cash-stress-dashed-curve.svg",
+      "sourceRegion": {
+        "x": 130,
+        "y": 570,
+        "width": 704,
+        "height": 49
+      },
+      "notes": "Source-matched vector curve for early/late cash stress in the rigid-draw section."
+    },
+    {
+      "name": "rigid-schedule-axis",
+      "label": "Rigid three draw schedule axis",
+      "type": "svg",
+      "path": "public/assets/builders-squeezed-extracted/rigid-schedule-axis.svg",
+      "sourceRegion": {
+        "x": 123,
+        "y": 600,
+        "width": 702,
+        "height": 22
+      },
+      "notes": "Dark baseline and draw-release milestone nodes from the rigid schedule."
+    },
+    {
+      "name": "aligned-capital-curve",
+      "label": "Aligned capital milestone curve",
+      "type": "svg",
+      "path": "public/assets/builders-squeezed-extracted/aligned-capital-curve.svg",
+      "sourceRegion": {
+        "x": 840,
+        "y": 462,
+        "width": 754,
+        "height": 60
+      },
+      "notes": "Vector extraction of the green progress curve and approved milestone check markers."
+    },
+    {
+      "name": "timeline-break-marker",
+      "label": "Schedule transition break marker",
+      "type": "svg",
+      "path": "public/assets/builders-squeezed-extracted/timeline-break-marker.svg",
+      "sourceRegion": {
+        "x": 817,
+        "y": 598,
+        "width": 36,
+        "height": 26
+      },
+      "notes": "Break between the rigid calendar and milestone draw plan."
+    },
+    {
+      "name": "warning-triangle",
+      "label": "Warning triangle",
+      "type": "svg",
+      "path": "public/assets/builders-squeezed-extracted/warning-triangle.svg",
+      "sourceRegion": {
+        "x": 187,
+        "y": 651,
+        "width": 30,
+        "height": 30
+      },
+      "notes": "Reusable red warning icon used in callouts and the cash-gap panel."
+    },
+    {
+      "name": "cash-out-too-early",
+      "label": "Cash out too early icon",
+      "type": "svg",
+      "path": "public/assets/builders-squeezed-extracted/cash-out-too-early.svg",
+      "sourceRegion": {
+        "x": 83,
+        "y": 821,
+        "width": 54,
+        "height": 29
+      },
+      "notes": "Red hand/capital icon from the cash gap risk panel."
+    },
+    {
+      "name": "idle-cash-clock-coin",
+      "label": "Idle cash clock and coin icon",
+      "type": "svg",
+      "path": "public/assets/builders-squeezed-extracted/idle-cash-clock-coin.svg",
+      "sourceRegion": {
+        "x": 322,
+        "y": 810,
+        "width": 52,
+        "height": 50
+      },
+      "notes": "Clock plus dollar coin from the idle-cash callout."
+    },
+    {
+      "name": "broken-chain",
+      "label": "Broken chain icon",
+      "type": "svg",
+      "path": "public/assets/builders-squeezed-extracted/broken-chain.svg",
+      "sourceRegion": {
+        "x": 571,
+        "y": 812,
+        "width": 38,
+        "height": 46
+      },
+      "notes": "Broken-chain icon from the gaps-before-next-draw callout."
+    },
+    {
+      "name": "approved-check-circle",
+      "label": "Approved check circle",
+      "type": "svg",
+      "path": "public/assets/builders-squeezed-extracted/approved-check-circle.svg",
+      "sourceRegion": {
+        "x": 893,
+        "y": 759,
+        "width": 26,
+        "height": 26
+      },
+      "notes": "Green approved status marker from the capital-unlocks panel."
+    },
+    {
+      "name": "right-time-calendar-check",
+      "label": "Right capital right time calendar icon",
+      "type": "svg",
+      "path": "public/assets/builders-squeezed-extracted/right-time-calendar-check.svg",
+      "sourceRegion": {
+        "x": 894,
+        "y": 811,
+        "width": 47,
+        "height": 47
+      },
+      "notes": "Checklist calendar icon from the approved-work panel."
+    },
+    {
+      "name": "stronger-cash-flow-chart",
+      "label": "Stronger cash flow chart icon",
+      "type": "svg",
+      "path": "public/assets/builders-squeezed-extracted/stronger-cash-flow-chart.svg",
+      "sourceRegion": {
+        "x": 1135,
+        "y": 812,
+        "width": 52,
+        "height": 46
+      },
+      "notes": "Rising bar chart icon from the stronger-cash-flow callout."
+    },
+    {
+      "name": "build-confidence-shield",
+      "label": "Build with confidence shield icon",
+      "type": "svg",
+      "path": "public/assets/builders-squeezed-extracted/build-confidence-shield.svg",
+      "sourceRegion": {
+        "x": 1361,
+        "y": 812,
+        "width": 44,
+        "height": 47
+      },
+      "notes": "Shield-check icon from the build-with-confidence callout."
+    },
+    {
+      "name": "handoff-arrow-circle",
+      "label": "Middle handoff arrow circle",
+      "type": "svg",
+      "path": "public/assets/builders-squeezed-extracted/handoff-arrow-circle.svg",
+      "sourceRegion": {
+        "x": 812,
+        "y": 806,
+        "width": 50,
+        "height": 49
+      },
+      "notes": "Circular arrow bridging the red risk panel and green approved-work panel."
+    },
+    {
+      "name": "unlock-tag-foundation-220k",
+      "label": "Foundation Complete unlock tag",
+      "type": "svg",
+      "path": "public/assets/builders-squeezed-extracted/unlock-tag-foundation-220k.svg",
+      "sourceRegion": {
+        "x": 893,
+        "y": 441,
+        "width": 80,
+        "height": 51
+      },
+      "notes": "Scalable recreation of the rounded milestone amount tag from the mockup."
+    },
+    {
+      "name": "unlock-tag-framing-250k",
+      "label": "Framing Complete unlock tag",
+      "type": "svg",
+      "path": "public/assets/builders-squeezed-extracted/unlock-tag-framing-250k.svg",
+      "sourceRegion": {
+        "x": 1016,
+        "y": 404,
+        "width": 78,
+        "height": 52
+      },
+      "notes": "Scalable recreation of the rounded milestone amount tag from the mockup."
+    },
+    {
+      "name": "unlock-tag-roof-180k",
+      "label": "Roof Complete unlock tag",
+      "type": "svg",
+      "path": "public/assets/builders-squeezed-extracted/unlock-tag-roof-180k.svg",
+      "sourceRegion": {
+        "x": 1140,
+        "y": 392,
+        "width": 79,
+        "height": 50
+      },
+      "notes": "Scalable recreation of the rounded milestone amount tag from the mockup."
+    },
+    {
+      "name": "unlock-tag-dry-in-210k",
+      "label": "Dry-In Complete unlock tag",
+      "type": "svg",
+      "path": "public/assets/builders-squeezed-extracted/unlock-tag-dry-in-210k.svg",
+      "sourceRegion": {
+        "x": 1265,
+        "y": 382,
+        "width": 80,
+        "height": 50
+      },
+      "notes": "Scalable recreation of the rounded milestone amount tag from the mockup."
+    },
+    {
+      "name": "unlock-tag-interiors-200k",
+      "label": "Interiors Complete unlock tag",
+      "type": "svg",
+      "path": "public/assets/builders-squeezed-extracted/unlock-tag-interiors-200k.svg",
+      "sourceRegion": {
+        "x": 1386,
+        "y": 388,
+        "width": 79,
+        "height": 51
+      },
+      "notes": "Scalable recreation of the rounded milestone amount tag from the mockup."
+    },
+    {
+      "name": "unlock-tag-final-300k",
+      "label": "Final Inspection unlock tag",
+      "type": "svg",
+      "path": "public/assets/builders-squeezed-extracted/unlock-tag-final-300k.svg",
+      "sourceRegion": {
+        "x": 1507,
+        "y": 397,
+        "width": 78,
+        "height": 51
+      },
+      "notes": "Scalable recreation of the rounded milestone amount tag from the mockup."
+    }
+  ]
+}

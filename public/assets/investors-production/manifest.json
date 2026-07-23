@@ -1,0 +1,411 @@
+{
+  "assetPack": "investors-production",
+  "mockupSourceDirectory": "public/designConcepts/investors",
+  "outputDirectory": "public/assets/investors-production",
+  "bitmapCount": 11,
+  "transparentBitmapCount": 10,
+  "vectorCount": 7,
+  "bitmapAssets": [
+    {
+      "slug": "midrise-rental-building",
+      "file": "public/assets/investors-production/bitmap/midrise-rental-building.webp",
+      "sourceGeneratedFile": "/Users/connor/.codex/generated_images/019eb74f-3675-7df3-93af-50fa8e733881/ig_02f1c68ad4d1d1d4016a2ae33855288195b26659962fdcf4f0.png",
+      "description": "Modern five-storey mid-rise rental building with landscaping.",
+      "sections": ["01-hero", "02-investment-thesis", "04-why-housing-finance"],
+      "role": "Primary hero and thesis housing subject.",
+      "width": 1280,
+      "height": 760,
+      "format": "webp",
+      "transparent": true,
+      "opaquePixelRatio": 0.4978,
+      "sourceBytes": 2315049,
+      "optimizedBytes": 210666,
+      "optimizedSavingsRatio": 0.909,
+      "pipeline": [
+        "standalone generated PNG source",
+        "magenta chroma-key alpha matte",
+        "edge despill",
+        "alpha bounds trim",
+        "max width 1280px",
+        "cwebp -q 88 -alpha_q 100 -m 6 -metadata none"
+      ]
+    },
+    {
+      "slug": "garden-suite",
+      "file": "public/assets/investors-production/bitmap/garden-suite.webp",
+      "sourceGeneratedFile": "/Users/connor/.codex/generated_images/019eb74f-3675-7df3-93af-50fa8e733881/ig_02f1c68ad4d1d1d4016a2ae51d1d74819582ac2431134dbdec.png",
+      "description": "Contemporary backyard garden suite / laneway suite.",
+      "sections": [
+        "05-affordable-sustainable-rental-housing",
+        "08-borrower-project-types"
+      ],
+      "role": "Project type subject.",
+      "width": 980,
+      "height": 653,
+      "format": "webp",
+      "transparent": true,
+      "opaquePixelRatio": 0.4029,
+      "sourceBytes": 1926742,
+      "optimizedBytes": 101454,
+      "optimizedSavingsRatio": 0.9473,
+      "pipeline": [
+        "standalone generated PNG source",
+        "magenta chroma-key alpha matte",
+        "edge despill",
+        "alpha bounds trim",
+        "max width 980px",
+        "cwebp -q 88 -alpha_q 100 -m 6 -metadata none"
+      ]
+    },
+    {
+      "slug": "multiplex-infill",
+      "file": "public/assets/investors-production/bitmap/multiplex-infill.webp",
+      "sourceGeneratedFile": "/Users/connor/.codex/generated_images/019eb74f-3675-7df3-93af-50fa8e733881/ig_02f1c68ad4d1d1d4016a2ae57cc85c8195a76be1f9447ed3c8.png",
+      "description": "Missing-middle multiplex residential infill building.",
+      "sections": [
+        "05-affordable-sustainable-rental-housing",
+        "08-borrower-project-types"
+      ],
+      "role": "Project type subject.",
+      "width": 980,
+      "height": 653,
+      "format": "webp",
+      "transparent": true,
+      "opaquePixelRatio": 0.4616,
+      "sourceBytes": 2309859,
+      "optimizedBytes": 126384,
+      "optimizedSavingsRatio": 0.9453,
+      "pipeline": [
+        "standalone generated PNG source",
+        "magenta chroma-key alpha matte",
+        "edge despill",
+        "alpha bounds trim",
+        "max width 980px",
+        "cwebp -q 88 -alpha_q 100 -m 6 -metadata none"
+      ]
+    },
+    {
+      "slug": "rental-infill-building",
+      "file": "public/assets/investors-production/bitmap/rental-infill-building.webp",
+      "sourceGeneratedFile": "/Users/connor/.codex/generated_images/019eb74f-3675-7df3-93af-50fa8e733881/ig_02f1c68ad4d1d1d4016a2ae5edf9048195bec0c0639e276ce4.png",
+      "description": "Urban rental infill apartment building.",
+      "sections": [
+        "05-affordable-sustainable-rental-housing",
+        "08-borrower-project-types"
+      ],
+      "role": "Project type subject.",
+      "width": 980,
+      "height": 653,
+      "format": "webp",
+      "transparent": true,
+      "opaquePixelRatio": 0.4285,
+      "sourceBytes": 2175887,
+      "optimizedBytes": 123294,
+      "optimizedSavingsRatio": 0.9433,
+      "pipeline": [
+        "standalone generated PNG source",
+        "magenta chroma-key alpha matte",
+        "edge despill",
+        "alpha bounds trim",
+        "max width 980px",
+        "cwebp -q 88 -alpha_q 100 -m 6 -metadata none"
+      ]
+    },
+    {
+      "slug": "sustainable-retrofit",
+      "file": "public/assets/investors-production/bitmap/sustainable-retrofit.webp",
+      "sourceGeneratedFile": "/Users/connor/.codex/generated_images/019eb74f-3675-7df3-93af-50fa8e733881/ig_02f1c68ad4d1d1d4016a2ae657ff188195bfdb7ef6731e9d91.png",
+      "description": "Sustainable retrofit residential building with green facade and solar panels.",
+      "sections": ["05-affordable-sustainable-rental-housing"],
+      "role": "Project type subject.",
+      "width": 980,
+      "height": 653,
+      "format": "webp",
+      "transparent": true,
+      "opaquePixelRatio": 0.4903,
+      "sourceBytes": 2660380,
+      "optimizedBytes": 155086,
+      "optimizedSavingsRatio": 0.9417,
+      "pipeline": [
+        "standalone generated PNG source",
+        "magenta chroma-key alpha matte",
+        "edge despill",
+        "alpha bounds trim",
+        "max width 980px",
+        "cwebp -q 88 -alpha_q 100 -m 6 -metadata none"
+      ]
+    },
+    {
+      "slug": "construction-draw-project",
+      "file": "public/assets/investors-production/bitmap/construction-draw-project.webp",
+      "sourceGeneratedFile": "/Users/connor/.codex/generated_images/019eb74f-3675-7df3-93af-50fa8e733881/ig_02f1c68ad4d1d1d4016a2ae6cca9208195919780930c10117a.png",
+      "description": "Mid-rise residential construction project with crane and framing.",
+      "sections": ["08-borrower-project-types"],
+      "role": "Construction draw financing subject.",
+      "width": 980,
+      "height": 653,
+      "format": "webp",
+      "transparent": true,
+      "opaquePixelRatio": 0.4204,
+      "sourceBytes": 2179463,
+      "optimizedBytes": 176974,
+      "optimizedSavingsRatio": 0.9188,
+      "pipeline": [
+        "standalone generated PNG source",
+        "magenta chroma-key alpha matte",
+        "edge despill",
+        "alpha bounds trim",
+        "max width 980px",
+        "cwebp -q 88 -alpha_q 100 -m 6 -metadata none"
+      ]
+    },
+    {
+      "slug": "detached-private-mortgage-property",
+      "file": "public/assets/investors-production/bitmap/detached-private-mortgage-property.webp",
+      "sourceGeneratedFile": "/Users/connor/.codex/generated_images/019eb74f-3675-7df3-93af-50fa8e733881/ig_02f1c68ad4d1d1d4016a2ae74c5dc4819591888539e957aaaa.png",
+      "description": "Detached residential property for private mortgage solution use cases.",
+      "sections": ["08-borrower-project-types"],
+      "role": "Private mortgage borrower subject.",
+      "width": 980,
+      "height": 610,
+      "format": "webp",
+      "transparent": true,
+      "opaquePixelRatio": 0.4108,
+      "sourceBytes": 1957796,
+      "optimizedBytes": 91072,
+      "optimizedSavingsRatio": 0.9535,
+      "pipeline": [
+        "standalone generated PNG source",
+        "magenta chroma-key alpha matte",
+        "edge despill",
+        "alpha bounds trim",
+        "max width 980px",
+        "cwebp -q 88 -alpha_q 100 -m 6 -metadata none"
+      ]
+    },
+    {
+      "slug": "rental-courtyard-community",
+      "file": "public/assets/investors-production/bitmap/rental-courtyard-community.webp",
+      "sourceGeneratedFile": "/Users/connor/.codex/generated_images/019eb74f-3675-7df3-93af-50fa8e733881/ig_02f1c68ad4d1d1d4016a2ae7ccf8188195a0dbb6e4fa37f35f.png",
+      "description": "Rental apartment courtyard community for longer-term financing pathways.",
+      "sections": [
+        "08-borrower-project-types",
+        "10-request-investor-information"
+      ],
+      "role": "Longer-term rental housing subject.",
+      "width": 1160,
+      "height": 711,
+      "format": "webp",
+      "transparent": true,
+      "opaquePixelRatio": 0.5904,
+      "sourceBytes": 2648024,
+      "optimizedBytes": 214364,
+      "optimizedSavingsRatio": 0.919,
+      "pipeline": [
+        "standalone generated PNG source",
+        "magenta chroma-key alpha matte",
+        "edge despill",
+        "alpha bounds trim",
+        "max width 1160px",
+        "cwebp -q 88 -alpha_q 100 -m 6 -metadata none"
+      ]
+    },
+    {
+      "slug": "loan-file-dossier-stack",
+      "file": "public/assets/investors-production/bitmap/loan-file-dossier-stack.webp",
+      "sourceGeneratedFile": "/Users/connor/.codex/generated_images/019eb74f-3675-7df3-93af-50fa8e733881/ig_02f1c68ad4d1d1d4016a2ae8a7d3088195a9f8c9d094f38c8e.png",
+      "description": "Underwriting loan-file dossier stack with folders and papers.",
+      "sections": ["07-underwriting-discipline"],
+      "role": "Underwriting evidence/discipline prop.",
+      "width": 900,
+      "height": 600,
+      "format": "webp",
+      "transparent": true,
+      "opaquePixelRatio": 0.4538,
+      "sourceBytes": 1906613,
+      "optimizedBytes": 47694,
+      "optimizedSavingsRatio": 0.975,
+      "pipeline": [
+        "standalone generated PNG source",
+        "magenta chroma-key alpha matte",
+        "edge despill",
+        "alpha bounds trim",
+        "max width 900px",
+        "cwebp -q 88 -alpha_q 100 -m 6 -metadata none"
+      ]
+    },
+    {
+      "slug": "underwriting-memo-paper-stack",
+      "file": "public/assets/investors-production/bitmap/underwriting-memo-paper-stack.webp",
+      "sourceGeneratedFile": "/Users/connor/.codex/generated_images/019eb74f-3675-7df3-93af-50fa8e733881/ig_02f1c68ad4d1d1d4016a2ae9a31c1081958e394eb34b94f3be.png",
+      "description": "Clean stack of underwriting memo papers without readable text.",
+      "sections": ["07-underwriting-discipline"],
+      "role": "Central memo stack prop.",
+      "width": 760,
+      "height": 507,
+      "format": "webp",
+      "transparent": true,
+      "opaquePixelRatio": 0.3337,
+      "sourceBytes": 1779244,
+      "optimizedBytes": 43814,
+      "optimizedSavingsRatio": 0.9754,
+      "pipeline": [
+        "standalone generated PNG source",
+        "magenta chroma-key alpha matte",
+        "edge despill",
+        "alpha bounds trim",
+        "max width 760px",
+        "cwebp -q 88 -alpha_q 100 -m 6 -metadata none"
+      ]
+    },
+    {
+      "slug": "limestone-paper-texture",
+      "file": "public/assets/investors-production/bitmap/limestone-paper-texture.webp",
+      "description": "Generated seamless-feeling limestone paper grain used as the page background texture.",
+      "sections": ["shared"],
+      "role": "Background texture, not a mockup crop.",
+      "width": 640,
+      "height": 640,
+      "format": "webp",
+      "transparent": false,
+      "opaquePixelRatio": 1.0,
+      "sourceGeneratedFile": "procedural",
+      "optimizedBytes": 25544,
+      "pipeline": ["procedural grain", "cwebp -q 88 -m 6 -metadata none"]
+    }
+  ],
+  "vectorAssets": [
+    {
+      "slug": "blueprint-grid",
+      "file": "public/assets/investors-production/vector/blueprint-grid.svg",
+      "format": "svg",
+      "description": "Code-native vector asset; safe to color/scale in CSS."
+    },
+    {
+      "slug": "building-elevation-linework",
+      "file": "public/assets/investors-production/vector/building-elevation-linework.svg",
+      "format": "svg",
+      "description": "Code-native vector asset; safe to color/scale in CSS."
+    },
+    {
+      "slug": "site-plan-linework",
+      "file": "public/assets/investors-production/vector/site-plan-linework.svg",
+      "format": "svg",
+      "description": "Code-native vector asset; safe to color/scale in CSS."
+    },
+    {
+      "slug": "draft-callout-line",
+      "file": "public/assets/investors-production/vector/draft-callout-line.svg",
+      "format": "svg",
+      "description": "Code-native vector asset; safe to color/scale in CSS."
+    },
+    {
+      "slug": "risk-aware-stamp",
+      "file": "public/assets/investors-production/vector/risk-aware-stamp.svg",
+      "format": "svg",
+      "description": "Code-native vector asset; safe to color/scale in CSS."
+    },
+    {
+      "slug": "counsel-review-seal",
+      "file": "public/assets/investors-production/vector/counsel-review-seal.svg",
+      "format": "svg",
+      "description": "Code-native vector asset; safe to color/scale in CSS."
+    },
+    {
+      "slug": "fairlend-mark",
+      "file": "public/assets/investors-production/vector/fairlend-mark.svg",
+      "format": "svg",
+      "description": "Code-native vector asset; safe to color/scale in CSS."
+    }
+  ],
+  "codeNativeContracts": [
+    {
+      "surface": "typography",
+      "implementation": "DOM text with condensed display font and CSS color tokens.",
+      "notBitmap": [
+        "All section headings",
+        "Paragraph copy",
+        "Disclosure language",
+        "Form labels/placeholders/button text",
+        "Table/list content"
+      ]
+    },
+    {
+      "surface": "tables-and-panels",
+      "implementation": "React components using Frame/Card primitives, CSS grid, borders, and live text.",
+      "notBitmap": [
+        "Risk management checklist table",
+        "Private credit risk table",
+        "Disclosure numbered list",
+        "Investor request form",
+        "Thesis cards",
+        "Borrower/project tiles",
+        "Pinned question cards"
+      ]
+    },
+    {
+      "surface": "icons-and-linework",
+      "implementation": "SVG primitives and lucide/Hugeicons where appropriate.",
+      "notBitmap": [
+        "Info, warning, scales, shield, home, borrowers, calculator, clipboard, hard-hat icons",
+        "Rules, arrows, checkboxes, tabs, borders, callout leaders",
+        "Risk/counsel/community stamps"
+      ]
+    }
+  ],
+  "sourceMockupCoverage": {
+    "01-hero": [
+      "midrise-rental-building",
+      "blueprint-grid.svg",
+      "building-elevation-linework.svg",
+      "fairlend-mark.svg"
+    ],
+    "02-investment-thesis": [
+      "midrise-rental-building",
+      "site-plan-linework.svg",
+      "building-elevation-linework.svg"
+    ],
+    "03-private-credit-overview": [
+      "site-plan-linework.svg",
+      "draft-callout-line.svg"
+    ],
+    "04-why-housing-finance": [
+      "midrise-rental-building",
+      "site-plan-linework.svg",
+      "building-elevation-linework.svg"
+    ],
+    "05-affordable-sustainable-rental-housing": [
+      "garden-suite",
+      "multiplex-infill",
+      "rental-infill-building",
+      "sustainable-retrofit",
+      "building-elevation-linework.svg"
+    ],
+    "06-risk-management": [
+      "building-elevation-linework.svg",
+      "risk-aware-stamp.svg"
+    ],
+    "07-underwriting-discipline": [
+      "loan-file-dossier-stack",
+      "underwriting-memo-paper-stack",
+      "draft-callout-line.svg"
+    ],
+    "08-borrower-project-types": [
+      "garden-suite",
+      "multiplex-infill",
+      "construction-draw-project",
+      "rental-infill-building",
+      "detached-private-mortgage-property",
+      "rental-courtyard-community"
+    ],
+    "09-compliance-disclaimers": [
+      "risk-aware-stamp.svg",
+      "counsel-review-seal.svg",
+      "building-elevation-linework.svg"
+    ],
+    "10-request-investor-information": [
+      "rental-courtyard-community",
+      "blueprint-grid.svg"
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="96" viewBox="0 0 360 96" fill="none">
+  <rect x="10" y="14" width="68" height="68" stroke="#073C33" stroke-width="5"/>
+  <path d="M28 67V30h28" stroke="#073C33" stroke-width="6" stroke-linecap="square"/>
+  <path d="M28 47h23" stroke="#073C33" stroke-width="6" stroke-linecap="square"/>
+  <path d="M55 67V51" stroke="#073C33" stroke-width="6" stroke-linecap="square"/>
+  <rect x="60" y="60" width="11" height="11" fill="#C9643E"/>
+  <text x="96" y="48" fill="#073C33" font-family="Arial Narrow, Arial, sans-serif" font-size="34" font-weight="700" letter-spacing="4">FAIRLEND</text>
+  <path d="M96 59h88M270 59h80" stroke="#4D83B6" stroke-width="2"/>
+  <text x="196" y="65" fill="#4D83B6" font-family="Arial, sans-serif" font-size="16" font-weight="700" letter-spacing="12">CAPITAL</text>
+</svg>

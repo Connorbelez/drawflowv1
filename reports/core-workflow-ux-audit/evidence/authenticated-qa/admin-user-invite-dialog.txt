@@ -1,0 +1,87 @@
+{
+  "lifecycle": {
+    "effectiveLaunch": {
+      "browserLaunched": true,
+      "engine": "chrome",
+      "launchHash": 8197565053781422000
+    },
+    "launched": false,
+    "relaunchedBrowser": false,
+    "restartedBackground": false,
+    "restoreStatus": "not_configured",
+    "reused": true,
+    "saveStatus": "not_attempted"
+  },
+  "origin": "http://localhost:3000/backoffice/user-management",
+  "refs": {
+    "e1": {
+      "name": "Notifications alt+T",
+      "role": "region"
+    },
+    "e10": {
+      "name": "FairLendBrokerage",
+      "role": "option"
+    },
+    "e11": {
+      "name": "admin",
+      "role": "option"
+    },
+    "e12": {
+      "name": "broker",
+      "role": "option"
+    },
+    "e13": {
+      "name": "broker-staff",
+      "role": "option"
+    },
+    "e14": {
+      "name": "builder",
+      "role": "option"
+    },
+    "e15": {
+      "name": "builder-staff",
+      "role": "option"
+    },
+    "e16": {
+      "name": "contractor",
+      "role": "option"
+    },
+    "e17": {
+      "name": "principle-broker",
+      "role": "option"
+    },
+    "e2": {
+      "name": "Invite someone",
+      "role": "heading"
+    },
+    "e3": {
+      "name": "Cancel",
+      "role": "button"
+    },
+    "e4": {
+      "name": "Send invitation",
+      "role": "button"
+    },
+    "e5": {
+      "name": "Close",
+      "role": "button"
+    },
+    "e6": {
+      "name": "WORK EMAIL",
+      "role": "textbox"
+    },
+    "e7": {
+      "name": "ORGANIZATION",
+      "role": "combobox"
+    },
+    "e8": {
+      "name": "ROLE",
+      "role": "combobox"
+    },
+    "e9": {
+      "name": "FairLendBrokerage",
+      "role": "option"
+    }
+  },
+  "snapshot": "- region \"Notifications alt+T\" [ref=e1]\n- heading \"Invite someone\" [level=2, ref=e2]\n- textbox \"WORK EMAIL\" [required, ref=e6]\n- combobox \"ORGANIZATION\" [expanded=false, ref=e7]: FairLendBrokerage\n  - option \"FairLendBrokerage\" [selected, ref=e9]\n  - option \"FairLendBrokerage\" [ref=e10]\n- combobox \"ROLE\" [expanded=false, ref=e8]: builder\n  - option \"admin\" [ref=e11]\n  - option \"broker\" [ref=e12]\n  - option \"broker-staff\" [ref=e13]\n  - option \"builder\" [selected, ref=e14]\n  - option \"builder-staff\" [ref=e15]\n  - option \"contractor\" [ref=e16]\n  - option \"principle-broker\" [ref=e17]\n- button \"Cancel\" [ref=e3]\n- button \"Send invitation\" [disabled, ref=e4]\n- button \"Close\" [ref=e5]"
+}

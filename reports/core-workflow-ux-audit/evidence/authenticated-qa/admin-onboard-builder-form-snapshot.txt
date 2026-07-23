@@ -1,0 +1,71 @@
+{
+  "lifecycle": {
+    "effectiveLaunch": {
+      "browserLaunched": true,
+      "engine": "chrome",
+      "launchHash": 8197565053781422000
+    },
+    "launched": false,
+    "relaunchedBrowser": false,
+    "restartedBackground": false,
+    "restoreStatus": "not_configured",
+    "reused": true,
+    "saveStatus": "not_attempted"
+  },
+  "origin": "http://localhost:3000/backoffice/onboard-builder",
+  "refs": {
+    "e1": {
+      "name": "Notifications alt+T",
+      "role": "region"
+    },
+    "e10": {
+      "name": "Builder company name",
+      "role": "textbox"
+    },
+    "e11": {
+      "name": "Owner name",
+      "role": "textbox"
+    },
+    "e12": {
+      "name": "Owner email",
+      "role": "textbox"
+    },
+    "e13": {
+      "name": "Review",
+      "role": "button"
+    },
+    "e2": {
+      "name": "Open DrawFlow AI assistant",
+      "role": "button"
+    },
+    "e3": {
+      "name": "Open TanStack Devtools",
+      "role": "button"
+    },
+    "e4": {
+      "name": "Toggle Sidebar",
+      "role": "button"
+    },
+    "e5": {
+      "name": "breadcrumb",
+      "role": "navigation"
+    },
+    "e6": {
+      "name": "Theme mode: dark. Click to switch mode.",
+      "role": "button"
+    },
+    "e7": {
+      "name": "Notifications",
+      "role": "button"
+    },
+    "e8": {
+      "name": "Bring a new builder onto DrawFlow",
+      "role": "heading"
+    },
+    "e9": {
+      "name": "Connor Beleznay Connor Beleznay connor.belez@gmail.com",
+      "role": "button"
+    }
+  },
+  "snapshot": "- button \"Toggle Sidebar\" [ref=e4]\n- navigation \"breadcrumb\" [ref=e5]\n- button \"Theme mode: dark. Click to switch mode.\" [ref=e6]\n- button \"Notifications\" [expanded=false, ref=e7]\n- button \"Connor Beleznay Connor Beleznay connor.belez@gmail.com\" [expanded=false, ref=e9]\n- heading \"Bring a new builder onto DrawFlow\" [level=1, ref=e8]\n- textbox \"Builder company name\" [ref=e10]\n- textbox \"Owner name\" [ref=e11]\n- textbox \"Owner email\" [ref=e12]\n- button \"Review\" [disabled, ref=e13]\n- button \"Open DrawFlow AI assistant\" [ref=e2]\n- region \"Notifications alt+T\" [ref=e1]\n- button \"Open TanStack Devtools\" [ref=e3]"
+}

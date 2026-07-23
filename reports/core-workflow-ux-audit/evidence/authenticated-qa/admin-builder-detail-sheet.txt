@@ -1,0 +1,47 @@
+{
+  "lifecycle": {
+    "effectiveLaunch": {
+      "browserLaunched": true,
+      "engine": "chrome",
+      "launchHash": 8197565053781422000
+    },
+    "launched": false,
+    "relaunchedBrowser": false,
+    "restartedBackground": false,
+    "restoreStatus": "not_configured",
+    "reused": true,
+    "saveStatus": "not_attempted"
+  },
+  "origin": "http://localhost:3000/backoffice/builders",
+  "refs": {
+    "e1": {
+      "name": "Notifications alt+T",
+      "role": "region"
+    },
+    "e2": {
+      "name": "Assign broker to Connor Beleznay",
+      "role": "heading"
+    },
+    "e3": {
+      "name": "Broker",
+      "role": "combobox"
+    },
+    "e4": {
+      "name": "Audit reason",
+      "role": "textbox"
+    },
+    "e5": {
+      "name": "Cancel",
+      "role": "button"
+    },
+    "e6": {
+      "name": "Assign Builder",
+      "role": "button"
+    },
+    "e7": {
+      "name": "Close",
+      "role": "button"
+    }
+  },
+  "snapshot": "- region \"Notifications alt+T\" [ref=e1]\n- heading \"Assign broker to Connor Beleznay\" [level=2, ref=e2]\n- combobox \"Broker\" [expanded=false, ref=e3]: Select broker\n- textbox \"Audit reason\" [ref=e4]\n- button \"Cancel\" [ref=e5]\n- button \"Assign Builder\" [disabled, ref=e6]\n- button \"Close\" [ref=e7]"
+}

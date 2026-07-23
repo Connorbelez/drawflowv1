@@ -1,0 +1,11 @@
+{
+  "input": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/toronto-hero-extraction/generated/raw/right-house-estate.png",
+  "output": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/toronto-hero-extraction/generated/webp/right-house-estate.webp",
+  "size": {
+    "width": 1376,
+    "height": 977
+  },
+  "transparent_background": "auto",
+  "inferred_background": null,
+  "quality": 92
+}

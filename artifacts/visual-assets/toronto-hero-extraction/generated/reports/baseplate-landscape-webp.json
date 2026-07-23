@@ -1,0 +1,11 @@
+{
+  "input": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/toronto-hero-extraction/generated/raw/baseplate-landscape.png",
+  "output": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/toronto-hero-extraction/generated/webp/baseplate-landscape.webp",
+  "size": {
+    "width": 1539,
+    "height": 889
+  },
+  "transparent_background": "auto",
+  "inferred_background": null,
+  "quality": 92
+}

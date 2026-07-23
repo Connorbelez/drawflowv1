@@ -1,0 +1,224 @@
+import { describe, expect, test } from "vitest";
+import {
+  buildPlanningPayloadFromSetupRows,
+  buildTimelineItemsFromSetupRows,
+  createRowsFromTemplate,
+  DEFAULT_SETUP_ADDRESS,
+  parsePercentTextToBps,
+  resolveTimelineSetupAddress,
+  type TimelineSetupMilestoneRow,
+} from "./-TimelineSetupFlow";
+
+const row = {
+  budgetText: "$100,000",
+  dependencyKeys: [],
+  durationDays: 10,
+  durationText: "10",
+  excluded: false,
+  icon: "foundation",
+  key: "foundation",
+  name: "Foundation",
+  order: 1,
+  percentageBps: 10_000,
+  startDay: 0,
+  subMilestoneDetails: [],
+  subMilestones: ["Excavation"],
+  type: "foundation",
+} satisfies TimelineSetupMilestoneRow;
+
+describe("resolveTimelineSetupAddress", () => {
+  test("trims whitespace and falls back to the default when blank", () => {
+    expect(resolveTimelineSetupAddress("  Toronto, ON  ")).toBe("Toronto, ON");
+    expect(resolveTimelineSetupAddress("   ")).toBe(DEFAULT_SETUP_ADDRESS);
+    expect(resolveTimelineSetupAddress("")).toBe(DEFAULT_SETUP_ADDRESS);
+  });
+});
+
+describe("buildPlanningPayloadFromSetupRows", () => {
+  test("maps optional contractor and cost item planning to milestone keys", () => {
+    const planningRow = {
+      ...row,
+      contractorAssignments: [
+        {
+          contractorId: "contractor-1",
+          contractorName: "Apex Concrete Works",
+          estimatedCostCents: 25_000_00,
+          estimatedHours: 18,
+          id: "assignment-1",
+          role: "Foundation",
+          subMilestoneIds: ["forms", "stale-submilestone"],
+        },
+        {
+          contractorName: "   ",
+          id: "assignment-empty",
+          role: "Foundation",
+          subMilestoneIds: [],
+        },
+      ],
+      costItems: [
+        {
+          costCents: 8_000_00,
+          description: "<p>Concrete mix</p>",
+          id: "cost-item-1",
+          itemType: "material",
+          quantity: 2.5,
+          relevantSubMilestoneIds: ["forms", "removed-sub"],
+          supplier: "Apex Supply",
+          title: "Foundation material package",
+        },
+        {
+          costCents: 0,
+          id: "cost-item-invalid",
+          itemType: "equipment",
+          quantity: 1,
+          relevantSubMilestoneIds: [],
+          title: "Skipped zero cost",
+        },
+      ],
+      subMilestoneDetails: [
+        {
+          budgetText: "$20,000",
+          description: "Forms and pour",
+          durationText: "2",
+          id: "forms",
+          name: "Forms and pour",
+        },
+      ],
+      subMilestones: ["Forms and pour"],
+    } satisfies TimelineSetupMilestoneRow;
+
+    expect(buildPlanningPayloadFromSetupRows([planningRow])).toEqual({
+      contractorAssignments: [
+        {
+          contractorId: "contractor-1",
+          contractorName: "Apex Concrete Works",
+          estimatedCostCents: 25_000_00,
+          estimatedHours: 18,
+          milestoneKey: "foundation",
+          role: "Foundation",
+          submilestoneKeys: ["forms"],
+        },
+      ],
+      costItems: [
+        {
+          costCents: 8_000_00,
+          description: "<p>Concrete mix</p>",
+          itemType: "material",
+          milestoneKey: "foundation",
+          quantity: 2.5,
+          relevantSubmilestoneKeys: ["forms"],
+          supplier: "Apex Supply",
+          title: "Foundation material package",
+        },
+      ],
+    });
+  });
+});
+
+describe("TimelineSetupFlow loan percentage", () => {
+  test("parses percentages into basis points", () => {
+    expect(parsePercentTextToBps("20%")).toBe(2_000);
+    expect(parsePercentTextToBps("10")).toBe(1_000);
+  });
+
+  test("uses an 80% loan percentage fallback for draw availability", () => {
+    expect(buildTimelineItemsFromSetupRows([row])[0]?.data).toMatchObject({
+      amount: 100_000,
+      drawAvailabilityAmount: 80_000,
+    });
+    expect(buildTimelineItemsFromSetupRows([row], 1_000)[0]?.data).toMatchObject(
+      {
+        amount: 100_000,
+        drawAvailabilityAmount: 90_000,
+      },
+    );
+  });
+});
+
+describe("createRowsFromTemplate", () => {
+  test("allocates sub-milestone budgets by PoC basis points", () => {
+    const [row] = createRowsFromTemplate(
+      {
+        description: "4-plex weighted template",
+        rows: [
+          {
+            dependencyKeys: [],
+            durationDays: 24,
+            icon: "plumbing",
+            key: "four-plex-draw-04",
+            name: "Draw/Milestone 4 - MEP rough-ins",
+            percentageBps: 10_000,
+            subMilestoneDetails: [
+              {
+                durationDays: 8,
+                key: "hvac",
+                name: "HVAC",
+                order: 1,
+                percentageBps: 596,
+              },
+              {
+                durationDays: 7,
+                key: "plumbing",
+                name: "PLUMBING",
+                order: 2,
+                percentageBps: 366,
+              },
+              {
+                durationDays: 1,
+                key: "plumbing-supplies",
+                name: "PLUMBING SUPPLIES",
+                order: 3,
+                percentageBps: 0,
+              },
+              {
+                durationDays: 8,
+                key: "electrical",
+                name: "ELECTRICAL",
+                order: 4,
+                percentageBps: 321,
+              },
+            ],
+            subMilestones: [
+              "HVAC",
+              "PLUMBING",
+              "PLUMBING SUPPLIES",
+              "ELECTRICAL",
+            ],
+            type: "roughIn",
+          },
+        ],
+        summary: "4-plex MEP",
+        templateKey: "4-plex",
+        title: "4-plex",
+      },
+      100_000_000,
+    );
+
+    expect(row?.subMilestoneDetails).toEqual([
+      expect.objectContaining({
+        budgetText: "$464,536",
+        durationText: "8",
+        id: "hvac",
+        name: "HVAC",
+      }),
+      expect.objectContaining({
+        budgetText: "$285,269",
+        durationText: "7",
+        id: "plumbing",
+        name: "PLUMBING",
+      }),
+      expect.objectContaining({
+        budgetText: "$0",
+        durationText: "1",
+        id: "plumbing-supplies",
+        name: "PLUMBING SUPPLIES",
+      }),
+      expect.objectContaining({
+        budgetText: "$250,195",
+        durationText: "8",
+        id: "electrical",
+        name: "ELECTRICAL",
+      }),
+    ]);
+  });
+});

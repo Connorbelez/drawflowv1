@@ -1,0 +1,682 @@
+{
+  "root": "/Users/connor/Dev/drawFlow/v1/drawflowv1",
+  "worktreePath": "/Users/connor/Dev/drawFlow/v1/drawflowv1-core-workflow-remediation-20260717",
+  "baseBranch": "06-15-marketing-pages-prod",
+  "baseHead": "42d6d212c5b43fa316c10a6141bf2ec760fc670a",
+  "findingCount": 39,
+  "missingIds": [],
+  "duplicateIds": [],
+  "unknownIds": [],
+  "candidatePathCount": 193,
+  "candidatePaths": [
+    "convex/assistant.test.ts",
+    "convex/assistant.ts",
+    "convex/authz.test.ts",
+    "convex/authz.ts",
+    "convex/brokerageProvisioning.ts",
+    "convex/builderOnboarding.test.ts",
+    "convex/builderRoster.test.ts",
+    "convex/builderRoster.ts",
+    "convex/builderStaffIdentity.ts",
+    "convex/contractorAuth.ts",
+    "convex/contractorEvidence.test.ts",
+    "convex/contractorEvidence.ts",
+    "convex/contractorOnboarding.test.ts",
+    "convex/contractorOnboarding.ts",
+    "convex/contractorWorkspace.test.ts",
+    "convex/contractorWorkspace.ts",
+    "convex/contractors_v1.test.ts",
+    "convex/demo_drawflow.ts",
+    "convex/demo_settings.test.ts",
+    "convex/demo_site_visit_tokens.test.ts",
+    "convex/demo_site_visit_tokens.ts",
+    "convex/demo_timeline_plans.test.ts",
+    "convex/demo_timeline_plans.ts",
+    "convex/http.ts",
+    "convex/production_calendar.test.ts",
+    "convex/production_proposals.test.ts",
+    "convex/production_proposals.ts",
+    "convex/schema.ts",
+    "convex/workosManagement.test.ts",
+    "convex/workosManagement.ts",
+    "convex/workosProjection.ts",
+    "convex/workos_projection.test.ts",
+    "docs/core-product-workflow-manifest.md",
+    "reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md",
+    "reports/core-workflow-ux-audit/agent-notes/identity-and-onboarding.md",
+    "reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md",
+    "reports/core-workflow-ux-audit/agent-notes/proposal-planning.md",
+    "reports/core-workflow-ux-audit/audit-report.md",
+    "src/components/app-devtools.tsx",
+    "src/components/app-header.test.tsx",
+    "src/components/app-header.tsx",
+    "src/components/app-shared.test.tsx",
+    "src/components/app-shell.test.tsx",
+    "src/components/app-shell.tsx",
+    "src/components/nav-user.test.tsx",
+    "src/components/nav-user.tsx",
+    "src/components/ui/event-manager.tsx",
+    "src/components/ui/tabs.tsx",
+    "src/features/access-portal/access-routing.test.ts",
+    "src/features/access-portal/access-routing.ts",
+    "src/features/assistant/DrawFlowAssistant.test.ts",
+    "src/features/assistant/DrawFlowAssistant.tsx",
+    "src/features/assistant/DrawFlowAssistantLauncher.tsx",
+    "src/features/assistant/assistantActionCatalog.ts",
+    "src/features/assistant/assistantClientActionBridge.ts",
+    "src/features/assistant/assistantRouteRegistry.test.ts",
+    "src/features/assistant/assistantRouteRegistry.ts",
+    "src/features/backoffice-build-detail/ActiveBuildTimelineWorkspace.test.tsx",
+    "src/features/backoffice-build-detail/ActiveBuildTimelineWorkspace.tsx",
+    "src/features/backoffice-build-detail/BuildDetailRoute.tsx",
+    "src/features/backoffice-build-detail/BuildDetailTabs.tsx",
+    "src/features/backoffice-build-detail/BuildTimelinePanel.tsx",
+    "src/features/backoffice-build-detail/ContractorsCard.tsx",
+    "src/features/backoffice-build-detail/EventRail.tsx",
+    "src/features/backoffice-build-detail/MilestoneDetailSheet.tsx",
+    "src/features/backoffice-build-detail/MilestoneKanban.tsx",
+    "src/features/backoffice-build-detail/ProductionBuildDetailSurface.test.tsx",
+    "src/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx",
+    "src/features/backoffice-build-detail/SitePhotoCarousel.tsx",
+    "src/features/backoffice-build-detail/SiteVisitOrderDialog.tsx",
+    "src/features/backoffice-build-detail/format.ts",
+    "src/features/backoffice-dashboard/backoffice-build-links.ts",
+    "src/features/backoffice-draws/draw-control-room.tsx",
+    "src/features/backoffice-site-visits/site-visit-control-room.tsx",
+    "src/features/build-funding/BuildFundingWorkspace.test.tsx",
+    "src/features/build-funding/BuildFundingWorkspace.tsx",
+    "src/features/build-workspace-demo/AdminBuildDashboardRoute.test.ts",
+    "src/features/build-workspace-demo/AdminBuildDashboardRoute.tsx",
+    "src/features/build-workspace-demo/BuildWorkspaceDemo.test.tsx",
+    "src/features/build-workspace-demo/BuildWorkspaceDemo.tsx",
+    "src/features/build-workspace-demo/SiteVisitTokenRoute.test.tsx",
+    "src/features/build-workspace-demo/SiteVisitTokenRoute.tsx",
+    "src/features/build-workspace-demo/build-workspace-contractor-planning.test.ts",
+    "src/features/build-workspace-demo/build-workspace-contractor-planning.ts",
+    "src/features/build-workspace-demo/site-visit-evidence-staging.test.ts",
+    "src/features/build-workspace-demo/site-visit-evidence-staging.ts",
+    "src/features/build-workspace-demo/site-visit-token-route-model.test.ts",
+    "src/features/build-workspace-demo/site-visit-token-route-model.ts",
+    "src/features/build-workspace-demo/types.ts",
+    "src/features/builder-dashboard/BuilderTimelineDashboard.test.tsx",
+    "src/features/builder-dashboard/BuilderTimelineDashboard.tsx",
+    "src/features/builder-onboarding/BuilderFirstRun.tsx",
+    "src/features/builder-onboarding/ProvisionBuilderWizard.tsx",
+    "src/features/builder-onboarding/onboarding-gate.test.ts",
+    "src/features/builder-onboarding/onboarding-gate.ts",
+    "src/features/builder-staff/app-permissions.ts",
+    "src/features/calendar-workspace/CalendarAgendaRail.tsx",
+    "src/features/calendar-workspace/CalendarContextMenu.tsx",
+    "src/features/calendar-workspace/CalendarEventDetailDrawer.tsx",
+    "src/features/calendar-workspace/CalendarWorkspace.test.tsx",
+    "src/features/calendar-workspace/CalendarWorkspace.tsx",
+    "src/features/calendar-workspace/adapters/activeBuildCalendarAdapter.ts",
+    "src/features/calendar-workspace/adapters/proposalCalendarAdapter.test.ts",
+    "src/features/calendar-workspace/adapters/proposalCalendarAdapter.ts",
+    "src/features/calendar-workspace/calendarEventProjection.ts",
+    "src/features/calendar-workspace/calendarTypes.ts",
+    "src/features/contractors/ContractorDetailSurface.test.tsx",
+    "src/features/contractors/ContractorDetailSurface.tsx",
+    "src/features/contractors/ContractorPlanningPanel.test.tsx",
+    "src/features/contractors/ContractorPlanningPanel.tsx",
+    "src/features/contractors/ContractorQuickAddDrawer.test.tsx",
+    "src/features/contractors/ContractorQuickAddDrawer.tsx",
+    "src/features/contractors/ContractorRosterTable.test.tsx",
+    "src/features/contractors/ContractorRosterTable.tsx",
+    "src/features/contractors/WorkosUserAutocomplete.test.tsx",
+    "src/features/contractors/WorkosUserAutocomplete.tsx",
+    "src/features/material-planning/MaterialPlanningTab.test.tsx",
+    "src/features/material-planning/MaterialPlanningTab.tsx",
+    "src/features/production-proposals/ProductionProposalDrawScheduleEditor.tsx",
+    "src/features/production-proposals/ProductionProposalGanttWorkspace.test.ts",
+    "src/features/production-proposals/ProductionProposalGanttWorkspace.tsx",
+    "src/features/production-proposals/ProductionProposalMilestoneWorksheet.test.tsx",
+    "src/features/production-proposals/ProductionProposalMilestoneWorksheet.tsx",
+    "src/features/production-proposals/ProductionProposalMilestoneWorksheetContainer.tsx",
+    "src/features/production-proposals/ProductionProposalSurfaces.test.tsx",
+    "src/features/production-proposals/ProductionProposalSurfaces.tsx",
+    "src/features/production-proposals/ProductionTimelineWorkspace.tsx",
+    "src/features/production-proposals/productionMilestoneWorksheetAdapter.test.ts",
+    "src/features/production-proposals/productionMilestoneWorksheetAdapter.ts",
+    "src/features/production-proposals/proposalScheduleDates.test.ts",
+    "src/features/production-proposals/proposalScheduleDates.ts",
+    "src/features/production-proposals/timelineSetupAdapter.test.ts",
+    "src/features/production-proposals/timelineSetupAdapter.ts",
+    "src/features/timeline-workspace/-TimelineMilestoneWorksheetTable.test.tsx",
+    "src/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx",
+    "src/features/timeline-workspace/-draw-request-panel.test.tsx",
+    "src/features/timeline-workspace/-index.test.ts",
+    "src/features/timeline-workspace/-site-visit-status.test.ts",
+    "src/features/timeline-workspace/-timeline-draw-capacity.ts",
+    "src/features/timeline-workspace/-workspace-mode.test.tsx",
+    "src/features/timeline-workspace/MobileTimelineSheets.test.tsx",
+    "src/features/timeline-workspace/MobileTimelineSheets.tsx",
+    "src/features/timeline-workspace/MobileTimelineWorkspace.test.tsx",
+    "src/features/timeline-workspace/MobileTimelineWorkspace.tsx",
+    "src/features/timeline-workspace/TimelineMilestoneContractorList.test.tsx",
+    "src/features/timeline-workspace/TimelineMilestoneContractorList.tsx",
+    "src/features/timeline-workspace/TimelineWorkspace.tsx",
+    "src/lib/auth/rbac.test.ts",
+    "src/lib/auth/rbac.ts",
+    "src/routes/-__root.test.tsx",
+    "src/routes/-marketing.test.tsx",
+    "src/routes/__root.tsx",
+    "src/routes/backoffice/-index.test.tsx",
+    "src/routes/backoffice/-proposals.$planId.test.tsx",
+    "src/routes/backoffice/-user-management-detail-sheet.tsx",
+    "src/routes/backoffice/-user-management-surface.tsx",
+    "src/routes/backoffice/-user-management-types.ts",
+    "src/routes/backoffice/-user-management.test.tsx",
+    "src/routes/backoffice/builders/-builder-detail-drawer.tsx",
+    "src/routes/backoffice/builders/-builder-roster-surface.tsx",
+    "src/routes/backoffice/builders/-builder-roster-types.ts",
+    "src/routes/backoffice/builders/index.tsx",
+    "src/routes/backoffice/builds/$buildId/index.tsx",
+    "src/routes/backoffice/builds/$buildId/route.tsx",
+    "src/routes/backoffice/contractors/$contractorId.tsx",
+    "src/routes/backoffice/draws/route.tsx",
+    "src/routes/backoffice/index.tsx",
+    "src/routes/backoffice/onboard-builder.tsx",
+    "src/routes/backoffice/proposals.$planId.tsx",
+    "src/routes/backoffice/route.tsx",
+    "src/routes/backoffice/settings/-index.test.tsx",
+    "src/routes/backoffice/settings/index.tsx",
+    "src/routes/backoffice/settings/route.tsx",
+    "src/routes/backoffice/site-visits/route.tsx",
+    "src/routes/backoffice/user-management.tsx",
+    "src/routes/builder-staff/builds/$buildId/index.tsx",
+    "src/routes/builder-staff/proposals/$proposalId/index.tsx",
+    "src/routes/builder/builds/$buildId/-index.test.tsx",
+    "src/routes/builder/builds/$buildId/index.tsx",
+    "src/routes/builder/contractors/$contractorId.tsx",
+    "src/routes/builder/demo/dashboard/builds/$buildId.tsx",
+    "src/routes/builder/index.tsx",
+    "src/routes/builder/proposals/$proposalId/index.tsx",
+    "src/routes/builder/proposals/-proposal.$proposalId.test.ts",
+    "src/routes/builder/proposals/new.tsx",
+    "src/routes/builder/route.tsx",
+    "src/routes/contractor/onboarding.tsx",
+    "src/routes/index.tsx",
+    "src/routes/newsitevisit.$buildId.$siteVisitToken.tsx",
+    "src/routes/protected-access.tsx",
+    "tests/e2e/admin-build-dashboard.spec.ts",
+    "tests/e2e/builder-new-proposal-demo.spec.ts",
+    "tests/e2e/timeline-demo.spec.ts"
+  ],
+  "plannedPathCount": 34,
+  "plannedPaths": [
+    "convex/contractorNotifications.test.ts",
+    "convex/production_proposals.active-build-timeline-audit.spec.ts",
+    "convex/production_proposals.live-build-activation.spec.ts",
+    "convex/production_proposals.reject-active-build-draw.spec.ts",
+    "convex/site_visit_report_provenance.test.ts",
+    "convex/site_visit_token_recovery_request.test.ts",
+    "convex/site_visit_token_scope.test.ts",
+    "docs/specs/wf-com-001-notification-center.md",
+    "docs/specs/wf-int-001-integration-operations-console.md",
+    "docs/specs/wf-ops-001-operations-queue.md",
+    "reports/core-workflow-ux-audit/file-lock-manifest.md",
+    "reports/core-workflow-ux-audit/remediation-ledger.md",
+    "reports/core-workflow-ux-audit/target-manifest.json",
+    "reports/core-workflow-ux-audit/verification-matrix.md",
+    "src/components/ui/event-manager.a11y.test.tsx",
+    "src/features/backoffice-build-detail/ProductionBuildDetailSurface.responsive.test.tsx",
+    "src/features/backoffice-build-detail/active-build-milestone-read-model.spec.ts",
+    "src/features/backoffice-draws/draw-review-reason.spec.tsx",
+    "src/features/build-workspace-demo/SiteVisitTokenRoute.provenance.test.tsx",
+    "src/features/build-workspace-demo/SiteVisitTokenRoute.recovery.test.tsx",
+    "src/features/builder-dashboard/budget-governance-row.spec.tsx",
+    "src/features/calendar-workspace/CalendarContextMenu.test.tsx",
+    "src/features/calendar-workspace/CalendarEventDetailDrawer.test.tsx",
+    "src/features/calendar-workspace/CalendarWorkspace.export.test.tsx",
+    "src/features/calendar-workspace/CalendarWorkspace.responsive.test.tsx",
+    "src/features/contractors/ContractorPlanningPanel.a11y.test.tsx",
+    "src/features/contractors/ContractorQuickAddDrawer.responsive.test.tsx",
+    "src/features/timeline-workspace/TimelineWorkspace.responsive.test.tsx",
+    "src/features/timeline-workspace/timeline-save-failure-recovery.spec.tsx",
+    "src/routes/-protected-access.test.tsx",
+    "src/routes/backoffice/builders/-builder-roster-surface.test.tsx",
+    "src/routes/builder/-index.test.tsx",
+    "src/routes/builder/builder-live-build-gating.spec.tsx",
+    "src/routes/builder/contractors/$contractorId.test.tsx"
+  ],
+  "findingSummary": [
+    {
+      "findingId": "UX-WF-BLD-001-001",
+      "phase": "active-build-read-model",
+      "dependsOn": [
+        "Canonical active-build milestone projection in convex/production_proposals.ts shared by detail and timeline queries.",
+        "Single UI contract in ProductionBuildDetailSurface for milestone status, submilestone counts, assignment coverage, and financial labels.",
+        "Explicit separation of budgetCents from drawAvailabilityCents everywhere the milestone is rendered."
+      ]
+    },
+    {
+      "findingId": "UX-WF-BLD-001-002",
+      "phase": "audit-signal-integrity",
+      "dependsOn": [
+        "Separation of auditable domain transitions from timelineRouteState persistence.",
+        "Server-side normalized diff / no-op suppression before writeActiveBuildEvent runs.",
+        "Quick-action presentation that excludes telemetry-only event types."
+      ]
+    },
+    {
+      "findingId": "UX-WF-BLD-001-004",
+      "phase": "live-build-routing",
+      "dependsOn": [
+        "Row classification keyed to activeBuildId instead of approved/closed proposal status alone.",
+        "Transactional proposal closing/provisioning before dashboard exposure.",
+        "Contextual unavailable-state recovery on /builder/builds/$buildId."
+      ]
+    },
+    {
+      "findingId": "UX-WF-DRW-001-001",
+      "phase": "save-failure-containment",
+      "dependsOn": [
+        "Client/server mutation contract parity for active-build timeline plan-state payloads.",
+        "Shared typed error surface across TimelineWorkspace, ActiveBuildTimelineWorkspace, and BuildFundingWorkspace.",
+        "Optimistic-state rollback or explicit unsaved-state reconciliation when durable writes fail."
+      ]
+    },
+    {
+      "findingId": "UX-WF-DRW-001-002",
+      "phase": "draw-request-validation",
+      "dependsOn": [
+        "Authoritative available-now calculation from approved buildMilestones plus activeBuildDrawRequests and loanFacilities.",
+        "Idempotent requestActiveBuildDraw mutation and requestKey/clientOperationId model.",
+        "Shared funding projections in BuildFundingWorkspace and getActiveBuildTimelineWorkspace."
+      ]
+    },
+    {
+      "findingId": "UX-WF-DRW-001-003",
+      "phase": "draw-review-governance",
+      "dependsOn": [
+        "Shared reject-review interaction between build detail and draw queue surfaces.",
+        "Server-side non-empty note validation in rejectActiveBuildDraw.",
+        "Preservation of existing approver/backoffice role boundaries while adding reason governance."
+      ]
+    },
+    {
+      "findingId": "UX-WF-BUD-001-001",
+      "phase": "activation-gating",
+      "dependsOn": [
+        "Shares the same live-build activation gate as UX-WF-BLD-001-004.",
+        "Transactional creation/linking of activeBuilds during proposal closing.",
+        "Dashboard row classification that honors activeBuildId presence and authorization before publishing a live-build CTA."
+      ]
+    },
+    {
+      "findingId": "UX-WF-BUD-001-002",
+      "phase": "budget-governance",
+      "dependsOn": [
+        "Accessible live-build entry from UX-WF-BUD-001-001.",
+        "Dashboard row model extended from totalBudgetCents-only to capital-plan version plus request metadata.",
+        "Assistant request/catalog compatibility preserved across active-build budget workflows."
+      ]
+    },
+    {
+      "findingId": "UX-WF-MIL-001-001",
+      "phase": "phase-1-integrity",
+      "dependsOn": []
+    },
+    {
+      "findingId": "UX-WF-MIL-001-002",
+      "phase": "phase-2-provenance",
+      "dependsOn": [
+        "UX-WF-MIL-001-001"
+      ]
+    },
+    {
+      "findingId": "UX-WF-MIL-001-003",
+      "phase": "phase-3-recovery",
+      "dependsOn": [
+        "UX-WF-MIL-001-001"
+      ]
+    },
+    {
+      "findingId": "UX-WF-TEN-001-001",
+      "phase": "Phase 1 - tenant activation recovery",
+      "dependsOn": [
+        "WF-TEN-001 active-brokerage invariant from docs/core-product-workflow-manifest.md",
+        "WorkOS projection freshness and current-organization lookup in convex/workosProjection.ts",
+        "Brokerage/user-management repair authority enforced by convex/workosManagement.ts and convex/brokerageProvisioning.ts"
+      ]
+    },
+    {
+      "findingId": "UX-WF-TEN-002-001",
+      "phase": "Phase 1 - typed onboarding state",
+      "dependsOn": [
+        "WF-TEN-001 active brokerage precondition",
+        "Server-owned builder identity/profile link in convex/brokerageProvisioning.ts",
+        "Typed route-error containment shared with src/routes/__root.tsx"
+      ]
+    },
+    {
+      "findingId": "UX-WF-TEN-002-002",
+      "phase": "Phase 2 - builder relationship acknowledgment",
+      "dependsOn": [
+        "UX-WF-TEN-002-001",
+        "Canonical builder/broker relationship summary returned from convex/production_proposals.ts",
+        "Broker-initiated onboarding path in src/features/builder-onboarding/ProvisionBuilderWizard.tsx"
+      ]
+    },
+    {
+      "findingId": "UX-WF-TEN-003-001",
+      "phase": "Phase 1 - transfer authority recovery",
+      "dependsOn": [
+        "UX-WF-TEN-001-001",
+        "Canonical builder-to-broker assignment persistence beyond buildProposals.assignedBrokerWorkosUserId",
+        "Work-routing ownership continuity using convex/schema.ts buildBrokerAssignments"
+      ]
+    },
+    {
+      "findingId": "UX-WF-TEN-004-001",
+      "phase": "Phase 1 - role projection/access change recovery",
+      "dependsOn": [
+        "UX-WF-TEN-001-001",
+        "WorkOS membership/role projection freshness in convex/workosProjection.ts",
+        "User-management write authority in convex/workosManagement.ts and convex/authz.ts"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CTR-001-001",
+      "phase": "identity-handoff-visibility",
+      "dependsOn": [
+        "Builder-scoped contractor relationship read model",
+        "Invite/claim status projection that works before milestone assignment"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CTR-001-002",
+      "phase": "identity-handoff-state-model",
+      "dependsOn": [
+        "Invite claim projection from contractorInviteClaims",
+        "Builder-visible acknowledgement and notification projection"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CTR-002-001",
+      "phase": "assignment-auth-contract",
+      "dependsOn": [
+        "Builder-scoped active-build write authorization contract",
+        "Shared attach/assign mutation service across Milestones and Contractors tabs"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CTR-002-002",
+      "phase": "attach-invite-lifecycle",
+      "dependsOn": [
+        "Canonical contractor lifecycle: directory -> attached -> assigned -> invited",
+        "Builder-owned scope check instead of global any-assignment check"
+      ]
+    },
+    {
+      "findingId": "UX-WF-PRP-001-001",
+      "phase": "Phase 1 \u2014 authority boundary and permission projection",
+      "dependsOn": [
+        "convex/production_proposals.ts:getProposalDetailByString appPermissions parity"
+      ]
+    },
+    {
+      "findingId": "UX-WF-PRP-001-002",
+      "phase": "Phase 2 \u2014 shared proposal navigation and responsive IA",
+      "dependsOn": [
+        "UX-WF-PRP-001-001"
+      ]
+    },
+    {
+      "findingId": "UX-WF-PRP-001-003",
+      "phase": "Phase 2 \u2014 plan comparison persistence and submit gating",
+      "dependsOn": [
+        "UX-WF-PRP-001-001",
+        "convex/schema.ts buildProposals selected-plan snapshot support"
+      ]
+    },
+    {
+      "findingId": "UX-WF-MAT-001-001",
+      "phase": "Phase 2 \u2014 milestone-scoped material workspace",
+      "dependsOn": [
+        "convex/production_proposals.ts proposal cost-item write rules remain authoritative"
+      ]
+    },
+    {
+      "findingId": "UX-WF-OPS-001-001",
+      "phase": "backoffice-triage-queue",
+      "dependsOn": [
+        "WF-OPS-001.SYS.01 aggregate/join -> derive risk/urgency -> materialize/route -> track aging/resolution",
+        "WF-DRW-001, WF-MIL-001, and WF-BLD-001 upstream domain records for queue items",
+        "claim/assignment plus recommendation/acknowledgement state model",
+        "deep-link contract to shared backoffice build-detail, draw-control-room, and site-visit control-room surfaces",
+        "WF-OPS-001.HO-01 and WF-OPS-001.HO-02 acknowledgement contract"
+      ]
+    },
+    {
+      "findingId": "UX-WF-COM-001-001",
+      "phase": "builder-inbox-entry",
+      "dependsOn": [
+        "WF-COM-001.SYS.01.STEP-04 create deliveries/attempts",
+        "WF-COM-001.SYS.01.STEP-05 serve a delivery-first inbox",
+        "generic in-app recipient delivery model for builder/backoffice/admin personas, not only contractorNotifications",
+        "canonical deep links into /backoffice/builds/$buildId, /backoffice/draws, and /backoffice/site-visits",
+        "UX-WF-COM-001-002 deduped human-readable event projection"
+      ]
+    },
+    {
+      "findingId": "UX-WF-COM-001-002",
+      "phase": "notification-projection-and-audit-separation",
+      "dependsOn": [
+        "WF-COM-001.SYS.01 validate taxonomy/scope -> dedupe -> resolve recipients -> create deliveries -> serve inbox -> resolve from domain outcome",
+        "UX-WF-BLD-001-002 audit-event flood cleanup",
+        "eventOutbox -> per-recipient delivery projection instead of raw audit reuse",
+        "domain-outcome-based resolution contract before any Resolve CTA is exposed"
+      ]
+    },
+    {
+      "findingId": "UX-WF-INT-001-001",
+      "phase": "integration-operations-console",
+      "dependsOn": [
+        "WF-INT-001.TADM.01 create/rotate/revoke -> configure endpoint/subscriptions -> confirm dangerous change -> review logs -> repair/disable/retry",
+        "WF-INT-001.SYS.01 pending -> delivered \\| failed \\| retry_pending delivery log",
+        "technical-admin-only route and permission boundary distinct from proposal settings",
+        "tenant-scoped config, secret handling, attempt timeline, retry/backoff, and audit data model",
+        "existing calendarSyncSubscriptions/calendarSyncChanges plus /api/calendar/*.ics are precedent only, not the full webhook/integration lifecycle surface"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CAL-001-001",
+      "phase": "calendar-semantics",
+      "dependsOn": [
+        "Keep shared export handling in CalendarWorkspace aligned with the current filtered event scope from applyCalendarFilters.",
+        "Preserve the sanctioned server-backed subscription path createCalendarSyncSubscription -> /api/calendar/:subscriptionKey.ics for durable exports and external-calendar delivery.",
+        "Do not regress visualFixtureEnabled query skipping or TanStack timeframe search-param round-tripping on proposal/build calendar routes."
+      ]
+    },
+    {
+      "findingId": "UX-WF-CAL-001-002",
+      "phase": "calendar-semantics",
+      "dependsOn": [
+        "Correct proposal event editability at query/projection time before changing drawer affordances; current proposal milestone/draw events advertise non-draft editability.",
+        "Preserve draft-only builder mutation rules in reviseProposalMilestoneSchedule and reviseProposalDrawTiming; submitted-state changes must route to a request/authority path instead of direct mutation.",
+        "Keep WF-CAL-001.HO-01 blocked until a committed schedule-change request or authorized material change exists."
+      ]
+    },
+    {
+      "findingId": "UX-WF-CAL-001-004",
+      "phase": "calendar-semantics",
+      "dependsOn": [
+        "Keep reminder actions compatible with shared proposal adapter actions, but partition proposal milestone and draw mutations away from reminder events before menu rendering.",
+        "Preserve soft-cancel history: reminder cancellation remains a status patch, not hard delete, and stays auditable.",
+        "Retain assistant closed-catalog reminder keys (create_proposal_reminder, update_proposal_reminder, cancel_proposal_reminder) while changing UI confirmation semantics."
+      ]
+    },
+    {
+      "findingId": "UX-WF-BLD-001-003",
+      "phase": "WF-BLD-001.BLDR.01.STEP-01",
+      "dependsOn": [
+        "Authorized active-build scope via `authorizeActiveBuild` and a valid `/builder/builds/$buildId` or `/builder-staff/builds/$buildId` route context.",
+        "Builder/builder-staff app-permission projection remains the source of truth for draw, contractor, evidence, reminder, and staff CTAs.",
+        "Shared `ProductionBuildDetailSurface` plus `ActiveBuildTimelineWorkspace` stay the canonical live-build surfaces; no demo-surface fork.",
+        "Global shell overlays (assistant launcher and devtools) remain mounted and require safe-area-aware spacing rather than feature removal."
+      ]
+    },
+    {
+      "findingId": "UX-WF-CTR-001-003",
+      "phase": "mobile-drawer-reflow",
+      "dependsOn": [
+        "Shared mobile drawer layout tokens",
+        "Assistant launcher safe-area suppression while drawers are open"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CTR-001-004",
+      "phase": "validation-semantics",
+      "dependsOn": [
+        "Explicit client-side email validation state"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CTR-002-003",
+      "phase": "assignment-surface-accessibility",
+      "dependsOn": [
+        "Single-surface assignment flow",
+        "Accessible non-nested contractor roster and milestone cards"
+      ]
+    },
+    {
+      "findingId": "UX-WF-DRW-001-004",
+      "phase": "WF-DRW-001.LOPS.01.STEP-02",
+      "dependsOn": [
+        "An approved owner-scoped demo live build resolves through `demo_getBuilderLiveTimelineWorkspaceByBuildKey` on `/builder/demo/dashboard/builds/$buildId`.",
+        "Lender review occurs inside shared `TimelineWorkspace` live mode after a draw has transitioned into `requested` or is being inspected as part of lender review.",
+        "The review surface still relies on demo persistence hooks for plan-state saves, draw submission, and draw review mutations.",
+        "Backend-facing changes must respect Convex validator/permission rules while keeping `convex/_generated/**` read-only."
+      ]
+    },
+    {
+      "findingId": "UX-WF-CAL-001-003",
+      "phase": "responsive-a11y-polish",
+      "dependsOn": [
+        "Preserve TanStack tab/timeframe search contracts across builder, builder-staff, and backoffice proposal/build calendar routes.",
+        "Keep proposal shell composition in ProductionProposalReviewSurface and build shell composition in ProductionBuildDetailSurface while compacting the shared calendar workspace.",
+        "Retain visualFixtureEnabled demo/production guards so responsive work does not change which data sources are used."
+      ]
+    },
+    {
+      "findingId": "UX-WF-CAL-001-005",
+      "phase": "responsive-a11y-polish",
+      "dependsOn": [
+        "Keep backend calendar events as full-range logical records; semantic dedupe should happen in projection and render layers without changing entity ids or route context.",
+        "Preserve visible month-range continuity while removing duplicate day-span fragments from sequential focus and the accessibility tree.",
+        "Keep shared agenda semantics aligned between EventManager and CalendarAgendaRail, not just one surface."
+      ]
+    },
+    {
+      "findingId": "UX-WF-MAT-001-002",
+      "phase": "Phase 3 \u2014 field-level numeric validation and accessibility",
+      "dependsOn": [
+        "UX-WF-MAT-001-001"
+      ]
+    }
+  ],
+  "validation": {
+    "findingCount": 39,
+    "missingIds": [],
+    "duplicateIds": [],
+    "unknownIds": [],
+    "candidatePathCount": 193,
+    "plannedPathCount": 34,
+    "historicalCritics": [
+      {
+        "gateManifestComplete": false,
+        "invalidOrMissingExistingPaths": [],
+        "generatedPathsIncorrectlyTargeted": [],
+        "acceptanceGapCount": 0,
+        "dependencyGapCount": 2,
+        "notes": [
+          "audit-report.md confirms 39 unique finding IDs and no duplicates; the supplied mapping appears to preserve the full ID set, so the remaining gate failures are path completeness and explicit dependency edges.",
+          "Every path in additionalExistingCandidatePaths was verified to exist in the repo by direct file reads or directory listings.",
+          "The added coordinator-owned records are the audit report plus all four canonical note files; the added linked record is docs/core-product-workflow-manifest.md.",
+          "The added build-detail/helper paths are concrete existing files directly implied by the canonical notes' shared live-build routing, milestone kanban, milestone-detail drawer, and financial-label semantics.",
+          "The added regression coverage paths are the missing common smoke-test files and applicable Playwright specs that already exist in-repo but are not represented in the mapped manifest."
+        ]
+      },
+      {
+        "gateManifestComplete": false,
+        "invalidOrMissingExistingPaths": [],
+        "generatedPathsIncorrectlyTargeted": [],
+        "acceptanceGapCount": 4,
+        "dependencyGapCount": 5,
+        "notes": [
+          "Canonical comparison sources used: /Users/connor/Dev/drawFlow/v1/drawflowv1/reports/core-workflow-ux-audit/audit-report.md, /Users/connor/Dev/drawFlow/v1/drawflowv1/reports/core-workflow-ux-audit/ultracode-remediation-prompt.md, /Users/connor/Dev/drawFlow/v1/drawflowv1/reports/core-workflow-ux-audit/agent-notes/build-and-contractor.md, /Users/connor/Dev/drawFlow/v1/drawflowv1/reports/core-workflow-ux-audit/agent-notes/proposal-planning.md, and /Users/connor/Dev/drawFlow/v1/drawflowv1/reports/core-workflow-ux-audit/agent-notes/operations-verification-draws.md.",
+          "The manifest appears ID-complete against the canonical 39-finding register and I found no duplicate finding IDs.",
+          "Verbatim coverage check: UX-WF-COM-001-001 passes, UX-WF-MIL-001-001 passes, UX-WF-PRP-001-001 passes, and UX-WF-CAL-001-005 passes; UX-WF-BLD-001-002, UX-WF-DRW-001-002, and UX-WF-CAL-001-001 are only partial matches.",
+          "I did not find any existingCandidatePaths that incorrectly target generated Convex files under /Users/connor/Dev/drawFlow/v1/drawflowv1/convex/_generated; the main path issue is per-finding under-targeting, not bad or generated paths."
+        ]
+      },
+      {
+        "gateManifestComplete": false,
+        "invalidOrMissingExistingPaths": [],
+        "generatedPathsIncorrectlyTargeted": [],
+        "acceptanceGapCount": 11,
+        "dependencyGapCount": 7,
+        "notes": [
+          "Validated all 39 finding IDs from the supplied manifest; there are no duplicate IDs and no missing IDs in the provided set.",
+          "Every listed existingCandidatePaths and adjacentTests entry exists on disk and none target convex/_generated/**.",
+          "additionalExistingCandidatePaths is a deduped global add-list of verified repo-relative files absent from the manifest anywhere; per-finding acceptance/dependency gaps may also mention files already listed under other findings.",
+          "The manifest order is not normalized (for example UX-WF-BLD-001-003 and UX-WF-CAL-001-003/004/005 are out of numeric order), but ordering did not hide any missing IDs."
+        ]
+      }
+    ],
+    "currentGateComplete": true,
+    "currentValidationStatus": "passed revision 5 independent verification",
+    "acceptanceGapCount": 0,
+    "dependencyGapCount": 0,
+    "pathGapCount": 0,
+    "verifiedFindingCount": 39,
+    "verifiedCandidatePathCount": 193,
+    "verifiedPlannedPathCount": 34,
+    "verifiedGapCount": 0
+  },
+  "dirtyRootSnapshot": {
+    "root": "/Users/connor/Dev/drawFlow/v1/drawflowv1",
+    "capturedAfterCheckpointCommit": "42d6d212c5b43fa316c10a6141bf2ec760fc670a",
+    "branch": "06-15-marketing-pages-prod",
+    "trackedDiffPaths": [],
+    "stagedDiffPaths": [],
+    "untrackedPaths": [
+      ".claude/worktrees/core-workflow-audit-remediation-sparse-20260716/"
+    ],
+    "notes": [
+      "git diff --name-only returned no paths after the checkpoint commit.",
+      "git diff --cached --name-only returned no paths after the checkpoint commit.",
+      "The remaining untracked path is an existing registered nested worktree and is outside the frozen audit target set."
+    ]
+  },
+  "dirtyRootOverlap": {
+    "detected": false,
+    "paths": [],
+    "candidatePathCount": 193,
+    "checkedAgainst": "checkpoint HEAD 42d6d212c5b43fa316c10a6141bf2ec760fc670a"
+  },
+  "revisions": [
+    {
+      "revision": 1,
+      "reason": "Initial frozen Phase 0 target manifest after authorized checkpoint commit and zero-overlap recheck."
+    },
+    {
+      "revision": 2,
+      "reason": "Added verified contractor-auth and access-routing implementation/test paths and normalized six dependency entries to the canonical ledger/matrix text after fresh adversarial validation."
+    },
+    {
+      "revision": 3,
+      "reason": "Added seven canonical acceptance clauses and mapped planned, not-yet-run tests plus planned fresh browser captures for all findings without claiming implementation or proof."
+    },
+    {
+      "revision": 4,
+      "reason": "Renamed the canonical ledger to remediation-ledger.md, documented transient Phase 0 status/evidence semantics, added root-cause and audit-update fields, and assigned every frozen target path exactly one current owner."
+    },
+    {
+      "revision": 5,
+      "reason": "Restored the final two canonical acceptance clauses for accessible event-range announcements and valid partial-quantity examples, and refreshed stored overlap metadata to 193 candidate paths."
+    }
+  ]
+}

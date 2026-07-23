@@ -1,0 +1,670 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-22",
+  "scope": "Core workflow UX audit remediation closeout",
+  "baseline": {
+    "checkpoint": "42d6d212",
+    "findingCount": 39,
+    "severityCounts": {
+      "critical": 4,
+      "blocker": 9,
+      "major": 23,
+      "moderate": 3
+    },
+    "targetManifest": "reports/core-workflow-ux-audit/target-manifest.json",
+    "targetManifestPolicy": "Immutable checkpoint record; not rewritten during closeout."
+  },
+  "canonicalDispositionTotals": {
+    "fixed": 38,
+    "verified-existing": 0,
+    "not-applicable": 0,
+    "blocked": 1,
+    "regressed": 0
+  },
+  "verification": {
+    "commands": [
+      {
+        "command": "bun run test",
+        "result": "passed",
+        "detail": "151 files, 1,147 tests"
+      },
+      {
+        "command": "bun x convex codegen",
+        "result": "passed"
+      },
+      {
+        "command": "bun x tsc -p convex/tsconfig.json --noEmit",
+        "result": "passed"
+      },
+      {
+        "command": "bun run typecheck",
+        "result": "passed"
+      },
+      {
+        "command": "bun run build",
+        "result": "passed"
+      },
+      {
+        "command": "bun run verify:build-warnings",
+        "result": "passed"
+      },
+      {
+        "command": "bun run ui:html:audit",
+        "result": "passed",
+        "detail": "78 interaction snippets"
+      },
+      {
+        "command": "bun run scripts/core-workflow-manifest.ts --check",
+        "result": "passed",
+        "detail": "16 parent workflows, 63 persona segments, 52 handoffs, 409 stable steps"
+      }
+    ],
+    "browser": {
+      "engine": "Chromium/Chrome",
+      "viewports": ["1440x900", "1280x900", "1024x768", "512x768", "390x844"],
+      "personas": [
+        "authenticated Builder",
+        "authenticated Lender Admin",
+        "deterministic fixture personas"
+      ],
+      "results": [
+        "Authenticated Builder dashboard, proposal, active Build, Notifications, and recovery paths rendered against production-backed data.",
+        "Authenticated Admin dashboard, proposal, Build, Draw, Site Visit, onboarding, Contractor, User Management, Settings, and Integration paths rendered.",
+        "Submitted Builder proposal mutation leakage was removed and re-verified.",
+        "Authenticated proposal, Build, Draw, Site Visit, Contractor, dashboard, and onboarding pages remained document-contained at 390 CSS pixels after repair.",
+        "Draw and Site Visit grouped/table mode toggles changed pressed state and rendered mode.",
+        "Proposal and Site Visit audited decision gates rejected blank reasons without committing mutations.",
+        "Post-fix Draw and Site Visit console passes contained no React errors."
+      ],
+      "evidenceDirectories": [
+        "reports/core-workflow-ux-audit/evidence/final-qa",
+        "reports/core-workflow-ux-audit/evidence/authenticated-qa"
+      ],
+      "report": "reports/core-workflow-ux-audit/authenticated-browser-qa-report.md"
+    }
+  },
+  "findings": [
+    {
+      "findingId": "UX-WF-BLD-001-001",
+      "disposition": "fixed",
+      "summary": "Canonical active-Build milestone summaries now expose distinct budget and draw availability fields and reconciliation warnings instead of contradictory silent states.",
+      "files": [
+        "convex/production_proposals.ts",
+        "src/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx"
+      ],
+      "tests": ["convex/production_proposals.test.ts"],
+      "evidence": [
+        "reports/core-workflow-ux-audit/evidence/final-qa/active-build-1440x900.png",
+        "reports/core-workflow-ux-audit/evidence/final-qa/active-build-390x844.png"
+      ]
+    },
+    {
+      "findingId": "UX-WF-BLD-001-002",
+      "disposition": "fixed",
+      "summary": "Timeline presentation state is excluded from material audit persistence; normalized no-op transitions are suppressed.",
+      "files": ["convex/production_proposals.ts"],
+      "tests": ["convex/production_proposals.test.ts"],
+      "evidence": [
+        "Automated material-transition and no-op regression coverage"
+      ]
+    },
+    {
+      "findingId": "UX-WF-DRW-001-002",
+      "disposition": "fixed",
+      "summary": "Production and demo draw request paths enforce authoritative capacity, idempotency, collision safety, terminal-state rules, and concurrent reservation behavior.",
+      "files": [
+        "convex/production_proposals.ts",
+        "convex/demo_timeline_plans.ts"
+      ],
+      "tests": [
+        "convex/production_proposals.test.ts",
+        "convex/demo_timeline_plans.test.ts"
+      ],
+      "evidence": [
+        "Automated draw lifecycle and concurrency regression coverage"
+      ]
+    },
+    {
+      "findingId": "UX-WF-PRP-001-001",
+      "disposition": "fixed",
+      "summary": "Builder proposal surfaces omit lender-only decision and draw controls while authorized backoffice surfaces retain them.",
+      "files": [
+        "src/features/production-proposals/ProductionProposalSurfaces.tsx",
+        "src/routes/builder/proposals/-proposal.$proposalId.test.ts",
+        "src/routes/backoffice/-proposals.$planId.test.tsx"
+      ],
+      "tests": ["Proposal role-authority component and route suites"],
+      "evidence": [
+        "reports/core-workflow-ux-audit/evidence/final-qa/proposal-workspace-390x844.png"
+      ]
+    },
+    {
+      "findingId": "UX-WF-TEN-002-001",
+      "disposition": "fixed",
+      "summary": "Builder entry maps organization, membership, projection, and assignment failures to typed recovery states without exposing raw Convex errors.",
+      "files": [
+        "convex/brokerageProvisioning.ts",
+        "src/routes/builder/index.tsx"
+      ],
+      "tests": [
+        "convex/builderOnboarding.test.ts",
+        "Builder route recovery tests"
+      ],
+      "evidence": ["Automated typed-recovery regression coverage"]
+    },
+    {
+      "findingId": "UX-WF-CTR-001-001",
+      "disposition": "fixed",
+      "summary": "Attached or invited contractors open through a Builder-scoped detail route with a return path to the originating Build.",
+      "files": [
+        "convex/contractorWorkspace.ts",
+        "src/routes/builder/contractors/$contractorId.tsx"
+      ],
+      "tests": [
+        "convex/contractorWorkspace.test.ts",
+        "Builder contractor route tests"
+      ],
+      "evidence": [
+        "reports/core-workflow-ux-audit/evidence/final-qa/contractors-390x844.png"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CTR-002-001",
+      "disposition": "fixed",
+      "summary": "Authorized assignment create, update, and reason-governed removal now share one server contract, emit audits and deliveries, and provide sanitized errors.",
+      "files": [
+        "convex/production_proposals.ts",
+        "src/features/contractors/ContractorPlanningPanel.tsx"
+      ],
+      "tests": [
+        "convex/production_proposals.test.ts",
+        "src/features/contractors/ContractorPlanningPanel.test.tsx"
+      ],
+      "evidence": [
+        "reports/core-workflow-ux-audit/evidence/final-qa/contractor-removal-dialog.png"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CTR-002-002",
+      "disposition": "fixed",
+      "summary": "Attach-and-invite is atomic and produces contractor-recipient handoffs with receiver acknowledgement and Builder return paths.",
+      "files": [
+        "convex/contractorOnboarding.ts",
+        "convex/contractorEvidence.ts",
+        "convex/production_proposals.ts"
+      ],
+      "tests": [
+        "convex/contractorOnboarding.test.ts",
+        "convex/contractorEvidence.test.ts"
+      ],
+      "evidence": ["Automated atomicity and delivery regression coverage"]
+    },
+    {
+      "findingId": "UX-WF-COM-001-001",
+      "disposition": "fixed",
+      "summary": "The global Notifications control opens a recipient-scoped inbox with loading, filtering, dismissal, resolution, focus management, deep links, and stale-link recovery.",
+      "files": [
+        "src/components/notification-inbox.tsx",
+        "convex/production_proposals.ts"
+      ],
+      "tests": [
+        "Notification inbox component and recipient-delivery backend suites"
+      ],
+      "evidence": [
+        "reports/core-workflow-ux-audit/evidence/final-qa/active-build-390x844.png"
+      ]
+    },
+    {
+      "findingId": "UX-WF-MIL-001-001",
+      "disposition": "fixed",
+      "summary": "Production and demo site-visit tokens preserve an immutable organization, Build, milestone, and request provenance tuple and reject tampering or cross-scope use.",
+      "files": [
+        "convex/demo_site_visit_tokens.ts",
+        "convex/production_proposals.ts"
+      ],
+      "tests": [
+        "convex/demo_site_visit_tokens.test.ts",
+        "convex/demo_timeline_plans.test.ts",
+        "convex/production_proposals.test.ts"
+      ],
+      "evidence": ["Automated provenance and tamper-rejection coverage"]
+    },
+    {
+      "findingId": "UX-WF-DRW-001-001",
+      "disposition": "fixed",
+      "summary": "Timeline save payloads match server validators and failed saves preserve explicit unsaved state, sanitized feedback, and safe retry behavior.",
+      "files": [
+        "convex/demo_timeline_plans.ts",
+        "src/features/timeline-workspace/TimelineWorkspace.tsx"
+      ],
+      "tests": [
+        "convex/demo_timeline_plans.test.ts",
+        "Timeline workspace failure-path tests"
+      ],
+      "evidence": ["Automated failure, rollback, and retry regression coverage"]
+    },
+    {
+      "findingId": "UX-WF-DRW-001-003",
+      "disposition": "fixed",
+      "summary": "Draw rejection requires a nonblank reason on both client and server and confirms the request, Build, and amount context.",
+      "files": [
+        "convex/production_proposals.ts",
+        "src/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx"
+      ],
+      "tests": [
+        "convex/production_proposals.test.ts",
+        "Production Build draw-control tests"
+      ],
+      "evidence": ["Automated reason-validation and reviewer-flow coverage"]
+    },
+    {
+      "findingId": "UX-WF-BUD-001-001",
+      "disposition": "fixed",
+      "summary": "Proposal close and active-Build provisioning are transactional; unavailable records return contextual recovery instead of dead navigation.",
+      "files": [
+        "convex/production_proposals.ts",
+        "src/routes/builder/builds/$buildId/index.tsx"
+      ],
+      "tests": [
+        "convex/production_proposals.test.ts",
+        "Builder Build route tests"
+      ],
+      "evidence": [
+        "reports/core-workflow-ux-audit/evidence/final-qa/active-build-1440x900.png"
+      ]
+    },
+    {
+      "findingId": "UX-WF-BLD-001-003",
+      "disposition": "fixed",
+      "summary": "Shared Build workspace navigation reflows at target widths, contains horizontal overflow, preserves keyboard focus, and exposes 44px mobile shell controls.",
+      "files": [
+        "src/components/ui/sidebar.tsx",
+        "src/components/app-header.tsx",
+        "src/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx"
+      ],
+      "tests": ["Responsive and workspace accessibility suites"],
+      "evidence": [
+        "reports/core-workflow-ux-audit/evidence/final-qa/active-build-1024x768.png",
+        "reports/core-workflow-ux-audit/evidence/final-qa/active-build-390x844.png",
+        "reports/core-workflow-ux-audit/evidence/final-qa/active-build-1024x768-200pct-equivalent.png"
+      ]
+    },
+    {
+      "findingId": "UX-WF-BLD-001-004",
+      "disposition": "fixed",
+      "summary": "Dashboard rows classify live Builds by activeBuildId and authorized availability, with contextual unavailable-state recovery.",
+      "files": [
+        "convex/production_proposals.ts",
+        "src/routes/builder/builds/$buildId/index.tsx"
+      ],
+      "tests": [
+        "convex/production_proposals.test.ts",
+        "Builder recovery route tests"
+      ],
+      "evidence": [
+        "reports/core-workflow-ux-audit/evidence/final-qa/active-build-1440x900.png"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CTR-002-003",
+      "disposition": "fixed",
+      "summary": "Crew selection, invitation, editing, and removal are separate accessible modes with normalized labels and nonnested controls.",
+      "files": ["src/features/contractors/ContractorPlanningPanel.tsx"],
+      "tests": ["src/features/contractors/ContractorPlanningPanel.test.tsx"],
+      "evidence": [
+        "reports/core-workflow-ux-audit/evidence/final-qa/contractors-390x844.png",
+        "reports/core-workflow-ux-audit/evidence/final-qa/contractor-removal-dialog.png"
+      ]
+    },
+    {
+      "findingId": "UX-WF-COM-001-002",
+      "disposition": "fixed",
+      "summary": "Material audit events remain distinct from per-recipient deliveries; draw, release, site-visit, and contractor workflows create deduplicated outcome-based handoffs.",
+      "files": [
+        "convex/production_proposals.ts",
+        "convex/contractorEvidence.ts"
+      ],
+      "tests": [
+        "convex/production_proposals.test.ts",
+        "convex/contractorEvidence.test.ts"
+      ],
+      "evidence": [
+        "Automated delivery deduplication, acknowledgement, and resolution coverage"
+      ]
+    },
+    {
+      "findingId": "UX-WF-TEN-001-001",
+      "disposition": "fixed",
+      "summary": "Principal activation recovery reports typed projection state, responsible actor, support reference, and authorized next action instead of generic denial.",
+      "files": [
+        "convex/brokerageProvisioning.ts",
+        "src/routes/protected-access.tsx"
+      ],
+      "tests": [
+        "convex/brokerageProvisioning.test.ts",
+        "Protected-access route tests"
+      ],
+      "evidence": ["Automated activation-state and sanitized recovery coverage"]
+    },
+    {
+      "findingId": "UX-WF-TEN-002-002",
+      "disposition": "fixed",
+      "summary": "Canonical Builder-broker relationship state drives onboarding gating and authenticated workspace confirmation.",
+      "files": [
+        "convex/brokerageProvisioning.ts",
+        "convex/production_proposals.ts"
+      ],
+      "tests": [
+        "convex/builderOnboarding.test.ts",
+        "convex/builderRoster.test.ts"
+      ],
+      "evidence": ["Automated relationship-state regression coverage"]
+    },
+    {
+      "findingId": "UX-WF-TEN-003-001",
+      "disposition": "blocked",
+      "summary": "Implicit cross-broker transfer is now denied and Principal reads are tenant-scoped, but no transfer command is shipped because platform authority and record-disposition policy remain unvalidated.",
+      "files": [
+        "convex/brokerAssignments.ts",
+        "convex/builderRoster.ts",
+        "convex/brokerageProvisioning.ts"
+      ],
+      "tests": [
+        "convex/builderOnboarding.test.ts",
+        "convex/builderRoster.test.ts"
+      ],
+      "evidence": [
+        "Automated cross-tenant isolation and implicit-transfer rejection coverage"
+      ],
+      "blocker": "Product/legal must define the Platform Admin capability, source and destination approvals, WorkOS sequencing, treatment of active Builds/Loans/Budgets/Draws/Evidence, queue rerouting, acknowledgement, and immutable history retention. WF-TEN-003 remains NEEDS_VALIDATION in the workflow manifest."
+    },
+    {
+      "findingId": "UX-WF-TEN-004-001",
+      "disposition": "fixed",
+      "summary": "Staff access changes fail closed and project typed pending, failed, active, and deactivated states with capability delta, effective time, affected-work warning, and recovery.",
+      "files": [
+        "convex/workosProjection.ts",
+        "convex/workosManagement.ts",
+        "src/routes/protected-access.tsx"
+      ],
+      "tests": [
+        "WorkOS projection, management, RBAC, and protected-access suites"
+      ],
+      "evidence": ["Automated fail-closed projection and recovery coverage"]
+    },
+    {
+      "findingId": "UX-WF-CTR-001-002",
+      "disposition": "fixed",
+      "summary": "WorkOS membership acceptance is canonical, confirmation is bound to the authenticated user, duplicate claims are revoked, and lifecycle handoffs are auditable.",
+      "files": [
+        "convex/workosProjection.ts",
+        "convex/contractorOnboarding.ts",
+        "convex/contractorWorkspace.ts"
+      ],
+      "tests": [
+        "convex/workosProjection.test.ts",
+        "convex/contractorOnboarding.test.ts",
+        "convex/contractorWorkspace.test.ts"
+      ],
+      "evidence": [
+        "Automated invitation, acceptance, duplicate-claim, and lifecycle coverage"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CTR-001-003",
+      "disposition": "fixed",
+      "summary": "Quick Add uses a contained mobile drawer with isolated modes, safe overlay clearance, focus management, and target-width reflow.",
+      "files": ["src/features/contractors/ContractorPlanningPanel.tsx"],
+      "tests": ["Contractor planning responsive and interaction suites"],
+      "evidence": [
+        "reports/core-workflow-ux-audit/evidence/final-qa/contractors-390x844.png"
+      ]
+    },
+    {
+      "findingId": "UX-WF-OPS-001-001",
+      "disposition": "fixed",
+      "summary": "Production operations queues project proposal, Build, draw, milestone, and site-visit work with escalation and authority boundaries.",
+      "files": [
+        "convex/production_proposals.ts",
+        "src/routes/backoffice/index.tsx"
+      ],
+      "tests": ["Production proposal queue, escalation, and authority suites"],
+      "evidence": ["Automated queue projection and authority coverage"]
+    },
+    {
+      "findingId": "UX-WF-MIL-001-002",
+      "disposition": "fixed",
+      "summary": "Geofence failure retains evidence, records the location attempt and verification state, and routes review rather than discarding the package.",
+      "files": [
+        "convex/demo_site_visit_tokens.ts",
+        "convex/production_proposals.ts"
+      ],
+      "tests": ["Site-visit backend, model, and UI suites"],
+      "evidence": ["Automated location-failure and evidence-retention coverage"]
+    },
+    {
+      "findingId": "UX-WF-DRW-001-004",
+      "disposition": "fixed",
+      "summary": "Lender draw review uses responsive disclosure, authority-safe actions, contained errors, and reachable controls at target widths.",
+      "files": [
+        "src/features/timeline-workspace/TimelineWorkspace.tsx",
+        "src/features/build-funding/BuildFundingWorkspace.tsx"
+      ],
+      "tests": ["Timeline and funding workspace accessibility suites"],
+      "evidence": [
+        "reports/core-workflow-ux-audit/evidence/final-qa/active-build-1024x768.png",
+        "reports/core-workflow-ux-audit/evidence/final-qa/active-build-390x844.png"
+      ]
+    },
+    {
+      "findingId": "UX-WF-INT-001-001",
+      "disposition": "fixed",
+      "summary": "Tenant-scoped integration configs execute signed deliveries through pending, delivered, failed, and retry states with redaction and auditable attempts.",
+      "files": ["convex/production_proposals.ts", "convex/http.ts"],
+      "tests": [
+        "Integration configuration, delivery, retry, signing, and redaction suites"
+      ],
+      "evidence": ["Automated integration lifecycle regression coverage"]
+    },
+    {
+      "findingId": "UX-WF-PRP-001-002",
+      "disposition": "fixed",
+      "summary": "Proposal stage navigation compacts without overflow and preserves TanStack search-parameter round trips and keyboard focus.",
+      "files": [
+        "src/features/production-proposals/ProductionProposalSurfaces.tsx"
+      ],
+      "tests": ["Proposal route/search and workspace accessibility suites"],
+      "evidence": [
+        "reports/core-workflow-ux-audit/evidence/final-qa/proposal-workspace-512x768.png",
+        "reports/core-workflow-ux-audit/evidence/final-qa/proposal-workspace-390x844.png"
+      ]
+    },
+    {
+      "findingId": "UX-WF-PRP-001-003",
+      "disposition": "fixed",
+      "summary": "Three-plan comparison, explicit selection, persisted selected-plan snapshots, and packet-submission gating are integrated across all fixtures and adjacent suites.",
+      "files": [
+        "convex/production_proposals.ts",
+        "src/features/production-proposals/ProductionTimelineWorkspace.tsx"
+      ],
+      "tests": [
+        "convex/production_proposals.test.ts",
+        "Proposal timeline, surface, adapter, and route suites"
+      ],
+      "evidence": [
+        "reports/core-workflow-ux-audit/evidence/final-qa/proposal-workspace-390x844.png"
+      ]
+    },
+    {
+      "findingId": "UX-WF-MAT-001-001",
+      "disposition": "fixed",
+      "summary": "Milestone-scoped cost entry exposes one authoritative add action, impact preview, milestone switching, and correct mutation payload.",
+      "files": [
+        "src/features/material-planning/MaterialPlanningTab.tsx",
+        "convex/production_proposals.ts"
+      ],
+      "tests": [
+        "Material planning and timeline worksheet suites",
+        "convex/production_proposals.test.ts"
+      ],
+      "evidence": [
+        "Proposal and active-Build Materials browser fixture coverage"
+      ]
+    },
+    {
+      "findingId": "UX-WF-BUD-001-002",
+      "disposition": "fixed",
+      "summary": "Budgets are immutable versions with variance, revision request metadata, and lender-admin approval or rejection governance.",
+      "files": [
+        "convex/production_proposals.ts",
+        "src/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx"
+      ],
+      "tests": [
+        "convex/production_proposals.test.ts",
+        "Budget workflow component tests"
+      ],
+      "evidence": ["Automated budget-version and decision regression coverage"]
+    },
+    {
+      "findingId": "UX-WF-CAL-001-001",
+      "disposition": "fixed",
+      "summary": "Calendar export reports feedback and preserves the filtered event scope and durable subscription path.",
+      "files": [
+        "src/features/calendar-workspace/CalendarWorkspace.tsx",
+        "convex/production_proposals.ts"
+      ],
+      "tests": ["Calendar workspace export and production calendar suites"],
+      "evidence": [
+        "reports/core-workflow-ux-audit/evidence/final-qa/calendar-1024x768.png"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CAL-001-002",
+      "disposition": "fixed",
+      "summary": "Submitted proposal calendar events expose authority-correct read-only/request behavior instead of misleading direct-edit affordances.",
+      "files": [
+        "src/features/calendar-workspace/CalendarEventDetailDrawer.tsx",
+        "convex/production_proposals.ts"
+      ],
+      "tests": [
+        "Calendar event drawer, adapter, workspace, and production calendar suites"
+      ],
+      "evidence": [
+        "reports/core-workflow-ux-audit/evidence/final-qa/calendar-1024x768.png"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CAL-001-003",
+      "disposition": "fixed",
+      "summary": "Calendar shells reflow across proposal and Build personas while preserving tab/timeframe search contracts and data-source guards.",
+      "files": ["src/features/calendar-workspace/CalendarWorkspace.tsx"],
+      "tests": [
+        "Calendar workspace and proposal/build route search-contract suites"
+      ],
+      "evidence": [
+        "reports/core-workflow-ux-audit/evidence/final-qa/calendar-1024x768.png",
+        "reports/core-workflow-ux-audit/evidence/final-qa/calendar-390x844.png"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CAL-001-004",
+      "disposition": "fixed",
+      "summary": "Reminder actions are partitioned from milestone/draw mutations and cancellation remains a confirmed auditable soft transition.",
+      "files": [
+        "src/features/calendar-workspace/CalendarContextMenu.tsx",
+        "convex/assistant.ts"
+      ],
+      "tests": [
+        "Calendar context-menu, event-drawer, workspace, and assistant suites"
+      ],
+      "evidence": [
+        "Automated reminder create/update/cancel regression coverage"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CAL-001-005",
+      "disposition": "fixed",
+      "summary": "Multi-day records remain logical ranges while semantic deduplication prevents duplicate keyboard and accessibility-tree entries.",
+      "files": [
+        "src/features/calendar-workspace/CalendarWorkspace.tsx",
+        "src/features/calendar-workspace/CalendarAgendaRail.tsx"
+      ],
+      "tests": ["Calendar workspace and agenda semantic suites"],
+      "evidence": [
+        "reports/core-workflow-ux-audit/evidence/final-qa/calendar-390x844-accessibility-snapshot.json"
+      ]
+    },
+    {
+      "findingId": "UX-WF-CTR-001-004",
+      "disposition": "fixed",
+      "summary": "New-contractor email validation is explicit, inline, accessible, and consistent across desktop and mobile modes.",
+      "files": ["src/features/contractors/ContractorPlanningPanel.tsx"],
+      "tests": ["Contractor planning validation suites"],
+      "evidence": [
+        "reports/core-workflow-ux-audit/evidence/final-qa/contractors-390x844.png"
+      ]
+    },
+    {
+      "findingId": "UX-WF-MIL-001-003",
+      "disposition": "fixed",
+      "summary": "Consumed site-visit tokens are terminal, idempotent, and provide safe recovery rather than permitting duplicate submission.",
+      "files": [
+        "convex/demo_site_visit_tokens.ts",
+        "src/routes/newsitevisit.$buildId.$siteVisitToken.tsx"
+      ],
+      "tests": ["Site-visit token backend, route-model, and UI suites"],
+      "evidence": [
+        "Automated consumed-token and duplicate-submit regression coverage"
+      ]
+    },
+    {
+      "findingId": "UX-WF-MAT-001-002",
+      "disposition": "fixed",
+      "summary": "Cost-entry validation rejects invalid amounts with accessible field feedback and preserves dialog state for correction.",
+      "files": [
+        "src/features/material-planning/MaterialPlanningTab.tsx",
+        "convex/production_proposals.ts"
+      ],
+      "tests": [
+        "Material planning dialog and production proposal validation suites"
+      ],
+      "evidence": [
+        "Automated invalid-cost and correction-flow regression coverage"
+      ]
+    }
+  ],
+  "remainingRisks": [
+    {
+      "findingId": "UX-WF-TEN-003-001",
+      "severity": "blocked",
+      "description": "Validated cross-brokerage transfer authority and record-disposition policy are still required before implementation. Current code fails closed, prevents implicit transfer, and isolates tenant reads."
+    },
+    {
+      "severity": "non-blocking",
+      "description": "Authenticated browser repetition used the supplied Builder and Lender Admin accounts. Contractor, Inspector, Builder Staff, Lender Operations, Platform Admin, and Technical Admin remain deterministic fixture/automated coverage; the live tenant also had no requested draw, and destructive/external submits were intentionally not committed."
+    },
+    {
+      "severity": "engineering-quality",
+      "description": "The configured typecheck passes. A supplementary root-wide tsc --noEmit remains outside that gate and currently reports 374 strict errors across 100 files. The six workflow files targeted by the final diagnostic follow-up report zero errors under that same check; the remaining legacy and production debt is explicit engineering-quality work."
+    }
+  ],
+  "humanDecisionsRequired": [
+    {
+      "findingId": "UX-WF-TEN-003-001",
+      "decision": "Approve a cross-brokerage transfer policy covering authority, consent, active-work disposition, WorkOS sequencing, queue rerouting, acknowledgement, and immutable audit retention."
+    }
+  ],
+  "trackerReconciliation": {
+    "canonical": [
+      "reports/core-workflow-ux-audit/remediation-summary.json",
+      "reports/core-workflow-ux-audit/final-qa-report.md",
+      "gap-analyis.md",
+      "reports/core-workflow-ux-audit/authenticated-browser-qa-report.md"
+    ],
+    "historical": [
+      "reports/core-workflow-ux-audit/remediation-ledger.md",
+      "reports/core-workflow-ux-audit/verification-matrix.md",
+      "reports/core-workflow-ux-audit/drafts/*.json"
+    ]
+  }
+}

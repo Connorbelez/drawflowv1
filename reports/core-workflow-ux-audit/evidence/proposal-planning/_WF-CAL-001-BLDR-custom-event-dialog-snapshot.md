@@ -1,0 +1,968 @@
+- link:
+  - /url: /builder
+  - generic: DrawFlow Builder
+- generic: Builder
+- list:
+  - link:
+    - /url: /builder
+    - generic: Dashboard
+  - link:
+    - /url: /builder/proposals
+    - generic: Proposals
+  - link:
+    - /url: /builder/proposals
+    - generic: Live Builds
+- generic: Demos
+- list:
+  - link:
+    - /url: /demo/timeline
+    - generic: Timeline Setup
+- generic: CHANGELOG
+- paragraph: Product update
+- generic: Performance boosts and UI polish.
+- link:
+  - /url: "#"
+  - text: Learn more
+- button:
+- list:
+  - link:
+    - /url: /about
+    - generic: About
+  - link:
+    - /url: /demo
+    - generic: Docs
+- paragraph: © 2026 DrawFlow
+- main:
+  - button:
+    - generic: Toggle Sidebar
+  - separator
+  - navigation:
+    - list:
+      - link:
+        - /url: /builder
+        - text: Builder
+      - generic: Proposals
+  - button:
+  - button:
+  - separator
+  - list:
+    - button:
+      - generic: Connor Beleznay
+      - generic: c.beleznay@humanfeedback.com
+  - tablist:
+    - tab: Packet
+    - tab: Timeline
+    - tab: Gantt
+    - tab: Milestones
+    - tab [selected]: Calendar
+    - tab: Contractors
+    - tab: Review
+    - tab: Draw schedule
+    - tab: Materials
+    - tab: Staff
+  - generic: Submitted
+  - generic: Seed Scenario - Draft
+  - generic: ·
+  - generic: Draft Site, Toronto, ON
+  - generic: Total budget
+  - strong: $650,250
+  - generic: Total approved
+  - strong: $550,000
+  - generic: Interest rate
+  - strong: 9.25%
+  - tabpanel:
+    - generic: month
+    - generic: 1 warnings
+    - generic: 0 needs action
+    - button:
+      - text: New event
+    - button:
+      - text: Export ICS
+    - button:
+      - text: ICS
+    - button:
+      - text: GOOGLE
+    - button:
+      - text: OUTLOOK
+    - button:
+      - text: Reconcile inbound
+    - button:
+      - text: Save view
+    - textbox:
+      - /placeholder: Search calendar
+    - button: Proposal feasibility
+    - button: My week
+    - button: Capital release
+    - button: Evidence and review
+    - button: Overdue and blocked
+    - button: Risk only
+    - button: Editable
+    - heading [level=2]: July 2026
+    - paragraph: 7 scheduled calendar events
+    - button:
+    - button: Today
+    - button:
+    - tablist:
+      - tab:
+        - text: Day
+      - tab:
+        - text: Week
+      - tab [selected]:
+        - text: Month
+      - tab:
+        - text: Quarter
+      - tab:
+        - text: Agenda
+    - textbox:
+      - /placeholder: Search visible events
+    - button:
+      - text: Colors
+    - button:
+      - text: Categories
+    - button:
+      - text: Tags
+    - generic: Mon
+    - generic: Tue
+    - generic: Wed
+    - generic: Thu
+    - generic: Fri
+    - generic: Sat
+    - generic: Sun
+    - generic: "29"
+    - generic: "30"
+    - generic: "1"
+    - generic: "2"
+    - generic: "3"
+    - generic: "4"
+    - generic: "5"
+    - generic: "6"
+    - generic: "7"
+    - generic: "8"
+    - generic: "9"
+    - generic: "10"
+    - generic: "11"
+    - generic: "12"
+    - generic: "13"
+    - generic: "14"
+    - generic: "15"
+    - generic: "16"
+    - generic: "4"
+    - button:
+      - generic: Forms and pour
+      - text: All day
+      - generic: Start
+      - generic: submilestone
+      - generic: proposed
+      - button:
+    - button:
+      - generic: Foundation
+      - text: All day
+      - generic: Start
+      - generic: milestone
+      - generic: planned
+      - button:
+    - button:
+      - generic: UX audit coordination reminder
+      - text: All day
+      - generic: reminder
+      - generic: planned
+      - button:
+    - button:
+      - generic: Waterproofing and backfill
+      - text: All day
+      - generic: Start
+      - generic: submilestone
+      - generic: proposed
+      - button:
+    - generic: "17"
+    - generic: "2"
+    - button:
+      - generic: Forms and pour
+      - text: All day
+      - generic: End
+      - generic: submilestone
+      - generic: proposed
+      - button:
+    - button:
+      - generic: Waterproofing and backfill
+      - text: All day
+      - generic: End
+      - generic: submilestone
+      - generic: proposed
+      - button:
+    - generic: "18"
+    - generic: "19"
+    - generic: "20"
+    - generic: "21"
+    - generic: "22"
+    - generic: "23"
+    - generic: "24"
+    - generic: "25"
+    - generic: "26"
+    - generic: "27"
+    - generic: "28"
+    - generic: "29"
+    - generic: "30"
+    - generic: "31"
+    - generic: "1"
+    - generic: "2"
+    - generic: "3"
+    - generic: "4"
+    - generic: "5"
+    - generic: "6"
+    - generic: "7"
+    - generic: "8"
+    - generic: "9"
+    - complementary:
+      - paragraph: Agenda
+      - paragraph: Today, upcoming, overdue, and unscheduled work.
+      - generic: 7 events
+      - generic: 2026-07-16
+      - generic: "4"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - button:
+        - generic: UX audit coordination reminder
+        - generic: planned
+        - button:
+      - button:
+        - generic: Forms and pour
+        - generic: proposed
+        - generic: foundation
+        - button:
+      - button:
+        - generic: Waterproofing and backfill
+        - generic: proposed
+        - generic: foundation
+        - button:
+      - generic: 2026-07-17
+      - generic: "3"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - button:
+        - generic: Forms and pour
+        - generic: proposed
+        - generic: foundation
+        - button:
+      - button:
+        - generic: Waterproofing and backfill
+        - generic: proposed
+        - generic: foundation
+        - button:
+      - generic: 2026-07-18
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-07-19
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-07-20
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-07-21
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-07-22
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-07-23
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-07-24
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-07-25
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-07-26
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-07-27
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-07-28
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-07-29
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-07-30
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-07-31
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-08-01
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-08-02
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-08-03
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-08-04
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-08-05
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-08-06
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-08-07
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-08-08
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-08-09
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-08-10
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-08-11
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-08-12
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-08-13
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-08-14
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-08-15
+      - generic: "2"
+      - paragraph: All day
+      - button:
+        - generic: Foundation
+        - generic: planned
+        - generic: Day 0 to 30
+        - generic: $160.2K
+        - button:
+      - paragraph: End of day
+      - button:
+        - generic: Foundation reimbursement draw
+        - generic: proposed
+        - generic: Draw availability, day 30
+        - generic: $160.2K
+        - button:
+      - generic: 2026-08-16
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-08-17
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-08-18
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-08-19
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-08-20
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-08-21
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-08-22
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-08-23
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-08-24
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-08-25
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-08-26
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-08-27
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-08-28
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-08-29
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-08-30
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-08-31
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-01
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-02
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-03
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-04
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-05
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-06
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-07
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-08
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-09
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-10
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-11
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-12
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-13
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-14
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-15
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-16
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-17
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-18
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-19
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-20
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-21
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-22
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-23
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-24
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-25
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-26
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-27
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-28
+      - generic: "1"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - generic: 2026-09-29
+      - generic: "2"
+      - paragraph: All day
+      - button:
+        - generic: Shell and Dry-In
+        - generic: planned
+        - generic: Day 31 to 75
+        - generic: $360K
+        - button:
+      - paragraph: End of day
+      - button:
+        - generic: Shell and Dry-In reimbursement draw
+        - generic: proposed
+        - generic: Draw availability, day 75
+        - generic: $360K
+        - button:
+  - button:
+- region "Notifications alt+T"
+- button:
+- generic: $200K
+- dialog "UX audit coordination reminder" [active]:
+  - generic: reminder
+  - heading "UX audit coordination reminder" [level=2]
+  - paragraph: 2026-07-16 · All day
+  - button "UX audit coordination reminder actions":
+  - text: Schedule
+  - generic: Start date
+  - textbox "Start date": 2026-07-16
+  - generic: End date
+  - textbox "End date"
+  - button "Preview schedule edit" [disabled]:
+    - text: Preview schedule edit
+  - generic: Domain Context
+  - generic: Status
+  - generic: planned
+  - generic: Milestone
+  - generic: None
+  - generic: Draw group
+  - generic: None
+  - generic: Timezone
+  - generic: America/Toronto
+  - button "Close"
+  - button "Close":

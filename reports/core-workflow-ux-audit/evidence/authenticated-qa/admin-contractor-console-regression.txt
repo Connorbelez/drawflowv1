@@ -1,0 +1,281 @@
+{
+  "lifecycle": {
+    "effectiveLaunch": {
+      "browserLaunched": true,
+      "engine": "chrome",
+      "launchHash": 8197565053781422000
+    },
+    "launched": false,
+    "relaunchedBrowser": false,
+    "restartedBackground": false,
+    "restoreStatus": "not_configured",
+    "reused": true,
+    "saveStatus": "not_attempted"
+  },
+  "messages": [
+    {
+      "args": [
+        {
+          "type": "string",
+          "value": "[tanstack-router] These exports from \"/Users/connor/Dev/drawFlow/v1/drawflowv1-core-workflow-remediation-20260717/src/routes/contractor/builds/$buildId.tsx\" will not be code-split and will increase your bundle size:\n- ContractorBuildDetail\nFor the best optimization, these items should either have their export statements removed, or be imported from another location that is not a route file."
+        }
+      ],
+      "text": "[tanstack-router] These exports from \"/Users/connor/Dev/drawFlow/v1/drawflowv1-core-workflow-remediation-20260717/src/routes/contractor/builds/$buildId.tsx\" will not be code-split and will increase your bundle size:\n- ContractorBuildDetail\nFor the best optimization, these items should either have their export statements removed, or be imported from another location that is not a route file.",
+      "type": "warning"
+    },
+    {
+      "args": [
+        {
+          "type": "string",
+          "value": "[vite] connecting..."
+        }
+      ],
+      "text": "[vite] connecting...",
+      "type": "debug"
+    },
+    {
+      "args": [
+        {
+          "type": "string",
+          "value": "[vite] connected."
+        }
+      ],
+      "text": "[vite] connected.",
+      "type": "debug"
+    },
+    {
+      "args": [
+        {
+          "type": "string",
+          "value": "[tanstack-router] These exports from \"/Users/connor/Dev/drawFlow/v1/drawflowv1-core-workflow-remediation-20260717/src/routes/contractor/builds/$buildId.tsx\" will not be code-split and will increase your bundle size:\n- ContractorBuildDetail\nFor the best optimization, these items should either have their export statements removed, or be imported from another location that is not a route file."
+        }
+      ],
+      "text": "[tanstack-router] These exports from \"/Users/connor/Dev/drawFlow/v1/drawflowv1-core-workflow-remediation-20260717/src/routes/contractor/builds/$buildId.tsx\" will not be code-split and will increase your bundle size:\n- ContractorBuildDetail\nFor the best optimization, these items should either have their export statements removed, or be imported from another location that is not a route file.",
+      "type": "warning"
+    },
+    {
+      "args": [
+        {
+          "type": "string",
+          "value": "%o\n\n%s\n\n%s\n"
+        },
+        {
+          "className": "Error",
+          "description": "Error: [CONVEX Q(production_proposals:getContractorDetail)] [Request ID: 7dc301db83fc5546] Server Error\nUncaught Error: Unauthorized\n    at Array.<anonymous> (../../convex/authz.ts:68:16)\n    at async <anonymous> (../../node_modules/fluent-convex/src/ConvexBuilderWithHandler.ts:167:11)\n    at async _executeWithMiddleware [as _executeWithMiddleware] (../../node_modules/fluent-convex/src/ConvexBuilderWithHandler.ts:168:2)\n\n  Called by client\n    at Array.<anonymous> (../../convex/authz.ts:68:16)\n    at async <anonymous> (../../node_modules/fluent-convex/src/ConvexBuilderWithHandler.ts:167:11)\n    at async _executeWithMiddleware [as _executeWithMiddleware] (../../node_modules/fluent-convex/src/ConvexBuilderWithHandler.ts:168:2)\n\n  Called by client\n    at OptimisticQueryResults.queryResult (http://localhost:3000/node_modules/convex/dist/esm/browser/sync/optimistic_updates_impl.js?v=f5d75c32:151:13)\n    at BaseConvexClient.localQueryResult (http://localhost:3000/node_modules/convex/dist/esm/browser/sync/client.js?v=f5d75c32:441:40)\n    at Object.localQueryResult (http://localhost:3000/node_modules/convex/dist/esm/react/client.js?v=f5d75c32:220:34)\n    at QueriesObserver.getLocalResults (http://localhost:3000/node_modules/convex/dist/esm/react/queries_observer.js?v=f5d75c32:65:23)\n    at getCurrentValue (http://localhost:3000/node_modules/convex/dist/esm/react/use_queries.js?v=f5d75c32:36:25)\n    at http://localhost:3000/node_modules/convex/dist/esm/react/use_subscription.js?v=f5d75c32:34:23\n    at basicStateReducer (http://localhost:3000/node_modules/.vite/deps/react-dom_client.js?v=f5d75c32:4390:42)\n    at updateReducerImpl (http://localhost:3000/node_modules/.vite/deps/react-dom_client.js?v=f5d75c32:4468:65)\n    at updateReducer (http://localhost:3000/node_modules/.vite/deps/react-dom_client.js?v=f5d75c32:4418:11)\n    at Object.useState (http://localhost:3000/node_modules/.vite/deps/react-dom_client.js?v=f5d75c32:13303:13)",
+          "objectId": "3262209981147643448.211.1",
+          "preview": {
+            "description": "Error: [CONVEX Q(production_proposals:getContractorDetail)] [Request ID: 7dc301db83fc5546] Server Error\nUncaught Error: Unauthorized\n    at Array.<anonymous> (../../convex/authz.ts:68:16)\n    at async <anonymous> (../../node_modules/fluent-convex/src/ConvexBuilderWithHandler.ts:167:11)\n    at async _executeWithMiddleware [as _executeWithMiddleware] (../../node_modules/fluent-convex/src/ConvexBuilderWithHandler.ts:168:2)\n\n  Called by client\n    at Array.<anonymous> (../../convex/authz.ts:68:16)\n    at async <anonymous> (../../node_modules/fluent-convex/src/ConvexBuilderWithHandler.ts:167:11)\n    at async _executeWithMiddleware [as _executeWithMiddleware] (../../node_modules/fluent-convex/src/ConvexBuilderWithHandler.ts:168:2)\n\n  Called by client\n    at OptimisticQueryResults.queryResult (http://localhost:3000/node_modules/convex/dist/esm/browser/sync/optimistic_updates_impl.js?v=f5d75c32:151:13)\n    at BaseConvexClient.localQueryResult (http://localhost:3000/node_modules/convex/dist/esm/browser/sync/client.js?v=f5d75c32:441:40)\n    at Object.localQueryResult (http://localhost:3000/node_modules/convex/dist/esm/react/client.js?v=f5d75c32:220:34)\n    at QueriesObserver.getLocalResults (http://localhost:3000/node_modules/convex/dist/esm/react/queries_observer.js?v=f5d75c32:65:23)\n    at getCurrentValue (http://localhost:3000/node_modules/convex/dist/esm/react/use_queries.js?v=f5d75c32:36:25)\n    at http://localhost:3000/node_modules/convex/dist/esm/react/use_subscription.js?v=f5d75c32:34:23\n    at basicStateReducer (http://localhost:3000/node_modules/.vite/deps/react-dom_client.js?v=f5d75c32:4390:42)\n    at updateReducerImpl (http://localhost:3000/node_modules/.vite/deps/react-dom_client.js?v=f5d75c32:4468:65)\n    at updateReducer (http://localhost:3000/node_modules/.vite/deps/react-dom_client.js?v=f5d75c32:4418:11)\n    at Object.useState (http://localhost:3000/node_modules/.vite/deps/react-dom_client.js?v=f5d75c32:13303:13)",
+            "overflow": false,
+            "properties": [
+              {
+                "name": "stack",
+                "type": "string",
+                "value": "Error: [CONVEX Q(production_proposals:getContracto…ite/deps/react-dom_client.js?v=f5d75c32:13303:13)"
+              },
+              {
+                "name": "message",
+                "type": "string",
+                "value": "[CONVEX Q(production_proposals:getContractorDetail…xBuilderWithHandler.ts:168:2)\n\n  Called by client"
+              }
+            ],
+            "subtype": "error",
+            "type": "object"
+          },
+          "subtype": "error",
+          "type": "object"
+        },
+        {
+          "type": "string",
+          "value": "The above error occurred in the <RouteComponent> component."
+        },
+        {
+          "type": "string",
+          "value": "React will try to recreate this component tree from scratch using the error boundary you provided, CatchBoundaryImpl."
+        }
+      ],
+      "text": "%o\n\n%s\n\n%s\n {stack: \"Error: [CONVEX Q(production_proposals:getContracto…ite/deps/react-dom_client.js?v=f5d75c32:13303:13)\", message: \"[CONVEX Q(production_proposals:getContractorDetail…xBuilderWithHandler.ts:168:2)\n\n  Called by client\"} The above error occurred in the <RouteComponent> component. React will try to recreate this component tree from scratch using the error boundary you provided, CatchBoundaryImpl.",
+      "type": "error"
+    },
+    {
+      "args": [
+        {
+          "type": "string",
+          "value": "Warning: Error in route match: __root__/"
+        }
+      ],
+      "text": "Warning: Error in route match: __root__/",
+      "type": "warning"
+    },
+    {
+      "args": [
+        {
+          "type": "string",
+          "value": "%c[Server]%c"
+        },
+        {
+          "type": "string",
+          "value": "color: #9333ea; font-weight: bold;"
+        },
+        {
+          "type": "string",
+          "value": "color: inherit;"
+        },
+        {
+          "type": "string",
+          "value": "[drawflow:auth] getAuth payload"
+        },
+        {
+          "className": "Object",
+          "description": "Object",
+          "objectId": "3262209981147643448.211.2",
+          "preview": {
+            "description": "Object",
+            "overflow": true,
+            "properties": [
+              {
+                "name": "featureFlagCount",
+                "type": "number",
+                "value": "0"
+              },
+              {
+                "name": "impersonatorPresent",
+                "type": "boolean",
+                "value": "false"
+              },
+              {
+                "name": "organizationId",
+                "type": "string",
+                "value": "org_01KSNW6JHW9P9YS41DZX1YHHGS"
+              },
+              {
+                "name": "permissionCount",
+                "type": "number",
+                "value": "3"
+              },
+              {
+                "name": "role",
+                "type": "string",
+                "value": "admin"
+              }
+            ],
+            "type": "object"
+          },
+          "type": "object"
+        }
+      ],
+      "text": "%c[Server]%c color: #9333ea; font-weight: bold; color: inherit; [drawflow:auth] getAuth payload {featureFlagCount: 0, impersonatorPresent: false, organizationId: \"org_01KSNW6JHW9P9YS41DZX1YHHGS\", permissionCount: 3, role: \"admin\", ...}",
+      "type": "info"
+    },
+    {
+      "args": [
+        {
+          "type": "string",
+          "value": "%c[Server]%c"
+        },
+        {
+          "type": "string",
+          "value": "color: #9333ea; font-weight: bold;"
+        },
+        {
+          "type": "string",
+          "value": "color: inherit;"
+        },
+        {
+          "type": "string",
+          "value": "[drawflow:auth] root beforeLoad context payload"
+        },
+        {
+          "className": "Object",
+          "description": "Object",
+          "objectId": "3262209981147643448.211.3",
+          "preview": {
+            "description": "Object",
+            "overflow": true,
+            "properties": [
+              {
+                "name": "organizationId",
+                "type": "string",
+                "value": "org_01KSNW6JHW9P9YS41DZX1YHHGS"
+              },
+              {
+                "name": "permissionCount",
+                "type": "number",
+                "value": "3"
+              },
+              {
+                "name": "role",
+                "type": "string",
+                "value": "admin"
+              },
+              {
+                "name": "roleCount",
+                "type": "number",
+                "value": "1"
+              },
+              {
+                "name": "tokenPresent",
+                "type": "boolean",
+                "value": "true"
+              }
+            ],
+            "type": "object"
+          },
+          "type": "object"
+        }
+      ],
+      "text": "%c[Server]%c color: #9333ea; font-weight: bold; color: inherit; [drawflow:auth] root beforeLoad context payload {organizationId: \"org_01KSNW6JHW9P9YS41DZX1YHHGS\", permissionCount: 3, role: \"admin\", roleCount: 1, tokenPresent: true, ...}",
+      "type": "info"
+    },
+    {
+      "args": [
+        {
+          "type": "string",
+          "value": "%c[Server]%c"
+        },
+        {
+          "type": "string",
+          "value": "color: #9333ea; font-weight: bold;"
+        },
+        {
+          "type": "string",
+          "value": "color: inherit;"
+        },
+        {
+          "type": "string",
+          "value": "[drawflow:rbac] workspace access decision"
+        },
+        {
+          "className": "Object",
+          "description": "Object",
+          "objectId": "3262209981147643448.211.4",
+          "preview": {
+            "description": "Object",
+            "overflow": false,
+            "properties": [
+              {
+                "name": "decision",
+                "type": "object",
+                "value": "Object"
+              },
+              {
+                "name": "input",
+                "type": "object",
+                "value": "Object"
+              },
+              {
+                "name": "normalizedRoles",
+                "subtype": "array",
+                "type": "object",
+                "value": "Array(1)"
+              }
+            ],
+            "type": "object"
+          },
+          "type": "object"
+        }
+      ],
+      "text": "%c[Server]%c color: #9333ea; font-weight: bold; color: inherit; [drawflow:rbac] workspace access decision {decision: Object, input: Object, normalizedRoles: Array(1)}",
+      "type": "info"
+    }
+  ]
+}

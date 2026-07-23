@@ -3,6 +3,7 @@
 import type { Editor, Range } from "@tiptap/core";
 import { mergeAttributes, Node } from "@tiptap/core";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+import Image from "@tiptap/extension-image";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
 import Subscript from "@tiptap/extension-subscript";
 import Superscript from "@tiptap/extension-superscript";
@@ -30,12 +31,6 @@ import {
   type FloatingMenuProps,
 } from "@tiptap/react/menus";
 import { Button } from "#/components/ui/button.tsx";
-import {
-  Command,
-  CommandEmpty,
-  CommandItem,
-  CommandList,
-} from "#/components/ui/command.tsx";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -80,6 +75,7 @@ import {
   Heading1Icon,
   Heading2Icon,
   Heading3Icon,
+  ImageIcon,
   ItalicIcon,
   ListIcon,
   ListOrderedIcon,
@@ -207,6 +203,25 @@ export const defaultSlashSuggestions: SuggestionOptions<SuggestionItem>["items"]
           .deleteRange(range)
           .setNode("heading", { level: 3 })
           .run();
+      },
+    },
+    {
+      title: "Image",
+      description: "Embed an image from a URL.",
+      searchTerms: ["image", "photo", "picture", "media"],
+      icon: ImageIcon,
+      command: ({ editor, range }) => {
+        const src =
+          typeof window === "undefined"
+            ? ""
+            : window.prompt("Image URL")?.trim();
+
+        if (src) {
+          editor.chain().focus().deleteRange(range).setImage({ src }).run();
+          return;
+        }
+
+        editor.chain().focus().deleteRange(range).run();
       },
     },
     {
@@ -459,38 +474,96 @@ type EditorSlashMenuProps = {
   range: Range;
 };
 
-const EditorSlashMenu = ({ items, editor, range }: EditorSlashMenuProps) => (
-  <Command
-    className="border shadow"
-    id="slash-command"
-    onKeyDown={(e) => {
-      e.stopPropagation();
-    }}
-  >
-    <CommandEmpty className="flex w-full items-center justify-center p-4 text-muted-foreground text-sm">
-      <p>No results</p>
-    </CommandEmpty>
-    <CommandList>
-      {items.map((item) => (
-        <CommandItem
-          className="flex items-center gap-3 pr-3"
+const EditorSlashMenu = ({ items, editor, range }: EditorSlashMenuProps) => {
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [items]);
+
+  const runItem = useCallback(
+    (item: SuggestionItem | undefined) => {
+      if (!item) {
+        return;
+      }
+
+      item.command({ editor, range });
+    },
+    [editor, range]
+  );
+
+  return (
+    <div
+      aria-activedescendant={
+        items[activeIndex] ? `slash-command-${activeIndex}` : undefined
+      }
+      aria-label="Editor command menu"
+      className="w-80 overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg/10"
+      id="slash-command"
+      onKeyDown={(e) => {
+        e.stopPropagation();
+
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setActiveIndex((current) =>
+            items.length === 0 ? 0 : (current + 1) % items.length
+          );
+          return;
+        }
+
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setActiveIndex((current) =>
+            items.length === 0
+              ? 0
+              : (current - 1 + items.length) % items.length
+          );
+          return;
+        }
+
+        if (e.key === "Enter") {
+          e.preventDefault();
+          runItem(items[activeIndex]);
+          return;
+        }
+      }}
+      role="listbox"
+      tabIndex={-1}
+    >
+      {items.length === 0 ? (
+        <div className="flex min-h-16 w-full items-center justify-center px-4 py-5 text-muted-foreground text-sm">
+          No results
+        </div>
+      ) : null}
+      {items.map((item, index) => (
+        <button
+          aria-selected={activeIndex === index}
+          className="flex w-full cursor-pointer items-center gap-3 px-3 py-2.5 text-left outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground data-[active=true]:bg-accent data-[active=true]:text-accent-foreground"
+          data-active={activeIndex === index}
+          id={`slash-command-${index}`}
           key={item.title}
-          onSelect={() => item.command({ editor, range })}
+          onClick={() => runItem(item)}
+          onMouseDown={(event) => {
+            event.preventDefault();
+          }}
+          onMouseEnter={() => setActiveIndex(index)}
+          role="option"
+          type="button"
         >
-          <div className="flex size-9 shrink-0 items-center justify-center rounded border bg-secondary">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-secondary">
             <item.icon className="text-muted-foreground" size={16} />
-          </div>
-          <div className="flex flex-col">
+          </span>
+          <span className="flex min-w-0 flex-col">
             <span className="font-medium text-sm">{item.title}</span>
             <span className="text-muted-foreground text-xs">
               {item.description}
             </span>
-          </div>
-        </CommandItem>
+          </span>
+        </button>
       ))}
-    </CommandList>
-  </Command>
-);
+    </div>
+  );
+};
 
 const handleCommandNavigation = (event: KeyboardEvent) => {
   if (["ArrowUp", "ArrowDown", "Enter"].includes(event.key)) {
@@ -598,6 +671,14 @@ export const EditorProvider = ({
     }),
     Superscript,
     Subscript,
+    Image.configure({
+      allowBase64: true,
+      HTMLAttributes: {
+        class: cn(
+          "my-3 max-h-72 max-w-full rounded-md border object-contain"
+        ),
+      },
+    }),
     Slash.configure({
       suggestion: {
         items: async ({ editor, query }) => {
@@ -634,10 +715,14 @@ export const EditorProvider = ({
                   onStartProps.clientRect?.() || new DOMRect(),
                 appendTo: () => document.body,
                 content: component.element,
+                hideOnClick: false,
+                maxWidth: "none",
+                offset: [0, 8],
                 showOnCreate: true,
                 interactive: true,
                 trigger: "manual",
                 placement: "bottom-start",
+                zIndex: 70,
               });
             },
 
@@ -1369,6 +1454,126 @@ export const EditorLinkSelector = ({
             </Button>
           )}
         </form>
+      </PopoverContent>
+    </Popover>
+  );
+};
+
+export type EditorImageSelectorProps = {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+};
+
+export const EditorImageSelector = ({
+  open,
+  onOpenChange,
+}: EditorImageSelectorProps) => {
+  const [alt, setAlt] = useState("");
+  const [src, setSrc] = useState("");
+  const inputReference = useRef<HTMLInputElement>(null);
+  const fileInputReference = useRef<HTMLInputElement>(null);
+  const { editor } = useCurrentEditor();
+
+  useEffect(() => {
+    inputReference.current?.focus();
+  }, []);
+
+  if (!editor) {
+    return null;
+  }
+
+  const insertImage = (nextSrc: string, nextAlt = alt) => {
+    const trimmedSrc = nextSrc.trim();
+    if (!trimmedSrc) {
+      return;
+    }
+
+    editor
+      .chain()
+      .focus()
+      .setImage({
+        alt: nextAlt.trim() || undefined,
+        src: trimmedSrc,
+      })
+      .run();
+    setAlt("");
+    setSrc("");
+    onOpenChange?.(false);
+  };
+
+  const handleSubmit: FormEventHandler<HTMLFormElement> = (event) => {
+    event.preventDefault();
+    insertImage(src);
+  };
+
+  return (
+    <Popover modal onOpenChange={onOpenChange} open={open}>
+      <PopoverTrigger
+        render={
+          <Button
+            className="gap-2 rounded-none border-none"
+            size="sm"
+            type="button"
+            variant="ghost"
+          />
+        }
+      >
+        <ImageIcon size={12} />
+        <span className="text-xs">Image</span>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="grid w-72 gap-2 p-2" sideOffset={10}>
+        <form className="grid gap-2" onSubmit={handleSubmit}>
+          <input
+            aria-label="Image URL"
+            className="rounded-md border bg-background px-2 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onChange={(event) => setSrc(event.target.value)}
+            placeholder="https://..."
+            ref={inputReference}
+            type="url"
+            value={src}
+          />
+          <input
+            aria-label="Image alt text"
+            className="rounded-md border bg-background px-2 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onChange={(event) => setAlt(event.target.value)}
+            placeholder="Alt text"
+            type="text"
+            value={alt}
+          />
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              onClick={() => fileInputReference.current?.click()}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Upload
+            </Button>
+            <Button disabled={!src.trim()} size="sm" type="submit">
+              Insert
+            </Button>
+          </div>
+        </form>
+        <input
+          accept="image/*"
+          className="sr-only"
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            if (!file) {
+              return;
+            }
+            const reader = new FileReader();
+            reader.addEventListener("load", () => {
+              if (typeof reader.result === "string") {
+                insertImage(reader.result, alt || file.name);
+              }
+            });
+            reader.readAsDataURL(file);
+            event.currentTarget.value = "";
+          }}
+          ref={fileInputReference}
+          type="file"
+        />
       </PopoverContent>
     </Popover>
   );

@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-05-28T00:00:00.000Z",
+  "title": "Design System: DrawFlow",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Charged Chartreuse",
+        "canonical": "oklch(0.841 0.238 128.85)"
+      },
+      "primary-foreground": {
+        "role": "primary",
+        "displayName": "Deep Olive",
+        "canonical": "oklch(0.405 0.101 131.063)"
+      },
+      "background": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "canonical": "oklch(1 0 0)"
+      },
+      "foreground": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "oklch(0.141 0.005 285.823)"
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted Tray",
+        "canonical": "oklch(0.967 0.001 286.375)"
+      },
+      "muted-foreground": {
+        "role": "neutral",
+        "displayName": "Muted Ink",
+        "canonical": "oklch(0.552 0.016 285.938)"
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "oklch(0.92 0.004 286.32)"
+      },
+      "success": {
+        "role": "tertiary",
+        "displayName": "Verified Green",
+        "canonical": "oklch(0.58 0.16 145)"
+      },
+      "warning": {
+        "role": "tertiary",
+        "displayName": "Attention Amber",
+        "canonical": "oklch(0.62 0.14 85)"
+      },
+      "info": {
+        "role": "tertiary",
+        "displayName": "Review Blue",
+        "canonical": "oklch(0.54 0.14 240)"
+      },
+      "destructive": {
+        "role": "tertiary",
+        "displayName": "Reject Red",
+        "canonical": "oklch(0.577 0.245 27.325)"
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Page and flow titles."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Panel and section titles."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Default operator text, 65-75ch measure."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field labels, badges, step indicators."
+      }
+    },
+    "shadows": [
+      {
+        "name": "seat-highlight",
+        "value": "inset 0 1px oklch(0 0 0 / 4%)",
+        "purpose": "Hairline that seats a FramePanel in its tray."
+      },
+      {
+        "name": "resting-xs",
+        "value": "var(--shadow-xs)",
+        "purpose": "Only ambient elevation on panels and buttons."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-instrument",
+        "value": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "purpose": "Default easing; matches route view-transitions."
+      }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Single forward action per view.",
+      "html": "<button class=\"df-btn-primary\">Submit proposal</button>",
+      "css": ".df-btn-primary { background: oklch(0.841 0.238 128.85); color: oklch(0.405 0.101 131.063); height: 36px; padding: 0 11px; border: 1px solid oklch(0.841 0.238 128.85); border-radius: 0.625rem; font-family: 'Oxanium Variable', sans-serif; font-weight: 500; font-size: 0.875rem; box-shadow: inset 0 1px oklch(1 0 0 / 16%); transition: background 0.18s cubic-bezier(0.22,1,0.36,1); } .df-btn-primary:hover { background: oklch(0.841 0.238 128.85 / 0.9); }"
+    },
+    {
+      "name": "Frame Panel",
+      "kind": "card",
+      "refersTo": "frame-panel",
+      "description": "Structural plate seated in a muted chassis tray.",
+      "html": "<div class=\"df-frame\"><div class=\"df-panel\">Panel content</div></div>",
+      "css": ".df-frame { display: flex; flex-direction: column; border-radius: 1rem; background: oklch(0.967 0.001 286.375 / 0.72); padding: 4px; } .df-panel { position: relative; border-radius: 0.875rem; border: 1px solid oklch(0.92 0.004 286.32); background: oklch(1 0 0); padding: 20px; box-shadow: var(--shadow-xs, 0 1px 2px oklch(0 0 0 / 0.05)); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Instrument Panel",
+    "overview": "DrawFlow reads like calibrated instrumentation for construction lending: a light, near-neutral control plane where a single high-chroma chartreuse signal carries action and the geometric Oxanium typeface signals precision. Depth is tonal via the Frame-in-chassis system, not floating shadowed cards.",
+    "keyCharacteristics": [
+      "Chartreuse primary as the single charged signal",
+      "Tinted near-neutrals, never pure black/white",
+      "Oxanium single-family hierarchy",
+      "Frame-in-chassis tonal layering",
+      "Light theme chosen from the real scene"
+    ],
+    "rules": [
+      {
+        "name": "The One Voltage Rule",
+        "body": "Chartreuse is the only high-chroma color; one charged element per view.",
+        "section": "colors"
+      },
+      {
+        "name": "The Single Family Rule",
+        "body": "Never add a second typeface; contrast via weight and scale.",
+        "section": "typography"
+      },
+      {
+        "name": "The Chassis Rule",
+        "body": "Frame+FramePanel for structure, Card for content; never hand-roll wrapper cards or nest cards.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do compose existing Frame/FramePanel/Card/Button/Field primitives",
+      "Do keep chartreuse to the single forward action per view",
+      "Do let experienced builders skip first-run guidance without blocking the product"
+    ],
+    "donts": [
+      "Don't use side-stripe accent borders, gradient text, or decorative glassmorphism",
+      "Don't reach for a modal first; use inline/progressive disclosure",
+      "Don't patronize with forced tours or infantilizing celebration; no em dashes"
+    ]
+  }
+}

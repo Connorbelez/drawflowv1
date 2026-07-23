@@ -1,0 +1,17 @@
+{
+  "lifecycle": {
+    "effectiveLaunch": {
+      "browserLaunched": true,
+      "engine": "chrome",
+      "launchHash": 8197565053781422000
+    },
+    "launched": false,
+    "relaunchedBrowser": false,
+    "restartedBackground": false,
+    "restoreStatus": "not_configured",
+    "reused": true,
+    "saveStatus": "not_attempted"
+  },
+  "origin": "http://localhost:3000/backoffice/builds/ks7n0k9bhpe2qzzd3h2r9fg6ah87xg4r?tab=details",
+  "result": "{\"text\":\"osal 26 Luverne Ave, North York, ON M3H 1R4, Canada Events 780 Start 2026-06-02 Budget $1,091,349 Details Milestones Contractors Materials Timeline Evidence Staff Calendar Gantt Build Overview active_builds Current Draws Build Loan Current milestone Active work, assignments, and completion authority. 38% complete No active milestone. Next scheduled: MEP rough-ins on 2026-08-26. Site photos · Evidence image 1 1/2 · 2026-06-02 Capital and term requests Builder requests for principal increases and payback extensions. 0 pending CURRENT PRINCIPAL $800,069 CURRENT PAYBACK 2026-12-19 Requested principal Requested payback date Request principal Request extension Review queue No capital or term requests have been submitted. Budget governance Versioned capital-plan revisions preserve every prior governing Budget. Capital plan v1 Approve revision Reject revision No Budget revisions have been requested. Capital plan v1remains governing. Milestone review board Review exceptions first, then completi\",\"w\":[1280,1280],\"buttons\":[{\"t\":\"Request principal\",\"d\":false},{\"t\":\"Request extension\",\"d\":false},{\"t\":\"Approve revision\",\"d\":true},{\"t\":\"Reject revision\",\"d\":true}]}"
+}

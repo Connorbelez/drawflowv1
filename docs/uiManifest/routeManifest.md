@@ -298,7 +298,7 @@ src/routes/
 |---|---|---|---|
 | SCR-003 | Build Site Location and Map Setup | Section/drawer in Proposal Package | Needs proposal identity, documents, and admin review context. |
 | SCR-004 | Permit and Document Upload | Section/drawer in Proposal Package | Documents are part of one governed proposal package. |
-| SCR-005 | Available Working Capital Input | Inline section/sheet in Proposal Package and Draft Roadmap | Too small for a dedicated page; impact belongs beside feasibility/draw-plan context. |
+| SCR-005 | Borrower Starting Cash Input | Inline section/sheet in Proposal Package and Draft Roadmap | Too small for a dedicated page; impact belongs beside feasibility/draw-plan context. |
 | SCR-006 | Milestone Template Selection | Section in Proposal Package before opening Draft Roadmap | Template is setup input, not a durable route boundary. |
 | SCR-008 | Draw Plan Comparison | Overlay/panel in Draft Roadmap and Budget Revision | Draw groups are visualized directly on Gantt; separate route would disconnect spatial context. |
 | SCR-009 | Proposal Review and Submit | Review tab/section in Proposal Package | Final review should keep build details, site, documents, budget, roadmap, draw plan, and warnings together. |

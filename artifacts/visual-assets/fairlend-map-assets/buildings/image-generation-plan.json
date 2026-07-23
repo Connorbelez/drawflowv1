@@ -1,0 +1,377 @@
+{
+  "schema_version": 1,
+  "manifest_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/asset-manifest.json",
+  "image_asset_count": 37,
+  "assets": [
+    {
+      "id": "west-park-pavilion",
+      "label": "West park low-rise pavilion",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/west-park-pavilion.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/west-park-pavilion.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/west-park-pavilion.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Small foreground low-rise building in the west park cluster\nPrimary request: Generate a standalone warm off-white isometric miniature low-rise pavilion matching the reference: two-story clay/paper model, flat roof with small golden roof cap, soft studio lighting, subtle facade recesses, clean edges, and no surrounding trees or baseplate.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "west-rear-slab-tower",
+      "label": "West rear slab tower",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/west-rear-slab-tower.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/west-rear-slab-tower.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/west-rear-slab-tower.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Tall rectangular residential tower on the far-west skyline\nPrimary request: Generate a standalone tall rectangular residential slab tower in the same warm cream clay/paper isometric style, with a small golden roof cap, tight vertical window grid, soft bevels, and premium miniature lighting.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "west-rear-slim-apartment-tower",
+      "label": "West rear slim apartment tower",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/west-rear-slim-apartment-tower.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/west-rear-slim-apartment-tower.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/west-rear-slim-apartment-tower.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Narrow residential tower behind the west mid-rise block\nPrimary request: Generate a standalone narrow apartment tower matching the crop: cream paper-clay material, small golden rooftop cap, vertical window rows, simple rectangular mass, and soft left-side studio highlights.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "west-front-square-midrise",
+      "label": "West front square mid-rise",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/west-front-square-midrise.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/west-front-square-midrise.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/west-front-square-midrise.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Front mid-rise block in the west cluster\nPrimary request: Generate a standalone square mid-rise block in warm off-white clay, with a flat roof, centered small golden roof cap, dense tiny window grid, subtle beveled edges, and the same isometric camera angle.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "west-canal-front-block",
+      "label": "West canal front block",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/west-canal-front-block.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/west-canal-front-block.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/west-canal-front-block.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Low square block beside the west canal\nPrimary request: Generate a standalone compact waterfront low-rise block with cream paper-clay facades, a small golden roof cap, regular window grid, soft shadows, and no water, road, or trees.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "west-inner-small-midrise",
+      "label": "West inner small mid-rise",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/west-inner-small-midrise.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/west-inner-small-midrise.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/west-inner-small-midrise.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Small partially occluded mid-rise inside the west cluster\nPrimary request: Generate a standalone small cream isometric mid-rise with a square footprint, flat roof, golden cap, tiny window rows, and a clean unobstructed facade reconstructed from the visible reference.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "west-east-rear-residential-tower",
+      "label": "West east rear residential tower",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/west-east-rear-residential-tower.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/west-east-rear-residential-tower.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/west-east-rear-residential-tower.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Tall rear tower at the east edge of the west cluster\nPrimary request: Generate a standalone tall residential tower in warm off-white miniature material, flat roof with golden cap, regular window rows, subtle side shadow, and clean isolated silhouette.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "downtown-west-front-tower",
+      "label": "Downtown west front tower",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/downtown-west-front-tower.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/downtown-west-front-tower.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/downtown-west-front-tower.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Foreground tower in front of the west fluted high-rise\nPrimary request: Generate a standalone foreground residential tower with cream clay facades, flat roof, small golden cap, vertical window grid, and the same soft isometric lighting.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "downtown-west-fluted-highrise",
+      "label": "Downtown west fluted high-rise",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/downtown-west-fluted-highrise.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/downtown-west-fluted-highrise.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/downtown-west-fluted-highrise.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Tall fluted high-rise in the west downtown cluster\nPrimary request: Generate a standalone tall fluted high-rise tower in warm ivory clay/paper, with vertical ribbed facade panels, a flat roof and golden cap, soft shadows, and clean unobstructed lower floors.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "downtown-west-front-slim-block",
+      "label": "Downtown west front slim block",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/downtown-west-front-slim-block.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/downtown-west-front-slim-block.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/downtown-west-front-slim-block.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Slim foreground block east of the west high-rise\nPrimary request: Generate a standalone slim rectangular mid-rise block with cream paper-clay material, tiny regular windows, flat roof, golden roof cap, and premium miniature soft lighting.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "downtown-west-north-residential-tower",
+      "label": "Downtown west north residential tower",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/downtown-west-north-residential-tower.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/downtown-west-north-residential-tower.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/downtown-west-north-residential-tower.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Rear residential tower north of the downtown west foreground buildings\nPrimary request: Generate a standalone medium-tall rectangular residential tower with a golden rooftop cap, warm off-white material, crisp window grid, and clean isolated lower edge.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "downtown-west-foreground-tower",
+      "label": "Downtown west foreground tower",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/downtown-west-foreground-tower.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/downtown-west-foreground-tower.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/downtown-west-foreground-tower.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Foreground tower just west of the central boulevard\nPrimary request: Generate a standalone foreground residential tower in the reference style, with flat cream roof, small golden cap, neat window rows, subtle bevels, and soft cast shadow removed from surroundings.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "downtown-mid-foreground-tower",
+      "label": "Downtown mid foreground tower",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/downtown-mid-foreground-tower.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/downtown-mid-foreground-tower.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/downtown-mid-foreground-tower.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Foreground tower in front of the central mid rear tower\nPrimary request: Generate a standalone compact foreground tower with warm off-white clay facades, small golden roof cap, regular miniature windows, and clean isolated isometric form.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "downtown-mid-rear-residential-tower",
+      "label": "Downtown mid rear residential tower",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/downtown-mid-rear-residential-tower.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/downtown-mid-rear-residential-tower.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/downtown-mid-rear-residential-tower.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Rear tower near the central art deco skyscraper\nPrimary request: Generate a standalone rear residential high-rise with cream material, golden roof cap, tight vertical window grid, and a clean lower silhouette reconstructed without foreground occluders.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "downtown-central-front-square-tower",
+      "label": "Downtown central front square tower",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/downtown-central-front-square-tower.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/downtown-central-front-square-tower.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/downtown-central-front-square-tower.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Square foreground tower before the central landmark tower\nPrimary request: Generate a standalone square foreground tower in warm ivory paper-clay, flat roof with centered golden cap, uniform windows, and soft studio shadows.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "downtown-central-art-deco-tower",
+      "label": "Downtown central art deco tower",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/downtown-central-art-deco-tower.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/downtown-central-art-deco-tower.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/downtown-central-art-deco-tower.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Tall stepped art deco skyscraper in the central skyline\nPrimary request: Generate a standalone tall stepped art deco skyscraper in cream clay/paper material, with strong vertical ribs, recessed central facade, golden roof cap, refined miniature lighting, and no surrounding buildings.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "downtown-east-slim-midrise",
+      "label": "Downtown east slim mid-rise",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/downtown-east-slim-midrise.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/downtown-east-slim-midrise.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/downtown-east-slim-midrise.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Slim mid-rise east of the central art deco tower\nPrimary request: Generate a standalone slim mid-rise tower with warm cream facades, a small golden roof cap, fine vertical window rows, and the same isometric miniature styling.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "downtown-east-rear-slab-tower",
+      "label": "Downtown east rear slab tower",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/downtown-east-rear-slab-tower.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/downtown-east-rear-slab-tower.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/downtown-east-rear-slab-tower.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Rear slab tower before the financial-district landmark\nPrimary request: Generate a standalone rectangular slab tower with cream paper-clay texture, golden roof cap, regular windows, beveled edges, and clean reconstructed base.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "downtown-east-back-lowrise",
+      "label": "Downtown east back low-rise",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/downtown-east-back-lowrise.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/downtown-east-back-lowrise.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/downtown-east-back-lowrise.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Small low-rise behind the downtown east waterfront block\nPrimary request: Generate a standalone small rear low-rise building with cream paper-clay facades, flat roof, small golden cap, subtle window/facade details, and no foreground civic block or trees.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "downtown-east-waterfront-civic-block",
+      "label": "Downtown east waterfront civic block",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/downtown-east-waterfront-civic-block.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/downtown-east-waterfront-civic-block.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/downtown-east-waterfront-civic-block.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Low civic-style building at the downtown waterfront edge\nPrimary request: Generate a standalone low civic-style waterfront building in the warm cream miniature style, with a flat roof, small golden cap, column-like facade details, and no water or baseplate.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "financial-district-fluted-landmark",
+      "label": "Financial district fluted landmark tower",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/financial-district-fluted-landmark.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/financial-district-fluted-landmark.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/financial-district-fluted-landmark.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Tall ribbed landmark tower west of the stadium\nPrimary request: Generate a standalone ribbed landmark tower in cream clay/paper material, with a tiered crown, small golden roof cap, vertical flutes, soft ambient occlusion, and clean isolated base.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "stadium-west-midrise",
+      "label": "Stadium west mid-rise",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/stadium-west-midrise.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/stadium-west-midrise.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/stadium-west-midrise.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Mid-rise block immediately west of the domed stadium\nPrimary request: Generate a standalone mid-rise block west of the stadium, with warm off-white facades, small golden roof cap, dense windows, and no stadium dome or neighboring structures.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "rogers-centre-dome",
+      "label": "Rogers Centre domed stadium",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/rogers-centre-dome.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/rogers-centre-dome.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/rogers-centre-dome.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Large domed stadium landmark in the Toronto cityscape\nPrimary request: Generate a standalone isometric miniature domed stadium inspired by Rogers Centre, with a smooth warm ivory dome, circular cream base, simple colonnade, soft premium studio lighting, and no trees, roads, CN Tower, or neighboring towers.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "stadium-northeast-tower",
+      "label": "Stadium northeast tower",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/stadium-northeast-tower.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/stadium-northeast-tower.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/stadium-northeast-tower.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Rear high-rise northeast of the stadium\nPrimary request: Generate a standalone high-rise tower with cream facades, golden roof cap, regular window rows, soft left-side highlights, and a clean base without stadium occlusion.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "cn-south-front-pavilion",
+      "label": "CN south front pavilion",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/cn-south-front-pavilion.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/cn-south-front-pavilion.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/cn-south-front-pavilion.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Foreground pavilion south of the CN Tower approach\nPrimary request: Generate a standalone low-rise pavilion in the warm cream miniature style, with a flat roof, small golden cap, simple recessed front columns, and no water, road, or CN Tower base.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "cn-west-rear-tower",
+      "label": "CN west rear tower",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/cn-west-rear-tower.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/cn-west-rear-tower.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/cn-west-rear-tower.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Rear tower west of CN Tower\nPrimary request: Generate a standalone medium-height residential tower west of CN Tower, warm cream clay material, small golden roof cap, regular window grid, and clean isolated base.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "cn-west-front-small-midrise",
+      "label": "CN west front small mid-rise",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/cn-west-front-small-midrise.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/cn-west-front-small-midrise.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/cn-west-front-small-midrise.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Small front mid-rise west of the CN Tower base\nPrimary request: Generate a standalone small front mid-rise building with cream facades, tiny window grid, flat roof, small golden roof cap, and clean isometric lighting.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "cn-west-front-slim-midrise",
+      "label": "CN west front slim mid-rise",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/cn-west-front-slim-midrise.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/cn-west-front-slim-midrise.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/cn-west-front-slim-midrise.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Slim mid-rise directly west of the CN Tower shaft\nPrimary request: Generate a standalone slim mid-rise tower with warm off-white facades, golden cap, fine window rows, and no CN Tower or adjacent baseplate.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "cn-west-side-slim-midrise",
+      "label": "CN west side slim mid-rise",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/cn-west-side-slim-midrise.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/cn-west-side-slim-midrise.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/cn-west-side-slim-midrise.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Narrow tower tucked beside the west side of CN Tower\nPrimary request: Generate a standalone narrow mid-rise building with a cream clay facade, golden roof cap, tiny window grid, and reconstructed unobstructed base.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "cn-tower",
+      "label": "CN Tower",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/cn-tower.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/cn-tower.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/cn-tower.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Primary CN Tower landmark with observation deck and circular base\nPrimary request: Generate a standalone isometric miniature CN Tower in warm ivory clay/paper material, with a tapered shaft, circular observation deck, antenna spire with small golden tip, circular base plinth, soft premium studio lighting, and no surrounding buildings, trees, roads, or baseplate.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "cn-east-front-slim-tower",
+      "label": "CN east front slim tower",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/cn-east-front-slim-tower.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/cn-east-front-slim-tower.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/cn-east-front-slim-tower.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Slim foreground tower east of CN Tower\nPrimary request: Generate a standalone slim high-rise tower east of CN Tower, with warm cream facades, golden roof cap, regular window rows, soft shadows, and no CN Tower base.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "cn-east-rear-slab-tower",
+      "label": "CN east rear slab tower",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/cn-east-rear-slab-tower.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/cn-east-rear-slab-tower.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/cn-east-rear-slab-tower.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Tall rear slab tower east of CN Tower\nPrimary request: Generate a standalone tall rectangular slab high-rise with cream clay material, a golden roof cap, tiny regular windows, and a clean unobstructed base.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "cn-east-foreground-midrise",
+      "label": "CN east foreground mid-rise",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/cn-east-foreground-midrise.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/cn-east-foreground-midrise.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/cn-east-foreground-midrise.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Foreground mid-rise at the east side of CN Tower\nPrimary request: Generate a standalone foreground mid-rise building in warm cream material, flat roof with golden cap, dense small windows, and clean isolated lower edge.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "east-cluster-inner-midrise",
+      "label": "East cluster inner mid-rise",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/east-cluster-inner-midrise.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/east-cluster-inner-midrise.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/east-cluster-inner-midrise.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Inner mid-rise in the far-east building cluster\nPrimary request: Generate a standalone inner mid-rise tower in the warm isometric clay style, with small golden roof cap, regular window grid, and no adjacent towers.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "east-cluster-rear-tower",
+      "label": "East cluster rear tower",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/east-cluster-rear-tower.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/east-cluster-rear-tower.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/east-cluster-rear-tower.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Tall rear tower in the far-east cluster\nPrimary request: Generate a standalone far-east rear high-rise with cream paper-clay facades, golden roof cap, dense window rows, and clean unobstructed lower floors.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "east-cluster-front-tower",
+      "label": "East cluster front tower",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/east-cluster-front-tower.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/east-cluster-front-tower.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/east-cluster-front-tower.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Front tower in the far-east cluster\nPrimary request: Generate a standalone front tower in warm cream miniature material, flat roof with small golden cap, regular windows, and clean isolated silhouette.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    },
+    {
+      "id": "far-east-edge-tower",
+      "label": "Far east edge tower",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/crops/far-east-edge-tower.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/raw/far-east-edge-tower.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-map-assets/buildings/generated/webp/far-east-edge-tower.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Small tower at the far-east edge of the cityscape\nPrimary request: Generate a standalone small edge tower with cream facades, golden roof cap, vertical window rows, and the same polished isometric miniature lighting.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "Do not output a crop, screenshot, webpage, browser frame, collage, neighboring assets, watermark, or placeholder."
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "compacted": true,
+  "fullOutputPath": "/Users/connor/.pi/agent/sessions/--Users-connor-Dev-drawFlow-v1-drawflowv1-core-workflow-remediation-20260717--/.pi-agent-browser-artifacts/019f87c0-0e29-7876-a720-bc37adcd50cd/pi-agent-browser-snapshot-fcc2706f9e18fc24.json",
+  "origin": "http://localhost:3000/backoffice/draws",
+  "previewMode": "structured",
+  "viewportOrdering": "dom-signal-prioritized",
+  "previewRefIds": [
+    "e18",
+    "e21",
+    "e24",
+    "e22",
+    "e25"
+  ],
+  "highValueControlRefIds": [
+    "e10",
+    "e14",
+    "e11",
+    "e16",
+    "e17",
+    "e23",
+    "e26",
+    "e27"
+  ],
+  "additionalSectionsOmitted": 1,
+  "previewSections": [
+    {
+      "linesShown": 1,
+      "omittedLines": 0,
+      "role": "heading",
+      "title": "Draws"
+    },
+    {
+      "linesShown": 2,
+      "omittedLines": 80,
+      "role": "heading",
+      "title": "Scheduled draw pipeline"
+    },
+    {
+      "linesShown": 2,
+      "omittedLines": 17,
+      "role": "heading",
+      "title": "Capital by state"
+    }
+  ],
+  "refCount": 131,
+  "roleCounts": {
+    "region": 1,
+    "link": 20,
+    "generic": 8,
+    "button": 15,
+    "navigation": 1,
+    "heading": 3,
+    "application": 2,
+    "textbox": 1,
+    "group": 80
+  },
+  "snapshotLineCount": 131,
+  "structuredPreviewUsed": true
+}

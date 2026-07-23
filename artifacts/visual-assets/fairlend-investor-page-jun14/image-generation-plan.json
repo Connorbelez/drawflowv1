@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "manifest_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/asset-manifest.json",
+  "image_asset_count": 8,
+  "assets": [
+    {
+      "id": "hero-multifamily-building-photo",
+      "label": "Hero multifamily building photo",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/crops/hero-multifamily-building-photo.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/generated/raw/hero-multifamily-building-photo.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/generated/webp/hero-multifamily-building-photo.webp",
+      "transparent": false,
+      "prompt": "Use case: ads-marketing\nAsset type: Photoreal dusk multifamily building.\nPrimary request: Reference image only. Generate a standalone Fairlend investor page asset: Photoreal dusk multifamily building. No UI chrome outside the asset, no crop artifacts.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate as a clean standalone rectangular image asset.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "UI chrome, crop artifacts, unrelated logos, unrelated text, people in foreground"
+    },
+    {
+      "id": "hero-blueprint-board",
+      "label": "Hero blueprint board",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/crops/hero-blueprint-board.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/generated/raw/hero-blueprint-board.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/generated/webp/hero-blueprint-board.webp",
+      "transparent": false,
+      "prompt": "Use case: ads-marketing\nAsset type: Deep blue architectural blueprint board.\nPrimary request: Reference image only. Generate a standalone Fairlend investor page asset: Deep blue architectural blueprint board. No UI chrome outside the asset, no crop artifacts.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate as a clean standalone rectangular image asset.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "UI chrome, crop artifacts, unrelated logos, unrelated text, people in foreground"
+    },
+    {
+      "id": "hero-good-homes-note",
+      "label": "Hero good homes paper note",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/crops/hero-good-homes-note.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/generated/raw/hero-good-homes-note.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/generated/webp/hero-good-homes-note.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Cream paper note with typed housing message and street sketch.\nPrimary request: Reference image only. Generate a standalone Fairlend investor page asset: Cream paper note with typed housing message and street sketch. No UI chrome outside the asset, no crop artifacts.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "UI chrome, crop artifacts, unrelated logos, unrelated text, people in foreground"
+    },
+    {
+      "id": "hero-return-ledger-note",
+      "label": "Hero return ledger note",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/crops/hero-return-ledger-note.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/generated/raw/hero-return-ledger-note.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/generated/webp/hero-return-ledger-note.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Blue grid note with return principles.\nPrimary request: Reference image only. Generate a standalone Fairlend investor page asset: Blue grid note with return principles. No UI chrome outside the asset, no crop artifacts.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "UI chrome, crop artifacts, unrelated logos, unrelated text, people in foreground"
+    },
+    {
+      "id": "hero-monogram-stamp",
+      "label": "Hero monogram stamp",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/crops/hero-monogram-stamp.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/generated/raw/hero-monogram-stamp.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/generated/webp/hero-monogram-stamp.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Dark green Fairlend monogram stamp.\nPrimary request: Reference image only. Generate a standalone Fairlend investor page asset: Dark green Fairlend monogram stamp. No UI chrome outside the asset, no crop artifacts.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "UI chrome, crop artifacts, unrelated logos, unrelated text, people in foreground"
+    },
+    {
+      "id": "paths-neighborhood-sketch",
+      "label": "Paths neighborhood sketch",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/crops/paths-neighborhood-sketch.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/generated/raw/paths-neighborhood-sketch.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/generated/webp/paths-neighborhood-sketch.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Graphite neighborhood street sketch.\nPrimary request: Reference image only. Generate a standalone Fairlend investor page asset: Graphite neighborhood street sketch. No UI chrome outside the asset, no crop artifacts.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "UI chrome, crop artifacts, unrelated logos, unrelated text, people in foreground"
+    },
+    {
+      "id": "private-mortgage-house-linework",
+      "label": "Private mortgage house linework",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/crops/private-mortgage-house-linework.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/generated/raw/private-mortgage-house-linework.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/generated/webp/private-mortgage-house-linework.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Transparent detached house linework.\nPrimary request: Reference image only. Generate a standalone Fairlend investor page asset: Transparent detached house linework. No UI chrome outside the asset, no crop artifacts.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "UI chrome, crop artifacts, unrelated logos, unrelated text, people in foreground"
+    },
+    {
+      "id": "build-funding-blueprint-linework",
+      "label": "Build funding blueprint linework",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/crops/build-funding-blueprint-linework.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/generated/raw/build-funding-blueprint-linework.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/fairlend-investor-page-jun14/generated/webp/build-funding-blueprint-linework.webp",
+      "transparent": true,
+      "prompt": "Use case: ads-marketing\nAsset type: Transparent crane and construction blueprint linework.\nPrimary request: Reference image only. Generate a standalone Fairlend investor page asset: Transparent crane and construction blueprint linework. No UI chrome outside the asset, no crop artifacts.\nInput images: the crop is a reference image only. Generate a brand-new standalone asset; do not copy crop pixels.\nComposition/framing: match the reference crop's subject, angle, aspect ratio, and visual weight.\nConstraints: remove neighboring-page contamination, occluding unrelated assets, webpage framing, and collage leftovers.\nTransparency/background: Generate on a perfectly flat solid #00ff00 chroma-key background for later alpha removal; do not use #00ff00 in the subject.\nAvoid: crop output, screenshot, full page mockup, browser frame, watermark, placeholder, unrelated typography.",
+      "negative_prompt": "UI chrome, crop artifacts, unrelated logos, unrelated text, people in foreground"
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "compacted": true,
+  "fullOutputPath": "/Users/connor/.pi/agent/sessions/--Users-connor-Dev-drawFlow-v1-drawflowv1-core-workflow-remediation-20260717--/.pi-agent-browser-artifacts/019f87c0-0e29-7876-a720-bc37adcd50cd/pi-agent-browser-snapshot-2448bdf46d812177.json",
+  "origin": "http://localhost:3000/backoffice/proposals",
+  "previewMode": "structured",
+  "viewportOrdering": "dom-signal-prioritized",
+  "previewRefIds": [
+    "e49",
+    "e14",
+    "e15",
+    "e16",
+    "e17",
+    "e18",
+    "e19",
+    "e20",
+    "e1",
+    "e5"
+  ],
+  "highValueControlRefIds": [
+    "e4",
+    "e8",
+    "e10",
+    "e11",
+    "e48",
+    "e23",
+    "e24",
+    "e25",
+    "e26",
+    "e27"
+  ],
+  "additionalSectionsOmitted": 0,
+  "previewSections": [
+    {
+      "linesShown": 8,
+      "omittedLines": 28,
+      "role": "heading",
+      "title": "Proposal kanban"
+    },
+    {
+      "linesShown": 2,
+      "omittedLines": 0,
+      "role": "region",
+      "title": "Notifications alt+T"
+    }
+  ],
+  "refCount": 65,
+  "roleCounts": {
+    "region": 1,
+    "link": 20,
+    "generic": 1,
+    "button": 41,
+    "navigation": 1,
+    "heading": 1
+  },
+  "snapshotLineCount": 65,
+  "structuredPreviewUsed": true
+}
