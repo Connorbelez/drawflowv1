@@ -4281,7 +4281,7 @@ describe("production proposal foundation", () => {
     );
   });
 
-  test("rejects a planned draw schedule above the lender facility", async () => {
+  test("warns when a planned draw schedule is above the lender facility", async () => {
     const { seed, t } = await seeded(["admin"], "user_admin");
     const proposalId = await t.mutation(
       (api as any).production_proposals.createDraftProposal,
@@ -4294,44 +4294,45 @@ describe("production proposal foundation", () => {
       },
     );
 
-    await expect(
-      t.mutation(
-        (api as any).production_proposals.saveDraftProposalPackage,
-        {
-          borrowerCoPayBps: 2_000,
-          borrowerWorkingCapitalLimitCents: 25_000_000,
-          draws: [
-            {
-              amountCents: 90_000_000,
-              drawKey: "over-facility-draw",
-              label: "Over-facility draw",
-              milestoneKey: "foundation",
-              order: 1,
-              timingDay: 20,
-            },
-          ],
-          lenderDrawPolicyLimitCents: 80_000_000,
-          milestones: [
-            {
-              budgetCents: 100_000_000,
-              dayEnd: 20,
-              dayStart: 0,
-              dependencyKeys: [],
-              durationDays: 20,
-              key: "foundation",
-              name: "Foundation",
-              order: 1,
-              submilestones: [],
-            },
-          ],
-          proposalId,
-          workosOrganizationId: ORG,
-        },
-      ),
-    ).rejects.toThrow("Planned draws cannot exceed the lender facility");
+    const result = await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerWorkingCapitalLimitCents: 25_000_000,
+        draws: [
+          {
+            amountCents: 90_000_000,
+            drawKey: "over-facility-draw",
+            label: "Over-facility draw",
+            milestoneKey: "foundation",
+            order: 1,
+            timingDay: 20,
+          },
+        ],
+        lenderDrawPolicyLimitCents: 80_000_000,
+        milestones: [
+          {
+            budgetCents: 100_000_000,
+            dayEnd: 20,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 20,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(result.warnings).toContain(
+      "Planned draws exceed the lender facility. Revise the draw schedule or obtain an approved facility change.",
+    );
   });
 
-  test("rejects a planned reimbursement before its milestone is complete", async () => {
+  test("warns when a planned reimbursement is before its milestone is complete", async () => {
     const { seed, t } = await seeded(["admin"], "user_admin");
     const proposalId = await t.mutation(
       (api as any).production_proposals.createDraftProposal,
@@ -4344,46 +4345,45 @@ describe("production proposal foundation", () => {
       },
     );
 
-    await expect(
-      t.mutation(
-        (api as any).production_proposals.saveDraftProposalPackage,
-        {
-          borrowerCoPayBps: 2_000,
-          borrowerWorkingCapitalLimitCents: 25_000_000,
-          draws: [
-            {
-              amountCents: 80_000_000,
-              drawKey: "premature-draw",
-              label: "Premature draw",
-              milestoneKey: "foundation",
-              order: 1,
-              timingDay: 19,
-            },
-          ],
-          lenderDrawPolicyLimitCents: 80_000_000,
-          milestones: [
-            {
-              budgetCents: 100_000_000,
-              dayEnd: 20,
-              dayStart: 0,
-              dependencyKeys: [],
-              durationDays: 20,
-              key: "foundation",
-              name: "Foundation",
-              order: 1,
-              submilestones: [],
-            },
-          ],
-          proposalId,
-          workosOrganizationId: ORG,
-        },
-      ),
-    ).rejects.toThrow(
-      "Planned reimbursements cannot be scheduled before their milestone is complete",
+    const result = await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerWorkingCapitalLimitCents: 25_000_000,
+        draws: [
+          {
+            amountCents: 80_000_000,
+            drawKey: "premature-draw",
+            label: "Premature draw",
+            milestoneKey: "foundation",
+            order: 1,
+            timingDay: 19,
+          },
+        ],
+        lenderDrawPolicyLimitCents: 80_000_000,
+        milestones: [
+          {
+            budgetCents: 100_000_000,
+            dayEnd: 20,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 20,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(result.warnings).toContain(
+      "Planned reimbursements are scheduled before their milestone is complete.",
     );
   });
 
-  test("rejects planned draws above cumulative completed-work eligibility", async () => {
+  test("warns when planned draws are above cumulative completed-work eligibility", async () => {
     const { seed, t } = await seeded(["admin"], "user_admin");
     const proposalId = await t.mutation(
       (api as any).production_proposals.createDraftProposal,
@@ -4396,53 +4396,52 @@ describe("production proposal foundation", () => {
       },
     );
 
-    await expect(
-      t.mutation(
-        (api as any).production_proposals.saveDraftProposalPackage,
-        {
-          borrowerCoPayBps: 2_000,
-          borrowerWorkingCapitalLimitCents: 25_000_000,
-          draws: [
-            {
-              amountCents: 50_000_000,
-              drawKey: "unearned-draw",
-              label: "Unearned draw",
-              milestoneKey: "foundation",
-              order: 1,
-              timingDay: 20,
-            },
-          ],
-          lenderDrawPolicyLimitCents: 80_000_000,
-          milestones: [
-            {
-              budgetCents: 50_000_000,
-              dayEnd: 20,
-              dayStart: 0,
-              dependencyKeys: [],
-              durationDays: 20,
-              key: "foundation",
-              name: "Foundation",
-              order: 1,
-              submilestones: [],
-            },
-            {
-              budgetCents: 50_000_000,
-              dayEnd: 48,
-              dayStart: 24,
-              dependencyKeys: ["foundation"],
-              durationDays: 24,
-              key: "framing",
-              name: "Framing",
-              order: 2,
-              submilestones: [],
-            },
-          ],
-          proposalId,
-          workosOrganizationId: ORG,
-        },
-      ),
-    ).rejects.toThrow(
-      "Planned draws cannot exceed cumulative completed-work eligibility",
+    const result = await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerWorkingCapitalLimitCents: 25_000_000,
+        draws: [
+          {
+            amountCents: 50_000_000,
+            drawKey: "unearned-draw",
+            label: "Unearned draw",
+            milestoneKey: "foundation",
+            order: 1,
+            timingDay: 20,
+          },
+        ],
+        lenderDrawPolicyLimitCents: 80_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 20,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 20,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [],
+          },
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 48,
+            dayStart: 24,
+            dependencyKeys: ["foundation"],
+            durationDays: 24,
+            key: "framing",
+            name: "Framing",
+            order: 2,
+            submilestones: [],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(result.warnings).toContain(
+      "Planned draws exceed cumulative completed-work eligibility.",
     );
   });
 
@@ -4513,7 +4512,7 @@ describe("production proposal foundation", () => {
           workosOrganizationId: ORG,
         },
       ),
-    ).resolves.toBeNull();
+    ).resolves.toEqual({ warnings: [] });
 
     const detail = await t.query(
       (api as any).production_proposals.getProposalDetail,

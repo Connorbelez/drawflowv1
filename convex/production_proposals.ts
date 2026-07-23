@@ -1336,7 +1336,11 @@ export const saveDraftProposalPackage = authenticatedMutation
     templateId: v.optional(v.id("proposalTemplates")),
     workosOrganizationId: v.string(),
   })
-  .returns(v.null())
+  .returns(
+    v.object({
+      warnings: v.array(v.string()),
+    })
+  )
   .handler(async (ctx, args) => {
     const auth = await authorizeProposal(
       ctx,
@@ -1373,6 +1377,7 @@ export const saveDraftProposalPackage = authenticatedMutation
         "Proposal capital share must be between 0 and 10000 bps."
       );
     }
+    const draftWarnings: string[] = [];
     const lenderFacilityCents = Math.max(
       0,
       Math.round(args.lenderDrawPolicyLimitCents)
@@ -1381,9 +1386,12 @@ export const saveDraftProposalPackage = authenticatedMutation
       (total, draw) => total + Math.max(0, Math.round(draw.amountCents)),
       0
     );
+    // Draft generation should warn, not hard-fail: template draw shares can
+    // temporarily disagree with facility / completed-work eligibility while
+    // the borrower is still shaping the schedule.
     if (plannedDrawsCents > lenderFacilityCents) {
-      throw new Error(
-        "Planned draws cannot exceed the lender facility. Revise the draw schedule or obtain an approved facility change."
+      draftWarnings.push(
+        "Planned draws exceed the lender facility. Revise the draw schedule or obtain an approved facility change."
       );
     }
     const milestoneByKey = new Map(
@@ -1412,8 +1420,8 @@ export const saveDraftProposalPackage = authenticatedMutation
         return milestone !== undefined && draw.timingDay < milestone.dayEnd;
       })
     ) {
-      throw new Error(
-        "Planned reimbursements cannot be scheduled before their milestone is complete."
+      draftWarnings.push(
+        "Planned reimbursements are scheduled before their milestone is complete."
       );
     }
     let cumulativePlannedDrawsCents = 0;
@@ -1437,9 +1445,10 @@ export const saveDraftProposalPackage = authenticatedMutation
         0
       );
       if (cumulativePlannedDrawsCents > cumulativeEligibleCents) {
-        throw new Error(
-          "Planned draws cannot exceed cumulative completed-work eligibility."
+        draftWarnings.push(
+          "Planned draws exceed cumulative completed-work eligibility."
         );
+        break;
       }
     }
 
@@ -1550,7 +1559,21 @@ export const saveDraftProposalPackage = authenticatedMutation
         proposalId: args.proposalId,
       });
     }
-    return null;
+    if (draftWarnings.length > 0) {
+      await writeProposalEvent(ctx, {
+        auth,
+        command: "saveDraftProposalPackage",
+        eventType: "proposal.draft.schedule_warnings",
+        newState: JSON.stringify({
+          lenderFacilityCents,
+          plannedDrawsCents,
+          warningCount: draftWarnings.length,
+        }),
+        proposalId: args.proposalId,
+        warnings: draftWarnings,
+      });
+    }
+    return { warnings: draftWarnings };
   })
   .public();
 
