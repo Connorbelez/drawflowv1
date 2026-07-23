@@ -86,6 +86,51 @@ async function seeded(roles: string[], subject?: string, organizationId = ORG) {
   return { base, seed, t };
 }
 
+async function seedTokenizedSiteVisitEvidence(
+  t: any,
+  {
+    buildId,
+    locationFailureReason,
+    token,
+  }: {
+    buildId: string;
+    locationFailureReason?: string;
+    token: string;
+  },
+) {
+  await t.run(async (ctx: any) => {
+    const normalizedBuildId = ctx.db.normalizeId("activeBuilds", buildId);
+    const build = await ctx.db.get(normalizedBuildId);
+    const visit = await ctx.db
+      .query("buildSiteVisits")
+      .withIndex("by_visit", (q: any) => q.eq("visitId", token))
+      .unique();
+    if (!(build && visit)) {
+      throw new Error("Site visit test fixture is unavailable.");
+    }
+    const now = Date.now();
+    await ctx.db.insert("buildEvidenceAssets", {
+      brokerageId: build.brokerageId,
+      buildId: normalizedBuildId,
+      createdAt: now,
+      evidenceKey: `site-visit-test-${token}`,
+      fileName: "site-visit-evidence.webp",
+      label: "Site visit evidence",
+      locationFailureReason,
+      locationVerified: false,
+      milestoneKey: visit.milestoneKey,
+      mimeType: "image/webp",
+      organizationId: build.organizationId,
+      proposalId: build.proposalId,
+      siteVisitId: visit._id,
+      sizeBytes: 128_000,
+      source: `active_build_site_visit:${token}:`,
+      tag: "Site visit evidence",
+      updatedAt: now,
+    });
+  });
+}
+
 async function grantOrgMembership(
   t: any,
   {
@@ -5180,6 +5225,9 @@ describe("production proposal foundation", () => {
         builderProfileId: seed.builderProfileId,
         buildName: "Full active build workspace",
         location: "909 Workspace Court",
+        locationLatitude: 43.2557,
+        locationLongitude: -79.8711,
+        locationPlaceId: "workspace-court-place",
         workosOrganizationId: ORG,
       },
     );
@@ -5406,6 +5454,11 @@ describe("production proposal foundation", () => {
       kind: "permit",
       mimeType: "application/pdf",
     });
+    expect(tokenizedVisit.build).toMatchObject({
+      address: "909 Workspace Court",
+      locationLatitude: 43.2557,
+      locationLongitude: -79.8711,
+    });
     expect(tokenizedVisit.targets).toEqual([
       expect.objectContaining({
         guidance: {
@@ -5438,6 +5491,11 @@ describe("production proposal foundation", () => {
         (group: { buildId: string }) => group.buildId === closing.buildId,
       ),
     ).toBe(true);
+    await seedTokenizedSiteVisitEvidence(t, {
+      buildId: String(closing.buildId),
+      locationFailureReason: "Previously outside the site geofence.",
+      token: siteVisit.visitId,
+    });
     await t.mutation(
       (api as any).production_proposals
         .submitActiveBuildTokenizedSiteVisitReport,
@@ -5448,6 +5506,8 @@ describe("production proposal foundation", () => {
           accuracyMeters: 12,
           attempted: true,
           attemptedAt: 1_721_234_567_890,
+          latitude: 43.25571,
+          longitude: -79.87109,
           permissionOutcome: "granted",
           verified: true,
         },
@@ -5484,6 +5544,10 @@ describe("production proposal foundation", () => {
             accuracyMeters: 12,
             attempted: true,
             attemptedAt: 1_721_234_567_890,
+            distanceMeters: 1,
+            geofenceRadiusMeters: 250,
+            latitude: 43.25571,
+            longitude: -79.87109,
             permissionOutcome: "granted",
             verified: true,
           },
@@ -5496,6 +5560,27 @@ describe("production proposal foundation", () => {
           visitId: siteVisit.visitId,
         }),
       ]),
+    );
+    const persistedVisitEvidence = await t.run(async (ctx: any) => {
+      const visit = await ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_visit", (q: any) => q.eq("visitId", siteVisit.visitId))
+        .unique();
+      return await ctx.db
+        .query("buildEvidenceAssets")
+        .withIndex("by_site_visit", (q: any) =>
+          q.eq("siteVisitId", visit._id),
+        )
+        .unique();
+    });
+    expect(persistedVisitEvidence).toMatchObject({
+      locationAccuracyMeters: 12,
+      locationDistanceMeters: 1,
+      locationGeofenceRadiusMeters: 250,
+      locationVerified: true,
+    });
+    expect(persistedVisitEvidence).not.toHaveProperty(
+      "locationFailureReason",
     );
     const replacementRequest = await t.mutation(
       (api as any).production_proposals
@@ -5561,13 +5646,15 @@ describe("production proposal foundation", () => {
       { buildId: String(closing.buildId), workosOrganizationId: ORG },
     );
 
-    expect(workspace.sitePhotos).toEqual([
+    expect(workspace.sitePhotos).toEqual(
+      expect.arrayContaining([
       expect.objectContaining({
         caption: "Foundation site photo",
         evidenceKey: "foundation-site-photo",
         locationVerified: true,
       }),
-    ]);
+      ])
+    );
     expect(workspace.documents.map((doc: any) => doc.fileName)).toEqual(
       expect.arrayContaining(["workspace-permit.pdf", "inspection-scope.pdf"]),
     );
@@ -5979,6 +6066,36 @@ describe("production proposal foundation", () => {
     );
     expect(crossBuildState.available).toBe(false);
     expect(crossOrgState.available).toBe(false);
+
+    await expect(
+      t.mutation(
+        (api as any).production_proposals
+          .submitActiveBuildTokenizedSiteVisitReport,
+        {
+          buildId: String(primary.buildId),
+          completionObserved: true,
+          locationAttempt: {
+            attempted: false,
+            failureReason: "Location permission was unavailable.",
+            permissionOutcome: "denied",
+            verified: false,
+          },
+          missingPrerequisites: [],
+          recommendedOutcome: "needs_information",
+          reportNotes: "<p>Valid visit without uploaded evidence.</p>",
+          token: primaryVisit.visitId,
+        },
+      ),
+    ).rejects.toThrow(/uploaded evidence file is required/i);
+    expect(
+      await t.query(
+        (api as any).production_proposals.getActiveBuildSiteVisitByToken,
+        {
+          buildId: String(primary.buildId),
+          token: primaryVisit.visitId,
+        },
+      ),
+    ).toMatchObject({ available: true });
 
     const before = await t.run(async (ctx: any) => {
       const visit = await ctx.db
@@ -7773,6 +7890,10 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
+    await seedTokenizedSiteVisitEvidence(admin, {
+      buildId: String(closing.buildId),
+      token: visit.visitId,
+    });
     await admin.mutation(
       (api as any).production_proposals
         .submitActiveBuildTokenizedSiteVisitReport,

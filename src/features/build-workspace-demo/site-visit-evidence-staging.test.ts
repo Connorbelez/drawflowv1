@@ -1,13 +1,69 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
+import { evidenceMimeTypeForFile } from "#/lib/evidence-image-normalization.ts";
 
 import {
   assertPackageWithinCap,
   buildStagedEvidence,
-  evidenceMimeTypeForFile,
+  fetchSiteVisitEvidenceWithTimeout,
   packageTotalBytes,
   SITE_VISIT_PACKAGE_CAP_BYTES,
   uploadSiteVisitStagedEvidence,
 } from "./site-visit-evidence-staging";
+
+describe("site visit evidence request timeout", () => {
+  test("turns an upload timeout abort into an actionable error", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const request = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<never>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        }),
+    );
+
+    const result = fetchSiteVisitEvidenceWithTimeout({
+      controller,
+      file: new Blob(["evidence"]),
+      mimeType: "image/jpeg",
+      request,
+      timeoutMs: 1_000,
+      url: "https://upload.example.test",
+    });
+    const rejection = expect(result).rejects.toThrow(
+      "Evidence upload timed out",
+    );
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await rejection;
+    vi.useRealTimers();
+  });
+
+  test("preserves a user cancellation as an AbortError", async () => {
+    const controller = new AbortController();
+    const request = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<never>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        }),
+    );
+
+    const result = fetchSiteVisitEvidenceWithTimeout({
+      controller,
+      file: new Blob(["evidence"]),
+      mimeType: "image/jpeg",
+      request,
+      timeoutMs: 60_000,
+      url: "https://upload.example.test",
+    });
+    controller.abort();
+
+    await expect(result).rejects.toMatchObject({ name: "AbortError" });
+  });
+});
 
 describe("site visit evidence staging", () => {
   test("classifies capture sources and estimates compressed package bytes", () => {

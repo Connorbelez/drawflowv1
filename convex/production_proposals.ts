@@ -34,9 +34,9 @@ import {
 } from "./demo_site_visit_guidance";
 import {
   createSiteVisitRecoveryReference,
-  normalizeSiteVisitReportNotes,
-  siteVisitReportNotesPlainText,
+  resolveSiteVisitGeofenceAttempt,
   validateSiteVisitReplacementRequest,
+  validateSiteVisitReportSubmission,
   validateSiteVisitSubmissionContext,
 } from "./demo_site_visit_tokens";
 import {
@@ -998,11 +998,20 @@ export const createDraftProposal = authenticatedMutation
     builderProfileId: v.id("builderProfiles"),
     buildName: v.string(),
     location: v.string(),
+    locationLatitude: v.optional(v.number()),
+    locationLongitude: v.optional(v.number()),
+    locationPlaceId: v.optional(v.string()),
     proposedStartDate: v.optional(v.string()),
     workosOrganizationId: v.string(),
   })
   .returns(v.id("buildProposals"))
   .handler(async (ctx, args) => {
+    if (
+      (args.locationLatitude === undefined) !==
+      (args.locationLongitude === undefined)
+    ) {
+      throw new Error("Latitude and longitude must be provided together.");
+    }
     const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
     const builderProfile = await assertBuilderProfileScope(
       ctx,
@@ -1049,6 +1058,15 @@ export const createDraftProposal = authenticatedMutation
       interestAnnualBps: 925,
       lenderDrawPolicyLimitCents: 0,
       location: args.location,
+      ...(args.locationLatitude === undefined
+        ? {}
+        : {
+            locationLatitude: args.locationLatitude,
+            locationLongitude: args.locationLongitude,
+          }),
+      ...(args.locationPlaceId?.trim()
+        ? { locationPlaceId: args.locationPlaceId.trim() }
+        : {}),
       organizationId: args.workosOrganizationId,
       ...(args.proposedStartDate === undefined
         ? {}
@@ -1084,11 +1102,20 @@ export const createBrokerDraftProposal = authenticatedMutation
     assignedBrokerWorkosUserId: v.optional(v.string()),
     buildName: v.optional(v.string()),
     location: v.optional(v.string()),
+    locationLatitude: v.optional(v.number()),
+    locationLongitude: v.optional(v.number()),
+    locationPlaceId: v.optional(v.string()),
     proposedStartDate: v.optional(v.string()),
     workosOrganizationId: v.string(),
   })
   .returns(v.id("buildProposals"))
   .handler(async (ctx, args) => {
+    if (
+      (args.locationLatitude === undefined) !==
+      (args.locationLongitude === undefined)
+    ) {
+      throw new Error("Latitude and longitude must be provided together.");
+    }
     const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
     requireAnyRole(auth.roles, BACKOFFICE_ROLES);
     const assignedBrokerWorkosUserId =
@@ -1113,6 +1140,15 @@ export const createBrokerDraftProposal = authenticatedMutation
       interestAnnualBps: 925,
       lenderDrawPolicyLimitCents: 0,
       location: args.location?.trim() || "Unassigned site",
+      ...(args.locationLatitude === undefined
+        ? {}
+        : {
+            locationLatitude: args.locationLatitude,
+            locationLongitude: args.locationLongitude,
+          }),
+      ...(args.locationPlaceId?.trim()
+        ? { locationPlaceId: args.locationPlaceId.trim() }
+        : {}),
       organizationId: args.workosOrganizationId,
       ...(args.proposedStartDate === undefined
         ? {}
@@ -4489,6 +4525,9 @@ export const recordOfflineClosing = authenticatedMutation
       builderProfileId: assignedBuilderProfileId,
       createdAt: now,
       location: auth.proposal.location,
+      locationLatitude: auth.proposal.locationLatitude,
+      locationLongitude: auth.proposal.locationLongitude,
+      locationPlaceId: auth.proposal.locationPlaceId,
       organizationId: args.workosOrganizationId,
       permitDocumentId: permit?._id,
       permitWaiverId: permitWaiver?._id,
@@ -10430,7 +10469,11 @@ const siteVisitLocationAttemptValidator = v.object({
   accuracyMeters: v.optional(v.number()),
   attempted: v.boolean(),
   attemptedAt: v.optional(v.number()),
+  distanceMeters: v.optional(v.number()),
   failureReason: v.optional(v.string()),
+  geofenceRadiusMeters: v.optional(v.number()),
+  latitude: v.optional(v.number()),
+  longitude: v.optional(v.number()),
   permissionOutcome: v.union(
     v.literal("denied"),
     v.literal("granted"),
@@ -16178,6 +16221,7 @@ export const generateActiveBuildSiteVisitUploadUrl = publicMutation
 export const registerActiveBuildSiteVisitFile = publicMutation
   .input({
     buildId: v.string(),
+    clientEvidenceId: v.optional(v.string()),
     contractorIds: v.optional(v.array(v.id("contractorProfiles"))),
     fileName: v.string(),
     mimeType: v.string(),
@@ -16186,6 +16230,7 @@ export const registerActiveBuildSiteVisitFile = publicMutation
     targetMilestoneKey: v.optional(v.string()),
     targetSubmilestoneKey: v.optional(v.string()),
     token: v.string(),
+    locationAttempt: v.optional(siteVisitLocationAttemptValidator),
   })
   .returns(v.null())
   .handler(async (ctx, args) => {
@@ -16209,21 +16254,61 @@ export const registerActiveBuildSiteVisitFile = publicMutation
     if (!(build && visit) || visit.buildId !== buildId) {
       throw new Error("Site visit token is invalid.");
     }
+    if (args.clientEvidenceId) {
+      const existing = await ctx.db
+        .query("buildEvidenceAssets")
+        .withIndex("by_site_visit_client", (q) =>
+          q
+            .eq("siteVisitId", visit._id)
+            .eq("clientEvidenceId", args.clientEvidenceId)
+        )
+        .unique();
+      if (existing) {
+        return null;
+      }
+    }
+    const resolvedLocationAttempt = args.locationAttempt
+      ? resolveSiteVisitGeofenceAttempt({
+          locationAttempt: args.locationAttempt,
+          siteLatitude: build.locationLatitude,
+          siteLongitude: build.locationLongitude,
+        })
+      : undefined;
     const now = Date.now();
     await ctx.db.insert("buildEvidenceAssets", {
       brokerageId: build.brokerageId,
       buildId,
+      clientEvidenceId: args.clientEvidenceId,
       contractorIds: args.contractorIds,
       createdAt: now,
       evidenceKey: `site-visit-${args.token}-${now}`,
       fileName: args.fileName,
       label: args.fileName,
-      locationVerified: true,
+      locationVerified: resolvedLocationAttempt?.verified ?? false,
+      ...(resolvedLocationAttempt?.accuracyMeters === undefined
+        ? {}
+        : { locationAccuracyMeters: resolvedLocationAttempt.accuracyMeters }),
+      ...(resolvedLocationAttempt?.attemptedAt === undefined
+        ? {}
+        : { locationAttemptedAt: resolvedLocationAttempt.attemptedAt }),
+      ...(resolvedLocationAttempt?.distanceMeters === undefined
+        ? {}
+        : { locationDistanceMeters: resolvedLocationAttempt.distanceMeters }),
+      ...(resolvedLocationAttempt?.failureReason
+        ? { locationFailureReason: resolvedLocationAttempt.failureReason }
+        : {}),
+      ...(resolvedLocationAttempt?.geofenceRadiusMeters === undefined
+        ? {}
+        : {
+            locationGeofenceRadiusMeters:
+              resolvedLocationAttempt.geofenceRadiusMeters,
+          }),
       milestoneKey: args.targetMilestoneKey ?? visit.milestoneKey,
       mimeType: args.mimeType,
       organizationId: build.organizationId,
       proposalId: build.proposalId,
       sizeBytes: Math.max(0, Math.round(args.sizeBytes)),
+      siteVisitId: visit._id,
       source: `active_build_site_visit:${args.token}:${args.targetSubmilestoneKey ?? ""}`,
       storageId: args.storageId,
       submilestoneKey: args.targetSubmilestoneKey,
@@ -16285,8 +16370,6 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
     if (!state.available) {
       throw new Error("Site visit token is not active.");
     }
-    const reportNotes = normalizeSiteVisitReportNotes(args.reportNotes);
-    const reportNotesText = siteVisitReportNotesPlainText(reportNotes);
     const buildId = ctx.db.normalizeId("activeBuilds", args.buildId);
     if (!buildId) {
       throw new Error("Site visit token is invalid.");
@@ -16299,6 +16382,26 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
     if (!(build && visit) || visit.buildId !== buildId) {
       throw new Error("Site visit token is invalid.");
     }
+    const visitEvidence = (
+      await ctx.db
+        .query("buildEvidenceAssets")
+        .withIndex("by_build", (q) => q.eq("buildId", buildId))
+        .collect()
+    ).filter(
+      (asset) =>
+        asset.siteVisitId === visit._id ||
+        asset.source.startsWith(`active_build_site_visit:${args.token}:`)
+    );
+    const validatedReport = validateSiteVisitReportSubmission({
+      compressedPackageBytes: visitEvidence.reduce(
+        (sum, asset) => sum + asset.sizeBytes,
+        0
+      ),
+      reportNotes: args.reportNotes,
+      uploadedEvidenceCount: visitEvidence.length,
+    });
+    const reportNotes = validatedReport.reportNotes;
+    const reportNotesText = validatedReport.reportNotesText;
     const permitDocuments = await ctx.db
       .query("buildDocuments")
       .withIndex("by_build_type", (q) =>
@@ -16310,10 +16413,46 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
       ...(permitDocuments.length === 0 ? (["permit"] as const) : []),
     ];
     const submissionContext = validateSiteVisitSubmissionContext({
-      locationAttempt: args.locationAttempt,
+      locationAttempt: resolveSiteVisitGeofenceAttempt({
+        locationAttempt: args.locationAttempt,
+        siteLatitude: build.locationLatitude,
+        siteLongitude: build.locationLongitude,
+      }),
       missingPrerequisites,
       prerequisiteException: args.prerequisiteException,
     });
+    for (const asset of visitEvidence) {
+      await ctx.db.patch(asset._id, {
+        locationVerified: submissionContext.locationAttempt.verified,
+        ...(submissionContext.locationAttempt.accuracyMeters === undefined
+          ? {}
+          : {
+              locationAccuracyMeters:
+                submissionContext.locationAttempt.accuracyMeters,
+            }),
+        ...(submissionContext.locationAttempt.attemptedAt === undefined
+          ? {}
+          : {
+              locationAttemptedAt:
+                submissionContext.locationAttempt.attemptedAt,
+            }),
+        ...(submissionContext.locationAttempt.distanceMeters === undefined
+          ? {}
+          : {
+              locationDistanceMeters:
+                submissionContext.locationAttempt.distanceMeters,
+            }),
+        locationFailureReason: submissionContext.locationAttempt.failureReason,
+        ...(submissionContext.locationAttempt.geofenceRadiusMeters === undefined
+          ? {}
+          : {
+              locationGeofenceRadiusMeters:
+                submissionContext.locationAttempt.geofenceRadiusMeters,
+            }),
+        siteVisitId: visit._id,
+        updatedAt: Date.now(),
+      });
+    }
     const milestone = await ctx.db.get(visit.buildMilestoneId);
     if (!milestone) {
       throw new Error("Site visit milestone was not found.");
@@ -16397,7 +16536,9 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
       organizationId: build.organizationId,
       priorState: JSON.stringify(visit),
       reason: reportNotesText,
-      warnings: [],
+      warnings: submissionContext.locationAttempt.verified
+        ? []
+        : ["site_visit_location_unverified"],
     });
     await ctx.db.insert("eventOutbox", {
       brokerageId: build.brokerageId,
@@ -25571,7 +25712,10 @@ async function getActiveBuildSiteVisitTokenState(
     .withIndex("by_visit", (q) => q.eq("visitId", token))
     .unique();
   const buildView = {
+    address: build.location,
     key: String(build._id),
+    locationLatitude: build.locationLatitude,
+    locationLongitude: build.locationLongitude,
     name: build.buildName,
     subtitle: build.location,
   };
@@ -29787,6 +29931,9 @@ async function seedCloseProposal(
     builderProfileId: assignedBuilderProfileId,
     createdAt: input.now,
     location: proposal.location,
+    locationLatitude: proposal.locationLatitude,
+    locationLongitude: proposal.locationLongitude,
+    locationPlaceId: proposal.locationPlaceId,
     organizationId: input.organizationId,
     permitDocumentId: permit?._id,
     permitWaiverId: permitWaiver?._id,

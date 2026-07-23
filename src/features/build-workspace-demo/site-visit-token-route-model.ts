@@ -1,32 +1,102 @@
-type UnavailableState = {
+interface UnavailableState {
   reason?: "consumed" | "expired" | "not_found" | null;
   status: "completed" | "expired" | "invalid";
-};
+}
 
 const OLD_BACKOFFICE_SITE_VISIT_ROUTE =
   /\/backoffice\/builds?\/([^/?#]+)\/newsitevisit\/([^/?#]+)/;
 const NEW_SITE_VISIT_ROUTE = /\/newsitevisit\/([^/?#]+)\/([^/?#]+)/;
+const TRAILING_DECIMAL_ZERO = /\.0$/;
 
-export type SiteVisitLocationAttempt = {
+export interface SiteVisitLocationAttempt {
   accuracyMeters?: number;
   attempted: boolean;
   attemptedAt?: number;
+  distanceMeters?: number;
   failureReason?: string;
+  geofenceRadiusMeters?: number;
+  latitude?: number;
+  longitude?: number;
   permissionOutcome: "denied" | "granted" | "not_requested" | "unavailable";
   verified: boolean;
-};
+}
+
+export const SITE_VISIT_GEOFENCE_RADIUS_METERS = 250;
+
+interface Coordinates {
+  latitude: number;
+  longitude: number;
+}
 
 export function locationAttemptFromPosition(
-  coords: { accuracy: number },
-  attemptedAt: number
+  coords: Coordinates & { accuracy: number },
+  attemptedAt: number,
+  siteCoordinates?: Coordinates | null
 ): SiteVisitLocationAttempt {
+  const accuracyMeters = Math.max(0, Math.round(coords.accuracy));
+  if (!siteCoordinates) {
+    return {
+      accuracyMeters,
+      attempted: true,
+      attemptedAt,
+      failureReason:
+        "The device location was recorded, but the Build has no site coordinates for geofence verification.",
+      latitude: coords.latitude,
+      longitude: coords.longitude,
+      permissionOutcome: "granted",
+      verified: false,
+    };
+  }
+  const distanceMeters = Math.round(
+    distanceBetweenCoordinatesMeters(coords, siteCoordinates)
+  );
+  const verified =
+    distanceMeters + accuracyMeters <= SITE_VISIT_GEOFENCE_RADIUS_METERS;
+  const confidentlyOutside =
+    distanceMeters - accuracyMeters > SITE_VISIT_GEOFENCE_RADIUS_METERS;
   return {
-    accuracyMeters: Math.max(0, Math.round(coords.accuracy)),
+    accuracyMeters,
     attempted: true,
     attemptedAt,
+    distanceMeters,
+    ...(verified
+      ? {}
+      : {
+          failureReason: confidentlyOutside
+            ? `Device location is ${distanceMeters} m from the Build site, outside the ${SITE_VISIT_GEOFENCE_RADIUS_METERS} m geofence.`
+            : `Device location accuracy overlaps the ${SITE_VISIT_GEOFENCE_RADIUS_METERS} m geofence boundary and requires lender review.`,
+        }),
+    geofenceRadiusMeters: SITE_VISIT_GEOFENCE_RADIUS_METERS,
+    latitude: coords.latitude,
+    longitude: coords.longitude,
     permissionOutcome: "granted",
-    verified: true,
+    verified,
   };
+}
+
+export function distanceBetweenCoordinatesMeters(
+  first: Coordinates,
+  second: Coordinates
+): number {
+  const earthRadiusMeters = 6_371_000;
+  const latitudeDelta = degreesToRadians(second.latitude - first.latitude);
+  const longitudeDelta = degreesToRadians(second.longitude - first.longitude);
+  const firstLatitude = degreesToRadians(first.latitude);
+  const secondLatitude = degreesToRadians(second.latitude);
+  const haversine =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(firstLatitude) *
+      Math.cos(secondLatitude) *
+      Math.sin(longitudeDelta / 2) ** 2;
+  return (
+    earthRadiusMeters *
+    2 *
+    Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
+  );
+}
+
+function degreesToRadians(value: number) {
+  return (value * Math.PI) / 180;
 }
 
 export function locationAttemptFromError(
@@ -126,5 +196,5 @@ export function resolveSiteVisitUnavailableCopy(state: UnavailableState) {
 }
 
 function trimDecimal(value: number) {
-  return value.toFixed(value >= 10 ? 0 : 1).replace(/\.0$/, "");
+  return value.toFixed(value >= 10 ? 0 : 1).replace(TRAILING_DECIMAL_ZERO, "");
 }

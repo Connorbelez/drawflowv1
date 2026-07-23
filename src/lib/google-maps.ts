@@ -267,6 +267,50 @@ export function createGoogleSatelliteMapUrl({
   return url.toString();
 }
 
+interface GoogleMapTarget {
+  address?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+}
+
+export function createGoogleMapsEmbedUrl(
+  target: GoogleMapTarget
+): string | null {
+  const query = googleMapTargetQuery(target);
+  if (!query) {
+    return null;
+  }
+  const url = new URL("https://www.google.com/maps");
+  url.searchParams.set("q", query);
+  url.searchParams.set("z", "18");
+  url.searchParams.set("output", "embed");
+  return url.toString();
+}
+
+export function createGoogleMapsOpenUrl(
+  target: GoogleMapTarget
+): string | null {
+  const query = googleMapTargetQuery(target);
+  if (!query) {
+    return null;
+  }
+  const url = new URL("https://www.google.com/maps/search/");
+  url.searchParams.set("api", "1");
+  url.searchParams.set("query", query);
+  return url.toString();
+}
+
+function googleMapTargetQuery({
+  address,
+  latitude,
+  longitude,
+}: GoogleMapTarget): string | null {
+  if (typeof latitude === "number" && typeof longitude === "number") {
+    return `${latitude},${longitude}`;
+  }
+  return address?.trim() || null;
+}
+
 function normalizeAddressPrediction(
   prediction: GoogleAutocompletePrediction
 ): GoogleAddressSuggestion {

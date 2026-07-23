@@ -11,6 +11,7 @@ import {
   createSiteVisitRecoveryReference,
   generateSiteVisitToken,
   hashSiteVisitToken,
+  resolveSiteVisitGeofenceAttempt,
   validateIncludedSiteVisitMilestones,
   validateSiteVisitReplacementRequest,
   validateSiteVisitReportSubmission,
@@ -28,7 +29,11 @@ const siteVisitLocationAttemptValidator = v.object({
   accuracyMeters: v.optional(v.number()),
   attempted: v.boolean(),
   attemptedAt: v.optional(v.number()),
+  distanceMeters: v.optional(v.number()),
   failureReason: v.optional(v.string()),
+  geofenceRadiusMeters: v.optional(v.number()),
+  latitude: v.optional(v.number()),
+  longitude: v.optional(v.number()),
   permissionOutcome: v.union(
     v.literal("denied"),
     v.literal("granted"),
@@ -1233,6 +1238,8 @@ async function seedActive(ctx: DemoMutationCtx) {
     interestAnnualBps: INTEREST_ANNUAL_BPS,
     key: "active-maple-ridge",
     lenderDrawPolicyLimitCents: WORKING_CAPITAL_CENTS,
+    locationLatitude: 43.2557,
+    locationLongitude: -79.8711,
     name: "Maple Ridge Townhomes",
     ownerPersona: MOCK_BUILDER_PERSONA,
     payoffDate: "2027-01-05",
@@ -1361,6 +1368,8 @@ async function seedProposal(ctx: DemoMutationCtx) {
     interestAnnualBps: INTEREST_ANNUAL_BPS,
     key: "proposal-maple-ridge",
     lenderDrawPolicyLimitCents: WORKING_CAPITAL_CENTS,
+    locationLatitude: 43.2557,
+    locationLongitude: -79.8711,
     name: "Maple Ridge Townhomes",
     ownerPersona: MOCK_BUILDER_PERSONA,
     payoffDate: "2027-01-05",
@@ -3787,7 +3796,11 @@ export const demo_submitTokenizedSiteVisitReport = publicMutation
     );
     const permit = await getDemoSiteVisitPermit(ctx, build);
     const submissionContext = validateSiteVisitSubmissionContext({
-      locationAttempt: args.locationAttempt,
+      locationAttempt: resolveSiteVisitGeofenceAttempt({
+        locationAttempt: args.locationAttempt,
+        siteLatitude: build.locationLatitude,
+        siteLongitude: build.locationLongitude,
+      }),
       missingPrerequisites: [
         ...args.missingPrerequisites,
         ...(permit ? [] : (["permit"] as const)),
@@ -3806,9 +3819,12 @@ export const demo_submitTokenizedSiteVisitReport = publicMutation
     const notes = validatedReport.reportNotes;
     const completedAt = Date.now();
     const targets = await getSiteVisitTargets(ctx, visit._id);
-    const riskFlags = args.completionObserved
-      ? []
-      : ["completion_not_observed"];
+    const riskFlags = [
+      ...(args.completionObserved ? [] : ["completion_not_observed"]),
+      ...(submissionContext.locationAttempt.verified
+        ? []
+        : ["site_visit_location_unverified"]),
+    ];
 
     await ctx.db.patch(visit._id, {
       claimedAt: visit.claimedAt ?? completedAt,

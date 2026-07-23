@@ -5,7 +5,11 @@ const siteVisitLocationAttemptValidator = v.object({
   accuracyMeters: v.optional(v.number()),
   attempted: v.boolean(),
   attemptedAt: v.optional(v.number()),
+  distanceMeters: v.optional(v.number()),
   failureReason: v.optional(v.string()),
+  geofenceRadiusMeters: v.optional(v.number()),
+  latitude: v.optional(v.number()),
+  longitude: v.optional(v.number()),
   permissionOutcome: v.union(
     v.literal("denied"),
     v.literal("granted"),
@@ -602,6 +606,8 @@ export default defineSchema({
     interestAnnualBps: v.number(),
     key: v.string(),
     lenderDrawPolicyLimitCents: v.number(),
+    locationLatitude: v.optional(v.number()),
+    locationLongitude: v.optional(v.number()),
     name: v.string(),
     orgKey: v.optional(v.string()),
     ownerPersona: v.optional(v.string()),
@@ -2103,6 +2109,9 @@ export default defineSchema({
     assignedBrokerWorkosUserId: v.optional(v.string()),
     buildName: v.string(),
     location: v.string(),
+    locationLatitude: v.optional(v.number()),
+    locationLongitude: v.optional(v.number()),
+    locationPlaceId: v.optional(v.string()),
     status: productionProposalStatusValidator,
     reviewOutcome: productionReviewOutcomeValidator,
     totalBudgetCents: v.number(),
@@ -2961,14 +2970,23 @@ export default defineSchema({
     tag: v.string(),
     submilestoneKey: v.optional(v.string()),
     contractorIds: v.optional(v.array(v.id("contractorProfiles"))),
+    clientEvidenceId: v.optional(v.string()),
+    siteVisitId: v.optional(v.id("buildSiteVisits")),
     locationVerified: v.boolean(),
+    locationAccuracyMeters: v.optional(v.number()),
+    locationAttemptedAt: v.optional(v.number()),
+    locationDistanceMeters: v.optional(v.number()),
+    locationFailureReason: v.optional(v.string()),
+    locationGeofenceRadiusMeters: v.optional(v.number()),
     source: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_build", ["buildId"])
     .index("by_build_key", ["buildId", "evidenceKey"])
-    .index("by_build_milestone", ["buildId", "milestoneKey"]),
+    .index("by_build_milestone", ["buildId", "milestoneKey"])
+    .index("by_site_visit", ["siteVisitId"])
+    .index("by_site_visit_client", ["siteVisitId", "clientEvidenceId"]),
   buildNotes: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
