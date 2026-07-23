@@ -33,8 +33,10 @@ import {
 import { cn } from "#/lib/utils.ts";
 
 export type MaterialPlanningItemType = "equipment" | "material";
+export type MaterialPlanningBudgetTreatment = "add" | "logOnly" | "maintain";
 
 export interface MaterialPlanningSubmilestone {
+  budgetCents?: number;
   key: string;
   milestoneKey?: string;
   name: string;
@@ -51,6 +53,8 @@ export interface MaterialPlanningMilestone {
 
 export interface MaterialPlanningItem {
   _id: string;
+  budgetSubmilestoneKey?: string;
+  budgetTreatment?: MaterialPlanningBudgetTreatment;
   costCents: number;
   description?: string;
   itemKey?: string;
@@ -65,6 +69,8 @@ export interface MaterialPlanningItem {
 }
 
 export interface MaterialPlanningPayload {
+  budgetSubmilestoneKey: null | string;
+  budgetTreatment: MaterialPlanningBudgetTreatment;
   costCents: number;
   description?: string;
   itemType: MaterialPlanningItemType;
@@ -96,7 +102,11 @@ export interface MaterialPlanningBudgetImpact {
 interface MaterialPlanningTabProps {
   actions?: MaterialPlanningActions;
   budgetImpact?: MaterialPlanningBudgetImpact;
+  budgetTreatmentEnabled?: boolean;
+  defaultBudgetSubmilestoneKey?: string;
+  defaultBudgetTreatment?: MaterialPlanningBudgetTreatment;
   items: MaterialPlanningItem[];
+  lockBudgetTreatment?: boolean;
   milestones: MaterialPlanningMilestone[];
   panelLayout?: "auto" | "stacked";
   readOnly?: boolean;
@@ -106,6 +116,8 @@ interface MaterialPlanningTabProps {
 }
 
 type ItemFormState = {
+  budgetSubmilestoneKey: string;
+  budgetTreatment: MaterialPlanningBudgetTreatment;
   costCents: string;
   description: string;
   itemType: MaterialPlanningItemType;
@@ -130,7 +142,11 @@ const TOUCH_SELECT_CLASS =
 export function MaterialPlanningTab({
   actions,
   budgetImpact,
+  budgetTreatmentEnabled = false,
+  defaultBudgetSubmilestoneKey,
+  defaultBudgetTreatment = "logOnly",
   items,
+  lockBudgetTreatment = false,
   panelLayout = "auto",
   milestones,
   readOnly = false,
@@ -358,7 +374,8 @@ export function MaterialPlanningTab({
                   <p className="text-muted-foreground text-sm">
                     {selectedMilestoneItems.length} item
                     {selectedMilestoneItems.length === 1 ? "" : "s"} /{" "}
-                    {formatCents(selectedMilestonePlannedCents)} cost-only detail
+                    {formatCents(selectedMilestonePlannedCents)} cost-only
+                    detail
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
@@ -387,7 +404,8 @@ export function MaterialPlanningTab({
               {selectedMilestoneItems.length === 0 ? (
                 <Frame>
                   <FramePanel className="p-4 text-muted-foreground text-sm">
-                    No material or equipment entries are attached to {selectedMilestone.name}.
+                    No material or equipment entries are attached to{" "}
+                    {selectedMilestone.name}.
                   </FramePanel>
                 </Frame>
               ) : (
@@ -406,7 +424,9 @@ export function MaterialPlanningTab({
                       item={item}
                       key={item._id}
                       milestone={selectedMilestone}
-                      onDelete={(reason) => void runDeleteWithReason(item, reason)}
+                      onDelete={(reason) =>
+                        void runDeleteWithReason(item, reason)
+                      }
                       onEdit={() =>
                         setActiveEditor({ itemId: item._id, mode: "edit" })
                       }
@@ -475,9 +495,14 @@ export function MaterialPlanningTab({
             {activeEditor?.mode === "edit" && editingItem ? (
               <MaterialItemEditor
                 budgetImpact={budgetImpact}
+                budgetTreatmentEnabled={budgetTreatmentEnabled}
                 chrome="plain"
+                defaultBudgetSubmilestoneKey={defaultBudgetSubmilestoneKey}
+                defaultBudgetTreatment={defaultBudgetTreatment}
                 item={editingItem}
+                items={items}
                 key={editingItem._id}
+                lockBudgetTreatment={lockBudgetTreatment}
                 milestones={sortedMilestones}
                 onCancel={() => setActiveEditor(null)}
                 onSubmit={async (payload) => {
@@ -493,8 +518,13 @@ export function MaterialPlanningTab({
             ) : activeEditor?.mode === "create" ? (
               <MaterialItemEditor
                 budgetImpact={budgetImpact}
+                budgetTreatmentEnabled={budgetTreatmentEnabled}
                 chrome="plain"
+                defaultBudgetSubmilestoneKey={defaultBudgetSubmilestoneKey}
+                defaultBudgetTreatment={defaultBudgetTreatment}
                 key={activeEditor.milestoneKey}
+                items={items}
+                lockBudgetTreatment={lockBudgetTreatment}
                 milestones={sortedMilestones}
                 onCancel={() => setActiveEditor(null)}
                 onSubmit={async (payload) => {
@@ -518,8 +548,13 @@ export function MaterialPlanningTab({
 
 function MaterialItemEditor({
   budgetImpact,
+  budgetTreatmentEnabled,
   chrome = "frame",
+  defaultBudgetSubmilestoneKey,
+  defaultBudgetTreatment,
   item,
+  items,
+  lockBudgetTreatment = false,
   milestones,
   onCancel,
   onSubmit,
@@ -529,8 +564,13 @@ function MaterialItemEditor({
   submitLabel,
 }: {
   budgetImpact?: MaterialPlanningBudgetImpact;
+  budgetTreatmentEnabled: boolean;
   chrome?: "frame" | "plain";
+  defaultBudgetSubmilestoneKey?: string;
+  defaultBudgetTreatment: MaterialPlanningBudgetTreatment;
   item?: MaterialPlanningItem;
+  items: MaterialPlanningItem[];
+  lockBudgetTreatment?: boolean;
   milestones: MaterialPlanningMilestone[];
   onCancel?: () => void;
   onSubmit: (payload: MaterialPlanningPayload) => Promise<unknown> | unknown;
@@ -540,26 +580,89 @@ function MaterialItemEditor({
   submitLabel: string;
 }) {
   const [form, setForm] = useState<ItemFormState>(() =>
-    itemToFormState(item, selectedMilestoneKey ?? milestones[0]?.key ?? "")
+    itemToFormState(
+      item,
+      selectedMilestoneKey ?? milestones[0]?.key ?? "",
+      defaultBudgetSubmilestoneKey,
+      budgetTreatmentEnabled ? defaultBudgetTreatment : "add"
+    )
   );
   const selectedMilestone =
     milestones.find((milestone) => milestone.key === form.milestoneKey) ??
     milestones[0];
+  const selectedBudgetSubmilestone = selectedMilestone?.submilestones?.find(
+    (submilestone) => submilestone.key === form.budgetSubmilestoneKey
+  );
   const costEntered = form.costCents.trim().length > 0;
   const quantityEntered = form.quantity.trim().length > 0;
   const costInvalid = costEntered && !costDollarsValid(form.costCents);
   const quantityInvalid = quantityEntered && !quantityPositive(form.quantity);
+  const budgetTargetRequired =
+    budgetTreatmentEnabled && form.budgetTreatment !== "logOnly";
+  const budgetTargetMissing =
+    budgetTargetRequired && !selectedBudgetSubmilestone;
+  const draftItemTotalCents = Math.round(
+    dollarsInputToCents(form.costCents) * numberFromInput(form.quantity, 0)
+  );
+  const existingItemTotalCents = item ? totalForItem(item) : 0;
+  const existingBudgetEffectCents =
+    normalizeBudgetTreatment(item?.budgetTreatment) === "add"
+      ? existingItemTotalCents
+      : 0;
+  const draftBudgetEffectCents =
+    form.budgetTreatment === "add" ? draftItemTotalCents : 0;
+  const sameBudgetTarget =
+    item?.milestoneKey === selectedMilestone?.key &&
+    (item?.budgetSubmilestoneKey ?? "") === form.budgetSubmilestoneKey;
+  const proposalBudgetDeltaCents =
+    draftBudgetEffectCents - existingBudgetEffectCents;
+  const selectedMilestoneBudgetDeltaCents =
+    draftBudgetEffectCents -
+    (item?.milestoneKey === selectedMilestone?.key
+      ? existingBudgetEffectCents
+      : 0);
+  const budgetTargetBeforeCents = selectedBudgetSubmilestone
+    ? (selectedBudgetSubmilestone.budgetCents ??
+      selectedMilestone?.budgetCents ??
+      0)
+    : (selectedMilestone?.budgetCents ?? 0);
+  const budgetTargetAfterCents = Math.max(
+    0,
+    budgetTargetBeforeCents +
+      draftBudgetEffectCents -
+      (sameBudgetTarget ? existingBudgetEffectCents : 0)
+  );
+  const maintainedBeforeCents = items.reduce((total, candidate) => {
+    if (
+      candidate._id === item?._id ||
+      normalizeBudgetTreatment(candidate.budgetTreatment) !== "maintain" ||
+      candidate.milestoneKey !== selectedMilestone?.key ||
+      candidate.budgetSubmilestoneKey !== form.budgetSubmilestoneKey
+    ) {
+      return total;
+    }
+    return total + totalForItem(candidate);
+  }, 0);
+  const maintainedAfterCents =
+    maintainedBeforeCents +
+    (form.budgetTreatment === "maintain" ? draftItemTotalCents : 0);
+  const maintainedRemainingCents =
+    budgetTargetAfterCents - maintainedAfterCents;
+  const maintainOverBudget =
+    form.budgetTreatment === "maintain" && maintainedRemainingCents < 0;
   const canSubmit = Boolean(
     form.title.trim() &&
       form.milestoneKey &&
-      costEntered &&
-      costDollarsValid(form.costCents) &&
+      !costInvalid &&
       quantityPositive(form.quantity) &&
+      !budgetTargetMissing &&
+      !maintainOverBudget &&
       !pending
   );
   const submitGuidance = materialSubmitGuidance({
-    costEntered,
     costInvalid,
+    budgetTargetMissing,
+    maintainOverBudget,
     milestoneEntered: form.milestoneKey.length > 0,
     pending: Boolean(pending),
     quantityEntered,
@@ -567,35 +670,27 @@ function MaterialItemEditor({
     submitLabel,
     titleEntered: form.title.trim().length > 0,
   });
-  const draftItemTotalCents = Math.round(
-    dollarsInputToCents(form.costCents) * numberFromInput(form.quantity, 0)
-  );
-  const existingItemTotalCents = item ? totalForItem(item) : 0;
-  const proposalBudgetDeltaCents =
-    draftItemTotalCents - existingItemTotalCents;
-  const selectedMilestoneBudgetDeltaCents =
-    draftItemTotalCents -
-    (item?.milestoneKey === selectedMilestone?.key
-      ? existingItemTotalCents
-      : 0);
-  const selectedMilestoneBudgetAfterCents = selectedMilestone
-    ? Math.max(
-        0,
-        selectedMilestone.budgetCents + selectedMilestoneBudgetDeltaCents
-      )
-    : 0;
   const proposalBudgetAfterCents = budgetImpact
-    ? Math.max(
-        0,
-        budgetImpact.proposalBudgetCents + proposalBudgetDeltaCents
-      )
+    ? Math.max(0, budgetImpact.proposalBudgetCents + proposalBudgetDeltaCents)
     : 0;
 
   useEffect(() => {
     setForm(
-      itemToFormState(item, selectedMilestoneKey ?? milestones[0]?.key ?? "")
+      itemToFormState(
+        item,
+        selectedMilestoneKey ?? milestones[0]?.key ?? "",
+        defaultBudgetSubmilestoneKey,
+        budgetTreatmentEnabled ? defaultBudgetTreatment : "add"
+      )
     );
-  }, [item, milestones, selectedMilestoneKey]);
+  }, [
+    defaultBudgetSubmilestoneKey,
+    defaultBudgetTreatment,
+    budgetTreatmentEnabled,
+    item,
+    milestones,
+    selectedMilestoneKey,
+  ]);
 
   function setField<Key extends keyof ItemFormState>(
     key: Key,
@@ -674,6 +769,7 @@ function MaterialItemEditor({
               onChange={(event) =>
                 setForm((current) => ({
                   ...current,
+                  budgetSubmilestoneKey: "",
                   milestoneKey: event.target.value,
                   relevantSubmilestoneKeys: [],
                 }))
@@ -688,6 +784,89 @@ function MaterialItemEditor({
             </NativeSelect>
           </div>
         </div>
+        {budgetTreatmentEnabled ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2">
+              <Label htmlFor={fieldId(item, "budgetTreatment")}>
+                Budget treatment
+              </Label>
+              <NativeSelect
+                className={cn("w-full", TOUCH_SELECT_CLASS)}
+                disabled={lockBudgetTreatment}
+                id={fieldId(item, "budgetTreatment")}
+                onChange={(event) => {
+                  const budgetTreatment = event.target
+                    .value as MaterialPlanningBudgetTreatment;
+                  setForm((current) => ({
+                    ...current,
+                    budgetSubmilestoneKey:
+                      budgetTreatment === "logOnly"
+                        ? ""
+                        : current.budgetSubmilestoneKey,
+                    budgetTreatment,
+                  }));
+                }}
+                value={form.budgetTreatment}
+              >
+                <NativeSelectOption value="logOnly">
+                  Log only
+                </NativeSelectOption>
+                <NativeSelectOption value="add">
+                  Add to sub-milestone
+                </NativeSelectOption>
+                <NativeSelectOption value="maintain">
+                  Maintain sub-milestone total
+                </NativeSelectOption>
+              </NativeSelect>
+              <p className="text-muted-foreground text-xs">
+                {lockBudgetTreatment
+                  ? "Budget treatment is locked after proposal closing. Cost and quantity remain editable."
+                  : budgetTreatmentDescription(form.budgetTreatment)}
+              </p>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor={fieldId(item, "budgetSubmilestoneKey")}>
+                Budget sub-milestone
+              </Label>
+              <NativeSelect
+                aria-invalid={budgetTargetMissing || undefined}
+                className={cn("w-full", TOUCH_SELECT_CLASS)}
+                disabled={lockBudgetTreatment}
+                id={fieldId(item, "budgetSubmilestoneKey")}
+                onChange={(event) =>
+                  setField("budgetSubmilestoneKey", event.target.value)
+                }
+                value={form.budgetSubmilestoneKey}
+              >
+                <NativeSelectOption value="">
+                  {form.budgetTreatment === "logOnly"
+                    ? "No budget target"
+                    : "Select a sub-milestone"}
+                </NativeSelectOption>
+                {(selectedMilestone?.submilestones ?? []).map(
+                  (submilestone) => (
+                    <NativeSelectOption
+                      key={submilestone.key}
+                      value={submilestone.key}
+                    >
+                      {submilestone.name}
+                    </NativeSelectOption>
+                  )
+                )}
+              </NativeSelect>
+              {budgetTargetMissing ? (
+                <p className="text-destructive text-xs" role="alert">
+                  Select one budget sub-milestone for this treatment.
+                </p>
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  Relevance tags below may still include multiple
+                  sub-milestones.
+                </p>
+              )}
+            </div>
+          </div>
+        ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="grid gap-2">
             <Label htmlFor={fieldId(item, "costCents")}>
@@ -710,7 +889,8 @@ function MaterialItemEditor({
               className="text-muted-foreground text-xs"
               id={fieldId(item, "costHelp")}
             >
-              Must be greater than zero.
+              Optional. Leave blank to log this item without a cost; negative
+              amounts are not allowed.
             </p>
             {costInvalid ? (
               <p
@@ -806,7 +986,7 @@ function MaterialItemEditor({
             )}
           </div>
         </div>
-        {budgetImpact && selectedMilestone ? (
+        {selectedMilestone && (budgetImpact || budgetTreatmentEnabled) ? (
           <section
             aria-labelledby={fieldId(item, "budgetImpactTitle")}
             className="grid gap-3 rounded-lg border bg-muted/30 p-3"
@@ -819,7 +999,8 @@ function MaterialItemEditor({
                 Budget impact
               </h3>
               <p className="mt-1 text-muted-foreground text-xs">
-                Review the projected proposal and reimbursement draw changes before saving.
+                Review the projected proposal and reimbursement draw changes
+                before saving.
               </p>
             </div>
             <dl className="grid gap-3 text-sm">
@@ -827,27 +1008,62 @@ function MaterialItemEditor({
                 label="Item total"
                 value={formatCents(draftItemTotalCents)}
               />
-              <ImpactPreviewComparison
-                afterCents={selectedMilestoneBudgetAfterCents}
-                beforeCents={selectedMilestone.budgetCents}
-                label={`${selectedMilestone.name} budget`}
-              />
-              <ImpactPreviewComparison
-                afterCents={proposalBudgetAfterCents}
-                beforeCents={budgetImpact.proposalBudgetCents}
-                label="Proposal budget"
-              />
-              <ImpactPreviewComparison
-                afterCents={calculateDrawAvailability(
-                  selectedMilestoneBudgetAfterCents,
-                  budgetImpact.borrowerCoPayBps
-                )}
-                beforeCents={calculateDrawAvailability(
-                  selectedMilestone.budgetCents,
-                  budgetImpact.borrowerCoPayBps
-                )}
-                label={`${selectedMilestone.name} draw availability`}
-              />
+              {budgetTreatmentEnabled ? (
+                <ImpactPreviewRow
+                  label="Treatment"
+                  value={budgetTreatmentLabel(form.budgetTreatment)}
+                />
+              ) : null}
+              {selectedBudgetSubmilestone || !budgetTreatmentEnabled ? (
+                <ImpactPreviewComparison
+                  afterCents={budgetTargetAfterCents}
+                  beforeCents={budgetTargetBeforeCents}
+                  label={`${selectedBudgetSubmilestone?.name ?? selectedMilestone.name} budget`}
+                />
+              ) : null}
+              {form.budgetTreatment === "maintain" &&
+              selectedBudgetSubmilestone ? (
+                <>
+                  <ImpactPreviewRow
+                    label="Maintained cost allocation"
+                    value={formatCents(maintainedAfterCents)}
+                  />
+                  <ImpactPreviewRow
+                    label="Unallocated sub-milestone balance"
+                    value={formatCents(Math.max(0, maintainedRemainingCents))}
+                  />
+                  {maintainOverBudget ? (
+                    <p className="text-destructive text-xs" role="alert">
+                      Maintained items exceed this sub-milestone budget by{" "}
+                      {formatCents(Math.abs(maintainedRemainingCents))}.
+                    </p>
+                  ) : null}
+                </>
+              ) : null}
+              {budgetImpact ? (
+                <>
+                  <ImpactPreviewComparison
+                    afterCents={proposalBudgetAfterCents}
+                    beforeCents={budgetImpact.proposalBudgetCents}
+                    label="Proposal budget"
+                  />
+                  <ImpactPreviewComparison
+                    afterCents={calculateDrawAvailability(
+                      Math.max(
+                        0,
+                        selectedMilestone.budgetCents +
+                          selectedMilestoneBudgetDeltaCents
+                      ),
+                      budgetImpact.borrowerCoPayBps
+                    )}
+                    beforeCents={calculateDrawAvailability(
+                      selectedMilestone.budgetCents,
+                      budgetImpact.borrowerCoPayBps
+                    )}
+                    label={`${selectedMilestone.name} draw availability`}
+                  />
+                </>
+              ) : null}
             </dl>
           </section>
         ) : null}
@@ -935,6 +1151,9 @@ function MaterialItemCard({
   const attachedSubmilestones = item.relevantSubmilestoneKeys
     .map((key) => submilestoneByKey.get(key))
     .filter((row): row is MaterialPlanningSubmilestone => Boolean(row));
+  const budgetSubmilestone = item.budgetSubmilestoneKey
+    ? submilestoneByKey.get(item.budgetSubmilestoneKey)
+    : undefined;
 
   return (
     <Card className="overflow-hidden" data-testid="material-planning-item-card">
@@ -968,6 +1187,15 @@ function MaterialItemCard({
         <dl className="grid gap-2 text-sm">
           <DetailRow label="Supplier" value={item.supplier || "Unspecified"} />
           <DetailRow label="Milestone" value={milestone.name} />
+          <DetailRow
+            label="Budget treatment"
+            value={budgetTreatmentLabel(
+              normalizeBudgetTreatment(item.budgetTreatment)
+            )}
+          />
+          {budgetSubmilestone ? (
+            <DetailRow label="Budget target" value={budgetSubmilestone.name} />
+          ) : null}
           <div className="grid gap-1">
             <dt className="text-muted-foreground text-xs uppercase">
               Relevant sub-milestones
@@ -1084,13 +1312,7 @@ function MaterialSummaryStrip({
   );
 }
 
-function ImpactPreviewRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function ImpactPreviewRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-4">
       <dt className="text-muted-foreground">{label}</dt>
@@ -1147,9 +1369,20 @@ function summarizeItems(items: MaterialPlanningItem[]) {
 
 function itemToFormState(
   item: MaterialPlanningItem | undefined,
-  milestoneKey: string
+  milestoneKey: string,
+  defaultBudgetSubmilestoneKey: string | undefined,
+  defaultBudgetTreatment: MaterialPlanningBudgetTreatment
 ): ItemFormState {
+  const budgetTreatment =
+    item === undefined
+      ? defaultBudgetTreatment
+      : normalizeBudgetTreatment(item.budgetTreatment);
   return {
+    budgetSubmilestoneKey:
+      budgetTreatment === "logOnly"
+        ? ""
+        : (item?.budgetSubmilestoneKey ?? defaultBudgetSubmilestoneKey ?? ""),
+    budgetTreatment,
     costCents: item ? centsToDollarsInput(item.costCents) : "",
     description: item?.description ?? "",
     itemType: item?.itemType ?? "material",
@@ -1164,6 +1397,11 @@ function itemToFormState(
 
 function formToPayload(form: ItemFormState): MaterialPlanningPayload {
   return {
+    budgetSubmilestoneKey:
+      form.budgetTreatment === "logOnly"
+        ? null
+        : form.budgetSubmilestoneKey || null,
+    budgetTreatment: form.budgetTreatment,
     costCents: dollarsInputToCents(form.costCents),
     description: optionalText(form.description),
     itemType: form.itemType,
@@ -1196,8 +1434,9 @@ function costDollarsValid(value: string) {
 }
 
 function materialSubmitGuidance({
-  costEntered,
+  budgetTargetMissing,
   costInvalid,
+  maintainOverBudget,
   milestoneEntered,
   pending,
   quantityEntered,
@@ -1205,8 +1444,9 @@ function materialSubmitGuidance({
   submitLabel,
   titleEntered,
 }: {
-  costEntered: boolean;
+  budgetTargetMissing: boolean;
   costInvalid: boolean;
+  maintainOverBudget: boolean;
   milestoneEntered: boolean;
   pending: boolean;
   quantityEntered: boolean;
@@ -1226,11 +1466,16 @@ function materialSubmitGuidance({
   if (quantityInvalid) {
     return `${submitLabel} is unavailable because Quantity must be greater than zero.`;
   }
+  if (budgetTargetMissing) {
+    return `${submitLabel} is unavailable because a budget sub-milestone is required.`;
+  }
+  if (maintainOverBudget) {
+    return `${submitLabel} is unavailable because maintained cost items exceed the sub-milestone budget.`;
+  }
 
   const missingFields = [
     titleEntered ? null : "Title",
     milestoneEntered ? null : "Milestone",
-    costEntered ? null : "Cost per unit",
     quantityEntered ? null : "Quantity",
   ].filter((field): field is string => Boolean(field));
 
@@ -1248,6 +1493,34 @@ function optionalText(value: string) {
 
 function totalForItem(item: MaterialPlanningItem) {
   return item.totalCents ?? Math.round(item.costCents * item.quantity);
+}
+
+function normalizeBudgetTreatment(
+  treatment: MaterialPlanningBudgetTreatment | undefined
+): MaterialPlanningBudgetTreatment {
+  return treatment ?? "add";
+}
+
+function budgetTreatmentLabel(treatment: MaterialPlanningBudgetTreatment) {
+  if (treatment === "logOnly") {
+    return "Log only";
+  }
+  if (treatment === "maintain") {
+    return "Maintain total";
+  }
+  return "Add to budget";
+}
+
+function budgetTreatmentDescription(
+  treatment: MaterialPlanningBudgetTreatment
+) {
+  if (treatment === "logOnly") {
+    return "Records the item without changing the sub-milestone budget.";
+  }
+  if (treatment === "maintain") {
+    return "Keeps the sub-milestone total fixed and reduces its unallocated balance.";
+  }
+  return "Increases the selected sub-milestone and proposal budgets.";
 }
 
 function calculateDrawAvailability(

@@ -1,8 +1,11 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { Loader2 } from "lucide-react";
-
 import { ProductionProposalKanbanSurface } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
+import {
+  ProposalDirectoryControls,
+  useBackofficeProposalDirectory,
+} from "#/features/production-proposals/ProposalDirectoryControls.tsx";
 import {
   getVisualParityKanban,
   isProductionVisualParityFixtureEnabled,
@@ -20,12 +23,11 @@ function BackofficeProductionProposalsRoute() {
   const navigate = useNavigate();
   const workosOrganizationId = context.organizationId as string;
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
-  const kanbanQuery = useQuery(
-    api.production_proposals.listProposalKanban,
-    visualFixtureEnabled ? "skip" : { workosOrganizationId }
+  const directory = useBackofficeProposalDirectory(
+    visualFixtureEnabled ? null : workosOrganizationId
   );
-  const buildersQuery = useQuery(
-    api.production_proposals.listBrokerageBuilders,
+  const filterOptions = useQuery(
+    api.production_proposals.listBackofficeProposalFilterOptions,
     visualFixtureEnabled ? "skip" : { workosOrganizationId }
   );
   const assignDraftBuilder = useMutation(
@@ -34,9 +36,11 @@ function BackofficeProductionProposalsRoute() {
   const deleteDraftProposal = useMutation(
     api.production_proposals.deleteDraftProposal
   );
-  const kanban = visualFixtureEnabled ? getVisualParityKanban() : kanbanQuery;
+  const kanban = visualFixtureEnabled
+    ? getVisualParityKanban()
+    : directory.kanban;
 
-  if (!kanban) {
+  if (!(kanban && (visualFixtureEnabled || filterOptions))) {
     return (
       <div className="grid min-h-[24rem] place-items-center">
         <div className="flex items-center gap-2 rounded-lg border bg-background p-4 text-sm">
@@ -49,8 +53,24 @@ function BackofficeProductionProposalsRoute() {
 
   return (
     <ProductionProposalKanbanSurface
-      builders={buildersQuery ?? []}
+      builders={filterOptions?.builders ?? []}
+      controls={
+        visualFixtureEnabled || !filterOptions ? undefined : (
+          <ProposalDirectoryControls
+            activeFilterCount={directory.activeFilterCount}
+            filters={directory.filters}
+            loading={directory.isLoading}
+            onFiltersChange={directory.setFilters}
+            onReset={directory.reset}
+            onSearchChange={directory.setSearch}
+            options={filterOptions}
+            resultCount={directory.cards.length}
+            search={directory.search}
+          />
+        )
+      }
       kanban={kanban}
+      loadingMore={directory.status === "LoadingMore"}
       onAssignBuilder={
         visualFixtureEnabled
           ? undefined
@@ -72,12 +92,17 @@ function BackofficeProductionProposalsRoute() {
               });
             }
       }
-      onOpen={(card) =>
-        void navigate({
+      onLoadMore={
+        visualFixtureEnabled || directory.status !== "CanLoadMore"
+          ? undefined
+          : directory.loadMore
+      }
+      onOpen={(card) => {
+        navigate({
           params: { planId: card.proposalId },
           to: "/backoffice/proposals/$planId",
-        })
-      }
+        });
+      }}
     />
   );
 }

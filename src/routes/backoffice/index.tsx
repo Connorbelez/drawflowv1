@@ -21,7 +21,6 @@ import {
   ClipboardCheck,
   Eye,
   FileText,
-  Filter,
   Loader2,
   MoreHorizontal,
   PanelRightClose,
@@ -135,11 +134,19 @@ import type {
   QuickAction,
   ScheduleEvent,
 } from "#/features/backoffice-dashboard/mock-data.ts";
+import { BuildIdentityCell } from "#/features/builds/BuildIdentityCell.tsx";
+import {
+  ProposalDirectoryControls,
+  type ProposalDirectoryFilterOptions,
+  useBackofficeProposalDirectory,
+} from "#/features/production-proposals/ProposalDirectoryControls.tsx";
+import type { ProductionKanbanCard } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 
 export const Route = createFileRoute("/backoffice/")({
+  ssr: false,
   loader: async ({ context }) => {
     const workosOrganizationId = context.organizationId;
     if (!workosOrganizationId) {
@@ -156,7 +163,7 @@ export const Route = createFileRoute("/backoffice/")({
       ),
       context.queryClient.ensureQueryData(
         context.convexQueryClient.queryOptions(
-          api.production_proposals.listActiveBrokerageBuilderOptions,
+          api.production_proposals.listBackofficeProposalFilterOptions,
           { workosOrganizationId }
         )
       ),
@@ -249,6 +256,8 @@ export interface OperationsReturnDecisionInput {
 export interface ProductionBuilderOption {
   _id: string;
   displayName: string;
+  email?: string;
+  workosUserIds?: string[];
 }
 
 export function normalizeProductionBackofficeDashboard(
@@ -276,6 +285,39 @@ export function normalizeProductionBackofficeDashboard(
     milestoneColumns,
     scheduleDate: new Date(result.scheduleDate),
     submittedProposals: result.submittedProposals ?? [],
+  };
+}
+
+function dashboardProposalDirectoryCard(
+  card: ProductionKanbanCard
+): ProposalKanbanCard {
+  return {
+    address: card.location ?? card.subtitle ?? "Location unavailable",
+    approvedAt: card.approvedAt,
+    borrowerStartingCashCents: card.borrowerStartingCashCents,
+    builder: card.builderName ?? "Unassigned builder",
+    builderAssigned: card.builderAssigned,
+    builderEmail: card.builderEmail,
+    builderProfileId: card.builderProfileId,
+    closeLabel:
+      card.column === "approved" && !card.activeBuildId
+        ? "Pending closing"
+        : undefined,
+    column: card.column,
+    createdAt: card.createdAt,
+    href: card.href,
+    id: card.proposalId,
+    lenderDrawPolicyLimitCents: card.lenderDrawPolicyLimitCents,
+    loanAmount: centsToCurrency(card.totalBudgetCents),
+    ltv: 0,
+    name: card.title,
+    proposalId: card.proposalId,
+    reviewOutcome: card.reviewOutcome,
+    statusLabel: card.statusLabel,
+    submittedAt: card.submittedAt,
+    tag: "production",
+    totalBudgetCents: card.totalBudgetCents,
+    updatedAt: card.updatedAt,
   };
 }
 
@@ -311,9 +353,12 @@ function RouteComponent() {
   );
   const { data: buildersResult } = useSuspenseQuery(
     context.convexQueryClient.queryOptions(
-      api.production_proposals.listActiveBrokerageBuilderOptions,
+      api.production_proposals.listBackofficeProposalFilterOptions,
       { workosOrganizationId }
     )
+  );
+  const proposalDirectory = useBackofficeProposalDirectory(
+    workosOrganizationId
   );
   const navigate = useNavigate();
 
@@ -327,7 +372,7 @@ function RouteComponent() {
 
   return (
     <BackofficeDashboard
-      builders={buildersResult ?? []}
+      builders={buildersResult?.builders ?? []}
       dashboard={dashboard}
       onAcknowledgeHandoff={(handoffId) =>
         acknowledgeOperationsEscalationReturn({
@@ -398,6 +443,8 @@ function RouteComponent() {
       onStartNewBuildWorkflow={() =>
         navigate({ to: "/backoffice/proposals/new" })
       }
+      proposalDirectory={proposalDirectory}
+      proposalFilterOptions={buildersResult}
     />
   );
 }
@@ -415,6 +462,8 @@ export function BackofficeDashboard({
   onStartNewBuildWorkflow,
   onRecordClosing,
   onReturnDecision,
+  proposalDirectory,
+  proposalFilterOptions,
 }: {
   builders: ProductionBuilderOption[];
   dashboard: ProductionBackofficeDashboardData;
@@ -443,6 +492,8 @@ export function BackofficeDashboard({
     handoffId: string,
     input: OperationsReturnDecisionInput
   ) => Promise<unknown>;
+  proposalDirectory: ReturnType<typeof useBackofficeProposalDirectory>;
+  proposalFilterOptions: ProposalDirectoryFilterOptions;
 }) {
   const [sidebarProposal, setSidebarProposal] =
     useState<ProposalKanbanCard | null>(null);
@@ -506,12 +557,34 @@ export function BackofficeDashboard({
           <ProposalKanban
             builders={builders}
             columns={dashboard.proposalColumns}
+            controls={
+              <ProposalDirectoryControls
+                activeFilterCount={proposalDirectory.activeFilterCount}
+                filters={proposalDirectory.filters}
+                loading={proposalDirectory.isLoading}
+                onFiltersChange={proposalDirectory.setFilters}
+                onReset={proposalDirectory.reset}
+                onSearchChange={proposalDirectory.setSearch}
+                options={proposalFilterOptions}
+                resultCount={proposalDirectory.cards.length}
+                search={proposalDirectory.search}
+              />
+            }
+            loadingMore={proposalDirectory.status === "LoadingMore"}
             onArchiveProposal={onArchiveProposal}
             onAssignBuilder={onAssignBuilder}
             onDeleteDraft={onDeleteDraft}
+            onLoadMore={
+              proposalDirectory.status === "CanLoadMore"
+                ? proposalDirectory.loadMore
+                : undefined
+            }
             onOpenApprovedProposal={setSidebarProposal}
             onRecordClosing={setClosingProposal}
-            proposals={dashboard.proposals}
+            onStartNewBuildWorkflow={onStartNewBuildWorkflow}
+            proposals={proposalDirectory.cards.map(
+              dashboardProposalDirectoryCard
+            )}
           />
         </section>
         <ScheduleRail
@@ -698,30 +771,45 @@ export function ActiveBuildsCard({
   const columns = useMemo<ColumnDef<ActiveBuild>[]>(
     () => [
       {
-        accessorKey: "id",
-        header: "ID",
+        accessorKey: "buildName",
+        header: "Build",
         cell: ({ row }) => (
-          <span className="font-medium text-foreground">{row.original.id}</span>
+          <BuildIdentityCell
+            buildName={row.original.buildName ?? row.original.id}
+            imageUrl={row.original.imageUrl}
+            latitude={row.original.locationLatitude}
+            location={row.original.address}
+            longitude={row.original.locationLongitude}
+            metadata={
+              <span className="block max-w-56 truncate text-muted-foreground text-xs">
+                {row.original.id} · {row.original.address}
+              </span>
+            }
+          />
         ),
-      },
-      {
-        accessorKey: "address",
-        header: "Address",
       },
       {
         accessorKey: "builder",
         header: "Builder",
       },
       {
-        accessorKey: "daysActive",
-        header: () => (
-          <span className="inline-flex items-center gap-1">T+days</span>
-        ),
+        id: "milestonesDraws",
+        header: "Milestones / draws",
         cell: ({ row }) => (
-          <span className="font-medium tabular-nums">
-            {row.original.daysActive}
+          <span className="tabular-nums">
+            {row.original.milestoneCount ?? 0} / {row.original.drawCount ?? 0}
           </span>
         ),
+      },
+      {
+        id: "openRequests",
+        header: "Open requests",
+        cell: ({ row }) => {
+          const count = row.original.pendingDrawRequestCount ?? 0;
+          return count > 0
+            ? `${count} ${count === 1 ? "draw" : "draws"}`
+            : "None";
+        },
       },
       {
         accessorKey: "statusLabel",
@@ -742,6 +830,17 @@ export function ActiveBuildsCard({
               {formatMilestoneState(row.original.milestoneState)}
             </Badge>
           </div>
+        ),
+      },
+      {
+        accessorKey: "daysActive",
+        header: () => (
+          <span className="inline-flex items-center gap-1">T+days</span>
+        ),
+        cell: ({ row }) => (
+          <span className="font-medium tabular-nums">
+            {row.original.daysActive}
+          </span>
         ),
       },
       {
@@ -1073,6 +1172,11 @@ function ProposalQueueTable({
                     <div className="text-muted-foreground text-xs">
                       {proposal.builder}
                     </div>
+                    {proposal.builderEmail ? (
+                      <div className="text-muted-foreground text-xs">
+                        {proposal.builderEmail}
+                      </div>
+                    ) : null}
                   </TableCell>
                   <TableCell>{proposal.address}</TableCell>
                   <TableCell>{proposal.loanAmount}</TableCell>
@@ -1295,15 +1399,21 @@ function MilestoneCard({
 export function ProposalKanban({
   builders,
   columns,
+  controls,
+  loadingMore = false,
   onArchiveProposal,
   onAssignBuilder,
   onDeleteDraft,
+  onLoadMore,
   onOpenApprovedProposal,
   onRecordClosing,
+  onStartNewBuildWorkflow = () => undefined,
   proposals,
 }: {
   builders: ProductionBuilderOption[];
   columns: DashboardKanbanColumn[];
+  controls?: ReactElement;
+  loadingMore?: boolean;
   onArchiveProposal: (
     proposal: ProposalKanbanCard,
     reason: string
@@ -1313,8 +1423,10 @@ export function ProposalKanban({
     builderProfileId: string
   ) => Promise<unknown>;
   onDeleteDraft: (proposal: ProposalKanbanCard) => Promise<unknown>;
+  onLoadMore?: () => void;
   onOpenApprovedProposal: (proposal: ProposalKanbanCard) => void;
   onRecordClosing: (proposal: ProposalKanbanCard) => void;
+  onStartNewBuildWorkflow?: () => Promise<unknown> | unknown;
   proposals: ProposalKanbanCard[];
 }) {
   const [assignTarget, setAssignTarget] = useState<ProposalKanbanCard | null>(
@@ -1344,19 +1456,24 @@ export function ProposalKanban({
   return (
     <>
       <Card id="proposals-kanban">
-        <CardHeader className="gap-3 border-b p-4">
-          <CardTitle className="text-base">Builds - Proposals</CardTitle>
-          <CardDescription>Pipeline by stage</CardDescription>
-          <CardAction className="row-span-1 flex flex-wrap gap-2">
-            <Button variant="outline">
-              <Filter />
-              Filter
-            </Button>
-            <Button variant="outline">
+        <CardHeader className="flex flex-col items-stretch gap-3 border-b p-4">
+          <div className="flex w-full items-start justify-between gap-3">
+            <div className="min-w-0">
+              <CardTitle className="text-base">Builds - Proposals</CardTitle>
+              <CardDescription>Pipeline by stage</CardDescription>
+            </div>
+            <Button
+              className="shrink-0"
+              onClick={onStartNewBuildWorkflow}
+              variant="outline"
+            >
               <Plus />
               Draft new
             </Button>
-          </CardAction>
+          </div>
+          {controls ? (
+            <div className="w-full min-w-0 border-t pt-3">{controls}</div>
+          ) : null}
         </CardHeader>
         <CardContent className="overflow-x-auto p-0">
           <ClientOnly fallback={<div className="min-h-96 min-w-4xl" />}>
@@ -1377,18 +1494,22 @@ export function ProposalKanban({
                         <span>{column.name}</span>
                         <Badge variant="outline">
                           {
-                            proposals.filter((card) => card.column === column.id)
-                              .length
+                            proposals.filter(
+                              (card) => card.column === column.id
+                            ).length
                           }
                         </Badge>
                       </div>
-                      <Button
-                        aria-label={`Add ${column.name} proposal`}
-                        size="icon-xs"
-                        variant="ghost"
-                      >
-                        <Plus />
-                      </Button>
+                      {column.id === "draft" ? (
+                        <Button
+                          aria-label="Draft new proposal"
+                          onClick={onStartNewBuildWorkflow}
+                          size="icon-xs"
+                          variant="ghost"
+                        >
+                          <Plus />
+                        </Button>
+                      ) : null}
                     </div>
                   </KanbanHeader>
                   <KanbanCards<ProposalKanbanCard>
@@ -1431,6 +1552,17 @@ export function ProposalKanban({
             </KanbanProvider>
           </ClientOnly>
         </CardContent>
+        {onLoadMore ? (
+          <div className="flex justify-center border-t p-3">
+            <Button
+              loading={loadingMore}
+              onClick={onLoadMore}
+              variant="outline"
+            >
+              Load more proposals
+            </Button>
+          </div>
+        ) : null}
       </Card>
       <ProposalCardDetailSheet
         card={activeProposal}
@@ -1517,7 +1649,14 @@ function ProposalCard({
             {assigned ? (
               <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
                 <UserRound aria-hidden className="size-3.5 shrink-0" />
-                <span className="truncate">{card.builder}</span>
+                <span className="grid min-w-0">
+                  <span className="truncate">{card.builder}</span>
+                  {card.builderEmail ? (
+                    <span className="truncate text-muted-foreground">
+                      {card.builderEmail}
+                    </span>
+                  ) : null}
+                </span>
               </span>
             ) : (
               <span
@@ -2554,9 +2693,7 @@ function QuickActionCard({
     try {
       await onReturnDecision(handoff._id, {
         decision: returnDecision,
-        followUpAssignment: String(
-          formData.get("followUpAssignment") ?? ""
-        ),
+        followUpAssignment: String(formData.get("followUpAssignment") ?? ""),
         reason: String(formData.get("returnReason") ?? ""),
       });
       setDialogMode(null);
@@ -2758,7 +2895,10 @@ function QuickActionCard({
               </DialogDescription>
             </DialogHeader>
             <DialogPanel className="grid gap-4">
-              <label className="grid gap-1.5 text-sm" htmlFor={`decision-${action.id}`}>
+              <label
+                className="grid gap-1.5 text-sm"
+                htmlFor={`decision-${action.id}`}
+              >
                 <span className="font-medium">Return decision</span>
                 <select
                   className="h-9 rounded-lg border bg-background px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring"

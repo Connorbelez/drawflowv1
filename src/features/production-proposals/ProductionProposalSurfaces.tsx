@@ -396,16 +396,49 @@ type PacketSubmilestoneTableRow = {
 
 export interface ProductionKanbanCard {
   activeBuildId?: string;
+  approvedAt?: number;
+  assignedBrokerEmail?: string;
+  assignedBrokerName?: string;
+  assignedBrokerWorkosUserId?: string;
+  borrowerCoPayBps?: number;
+  borrowerCoPayCents?: number;
+  borrowerStartingCashCents?: number;
   budgetGovernance?: TimelinePlanRow["budgetGovernance"];
   builderAssigned?: boolean;
+  builderEmail?: string;
+  builderLegalName?: string;
   builderName?: string;
+  builderProfileId?: string;
+  buildName?: string;
+  buildStatus?: TimelinePlanRow["buildStatus"];
   column: ProductionProposalStatus;
+  createdAt?: number;
+  createdByEmail?: string;
+  createdByName?: string;
+  createdByWorkosUserId?: string;
+  drawCount?: number;
   href?: string;
+  imageUrl?: string | null;
+  location?: string;
+  locationLatitude?: number;
+  locationLongitude?: number;
+  milestoneCount?: number;
+  milestonesBehindSchedule?: number;
+  pendingDrawRequestCount?: number;
+  pendingModificationRequestCount?: number;
+  planKey?: "capitalConstrained" | "cheapestFeasible" | "fastest";
+  planName?: string;
+  proposedStartDate?: string;
   proposalId: string;
+  reviewOutcome?: "approved" | "none" | "rejected" | "requested_changes";
+  statusLabel?: string;
+  submittedAt?: number;
   subtitle?: string;
   title: string;
   totalBudgetCents: number;
   updatedAt: number;
+  updatedByWorkosUserId?: string;
+  lenderDrawPolicyLimitCents?: number;
 }
 
 export interface ProductionBuilderOption {
@@ -478,6 +511,8 @@ export interface ProductionProposalDraftSavePayload {
     submilestoneKeys: string[];
   }>;
   costItems?: Array<{
+    budgetSubmilestoneKey?: string;
+    budgetTreatment?: "add" | "logOnly" | "maintain";
     costCents: number;
     description?: string;
     itemType: "equipment" | "material";
@@ -1185,13 +1220,19 @@ export function ProductionProposalPackageSurface({
 
 export function ProductionProposalKanbanSurface({
   builders = [],
+  controls,
   kanban,
+  loadingMore = false,
+  onLoadMore,
   onAssignBuilder,
   onDeleteDraft,
   onOpen,
 }: {
   builders?: ProductionBuilderOption[];
+  controls?: ReactNode;
   kanban: ProductionKanban;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
   onAssignBuilder?: (
     card: ProductionKanbanCard,
     builderProfileId: string
@@ -1217,6 +1258,7 @@ export function ProductionProposalKanbanSurface({
             Production Build Proposals move only through workflow mutations.
             Right-click a card to assign a builder or delete a draft.
           </p>
+          {controls ? <div className="mt-4 border-t pt-4">{controls}</div> : null}
         </FramePanel>
       </Frame>
       <div className="grid gap-3 lg:grid-cols-4">
@@ -1245,6 +1287,13 @@ export function ProductionProposalKanbanSurface({
           </Card>
         ))}
       </div>
+      {onLoadMore ? (
+        <div className="flex justify-center">
+          <Button loading={loadingMore} onClick={onLoadMore} variant="outline">
+            Load more proposals
+          </Button>
+        </div>
+      ) : null}
       <AssignBuilderDialog
         builders={builders}
         card={assignCard}
@@ -1309,12 +1358,19 @@ function ProposalKanbanCard({
         ) : null}
         <div className="mt-3 flex items-center justify-between gap-2 border-t pt-2.5">
           {assigned ? (
-            <span className="flex min-w-0 items-center gap-1.5 text-foreground text-xs">
+            <span className="flex min-w-0 items-start gap-1.5 text-foreground text-xs">
               <UserRound
                 aria-hidden
-                className="size-3.5 shrink-0 text-muted-foreground"
+                className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
               />
-              <span className="truncate font-medium">{card.builderName}</span>
+              <span className="grid min-w-0">
+                <span className="truncate font-medium">{card.builderName}</span>
+                {card.builderEmail ? (
+                  <span className="truncate text-muted-foreground">
+                    {card.builderEmail}
+                  </span>
+                ) : null}
+              </span>
             </span>
           ) : (
             <span
@@ -2039,74 +2095,76 @@ export function ProductionProposalReviewSurface({
     }
   };
 
-  const renderReviewDecisionPanel = (
-    idPrefix: string,
-    showReadiness = true
-  ) => (
+  const renderReviewDecisionPanel = (idPrefix: string) => (
     <ProposalReviewDecisionPanel
-      detail={detail}
       idPrefix={idPrefix}
-      onPermitWaiverReasonChange={setPermitWaiverReason}
       onReasonChange={setReason}
       onReviewDecision={runReviewDecision}
       pendingDecision={pendingDecision}
-      permitFileName={permit?.fileName}
-      permitViewerDocument={permitViewerDocument}
-      permitWaiverReason={permitWaiverReason}
       proposal={proposal}
       reason={reason}
-      showReadiness={showReadiness}
     />
   );
 
   const renderReviewOverview = ({
     idPrefix,
     includePermitUpload = false,
-    showDecisionReadiness = true,
   }: {
     idPrefix: string;
     includePermitUpload?: boolean;
-    showDecisionReadiness?: boolean;
   }) => (
-    <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
-      {proposal.status === "approved" ? (
-        <ApprovedProposalConfirmation detail={detail} />
-      ) : canRunReviewDecision ? (
-        renderReviewDecisionPanel(idPrefix, showDecisionReadiness)
-      ) : (
-        <Section title="Review summary">
-          <div className="grid gap-3">
-            <div>
-              <Badge variant="outline">{statusLabel(proposal.status)}</Badge>
-              <h2 className="mt-2 font-semibold text-xl tracking-tight">
-                {proposal.buildName}
-              </h2>
-              <p className="mt-1 text-muted-foreground text-sm">
-                {proposal.location}
+    <div
+      className="grid items-start gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(22rem,1fr)]"
+      data-testid="proposal-review-overview"
+    >
+      <div
+        className="grid min-w-0 gap-4"
+        data-testid="proposal-review-primary-column"
+      >
+        {proposal.status === "approved" ? (
+          <ApprovedProposalConfirmation detail={detail} />
+        ) : canRunReviewDecision ? (
+          renderReviewDecisionPanel(idPrefix)
+        ) : (
+          <Section title="Review summary">
+            <div className="grid gap-3">
+              <div>
+                <Badge variant="outline">{statusLabel(proposal.status)}</Badge>
+                <h2 className="mt-2 font-semibold text-xl tracking-tight">
+                  {proposal.buildName}
+                </h2>
+                <p className="mt-1 text-muted-foreground text-sm">
+                  {proposal.location}
+                </p>
+              </div>
+              <p className="text-muted-foreground text-sm">
+                Review decisions are limited to authorized lender approval
+                surfaces.
               </p>
             </div>
-            <p className="text-muted-foreground text-sm">
-              Review decisions are limited to authorized lender approval
-              surfaces.
-            </p>
-          </div>
+          </Section>
+        )}
+
+        <Section title="Readiness">
+          <ProposalReadinessList
+            canRecordPermitWaiverReason={canRunReviewDecision}
+            detail={detail}
+            onPermitWaiverReasonChange={setPermitWaiverReason}
+            onUploadPermitDocument={
+              includePermitUpload ? onUploadPermitDocument : undefined
+            }
+            permitFileName={permit?.fileName}
+            permitViewerDocument={permitViewerDocument}
+            permitWaiverReason={permitWaiverReason}
+            proposalStatus={proposal.status}
+          />
         </Section>
-      )}
+      </div>
 
-      <div className="grid gap-4">
-        <BuilderAssignmentSection
-          assignableBrokerages={assignableBrokerages}
-          assignment={detail.assignment}
-          brokerOptionsPending={brokerOptionsPending}
-          builders={builders}
-          onAssignBroker={onAssignBroker}
-          onAssignBuilder={onAssignBuilder}
-          onCreateClaimLink={onCreateClaimLink}
-          onOnboardBuilder={onOnboardBuilder}
-          onUnassignBuilder={onUnassignBuilder}
-          proposal={proposal}
-        />
-
+      <div
+        className="grid min-w-0 gap-4"
+        data-testid="proposal-review-context-column"
+      >
         <Section title="Review snapshot">
           <DetailGrid
             rows={[
@@ -2128,20 +2186,18 @@ export function ProductionProposalReviewSurface({
           />
         </Section>
 
-        <Section title="Readiness">
-          <ProposalReadinessList
-            canRecordPermitWaiverReason={canRunReviewDecision}
-            detail={detail}
-            onPermitWaiverReasonChange={setPermitWaiverReason}
-            onUploadPermitDocument={
-              includePermitUpload ? onUploadPermitDocument : undefined
-            }
-            permitFileName={permit?.fileName}
-            permitViewerDocument={permitViewerDocument}
-            permitWaiverReason={permitWaiverReason}
-            proposalStatus={proposal.status}
-          />
-        </Section>
+        <BuilderAssignmentSection
+          assignableBrokerages={assignableBrokerages}
+          assignment={detail.assignment}
+          brokerOptionsPending={brokerOptionsPending}
+          builders={builders}
+          onAssignBroker={onAssignBroker}
+          onAssignBuilder={onAssignBuilder}
+          onCreateClaimLink={onCreateClaimLink}
+          onOnboardBuilder={onOnboardBuilder}
+          onUnassignBuilder={onUnassignBuilder}
+          proposal={proposal}
+        />
       </div>
     </div>
   );
@@ -2407,6 +2463,8 @@ export function ProductionProposalReviewSurface({
                 borrowerCoPayBps: proposal.borrowerCoPayBps,
                 proposalBudgetCents: proposal.totalBudgetCents,
               }}
+              budgetTreatmentEnabled
+              defaultBudgetTreatment="logOnly"
               items={detail.costItems ?? []}
               milestones={materialPlanningMilestones(detail)}
               readOnly={!materialPlanningActions}
@@ -2433,7 +2491,6 @@ export function ProductionProposalReviewSurface({
               {renderReviewOverview({
                 idPrefix: "production-packet-tab",
                 includePermitUpload: true,
-                showDecisionReadiness: false,
               })}
               {proposal.selectedPlan ? (
                 <Section title="Selected plan">
@@ -3600,40 +3657,29 @@ function ApprovedProposalConfirmation({
 }
 
 function ProposalReviewDecisionPanel({
-  detail,
   idPrefix,
-  onPermitWaiverReasonChange,
   onReasonChange,
   onReviewDecision,
   pendingDecision,
-  permitFileName,
-  permitViewerDocument,
-  permitWaiverReason,
   proposal,
   reason,
-  showReadiness = false,
 }: {
-  detail: ProductionProposalDetail;
   idPrefix: string;
-  onPermitWaiverReasonChange: (value: string) => void;
   onReasonChange: (value: string) => void;
   onReviewDecision: (
     decision: "approve" | "reject" | "requestChanges"
   ) => Promise<void> | void;
   pendingDecision: "approve" | "reject" | "requestChanges" | null;
-  permitFileName?: string;
-  permitViewerDocument?: BuildPermitViewerDocument | null;
-  permitWaiverReason: string;
   proposal: ProductionProposal;
   reason: string;
-  showReadiness?: boolean;
 }) {
-  const disabled = proposal.status !== "submitted" || pendingDecision !== null;
+  const reviewAvailable = proposal.status === "submitted";
+  const disabled = pendingDecision !== null;
   const reasonId = `${idPrefix}-decision-reason`;
   const reasonHelpId = `${idPrefix}-decision-reason-help`;
 
   return (
-    <Section title="Review decision">
+    <Section title={reviewAvailable ? "Review decision" : "Proposal status"}>
       <div className="grid gap-4">
         <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
@@ -3645,64 +3691,62 @@ function ProposalReviewDecisionPanel({
               {proposal.location}
             </p>
           </div>
-          <div className="grid min-w-0 grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:justify-end">
-            <Button
-              disabled={disabled}
-              onClick={() => void onReviewDecision("requestChanges")}
-              size="sm"
-              variant="outline"
-            >
-              {pendingDecision === "requestChanges"
-                ? "Requesting..."
-                : "Request Changes"}
-            </Button>
-            <Button
-              disabled={disabled}
-              onClick={() => void onReviewDecision("reject")}
-              size="sm"
-              variant="destructive"
-            >
-              {pendingDecision === "reject" ? "Rejecting..." : "Reject"}
-            </Button>
-            <Button
-              data-testid={`${idPrefix}-approve-proposal`}
-              disabled={disabled}
-              onClick={() => void onReviewDecision("approve")}
-              size="sm"
-            >
-              {pendingDecision === "approve"
-                ? "Approving..."
-                : "Approve Proposal"}
-            </Button>
+          {reviewAvailable ? (
+            <div className="grid min-w-0 grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+              <Button
+                disabled={disabled}
+                onClick={() => void onReviewDecision("requestChanges")}
+                size="sm"
+                variant="outline"
+              >
+                {pendingDecision === "requestChanges"
+                  ? "Requesting..."
+                  : "Request Changes"}
+              </Button>
+              <Button
+                disabled={disabled}
+                onClick={() => void onReviewDecision("reject")}
+                size="sm"
+                variant="destructive"
+              >
+                {pendingDecision === "reject" ? "Rejecting..." : "Reject"}
+              </Button>
+              <Button
+                data-testid={`${idPrefix}-approve-proposal`}
+                disabled={disabled}
+                onClick={() => void onReviewDecision("approve")}
+                size="sm"
+              >
+                {pendingDecision === "approve"
+                  ? "Approving..."
+                  : "Approve Proposal"}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+
+        {reviewAvailable ? (
+          <div className="grid gap-2">
+            <Label htmlFor={reasonId}>Decision reason</Label>
+            <Input
+              aria-describedby={reasonHelpId}
+              id={reasonId}
+              onChange={(event) => onReasonChange(event.target.value)}
+              placeholder="Required for material decisions"
+              value={reason}
+            />
+            <p className="text-muted-foreground text-xs" id={reasonHelpId}>
+              Stored on the audit event for approval, rejection, or requested
+              changes.
+            </p>
           </div>
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor={reasonId}>Decision reason</Label>
-          <Input
-            aria-describedby={reasonHelpId}
-            id={reasonId}
-            onChange={(event) => onReasonChange(event.target.value)}
-            placeholder="Required for material decisions"
-            value={reason}
-          />
-          <p className="text-muted-foreground text-xs" id={reasonHelpId}>
-            Stored on the audit event for approval, rejection, or requested
-            changes.
+        ) : (
+          <p className="max-w-[65ch] text-muted-foreground text-sm">
+            {proposal.status === "draft"
+              ? "Decision controls unlock after the builder submits this proposal for lender review."
+              : "This proposal is not currently awaiting a lender review decision."}
           </p>
-        </div>
-
-        {showReadiness ? (
-          <ProposalReadinessList
-            canRecordPermitWaiverReason
-            detail={detail}
-            onPermitWaiverReasonChange={onPermitWaiverReasonChange}
-            permitFileName={permitFileName}
-            permitViewerDocument={permitViewerDocument}
-            permitWaiverReason={permitWaiverReason}
-            proposalStatus={proposal.status}
-          />
-        ) : null}
+        )}
       </div>
     </Section>
   );
@@ -5977,11 +6021,20 @@ export function toTimelineRows(
 ): TimelinePlanRow[] {
   return cards.map((card) => ({
     budgetGovernance: card.budgetGovernance,
-    buildName: card.title,
+    buildName: card.buildName ?? card.title,
+    buildStatus: card.buildStatus,
     buildKey: card.activeBuildId,
-    drawCount: 0,
+    builderName: card.builderName,
+    drawCount: card.drawCount ?? 0,
+    imageUrl: card.imageUrl,
     kind: card.activeBuildId ? "activeBuild" : "proposal",
-    milestoneCount: 0,
+    location: card.location,
+    locationLatitude: card.locationLatitude,
+    locationLongitude: card.locationLongitude,
+    milestoneCount: card.milestoneCount ?? 0,
+    milestonesBehindSchedule: card.milestonesBehindSchedule,
+    pendingDrawRequestCount: card.pendingDrawRequestCount,
+    pendingModificationRequestCount: card.pendingModificationRequestCount,
     planId: card.proposalId,
     status: card.column === "closed" ? "approved" : card.column,
     totalBudgetCents: card.totalBudgetCents,

@@ -624,8 +624,10 @@ function ProposalReviewRoute() {
         materialPlanningActions={materialPlanningActions}
         milestones={
           <ProductionProposalMilestoneWorksheetContainer
+            canMutateContractors={!visualFixtureEnabled}
             contractorPlanning={productionWorkspace.contractorPlanning}
             detail={productionDetail}
+            materialPlanningActions={materialPlanningActions}
             persistenceMode={proposalEditorPersistenceMode}
             proposalId={proposalId}
             showHeading

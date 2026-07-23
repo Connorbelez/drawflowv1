@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ContractorPlanningModel } from "#/features/contractors/ContractorPlanningPanel.tsx";
+import type { MaterialPlanningActions } from "#/features/material-planning/MaterialPlanningTab.tsx";
 import {
   type TimelineMilestoneWorksheetRow,
   type TimelineMilestoneWorksheetRowsChangeMeta,
   TimelineMilestoneWorksheetTable,
   type TimelineScheduleDisplayMode,
+  type WorksheetContractorActions,
 } from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
 
 import {
@@ -16,16 +18,20 @@ import {
 export const PRODUCTION_MILESTONE_WORKSHEET_SAVE_DEBOUNCE_MS = 600;
 
 export function ProductionProposalMilestoneWorksheet({
+  contractorActions,
   contractorPlanning,
   detail,
   footerExtra,
+  materialPlanningActions,
   onPersistRows,
   showHeading = false,
   templateTitle,
 }: {
+  contractorActions?: WorksheetContractorActions;
   contractorPlanning?: ContractorPlanningModel | null;
   detail: ProductionProposalWorksheetDetail;
   footerExtra?: React.ReactNode;
+  materialPlanningActions?: MaterialPlanningActions;
   onPersistRows?: (
     rows: TimelineMilestoneWorksheetRow[]
   ) => void | Promise<void>;
@@ -53,6 +59,7 @@ export function ProductionProposalMilestoneWorksheet({
     useState<TimelineScheduleDisplayMode>(
       proposedStartDate ? "dates" : "tOffsets"
     );
+  const [cascadeBudgetEdits, setCascadeBudgetEdits] = useState(false);
 
   useEffect(() => {
     if (lastAppliedSignatureRef.current === projectedSignature) {
@@ -98,9 +105,13 @@ export function ProductionProposalMilestoneWorksheet({
 
   return (
     <TimelineMilestoneWorksheetTable
+      cascadeBudgetEdits={cascadeBudgetEdits}
+      contractorActions={contractorActions}
       contractorOptions={contractorOptions}
       footerExtra={footerExtra}
+      materialPlanningActions={materialPlanningActions}
       mode="setup"
+      onCascadeBudgetEditsChange={setCascadeBudgetEdits}
       onRowsChange={handleRowsChange}
       onScheduleDisplayModeChange={setScheduleDisplayMode}
       proposedStartDate={proposedStartDate}

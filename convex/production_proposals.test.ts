@@ -992,6 +992,20 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.updateActiveBuildCostItem,
+        {
+          budgetTreatment: "logOnly",
+          buildId: closing.buildId,
+          itemId: addedItemId,
+          reason: "Attempting to change planning treatment after closing.",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(
+      "Budget treatment can only be changed during proposal planning",
+    );
     await t.mutation(
       (api as any).production_proposals.updateActiveBuildCostItem,
       {
@@ -1036,6 +1050,239 @@ describe("production proposal foundation", () => {
     );
     expect(buildDetailAfterDelete.costItems).toHaveLength(1);
     expect(buildDetailAfterDelete.build.totalBudgetCents).toBe(40_000_000);
+  });
+
+  test("applies log-only, additive, and maintained sub-milestone cost treatments", async () => {
+    const { seed, t } = await seeded(["admin"], "user_admin");
+    const proposalId = await t.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Cost treatment proposal",
+        location: "18 Allocation Road",
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerWorkingCapitalLimitCents: 20_000_000,
+        lenderDrawPolicyLimitCents: 40_000_000,
+        milestones: [
+          {
+            budgetCents: 20_000_000,
+            dayEnd: 10,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 10,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [
+              {
+                budgetCents: 20_000_000,
+                durationDays: 10,
+                key: "forms",
+                name: "Forms and pour",
+                order: 1,
+              },
+            ],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.createProposalCostItem,
+        {
+          budgetTreatment: "add",
+          costCents: 1_000_000,
+          itemType: "material",
+          milestoneKey: "foundation",
+          proposalId,
+          quantity: 1,
+          relevantSubmilestoneKeys: ["forms"],
+          title: "Untargeted added package",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow("Add requires one budget sub-milestone target");
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.createProposalCostItem,
+        {
+          budgetTreatment: "maintain",
+          costCents: 1_000_000,
+          itemType: "material",
+          milestoneKey: "foundation",
+          proposalId,
+          quantity: 1,
+          relevantSubmilestoneKeys: ["forms"],
+          title: "Untargeted maintained package",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow("Maintain requires one budget sub-milestone target");
+
+    await t.mutation(
+      (api as any).production_proposals.createProposalCostItem,
+      {
+        budgetSubmilestoneKey: "forms",
+        budgetTreatment: "logOnly",
+        costCents: 2_000_000,
+        itemType: "material",
+        milestoneKey: "foundation",
+        proposalId,
+        quantity: 1,
+        relevantSubmilestoneKeys: ["forms"],
+        title: "Logged quote",
+        workosOrganizationId: ORG,
+      },
+    );
+    const maintainedItemId = await t.mutation(
+      (api as any).production_proposals.createProposalCostItem,
+      {
+        budgetSubmilestoneKey: "forms",
+        budgetTreatment: "maintain",
+        costCents: 5_000_000,
+        itemType: "material",
+        milestoneKey: "foundation",
+        proposalId,
+        quantity: 1,
+        relevantSubmilestoneKeys: ["forms"],
+        title: "Maintained package",
+        workosOrganizationId: ORG,
+      },
+    );
+    const additiveItemId = await t.mutation(
+      (api as any).production_proposals.createProposalCostItem,
+      {
+        budgetSubmilestoneKey: "forms",
+        budgetTreatment: "add",
+        costCents: 3_000_000,
+        itemType: "equipment",
+        milestoneKey: "foundation",
+        proposalId,
+        quantity: 1,
+        relevantSubmilestoneKeys: ["forms"],
+        title: "Added pump",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    let detail = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(detail.proposal.totalBudgetCents).toBe(23_000_000);
+    expect(detail.proposal.borrowerCoPayCents).toBe(4_600_000);
+    expect(detail.milestones[0].budgetCents).toBe(23_000_000);
+    expect(detail.submilestones[0].budgetCents).toBe(23_000_000);
+    expect(detail.costItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          budgetTreatment: "logOnly",
+          title: "Logged quote",
+        }),
+        expect.objectContaining({
+          budgetSubmilestoneKey: "forms",
+          budgetTreatment: "maintain",
+          title: "Maintained package",
+        }),
+      ]),
+    );
+    expect(
+      detail.costItems.find((item: any) => item.title === "Logged quote")
+        ?.budgetSubmilestoneKey,
+    ).toBeUndefined();
+
+    await t.mutation(
+      (api as any).production_proposals.updateProposalCostItem,
+      {
+        budgetSubmilestoneKey: "forms",
+        budgetTreatment: "maintain",
+        itemId: additiveItemId,
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    detail = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(detail.proposal.totalBudgetCents).toBe(20_000_000);
+    expect(detail.submilestones[0].budgetCents).toBe(20_000_000);
+
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.updateProductionTimelineMilestone,
+        {
+          milestoneKey: "foundation",
+          proposalId,
+          submilestones: [],
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(
+      "Cannot remove budget sub-milestone forms while cost items target it",
+    );
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.updateProductionTimelineMilestone,
+        {
+          milestoneKey: "foundation",
+          proposalId,
+          submilestones: [
+            {
+              budgetCents: 7_999_999,
+              durationDays: 10,
+              key: "forms",
+              name: "Forms and pour",
+              order: 1,
+            },
+          ],
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow("Maintained cost items exceed the forms budget");
+
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.createProposalCostItem,
+        {
+          budgetSubmilestoneKey: "forms",
+          budgetTreatment: "maintain",
+          costCents: 13_000_001,
+          itemType: "material",
+          milestoneKey: "foundation",
+          proposalId,
+          quantity: 1,
+          relevantSubmilestoneKeys: ["forms"],
+          title: "Over-allocated package",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow("Maintained cost items exceed");
+
+    await t.mutation(
+      (api as any).production_proposals.deleteProposalCostItem,
+      {
+        itemId: maintainedItemId,
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    detail = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(detail.proposal.totalBudgetCents).toBe(20_000_000);
+    expect(detail.costItems).toHaveLength(2);
   });
 
   test("enforces proposal-scoped builder staff material permissions", async () => {
@@ -2396,6 +2643,8 @@ describe("production proposal foundation", () => {
         ],
         costItems: [
           {
+            budgetSubmilestoneKey: "forms",
+            budgetTreatment: "add",
             costCents: 7_500_000,
             description:
               '<p>Concrete and rebar package.</p><img src="data:image/png;base64,abc" alt="site detail" />',
@@ -2454,6 +2703,10 @@ describe("production proposal foundation", () => {
     expect(detail.milestones[0]).toMatchObject({
       budgetCents: 35_000_000,
       drawAvailabilityCents: 28_000_000,
+    });
+    expect(detail.submilestones[0]).toMatchObject({
+      budgetCents: 35_000_000,
+      key: "forms",
     });
     expect(detail.draws[0]).toMatchObject({ amountCents: 28_000_000 });
 
@@ -4202,6 +4455,83 @@ describe("production proposal foundation", () => {
     ).rejects.toThrow(
       "Planned draws cannot exceed cumulative completed-work eligibility",
     );
+  });
+
+  test("includes additive package cost items in completed-work draw eligibility", async () => {
+    const { seed, t } = await seeded(["admin"], "user_admin");
+    const proposalId = await t.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Additive eligibility proposal",
+        location: "48 Eligibility Road",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.saveDraftProposalPackage,
+        {
+          borrowerCoPayBps: 2_000,
+          borrowerWorkingCapitalLimitCents: 25_000_000,
+          costItems: [
+            {
+              budgetSubmilestoneKey: "forms",
+              budgetTreatment: "add",
+              costCents: 12_500_000,
+              itemType: "material",
+              milestoneKey: "foundation",
+              quantity: 1,
+              relevantSubmilestoneKeys: ["forms"],
+              title: "Added concrete package",
+            },
+          ],
+          draws: [
+            {
+              amountCents: 50_000_000,
+              drawKey: "foundation-draw",
+              label: "Foundation reimbursement",
+              milestoneKey: "foundation",
+              order: 1,
+              timingDay: 20,
+            },
+          ],
+          lenderDrawPolicyLimitCents: 80_000_000,
+          milestones: [
+            {
+              budgetCents: 50_000_000,
+              dayEnd: 20,
+              dayStart: 0,
+              dependencyKeys: [],
+              durationDays: 20,
+              key: "foundation",
+              name: "Foundation",
+              order: 1,
+              submilestones: [
+                {
+                  budgetCents: 50_000_000,
+                  durationDays: 20,
+                  key: "forms",
+                  name: "Forms and pour",
+                  order: 1,
+                },
+              ],
+            },
+          ],
+          proposalId,
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).resolves.toBeNull();
+
+    const detail = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(detail.proposal.totalBudgetCents).toBe(62_500_000);
+    expect(detail.draws[0].amountCents).toBe(50_000_000);
   });
 
   test("persists provided template scenario draws instead of milestone fallback draws", async () => {
@@ -7101,6 +7431,155 @@ describe("production proposal foundation", () => {
     ).toBe(false);
   });
 
+  test("searches and filters the complete proposal directory with attached builder identity", async () => {
+    const { t } = await seeded(["admin"], "user_admin");
+
+    await t.mutation(
+      (api as any).production_proposals.dev_seedProductionProposalScenarios,
+      { workosOrganizationId: ORG },
+    );
+
+    const byEmail = await t.query(
+      (api as any).production_proposals.listBackofficeProposalDirectory,
+      {
+        paginationOpts: { cursor: null, numItems: 100 },
+        search: "builder@example.com",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    expect(byEmail.isDone).toBe(true);
+    expect(byEmail.page.length).toBeGreaterThan(0);
+    expect(byEmail.page).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          builderEmail: "builder@example.com",
+          builderName: "Production Builder",
+          builderProfileId: expect.any(String),
+        }),
+      ]),
+    );
+
+    const byName = await t.query(
+      (api as any).production_proposals.listBackofficeProposalDirectory,
+      {
+        paginationOpts: { cursor: null, numItems: 100 },
+        search: "Production Builder",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(byName.page.length).toBeGreaterThan(0);
+    expect(
+      byName.page.every(
+        (proposal: any) => proposal.builderName === "Production Builder",
+      ),
+    ).toBe(true);
+
+    const builderProfileId = byEmail.page.find(
+      (proposal: any) => proposal.builderProfileId,
+    )?.builderProfileId as string;
+    expect(builderProfileId).toBeTruthy();
+
+    await t.run(async (ctx: any) => {
+      const builderProfile = await ctx.db.get(builderProfileId);
+      expect(builderProfile).toBeTruthy();
+      const now = Date.now();
+      await ctx.db.insert("users", {
+        authId: "user_builder_staff_search",
+        createdAt: now,
+        email: "builder.staff@example.com",
+        emailVerified: true,
+        firstName: "Casey",
+        lastName: "Crew",
+        name: "Casey Crew",
+        sourceEventId: "test_builder_staff_search_user",
+        sourceEventType: "user.created",
+        status: "active",
+        updatedAt: now,
+        workosUserId: "user_builder_staff_search",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        createdAt: now,
+        directoryManaged: false,
+        roleSlug: "builder-staff",
+        roleSlugs: ["builder-staff"],
+        sourceEventId: "test_builder_staff_search_membership",
+        sourceEventType: "organization_membership.created",
+        status: "active",
+        updatedAt: now,
+        workosMembershipId: "om_builder_staff_search",
+        workosOrganizationId: ORG,
+        workosUserId: "user_builder_staff_search",
+      });
+      await ctx.db.insert("builderAccountLinks", {
+        assignedEmail: "builder.staff@example.com",
+        brokerageId: builderProfile.brokerageId,
+        builderProfileId,
+        createdAt: now,
+        role: "staff",
+        status: "active",
+        updatedAt: now,
+        workosMembershipId: "om_builder_staff_search",
+        workosUserId: "user_builder_staff_search",
+      });
+    });
+
+    const byAttachedStaff = await t.query(
+      (api as any).production_proposals.listBackofficeProposalDirectory,
+      {
+        paginationOpts: { cursor: null, numItems: 100 },
+        search: "builder.staff@example.com Casey",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(byAttachedStaff.page.length).toBeGreaterThan(0);
+    expect(
+      byAttachedStaff.page.every(
+        (proposal: any) => proposal.builderProfileId === builderProfileId,
+      ),
+    ).toBe(true);
+
+    const approvedPendingClosing = await t.query(
+      (api as any).production_proposals.listBackofficeProposalDirectory,
+      {
+        filters: {
+          assignment: "assigned",
+          closingState: "pending_closing",
+          reviewOutcome: "approved",
+          stage: "approved",
+        },
+        paginationOpts: { cursor: null, numItems: 100 },
+        search: "approved Toronto 55000000",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    expect(approvedPendingClosing.page).toHaveLength(2);
+    expect(
+      approvedPendingClosing.page.every(
+        (proposal: any) =>
+          proposal.column === "approved" &&
+          proposal.reviewOutcome === "approved" &&
+          proposal.activeBuildId === undefined,
+      ),
+    ).toBe(true);
+  });
+
+  test("keeps the proposal directory restricted to backoffice roles", async () => {
+    const { base } = await seeded(["admin"], "user_admin");
+    const builder = withIdentity(base, ["builder"], "user_builder");
+
+    await expect(
+      builder.query(
+        (api as any).production_proposals.listBackofficeProposalDirectory,
+        {
+          paginationOpts: { cursor: null, numItems: 25 },
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/forbidden/i);
+  });
+
   test("projects an accountable operations queue from canonical proposal records", async () => {
     const { t } = await seeded(["admin"], "user_admin");
 
@@ -7263,6 +7742,14 @@ describe("production proposal foundation", () => {
 
     expect(dashboard.scheduleDate).toBe("2100-09-02T00:00:00.000Z");
     expect(dashboard.activeBuilds[0].daysActive).toBe(expectedDaysActive);
+    expect(dashboard.activeBuilds[0]).toMatchObject({
+      buildName: expect.any(String),
+      builder: expect.any(String),
+      drawCount: expect.any(Number),
+      milestoneCount: expect.any(Number),
+      milestonesBehindSchedule: expect.any(Number),
+      pendingDrawRequestCount: expect.any(Number),
+    });
   });
 
   test("lists the backoffice build roster with phase rollups and operational signals", async () => {
@@ -10197,6 +10684,12 @@ describe("draft builder assignment and deletion", () => {
 
     expect(liveBuildCard).toMatchObject({
       activeBuildId: String(closing.buildId),
+      buildName: "Budget revision build",
+      builderName: expect.any(String),
+      drawCount: 1,
+      milestoneCount: 1,
+      milestonesBehindSchedule: 1,
+      pendingDrawRequestCount: 0,
       budgetGovernance: {
         activeVersion: 1,
         affectedDrawRequestCount: 0,

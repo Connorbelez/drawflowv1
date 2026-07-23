@@ -511,6 +511,11 @@ export const listAssignableBrokers = userManagementWriteQuery
                 b.name ?? b.email ?? b.workosUserId,
               ),
           );
+          if (brokers.filter((broker) => broker.isPrincipal).length > 1) {
+            throw new Error(
+              "Multiple active broker members use the configured principal broker email. Resolve the duplicate WorkOS accounts before assigning work.",
+            );
+          }
           const principalBroker = brokers.find((broker) => broker.isPrincipal);
           return {
             brokerageId: brokerage._id,

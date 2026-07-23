@@ -266,6 +266,11 @@ export async function listAssignableBrokerMembers(
     }
     return a.name.localeCompare(b.name);
   });
+  if (sortedOptions.filter((option) => option.isPrincipal).length > 1) {
+    throw new Error(
+      "Multiple active broker members use the configured principal broker email. Resolve the duplicate WorkOS accounts before assigning work."
+    );
+  }
   const configuredDefault = sortedOptions.find((option) =>
     configuredDefaultBrokerEmail === undefined
       ? option.workosUserId === configuredDefaultBrokerWorkosUserId
@@ -529,7 +534,9 @@ async function findEligibleBrokerMemberByEmail(
     ) {
       continue;
     }
-    const broker = await getWorkosUser(ctx, membership.workosUserId);
+    const broker = newestProjectedUser(
+      await getWorkosUsers(ctx, membership.workosUserId)
+    );
     if (
       broker?.status === "active" &&
       broker.emailVerified !== false &&
@@ -582,27 +589,20 @@ async function getActiveOrganizationMembership(
 }
 
 async function getWorkosUser(ctx: ReadCtx, workosUserId: string) {
-  const projectedUsers = await ctx.db
+  return newestProjectedUser(await getWorkosUsers(ctx, workosUserId));
+}
+
+function getWorkosUsers(ctx: ReadCtx, workosUserId: string) {
+  return ctx.db
     .query("users")
     .withIndex("by_workos_user_id", (q) => q.eq("workosUserId", workosUserId))
     .collect();
-  if (projectedUsers.length <= 1) {
-    return projectedUsers[0] ?? null;
-  }
+}
 
-  const activeUsers = projectedUsers.filter((user) => user.status === "active");
-  const candidates = activeUsers.length > 0 ? activeUsers : projectedUsers;
-  const projectedEmails = new Set(
-    candidates.map((user) => normalizeEmail(user.email)).filter(Boolean)
-  );
-  if (projectedEmails.size > 1) {
-    throw new Error(
-      `Conflicting user projections exist for WorkOS user ${workosUserId}. Sync the WorkOS directory before assigning work.`
-    );
-  }
-  return candidates.sort(
+function newestProjectedUser(users: Doc<"users">[]) {
+  return users.sort(
     (a, b) => (b.updatedAt ?? b._creationTime) - (a.updatedAt ?? a._creationTime)
-  )[0];
+  )[0] ?? null;
 }
 
 function normalizeEmail(email: string | undefined): string | undefined {

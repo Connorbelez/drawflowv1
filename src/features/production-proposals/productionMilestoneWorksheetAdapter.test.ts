@@ -9,6 +9,19 @@ import { productionProposalDetailToDraftMilestones } from "./productionMilestone
 describe("productionMilestoneWorksheetAdapter", () => {
   test("maps proposal contractor planning into milestone worksheet rows", () => {
     const detail = {
+      costItems: [
+        {
+          _id: "cost-item-1",
+          budgetSubmilestoneKey: "dc-ed",
+          budgetTreatment: "maintain" as const,
+          costCents: 5_000_00,
+          itemType: "material" as const,
+          milestoneKey: "four-plex-draw-01",
+          quantity: 1,
+          relevantSubmilestoneKeys: ["dc-ed", "removed"],
+          title: "Concrete package",
+        },
+      ],
       milestones: [
         {
           budgetCents: 50_000_00,
@@ -92,6 +105,14 @@ describe("productionMilestoneWorksheetAdapter", () => {
         role: "Foundation contractor",
         subMilestoneIds: ["dc-ed", "permits"],
       },
+    ]);
+    expect(row?.costItems).toEqual([
+      expect.objectContaining({
+        budgetSubmilestoneKey: "dc-ed",
+        budgetTreatment: "maintain",
+        id: "cost-item-1",
+        relevantSubMilestoneIds: ["dc-ed"],
+      }),
     ]);
   });
 

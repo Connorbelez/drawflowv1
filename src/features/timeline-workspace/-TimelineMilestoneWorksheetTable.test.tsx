@@ -165,6 +165,7 @@ const cascadeRows: TimelineMilestoneWorksheetRow[] = [
 
 function ControlledWorksheet({
   cascadeBudgetEdits = false,
+  contractorActions,
   contractorOptions = [],
   initialWorksheetView = "editor",
   initialRows = worksheetRows,
@@ -177,6 +178,9 @@ function ControlledWorksheet({
   targetBudgetCents = 200_000_00,
 }: {
   cascadeBudgetEdits?: boolean;
+  contractorActions?: ComponentProps<
+    typeof TimelineMilestoneWorksheetTable
+  >["contractorActions"];
   contractorOptions?: ComponentProps<
     typeof TimelineMilestoneWorksheetTable
   >["contractorOptions"];
@@ -204,6 +208,7 @@ function ControlledWorksheet({
     <TimelineMilestoneWorksheetTable
       cascadeBudgetEdits={cascadeEnabled}
       cashText="$25,000"
+      contractorActions={contractorActions}
       contractorOptions={contractorOptions}
       initialWorksheetView={initialWorksheetView}
       mode={mode}
@@ -384,6 +389,141 @@ describe("TimelineMilestoneWorksheetTable", () => {
         )
         .getAttribute("aria-label")
     ).toContain("2.5 x $80,000");
+  });
+
+  test("status chip click opens the detail sheet focused on the matching tab", () => {
+    render(
+      <ControlledWorksheet
+        initialWorksheetView="table"
+        initialRows={[
+          {
+            ...worksheetRows[0]!,
+            contractorAssignments: [
+              {
+                contractorId: "contractor-ledger",
+                contractorName: "Ledger Frame Co.",
+                estimatedCostCents: 1_250_000,
+                estimatedHours: 16.5,
+                id: "assignment-ledger",
+                role: "Foundation crew",
+                subMilestoneIds: ["site-prep-foundation-sub-1"],
+              },
+            ],
+            costItems: [
+              {
+                costCents: 8_000_000,
+                description: "Concrete and rebar package",
+                id: "material-foundation",
+                itemType: "material",
+                quantity: 2.5,
+                relevantSubMilestoneIds: ["site-prep-foundation-sub-1"],
+                supplier: "Apex Supply",
+                title: "Foundation material package",
+              },
+            ],
+            siteVisitGuidance: {
+              cameraAngles: "<p>North elevation and footing closeups</p>",
+              whatToVerify: "<p>Verify footing pins before pour</p>",
+            },
+          },
+        ]}
+      />
+    );
+
+    // Clicking the Contractor chip should open the milestone detail sheet with
+    // the Contractors tab auto-selected.
+    fireEvent.click(
+      screen.getByTestId("timeline-setup-status-site-prep-foundation-contractor")
+    );
+
+    const contractorSheet = screen.getByTestId(
+      "timeline-setup-details-sheet-site-prep-foundation"
+    );
+    const contractorTab = within(contractorSheet).getByRole("tab", {
+      name: "Contractors",
+    });
+    expect(contractorTab.getAttribute("aria-selected")).toBe("true");
+
+    // The Materials chip should focus the Materials tab.
+    fireEvent.click(
+      screen.getByTestId("timeline-setup-status-site-prep-foundation-materials")
+    );
+    const materialsTab = within(contractorSheet).getByRole("tab", {
+      name: "Materials",
+    });
+    expect(materialsTab.getAttribute("aria-selected")).toBe("true");
+
+    // The Guidance chip should focus the Field Guidance tab.
+    fireEvent.click(
+      screen.getByTestId("timeline-setup-status-site-prep-foundation-guidance")
+    );
+    const guidanceTab = within(contractorSheet).getByRole("tab", {
+      name: "Field Guidance",
+    });
+    expect(guidanceTab.getAttribute("aria-selected")).toBe("true");
+  });
+
+  test("status chip click on a sub-milestone opens the focused sheet tab", () => {
+    render(
+      <ControlledWorksheet
+        initialWorksheetView="table"
+        initialRows={[
+          {
+            ...worksheetRows[0]!,
+            contractorAssignments: [
+              {
+                contractorId: "contractor-ledger",
+                contractorName: "Ledger Frame Co.",
+                estimatedCostCents: 1_250_000,
+                estimatedHours: 16.5,
+                id: "assignment-ledger",
+                role: "Foundation crew",
+                subMilestoneIds: ["site-prep-foundation-sub-1"],
+              },
+            ],
+          },
+        ]}
+      />
+    );
+
+    fireEvent.click(
+      screen.getByTestId(
+        "timeline-setup-status-site-prep-foundation-sub-1-contractor"
+      )
+    );
+
+    const subMilestoneSheet = screen.getByTestId(
+      "timeline-setup-submilestone-details-sheet-site-prep-foundation-sub-1"
+    );
+    const contractorTab = within(subMilestoneSheet).getByRole("tab", {
+      name: "Contractors",
+    });
+    expect(contractorTab.getAttribute("aria-selected")).toBe("true");
+  });
+
+  test("detail sheet opens on the default tab when launched from the Details button", () => {
+    render(
+      <ControlledWorksheet
+        initialWorksheetView="table"
+        initialRows={[{ ...worksheetRows[0]! }]}
+      />
+    );
+
+    fireEvent.click(
+      screen.getByTestId(
+        "timeline-setup-table-row-details-site-prep-foundation"
+      )
+    );
+
+    const sheet = screen.getByTestId(
+      "timeline-setup-details-sheet-site-prep-foundation"
+    );
+    // The Details button carries no tab request, so the sheet lands on its
+    // default milestone tab (Sub-milestones), not Contractors/Materials.
+    const defaultTab = within(sheet).getByRole("tab", {
+      name: "Sub-milestones",
+    });
+    expect(defaultTab.getAttribute("aria-selected")).toBe("true");
   });
 
   test("opens table row details in a sheet with the milestone planning tabs", () => {
@@ -1301,6 +1441,33 @@ describe("TimelineMilestoneWorksheetTable", () => {
     ).toBe("Framing");
   });
 
+  test("opens the create-contractor drawer from milestone crew planning", async () => {
+    const onCreate = vi.fn(async () => ({
+      contractorId: "contractor-new",
+    }));
+    render(
+      <ControlledWorksheet
+        contractorActions={{
+          availableContractors: [],
+          onCreate,
+        }}
+        contractorOptions={[]}
+      />
+    );
+    openExpandedMilestoneTab("Contractors");
+
+    fireEvent.click(
+      screen.getByTestId("timeline-setup-create-contractor-site-prep-foundation")
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Add contractor to proposal" })
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Create and add" })
+    ).toBeTruthy();
+  });
+
   test("adds optional contractor and material planning to an expanded setup row", () => {
     const onRowsChange = vi.fn();
     render(
@@ -1636,5 +1803,145 @@ describe("TimelineMilestoneWorksheetTable", () => {
         key: "milestone-3",
       }),
     ]);
+  });
+});
+
+describe("summary table window range editing", () => {
+  function clickCalendarDay(isoDate: string) {
+    const button = document.querySelector(
+      `[data-day="${isoDate}"] button`
+    );
+    if (!button) {
+      throw new Error(`No calendar day rendered for ${isoDate}`);
+    }
+    fireEvent.click(button);
+  }
+
+  test("milestone window cell opens a range calendar and edits the start date", () => {
+    const onRowsChange = vi.fn();
+    render(
+      <ControlledWorksheet
+        initialRows={cascadeRows}
+        initialWorksheetView="table"
+        onRowsChange={onRowsChange}
+        proposedStartDate="2026-06-01"
+        scheduleDisplayMode="dates"
+      />
+    );
+
+    fireEvent.click(
+      screen.getByTestId("timeline-setup-table-row-window-milestone-1")
+    );
+
+    expect(
+      document
+        .querySelector('[data-day="2026-06-01"]')
+        ?.classList.contains("range-start")
+    ).toBe(true);
+    expect(
+      screen
+        .getByTestId("timeline-setup-table-row-window-milestone-1-start-node")
+        .getAttribute("aria-pressed")
+    ).toBe("true");
+
+    clickCalendarDay("2026-06-03");
+
+    expect(onRowsChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        durationDays: 5,
+        durationText: "5",
+        key: "milestone-1",
+        startDay: 2,
+      }),
+      expect.objectContaining({ key: "milestone-2" }),
+      expect.objectContaining({ key: "milestone-3" }),
+    ]);
+  });
+
+  test("the armed end node moves the milestone end date only", () => {
+    const onRowsChange = vi.fn();
+    render(
+      <ControlledWorksheet
+        initialRows={cascadeRows}
+        initialWorksheetView="table"
+        onRowsChange={onRowsChange}
+        proposedStartDate="2026-06-01"
+        scheduleDisplayMode="dates"
+      />
+    );
+
+    fireEvent.click(
+      screen.getByTestId("timeline-setup-table-row-window-milestone-1")
+    );
+    fireEvent.click(
+      screen.getByTestId(
+        "timeline-setup-table-row-window-milestone-1-end-node"
+      )
+    );
+    clickCalendarDay("2026-06-10");
+
+    expect(onRowsChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        durationDays: 10,
+        durationText: "10",
+        key: "milestone-1",
+        startDay: 0,
+      }),
+      expect.objectContaining({ key: "milestone-2" }),
+      expect.objectContaining({ key: "milestone-3" }),
+    ]);
+  });
+
+  test("milestone rows with sub-milestones keep a read-only window", () => {
+    render(
+      <ControlledWorksheet
+        initialWorksheetView="table"
+        proposedStartDate="2026-06-01"
+        scheduleDisplayMode="dates"
+      />
+    );
+
+    expect(
+      screen.queryByTestId(
+        "timeline-setup-table-row-window-site-prep-foundation"
+      )
+    ).toBeNull();
+  });
+
+  test("sub-milestone window cell edits the sub-milestone start date", () => {
+    const onRowsChange = vi.fn();
+    render(
+      <ControlledWorksheet
+        initialWorksheetView="table"
+        onRowsChange={onRowsChange}
+        proposedStartDate="2026-06-01"
+        scheduleDisplayMode="dates"
+      />
+    );
+
+    fireEvent.click(
+      screen.getByTestId(
+        "timeline-setup-table-submilestone-window-site-prep-foundation-sub-1"
+      )
+    );
+    clickCalendarDay("2026-06-05");
+
+    const rows = onRowsChange.mock.calls.at(-1)?.[0] as
+      | TimelineMilestoneWorksheetRow[]
+      | undefined;
+    const subMilestone = rows?.[0]?.subMilestoneDetails[0];
+    expect(subMilestone).toEqual(
+      expect.objectContaining({ durationText: "10", startDay: 4 })
+    );
+  });
+
+  test("window cells stay read-only without a proposed start date", () => {
+    render(<ControlledWorksheet initialWorksheetView="table" />);
+
+    expect(
+      screen.queryByTestId(
+        "timeline-setup-table-submilestone-window-site-prep-foundation-sub-1"
+      )
+    ).toBeNull();
   });
 });

@@ -267,11 +267,13 @@ describe("ProductionProposalKanbanSurface", () => {
       <ProductionProposalKanbanSurface
         kanban={kanbanWithDraft({
           builderAssigned: true,
+          builderEmail: "owner@northline.example",
           builderName: "Northline Homes",
         })}
       />,
     );
     expect(screen.getByText("Northline Homes")).toBeTruthy();
+    expect(screen.getByText("owner@northline.example")).toBeTruthy();
     expect(
       screen.queryByTestId("production-kanban-card-unassigned"),
     ).toBeNull();
@@ -550,14 +552,17 @@ describe("ProductionProposalReviewSurface", () => {
     );
 
     const packet = screen.getByTestId("production-proposal-packet-tab");
-    const reviewDecision = within(packet)
-      .getByText("Review decision")
-      .closest('[data-slot="card"]');
-    const mergedOverview = reviewDecision?.parentElement;
+    const primaryColumn = within(packet).getByTestId(
+      "proposal-review-primary-column"
+    );
+    const contextColumn = within(packet).getByTestId(
+      "proposal-review-context-column"
+    );
 
-    expect(reviewDecision).toBeTruthy();
-    expect(mergedOverview?.className).toContain("items-start");
-    expect(within(packet).getByText("Parties & assignment")).toBeTruthy();
+    expect(within(primaryColumn).getByText("Review decision")).toBeTruthy();
+    expect(within(primaryColumn).getByText("Readiness")).toBeTruthy();
+    expect(within(contextColumn).getByText("Review snapshot")).toBeTruthy();
+    expect(within(contextColumn).getByText("Parties & assignment")).toBeTruthy();
     expect(within(packet).getByText("Northline Homes")).toBeTruthy();
     expect(within(packet).getByText("Avery North")).toBeTruthy();
     expect(within(packet).getByText("Sam Field")).toBeTruthy();
@@ -589,6 +594,30 @@ describe("ProductionProposalReviewSurface", () => {
     expect(within(packet).getByText("Draw schedule snapshot")).toBeTruthy();
 
     expect(screen.getByRole("tab", { name: "Review" })).toBeTruthy();
+  });
+
+  test("shows stage guidance instead of unusable lender controls for drafts", () => {
+    render(
+      <ProductionProposalReviewSurface
+        detail={proposalDetail}
+        onApprove={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+      />
+    );
+
+    const packet = screen.getByTestId("production-proposal-packet-tab");
+
+    expect(within(packet).getByText("Proposal status")).toBeTruthy();
+    expect(
+      within(packet).getByText(
+        "Decision controls unlock after the builder submits this proposal for lender review."
+      )
+    ).toBeTruthy();
+    expect(
+      within(packet).queryByRole("button", { name: "Approve Proposal" })
+    ).toBeNull();
+    expect(within(packet).queryByLabelText("Decision reason")).toBeNull();
   });
 
   test("renders builder, broker, and brokerage identity on the review tab", () => {
@@ -1948,7 +1977,15 @@ describe("toTimelineRows", () => {
       toTimelineRows([
         {
           activeBuildId: "active-build-1",
+          buildName: "Materialized build",
+          buildStatus: "active",
+          builderName: "Northline Builders",
           column: "closed",
+          drawCount: 3,
+          location: "1200 Stone Road",
+          milestoneCount: 4,
+          milestonesBehindSchedule: 2,
+          pendingDrawRequestCount: 1,
           proposalId: "proposal-1",
           title: "Assigned build",
           totalBudgetCents: 1_000_000,
@@ -1958,7 +1995,14 @@ describe("toTimelineRows", () => {
     ).toEqual([
       expect.objectContaining({
         buildKey: "active-build-1",
+        buildName: "Materialized build",
+        builderName: "Northline Builders",
+        drawCount: 3,
         kind: "activeBuild",
+        location: "1200 Stone Road",
+        milestoneCount: 4,
+        milestonesBehindSchedule: 2,
+        pendingDrawRequestCount: 1,
         planId: "proposal-1",
         status: "approved",
       }),
