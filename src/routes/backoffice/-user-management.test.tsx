@@ -602,6 +602,7 @@ describe("UserManagementSurface directory rows", () => {
       brokerageProvisioning: {
         fairLendBootstrap: {
           displayName: "FairLendBrokerage",
+          principalBrokerEmail: "elie@fairlend.ca",
           principalBrokerWorkosUserId: "user_admin",
           workosOrganizationId: "org_alpha",
         },

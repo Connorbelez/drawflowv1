@@ -1559,6 +1559,7 @@ export default defineSchema({
     workosOrganizationId: v.string(),
     legalName: v.string(),
     displayName: v.string(),
+    principalBrokerEmail: v.optional(v.string()),
     principalBrokerWorkosUserId: v.optional(v.string()),
     status: v.union(v.literal("active"), v.literal("inactive")),
     createdAt: v.number(),

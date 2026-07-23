@@ -148,12 +148,16 @@ function BuildersRoute() {
 
   const onProvisionBuilder = useCallback(
     async (input: {
+      assignedBrokerWorkosUserId: string;
       displayName: string;
       ownerWorkosUserId: string;
       workosOrganizationId: string;
     }) => {
       try {
-        await provisionBuilderProfile(input);
+        await provisionBuilderProfile({
+          ...input,
+          assignedBrokerWorkosUserId: input.assignedBrokerWorkosUserId,
+        });
         toast.success(`Builder profile created for ${input.displayName}`);
       } catch (error) {
         toast.error(actionErrorMessage(error));
@@ -165,8 +169,8 @@ function BuildersRoute() {
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:py-8">
       <BuilderRosterSurface
-        brokerages={roster?.brokerages ?? []}
         assignableBrokerages={assignableBrokers?.brokerages ?? []}
+        brokerages={roster?.brokerages ?? []}
         brokerOptionsPending={assignableBrokers === undefined}
         builders={roster?.builders}
         onAssignBroker={onAssignBroker}

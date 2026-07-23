@@ -13,6 +13,7 @@ export type SyncStatusProjection = FunctionReturnType<
 export interface BrokerageProvisioningProjection {
   fairLendBootstrap: {
     displayName: string;
+    principalBrokerEmail: string;
     principalBrokerWorkosUserId: string;
     workosOrganizationId: string;
   };
@@ -69,6 +70,7 @@ export interface BrokerageBlock {
   _id: string;
   displayName: string;
   legalName: string;
+  principalBrokerEmail?: string;
   principalBrokerWorkosUserId?: string;
   status: string;
 }
@@ -135,6 +137,7 @@ export interface ProvisionBrokerageArgs {
 }
 
 export interface ProvisionBuilderArgs {
+  assignedBrokerWorkosUserId?: string;
   displayName?: string;
   ownerWorkosUserId?: string;
   workosOrganizationId: string;

@@ -214,7 +214,6 @@ describe("BuilderRosterSurface broker assignment", () => {
     });
   });
 
-
   test("selects an eligible broker for an unassigned Builder", async () => {
     const { onAssignBroker } = renderRoster();
 
@@ -262,5 +261,67 @@ describe("BuilderRosterSurface broker assignment", () => {
       reason: "Assign the selected Builder portfolio to one accountable broker.",
     });
     expect(screen.queryByText("2 selected")).toBeNull();
+  });
+});
+
+describe("BuilderRosterSurface builder provisioning", () => {
+  test("requires and submits an eligible broker instead of a stale principal", async () => {
+    const onProvisionBuilder = vi.fn().mockResolvedValue(undefined);
+    const stalePrincipalBrokerages = [
+      {
+        ...assignableBrokerages[0],
+        principalBrokerWorkosUserId: "user_non_broker_admin",
+      },
+    ] as AssignableBrokerage[];
+
+    render(
+      <BuilderRosterSurface
+        assignableBrokerages={stalePrincipalBrokerages}
+        brokerages={[]}
+        brokerOptionsPending={false}
+        builders={[]}
+        onAssignBroker={vi.fn()}
+        onInviteBuilder={vi.fn()}
+        onLinkAccount={vi.fn().mockResolvedValue(undefined)}
+        onProvisionBuilder={onProvisionBuilder}
+        onSetProfileStatus={vi.fn().mockResolvedValue(undefined)}
+        onUnlinkAccount={vi.fn().mockResolvedValue(undefined)}
+        pending={false}
+        unprovisionedBuilders={[
+          {
+            brokerageDisplayName: "FairLendBrokerage",
+            email: "casey@builder.example.com",
+            name: "Casey Builder",
+            profilePictureUrl: null,
+            roleSlugs: ["builder"],
+            workosMembershipId: "om_casey_builder",
+            workosOrganizationId: ORGANIZATION_ID,
+            workosUserId: "user_casey_builder",
+          },
+        ]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create profile" }));
+    const dialog = await screen.findByRole("dialog");
+    const brokerSelect = within(dialog).getByLabelText("Assigned broker");
+    expect(brokerSelect.textContent).toContain("Alex Broker");
+
+    fireEvent.click(brokerSelect);
+    fireEvent.click(
+      await screen.findByRole("option", { name: /Morgan Broker/i })
+    );
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Create profile" })
+    );
+
+    await waitFor(() =>
+      expect(onProvisionBuilder).toHaveBeenCalledWith({
+        assignedBrokerWorkosUserId: "user_morgan_broker",
+        displayName: "Casey Builder",
+        ownerWorkosUserId: "user_casey_builder",
+        workosOrganizationId: ORGANIZATION_ID,
+      })
+    );
   });
 });

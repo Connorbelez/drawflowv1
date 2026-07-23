@@ -1,6 +1,11 @@
 import { Migrations } from "@convex-dev/migrations";
 
 import { components, internal } from "./_generated/api.js";
+import { hasAssignableBrokerRole } from "./brokerAssignments.js";
+import {
+  FAIRLEND_DEFAULT_BROKER_EMAIL,
+  FAIRLEND_WORKOS_ORGANIZATION_ID,
+} from "./fairLendConfig.js";
 import schema from "./schema.js";
 
 export const migrations = new Migrations(components.migrations, { schema });
@@ -69,4 +74,57 @@ export const runBorrowerStartingCashCutover = migrations.runner([
   internal.migrations.backfillProposalBorrowerStartingCash,
   internal.migrations.backfillActiveBuildBorrowerStartingCash,
   internal.migrations.backfillCapitalPlanBorrowerStartingCash,
+]);
+
+/** Makes principal broker identity resilient to WorkOS account recreation. */
+export const backfillBrokeragePrincipalBrokerEmail = migrations.define({
+  table: "brokerages",
+  migrateOne: async (ctx, brokerage) => {
+    if (brokerage.principalBrokerEmail) {
+      return;
+    }
+    if (brokerage.workosOrganizationId === FAIRLEND_WORKOS_ORGANIZATION_ID) {
+      return { principalBrokerEmail: FAIRLEND_DEFAULT_BROKER_EMAIL };
+    }
+    if (!brokerage.principalBrokerWorkosUserId) {
+      return;
+    }
+    const principalBrokerWorkosUserId =
+      brokerage.principalBrokerWorkosUserId;
+
+    const [broker, memberships] = await Promise.all([
+      ctx.db
+        .query("users")
+        .withIndex("by_workos_user_id", (q) =>
+          q.eq("workosUserId", principalBrokerWorkosUserId)
+        )
+        .unique(),
+      ctx.db
+        .query("workosOrganizationMemberships")
+        .withIndex("by_user", (q) =>
+          q.eq("workosUserId", principalBrokerWorkosUserId)
+        )
+        .collect(),
+    ]);
+    const eligibleMembership = memberships.find(
+      (membership) =>
+        membership.workosOrganizationId === brokerage.workosOrganizationId &&
+        membership.status === "active" &&
+        hasAssignableBrokerRole(membership)
+    );
+    const principalBrokerEmail = broker?.email.trim().toLowerCase();
+    if (
+      broker?.status !== "active" ||
+      broker.emailVerified === false ||
+      !eligibleMembership ||
+      !principalBrokerEmail
+    ) {
+      return;
+    }
+    return { principalBrokerEmail };
+  },
+});
+
+export const runBrokeragePrincipalBrokerEmailBackfill = migrations.runner([
+  internal.migrations.backfillBrokeragePrincipalBrokerEmail,
 ]);

@@ -9,11 +9,14 @@ import {
 import {
   assignBuilderBrokerAssignment,
   deactivateBuilderBrokerAssignments,
-  ensureBuilderBrokerAssignment,
+  ensureBuilderBrokerAssignmentForWorkflow,
   getBuilderBrokerAssignmentHealth,
   hasAssignableBrokerRole,
-  requireDefaultBrokerMember,
 } from "./brokerAssignments";
+import {
+  FAIRLEND_DEFAULT_BROKER_EMAIL,
+  FAIRLEND_WORKOS_ORGANIZATION_ID,
+} from "./fairLendConfig";
 import type { Doc, MutationCtx } from "./types";
 
 /**
@@ -458,6 +461,10 @@ export const listAssignableBrokers = userManagementWriteQuery
       brokerages: brokerages
         .filter((brokerage) => brokerage.status === "active")
         .map((brokerage) => {
+          const principalBrokerEmail =
+            brokerage.workosOrganizationId === FAIRLEND_WORKOS_ORGANIZATION_ID
+              ? FAIRLEND_DEFAULT_BROKER_EMAIL
+              : brokerage.principalBrokerEmail?.trim().toLowerCase();
           const brokersByUserId = new Map<
             string,
             {
@@ -486,8 +493,10 @@ export const listAssignableBrokers = userManagementWriteQuery
             brokersByUserId.set(membership.workosUserId, {
               email: user.email ?? null,
               isPrincipal:
-                membership.workosUserId ===
-                brokerage.principalBrokerWorkosUserId,
+                principalBrokerEmail === undefined
+                  ? membership.workosUserId ===
+                    brokerage.principalBrokerWorkosUserId
+                  : user.email.trim().toLowerCase() === principalBrokerEmail,
               name: user.name ?? null,
               profilePictureUrl: user.profilePictureUrl ?? null,
               roleSlugs: membershipRoleSlugs(membership),
@@ -502,12 +511,13 @@ export const listAssignableBrokers = userManagementWriteQuery
                 b.name ?? b.email ?? b.workosUserId,
               ),
           );
+          const principalBroker = brokers.find((broker) => broker.isPrincipal);
           return {
             brokerageId: brokerage._id,
             brokerageName: brokerage.displayName,
             brokers,
             principalBrokerWorkosUserId:
-              brokerage.principalBrokerWorkosUserId ?? null,
+              principalBroker?.workosUserId ?? null,
             workosOrganizationId: brokerage.workosOrganizationId,
           };
         })
@@ -686,12 +696,9 @@ export const setBuilderProfileStatus = userManagementWriteMutation
           "The builder profile could not be loaded after reactivation.",
         );
       }
-      const { workosUserId: assignedBrokerWorkosUserId } =
-        await requireDefaultBrokerMember(ctx, brokerage);
-      await ensureBuilderBrokerAssignment(ctx, {
+      await ensureBuilderBrokerAssignmentForWorkflow(ctx, {
         actorRoles: ctx.viewer.roles,
         actorWorkosUserId: ctx.viewer.subject,
-        assignedBrokerWorkosUserId,
         brokerage,
         builderProfile: activeProfile,
         command: "setBuilderProfileStatus",

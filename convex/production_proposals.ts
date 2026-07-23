@@ -26849,6 +26849,15 @@ async function ensureBrokerage(
     workosOrganizationId: string;
   }
 ) {
+  const principalBroker = input.principalBrokerWorkosUserId
+    ? await ctx.db
+        .query("users")
+        .withIndex("by_workos_user_id", (q) =>
+          q.eq("workosUserId", input.principalBrokerWorkosUserId)
+        )
+        .unique()
+    : null;
+  const principalBrokerEmail = principalBroker?.email.trim().toLowerCase();
   const existing = await ctx.db
     .query("brokerages")
     .withIndex("by_workos_organization", (q) =>
@@ -26859,6 +26868,8 @@ async function ensureBrokerage(
     await ctx.db.patch(existing._id, {
       displayName: input.displayName,
       legalName: input.legalName,
+      principalBrokerEmail:
+        principalBrokerEmail || existing.principalBrokerEmail,
       principalBrokerWorkosUserId:
         input.principalBrokerWorkosUserId ??
         existing.principalBrokerWorkosUserId,
@@ -26871,6 +26882,7 @@ async function ensureBrokerage(
     createdAt: input.now,
     displayName: input.displayName,
     legalName: input.legalName,
+    ...(principalBrokerEmail ? { principalBrokerEmail } : {}),
     principalBrokerWorkosUserId: input.principalBrokerWorkosUserId,
     status: "active",
     updatedAt: input.now,
