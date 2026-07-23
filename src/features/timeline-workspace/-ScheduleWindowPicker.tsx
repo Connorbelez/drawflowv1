@@ -20,7 +20,6 @@ import {
 import {
   dateFromProposalDayOffset,
   dayOffsetFromProposalDate,
-  inclusiveEndDateFromProposalSchedule,
   isoDateFromLocalDate,
   localDateFromIsoDate,
 } from "#/features/production-proposals/proposalScheduleDates.ts";
@@ -36,33 +35,40 @@ export interface ScheduleWindowValue {
 const DAY_CELL_SELECTOR = "[data-day]";
 
 /**
- * Pure window-move primitive shared by click and drag interactions. Moving a
- * node keeps the opposite node pinned: the window stretches or shrinks rather
+ * Pure window-move primitive shared by click and drag interactions. Window end
+ * dates use exclusive-end semantics (`end = startDay + durationDays`), matching
+ * the "Day X to Y" window labels across the worksheet and packet tables. Moving
+ * a node keeps the opposite node pinned: the window stretches or shrinks rather
  * than shifting. The moved node is clamped so it can never cross the pinned
- * node, preserving a minimum one-day window.
+ * node, preserving a minimum one-day window, and `minDayOffset` (when given)
+ * clamps how far either node can travel before the schedule origin.
  */
 export function moveScheduleWindowNode(
   value: ScheduleWindowValue,
   node: ScheduleWindowNode,
   targetIsoDate: string,
-  proposedStartDate: string
+  proposedStartDate: string,
+  { minDayOffset }: { minDayOffset?: number } = {}
 ): ScheduleWindowValue {
   const startDay = Math.round(value.startDay);
   const durationDays = Math.max(1, Math.round(value.durationDays));
-  const endDay = startDay + durationDays - 1;
-  const targetDay = dayOffsetFromProposalDate(proposedStartDate, targetIsoDate);
+  const exclusiveEndDay = startDay + durationDays;
+  const clampedTargetDay = Math.max(
+    minDayOffset ?? Number.NEGATIVE_INFINITY,
+    dayOffsetFromProposalDate(proposedStartDate, targetIsoDate)
+  );
 
   if (node === "start") {
-    const nextStartDay = Math.min(targetDay, endDay);
+    const nextStartDay = Math.min(clampedTargetDay, exclusiveEndDay - 1);
     return {
-      durationDays: endDay - nextStartDay + 1,
+      durationDays: exclusiveEndDay - nextStartDay,
       startDay: nextStartDay,
     };
   }
 
-  const nextEndDay = Math.max(targetDay, startDay);
+  const nextExclusiveEndDay = Math.max(clampedTargetDay, startDay + 1);
   return {
-    durationDays: nextEndDay - startDay + 1,
+    durationDays: nextExclusiveEndDay - startDay,
     startDay,
   };
 }
@@ -105,6 +111,7 @@ function formatNodeDate(isoDate: string) {
 export function ScheduleWindowPicker({
   durationDays,
   label,
+  minDayOffset,
   onCommit,
   onWindowChange,
   proposedStartDate,
@@ -115,6 +122,7 @@ export function ScheduleWindowPicker({
 }: {
   durationDays: number;
   label: string;
+  minDayOffset?: number;
   onCommit: () => void;
   onWindowChange: (next: ScheduleWindowValue) => void;
   proposedStartDate: string;
@@ -130,10 +138,9 @@ export function ScheduleWindowPicker({
 
   const value: ScheduleWindowValue = { durationDays, startDay };
   const startIsoDate = dateFromProposalDayOffset(proposedStartDate, startDay);
-  const endIsoDate = inclusiveEndDateFromProposalSchedule(
+  const endIsoDate = dateFromProposalDayOffset(
     proposedStartDate,
-    startDay,
-    durationDays
+    Math.round(startDay) + Math.max(1, Math.round(durationDays))
   );
   const selectedRange: DateRange = {
     from: localDateFromIsoDate(startIsoDate),
@@ -145,7 +152,8 @@ export function ScheduleWindowPicker({
       value,
       node,
       isoDate,
-      proposedStartDate
+      proposedStartDate,
+      { minDayOffset }
     );
     if (
       next.startDay !== Math.round(value.startDay) ||
