@@ -753,6 +753,10 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.getByText("Approved With Permit Site")).toBeTruthy();
     expect(screen.getByText("Production active Build")).toBeTruthy();
     expect(screen.getByTestId("build-overview-current-panel")).toBeTruthy();
+    expect(screen.getByTestId("current-active-draw-requests")).toBeTruthy();
+    expect(
+      screen.getByTestId("current-active-draw-requests-empty").textContent,
+    ).toContain("No active draw requests.");
     expect(screen.getByTestId("current-milestone-foundation")).toBeTruthy();
     expect(screen.getByText("Behind Schedule Milestones")).toBeTruthy();
     expect(screen.getByText("Current Milestones")).toBeTruthy();
@@ -1038,6 +1042,23 @@ describe("ProductionBuildDetailSurface", () => {
       />,
     );
 
+    expect(
+      screen.getByTestId("current-active-draw-requests").textContent,
+    ).toContain("Requested foundation holdback");
+    expect(
+      screen.queryByTestId("current-active-draw-requests-empty"),
+    ).toBeNull();
+    expect(
+      within(screen.getByTestId("current-active-draw-requests")).queryByText(
+        "Released permit reimbursement",
+      ),
+    ).toBeNull();
+    expect(
+      within(screen.getByTestId("current-active-draw-requests")).queryByText(
+        "Upcoming foundation reimbursement",
+      ),
+    ).toBeNull();
+
     fireEvent.click(screen.getByTestId("build-overview-tab-draws"));
     expect(screen.getByTestId("draw-overview-past-draws").textContent).toContain(
       "Released permit reimbursement",
@@ -1048,6 +1069,66 @@ describe("ProductionBuildDetailSurface", () => {
     expect(
       screen.getByTestId("draw-overview-scheduled-draws").textContent,
     ).toContain("Upcoming foundation reimbursement");
+  });
+
+  test("runs lender draw actions from the current overview active draw requests", async () => {
+    const approveDraw = vi.fn().mockResolvedValue(null);
+    const releaseDraw = vi.fn().mockResolvedValue(null);
+
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ approveDraw, releaseDraw }}
+        activeTab="details"
+        detail={{
+          ...detail,
+          draws: [
+            {
+              ...detail.draws[0],
+              _id: "draw-requested",
+              amountCents: 88_000_00,
+              drawKey: "draw-requested",
+              label: "Requested foundation reimbursement",
+              requestedAt: "2026-06-24T12:00:00.000Z",
+              status: "requested",
+            },
+            {
+              ...detail.draws[0],
+              _id: "draw-approved",
+              amountCents: 64_000_00,
+              drawKey: "draw-approved",
+              label: "Approved framing reimbursement",
+              order: 2,
+              reviewedAt: "2026-06-25T12:00:00.000Z",
+              status: "approved",
+            },
+          ],
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+        viewerRole="lender"
+      />,
+    );
+
+    const activeRequests = screen.getByTestId("current-active-draw-requests");
+    expect(activeRequests.textContent).toContain(
+      "Requested foundation reimbursement",
+    );
+    expect(activeRequests.textContent).toContain(
+      "Approved framing reimbursement",
+    );
+
+    fireEvent.click(screen.getByTestId("current-draw-approve-draw-requested"));
+    await waitFor(() => expect(approveDraw).toHaveBeenCalledTimes(1));
+    expect(approveDraw.mock.calls[0]?.[0]).toMatchObject({
+      drawKey: "draw-requested",
+    });
+
+    fireEvent.click(screen.getByTestId("current-draw-release-draw-approved"));
+    await waitFor(() => expect(releaseDraw).toHaveBeenCalledTimes(1));
+    expect(releaseDraw.mock.calls[0]?.[0]).toMatchObject({
+      drawKey: "draw-approved",
+    });
   });
 
   test("shows lender approval controls instead of request controls in draw overview", async () => {

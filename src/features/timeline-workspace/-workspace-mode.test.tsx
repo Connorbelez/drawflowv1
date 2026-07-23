@@ -58,11 +58,21 @@ vi.mock("sonner", () => ({
 vi.mock("#/components/roadmap/AnimatedCurvedTimeline.tsx", () => ({
   AnimatedCurvedTimeline: ({ insertion, markers = [], renderMarker }: any) => (
     <div data-testid="mock-animated-timeline">
-      {insertion?.actions?.map((action: { id: string; label: string }) => (
-        <button key={action.id} type="button">
-          {action.label}
-        </button>
-      ))}
+      {insertion?.actions?.map(
+        (action: {
+          id: string;
+          label: string;
+          onSelect?: (input: { requestedX: number }) => void;
+        }) => (
+          <button
+            key={action.id}
+            onClick={() => action.onSelect?.({ requestedX: 10 })}
+            type="button"
+          >
+            {action.label}
+          </button>
+        ),
+      )}
       {insertion?.label ? <span>{insertion.label}</span> : null}
       {markers.map((marker: any) => (
         <div data-testid={`mock-marker-${marker.id}`} key={marker.id}>
@@ -136,7 +146,7 @@ const draw: DemoDraw = {
   id: "draw-01",
   itemId: "foundation",
   label: "Draw 01",
-  x: 21,
+  x: 22,
 };
 
 test("cash use summary separates lender draws from builder cash exposure", () => {
@@ -708,6 +718,28 @@ describe("TimelineWorkspace mode split", () => {
       screen.getByTestId("selected-milestone-plan-summary").textContent,
     ).toContain("Draw availability unlocked");
     expect(
+      screen.getByTestId("selected-milestone-cumulative-draw-position")
+        .textContent,
+    ).toContain("Cumulative through unlock");
+    expect(
+      screen.getByTestId("selected-milestone-total-unlocked").textContent,
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("selected-milestone-total-drawn").textContent,
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("selected-milestone-available-to-draw").textContent,
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("timeline-cashflow-total-unlocked").textContent,
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("timeline-cashflow-total-drawn").textContent,
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("timeline-cashflow-available-to-draw").textContent,
+    ).toBeTruthy();
+    expect(
       screen.getByTestId("timeline-cashflow-lender-cash-used").textContent,
     ).toContain("$96,000");
 
@@ -800,7 +832,7 @@ describe("TimelineWorkspace mode split", () => {
     expect(screen.getByText("Request site visit")).toBeTruthy();
   });
 
-  test("accepts any positive draw amount in the inline draw editor", () => {
+  test("accepts draw amounts within unlocked capacity and blocks overages", () => {
     const updateDraw = vi.fn().mockResolvedValue(undefined);
     renderWorkspace({
       persistence: { updateDraw },
@@ -828,6 +860,37 @@ describe("TimelineWorkspace mode split", () => {
         drawKey: "draw-01",
       }),
     );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit Draw 01 date and amount",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Draw amount"), {
+      target: { value: "100000" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(toast.error).toHaveBeenCalledWith(
+      "Cannot schedule a draw that exceeds unlocked draw availability at this point in the timeline.",
+    );
+    expect(updateDraw).toHaveBeenCalledTimes(1);
+  });
+
+  test("blocks adding a draw before reimbursement capacity unlocks", () => {
+    renderWorkspace({
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add draw" }));
+
+    expect(toast.error).toHaveBeenCalledWith(
+      "Cannot schedule a draw that exceeds unlocked draw availability at this point in the timeline.",
+    );
+    expect(
+      screen.queryByRole("button", { name: "Edit Draw 02 date and amount" }),
+    ).toBeNull();
   });
 
   test("contains raw timeline persistence failures in a safe status message", async () => {

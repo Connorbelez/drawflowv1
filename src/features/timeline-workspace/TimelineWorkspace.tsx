@@ -214,7 +214,15 @@ export interface DrawAvailabilityDatum {
   name: string;
   totalAvailableDraw: number;
   totalInterestAccrued: number;
+  totalUnlockedDraw: number;
   [key: string]: unknown;
+}
+
+export interface CumulativeDrawPosition {
+  availableToDraw: number;
+  day: number;
+  totalDrawn: number;
+  totalUnlocked: number;
 }
 
 export interface CashShortfallPoint {
@@ -2019,6 +2027,9 @@ export function TimelineWorkspace({
     drawAvailabilityData,
     resolvedRange.max
   );
+  const cashflowDrawPosition = getCumulativeDrawPosition(
+    probeDrawAvailability ?? endingAvailability
+  );
   const timelineSizing = useMemo(
     () => getTimelineResponsiveSizing(isCompactLayout, isPhoneLayout),
     [isCompactLayout, isPhoneLayout]
@@ -2399,10 +2410,23 @@ export function TimelineWorkspace({
     drawInsertionCount.current += 1;
     const count = drawInsertionCount.current;
     const owner = findTimelineItemForDay(items, requestedX);
+    const nextDrawId = `manual-draw-${Date.now()}-${count}`;
+    const maxSchedulableAmount = getMaxSchedulableDrawAmount(
+      requestedX,
+      items,
+      draws,
+      { proposedDrawId: nextDrawId }
+    );
+
+    if (maxSchedulableAmount <= 0) {
+      toast.error(DRAW_UNLOCK_CAPACITY_BLOCKED_MESSAGE);
+      return;
+    }
+
     const nextDraw = {
-      amount: 100_000,
+      amount: Math.min(100_000, maxSchedulableAmount),
       customDate: true,
-      id: `manual-draw-${Date.now()}-${count}`,
+      id: nextDrawId,
       ...(owner ? { itemId: owner.id } : {}),
       label: `Draw ${draws.length + 1}`,
       x: requestedX,
@@ -3185,6 +3209,12 @@ export function TimelineWorkspace({
           : draw
       )
     );
+
+    if (findDrawUnlockCapacityViolation(items, nextDraws)) {
+      toast.error(DRAW_UNLOCK_CAPACITY_BLOCKED_MESSAGE);
+      return;
+    }
+
     const sequencedTargetDraw =
       nextDraws.find((draw) => draw.id === drawId) ?? targetDraw;
 
@@ -4238,7 +4268,7 @@ export function TimelineWorkspace({
                         />
                       </div>
                     </div>
-                    <div className="grid min-w-0 grid-cols-2 gap-1.5 text-xs sm:grid-cols-4 sm:gap-2 sm:text-sm 2xl:grid-cols-8">
+                    <div className="grid min-w-0 grid-cols-2 gap-1.5 text-xs sm:grid-cols-4 sm:gap-2 sm:text-sm xl:grid-cols-6 2xl:grid-cols-6">
                       <div className="min-w-0 overflow-hidden rounded-md border border-border bg-muted/30 px-2 py-1.5 sm:px-3 sm:py-2">
                         <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
                           Probe
@@ -4287,6 +4317,39 @@ export function TimelineWorkspace({
                           data-testid="timeline-cashflow-ending-cash"
                         >
                           {money(endingCashOnHand)}
+                        </p>
+                      </div>
+                      <div className="min-w-0 overflow-hidden rounded-md border border-sky-500/25 bg-sky-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
+                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
+                          Total unlocked
+                        </p>
+                        <p
+                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
+                          data-testid="timeline-cashflow-total-unlocked"
+                        >
+                          {money(cashflowDrawPosition.totalUnlocked)}
+                        </p>
+                      </div>
+                      <div className="min-w-0 overflow-hidden rounded-md border border-sky-500/25 bg-sky-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
+                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
+                          Total drawn
+                        </p>
+                        <p
+                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
+                          data-testid="timeline-cashflow-total-drawn"
+                        >
+                          {money(cashflowDrawPosition.totalDrawn)}
+                        </p>
+                      </div>
+                      <div className="min-w-0 overflow-hidden rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
+                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
+                          Available to draw
+                        </p>
+                        <p
+                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
+                          data-testid="timeline-cashflow-available-to-draw"
+                        >
+                          {money(cashflowDrawPosition.availableToDraw)}
                         </p>
                       </div>
                       <div className="min-w-0 overflow-hidden rounded-md border border-sky-500/25 bg-sky-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
@@ -4816,6 +4879,7 @@ export function TimelineWorkspace({
               addEvidenceFiles={addEvidenceFiles}
               canApproveMilestoneCompletion={canApproveMilestoneCompletion}
               contractorPlanning={contractorPlanning}
+              drawAvailabilityData={drawAvailabilityData}
               draws={draws}
               items={items}
               liveExecutionEnabled={canUseLiveExecution}
@@ -5004,6 +5068,7 @@ export function TimelineWorkspace({
                         canApproveMilestoneCompletion
                       }
                       contractorPlanning={contractorPlanning}
+                      drawAvailabilityData={drawAvailabilityData}
                       draws={draws}
                       items={items}
                       liveExecutionEnabled={canUseLiveExecution}
@@ -6106,6 +6171,73 @@ export function calculateApprovedDrawRequestLimit(
   };
 }
 
+export function findDrawUnlockCapacityViolation(
+  items: TimelineItem<DemoMilestone>[],
+  draws: DemoDraw[]
+): { draw: DemoDraw; limit: DrawRequestLimit } | null {
+  const orderedDraws = [...draws].sort(
+    (a, b) => a.x - b.x || a.id.localeCompare(b.id)
+  );
+
+  for (const draw of orderedDraws) {
+    const limit = calculateDrawRequestLimit(draw, items, draws);
+    if (draw.amount > limit.availableLimit) {
+      return { draw, limit };
+    }
+  }
+
+  return null;
+}
+
+export function getMaxSchedulableDrawAmount(
+  requestedDay: number,
+  items: TimelineItem<DemoMilestone>[],
+  draws: DemoDraw[],
+  options: { excludeDrawId?: string; proposedDrawId?: string } = {}
+): number {
+  const proposedDrawId =
+    options.proposedDrawId ?? `__proposed-draw-${requestedDay}`;
+  const drawsWithoutExcluded = options.excludeDrawId
+    ? draws.filter((draw) => draw.id !== options.excludeDrawId)
+    : draws;
+  const probeDraw: DemoDraw = {
+    amount: Number.MAX_SAFE_INTEGER,
+    id: proposedDrawId,
+    label: "Proposed draw",
+    x: requestedDay,
+  };
+  let maxAmount = calculateDrawRequestLimit(probeDraw, items, [
+    ...drawsWithoutExcluded,
+    probeDraw,
+  ]).availableLimit;
+
+  for (const laterDraw of drawsWithoutExcluded) {
+    const proposedComesBeforeLater =
+      requestedDay < laterDraw.x ||
+      (requestedDay === laterDraw.x &&
+        proposedDrawId.localeCompare(laterDraw.id) < 0);
+
+    if (!proposedComesBeforeLater) {
+      continue;
+    }
+
+    const limitWithoutProposed = calculateDrawRequestLimit(
+      laterDraw,
+      items,
+      drawsWithoutExcluded
+    );
+    maxAmount = Math.min(
+      maxAmount,
+      Math.max(0, limitWithoutProposed.availableLimit - laterDraw.amount)
+    );
+  }
+
+  return Math.max(0, Math.floor(maxAmount));
+}
+
+const DRAW_UNLOCK_CAPACITY_BLOCKED_MESSAGE =
+  "Cannot schedule a draw that exceeds unlocked draw availability at this point in the timeline.";
+
 export function buildTimelineCashflowData(
   items: TimelineItem<DemoMilestone>[],
   draws: DemoDraw[],
@@ -6707,6 +6839,7 @@ export function buildDrawAvailabilityData(
       name: point.name,
       totalInterestAccrued,
       totalAvailableDraw: interestBearingDraw + additionalAvailableDraw,
+      totalUnlockedDraw: unlockedDraw,
     };
   });
 
@@ -7002,8 +7135,46 @@ export function interpolateLinearCashOnHand(
   return previous.cashOnHand;
 }
 
+export function resolveMilestoneDrawPositionDay(
+  item: TimelineItem<DemoMilestone>,
+  range: Required<TimelineRange>
+): number {
+  const unlockDay =
+    buildMilestoneDrawCapacityEvents(item)[0]?.day ?? getMilestoneEndX(item);
+
+  return clampNumber(Math.round(unlockDay), range.min, range.max);
+}
+
+export function getCumulativeDrawPosition(
+  availability: DrawAvailabilityDatum | null | undefined
+): CumulativeDrawPosition {
+  return {
+    availableToDraw: Math.max(0, availability?.additionalAvailableDraw ?? 0),
+    day: availability?.day ?? 0,
+    totalDrawn: Math.max(0, availability?.interestBearingDraw ?? 0),
+    totalUnlocked: Math.max(
+      0,
+      availability?.totalUnlockedDraw ??
+        (availability?.interestBearingDraw ?? 0) +
+          (availability?.additionalAvailableDraw ?? 0)
+    ),
+  };
+}
+
+export function resolveMilestoneCumulativeDrawPosition(
+  item: TimelineItem<DemoMilestone>,
+  drawAvailabilityData: DrawAvailabilityDatum[] | null | undefined,
+  range: Required<TimelineRange>
+): CumulativeDrawPosition {
+  const day = resolveMilestoneDrawPositionDay(item, range);
+
+  return getCumulativeDrawPosition(
+    interpolateDrawAvailability(drawAvailabilityData ?? [], day)
+  );
+}
+
 export function interpolateDrawAvailability(
-  data: DrawAvailabilityDatum[],
+  data: DrawAvailabilityDatum[] | null | undefined,
   value: number
 ): DrawAvailabilityDatum {
   const fallback = {
@@ -7013,9 +7184,10 @@ export function interpolateDrawAvailability(
     name: "No draw capacity",
     totalInterestAccrued: 0,
     totalAvailableDraw: 0,
+    totalUnlockedDraw: 0,
   };
 
-  if (data.length === 0) {
+  if (!data || data.length === 0) {
     return fallback;
   }
 
@@ -7300,6 +7472,7 @@ function SelectedDrawMobileDrawer({
   addEvidenceFiles,
   activeItem,
   contractorPlanning,
+  drawAvailabilityData,
   draws,
   items,
   onOpenChange,
@@ -7332,6 +7505,7 @@ function SelectedDrawMobileDrawer({
   addEvidenceFiles: (itemId: string, files: File[]) => void;
   activeItem: TimelineItem<DemoMilestone> | null;
   contractorPlanning?: ContractorPlanningModel | null;
+  drawAvailabilityData: DrawAvailabilityDatum[];
   draws: DemoDraw[];
   items: TimelineItem<DemoMilestone>[];
   modificationRequests: TimelineModificationRequestView[];
@@ -7419,6 +7593,7 @@ function SelectedDrawMobileDrawer({
               addEvidenceFiles={addEvidenceFiles}
               canApproveMilestoneCompletion={canApproveMilestoneCompletion}
               contractorPlanning={contractorPlanning}
+              drawAvailabilityData={drawAvailabilityData}
               draws={draws}
               items={items}
               liveExecutionEnabled={liveExecutionEnabled}
@@ -7459,6 +7634,7 @@ function SelectedContextPanel({
   addEvidenceFiles,
   activeItem,
   contractorPlanning,
+  drawAvailabilityData,
   draws,
   items,
   onCompleteMilestone,
@@ -7489,6 +7665,7 @@ function SelectedContextPanel({
   addEvidenceFiles: (itemId: string, files: File[]) => void;
   activeItem: TimelineItem<DemoMilestone>;
   contractorPlanning?: ContractorPlanningModel | null;
+  drawAvailabilityData: DrawAvailabilityDatum[];
   draws: DemoDraw[];
   items: TimelineItem<DemoMilestone>[];
   modificationRequests: TimelineModificationRequestView[];
@@ -7567,6 +7744,7 @@ function SelectedContextPanel({
         activeDraw={activeDraw}
         activeItem={activeItem}
         contractorPlanning={contractorPlanning}
+        drawAvailabilityData={drawAvailabilityData}
         onUpdateMilestoneDrawAvailability={onUpdateMilestoneDrawAvailability}
         onUpdateSubmilestoneBudget={onUpdateSubmilestoneBudget}
         onUpdateSubmilestoneDuration={onUpdateSubmilestoneDuration}
@@ -7694,6 +7872,7 @@ function MilestonePlanSummaryPanel({
   activeDraw,
   activeItem,
   contractorPlanning,
+  drawAvailabilityData,
   onUpdateMilestoneDrawAvailability,
   onUpdateSubmilestoneBudget,
   onUpdateSubmilestoneDuration,
@@ -7703,6 +7882,7 @@ function MilestonePlanSummaryPanel({
   activeDraw: DemoDraw | null;
   activeItem: TimelineItem<DemoMilestone>;
   contractorPlanning?: ContractorPlanningModel | null;
+  drawAvailabilityData: DrawAvailabilityDatum[];
   onUpdateMilestoneDrawAvailability?: (itemId: string, amount: number) => void;
   onUpdateSubmilestoneBudget?: (
     itemId: string,
@@ -7723,6 +7903,11 @@ function MilestonePlanSummaryPanel({
     return null;
   }
   const drawAvailabilityAmount = getMilestoneDrawAvailabilityAmount(milestone);
+  const cumulativeDrawPosition = resolveMilestoneCumulativeDrawPosition(
+    activeItem,
+    drawAvailabilityData,
+    range
+  );
 
   return (
     <div className="grid gap-4" data-testid="selected-milestone-plan-summary">
@@ -7787,6 +7972,53 @@ function MilestonePlanSummaryPanel({
           </dd>
         </div>
       </dl>
+
+      <section
+        aria-label="Cumulative draw position at milestone unlock"
+        className="grid gap-2 rounded-lg border border-sky-500/25 bg-sky-500/10 p-3"
+        data-testid="selected-milestone-cumulative-draw-position"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="font-semibold text-[10px] text-sky-700 uppercase dark:text-sky-200">
+              Cumulative through unlock
+            </p>
+            <p className="mt-0.5 text-muted-foreground text-xs">
+              As of {formatTimelineDay(cumulativeDrawPosition.day)} (includes
+              this milestone&apos;s unlock)
+            </p>
+          </div>
+        </div>
+        <dl className="grid gap-2 text-sm">
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">Total unlocked</dt>
+            <dd
+              className="font-semibold tabular-nums"
+              data-testid="selected-milestone-total-unlocked"
+            >
+              {money(cumulativeDrawPosition.totalUnlocked)}
+            </dd>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">Total drawn</dt>
+            <dd
+              className="font-semibold tabular-nums"
+              data-testid="selected-milestone-total-drawn"
+            >
+              {money(cumulativeDrawPosition.totalDrawn)}
+            </dd>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">Available to draw</dt>
+            <dd
+              className="font-semibold tabular-nums"
+              data-testid="selected-milestone-available-to-draw"
+            >
+              {money(cumulativeDrawPosition.availableToDraw)}
+            </dd>
+          </div>
+        </dl>
+      </section>
 
       <TimelineMilestoneSubmilestoneList
         fallbackBudgetCents={dollarsToCents(milestone.amount)}

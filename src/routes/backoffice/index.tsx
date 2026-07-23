@@ -1,4 +1,3 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
 import {
   ClientOnly,
   createFileRoute,
@@ -10,7 +9,7 @@ import {
   getCoreRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import {
   ArrowUpDown,
   CalendarClock,
@@ -147,28 +146,15 @@ import type { Id } from "../../../convex/_generated/dataModel";
 
 export const Route = createFileRoute("/backoffice/")({
   ssr: false,
-  loader: async ({ context }) => {
-    const workosOrganizationId = context.organizationId;
-    if (!workosOrganizationId) {
+  loader: ({ context }) => {
+    if (!context.organizationId) {
       throw new Error("Backoffice route requires an active organization.");
     }
-    const asOfDate = new Date().toISOString().slice(0, 10);
-
-    await Promise.all([
-      context.queryClient.ensureQueryData(
-        context.convexQueryClient.queryOptions(
-          api.production_proposals.getBackofficeDashboard,
-          { asOfDate, workosOrganizationId }
-        )
-      ),
-      context.queryClient.ensureQueryData(
-        context.convexQueryClient.queryOptions(
-          api.production_proposals.listBackofficeProposalFilterOptions,
-          { workosOrganizationId }
-        )
-      ),
-    ]);
-    return { asOfDate };
+    // Do not prefetch authenticated Convex queries here. ensureQueryData /
+    // useSuspenseQuery throw Unauthorized into the route match during the
+    // brief client auth-token race; sibling backoffice routes use useQuery
+    // and wait for data in-component instead.
+    return { asOfDate: new Date().toISOString().slice(0, 10) };
   },
   staticData: {
     breadcrumb: {
@@ -325,11 +311,13 @@ function RouteComponent() {
   const context = Route.useRouteContext();
   const { asOfDate } = Route.useLoaderData();
   const workosOrganizationId = context.organizationId as string;
-  const { data: dashboardResult } = useSuspenseQuery(
-    context.convexQueryClient.queryOptions(
-      api.production_proposals.getBackofficeDashboard,
-      { asOfDate, workosOrganizationId }
-    )
+  const dashboardResult = useQuery(
+    api.production_proposals.getBackofficeDashboard,
+    workosOrganizationId ? { asOfDate, workosOrganizationId } : "skip"
+  );
+  const buildersResult = useQuery(
+    api.production_proposals.listBackofficeProposalFilterOptions,
+    workosOrganizationId ? { workosOrganizationId } : "skip"
   );
   const recordClosing = useMutation(
     api.production_proposals.recordOfflineClosing
@@ -351,12 +339,6 @@ function RouteComponent() {
   const acknowledgeOperationsEscalationReturn = useMutation(
     api.production_proposals.acknowledgeOperationsEscalationReturn
   );
-  const { data: buildersResult } = useSuspenseQuery(
-    context.convexQueryClient.queryOptions(
-      api.production_proposals.listBackofficeProposalFilterOptions,
-      { workosOrganizationId }
-    )
-  );
   const proposalDirectory = useBackofficeProposalDirectory(
     workosOrganizationId
   );
@@ -370,9 +352,20 @@ function RouteComponent() {
     [dashboardResult]
   );
 
+  if (!(dashboard && buildersResult)) {
+    return (
+      <div className="grid min-h-[24rem] place-items-center p-4">
+        <div className="flex items-center gap-2 rounded-lg border bg-background p-4 text-sm">
+          <Loader2 className="size-4 animate-spin" />
+          Loading lender operations dashboard...
+        </div>
+      </div>
+    );
+  }
+
   return (
     <BackofficeDashboard
-      builders={buildersResult?.builders ?? []}
+      builders={buildersResult.builders ?? []}
       dashboard={dashboard}
       onAcknowledgeHandoff={(handoffId) =>
         acknowledgeOperationsEscalationReturn({

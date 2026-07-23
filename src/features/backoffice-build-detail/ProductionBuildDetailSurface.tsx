@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  Banknote,
   CalendarClock,
   CheckCircle2,
   ChevronDown,
@@ -1465,6 +1466,7 @@ function ProductionBuildDetailsCard({
 
             <TabsPanel value="current">
               <CurrentBuildOverviewPanel
+                actions={actions}
                 currentDay={currentDay}
                 currentOverview={currentOverview}
                 detail={detail}
@@ -1582,6 +1584,7 @@ interface CurrentBuildOverview {
 }
 
 function CurrentBuildOverviewPanel({
+  actions,
   currentDay,
   currentOverview,
   detail,
@@ -1589,6 +1592,7 @@ function CurrentBuildOverviewPanel({
   projection,
   viewerRole,
 }: {
+  actions?: ProductionBuildDetailActions;
   currentDay: number;
   currentOverview: CurrentBuildOverview;
   detail: ProductionBuildDetail;
@@ -1597,8 +1601,55 @@ function CurrentBuildOverviewPanel({
   viewerRole: "builder" | "lender";
 }) {
   const horizon = currentOverview.milestoneHorizon;
+  const activeDrawRequests = useMemo(
+    () =>
+      projection.draws
+        .filter(
+          (draw) => draw.status === "requested" || draw.status === "approved"
+        )
+        .slice()
+        .sort(compareDrawsMostRecentFirst),
+    [projection.draws]
+  );
+  const [pendingDrawAction, setPendingDrawAction] = useState<string | null>(
+    null
+  );
+  const [drawActionError, setDrawActionError] = useState("");
+  const runDrawAction = async (
+    actionKey: string,
+    draw: ProductionDraw,
+    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
+  ) => {
+    if (!fn || pendingDrawAction) {
+      return false;
+    }
+    setPendingDrawAction(`${actionKey}:${draw.drawKey}`);
+    setDrawActionError("");
+    try {
+      await fn(draw);
+      return true;
+    } catch (cause) {
+      setDrawActionError(
+        cause instanceof Error ? cause.message : "Unable to update draw."
+      );
+      return false;
+    } finally {
+      setPendingDrawAction(null);
+    }
+  };
+
   return (
     <div className="grid gap-4" data-testid="build-overview-current-panel">
+      <CurrentActiveDrawRequestsSection
+        actions={actions}
+        activeDrawRequests={activeDrawRequests}
+        detail={detail}
+        drawActionError={drawActionError}
+        onRunAction={runDrawAction}
+        pendingActionKey={pendingDrawAction}
+        viewerRole={viewerRole}
+      />
+
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h3 className="font-semibold text-sm">Schedule horizon</h3>
@@ -1655,6 +1706,97 @@ function CurrentBuildOverviewPanel({
         />
       </Frame>
     </div>
+  );
+}
+
+function CurrentActiveDrawRequestsSection({
+  actions,
+  activeDrawRequests,
+  detail,
+  drawActionError,
+  onRunAction,
+  pendingActionKey,
+  viewerRole,
+}: {
+  actions?: ProductionBuildDetailActions;
+  activeDrawRequests: ProductionDraw[];
+  detail: ProductionBuildDetail;
+  drawActionError: string;
+  onRunAction: (
+    actionKey: string,
+    draw: ProductionDraw,
+    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
+  ) => Promise<boolean>;
+  pendingActionKey: string | null;
+  viewerRole: "builder" | "lender";
+}) {
+  return (
+    <Frame data-testid="current-active-draw-requests">
+      <FramePanel
+        className={cn(
+          "p-3 sm:p-4",
+          activeDrawRequests.length > 0 &&
+            "border-primary/25 bg-primary/[0.035]"
+        )}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-2.5">
+            <span
+              className={cn(
+                "grid size-7 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground",
+                activeDrawRequests.length > 0 && "bg-primary/12 text-primary"
+              )}
+            >
+              <Banknote aria-hidden="true" className="size-3.5" />
+            </span>
+            <div className="min-w-0">
+              <h4 className="font-semibold text-sm">Active draw requests</h4>
+              <p className="mt-0.5 max-w-[65ch] text-muted-foreground text-xs">
+                Reimbursement requests awaiting lender approval or fund
+                release.
+              </p>
+            </div>
+          </div>
+          <Badge
+            aria-label={`${activeDrawRequests.length} active draw requests`}
+            size="sm"
+            variant={activeDrawRequests.length > 0 ? "info" : "outline"}
+          >
+            {activeDrawRequests.length}
+          </Badge>
+        </div>
+
+        {activeDrawRequests.length > 0 ? (
+          <div className="mt-4 grid gap-2">
+            {activeDrawRequests.map((draw) => (
+              <DrawSummaryItem
+                actions={actions}
+                actionTestIdPrefix="current-draw"
+                detail={detail}
+                draw={draw}
+                key={draw.drawKey}
+                onRunAction={onRunAction}
+                pendingActionKey={pendingActionKey}
+                viewerRole={viewerRole}
+              />
+            ))}
+          </div>
+        ) : (
+          <p
+            className="mt-4 border-border border-t pt-3 text-muted-foreground text-sm"
+            data-testid="current-active-draw-requests-empty"
+          >
+            No active draw requests.
+          </p>
+        )}
+
+        {drawActionError ? (
+          <p className="mt-3 text-destructive text-xs" role="alert">
+            {drawActionError}
+          </p>
+        ) : null}
+      </FramePanel>
+    </Frame>
   );
 }
 
@@ -2299,6 +2441,7 @@ function DrawSummaryList({
 
 function DrawSummaryItem({
   actions,
+  actionTestIdPrefix = "draw-overview",
   detail,
   draw,
   onRunAction,
@@ -2306,6 +2449,7 @@ function DrawSummaryItem({
   viewerRole,
 }: {
   actions?: ProductionBuildDetailActions;
+  actionTestIdPrefix?: string;
   detail: ProductionBuildDetail;
   draw: ProductionDraw;
   onRunAction?: (
@@ -2328,7 +2472,7 @@ function DrawSummaryItem({
   return (
     <div
       className="grid gap-2 rounded-md border bg-background/60 p-3 sm:grid-cols-[minmax(0,1fr)_auto]"
-      data-testid={`draw-overview-draw-${draw.drawKey}`}
+      data-testid={`${actionTestIdPrefix}-draw-${draw.drawKey}`}
     >
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
@@ -2362,6 +2506,7 @@ function DrawSummaryItem({
         {viewerRole === "lender" && onRunAction ? (
           <DrawActionGroup
             actions={actions}
+            actionTestIdPrefix={actionTestIdPrefix}
             buildLabel={detail.build.buildName}
             draw={draw}
             onRunAction={onRunAction}
@@ -2375,12 +2520,14 @@ function DrawSummaryItem({
 
 function DrawActionGroup({
   actions,
+  actionTestIdPrefix = "draw-overview",
   buildLabel,
   draw,
   onRunAction,
   pendingActionKey,
 }: {
   actions?: ProductionBuildDetailActions;
+  actionTestIdPrefix?: string;
   buildLabel: string;
   draw: ProductionDraw;
   onRunAction: (
@@ -2400,7 +2547,7 @@ function DrawActionGroup({
           disabled={!actions?.approveDraw || Boolean(pendingActionKey)}
           label={isPending("approve") ? "Approving..." : "Approve"}
           onClick={() => onRunAction("approve", draw, actions?.approveDraw)}
-          testId={`draw-overview-approve-${draw.drawKey}`}
+          testId={`${actionTestIdPrefix}-approve-${draw.drawKey}`}
         />
         <DrawRejectionDialog
           amountCents={draw.amountCents}
@@ -2414,7 +2561,7 @@ function DrawActionGroup({
           }
           requestKey={draw.drawKey}
           requestLabel={draw.label}
-          triggerTestId={`draw-overview-reject-${draw.drawKey}`}
+          triggerTestId={`${actionTestIdPrefix}-reject-${draw.drawKey}`}
         />
       </div>
     );
@@ -2426,7 +2573,7 @@ function DrawActionGroup({
         disabled={!actions?.releaseDraw || Boolean(pendingActionKey)}
         label={isPending("release") ? "Releasing..." : "Release"}
         onClick={() => onRunAction("release", draw, actions?.releaseDraw)}
-        testId={`draw-overview-release-${draw.drawKey}`}
+        testId={`${actionTestIdPrefix}-release-${draw.drawKey}`}
       />
     );
   }
