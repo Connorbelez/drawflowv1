@@ -22,6 +22,7 @@ import {
   useState,
 } from "react";
 import { GoogleAddressAutocomplete } from "#/components/address/GoogleAddressAutocomplete.tsx";
+import type { GoogleAddressPlaceDetails } from "#/lib/google-maps.ts";
 import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Field, FieldDescription, FieldLabel } from "#/components/ui/field.tsx";
@@ -622,6 +623,9 @@ export interface TimelineSetupResult {
   items: TimelineItem<DemoMilestone>[];
   permitFiles: File[];
   projectAddress: string;
+  projectAddressLatitude?: number;
+  projectAddressLongitude?: number;
+  projectAddressPlaceId?: string;
   proposedStartDate: string;
   redirectToDurableRoute: boolean;
   reimbursableBudgetCents: number;
@@ -832,7 +836,7 @@ function inferImportedMilestoneIcon(name: string): IsometricIconKey {
 }
 
 export function budgetWorkbookDraftToSetupRows(
-  draft: BudgetWorkbookProposalDraft,
+  draft: BudgetWorkbookProposalDraft
 ): TimelineSetupMilestoneRow[] {
   return draft.milestones.map((milestone, index) => {
     const durationDays = Math.max(1, milestone.submilestones.length);
@@ -860,31 +864,31 @@ export function budgetWorkbookDraftToSetupRows(
         icon: inferImportedMilestoneIcon(
           `${milestone.name} ${milestone.submilestones
             .map((submilestone) => submilestone.name)
-            .join(" ")}`,
+            .join(" ")}`
         ),
         key,
         name: milestone.name,
         order: index,
         percentageBps: Math.round(
-          (milestone.budgetAmount / Math.max(1, draft.totalBudget)) * 10_000,
+          (milestone.budgetAmount / Math.max(1, draft.totalBudget)) * 10_000
         ),
         startDay: index,
         subMilestoneDetails,
         subMilestones: subMilestoneDetails.map((detail) => detail.name),
         type: "imported_budget",
       },
-      subMilestoneDetails,
+      subMilestoneDetails
     );
   });
 }
 
 function allocateWeightedBudgetCents(
   totalCents: number,
-  rows: Array<{ percentageBps?: number }>,
+  rows: Array<{ percentageBps?: number }>
 ) {
   const totalBps = rows.reduce(
     (sum, row) => sum + Math.max(0, Math.round(row.percentageBps ?? 0)),
-    0,
+    0
   );
   if (totalBps <= 0) {
     return;
@@ -903,7 +907,7 @@ function allocateWeightedBudgetCents(
     roundedTotal -
     allocations.reduce((sum, allocation) => sum + allocation.cents, 0);
   const byRemainder = [...allocations].sort(
-    (a, b) => b.remainder - a.remainder || a.order - b.order,
+    (a, b) => b.remainder - a.remainder || a.order - b.order
   );
   for (const allocation of byRemainder) {
     if (remainderCents <= 0) {
@@ -921,7 +925,7 @@ function buildSubMilestoneDetails(
   row: TimelineSetupPreset,
   budgetCents: number,
   durationDays: number,
-  milestoneStartDay: number,
+  milestoneStartDay: number
 ): TimelineSetupSubMilestone[] {
   const presets: TimelineSetupPresetSubMilestone[] =
     row.subMilestoneDetails && row.subMilestoneDetails.length > 0
@@ -951,8 +955,8 @@ function buildSubMilestoneDetails(
       1,
       Math.round(
         preset.durationDays ??
-          baseDurationDays + (index < durationRemainderDays ? 1 : 0),
-      ),
+          baseDurationDays + (index < durationRemainderDays ? 1 : 0)
+      )
     );
     const startDay = Number.isFinite(preset.startDay)
       ? Math.round(preset.startDay ?? milestoneStartDay)
@@ -962,7 +966,7 @@ function buildSubMilestoneDetails(
     return {
       budgetText: formatCurrency(
         weightedBudgetCents?.[index] ??
-          baseBudgetCents + (index < budgetRemainderCents ? 1 : 0),
+          baseBudgetCents + (index < budgetRemainderCents ? 1 : 0)
       ),
       description:
         preset.description ??
@@ -978,13 +982,13 @@ function buildSubMilestoneDetails(
 
 function withSubMilestoneDetails(
   row: TimelineSetupMilestoneRow,
-  subMilestoneDetails: TimelineSetupSubMilestone[],
+  subMilestoneDetails: TimelineSetupSubMilestone[]
 ): TimelineSetupMilestoneRow {
   return {
     ...row,
     subMilestoneDetails,
     subMilestones: subMilestoneDetails.map((detail) =>
-      sanitizeSubMilestoneName(detail.name),
+      sanitizeSubMilestoneName(detail.name)
     ),
   };
 }
@@ -1045,7 +1049,7 @@ export function createCustomMilestoneRow({
       subMilestones: [],
       type: "custom",
     },
-    subMilestoneDetails,
+    subMilestoneDetails
   );
 }
 
@@ -1057,11 +1061,11 @@ export function formatRowType(value: string) {
 }
 
 function buildDefaultTemplate(
-  baseItems: TimelineItem<DemoMilestone>[],
+  baseItems: TimelineItem<DemoMilestone>[]
 ): TimelineSetupTemplate {
   const totalAmount = Math.max(
     1,
-    baseItems.reduce((sum, item) => sum + (item.data?.amount ?? 0), 0),
+    baseItems.reduce((sum, item) => sum + (item.data?.amount ?? 0), 0)
   );
 
   return {
@@ -1104,7 +1108,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           10,
           "foundation",
           "permitting",
-          ["Permit update", "Site protection", "Mobilization"],
+          ["Permit update", "Site protection", "Mobilization"]
         ),
         preset(
           "selective_demo",
@@ -1113,7 +1117,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           16,
           "change",
           "demolition",
-          ["Interior demo", "Waste removal", "Utility safety"],
+          ["Interior demo", "Waste removal", "Utility safety"]
         ),
         preset(
           "structural_repairs",
@@ -1122,7 +1126,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           24,
           "framing",
           "foundation_structural",
-          ["Beam repair", "Load path", "Inspection"],
+          ["Beam repair", "Load path", "Inspection"]
         ),
         preset(
           "mep_rework",
@@ -1131,7 +1135,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           21,
           "roughIn",
           "mechanical_electrical_plumbing",
-          ["Plumbing rework", "Electrical panel", "HVAC adjustments"],
+          ["Plumbing rework", "Electrical panel", "HVAC adjustments"]
         ),
         preset(
           "envelope_repairs",
@@ -1140,7 +1144,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           18,
           "exterior",
           "exterior_envelope",
-          ["Window repair", "Weather barrier", "Exterior patch"],
+          ["Window repair", "Weather barrier", "Exterior patch"]
         ),
         preset(
           "renovation_interiors",
@@ -1149,7 +1153,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           36,
           "finishes",
           "interior_finish",
-          ["Drywall", "Cabinetry", "Fixture set"],
+          ["Drywall", "Cabinetry", "Fixture set"]
         ),
         preset(
           "renovation_closeout",
@@ -1158,7 +1162,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           10,
           "closeout",
           "closeout",
-          ["Punch list", "Final inspection", "Closeout package"],
+          ["Punch list", "Final inspection", "Closeout package"]
         ),
       ],
       summary: "7 renovation milestones",
@@ -1176,7 +1180,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           16,
           "foundation",
           "permitting",
-          ["Civil permit", "Mobilization", "Survey control"],
+          ["Civil permit", "Mobilization", "Survey control"]
         ),
         preset(
           "shared_sitework",
@@ -1185,7 +1189,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           28,
           "foundation",
           "site_preparation",
-          ["Rough grading", "Utility trenching", "Site access"],
+          ["Rough grading", "Utility trenching", "Site access"]
         ),
         preset(
           "podium_foundation",
@@ -1194,7 +1198,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           30,
           "foundation",
           "foundation_structural",
-          ["Footings", "Podium formwork", "Concrete placement"],
+          ["Footings", "Podium formwork", "Concrete placement"]
         ),
         preset(
           "stacked_framing",
@@ -1203,7 +1207,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           42,
           "framing",
           "foundation_structural",
-          ["Level framing", "Trusses", "Dry-in"],
+          ["Level framing", "Trusses", "Dry-in"]
         ),
         preset(
           "shared_mep",
@@ -1212,7 +1216,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           35,
           "roughIn",
           "mechanical_electrical_plumbing",
-          ["Main risers", "Electrical rooms", "Mechanical trunk"],
+          ["Main risers", "Electrical rooms", "Mechanical trunk"]
         ),
         preset(
           "unit_finishes",
@@ -1221,7 +1225,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           45,
           "finishes",
           "interior_finish",
-          ["Drywall", "Flooring", "Kitchen package"],
+          ["Drywall", "Flooring", "Kitchen package"]
         ),
         preset(
           "multiplex_closeout",
@@ -1230,7 +1234,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
           18,
           "closeout",
           "closeout",
-          ["Life safety", "Occupancy inspections", "Closeout binder"],
+          ["Life safety", "Occupancy inspections", "Closeout binder"]
         ),
       ],
       summary: "7 multiplex milestones",
@@ -1247,7 +1251,7 @@ function preset(
   durationDays: number,
   icon: IsometricIconKey,
   type: string,
-  subMilestones: string[],
+  subMilestones: string[]
 ): TimelineSetupPreset {
   return {
     dependencyKeys: [],
@@ -1263,7 +1267,7 @@ function preset(
 
 export function createRowsFromTemplate(
   template: TimelineSetupTemplate,
-  budgetCents: number,
+  budgetCents: number
 ): TimelineSetupMilestoneRow[] {
   const allocations = allocateBudgetCents(budgetCents, template.rows);
   let cursor = GENERATED_TIMELINE_CURRENT_DAY;
@@ -1286,7 +1290,7 @@ export function createRowsFromTemplate(
         row,
         budgetCents,
         row.durationDays,
-        startDay,
+        startDay
       ),
     };
   });
@@ -1294,7 +1298,7 @@ export function createRowsFromTemplate(
 
 function chooseStatus(
   order: number,
-  includedCount: number,
+  includedCount: number
 ): DemoMilestone["status"] {
   if (includedCount > 0 && order === 0) {
     return "ready";
@@ -1317,7 +1321,7 @@ function chooseTone(status: DemoMilestone["status"]) {
 
 export function buildTimelineItemsFromSetupRows(
   rows: TimelineSetupMilestoneRow[],
-  coPayBps = DEFAULT_BORROWER_CO_PAY_BPS,
+  coPayBps = DEFAULT_BORROWER_CO_PAY_BPS
 ): TimelineItem<DemoMilestone>[] {
   const includedRows = rows.filter((row) => !row.excluded);
   return includedRows.map((row, includedIndex) => {
@@ -1339,14 +1343,14 @@ export function buildTimelineItemsFromSetupRows(
         draw: `Draw ${includedIndex + 1}`,
         drawAvailabilityAmount: calculateDrawAvailabilityAmount(
           amount,
-          coPayBps,
+          coPayBps
         ),
         drawX:
           startDay +
           normalizedDuration +
           Math.min(
             DEFAULT_GENERATED_DRAW_OFFSET_DAYS,
-            DEFAULT_HANDOFF_GAP_DAYS - 1,
+            DEFAULT_HANDOFF_GAP_DAYS - 1
           ),
         dependencyKeys: row.dependencyKeys,
         durationDays: normalizedDuration,
@@ -1366,7 +1370,7 @@ export function buildTimelineItemsFromSetupRows(
             description: detail.description,
             durationDays: (() => {
               const parsed = Number(
-                detail.durationText.replace(DURATION_PREFIX_REGEX, ""),
+                detail.durationText.replace(DURATION_PREFIX_REGEX, "")
               );
               return Number.isFinite(parsed)
                 ? Math.max(1, Math.round(parsed))
@@ -1379,7 +1383,7 @@ export function buildTimelineItemsFromSetupRows(
               ? Math.round(detail.startDay ?? startDay)
               : startDay,
           })),
-          row.key,
+          row.key
         ),
       },
       eyebrow: `Milestone ${includedIndex + 1}`,
@@ -1396,7 +1400,7 @@ export function buildTimelineItemsFromSetupRows(
 }
 
 export function selectTimelineSetupScenario(
-  template: TimelineSetupTemplate | undefined,
+  template: TimelineSetupTemplate | undefined
 ): TimelineSetupScenario | undefined {
   return (
     template?.scenarios?.find((scenario) => scenario.isActive) ??
@@ -1407,7 +1411,7 @@ export function selectTimelineSetupScenario(
 
 function resolveAgentTemplate(
   requestedTemplateKey: string,
-  templates: TimelineSetupTemplate[],
+  templates: TimelineSetupTemplate[]
 ) {
   const requested = normalizeAgentTemplateToken(requestedTemplateKey);
   const aliases = new Set([requested]);
@@ -1461,15 +1465,15 @@ export function buildTimelineSetupScenarioDraws({
     items.reduce(
       (total, item) =>
         total + dollarsToCents(getMilestoneDrawAvailabilityAmount(item.data)),
-      0,
-    ),
+      0
+    )
   );
   const draws = [...scenario.draws]
     .sort(
       (left, right) =>
         (left.order ?? 0) - (right.order ?? 0) ||
         left.timingDay - right.timingDay ||
-        left.drawKey.localeCompare(right.drawKey),
+        left.drawKey.localeCompare(right.drawKey)
     )
     .map((draw, index) => ({
       ...draw,
@@ -1477,8 +1481,8 @@ export function buildTimelineSetupScenarioDraws({
         0,
         Math.round(
           (reimbursableBudgetCents * Math.max(0, Math.round(draw.amountBps))) /
-            TOTAL_REIMBURSEMENT_BPS,
-        ),
+            TOTAL_REIMBURSEMENT_BPS
+        )
       ),
       order: draw.order ?? index + 1,
       timingDay: Math.max(0, Math.round(draw.timingDay)),
@@ -1504,7 +1508,7 @@ export function buildTimelineSetupScenarioDraws({
 
 function milestoneKeyForScenarioDraw(
   items: TimelineItem<DemoMilestone>[],
-  timingDay: number,
+  timingDay: number
 ) {
   const orderedItems = [...items]
     .filter((item) => item.data)
@@ -1521,7 +1525,7 @@ function dollarsToCents(value: number) {
 }
 
 export function buildPlanningPayloadFromSetupRows(
-  rows: TimelineSetupMilestoneRow[],
+  rows: TimelineSetupMilestoneRow[]
 ): {
   contractorAssignments: TimelineSetupContractorAssignment[];
   costItems: TimelineSetupCostItem[];
@@ -1529,14 +1533,14 @@ export function buildPlanningPayloadFromSetupRows(
   const includedRows = rows.filter((row) => !row.excluded);
   return {
     contractorAssignments: includedRows.flatMap(
-      setupRowContractorAssignmentsToPayload,
+      setupRowContractorAssignmentsToPayload
     ),
     costItems: includedRows.flatMap(setupRowCostItemsToPayload),
   };
 }
 
 function setupRowContractorAssignmentsToPayload(
-  row: TimelineSetupMilestoneRow,
+  row: TimelineSetupMilestoneRow
 ) {
   const availableSubmilestoneKeys = setupRowSubmilestoneKeys(row);
   return (row.contractorAssignments ?? [])
@@ -1544,18 +1548,18 @@ function setupRowContractorAssignmentsToPayload(
       setupContractorAssignmentToPayload(
         row,
         availableSubmilestoneKeys,
-        assignment,
-      ),
+        assignment
+      )
     )
     .filter((assignment): assignment is TimelineSetupContractorAssignment =>
-      Boolean(assignment),
+      Boolean(assignment)
     );
 }
 
 function setupContractorAssignmentToPayload(
   row: TimelineSetupMilestoneRow,
   availableSubmilestoneKeys: Set<string>,
-  assignment: TimelineMilestoneWorksheetContractorAssignment,
+  assignment: TimelineMilestoneWorksheetContractorAssignment
 ): TimelineSetupContractorAssignment | null {
   const contractorName = assignment.contractorName.trim();
   const role = assignment.role.trim();
@@ -1576,7 +1580,7 @@ function setupContractorAssignmentToPayload(
     milestoneKey: row.key,
     role,
     submilestoneKeys: assignment.subMilestoneIds.filter((key) =>
-      availableSubmilestoneKeys.has(key),
+      availableSubmilestoneKeys.has(key)
     ),
   };
 }
@@ -1591,7 +1595,7 @@ function setupRowCostItemsToPayload(row: TimelineSetupMilestoneRow) {
 function setupCostItemToPayload(
   row: TimelineSetupMilestoneRow,
   availableSubmilestoneKeys: Set<string>,
-  item: TimelineMilestoneWorksheetCostItem,
+  item: TimelineMilestoneWorksheetCostItem
 ): TimelineSetupCostItem | null {
   const title = item.title.trim();
   if (!title || item.costCents <= 0 || item.quantity <= 0) {
@@ -1606,7 +1610,7 @@ function setupCostItemToPayload(
     milestoneKey: row.key,
     quantity: item.quantity,
     relevantSubmilestoneKeys: item.relevantSubMilestoneIds.filter((key) =>
-      availableSubmilestoneKeys.has(key),
+      availableSubmilestoneKeys.has(key)
     ),
     ...(item.supplier?.trim() ? { supplier: item.supplier.trim() } : {}),
     title,
@@ -1624,7 +1628,7 @@ function assistantActionInput(action: AssistantClientAction) {
 function assistantString(
   input: Record<string, unknown>,
   keys: string[],
-  fallback = "",
+  fallback = ""
 ) {
   for (const key of keys) {
     const value = input[key];
@@ -1657,7 +1661,7 @@ function assistantNumber(input: Record<string, unknown>, keys: string[]) {
 function assistantBoolean(
   input: Record<string, unknown>,
   keys: string[],
-  fallback = false,
+  fallback = false
 ) {
   for (const key of keys) {
     const value = input[key];
@@ -1683,7 +1687,7 @@ function assistantBoolean(
 function assistantCurrencyText(
   input: Record<string, unknown>,
   keys: string[],
-  fallback = "$0",
+  fallback = "$0"
 ) {
   for (const key of keys) {
     const value = input[key];
@@ -1700,7 +1704,7 @@ function assistantCurrencyText(
 function assistantLoanPercentageText(
   input: Record<string, unknown>,
   keys: string[],
-  fallback = DEFAULT_SETUP_LOAN_PERCENTAGE_TEXT,
+  fallback = DEFAULT_SETUP_LOAN_PERCENTAGE_TEXT
 ) {
   const loanPercentageBps = assistantNumber(input, [
     "loanPercentageBps",
@@ -1710,8 +1714,8 @@ function assistantLoanPercentageText(
     return formatBpsPercent(
       Math.min(
         TOTAL_REIMBURSEMENT_BPS,
-        Math.max(0, Math.round(loanPercentageBps)),
-      ),
+        Math.max(0, Math.round(loanPercentageBps))
+      )
     );
   }
   for (const key of keys) {
@@ -1728,7 +1732,7 @@ function assistantLoanPercentageText(
 
 function assistantBorrowerContributionText(
   input: Record<string, unknown>,
-  keys: string[],
+  keys: string[]
 ) {
   const borrowerContributionBps = assistantNumber(input, [
     "coPayBps",
@@ -1737,7 +1741,7 @@ function assistantBorrowerContributionText(
   ]);
   if (Number.isFinite(borrowerContributionBps)) {
     return formatBpsPercent(
-      getReimbursementBps(Math.round(borrowerContributionBps)),
+      getReimbursementBps(Math.round(borrowerContributionBps))
     );
   }
   for (const key of keys) {
@@ -1765,7 +1769,7 @@ function setupRowWithSubmilestoneBudgetRollup(row: TimelineSetupMilestoneRow) {
   }
   return withSubMilestoneDetails(
     { ...row, budgetText: formatCurrency(totalBudgetCents) },
-    row.subMilestoneDetails,
+    row.subMilestoneDetails
   );
 }
 
@@ -1797,6 +1801,7 @@ function TemplateStep({
   onPermitFilesChange,
   onPermitSkipChange,
   onProjectAddressChange,
+  onProjectPlaceSelect,
   onProposedStartDateChange,
   onTemplateSelect,
   permitFiles,
@@ -1822,6 +1827,7 @@ function TemplateStep({
   onPermitFilesChange: (files: File[]) => void;
   onPermitSkipChange: (skipped: boolean) => void;
   onProjectAddressChange: (value: string) => void;
+  onProjectPlaceSelect: (details: GoogleAddressPlaceDetails | null) => void;
   onProposedStartDateChange: (value: string) => void;
   onTemplateSelect: (templateKey: string) => void;
   permitFiles: File[];
@@ -1832,10 +1838,10 @@ function TemplateStep({
   templates: TimelineSetupTemplate[];
 }) {
   const selectedTemplate = templates.find(
-    (template) => template.templateKey === selectedTemplateKey,
+    (template) => template.templateKey === selectedTemplateKey
   );
   const selectedBroker = brokerOptions?.find(
-    (broker) => broker.workosUserId === assignedBrokerWorkosUserId,
+    (broker) => broker.workosUserId === assignedBrokerWorkosUserId
   );
   const budgetCents = validCurrencyCents(budgetText);
   const cashCents = validCurrencyCents(cashText);
@@ -1843,7 +1849,7 @@ function TemplateStep({
   const normalizedLoanPercentageBps = Number.isFinite(loanPercentageBps)
     ? Math.min(
         TOTAL_REIMBURSEMENT_BPS,
-        Math.max(0, Math.round(loanPercentageBps)),
+        Math.max(0, Math.round(loanPercentageBps))
       )
     : Number.NaN;
   const borrowerContributionBps = Number.isFinite(normalizedLoanPercentageBps)
@@ -1852,13 +1858,13 @@ function TemplateStep({
   const loanAmountCents =
     Number.isFinite(budgetCents) && Number.isFinite(normalizedLoanPercentageBps)
       ? Math.round(
-          (budgetCents * normalizedLoanPercentageBps) / TOTAL_REIMBURSEMENT_BPS,
+          (budgetCents * normalizedLoanPercentageBps) / TOTAL_REIMBURSEMENT_BPS
         )
       : Number.NaN;
   const borrowerContributionCents =
     Number.isFinite(budgetCents) && Number.isFinite(borrowerContributionBps)
       ? Math.round(
-          (budgetCents * borrowerContributionBps) / TOTAL_REIMBURSEMENT_BPS,
+          (budgetCents * borrowerContributionBps) / TOTAL_REIMBURSEMENT_BPS
         )
       : Number.NaN;
 
@@ -1892,7 +1898,7 @@ function TemplateStep({
                   aria-pressed={selected}
                   className={cn(
                     "timeline-template-card",
-                    selected && "is-selected",
+                    selected && "is-selected"
                   )}
                   data-agent-action="select_proposal_template"
                   data-agent-id={`proposal-template:${template.templateKey}`}
@@ -1967,6 +1973,9 @@ function TemplateStep({
               </span>
             }
             onChange={onProjectAddressChange}
+            onPlaceSelect={(_suggestion, details) =>
+              onProjectPlaceSelect(details)
+            }
             placeholder="Enter project address"
             value={projectAddress}
           />
@@ -2373,8 +2382,8 @@ function BlueprintPermitUploader({
         (file) =>
           !files.some(
             (existing) =>
-              existing.name === file.name && existing.size === file.size,
-          ),
+              existing.name === file.name && existing.size === file.size
+          )
       ),
     ]);
   };
@@ -2488,7 +2497,7 @@ function BudgetStep({
       setImportState({
         message: `Imported ${draft.milestones.length} milestones and ${draft.milestones.reduce(
           (count, milestone) => count + milestone.submilestones.length,
-          0,
+          0
         )} budget lines from ${file.name}.`,
         tone: "success",
       });
@@ -2522,7 +2531,7 @@ function BudgetStep({
                   file,
                   fileName: file.name,
                   mimeType: file.type || "application/pdf",
-                })),
+                }))
               )}
               size="sm"
             />
@@ -2544,7 +2553,7 @@ function BudgetStep({
                     "mt-2 text-xs",
                     importState.tone === "error"
                       ? "text-destructive"
-                      : "text-emerald-600",
+                      : "text-emerald-600"
                   )}
                   data-testid="timeline-budget-import-status"
                 >
@@ -2612,7 +2621,7 @@ function StepRail({ step }: { step: SetupStep }) {
           aria-current={index === activeIndex ? "step" : undefined}
           className={cn(
             index === activeIndex && "is-active",
-            index < activeIndex && "is-complete",
+            index < activeIndex && "is-complete"
           )}
           key={label}
         >
@@ -2648,27 +2657,29 @@ export function TimelineSetupFlow({
       settingsTemplates && settingsTemplates.length > 0
         ? settingsTemplates
         : [buildDefaultTemplate(baseItems), ...secondaryTemplates()],
-    [baseItems, settingsTemplates],
+    [baseItems, settingsTemplates]
   );
   const defaultTemplate =
     templates.find((template) => template.isDefault) ?? templates[0];
   const [step, setStep] = useState<SetupStep>("template");
   const [assignedBrokerWorkosUserId, setAssignedBrokerWorkosUserId] = useState(
-    defaultAssignedBrokerWorkosUserId ?? "",
+    defaultAssignedBrokerWorkosUserId ?? ""
   );
   const [selectedTemplateKey, setSelectedTemplateKey] = useState(
-    defaultTemplate?.templateKey ?? "",
+    defaultTemplate?.templateKey ?? ""
   );
   const [budgetText, setBudgetText] = useState(DEFAULT_SETUP_BUDGET_TEXT);
   const [cashText, setCashText] = useState(DEFAULT_SETUP_CASH_TEXT);
   const [loanPercentageText, setLoanPercentageText] = useState(
-    DEFAULT_SETUP_LOAN_PERCENTAGE_TEXT,
+    DEFAULT_SETUP_LOAN_PERCENTAGE_TEXT
   );
   const [proposedStartDate, setProposedStartDate] = useState(todayIsoDate);
   const [scheduleDisplayMode, setScheduleDisplayMode] =
     useState<TimelineScheduleDisplayMode>("dates");
   const [cascadeBudgetEdits, setCascadeBudgetEdits] = useState(false);
   const [projectAddress, setProjectAddress] = useState(DEFAULT_SETUP_ADDRESS);
+  const [projectAddressPlace, setProjectAddressPlace] =
+    useState<GoogleAddressPlaceDetails | null>(null);
   const [permitFiles, setPermitFiles] = useState<File[]>([]);
   const [permitsSkipped, setPermitsSkipped] = useState(false);
   const [importedBudgetTitle, setImportedBudgetTitle] = useState("");
@@ -2676,30 +2687,30 @@ export function TimelineSetupFlow({
     defaultTemplate
       ? createRowsFromTemplate(
           defaultTemplate,
-          parseCurrencyToCents(DEFAULT_SETUP_BUDGET_TEXT),
+          parseCurrencyToCents(DEFAULT_SETUP_BUDGET_TEXT)
         )
-      : [],
+      : []
   );
   const [error, setError] = useState("");
   const [assistantNotice, setAssistantNotice] = useState("");
   const selectedTemplate =
     templates.find(
-      (template) => template.templateKey === selectedTemplateKey,
+      (template) => template.templateKey === selectedTemplateKey
     ) ?? defaultTemplate;
 
   useEffect(() => {
     if (
       defaultTemplate &&
       !templates.some(
-        (template) => template.templateKey === selectedTemplateKey,
+        (template) => template.templateKey === selectedTemplateKey
       )
     ) {
       setSelectedTemplateKey(defaultTemplate.templateKey);
       setRows(
         createRowsFromTemplate(
           defaultTemplate,
-          parseCurrencyToCents(DEFAULT_SETUP_BUDGET_TEXT),
-        ),
+          parseCurrencyToCents(DEFAULT_SETUP_BUDGET_TEXT)
+        )
       );
     }
   }, [defaultTemplate, selectedTemplateKey, templates]);
@@ -2715,7 +2726,7 @@ export function TimelineSetupFlow({
       return brokerOptions.some(
         (broker) =>
           broker.workosUserId === defaultAssignedBrokerWorkosUserId &&
-          broker.isPrincipal,
+          broker.isPrincipal
       )
         ? (defaultAssignedBrokerWorkosUserId ?? "")
         : "";
@@ -2728,7 +2739,7 @@ export function TimelineSetupFlow({
 
   const regenerateRows = (
     template: TimelineSetupTemplate,
-    nextBudgetText: string,
+    nextBudgetText: string
   ) => {
     const budgetCents = parseCurrencyToCents(nextBudgetText);
 
@@ -2751,13 +2762,13 @@ export function TimelineSetupFlow({
     if (
       brokerOptions &&
       !brokerOptions.some(
-        (broker) => broker.workosUserId === assignedBrokerWorkosUserId,
+        (broker) => broker.workosUserId === assignedBrokerWorkosUserId
       )
     ) {
       setError(
         brokerOptions.length === 0
           ? "No active broker is available for this organization."
-          : "Select an assigned broker before continuing.",
+          : "Select an assigned broker before continuing."
       );
       return;
     }
@@ -2856,14 +2867,14 @@ export function TimelineSetupFlow({
       TOTAL_REIMBURSEMENT_BPS -
       Math.min(
         TOTAL_REIMBURSEMENT_BPS,
-        Math.max(0, Math.round(loanPercentageBps)),
+        Math.max(0, Math.round(loanPercentageBps))
       );
     const reimbursementBps = getReimbursementBps(borrowerCoPayBps);
     const borrowerCoPayCents = Math.round(
-      (budgetCents * borrowerCoPayBps) / TOTAL_REIMBURSEMENT_BPS,
+      (budgetCents * borrowerCoPayBps) / TOTAL_REIMBURSEMENT_BPS
     );
     const reimbursableBudgetCents = Math.round(
-      (budgetCents * reimbursementBps) / TOTAL_REIMBURSEMENT_BPS,
+      (budgetCents * reimbursementBps) / TOTAL_REIMBURSEMENT_BPS
     );
     const items = buildTimelineItemsFromSetupRows(rows, borrowerCoPayBps);
     const scenarioDraws = buildTimelineSetupScenarioDraws({
@@ -2889,6 +2900,13 @@ export function TimelineSetupFlow({
       permitFiles,
       costItems: planningPayload.costItems,
       projectAddress: resolveTimelineSetupAddress(projectAddress),
+      ...(projectAddressPlace
+        ? {
+            projectAddressLatitude: projectAddressPlace.latitude,
+            projectAddressLongitude: projectAddressPlace.longitude,
+            projectAddressPlaceId: projectAddressPlace.placeId,
+          }
+        : {}),
       proposedStartDate,
       redirectToDurableRoute,
       reimbursableBudgetCents,
@@ -2906,14 +2924,14 @@ export function TimelineSetupFlow({
       setSelectedTemplateKey(templateKey);
       setImportedBudgetTitle("");
       const nextTemplate = templates.find(
-        (template) => template.templateKey === templateKey,
+        (template) => template.templateKey === templateKey
       );
 
       if (nextTemplate) {
         regenerateRows(nextTemplate, budgetText);
       }
     },
-    [budgetText, templates],
+    [budgetText, templates]
   );
 
   useEffect(() => {
@@ -2933,7 +2951,7 @@ export function TimelineSetupFlow({
           const requestedTemplateKey = assistantString(input, ["templateKey"]);
           const resolvedTemplate = resolveAgentTemplate(
             requestedTemplateKey,
-            templates,
+            templates
           );
           if (!resolvedTemplate) {
             if (!templateListLoaded) {
@@ -2968,7 +2986,7 @@ export function TimelineSetupFlow({
           const field = assistantString(input, ["field"]).toLowerCase();
           if (field.includes("start")) {
             setProposedStartDate(
-              assistantString(input, ["value", "proposedStartDate"]),
+              assistantString(input, ["value", "proposedStartDate"])
             );
           } else if (field.includes("budget")) {
             setBudgetText(
@@ -2977,7 +2995,7 @@ export function TimelineSetupFlow({
                 "budgetCents",
                 "totalBudgetCents",
                 "totalBudget",
-              ]),
+              ])
             );
           } else if (
             field.includes("cash") ||
@@ -2990,7 +3008,7 @@ export function TimelineSetupFlow({
                 "cashCents",
                 "maxCashOnHandCents",
                 "borrowerStartingCashCents",
-              ]),
+              ])
             );
           } else if (
             field.includes("loan") ||
@@ -3003,7 +3021,7 @@ export function TimelineSetupFlow({
                 "loanPercentage",
                 "loanPercentagePercent",
                 "reimbursementPercentage",
-              ]),
+              ])
             );
           } else if (field.includes("pay") || field.includes("contribution")) {
             setLoanPercentageText(
@@ -3014,7 +3032,7 @@ export function TimelineSetupFlow({
                 "borrowerCoPayPercent",
                 "borrowerContribution",
                 "borrowerContributionPercent",
-              ]),
+              ])
             );
           } else {
             return { ok: false, reason: `Unsupported setup field: ${field}` };
@@ -3024,8 +3042,9 @@ export function TimelineSetupFlow({
         }
         case "set_proposal_setup_address": {
           setProjectAddress(
-            assistantString(input, ["address", "label", "value"]),
+            assistantString(input, ["address", "label", "value"])
           );
+          setProjectAddressPlace(null);
           setError("");
           return { ok: true };
         }
@@ -3059,8 +3078,8 @@ export function TimelineSetupFlow({
           const included = assistantBoolean(input, ["included", "value"], true);
           setRows((current) =>
             current.map((row) =>
-              row.key === rowKey ? { ...row, excluded: !included } : row,
-            ),
+              row.key === rowKey ? { ...row, excluded: !included } : row
+            )
           );
           setStep("budget");
           setError("");
@@ -3070,7 +3089,7 @@ export function TimelineSetupFlow({
           const name = assistantString(
             input,
             ["name", "title"],
-            "New milestone",
+            "New milestone"
           );
           let createdKey = "";
           setRows((current) => {
@@ -3099,7 +3118,7 @@ export function TimelineSetupFlow({
               .map((key) => byKey.get(key))
               .filter((row): row is TimelineSetupMilestoneRow => Boolean(row));
             const missing = current.filter(
-              (row) => !orderKeys.includes(row.key),
+              (row) => !orderKeys.includes(row.key)
             );
             return [...ordered, ...missing].map((row, index) => ({
               ...row,
@@ -3138,22 +3157,22 @@ export function TimelineSetupFlow({
                 icon: assistantString(
                   input,
                   ["icon"],
-                  row.icon,
+                  row.icon
                 ) as IsometricIconKey,
                 name: assistantString(input, ["name", "title"], row.name),
                 startDay: Number.isFinite(
-                  assistantNumber(input, ["startDay", "dayStart"]),
+                  assistantNumber(input, ["startDay", "dayStart"])
                 )
                   ? Math.max(
                       0,
                       Math.round(
-                        assistantNumber(input, ["startDay", "dayStart"]),
-                      ),
+                        assistantNumber(input, ["startDay", "dayStart"])
+                      )
                     )
                   : row.startDay,
                 type: assistantString(input, ["type"], row.type),
               };
-            }),
+            })
           );
           setStep("budget");
           setError("");
@@ -3174,7 +3193,7 @@ export function TimelineSetupFlow({
               const name = assistantString(
                 input,
                 ["name", "title"],
-                "New sub-milestone",
+                "New sub-milestone"
               );
               const id =
                 assistantString(input, ["id", "subMilestoneId"]) ||
@@ -3187,36 +3206,36 @@ export function TimelineSetupFlow({
                     budgetText: assistantCurrencyText(
                       input,
                       ["budgetCents", "budgetText"],
-                      DEFAULT_NEW_SUB_MILESTONE_BUDGET_TEXT,
+                      DEFAULT_NEW_SUB_MILESTONE_BUDGET_TEXT
                     ),
                     description: assistantString(
                       input,
                       ["description"],
-                      "Define reimbursable scope, evidence, and acceptance criteria",
+                      "Define reimbursable scope, evidence, and acceptance criteria"
                     ),
                     durationText: normalizeDurationText(
                       assistantString(
                         input,
                         ["durationDays", "durationText"],
-                        DEFAULT_NEW_SUB_MILESTONE_DURATION_TEXT,
-                      ),
+                        DEFAULT_NEW_SUB_MILESTONE_DURATION_TEXT
+                      )
                     ),
                     id,
                     name,
                     startDay: Number.isFinite(
-                      assistantNumber(input, ["startDay", "dayStart"]),
+                      assistantNumber(input, ["startDay", "dayStart"])
                     )
                       ? Math.max(
                           0,
                           Math.round(
-                            assistantNumber(input, ["startDay", "dayStart"]),
-                          ),
+                            assistantNumber(input, ["startDay", "dayStart"])
+                          )
                         )
                       : undefined,
                   },
-                ]),
+                ])
               );
-            }),
+            })
           );
           setStep("budget");
           setError("");
@@ -3231,7 +3250,7 @@ export function TimelineSetupFlow({
               }
               if (
                 !row.subMilestoneDetails.some(
-                  (detail) => detail.id === subMilestoneId,
+                  (detail) => detail.id === subMilestoneId
                 )
               ) {
                 return row;
@@ -3265,7 +3284,7 @@ export function TimelineSetupFlow({
                       description: assistantString(
                         input,
                         ["description", "guidance", "verificationNote"],
-                        detail.description,
+                        detail.description
                       ),
                       durationText: Number.isFinite(durationDays)
                         ? normalizeDurationText(String(durationDays))
@@ -3273,16 +3292,16 @@ export function TimelineSetupFlow({
                       name: assistantString(
                         input,
                         ["name", "title"],
-                        detail.name,
+                        detail.name
                       ),
                       startDay: Number.isFinite(startDay)
                         ? Math.max(0, Math.round(startDay))
                         : detail.startDay,
                     };
-                  }),
-                ),
+                  })
+                )
               );
-            }),
+            })
           );
           setStep("budget");
           setError("");
@@ -3310,23 +3329,23 @@ export function TimelineSetupFlow({
               }
               if (
                 row.subMilestoneDetails.some(
-                  (detail) => detail.id === subMilestoneId,
+                  (detail) => detail.id === subMilestoneId
                 )
               ) {
                 return setupRowWithSubmilestoneBudgetRollup(
                   withSubMilestoneDetails(
                     row,
                     row.subMilestoneDetails.filter(
-                      (detail) => detail.id !== subMilestoneId,
-                    ),
-                  ),
+                      (detail) => detail.id !== subMilestoneId
+                    )
+                  )
                 );
               }
               if (row.key === targetRowKey) {
                 const index = Number.isFinite(targetIndex)
                   ? Math.max(
                       0,
-                      Math.min(row.subMilestoneDetails.length, targetIndex),
+                      Math.min(row.subMilestoneDetails.length, targetIndex)
                     )
                   : row.subMilestoneDetails.length;
                 return setupRowWithSubmilestoneBudgetRollup(
@@ -3334,11 +3353,11 @@ export function TimelineSetupFlow({
                     ...row.subMilestoneDetails.slice(0, index),
                     moved,
                     ...row.subMilestoneDetails.slice(index),
-                  ]),
+                  ])
                 );
               }
               return row;
-            }),
+            })
           );
           setStep("budget");
           setError("");
@@ -3353,11 +3372,11 @@ export function TimelineSetupFlow({
                     withSubMilestoneDetails(
                       row,
                       row.subMilestoneDetails.filter(
-                        (detail) => detail.id !== subMilestoneId,
-                      ),
-                    ),
-                  ),
-            ),
+                        (detail) => detail.id !== subMilestoneId
+                      )
+                    )
+                  )
+            )
           );
           setStep("budget");
           setError("");
@@ -3387,8 +3406,8 @@ export function TimelineSetupFlow({
                         costCents: Math.max(
                           0,
                           Math.round(
-                            assistantNumber(input, ["costCents", "cost"]),
-                          ),
+                            assistantNumber(input, ["costCents", "cost"])
+                          )
                         ),
                         description: assistantString(input, ["description"]),
                         id: itemId,
@@ -3396,26 +3415,26 @@ export function TimelineSetupFlow({
                           assistantString(
                             input,
                             ["itemType", "type"],
-                            "material",
+                            "material"
                           ) === "equipment"
                             ? "equipment"
                             : "material",
                         quantity: Math.max(
                           1,
-                          assistantNumber(input, ["quantity"]) || 1,
+                          assistantNumber(input, ["quantity"]) || 1
                         ),
                         relevantSubMilestoneIds,
                         supplier: assistantString(input, ["supplier"]),
                         title: assistantString(
                           input,
                           ["title", "name"],
-                          "Material",
+                          "Material"
                         ),
                       },
                     ],
                   }
-                : row,
-            ),
+                : row
+            )
           );
           setStep("budget");
           setError("");
@@ -3436,36 +3455,36 @@ export function TimelineSetupFlow({
                             costCents: Math.max(
                               0,
                               Math.round(
-                                assistantNumber(input, ["costCents", "cost"]),
-                              ),
+                                assistantNumber(input, ["costCents", "cost"])
+                              )
                             ),
                           }),
                       description: assistantString(
                         input,
                         ["description"],
-                        item.description,
+                        item.description
                       ),
                       quantity:
                         input.quantity === undefined
                           ? item.quantity
                           : Math.max(
                               1,
-                              assistantNumber(input, ["quantity"]) || 1,
+                              assistantNumber(input, ["quantity"]) || 1
                             ),
                       supplier: assistantString(
                         input,
                         ["supplier"],
-                        item.supplier,
+                        item.supplier
                       ),
                       title: assistantString(
                         input,
                         ["title", "name"],
-                        item.title,
+                        item.title
                       ),
                     }
-                  : item,
+                  : item
               ),
-            })),
+            }))
           );
           setStep("budget");
           setError("");
@@ -3477,9 +3496,9 @@ export function TimelineSetupFlow({
             current.map((row) => ({
               ...row,
               costItems: (row.costItems ?? []).filter(
-                (item) => item.id !== itemId,
+                (item) => item.id !== itemId
               ),
-            })),
+            }))
           );
           setStep("budget");
           setError("");
@@ -3506,24 +3525,24 @@ export function TimelineSetupFlow({
                         contractorName: assistantString(
                           input,
                           ["contractorName", "name"],
-                          "Contractor",
+                          "Contractor"
                         ),
                         estimatedCostCents: Number.isFinite(
-                          assistantNumber(input, ["estimatedCostCents"]),
+                          assistantNumber(input, ["estimatedCostCents"])
                         )
                           ? Math.max(
                               0,
                               Math.round(
-                                assistantNumber(input, ["estimatedCostCents"]),
-                              ),
+                                assistantNumber(input, ["estimatedCostCents"])
+                              )
                             )
                           : undefined,
                         estimatedHours: Number.isFinite(
-                          assistantNumber(input, ["estimatedHours"]),
+                          assistantNumber(input, ["estimatedHours"])
                         )
                           ? Math.max(
                               0,
-                              assistantNumber(input, ["estimatedHours"]),
+                              assistantNumber(input, ["estimatedHours"])
                             )
                           : undefined,
                         id: assignmentId,
@@ -3532,8 +3551,8 @@ export function TimelineSetupFlow({
                       },
                     ],
                   }
-                : row,
-            ),
+                : row
+            )
           );
           setStep("budget");
           setError("");
@@ -3545,9 +3564,9 @@ export function TimelineSetupFlow({
             current.map((row) => ({
               ...row,
               contractorAssignments: (row.contractorAssignments ?? []).filter(
-                (assignment) => assignment.id !== assignmentId,
+                (assignment) => assignment.id !== assignmentId
               ),
-            })),
+            }))
           );
           setStep("budget");
           setError("");
@@ -3567,19 +3586,19 @@ export function TimelineSetupFlow({
     const matchingQueuedActions = readQueuedAssistantClientActions().filter(
       (action) =>
         action.actionKey === "select_proposal_template" &&
-        (!action.route || normalizeAssistantRoute(action.route) === route),
+        (!action.route || normalizeAssistantRoute(action.route) === route)
     );
     const hasResolvableQueuedAction = matchingQueuedActions.some((action) =>
       resolveAgentTemplate(
         assistantString(assistantActionInput(action), ["templateKey"]),
-        templates,
-      ),
+        templates
+      )
     );
     if (!(templateListLoaded || hasResolvableQueuedAction)) {
       return;
     }
     const unregister = ASSISTANT_SETUP_CLIENT_ACTION_KEYS.map((actionKey) =>
-      registerAssistantClientAction(actionKey, executeSetupAction),
+      registerAssistantClientAction(actionKey, executeSetupAction)
     );
     for (const actionKey of ASSISTANT_SETUP_CLIENT_ACTION_KEYS) {
       for (const action of consumeQueuedAssistantClientActions({
@@ -3601,9 +3620,9 @@ export function TimelineSetupFlow({
         0,
         Math.round(
           (draft.totalDrawableAmount / Math.max(1, draft.totalBudget)) *
-            TOTAL_REIMBURSEMENT_BPS,
-        ),
-      ),
+            TOTAL_REIMBURSEMENT_BPS
+        )
+      )
     );
 
     setBudgetText(formatCurrency(totalBudgetCents));
@@ -3666,7 +3685,16 @@ export function TimelineSetupFlow({
             }}
             onPermitFilesChange={setPermitFiles}
             onPermitSkipChange={setPermitsSkipped}
-            onProjectAddressChange={setProjectAddress}
+            onProjectAddressChange={(value) => {
+              setProjectAddress(value);
+              setProjectAddressPlace(null);
+            }}
+            onProjectPlaceSelect={(details) => {
+              setProjectAddressPlace(details);
+              if (details) {
+                setProjectAddress(details.formattedAddress);
+              }
+            }}
             onProposedStartDateChange={(value) => {
               setProposedStartDate(value);
               setError("");

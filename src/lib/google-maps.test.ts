@@ -2,6 +2,8 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
+  createGoogleMapsEmbedUrl,
+  createGoogleMapsOpenUrl,
   createGoogleSatelliteMapUrl,
   fetchGoogleAddressPlaceDetails,
   fetchGoogleAddressSuggestions,
@@ -15,6 +17,28 @@ afterEach(() => {
 });
 
 describe("google maps helpers", () => {
+  test("creates interactive embed and external map URLs from site coordinates", () => {
+    const input = {
+      address: "1420 Maple Ridge Dr, Hamilton, ON L8P 2X4",
+      latitude: 43.2557,
+      longitude: -79.8711,
+    };
+
+    const embedUrl = new URL(createGoogleMapsEmbedUrl(input));
+    expect(embedUrl.origin + embedUrl.pathname).toBe(
+      "https://www.google.com/maps",
+    );
+    expect(embedUrl.searchParams.get("q")).toBe("43.2557,-79.8711");
+    expect(embedUrl.searchParams.get("output")).toBe("embed");
+
+    const openUrl = new URL(createGoogleMapsOpenUrl(input));
+    expect(openUrl.origin + openUrl.pathname).toBe(
+      "https://www.google.com/maps/search/",
+    );
+    expect(openUrl.searchParams.get("api")).toBe("1");
+    expect(openUrl.searchParams.get("query")).toBe("43.2557,-79.8711");
+  });
+
   test("creates satellite Static Maps URLs from a site address", () => {
     vi.stubEnv("VITE_GOOGLE_MAPS_API_KEY", "maps-key");
 

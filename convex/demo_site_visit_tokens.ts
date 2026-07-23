@@ -109,9 +109,106 @@ export interface SiteVisitLocationAttempt {
   accuracyMeters?: number;
   attempted: boolean;
   attemptedAt?: number;
+  distanceMeters?: number;
   failureReason?: string;
+  geofenceRadiusMeters?: number;
+  latitude?: number;
+  longitude?: number;
   permissionOutcome: "denied" | "granted" | "not_requested" | "unavailable";
   verified: boolean;
+}
+
+export const SITE_VISIT_GEOFENCE_RADIUS_METERS = 250;
+
+export function resolveSiteVisitGeofenceAttempt({
+  locationAttempt,
+  siteLatitude,
+  siteLongitude,
+}: {
+  locationAttempt: SiteVisitLocationAttempt;
+  siteLatitude?: number;
+  siteLongitude?: number;
+}): SiteVisitLocationAttempt {
+  if (locationAttempt.permissionOutcome !== "granted") {
+    return { ...locationAttempt, verified: false };
+  }
+  if (
+    typeof locationAttempt.latitude !== "number" ||
+    typeof locationAttempt.longitude !== "number"
+  ) {
+    return {
+      ...locationAttempt,
+      failureReason:
+        "Browser location permission was granted, but device coordinates were unavailable.",
+      verified: false,
+    };
+  }
+  if (typeof siteLatitude !== "number" || typeof siteLongitude !== "number") {
+    return {
+      ...locationAttempt,
+      distanceMeters: undefined,
+      failureReason:
+        "The device location was recorded, but the Build has no site coordinates for geofence verification.",
+      geofenceRadiusMeters: undefined,
+      verified: false,
+    };
+  }
+
+  const distanceMeters = Math.round(
+    distanceBetweenCoordinatesMeters(
+      {
+        latitude: locationAttempt.latitude,
+        longitude: locationAttempt.longitude,
+      },
+      { latitude: siteLatitude, longitude: siteLongitude }
+    )
+  );
+  const accuracyMeters = Math.max(
+    0,
+    Math.round(locationAttempt.accuracyMeters ?? 0)
+  );
+  const verified =
+    distanceMeters + accuracyMeters <= SITE_VISIT_GEOFENCE_RADIUS_METERS;
+  const confidentlyOutside =
+    distanceMeters - accuracyMeters > SITE_VISIT_GEOFENCE_RADIUS_METERS;
+  return {
+    ...locationAttempt,
+    distanceMeters,
+    ...(verified
+      ? { failureReason: undefined }
+      : {
+          failureReason: confidentlyOutside
+            ? `Device location is ${distanceMeters} m from the Build site, outside the ${SITE_VISIT_GEOFENCE_RADIUS_METERS} m geofence.`
+            : `Device location accuracy overlaps the ${SITE_VISIT_GEOFENCE_RADIUS_METERS} m geofence boundary and requires lender review.`,
+        }),
+    geofenceRadiusMeters: SITE_VISIT_GEOFENCE_RADIUS_METERS,
+    verified,
+  };
+}
+
+function distanceBetweenCoordinatesMeters(
+  first: { latitude: number; longitude: number },
+  second: { latitude: number; longitude: number }
+) {
+  const earthRadiusMeters = 6_371_000;
+  const latitudeDelta = degreesToRadians(second.latitude - first.latitude);
+  const longitudeDelta = degreesToRadians(second.longitude - first.longitude);
+  const firstLatitude = degreesToRadians(first.latitude);
+  const secondLatitude = degreesToRadians(second.latitude);
+  const haversine =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(firstLatitude) *
+      Math.cos(secondLatitude) *
+      Math.sin(longitudeDelta / 2) ** 2;
+  return (
+    earthRadiusMeters *
+    2 *
+    Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
+  );
+}
+
+function degreesToRadians(value: number) {
+  return (value * Math.PI) / 180;
 }
 
 export interface SiteVisitPrerequisiteException {
@@ -151,13 +248,16 @@ export function validateSiteVisitSubmissionContext({
   missingPrerequisites: Array<"permit" | "site_plan">;
   prerequisiteException?: SiteVisitPrerequisiteException;
 }) {
-  if (locationAttempt.verified && !locationAttempt.attempted) {
-    throw new Error("Location cannot be verified without an attempt.");
+  if (!locationAttempt.attempted) {
+    throw new Error("A site location attempt is required.");
   }
   if (locationAttempt.attempted && !locationAttempt.attemptedAt) {
     throw new Error("Location attempt time is required.");
   }
-  if (locationAttempt.verified && locationAttempt.permissionOutcome !== "granted") {
+  if (
+    locationAttempt.verified &&
+    locationAttempt.permissionOutcome !== "granted"
+  ) {
     throw new Error("Verified location requires granted permission.");
   }
   if (!locationAttempt.verified && !locationAttempt.failureReason?.trim()) {
