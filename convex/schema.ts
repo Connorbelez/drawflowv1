@@ -482,6 +482,12 @@ const productionCostItemTypeValidator = v.union(
   v.literal("equipment")
 );
 
+const productionCostItemBudgetTreatmentValidator = v.union(
+  v.literal("logOnly"),
+  v.literal("add"),
+  v.literal("maintain")
+);
+
 const builderStaffPermissionScopeValidator = v.union(
   v.literal("proposal"),
   v.literal("activeBuild")
@@ -2295,6 +2301,8 @@ export default defineSchema({
     description: v.optional(v.string()),
     costCents: v.number(),
     quantity: v.number(),
+    budgetTreatment: v.optional(productionCostItemBudgetTreatmentValidator),
+    budgetSubmilestoneKey: v.optional(v.string()),
     supplier: v.optional(v.string()),
     relevantSubmilestoneKeys: v.array(v.string()),
     createdByWorkosUserId: v.string(),
@@ -3247,6 +3255,8 @@ export default defineSchema({
     description: v.optional(v.string()),
     costCents: v.number(),
     quantity: v.number(),
+    budgetTreatment: v.optional(productionCostItemBudgetTreatmentValidator),
+    budgetSubmilestoneKey: v.optional(v.string()),
     supplier: v.optional(v.string()),
     relevantSubmilestoneKeys: v.array(v.string()),
     createdByWorkosUserId: v.string(),

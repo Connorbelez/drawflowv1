@@ -673,6 +673,8 @@ export interface TimelineSetupContractorAssignment {
 }
 
 export interface TimelineSetupCostItem {
+  budgetSubmilestoneKey?: string;
+  budgetTreatment?: "add" | "logOnly" | "maintain";
   costCents: number;
   description?: string;
   itemType: "equipment" | "material";
@@ -1602,6 +1604,13 @@ function setupCostItemToPayload(
     return null;
   }
   return {
+    ...(item.budgetSubmilestoneKey &&
+    availableSubmilestoneKeys.has(item.budgetSubmilestoneKey)
+      ? { budgetSubmilestoneKey: item.budgetSubmilestoneKey }
+      : {}),
+    ...(item.budgetTreatment
+      ? { budgetTreatment: item.budgetTreatment }
+      : {}),
     costCents: item.costCents,
     ...(item.description?.trim()
       ? { description: item.description.trim() }

@@ -498,7 +498,7 @@ export function TimelineMilestoneWorksheetTable({
               type="button"
               variant="outline"
             >
-              Cascade
+              Cascade: {cascadeBudgetEdits ? "On" : "Off"}
             </Toggle>
           </Group>
         </div>

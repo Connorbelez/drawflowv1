@@ -34,12 +34,20 @@ export interface DashboardDrawRequest {
 export interface ActiveBuild {
   activeMilestone: string;
   address: string;
+  buildName?: string;
   builder: string;
   buildKey: string;
   daysActive: number;
+  drawCount?: number;
   href: string;
   id: string;
+  imageUrl?: string | null;
+  locationLatitude?: number;
+  locationLongitude?: number;
+  milestoneCount?: number;
+  milestonesBehindSchedule?: number;
   milestoneState: "backlog" | "inProgress" | "inReview";
+  pendingDrawRequestCount?: number;
   status: "onTrack" | "behind" | "overBudget";
   statusLabel: string;
 }
@@ -98,6 +106,8 @@ export interface ProposalKanbanCard extends Record<string, unknown> {
   borrowerStartingCashCents?: number;
   builder: string;
   builderAssigned?: boolean;
+  builderEmail?: string;
+  builderProfileId?: string;
   closeLabel?: string;
   column: string;
   createdAt?: number;

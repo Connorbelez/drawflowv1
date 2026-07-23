@@ -20,6 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from "#/components/ui/table.tsx";
+import { BuildIdentityCell } from "#/features/builds/BuildIdentityCell.tsx";
 import { cn } from "#/lib/utils.ts";
 import { MOCK_BUILDER_PERSONA } from "../../../convex/demo_personas";
 
@@ -49,11 +50,18 @@ export type TimelineBudgetGovernance = {
 
 export type TimelinePlanRow = {
   budgetGovernance?: TimelineBudgetGovernance | null;
+  buildStatus?: "active" | "future_start";
   buildKey?: string;
   buildName: string;
+  builderName?: string;
   drawCount: number;
+  imageUrl?: string | null;
   kind?: "activeBuild" | "proposal";
+  location?: string;
+  locationLatitude?: number;
+  locationLongitude?: number;
   milestoneCount: number;
+  milestonesBehindSchedule?: number;
   pendingDrawRequestCount?: number;
   pendingModificationRequestCount?: number;
   planId: string;
@@ -426,6 +434,7 @@ function TimelinePlanTable({
       <TableHeader>
         <TableRow>
           <TableHead>Build</TableHead>
+          <TableHead>Builder</TableHead>
           <TableHead>Status</TableHead>
           <TableHead>Budget / governance</TableHead>
           <TableHead>Milestones / draws</TableHead>
@@ -445,9 +454,29 @@ function TimelinePlanTable({
                 (isLiveBuildRow(row) ? "Open live build" : "Open proposal"));
           return (
             <TableRow key={row.planId}>
-              <TableCell className="font-medium">{row.buildName}</TableCell>
               <TableCell>
-                <PlanStatusBadge status={row.status} />
+                <BuildIdentityCell
+                  buildName={row.buildName}
+                  imageUrl={row.imageUrl}
+                  latitude={row.locationLatitude}
+                  location={row.location}
+                  longitude={row.locationLongitude}
+                  metadata={
+                    row.location ? (
+                      <span className="block max-w-52 truncate text-muted-foreground text-xs">
+                        {row.location}
+                      </span>
+                    ) : null
+                  }
+                />
+              </TableCell>
+              <TableCell>{row.builderName ?? "Builder"}</TableCell>
+              <TableCell>
+                {isLiveBuildRow(row) ? (
+                  <LiveBuildStatusBadge row={row} />
+                ) : (
+                  <PlanStatusBadge status={row.status} />
+                )}
               </TableCell>
               <TableCell>
                 <div className="font-medium">
@@ -569,11 +598,23 @@ export function PlanStatusBadge({
         : status === "archived"
           ? "destructive"
           : "outline";
-  return (
-    <Badge variant={variant}>
-      {status === "approved" ? "moved to live build" : status}
-    </Badge>
-  );
+  return <Badge variant={variant}>{status}</Badge>;
+}
+
+function LiveBuildStatusBadge({ row }: { row: TimelinePlanRow }) {
+  const behindCount = row.milestonesBehindSchedule ?? 0;
+  if (behindCount > 0) {
+    return (
+      <Badge variant="warning">
+        {behindCount} {behindCount === 1 ? "milestone" : "milestones"} behind
+        schedule
+      </Badge>
+    );
+  }
+  if (row.buildStatus === "future_start") {
+    return <Badge variant="outline">Scheduled</Badge>;
+  }
+  return <Badge variant="success">Active</Badge>;
 }
 
 function countByStatus(rows: TimelinePlanRow[]) {
@@ -604,9 +645,9 @@ function formatOpenRequests(row: TimelinePlanRow) {
   const drawCount = row.pendingDrawRequestCount ?? 0;
   const modificationCount = row.pendingModificationRequestCount ?? 0;
   if (drawCount === 0 && modificationCount === 0) {
-    return "-";
+    return "None";
   }
-  return `${drawCount} draw / ${modificationCount} change`;
+  return `${drawCount} ${drawCount === 1 ? "draw" : "draws"} / ${modificationCount} ${modificationCount === 1 ? "change" : "changes"}`;
 }
 
 function formatSignedCents(cents: number) {

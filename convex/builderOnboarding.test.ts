@@ -1105,6 +1105,78 @@ describe("new builder onboarding", () => {
         },
       ),
     ).rejects.toThrow(/multiple active broker members/i);
+    await expect(
+      admin.query((api as any).builderRoster.listAssignableBrokers, {}),
+    ).rejects.toThrow(/multiple active broker members/i);
+  });
+
+  test("principal resolution rejects a stale active projection superseded by a deleted user", async () => {
+    const workosUserId = "user_superseded_principal";
+    const base = convexTest(schema, modules);
+    const admin = asRole(base, ["admin"], "user_admin");
+    await admin.run(async (ctx: any) => {
+      await ctx.db.insert("workosOrganizations", {
+        domains: [],
+        name: FAIRLEND_BROKERAGE_NAME,
+        sourceEventId: "evt_superseded_principal_org",
+        sourceEventType: "organization.created",
+        status: "active",
+        workosOrganizationId: FAIRLEND_ORG,
+      });
+      await ctx.db.insert("brokerages", {
+        createdAt: 1,
+        displayName: FAIRLEND_BROKERAGE_NAME,
+        legalName: FAIRLEND_BROKERAGE_NAME,
+        principalBrokerEmail: FAIRLEND_DEFAULT_BROKER_EMAIL,
+        principalBrokerWorkosUserId: workosUserId,
+        status: "active",
+        updatedAt: 1,
+        workosOrganizationId: FAIRLEND_ORG,
+      });
+      await ctx.db.insert("users", {
+        authId: "auth_superseded_principal_old",
+        email: FAIRLEND_DEFAULT_BROKER_EMAIL,
+        emailVerified: true,
+        name: "Superseded Principal",
+        sourceEventId: "evt_superseded_principal_old",
+        sourceEventType: "user.created",
+        status: "active",
+        updatedAt: 1,
+        workosUserId,
+      });
+      await ctx.db.insert("users", {
+        authId: "auth_superseded_principal_deleted",
+        email: FAIRLEND_DEFAULT_BROKER_EMAIL,
+        emailVerified: true,
+        name: "Deleted Principal",
+        sourceEventId: "evt_superseded_principal_deleted",
+        sourceEventType: "user.deleted",
+        status: "deleted",
+        updatedAt: 2,
+        workosUserId,
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        roleSlug: "principle-broker",
+        roleSlugs: ["principle-broker"],
+        sourceEventId: "evt_superseded_principal_membership",
+        sourceEventType: "organization_membership.created",
+        status: "active",
+        workosMembershipId: "om_superseded_principal",
+        workosOrganizationId: FAIRLEND_ORG,
+        workosUserId,
+      });
+    });
+
+    await expect(
+      admin.mutation(
+        (api as any).brokerageProvisioning.provisionBuilderProfile,
+        {
+          displayName: "Superseded Principal Builders",
+          ownerWorkosUserId: "user_superseded_principal_builder",
+          workosOrganizationId: FAIRLEND_ORG,
+        },
+      ),
+    ).rejects.toThrow(/must be an active broker member/i);
   });
 
   test("linkBuilderAccount repairs a missing principal broker assignment", async () => {

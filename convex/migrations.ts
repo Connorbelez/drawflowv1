@@ -92,13 +92,13 @@ export const backfillBrokeragePrincipalBrokerEmail = migrations.define({
     const principalBrokerWorkosUserId =
       brokerage.principalBrokerWorkosUserId;
 
-    const [broker, memberships] = await Promise.all([
+    const [projectedUsers, memberships] = await Promise.all([
       ctx.db
         .query("users")
         .withIndex("by_workos_user_id", (q) =>
           q.eq("workosUserId", principalBrokerWorkosUserId)
         )
-        .unique(),
+        .collect(),
       ctx.db
         .query("workosOrganizationMemberships")
         .withIndex("by_user", (q) =>
@@ -106,6 +106,10 @@ export const backfillBrokeragePrincipalBrokerEmail = migrations.define({
         )
         .collect(),
     ]);
+    const broker = projectedUsers.sort(
+      (a, b) =>
+        (b.updatedAt ?? b._creationTime) - (a.updatedAt ?? a._creationTime)
+    )[0];
     const eligibleMembership = memberships.find(
       (membership) =>
         membership.workosOrganizationId === brokerage.workosOrganizationId &&
@@ -127,4 +131,30 @@ export const backfillBrokeragePrincipalBrokerEmail = migrations.define({
 
 export const runBrokeragePrincipalBrokerEmailBackfill = migrations.runner([
   internal.migrations.backfillBrokeragePrincipalBrokerEmail,
+]);
+
+/** Preserves the legacy behavior where every cost item increased its milestone. */
+export const backfillProposalCostItemBudgetTreatment = migrations.define({
+  table: "proposalCostItems",
+  migrateOne: (_ctx, item) => {
+    if (item.budgetTreatment !== undefined) {
+      return;
+    }
+    return { budgetTreatment: "add" as const };
+  },
+});
+
+export const backfillBuildCostItemBudgetTreatment = migrations.define({
+  table: "buildCostItems",
+  migrateOne: (_ctx, item) => {
+    if (item.budgetTreatment !== undefined) {
+      return;
+    }
+    return { budgetTreatment: "add" as const };
+  },
+});
+
+export const runCostItemBudgetTreatmentBackfill = migrations.runner([
+  internal.migrations.backfillProposalCostItemBudgetTreatment,
+  internal.migrations.backfillBuildCostItemBudgetTreatment,
 ]);

@@ -468,8 +468,10 @@ export function BuilderProductionProposalWorkspace({
       materialPlanningActions={materialPlanningActions}
       milestones={
         <ProductionProposalMilestoneWorksheetContainer
+          canMutateContractors={!visualFixtureEnabled && isDraftProposal}
           contractorPlanning={workspace.contractorPlanning}
           detail={detail}
+          materialPlanningActions={materialPlanningActions}
           persistenceMode={proposalEditorPersistenceMode}
           proposalId={typedProposalId}
           showHeading

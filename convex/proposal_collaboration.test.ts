@@ -6,6 +6,10 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
 import { api } from "./_generated/api";
+import {
+  captureProposalPlanningSnapshot,
+  restoreProposalPlanningSnapshot,
+} from "./proposal_collaboration_model";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -698,6 +702,57 @@ describe("proposal collaboration", () => {
         "proposal.timeline.redo",
       ]),
     );
+  });
+
+  test("legacy planning snapshots preserve cost items during restore", async () => {
+    const { admin, seed } = await seeded();
+    const proposalId = await createDraftProposal(admin, seed);
+    const itemId = await admin.mutation(
+      (api as any).production_proposals.createProposalCostItem,
+      {
+        budgetTreatment: "logOnly",
+        costCents: 2_500_000,
+        itemType: "material",
+        milestoneKey: "foundation",
+        proposalId,
+        quantity: 1,
+        relevantSubmilestoneKeys: ["forms"],
+        title: "Preserved concrete quote",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await admin.run(async (ctx: any) => {
+      const proposal = await ctx.db.get(proposalId);
+      const brokerage = await ctx.db.get(seed.brokerageId);
+      if (!proposal || !brokerage) {
+        throw new Error("Missing proposal restore test fixture.");
+      }
+      const snapshot = await captureProposalPlanningSnapshot(ctx, proposalId);
+      delete snapshot.costItems;
+      await restoreProposalPlanningSnapshot(
+        ctx,
+        { brokerage, proposal, subject: "user_admin" },
+        snapshot,
+      );
+    });
+
+    const restored = await admin.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(restored.costItems).toHaveLength(1);
+    expect(restored.costItems[0]).toMatchObject({
+      itemKey: expect.any(String),
+      title: "Preserved concrete quote",
+    });
+    expect(restored.costItems[0]._id).not.toBe(itemId);
+    expect(
+      restored.milestones.some(
+        (milestone: any) =>
+          milestone._id === restored.costItems[0].proposalMilestoneId,
+      ),
+    ).toBe(true);
   });
 
   test("presence data carries collaborator cursor payloads and disconnects cleanly", async () => {

@@ -108,6 +108,42 @@ describe("BuilderTimelineDashboardSurface", () => {
     expect(screen.getByText("2 milestones · 1 open draw")).toBeTruthy();
   });
 
+  test("shows active-build operational state, counts, requests, builder, and preview", () => {
+    render(
+      <BuilderTimelineDashboardSurface
+        onNavigate={vi.fn()}
+        rows={[
+          {
+            ...baseRow,
+            buildKey: "build_behind",
+            buildName: "Behind schedule build",
+            builderName: "Northline Builders",
+            drawCount: 4,
+            imageUrl: "https://example.com/site.jpg",
+            kind: "activeBuild",
+            location: "1200 Stone Road",
+            milestoneCount: 6,
+            milestonesBehindSchedule: 2,
+            pendingDrawRequestCount: 1,
+            pendingModificationRequestCount: 2,
+            planId: "build_behind",
+            status: "approved",
+          } as TimelinePlanRow,
+        ]}
+      />,
+    );
+
+    const row = screen.getByText("Behind schedule build").closest("tr");
+    expect(row).not.toBeNull();
+    expect(
+      screen.getByRole("img", { name: "Behind schedule build site preview" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Northline Builders")).toBeTruthy();
+    expect(screen.getByText("2 milestones behind schedule")).toBeTruthy();
+    expect(screen.getByText("6 / 4")).toBeTruthy();
+    expect(screen.getByText("1 draw / 2 changes")).toBeTruthy();
+  });
+
   test("routes explicit proposal and active-build rows independently", () => {
     const onNavigate = vi.fn();
     render(

@@ -44,11 +44,18 @@ import {
 
 const WORKOS_ORGANIZATION_ID = "org_backoffice_loader_test";
 
+test("keeps the reactive backoffice dashboard client-rendered", () => {
+  expect(Route.options.ssr).toBe(false);
+});
+
 test("the backoffice route loader seeds and reuses the dashboard query cache", async () => {
   vi.useFakeTimers();
   vi.setSystemTime("2026-07-15T23:59:59.000Z");
   const dashboard = { metrics: [{ id: "draw-requests", value: 2 }] };
-  const builders = [{ _id: "builder-1", displayName: "Northwind Homes" }];
+  const builders = {
+    brokers: [],
+    builders: [{ _id: "builder-1", displayName: "Northwind Homes" }],
+  };
   const loadDashboard = vi.fn().mockResolvedValue(dashboard);
   const loadBuilders = vi.fn().mockResolvedValue(builders);
   const queryClient = new QueryClient();
@@ -107,7 +114,7 @@ test("the backoffice route loader seeds and reuses the dashboard query cache", a
   expect(
     queryClient.getQueryData([
       "convexQuery",
-      "production_proposals:listActiveBrokerageBuilderOptions",
+      "production_proposals:listBackofficeProposalFilterOptions",
       { workosOrganizationId: WORKOS_ORGANIZATION_ID },
     ])
   ).toEqual(builders);
@@ -163,6 +170,7 @@ afterEach(() => cleanup());
 const submittedProposal: ProposalKanbanCard = {
   address: "47 Submitted Street, Toronto, ON",
   builder: "Production Builder",
+  builderEmail: "builder@example.com",
   column: "submitted",
   href: "/backoffice/proposals/proposal-submitted",
   id: "proposal-submitted",
@@ -180,6 +188,7 @@ const approvedProposal: ProposalKanbanCard = {
   approvedAt: Date.parse("2026-05-21T12:00:00.000Z"),
   borrowerStartingCashCents: 30_000_000,
   builder: "Production Builder",
+  builderEmail: "builder@example.com",
   column: "approved",
   href: "/backoffice/proposals/proposal-approved",
   id: "proposal-approved",
@@ -344,6 +353,7 @@ describe("SubmittedProposalsCard", () => {
     expect(screen.getByText("Approved, pending closing")).toBeTruthy();
     expect(screen.getByText("Submitted Build")).toBeTruthy();
     expect(screen.getByText("Approved With Permit")).toBeTruthy();
+    expect(screen.getAllByText("builder@example.com")).toHaveLength(2);
   });
 
   test("opens the archive dialog from a submitted row right-click menu", async () => {
@@ -445,17 +455,43 @@ describe("SubmittedProposalsCard", () => {
 const activeBuild = {
   activeMilestone: "Foundation",
   address: "Closed Site, Toronto, ON",
+  buildName: "Closed Site Build",
   buildKey: "build-active",
   builder: "Production Builder",
   daysActive: 12,
+  drawCount: 3,
   href: "/backoffice/builds/build-active",
   id: "B-ACTIVE",
+  imageUrl: "https://example.com/build.jpg",
+  milestoneCount: 5,
+  milestonesBehindSchedule: 2,
   milestoneState: "inProgress" as const,
-  status: "onTrack" as const,
-  statusLabel: "On track",
+  pendingDrawRequestCount: 1,
+  status: "behind" as const,
+  statusLabel: "2 milestones behind schedule",
 };
 
 describe("ActiveBuildsCard", () => {
+  test("renders operational build state, counts, requests, builder, and preview", () => {
+    render(
+      <ActiveBuildsCard
+        builds={[activeBuild]}
+        onDeleteActiveBuild={vi.fn()}
+        onOpenUnassignedDrafts={vi.fn()}
+        onStartNewBuildWorkflow={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Closed Site Build")).toBeTruthy();
+    expect(screen.getByText("Production Builder")).toBeTruthy();
+    expect(screen.getByText("2 milestones behind schedule")).toBeTruthy();
+    expect(screen.getByText("5 / 3")).toBeTruthy();
+    expect(screen.getByText("1 draw")).toBeTruthy();
+    expect(
+      screen.getByRole("img", { name: "Closed Site Build site preview" }),
+    ).toBeTruthy();
+  });
+
   test("confirms active build deletion from the row context menu", async () => {
     const onDeleteActiveBuild = vi.fn().mockResolvedValue(null);
 
@@ -468,7 +504,9 @@ describe("ActiveBuildsCard", () => {
       />,
     );
 
-    fireEvent.contextMenu(screen.getByText("B-ACTIVE"));
+    fireEvent.contextMenu(
+      screen.getByText("Closed Site Build").closest("tr") as HTMLTableRowElement,
+    );
     fireEvent.click(
       await screen.findByRole("menuitem", { name: "Delete active build" }),
     );
@@ -567,6 +605,7 @@ const assignedDraft: ProposalKanbanCard = {
   address: "44 Assigned Way, Toronto, ON",
   builder: "Northwind Homes",
   builderAssigned: true,
+  builderEmail: "owner@northwind.example",
   column: "draft",
   href: "/backoffice/proposals/proposal-assigned-draft",
   id: "proposal-assigned-draft",
@@ -599,6 +638,7 @@ describe("ProposalKanban context menu", () => {
 
     expect(screen.queryByTestId("proposal-card-unassigned")).toBeNull();
     expect(screen.getByText("Northwind Homes")).toBeTruthy();
+    expect(screen.getByText("owner@northwind.example")).toBeTruthy();
 
     fireEvent.contextMenu(screen.getByText("Assigned Draft"));
 

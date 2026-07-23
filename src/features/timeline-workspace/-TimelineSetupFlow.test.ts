@@ -57,6 +57,8 @@ describe("buildPlanningPayloadFromSetupRows", () => {
       ],
       costItems: [
         {
+          budgetSubmilestoneKey: "forms",
+          budgetTreatment: "add",
           costCents: 8_000_00,
           description: "<p>Concrete mix</p>",
           id: "cost-item-1",
@@ -101,6 +103,8 @@ describe("buildPlanningPayloadFromSetupRows", () => {
       ],
       costItems: [
         {
+          budgetSubmilestoneKey: "forms",
+          budgetTreatment: "add",
           costCents: 8_000_00,
           description: "<p>Concrete mix</p>",
           itemType: "material",

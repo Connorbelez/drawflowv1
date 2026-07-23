@@ -1,3 +1,7 @@
+import {
+  paginationOptsValidator,
+  paginationResultValidator,
+} from "convex/server";
 import { ConvexError, v } from "convex/values";
 
 import { api, internal } from "./_generated/api";
@@ -13,6 +17,7 @@ import {
   assignBuilderBrokerAssignment,
   ensureBuilderBrokerAssignment,
   getBuilderBrokerAssignmentHealth,
+  hasAssignableBrokerRole,
   listAssignableBrokerMembers,
   requireDefaultBrokerMember,
   requireEligibleBrokerMember,
@@ -154,6 +159,124 @@ const TOTAL_BPS = 10_000;
 const PRODUCTION_SETTINGS_HANDOFF_GAP_DAYS = 5;
 const BACKOFFICE_DASHBOARD_PROPOSALS_PER_COLUMN = 50;
 const BACKOFFICE_BUILDER_OPTIONS_LIMIT = 200;
+
+const proposalDirectoryFiltersValidator = v.object({
+  approvedFrom: v.optional(v.number()),
+  approvedTo: v.optional(v.number()),
+  assignedBrokerWorkosUserId: v.optional(v.string()),
+  assignment: v.optional(
+    v.union(v.literal("assigned"), v.literal("unassigned"))
+  ),
+  builderProfileId: v.optional(v.id("builderProfiles")),
+  closingState: v.optional(
+    v.union(
+      v.literal("active_build"),
+      v.literal("pending_closing"),
+      v.literal("pre_closing")
+    )
+  ),
+  closedFrom: v.optional(v.number()),
+  closedTo: v.optional(v.number()),
+  createdFrom: v.optional(v.number()),
+  createdTo: v.optional(v.number()),
+  maxBorrowerStartingCashCents: v.optional(v.number()),
+  maxBorrowerCoPayBps: v.optional(v.number()),
+  maxBudgetCents: v.optional(v.number()),
+  maxInterestAnnualBps: v.optional(v.number()),
+  maxLenderDrawPolicyLimitCents: v.optional(v.number()),
+  minBorrowerStartingCashCents: v.optional(v.number()),
+  minBorrowerCoPayBps: v.optional(v.number()),
+  minBudgetCents: v.optional(v.number()),
+  minInterestAnnualBps: v.optional(v.number()),
+  minLenderDrawPolicyLimitCents: v.optional(v.number()),
+  planKey: v.optional(
+    v.union(
+      v.literal("capitalConstrained"),
+      v.literal("cheapestFeasible"),
+      v.literal("fastest"),
+      v.literal("unselected")
+    )
+  ),
+  proposedStartFrom: v.optional(v.string()),
+  proposedStartTo: v.optional(v.string()),
+  reviewOutcome: v.optional(
+    v.union(
+      v.literal("none"),
+      v.literal("approved"),
+      v.literal("requested_changes"),
+      v.literal("rejected")
+    )
+  ),
+  stage: v.optional(
+    v.union(
+      v.literal("draft"),
+      v.literal("submitted"),
+      v.literal("approved"),
+      v.literal("closed")
+    )
+  ),
+  submittedFrom: v.optional(v.number()),
+  submittedTo: v.optional(v.number()),
+  updatedFrom: v.optional(v.number()),
+  updatedTo: v.optional(v.number()),
+});
+
+const proposalDirectoryCardValidator = v.object({
+  activeBuildId: v.optional(v.string()),
+  approvedAt: v.optional(v.number()),
+  assignedBrokerEmail: v.optional(v.string()),
+  assignedBrokerName: v.optional(v.string()),
+  assignedBrokerWorkosUserId: v.optional(v.string()),
+  borrowerCoPayBps: v.number(),
+  borrowerCoPayCents: v.optional(v.number()),
+  borrowerStartingCashCents: v.number(),
+  builderAssigned: v.boolean(),
+  builderEmail: v.optional(v.string()),
+  builderLegalName: v.optional(v.string()),
+  builderName: v.string(),
+  builderProfileId: v.optional(v.string()),
+  closedAt: v.optional(v.number()),
+  column: v.union(
+    v.literal("draft"),
+    v.literal("submitted"),
+    v.literal("approved"),
+    v.literal("closed")
+  ),
+  createdAt: v.number(),
+  createdByEmail: v.optional(v.string()),
+  createdByName: v.optional(v.string()),
+  createdByWorkosUserId: v.string(),
+  href: v.string(),
+  interestAnnualBps: v.optional(v.number()),
+  lenderDrawPolicyLimitCents: v.number(),
+  location: v.string(),
+  locationLatitude: v.optional(v.number()),
+  locationLongitude: v.optional(v.number()),
+  locationPlaceId: v.optional(v.string()),
+  planKey: v.optional(
+    v.union(
+      v.literal("capitalConstrained"),
+      v.literal("cheapestFeasible"),
+      v.literal("fastest")
+    )
+  ),
+  planName: v.optional(v.string()),
+  proposedStartDate: v.optional(v.string()),
+  proposalId: v.string(),
+  reviewOutcome: v.union(
+    v.literal("none"),
+    v.literal("approved"),
+    v.literal("requested_changes"),
+    v.literal("rejected")
+  ),
+  statusLabel: v.string(),
+  submittedAt: v.optional(v.number()),
+  subtitle: v.string(),
+  title: v.string(),
+  totalBudgetCents: v.number(),
+  updatedAt: v.number(),
+  updatedByWorkosUserId: v.string(),
+});
 
 const productionSettingsSiteVisitGuidanceFieldInput = v.union(
   v.string(),
@@ -519,6 +642,12 @@ const productionCostItemType = v.union(
   v.literal("equipment")
 );
 
+const productionCostItemBudgetTreatment = v.union(
+  v.literal("logOnly"),
+  v.literal("add"),
+  v.literal("maintain")
+);
+
 const builderStaffPermissionResourceInput = v.union(
   v.literal("milestone"),
   v.literal("submilestone"),
@@ -559,6 +688,8 @@ const builderStaffProvisionResult = v.object({
 });
 
 const productionCostItemCreateInput = {
+  budgetSubmilestoneKey: v.optional(v.union(v.string(), v.null())),
+  budgetTreatment: v.optional(productionCostItemBudgetTreatment),
   costCents: v.number(),
   description: v.optional(v.string()),
   itemType: productionCostItemType,
@@ -583,6 +714,8 @@ const proposalDraftContractorAssignmentInput = v.object({
 });
 
 const productionCostItemUpdateInput = {
+  budgetSubmilestoneKey: v.optional(v.union(v.string(), v.null())),
+  budgetTreatment: v.optional(productionCostItemBudgetTreatment),
   costCents: v.optional(v.number()),
   description: v.optional(v.string()),
   itemId: v.id("proposalCostItems"),
@@ -596,6 +729,8 @@ const productionCostItemUpdateInput = {
 };
 
 const productionBuildCostItemUpdateInput = {
+  budgetSubmilestoneKey: v.optional(v.union(v.string(), v.null())),
+  budgetTreatment: v.optional(productionCostItemBudgetTreatment),
   costCents: v.optional(v.number()),
   description: v.optional(v.string()),
   itemId: v.id("buildCostItems"),
@@ -1254,6 +1389,21 @@ export const saveDraftProposalPackage = authenticatedMutation
     const milestoneByKey = new Map(
       args.milestones.map((milestone) => [milestone.key, milestone])
     );
+    const additiveCostCentsByMilestoneKey = new Map<string, number>();
+    for (const costItem of args.costItems ?? []) {
+      if (normalizeCostItemBudgetTreatment(costItem.budgetTreatment) !== "add") {
+        continue;
+      }
+      const itemTotalCents = Math.round(
+        normalizeCostItemCost(costItem.costCents) *
+          normalizeCostItemQuantity(costItem.quantity)
+      );
+      additiveCostCentsByMilestoneKey.set(
+        costItem.milestoneKey,
+        (additiveCostCentsByMilestoneKey.get(costItem.milestoneKey) ?? 0) +
+          itemTotalCents
+      );
+    }
     if (
       (args.draws ?? []).some((draw) => {
         const milestone = draw.milestoneKey
@@ -1279,7 +1429,8 @@ export const saveDraftProposalPackage = authenticatedMutation
           milestone.dayEnd <= draw.timingDay
             ? total +
               calculateDrawAvailability(
-                milestone.budgetCents,
+                milestone.budgetCents +
+                  (additiveCostCentsByMilestoneKey.get(milestone.key) ?? 0),
                 args.borrowerCoPayBps
               )
             : total,
@@ -1524,6 +1675,8 @@ interface DraftProposalDrawInput {
 }
 
 interface DraftProposalCostItemInput {
+  budgetSubmilestoneKey?: null | string;
+  budgetTreatment?: CostItemBudgetTreatment;
   costCents: number;
   description?: string;
   itemType: "equipment" | "material";
@@ -1793,19 +1946,35 @@ async function insertDraftProposalCostItems(
   }
 ) {
   const costDeltaByMilestoneKey = new Map<string, number>();
+  const costDeltaBySubmilestoneKey = new Map<string, number>();
+  const maintainedTargets = new Set<string>();
   for (const costItem of input.costItems) {
-    const { milestone, totalCents } = await insertDraftProposalCostItem(
+    const { item, milestone, totalCents } = await insertDraftProposalCostItem(
       ctx,
       input,
       costItem
     );
-    costDeltaByMilestoneKey.set(
-      milestone.key,
-      (costDeltaByMilestoneKey.get(milestone.key) ?? 0) + totalCents
-    );
+    if (item.budgetTreatment === "add") {
+      costDeltaByMilestoneKey.set(
+        milestone.key,
+        (costDeltaByMilestoneKey.get(milestone.key) ?? 0) + totalCents
+      );
+      if (item.budgetSubmilestoneKey) {
+        const target = `${milestone.key}:${item.budgetSubmilestoneKey}`;
+        costDeltaBySubmilestoneKey.set(
+          target,
+          (costDeltaBySubmilestoneKey.get(target) ?? 0) + totalCents
+        );
+      }
+    }
+    if (item.budgetTreatment === "maintain" && item.budgetSubmilestoneKey) {
+      maintainedTargets.add(`${milestone.key}:${item.budgetSubmilestoneKey}`);
+    }
   }
   return await applyDraftProposalCostItemDeltas(ctx, input, {
     costDeltaByMilestoneKey,
+    costDeltaBySubmilestoneKey,
+    maintainedTargets,
   });
 }
 
@@ -1829,11 +1998,23 @@ async function insertDraftProposalCostItem(
     milestone,
     costItem.relevantSubmilestoneKeys
   );
+  const budgetTreatment = normalizeCostItemBudgetTreatment(
+    costItem.budgetTreatment
+  );
+  const budgetSubmilestoneKey = await validateProposalCostItemBudgetTarget(
+    ctx,
+    milestone,
+    costItem.budgetSubmilestoneKey,
+    budgetTreatment,
+    costItem.budgetTreatment !== undefined
+  );
   const costCents = normalizeCostItemCost(costItem.costCents);
   const quantity = normalizeCostItemQuantity(costItem.quantity);
   const title = normalizeRequiredText(costItem.title, "Cost item title");
   const item = {
     brokerageId: input.auth.brokerage._id,
+    budgetSubmilestoneKey,
+    budgetTreatment,
     costCents,
     createdAt: input.now,
     createdByWorkosUserId: input.auth.subject,
@@ -1856,8 +2037,12 @@ async function insertDraftProposalCostItem(
     updatedAt: input.now,
     updatedByWorkosUserId: input.auth.subject,
   };
-  await ctx.db.insert("proposalCostItems", item);
-  return { milestone, totalCents: costItemTotalCents(item) };
+  const itemId = await ctx.db.insert("proposalCostItems", item);
+  return {
+    item: { ...item, _id: itemId },
+    milestone,
+    totalCents: costItemTotalCents(item),
+  };
 }
 
 async function applyDraftProposalCostItemDeltas(
@@ -1870,9 +2055,33 @@ async function applyDraftProposalCostItemDeltas(
   },
   deltas: {
     costDeltaByMilestoneKey: Map<string, number>;
+    costDeltaBySubmilestoneKey: Map<string, number>;
+    maintainedTargets: Set<string>;
   }
 ) {
   let totalDeltaCents = 0;
+  for (const [target, deltaCents] of deltas.costDeltaBySubmilestoneKey) {
+    const separator = target.indexOf(":");
+    const milestoneKey = target.slice(0, separator);
+    const submilestoneKey = target.slice(separator + 1);
+    const submilestoneId = input.planRows.submilestoneByMilestoneAndKey.get(
+      `${milestoneKey}:${submilestoneKey}`
+    );
+    if (!submilestoneId) {
+      throw new Error(`Budget sub-milestone not found: ${submilestoneKey}.`);
+    }
+    const submilestone = await ctx.db.get(submilestoneId);
+    if (!submilestone) {
+      throw new Error(`Budget sub-milestone not found: ${submilestoneKey}.`);
+    }
+    await ctx.db.patch(submilestone._id, {
+      budgetCents: Math.max(
+        0,
+        Math.round((submilestone.budgetCents ?? 0) + deltaCents)
+      ),
+      updatedAt: input.now,
+    });
+  }
   for (const [milestoneKey, deltaCents] of deltas.costDeltaByMilestoneKey) {
     if (deltaCents === 0) {
       continue;
@@ -1898,6 +2107,20 @@ async function applyDraftProposalCostItemDeltas(
       updatedAt: input.now,
     });
     totalDeltaCents += deltaCents;
+  }
+  for (const target of deltas.maintainedTargets) {
+    const separator = target.indexOf(":");
+    const milestoneKey = target.slice(0, separator);
+    const submilestoneKey = target.slice(separator + 1);
+    const milestone = getDraftProposalSavedMilestone(
+      input.planRows,
+      milestoneKey
+    );
+    await validateProposalMaintainedCostCoverage(ctx, {
+      milestoneId: milestone._id,
+      proposalId: input.proposalId,
+      submilestoneKey,
+    });
   }
   return totalDeltaCents;
 }
@@ -2618,8 +2841,26 @@ export const updateProductionTimelineMilestone = authenticatedMutation
     });
     const budgetDerivedFromSubmilestones =
       args.submilestones !== undefined && schedule.submilestones.length > 0;
+    const unscopedAdditiveCostCents = budgetDerivedFromSubmilestones
+      ? (
+          await ctx.db
+            .query("proposalCostItems")
+            .withIndex("by_milestone", (q) =>
+              q.eq("proposalMilestoneId", milestone._id)
+            )
+            .collect()
+        ).reduce(
+          (total, item) =>
+            normalizeCostItemBudgetTreatment(item.budgetTreatment) === "add" &&
+            !item.budgetSubmilestoneKey
+              ? total + costItemTotalCents(item)
+              : total,
+          0
+        )
+      : 0;
     const nextBudgetCents = budgetDerivedFromSubmilestones
-      ? sumProductionSubmilestoneBudgetCents(schedule.submilestones)
+      ? sumProductionSubmilestoneBudgetCents(schedule.submilestones) +
+        unscopedAdditiveCostCents
       : args.budgetCents === undefined
         ? milestone.budgetCents
         : Math.max(0, Math.round(args.budgetCents));
@@ -2759,11 +3000,23 @@ export const createProposalCostItem = authenticatedMutation
         milestone,
         args.relevantSubmilestoneKeys
       );
+    const budgetTreatment = normalizeCostItemBudgetTreatment(
+      args.budgetTreatment
+    );
+    const budgetSubmilestoneKey = await validateProposalCostItemBudgetTarget(
+      ctx,
+      milestone,
+      args.budgetSubmilestoneKey,
+      budgetTreatment,
+      args.budgetTreatment !== undefined
+    );
     const now = Date.now();
     const costCents = normalizeCostItemCost(args.costCents);
     const quantity = normalizeCostItemQuantity(args.quantity);
     const item = {
       brokerageId: auth.brokerage._id,
+      budgetSubmilestoneKey,
+      budgetTreatment,
       costCents,
       createdAt: now,
       createdByWorkosUserId: auth.subject,
@@ -2787,9 +3040,8 @@ export const createProposalCostItem = authenticatedMutation
       updatedByWorkosUserId: auth.subject,
     };
     const itemId = await ctx.db.insert("proposalCostItems", item);
-    await applyProposalCostItemBudgetDelta(ctx, auth, {
-      deltaCents: costItemTotalCents(item),
-      milestone,
+    await applyProposalCostItemBudgetChange(ctx, auth, {
+      nextItem: { ...item, _id: itemId },
       proposalId: args.proposalId,
     });
     await writeProposalEvent(ctx, {
@@ -2843,8 +3095,29 @@ export const updateProposalCostItem = authenticatedMutation
             milestone,
             args.relevantSubmilestoneKeys ?? []
           );
+    const budgetTreatment = normalizeCostItemBudgetTreatment(
+      args.budgetTreatment ?? item.budgetTreatment
+    );
+    const requestedBudgetSubmilestoneKey =
+      args.budgetSubmilestoneKey === undefined
+        ? milestoneChanged
+          ? undefined
+          : item.budgetSubmilestoneKey
+        : args.budgetSubmilestoneKey;
+    const budgetSubmilestoneKey = await validateProposalCostItemBudgetTarget(
+      ctx,
+      milestone,
+      requestedBudgetSubmilestoneKey,
+      budgetTreatment,
+      budgetTreatment === "add" &&
+        (args.budgetTreatment !== undefined ||
+          args.budgetSubmilestoneKey !== undefined ||
+          item.budgetSubmilestoneKey !== undefined)
+    );
     const now = Date.now();
     const patch = {
+      budgetSubmilestoneKey,
+      budgetTreatment,
       ...(args.costCents === undefined
         ? {}
         : { costCents: normalizeCostItemCost(args.costCents) }),
@@ -2873,30 +3146,11 @@ export const updateProposalCostItem = authenticatedMutation
     };
     const nextItem = { ...item, ...patch };
     await ctx.db.patch(item._id, patch);
-    const priorTotal = costItemTotalCents(item);
-    const nextTotal = costItemTotalCents(nextItem);
-    if (milestoneChanged) {
-      const priorMilestone = await getProposalMilestoneByIdOrThrow(
-        ctx,
-        item.proposalMilestoneId
-      );
-      await applyProposalCostItemBudgetDelta(ctx, auth, {
-        deltaCents: -priorTotal,
-        milestone: priorMilestone,
-        proposalId: args.proposalId,
-      });
-      await applyProposalCostItemBudgetDelta(ctx, auth, {
-        deltaCents: nextTotal,
-        milestone,
-        proposalId: args.proposalId,
-      });
-    } else {
-      await applyProposalCostItemBudgetDelta(ctx, auth, {
-        deltaCents: nextTotal - priorTotal,
-        milestone,
-        proposalId: args.proposalId,
-      });
-    }
+    await applyProposalCostItemBudgetChange(ctx, auth, {
+      nextItem,
+      priorItem: item,
+      proposalId: args.proposalId,
+    });
     await writeProposalEvent(ctx, {
       auth,
       command: "updateProposalCostItem",
@@ -2933,14 +3187,9 @@ export const deleteProposalCostItem = authenticatedMutation
       args.proposalId,
       args.itemId
     );
-    const milestone = await getProposalMilestoneByIdOrThrow(
-      ctx,
-      item.proposalMilestoneId
-    );
     await ctx.db.delete(item._id);
-    await applyProposalCostItemBudgetDelta(ctx, auth, {
-      deltaCents: -costItemTotalCents(item),
-      milestone,
+    await applyProposalCostItemBudgetChange(ctx, auth, {
+      priorItem: item,
       proposalId: args.proposalId,
     });
     await writeProposalEvent(ctx, {
@@ -2983,11 +3232,25 @@ export const createActiveBuildCostItem = authenticatedMutation
       milestone,
       args.relevantSubmilestoneKeys
     );
+    if (
+      (args.budgetTreatment !== undefined && args.budgetTreatment !== "add") ||
+      normalizeCostItemBudgetSubmilestoneKey(args.budgetSubmilestoneKey)
+    ) {
+      throw new Error(
+        "Budget treatment and target can only be selected during proposal planning."
+      );
+    }
+    // Active-build cost items retain the historical additive behavior. Budget
+    // treatment is selected during proposal planning and copied at closing.
+    const budgetTreatment = "add" as const;
+    const budgetSubmilestoneKey = undefined;
     const now = Date.now();
     const costCents = normalizeCostItemCost(args.costCents);
     const quantity = normalizeCostItemQuantity(args.quantity);
     const item = {
       brokerageId: auth.brokerage._id,
+      budgetSubmilestoneKey,
+      budgetTreatment,
       buildId: args.buildId,
       buildMilestoneId: milestone._id,
       costCents,
@@ -3009,8 +3272,10 @@ export const createActiveBuildCostItem = authenticatedMutation
     const itemId = await ctx.db.insert("buildCostItems", item);
     await applyActiveBuildCostItemBudgetDelta(ctx, auth, {
       buildId: args.buildId,
-      deltaCents: costItemTotalCents(item),
+      deltaCents:
+        budgetTreatment === "add" ? costItemTotalCents(item) : 0,
       milestone,
+      submilestoneKey: budgetSubmilestoneKey,
     });
     await writeActiveBuildEvent(ctx, {
       auth,
@@ -3060,8 +3325,37 @@ export const updateActiveBuildCostItem = authenticatedMutation
             milestone,
             args.relevantSubmilestoneKeys ?? []
           );
+    const budgetTreatment = normalizeCostItemBudgetTreatment(
+      item.budgetTreatment
+    );
+    const requestedBudgetSubmilestoneKey = item.budgetSubmilestoneKey;
+    if (
+      args.budgetTreatment !== undefined &&
+      args.budgetTreatment !== budgetTreatment
+    ) {
+      throw new Error(
+        "Budget treatment can only be changed during proposal planning."
+      );
+    }
+    if (
+      args.budgetSubmilestoneKey !== undefined &&
+      normalizeCostItemBudgetSubmilestoneKey(args.budgetSubmilestoneKey) !==
+        normalizeCostItemBudgetSubmilestoneKey(requestedBudgetSubmilestoneKey)
+    ) {
+      throw new Error(
+        "Budget sub-milestone target can only be changed during proposal planning."
+      );
+    }
+    const budgetSubmilestoneKey = await validateBuildCostItemBudgetTarget(
+      ctx,
+      milestone,
+      requestedBudgetSubmilestoneKey,
+      budgetTreatment
+    );
     const now = Date.now();
     const patch = {
+      budgetSubmilestoneKey,
+      budgetTreatment,
       ...(args.costCents === undefined
         ? {}
         : { costCents: normalizeCostItemCost(args.costCents) }),
@@ -3090,28 +3384,66 @@ export const updateActiveBuildCostItem = authenticatedMutation
     };
     const nextItem = { ...item, ...patch };
     await ctx.db.patch(item._id, patch);
-    const priorTotal = costItemTotalCents(item);
-    const nextTotal = costItemTotalCents(nextItem);
+    const priorTotal =
+      normalizeCostItemBudgetTreatment(item.budgetTreatment) === "add"
+        ? costItemTotalCents(item)
+        : 0;
+    const nextTotal =
+      budgetTreatment === "add" ? costItemTotalCents(nextItem) : 0;
+    let priorMilestoneForValidation = milestone;
     if (milestoneChanged) {
       const priorMilestone = await ctx.db.get(item.buildMilestoneId);
       if (!priorMilestone) {
         throw new Error("Production active-build milestone not found.");
       }
+      priorMilestoneForValidation = priorMilestone;
       await applyActiveBuildCostItemBudgetDelta(ctx, auth, {
         buildId: args.buildId,
         deltaCents: -priorTotal,
         milestone: priorMilestone,
+        submilestoneKey: item.budgetSubmilestoneKey,
       });
       await applyActiveBuildCostItemBudgetDelta(ctx, auth, {
         buildId: args.buildId,
         deltaCents: nextTotal,
         milestone,
+        submilestoneKey: budgetSubmilestoneKey,
       });
     } else {
-      await applyActiveBuildCostItemBudgetDelta(ctx, auth, {
+      if (item.budgetSubmilestoneKey === budgetSubmilestoneKey) {
+        await applyActiveBuildCostItemBudgetDelta(ctx, auth, {
+          buildId: args.buildId,
+          deltaCents: nextTotal - priorTotal,
+          milestone,
+          submilestoneKey: budgetSubmilestoneKey,
+        });
+      } else {
+        await applyActiveBuildCostItemBudgetDelta(ctx, auth, {
+          buildId: args.buildId,
+          deltaCents: -priorTotal,
+          milestone,
+          submilestoneKey: item.budgetSubmilestoneKey,
+        });
+        await applyActiveBuildCostItemBudgetDelta(ctx, auth, {
+          buildId: args.buildId,
+          deltaCents: nextTotal,
+          milestone,
+          submilestoneKey: budgetSubmilestoneKey,
+        });
+      }
+    }
+    if (item.budgetSubmilestoneKey) {
+      await validateBuildMaintainedCostCoverage(ctx, {
         buildId: args.buildId,
-        deltaCents: nextTotal - priorTotal,
-        milestone,
+        milestoneId: priorMilestoneForValidation._id,
+        submilestoneKey: item.budgetSubmilestoneKey,
+      });
+    }
+    if (budgetSubmilestoneKey) {
+      await validateBuildMaintainedCostCoverage(ctx, {
+        buildId: args.buildId,
+        milestoneId: milestone._id,
+        submilestoneKey: budgetSubmilestoneKey,
       });
     }
     await writeActiveBuildEvent(ctx, {
@@ -3151,8 +3483,12 @@ export const deleteActiveBuildCostItem = authenticatedMutation
     await ctx.db.delete(item._id);
     await applyActiveBuildCostItemBudgetDelta(ctx, auth, {
       buildId: args.buildId,
-      deltaCents: -costItemTotalCents(item),
+      deltaCents:
+        normalizeCostItemBudgetTreatment(item.budgetTreatment) === "add"
+          ? -costItemTotalCents(item)
+          : 0,
       milestone,
+      submilestoneKey: item.budgetSubmilestoneKey,
     });
     await writeActiveBuildEvent(ctx, {
       auth,
@@ -9979,14 +10315,20 @@ export const listProposalKanban = authenticatedQuery
           linkedBuild.organizationId === args.workosOrganizationId
             ? linkedBuild
             : null;
+        const activeBuildRow = accessibleBuild
+          ? await builderStaffActiveBuildWorkspaceRow(
+              ctx,
+              auth.brokerage,
+              accessibleBuild._id
+            )
+          : null;
         return {
           ...card,
+          ...activeBuildRow,
           activeBuildId: accessibleBuild
             ? String(accessibleBuild._id)
             : undefined,
-          budgetGovernance: accessibleBuild
-            ? await activeBuildBudgetGovernanceProjection(ctx, accessibleBuild)
-            : null,
+          budgetGovernance: activeBuildRow?.budgetGovernance ?? null,
           builderAssigned: Boolean(proposal?.builderProfileId),
         };
       })
@@ -9997,6 +10339,180 @@ export const listProposalKanban = authenticatedQuery
         id,
         name: titleCase(id),
       })),
+    };
+  })
+  .public();
+
+export const listBackofficeProposalDirectory = authenticatedQuery
+  .use(withQueryTiming("production_proposals.listBackofficeProposalDirectory"))
+  .input({
+    filters: v.optional(proposalDirectoryFiltersValidator),
+    paginationOpts: paginationOptsValidator,
+    search: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(paginationResultValidator(proposalDirectoryCardValidator))
+  .handler(async (ctx, args) => {
+    const scope = await resolveBrokerageScope(ctx, args.workosOrganizationId);
+    requireAnyRole(scope.roles, BACKOFFICE_ROLES);
+    if (!scope.brokerage) {
+      return {
+        continueCursor: args.paginationOpts.cursor ?? "",
+        isDone: true,
+        page: [],
+      };
+    }
+    const auth = {
+      brokerage: scope.brokerage,
+      roles: scope.roles,
+      subject: scope.subject,
+    };
+    const staffCanRead =
+      auth.roles.includes("broker-staff") &&
+      (await hasPermission(
+        ctx,
+        auth.brokerage.workosOrganizationId,
+        auth.roles,
+        "proposals:read"
+      ));
+    const page = await ctx.db
+      .query("proposalKanbanCards")
+      .withIndex("by_brokerage_column_sort", (q) =>
+        q.eq("brokerageId", auth.brokerage._id)
+      )
+      .order("desc")
+      .paginate(args.paginationOpts);
+    const projected = await Promise.all(
+      page.page.map(async (card) => {
+        const proposal = await ctx.db.get(card.proposalId);
+        if (
+          !proposal ||
+          !(canReadBackofficeProposal(auth, proposal) || staffCanRead)
+        ) {
+          return null;
+        }
+        const { attachedBuilder, card: directoryCard } =
+          await productionProposalDirectoryMatchContext(ctx, proposal);
+        return proposalDirectoryCardMatches({
+          attachedBuilder,
+          card: directoryCard,
+          filters: args.filters,
+          proposal,
+          search: args.search,
+        })
+          ? directoryCard
+          : null;
+      })
+    );
+    return {
+      ...page,
+      page: projected.filter(
+        (card): card is NonNullable<typeof card> => card !== null
+      ),
+    };
+  })
+  .public();
+
+export const listBackofficeProposalFilterOptions = authenticatedQuery
+  .input({ workosOrganizationId: v.string() })
+  .returns(
+    v.object({
+      brokers: v.array(
+        v.object({
+          email: v.optional(v.string()),
+          isPrincipal: v.boolean(),
+          name: v.string(),
+          workosUserId: v.string(),
+        })
+      ),
+      builders: v.array(
+        v.object({
+          _id: v.id("builderProfiles"),
+          displayName: v.string(),
+          email: v.optional(v.string()),
+          workosUserIds: v.array(v.string()),
+        })
+      ),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+    const [builderProfiles, memberships] = await Promise.all([
+      ctx.db
+        .query("builderProfiles")
+        .withIndex("by_brokerage_and_status", (q) =>
+          q.eq("brokerageId", auth.brokerage._id).eq("status", "active")
+        )
+        .take(BACKOFFICE_BUILDER_OPTIONS_LIMIT),
+      ctx.db
+        .query("workosOrganizationMemberships")
+        .withIndex("by_organization", (q) =>
+          q.eq("workosOrganizationId", auth.brokerage.workosOrganizationId)
+        )
+        .collect(),
+    ]);
+    const builders = await Promise.all(
+      builderProfiles.map(async (builder) => {
+        const accounts = await builderAccountSummaries(ctx, builder._id);
+        const email = preferredBuilderAccountEmail(accounts);
+        return {
+          _id: builder._id,
+          displayName: builder.displayName,
+          ...(email ? { email } : {}),
+          workosUserIds: accounts.map((account) => account.workosUserId),
+        };
+      })
+    );
+    const seenBrokerIds = new Set<string>();
+    const brokers = [];
+    for (const membership of memberships) {
+      if (
+        membership.status !== "active" ||
+        !hasAssignableBrokerRole(membership) ||
+        seenBrokerIds.has(membership.workosUserId)
+      ) {
+        continue;
+      }
+      const broker = await getWorkosUserById(ctx, membership.workosUserId);
+      if (broker?.status !== "active") {
+        continue;
+      }
+      seenBrokerIds.add(membership.workosUserId);
+      const email = normalizeOptionalString(broker.email);
+      const name =
+        [broker.firstName, broker.lastName]
+          .filter((part): part is string => Boolean(part?.trim()))
+          .join(" ")
+          .trim() ||
+        normalizeOptionalString(broker.name) ||
+        email ||
+        membership.workosUserId;
+      brokers.push({
+        ...(email ? { email } : {}),
+        isPrincipal:
+          membership.workosUserId ===
+            auth.brokerage.principalBrokerWorkosUserId ||
+          Boolean(
+            email &&
+              auth.brokerage.principalBrokerEmail &&
+              email.toLowerCase() ===
+                auth.brokerage.principalBrokerEmail.toLowerCase()
+          ),
+        name,
+        workosUserId: membership.workosUserId,
+      });
+    }
+    return {
+      brokers: brokers.sort((a, b) => {
+        if (a.isPrincipal !== b.isPrincipal) {
+          return a.isPrincipal ? -1 : 1;
+        }
+        return a.name.localeCompare(b.name);
+      }),
+      builders: builders.sort((a, b) =>
+        a.displayName.localeCompare(b.displayName)
+      ),
     };
   })
   .public();
@@ -10065,6 +10581,7 @@ export const getBackofficeDashboard = authenticatedQuery
       build: Doc<"activeBuilds">;
       builder: Doc<"builderProfiles"> | null;
       drawRequests: Doc<"activeBuildDrawRequests">[];
+      evidence: Doc<"buildEvidenceAssets">[];
       plannedDraws: Doc<"plannedDrawScheduleRows">[];
       milestones: Doc<"buildMilestones">[];
       proposal: Doc<"buildProposals">;
@@ -10078,7 +10595,7 @@ export const getBackofficeDashboard = authenticatedQuery
         if (!(canReadBackofficeProposal(auth, proposal) || staffCanRead)) {
           return null;
         }
-        const [builder, milestones, plannedDraws, drawRequests] =
+        const [builder, milestones, plannedDraws, drawRequests, evidence] =
           await Promise.all([
             ctx.db.get(build.builderProfileId),
             ctx.db
@@ -10093,11 +10610,16 @@ export const getBackofficeDashboard = authenticatedQuery
               .query("activeBuildDrawRequests")
               .withIndex("by_build", (q) => q.eq("buildId", build._id))
               .take(100),
+            ctx.db
+              .query("buildEvidenceAssets")
+              .withIndex("by_build", (q) => q.eq("buildId", build._id))
+              .take(100),
           ]);
         return {
           build,
           builder,
           drawRequests,
+          evidence,
           milestones,
           plannedDraws,
           proposal: withBorrowerStartingCash(proposal),
@@ -10108,27 +10630,61 @@ export const getBackofficeDashboard = authenticatedQuery
       (row): row is VisibleActiveBuild => row !== null
     );
 
-    const activeBuilds = visibleActiveBuilds.map(
-      ({ build, builder, milestones }) => {
-        const activeMilestone =
-          milestones.find((milestone) => milestone.status !== "complete") ??
-          milestones[0];
-        return {
-          activeMilestone:
-            activeMilestone?.name ?? `${milestones.length} milestones`,
-          address: build.location,
-          buildKey: String(build._id),
-          builder: builder?.displayName ?? "Builder",
-          daysActive: productionDaysActive(build.startDate, asOfDate),
-          href: `/backoffice/builds/${build._id}`,
-          id: productionBuildDisplayId(build),
-          milestoneState: activeMilestone
-            ? productionMilestoneState(activeMilestone.status)
-            : "backlog",
-          status: productionBuildDashboardStatus(build.status),
-          statusLabel: productionBuildStatusLabel(build.status),
-        };
-      }
+    const activeBuilds = await Promise.all(
+      visibleActiveBuilds.map(
+        async ({
+          build,
+          builder,
+          drawRequests,
+          evidence,
+          milestones,
+          plannedDraws,
+        }) => {
+          const currentDay = productionDaysActive(build.startDate, asOfDate);
+          const milestonesBehindSchedule = milestones.filter((milestone) =>
+            productionMilestoneIsBehindSchedule(milestone, currentDay)
+          ).length;
+          const firstImage = evidence.find(
+            (asset) => asset.storageId && asset.mimeType.startsWith("image/")
+          );
+          const activeMilestone =
+            milestones.find((milestone) => milestone.status !== "complete") ??
+            milestones[0];
+          return {
+            activeMilestone:
+              activeMilestone?.name ?? `${milestones.length} milestones`,
+            address: build.location,
+            buildKey: String(build._id),
+            buildName: build.buildName,
+            builder: builder?.displayName ?? "Builder",
+            daysActive: currentDay,
+            drawCount: plannedDraws.length,
+            href: `/backoffice/builds/${build._id}`,
+            id: productionBuildDisplayId(build),
+            imageUrl: firstImage?.storageId
+              ? await ctx.storage.getUrl(firstImage.storageId)
+              : null,
+            locationLatitude: build.locationLatitude,
+            locationLongitude: build.locationLongitude,
+            milestoneCount: milestones.length,
+            milestonesBehindSchedule,
+            milestoneState: activeMilestone
+              ? productionMilestoneState(activeMilestone.status)
+              : "backlog",
+            pendingDrawRequestCount: drawRequests.filter(
+              (request) => request.status === "requested"
+            ).length,
+            status:
+              milestonesBehindSchedule > 0
+                ? ("behind" as const)
+                : productionBuildDashboardStatus(build.status),
+            statusLabel:
+              milestonesBehindSchedule > 0
+                ? `${milestonesBehindSchedule} ${milestonesBehindSchedule === 1 ? "milestone" : "milestones"} behind schedule`
+                : productionBuildStatusLabel(build.status),
+          };
+        }
+      )
     );
 
     const drawRequests = visibleActiveBuilds.flatMap(
@@ -10184,23 +10740,38 @@ export const getBackofficeDashboard = authenticatedQuery
     const proposals = proposalRows.map(({ card, proposal }) =>
       productionDashboardProposalCard(card, proposal)
     );
-    const submittedProposals = proposalRows
-      .filter(
-        ({ proposal }) =>
-          proposal.status === "submitted" &&
-          proposal.reviewOutcome !== "rejected"
-      )
-      .map(({ card, proposal }) =>
-        productionDashboardProposalCard(card, proposal)
-      );
-    const approvedPendingClosing = proposalRows
-      .filter(
-        ({ proposal }) =>
-          proposal.status === "approved" && proposal.activeBuildId === undefined
-      )
-      .map(({ card, proposal }) =>
-        productionDashboardProposalCard(card, proposal)
-      );
+    const [submittedProposals, approvedPendingClosing] = await Promise.all([
+      Promise.all(
+        proposalRows
+          .filter(
+            ({ proposal }) =>
+              proposal.status === "submitted" &&
+              proposal.reviewOutcome !== "rejected"
+          )
+          .map(async ({ card, proposal }) =>
+            productionDashboardProposalCard(
+              card,
+              proposal,
+              await productionProposalDirectoryCard(ctx, proposal)
+            )
+          )
+      ),
+      Promise.all(
+        proposalRows
+          .filter(
+            ({ proposal }) =>
+              proposal.status === "approved" &&
+              proposal.activeBuildId === undefined
+          )
+          .map(async ({ card, proposal }) =>
+            productionDashboardProposalCard(
+              card,
+              proposal,
+              await productionProposalDirectoryCard(ctx, proposal)
+            )
+          )
+      ),
+    ]);
 
     const proposalColumns = PROPOSAL_COLUMNS.map((id) => ({
       description: productionProposalColumnDescription(id, proposals),
@@ -11186,12 +11757,17 @@ export const listBackofficeBuildRoster = authenticatedQuery
           closedAt: v.optional(v.number()),
           daysActive: v.number(),
           displayId: v.string(),
+          drawCount: v.number(),
           drawRequestsPending: v.number(),
           href: v.string(),
+          imageUrl: v.union(v.string(), v.null()),
           loanStatus: v.optional(
             v.union(v.literal("active"), v.literal("closed"))
           ),
           location: v.string(),
+          locationLatitude: v.optional(v.number()),
+          locationLongitude: v.optional(v.number()),
+          milestonesBehindSchedule: v.number(),
           milestonesComplete: v.number(),
           milestonesInReview: v.number(),
           milestonesTotal: v.number(),
@@ -11289,10 +11865,15 @@ export const listBackofficeBuildRoster = authenticatedQuery
       closedAt?: number;
       daysActive: number;
       displayId: string;
+      drawCount: number;
       drawRequestsPending: number;
       href: string;
+      imageUrl: string | null;
       loanStatus?: "active" | "closed";
       location: string;
+      locationLatitude?: number;
+      locationLongitude?: number;
+      milestonesBehindSchedule: number;
       milestonesComplete: number;
       milestonesInReview: number;
       milestonesTotal: number;
@@ -11318,21 +11899,30 @@ export const listBackofficeBuildRoster = authenticatedQuery
         continue;
       }
 
-      const [builder, milestones, drawRequests, loan] = await Promise.all([
-        ctx.db.get(build.builderProfileId),
-        ctx.db
-          .query("buildMilestones")
-          .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
-          .take(100),
-        ctx.db
-          .query("activeBuildDrawRequests")
-          .withIndex("by_build", (q) => q.eq("buildId", build._id))
-          .take(100),
-        ctx.db
-          .query("loanFacilities")
-          .withIndex("by_build", (q) => q.eq("buildId", build._id))
-          .unique(),
-      ]);
+      const [builder, milestones, plannedDraws, drawRequests, loan, evidence] =
+        await Promise.all([
+          ctx.db.get(build.builderProfileId),
+          ctx.db
+            .query("buildMilestones")
+            .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
+            .take(100),
+          ctx.db
+            .query("plannedDrawScheduleRows")
+            .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
+            .take(100),
+          ctx.db
+            .query("activeBuildDrawRequests")
+            .withIndex("by_build", (q) => q.eq("buildId", build._id))
+            .take(100),
+          ctx.db
+            .query("loanFacilities")
+            .withIndex("by_build", (q) => q.eq("buildId", build._id))
+            .unique(),
+          ctx.db
+            .query("buildEvidenceAssets")
+            .withIndex("by_build", (q) => q.eq("buildId", build._id))
+            .take(100),
+        ]);
 
       const visitCounts = visitsByBuild.get(String(build._id)) ?? {
         expired: 0,
@@ -11347,6 +11937,18 @@ export const listBackofficeBuildRoster = authenticatedQuery
       const drawRequestsPending = drawRequests.filter(
         (request) => request.status === "requested"
       ).length;
+      const milestonesBehindSchedule = milestones.filter((milestone) =>
+        productionMilestoneIsBehindSchedule(
+          milestone,
+          productionDaysActive(build.startDate)
+        )
+      ).length;
+      const firstImage = evidence.find(
+        (asset) => asset.storageId && asset.mimeType.startsWith("image/")
+      );
+      const imageUrl = firstImage?.storageId
+        ? await ctx.storage.getUrl(firstImage.storageId)
+        : null;
       const activeMilestone =
         milestones.find((milestone) => milestone.status !== "complete") ??
         milestones[0];
@@ -11373,10 +11975,19 @@ export const listBackofficeBuildRoster = authenticatedQuery
           : { closedAt: proposal.closedAt }),
         daysActive: productionDaysActive(build.startDate),
         displayId: productionBuildDisplayId(build),
+        drawCount: plannedDraws.length,
         drawRequestsPending,
         href: `/backoffice/builds/${build._id}`,
+        imageUrl,
         ...(loan ? { loanStatus: loan.status } : {}),
         location: build.location,
+        ...(build.locationLatitude === undefined
+          ? {}
+          : { locationLatitude: build.locationLatitude }),
+        ...(build.locationLongitude === undefined
+          ? {}
+          : { locationLongitude: build.locationLongitude }),
+        milestonesBehindSchedule,
         milestonesComplete,
         milestonesInReview,
         milestonesTotal: milestones.length,
@@ -20851,9 +21462,463 @@ function withBorrowerStartingCash<
   };
 }
 
+type ProposalDirectoryCard = {
+  activeBuildId?: string;
+  approvedAt?: number;
+  assignedBrokerEmail?: string;
+  assignedBrokerName?: string;
+  assignedBrokerWorkosUserId?: string;
+  borrowerCoPayBps: number;
+  borrowerCoPayCents?: number;
+  borrowerStartingCashCents: number;
+  builderAssigned: boolean;
+  builderEmail?: string;
+  builderLegalName?: string;
+  builderName: string;
+  builderProfileId?: string;
+  closedAt?: number;
+  column: Doc<"buildProposals">["status"];
+  createdAt: number;
+  createdByEmail?: string;
+  createdByName?: string;
+  createdByWorkosUserId: string;
+  href: string;
+  interestAnnualBps?: number;
+  lenderDrawPolicyLimitCents: number;
+  location: string;
+  locationLatitude?: number;
+  locationLongitude?: number;
+  locationPlaceId?: string;
+  planKey?: "capitalConstrained" | "cheapestFeasible" | "fastest";
+  planName?: string;
+  proposedStartDate?: string;
+  proposalId: string;
+  reviewOutcome: Doc<"buildProposals">["reviewOutcome"];
+  statusLabel: string;
+  submittedAt?: number;
+  subtitle: string;
+  title: string;
+  totalBudgetCents: number;
+  updatedAt: number;
+  updatedByWorkosUserId: string;
+};
+
+async function productionProposalDirectoryCard(
+  ctx: QueryCtx | MutationCtx,
+  proposal: Doc<"buildProposals">
+): Promise<ProposalDirectoryCard> {
+  const { card } = await productionProposalDirectoryMatchContext(ctx, proposal);
+  return card;
+}
+
+async function productionProposalDirectoryMatchContext(
+  ctx: QueryCtx | MutationCtx,
+  proposal: Doc<"buildProposals">
+) {
+  const assignment = await proposalDirectoryIdentityProjection(ctx, proposal);
+  const attachedAccountEmails = uniqueNormalizedSearchValues(
+    (assignment.builder?.accounts ?? []).map((account) => account.email)
+  );
+  const attachedAccountNames = uniqueNormalizedSearchValues(
+    (assignment.builder?.accounts ?? []).map((account) => account.name)
+  );
+  const card: ProposalDirectoryCard = {
+    ...(proposal.activeBuildId
+      ? { activeBuildId: String(proposal.activeBuildId) }
+      : {}),
+    ...(proposal.approvedAt === undefined
+      ? {}
+      : { approvedAt: proposal.approvedAt }),
+    ...(assignment.broker?.email
+      ? { assignedBrokerEmail: assignment.broker.email }
+      : {}),
+    ...(assignment.broker?.name
+      ? { assignedBrokerName: assignment.broker.name }
+      : {}),
+    ...(proposal.assignedBrokerWorkosUserId
+      ? {
+          assignedBrokerWorkosUserId:
+            proposal.assignedBrokerWorkosUserId,
+        }
+      : {}),
+    borrowerCoPayBps: proposal.borrowerCoPayBps,
+    ...(proposal.borrowerCoPayCents === undefined
+      ? {}
+      : { borrowerCoPayCents: proposal.borrowerCoPayCents }),
+    borrowerStartingCashCents: resolveBorrowerStartingCashCents(proposal),
+    builderAssigned: Boolean(assignment.builder),
+    ...(assignment.builder?.ownerEmail
+      ? { builderEmail: assignment.builder.ownerEmail }
+      : {}),
+    ...(assignment.builder?.legalName
+      ? { builderLegalName: assignment.builder.legalName }
+      : {}),
+    builderName: assignment.builder?.displayName ?? "Unassigned builder",
+    ...(assignment.builder?._id
+      ? { builderProfileId: String(assignment.builder._id) }
+      : {}),
+    ...(proposal.closedAt === undefined
+      ? {}
+      : { closedAt: proposal.closedAt }),
+    column: proposal.status,
+    createdAt: proposal.createdAt,
+    ...(assignment.createdBy?.email
+      ? { createdByEmail: assignment.createdBy.email }
+      : {}),
+    ...(assignment.createdBy?.name
+      ? { createdByName: assignment.createdBy.name }
+      : {}),
+    createdByWorkosUserId: proposal.createdByWorkosUserId,
+    href: `/backoffice/proposals/${proposal._id}`,
+    ...(proposal.interestAnnualBps === undefined
+      ? {}
+      : { interestAnnualBps: proposal.interestAnnualBps }),
+    lenderDrawPolicyLimitCents: proposal.lenderDrawPolicyLimitCents,
+    location: proposal.location,
+    ...(proposal.locationLatitude === undefined
+      ? {}
+      : { locationLatitude: proposal.locationLatitude }),
+    ...(proposal.locationLongitude === undefined
+      ? {}
+      : { locationLongitude: proposal.locationLongitude }),
+    ...(proposal.locationPlaceId
+      ? { locationPlaceId: proposal.locationPlaceId }
+      : {}),
+    ...(proposal.selectedPlan?.planKey
+      ? { planKey: proposal.selectedPlan.planKey }
+      : {}),
+    ...(proposal.selectedPlan?.name
+      ? { planName: proposal.selectedPlan.name }
+      : {}),
+    ...(proposal.proposedStartDate
+      ? { proposedStartDate: proposal.proposedStartDate }
+      : {}),
+    proposalId: String(proposal._id),
+    reviewOutcome: proposal.reviewOutcome,
+    statusLabel: productionProposalStatusLabel(proposal),
+    ...(proposal.submittedAt === undefined
+      ? {}
+      : { submittedAt: proposal.submittedAt }),
+    subtitle: proposal.location,
+    title: proposal.buildName,
+    totalBudgetCents: proposal.totalBudgetCents,
+    updatedAt: proposal.updatedAt,
+    updatedByWorkosUserId: proposal.updatedByWorkosUserId,
+  };
+  return {
+    attachedBuilder: assignment.builder
+      ? {
+          accountEmails: attachedAccountEmails,
+          accountNames: attachedAccountNames,
+          displayName: assignment.builder.displayName,
+          ...(assignment.builder.legalName
+            ? { legalName: assignment.builder.legalName }
+            : {}),
+          ...(assignment.builder.ownerEmail
+            ? { preferredEmail: assignment.builder.ownerEmail }
+            : {}),
+        }
+      : null,
+    card,
+  };
+}
+
+async function proposalDirectoryIdentityProjection(
+  ctx: QueryCtx | MutationCtx,
+  proposal: Doc<"buildProposals">
+) {
+  const builder = proposal.builderProfileId
+    ? await ctx.db.get(proposal.builderProfileId)
+    : null;
+  const builderAccounts = builder
+    ? await builderAccountSummaries(ctx, builder._id)
+    : [];
+  const [assignedBroker, createdBy] = await Promise.all([
+    proposal.assignedBrokerWorkosUserId
+      ? getWorkosUserById(ctx, proposal.assignedBrokerWorkosUserId)
+      : null,
+    getWorkosUserById(ctx, proposal.createdByWorkosUserId),
+  ]);
+  const builderOwnerEmail = preferredBuilderAccountEmail(builderAccounts);
+  return {
+    broker: workosUserSummary(
+      proposal.assignedBrokerWorkosUserId,
+      assignedBroker
+    ),
+    builder: builder
+      ? {
+          _id: builder._id,
+          accounts: builderAccounts,
+          displayName: builder.displayName,
+          ...(builder.legalName ? { legalName: builder.legalName } : {}),
+          ...(builderOwnerEmail ? { ownerEmail: builderOwnerEmail } : {}),
+        }
+      : null,
+    createdBy: workosUserSummary(proposal.createdByWorkosUserId, createdBy),
+  };
+}
+
+function proposalDirectoryCardMatches(input: {
+  attachedBuilder?: {
+    accountEmails: string[];
+    accountNames: string[];
+    displayName: string;
+    legalName?: string;
+    preferredEmail?: string;
+  } | null;
+  card: ProposalDirectoryCard;
+  filters?: {
+    approvedFrom?: number;
+    approvedTo?: number;
+    assignedBrokerWorkosUserId?: string;
+    assignment?: "assigned" | "unassigned";
+    builderProfileId?: Id<"builderProfiles">;
+    closingState?: "active_build" | "pending_closing" | "pre_closing";
+    closedFrom?: number;
+    closedTo?: number;
+    createdFrom?: number;
+    createdTo?: number;
+    maxBorrowerStartingCashCents?: number;
+    maxBorrowerCoPayBps?: number;
+    maxBudgetCents?: number;
+    maxInterestAnnualBps?: number;
+    maxLenderDrawPolicyLimitCents?: number;
+    minBorrowerStartingCashCents?: number;
+    minBorrowerCoPayBps?: number;
+    minBudgetCents?: number;
+    minInterestAnnualBps?: number;
+    minLenderDrawPolicyLimitCents?: number;
+    planKey?:
+      | "capitalConstrained"
+      | "cheapestFeasible"
+      | "fastest"
+      | "unselected";
+    proposedStartFrom?: string;
+    proposedStartTo?: string;
+    reviewOutcome?: Doc<"buildProposals">["reviewOutcome"];
+    stage?: Doc<"buildProposals">["status"];
+    submittedFrom?: number;
+    submittedTo?: number;
+    updatedFrom?: number;
+    updatedTo?: number;
+  };
+  proposal: Doc<"buildProposals">;
+  search?: string;
+}) {
+  const { card, filters, proposal } = input;
+  if (filters?.stage && card.column !== filters.stage) {
+    return false;
+  }
+  if (filters?.reviewOutcome && card.reviewOutcome !== filters.reviewOutcome) {
+    return false;
+  }
+  if (
+    filters?.assignment === "assigned" &&
+    !card.builderAssigned
+  ) {
+    return false;
+  }
+  if (
+    filters?.assignment === "unassigned" &&
+    card.builderAssigned
+  ) {
+    return false;
+  }
+  if (
+    filters?.builderProfileId &&
+    card.builderProfileId !== String(filters.builderProfileId)
+  ) {
+    return false;
+  }
+  if (
+    filters?.assignedBrokerWorkosUserId &&
+    card.assignedBrokerWorkosUserId !== filters.assignedBrokerWorkosUserId
+  ) {
+    return false;
+  }
+  if (
+    filters?.planKey === "unselected" &&
+    card.planKey !== undefined
+  ) {
+    return false;
+  }
+  if (
+    filters?.planKey &&
+    filters.planKey !== "unselected" &&
+    card.planKey !== filters.planKey
+  ) {
+    return false;
+  }
+  if (
+    filters?.closingState === "active_build" &&
+    !card.activeBuildId
+  ) {
+    return false;
+  }
+  if (
+    filters?.closingState === "pending_closing" &&
+    !(card.column === "approved" && !card.activeBuildId)
+  ) {
+    return false;
+  }
+  if (
+    filters?.closingState === "pre_closing" &&
+    (card.activeBuildId || card.column === "approved")
+  ) {
+    return false;
+  }
+  if (!numberInRange(card.totalBudgetCents, filters?.minBudgetCents, filters?.maxBudgetCents)) {
+    return false;
+  }
+  if (
+    !numberInRange(
+      card.borrowerCoPayBps,
+      filters?.minBorrowerCoPayBps,
+      filters?.maxBorrowerCoPayBps
+    )
+  ) {
+    return false;
+  }
+  if (
+    !numberInRange(
+      card.borrowerStartingCashCents,
+      filters?.minBorrowerStartingCashCents,
+      filters?.maxBorrowerStartingCashCents
+    )
+  ) {
+    return false;
+  }
+  if (
+    !numberInRange(
+      card.lenderDrawPolicyLimitCents,
+      filters?.minLenderDrawPolicyLimitCents,
+      filters?.maxLenderDrawPolicyLimitCents
+    )
+  ) {
+    return false;
+  }
+  if (
+    !numberInRange(
+      card.interestAnnualBps,
+      filters?.minInterestAnnualBps,
+      filters?.maxInterestAnnualBps
+    )
+  ) {
+    return false;
+  }
+  if (!numberInRange(card.createdAt, filters?.createdFrom, filters?.createdTo)) {
+    return false;
+  }
+  if (!numberInRange(card.updatedAt, filters?.updatedFrom, filters?.updatedTo)) {
+    return false;
+  }
+  if (
+    !numberInRange(
+      card.submittedAt,
+      filters?.submittedFrom,
+      filters?.submittedTo
+    )
+  ) {
+    return false;
+  }
+  if (
+    !numberInRange(card.approvedAt, filters?.approvedFrom, filters?.approvedTo)
+  ) {
+    return false;
+  }
+  if (!numberInRange(card.closedAt, filters?.closedFrom, filters?.closedTo)) {
+    return false;
+  }
+  if (
+    filters?.proposedStartFrom &&
+    (!card.proposedStartDate || card.proposedStartDate < filters.proposedStartFrom)
+  ) {
+    return false;
+  }
+  if (
+    filters?.proposedStartTo &&
+    (!card.proposedStartDate || card.proposedStartDate > filters.proposedStartTo)
+  ) {
+    return false;
+  }
+
+  const terms = normalizeProposalDirectorySearch(input.search);
+  if (terms.length === 0) {
+    return true;
+  }
+  const attachedBuilder = input.attachedBuilder ?? null;
+  const searchText = JSON.stringify({
+    assignment: {
+      brokerEmail: card.assignedBrokerEmail,
+      brokerName: card.assignedBrokerName,
+      brokerWorkosUserId: card.assignedBrokerWorkosUserId,
+      builderAccountEmails: attachedBuilder?.accountEmails ?? [],
+      builderAccountNames: attachedBuilder?.accountNames ?? [],
+      builderEmail:
+        attachedBuilder?.preferredEmail ?? card.builderEmail,
+      builderLegalName: attachedBuilder?.legalName ?? card.builderLegalName,
+      builderName: attachedBuilder?.displayName ?? card.builderName,
+      builderProfileId: card.builderProfileId,
+    },
+    card,
+    formatted: {
+      borrowerStartingCash: centsToCurrency(card.borrowerStartingCashCents),
+      budget: centsToCurrency(card.totalBudgetCents),
+      lenderDrawPolicyLimit: centsToCurrency(
+        card.lenderDrawPolicyLimitCents
+      ),
+    },
+    proposal: withBorrowerStartingCash(proposal),
+  }).toLowerCase();
+  return terms.every((term) => searchText.includes(term));
+}
+
+function uniqueNormalizedSearchValues(
+  values: ReadonlyArray<string | undefined>
+) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const normalized = value?.trim();
+    if (!normalized) {
+      continue;
+    }
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(normalized);
+  }
+  return result;
+}
+
+function normalizeProposalDirectorySearch(search: string | undefined) {
+  return (search ?? "")
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function numberInRange(
+  value: number | undefined,
+  minimum: number | undefined,
+  maximum: number | undefined
+) {
+  if (minimum !== undefined && (value === undefined || value < minimum)) {
+    return false;
+  }
+  if (maximum !== undefined && (value === undefined || value > maximum)) {
+    return false;
+  }
+  return true;
+}
+
 function productionDashboardProposalCard(
   card: Doc<"proposalKanbanCards"> | null,
-  proposal: Doc<"buildProposals">
+  proposal: Doc<"buildProposals">,
+  directoryCard?: ProposalDirectoryCard
 ) {
   return {
     address: card?.subtitle ?? proposal.location,
@@ -20861,6 +21926,10 @@ function productionDashboardProposalCard(
     borrowerStartingCashCents: resolveBorrowerStartingCashCents(proposal),
     builderAssigned: Boolean(proposal.builderProfileId),
     builder: card?.builderName ?? "Unassigned builder",
+    builderEmail: directoryCard?.builderEmail,
+    builderProfileId: proposal.builderProfileId
+      ? String(proposal.builderProfileId)
+      : undefined,
     closeLabel:
       proposal.status === "approved" && !proposal.activeBuildId
         ? "Pending closing"
@@ -23933,6 +25002,32 @@ function costItemTotalCents(
   return Math.round(item.costCents * item.quantity);
 }
 
+type CostItemBudgetTreatment = "add" | "logOnly" | "maintain";
+
+type ProposalCostItemBudgetState = Pick<
+  Doc<"proposalCostItems">,
+  | "_id"
+  | "budgetSubmilestoneKey"
+  | "budgetTreatment"
+  | "costCents"
+  | "milestoneKey"
+  | "proposalMilestoneId"
+  | "quantity"
+>;
+
+function normalizeCostItemBudgetTreatment(
+  value: CostItemBudgetTreatment | undefined
+): CostItemBudgetTreatment {
+  return value ?? "add";
+}
+
+function normalizeCostItemBudgetSubmilestoneKey(
+  value: null | string | undefined
+) {
+  const key = value?.trim();
+  return key ? key : undefined;
+}
+
 function proposalCostItemAuditWarnings(proposal: Doc<"buildProposals">) {
   return proposal.status === "draft"
     ? []
@@ -23965,6 +25060,41 @@ async function validateProposalCostItemSubmilestones(
     );
   }
   return normalized;
+}
+
+async function validateProposalCostItemBudgetTarget(
+  ctx: QueryCtx | MutationCtx,
+  milestone: Pick<Doc<"proposalMilestones">, "_id" | "key">,
+  requestedKey: null | string | undefined,
+  treatment: CostItemBudgetTreatment,
+  requireAddTarget: boolean
+) {
+  if (treatment === "logOnly") {
+    return;
+  }
+  const budgetSubmilestoneKey = normalizeCostItemBudgetSubmilestoneKey(
+    requestedKey
+  );
+  if (!budgetSubmilestoneKey) {
+    if (treatment === "maintain" || (treatment === "add" && requireAddTarget)) {
+      throw new Error(
+        `${treatment === "add" ? "Add" : "Maintain"} requires one budget sub-milestone target.`
+      );
+    }
+    return;
+  }
+  const submilestones = await ctx.db
+    .query("proposalSubmilestones")
+    .withIndex("by_milestone", (q) =>
+      q.eq("proposalMilestoneId", milestone._id)
+    )
+    .collect();
+  if (!submilestones.some((row) => row.key === budgetSubmilestoneKey)) {
+    throw new Error(
+      `Budget sub-milestone must belong to ${milestone.key}: ${budgetSubmilestoneKey}.`
+    );
+  }
+  return budgetSubmilestoneKey;
 }
 
 async function nextProposalCostItemKey(
@@ -24022,42 +25152,187 @@ async function getProposalMilestoneByIdOrThrow(
   return milestone;
 }
 
-async function applyProposalCostItemBudgetDelta(
+async function applyProposalCostItemBudgetChange(
   ctx: MutationCtx,
   auth: {
     proposal: Doc<"buildProposals">;
     subject: string;
   },
   input: {
-    deltaCents: number;
-    milestone: Doc<"proposalMilestones">;
+    nextItem?: ProposalCostItemBudgetState;
+    priorItem?: ProposalCostItemBudgetState;
     proposalId: Id<"buildProposals">;
   }
 ) {
-  if (input.deltaCents === 0) {
-    return;
+  const operations = new Map<
+    string,
+    {
+      deltaCents: number;
+      milestoneId: Id<"proposalMilestones">;
+      submilestoneKey?: string;
+    }
+  >();
+  const addOperation = (
+    item: ProposalCostItemBudgetState | undefined,
+    direction: -1 | 1
+  ) => {
+    if (!item || normalizeCostItemBudgetTreatment(item.budgetTreatment) !== "add") {
+      return;
+    }
+    const submilestoneKey = normalizeCostItemBudgetSubmilestoneKey(
+      item.budgetSubmilestoneKey
+    );
+    const operationKey = `${item.proposalMilestoneId}:${submilestoneKey ?? "milestone"}`;
+    const current = operations.get(operationKey);
+    operations.set(operationKey, {
+      deltaCents:
+        (current?.deltaCents ?? 0) + direction * costItemTotalCents(item),
+      milestoneId: item.proposalMilestoneId,
+      submilestoneKey,
+    });
+  };
+  addOperation(input.priorItem, -1);
+  addOperation(input.nextItem, 1);
+
+  const milestoneDeltaById = new Map<Id<"proposalMilestones">, number>();
+  const milestoneById = new Map<
+    Id<"proposalMilestones">,
+    Doc<"proposalMilestones">
+  >();
+  const maintainedTargets = new Set<string>();
+  for (const item of [input.priorItem, input.nextItem]) {
+    const target = normalizeCostItemBudgetSubmilestoneKey(
+      item?.budgetSubmilestoneKey
+    );
+    if (item && target) {
+      maintainedTargets.add(`${item.proposalMilestoneId}:${target}`);
+    }
   }
   const now = Date.now();
-  const nextMilestoneBudgetCents = Math.max(
-    0,
-    input.milestone.budgetCents + input.deltaCents
+  for (const operation of operations.values()) {
+    if (operation.deltaCents === 0) {
+      continue;
+    }
+    const milestone = await getProposalMilestoneByIdOrThrow(
+      ctx,
+      operation.milestoneId
+    );
+    milestoneById.set(milestone._id, milestone);
+    milestoneDeltaById.set(
+      milestone._id,
+      (milestoneDeltaById.get(milestone._id) ?? 0) + operation.deltaCents
+    );
+    if (operation.submilestoneKey) {
+      const submilestones = await ctx.db
+        .query("proposalSubmilestones")
+        .withIndex("by_milestone", (q) =>
+          q.eq("proposalMilestoneId", milestone._id)
+        )
+        .collect();
+      const submilestone = submilestones.find(
+        (row) => row.key === operation.submilestoneKey
+      );
+      if (!submilestone) {
+        throw new Error(
+          `Budget sub-milestone not found: ${operation.submilestoneKey}.`
+        );
+      }
+      await ctx.db.patch(submilestone._id, {
+        budgetCents: Math.max(
+          0,
+          Math.round((submilestone.budgetCents ?? 0) + operation.deltaCents)
+        ),
+        updatedAt: now,
+      });
+    }
+  }
+
+  for (const [milestoneId, deltaCents] of milestoneDeltaById) {
+    const milestone = milestoneById.get(milestoneId);
+    if (!milestone) {
+      continue;
+    }
+    const nextMilestoneBudgetCents = Math.max(
+      0,
+      milestone.budgetCents + deltaCents
+    );
+    const nextDrawAvailabilityCents = calculateDrawAvailability(
+      nextMilestoneBudgetCents,
+      auth.proposal.borrowerCoPayBps
+    );
+    await ctx.db.patch(milestone._id, {
+      budgetCents: nextMilestoneBudgetCents,
+      drawAvailabilityCents: nextDrawAvailabilityCents,
+      updatedAt: now,
+    });
+    await syncMilestoneOwnedDrawAmount(ctx, {
+      amountCents: nextDrawAvailabilityCents,
+      milestoneKey: milestone.key,
+      proposalId: input.proposalId,
+      updatedAt: now,
+    });
+  }
+
+  for (const target of maintainedTargets) {
+    const separator = target.indexOf(":");
+    const milestoneId = target.slice(0, separator) as Id<"proposalMilestones">;
+    const submilestoneKey = target.slice(separator + 1);
+    await validateProposalMaintainedCostCoverage(ctx, {
+      milestoneId,
+      proposalId: input.proposalId,
+      submilestoneKey,
+    });
+  }
+
+  if (milestoneDeltaById.size > 0) {
+    await recalculateProposalBudget(ctx, auth, input.proposalId);
+  }
+}
+
+async function validateProposalMaintainedCostCoverage(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    milestoneId: Id<"proposalMilestones">;
+    proposalId: Id<"buildProposals">;
+    submilestoneKey: string;
+  }
+) {
+  const [submilestones, costItems] = await Promise.all([
+    ctx.db
+      .query("proposalSubmilestones")
+      .withIndex("by_milestone", (q) =>
+        q.eq("proposalMilestoneId", input.milestoneId)
+      )
+      .collect(),
+    ctx.db
+      .query("proposalCostItems")
+      .withIndex("by_milestone", (q) =>
+        q.eq("proposalMilestoneId", input.milestoneId)
+      )
+      .collect(),
+  ]);
+  const submilestone = submilestones.find(
+    (row) => row.key === input.submilestoneKey
   );
-  const nextDrawAvailabilityCents = calculateDrawAvailability(
-    nextMilestoneBudgetCents,
-    auth.proposal.borrowerCoPayBps
+  if (!submilestone || submilestone.proposalId !== input.proposalId) {
+    throw new Error(
+      `Budget sub-milestone not found: ${input.submilestoneKey}.`
+    );
+  }
+  const maintainedCents = costItems.reduce(
+    (total, item) =>
+      normalizeCostItemBudgetTreatment(item.budgetTreatment) === "maintain" &&
+      item.budgetSubmilestoneKey === input.submilestoneKey
+        ? total + costItemTotalCents(item)
+        : total,
+    0
   );
-  await ctx.db.patch(input.milestone._id, {
-    budgetCents: nextMilestoneBudgetCents,
-    drawAvailabilityCents: nextDrawAvailabilityCents,
-    updatedAt: now,
-  });
-  await syncMilestoneOwnedDrawAmount(ctx, {
-    amountCents: nextDrawAvailabilityCents,
-    milestoneKey: input.milestone.key,
-    proposalId: input.proposalId,
-    updatedAt: now,
-  });
-  await recalculateProposalBudget(ctx, auth, input.proposalId);
+  const budgetCents = Math.max(0, Math.round(submilestone.budgetCents ?? 0));
+  if (maintainedCents > budgetCents) {
+    throw new Error(
+      `Maintained cost items exceed the ${submilestone.name} budget by ${maintainedCents - budgetCents} cents.`
+    );
+  }
 }
 
 async function syncMilestoneOwnedDrawAmount(
@@ -24215,6 +25490,44 @@ async function replaceProductionSubmilestones(
     }[];
   }
 ) {
+  const nextSubmilestoneByKey = new Map(
+    input.rows.map((row) => [row.key, row] as const)
+  );
+  const targetedCostItems = await ctx.db
+    .query("proposalCostItems")
+    .withIndex("by_milestone", (q) =>
+      q.eq("proposalMilestoneId", input.milestone._id)
+    )
+    .collect();
+  const maintainedCentsByTarget = new Map<string, number>();
+  for (const item of targetedCostItems) {
+    const target = item.budgetSubmilestoneKey;
+    if (!target) {
+      continue;
+    }
+    if (!nextSubmilestoneByKey.has(target)) {
+      throw new Error(
+        `Cannot remove budget sub-milestone ${target} while cost items target it.`
+      );
+    }
+    if (normalizeCostItemBudgetTreatment(item.budgetTreatment) === "maintain") {
+      maintainedCentsByTarget.set(
+        target,
+        (maintainedCentsByTarget.get(target) ?? 0) + costItemTotalCents(item)
+      );
+    }
+  }
+  for (const [target, maintainedCents] of maintainedCentsByTarget) {
+    const budgetCents = Math.max(
+      0,
+      Math.round(nextSubmilestoneByKey.get(target)?.budgetCents ?? 0)
+    );
+    if (maintainedCents > budgetCents) {
+      throw new Error(
+        `Maintained cost items exceed the ${target} budget by ${maintainedCents - budgetCents} cents.`
+      );
+    }
+  }
   const existing = await ctx.db
     .query("proposalSubmilestones")
     .withIndex("by_milestone", (q) =>
@@ -24405,6 +25718,9 @@ async function recalculateProposalBudget(
     totalDrawAmountCents
   );
   await ctx.db.patch(proposalId, {
+    borrowerCoPayCents: Math.round(
+      (totalBudgetCents * proposal.borrowerCoPayBps) / 10_000
+    ),
     lenderDrawPolicyLimitCents,
     totalBudgetCents,
     updatedAt: Date.now(),
@@ -24901,6 +26217,8 @@ async function copyProposalOperationalRowsToActiveBuild(
     }
     await ctx.db.insert("buildCostItems", {
       brokerageId: input.auth.brokerage._id,
+      budgetSubmilestoneKey: item.budgetSubmilestoneKey,
+      budgetTreatment: normalizeCostItemBudgetTreatment(item.budgetTreatment),
       buildId: input.buildId,
       buildMilestoneId: buildMilestone._id,
       costCents: item.costCents,
@@ -25213,6 +26531,42 @@ async function replaceActiveBuildSubmilestones(
     }[];
   }
 ) {
+  const nextSubmilestoneByKey = new Map(
+    input.rows.map((row) => [row.key, row] as const)
+  );
+  const targetedCostItems = await ctx.db
+    .query("buildCostItems")
+    .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", input.milestone._id))
+    .collect();
+  const maintainedCentsByTarget = new Map<string, number>();
+  for (const item of targetedCostItems) {
+    const target = item.budgetSubmilestoneKey;
+    if (!target) {
+      continue;
+    }
+    if (!nextSubmilestoneByKey.has(target)) {
+      throw new Error(
+        `Cannot remove budget sub-milestone ${target} while cost items target it.`
+      );
+    }
+    if (normalizeCostItemBudgetTreatment(item.budgetTreatment) === "maintain") {
+      maintainedCentsByTarget.set(
+        target,
+        (maintainedCentsByTarget.get(target) ?? 0) + costItemTotalCents(item)
+      );
+    }
+  }
+  for (const [target, maintainedCents] of maintainedCentsByTarget) {
+    const budgetCents = Math.max(
+      0,
+      Math.round(nextSubmilestoneByKey.get(target)?.budgetCents ?? 0)
+    );
+    if (maintainedCents > budgetCents) {
+      throw new Error(
+        `Maintained cost items exceed the ${target} budget by ${maintainedCents - budgetCents} cents.`
+      );
+    }
+  }
   const existing = await ctx.db
     .query("buildSubmilestones")
     .withIndex("by_milestone", (q) =>
@@ -25439,6 +26793,38 @@ async function validateBuildCostItemSubmilestones(
   return normalized;
 }
 
+async function validateBuildCostItemBudgetTarget(
+  ctx: QueryCtx | MutationCtx,
+  milestone: Pick<Doc<"buildMilestones">, "_id" | "key">,
+  requestedKey: null | string | undefined,
+  treatment: CostItemBudgetTreatment
+) {
+  if (treatment === "logOnly") {
+    return;
+  }
+  const budgetSubmilestoneKey = normalizeCostItemBudgetSubmilestoneKey(
+    requestedKey
+  );
+  if (!budgetSubmilestoneKey) {
+    if (treatment === "maintain") {
+      throw new Error(
+        "Maintain requires one budget sub-milestone target."
+      );
+    }
+    return;
+  }
+  const submilestones = await ctx.db
+    .query("buildSubmilestones")
+    .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", milestone._id))
+    .collect();
+  if (!submilestones.some((row) => row.key === budgetSubmilestoneKey)) {
+    throw new Error(
+      `Budget sub-milestone must belong to ${milestone.key}: ${budgetSubmilestoneKey}.`
+    );
+  }
+  return budgetSubmilestoneKey;
+}
+
 async function nextBuildCostItemKey(
   ctx: QueryCtx | MutationCtx,
   buildId: Id<"activeBuilds">,
@@ -25505,6 +26891,7 @@ async function applyActiveBuildCostItemBudgetDelta(
     buildId: Id<"activeBuilds">;
     deltaCents: number;
     milestone: Doc<"buildMilestones">;
+    submilestoneKey?: string;
   }
 ) {
   if (input.deltaCents === 0) {
@@ -25524,12 +26911,77 @@ async function applyActiveBuildCostItemBudgetDelta(
     nextMilestoneBudgetCents,
     borrowerCoPayBps
   );
+  if (input.submilestoneKey) {
+    const submilestones = await ctx.db
+      .query("buildSubmilestones")
+      .withIndex("by_milestone", (q) =>
+        q.eq("buildMilestoneId", input.milestone._id)
+      )
+      .collect();
+    const submilestone = submilestones.find(
+      (row) => row.key === input.submilestoneKey
+    );
+    if (!submilestone) {
+      throw new Error(
+        `Budget sub-milestone not found: ${input.submilestoneKey}.`
+      );
+    }
+    await ctx.db.patch(submilestone._id, {
+      budgetCents: Math.max(
+        0,
+        Math.round((submilestone.budgetCents ?? 0) + input.deltaCents)
+      ),
+      updatedAt: now,
+    });
+  }
   await ctx.db.patch(input.milestone._id, {
     budgetCents: nextMilestoneBudgetCents,
     drawAvailabilityCents: nextDrawAvailabilityCents,
     updatedAt: now,
   });
   await recalculateActiveBuildBudget(ctx, input.buildId);
+}
+
+async function validateBuildMaintainedCostCoverage(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    buildId: Id<"activeBuilds">;
+    milestoneId: Id<"buildMilestones">;
+    submilestoneKey: string;
+  }
+) {
+  const [submilestones, costItems] = await Promise.all([
+    ctx.db
+      .query("buildSubmilestones")
+      .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", input.milestoneId))
+      .collect(),
+    ctx.db
+      .query("buildCostItems")
+      .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", input.milestoneId))
+      .collect(),
+  ]);
+  const submilestone = submilestones.find(
+    (row) => row.key === input.submilestoneKey
+  );
+  if (!submilestone || submilestone.buildId !== input.buildId) {
+    throw new Error(
+      `Budget sub-milestone not found: ${input.submilestoneKey}.`
+    );
+  }
+  const maintainedCents = costItems.reduce(
+    (total, item) =>
+      normalizeCostItemBudgetTreatment(item.budgetTreatment) === "maintain" &&
+      item.budgetSubmilestoneKey === input.submilestoneKey
+        ? total + costItemTotalCents(item)
+        : total,
+    0
+  );
+  const budgetCents = Math.max(0, Math.round(submilestone.budgetCents ?? 0));
+  if (maintainedCents > budgetCents) {
+    throw new Error(
+      `Maintained cost items exceed the ${submilestone.name} budget by ${maintainedCents - budgetCents} cents.`
+    );
+  }
 }
 
 async function recalculateActiveBuildBudget(
@@ -26447,29 +27899,54 @@ async function builderStaffActiveBuildWorkspaceRow(
   if (!proposal || proposal.brokerageId !== brokerage._id) {
     return null;
   }
-  const [milestones, draws, drawRequests, facilityChangeRequests] =
-    await Promise.all([
-      collectByIndex(ctx, "buildMilestones", "by_build", buildId),
-      collectByIndex(ctx, "plannedDrawScheduleRows", "by_build", buildId),
-      collectByIndex(ctx, "activeBuildDrawRequests", "by_build", buildId),
-      collectByIndex(
-        ctx,
-        "activeBuildFacilityChangeRequests",
-        "by_build",
-        buildId
-      ),
-    ]);
+  const [
+    builder,
+    milestones,
+    draws,
+    drawRequests,
+    facilityChangeRequests,
+    evidence,
+  ] = await Promise.all([
+    ctx.db.get(build.builderProfileId),
+    collectByIndex(ctx, "buildMilestones", "by_build", buildId),
+    collectByIndex(ctx, "plannedDrawScheduleRows", "by_build", buildId),
+    collectByIndex(ctx, "activeBuildDrawRequests", "by_build", buildId),
+    collectByIndex(
+      ctx,
+      "activeBuildFacilityChangeRequests",
+      "by_build",
+      buildId
+    ),
+    collectByIndex(ctx, "buildEvidenceAssets", "by_build", buildId),
+  ]);
+  const buildMilestones = milestones as Doc<"buildMilestones">[];
   const buildDraws = draws as Doc<"plannedDrawScheduleRows">[];
   const buildDrawRequests = drawRequests as Doc<"activeBuildDrawRequests">[];
   const buildFacilityChangeRequests =
     facilityChangeRequests as Doc<"activeBuildFacilityChangeRequests">[];
+  const buildEvidence = evidence as Doc<"buildEvidenceAssets">[];
+  const firstImage = buildEvidence.find(
+    (asset) => asset.storageId && asset.mimeType.startsWith("image/")
+  );
+  const currentDay = productionDaysActive(build.startDate);
   return {
     budgetGovernance: await activeBuildBudgetGovernanceProjection(ctx, build),
     buildKey: String(build._id),
     buildName: build.buildName,
+    buildStatus: build.status,
+    builderName: builder?.displayName ?? "Builder",
     drawCount: buildDraws.length,
+    imageUrl: firstImage?.storageId
+      ? await ctx.storage.getUrl(firstImage.storageId)
+      : null,
     kind: "activeBuild",
-    milestoneCount: milestones.length,
+    location: build.location,
+    locationLatitude: build.locationLatitude,
+    locationLongitude: build.locationLongitude,
+    milestoneCount: buildMilestones.length,
+    milestonesBehindSchedule: buildMilestones.filter((milestone) =>
+      productionMilestoneIsBehindSchedule(milestone, currentDay)
+    ).length,
     pendingDrawRequestCount: buildDrawRequests.filter(
       (request) => request.status === "requested"
     ).length,

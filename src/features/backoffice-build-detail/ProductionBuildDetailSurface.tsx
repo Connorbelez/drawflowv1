@@ -5597,7 +5597,9 @@ function ProductionBuildMaterialsTab({
   return (
     <MaterialPlanningTab
       actions={actions}
+      budgetTreatmentEnabled
       items={detail.costItems ?? []}
+      lockBudgetTreatment
       milestones={milestones}
       panelLayout="stacked"
       readOnly={!actions}
